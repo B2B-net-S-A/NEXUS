@@ -512,6 +512,7 @@
         "head_of_recruitment",
         "talent_community_manager",
         "finance",
+        "back_office",
         "admin"
       ]
     },
@@ -621,7 +622,7 @@
     "why": "Tabela osób w „Aktywności rekrutacyjnej” nie przewija się już w małym okienku: kafelek ma wysokość całej tabeli, a „Na cały ekran” pokazuje wszystkich w jednym oknie.",
     "tier": "dot",
     "shipped_on": "2026-10-30",
-    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "talent_community_manager"]},
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "back_office", "talent_community_manager"]},
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
     "dot_anchor": "dashboard.team-table.fullscreen"

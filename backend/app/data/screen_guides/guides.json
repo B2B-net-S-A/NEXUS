@@ -475,7 +475,7 @@
     "key": "client.orders",
     "title": "Zamówienia klienta",
     "section": "delivery",
-    "roles": ["delivery_lead", "finance", "admin"],
+    "roles": ["delivery_lead", "finance", "back_office", "admin"],
     "what": "Zamówienia klienta w sekcjach MD, Kosztowe i Okresowe. Zakładka otwiera się na aktywnych; resztę pokazuje „Wszystkie” na końcu. Zamówienie MD albo kosztowe to osobna karta z numerem i osobami. Kliknij wiersz, by otworzyć panel z akcjami.",
     "tasks": [
       {
@@ -575,7 +575,7 @@
     "key": "contracts.order_mail",
     "title": "Skrzynka zamówień",
     "section": "delivery",
-    "roles": ["delivery_lead", "finance", "admin"],
+    "roles": ["delivery_lead", "finance", "back_office", "admin"],
     "what": "Tu trafiają zamówienia z maila zamowienia@: pewne zapisują się same, a te wymagające decyzji czekają w „Do weryfikacji” z powodem wstrzymania.",
     "tasks": [
       {
@@ -615,7 +615,7 @@
         "id": "contracts.order_mail.check",
         "label": "Pobierz zamówienia z maila",
         "describe": "Ręczne sprawdzenie skrzynki i wynik ostatniego biegu.",
-        "requires": {"roles": ["admin", "finance", "delivery_lead"]}
+        "requires": {"roles": ["admin", "finance", "back_office", "delivery_lead"]}
       },
       {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."},
       {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan, podgląd PDF-a obok i przyciski decyzji dla wybranego zamówienia."},
@@ -684,7 +684,7 @@
     "key": "finance",
     "title": "Finanse",
     "section": "finance",
-    "roles": ["finance", "admin"],
+    "roles": ["finance", "back_office", "admin"],
     "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą (rozliczenie, subskrypcje, faktury bez zgody).",
     "tasks": [
       {

@@ -238,6 +238,7 @@ const EXPORT_ROLES: UserRole[] = [
   "delivery_lead",
   "talent_community_manager",
   "finance",
+  "back_office",
 ];
 
 /** Tylko „W procesie" potrzebuje wzbogacenia (aktywne rekrutacje). */

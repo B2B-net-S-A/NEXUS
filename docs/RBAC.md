@@ -10,15 +10,16 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 
 | # | Klucz | Nazwa na ekranie | Domyślnie (poza adminem) |
 |---|---|---|---|
-| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, DL, TCM, Automatyzacje |
-| 2 | `clients_edit` | Klienci: dodawanie i edycja | DL |
-| 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | DL, Finanse |
-| 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | DL, TCM |
-| 5 | `b2b_signature_confirmation` | Umowy B2B: oznaczanie jako podpisane | DL, TCM |
+| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, Back office, DL, TCM, Automatyzacje |
+| 2 | `clients_edit` | Klienci: dodawanie i edycja | DL, Back office |
+| 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | DL, Finanse, Back office |
+| 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | DL, TCM, Back office |
+| 5 | `b2b_signature_confirmation` | Umowy B2B: oznaczanie jako podpisane | DL, TCM, Back office |
 | 6 | `recruitment_manage` | Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta | DL |
-| 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, DL |
-| 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse |
+| 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, Back office, DL |
+| 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse, Back office |
 | 9 | `finance_module` | Moduł Finanse | Finanse |
+| + | `orders_work` | Zamówienia: zmiany, PDF-y, import MD | Finanse, Back office (`docs/claude/uprawnienia/rola-back-office-zamowienia-i-umowy.md`) |
 | + | `company_results` | Wyniki firmy: podsumowania przychodu i marży | tylko admin; Rada czyta z tytułu roli (`docs/claude/uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`) |
 
 Źródła prawdy:
@@ -81,6 +82,7 @@ imienne „Może usuwać klientów”.
 | Viewer `user` (legacy, od 0637 bez sekcji) | — | — | — | — |
 | Praktykant | — | — | — | — |
 | Automatyzacje (`automation`, 0446) | R | R | R | — |
+| Back office (`back_office`, 0644) | RW | RW | R | — |
 
 Rola „Automatyzacje” ma z dziewięciu uprawnień tylko podgląd Delivery, nie ma
 kwot ani modułu Finanse i niczego nie zapisuje na ekranach — opis:

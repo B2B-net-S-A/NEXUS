@@ -43,6 +43,7 @@ export const ROLE_DEFAULT_ROLES = [
   "head_of_recruitment",
   "talent_community_manager",
   "finance",
+  "back_office",
   "trainee",
   "automation",
   "admin",
