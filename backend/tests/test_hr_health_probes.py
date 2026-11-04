@@ -354,6 +354,42 @@ async def test_hr_jobs_probe(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_hr_jobs_probe_forgets_stuck_claim_after_a_day(monkeypatch) -> None:
+    """Rezerwacja z godzinowym kluczem nie wraca do kolejnego przebiegu, więc bez
+    dolnej granicy jeden zabity przebieg trzymał sondę w ``degraded`` na stałe
+    (``sales_ksef_fetch`` z 03.11.2026) i przykrywał nowe awarie."""
+
+    monkeypatch.setattr(settings, "HR_PROGRAM_ENABLED", True)
+    monkeypatch.setattr(settings, "HR_LOOPS_ENABLED", True)
+    async with AsyncSessionLocal() as db:
+        try:
+            await db.execute(delete(HrJobRun))
+            db.add(
+                HrJobRun(
+                    kind="probe_old_stuck",
+                    period_key="2091-03-06T00",
+                    status="claimed",
+                    claimed_at=NOW - timedelta(hours=28),
+                )
+            )
+            await db.flush()
+            assert await health.hr_jobs_state(db, now=NOW) == "healthy"
+
+            db.add(
+                HrJobRun(
+                    kind="probe_fresh_stuck",
+                    period_key="2091-03-07T00",
+                    status="claimed",
+                    claimed_at=NOW - timedelta(hours=23),
+                )
+            )
+            await db.flush()
+            assert await health.hr_jobs_state(db, now=NOW) == "degraded"
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
 async def test_admin_cases_mail_probe(monkeypatch) -> None:
     monkeypatch.delenv("ADMIN_CASES_MAIL_INGEST_ENABLED", raising=False)
     async with AsyncSessionLocal() as db:
