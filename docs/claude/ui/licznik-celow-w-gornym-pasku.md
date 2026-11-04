@@ -34,7 +34,7 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   segmentów, także tych, które się nie zmieściły.
 - **Pasek pokazuje tyle CAŁYCH segmentów, ile się mieści.** Przycisk zawija
   segmenty i ma wysokość jednego wiersza, więc nadmiarowy segment spada do
-  ukrytego wiersza. Wyszukiwarka ma od 1280 px gwarantowane 220 px, przy
+  ukrytego wiersza. Wyszukiwarka ma od 1280 px gwarantowane 200 px (04.11.2026, `gorny-pasek-przy-1280.md`), przy
   1024–1279 px (menu jako szyna) 140 px — przy 220 px Head of Recruitment
   z rolą DL, Ligą DL i pigułką „Rozmowy” wypychał stronę w bok o 45 px przy
   1024 px (20.10.2026). Grupa akcji kurczy się przed okruszkami
@@ -58,7 +58,7 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   (2) segment ma `whitespace-nowrap` — z łamaniem tekstu najmniejsza szerokość
   przycisku była węższa niż segment i napis wystawał z ukrytego wiersza;
   (3) segmenty mają wysokość wiersza (`h-full`), a przycisk `content-start`.
-  Pilnuje tego test e2e (`górny pasek — licznik celów`): wyszukiwarka ≥ 220 px,
+  Pilnuje tego test e2e (`górny pasek — licznik celów`): wyszukiwarka ≥ 200 px,
   sąsiad 36 px, zero zawiniętych i wystających segmentów.
 - **Okruszki w ciasnym pasku gubią całe okruszki od początku (28.10.2026).**
   Rekruter z Ligą, licznikiem celów i siedmioma ikonami miał przy 1280 px na
@@ -72,7 +72,7 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   „Dashboard”. Nazwa ma sufit `max-w-44` (176 px = tyle, ile miała obok dwóch
   sekcji przy 360 px) — bez niego długa nazwa rekrutacji zrzucała sekcje
   także przy 1920 px. Strzałka stoi za okruszkiem, nie przed nim. Wyszukiwarki
-  (220 px) i licznika to nie rusza. Harness rysuje tę samą ścieżkę, e2e
+  (200 px) i licznika to nie rusza. Harness rysuje tę samą ścieżkę, e2e
   „górny pasek — licznik celów” sprawdza, że widoczne okruszki kończą się
   przed wyszukiwarką.
 - **Forma zależy od okna tylko w dwóch miejscach:** poniżej 1024 px samo słowo
