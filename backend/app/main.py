@@ -798,7 +798,10 @@ async def lifespan(app: FastAPI):
     from app.tasks.triggers_loop import notification_triggers_loop
     from app.tasks.notification_volume_monitor import notification_volume_monitor_loop
     from app.tasks.app_mail_monitor import app_mail_monitor_loop
-    from app.tasks.runtime_metrics_monitor import runtime_metrics_monitor_loop
+    from app.tasks.runtime_metrics_monitor import (
+        freeze_startup_heap,
+        runtime_metrics_monitor_loop,
+    )
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.m365_cv_parse import m365_cv_parse_loop
@@ -899,6 +902,8 @@ async def lifespan(app: FastAPI):
             logger.info("compass_bootstrap status=%s", _bootstrap_status)
     except Exception as _bootstrap_exc:  # noqa: BLE001 — nie może ubić startu
         logger.warning("compass_bootstrap: pominięty po wyjątku: %s", _bootstrap_exc)
+
+    freeze_startup_heap()
 
     # Pętle ma jeden proces naraz (rolling update trzyma chwilę dwa kontenery).
     # Wolna blokada = start jak dawniej, przed `yield`. Wyłącznik awaryjny:
@@ -1354,7 +1359,7 @@ app.add_middleware(
         # Off-limits: „sama się zgłosiła” przy dodaniu do rekrutacji.
         "X-Off-Limits-Confirmation",
         # Ekran dla licznika użycia (`services/access_usage`). Front wysyła go
-        # dopiero, gdy `/api/health` niesie `usageCounter: true`.
+        # dopiero, gdy `/api/health/live` niesie `usageCounter: true`.
         "X-Nexus-Screen",
         # Sesja portalu konsultanta: osobna od JWT pracownika (api/consultant_portal).
         "X-Portal-Session",
@@ -2497,10 +2502,20 @@ async def api_health_live():
     a WORKING backend unhealthy and Traefik stopped routing to it ("no
     available server"). Readiness and the deploy smoke test keep using
     `/api/health`; this answers one question only — is the process alive.
+
+    `usageCounter` to sama flaga z konfiguracji dla sondy przeglądarki
+    (`telemetry-capability.ts`): pełne `/api/health` robi kilkanaście zapytań,
+    a każda karta pytała o nie przy wczytaniu.
     """
     import os
 
-    return {"status": "alive", "version": os.environ.get("GIT_SHA", "unknown")}
+    from app.core.config import settings
+
+    return {
+        "status": "alive",
+        "version": os.environ.get("GIT_SHA", "unknown"),
+        "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
+    }
 
 
 def _resolve_deployed_at() -> str:
@@ -2666,6 +2681,13 @@ def _probe_qdrant() -> str:
     return "healthy"
 
 
+# Limit obejmuje też wypożyczenie połączenia i kolejkę w pętli zdarzeń. Przy 2 s
+# nasycona pętla (przestoje do 2,5 s, wypożyczenie do 2,2 s, 04.11.2026) dawała
+# 503 przy zdrowej bazie: 15 razy w 7 minut. Baza odrzucająca połączenie nadal
+# daje 503 od razu, a zawieszona — po tym limicie.
+HEALTH_DB_PING_TIMEOUT_SECONDS = 8.0
+
+
 @app.get("/api/health")
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
@@ -2674,7 +2696,8 @@ async def api_health_check():
     HTTP 503 only when `database` is unhealthy (uptime-probe contract);
     `m365` is informational and does not affect the gate; it also degrades
     when a mailbox has been stuck in a sync error for more than 24 h.
-    Database ping is bounded to 2s; M365 connection count to 1s.
+    Database ping is bounded by `HEALTH_DB_PING_TIMEOUT_SECONDS`; M365 connection
+    count to 1s.
     """
     import asyncio
     import os
@@ -2690,7 +2713,10 @@ async def api_health_check():
 
     try:
         async with AsyncSessionLocal() as session:
-            await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2.0)
+            await asyncio.wait_for(
+                session.execute(text("SELECT 1")),
+                timeout=HEALTH_DB_PING_TIMEOUT_SECONDS,
+            )
         checks["database"] = "healthy"
     except Exception:
         checks["database"] = "unhealthy"

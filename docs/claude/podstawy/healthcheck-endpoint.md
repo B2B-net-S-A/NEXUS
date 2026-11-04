@@ -4,7 +4,15 @@
   Monitoring są opisane w `docs/uptime-monitoring.md`.
 - **Standard URL:** `/api/health` z full shape `{status, version, deployedAt, checks: {database}}` (Faza 1.B done 2026-04-29, PR #61).
 - **Legacy URL:** `/health` zachowane jako alias (uptime-probe.yml legacy compat).
-- **Implementation:** `app/main.py` (`/api/health` z DB ping z 2s timeout).
+- **Implementation:** `app/main.py` (`/api/health` z DB ping, limit `HEALTH_DB_PING_TIMEOUT_SECONDS` = 8 s).
+- **Limit pingu bazy to 8 s, nie 2 s (od 04.11.2026).** Obejmuje też wypożyczenie
+  połączenia i kolejkę w pętli zdarzeń, więc przy 2 s nasycony backend dostawał 503
+  przy zdrowej bazie (15 razy w 7 minut, 04.11). Odrzucone połączenie daje 503 od
+  razu, zawieszona baza po limicie.
+- **Przeglądarka pyta `/api/health/live`, nie `/api/health` (od 04.11.2026).**
+  Sonda `lib/telemetry-capability.ts` czyta stąd `usageCounter` i `x-request-id`.
+  Po nieudanej próbie czeka minutę: wcześniej każde żądanie karty uruchamiało
+  następną, co w szczycie dawało 151 pełnych `/api/health` na 10 minut.
 - **Compose healthcheck = `/api/health/live`, NIE `/api/health` (od 11.09.2026).**
   `/live` odpowiada, że proces obsługuje żądania — bez bazy, puli, locków i sond
   zewnętrznych. Pełne `/api/health` robi kilkanaście zapytań z timeoutami i przy
