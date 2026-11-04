@@ -18,6 +18,16 @@ export function warsawToday(now: Date = new Date()): string {
   }).format(now);
 }
 
+/** Godzina w kalendarzu firmy jako „HH:MM”; `now` jak w `warsawToday`. */
+export function warsawClock(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Warsaw",
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+}
+
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

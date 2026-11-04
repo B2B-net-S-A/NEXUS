@@ -3,8 +3,16 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
+import { warsawClock, warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { emptyAmendmentForm } from "@/components/ContractAmendmentsTab";
+
+describe("warsawClock", () => {
+  it("daje godzinę warszawską zimą i latem, północ to 00:00", () => {
+    expect(warsawClock(new Date("2026-11-04T14:51:00Z"))).toBe("15:51");
+    expect(warsawClock(new Date("2026-07-01T14:51:00Z"))).toBe("16:51");
+    expect(warsawClock(new Date("2026-12-31T23:00:00Z"))).toBe("00:00");
+  });
+});
 
 describe("warsawToday", () => {
   it("po północy w Warszawie daje już nowy dzień, choć w UTC jest jeszcze wczoraj", () => {
