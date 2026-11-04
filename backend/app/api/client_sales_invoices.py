@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -47,7 +47,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services import critical_events
 from app.services.access_scope import (
     DL_CLIENT_OUT_OF_SCOPE_DETAIL,
@@ -186,6 +186,21 @@ async def _export_response(
 # ── Zakładka klienta (Delivery) ──────────────────────────────────────────────
 
 
+async def _require_invoicing_reader(current_user: AmountsViewUser) -> User:
+    """Kwoty klienta to za mało: Back office nie widzi faktur do klientów.
+
+    Rola ma „Stawki i kwoty: podgląd” u wszystkich klientów, więc sam alias
+    otworzyłby jej też zaległe faktury całej firmy (decyzja Artura 04.11.2026).
+    """
+
+    if current_user.has_role(UserRole.back_office):
+        raise permission_denied(ProductAction.finance_module)
+    return current_user
+
+
+InvoicingReaderUser = Annotated[User, Depends(_require_invoicing_reader)]
+
+
 @router.get("/sales-invoices/module")
 async def module_state(
     current_user: AmountsViewUser, db: AsyncSession = Depends(get_db)
@@ -195,13 +210,14 @@ async def module_state(
     enabled = await module_settings.is_enabled(db)
     return {
         "enabled": enabled,
-        "open": module_settings.open_for(current_user, enabled),
+        "open": not current_user.has_role(UserRole.back_office)
+        and module_settings.open_for(current_user, enabled),
     }
 
 
 @router.get("/sales-invoices/overdue")
 async def overdue_in_scope(
-    current_user: AmountsViewUser, db: AsyncSession = Depends(get_db)
+    current_user: InvoicingReaderUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     """Faktury po terminie u klientów, których kwoty widzi konto (DL — portfel)."""
 
@@ -216,7 +232,7 @@ async def overdue_in_scope(
 @router.get("/{client_id}/invoicing")
 async def client_invoicing(
     client_id: int,
-    current_user: AmountsViewUser,
+    current_user: InvoicingReaderUser,
     db: AsyncSession = Depends(get_db),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
@@ -236,7 +252,7 @@ async def client_invoicing(
 @router.get("/{client_id}/invoicing/export")
 async def client_invoicing_export(
     client_id: int,
-    current_user: AmountsViewUser,
+    current_user: InvoicingReaderUser,
     db: AsyncSession = Depends(get_db),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),

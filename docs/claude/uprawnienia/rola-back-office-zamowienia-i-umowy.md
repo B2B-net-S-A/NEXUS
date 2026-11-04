@@ -33,6 +33,11 @@ Dlatego:
   (`financial_access.can_read_client_finance`), tą samą drogą co Delivery Leadowi.
 - Middleware nie widzi uprawnień, więc `orders_work` podróżuje w tokenie jako
   podpisany znacznik **`fo`**. To warstwa UX; bramką jest API.
+- **Sam `amounts_view` to za mało, żeby otworzyć faktury.** Back office ma go u wszystkich
+  klientów, więc `/api/clients/sales-invoices/overdue` i zakładka „Faktury” przy kliencie
+  mają własną odmowę dla roli (`client_sales_invoices._require_invoicing_reader`), a `module`
+  zwraca `open: false`. Nowa trasa za `AmountsViewUser`, która zbiera dane z wielu klientów,
+  potrzebuje tej samej decyzji.
 - Trasa zbiorcza albo nowa zakładka pieniędzy w `/finance` idzie na `router`
   z bramką sekcji albo za `CompanyResultsUser`, nigdy na `orders_router`.
 

@@ -62,6 +62,11 @@ def test_opens_the_work_on_orders_and_contracts(route: str) -> None:
         "GET /api/finance/imports",
         # Czaty całej firmy.
         "GET /api/admin/global-chats",
+        # Faktury do klientów, także przy kliencie i zbiorczo po terminie.
+        "GET /api/clients/sales-invoices/overdue",
+        "GET /api/clients/{client_id}/invoicing",
+        "GET /api/clients/{client_id}/invoicing/export",
+        "GET /api/finance/sales-invoices",
         # Wyniki firmy.
         "GET /api/dashboard/v2/finance",
         "GET /api/invoices/dso",
@@ -125,3 +130,16 @@ def test_order_change_checkboxes_are_active_for_the_role() -> None:
 
     impersonated = SimpleNamespace(state=SimpleNamespace(impersonator_id=5))
     assert _can_check(impersonated, _user()) is False
+
+
+async def test_invoicing_tab_is_closed_for_the_role() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from app.api.client_sales_invoices import module_state
+
+    with patch(
+        "app.services.client_invoicing.settings.is_enabled",
+        AsyncMock(return_value=True),
+    ):
+        state = await module_state(_user(), db=object())
+    assert state["open"] is False

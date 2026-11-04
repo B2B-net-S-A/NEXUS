@@ -31,9 +31,9 @@
  ],
  "routes": {
   "GET /api/clients/sales-invoices/module": "PPDPDDDDPPPDDDDDDPPDDDDDDDPP",
-  "GET /api/clients/sales-invoices/overdue": "PPDPDDDDPPPDDDDDDPPDDDDDDDPP",
-  "GET /api/clients/{client_id}/invoicing": "PPDBDDDDBBBDDDDDDPPDDDDDDDPP",
-  "GET /api/clients/{client_id}/invoicing/export": "PPDBDDDDBBBDDDDDDPPDDDDDDDPP",
+  "GET /api/clients/sales-invoices/overdue": "PPDPDDDDPPPDDDDDDPPDDDDDDDPD",
+  "GET /api/clients/{client_id}/invoicing": "PPDBDDDDBBBDDDDDDPPDDDDDDDPD",
+  "GET /api/clients/{client_id}/invoicing/export": "PPDBDDDDBBBDDDDDDPPDDDDDDDPD",
   "GET /api/finance/sales-invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
   "GET /api/finance/sales-invoices/credits": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
   "GET /api/finance/sales-invoices/overdue": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
