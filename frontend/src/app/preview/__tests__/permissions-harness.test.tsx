@@ -34,10 +34,10 @@ afterEach(() => {
 });
 
 describe("/preview/permissions", () => {
-  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, osiemnaście przełączników", async () => {
+  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, dziewiętnaście przełączników", async () => {
     render(<PermissionsPreviewPage />);
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(18);
+    expect(await screen.findAllByRole("switch")).toHaveLength(19);
     expect(screen.getByRole("button", { name: "Finanse" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -72,7 +72,7 @@ describe("/preview/permissions", () => {
       await screen.findByRole("heading", { name: "Edytuj użytkownika" }),
     ).toBeInTheDocument();
     const group = screen.getByRole("group", { name: "Uprawnienia tej osoby" });
-    expect(within(group).getAllByRole("radiogroup")).toHaveLength(18);
+    expect(within(group).getAllByRole("radiogroup")).toHaveLength(19);
     const granted = within(group).getByRole("radiogroup", {
       name: "Kontrakty i zamówienia: tworzenie i edycja",
     });

@@ -287,7 +287,7 @@ describe("rejestr nawigacji ↔ rejestr capability", () => {
       ["order-mail", "delivery_view"],
       ["my-relationships", "delivery_view"],
       ["contracts", "delivery_view"],
-      ["finance", "finance_module"],
+      ["finance", "orders_work"],
     ]);
   });
 });
@@ -342,7 +342,13 @@ describe("menu idzie za uprawnieniem, nie za rolą", () => {
     expect(hrefs(granted)).toContain("/finance");
     expect(paletteIds(granted)).toContain("finance");
 
-    const revoked = accessSnapshot("finance", { revoke: ["finance_module"] });
+    // Sam moduł nie zamyka wejścia: zakładki o zamówieniach mają `orders_work`.
+    const onlyOrders = accessSnapshot("back_office");
+    expect(hrefs(onlyOrders)).toContain("/finance");
+
+    const revoked = accessSnapshot("finance", {
+      revoke: ["finance_module", "orders_work"],
+    });
     expect(hrefs(revoked)).not.toContain("/finance");
     expect(paletteIds(revoked)).not.toContain("finance");
     // Kontrakty zostają: „Kontrakty i zamówienia” Finanse mają nadal.
