@@ -2954,6 +2954,14 @@
    "v3_home": "panel osoby → lewa strefa → CV"
   },
   {
+   "id": "screening-form.preview-original-cv-change",
+   "area": "formularz screeningu",
+   "opis": "Nazwa pliku i „Zmień plik” w „CV oryginalnym”: plik z profilu w podglądzie, potem „Ustaw jako CV oryginalne” (główne CV profilu i kopia tej rekrutacji)",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "original-cv-file",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
    "id": "add-from-cv.existing-person",
    "area": "naglowek",
    "opis": "Okno „Dodaj z CV” przy osobie z bazy: „Dodaj do rekrutacji z tym CV” (CV na górę profilu i „Nowi”), „Podmień CV w tej rekrutacji” przy osobie w toku, „Przywróć” przy zamkniętej karcie",

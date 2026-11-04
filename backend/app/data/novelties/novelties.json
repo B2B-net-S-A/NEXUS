@@ -1,5 +1,25 @@
 [
   {
+    "id": "zmien-plik-cv-oryginalne",
+    "title": "Zmiana pliku CV oryginalnego w panelu osoby",
+    "why": "W zakładce „CV oryginalne” widać teraz nazwę pliku, a „Zmień plik” pozwala obejrzeć inne CV z profilu i ustawić je jako oryginalne. Nie musisz przechodzić do profilu ani wgrywać pliku drugi raz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3025,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Panel osoby → Rozwiń → CV oryginalne",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.cv.change-original"
+  },
+  {
     "id": "jarvis-zapis-od-razu-z-cofnij",
     "title": "Jarvis zapisuje od razu, a Ty masz „Cofnij”",
     "why": "Gdy poprosisz o notatkę, dodanie do rekrutacji albo uśpienie lub przypięcie w „Moich ludziach”, Jarvis robi to od razu. Przez 15 minut cofniesz to jednym kliknięciem na karcie.",

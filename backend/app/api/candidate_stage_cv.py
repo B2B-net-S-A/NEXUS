@@ -5,6 +5,7 @@ Faza 2 (PR1) — `original` snapshot:
   GET    /api/candidates/stages/{stage_id}/cv/original/download
   POST   /api/candidates/stages/{stage_id}/cv/original/refresh
   POST   /api/candidates/stages/{stage_id}/cv/original/upload
+  POST   /api/candidates/stages/{stage_id}/cv/original/from-document
          (nowe CV z rekrutacji: główne CV profilu + kopia etapu, 13.10.2026;
          plik nazwany jak CV do klienta → CV do klienta etapu, 15.10.2026)
 
@@ -54,6 +55,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import mimetypes
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -121,6 +123,7 @@ from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
@@ -224,6 +227,7 @@ def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotRespons
         original_cv_language=csv.original_cv_language,
         original_snapshot_at=csv.original_snapshot_at,
         original_snapshot_source=csv.original_snapshot_source,
+        original_cv_sha256=csv.original_cv_sha256,
         download_url=(
             f"/api/candidates/stages/{csv.candidate_stage_id}/cv/original/download"
             if has_snapshot
@@ -772,6 +776,185 @@ async def upload_original_cv(
         company_cv_stage_id=plan.stage_id if plan is not None else None,
         company_cv_status=plan.status if plan is not None else None,
         regenerating_document_id=plan.generated_id if plan is not None else None,
+    )
+
+
+class OriginalCvFromDocumentIn(BaseModel):
+    document_id: int = Field(ge=1, le=2_147_483_647)
+
+
+async def _document_cv_bytes(db: AsyncSession, document: CandidateDocument) -> bytes:
+    """Bajty wskazanego pliku. Bez schodzenia do innego CV osoby przy awarii magazynu."""
+    if document.storage_key:
+        try:
+            from app.services.object_storage import download_cv
+
+            return await run_in_threadpool(download_cv, document.storage_key)
+        except Exception as exc:  # noqa: BLE001 — zapas w bazie niżej
+            logger.warning(
+                "Oryginał CV z pliku profilu: pobranie nieudane (document=%s): %s",
+                document.id,
+                type(exc).__name__,
+            )
+    content = await db.scalar(
+        select(CandidateDocument.file_content).where(
+            CandidateDocument.id == document.id
+        )
+    )
+    if not content:
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się odczytać tego pliku. Spróbuj za chwilę.",
+        )
+    return bytes(content)
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/original/from-document",
+    response_model=StageCvUploadResponse,
+    dependencies=SOURCING_SECTION_DEPENDENCIES,
+)
+async def set_original_cv_from_document(
+    stage_id: int,
+    payload: OriginalCvFromDocumentIn,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> StageCvUploadResponse:
+    """„Zmień plik” w „CV oryginalnym”: plik z profilu zamiast wgrywania (04.11.2026).
+
+    Skutek jak `upload_original_cv`: główne CV profilu, kopia tego etapu w jednej
+    transakcji, odczyt AI i bramka tożsamości w tle, plan CV do klienta. Plik
+    musi należeć do osoby z tego etapu i być używalnym CV kandydata, bo kopia
+    etapu jest źródłem QC i generatora.
+    """
+    from app.api.candidates import (
+        _after_cv_commit,
+        _primary_cv_before_change,
+    )
+    from app.models.job import Job
+    from app.services.client_cv_upload import (
+        client_filename_pattern,
+        looks_like_client_cv,
+    )
+    from app.services.cv_source import CurrentCV, current_cv_filters
+    from app.services.new_cv_company_cv import plan_after_new_cv
+
+    csv_row = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == csv_row.candidate_id).with_for_update()
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
+    document = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == payload.document_id,
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego pliku w profilu.")
+    if document.document_kind != CandidateDocumentKind.cv:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten plik nie jest oznaczony jako CV. Zmień jego rodzaj w profilu.",
+        )
+    if document.outdated_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="To CV jest oznaczone jako nieaktualne. Cofnij oznaczenie w profilu.",
+        )
+    if os.path.splitext(document.filename.lower())[1] not in _STAGE_UPLOAD_CV_EXT:
+        raise HTTPException(
+            status_code=415,
+            detail="CV oryginalnym może być tylko plik PDF, DOC albo DOCX.",
+        )
+    job = await db.get(Job, csv_row.job_id)
+    pattern = await client_filename_pattern(db, job.client_id if job else None)
+    if looks_like_client_cv(document.filename, pattern):
+        raise HTTPException(
+            status_code=422,
+            detail="To CV dla klienta, nie CV kandydata. Nie może być CV oryginalnym.",
+        )
+    eligible = await db.scalar(
+        select(CandidateDocument.id).where(
+            CandidateDocument.id == document.id, *current_cv_filters()
+        )
+    )
+    if eligible is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ten plik wygląda na CV innej osoby, więc nie może być CV oryginalnym.",
+        )
+
+    content = await _document_cv_bytes(db, document)
+    if (
+        document.is_primary
+        and csv_row.original_cv_sha256 == hashlib.sha256(content).hexdigest()
+    ):
+        # Nic się nie zmienia, więc bez odczytu AI i bez planu CV do klienta.
+        return StageCvUploadResponse(
+            **_build_original_response(csv_row).model_dump(),
+            outcome="original",
+            uploaded_filename=document.filename,
+            stored_in_profile=True,
+            uploaded_document_id=document.id,
+        )
+
+    replaced_primary = await _primary_cv_before_change(db, candidate.id)
+    await db.execute(
+        update(CandidateDocument)
+        .where(
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.id != document.id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+        .values(is_primary=False)
+    )
+    document.is_primary = True
+    await db.flush()
+    csv = await refresh_original_cv_snapshot(
+        db,
+        stage_id,
+        user_id=current_user.id,
+        current=CurrentCV(
+            content=content,
+            filename=document.filename,
+            language=candidate.cv_language,
+            source="stage_document",
+        ),
+    )
+    plan = await plan_after_new_cv(
+        db, csv_row=csv, document_id=document.id, user_id=current_user.id
+    )
+    await db.commit()
+    await db.refresh(candidate)
+    await db.refresh(document)
+    await db.refresh(csv)
+    await _after_cv_commit(
+        db,
+        background_tasks,
+        candidate=candidate,
+        document=document,
+        actor_user_id=current_user.id,
+        replaced_primary=replaced_primary,
+    )
+    if plan.durable_id is not None:
+        from app.services.cv_generator_b2b.durable_jobs import execute_job
+
+        background_tasks.add_task(execute_job, plan.durable_id)
+    return StageCvUploadResponse(
+        **_build_original_response(csv).model_dump(),
+        outcome="original",
+        uploaded_filename=document.filename,
+        stored_in_profile=True,
+        uploaded_document_id=document.id,
+        company_cv=plan.plan,
+        company_cv_stage_id=plan.stage_id,
+        company_cv_status=plan.status,
+        regenerating_document_id=plan.generated_id,
     )
 
 
