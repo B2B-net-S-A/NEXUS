@@ -34,11 +34,27 @@ RATE_TOO_HIGH_REJECTED = "Za wysokie oczekiwania finansowe"
 SALARY_MISMATCH = "salary_mismatch"
 RATE_TOO_HIGH = frozenset({RATE_TOO_HIGH_REJECTED, SALARY_MISMATCH})
 
+# Sześć powodów, które zespół wpisywał ręcznie pod „Inne” (04.11.2026, migracja
+# 0646). Które pokazać przy którym „Kto kończy?”, decyduje okno
+# (`reasonFitsEndedBy` na froncie). Nie wymagają opisu i nie są werdyktem o osobie.
+NOT_LOOKING_FOR_WORK = "not_looking_for_work"
+CLIENT_CONFLICT = "client_conflict"
+CONTRACT_FORM = "contract_form"
+NO_CONTACT = "no_contact"
+CLIENT_NO_REASON = "client_no_reason"
+CLIENT_CHOSE_OTHER = "client_chose_other"
+
 OTHER_LABEL = "Inne"
 
 REJECTION_REASON_LABELS: dict[str, str] = {
     WORK_MODE_MISMATCH: "Nie akceptuje trybu pracy (biuro / hybryda)",
     HM_ALREADY_INTERVIEWED: "Już po rozmowie u tego hiring managera",
+    NOT_LOOKING_FOR_WORK: "Nie szuka pracy lub niezainteresowany",
+    CLIENT_CONFLICT: "Pracuje u klienta lub nie chce do klienta",
+    CONTRACT_FORM: "Forma umowy (UoP, B2B, etat)",
+    NO_CONTACT: "Brak kontaktu",
+    CLIENT_NO_REASON: "Klient nie podał powodu",
+    CLIENT_CHOSE_OTHER: "Klient wybrał kogoś innego",
     "counter_offer": "Kontroferta od obecnego pracodawcy",
     "personal_reasons": "Powody osobiste",
     "lost_interest": "Stracił zainteresowanie",
