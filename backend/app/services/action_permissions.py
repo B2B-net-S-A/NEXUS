@@ -46,6 +46,7 @@ class ProductAction(StrEnum):
     sales_edit = "sales_edit"
     timesheets = "timesheets"
     company_results = "company_results"
+    client_contracts_view = "client_contracts_view"
 
 
 class ActionAccess(IntEnum):

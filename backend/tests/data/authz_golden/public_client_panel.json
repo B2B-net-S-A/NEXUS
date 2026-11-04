@@ -26,17 +26,18 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/public/panel/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/panel/{token}/candidates/{public_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/panel/{token}/candidates/{public_id}/cv.pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/panel/{token}/candidates/{public_id}/files/{document_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/panel/{token}/candidates/{public_id}/interview": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/panel/{token}/candidates/{public_id}/not-fit": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/panel/{token}/candidates/{public_id}/questions": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/panel/{token}/events": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/panel/{token}/requirements-change": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/panel/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/panel/{token}/candidates/{public_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/panel/{token}/candidates/{public_id}/cv.pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/panel/{token}/candidates/{public_id}/files/{document_id}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/panel/{token}/candidates/{public_id}/interview": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/panel/{token}/candidates/{public_id}/not-fit": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/panel/{token}/candidates/{public_id}/questions": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/panel/{token}/events": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/panel/{token}/requirements-change": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

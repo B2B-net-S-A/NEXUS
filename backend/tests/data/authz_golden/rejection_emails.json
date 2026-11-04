@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/rejection-emails/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/rejection-emails/by-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/rejection-emails/{rejection_email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/rejection-emails/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/rejection-emails/{rejection_email_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

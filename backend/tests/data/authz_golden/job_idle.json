@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/idle": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
-  "POST /api/jobs/{job_id}/idle/snooze": "PDDPDDDDPPPDDDDDPDDDDDDDDDD"
+  "GET /api/jobs/{job_id}/idle": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/idle/snooze": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD"
  }
 }

@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/authorize": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/job-boards/jjit/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/job-boards/jjit/connection": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

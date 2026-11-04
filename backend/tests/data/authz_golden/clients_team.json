@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDPDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/team": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDPDDDDDDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDPDDDDDDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDPDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/tacs/{user_id}": "PDDDDDDDDPDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/team": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "POST /api/clients/{client_id}/tacs": "PDDDDDDDDPDDDDDDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/first-priority": "PDDDDDDDDPDDDDDDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/tacs/{user_id}/toggle-primary": "PDDDDDDDDPDDDDDDDDDDDDDDDDDD"
  }
 }

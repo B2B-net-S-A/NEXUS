@@ -50,6 +50,11 @@ TIMESHEETS = "timesheets"
 # z tytułu roli, a „Moduł Finanse” ich nie otwiera. Grupa „Pieniądze”, ale na
 # KOŃCU katalogu (siatka przy starcie, jak wyżej).
 COMPANY_RESULTS = "company_results"
+# Umowy klientów bez kwot (decyzja Artura 04.11.2026): lista umów ramowych
+# i aneksów z plikami, bez sekcji Delivery i bez podglądu kwot. Pliki mogą
+# zawierać stawki, stąd ta informacja w nazwie. Grupa „Klienci i kontrakty”, ale
+# na KOŃCU katalogu (siatka przy starcie, jak wyżej).
+CLIENT_CONTRACTS_VIEW = "client_contracts_view"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -244,6 +249,11 @@ PERMISSIONS: tuple[Permission, ...] = (
         COMPANY_RESULTS,
         "Wyniki firmy: podsumowania przychodu i marży",
         "money",
+    ),
+    Permission(
+        CLIENT_CONTRACTS_VIEW,
+        "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
+        "clients_contracts",
     ),
 )
 

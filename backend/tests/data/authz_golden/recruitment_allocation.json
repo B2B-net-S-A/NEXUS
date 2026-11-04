@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
+  "GET /api/recruitment-allocation/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/recruitment-allocation/mine": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/recruitment-allocation/onboarding": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/recruitment-allocation/team": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PATCH /api/recruitment-allocation/onboarding/{item_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PUT /api/recruitment-allocation/mode": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
  }
 }

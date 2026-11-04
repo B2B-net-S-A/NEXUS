@@ -52,6 +52,7 @@ __all__ = [
     "FinanceModuleUser",
     "RecruitmentManageUser",
     "SalesEditUser",
+    "ClientContractsViewUser",
     "SalesViewUser",
     "ensure_any_permission",
     "ensure_permission",
@@ -88,6 +89,10 @@ AmountsViewUser = Annotated[
 ]
 AmountsEditUser = Annotated[
     User, Depends(require_permission(ProductAction.amounts_edit))
+]
+# Umowy klientów bez kwot (04.11.2026): lista i pliki, bez sekcji Delivery.
+ClientContractsViewUser = Annotated[
+    User, Depends(require_permission(ProductAction.client_contracts_view))
 ]
 # Sprzedaż (Atlas → NEXUS, 26.10.2026): odczyt i zapis sekcji Sprzedaż.
 SalesViewUser = Annotated[User, Depends(require_permission(ProductAction.sales_view))]

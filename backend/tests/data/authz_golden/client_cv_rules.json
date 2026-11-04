@@ -26,20 +26,21 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/cv-rule": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/cv-rule": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/clients/{client_id}/cv-rule/feedback": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "GET /api/clients/{client_id}/cv-rule/history": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "GET /api/clients/{client_id}/cv-rule/prompt-preview": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "GET /api/clients/{client_id}/cv-rule/versions": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "GET /api/settings/cv-rules": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "POST /api/clients/{client_id}/cv-rule/confirm": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/cv-rule/copy-from/{source_client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/cv-rule/lint": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/cv-rule/versions/{version}/restore": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/cv-rule": "PDDPDDDDPPPDDDPDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/cv-rule": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/cv-rule": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/clients/{client_id}/cv-rule/feedback": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "GET /api/clients/{client_id}/cv-rule/history": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "GET /api/clients/{client_id}/cv-rule/prompt-preview": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "GET /api/clients/{client_id}/cv-rule/versions": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "GET /api/settings/cv-rules": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "POST /api/clients/{client_id}/cv-rule/confirm": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/cv-rule/copy-from/{source_client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/cv-rule/lint": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/cv-rule/versions/{version}/restore": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "PUT /api/clients/{client_id}/cv-rule": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD"
  }
 }

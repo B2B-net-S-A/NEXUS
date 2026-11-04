@@ -26,20 +26,21 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPDD",
-  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPDDD",
+  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

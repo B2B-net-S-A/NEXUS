@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/workflows": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/workflows/revisions/{revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/admin/workflows/stage-revisions/{stage_revision_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/bootstrap": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/draft": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/workflows/revisions/{revision_id}/publish": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

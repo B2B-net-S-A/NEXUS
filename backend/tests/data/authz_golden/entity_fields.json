@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/entity-schema/{entity_type}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
-  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/entity-schema/{entity_type}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/entity-fields/types": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/entity-fields/{field_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/entity-fields": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

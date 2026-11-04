@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

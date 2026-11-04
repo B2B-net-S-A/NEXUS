@@ -26,19 +26,20 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/sales/companies/{company_id}/people": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/{company_id}/people/group": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/people/dates": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/companies/{company_id}/people": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/{company_id}/people/group": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/people/dates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

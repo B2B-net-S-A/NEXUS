@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/order-groups": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/order-groups/{group_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/orders/{order_id}/md-consumptions": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

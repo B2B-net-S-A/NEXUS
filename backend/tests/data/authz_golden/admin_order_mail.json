@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/order-mail/cleanup-receipt": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/order-mail/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/order-mail/sync": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

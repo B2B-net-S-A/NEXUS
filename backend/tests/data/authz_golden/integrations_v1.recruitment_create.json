@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "POST /api/integrations/v1/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/recruitments/read-request": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/v1/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/recruitments/read-request": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

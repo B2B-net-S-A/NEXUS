@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/contracts/{contract_id}/document-folders/{folder_id}": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "GET /api/contracts/{contract_id}/document-folders": "PPDPDDDDPPPDDDDDDPPDDDDDDDP",
-  "PATCH /api/contracts/{contract_id}/document-folders/orders": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "PATCH /api/contracts/{contract_id}/document-folders/{folder_id}": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "POST /api/contracts/{contract_id}/document-folders": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "POST /api/contracts/{contract_id}/documents/move": "PPDPDDDDPPPDDPDDDDDDDDDDDDP"
+  "DELETE /api/contracts/{contract_id}/document-folders/{folder_id}": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "GET /api/contracts/{contract_id}/document-folders": "PPDPDDDDPPPDDDDDDPPDDDDDDDPD",
+  "PATCH /api/contracts/{contract_id}/document-folders/orders": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "PATCH /api/contracts/{contract_id}/document-folders/{folder_id}": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "POST /api/contracts/{contract_id}/document-folders": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "POST /api/contracts/{contract_id}/documents/move": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD"
  }
 }

@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPPPDDDDDDP",
-  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPPPDDDDDDP",
-  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPDDDDDDDP"
+  "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPPPDDDDDDPD",
+  "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPPPDDDDDDPD",
+  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPDDDDDDDPD"
  }
 }

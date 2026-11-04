@@ -26,16 +26,17 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/history": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/my-league": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/competitions/current": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/competitions/history": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/competitions/monthly-races": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/competitions/my-league": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/competitions/my-position": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

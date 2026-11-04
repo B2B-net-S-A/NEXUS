@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/talent-radar/parse-champion": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/talent-radar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
+  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/talent-radar/parse-champion": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/talent-radar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
  }
 }

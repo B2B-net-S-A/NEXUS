@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/admin/ai-matching/audit": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/ai-matching/diagnostics": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/ai-matching/audit": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/ai-matching/diagnostics": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

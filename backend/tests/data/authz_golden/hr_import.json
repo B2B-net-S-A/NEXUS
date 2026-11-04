@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/hr/admin/import/batches": "PDDDDDDDDDDDDDDDDDDDDPDDDDD",
-  "POST /api/hr/admin/import/dry-run": "PDDDDDDDDDDDDDDDDDDDDPDDDDD",
-  "POST /api/hr/admin/import/{upload_id}/apply": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/hr/admin/import/batches": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
+  "POST /api/hr/admin/import/dry-run": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
+  "POST /api/hr/admin/import/{upload_id}/apply": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
