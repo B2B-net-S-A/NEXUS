@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/leads/{lead_id}/convert": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/leads/{lead_id}/convert": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -27,17 +27,18 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB",
-  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBDBBBBBBBB"
+  "GET /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "GET /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "GET /api/care/consultants": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "GET /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "POST /api/care/assignment": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "POST /api/care/assignment/auto": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "POST /api/care/contracts/{contract_id}/cadence": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "PUT /api/care/assignment/pool": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB",
+  "PUT /api/care/assignment/threshold": "BBBBBBBDBBBBBBBBBBBDBBBBBBBBB"
  }
 }

@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

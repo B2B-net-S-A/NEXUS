@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/jobs/{job_id}/similar/people": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/jobs/{job_id}/similar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/job-similarity/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/champion-found": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/jobs/{job_id}/similar/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/similar/people": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/similar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/job-similarity/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/champion-found": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/similar": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/similar/reassign": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

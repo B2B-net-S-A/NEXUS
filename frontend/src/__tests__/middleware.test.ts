@@ -1166,7 +1166,7 @@ describe("lista „Umowy przedwstępne” — role z bramki API", () => {
   })
 })
 
-describe("„Back office” (0644): /finance otwiera znacznik `fo`, nie sekcja", () => {
+describe("„Back office” (0645): /finance otwiera znacznik `fo`, nie sekcja", () => {
   it("wchodzi na /finance z uprawnieniem do zamówień", () => {
     expect(destination("/finance", validBackOffice)).toBe("pass")
   })

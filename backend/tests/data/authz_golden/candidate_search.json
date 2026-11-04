@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/candidate-search/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidate-search/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

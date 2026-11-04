@@ -82,7 +82,7 @@ imienne „Może usuwać klientów”.
 | Viewer `user` (legacy, od 0637 bez sekcji) | — | — | — | — |
 | Praktykant | — | — | — | — |
 | Automatyzacje (`automation`, 0446) | R | R | R | — |
-| Back office (`back_office`, 0644) | RW | RW | R | — |
+| Back office (`back_office`, 0645) | RW | RW | R | — |
 
 Rola „Automatyzacje” ma z dziewięciu uprawnień tylko podgląd Delivery, nie ma
 kwot ani modułu Finanse i niczego nie zapisuje na ekranach — opis:

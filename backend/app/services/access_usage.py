@@ -125,6 +125,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "profile",
         "settings",
         "start",
+        # Umowy klientów: nadawane imiennie, poza sekcjami, które mierzy przegląd.
+        "client-contracts",
         # Logowanie, publiczne strony i dokumenty otwierane z linku.
         "apply",
         "auth",

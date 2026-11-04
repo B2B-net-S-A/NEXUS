@@ -27,15 +27,16 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

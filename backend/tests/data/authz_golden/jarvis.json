@@ -27,20 +27,21 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/conversations": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/gaps": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/jarvis/status": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/gaps/{gap_id}/report": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/ui-events": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/conversations": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/gaps": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/jarvis/status": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/gaps/{gap_id}/report": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/ui-events": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

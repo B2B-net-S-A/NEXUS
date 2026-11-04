@@ -371,6 +371,7 @@ const ADMIN_SETTINGS: ClientPanelSettings = {
   ],
   views: { total: 12, last_at: "2026-10-29T12:02:00Z", people: 2 },
   requests_open: 3,
+  job_closed: false,
 };
 
 const ADMIN_REQUESTS: ClientPanelRequestItem[] = [

@@ -27,20 +27,21 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/finance/approved-expenses/fixed-sellers/{seller_nip}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/finance/approved-expenses/fixed-sellers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/finance/approved-expenses/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/finance/approved-expenses/requests": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/finance/approved-expenses/subscriptions": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/finance/approved-expenses/summary": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/finance/approved-expenses/to-settle": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/finance/approved-expenses/documents/{document_id}/close": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/finance/approved-expenses/documents/{document_id}/pin": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/finance/approved-expenses/documents/{document_id}/reopen": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/finance/approved-expenses/documents/{document_id}/settle": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/finance/approved-expenses/fixed-sellers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD"
+  "DELETE /api/finance/approved-expenses/fixed-sellers/{seller_nip}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/approved-expenses/fixed-sellers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/approved-expenses/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/approved-expenses/requests": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/approved-expenses/subscriptions": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/approved-expenses/summary": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/approved-expenses/to-settle": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/approved-expenses/documents/{document_id}/close": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/approved-expenses/documents/{document_id}/pin": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/approved-expenses/documents/{document_id}/reopen": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/approved-expenses/documents/{document_id}/settle": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/approved-expenses/fixed-sellers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

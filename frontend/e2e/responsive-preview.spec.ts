@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
  * Responsywność — strażnik przed poziomym scrollem całej strony (audyt
@@ -820,11 +820,27 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
   });
 });
 
+/** „+” cały w oknie i to w niego trafia kliknięcie w środek (nic go nie zasłania). */
+async function expectAddButtonFullyInWindow(page: Page, strip: Locator, label: string): Promise<void> {
+  const add = strip.getByTestId("topbar-add");
+  const box = await add.boundingBox();
+  const windowWidth = page.viewportSize()?.width ?? 0;
+  expect(box?.width ?? 0, `szerokość „+”: ${label}`).toBeGreaterThanOrEqual(32);
+  expect((box?.x ?? 0) + (box?.width ?? 0), `prawa krawędź „+”: ${label}`).toBeLessThanOrEqual(windowWidth);
+  await add.scrollIntoViewIfNeeded();
+  const onTop = await add.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return el === hit || el.contains(hit);
+  });
+  expect(onTop, `„+” klikalny: ${label}`).toBe(true);
+}
+
 test.describe("górny pasek — licznik celów", () => {
   test("/preview/kpi-topbar: licznik celów nie zgniata wyszukiwarki w oknach laptopów", async ({ page }) => {
     // 13.10.2026: trzy podpisane segmenty przy 1280 px z przypiętym menu
     // i długimi okruszkami zostawiały wyszukiwarce 109 px. Licznik ma chować
-    // całe segmenty, a wyszukiwarka trzymać 220 px. Tego samego dnia przed
+    // całe segmenty, a wyszukiwarka trzymać 200 px (do 04.11.2026: 220 px). Tego samego dnia przed
     // licznikiem stanął przycisk Ligi Mistrzów, który się nie ściska, a trzy
     // przełączniki wyglądu zastąpiło jedno menu „Wygląd”.
     for (const size of WINDOWS_LAPTOP_WINDOWS) {
@@ -835,7 +851,7 @@ test.describe("górny pasek — licznik celów", () => {
       for (const strip of await strips.all()) {
         const label = `${await strip.getAttribute("aria-label")} @ ${size.width}`;
         const search = await strip.getByTestId("topbar-search").boundingBox();
-        expect(search?.width ?? 0, `wyszukiwarka: ${label}`).toBeGreaterThanOrEqual(220);
+        expect(search?.width ?? 0, `wyszukiwarka: ${label}`).toBeGreaterThanOrEqual(200);
         const bar = strip.getByTestId("topbar-replica");
         const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
         expect(overflow, `pasek bez przelewu: ${label}`).toBe(0);
@@ -896,8 +912,46 @@ test.describe("górny pasek — licznik celów", () => {
             }).length;
           });
         expect(glitches, `zawinięte albo wystające segmenty: ${label}`).toBe(0);
+        await expectAddButtonFullyInWindow(page, strip, label);
+        // Bez przelewu „+” stoi na swoim miejscu, a nie na sąsiedzie: `sticky` Chrome
+        // liczy od krawędzi treści paska, więc wcięcie równe `px-*` przesuwało go o 20 px.
+        const gapBeforeAdd = await strip.getByTestId("topbar-add").evaluate((add) => {
+          const previous = add.previousElementSibling?.getBoundingClientRect();
+          return add.getBoundingClientRect().left - (previous?.right ?? 0);
+        });
+        expect(gapBeforeAdd, `„+” nie zachodzi na sąsiada: ${label}`).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+
+  test("/preview/kpi-topbar: „+” zostaje w oknie, gdy pasek się przelewa", async ({ page }) => {
+    // 04.11.2026: na stagingu „+” kończył się na x=1342 przy oknie 1280 px
+    // (Delivery Lead, /jobs/509921). Grupa akcji nie zmieści wszystkiego naraz,
+    // więc reszta przewija się pod przyklejonym przyciskiem.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/preview/kpi-topbar");
+    const strip = page.getByTestId("shell-strip-fullest");
+    const bar = strip.getByTestId("topbar-replica");
+    const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, "ten pasek ma się przelewać, inaczej test niczego nie pilnuje").toBeGreaterThan(0);
+    await expectAddButtonFullyInWindow(page, strip, "przed przewinięciem");
+
+    // Żadna ikona nie jest stracona: ostatnia przed „+” da się przewinąć i kliknąć.
+    await bar.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+    await expectAddButtonFullyInWindow(page, strip, "po przewinięciu");
+    const absent = strip.getByRole("button", { name: "Nieobecni dziś (atrapa)" });
+    const reachable = await absent.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return el === hit || el.contains(hit);
+    });
+    expect(reachable, "ostatnia ikona po przewinięciu nie jest zasłonięta").toBe(true);
+
+    // Strona nie dostaje poziomego scrolla od paska.
+    const pageOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(pageOverflow, "przelew strony").toBeLessThanOrEqual(0);
   });
 });
 

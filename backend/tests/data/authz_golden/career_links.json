@@ -27,21 +27,22 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/jobs/{job_id}/link-results": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/me/career-link/people": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/jobs/{job_id}/link-results": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/me/career-link/people": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

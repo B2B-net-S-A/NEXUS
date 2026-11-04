@@ -18,7 +18,7 @@ import { hasSectionAccess } from "@/lib/section-access"
 export type UserRole =
   | "admin"
   | "finance"
-  // „Back office” (0644) — rola WYŁĄCZNA: zamówienia i umowy, kwoty przy
+  // „Back office” (0645) — rola WYŁĄCZNA: zamówienia i umowy, kwoty przy
   // rekordzie, bez Wyników miesięcznych i Płac.
   | "back_office"
   | "head_of_recruitment"

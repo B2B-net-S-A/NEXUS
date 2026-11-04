@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/candidates/tags/suggest": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/candidates/tags/suggest": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/tags": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

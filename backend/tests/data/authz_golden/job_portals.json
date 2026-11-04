@@ -27,15 +27,16 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/job-boards/{board}/dictionaries": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/job-portals/config": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/portal-listing-defaults": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/portals": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/jobs/{job_id}/portals/{portal}/options": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/portals/{portal}/publish": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/portals/{portal}/unpublish": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

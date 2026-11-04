@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/activities/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP"
+  "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/activities/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

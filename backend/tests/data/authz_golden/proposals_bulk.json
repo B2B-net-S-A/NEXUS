@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

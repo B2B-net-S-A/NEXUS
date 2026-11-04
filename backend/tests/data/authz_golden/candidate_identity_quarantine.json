@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

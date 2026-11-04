@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/index-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

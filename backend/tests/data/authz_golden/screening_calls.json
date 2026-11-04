@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "POST /api/screening-calls": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/screening-calls/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/screening-calls/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "POST /api/screening-calls": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/screening-calls/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/screening-calls/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

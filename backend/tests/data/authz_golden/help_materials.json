@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/help-materials": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/help-materials": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/help-materials": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/help-materials/{material_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

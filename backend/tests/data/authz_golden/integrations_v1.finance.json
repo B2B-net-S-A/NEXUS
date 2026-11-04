@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/playbook": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDPPPDPPPPDPPPDDDDDDPP",
-  "GET /api/settings/client-playbooks": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDPPPDDDPDDDDDDDDDDDDP",
-  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDPPPDDDPDDDDDDDDDDDDP"
+  "GET /api/clients/{client_id}/playbook": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/clients/{client_id}/playbook/history": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "GET /api/settings/client-playbooks": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/clients/{client_id}/playbook/seed": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "PUT /api/clients/{client_id}/playbook": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP"
  }
 }

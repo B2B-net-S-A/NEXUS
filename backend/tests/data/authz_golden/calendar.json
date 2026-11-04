@@ -27,18 +27,19 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/calendar/events/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/calendar/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/calendar/conflicts-summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/calendar/events": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/calendar/events/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/calendar/events/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/calendar/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/calendar/events/m365-invite": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/calendar/events/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/calendar/import-ical": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/calendar/events/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/calendar/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/calendar/conflicts-summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/calendar/events": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/calendar/events/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/calendar/events/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/calendar/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/calendar/events/m365-invite": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/calendar/events/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/calendar/import-ical": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

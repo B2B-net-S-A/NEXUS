@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD"
  }
 }

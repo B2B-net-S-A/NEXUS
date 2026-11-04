@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/care/atlas/sales-signals": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/care/atlas/sales-signals/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/care/atlas/sales-signals": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/care/atlas/sales-signals/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

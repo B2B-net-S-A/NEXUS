@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

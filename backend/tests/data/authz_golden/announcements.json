@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/announcements/{announcement_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/announcements": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "PATCH /api/announcements/{announcement_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/announcements": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/announcements/{announcement_id}/read": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/announcements/{announcement_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/announcements": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "PATCH /api/announcements/{announcement_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/announcements": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/announcements/{announcement_id}/read": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

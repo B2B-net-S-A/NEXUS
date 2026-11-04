@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/integrations/compass/contractors": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/compass/roster": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/compass/contractors": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/compass/roster": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

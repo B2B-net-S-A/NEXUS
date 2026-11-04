@@ -27,9 +27,10 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "POST /api/oauth/token": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "POST /api/oauth/token": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

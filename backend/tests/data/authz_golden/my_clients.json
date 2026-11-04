@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/my-clients": "PPDPPDDDPPPDPPPPDPPPDDDDDDPP",
-  "GET /api/my-clients/{client_id}/dashboard": "BBDBBDDDBBBDBBBBDBBBDDDDDDBB"
+  "GET /api/my-clients": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "GET /api/my-clients/{client_id}/dashboard": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB"
  }
 }

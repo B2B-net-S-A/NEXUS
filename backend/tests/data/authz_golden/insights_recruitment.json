@@ -27,20 +27,21 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/insights/recruitment/available-periods": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/competence-matrix": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/link-people": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/insights/recruitment/seniority": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/team-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/team-goals": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "GET /api/insights/recruitment/weekly-trend": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP"
+  "GET /api/insights/recruitment/available-periods": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/link-people": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/recruitment/seniority": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/team-goals": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/weekly-trend": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

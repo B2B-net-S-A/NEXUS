@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/hr/structure": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/structure/division": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/structure/reassign": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "PUT /api/hr/structure/divisions": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD"
+  "GET /api/hr/structure": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/structure/division": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/structure/reassign": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "PUT /api/hr/structure/divisions": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD"
  }
 }

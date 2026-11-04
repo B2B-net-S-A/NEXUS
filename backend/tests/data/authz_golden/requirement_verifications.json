@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

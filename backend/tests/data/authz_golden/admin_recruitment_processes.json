@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/recruitment-processes/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/by-pair/{candidate_id}/{job_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/recruitment-processes/shadow-compare": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/recruitment-processes/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

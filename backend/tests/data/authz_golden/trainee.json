@@ -27,21 +27,22 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/trainee/items/{item_id}/open-jobs": "DDDDDDDPDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/trainee/overview": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/trainee/quality-sample": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/trainee/rules/preview": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/trainee/today": "DDDDDDDPDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/trainee/items/{item_id}/call": "DDDDDDDPDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/trainee/items/{item_id}/handover": "DDDDDDDPDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/trainee/items/{item_id}/outcome": "DDDDDDDPDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/trainee/programs/{user_id}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/trainee/quality-sample/{item_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/trainee/programs/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "GET /api/trainee/items/{item_id}/open-jobs": "DDDDDDDPDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/trainee/overview": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/trainee/quality-sample": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/trainee/rules/preview": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/trainee/today": "DDDDDDDPDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/call": "DDDDDDDPDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/handover": "DDDDDDDPDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/items/{item_id}/outcome": "DDDDDDDPDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/programs/{user_id}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/trainee/quality-sample/{item_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/trainee/programs/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/trainee/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

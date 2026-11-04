@@ -35,7 +35,7 @@ class UserRole(str, enum.Enum):
     - user                — deprecated legacy viewer; no new provisioning
     - trainee             — praktykant (0374): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
-    - back_office         — „Back office” (0644): zamówienia i umowy, kwoty przy
+    - back_office         — „Back office” (0645): zamówienia i umowy, kwoty przy
                             rekordzie, bez sekcji Finanse i Płac; rola wyłączna
     - automation          — „Automatyzacje” (0446): osoba budująca automatyzacje
                             procesów; tylko PODGLĄD rekrutacji, kandydatów,

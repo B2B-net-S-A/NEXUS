@@ -27,15 +27,16 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/microsoft365/authorize": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/microsoft365/free-busy": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/microsoft365/sync/trigger": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/microsoft365/authorize": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/microsoft365/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/microsoft365/connection": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/microsoft365/free-busy": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/microsoft365/sync/trigger": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/microsoft365/webhooks": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

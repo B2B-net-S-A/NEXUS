@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP"
+  "GET /api/job-intake/delivery-lead": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/requirement-rows": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

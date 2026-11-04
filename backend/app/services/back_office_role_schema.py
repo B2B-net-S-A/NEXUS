@@ -1,6 +1,6 @@
 """Rola „Back office” (``back_office``) — zamówienia i umowy bez finansów firmy.
 
-JEDNO źródło SQL dla ``alembic/versions/0644_back_office_role.py``
+JEDNO źródło SQL dla ``alembic/versions/0645_back_office_role.py``
 i ``entrypoint.sh`` (przez ``hr_schema_bundle``). Wzór: 0490 (Rada nadzorcza).
 
 Decyzja Artura 04.11.2026: osoby od zamówień i umów pracują na kontraktach,

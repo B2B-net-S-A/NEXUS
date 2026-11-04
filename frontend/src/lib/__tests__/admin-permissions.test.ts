@@ -288,7 +288,7 @@ describe("uprawnienia jednej osoby", () => {
     expect(rows.map((row) => row.key)).toEqual(
       snapshot.permission_groups.flatMap((group) => group.permissions),
     );
-    expect(rows).toHaveLength(17);
+    expect(rows).toHaveLength(18);
     expect(rows.filter((row) => row.fromRole).map((row) => row.key)).toEqual([
       "delivery_view",
       "contract_status",
@@ -303,7 +303,7 @@ describe("uprawnienia jednej osoby", () => {
       new Map(),
       new Set(["people"]),
     );
-    expect(hidden).toHaveLength(12);
+    expect(hidden).toHaveLength(13);
     expect(hidden.map((row) => row.key)).not.toContain("cases");
   });
 
@@ -533,7 +533,7 @@ describe("uprawnienia jednej osoby", () => {
     });
   });
 
-  it("zna wszystkie siedemnaście uprawnień (dziesięć + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
-    expect(PERMISSION_KEYS).toHaveLength(17);
+  it("zna wszystkie osiemnaście uprawnień (jedenaście + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(18);
   });
 });

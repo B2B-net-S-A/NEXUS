@@ -1,4 +1,4 @@
-"""Rola „Back office” (0644): lustro migracji w entrypoint.sh i modelach.
+"""Rola „Back office” (0645): lustro migracji w entrypoint.sh i modelach.
 
 Bez poszerzonych CHECK-ów zasiew macierzy przy starcie wywróciłby się na
 wierszu ``back_office``, a bez wyłączności drugie konto dałoby tej osobie sekcję
@@ -18,7 +18,7 @@ from app.services import hr_schema_bundle as bundle
 from app.services import permission_catalog as catalog
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "alembic" / "versions" / "0644_back_office_role.py"
+MIGRATION = ROOT / "alembic" / "versions" / "0645_back_office_role.py"
 
 
 def _squash(text: str) -> str:
@@ -33,11 +33,11 @@ def _check_sql(model, name: str) -> str:
 
 
 def test_migration_reads_the_shared_schema_and_follows_main_head() -> None:
-    spec = importlib.util.spec_from_file_location("m0644", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0645", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.revision == "0644_back_office_role"
-    assert module.down_revision == "0643_consultant_portal"
+    assert module.revision == "0645_back_office_role"
+    assert module.down_revision == "0644_client_contracts_view_permission"
     assert module.schema is schema
 
 
@@ -95,4 +95,4 @@ def test_back_office_role_cannot_be_combined() -> None:
 
 def test_orders_permission_reaches_both_action_checks_in_entrypoint() -> None:
     entry = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
-    assert entry.count("'company_results', 'orders_work')") == 2
+    assert entry.count("'client_contracts_view', 'orders_work')") == 2

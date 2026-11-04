@@ -70,7 +70,7 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "none",
     b2b_signature_confirmation: "none",
   },
-  // „Back office” (0644): generator i podpis umów to jego praca.
+  // „Back office” (0645): generator i podpis umów to jego praca.
   back_office: {
     b2b_contract_generator: "manage",
     b2b_signature_confirmation: "manage",

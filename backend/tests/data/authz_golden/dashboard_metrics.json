@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/dashboard-metrics/catalog": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
-  "POST /api/dashboard-metrics/evaluate": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP"
+  "GET /api/dashboard-metrics/catalog": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "POST /api/dashboard-metrics/evaluate": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

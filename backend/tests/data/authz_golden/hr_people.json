@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/people/account-mismatches": "PPDDDDDDDDDDDDDDDDDDDPPDDDPD",
-  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/people/{user_id}/history": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/hr/people/{user_id}/employment-type": "PPDDDDDDDDDDDDDDDDDDDPPDDDPD",
-  "POST /api/hr/people/account-mismatches/align": "PPDDDDDDDDDDDDDDDDDDDPPDDDPD"
+  "GET /api/hr/config": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/hr/me": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/hr/people": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/people/account-mismatches": "PPDDDDDDDDDDDDDDDDDDDPPDDDPDD",
+  "GET /api/hr/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/people/{user_id}/history": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/hr/people/{user_id}/employment-type": "PPDDDDDDDDDDDDDDDDDDDPPDDDPDD",
+  "POST /api/hr/people/account-mismatches/align": "PPDDDDDDDDDDDDDDDDDDDPPDDDPDD"
  }
 }

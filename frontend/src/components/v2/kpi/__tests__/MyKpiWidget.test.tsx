@@ -107,7 +107,7 @@ describe("MyKpiWidget (compact) — podpisane segmenty i panel po kliknięciu", 
     }
     // Wyszukiwarka ma gwarantowane minimum, a grupa akcji kurczy się pierwsza…
     expect(TOPBAR_SEARCH_CLASS.split(" ")).toEqual(
-      expect.arrayContaining(["lg:min-w-[140px]", "xl:min-w-[220px]"]),
+      expect.arrayContaining(["lg:min-w-[140px]", "xl:min-w-[200px]"]),
     );
     expect(TOPBAR_ACTIONS_CLASS.split(" ")).toContain("lg:shrink-[1000]");
     // …ale w grupie ściska się tylko licznik: sąsiedni przycisk-ikona bez

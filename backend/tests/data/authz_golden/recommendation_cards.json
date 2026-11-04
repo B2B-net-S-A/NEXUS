@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/recommendation-cards/deal-breaker": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/recommendation-cards/deal-breaker": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/recommendation-cards": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

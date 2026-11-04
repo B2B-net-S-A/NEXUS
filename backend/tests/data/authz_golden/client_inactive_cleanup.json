@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients/directory/inactive-cleanup": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory/inactive-cleanup/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/directory/inactive-cleanup/execute": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

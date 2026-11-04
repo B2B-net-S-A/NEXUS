@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

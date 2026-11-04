@@ -27,17 +27,18 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "DELETE /api/job-intake/forms/{form_id}/files/{file_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/job-intake/forms": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/job-intake/forms/{form_id}/files": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/job-intake/forms/{form_id}/files/{file_id}/content": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/forms": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/job-intake/forms/{form_id}/files": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "PUT /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD"
+  "DELETE /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "DELETE /api/job-intake/forms/{form_id}/files/{file_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/job-intake/forms": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/job-intake/forms/{form_id}/files": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/job-intake/forms/{form_id}/files/{file_id}/content": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/forms": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/job-intake/forms/{form_id}/files": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "PUT /api/job-intake/forms/{form_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD"
  }
 }

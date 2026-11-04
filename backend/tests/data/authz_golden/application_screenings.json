@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/screened-out": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/jobs/{job_id}/screened-out": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

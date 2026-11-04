@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

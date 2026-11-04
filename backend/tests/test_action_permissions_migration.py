@@ -35,7 +35,7 @@ ROLES_ADDED_AFTER_0273: dict[str, str] = {
     UserRole.automation.value: "0446_automation_role.py",
     UserRole.employee.value: "0456_hr_access.py",
     UserRole.board.value: "0490_board_role.py",
-    UserRole.back_office.value: "0644_back_office_role.py",
+    UserRole.back_office.value: "0645_back_office_role.py",
 }
 
 # Migracje, których SQL stoi w module schematu (to samo źródło czyta
@@ -43,7 +43,7 @@ ROLES_ADDED_AFTER_0273: dict[str, str] = {
 MIGRATION_SQL_MODULES: dict[str, str] = {
     "0456_hr_access.py": "app/services/hr_access_schema.py",
     "0490_board_role.py": "app/services/board_role_schema.py",
-    "0644_back_office_role.py": "app/services/back_office_role_schema.py",
+    "0645_back_office_role.py": "app/services/back_office_role_schema.py",
 }
 
 # Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0273 nadal

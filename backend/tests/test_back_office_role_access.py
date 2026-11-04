@@ -1,4 +1,4 @@
-"""Rola „Back office” (0644): zamówienia i umowy bez finansów firmy.
+"""Rola „Back office” (0645): zamówienia i umowy bez finansów firmy.
 
 Obietnica z decyzji Artura (04.11.2026): osoba od zamówień i umów pracuje na
 kontraktach, zamówieniach i stawkach przy rekordzie, a Wyników miesięcznych,

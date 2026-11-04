@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/dashboard/kpis": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/recent-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/dashboard/recent-hires": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/dashboard/stats": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "GET /api/dashboard/kpis": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/recent-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/recent-hires": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/stats": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

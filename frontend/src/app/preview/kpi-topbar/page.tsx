@@ -16,7 +16,7 @@
  * zastąpiło jedno menu „Wygląd” — jak w `TopbarV2`.
  */
 
-import { Plus, Search, Users } from "lucide-react";
+import { Plus, Search, ShieldCheck, Sparkles, Users, UserX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -24,6 +24,7 @@ import { KpiGoalsPanel } from "@/components/v2/kpi/KpiGoalsPanel";
 import { KpiTopbarButton } from "@/components/v2/kpi/KpiTopbarButton";
 import { KpiTopbarPopover } from "@/components/v2/kpi/MyKpiWidget";
 import { buildKpiTopbarModel, type KpiTopbarModel } from "@/components/v2/kpi/kpi-topbar-model";
+import { P0TopbarTrigger } from "@/components/v2/jobs/p0/P0TopbarButton";
 import { LeaguePanel } from "@/components/v2/league/LeaguePanel";
 import { LeagueTopbarButton } from "@/components/v2/league/LeagueTopbarButton";
 import { LeagueTopbarPopover } from "@/components/v2/league/MyLeagueWidget";
@@ -45,6 +46,7 @@ import {
   type LeagueTopbarModel,
 } from "@/components/v2/league/league-topbar-model";
 import { ChatTopbarButton } from "@/components/v2/shell/ChatNotificationsDropdown";
+import { ContractsTopbarButton } from "@/components/v2/shell/ContractsNotificationsDropdown";
 import { CvTopbarButton } from "@/components/v2/shell/CvNotificationsDropdown";
 import { JobsTopbarButton } from "@/components/v2/shell/JobsNotificationsDropdown";
 import { InterviewsTopbarButton } from "@/components/v2/shell/InterviewNotificationsDropdown";
@@ -52,6 +54,8 @@ import { AppearanceMenu } from "@/components/v2/shell/AppearanceMenu";
 import { BreadcrumbTrail, type BreadcrumbCrumb } from "@/components/v2/shell/BreadcrumbV2";
 import {
   TOPBAR_ACTIONS_CLASS,
+  TOPBAR_ADD_BUTTON_CLASS,
+  TOPBAR_ADD_LABEL_CLASS,
   TOPBAR_BREADCRUMB_CLASS,
   TOPBAR_HEADER_CLASS,
   TOPBAR_SEARCH_CLASS,
@@ -348,6 +352,7 @@ function ShellStrip({
   model: stripModel,
   league: leagueModel,
   callPill = false,
+  fullest = false,
 }: {
   title: string;
   breadcrumb: string;
@@ -355,9 +360,11 @@ function ShellStrip({
   league: LeagueTopbarModel;
   /** Ikona „Rozmowy” jako pigułka „zadzwoń po rozmowie” — najszerszy stan sąsiada. */
   callPill?: boolean;
+  /** Wszystko naraz (Nowości, zgody, nieobecni i pigułki): pasek się przelewa, „+” zostaje w oknie. */
+  fullest?: boolean;
 }) {
   return (
-    <section aria-label={title} data-testid="shell-strip">
+    <section aria-label={title} data-testid={fullest ? "shell-strip-fullest" : "shell-strip"}>
       <h2 className="px-4 pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:px-6">
         {title}
       </h2>
@@ -380,6 +387,12 @@ function ShellStrip({
             </div>
           </div>
           <div className={TOPBAR_ACTIONS_CLASS}>
+            <P0TopbarTrigger count={6} />
+            {fullest ? (
+              <Button variant="ghost" size="icon" aria-label="Nowości (atrapa)">
+                <Sparkles className="h-4 w-4" aria-hidden />
+              </Button>
+            ) : null}
             <LeagueTopbarPopover model={leagueModel} className="hidden md:block" />
             <KpiTopbarPopover model={stripModel} className="hidden md:block" />
             <div className="hidden items-center sm:flex">
@@ -393,6 +406,7 @@ function ShellStrip({
                 kurczy się, oddaje licznik celów). */}
             <CvTopbarButton badge={12} urgency="late" />
             <JobsTopbarButton unreadJobs={4} open={false} />
+            <ContractsTopbarButton unreadContracts={0} open={false} />
             <ChatTopbarButton unreadThreads={0} hasMention={false} open={false} />
             <InterviewsTopbarButton
               count={callPill ? 2 : 0}
@@ -400,9 +414,26 @@ function ShellStrip({
               open={false}
               pill={callPill ? { name: "A. Przykładowa", minutesLeft: 18 } : null}
             />
-            <Button size="sm" variant="primary">
+            {fullest ? (
+              <>
+                <Button variant="ghost" size="icon" aria-label="Zgody do decyzji (atrapa)">
+                  <ShieldCheck className="h-4 w-4" aria-hidden />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Nieobecni dziś (atrapa)">
+                  <UserX className="h-4 w-4" aria-hidden />
+                </Button>
+              </>
+            ) : null}
+            <Button
+              size="sm"
+              variant="primary"
+              aria-label="Dodaj"
+              title="Dodaj"
+              className={TOPBAR_ADD_BUTTON_CLASS}
+              data-testid="topbar-add"
+            >
               <Plus className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">Dodaj</span>
+              <span className={TOPBAR_ADD_LABEL_CLASS}>Dodaj</span>
             </Button>
           </div>
         </div>
@@ -441,7 +472,7 @@ export default function KpiTopbarPreviewPage() {
         <p className="max-w-3xl text-sm text-muted-foreground">
           Podpisane segmenty zamiast trzech par „znak + liczba”, znaczek tylko przy wyjątku, szczegóły
           w panelu po kliknięciu. Dane fikcyjne, bez zapytań do serwera. Licznik pokazuje tyle całych
-          segmentów, ile mieści pasek (wyszukiwarka ma gwarantowane 220 px); poniżej 1024 px słowo „Cele”,
+          segmentów, ile mieści pasek (wyszukiwarka ma gwarantowane 200 px); poniżej 1024 px słowo „Cele”,
           forma zwarta do 1535 px, od 1536 pełna. Przed licznikiem przycisk Ligi Mistrzów, który się nie
           ściska; motyw, tryb gry i tryb ciemny są w menu „Wygląd”.
         </p>
@@ -473,6 +504,14 @@ export default function KpiTopbarPreviewPage() {
           breadcrumb="Pulpit"
           model={DELIVERY_LEAD}
           league={LEAGUE_DL}
+        />
+        <ShellStrip
+          title="Delivery Lead — wszystko naraz: Nowości, zgody, nieobecni i obie pigułki"
+          breadcrumb="Rekrutacje › Senior Java Developer"
+          model={DELIVERY_LEAD}
+          league={LEAGUE_DL}
+          callPill
+          fullest
         />
       </div>
 

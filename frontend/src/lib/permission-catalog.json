@@ -9,6 +9,7 @@
         "contracts_orders_edit",
         "contract_status",
         "b2b_signature_confirmation",
+        "client_contracts_view",
         "orders_work"
       ]
     },
@@ -218,6 +219,13 @@
       "key": "company_results",
       "label": "Wyniki firmy: podsumowania przychodu i marży",
       "group": "money",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "client_contracts_view",
+      "label": "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
+      "group": "clients_contracts",
       "requires": [],
       "default_roles": []
     },

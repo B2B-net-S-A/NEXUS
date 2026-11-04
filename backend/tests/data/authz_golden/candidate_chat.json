@@ -27,21 +27,22 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
-  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/chat/members": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/chat/messages/{msg_id}/read-by": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/chat/pinned": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/chat/unread-count": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/candidates/{candidate_id}/chat/read": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
+  "DELETE /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/chat/members": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/chat/messages/{msg_id}/read-by": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/chat/pinned": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/chat/unread-count": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/chat/messages/{msg_id}/reactions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/candidates/{candidate_id}/chat/read": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

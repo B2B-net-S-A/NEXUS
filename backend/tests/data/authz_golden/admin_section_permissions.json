@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

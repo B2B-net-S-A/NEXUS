@@ -60,6 +60,25 @@ def _str_list(value: Any) -> list[str]:
     return [str(x).strip() for x in value if x is not None and str(x).strip()]
 
 
+_WHY_MARKER_RE = re.compile(r"^(?:[-–•*·▪]\s+)?(?:(\d{1,2})[.)]\s+)?")
+
+
+def _strip_why_markers(points: list[str]) -> list[str]:
+    """Punkty bez znaków listy, bo punktory dodaje szablon. Numer znika tylko
+    wtedy, gdy zgadza się z pozycją punktu: „5. miejsce w hackathonie” na drugim
+    miejscu to fakt, a „3.5 roku” nie ma spacji po kropce (04.11.2026)."""
+    out: list[str] = []
+    for position, point in enumerate(points, start=1):
+        match = _WHY_MARKER_RE.match(point)
+        number = match.group(1)
+        end = (
+            match.end() if number is None or int(number) == position else match.start(1)
+        )
+        if text := point[end:].strip():
+            out.append(text)
+    return out
+
+
 def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str, Any]:
     """Coerce the Claude JSON into the exact shape the DOCX renderer needs.
 
@@ -80,7 +99,7 @@ def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str,
     out["name"] = str(data.get("name") or fallback_name or "Kandydat").strip()
     out["first_name"] = str(data.get("first_name") or "").strip()
     out["position"] = str(data.get("position") or "").strip()
-    out["why_points"] = _str_list(data.get("why_points"))
+    out["why_points"] = _strip_why_markers(_str_list(data.get("why_points")))
 
     education: list[dict[str, str]] = []
     for edu in data.get("education") or []:
@@ -841,10 +860,13 @@ def _token_present(token: str, haystack_tokens: set[str]) -> bool:
     return any(word.startswith(stem) for word in haystack_tokens)
 
 
-def _loosely_present(term: str, haystack_tokens: set[str]) -> bool:
+def _loosely_present(
+    term: str, haystack_tokens: set[str], *, exact: bool = False
+) -> bool:
     """Każde istotne słowo terminu (jego rdzeń) zaczyna jakieś słowo źródła
     („REST API" ↔ „RESTful APIs", „Grafana" ↔ „Grafany", „Node.js" ↔
-    „NodeJS"). Alternatywa w nawiasie liczy się osobno („Kubernetes (K8s)")."""
+    „NodeJS"). Alternatywa w nawiasie liczy się osobno („Kubernetes (K8s)").
+    ``exact`` wymaga całych słów: „Java” nie stoi wtedy w „JavaScript”."""
     variants = [term]
     paren = re.search(r"\(([^)]*)\)", term)
     if paren:
@@ -852,7 +874,10 @@ def _loosely_present(term: str, haystack_tokens: set[str]) -> bool:
     variants += [_abbreviated(v) for v in variants]
     for variant in variants:
         tokens = _term_tokens(variant)
-        if tokens and all(_token_present(tok, haystack_tokens) for tok in tokens):
+        if tokens and all(
+            tok in haystack_tokens if exact else _token_present(tok, haystack_tokens)
+            for tok in tokens
+        ):
             return True
     return False
 
@@ -988,6 +1013,87 @@ def strip_unsupported_terms(
             f"doświadczenia: {names}"
         )
     return notes
+
+
+_REQUIREMENT_LABEL_RE = re.compile(
+    r"\(?\s*(?:must\W*haves?|nice\W*to\W*haves?|zgodn\w+ z wymaganiami"
+    r"|wymagania klienta|wymagane technologie|technologie wymagane"
+    r"|client requirements|required technologies|technologies required"
+    r"|matching (?:the )?requirements)\s*\)?",
+    re.IGNORECASE,
+)
+_BARE_REQUIREMENT_LABEL_RE = re.compile(
+    r"(?:kluczowe |key )?(?:wymagania|requirements)", re.IGNORECASE
+)
+# Co zostaje po „Must-have technologies” albo „Wymagania klienta (posiadane)”:
+# to nie obszar, tylko reszta nazwy o wymaganiach.
+_EMPTY_LABEL_REST_RE = re.compile(
+    r"posiadane|held|technologie|technologies|umiejętności|skills|kompetencje"
+    r"|competencies",
+    re.IGNORECASE,
+)
+_LABEL_EDGE_CHARS = " /-–—:,;&+()"
+_NEUTRAL_SKILL_LABEL = {"pl": "Kluczowe technologie:", "en": "Key technologies:"}
+
+
+def _requirement_label_rest(label: str) -> str | None:
+    """Nazwa kategorii bez słów o wymaganiach. ``None``: nazwa o nich nie mówi
+    („Analiza wymagań” to prawdziwy obszar), pusty napis: nic innego w niej nie ma."""
+    whole = label.strip(_LABEL_EDGE_CHARS)
+    rest = _REQUIREMENT_LABEL_RE.sub(" ", label).strip(_LABEL_EDGE_CHARS)
+    if _BARE_REQUIREMENT_LABEL_RE.fullmatch(rest):
+        return ""
+    if rest == whole:
+        return None
+    return "" if _EMPTY_LABEL_REST_RE.fullmatch(rest) else rest
+
+
+def clean_requirement_skill_labels(
+    candidate_data: dict[str, Any], language: str
+) -> bool:
+    """Bez kategorii „Must-have (zgodne z wymaganiami)” w umiejętnościach.
+
+    Taka kategoria mówi klientowi, że CV pisano pod ogłoszenie, i powtarza
+    technologie z pozostałych kategorii (zgłoszenie z 04.11.2026). Znika to, co
+    stoi gdzie indziej; technologia obecna tylko tam zostaje pod neutralną nazwą,
+    bo kod niczego kandydatowi nie zabiera. „Must-have / Analytical tools” traci
+    samo słowo. Zwraca ``True``, gdy coś zmienił.
+    """
+    skills = candidate_data.get("skills") or []
+    rests = [_requirement_label_rest(str(cat.get("label") or "")) for cat in skills]
+    if all(rest is None for rest in rests):
+        return False
+    listed = _source_tokens(
+        "\n".join(
+            str(cat.get("content") or "")
+            for cat, rest in zip(skills, rests, strict=True)
+            if rest != ""
+        )
+    )
+    neutral_label = _NEUTRAL_SKILL_LABEL["en" if language == "en" else "pl"]
+    neutral: dict[str, str] | None = None
+    cleaned: list[dict[str, str]] = []
+    for cat, rest in zip(skills, rests, strict=True):
+        if rest is None:
+            cleaned.append(cat)
+        elif rest:
+            cleaned.append({**cat, "label": f"{rest[0].upper()}{rest[1:]}:"})
+        else:
+            unique = [
+                item
+                for item in _split_skills(str(cat.get("content") or ""))
+                if not _loosely_present(item, listed, exact=True)
+            ]
+            if not unique:
+                continue
+            listed |= _source_tokens(", ".join(unique))
+            if neutral is None:
+                neutral = {"label": neutral_label, "content": ", ".join(unique)}
+                cleaned.append(neutral)
+            else:
+                neutral["content"] += ", " + ", ".join(unique)
+    candidate_data["skills"] = cleaned
+    return True
 
 
 #: A number is only judged when it is attached to something countable. Bare

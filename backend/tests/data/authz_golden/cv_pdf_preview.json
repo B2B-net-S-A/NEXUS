@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/cv-generator/generated/{generated_id}/editor/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/cv-generator/generated/{generated_id}/editor/preview-pdf": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

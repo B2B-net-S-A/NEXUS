@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/emails": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/emails/thread/{conversation_id:path}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/emails/{email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/emails/{email_id}/attachments/{attachment_id}/download": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/microsoft365/emails/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/emails/compose": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/emails/reply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/microsoft365/emails/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/candidates/{candidate_id}/emails": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/emails/thread/{conversation_id:path}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/emails/{email_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/emails/{email_id}/attachments/{attachment_id}/download": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/microsoft365/emails/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/emails/compose": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/emails/reply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/microsoft365/emails/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

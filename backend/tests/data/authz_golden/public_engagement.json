@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/engagement-declaration/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

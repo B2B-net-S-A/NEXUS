@@ -27,21 +27,22 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

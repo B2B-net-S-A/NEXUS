@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDDDDDDDDDDD",
-  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDDDDDDDDDDD",
-  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "DELETE /api/request-board/jobs/{job_id}/people/{user_id}": "PDPPDDDDPPPPDDDDPDDDDDDDDDDDD",
+  "GET /api/request-board": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/request-board/jobs/{job_id}/lead-confirmation": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/request-board/jobs/{job_id}/people": "PDPPDDDDPPPPDDDDPDDDDDDDDDDDD",
+  "POST /api/request-board/jobs/{job_id}/proposals/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/request-board/proposals/accept": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

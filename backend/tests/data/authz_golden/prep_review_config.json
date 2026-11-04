@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/prep-review-config": "PDPPDPDDPPPPPDPPPPPDDPPPPDDD",
-  "PUT /api/prep-review-config": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "GET /api/prep-review-config": "PDPPDPDDPPPPPDPPPPPDDPPPPDDDD",
+  "PUT /api/prep-review-config": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

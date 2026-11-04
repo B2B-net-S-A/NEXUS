@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
-  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBBDDDDDDBB",
-  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDDDBB",
-  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
-  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
-  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
-  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
-  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDDDB",
+  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB",
+  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB",
+  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDDDB",
+  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDDDDDDDDDDB",
+  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDDDDDDDDDDB",
+  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDDDDDDDDDDB",
+  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

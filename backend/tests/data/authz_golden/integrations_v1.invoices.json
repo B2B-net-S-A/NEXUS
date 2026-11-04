@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

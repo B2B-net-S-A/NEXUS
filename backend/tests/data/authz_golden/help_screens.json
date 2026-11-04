@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

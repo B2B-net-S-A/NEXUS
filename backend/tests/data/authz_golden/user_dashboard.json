@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

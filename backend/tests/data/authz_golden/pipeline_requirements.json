@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP"
+  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

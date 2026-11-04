@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
-  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "DELETE /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "DELETE /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/notes": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/notes/{note_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/notes": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/notes/{note_id}/link-job": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
+  "POST /api/notes/{note_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

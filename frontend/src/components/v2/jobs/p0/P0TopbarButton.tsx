@@ -17,6 +17,49 @@ function jobsWord(n: number): string {
   return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? "rekrutacje" : "rekrutacji";
 }
 
+function p0Label(count: number): string {
+  return `P0 teraz: ${count} ${jobsWord(count)}`;
+}
+
+/**
+ * Sam przycisk, bez zapytań — harness `/preview/kpi-topbar` mierzy ten sam
+ * komponent co pasek. Do 1799 px forma zwarta „P0” nad liczbą (53 px zamiast
+ * 107 px): przy 1280 px grupa akcji nie mieściła się o 82 px (04.11.2026).
+ * Pełne słowa zostają w nazwie dla czytnika ekranu, w dymku i w panelu.
+ */
+export function P0TopbarTrigger({
+  count,
+  ref,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  count: number;
+  ref?: React.Ref<HTMLButtonElement>;
+}) {
+  const label = p0Label(count);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className="hit-area inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-destructive px-2.5 text-xs font-bold text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={label}
+      title={label}
+      data-testid="p0-topbar-button"
+      {...props}
+    >
+      <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+      <span className="flex flex-col text-left leading-tight">
+        <span className="hidden text-[10px] font-medium opacity-90 lg:inline">
+          P0<span className="hidden min-[1800px]:inline"> teraz</span>
+        </span>
+        <span>
+          {count}
+          <span className="hidden min-[1800px]:inline"> {jobsWord(count)}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
 /**
  * „P0 teraz” w górnym pasku (27.10.2026) — na każdym ekranie, u każdego
  * z sekcją Rekrutacje. Bez P0 nie ma przycisku; klik pokazuje listę z powodami.
@@ -28,26 +71,11 @@ export function P0TopbarButton() {
     isP0Active({ is_p0: true, p0_until: item.p0_until }, now),
   );
   if (!query.isSuccess || items.length === 0) return null;
-  const label = `P0 teraz: ${items.length} ${jobsWord(items.length)}`;
+  const label = p0Label(items.length);
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="hit-area inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-destructive px-2.5 text-xs font-bold text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={label}
-          title={label}
-          data-testid="p0-topbar-button"
-        >
-          <Flame className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="flex flex-col text-left leading-tight">
-            <span className="hidden text-[10px] font-medium opacity-90 lg:inline">P0 teraz</span>
-            <span>
-              {items.length}
-              <span className="hidden lg:inline"> {jobsWord(items.length)}</span>
-            </span>
-          </span>
-        </button>
+        <P0TopbarTrigger count={items.length} />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-2">
         <p className="px-1 pb-1.5 text-sm font-semibold">{label}</p>

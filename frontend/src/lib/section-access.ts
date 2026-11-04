@@ -158,7 +158,7 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  // „Back office” (0644): jak Finanse, bez sekcji Finanse. Zakładki o zamówieniach
+  // „Back office” (0645): jak Finanse, bez sekcji Finanse. Zakładki o zamówieniach
   // otwiera uprawnienie `orders_work`, nie ta sekcja.
   back_office: {
     sourcing: "write",

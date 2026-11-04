@@ -78,6 +78,45 @@ describe("ClientPanelSlideOver", () => {
     expect(screen.queryByRole("button", { name: "Odwołaj link" })).toBeNull();
   });
 
+  it("zamknięta rekrutacja: włącznik nieaktywny i powód, bez obietnicy linku", async () => {
+    const updateSettings = vi.fn();
+    renderOpen(
+      <ClientPanelSlideOver
+        open
+        onOpenChange={vi.fn()}
+        jobId={7}
+        transport={transport(
+          { updateSettings },
+          { ...QUIET, job_closed: true, enabled: false, url: null, short_url: null },
+        )}
+      />,
+    );
+    const toggle = await screen.findByRole("switch", { name: "Panel włączony" });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(/panelu nie da się włączyć/)).toBeInTheDocument();
+    expect(screen.queryByText(/Link powstanie po włączeniu panelu/)).toBeNull();
+    await userEvent.click(toggle);
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("panel włączony przed zamknięciem: ostrzeżenie, a wyłączyć można", async () => {
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+    renderOpen(
+      <ClientPanelSlideOver
+        open
+        onOpenChange={vi.fn()}
+        jobId={7}
+        transport={transport({ updateSettings }, { ...QUIET, job_closed: true })}
+      />,
+    );
+    const toggle = await screen.findByRole("switch", { name: "Panel włączony" });
+    expect(toggle).toBeEnabled();
+    expect(screen.getByText(/link z CV teraz nie działa/)).toBeInTheDocument();
+    await userEvent.click(toggle);
+    await userEvent.click(await screen.findByRole("button", { name: "Wyłącz panel" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith(7, { enabled: false }));
+  });
+
   it("włączenie idzie od razu, wyłączenie dopiero po potwierdzeniu", async () => {
     const updateSettings = vi.fn().mockResolvedValue(undefined);
     renderOpen(

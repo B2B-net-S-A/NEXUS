@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -284,6 +284,7 @@ describe("UserModal — uprawnienia tej osoby", () => {
       "Kontrakty i zamówienia: tworzenie i edycja",
       "Zakończenie współpracy, zmiana statusu kontraktu",
       "Umowy B2B: oznaczanie jako podpisane",
+      "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
       "Zamówienia: zmiany, PDF-y, import MD",
       "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
       "Stawki i kwoty: podgląd",
@@ -327,7 +328,7 @@ describe("UserModal — uprawnienia tej osoby", () => {
     try {
       renderModal({ initial: tcm });
       const group = await personPermissions();
-      expect(namesIn(group)).toHaveLength(13);
+      expect(namesIn(group)).toHaveLength(14);
       expect(namesIn(group)).not.toContain("Sprawy: skrzynka administracja@");
     } finally {
       hrProgram.on = true;

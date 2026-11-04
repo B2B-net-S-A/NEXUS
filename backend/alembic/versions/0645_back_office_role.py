@@ -1,7 +1,7 @@
 """Rola „Back office” i uprawnienie „Zamówienia: zmiany, PDF-y, import MD”.
 
-Revision ID: 0644_back_office_role
-Revises: 0643_consultant_portal
+Revision ID: 0645_back_office_role
+Revises: 0644_client_contracts_view_permission
 
 Decyzja Artura 04.11.2026: osoby od zamówień i umów nie mają widzieć Wyników
 miesięcznych, Płac ani faktur. Rola ``back_office``:
@@ -25,7 +25,7 @@ from app.services import back_office_role_schema as schema
 from app.services import permission_schema
 
 #: Role znane w chwili tej migracji (lekcja 0410/0446, opis w 0456).
-ROLES_AT_0644: tuple[str, ...] = (
+ROLES_AT_0645: tuple[str, ...] = (
     "admin",
     "finance",
     "back_office",
@@ -40,8 +40,8 @@ ROLES_AT_0644: tuple[str, ...] = (
     "board",
 )
 
-revision = "0644_back_office_role"
-down_revision = "0643_consultant_portal"
+revision = "0645_back_office_role"
+down_revision = "0644_client_contracts_view_permission"
 branch_labels = None
 depends_on = None
 
@@ -72,7 +72,7 @@ def upgrade() -> None:
     )
     for stmt in schema.SEED_DDL:
         op.execute(stmt)
-    for stmt in permission_schema.apply_statements(roles=ROLES_AT_0644):
+    for stmt in permission_schema.apply_statements(roles=ROLES_AT_0645):
         op.execute(stmt)
     op.execute(schema.BUMP_REVISION)
 
@@ -87,7 +87,7 @@ def downgrade() -> None:
             SELECT 1 FROM users
             WHERE role::text = 'back_office' OR roles ? 'back_office'
         ) THEN
-            RAISE EXCEPTION 'Konta z rolą back_office istnieją — zmień im rolę przed cofnięciem 0644';
+            RAISE EXCEPTION 'Konta z rolą back_office istnieją — zmień im rolę przed cofnięciem 0645';
         END IF;
     END $$""")
     for table in permission_schema.ACTION_TABLES:

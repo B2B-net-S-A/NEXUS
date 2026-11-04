@@ -619,6 +619,19 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     paletteKeywords: ["sprzedaż", "szanse", "lejek", "firmy", "atlas", "crm"],
     inPalette: true,
   },
+  // Umowy klientów (04.11.2026): lista i pliki, bez sekcji Delivery i bez kwot.
+  {
+    id: "client-contracts",
+    href: "/client-contracts",
+    label: "Umowy klientów",
+    icon: FileText,
+    section: "system",
+    permission: CAPABILITY_PERMISSIONS["nav.client_contracts"],
+    capability: "nav.client_contracts",
+    placement: "primary",
+    paletteKeywords: ["umowy", "umowa ramowa", "aneks", "aneksy", "klienci"],
+    inPalette: true,
+  },
   // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
   // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
   {
@@ -730,7 +743,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "care", "back-office", "finance"],
+    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"],
   },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];

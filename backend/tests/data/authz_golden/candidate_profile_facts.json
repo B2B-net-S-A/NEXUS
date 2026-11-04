@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
+  "employee+client_contracts_view",
   "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
-  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
-  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
+  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

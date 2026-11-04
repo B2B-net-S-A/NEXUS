@@ -1,4 +1,4 @@
-# Rola „Back office”: zamówienia i umowy bez finansów firmy (0644, 04.11.2026)
+# Rola „Back office”: zamówienia i umowy bez finansów firmy (0645, 04.11.2026)
 <!-- indeks: rola back_office, uprawnienie orders_work, zakładki zamówień w /finance bez sekcji Finanse, znacznik fo w tokenie, kwoty przez amounts_view zamiast VIEW_FINANCE -->
 
 Zgłoszenie Artura 04.11.2026: w Finansach za dużo osób widzi za dużo. Rola Finanse
