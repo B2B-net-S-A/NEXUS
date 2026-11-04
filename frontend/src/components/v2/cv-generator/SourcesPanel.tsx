@@ -54,7 +54,8 @@ export interface ProcessSourcesProps {
   onChampionFile: (file: File) => void;
   onChampionError: (message: string) => void;
   hasNotes: boolean;
-  notesChars: number;
+  /** Tylko przy minimum z reguły klienta; bez niego serwer znaków nie liczy (`null`). */
+  notesChars: number | null;
   noteDraft: string;
   onNoteDraftChange: (value: string) => void;
   sources: readonly CvSourceFile[];
@@ -135,7 +136,7 @@ export function ProcessSources(props: ProcessSourcesProps) {
         title="Notatki ze screeningu"
         status={
           props.hasNotes ? (
-            <OkChip>{`${props.notesChars.toLocaleString("pl-PL")} znaków`}</OkChip>
+            <OkChip>{props.notesChars == null ? "są" : `${props.notesChars.toLocaleString("pl-PL")} znaków`}</OkChip>
           ) : (
             <StatusChip tone="warn">brak notatek w tej rekrutacji</StatusChip>
           )
