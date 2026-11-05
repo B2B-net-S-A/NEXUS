@@ -1,4 +1,4 @@
-"""Logowanie do portalu: link z maila, sesja, kod SMS.
+"""Logowanie do portalu: link z maila i sesja.
 
 Bezpieczeństwo to główne ryzyko tego modułu, stąd reguły:
 
@@ -9,17 +9,17 @@ Bezpieczeństwo to główne ryzyko tego modułu, stąd reguły:
 * **Sesja osobna od JWT pracownika.** Losowy token w nagłówku ``X-Portal-Session``,
   a nie w ``Authorization``: pracowniczy JWT tu nie pasuje do żadnego hasha, a token
   portalu nie jest JWT, więc ``get_current_user`` go odrzuca. Sesja padnie, gdy kontrakt
-  przestanie działać, zmieni adres albo wypadnie z pilotażu.
+  przestanie działać, zmieni adres albo straci aktywację.
 * **Ta sama odpowiedź dla każdego adresu.** ``request_link`` nie zdradza, czy konsultant
   istnieje; limit linków na kontrakt też milczy.
-* **Kod SMS jako HMAC.** Sześć cyfr z SHA-256 odwraca się w ułamku sekundy, więc hash
-  jest kluczowany i związany z sesją. Limit prób, termin, limit wysyłek na kontrakt.
+
+Kod SMS przed finansami usunięto decyzją Artura z 04.11.2026: link z maila jest jedynym
+krokiem, a adres potwierdza człowiek przy aktywacji panelu. Tabela ``cp_sms_codes`` zostaje.
 """
 
 from __future__ import annotations
 
 import hashlib
-import hmac
 import logging
 import secrets
 from dataclasses import dataclass
@@ -29,25 +29,17 @@ from typing import Optional
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.models.consultant_portal import CpLink, CpSession, CpSmsCode
+from app.models.consultant_portal import CpLink, CpSession
 from app.services.consultant_portal import identity
 from app.services.consultant_portal.identity import Consultant
 from app.services.consultant_portal.portal_settings import PortalSettings
-from app.services.consultant_portal.sms import current_sender
-from app.services.consultant_portal_schema import MAX_SMS_ATTEMPTS
 
 logger = logging.getLogger(__name__)
 
 LOGIN_LINK_TTL = timedelta(minutes=30)
 RATING_LINK_TTL = timedelta(days=7)
 SESSION_TTL = timedelta(hours=12)
-SMS_CODE_TTL = timedelta(minutes=5)
-#: Tyle trwa odblokowanie finansów po poprawnym kodzie.
-SMS_VERIFIED_TTL = timedelta(minutes=30)
 LINKS_PER_HOUR = 3
-SMS_RESEND_AFTER = timedelta(seconds=60)
-SMS_PER_HOUR = 5
 TOKEN_MAX_LENGTH = 128
 
 
@@ -219,10 +211,6 @@ class PortalContext:
     session: CpSession
     consultant: Consultant
 
-    @property
-    def finance_open_until(self) -> Optional[datetime]:
-        return self.session.sms_verified_until
-
 
 async def load_context(
     db: AsyncSession,
@@ -253,136 +241,5 @@ async def load_context(
     return PortalContext(session, consultant) if consultant else None
 
 
-def finance_open(context: PortalContext, now: datetime) -> bool:
-    until = context.session.sms_verified_until
-    return until is not None and until > now
-
-
 async def revoke(db: AsyncSession, session: CpSession, *, now: datetime) -> None:
     session.revoked_at = now
-
-
-# ── Kod SMS ──────────────────────────────────────────────────────────────────
-
-
-def _code_hash(session_id: int, code: str) -> str:
-    key = settings.SECRET_KEY.encode("utf-8")
-    return hmac.new(key, f"{session_id}:{code}".encode(), hashlib.sha256).hexdigest()
-
-
-def phone_hint(phone: Optional[str]) -> Optional[str]:
-    digits = [ch for ch in phone or "" if ch.isdigit()]
-    return f"••• {''.join(digits[-3:])}" if len(digits) >= 3 else None
-
-
-def valid_phone(phone: Optional[str]) -> bool:
-    digits = sum(ch.isdigit() for ch in phone or "")
-    return 9 <= digits <= 15
-
-
-UNAVAILABLE = (
-    "Faktury i raporty są chwilowo niedostępne. Reszta portalu działa, a w tej "
-    "sprawie możesz napisać do nas przez nowe zgłoszenie."
-)
-NO_PHONE = (
-    "Nie mamy Twojego numeru telefonu, więc nie możemy wysłać kodu. Załóż zgłoszenie, "
-    "a dopiszemy numer."
-)
-WAIT_FOR_CODE = "Kod właśnie wysłaliśmy. Nowy możesz poprosić za minutę."
-TOO_MANY_CODES = "Wysłaliśmy już kilka kodów. Spróbuj ponownie za godzinę."
-BAD_CODE = "Ten kod nie pasuje albo wygasł. Sprawdź SMS albo poproś o nowy kod."
-
-
-async def send_code(db: AsyncSession, context: PortalContext, *, now: datetime) -> None:
-    sender = current_sender()
-    if not sender.available:
-        raise PortalError(UNAVAILABLE, status=503, code="finance_unavailable")
-    phone = context.consultant.phone
-    if not valid_phone(phone):
-        raise PortalError(NO_PHONE, status=409, code="no_phone")
-    contract_id = context.consultant.contract_id
-    last = await db.scalar(
-        select(func.max(CpSmsCode.created_at)).where(
-            CpSmsCode.contract_id == contract_id
-        )
-    )
-    if last is not None and now - last < SMS_RESEND_AFTER:
-        raise PortalError(WAIT_FOR_CODE, status=429, code="sms_wait")
-    sent = await db.scalar(
-        select(func.count())
-        .select_from(CpSmsCode)
-        .where(
-            CpSmsCode.contract_id == contract_id,
-            CpSmsCode.created_at >= now - timedelta(hours=1),
-        )
-    )
-    if (sent or 0) >= SMS_PER_HOUR:
-        raise PortalError(TOO_MANY_CODES, status=429, code="sms_limit")
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    # Stary kod przestaje działać, gdy przychodzi nowy.
-    await db.execute(
-        update(CpSmsCode)
-        .where(
-            CpSmsCode.session_id == context.session.id, CpSmsCode.consumed_at.is_(None)
-        )
-        .values(consumed_at=now)
-    )
-    db.add(
-        CpSmsCode(
-            session_id=context.session.id,
-            contract_id=contract_id,
-            code_hash=_code_hash(context.session.id, code),
-            expires_at=now + SMS_CODE_TTL,
-            created_at=now,
-        )
-    )
-    await db.flush()
-    delivered = await sender.send(
-        to=phone or "",
-        text=f"Kod do strefy konsultanta B2B.net: {code}. Ważny 5 minut.",
-    )
-    if not delivered:
-        raise PortalError(UNAVAILABLE, status=503, code="finance_unavailable")
-
-
-async def verify_code(
-    db: AsyncSession, context: PortalContext, code: str, *, now: datetime
-) -> bool:
-    """Poprawny kod otwiera finanse. Wyczerpany limit prób kasuje kod.
-
-    Licznik rośnie warunkowym ``UPDATE`` przed porównaniem, więc równoległe próby nie
-    przejdą ponad limit. Wołający zapisuje wynik także przy odmowie.
-    """
-
-    row = await db.scalar(
-        select(CpSmsCode.id).where(
-            CpSmsCode.session_id == context.session.id,
-            CpSmsCode.consumed_at.is_(None),
-            CpSmsCode.expires_at > now,
-            CpSmsCode.attempts < MAX_SMS_ATTEMPTS,
-        )
-    )
-    if row is None:
-        return False
-    updated = (
-        await db.execute(
-            update(CpSmsCode)
-            .where(CpSmsCode.id == row, CpSmsCode.attempts < MAX_SMS_ATTEMPTS)
-            .values(attempts=CpSmsCode.attempts + 1)
-            .returning(CpSmsCode.code_hash, CpSmsCode.attempts)
-        )
-    ).first()
-    if updated is None:
-        return False
-    stored, attempts = updated
-    if hmac.compare_digest(stored, _code_hash(context.session.id, code.strip())):
-        await db.execute(
-            update(CpSmsCode).where(CpSmsCode.id == row).values(consumed_at=now)
-        )
-        context.session.sms_verified_until = now + SMS_VERIFIED_TTL
-        return True
-    if attempts >= MAX_SMS_ATTEMPTS:
-        await db.execute(
-            update(CpSmsCode).where(CpSmsCode.id == row).values(consumed_at=now)
-        )
-    return False

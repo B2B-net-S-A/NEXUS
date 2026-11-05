@@ -23,6 +23,7 @@ from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_structure_schema as client_structure
+from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
 from app.services import equipment_extras_schema as equipment_extras
@@ -77,6 +78,8 @@ MODULES = (
     back_office,
     # 0638: portal konsultanta (02.11.2026).
     consultant_portal,
+    # 0646: panel konsultanta, aktywacja i materiały (05.11.2026).
+    consultant_panel,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

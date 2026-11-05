@@ -20,7 +20,8 @@ from app.models.contract import Contract, ContractStatus
 from app.services.consultant_portal.portal_settings import PortalSettings
 
 ENDED_GRACE_DAYS = 60
-_LIVE = (ContractStatus.active, ContractStatus.ending)
+#: Szkic też: aktywuje człowiek po podpisaniu umowy, a materiały są potrzebne przed startem.
+_LIVE = (ContractStatus.draft, ContractStatus.active, ContractStatus.ending)
 
 
 @dataclass(frozen=True)

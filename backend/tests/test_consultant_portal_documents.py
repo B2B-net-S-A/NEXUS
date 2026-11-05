@@ -37,9 +37,7 @@ from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     BASE,
     STAFF,
     clean_team,
-    finance_headers,
     install_mailer,
-    install_sms,
     make_member,
     make_person,
     portal_all,
@@ -74,7 +72,7 @@ async def _quiet_documents():
 
 @pytest.fixture(autouse=True)
 def _storage(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage_service, "STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
 
 
 def _period() -> tuple[int, int]:
@@ -119,49 +117,28 @@ async def _sync() -> dict:
 
 
 @pytest.mark.usefixtures("portal_all")
-async def test_upload_and_files_need_the_sms_code(app_client, monkeypatch) -> None:
-    fake = install_sms(monkeypatch)
+async def test_upload_and_download_with_a_session(app_client) -> None:
     person = await make_person()
-    plain = await session_headers(app_client, person)
-    refused = await _upload(app_client, plain)
-    assert refused.status_code == 403
-    assert refused.json()["detail"]["code"] == "sms_required"
-    verified = await finance_headers(app_client, person, fake)
-    done = await _upload(app_client, verified)
+    headers = await session_headers(app_client, person)
+    done = await _upload(app_client, headers)
     assert done.status_code == 201, done.text
-    document_id = done.json()["id"]
-    assert (
-        await app_client.get(
-            f"{BASE}/finance/documents/{document_id}/file", headers=plain
-        )
-    ).status_code == 403
     download = await app_client.get(
-        f"{BASE}/finance/documents/{document_id}/file", headers=verified
+        f"{BASE}/finance/documents/{done.json()['id']}/file", headers=headers
     )
     assert download.status_code == 200
     assert download.content == PDF
     assert "attachment" in download.headers["content-disposition"]
-
-
-@pytest.mark.usefixtures("portal_all")
-async def test_upload_refused_without_sms_provider(app_client, monkeypatch) -> None:
-    install_sms(monkeypatch, available=False)
-    person = await make_person()
-    headers = await session_headers(app_client, person)
-    response = await _upload(app_client, headers)
-    assert response.status_code == 503
+    assert (await app_client.get(f"{BASE}/finance/overview")).status_code == 401
 
 
 @pytest.mark.usefixtures("portal_all")
 async def test_consultant_cannot_read_anothers_document(
     app_client, monkeypatch
 ) -> None:
-    fake = install_sms(monkeypatch)
     owner = await make_person()
     stranger = await make_person()
-    uploaded = await _upload(app_client, await finance_headers(app_client, owner, fake))
-    fake.sent.clear()
-    other = await finance_headers(app_client, stranger, fake)
+    uploaded = await _upload(app_client, await session_headers(app_client, owner))
+    other = await session_headers(app_client, stranger)
     response = await app_client.get(
         f"{BASE}/finance/documents/{uploaded.json()['id']}/file", headers=other
     )
@@ -176,9 +153,8 @@ async def test_consultant_cannot_read_anothers_document(
     [b"", b"to nie jest dokument", b"MZ\x90\x00 program", b"<html>nie</html>"],
 )
 async def test_file_type_comes_from_content(app_client, monkeypatch, data) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     response = await _upload(app_client, headers, data=data, name="udaje.pdf")
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "bad_file"
@@ -186,9 +162,8 @@ async def test_file_type_comes_from_content(app_client, monkeypatch, data) -> No
 
 @pytest.mark.usefixtures("portal_all")
 async def test_file_over_the_limit_is_refused(app_client, monkeypatch) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     monkeypatch.setattr(documents, "MAX_FILE_BYTES", 10)
     response = await _upload(app_client, headers, data=PDF)
     assert response.status_code == 413
@@ -196,9 +171,8 @@ async def test_file_over_the_limit_is_refused(app_client, monkeypatch) -> None:
 
 @pytest.mark.usefixtures("portal_all")
 async def test_bad_period_is_refused(app_client, monkeypatch) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     for year, month in ((2031, 1), (2010, 1), (2026, 13)):
         response = await app_client.post(
             f"{BASE}/finance/documents",
@@ -210,7 +184,7 @@ async def test_bad_period_is_refused(app_client, monkeypatch) -> None:
 
 
 def test_stored_path_cannot_escape_the_directory(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(storage_service, "STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
     (tmp_path / "tajne.txt").write_text("x")
     with pytest.raises(FileNotFoundError):
         documents.path_for("../tajne.txt")
@@ -269,9 +243,8 @@ async def _read(reader) -> dict:
 async def test_both_channels_give_one_card_without_duplicates(
     app_client, monkeypatch
 ) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     year, month = _period()
     assert (await _upload(app_client, headers)).status_code == 201
     await _sync()
@@ -310,9 +283,8 @@ async def test_both_channels_give_one_card_without_duplicates(
 
 @pytest.mark.usefixtures("portal_all")
 async def test_report_and_invoice_are_separate_cards(app_client, monkeypatch) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     await _upload(app_client, headers, kind="report", data=PDF)
     await _upload(app_client, headers, kind="invoice", data=OTHER_PDF, name="fv.pdf")
     await _sync()
@@ -335,9 +307,8 @@ async def test_second_read_of_same_mail_changes_nothing() -> None:
 async def test_card_has_no_amounts_and_closes_after_decision(
     app_client, monkeypatch
 ) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     uploaded = await _upload(app_client, headers)
     await _sync()
     card = (await _document_cards())[0]
@@ -393,8 +364,8 @@ async def test_reader_records_graph_refusal_without_crashing(status_code) -> Non
 @pytest.mark.usefixtures("portal_restored")
 async def test_pilot_reads_only_pilot_senders() -> None:
     inside = await make_person()
-    outside = await make_person()
-    await set_portal("pilot", [inside.contract_id])
+    outside = await make_person(activated=False)
+    await set_portal("pilot")
     reader = FakeMailbox(
         [
             _message("in", inside.email),
@@ -555,9 +526,8 @@ async def test_accepted_report_tells_consultant_to_issue_invoice(
     app_client, monkeypatch
 ) -> None:
     mailer = install_mailer(monkeypatch)
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     uploaded = await _upload(app_client, headers)
     finance = await make_user(UserRole.admin)
     await app_client.post(
@@ -583,10 +553,9 @@ async def test_no_mail_about_decision_when_portal_is_off(
     app_client, monkeypatch
 ) -> None:
     mailer = install_mailer(monkeypatch)
-    fake = install_sms(monkeypatch)
     await set_portal("all")
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     uploaded = await _upload(app_client, headers)
     await set_portal("off")
     finance = await make_user(UserRole.admin)
@@ -601,9 +570,8 @@ async def test_no_mail_about_decision_when_portal_is_off(
 @pytest.mark.usefixtures("portal_all")
 async def test_rejection_goes_back_with_a_reason(app_client, monkeypatch) -> None:
     install_mailer(monkeypatch)
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     uploaded = await _upload(app_client, headers)
     finance = await make_user(UserRole.admin)
     url = f"{STAFF}/documents/{uploaded.json()['id']}/reject"
@@ -671,9 +639,8 @@ def test_month_row_says_what_is_next() -> None:
 
 @pytest.mark.usefixtures("portal_all")
 async def test_only_accepted_invoice_can_be_paid(app_client, monkeypatch) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    headers = await finance_headers(app_client, person, fake)
+    headers = await session_headers(app_client, person)
     invoice = await _upload(app_client, headers, kind="invoice")
     report = await _upload(app_client, headers, kind="report", data=OTHER_PDF)
     finance = await make_user(UserRole.admin)
@@ -702,11 +669,8 @@ async def test_only_accepted_invoice_can_be_paid(app_client, monkeypatch) -> Non
 
 @pytest.mark.usefixtures("portal_all", "care_on", "clean_team", "divisions_restored")
 async def test_finance_routes_refuse_other_teams(app_client, monkeypatch) -> None:
-    fake = install_sms(monkeypatch)
     person = await make_person()
-    uploaded = await _upload(
-        app_client, await finance_headers(app_client, person, fake)
-    )
+    uploaded = await _upload(app_client, await session_headers(app_client, person))
     care_member = await make_member("care")
     finance_member = await make_member("finance")
     url = f"{STAFF}/documents/{uploaded.json()['id']}"

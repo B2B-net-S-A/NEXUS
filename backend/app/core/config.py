@@ -1617,13 +1617,13 @@ class Settings(BaseSettings):
     # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.
     HR_M365_MODE: str = "off"
     # Portal konsultanta (02.11.2026). Wyłącznik jest w `app_settings`, tu tylko to,
-    # czego nie ma bez konfiguracji po stronie M365 i dostawcy SMS. Puste = odmowa.
+    # czego nie ma bez konfiguracji po stronie M365. Puste = odmowa.
     # Konto wsparcie@: nadawca linków i organizator rozmów.
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
-    # `disabled` albo `log` (tylko NEXUS_ENV=staging i testy; patrz consultant_portal/sms.py).
-    CONSULTANT_PORTAL_SMS_PROVIDER: str = "disabled"
+    # Wspólny numer back office'u pokazywany w panelu. Pusty = panel nie ma wiersza z numerem.
+    CONSULTANT_PORTAL_SUPPORT_PHONE: str = ""
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
     # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
     HR_M365_MAILBOX_ALLOWLIST: str = ""

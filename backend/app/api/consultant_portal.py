@@ -5,13 +5,12 @@ Trasy mają ``@limiter.limit`` — dlatego moduł NIE ma ``from __future__ impor
 (ciało żądania lądowałoby jako parametr query → 422).
 
 Opisany wyjątek od bramek tras: te trasy są publiczne z definicji, bo konsultant nie ma
-konta. Zamiast JWT pracownika stoją tu trzy własne warunki:
+konta. Zamiast JWT pracownika stoją tu dwa własne warunki:
 
 * ``open_portal`` — wyłącznik ``app_settings['consultant_portal']``: ``off`` = 404, ta sama
   odpowiedź co nieistniejąca trasa, także przy poprawnej sesji,
 * ``portal_context`` — sesja z nagłówka ``X-Portal-Session`` (losowy token, hash w bazie).
-  Pracowniczy JWT tu nie działa, a token portalu nie działa w ``/api/**`` pracownika,
-* ``finance_context`` — dodatkowo kod SMS: faktury, raporty i wysyłka dokumentów.
+  Pracowniczy JWT tu nie działa, a token portalu nie działa w ``/api/**`` pracownika.
 
 Limity liczą się per IP (``client_ip_key``): limit trasy i wspólny kubełek, żeby seria
 różnych tokenów z jednego adresu nie posłużyła do zgadywania. Prośba o link odpowiada
@@ -54,7 +53,6 @@ from app.services.consultant_portal import (
 )
 from app.services.consultant_portal.auth import PortalContext, PortalError
 from app.services.consultant_portal.portal_settings import PortalSettings
-from app.services.consultant_portal.sms import current_sender
 from app.services.consultant_portal_schema import COMMENT_MAX, REASON_MAX, TOPICS
 
 router = APIRouter()
@@ -107,23 +105,6 @@ async def portal_context(
 
 
 Session = Annotated[PortalContext, Depends(portal_context)]
-
-
-async def finance_context(context: Session) -> PortalContext:
-    """Kod SMS przed danymi finansowymi. Bez dostawcy cała sekcja jest niedostępna."""
-
-    if not current_sender().available:
-        raise _translate(
-            PortalError(auth.UNAVAILABLE, status=503, code="finance_unavailable")
-        )
-    if not auth.finance_open(context, _now()):
-        raise _translate(
-            PortalError("Potwierdź kod SMS.", status=403, code="sms_required")
-        )
-    return context
-
-
-Finance = Annotated[PortalContext, Depends(finance_context)]
 
 
 # ── Wejście ──────────────────────────────────────────────────────────────────
@@ -435,71 +416,14 @@ async def rate_by_link(
     return {"ok": True}
 
 
-# ── Finanse: po kodzie SMS ───────────────────────────────────────────────────
-
-
-@router.get("/finance/status")
-@limiter.limit("60/minute")
-@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
-async def finance_status(
-    context: Session,
-    request: Request,  # wymagane przez limiter slowapi
-) -> dict:
-    available = current_sender().available
-    return {
-        "available": available,
-        "message": None if available else auth.UNAVAILABLE,
-        "verified": available and auth.finance_open(context, _now()),
-        "phone_hint": auth.phone_hint(context.consultant.phone) if available else None,
-    }
-
-
-@router.post("/finance/sms")
-@limiter.limit("3/minute;10/hour")
-@limiter.shared_limit(SHARED_AUTH, scope="consultant-portal-auth")
-async def finance_send_code(
-    context: Session,
-    request: Request,  # wymagane przez limiter slowapi
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    try:
-        await auth.send_code(db, context, now=_now())
-    except PortalError as exc:
-        raise _translate(exc) from exc
-    return {"phone_hint": auth.phone_hint(context.consultant.phone)}
-
-
-class CodeRequest(BaseModel):
-    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
-
-
-@router.post("/finance/verify")
-@limiter.limit("10/minute;30/hour")
-@limiter.shared_limit(SHARED_AUTH, scope="consultant-portal-auth")
-async def finance_verify(
-    payload: CodeRequest,
-    context: Session,
-    request: Request,  # wymagane przez limiter slowapi
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    now = _now()
-    if not current_sender().available:
-        raise _translate(
-            PortalError(auth.UNAVAILABLE, status=503, code="finance_unavailable")
-        )
-    verified = await auth.verify_code(db, context, payload.code, now=now)
-    # Licznik prób musi przetrwać odmowę: wyjątek cofnąłby transakcję żądania.
-    await db.commit()
-    if not verified:
-        raise _translate(PortalError(auth.BAD_CODE, status=422, code="bad_code"))
-    return {"verified": True}
+# ── Finanse ──────────────────────────────────────────────────────────────────
 
 
 @router.get("/finance/overview")
 @limiter.limit("60/minute")
 @limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
 async def finance_overview(
-    context: Finance,
+    context: Session,
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -512,7 +436,7 @@ async def finance_overview(
 @limiter.limit("10/minute;60/hour")
 @limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
 async def finance_upload(
-    context: Finance,
+    context: Session,
     request: Request,  # wymagane przez limiter slowapi
     kind: Annotated[Literal["report", "invoice"], Form()],
     year: Annotated[int, Form()],
@@ -549,7 +473,7 @@ async def finance_upload(
 @limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
 async def finance_download(
     document_id: int,
-    context: Finance,
+    context: Session,
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
