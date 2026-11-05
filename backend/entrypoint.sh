@@ -12595,4 +12595,7 @@ fi
 startup_phase ""
 echo "[startup-timing] total before uvicorn: $(( $(date +%s) - STARTUP_T0 ))s"
 echo "Starting uvicorn..."
+# Bezpiecznik tylko dla WWW, po całym starcie: DDL wyżej i skrypty przez `docker exec`
+# biegną bez limitu. Pomiar i wyłączenie: docs/claude/podstawy/statement-timeout.md
+export DB_STATEMENT_TIMEOUT_MS=120000
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

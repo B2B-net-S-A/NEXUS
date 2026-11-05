@@ -292,7 +292,10 @@ async def _identity_quarantined(
     """Zapisz nazwę odczytaną z pliku w kwarantannie; (czy zablokowana, id dokumentu)."""
     if db is None or not hasattr(db, "add") or not hasattr(db, "flush"):
         return False, None
-    from app.services.candidate_identity_quarantine import record_detected_identity
+    from app.services.candidate_identity_quarantine import (
+        cv_bytes_quarantined,
+        record_detected_identity,
+    )
 
     document_id = (
         await db.scalar(
@@ -305,6 +308,16 @@ async def _identity_quarantined(
         if content_hash
         else None
     )
+    # Dokument bez zapisanego skrótu umyka zapytaniu wyżej, a ten sam plik ze
+    # wskaźnika przy imieniu `?` przeszedłby bramkę jako `inconclusive`.
+    if (
+        document_id is None
+        and content_hash
+        and await cv_bytes_quarantined(
+            db, candidate_id=candidate.id, content_sha256=content_hash
+        )
+    ):
+        return True, None
     review = await record_detected_identity(
         db,
         candidate=candidate,

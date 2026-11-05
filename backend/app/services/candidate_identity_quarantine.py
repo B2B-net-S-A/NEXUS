@@ -2,9 +2,10 @@
 
 The detector is intentionally conservative: an automatic mismatch is only
 confirmed when both identities have a usable first name and surname and both
-parts disagree after transliteration.  Missing surnames and partial
-disagreement stay ``inconclusive`` so a name change or parsing failure cannot
-silently quarantine a legitimate source.
+parts disagree after transliteration.  Missing surnames, partial disagreement,
+a word shared by both identities and a near-equal name part stay
+``inconclusive`` so a name change, another split of the same words or a parsing
+failure cannot silently quarantine a legitimate source.
 
 Raw names and free text never enter the review row or audit event.  Only
 booleans and keyed SHA-256 fingerprints are retained as provenance.
@@ -20,6 +21,7 @@ import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any, Literal
 
 from sqlalchemy import exists, select, update
@@ -78,6 +80,11 @@ _SPECIAL_TRANSLITERATION = str.maketrans(
     }
 )
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+# Krótsze słowo („de”, „Li”) bywa wspólne dwóm różnym osobom.
+_NAME_TOKEN_MIN_CHARS = 3
+# Pomiar 05.11.2026 na 608 sprzecznościach: 280 to te same słowa w innym podziale
+# na imię i nazwisko, kolejne ok. 90 to literówka albo transliteracja.
+_NAME_PART_SIMILAR_RATIO = 0.8
 
 
 class IdentityQuarantineConflict(RuntimeError):
@@ -702,16 +709,36 @@ async def _clear_cv_projection(
     }
 
 
-def normalize_person_name_part(value: Any) -> str:
-    """Fold case, accents and punctuation for deterministic identity matching."""
-
+def _fold_person_name(value: Any) -> str:
     raw = str(value or "").strip()
     if raw.casefold() in _PLACEHOLDERS:
         return ""
     translated = raw.translate(_SPECIAL_TRANSLITERATION)
     decomposed = unicodedata.normalize("NFKD", translated)
     ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return _NON_ALNUM_RE.sub("", ascii_text.casefold())
+    return ascii_text.casefold()
+
+
+def normalize_person_name_part(value: Any) -> str:
+    """Fold case, accents and punctuation for deterministic identity matching."""
+
+    return _NON_ALNUM_RE.sub("", _fold_person_name(value))
+
+
+def _person_name_tokens(*values: Any) -> set[str]:
+    return {
+        token
+        for value in values
+        for token in _NON_ALNUM_RE.split(_fold_person_name(value))
+        if len(token) >= _NAME_TOKEN_MIN_CHARS
+    }
+
+
+def _name_parts_similar(left: str, right: str) -> bool:
+    return (
+        bool(left and right)
+        and SequenceMatcher(None, left, right).ratio() >= _NAME_PART_SIMILAR_RATIO
+    )
 
 
 def identity_unreadable(first_name: Any, last_name: Any) -> bool:
@@ -777,6 +804,21 @@ def evaluate_identity_match(
             and candidate_first == observed_last
             and candidate_last == observed_first
         ),
+        # Imię i nazwisko bywają podzielone inaczej niż w CV (Traffit dzielił po
+        # pierwszej spacji): to samo słowo po obu stronach nie dowodzi innej osoby.
+        "shared_name_word": bool(
+            _person_name_tokens(candidate_first_name, candidate_last_name)
+            & _person_name_tokens(observed_first_name, observed_last_name)
+        ),
+        "similar_name_part": any(
+            _name_parts_similar(left, right)
+            for left, right in (
+                (candidate_first, observed_first),
+                (candidate_last, observed_last),
+                (candidate_first, observed_last),
+                (candidate_last, observed_first),
+            )
+        ),
     }
     if candidate_complete:
         evidence["candidate_identity_fingerprint"] = _fingerprint(
@@ -793,9 +835,14 @@ def evaluate_identity_match(
         "name_order_swapped"
     ]:
         return IdentityMatchResult("confirmed_match", evidence)
-    if not evidence["first_name_match"] and not evidence["last_name_match"]:
-        return IdentityMatchResult("confirmed_mismatch", evidence)
-    return IdentityMatchResult("inconclusive", evidence)
+    if (
+        evidence["first_name_match"]
+        or evidence["last_name_match"]
+        or evidence["shared_name_word"]
+        or evidence["similar_name_part"]
+    ):
+        return IdentityMatchResult("inconclusive", evidence)
+    return IdentityMatchResult("confirmed_mismatch", evidence)
 
 
 def source_is_quarantined_clause(
@@ -848,6 +895,72 @@ async def get_identity_review(
     if for_update:
         stmt = stmt.with_for_update()
     return await db.scalar(stmt)
+
+
+async def cv_bytes_quarantined(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    content_sha256: str,
+) -> bool:
+    """Czy bajty ze wskaźnika kandydata to plik z kwarantanny tej osoby.
+
+    `cv_storage_key` trzyma własną kopię pliku pod innym kluczem niż dokument
+    (pomiar 05.11.2026: 0 z 254 równych kluczy, 66 z 243 tych samych bajtów), więc
+    porównanie kluczy niczego nie wykrywa. Wskaźnika nie zdejmujemy, bo w pozostałych
+    177 profilach to inny plik, a zwolnienie z kwarantanny ma działać bez naprawy.
+
+    54 z tych 66 dokumentów nie ma zapisanego skrótu, więc liczymy go z bajtów. Gdy
+    pliku nie da się odczytać, nie da się też wykluczyć kopii, dlatego odpowiedź
+    brzmi „tak”: brak tekstu naprawia zwolnienie, cudzego tekstu nikt nie zauważy.
+    """
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.services import object_storage
+
+    documents = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.content_sha256,
+                CandidateDocument.storage_key,
+            ).where(
+                CandidateDocument.candidate_id == candidate_id,
+                source_is_quarantined_clause(
+                    candidate_id_column=CandidateDocument.candidate_id,
+                    source_id_column=CandidateDocument.id,
+                    source_kind="document",
+                ),
+            )
+        )
+    ).all()
+    if any(document.content_sha256 == content_sha256 for document in documents):
+        return True
+    for document in documents:
+        if document.content_sha256:
+            continue
+        try:
+            content = (
+                await run_in_threadpool(
+                    object_storage.download_cv, document.storage_key
+                )
+                if document.storage_key
+                else await db.scalar(
+                    select(CandidateDocument.file_content).where(
+                        CandidateDocument.id == document.id
+                    )
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — bez bajtów nie ma dowodu na inny plik
+            logger.warning(
+                "[identity_quarantine] quarantined file unreadable document=%s: %s",
+                document.id,
+                type(exc).__name__,
+            )
+            return True
+        if content and hashlib.sha256(bytes(content)).hexdigest() == content_sha256:
+            return True
+    return False
 
 
 async def record_detected_identity(
@@ -1042,6 +1155,26 @@ async def mark_confirmed_mismatch(
     return row
 
 
+def _reopen_pointer_read(candidate: Candidate) -> None:
+    """Zwolniony plik wraca do odczytu tekstu: wyrok `quarantined` jest końcowy.
+
+    Gdy wskaźnik trzyma też kopię innego pliku z kwarantanny, następny bieg
+    zapisze ten wyrok ponownie.
+    """
+    from app.services.cv_text_backfill import _EXTRACTION_MARKER_KEY, _QUARANTINED
+
+    extracted = candidate.cv_extracted_data
+    marker = (
+        extracted.get(_EXTRACTION_MARKER_KEY) if isinstance(extracted, dict) else None
+    )
+    if isinstance(marker, dict) and marker.get("outcome") == _QUARANTINED:
+        candidate.cv_extracted_data = {
+            key: value
+            for key, value in extracted.items()
+            if key != _EXTRACTION_MARKER_KEY
+        }
+
+
 async def override_identity_quarantine(
     db: AsyncSession,
     *,
@@ -1061,6 +1194,10 @@ async def override_identity_quarantine(
     if len(clean_reason) > 500:
         raise ValueError("override reason must be at most 500 characters")
 
+    # Ta sama kolejność blokad co przy zapisie decyzji: najpierw kandydat.
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
     row = await get_identity_review(
         db,
         candidate_id=candidate_id,
@@ -1077,6 +1214,8 @@ async def override_identity_quarantine(
     row.override_reason = clean_reason
     row.override_by_id = actor.id
     row.override_at = now
+    if candidate is not None:
+        _reopen_pointer_read(candidate)
     reason_sha256 = hashlib.sha256(clean_reason.encode("utf-8")).hexdigest()
     candidate_audit.record_candidate_audit(
         db,

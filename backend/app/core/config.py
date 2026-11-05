@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     # Database (PostgreSQL)
     DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
+    # 0 = bez limitu. Wartość dla WWW ustawia `entrypoint.sh` tuż przed uvicornem,
+    # nie env kontenera: `docker exec` ze skryptem ma biec bez limitu.
+    DB_STATEMENT_TIMEOUT_MS: int = 0
 
     # Qdrant (vector store for semantic search)
     # UWAGA: NIE ma tu `QDRANT_API_KEY`. Żadna z 25 konstrukcji `QdrantClient()`

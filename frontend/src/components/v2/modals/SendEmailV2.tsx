@@ -72,7 +72,7 @@ export function SendEmailV2({
       <MailboxMissingDialog
         onOpenChange={onOpenChange}
         candidateEmail={candidateEmail}
-        reconnect={Boolean(connection.data?.connected && connection.data?.requires_reconnect)}
+        reconnect={Boolean(connection.data?.requires_reconnect)}
         defaultSubject={defaultSubject}
         defaultBody={defaultBody}
       />

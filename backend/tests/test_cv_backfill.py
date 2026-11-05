@@ -545,6 +545,9 @@ async def test_stored_read_stops_on_identity_quarantine(monkeypatch):
     class _DB(_FakeDB):
         add = flush = object()
 
+        async def execute(self, *_a, **_kw):
+            return SimpleNamespace(all=list)
+
     async def quarantined(*_a, **kw):
         assert kw["observed_last_name"] == "Kwiatkowska"
         return SimpleNamespace(is_quarantined=True)

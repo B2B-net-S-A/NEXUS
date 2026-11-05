@@ -134,18 +134,19 @@ export default function Microsoft365Card() {
         </div>
       )}
 
-      {/* Reconnect-required (amber) — server-side token decryption broke
-          (e.g. encryption key rotation). User must re-run OAuth. */}
+      {/* Reconnect-required (amber) — połączenie wyłączone przez awarię (np. Microsoft
+          odrzucił zapisane logowanie). Naprawia je tylko ponowny OAuth użytkownika. */}
       {requiresReconnect && (
         <Alert
           variant="warning"
           title="Wymagane ponowne podłączenie Microsoft 365"
           description={
             <>
-              Po stronie serwera zmieniła się konfiguracja szyfrowania tokenów
-              {status?.mailbox_upn ? ` dla skrzynki ${status.mailbox_upn}` : ""}.
-              Kliknij „Połącz ponownie”, żeby przywrócić synchronizację. Twoje
-              dotychczasowe maile i wątki pozostają nienaruszone.
+              Połączenie NEXUSA z Twoją skrzynką
+              {status?.mailbox_upn ? ` ${status.mailbox_upn}` : ""} przestało działać,
+              więc nowe maile i spotkania tu nie trafiają. Kliknij „Połącz ponownie”
+              i zaloguj się do Microsoftu: dociągniemy też to, co ominęło NEXUSA.
+              Twoje dotychczasowe maile i wątki pozostają nienaruszone.
             </>
           }
           className="mb-4"

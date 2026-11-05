@@ -33,6 +33,7 @@ def _no_document_db(*, legacy_quarantined: bool) -> AsyncMock:
     db = AsyncMock()
     db.scalars.return_value = Mock(first=Mock(return_value=None))
     db.scalar.return_value = legacy_quarantined
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     return db
 
 
