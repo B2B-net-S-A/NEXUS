@@ -78,7 +78,7 @@ MODULES = (
     back_office,
     # 0638: portal konsultanta (02.11.2026).
     consultant_portal,
-    # 0647: panel konsultanta, aktywacja i materiały (05.11.2026).
+    # 0648: panel konsultanta, aktywacja i materiały (05.11.2026).
     consultant_panel,
 )
 

@@ -1,6 +1,6 @@
-"""Panel konsultanta, pierwsza wersja (decyzje Artura 04–05.11.2026): SQL migracji ``0647_consultant_panel`` i lustra entrypointu.
+"""Panel konsultanta, pierwsza wersja (decyzje Artura 04–05.11.2026): SQL migracji ``0648_consultant_panel`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0647_consultant_panel.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0648_consultant_panel.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabele:

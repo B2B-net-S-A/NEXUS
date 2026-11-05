@@ -1,4 +1,4 @@
-"""Panel konsultanta, pierwsza wersja — modele (0647).
+"""Panel konsultanta, pierwsza wersja — modele (0648).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/consultant_panel_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).
