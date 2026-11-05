@@ -25,9 +25,8 @@ została odrzucona; nie wracaj do niej bez nowej decyzji.
   dodała rezygnacje do odejść, pokazała −16 przy netto +36: `ends` już je zawiera. Reguły
   liczenia są w `finanse-insights/insights-insights-parytet-z-dynareporterem-na.md`.
   Nie dokładaj tu sumy firmy bez `BoardReader` (`uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`).
-- **Każda sekcja ładuje się osobno i ma własny stan awarii** (`Loaded`), bo
-  `insights/recruitment/in-flight/me` odpowiadało na stagingu 2–4 s. Awaria nie wygląda
-  jak zero ani pusta lista.
+- **Każda sekcja ładuje się osobno i ma własny stan awarii** (`Loaded`), żeby wolniejsza
+  trasa nie trzymała całego ekranu. Awaria nie wygląda jak zero ani pusta lista.
 - **Wejście:** `PhonePreviewRedirect` w powłoce przenosi z ekranu startowego (`/dashboard`,
   a Radę z `/insights`) przy szerokości do 500 px. Link z maila otwiera swój ekran, nie
   podgląd. „Pełna wersja NEXUSA” wyłącza przeniesienie do końca sesji przeglądarki.

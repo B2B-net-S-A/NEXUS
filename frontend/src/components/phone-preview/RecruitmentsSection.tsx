@@ -41,9 +41,10 @@ export function RecruitmentsSection({ all }: { all: boolean }) {
     queryFn: () => api.get<QuickCounts>("/api/jobs/quick-counts").then((r) => r.data),
   });
   const p0 = useQuery({ queryKey: ["p0-jobs"], queryFn: () => api.get<P0Jobs>("/api/p0-jobs").then((r) => r.data) });
+  // `compact`: wąski wiersz z tytułem, klientem, terminem i etapami, bez opisów rekrutacji.
   const params = all
-    ? { open_only: true, include_stage_counts: true, sort: "deadline", page: 1, page_size: PAGE_SIZE }
-    : { ...MY_RECRUITMENTS_PARAMS, page_size: PAGE_SIZE };
+    ? { open_only: true, include_stage_counts: true, sort: "deadline", page: 1, page_size: PAGE_SIZE, compact: true }
+    : { ...MY_RECRUITMENTS_PARAMS, page_size: PAGE_SIZE, compact: true };
   const jobs = useQuery({
     queryKey: ["phone-preview", "jobs", params],
     queryFn: () => api.get<{ items: JobRow[]; total: number }>("/api/jobs", { params }).then((r) => r.data),
