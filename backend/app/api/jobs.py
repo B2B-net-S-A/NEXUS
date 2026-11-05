@@ -379,6 +379,19 @@ _LIST_ONLY_STRIPPED_JOB_FIELDS: tuple[str, ...] = (
 )
 
 
+# `GET /api/jobs?compact=true`: to, co pokazuje lista rekrutacji w podglądzie na
+# telefonie. 05.11.2026 pełny wiersz (111 pól, m.in. opis i zespół) dawał 21 KB po
+# kompresji na 12 rekrutacji, a ten wycinek 1,6 KB.
+_COMPACT_ROW_FIELDS = (
+    "id",
+    "title",
+    "working_title",
+    "client_name",
+    "deadline",
+    "stage_columns",
+)
+
+
 def _strip_champion_payload_from_list_row(payload: dict) -> dict:
     """Zdejmij Profil Championa i wewnętrzne notatki z wiersza listy rekrutacji.
 
@@ -1327,6 +1340,13 @@ async def list_jobs(
             "client); other viewers get no such key."
         ),
     ),
+    compact: bool = Query(
+        False,
+        description=(
+            "Wiersz tylko z polami `_COMPACT_ROW_FIELDS`, bez opisu i zespołu "
+            "(podgląd na telefonie). Te same filtry, sortowanie i liczby."
+        ),
+    ),
 ):
     from app.models.recruitment_pipeline import CandidateStage
 
@@ -1924,7 +1944,7 @@ async def list_jobs(
             # Imiona championów to dane kandydatów rekrutacji, której ta osoba
             # nie otworzy — wiersz zostaje, osoby nie.
             d["champions"] = []
-        items.append(d)
+        items.append({k: d[k] for k in _COMPACT_ROW_FIELDS if k in d} if compact else d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 

@@ -115,7 +115,7 @@ def _request(kind: str, status: str = "open") -> SimpleNamespace:
     ],
 )
 def test_candidate_state_strongest_fact_wins(requests, slot, expected) -> None:
-    slot_request = SimpleNamespace(status=slot) if slot else None
+    slot_request = SimpleNamespace(status=slot, slots=[]) if slot else None
     assert service.candidate_state(requests, slot_request) == expected
 
 
@@ -255,3 +255,28 @@ def test_no_ai_import_in_the_public_path() -> None:
         source = (BACKEND / name).read_text(encoding="utf-8")
         assert "ai_feature" not in source
         assert "ai_models" not in source
+
+
+def _slot_request(status: str, start: datetime) -> SimpleNamespace:
+    return SimpleNamespace(
+        status=status,
+        chosen_index=None,
+        slots=[{"start": start.isoformat(), "end": start.isoformat()}],
+    )
+
+
+def test_interview_block_with_past_slots_lets_client_give_new_ones() -> None:
+    past = datetime.now(timezone.utc) - timedelta(days=2)
+    ahead = datetime.now(timezone.utc) + timedelta(days=2)
+    assert (
+        service.interview_block(_slot_request("awaiting_recruiter", past))["status"]
+        == "none"
+    )
+    assert (
+        service.interview_block(_slot_request("awaiting_dl", ahead))["status"]
+        == "awaiting_dl"
+    )
+    # Potwierdzona rozmowa zostaje, nawet gdy jej termin minął.
+    assert service.interview_block(_slot_request("confirmed", past))["status"] == (
+        "confirmed"
+    )

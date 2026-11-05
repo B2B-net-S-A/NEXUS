@@ -1381,6 +1381,15 @@ except Exception as _access_usage_schema_err:  # noqa: BLE001
     print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
     _ACCESS_USAGE_TABLE_DDL = []
 
+# 0647: decyzje z zakładki „Wnioski” (`app/services/insight_decisions_schema.py`).
+try:
+    from app.services import insight_decisions_schema as _insight_decisions_schema
+
+    _INSIGHT_DECISIONS_TABLE_DDL = list(_insight_decisions_schema.TABLE_DDL)
+except Exception as _insight_decisions_schema_err:  # noqa: BLE001
+    print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
+    _INSIGHT_DECISIONS_TABLE_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
@@ -7011,6 +7020,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_NOVELTY_TABLE_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
+    # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
+    *_INSIGHT_DECISIONS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

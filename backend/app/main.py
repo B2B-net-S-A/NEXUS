@@ -123,6 +123,7 @@ from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
 from app.api import insights_work_rhythm
+from app.api import insights_wnioski
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -1828,6 +1829,11 @@ app.include_router(
 )
 app.include_router(
     insights_sources_api.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_wnioski.router,
     prefix="/api/insights",
     tags=["insights"],
 )
@@ -3622,6 +3628,7 @@ async def api_health_deep_check():
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.access_usage import AccessUsageDaily
+    from app.models.insight_decision import InsightDecision
     from app.models.novelty import NoveltyProgress
     from app.models.candidate_job_owner import CandidateJobOwner
     from app.models.pair_departure_care import PairDepartureCare
@@ -4052,6 +4059,7 @@ async def api_health_deep_check():
         ("novelty_progress", NoveltyProgress),
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
+        ("insight_decisions", InsightDecision),
     ]
 
     checks: dict[str, str] = {}

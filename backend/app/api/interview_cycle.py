@@ -134,6 +134,8 @@ class SlotItem(BaseModel):
 class SlotRequestOut(BaseModel):
     id: int
     status: str
+    # Wniosek otwarty, ale wszystkie terminy minęły: nic już z niego nie wybierzesz.
+    expired: bool = False
     slots: list[SlotItem]
     chosen_index: Optional[int] = None
     respond_by: Optional[datetime] = None

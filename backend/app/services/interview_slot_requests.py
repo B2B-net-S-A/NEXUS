@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client_interview_slot_request import (
     OPEN_SLOT_STATUSES,
     ClientInterviewSlotRequest,
+    all_slots_past,
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
@@ -52,6 +53,32 @@ class CreatedSlotRequest:
     skip_reasons: list[str] = field(default_factory=list)
 
 
+async def _cancel_lapsed_request(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[ClientInterviewSlotRequest]:
+    """Otwarty wniosek, którego wszystkie terminy minęły, nie blokuje nowego.
+
+    Unikat „jeden otwarty na parę” dawał 409 klientowi w panelu, a DL-owi okno
+    „Zastąp otwarte terminy”, choć z tamtych terminów nie dało się już nic wybrać.
+    """
+    lapsed = await db.scalar(
+        select(ClientInterviewSlotRequest)
+        .where(
+            ClientInterviewSlotRequest.candidate_id == candidate_id,
+            ClientInterviewSlotRequest.job_id == job_id,
+            ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
+        )
+        .with_for_update()
+    )
+    if lapsed is None or not all_slots_past(
+        lapsed.slots or (), datetime.now(timezone.utc)
+    ):
+        return None
+    interview_slots.cancel(lapsed)
+    await db.flush()
+    return lapsed
+
+
 async def create_slot_request_for_pair(
     db: AsyncSession,
     *,
@@ -72,6 +99,10 @@ async def create_slot_request_for_pair(
     autora nie miałby kogo zapisać w historii, a rekruter dostaje dzwonek.
     """
     job_id = job.id
+    if replaced is None:
+        replaced = await _cancel_lapsed_request(
+            db, candidate_id=candidate_id, job_id=job_id
+        )
     recruiter_id = (
         recruiter_id
         or (replaced.recruiter_id if replaced is not None else None)

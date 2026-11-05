@@ -34,6 +34,7 @@ from app.models.client_interview_slot_request import (
     SLOT_STATUS_CANCELLED,
     SLOT_STATUS_CONFIRMED,
     OPEN_SLOT_STATUSES,
+    SLOT_PAST_TOLERANCE,
     ClientInterviewSlotRequest,
 )
 from app.models.job import Job
@@ -400,7 +401,7 @@ def _ensure_slot_ahead(req: ClientInterviewSlotRequest, index: int) -> None:
     w przeszłości (audyt 21.10.2026). Dotyczy wyboru rekrutera, potwierdzenia
     DL-a i „Klient wybrał inny termin”.
     """
-    if _parse(req.slots[index]["start"]) < local_now() - timedelta(minutes=5):
+    if _parse(req.slots[index]["start"]) < local_now() - SLOT_PAST_TOLERANCE:
         raise HTTPException(status_code=422, detail=PAST_SLOT_DETAIL)
 
 
@@ -783,12 +784,14 @@ def cancel(req: ClientInterviewSlotRequest) -> None:
 async def cancel_open_for_pair(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> None:
-    """Zamknięta karta nie ma otwartych terminów (decyzja Artura 04.11.2026).
+    """Karta zamknięta albo już po rozmowie nie ma otwartych terminów (decyzja
+    Artura 04.11.2026).
 
     Otwarty wniosek zostawał na karcie „Odrzucony” i „Wycofany”: karta mówiła
     „Wybierz termin”, przyszły termin dawało się wybrać i założyć rozmowę,
     a po powrocie karty wisiały stare terminy i 409 dla klienta w panelu.
-    Przywrócona karta dostaje nowe terminy nowym wnioskiem.
+    Na „Akceptacji” i „Zatrudnionym” dawał zadanie, którego nikt nie miał po co
+    zrobić. Karta, która wróciła, dostaje nowe terminy nowym wnioskiem.
     """
     requests = await db.scalars(
         select(ClientInterviewSlotRequest)
