@@ -128,7 +128,7 @@ export interface PayrollLine {
   hours_amount: string | null;
   /** Premie po potrąceniu z gwarancji; przed potrąceniem = `bonus_total + clawback_total`. */
   bonus_total: string;
-  /** Potrącenie z gwarancji premii DL (0650); brak = linia sprzed gwarancji. */
+  /** Potrącenie z gwarancji premii DL (0651); brak = linia sprzed gwarancji. */
   clawback_total?: string;
   total: string;
 }
@@ -157,6 +157,8 @@ export interface BonusClawback {
   status: "open" | "settled" | "cancelled";
   contract_start: string | null;
   ended_on: string | null;
+  /** Pierwszy dzień miesiąca, od którego dług bierze premie („z kolejnych premii”). */
+  deduct_from: string;
   guarantee_until: string | null;
   note: string | null;
   cancel_reason: string | null;

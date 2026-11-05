@@ -13,7 +13,9 @@ startu kontraktu, odbiera DL-owi premię za ten placement. Decyzje z tego dnia:
   a kontrakt w NEXUSIE jeszcze trwa,
 * potrącenie idzie samo: raport otwartego miesiąca odejmuje dług od
   przyznanych premii osoby (najwyżej do ich sumy, w tej samej walucie), reszta
-  przechodzi na kolejne miesiące. Zamknięcie miesiąca zamraża potrącenie
+  przechodzi na kolejne miesiące. Dług bierze tylko premie z miesiąca, w którym
+  powstał, i późniejszych (``deduct_from``): miesiące sprzed NEXUSA i wrzesień–
+  październik 2026 nie są w NEXUSIE zamknięte, choć premie z nich są wypłacone. Zamknięcie miesiąca zamraża potrącenie
   w ``hr_bonus_clawback_offsets``, ponowne otwarcie je kasuje.
 
 Cofnięcie zakończenia kontraktu anuluje otwarty dług automatu; dług ręczny
@@ -123,19 +125,33 @@ class _Debt:
     user_id: int
     currency: str
     remaining: Decimal
+    #: Pierwszy miesiąc potrącenia jako ``rok * 12 + miesiąc`` (0 = bez granicy).
+    starts: int = 0
 
 
-def allocate(debts: Sequence[_Debt], available: dict[str, Decimal]) -> list[Deduction]:
+def month_index(year: int, month: int) -> int:
+    return year * 12 + month
+
+
+def allocate(
+    debts: Sequence[_Debt],
+    available: dict[str, Decimal],
+    *,
+    month: Optional[int] = None,
+) -> list[Deduction]:
     """Jeden miesiąc jednej osoby: długi po kolei, każdy w swojej walucie.
 
     Potrącenie nie przekracza sumy premii miesiąca w tej walucie; ``remaining``
     długów maleje w miejscu, więc kolejne wywołanie dla następnego miesiąca
-    widzi tylko resztę.
+    widzi tylko resztę. ``month`` (``month_index``) pomija długi, które w tym
+    miesiącu jeszcze się nie potrącają.
     """
 
     left = dict(available)
     out: list[Deduction] = []
     for debt in debts:
+        if month is not None and debt.starts > month:
+            continue
         pool = left.get(debt.currency, ZERO)
         take = min(debt.remaining, pool)
         if take <= 0:
@@ -168,6 +184,7 @@ async def _open_debts(
             row.recipient_user_id,
             row.currency,
             Decimal(row.amount) - settled.get(row.id, ZERO),
+            month_index(row.deduct_from.year, row.deduct_from.month),
         )
         for row in rows
     ]
@@ -196,16 +213,20 @@ async def month_deductions(
 ) -> dict[int, list[Deduction]]:
     """Potrącenia otwartego miesiąca per osoba.
 
-    Długi idą od najstarszego. Najpierw zjadają premie wcześniejszych otwartych
-    miesięcy (te też się jeszcze potrącą), dopiero reszta trafia na ten miesiąc —
-    zamknięcie miesiąca wcześniejszego później nie potrąci więcej, niż zostało.
+    Długi idą od najstarszego, każdy od swojego ``deduct_from``. Najpierw
+    zjadają premie wcześniejszych otwartych miesięcy (te też się jeszcze
+    potrącą), dopiero reszta trafia na ten miesiąc — zamknięcie miesiąca
+    wcześniejszego później nie potrąci więcej, niż zostało.
     """
 
     debts = await _open_debts(db, user_ids)
     if not debts:
         return {}
     recipients = {debt.user_id for debt in debts}
-    target = year * 12 + month
+    target = month_index(year, month)
+    if all(debt.starts > target for debt in debts):
+        return {}
+    first = min(debt.starts for debt in debts)
     rows = await db.execute(
         select(
             HrBonus.recipient_user_id,
@@ -218,6 +239,7 @@ async def month_deductions(
             HrBonus.status == "assigned",
             HrBonus.recipient_user_id.in_(sorted(recipients)),
             HrBonus.period_year * 12 + HrBonus.period_month <= target,
+            HrBonus.period_year * 12 + HrBonus.period_month >= first,
         )
         .group_by(
             HrBonus.recipient_user_id,
@@ -243,7 +265,7 @@ async def month_deductions(
     for user_id, user_debts in by_user.items():
         months = available.get(user_id, {})
         for key in sorted(months):
-            taken = allocate(user_debts, months[key])
+            taken = allocate(user_debts, months[key], month=month_index(*key))
             if key == (year, month) and taken:
                 out[user_id] = taken
     return out
@@ -364,6 +386,7 @@ def _audit(
 def _new_clawback(
     bonus: HrBonus,
     *,
+    today: date,
     origin: str,
     contract: Optional[Contract],
     ended_on: Optional[date],
@@ -380,6 +403,8 @@ def _new_clawback(
         origin=origin,
         status="open",
         contract_start=start,
+        # „Z kolejnych premii”: od miesiąca, w którym dług powstał.
+        deduct_from=today.replace(day=1),
         ended_on=ended_on,
         guarantee_until=guarantee_until(start) if start else None,
         note=note,
@@ -441,6 +466,7 @@ async def reconcile_contract(
                 continue
             clawback = _new_clawback(
                 bonus,
+                today=today,
                 origin="automatic",
                 contract=contract,
                 ended_on=check.ended_on,
@@ -555,6 +581,7 @@ async def register_manual(
             )
     clawback = _new_clawback(
         bonus,
+        today=today,
         origin="manual",
         contract=contract,
         ended_on=ended_on if ended_on is not None and ended_on <= today else None,
@@ -715,6 +742,7 @@ def clawback_payload(
         if claw.contract_start
         else None,
         "ended_on": claw.ended_on.isoformat() if claw.ended_on else None,
+        "deduct_from": claw.deduct_from.isoformat(),
         "guarantee_until": claw.guarantee_until.isoformat()
         if claw.guarantee_until
         else None,

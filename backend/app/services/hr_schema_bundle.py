@@ -81,7 +81,7 @@ MODULES = (
     consultant_portal,
     # 0648: panel konsultanta, aktywacja i materiały (05.11.2026).
     consultant_panel,
-    # 0650: gwarancja premii DL — dług i potrącenia (05.11.2026).
+    # 0651: gwarancja premii DL — dług i potrącenia (05.11.2026).
     bonus_guarantee,
 )
 

@@ -1,7 +1,7 @@
 """Gwarancja premii DL: dług za premię i potrącenia z kolejnych premii.
 
-Revision ID: 0650_hr_bonus_guarantee
-Revises: 0649_start_documents
+Revision ID: 0651_hr_bonus_guarantee
+Revises: 0650_manual_placement_exclusions
 
 Zasada Artura 05.11.2026: konsultant, który nie przepracuje 12 miesięcy od
 startu kontraktu, odbiera DL-owi całą premię za placement; kwota potrąca się
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import hr_bonus_guarantee_schema as schema
 
-revision = "0650_hr_bonus_guarantee"
-down_revision = "0649_start_documents"
+revision = "0651_hr_bonus_guarantee"
+down_revision = "0650_manual_placement_exclusions"
 branch_labels = None
 depends_on = None
 

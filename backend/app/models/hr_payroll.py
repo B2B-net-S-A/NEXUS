@@ -7,7 +7,7 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 * ``HrBonus`` — premia ręczna albo propozycja automatu (placement, Liga),
 * ``PayrollPeriod`` — miesiąc płac otwarty albo zamknięty,
 * ``PayrollLine`` — zamrożona linia zamkniętego miesiąca (osoba × waluta),
-* ``HrBonusClawback`` / ``HrBonusClawbackOffset`` — gwarancja premii DL (0650):
+* ``HrBonusClawback`` / ``HrBonusClawbackOffset`` — gwarancja premii DL (0651):
   dług za premię i potrącenia zamrożone przy zamknięciu miesiąca.
 """
 
@@ -254,7 +254,7 @@ class PayrollLine(Base):
     bonus_total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
-    #: Potrącenie z gwarancji premii DL; ``bonus_total`` jest już po nim (0650).
+    #: Potrącenie z gwarancji premii DL; ``bonus_total`` jest już po nim (0651).
     clawback_total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -274,7 +274,7 @@ class PayrollLine(Base):
 
 
 class HrBonusClawback(Base, TimestampMixin):
-    """Dług za przyznaną premię DL: konsultant odszedł przed 12 miesiącami (0650)."""
+    """Dług za przyznaną premię DL: konsultant odszedł przed 12 miesiącami (0651)."""
 
     __tablename__ = "hr_bonus_clawbacks"
     __table_args__ = (
@@ -302,6 +302,10 @@ class HrBonusClawback(Base, TimestampMixin):
         CheckConstraint(
             guarantee_schema.CK_CLAWBACK_CANCELLED_AT,
             name="ck_hr_bonus_clawbacks_cancelled_at",
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_DEDUCT_FROM,
+            name="ck_hr_bonus_clawbacks_deduct_from",
         ),
         CheckConstraint(
             guarantee_schema.CK_CLAWBACK_NOTE, name="ck_hr_bonus_clawbacks_note"
@@ -340,6 +344,7 @@ class HrBonusClawback(Base, TimestampMixin):
     contract_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     ended_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     guarantee_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    deduct_from: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

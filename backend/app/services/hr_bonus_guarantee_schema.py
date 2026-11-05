@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — gwarancja premii DL: SQL migracji ``0650_hr_bonus_guarantee`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — gwarancja premii DL: SQL migracji ``0651_hr_bonus_guarantee`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0650_hr_bonus_guarantee.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0651_hr_bonus_guarantee.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Zasada Artura z 05.11.2026: konsultant, który nie przepracuje 12 miesięcy od
@@ -12,7 +12,8 @@ Tabele:
 * ``hr_bonus_clawbacks`` — dług za jedną przyznaną premię DL: automat przy
   końcu kontraktu przed rocznicą startu albo Płace ręcznie. Jeden otwarty dług
   na premię (indeks częściowy). Anulowanie jest miękkie, jak przy premiach.
-  Nikt nie zakłada ani nie zdejmuje długu sobie (CHECK-i).
+  Nikt nie zakłada ani nie zdejmuje długu sobie (CHECK-i). ``deduct_from`` —
+  pierwszy dzień miesiąca, od którego dług bierze premie („z kolejnych premii”).
 * ``hr_bonus_clawback_offsets`` — potrącenie zamrożone przy zamknięciu
   miesiąca płac (dług × okres). Ponowne otwarcie miesiąca je kasuje, więc
   w otwartym miesiącu potrącenie liczy się z danych, jak cały raport płac.
@@ -39,6 +40,7 @@ CK_CLAWBACK_NOT_SELF_CANCELLED = (
     "cancelled_by IS NULL OR cancelled_by <> recipient_user_id"
 )
 CK_CLAWBACK_CANCELLED_AT = "status <> 'cancelled' OR cancelled_at IS NOT NULL"
+CK_CLAWBACK_DEDUCT_FROM = "EXTRACT(DAY FROM deduct_from) = 1"
 CK_CLAWBACK_NOTE = f"note IS NULL OR char_length(note) <= {NOTE_MAX_LENGTH}"
 CK_CLAWBACK_CANCEL_NOTE = (
     f"cancel_note IS NULL OR char_length(cancel_note) <= {NOTE_MAX_LENGTH}"
@@ -62,6 +64,7 @@ TABLE_DDL: tuple[str, ...] = (
     contract_start DATE NULL,
     ended_on DATE NULL,
     guarantee_until DATE NULL,
+    deduct_from DATE NOT NULL,
     note TEXT NULL,
     created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     cancelled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
@@ -77,6 +80,7 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_hr_bonus_clawbacks_not_self_created CHECK ({CK_CLAWBACK_NOT_SELF_CREATED}),
     CONSTRAINT ck_hr_bonus_clawbacks_not_self_cancelled CHECK ({CK_CLAWBACK_NOT_SELF_CANCELLED}),
     CONSTRAINT ck_hr_bonus_clawbacks_cancelled_at CHECK ({CK_CLAWBACK_CANCELLED_AT}),
+    CONSTRAINT ck_hr_bonus_clawbacks_deduct_from CHECK ({CK_CLAWBACK_DEDUCT_FROM}),
     CONSTRAINT ck_hr_bonus_clawbacks_note CHECK ({CK_CLAWBACK_NOTE}),
     CONSTRAINT ck_hr_bonus_clawbacks_cancel_note CHECK ({CK_CLAWBACK_CANCEL_NOTE})
 )""",

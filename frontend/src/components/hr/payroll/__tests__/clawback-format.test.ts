@@ -30,6 +30,7 @@ function claw(overrides: Partial<BonusClawback> = {}): BonusClawback {
     status: "open",
     contract_start: "2026-11-03",
     ended_on: "2026-11-05",
+    deduct_from: "2026-11-01",
     guarantee_until: "2027-11-02",
     note: null,
     cancel_reason: null,
@@ -62,7 +63,7 @@ describe("clawback-format", () => {
       clawbackReason(claw({ origin: "manual", ended_on: null, note: "konsultant odszedł" })),
     ).toBe("Rozliczenia: konsultant odszedł");
     expect(clawbackProgress(claw({ settled: "1000.00", remaining: "512.00" }))).toMatch(
-      /^potrącono 1\s?000,00\szł z 1\s?512,00\szł/,
+      /^potrącono 1\s?000,00\szł z 1\s?512,00\szł · z premii od 11\.2026$/,
     );
   });
 });

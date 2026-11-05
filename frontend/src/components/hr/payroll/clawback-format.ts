@@ -33,7 +33,7 @@ export function clawbackReason(item: BonusClawback): string {
   return "kontrakt zakończony przed 12 mies.";
 }
 
-/** „potrącono 1 000,00 z 1 512,00 zł · z kolejnych premii”. */
+/** „potrącono 0,00 zł z 1512,00 zł · z premii od 11.2026”. */
 export function clawbackProgress(item: BonusClawback): string {
   if (item.refund_due != null) {
     return `zwrot anulowany — potrącone ${formatMoney(item.refund_due, item.currency)} do oddania`;
@@ -45,5 +45,5 @@ export function clawbackProgress(item: BonusClawback): string {
   return `potrącono ${formatMoney(settled, item.currency)} z ${formatMoney(
     item.amount,
     item.currency,
-  )} · z kolejnych premii`;
+  )} · z premii od ${item.deduct_from.slice(5, 7)}.${item.deduct_from.slice(0, 4)}`;
 }

@@ -117,6 +117,13 @@ def test_debt_only_takes_bonuses_in_its_currency() -> None:
     assert debt.remaining == Decimal("100.00")
 
 
+def test_debt_waits_for_its_first_month() -> None:
+    debt = _Debt(1, 1, "PLN", Decimal("100.00"), starts=2026 * 12 + 11)
+    assert allocate([debt], {"PLN": Decimal("500.00")}, month=2026 * 12 + 10) == []
+    taken = allocate([debt], {"PLN": Decimal("500.00")}, month=2026 * 12 + 11)
+    assert [d.amount for d in taken] == [Decimal("100.00")]
+
+
 def test_month_without_bonuses_deducts_nothing() -> None:
     assert allocate([_debt(1, "10.00")], {}) == []
 

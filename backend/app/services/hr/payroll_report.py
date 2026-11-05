@@ -13,7 +13,7 @@ Lista osób:
 Konsultanci B2B u klientów nie mają kartotek, więc na listę nie trafiają —
 Compass dokładał do zakładki „all” rolę ``consultant``.
 
-Gwarancja premii DL (0650): ``bonus_total`` jest po potrąceniu długu
+Gwarancja premii DL (0651): ``bonus_total`` jest po potrąceniu długu
 (``bonus_guarantee.month_deductions``), potrącenie stoi w ``clawback_total``,
 a premie przed nim to suma obu. Zamrożone linie niosą to samo.
 

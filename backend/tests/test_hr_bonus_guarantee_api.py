@@ -192,6 +192,21 @@ async def _hook(contract_id: int, event: str) -> dict:
         return result
 
 
+async def _deduct_from(bonus_id: int, months_ago: int) -> None:
+    """Dług powstał wcześniej: potrąca się od miesiąca sprzed ``months_ago``."""
+
+    year, month = _month(months_ago)
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(HrBonusClawback).where(
+                HrBonusClawback.bonus_id == bonus_id,
+                HrBonusClawback.status != "cancelled",
+            )
+        )
+        row.deduct_from = row.deduct_from.replace(year=year, month=month)
+        await db.commit()
+
+
 async def _clawbacks(bonus_id: int) -> list[HrBonusClawback]:
     async with AsyncSessionLocal() as db:
         return list(
@@ -241,6 +256,9 @@ async def test_debt_bigger_than_next_bonus_carries_over_and_freezes_on_close(
         "open",
         Decimal("1512.00"),
     )
+    today = business_today()
+    assert debt.deduct_from == today.replace(day=1)
+    await _deduct_from(paid, 3)
     assert debt.guarantee_until == debt.contract_start.replace(
         year=debt.contract_start.year + 1
     ) - timedelta(days=1)
@@ -307,6 +325,8 @@ async def test_several_debts_go_oldest_first(app_client, payroll_on) -> None:
     await _close(app_client, payroll, 4)
     await _hook(older, "ended")
     await _hook(newer, "ended")
+    await _deduct_from(first, 3)
+    await _deduct_from(second, 3)
     await _bonus(dl, "600.00", 3, assigned_by=payroll)
 
     line = await _line(app_client, payroll, dl, 3)
@@ -443,6 +463,7 @@ async def test_cancelling_unpaid_bonus_drops_its_debt(app_client, payroll_on) ->
     contract_id = await _contract(started_days_ago=60, ended_days_ago=2)
     bonus = await _bonus(dl, "900.00", 1, contract_id=contract_id, assigned_by=payroll)
     await _hook(contract_id, "ended")
+    await _deduct_from(bonus, 1)
     # Premia z otwartego miesiąca i jej dług: na wypłacie zero.
     line = await _line(app_client, payroll, dl, 1)
     assert (line["bonus_total"], line["clawback_total"]) == ("0.00", "900.00")
@@ -455,3 +476,26 @@ async def test_cancelling_unpaid_bonus_drops_its_debt(app_client, payroll_on) ->
     assert cancelled.status_code == 200, cancelled.text
     (debt,) = await _clawbacks(bonus)
     assert (debt.status, debt.cancel_reason) == ("cancelled", "bonus_cancelled")
+
+
+@pytest.mark.asyncio
+async def test_debt_takes_only_bonuses_from_its_month_on(
+    app_client, payroll_on
+) -> None:
+    """Miesiące sprzed NEXUSA nie są w nim zamknięte, choć premie z nich wyszły:
+    dług bierze tylko „kolejne premie”, od miesiąca, w którym powstał."""
+
+    payroll, dl, _admin = await _team()
+    contract_id = await _contract(started_days_ago=40, ended_days_ago=3)
+    paid = await _bonus(dl, "1000.00", 6, contract_id=contract_id, assigned_by=payroll)
+    await _bonus(dl, "700.00", 5, assigned_by=payroll)  # archiwum, wypłacone
+    await _hook(contract_id, "ended")
+    await _deduct_from(paid, 2)
+    await _bonus(dl, "400.00", 2, assigned_by=payroll)
+
+    archive = await _line(app_client, payroll, dl, 5)
+    assert (archive["bonus_total"], archive["clawback_total"]) == ("700.00", "0.00")
+    own_month = await _line(app_client, payroll, dl, 6)
+    assert own_month["clawback_total"] == "0.00"
+    later = await _line(app_client, payroll, dl, 2)
+    assert (later["bonus_total"], later["clawback_total"]) == ("0.00", "400.00")
