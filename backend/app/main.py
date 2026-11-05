@@ -1424,6 +1424,7 @@ app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
 # 0506: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
 app.include_router(pre_contracts_api.router, prefix="/api", tags=["pipeline"])
 app.include_router(start_documents_api.router, prefix="/api", tags=["pipeline"])
+app.include_router(start_documents_api.clients_router, prefix="/api", tags=["clients"])
 # 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
 app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])

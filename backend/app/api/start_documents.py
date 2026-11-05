@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.api.permission_access import ClientsEditUser, DeliveryViewUser
 from app.api.recruitment_access import ensure_job_membership
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.models.activity import Activity
@@ -72,6 +73,8 @@ from app.services.section_permissions import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+#: Lista klienta to Delivery: sekcja przed uprawnieniem (`permission_access`).
+clients_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 MSG_ROLE = "Dokumenty do startu prowadzą osoby z rekrutacji i Delivery Lead klienta."
 MSG_NOT_FOUND = "Nie ma takiej pozycji na liście tego klienta."
@@ -216,7 +219,7 @@ async def _load_document(db: AsyncSession, document_id: int) -> ClientStartDocum
     return document
 
 
-@router.get("/start-documents/clients/{client_id}")
+@clients_router.get("/start-documents/clients/{client_id}")
 async def client_list(
     client_id: int, current_user: DeliveryViewUser, db: Db
 ) -> dict[str, Any]:
@@ -225,7 +228,7 @@ async def client_list(
     return {"items": [_document_out(d) for d in lists.get(client_id, [])]}
 
 
-@router.post("/start-documents/clients/{client_id}", status_code=201)
+@clients_router.post("/start-documents/clients/{client_id}", status_code=201)
 async def add_client_document(
     client_id: int, payload: ClientDocumentIn, current_user: ClientsEditUser, db: Db
 ) -> dict[str, Any]:
@@ -243,7 +246,7 @@ async def add_client_document(
     return _document_out(document)
 
 
-@router.patch("/start-documents/items/{document_id}")
+@clients_router.patch("/start-documents/items/{document_id}")
 async def update_client_document(
     document_id: int, payload: ClientDocumentIn, current_user: ClientsEditUser, db: Db
 ) -> dict[str, Any]:
@@ -257,7 +260,7 @@ async def update_client_document(
     return _document_out(document)
 
 
-@router.delete("/start-documents/items/{document_id}", status_code=204)
+@clients_router.delete("/start-documents/items/{document_id}", status_code=204)
 async def archive_client_document(
     document_id: int, current_user: ClientsEditUser, db: Db
 ) -> Response:
@@ -280,7 +283,7 @@ def _template_type(filename: Optional[str], data: bytes) -> str:
     raise HTTPException(status_code=415, detail=MSG_TEMPLATE_FORMAT)
 
 
-@router.put("/start-documents/items/{document_id}/template")
+@clients_router.put("/start-documents/items/{document_id}/template")
 async def upload_template(
     document_id: int,
     current_user: ClientsEditUser,

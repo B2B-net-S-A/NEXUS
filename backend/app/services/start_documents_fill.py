@@ -17,6 +17,7 @@ from typing import Any, Optional
 from docx import Document
 from docx.table import _Cell
 
+from app.core.docx_cells import row_cells
 from app.core.docx_metadata import clear_author_metadata
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ def fill_template(data: bytes, values: Mapping[str, str]) -> bytes:
         return data
     for table in document.tables:
         for row in table.rows:
-            for cell in row.cells:
+            for cell in row_cells(row):
                 _fill_cell(cell, values)
     clear_author_metadata(document)
     out = io.BytesIO()
