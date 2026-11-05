@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from docx import Document
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
@@ -40,6 +40,38 @@ pytestmark = pytest.mark.asyncio
 
 PDF = b"%PDF-1.4\n% test\n"
 VALID_PESEL = "44051401458"
+
+
+@pytest.fixture(autouse=True)
+async def _no_bells_left_for_other_tests():
+    """Baza shardu jest wspólna: te dzwonki zjadałyby limit `BATCH` testów wysyłki."""
+
+    yield
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(Notification).where(
+                Notification.notification_type.in_(
+                    (
+                        NotificationType.start_documents,
+                        NotificationType.start_documents_due,
+                        NotificationType.start_documents_returned,
+                        NotificationType.start_documents_reminder,
+                    )
+                )
+            )
+        )
+        await db.commit()
+
+
+def _only_client(world: dict):
+    """Pętla ma widzieć tylko klienta z testu, nie całą wspólną bazę."""
+
+    original = svc.open_states
+
+    async def _open_states(db, **_kwargs):
+        return await original(db, client_ids=[world["client_id"]])
+
+    return patch.object(svc, "open_states", _open_states)
 
 
 @pytest.fixture
@@ -714,7 +746,7 @@ async def test_sweeper_sends_one_digest_a_day_and_skips_outside_hours(
     early = now.replace(hour=7)
     assert (await sweeper.run_once(early))["recipients"] == 0
     late = now.replace(hour=10)
-    with patch.object(sweeper, "load_calendar", _always_working):
+    with patch.object(sweeper, "load_calendar", _always_working), _only_client(world):
         await sweeper.run_once(late)
         await sweeper.run_once(late)
     async with AsyncSessionLocal() as db:
@@ -887,7 +919,7 @@ async def test_owner_and_delivery_lead_digests_merge_into_one(
         await db.commit()
     from app.core.scheduling import local_now
 
-    with patch.object(sweeper, "load_calendar", _always_working):
+    with patch.object(sweeper, "load_calendar", _always_working), _only_client(world):
         await sweeper.run_once(local_now().replace(hour=10))
     async with AsyncSessionLocal() as db:
         bells = (
