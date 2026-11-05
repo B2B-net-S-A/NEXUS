@@ -337,9 +337,15 @@ z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, 
   „zastosowano instrukcje”.
 - **„At most four” z `presentation_title` zastąpione pięcioma punktami**, a „Dopasuj pod
   rekrutację” w edytorze zmienia tylko punkty 3–5.
-- Test przed zmianą (12 kandydatów, 30 biegów, Opus 4.8, bo staging nie ma klucza Sola): 5 punktów,
-  lata i specjalizacja w 30 z 30; Nordea ze Scrumem w źródłach 11 z 12. Liczba lat różniła się
-  między biegami u 3 z 12 kandydatów. CV wygenerowane wcześniej nie zmieniają się same.
+- **Must-have na górze roli przestawia kod** (`_must_have_bullets_first`, tylko „Pod rekrutację”
+  z Championem): punkty z must-have idą na górę, od najważniejszego wymagania, bez zmiany
+  treści, przed limitem punktów klienta. Prośba w prompcie odpada: podniosła udział ról
+  z must-have na górze tylko z 66% do 73%, a uwagi kontroli w doświadczeniu z 34 do 52.
+- **Testuj na modelu z produkcji** (`CV_B2B_MODEL` bez zmian, Sol), nigdy na Opusie. Pomiar na Solu:
+  12 kandydatów, 48 biegów: 5 punktów w 48, specjalizacja w 48, lata na początku w 46, a 2 razy
+  „Less than 1 year” z uwagą. Nordea ze Scrumem w źródłach 24 z 24, bez źródeł Scrum nie
+  pojawia się (8 z 8). Model zgłaszał pominięcie tylko w 2 z 8, więc uwagę daje kod
+  (`summary_last_point_terms` w katalogu). CV wygenerowane wcześniej nie zmieniają się same.
 
 ## Daty stanowisk jak w oryginale (02.11.2026)
 

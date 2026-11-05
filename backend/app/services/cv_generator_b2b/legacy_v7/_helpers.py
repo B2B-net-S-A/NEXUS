@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from typing import Any
 
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
@@ -487,6 +488,14 @@ def _apply_summary_standard(
         )
     if not points or not isinstance(points[0], str):
         return notes
+    # Model zgłaszał pominięcie instrukcji Nordei w 2 z 8 biegów, więc mówi to kod.
+    policy = getattr(client_rule, "managed_policy", None) or {}
+    terms = policy.get("summary_last_point_terms") or ()
+    if terms and not any(term in str(points[-1]).casefold() for term in terms):
+        notes.append(
+            "WERYFIKUJ: ostatni punkt podsumowania nie opisuje pracy w Scrumie/Agile, "
+            "bo źródła tego nie potwierdzają. Dopytaj kandydata."
+        )
     first = points[0]
     match = _YEARS_PHRASE_RE.search(_SUBFIGURE_SPLIT_RE.split(first, maxsplit=1)[0])
     figure = _tenure_figure(match) if match else None
@@ -506,6 +515,40 @@ def _apply_summary_standard(
             f"WERYFIKUJ: w pierwszym punkcie poprawiono lata do sumy dat ról: „{points[0]}”."
         )
     return notes
+
+
+def _must_have_bullets_first(
+    candidate_data: dict[str, Any], must_have: Sequence[str]
+) -> None:
+    """W każdej roli ustaw punkty z must-have na górze, od najważniejszego wymagania.
+
+    Robi to kod, bo prośba w prompcie (05.11.2026, 12 osób, po 2 biegi na Solu)
+    podniosła udział ról z must-have na górze tylko z 66% do 73%, a uwagi kontroli
+    w doświadczeniu z 34 do 52: model przepisywał punkty, zamiast je przestawić.
+    Tu zmienia się wyłącznie kolejność, a limit punktów klienta tnie już po niej.
+    """
+    from app.services.dz_review import Requirement, found_in, requirement_terms
+
+    requirements = [
+        Requirement(label=name, alternatives=(name,), terms=requirement_terms((name,)))
+        for name in must_have
+        if name
+    ]
+    if not requirements:
+        return
+
+    def rank(point: Any) -> int:
+        if not isinstance(point, str):
+            return len(requirements)
+        return next(
+            (i for i, req in enumerate(requirements) if found_in(point, req)),
+            len(requirements),
+        )
+
+    for role in candidate_data.get("experience") or []:
+        points = role.get("responsibilities") if isinstance(role, dict) else None
+        if isinstance(points, list):
+            role["responsibilities"] = sorted(points, key=rank)
 
 
 # Lata przypięte WPROST do roli albo firmy: „6 lat jako Backend Developer",

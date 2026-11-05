@@ -799,7 +799,9 @@ def test_presentation_instructions_keep_the_client_role_untranslated():
 def _standard_data(points):
     return {
         "why_points": list(points),
-        "experience": [{"dates": "01.2023 – 12.2025", "company": "Acme", "position": "QA"}],
+        "experience": [
+            {"dates": "01.2023 – 12.2025", "company": "Acme", "position": "QA"}
+        ],
     }
 
 
@@ -864,6 +866,19 @@ def test_later_figures_in_the_first_point_are_not_touched():
     assert data["why_points"][0] == point
 
 
+def test_client_last_point_without_required_topic_is_reported():
+    rule = SimpleNamespace(
+        why_points_max=None,
+        managed_policy={"summary_last_point_terms": ["scrum", "agile"]},
+    )
+    data = _standard_data(FIVE)
+    assert any(
+        "Scrumie/Agile" in n for n in _helpers._apply_summary_standard(data, "pl", rule)
+    )
+    data = _standard_data([*FIVE[:4], "Praca w Scrumie w Acme"])
+    assert _helpers._apply_summary_standard(data, "pl", rule) == []
+
+
 def test_empty_summary_is_reported():
     data = _standard_data([])
     notes = _helpers._apply_summary_standard(data, "pl")
@@ -877,6 +892,73 @@ def test_prompt_states_the_five_point_order_without_the_old_range(language):
     assert "Maksymalnie 3-5" not in prompt
     assert "At most 3-5" not in prompt
     assert "3-4 p" not in prompt
+
+
+def _role_points(*points):
+    return {"experience": [{"company": "Acme", "responsibilities": list(points)}]}
+
+
+def test_must_have_points_go_first_by_requirement_order_and_nothing_changes():
+    data = _role_points(
+        "Spotkania z klientem",
+        "Rozwój usług w Kafka",
+        "Praca w Pythonie",
+        "Dokumentacja",
+    )
+    _helpers._must_have_bullets_first(data, ["Python", "Kafka"])
+    assert data["experience"][0]["responsibilities"] == [
+        "Praca w Pythonie",
+        "Rozwój usług w Kafka",
+        "Spotkania z klientem",
+        "Dokumentacja",
+    ]
+
+
+def test_role_without_must_have_keeps_its_order():
+    data = _role_points("Spotkania z klientem", "Dokumentacja")
+    _helpers._must_have_bullets_first(data, ["Python"])
+    assert data["experience"][0]["responsibilities"] == [
+        "Spotkania z klientem",
+        "Dokumentacja",
+    ]
+
+
+def test_no_must_have_list_and_odd_shapes_change_nothing():
+    data = {
+        "experience": [
+            {"responsibilities": None},
+            "tekst",
+            _role_points("x")["experience"][0],
+        ]
+    }
+    _helpers._must_have_bullets_first(data, ["Python"])
+    assert data["experience"][2]["responsibilities"] == ["x"]
+    _helpers._must_have_bullets_first(data, [])
+    assert data["experience"][2]["responsibilities"] == ["x"]
+
+
+def test_generation_orders_role_points_only_for_tailored_mode(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            {
+                "dates": "01.2020 – 12.2025",
+                "company": "Acme",
+                "position": "Backend Developer",
+                "responsibilities": ["Spotkania z klientem", "Klastry w Kubernetes"],
+                "technologies": [],
+            }
+        ]
+    )
+    tailored = _run("tailored", champion=_champion())
+    polished = _run("polished", champion=_champion())
+    assert (
+        tailored.render_payload["experience"][0]["responsibilities"][0]
+        == "Klastry w Kubernetes"
+    )
+    assert (
+        polished.render_payload["experience"][0]["responsibilities"][0]
+        == "Spotkania z klientem"
+    )
 
 
 def test_central_standard_no_longer_caps_the_summary_at_four():

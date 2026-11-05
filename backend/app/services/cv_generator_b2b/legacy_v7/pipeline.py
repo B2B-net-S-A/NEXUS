@@ -53,6 +53,7 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _date_overlap_warnings,
     _apply_summary_standard,
     _fabrication_warnings,
+    _must_have_bullets_first,
     _fix_experience_years,
     _fix_scoped_years,
     _normalize_candidate_data,
@@ -381,6 +382,8 @@ def run_legacy_generation(
     _fix_scoped_years(candidate_data, language)
     # Standard 5 punktów: model bywa nieposłuszny, więc kod domyka limit i lata.
     summary_notes = _apply_summary_standard(candidate_data, language, client_rule)
+    if champion_dto and mode == "tailored":
+        _must_have_bullets_first(candidate_data, champion_dto.must_have)
 
     # Pozycje wzięte z pytań rekrutera albo wymagań klienta, a nie od kandydata,
     # znikają, zanim zobaczą je bezpieczniki, kontrola AI i dokument.
