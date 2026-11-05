@@ -191,6 +191,7 @@ from app.api import b2b_contract_generator
 from app.api import b2b_documents
 from app.api import b2b_esign
 from app.api import pre_contracts as pre_contracts_api
+from app.api import start_documents as start_documents_api
 from app.api import pair_owners as pair_owners_api
 from app.api import b2b_register_import
 from app.api import contract_folder_docs
@@ -843,6 +844,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.b2b_esign_sweeper import b2b_esign_sweeper_loop
     from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
+    from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
@@ -1022,6 +1024,9 @@ async def lifespan(app: FastAPI):
             "b2b_esign_sweeper": asyncio.create_task(b2b_esign_sweeper_loop()),
             # 0506: umowa przedwstępna — wygasanie, przypomnienia, termin B2B.
             "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
+            "start_documents_sweeper": asyncio.create_task(
+                start_documents_sweeper_loop()
+            ),
             "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
@@ -1418,6 +1423,8 @@ app.include_router(job_intake_forms_api.router, prefix="/api", tags=["jobs"])
 app.include_router(job_files_api.router, prefix="/api", tags=["jobs"])
 # 0506: umowa przedwstępna przy osobie w rekrutacji (prośba, podpisy, lista).
 app.include_router(pre_contracts_api.router, prefix="/api", tags=["pipeline"])
+app.include_router(start_documents_api.router, prefix="/api", tags=["pipeline"])
+app.include_router(start_documents_api.clients_router, prefix="/api", tags=["clients"])
 # 0430: ogłoszenie do wklejenia na portale (zastąpiło `ai_writer`).
 app.include_router(job_ads_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
@@ -3650,6 +3657,7 @@ async def api_health_deep_check():
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.access_usage import AccessUsageDaily
     from app.models.insight_decision import InsightDecision
+    from app.models.start_document import ClientStartDocument, PlacementStartDocument
     from app.models.novelty import NoveltyProgress
     from app.models.candidate_job_owner import CandidateJobOwner
     from app.models.pair_departure_care import PairDepartureCare
@@ -4081,6 +4089,8 @@ async def api_health_deep_check():
         # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
         ("insight_decisions", InsightDecision),
+        ("client_start_documents", ClientStartDocument),
+        ("placement_start_documents", PlacementStartDocument),
     ]
 
     checks: dict[str, str] = {}

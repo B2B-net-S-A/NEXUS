@@ -690,6 +690,7 @@ async def get_recruitment_board(
         viewer=None,
         with_followups=False,
         with_employment=False,
+        with_start_docs=False,
         with_other_jobs=False,
     )
     off = view.off_template

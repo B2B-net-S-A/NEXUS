@@ -38,6 +38,8 @@ JOB_FILES_DIR = STORAGE_ROOT / "job_files"
 # wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
 B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
 PRE_CONTRACTS_DIR = STORAGE_ROOT / "pre_contracts"
+# Dokumenty do startu: wzory klienta i pliki par (NDA, KRK).
+START_DOCUMENTS_DIR = STORAGE_ROOT / "start_documents"
 # Sprzedaż (Atlas → NEXUS): pliki przy firmie sprzedaży albo szansie.
 SALES_FILES_DIR = STORAGE_ROOT / "sales_files"
 
@@ -421,6 +423,24 @@ def read_pre_contract_file(relative_path: str) -> bytes:
 
 def delete_pre_contract_file(relative_path: str) -> None:
     _delete_relative(relative_path, "pre-contract file")
+
+
+def save_start_document_file(folder: str, name: str, data: bytes) -> tuple[str, int]:
+    """Zapisz plik pod /start_documents/{folder}/{uuid}-{name}.
+
+    Pliki par mają dane o karalności i podpisy, więc pobiera je tylko krąg
+    z ``api/start_documents.py``."""
+    rel, size = _save_to(START_DOCUMENTS_DIR / folder, name, io.BytesIO(data))
+    logger.info("Saved start document: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def read_start_document_file(relative_path: str) -> bytes:
+    return _resolve_under_root(relative_path).read_bytes()
+
+
+def delete_start_document_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "start document")
 
 
 # ── Client framework contracts (MSA PDFs) ────────────────────────────────────

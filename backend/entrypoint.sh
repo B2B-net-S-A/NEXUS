@@ -808,6 +808,11 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_ad_nudge'",
     # 0524: umowę za prowadzącego wygenerował ktoś inny (dzwonek do prowadzącego).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
+    # 0649: dokumenty do startu (dzwonek i dzwonek z mailem).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_due'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_returned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_reminder'",
     # 0525: P0 na rekrutacji — dzwonek i mail obowiązkowy do zespołu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
@@ -1389,6 +1394,15 @@ try:
 except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
+
+# 0649: dokumenty do startu (`app/services/start_documents_schema.py`).
+try:
+    from app.services import start_documents_schema as _start_documents_schema
+
+    _START_DOCUMENTS_TABLE_DDL = list(_start_documents_schema.TABLE_DDL)
+except Exception as _start_documents_schema_err:  # noqa: BLE001
+    print(f"start documents schema unavailable: {_start_documents_schema_err!r}")
+    _START_DOCUMENTS_TABLE_DDL = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -7022,6 +7036,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_ACCESS_USAGE_TABLE_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
+    *_START_DOCUMENTS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
