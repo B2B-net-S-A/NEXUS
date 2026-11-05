@@ -296,6 +296,8 @@ from app.api import job_idle as job_idle_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
+from app.api import cv_call_questions as cv_call_questions_api
+from app.api import cv_call_questions_refresh as cv_call_questions_refresh_api
 from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
@@ -2366,6 +2368,10 @@ app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
 app.include_router(cpro_mail_api.router, prefix="/api", tags=["cpro-mail"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
+app.include_router(cv_call_questions_api.router, prefix="/api", tags=["cv-call-questions"])
+app.include_router(
+    cv_call_questions_refresh_api.router, prefix="/api", tags=["cv-call-questions"]
+)
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
@@ -3544,6 +3550,7 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.cv_call_question import CvCallQuestions
     from app.models.plain_knowledge import (
         JobPlainBrief,
         PlainKnowledgeEvent,
@@ -3818,6 +3825,8 @@ async def api_health_deep_check():
         ("plain_terms", PlainTerm),
         ("role_profiles", RoleProfile),
         ("job_plain_briefs", JobPlainBrief),
+        # 0650: pytania pod CV. Brak tabeli = 500 w ściądze do rozmowy.
+        ("cv_call_questions", CvCallQuestions),
         ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
         # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.

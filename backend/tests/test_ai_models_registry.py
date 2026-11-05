@@ -171,6 +171,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
     # F43 — 02.11.2026: podsumowanie rozmowy z portalu konsultanta.
     AIFeatureKey.portal_meeting_summary: ("F43", "gpt-6-luna"),
+    # F44 — 05.11.2026: pytania pod CV w ściądze do rozmowy.
+    AIFeatureKey.cv_call_questions: ("F44", "claude-sonnet-5-5"),
 }
 
 
