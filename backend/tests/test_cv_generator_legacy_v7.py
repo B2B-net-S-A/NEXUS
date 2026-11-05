@@ -25,6 +25,7 @@ from app.services.cv_generator_b2b.legacy_v7 import (
     legacy_pipeline_enabled,
     pipeline as legacy,
 )
+from app.services.cv_generator_b2b.legacy_v7 import _helpers
 from app.services.cv_generator_b2b.legacy_v7.prompts import (
     get_prompt as legacy_prompt,
 )
@@ -790,6 +791,99 @@ def test_presentation_instructions_keep_the_client_role_untranslated():
     assert "do not translate" in text
     assert "Programista platformy danych" not in text
     assert "Programista Python" not in text
+
+
+# ── Standard 5 punktów „Dlaczego nasz kandydat” (05.11.2026) ─────────────
+
+
+def _standard_data(points):
+    return {
+        "why_points": list(points),
+        "experience": [{"dates": "01.2023 – 12.2025", "company": "Acme", "position": "QA"}],
+    }
+
+
+FIVE = ["3 lata doświadczenia jako QA", "Specjalizacja: Selenium", "a", "b", "c"]
+
+
+def test_five_points_with_years_need_no_warning():
+    data = _standard_data(FIVE)
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert data["why_points"] == FIVE
+
+
+def test_sixth_point_goes_but_the_last_one_stays():
+    data = _standard_data([*FIVE[:4], "nadmiarowy", "Praca w Scrumie w Acme"])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"] == [*FIVE[:4], "Praca w Scrumie w Acme"]
+    assert any("skrócono" in note for note in notes)
+
+
+def test_fewer_points_are_not_padded_and_the_recruiter_is_told():
+    data = _standard_data(FIVE[:3])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"] == FIVE[:3]
+    assert any("3 z 5" in note for note in notes)
+
+
+def test_client_limit_below_five_is_not_a_shortage():
+    rule = SimpleNamespace(why_points_max=4)
+    data = _standard_data(FIVE[:4])
+    assert _helpers._apply_summary_standard(data, "pl", rule) == []
+
+
+def test_first_point_without_years_is_reported_not_invented():
+    data = _standard_data(["Praca w PwC nad profilami ryzyka", *FIVE[1:]])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"][0] == "Praca w PwC nad profilami ryzyka"
+    assert any("nie podaje lat" in note for note in notes)
+
+
+def test_years_above_all_dates_are_cut_to_the_sum_of_dates():
+    data = _standard_data(["Over 14 years of experience as an SDET", *FIVE[1:]])
+    notes = _helpers._apply_summary_standard(data, "en")
+    assert data["why_points"][0] == "3 years of experience as an SDET"
+    assert any("poprawiono lata" in note for note in notes)
+
+
+def test_lower_years_can_be_tenure_in_the_position_and_stay():
+    data = _standard_data(["1 rok doświadczenia jako QA", *FIVE[1:]])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert data["why_points"][0] == "1 rok doświadczenia jako QA"
+
+
+def test_almost_the_sum_of_dates_is_not_above_it():
+    data = _standard_data(["Blisko 3 lata doświadczenia jako QA", *FIVE[1:]])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+
+
+def test_later_figures_in_the_first_point_are_not_touched():
+    point = "3 lata doświadczenia jako QA, w tym 20 lat w Acme"
+    data = _standard_data([point, *FIVE[1:]])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert data["why_points"][0] == point
+
+
+def test_empty_summary_is_reported():
+    data = _standard_data([])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert any("0 z 5" in note for note in notes)
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_states_the_five_point_order_without_the_old_range(language):
+    prompt = legacy_prompt(language, False, "tailored")
+    assert ("DOKŁADNIE 5 punktów" if language == "pl" else "EXACTLY 5 points") in prompt
+    assert "Maksymalnie 3-5" not in prompt
+    assert "At most 3-5" not in prompt
+    assert "3-4 p" not in prompt
+
+
+def test_central_standard_no_longer_caps_the_summary_at_four():
+    from app.services.cv_generator_b2b.presentation_title import instructions
+
+    assert "at most four" not in instructions("pl")
+    assert "five evidence-backed summary points" in instructions("en")
 
 
 def _tenure_data(why_point):

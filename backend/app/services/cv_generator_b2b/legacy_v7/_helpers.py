@@ -454,6 +454,60 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         break
 
 
+# Standard „Dlaczego nasz kandydat” (05.11.2026): 5 punktów, punkt 1 to lata.
+WHY_POINTS_STANDARD = 5
+_BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECASE)
+
+
+def _apply_summary_standard(
+    candidate_data: dict[str, Any], language: str, client_rule: Any = None
+) -> list[str]:
+    """Domknij w kodzie to, czego prompt nie gwarantuje; zwróć uwagi dla rekrutera.
+
+    Punktów ponad standard ubywa przed ostatnim, bo u Nordei ostatni mówi
+    o Scrumie/Agile. Mniej punktów zostaje z uwagą (bez wypełniacza, 13.10.2026).
+    Lata w punkcie 1 nie mogą przekroczyć sumy dat wszystkich ról: test 05.11
+    dał „Over 14 years” przy 13,2 roku, a `_fix_experience_years` nie rusza
+    stażu w roli, której nazwy nie dopasuje. Niższa liczba może być prawdziwa
+    (staż na stanowisku), więc zostaje.
+    """
+    points = candidate_data.get("why_points") or []
+    notes: list[str] = []
+    if len(points) > WHY_POINTS_STANDARD:
+        points = points[: WHY_POINTS_STANDARD - 1] + points[-1:]
+        candidate_data["why_points"] = points
+        notes.append(
+            f"WERYFIKUJ: podsumowanie skrócono do {WHY_POINTS_STANDARD} punktów."
+        )
+    limit = getattr(client_rule, "why_points_max", None)
+    if len(points) < min(WHY_POINTS_STANDARD, limit or WHY_POINTS_STANDARD):
+        notes.append(
+            f"WERYFIKUJ: podsumowanie ma {len(points)} z {WHY_POINTS_STANDARD} punktów, "
+            "bo źródła nie dały faktów na więcej. Dopisz punkt, jeśli znasz je z rozmowy."
+        )
+    if not points or not isinstance(points[0], str):
+        return notes
+    first = points[0]
+    match = _YEARS_PHRASE_RE.search(_SUBFIGURE_SPLIT_RE.split(first, maxsplit=1)[0])
+    figure = _tenure_figure(match) if match else None
+    if figure is None or first[: match.start()].strip():
+        notes.append(
+            "WERYFIKUJ: pierwszy punkt podsumowania nie podaje lat doświadczenia."
+        )
+        return notes
+    experience = [
+        job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
+    ]
+    total = _total_experience_months(experience)
+    claimed = figure * 12 - (6 if _BELOW_FIGURE_RE.match(match.group(0).strip()) else 0)
+    if total and total >= MIN_TENURE_MONTHS and claimed > total:
+        points[0] = _tenure_text(total, language, at_start=True) + first[match.end() :]
+        notes.append(
+            f"WERYFIKUJ: w pierwszym punkcie poprawiono lata do sumy dat ról: „{points[0]}”."
+        )
+    return notes
+
+
 # Lata przypięte WPROST do roli albo firmy: „6 lat jako Backend Developer",
 # „4 lata w Acme", „5 years as a Data Engineer". Łącznik musi stać zaraz po
 # liczbie — „N lat doświadczenia jako…" to nagłówek kariery i należy do

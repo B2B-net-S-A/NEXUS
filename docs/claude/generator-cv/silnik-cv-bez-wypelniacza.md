@@ -315,6 +315,32 @@ i podobne etykiety są w 5.
 - Kod v10 bez zmian: jego prompt nie ma numerów ani tej reguły. CV wygenerowane
   wcześniej nie zmieniają się same.
 
+## Standard 5 punktów „Dlaczego nasz kandydat” (05.11.2026)
+
+Ustalenie zespołu i decyzja Artura zamiast wyboru układu przed generacją. Makiety:
+https://claude.ai/artifact/P6xe6hTbFptKcPsUNk7VAD. Zastępuje limit „3–5 punktów” i układ
+z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, w 84% od 03.11
+(43 CV), a 171 z 481 CV etapu miało tę sekcję poprawioną ręcznie.
+
+- **Układ (`legacy_v7/prompts.py`, wersja 12):** punkt 1 lata doświadczenia na stanowisku,
+  punkt 2 specjalizacja w technologiach, punkty 3–5 po jednym must-have z Championa. Bez
+  Championa albo przy mniej niż trzech potwierdzonych must-have punkty 3–5 opisują
+  doświadczenie najważniejsze dla roli.
+- **Dokładnie 5, ale bez wypełniacza.** Gdy źródła nie dają faktów, punktów jest mniej,
+  a rekruter dostaje uwagę. Limit klienta `why_points_max` dalej wygrywa.
+- **`_apply_summary_standard` domyka w kodzie:** szósty punkt znika przed ostatnim, bo
+  u Nordei ostatni mówi o Scrumie/Agile; lata w punkcie 1 nie przekraczają sumy dat ról; punkt 1
+  bez lat daje uwagę. Niższa liczba zostaje, bo może być stażem na stanowisku.
+- **Nordea:** punkt 5 o pracy w Scrumie/Agile, gdy źródła to potwierdzają
+  (`generator_instructions` w `cv_policies.json`). Bez potwierdzenia zostaje punkt o must-have
+  i uwaga modelu o pominiętej instrukcji. Polityka centralna nie dokłada do każdego CV uwagi
+  „zastosowano instrukcje”.
+- **„At most four” z `presentation_title` zastąpione pięcioma punktami**, a „Dopasuj pod
+  rekrutację” w edytorze zmienia tylko punkty 3–5.
+- Test przed zmianą (12 kandydatów, 30 biegów, Opus 4.8, bo staging nie ma klucza Sola): 5 punktów,
+  lata i specjalizacja w 30 z 30; Nordea ze Scrumem w źródłach 11 z 12. Liczba lat różniła się
+  między biegami u 3 z 12 kandydatów. CV wygenerowane wcześniej nie zmieniają się same.
+
 ## Daty stanowisk jak w oryginale (02.11.2026)
 
 Zgłoszenie rekruterki: koniec pracy 05.2026 stawał się w CV firmowym „obecnie”.

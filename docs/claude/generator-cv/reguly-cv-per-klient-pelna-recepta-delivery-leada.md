@@ -126,10 +126,10 @@ Katalog `backend/app/data/cv_policies.json` + `central_policies.py`, opis:
   reguł wyrzucała plik (`champion_bytes = None`) — udział CV „Pod rekrutację"
   spadł z 49% do 12%. Ręczne pola MUST/NICE (zasilały tylko kafelki
   interaktywnego CV) NIE są Championem.
-- **Recepta centralna nie ustawia `why_points_max`.** „Najwyżej cztery
-  punkty" jest w prompcie systemowym (`presentation_title.instructions`);
-  powtórzone jako instrukcja klienta dawało fałszywe „Pominięto instrukcję
-  klienta" w co trzecim CV.
+- **Recepta centralna nie ustawia `why_points_max`.** Standard 5 punktów jest w prompcie
+  (`silnik-cv-bez-wypelniacza.md`); powtórzony jako instrukcja klienta dawał fałszywe
+  „Pominięto instrukcję klienta" w co trzecim CV. Instrukcję w katalogu ma tylko Nordea
+  (ostatni punkt o Scrumie/Agile).
 - **Zmiana treści katalogu = podbij `version` wpisu.** `synchronize()`
   publikuje ponownie, gdy `managed_policy` (metadane wpisu) albo recepta się
   różni; `resolve()` do tego czasu daje 503 dla klienta. Klient niezgodny

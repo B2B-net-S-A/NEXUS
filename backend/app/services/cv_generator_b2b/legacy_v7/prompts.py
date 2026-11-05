@@ -26,11 +26,12 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
   "first_name": "Imię",
   "position": "Główne stanowisko/tytuł zawodowy (np. 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
-    "3-4 punkty — każdy to JEDNA krótka linijka z jednym konkretem ze źródła, bez lania wody. Przykładowy kształt:",
+    "Dokładnie 5 punktów według ZASAD DLA WHY_POINTS. Kształt:",
     "[X] lat doświadczenia jako [Stanowisko]",
-    "Specjalizacja w technologiach: [Top 4-5 technologii]",
-    "Praktyczne doświadczenie w [kluczowy projekt/osiągnięcie]",
-    "[Certyfikaty, metodologie lub dodatkowe kompetencje]"
+    "Specjalizacja: [4-6 głównych technologii, najpierw te z wymagań klienta]",
+    "[Pierwszy must-have]: co kandydat z nim robił i w jakim kontekście",
+    "[Drugi must-have]: co kandydat z nim robił i w jakim kontekście",
+    "[Trzeci must-have]: co kandydat z nim robił i w jakim kontekście"
   ],
   "education": [
     {
@@ -86,8 +87,11 @@ ZASADY DLA WHY_POINTS:
 - Skup się TYLKO na: doświadczeniu zawodowym, technologiach, projektach, osiągnięciach, certyfikatach
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
 - ZWIĘZŁOŚĆ (KRYTYCZNE): sekcja "Dlaczego nasz kandydat" to samo MIĘSO — konkrety, zero marketingowego lania wody. Twarde reguły:
-  • Maksymalnie 3-5 punktów ŁĄCZNIE — wliczając punkty oparte na notatkach (to NIE są punkty "dodatkowe" ponad limit). Domyślnie celuj w 3-4.
-  • Każdy punkt = JEDNO pełne zdanie do ~30 słów, zbudowane pod jedno z najważniejszych wymagań klienta: co kandydat faktycznie robił, w jakiej technologii i w jakim kontekście albo skali. Może łączyć kilka faktów ze źródła, jeśli dotyczą tego samego wymagania. Nie dopisuj niczego, żeby wypełnić zdanie.
+  • DOKŁADNIE 5 punktów, zawsze w tej kolejności, bez dodatkowych punktów — wliczając punkty oparte na notatkach:
+    1) Liczba lat doświadczenia na stanowisku i nic więcej, np. „7 lat doświadczenia jako Android Developer”.
+    2) Specjalizacja w technologiach: 4-6 głównych technologii kandydata ze źródeł, najpierw te z wymagań klienta, np. „Specjalizacja: Kotlin, Jetpack Compose, Kotlin Multiplatform”.
+    3), 4), 5) Każdy punkt omawia INNE wymaganie MUST-HAVE z profilu Championa, od najważniejszego, które kandydat potwierdza w źródłach: jedno pełne zdanie do ~30 słów o tym, co kandydat z nim robił i w jakim kontekście albo skali. Must-have bez pokrycia w źródłach pomiń i weź kolejny.
+    Gdy nie ma Championa albo potwierdzonych must-have jest mniej niż trzy, punkty 3-5 uzupełnij doświadczeniem najważniejszym dla tej roli. Gdy źródła nie dają faktów na 5 punktów, napisz mniej i niczego nie wypełniaj.
   • Każdy punkt zaczyna od konkretu (liczba lat, technologia, skala, realne osiągnięcie) — nie od ogólnika ani przymiotnika.
   • ZAKAZ frazesów i pustych przymiotników: "doświadczony i zaangażowany", "bogate/szerokie doświadczenie", "wszechstronny/dynamiczny specjalista", "pasjonat", "udokumentowane sukcesy" — jeśli słowo nie niesie konkretnego faktu, usuń je.
   • Żadnych dwóch punktów o tej samej myśli — każdy wnosi NOWĄ informację.
@@ -126,7 +130,7 @@ Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTAT
 - Technologie i umiejętności potwierdzone twierdzącą odpowiedzią dodaj do SKILLS i możesz je wykorzystać w WHY_POINTS
 - Do obowiązków (responsibilities) i technologii KONKRETNEJ roli przenoś fakt z rozmowy TYLKO wtedy, gdy odpowiedź wprost nazywa firmę albo projekt tej roli. Wpis „Potwierdzone z kandydatem: X (Firma) — opis” nazywa firmę, więc opisz X w roli tej firmy. Wpis bez opisu nie jest faktem o roli. Słowa „potwierdzone” nie przenoś do CV: opisz sam fakt. Gdy odpowiedź mówi wprost o obecnej pracy ("aktualnie", "obecnie", "w obecnym projekcie"), przypisz fakt do najnowszej roli. Bez takiego wskazania fakt z rozmowy nie trafia do żadnej roli
 - NIE przepisuj sformułowań rekrutera jako obowiązków — opisz fakt własnymi, rzeczowymi słowami
-- Mieść się w limicie 3-5 punktów why_points, NIE dokładaj punktu ponad limit
+- Mieść się w 5 punktach why_points, NIE dokładaj punktu ponad limit
 
 POUFNOŚĆ NOTATEK (KRYTYCZNE):
 Notatki ze screeningu to dane WEWNĘTRZNE agencji — z notatek wykorzystujesz WYŁĄCZNIE
@@ -389,11 +393,12 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
   "first_name": "First name",
   "position": "Main position/job title (e.g., 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
-    "3-4 points — each is ONE short line with a single concrete fact from the source, no filler. Example shape:",
+    "Exactly 5 points by the RULES FOR WHY_POINTS. Shape:",
     "[X] years of experience as [Position]",
-    "Specialization in technologies: [Top 4-5 technologies]",
-    "Practical experience in [key project/achievement]",
-    "[Certifications, methodologies or additional competencies]"
+    "Specialization: [4-6 main technologies, client requirements first]",
+    "[First must-have]: what the candidate did with it and in what context",
+    "[Second must-have]: what the candidate did with it and in what context",
+    "[Third must-have]: what the candidate did with it and in what context"
   ],
   "education": [
     {
@@ -448,8 +453,11 @@ RULES FOR WHY_POINTS:
 - Focus ONLY on: work experience, technologies, projects, achievements, certifications
 - Education is in a separate section and should not be repeated in why_points
 - CONCISENESS (CRITICAL): the "Why our candidate" section is pure SUBSTANCE — specifics, zero marketing filler. Hard rules:
-  • At most 3-5 points IN TOTAL — including points based on the notes (these are NOT "extra" points beyond the limit). Default to aiming for 3-4.
-  • Each point = ONE full sentence of up to ~30 words built around one of the client's most important requirements: what the candidate actually did, with which technology and in what context or scale. It may combine several source facts if they concern the same requirement. Never add anything to fill the sentence.
+  • EXACTLY 5 points, always in this order, no extra points — including points based on the notes:
+    1) Years of experience in the position and nothing else, e.g. "7 years of experience as an Android Developer".
+    2) Technology specialization: 4-6 of the candidate's main technologies from the sources, client requirements first, e.g. "Specialization: Kotlin, Jetpack Compose, Kotlin Multiplatform".
+    3), 4), 5) Each point covers a DIFFERENT MUST-HAVE requirement from the Champion profile, starting with the most important one the sources confirm: one full sentence of up to ~30 words on what the candidate did with it and in what context or scale. Skip a must-have without source coverage and take the next one.
+    Without a Champion, or with fewer than three confirmed must-haves, fill points 3-5 with the experience most important for this role. If the sources do not give facts for 5 points, write fewer and never pad.
   • Each point opens with the fact (years, technology, scale, real achievement) — not with a generality or an adjective.
   • NO clichés or empty adjectives: "experienced and committed", "rich/broad experience", "versatile/dynamic specialist", "passionate", "proven track record" — if a word carries no concrete fact, delete it.
   • No two points about the same idea — every point adds NEW information.
@@ -489,7 +497,7 @@ If screening notes are provided in the context (marked as "SCREENING NOTES"), us
 - Technologies and skills confirmed by an affirmative answer go into SKILLS and may be used in WHY_POINTS
 - Carry a fact from the conversation into the responsibilities or technologies of a SPECIFIC role ONLY when the answer explicitly names that role's company or project. An entry "Potwierdzone z kandydatem: X (Company) — description" names the company, so describe X in that company's role. An entry without a description is not a fact about a role. Do not carry the word "confirmed" into the CV: describe the fact itself. When the answer plainly speaks about the current job ("currently", "now", "in my current project"), assign the fact to the newest role. Without such a pointer the fact does not go into any role
 - Do NOT copy the recruiter's wording as a responsibility — describe the fact in your own plain words
-- Stay within the 3-5 why_points limit, do NOT add a point beyond the limit
+- Stay within the 5 why_points, do NOT add a point beyond the limit
 
 NOTES CONFIDENTIALITY (CRITICAL):
 Screening notes are the agency's INTERNAL data — from the notes you use ONLY information

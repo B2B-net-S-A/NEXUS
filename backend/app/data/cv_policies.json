@@ -73,7 +73,7 @@
   },
   {
     "key": "profil-championa-wzor-nordea-docx",
-    "version": 2,
+    "version": 3,
     "content_mode": "tailored",
     "source_url": "https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQAdW75s9FA6T4ZtUzvWLQGvAYYmpHA-Ls7yqEDaCJhFe0I?e=e1WeCi",
     "client_id": 11,
@@ -87,7 +87,9 @@
     "requires_rodo_consent_block": false,
     "require_project_ref": false,
     "require_position": true,
-    "require_recommendation_note": true
+    "require_recommendation_note": true,
+    "generator_instructions": "Standard 5 punktów ma tu wyjątek: punkt 5 why_points ZAWSZE dotyczy pracy kandydata w Scrumie/Agile, a na must-have zostają punkty 3 i 4. Warunek: źródła (CV albo odpowiedzi) potwierdzają pracę w Scrumie/Agile; opisz wtedy gdzie i w jakiej roli. Gdy nie potwierdzają, nie pisz o Scrumie ani Agile, punkt 5 zostaje o must-have.",
+    "generator_instructions_en": "The 5-point standard has an exception here: why_point 5 ALWAYS covers the candidate's work in Scrum/Agile, leaving points 3 and 4 for must-haves. Condition: the sources (CV or answers) confirm work in Scrum/Agile; then say where and in what role. If they do not, do not mention Scrum or Agile and point 5 stays a must-have point."
   },
   {
     "key": "profil-championa-wzor-pfron-docx",
