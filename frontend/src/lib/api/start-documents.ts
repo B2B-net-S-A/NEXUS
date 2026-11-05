@@ -5,8 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 const BASE = "/api/start-documents";
-// Bez tego nagłówka axios wysyła FormData jako JSON i serwer odpowiada 422.
-const MULTIPART = { headers: { "Content-Type": "multipart/form-data" } };
 
 export type StartDocKind = "file" | "pesel" | "agreement";
 export type StartDocState = "missing" | "delivered" | "returned" | "not_applicable";
@@ -165,7 +163,11 @@ export function useUploadStartDocTemplate(clientId: number) {
     mutationFn: async ({ id, file }: { id: number; file: File }) => {
       const body = new FormData();
       body.append("file", file);
-      return (await api.put<ClientStartDoc>(`${BASE}/items/${id}/template`, body, MULTIPART)).data;
+      return (
+        await api.put<ClientStartDoc>(`${BASE}/items/${id}/template`, body, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: startDocsKeys.client(clientId) }),
@@ -217,7 +219,9 @@ export const startDocsApi = {
     const body = new FormData();
     body.append("file", file);
     return (
-      await api.put<PairStartDocs>(itemUrl(candidateId, jobId, documentId, "file"), body, MULTIPART)
+      await api.put<PairStartDocs>(itemUrl(candidateId, jobId, documentId, "file"), body, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
     ).data;
   },
   savePesel: async (candidateId: number, jobId: number, documentId: number, pesel: string) =>
