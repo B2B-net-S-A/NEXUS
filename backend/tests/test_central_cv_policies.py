@@ -26,7 +26,8 @@ def test_catalog_contract(client_id, language, bilingual):
     assert snapshot.max_roles is None
     assert snapshot.why_points_max is None
     assert snapshot.notes is None
-    assert snapshot.generator_instructions is None
+    # Nordea: ostatni punkt podsumowania o Scrumie/Agile, zgłoszenie zespołu 05.11.2026.
+    assert (snapshot.generator_instructions is None) == (client_id != 11)
 
 
 def test_naming_pko_prefix_ca_date_and_kir_spaces():
@@ -77,3 +78,18 @@ def test_pko_request_number_is_not_internal_ats_reference():
     assert pko_job_reference(SimpleNamespace(title="Programista Java (ZOB-2976)", reference_number="74/9/2026/MW/4961")) == "2976"
     assert pko_job_reference(SimpleNamespace(title="Programista Java", reference_number="74/9/2026/MW/4961")) is None
     assert pko_job_reference(SimpleNamespace(title="ZOB-2976", reference_number="ZOB-2900")) is None
+
+
+def test_nordea_summary_ends_with_scrum_only_when_sources_confirm_it():
+    nordea = rule(11)
+    other = rule(39)
+    assert "Scrum" in nordea.generator_instructions
+    assert "Scrum" in nordea.generator_instructions_en
+    assert "nie pisz o Scrumie" in nordea.generator_instructions
+    assert other.generator_instructions is None
+
+
+def test_central_instruction_does_not_add_a_warning_on_every_cv():
+    from app.services.cv_generator_b2b.client_rules import rule_reminders
+
+    assert not any("zastosowano instrukcje" in note for note in rule_reminders(rule(11)))

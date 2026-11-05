@@ -144,12 +144,19 @@ def test_central_rule_does_not_lock_the_mode():
 # ── No forced why_points_max rendered as a client instruction ────────────
 
 
-@pytest.mark.parametrize("client_id", [NORDEA, ALIOR, 26, None])
+@pytest.mark.parametrize("client_id", [ALIOR, 26, None])
 def test_central_policy_renders_no_client_instruction(client_id):
     rule = snapshot_rule(_central_rule(client_id))
     assert rule.why_points_max is None
     assert build_client_presentation_rules_block(rule, "pl") == ""
     assert build_client_presentation_rules_block(rule, "en") == ""
+
+
+def test_nordea_renders_only_the_scrum_point_of_the_summary_standard():
+    rule = snapshot_rule(_central_rule(NORDEA))
+    assert rule.why_points_max is None
+    assert "Scrumie/Agile" in build_client_presentation_rules_block(rule, "pl")
+    assert "Scrum/Agile" in build_client_presentation_rules_block(rule, "en")
 
 
 # ── Startup resilience ───────────────────────────────────────────────────
