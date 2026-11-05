@@ -94,6 +94,13 @@ def _ph_candidate(**kw) -> Candidate:
         ("Zinoviya Oleksiy CV EN.docx", ("Zinoviya", "Oleksiy")),
         ("VugarSuleymanov_CV.docx", ("Vugar", "Suleymanov")),
         ("jan-kowalski.pdf", ("Jan", "Kowalski")),
+        # Stanowisko w nazwie pliku nie jest nazwą osoby, a nazwa za nim tak.
+        ("Business_Analyst_CV.pdf", (None, None)),
+        ("UI_UX_Jan_Kowalski.pdf", ("Jan", "Kowalski")),
+        ("Test_Test.pdf", (None, None)),
+        # Jedno rzadkie słowo albo imię wystarcza.
+        ("Anna_Test.pdf", ("Anna", "Test")),
+        ("Jan_Test.pdf", ("Jan", "Test")),
         # Ambiguous / no usable name — must not guess.
         ("CV_fin.pdf", (None, None)),
         ("resume.pdf", (None, None)),
