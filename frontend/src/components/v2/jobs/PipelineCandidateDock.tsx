@@ -2323,7 +2323,7 @@ export function PipelineCandidateDock({
             {/* „Ściąga do rozmowy” (29.09.2026): tekst na start, odpowiedzi na
                 pytania kandydata i trzy pytania z profilu — z wyjaśnienia
                 „Po ludzku”. Pusta ściąga się nie renderuje. */}
-            <DockCallCheatsheet jobId={jobId} />
+            <DockCallCheatsheet jobId={jobId} candidateId={item.candidate_id} />
             {screeningQuery.isSuccess ? (
               // Sekcje 4 i 8 Championa — co sprawdzić i na co uważać, zanim
               // rekruter zadzwoni. Zwinięte: dok ma być krótki.
