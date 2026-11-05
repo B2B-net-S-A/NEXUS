@@ -37,7 +37,7 @@ vi.mock("@/components/v2/files/PdfDocumentViewer", async () => {
   };
 });
 
-import { FilePreviewContent } from "@/components/v2/files/FilePreviewModal";
+import { FilePreviewContent, FilePreviewModal } from "@/components/v2/files/FilePreviewModal";
 import { SearchablePdfPreview } from "@/components/v2/files/SearchablePdfPreview";
 
 function renderPreview(scope: "dialog" | "container" = "dialog") {
@@ -157,6 +157,47 @@ describe("SearchablePdfPreview", () => {
     act(() => vi.advanceTimersByTime(250));
     expect(viewer.handle.search).toHaveBeenLastCalledWith("Azure");
     expect(screen.queryByTestId("document-search-terms")).toBeNull();
+  });
+
+  it("the document window opens a PDF at 100%, an embedded preview keeps its own fit", async () => {
+    const pdf = new Blob(["%PDF"], { type: "application/pdf" });
+    const doc = {
+      id: 1,
+      filename: "CV.pdf",
+      content_type: "application/pdf",
+      size_bytes: 4,
+      document_kind: "cv" as const,
+      is_primary: true,
+      uploaded_at: "2026-10-16T08:00:00Z",
+      external_source: null,
+      created_at: "2026-10-16T08:00:00Z",
+    };
+    const modal = render(
+      <FilePreviewModal
+        documents={[doc]}
+        initialDocumentId={1}
+        candidateId={7}
+        onClose={vi.fn()}
+        onDownload={vi.fn()}
+        loadDocumentBlob={async () => pdf}
+      />,
+    );
+    await act(async () => {});
+    expect(viewer.props?.fit).toBe("actual");
+    modal.unmount();
+
+    render(
+      <div style={{ position: "relative", height: 600 }}>
+        <FilePreviewContent
+          doc={doc}
+          candidateId={7}
+          onDownload={vi.fn()}
+          loadDocumentBlob={async () => pdf}
+        />
+      </div>,
+    );
+    await act(async () => {});
+    expect(viewer.props?.fit).toBeUndefined();
   });
 
   it("tells the user a scanned PDF has no text to search", () => {

@@ -81,9 +81,23 @@ type ViewerInternals = {
 /**
  * Jak dopasować stronę do okna: `page-width` wypełnia całą szerokość (domyślnie),
  * `auto` robi to samo, ale najwyżej do 125% — w szerokiej strefie podglądu
- * strona nie rośnie do 170% i mieści się na wysokość.
+ * strona nie rośnie do 170% i mieści się na wysokość. `actual` to 100%, a w oknie
+ * węższym od strony tyle, ile się zmieści: okno CV zajmuje 95% ekranu, więc na
+ * szerokim monitorze `page-width` otwierało CV w ok. 300% (prośba rekruterki, 05.11.2026).
  */
-export type PdfFitMode = "page-width" | "auto";
+export type PdfFitMode = "page-width" | "auto" | "actual";
+
+function applyFit(
+  pdfViewer: ViewerInternals["pdfViewer"],
+  mode: PdfFitMode,
+): void {
+  if (mode !== "actual") {
+    pdfViewer.currentScaleValue = mode;
+    return;
+  }
+  pdfViewer.currentScaleValue = "page-width";
+  if (pdfViewer.currentScale > 1) pdfViewer.currentScaleValue = "page-actual";
+}
 
 export function PdfDocumentViewer({
   file,
@@ -113,6 +127,9 @@ export function PdfDocumentViewer({
   const fitWidthRef = useRef(true);
   const fitModeRef = useRef<PdfFitMode>(fit);
   fitModeRef.current = fit;
+  // Przycisk „Dopasuj do szerokości” przy starcie od 100% ma wypełnić szerokość,
+  // a nie wrócić do 100%. Obowiązuje do następnego pliku.
+  const fillWidthRef = useRef(false);
   // Najnowsze callbacki bez odtwarzania całej przeglądarki przy każdym renderze.
   const callbacksRef = useRef({
     onLoaded,
@@ -162,8 +179,14 @@ export function PdfDocumentViewer({
       },
       fitWidth() {
         fitWidthRef.current = true;
+        if (fitModeRef.current === "actual") fillWidthRef.current = true;
         const internals = internalsRef.current;
-        if (internals) internals.pdfViewer.currentScaleValue = fitModeRef.current;
+        if (internals) {
+          applyFit(
+            internals.pdfViewer,
+            fillWidthRef.current ? "page-width" : fitModeRef.current,
+          );
+        }
       },
     }),
     [],
@@ -180,6 +203,7 @@ export function PdfDocumentViewer({
     let pdfViewer: ViewerInternals["pdfViewer"] | null = null;
     let pagesReady = false;
     fitWidthRef.current = true;
+    fillWidthRef.current = false;
     callbacksRef.current.onTextAvailability?.("pending");
 
     // Szerokość liczona w chwili `pagesinit` bywa zerowa, gdy okno jeszcze się
@@ -190,7 +214,7 @@ export function PdfDocumentViewer({
     const applyFitWidth = () => {
       if (!pdfViewer || !pagesReady || !fitWidthRef.current) return;
       if (container.clientWidth < 80) return;
-      pdfViewer.currentScaleValue = fitModeRef.current;
+      applyFit(pdfViewer, fillWidthRef.current ? "page-width" : fitModeRef.current);
     };
     const resizeObserver =
       typeof ResizeObserver === "undefined"
