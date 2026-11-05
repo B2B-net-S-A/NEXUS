@@ -39,6 +39,18 @@ export interface MergeReference {
   unresolvable: boolean;
 }
 
+export interface MergePrimaryCvFile {
+  document_id: number | null;
+  filename: string;
+  from_duplicate: boolean;
+}
+
+export interface MergePrimaryCv {
+  before: MergePrimaryCvFile | null;
+  after: MergePrimaryCvFile | null;
+  changes: boolean;
+}
+
 export interface MergePlan {
   survivor_id: number;
   duplicate_id: number;
@@ -50,6 +62,7 @@ export interface MergePlan {
   moved_rows: number;
   conflicts: number;
   blockers: { code: string; message: string }[];
+  primary_cv: MergePrimaryCv;
   can_apply: boolean;
   fingerprint: string;
 }

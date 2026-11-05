@@ -858,8 +858,8 @@ test.describe("górny pasek — licznik celów", () => {
         // 28.10.2026: stałe okruszki (178 px) wychodziły z 93-pikselowego pudełka
         // pod wyszukiwarkę. Widoczne okruszki kończą się przed nią, a nazwa
         // na końcu ścieżki zostaje (ustępują całe okruszki od początku) —
-        // o ile ścieżka ma jakiekolwiek miejsce: najciaśniejszy pasek przy
-        // 1280 px zostawia jej 0 px.
+        // o ile mieści się cała (05.11.2026): przy 63 px zostawało „K.”, więc
+        // ścieżka jest wtedy pusta. Skrócić wolno tylko nazwę ponad sufitem 11rem.
         const crumbs = await strip.getByRole("navigation", { name: "Ścieżka" }).evaluate((nav) => {
           const top = nav.getBoundingClientRect().top;
           const items = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")];
@@ -870,11 +870,19 @@ test.describe("górny pasek — licznik celów", () => {
           return {
             right: Math.max(nav.getBoundingClientRect().left, ...visible.map((i) => i.getBoundingClientRect().right)),
             nameShownOrNoRoom:
-              nav.getBoundingClientRect().width < 1 || visible.includes(items[items.length - 1]),
+              nav.getBoundingClientRect().width < 1 ||
+              visible.includes(items[items.length - 1]) ||
+              Math.min(items[items.length - 1].firstElementChild?.scrollWidth ?? 0, 176) >
+                nav.getBoundingClientRect().width,
+            cutToFit: visible.filter((item) => {
+              const text = item.firstElementChild;
+              return text ? text.scrollWidth > text.clientWidth && item.offsetWidth < 176 : false;
+            }).length,
           };
         });
         expect(crumbs.right, `okruszki przed wyszukiwarką: ${label}`).toBeLessThanOrEqual((search?.x ?? 0) + 0.5);
         expect(crumbs.nameShownOrNoRoom, `nazwa na końcu ścieżki widoczna: ${label}`).toBe(true);
+        expect(crumbs.cutToFit, `okruszek nie jest ucięty do litery: ${label}`).toBe(0);
         // Co najmniej jeden cały segment zostaje w pierwszym (widocznym) wierszu.
         const visible = await strip
           .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })

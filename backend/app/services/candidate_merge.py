@@ -21,6 +21,10 @@ Reguły, które łatwo cofnąć:
   częściowego). Zostaje NOWSZY z pary (``updated_at``, potem ``created_at``;
   remis = ocalały), starszy jest usuwany; wszystkie inne wiersze duplikatu są
   przepinane. Nigdy „usuń wszystkie wiersze duplikatu w tabeli”.
+* **Główne CV zostaje przy ocalałym** (05.11.2026). Data wiersza to data importu,
+  nie wersja CV, więc nowszy plik duplikatu niczego nie dowodzi. Flagę przejmuje
+  plik duplikatu tylko wtedy, gdy ocalały nie ma głównego CV, i pokazuje to
+  podgląd (``primary_cv``).
 * **Referencje polimorficzne** (``activities``, ``notifications``,
   ``traffit_entity_links.nexus_entity_id``) przepinane jawnie — nie mają FK.
 * **Pola profilu:** puste po jednej stronie = bierzemy niepuste; różne po obu
@@ -118,6 +122,9 @@ _NEUTRALIZE: dict[str, dict[str, str]] = {
         "ux_candidate_documents_candidate_sha": "content_sha256 = NULL",
     },
 }
+
+# Indeksy, w których przegrywa zawsze wiersz duplikatu, bez patrzenia na datę.
+_SURVIVOR_ROW_WINS = frozenset({"ux_candidate_documents_active_primary_cv"})
 
 Choice = Literal["survivor", "duplicate"]
 
@@ -231,6 +238,7 @@ class MergePlan:
     references: list[ReferencePlan] = field(default_factory=list)
     polymorphic: list[dict[str, Any]] = field(default_factory=list)
     blockers: list[dict[str, str]] = field(default_factory=list)
+    primary_cv: dict[str, Any] = field(default_factory=dict)
     fingerprint: str = ""
 
     @property
@@ -250,6 +258,7 @@ class MergePlan:
             + sum(p["rows"] for p in self.polymorphic),
             "conflicts": sum(r.conflicts for r in self.references),
             "blockers": self.blockers,
+            "primary_cv": self.primary_cv,
             "can_apply": self.can_apply,
             "fingerprint": self.fingerprint,
         }
@@ -650,6 +659,7 @@ def _fingerprint(plan: MergePlan) -> str:
         ),
         "polymorphic": sorted((p["table"], p["rows"]) for p in plan.polymorphic),
         "blockers": sorted(b["code"] for b in plan.blockers),
+        "primary_cv": plan.primary_cv,
     }
     encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -670,6 +680,44 @@ async def _usable_references(db: AsyncSession) -> list[Reference]:
     return usable
 
 
+async def _primary_cv_plan(
+    db: AsyncSession, survivor: Candidate, duplicate: Candidate
+) -> dict[str, Any]:
+    """Główne CV ocalałego przed scaleniem i po nim (lustro ``_neutralize_conflicts``)."""
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    rows = await db.execute(
+        select(
+            CandidateDocument.candidate_id,
+            CandidateDocument.id,
+            CandidateDocument.filename,
+        ).where(
+            CandidateDocument.candidate_id.in_([survivor.id, duplicate.id]),
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+        )
+    )
+    primary = {
+        candidate_id: {
+            "document_id": document_id,
+            "filename": filename,
+            "from_duplicate": candidate_id == duplicate.id,
+        }
+        for candidate_id, document_id, filename in rows.all()
+    }
+    before = primary.get(survivor.id)
+    legacy = _legacy_cv(survivor)
+    if before is None and legacy is not None:
+        before = {
+            "document_id": None,
+            "filename": legacy["filename"],
+            "from_duplicate": False,
+        }
+    after = primary.get(survivor.id) or primary.get(duplicate.id) or before
+    return {"before": before, "after": after, "changes": after != before}
+
+
 async def build_plan(
     db: AsyncSession,
     survivor_id: int,
@@ -686,6 +734,7 @@ async def build_plan(
         survivor=_person(survivor),
         duplicate=_person(duplicate),
         fields=field_plan(survivor, duplicate),
+        primary_cv=await _primary_cv_plan(db, survivor, duplicate),
     )
     s_ext, d_ext = _external(survivor), _external(duplicate)
     if (
@@ -945,7 +994,7 @@ async def _neutralize_conflicts(
         if clause is None:
             raise _unresolvable(ref.table)
         stamps: dict[str, Any] = {}
-        if ts_col is not None:
+        if ts_col is not None and idx.name not in _SURVIVOR_ROW_WINS:
             every = set(pairs) | {k for keys in pairs.values() for k in keys}
             stamps = await _timestamps(db, ref, key, ts_col, every, ids)
         losers: set[str] = set()

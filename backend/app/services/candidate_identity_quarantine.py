@@ -39,6 +39,7 @@ from app.models.index_outbox import IndexOutboxEvent
 from app.models.user import User, UserRole
 from app.services import candidate_audit
 from app.services.candidate_location_writer import project_candidate_location
+from app.services.candidate_name_rules import EMPTY_FIELD_NAME_PHRASES
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ _PLACEHOLDERS = frozenset(
         "n/a",
         "na",
     }
+    | EMPTY_FIELD_NAME_PHRASES
 )
 _SPECIAL_TRANSLITERATION = str.maketrans(
     {
@@ -973,8 +975,14 @@ async def record_detected_identity(
     observed_last_name: Any,
     provenance: str,
     replaced_primary: ReplacedPrimaryCv | None = None,
+    observed_name_from_header: bool = False,
 ) -> CandidateSourceIdentityReview:
-    """Persist an automatic decision without weakening a manual decision."""
+    """Persist an automatic decision without weakening a manual decision.
+
+    `observed_name_from_header`: nazwę dała reguła nagłówka CV, nie model. Taka
+    linia bywa stanowiskiem albo nazwą firmy (05.11.2026: w 4 z 9 przejrzanych
+    plików nie była nazwą osoby), więc sama nie dowodzi cudzego pliku.
+    """
 
     # Serialize first review creation and re-read the identity under the same
     # row lock.  ``candidate`` may have been loaded before a slow parser/model
@@ -993,6 +1001,12 @@ async def record_detected_identity(
         candidate_last_name=locked_candidate.lastname,
         observed_first_name=observed_first_name,
         observed_last_name=observed_last_name,
+    )
+    result = IdentityMatchResult(
+        "inconclusive"
+        if observed_name_from_header and result.decision == "confirmed_mismatch"
+        else result.decision,
+        {**result.evidence, "observed_name_from_header": observed_name_from_header},
     )
     now = datetime.now(timezone.utc)
     row = await get_identity_review(
