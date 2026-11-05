@@ -438,20 +438,19 @@ async def get_connection(
     conn = await _get_connection_for_user(db, current_user.id)
     if conn is None:
         return ConnectionStatus(connected=False, **routing)
-    # Soft-disconnected row with reconnect_required status → surface as "not
-    # connected but needs reconnect". Frontend shows an amber CTA banner.
+    # Odłączenie przez użytkownika kasuje wiersz, więc wyłączony wiersz to zawsze
+    # awaria, którą naprawia tylko ponowne połączenie (nieczytelny lub odrzucony
+    # token, zbyt wiele resetów kursora). Frontend pokazuje wtedy żółty baner.
     if not conn.is_active:
-        if conn.last_sync_status == M365SyncStatus.reconnect_required:
-            return ConnectionStatus(
-                connected=False,
-                mailbox_upn=conn.mailbox_upn,
-                last_sync_status=conn.last_sync_status.value,
-                last_error=conn.last_error,
-                last_error_code=classify_m365_error(conn.last_error),
-                requires_reconnect=True,
-                **routing,
-            )
-        return ConnectionStatus(connected=False, **routing)
+        return ConnectionStatus(
+            connected=False,
+            mailbox_upn=conn.mailbox_upn,
+            last_sync_status=conn.last_sync_status.value,
+            last_error=conn.last_error,
+            last_error_code=classify_m365_error(conn.last_error),
+            requires_reconnect=True,
+            **routing,
+        )
     return ConnectionStatus(
         connected=True,
         mailbox_upn=conn.mailbox_upn,
