@@ -65,6 +65,71 @@ async def test_smart_name_narrows_in_sql_with_limit_and_contact_window() -> None
     assert "candidates.raw_cv_text" not in sql
 
 
+async def test_smart_name_skips_profile_with_company_address() -> None:
+    # Pracownik w bazie: mail z jego nazwiskiem w temacie to cudza korespondencja
+    # z prywatnej skrzynki, a przypięty staje się widoczny dla admina i DL.
+    db, captured = _rows_db([])
+
+    await matcher._find_candidate_by_subject_name(db, "Urlop Jan Kowalski")
+
+    sql = _sql(captured[0])
+    assert "split_part" in sql
+    assert "NOT IN ('b2bnetwork.pl')" in sql
+
+
+async def test_smart_name_skips_domain_of_mailbox_owner() -> None:
+    db, captured = _rows_db([])
+
+    await matcher._find_candidate_by_subject_name(
+        db, "Urlop Jan Kowalski", owner_address="anna@inna-firma.pl"
+    )
+
+    sql = _sql(captured[0])
+    assert "'b2bnetwork.pl'" in sql and "'inna-firma.pl'" in sql
+
+
+async def test_smart_name_skips_profile_named_like_an_account() -> None:
+    # Pracownik z profilem na prywatny adres: 04.11.2026 było tak 20 profili.
+    db, captured = _rows_db([])
+
+    await matcher._find_candidate_by_subject_name(db, "Urlop Jan Kowalski")
+
+    sql = _sql(captured[0])
+    assert "NOT (EXISTS (SELECT" in sql
+    assert "users.name" in sql
+
+
+async def test_match_passes_mailbox_owner_to_smart_name(monkeypatch) -> None:
+    calls = []
+
+    async def _subject_name(db, subject, *, owner_address=None):
+        calls.append(owner_address)
+        return None
+
+    monkeypatch.setattr(
+        matcher, "_find_candidate_by_email", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        matcher, "_find_candidate_by_conversation", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(matcher, "_find_candidate_by_subject_name", _subject_name)
+
+    result = await matcher.match(
+        SimpleNamespace(),
+        matcher.IncomingMessage(
+            from_address="kolega@b2bnetwork.pl",
+            to_addresses=[],
+            cc_addresses=[],
+            subject="Urlop Jan Kowalski",
+            conversation_id="c1",
+            owner_address="anna@b2bnetwork.pl",
+        ),
+    )
+
+    assert calls == ["anna@b2bnetwork.pl"]
+    assert result.method == EmailMatchMethod.unmatched.value
+
+
 async def test_smart_name_two_people_is_no_match() -> None:
     db, _ = _rows_db(
         [

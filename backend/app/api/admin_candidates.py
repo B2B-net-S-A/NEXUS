@@ -269,7 +269,7 @@ async def trigger_backfill_names(
         default=None,
         ge=1,
         description="Cap the number of candidates processed this run (e.g. for "
-        "a small verification batch). Omit to process all remaining '?' rows.",
+        "a small verification batch). Omit to process all remaining placeholder rows.",
     ),
     prefer_llm: bool = Query(
         default=True,

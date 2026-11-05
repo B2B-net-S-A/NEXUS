@@ -112,6 +112,7 @@ import { hasPermission, permissionLabel } from "@/lib/permissions";
 import {
   HM_ALREADY_INTERVIEWED_REASON,
   loadJobRejectionReasons,
+  reasonFitsEndedBy,
   reasonNeedsDescription,
   WORK_MODE_MISMATCH_REASON,
 } from "@/lib/rejection-reasons";
@@ -527,7 +528,10 @@ export function DlReviewBody({
     staleTime: 5 * 60_000,
   });
   const rejectedReasons = useMemo(
-    () => (reasons.data ?? []).filter((r) => r.applies_to.includes("rejected")),
+    () =>
+      (reasons.data ?? []).filter(
+        (r) => r.applies_to.includes("rejected") && reasonFitsEndedBy(r, "delivery_lead"),
+      ),
     [reasons.data],
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId);

@@ -1,74 +1,56 @@
-import { Check } from "lucide-react"
-
 import { cn } from "@/lib/utils"
 import { DynamindsLogo } from "@/components/brand/DynamindsLogo"
+import { DynamindsMark } from "@/components/brand/DynamindsMark"
+import { B2BLogo } from "@/components/career/B2BLogo"
 
 interface AuthShellProps {
-  /** Card heading (e.g. "Zaloguj się do Nexus"). */
+  /** Page heading (e.g. powitanie albo "Ustaw nowe hasło"). */
   heading: string
   /** Optional subtitle under the heading. */
-  subtitle?: string
-  /** Card contents — the form (or a success/error state). */
+  subtitle?: React.ReactNode
+  /** Duży nagłówek do krótkiego powitania; dłuższe nagłówki zostają w zwykłym rozmiarze. */
+  largeHeading?: boolean
+  /** The form (or a success/error state). */
   children: React.ReactNode
-  /** Footer line under the card. Defaults to "Nexus · B2B.net". */
-  footer?: React.ReactNode
   className?: string
 }
 
-const BRAND_FEATURES = [
-  "AI matching kandydat ↔ rola",
-  "Kanban pipeline ze scoringiem",
-  "Champion & delivery insights",
-]
-
 /**
- * Premium split-screen auth layout (Tailwind Plus / shadcnblocks aesthetic),
- * shared by login / forgot-password / reset. Left = brand panel on `bg-primary`
- * (follows the active accent palette); right = the form card. On mobile the
- * brand panel is hidden and the logo sits above the heading. Purely
- * presentational — all auth wiring lives in the page that supplies `children`.
+ * Układ ekranów przed logowaniem (login, reset hasła, rejestracja): logo obu
+ * marek, po lewej nagłówek z formularzem, resztę ekranu zajmuje znak firmy.
+ * Logo B2B Network ma 45 px wysokości, czyli minimalne 96 px szerokości z brand
+ * booka; odstęp od sąsiada to wymagane pole ochronne (połowa wysokości logo).
+ * Purely presentational — all auth wiring lives in the page that supplies `children`.
  */
-export function AuthShell({ heading, subtitle, children, footer = "Nexus · B2B.net", className }: AuthShellProps) {
+export function AuthShell({ heading, subtitle, largeHeading = false, children, className }: AuthShellProps) {
   return (
-    <div className={cn("min-h-screen min-h-svh bg-background lg:grid lg:grid-cols-2", className)}>
-      {/* Brand panel — lg+ only. bg-primary so it recolors with the palette. */}
-      <div className="relative hidden flex-col justify-between bg-primary p-12 text-primary-foreground lg:flex">
-        <DynamindsLogo className="h-9 w-auto" />
-        <div className="max-w-md">
-          <h2 className="text-3xl font-semibold leading-tight tracking-tight">
-            Twój pipeline rekrutacyjny w jednym miejscu.
-          </h2>
-          <p className="mt-4 text-base text-primary-foreground/80">
-            Sourcing, pipeline, delivery i analityka — w jednym ATS skrojonym pod IT staffing.
-          </p>
-          <ul className="mt-8 space-y-3">
-            {BRAND_FEATURES.map((f) => (
-              <li key={f} className="flex items-center gap-3 text-sm text-primary-foreground/90">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
-                  <Check className="h-3 w-3" />
-                </span>
-                {f}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className="text-xs text-primary-foreground/70">Nexus · B2B.net</p>
+    <div className={cn("relative flex min-h-dvh flex-col overflow-hidden bg-background", className)}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute right-[-68vw] top-[6dvh] h-[52dvh] md:right-[-26vw] lg:left-[24vw] lg:right-auto lg:top-[-4dvh] lg:h-[max(135dvh,76vw)]"
+      >
+        <DynamindsMark className="h-full w-auto text-primary" />
       </div>
-
-      {/* Form column. */}
-      <div className="flex items-center justify-center px-4 py-10">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center">
-            <DynamindsLogo className="mb-6 h-9 w-auto text-foreground lg:hidden" />
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">{heading}</h1>
-            {subtitle && (
-              <p className="mt-1.5 text-center text-sm text-muted-foreground">{subtitle}</p>
+      <div className="relative flex flex-1 flex-col justify-between gap-10 px-6 py-6 lg:px-16 lg:py-10">
+        <div className="flex items-center gap-[23px] self-start">
+          <DynamindsLogo className="-ml-[5px] h-6 w-auto text-foreground lg:h-7" />
+          <span aria-hidden="true" className="h-8 w-px bg-border" />
+          <B2BLogo height={45} className="dark:hidden" />
+          <B2BLogo height={45} variant="onDark" className="hidden dark:block" />
+        </div>
+        <div className="w-full max-w-sm pb-2 lg:pb-8">
+          <h1
+            className={cn(
+              "font-display font-semibold text-foreground",
+              largeHeading
+                ? "text-5xl tracking-display-tight lg:text-6xl"
+                : "text-3xl tracking-heading-tight",
             )}
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-6 shadow-xs">{children}</div>
-
-          <p className="mt-6 text-center text-xs text-muted-foreground">{footer}</p>
+          >
+            {heading}
+          </h1>
+          {subtitle && <p className="mt-3 text-base text-muted-foreground">{subtitle}</p>}
+          <div className="mt-6">{children}</div>
         </div>
       </div>
     </div>
