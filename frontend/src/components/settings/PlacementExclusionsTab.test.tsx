@@ -9,9 +9,9 @@ import {
   type PlacementExclusionItem,
 } from "./PlacementExclusionsTab";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }));
 
-vi.mock("@/lib/api", () => ({ default: { get: mocks.get } }));
+vi.mock("@/lib/api", () => ({ default: { get: mocks.get, post: mocks.post, delete: mocks.delete } }));
 
 function renderTab() {
   const queryClient = new QueryClient({
@@ -116,6 +116,78 @@ describe("PlacementExclusionsTab", () => {
       target: { value: "nikt taki" },
     });
     expect(screen.getByText(/Nic nie pasuje/)).toBeTruthy();
+  });
+
+  it("wyklucza parę ręcznie: przycisk czeka na numery i powód, potem POST", async () => {
+    mocks.get.mockResolvedValue({ data: { total: 3, series_threshold: 10, reasons: {}, items: ITEMS } });
+    mocks.post.mockResolvedValue({ data: { id: 99 } });
+    renderTab();
+
+    const form = await screen.findByRole("form", { name: "Wyklucz placement ręcznie" });
+    const submit = within(form).getByRole("button", { name: "Wyklucz" });
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(within(form).getByLabelText("Nr kandydata"), { target: { value: "12a3" } });
+    fireEvent.change(within(form).getByLabelText("Nr rekrutacji"), { target: { value: "456" } });
+    expect(within(form).getByLabelText("Nr kandydata")).toHaveValue("123");
+    expect(submit).toBeDisabled();
+    fireEvent.change(within(form).getByLabelText("Powód"), { target: { value: " Nie podjął pracy " } });
+    fireEvent.click(submit);
+
+    await vi.waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith("/api/admin/placement-exclusions", {
+        candidate_id: 123,
+        job_id: 456,
+        note: "Nie podjął pracy",
+      }),
+    );
+    expect(await screen.findByText(/Placement wykluczony/)).toBeTruthy();
+  });
+
+  it("odmowa serwera to komunikat w formularzu, nie cisza", async () => {
+    mocks.get.mockResolvedValue({ data: { total: 3, series_threshold: 10, reasons: {}, items: ITEMS } });
+    mocks.post.mockRejectedValue(
+      new AxiosError("unprocessable", "ERR_BAD_REQUEST", undefined, undefined, {
+        status: 422,
+        statusText: "Unprocessable",
+        data: { detail: "Ten kandydat nie ma etapu „Zatrudniony” w tej rekrutacji." },
+        headers: {},
+        config: { headers: new AxiosHeaders() },
+      }),
+    );
+    renderTab();
+
+    const form = await screen.findByRole("form", { name: "Wyklucz placement ręcznie" });
+    fireEvent.change(within(form).getByLabelText("Nr kandydata"), { target: { value: "1" } });
+    fireEvent.change(within(form).getByLabelText("Nr rekrutacji"), { target: { value: "2" } });
+    fireEvent.change(within(form).getByLabelText("Powód"), { target: { value: "test" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Wyklucz" }));
+
+    expect(await within(form).findByRole("alert")).toHaveTextContent("nie ma etapu „Zatrudniony”");
+  });
+
+  it("wiersz dodany ręcznie pokazuje powód i daje się przywrócić po potwierdzeniu", async () => {
+    const manual = row({
+      id: 7,
+      candidate_name: "Piotr Fikcyjny",
+      reason: "manual",
+      reason_label: "Wykluczone ręcznie przez administratora",
+      series_day: null,
+      series_size: null,
+      note: "Klient zakończył współpracę",
+      added_by_name: "Admin Testowy",
+    });
+    mocks.get.mockResolvedValue({ data: { total: 1, series_threshold: 10, reasons: {}, items: [manual] } });
+    mocks.delete.mockResolvedValue({ data: null });
+    renderTab();
+
+    expect(await screen.findByText("Klient zakończył współpracę")).toBeTruthy();
+    expect(screen.getByText("Dodał(a): Admin Testowy")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć" }));
+    expect(mocks.delete).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przywróć" }));
+    await vi.waitFor(() => expect(mocks.delete).toHaveBeenCalledWith("/api/admin/placement-exclusions/7"));
   });
 });
 
