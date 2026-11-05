@@ -850,6 +850,72 @@ async def get_identity_review(
     return await db.scalar(stmt)
 
 
+async def cv_bytes_quarantined(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    content_sha256: str,
+) -> bool:
+    """Czy bajty ze wskaźnika kandydata to plik z kwarantanny tej osoby.
+
+    `cv_storage_key` trzyma własną kopię pliku pod innym kluczem niż dokument
+    (pomiar 05.11.2026: 0 z 254 równych kluczy, 66 z 243 tych samych bajtów), więc
+    porównanie kluczy niczego nie wykrywa. Wskaźnika nie zdejmujemy, bo w pozostałych
+    177 profilach to inny plik, a zwolnienie z kwarantanny ma działać bez naprawy.
+
+    54 z tych 66 dokumentów nie ma zapisanego skrótu, więc liczymy go z bajtów. Gdy
+    pliku nie da się odczytać, nie da się też wykluczyć kopii, dlatego odpowiedź
+    brzmi „tak”: brak tekstu naprawia zwolnienie, cudzego tekstu nikt nie zauważy.
+    """
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.services import object_storage
+
+    documents = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.content_sha256,
+                CandidateDocument.storage_key,
+            ).where(
+                CandidateDocument.candidate_id == candidate_id,
+                source_is_quarantined_clause(
+                    candidate_id_column=CandidateDocument.candidate_id,
+                    source_id_column=CandidateDocument.id,
+                    source_kind="document",
+                ),
+            )
+        )
+    ).all()
+    if any(document.content_sha256 == content_sha256 for document in documents):
+        return True
+    for document in documents:
+        if document.content_sha256:
+            continue
+        try:
+            content = (
+                await run_in_threadpool(
+                    object_storage.download_cv, document.storage_key
+                )
+                if document.storage_key
+                else await db.scalar(
+                    select(CandidateDocument.file_content).where(
+                        CandidateDocument.id == document.id
+                    )
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — bez bajtów nie ma dowodu na inny plik
+            logger.warning(
+                "[identity_quarantine] quarantined file unreadable document=%s: %s",
+                document.id,
+                type(exc).__name__,
+            )
+            return True
+        if content and hashlib.sha256(bytes(content)).hexdigest() == content_sha256:
+            return True
+    return False
+
+
 async def record_detected_identity(
     db: AsyncSession,
     *,
@@ -1030,6 +1096,26 @@ async def mark_confirmed_mismatch(
     return row
 
 
+def _reopen_pointer_read(candidate: Candidate) -> None:
+    """Zwolniony plik wraca do odczytu tekstu: wyrok `quarantined` jest końcowy.
+
+    Gdy wskaźnik trzyma też kopię innego pliku z kwarantanny, następny bieg
+    zapisze ten wyrok ponownie.
+    """
+    from app.services.cv_text_backfill import _EXTRACTION_MARKER_KEY, _QUARANTINED
+
+    extracted = candidate.cv_extracted_data
+    marker = (
+        extracted.get(_EXTRACTION_MARKER_KEY) if isinstance(extracted, dict) else None
+    )
+    if isinstance(marker, dict) and marker.get("outcome") == _QUARANTINED:
+        candidate.cv_extracted_data = {
+            key: value
+            for key, value in extracted.items()
+            if key != _EXTRACTION_MARKER_KEY
+        }
+
+
 async def override_identity_quarantine(
     db: AsyncSession,
     *,
@@ -1049,6 +1135,10 @@ async def override_identity_quarantine(
     if len(clean_reason) > 500:
         raise ValueError("override reason must be at most 500 characters")
 
+    # Ta sama kolejność blokad co przy zapisie decyzji: najpierw kandydat.
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
     row = await get_identity_review(
         db,
         candidate_id=candidate_id,
@@ -1065,6 +1155,8 @@ async def override_identity_quarantine(
     row.override_reason = clean_reason
     row.override_by_id = actor.id
     row.override_at = now
+    if candidate is not None:
+        _reopen_pointer_read(candidate)
     reason_sha256 = hashlib.sha256(clean_reason.encode("utf-8")).hexdigest()
     candidate_audit.record_candidate_audit(
         db,

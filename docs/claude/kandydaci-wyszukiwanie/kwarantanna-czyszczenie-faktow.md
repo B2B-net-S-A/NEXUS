@@ -15,3 +15,20 @@ fakty z tego pliku. Decyzje z 05.11.2026, po ręcznej naprawie dwóch profili:
   jest tekstem tego pliku, i wtedy czyści fakty, choć plik nie jest główny, a odczyt
   nie ma `source_document_id`. Automat tego nie robi, bo decyzja parsera bywa
   fałszywym alarmem.
+
+## Wskaźnik `cv_storage_key` po kwarantannie pliku
+
+Kwarantanna nie zdejmuje `cv_storage_key`. Pomiar 05.11.2026 na 243 aktywnych
+kwarantannach plików: klucz nie jest kluczem dokumentu w żadnej, 66 wskaźników
+trzyma te same bajty pod własnym kluczem, a 177 to inny plik, często własne CV
+osoby. Zdjęcie wskaźnika odebrałoby tym 177 osobom plik, a zwolnienie
+z kwarantanny nie miałoby czego przywrócić.
+
+Kto czyta bajty ze wskaźnika, sprawdza je przez `cv_bytes_quarantined`, po skrócie,
+nie po kluczu: `get_current_cv`, `cv_text_backfill`, `cv_backfill`. 54 z tych 66
+dokumentów nie ma `content_sha256`, więc funkcja liczy go z pliku. Nieczytelny plik
+liczy się jako kopia, bo cudzy tekst w profilu jest gorszy niż brak tekstu.
+
+`cv_text_backfill` zapisuje wtedy końcowy znacznik `quarantined`, żeby nie pobierać
+pliku co bieg. `override_identity_quarantine` zdejmuje ten znacznik, więc po
+zwolnieniu tekst wraca przy następnym biegu, bez naprawy danych.

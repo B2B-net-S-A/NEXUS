@@ -1170,6 +1170,7 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         # `__daily__` (bramka niżej). Licznik idzie jako `extract_errors`.
         "skipped_terminal",
         "still_glued",
+        "quarantined",
         "reindex_enqueued",
         "storage_available",
         "written",

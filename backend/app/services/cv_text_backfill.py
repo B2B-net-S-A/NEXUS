@@ -19,6 +19,7 @@ measurement says otherwise, not before.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import tempfile
@@ -38,6 +39,7 @@ from app.services.cv_text_extractor import (
     sniff_extension,
 )
 from app.services.object_storage import download_cv, is_available
+from app.services.candidate_identity_quarantine import cv_bytes_quarantined
 from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger("cv_text_backfill")
@@ -59,8 +61,9 @@ _EXTRACTION_MARKER_KEY = "_cv_text_extraction"
 # those are worth another attempt. `legacy_doc` też już nie: oznaczał binarny Word,
 # którego nie było czym czytać, a od #2979 czyta go LibreOffice. Wiersze z tym
 # starym znacznikiem wracają więc do zakresu.
+_QUARANTINED = "quarantined"
 _TERMINAL_OUTCOMES = frozenset(
-    {"unsupported_format", "junk", "empty", "no_improvement"}
+    {"unsupported_format", "junk", "empty", "no_improvement", _QUARANTINED}
 )
 # Outcomes that could have been WRONG before the extractor read the format from
 # the file's bytes (2026-09-22): 3 320 PDFs named `*.docx` were marked `empty`,
@@ -110,6 +113,8 @@ class BackfillStats:
     skipped_terminal: int = 0
     # Zakres ``glued``: ponowny odczyt dalej bez przerw między słowami.
     still_glued: int = 0
+    # Wskaźnik trzyma kopię pliku z kwarantanny tożsamości: tekst nie wchodzi.
+    quarantined: int = 0
     reindex_enqueued: int = 0
     # False when object storage is unconfigured. Without it the caller cannot
     # tell "nothing to do" from "could not even look" — both leave scanned=0.
@@ -153,6 +158,7 @@ def sanitize(text: str) -> str:
 class ExtractionResult:
     outcome: str
     text: str = ""
+    content_sha256: str = ""
 
 
 def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
@@ -205,7 +211,7 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
         if sniffed in (".doc", ".docx"):
             return ExtractionResult("error")
         return ExtractionResult("empty")
-    return ExtractionResult("extracted", cleaned)
+    return ExtractionResult("extracted", cleaned, hashlib.sha256(blob).hexdigest())
 
 
 def _pending_candidates_stmt(
@@ -315,7 +321,10 @@ def _glued_candidates_stmt(limit: Optional[int]):
             text_len
             > GLUED_AVG_WORD_LEN
             * (func.regexp_count(Candidate.raw_cv_text, r"\s+") + 1),
-            or_(marker_outcome.is_(None), marker_outcome != _STILL_GLUED),
+            or_(
+                marker_outcome.is_(None),
+                marker_outcome.notin_((_STILL_GLUED, _QUARANTINED)),
+            ),
             _not_deferred(Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY]),
         )
         .order_by(Candidate.id.asc())
@@ -465,6 +474,16 @@ async def run_backfill(
                 terminal = _terminal_marker(candidate, retry_outcomes=retry_outcomes)
                 if terminal and not glued:
                     stats.skipped_terminal += 1
+                    continue
+
+                # Kwarantanna czyści tekst, a wskaźnik zostaje, więc bez tego
+                # bieg przywracał tekst innej osoby z tego samego pliku.
+                if result.content_sha256 and await cv_bytes_quarantined(
+                    db, candidate_id=cid, content_sha256=result.content_sha256
+                ):
+                    stats.quarantined += 1
+                    if commit:
+                        _record_marker(candidate, _QUARANTINED, 0)
                     continue
 
                 if glued:

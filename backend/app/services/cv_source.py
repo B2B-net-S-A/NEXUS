@@ -13,6 +13,7 @@ broke per-stage CV snapshots for weeks.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.services import object_storage
 from app.services.candidate_identity_quarantine import (
+    cv_bytes_quarantined,
     source_is_eligible_clause,
     source_is_quarantined_clause,
 )
@@ -80,6 +82,17 @@ async def _legacy_cv_quarantined(db: AsyncSession, candidate_id: int) -> bool:
                 )
             )
         )
+    )
+
+
+async def _pointer_copy_quarantined(
+    db: AsyncSession, candidate_id: int, content: bytes
+) -> bool:
+    """Czy CV ze wskaźnika kandydata to kopia pliku z kwarantanny tożsamości."""
+    return await cv_bytes_quarantined(
+        db,
+        candidate_id=candidate_id,
+        content_sha256=hashlib.sha256(content).hexdigest(),
     )
 
 
@@ -203,15 +216,10 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
         return None
 
     if candidate.cv_storage_key:
+        content = None
         try:
             content = await run_in_threadpool(
                 object_storage.download_cv, candidate.cv_storage_key
-            )
-            return CurrentCV(
-                content=content,
-                filename=candidate.cv_filename or "cv.pdf",
-                language=candidate.cv_language,
-                source="candidate_storage",
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -221,8 +229,23 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                 safe_storage_key(candidate.cv_storage_key),
                 type(exc).__name__,
             )
+        if content is not None:
+            # Wskaźnik trzyma własną kopię pliku, więc filtr dokumentów wyżej jej
+            # nie widzi: 36 profili (05.11.2026) dostawało tu cudze CV.
+            if await _pointer_copy_quarantined(db, candidate.id, content):
+                return None
+            return CurrentCV(
+                content=content,
+                filename=candidate.cv_filename or "cv.pdf",
+                language=candidate.cv_language,
+                source="candidate_storage",
+            )
 
     if candidate.cv_file_content is not None:
+        if await _pointer_copy_quarantined(
+            db, candidate.id, bytes(candidate.cv_file_content)
+        ):
+            return None
         return CurrentCV(
             content=bytes(candidate.cv_file_content),
             filename=candidate.cv_filename or "cv.pdf",
