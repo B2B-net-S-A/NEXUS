@@ -113,7 +113,10 @@ async def wnioski_decision(
     )
     await db.commit()
     logger.info(
-        "insight decision key=%s state=%s user_id=%s", key, body.state, current_user.id
+        "insight decision case=%s state=%s user_id=%s",
+        case["key"],
+        body.state,
+        current_user.id,
     )
     return {
         "key": key,
