@@ -84,6 +84,10 @@ export interface InFlightColumn {
   /** Ile par stoi w kolumnie dłużej niż `stale_days`. */
   stale_count: number;
   oldest_days: number | null;
+  /** Pary stojące w kolumnie najwyżej `recent_days` dni. */
+  recent_count: number;
+  /** Z nich dłużej niż `stale_days` — to liczy zdanie o zatorze. */
+  recent_stale_count: number;
 }
 
 export interface InFlightAcceptance {
@@ -144,6 +148,7 @@ export interface TeamGoalsResponse extends MyKpiGoals {
 export interface InFlightResponse {
   asof: string;
   stale_days: number;
+  recent_days: number;
   columns: InFlightColumn[];
   /** `null` = konto bez `view_team_kpi` (lista ma klientów i Delivery Leadów). */
   acceptances: InFlightAcceptance[] | null;

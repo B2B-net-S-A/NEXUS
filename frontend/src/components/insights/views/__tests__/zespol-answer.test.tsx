@@ -50,7 +50,8 @@ const RESPONSES: Record<string, unknown> = {
   },
   "/api/insights/recruitment/in-flight": {
     stale_days: 10,
-    columns: [{ column: "cv_sent", label: "", count: 675, stale_count: 453, oldest_days: 174 }],
+    recent_days: 30,
+    columns: [{ column: "cv_sent", label: "", count: 675, stale_count: 453, oldest_days: 174, recent_count: 459, recent_stale_count: 237 }],
     acceptances: [],
     forecast: { open: 0, hired: 0, resolved: 0, min_sample: 10, since: "2026-10-12", rate_pct: null, low: null, high: null },
     definitions: {},
@@ -103,7 +104,7 @@ describe("Zespół: odpowiedź i soczewka", () => {
   it("lider widzi zdanie z odpowiedzią, a zdanie o zatorze otwiera właściwy etap", async () => {
     setUser("head_of_recruitment", ["view_team_kpi"]);
     renderView();
-    const stall = await screen.findByRole("link", { name: /Dziś najwięcej stoi u klientów: 453 z 675/ });
+    const stall = await screen.findByRole("link", { name: /Dziś najwięcej stoi u klientów: 237 z 459/ });
     expect(stall.getAttribute("href")).toContain("etap=cv_sent");
     expect(await screen.findByRole("heading", { level: 2, name: /19 u osób z celem 36\. Do celu zabrakło 17/ })).toBeTruthy();
   });

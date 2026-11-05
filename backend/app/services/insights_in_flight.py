@@ -70,6 +70,9 @@ STAGE_LABELS = {
 
 # Para stoi „długo”, gdy w kolumnie jest dłużej niż tyle dni.
 STALE_DAYS = 10
+# Para starsza to zwykle karta, której nikt nie zamknął, a nie realne czekanie:
+# zdanie o zatorze w Insights → Zespół jej nie liczy (decyzja Artura 05.11.2026).
+RECENT_DAYS = 30
 # Poniżej tylu rozstrzygniętych akceptacji skuteczność nie jest pokazywana.
 MIN_FORECAST_SAMPLE = 10
 
@@ -347,6 +350,10 @@ async def compute_in_flight(
                 "count": len(in_col),
                 "stale_count": sum(1 for a in ages if a > STALE_DAYS),
                 "oldest_days": max(ages) if ages else None,
+                "recent_count": sum(1 for a in ages if a <= RECENT_DAYS),
+                "recent_stale_count": sum(
+                    1 for a in ages if STALE_DAYS < a <= RECENT_DAYS
+                ),
             }
         )
 
@@ -392,6 +399,7 @@ async def compute_in_flight(
     return {
         "asof": today.isoformat(),
         "stale_days": STALE_DAYS,
+        "recent_days": RECENT_DAYS,
         "columns": columns,
         "acceptances": acceptances,
         "people": people,

@@ -324,10 +324,10 @@ function seeded(): QueryClient {
     ],
   };
   const flightCols = (cv_qc: number, cv_sent: number, interview: number, contract: number) => [
-    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: cv_qc, stale_count: 0, oldest_days: cv_qc ? 2 : null },
-    { column: "cv_sent", label: "Czekają na decyzję klienta", count: cv_sent, stale_count: Math.min(3, cv_sent), oldest_days: cv_sent ? 16 : null },
-    { column: "client_interview", label: "Rozmowy u klienta", count: interview, stale_count: 0, oldest_days: interview ? 4 : null },
-    { column: "contract", label: "Akceptacje do domknięcia", count: contract, stale_count: contract ? 1 : 0, oldest_days: contract ? 11 : null },
+    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: cv_qc, recent_count: cv_qc, recent_stale_count: 0, stale_count: 0, oldest_days: cv_qc ? 2 : null },
+    { column: "cv_sent", label: "Czekają na decyzję klienta", count: cv_sent, recent_count: cv_sent, recent_stale_count: Math.min(3, cv_sent), stale_count: Math.min(3, cv_sent), oldest_days: cv_sent ? 16 : null },
+    { column: "client_interview", label: "Rozmowy u klienta", count: interview, recent_count: interview, recent_stale_count: 0, stale_count: 0, oldest_days: interview ? 4 : null },
+    { column: "contract", label: "Akceptacje do domknięcia", count: contract, recent_count: contract, recent_stale_count: contract ? 1 : 0, stale_count: contract ? 1 : 0, oldest_days: contract ? 11 : null },
   ];
   const flightForecast = { hired: 12, resolved: 14, min_sample: 10, since: "2026-10-12", rate_pct: 85.7 };
   const person = (candidate_id: number, candidate_name: string, job_id: number, job_title: string, client_name: string, column: string, stage_label: string, days: number) => ({
@@ -335,7 +335,7 @@ function seeded(): QueryClient {
     column, stage_key: column, stage_label, since: "2026-10-12", days,
   });
   qc.setQueryData(insightsQueryKeys.inFlightMe("mine"), {
-    asof: "2026-10-22", stale_days: 10, columns: flightCols(0, 7, 2, 2), acceptances: null,
+    asof: "2026-10-22", stale_days: 10, recent_days: 30, columns: flightCols(0, 7, 2, 2), acceptances: null,
     people: [
       person(501, "Marek Próbny", 9201, "DevOps Engineer", "Telekom Testowy", "contract", "Umowa wysłana", 11),
       person(502, "Kamil Wzorcowy", 9202, "Senior Java Developer", "Bank Przykładowy", "contract", "Akceptacja", 3),
@@ -348,7 +348,7 @@ function seeded(): QueryClient {
     definitions: { columns: "", forecast: "" },
   });
   qc.setQueryData(insightsQueryKeys.inFlightMe("portfolio"), {
-    asof: "2026-10-22", stale_days: 10, columns: flightCols(3, 18, 5, 4), acceptances: null,
+    asof: "2026-10-22", stale_days: 10, recent_days: 30, columns: flightCols(3, 18, 5, 4), acceptances: null,
     people: [
       person(511, "Marek Próbny", 9201, "DevOps Engineer", "Telekom Testowy", "contract", "Umowa wysłana", 19),
       person(512, "Kamil Wzorcowy", 9202, "Senior Java Developer", "Bank Przykładowy", "contract", "Akceptacja", 3),
@@ -398,7 +398,7 @@ function seeded(): QueryClient {
     company_month_placements: 21,
   });
   qc.setQueryData(insightsQueryKeys.inFlight(), {
-    asof: "2026-10-22", stale_days: 10, columns: flightCols(38, 64, 23, 10),
+    asof: "2026-10-22", stale_days: 10, recent_days: 30, columns: flightCols(38, 64, 23, 10),
     acceptances: [
       { job_id: 9201, job_title: "DevOps Engineer", client_id: 3, client_name: "Telekom Testowy", delivery_lead_name: "Paweł G.", stage_key: "contract_sent", stage_label: "Umowa wysłana", since: "2026-10-03", days: 19 },
       { job_id: 9202, job_title: "Senior Java Developer", client_id: 1, client_name: "Bank Przykładowy", delivery_lead_name: "Kasia B.", stage_key: "acceptance", stage_label: "Akceptacja", since: "2026-10-07", days: 15 },

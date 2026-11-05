@@ -128,8 +128,9 @@ const STALL_PLACE: Record<InFlightColumn["column"], string> = {
 };
 
 export function worstColumn(inFlight: InFlightResponse | undefined): InFlightColumn | null {
-  const worst = [...(inFlight?.columns ?? [])].sort((a, b) => b.stale_count - a.stale_count)[0];
-  return worst && worst.stale_count > 0 ? worst : null;
+  // Pary starsze niż `recent_days` to zwykle karty, których nikt nie zamknął, nie zator.
+  const worst = [...(inFlight?.columns ?? [])].sort((a, b) => b.recent_stale_count - a.recent_stale_count)[0];
+  return worst && worst.recent_stale_count > 0 ? worst : null;
 }
 
 export function teamVerdict(input: {
@@ -171,7 +172,7 @@ export function teamVerdict(input: {
   }
   const worst = worstColumn(inFlight);
   const stall = worst
-    ? `Dziś najwięcej stoi ${STALL_PLACE[worst.column]}: ${worst.stale_count} z ${worst.count} par dłużej niż ${inFlight?.stale_days} dni.`
+    ? `Dziś najwięcej stoi ${STALL_PLACE[worst.column]}: ${worst.recent_stale_count} z ${worst.recent_count} par z ostatnich ${inFlight?.recent_days} dni czeka dłużej niż ${inFlight?.stale_days}.`
     : null;
   return { pace, stall };
 }

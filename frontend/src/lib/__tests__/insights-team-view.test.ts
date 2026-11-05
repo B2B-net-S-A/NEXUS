@@ -40,9 +40,10 @@ const GOALS = {
 
 const IN_FLIGHT = {
   stale_days: 10,
+  recent_days: 30,
   columns: [
-    { column: "cv_qc", label: "", count: 48, stale_count: 16, oldest_days: 51 },
-    { column: "cv_sent", label: "", count: 675, stale_count: 453, oldest_days: 174 },
+    { column: "cv_qc", label: "", count: 48, stale_count: 16, oldest_days: 51, recent_count: 39, recent_stale_count: 7 },
+    { column: "cv_sent", label: "", count: 675, stale_count: 453, oldest_days: 174, recent_count: 459, recent_stale_count: 237 },
   ],
   acceptances: [{ days: 20 }, { days: 3 }],
   forecast: { open: 7, hired: 18, resolved: 20, min_sample: 10, since: "2026-10-12", rate_pct: 90, low: 6, high: 7 },
@@ -52,7 +53,7 @@ describe("teamVerdict", () => {
   it("okres, który trwa: plan na dziś i szacunek z akceptacji wobec celu", () => {
     const { pace, stall } = teamVerdict({ window: NOVEMBER, running: true, workdays: 4, funnel: funnel(NOVEMBER, { hired: 1 }), goals: GOALS, inFlight: IN_FLIGHT, rows: [] });
     expect(pace).toBe("Listopad 2026, 4. dzień roboczy: 1 placement przy planie 6 na dziś. W akceptacjach ok. 6–7 kolejnych, razem ok. 7–8 z celu 36.");
-    expect(stall).toBe("Dziś najwięcej stoi u klientów: 453 z 675 par dłużej niż 10 dni.");
+    expect(stall).toBe("Dziś najwięcej stoi u klientów: 237 z 459 par z ostatnich 30 dni czeka dłużej niż 10.");
   });
 
   it("okres zamknięty: licznik firmy i osób z celem stoją obok siebie, gdy się różnią", () => {
@@ -85,8 +86,8 @@ describe("teamVerdict", () => {
     expect(pace).toBe("Październik 2026: 26 placementów.");
   });
 
-  it("nic nie stoi ponad próg: bez drugiego zdania", () => {
-    const inFlight = { ...IN_FLIGHT, columns: [{ column: "cv_sent", label: "", count: 5, stale_count: 0, oldest_days: 2 }] } as InFlightResponse;
+  it("same stare karty ponad 30 dni nie są zatorem: bez drugiego zdania", () => {
+    const inFlight = { ...IN_FLIGHT, columns: [{ column: "cv_sent", label: "", count: 5, stale_count: 3, oldest_days: 90, recent_count: 2, recent_stale_count: 0 }] } as InFlightResponse;
     expect(teamVerdict({ window: NOVEMBER, running: true, workdays: 4, funnel: funnel(NOVEMBER, { hired: 1 }), goals: GOALS, inFlight, rows: [] }).stall).toBeNull();
   });
 });

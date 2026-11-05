@@ -6,6 +6,10 @@ Poprzednia wersja miała 3718 px, ponad 5 ekranów przy 1280 × 720, a Artur nie
 mógł z niej nic wyczytać. Teraz zakładka odpowiada na trzy pytania po kolei:
 czy dowieziemy, gdzie się zatyka, kto.
 
+- **Zdanie o zatorze liczy pary do 30 dni** (decyzja Artura z 05.11.2026,
+  `recent_stale_count` z `/in-flight`). Starsze to w większości karty, których nikt
+  nie zamknął: z 453 par ponad 10 dni u klienta realnie czekało ok. 221. Zakładki
+  etapów dalej pokazują pełny stan Tablicy.
 - **Góra:** zdanie z odpowiedzią zamiast pytania (`teamVerdict`), tempo wobec
   celu z kreską planu na dziś (`tempoRows`) i trzy sprawy z „Najpierw to”
   (`rankedSignals`: im bliżej placementu, tym wyżej). Klik w zdanie o zatorze

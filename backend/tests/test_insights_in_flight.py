@@ -188,6 +188,25 @@ async def _seed() -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
+async def test_in_flight_recent_counts_skip_pairs_older_than_recent_days() -> None:
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        result = await compute_in_flight(
+            db,
+            today=date(_YEAR, 4, 15),
+            now=_at(4, 15),
+            with_acceptances=False,
+            job_ids=[world["open_job"], world["closed_job"]],
+        )
+    by_col = {c["column"]: c for c in result["columns"]}
+    assert result["recent_days"] == 30
+    assert by_col["cv_sent"]["count"] == 1
+    assert by_col["cv_sent"]["stale_count"] == 1
+    assert by_col["cv_sent"]["recent_count"] == 0
+    assert by_col["cv_sent"]["recent_stale_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_in_flight_counts_columns_ages_and_acceptances() -> None:
     world = await _seed()
     async with AsyncSessionLocal() as db:
@@ -211,6 +230,9 @@ async def test_in_flight_counts_columns_ages_and_acceptances() -> None:
     assert by_col["cv_sent"]["count"] == 1
     assert by_col["cv_sent"]["oldest_days"] == 30
     assert by_col["cv_sent"]["stale_count"] == 1
+    # Próg zdania o zatorze: 30 dni jeszcze się liczy.
+    assert by_col["cv_sent"]["recent_count"] == 1
+    assert by_col["cv_sent"]["recent_stale_count"] == 1
     assert by_col["client_interview"]["count"] == 1
     assert by_col["client_interview"]["oldest_days"] == 16
     assert by_col["contract"]["count"] == 1

@@ -27,6 +27,8 @@ const forecast = (
 const col = (column: InFlightColumn["column"], count: number): InFlightColumn => ({
   column,
   label: column,
+  recent_count: count,
+  recent_stale_count: 0,
   count,
   stale_count: 0,
   oldest_days: count ? 1 : null,
