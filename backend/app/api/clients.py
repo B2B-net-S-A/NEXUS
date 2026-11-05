@@ -1259,6 +1259,10 @@ async def _move_client_materials_on_merge(
     from app.models.client_one_pager import ClientOnePager
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.consultant_panel import (
+        ClientOnboardingMaterial,
+        ClientSettlementRule,
+    )
     from app.models.contact import Contact
 
     moved: dict[str, int] = {}
@@ -1286,6 +1290,8 @@ async def _move_client_materials_on_merge(
     ):
         await _repoint(ClientPlaybook, "playbook")
         await _repoint(ClientPlaybookEvent, "playbook_events")
+    await _repoint(ClientOnboardingMaterial, "onboarding_materials")
+    await _repoint(ClientSettlementRule, "settlement_rule")
     await _repoint(Client, "merged_duplicates", Client.merged_into_client_id)
     return moved
 

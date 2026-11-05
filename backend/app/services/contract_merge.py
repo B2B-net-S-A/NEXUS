@@ -235,6 +235,10 @@ _KNOWN_CONTRACT_FKS = {
     ("cp_ratings", "contract_id"),
     ("cp_sessions", "contract_id"),
     ("cp_sms_codes", "contract_id"),
+    # Panel konsultanta: jeden wiersz na kontrakt, nadmiar usuwa
+    # ``_resolve_child_duplicates``.
+    ("cp_activations", "contract_id"),
+    ("cp_trainer_applications", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -3186,7 +3190,9 @@ async def _resolve_child_duplicates(
       na wielkość liter) łączą się w jeden: folder zachowanego (a bez niego
       najstarszy) dostaje pliki pozostałych, te są kasowane. Własna nazwa
       „Zamówień” przegranych znika — zostaje nazwa zachowanego albo domyślna.
-      Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”.
+      Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”,
+    * ``cp_activations`` i ``cp_trainer_applications`` — jeden wiersz na kontrakt:
+      zostaje wiersz zachowanego (aktywacja: aktywna przed wyłączoną), reszta jest kasowana.
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3288,6 +3294,48 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["cp_documents_duplicates_removed"] = len(losers)
+
+    if ("cp_activations", "contract_id") in present:
+        # Aktywny panel wygrywa z wyłączonym. Adres sprawdza potem ``portal_settings``.
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, "
+            "CASE WHEN deactivated_at IS NULL THEN 'active' ELSE 'off' END AS status "
+            "FROM cp_activations WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: "panel",
+            rank={"active": 0, "off": 1},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM cp_activations WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_activations_duplicates_removed"] = len(losers)
+
+    if ("cp_trainer_applications", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, 'sent' AS status FROM cp_trainer_applications "
+            "WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: "application",
+            rank={"sent": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM cp_trainer_applications WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_trainer_applications_duplicates_removed"] = len(losers)
 
     if ("redeploy_queue_items", "contract_id") in present:
         rows = await _child_rows(

@@ -94,6 +94,16 @@ export function usePanelActivate(contractId: number) {
   });
 }
 
+export function usePanelSendWelcome(contractId: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { subject: string; body: string }) => {
+      await api.post(`${BASE}/contracts/${contractId}/welcome-mail`, body);
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: keys.proposal(contractId) }),
+  });
+}
+
 export function usePanelDeactivate(contractId: number) {
   const client = useQueryClient();
   return useMutation({

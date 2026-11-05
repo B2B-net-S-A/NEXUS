@@ -144,7 +144,22 @@ async def todo(
 ) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     months = await documents.overview(db, context, today=today)
+    activation = await db.scalar(
+        select(CpActivation).where(
+            CpActivation.contract_id == context.consultant.contract_id
+        )
+    )
+    since = (
+        (activation.activated_at.year, activation.activated_at.month)
+        if activation
+        else (today.year, today.month)
+    )
     for row in months:
+        # Tylko miesiące zamknięte i od aktywacji: wcześniejsze rozliczano mailem,
+        # więc zadanie dublowałoby dokumenty u Finansów.
+        period = (row["year"], row["month"])
+        if not since <= period < (today.year, today.month):
+            continue
         if row["action"] == "send_invoice":
             items.append(
                 {

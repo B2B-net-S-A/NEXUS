@@ -32,11 +32,12 @@
  ],
  "routes": {
   "DELETE /api/consultant-panel/materials/{material_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/consultant-panel/clients/{client_id}/settlement": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/consultant-panel/clients/{client_id}/settlement": "PPBBBBBDBBBBBBBBBPBBBBBBBBBBB",
   "GET /api/consultant-panel/contracts/{contract_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/consultant-panel/settings": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/consultant-panel/contracts/{contract_id}/activation": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/consultant-panel/contracts/{contract_id}/deactivation": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/consultant-panel/contracts/{contract_id}/welcome-mail": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/consultant-panel/materials": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "PUT /api/consultant-panel/clients/{client_id}/settlement": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/consultant-panel/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PortalFaqItem, PortalMonth } from "@/lib/api/consultant-portal";
+import type { PortalFaqItem, PortalMeeting, PortalMonth } from "@/lib/api/consultant-portal";
 
 import {
   formatDay,
@@ -8,6 +8,7 @@ import {
   matchesFaq,
   monthActionLabel,
   monthLabel,
+  nextMeeting,
   offsetLabel,
   rateLabel,
   slotLabel,
@@ -54,6 +55,18 @@ describe("portal-model", () => {
     expect(rateLabel({ amount: "160.00", currency: "PLN", unit: "hourly" })).toBe("160,00 zł/h netto");
     expect(rateLabel({ amount: "900.50", currency: "EUR", unit: "daily" })).toBe("900,50 EUR/dzień netto");
     expect(rateLabel(null)).toBeNull();
+  });
+
+  it("najbliższa rozmowa to najwcześniejszy przyszły termin", () => {
+    const meeting = (id: number, start: string, status = "booked") =>
+      ({ id, start_at: start, end_at: start, status }) as PortalMeeting;
+    const now = new Date("2026-11-05T10:00:00Z");
+    const far = meeting(1, "2026-11-20T10:00:00Z");
+    const near = meeting(2, "2026-11-06T10:00:00Z");
+    const past = meeting(3, "2026-11-01T10:00:00Z");
+    const cancelled = meeting(4, "2026-11-05T12:00:00Z", "cancelled");
+    expect(nextMeeting([far, near, past, cancelled], now)?.id).toBe(2);
+    expect(nextMeeting([past], now)).toBeNull();
   });
 
   it("opisuje termin dokumentu względem startu", () => {

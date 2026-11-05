@@ -41,6 +41,7 @@ router = APIRouter()
 OPERATOR_ONLY = "Panel konsultanta aktywuje zespół Opieka albo kierownik back office'u."
 ADMIN_ONLY = "Wyłącznik panelu konsultanta zmienia administrator."
 FILE_TOO_LARGE = "Plik może mieć najwyżej 20 MB."
+PANEL_CLOSED_FOR_MAIL = "Panel tej osoby jest zamknięty, więc mail powitalny nie wyszedł. Wyślesz go po włączeniu panelu."
 
 SettlementMode = Literal["client_report", "report_with_approval", "own_report"]
 assert set(SettlementMode.__args__) == set(SETTLEMENT_MODES)
@@ -182,6 +183,35 @@ class ActivateBody(BaseModel):
     body: Optional[str] = Field(default=None, max_length=welcome_mail.MAX_BODY)
 
 
+async def _send_welcome(
+    db: AsyncSession,
+    contract_id: int,
+    *,
+    subject: Optional[str],
+    body: Optional[str],
+    actor: User,
+) -> Optional[str]:
+    """Powód, dla którego mail nie wyszedł, albo ``None``.
+
+    Mail jest jeden na kontrakt, a prowadzi do panelu, więc przy zamkniętym panelu nie wychodzi.
+    """
+
+    if not (await portal_settings.load(db)).open_for(contract_id):
+        return PANEL_CLOSED_FOR_MAIL
+    try:
+        await welcome_mail.send(
+            db,
+            contract_id,
+            subject=subject or "",
+            body=body or "",
+            actor=actor,
+            sender=welcome_mail.default_sender(),
+        )
+    except EquipmentError as exc:
+        return exc.message
+    return None
+
+
 @router.post("/contracts/{contract_id}/activation")
 async def activate(
     contract_id: int,
@@ -210,19 +240,37 @@ async def activate(
     await db.commit()
     mail_error: Optional[str] = None
     if payload.send_mail:
-        try:
-            await welcome_mail.send(
-                db,
-                contract_id,
-                subject=payload.subject or "",
-                body=payload.body or "",
-                actor=current_user,
-                sender=welcome_mail.default_sender(),
-            )
-        except EquipmentError as exc:
-            mail_error = exc.message
+        mail_error = await _send_welcome(
+            db,
+            contract_id,
+            subject=payload.subject,
+            body=payload.body,
+            actor=current_user,
+        )
     state = await activation.state_for(db, contract_id)
     return {"activation": _state_row(state), "mail_error": mail_error}
+
+
+class WelcomeBody(BaseModel):
+    subject: str = Field(min_length=1, max_length=welcome_mail.MAX_SUBJECT)
+    body: str = Field(min_length=1, max_length=welcome_mail.MAX_BODY)
+
+
+@router.post("/contracts/{contract_id}/welcome-mail")
+async def send_welcome_mail(
+    contract_id: int,
+    payload: WelcomeBody,
+    current_user: PanelOperator,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Mail po aktywacji: gdy wtedy nie wyszedł albo Opieka go odłożyła."""
+
+    error = await _send_welcome(
+        db, contract_id, subject=payload.subject, body=payload.body, actor=current_user
+    )
+    if error:
+        raise HTTPException(status.HTTP_409_CONFLICT, error)
+    return {"ok": True}
 
 
 @router.post("/contracts/{contract_id}/deactivation")
@@ -288,6 +336,15 @@ async def retire_material(
         await materials.retire(db, material_id)
     except PortalError as exc:
         raise _translate(exc) from exc
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="onboarding_material",
+        entity_id=material_id,
+        action="onboarding_material_retired",
+    )
+    await db.flush()
     return {"ok": True}
 
 

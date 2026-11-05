@@ -27,7 +27,15 @@ import { BookingDialog } from "./BookingDialog";
 import { DocumentsSection } from "./DocumentsSection";
 import { NewCaseDialog } from "./NewCaseDialog";
 import { CasesSection, FaqSection, MeetingsSection } from "./PortalSections";
-import { SETTLEMENT_MODES, formatDay, offsetLabel, rateLabel, saveBlob, slotLabel } from "./portal-model";
+import {
+  SETTLEMENT_MODES,
+  formatDay,
+  nextMeeting,
+  offsetLabel,
+  rateLabel,
+  saveBlob,
+  slotLabel,
+} from "./portal-model";
 
 export function ScreenTitle({ title, lead }: { title: string; lead?: string }) {
   return (
@@ -103,7 +111,7 @@ function ContactLines({ me }: { me: PortalMe }) {
 export function StartScreen({ me }: { me: PortalMe }) {
   const todo = usePortalQuery(portalKeys.todo, portalApi.todo);
   const meetings = usePortalQuery(portalKeys.meetings, portalApi.meetings);
-  const next = meetings.data?.items.find((row) => row.status === "booked" && row.join_url);
+  const next = nextMeeting(meetings.data?.items ?? []);
   const count = todo.data?.items.length ?? 0;
   return (
     <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">

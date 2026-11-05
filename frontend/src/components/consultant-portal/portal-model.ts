@@ -2,6 +2,7 @@
 
 import type {
   PortalFaqItem,
+  PortalMeeting,
   PortalMonth,
   PortalRate,
   PortalTopic,
@@ -147,4 +148,14 @@ export function saveBlob(blob: Blob, name: string): void {
   link.download = name;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** Najbliższa umówiona rozmowa. Serwer sortuje od najnowszej, czyli od najdalszego terminu. */
+export function nextMeeting(items: PortalMeeting[], now: Date = new Date()): PortalMeeting | null {
+  const upcoming = items.filter(
+    (row) => row.status === "booked" && new Date(row.end_at).getTime() > now.getTime(),
+  );
+  return (
+    upcoming.sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())[0] ?? null
+  );
 }

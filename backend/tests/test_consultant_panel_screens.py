@@ -6,7 +6,7 @@ stawki klienta, marży, cennika i uwag sprzętu, cudzych protokołów i materia�
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -467,3 +467,160 @@ async def test_material_link_must_be_https(app_client) -> None:
             )
         )
         assert rows.first() is None
+
+
+# ── Poprawki po przeglądzie ──────────────────────────────────────────────────
+
+
+@pytest.mark.usefixtures("portal_restored")
+async def test_mail_does_not_go_out_while_the_panel_is_off(app_client) -> None:
+    person = await make_person(activated=False)
+    admin = await make_user(UserRole.admin)
+    await set_portal("off")
+    done = await app_client.post(
+        f"{PANEL}/contracts/{person.contract_id}/activation",
+        headers=headers(admin),
+        json={"email": person.email, "send_mail": True, "subject": "S", "body": "T"},
+    )
+    assert done.status_code == 200, done.text
+    assert "zamknięty" in done.json()["mail_error"]
+    later = await app_client.post(
+        f"{PANEL}/contracts/{person.contract_id}/welcome-mail",
+        headers=headers(admin),
+        json={"subject": "S", "body": "T"},
+    )
+    assert later.status_code == 409
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_todo_skips_current_month_and_months_before_activation(
+    app_client,
+) -> None:
+    person = await make_person()
+    session = await session_headers(app_client, person)
+    today = business_today()
+    fresh = (await app_client.get(f"{BASE}/todo", headers=session)).json()["items"]
+    assert not [row for row in fresh if row["key"].startswith(("report-", "invoice-"))]
+    month = today.month - 1 or 12
+    year = today.year if today.month > 1 else today.year - 1
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CpActivation)
+            .where(CpActivation.contract_id == person.contract_id)
+            .values(activated_at=datetime(year, month, 1, tzinfo=timezone.utc))
+        )
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == person.contract_id)
+            .values(start_date=date(year - 1, 1, 1))
+        )
+        await db.commit()
+    later = (await app_client.get(f"{BASE}/todo", headers=session)).json()["items"]
+    keys = [row["key"] for row in later if row["key"].startswith("report-")]
+    assert keys == [f"report-{year}-{month}"]
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_client_merge_moves_material_and_rule() -> None:
+    from app.api.clients import _move_client_materials_on_merge
+    from app.models.consultant_panel import ClientSettlementRule
+
+    source = await make_person()
+    target = await make_person()
+    async with AsyncSessionLocal() as db:
+        db.add(ClientSettlementRule(client_id=source.client_id, mode="client_report"))
+        material = ClientOnboardingMaterial(
+            client_id=source.client_id,
+            title="Materiał",
+            kind="link",
+            url="https://example.com/m",
+        )
+        db.add(material)
+        await db.commit()
+        material_id = material.id
+    async with AsyncSessionLocal() as db:
+        moved = await _move_client_materials_on_merge(
+            db, source.client_id, target.client_id
+        )
+        await db.commit()
+    assert moved["settlement_rule"] == 1
+    assert moved["onboarding_materials"] == 1
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.get(ClientOnboardingMaterial, material_id)
+        ).client_id == target.client_id
+        assert await db.get(ClientSettlementRule, target.client_id) is not None
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_erasing_a_person_clears_panel_copies() -> None:
+    from app.models.consultant_panel import CpTrainerApplication
+    from app.models.consultant_portal import CpSession
+    from app.services.candidate_hard_delete import erase_panel_data
+
+    person = await make_person()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CpSession(
+                contract_id=person.contract_id,
+                email=person.email,
+                token_hash=tag() * 4,
+                expires_at=now + timedelta(hours=1),
+                created_at=now,
+            )
+        )
+        db.add(CpTrainerApplication(contract_id=person.contract_id, experience="Opis"))
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await erase_panel_data(db, person.candidate_id)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(CpActivation).where(CpActivation.contract_id == person.contract_id)
+        )
+        sessions = await db.scalars(
+            select(CpSession).where(CpSession.contract_id == person.contract_id)
+        )
+        applications = await db.scalars(
+            select(CpTrainerApplication).where(
+                CpTrainerApplication.contract_id == person.contract_id
+            )
+        )
+        assert row.email == ""
+        assert row.deactivated_at is not None
+        assert sessions.first() is None
+        assert applications.first() is None
+
+
+async def test_contract_merge_keeps_one_active_activation() -> None:
+    from app.services.contract_merge import _resolve_child_duplicates
+
+    survivor = await make_person()
+    loser = await make_person()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CpActivation)
+            .where(CpActivation.contract_id == survivor.contract_id)
+            .values(deactivated_at=datetime.now(timezone.utc))
+        )
+        await db.commit()
+    catalog = [{"table_name": "cp_activations", "column_name": "contract_id"}]
+    async with AsyncSessionLocal() as db:
+        out = await _resolve_child_duplicates(
+            db, catalog, [loser.contract_id], survivor.contract_id
+        )
+        await db.commit()
+    assert out["cp_activations_duplicates_removed"] == 1
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(CpActivation).where(
+                    CpActivation.contract_id.in_(
+                        [survivor.contract_id, loser.contract_id]
+                    )
+                )
+            )
+        ).all()
+    assert [row.contract_id for row in rows] == [loser.contract_id]
+    assert rows[0].deactivated_at is None

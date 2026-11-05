@@ -4,7 +4,7 @@
 // umowy osoba z Opieki sprawdza adres, materiały i mail, a dopiero jej klik otwiera dostęp.
 // Bez uprawnień serwer odpowiada 403 i karty po prostu nie ma.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
@@ -22,6 +22,7 @@ import {
   usePanelDeactivate,
   usePanelProposal,
   usePanelRetireMaterial,
+  usePanelSendWelcome,
   usePanelSwitches,
   useSavePanelSwitches,
   type PanelProposal,
@@ -182,10 +183,74 @@ function AddMaterialDialog({
   );
 }
 
+/** Adres dopiero co wpisany w formularzu: braku w kontrakcie nie liczymy jako blokady. */
+const ADDRESS_ISSUES = new Set(["no_email", "bad_email"]);
+
+export function mailBlocker(data: PanelProposal, { addressTyped }: { addressTyped: boolean }): string | null {
+  if (data.mail.sent_at) return "Mail powitalny został już wysłany.";
+  if (!data.mail.enabled) return "Maile powitalne są wyłączone, włącza je administrator.";
+  if (data.portal_state === "off") return "Panel jest wyłączony dla wszystkich, więc mail prowadziłby donikąd.";
+  const blocking = data.mail.issues.find(
+    (issue) => issue.blocking && !(addressTyped && ADDRESS_ISSUES.has(issue.code)),
+  );
+  return blocking ? blocking.message : null;
+}
+
+function SendMailDialog({ data, contractId, onClose }: { data: PanelProposal; contractId: number; onClose: () => void }) {
+  const { showToast } = useToast();
+  const send = usePanelSendWelcome(contractId);
+  const [subject, setSubject] = useState(data.mail.subject);
+  const [body, setBody] = useState(data.mail.body);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    setError(null);
+    try {
+      await send.mutateAsync({ subject, body });
+      showToast("Mail powitalny wysłany.", "success");
+      onClose();
+    } catch (failure) {
+      setError(apiErrorMessage(failure, "Nie udało się wysłać maila."));
+    }
+  };
+  return (
+    <AppModal
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      title="Mail powitalny"
+    >
+      <div className="space-y-3 text-sm">
+        <FormField label="Temat" htmlFor="panel-send-subject">
+          <Input id="panel-send-subject" value={subject} onChange={(event) => setSubject(event.target.value)} />
+        </FormField>
+        <FormField label="Treść" htmlFor="panel-send-body">
+          <Textarea id="panel-send-body" rows={9} value={body} onChange={(event) => setBody(event.target.value)} />
+        </FormField>
+        {error ? (
+          <p role="alert" className="text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Wróć
+          </Button>
+          <Button disabled={send.isPending || !subject.trim() || !body.trim()} onClick={submit}>
+            Wyślij mail
+          </Button>
+        </div>
+      </div>
+    </AppModal>
+  );
+}
+
 function ActiveState({ data, contractId }: { data: PanelProposal; contractId: number }) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const deactivate = usePanelDeactivate(contractId);
+  const [sending, setSending] = useState(false);
+  const blocker = mailBlocker(data, { addressTyped: false });
   const stop = async () => {
     const ok = await askConfirm({
       title: "Wyłączyć panel tej osoby?",
@@ -224,9 +289,17 @@ function ActiveState({ data, contractId }: { data: PanelProposal; contractId: nu
           .
         </p>
       </div>
-      <Button size="sm" variant="outline" disabled={deactivate.isPending} onClick={stop}>
-        Wyłącz panel
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        {data.mail.sent_at ? null : (
+          <Button size="sm" variant="outline" disabled={blocker !== null} title={blocker ?? undefined} onClick={() => setSending(true)}>
+            Wyślij mail powitalny
+          </Button>
+        )}
+        <Button size="sm" variant="outline" disabled={deactivate.isPending} onClick={stop}>
+          Wyłącz panel
+        </Button>
+      </div>
+      {sending ? <SendMailDialog data={data} contractId={contractId} onClose={() => setSending(false)} /> : null}
       {confirmDialog}
     </div>
   );
@@ -234,6 +307,7 @@ function ActiveState({ data, contractId }: { data: PanelProposal; contractId: nu
 
 function ActivationForm({ data, contractId }: { data: PanelProposal; contractId: number }) {
   const { showToast } = useToast();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const activate = usePanelActivate(contractId);
   const retire = usePanelRetireMaterial(contractId);
   const [email, setEmail] = useState(data.suggested_email ?? "");
@@ -245,19 +319,36 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Nowy materiał domyślnie idzie do tej osoby, odznaczone zostają odznaczone, a wycofane
+  // wypadają, bo serwer odrzuciłby całą aktywację z materiałem spoza listy.
+  const seen = useRef(new Set(data.materials.map((row) => row.id)));
   useEffect(() => {
-    // Nowy materiał domyślnie idzie do tej osoby, a odznaczone zostają odznaczone.
-    setSelected((list) => {
-      const known = new Set(list);
-      const fresh = data.materials.filter((row) => row.selected && !known.has(row.id)).map((row) => row.id);
-      return fresh.length ? [...list, ...fresh] : list;
-    });
+    const present = new Set(data.materials.map((row) => row.id));
+    const fresh = data.materials
+      .filter((row) => row.selected && !seen.current.has(row.id))
+      .map((row) => row.id);
+    fresh.forEach((id) => seen.current.add(id));
+    setSelected((list) => [...list.filter((id) => present.has(id)), ...fresh]);
   }, [data.materials]);
 
+  const retireMaterial = async (row: PanelProposal["materials"][number]) => {
+    const ok = await askConfirm({
+      title: "Wycofać materiał?",
+      description: row.shared
+        ? `„${row.title}” zniknie z panelu wszystkich konsultantów.`
+        : `„${row.title}” zniknie z panelu wszystkich konsultantów tego klienta.`,
+      confirmLabel: "Wycofaj",
+      cancelLabel: "Zostaw",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    retire.mutate(row.id, {
+      onError: (failure) => showToast(apiErrorMessage(failure, "Nie udało się wycofać materiału."), "error"),
+    });
+  };
   const toggle = (id: number) =>
     setSelected((list) => (list.includes(id) ? list.filter((item) => item !== id) : [...list, id]));
-  const blocking = data.mail.issues.find((issue) => issue.blocking);
-  const mailReady = data.mail.enabled && !blocking && !data.mail.sent_at;
+  const blocker = mailBlocker(data, { addressTyped: Boolean(email.trim()) });
   const off = data.portal_state === "off";
 
   const submit = async (sendMail: boolean) => {
@@ -324,12 +415,7 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
                     size="sm"
                     variant="ghost"
                     disabled={retire.isPending}
-                    onClick={() =>
-                      retire.mutate(row.id, {
-                        onError: (failure) =>
-                          showToast(apiErrorMessage(failure, "Nie udało się wycofać materiału."), "error"),
-                      })
-                    }
+                    onClick={() => retireMaterial(row)}
                   >
                     Wycofaj
                   </Button>
@@ -353,9 +439,7 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
             ))}
           </ul>
         ) : null}
-        {!data.mail.enabled ? (
-          <p className="text-xs text-muted-foreground">Maile powitalne są wyłączone, włącza je administrator.</p>
-        ) : null}
+        {blocker ? <p className="text-xs text-muted-foreground">{blocker}</p> : null}
         {off ? (
           <p className="text-xs text-muted-foreground">
             Panel jest wyłączony dla wszystkich. Aktywacja zadziała, gdy administrator go włączy.
@@ -367,7 +451,7 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button disabled={activate.isPending || !email.trim() || !mailReady} onClick={() => submit(true)}>
+          <Button disabled={activate.isPending || !email.trim() || blocker !== null} onClick={() => submit(true)}>
             Aktywuj panel i wyślij mail
           </Button>
           <Button variant="outline" disabled={activate.isPending || !email.trim()} onClick={() => submit(false)}>
@@ -383,6 +467,7 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
           onClose={() => setAdding(false)}
         />
       ) : null}
+      {confirmDialog}
     </div>
   );
 }
