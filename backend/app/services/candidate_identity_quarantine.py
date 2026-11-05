@@ -40,6 +40,7 @@ from app.models.user import User, UserRole
 from app.services import candidate_audit
 from app.services.candidate_location_writer import project_candidate_location
 from app.services.candidate_name_rules import EMPTY_FIELD_NAME_PHRASES
+from app.services.cv_common_words import only_common_cv_words
 
 logger = logging.getLogger(__name__)
 
@@ -736,6 +737,21 @@ def _person_name_tokens(*values: Any) -> set[str]:
     }
 
 
+def _name_of_common_cv_words(*values: Any) -> bool:
+    """Nazwa to wyłącznie częste słowa CV, więc porównanie z nią nic nie dowodzi.
+
+    Bez odsiewu krótkich słów: „Li” jest rzadkie i ratuje nazwę, choć
+    `_person_name_tokens` by je pominęło.
+    """
+    words = [
+        word
+        for value in values
+        for word in _NON_ALNUM_RE.split(_fold_person_name(value))
+        if word
+    ]
+    return bool(words) and only_common_cv_words(words)
+
+
 def _name_parts_similar(left: str, right: str) -> bool:
     return (
         bool(left and right)
@@ -786,11 +802,19 @@ def evaluate_identity_match(
     candidate_last = normalize_person_name_part(candidate_last_name)
     observed_first = normalize_person_name_part(observed_first_name)
     observed_last = normalize_person_name_part(observed_last_name)
-    candidate_complete = bool(candidate_first and candidate_last)
+    # Pomiar 05.11.2026: 25 z 68 280 profili ma taką nazwę, żadna nie jest nazwą
+    # osoby. Każde CV dawało przy niej mismatch, także to, z którego profil powstał.
+    candidate_name_common = _name_of_common_cv_words(
+        candidate_first_name, candidate_last_name
+    )
+    candidate_complete = bool(
+        candidate_first and candidate_last and not candidate_name_common
+    )
     observed_complete = bool(observed_first and observed_last)
 
     evidence: dict[str, bool | str] = {
         "candidate_identity_complete": candidate_complete,
+        "candidate_name_only_common_cv_words": candidate_name_common,
         "observed_identity_complete": observed_complete,
         "first_name_match": bool(
             candidate_first and observed_first and candidate_first == observed_first
