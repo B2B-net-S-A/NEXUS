@@ -1154,7 +1154,7 @@
   },
   {
     "id": "pytania-pod-cv-w-sciadze",
-    "pr": 0,
+    "pr": 3078,
     "title": "Ściąga podpowiada pytania pod CV",
     "why": "Do 5 opcjonalnych pytań o wymagania, których nie widać w opisie ról w CV. Odpowiedź wpisz w notatce i podaj nazwę firmy: wtedy CV opisze to w tej roli.",
     "tier": "dot",
