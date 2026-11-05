@@ -988,6 +988,60 @@
     "dot_anchor": "person.cv.edit"
   },
   {
+    "id": "linki-zespolu-w-rekrutacji",
+    "pr": 2921,
+    "title": "Linki całego zespołu do tej rekrutacji",
+    "why": "W oknie linku aplikacyjnego widzisz, kto z zespołu ma link do tej rekrutacji, skąd się wziął i ile dał wejść oraz zgłoszeń. Rekruter dalej widzi tylko swoje wyniki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Ogłoszenie i link aplikacyjny → Wygeneruj link aplikacyjny",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.team-links"
+  },
+  {
+    "id": "automat-przydzialu-zasady",
+    "pr": 2837,
+    "title": "Zasady automatu przydziału w Ustawieniach",
+    "why": "Dziewięć zasad doboru rekruterów, m.in. P2 i limit na osobę. Obok widać, co zmieni następny przebieg, niżej historia zmian. Zasady działają tylko na nowe przydziały.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Ustawienia → Zespół rekrutacji → Automat przydziału",
+    "href": "/settings/team-structure",
+    "section": "pipeline",
+    "dot_anchor": "settings.team.automat"
+  },
+  {
+    "id": "karta-przed-cv-do-klienta",
+    "pr": 2835,
+    "title": "Karta przed CV wypełnia się sama",
+    "why": "U klienta, który wymaga karty dostawcy, NEXUS wypełnia ją w przeglądzie przed wysyłką i pokazuje, skąd wziął każdą wartość. Sprawdzasz poziom i profil, a „Word” pobiera plik we wzorze klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → przegląd DL → Karta do klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "dl-review.cover-sheet"
+  },
+  {
     "id": "stanowisko-jak-u-klienta",
     "pr": 2983,
     "title": "Pole „Stanowisko” pokazuje to, co dostanie klient",
