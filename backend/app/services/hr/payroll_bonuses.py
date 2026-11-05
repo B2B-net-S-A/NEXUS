@@ -72,7 +72,7 @@ BONUS_MIN = Decimal("0.01")
 BONUS_MAX = Decimal("1000000")
 #: Powody anulowania nadawane przez automaty (automat może je cofnąć).
 AUTO_CANCEL_REASONS: frozenset[str] = frozenset(
-    {"contract_ended", "contract_void", "rule_no_longer_applies"}
+    {"contract_ended", "contract_void", "rule_no_longer_applies", "guarantee"}
 )
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -181,6 +181,7 @@ def bonus_payload(
         "edited_recipient": bool(snapshot.get("edited_recipient"))
         and (not from_sheet or bool(snapshot.get("recipient_edited_after_import"))),
         "cancel_ended_on": snapshot.get("ended_on"),
+        "double_bonus_month": (snapshot.get("double_bonus") or {}).get("month"),
     }
     if today is not None and bonus.eligible_on is not None:
         payload["eligible"] = bonus.eligible_on <= today

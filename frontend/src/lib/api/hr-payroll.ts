@@ -101,6 +101,8 @@ export interface BonusRow {
   edited: boolean;
   /** Wiersz z arkusza Delivery: kwota i osoba przyszły z pliku, nie z reguły. */
   from_sheet?: boolean;
+  /** Premia 200%: miesiąc podpisu „RRRR-MM”, w którym osoba zrobiła cel. */
+  double_bonus_month?: string | null;
   /** Anulowana przez automat: dzień końca kontraktu. */
   cancel_ended_on?: string | null;
   /** Widok miesiąca: przyznana premia z placementu, a kontrakt skończył się przed terminem. */
@@ -291,6 +293,98 @@ export interface BonusRules {
   individual_recruiters?: IndividualRecruiterRule[];
   automation_since: string | null;
   league_types: string[];
+  /** Stała premia rekrutera dla roli głównej (np. TCM 1000 zł) zamiast progów marży. */
+  fixed_role_amounts?: FixedRoleAmount[];
+  /** Premia 200% w wybranych miesiącach; `null` = wyłączona. */
+  double_bonus?: DoubleBonusRule | null;
+}
+
+export interface FixedRoleAmount {
+  role: string;
+  amount: string;
+}
+
+export interface DoubleBonusRule {
+  /** „RRRR-MM”. */
+  months: string[];
+  verifications_per_day: string;
+  precision_pct: string;
+  dl_min_margin: string;
+}
+
+export interface DoubleBonusContract {
+  contract_id: number;
+  label: string;
+  signed_on: string;
+  /** `signed` = potwierdzenie podpisu obu stron, `created` = dzień założenia kontraktu. */
+  signed_source: "signed" | "created";
+  /** Tylko Płace; „Moja współpraca” dostaje kontrakty bez marży. */
+  margin_per_hour?: string | null;
+}
+
+export interface DoubleBonusRecruiter {
+  user_id: number;
+  name: string | null;
+  kind: "recruiter";
+  placements: number;
+  target: number | null;
+  verifications_per_day: string | null;
+  precision_pct: string | null;
+  checks: { placements: boolean; verifications: boolean; precision: boolean };
+  excluded: "inactive" | "individual" | "fixed_role" | null;
+  qualified: boolean;
+  /** Po zapisie wyniku: decyzja (może różnić się od stanu na dziś). */
+  decided?: boolean;
+  contracts: DoubleBonusContract[];
+}
+
+export interface DoubleBonusDl {
+  user_id: number;
+  name: string | null;
+  kind: "dl";
+  placements: number;
+  average_margin: string | null;
+  missing_margins: number;
+  excluded: "inactive" | null;
+  qualified: boolean;
+  /** Po zapisie wyniku: decyzja (może różnić się od stanu na dziś). */
+  decided?: boolean;
+  contracts: DoubleBonusContract[];
+}
+
+export interface DoubleBonusThresholds {
+  verifications_per_day: string;
+  precision_pct: string;
+  dl_min_margin: string;
+  multiplier: string;
+}
+
+export interface DoubleBonusMonth {
+  year: number;
+  month: number;
+  in_program: boolean;
+  /** Miesiąc się skończył: wynik jest decyzją, nie postępem. */
+  final: boolean;
+  thresholds?: DoubleBonusThresholds;
+  recruiters: DoubleBonusRecruiter[];
+  dls: DoubleBonusDl[];
+  /** Zapisana decyzja (kto dostaje 200%) — po końcu miesiąca. */
+  stored: {
+    recruiters: number[];
+    dls: number[];
+    recruiter_contracts?: Record<string, number>;
+    dl_contracts?: Record<string, number>;
+    computed_at: string;
+  } | null;
+}
+
+export interface MyDoubleBonus {
+  year: number;
+  month: number;
+  in_program: boolean;
+  final: boolean;
+  thresholds?: DoubleBonusThresholds | null;
+  rows: (DoubleBonusRecruiter | DoubleBonusDl)[];
 }
 
 export interface RateInput {
@@ -335,6 +429,9 @@ export const payrollKeys = {
   person: (userId: number) => ["hr", "payroll", "person", userId] as const,
   rules: ["hr", "payroll", "rules"] as const,
   minimumRates: ["hr", "payroll", "minimum-rates"] as const,
+  doubleBonus: (year: number, month: number) =>
+    ["hr", "payroll", "double-bonus", year, month] as const,
+  myDoubleBonus: ["hr", "payroll", "me", "double-bonus"] as const,
 };
 
 export const payrollPaths = {
@@ -357,6 +454,40 @@ export function useMySettlement(year: number, enabled = true) {
       (await api.get<MySettlement>("/api/hr/payroll/me/settlement", { params: { year } }))
         .data,
     enabled,
+  });
+}
+
+/** „Do 200%”: postęp osoby w bieżącym miesiącu programu. */
+export function useMyDoubleBonus(enabled = true) {
+  return useQuery({
+    queryKey: payrollKeys.myDoubleBonus,
+    queryFn: async () =>
+      (await api.get<MyDoubleBonus>("/api/hr/payroll/me/double-bonus")).data,
+    enabled,
+  });
+}
+
+/** Płace: kto zrobił cel 200% w miesiącu (w trakcie miesiąca — postęp). */
+export function useDoubleBonusMonth(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: payrollKeys.doubleBonus(year, month),
+    queryFn: async () =>
+      (await api.get<DoubleBonusMonth>(`/api/hr/payroll/double-bonus/${year}/${month}`))
+        .data,
+    enabled: enabled && Number.isFinite(year) && Number.isFinite(month),
+  });
+}
+
+export function useSettleDoubleBonus(year: number, month: number) {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<DoubleBonusMonth>(
+          `/api/hr/payroll/double-bonus/${year}/${month}/settle`,
+        )
+      ).data,
+    onSuccess: invalidate,
   });
 }
 

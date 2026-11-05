@@ -55,7 +55,17 @@ interface RulesForm {
   extraDl: ExtraDlRule[];
   dlHours: DlHoursRule[];
   individual: IndividualRecruiterRule[];
+  /** Stała premia rekrutera dla roli TCM; puste = progi marży. */
+  tcmAmount: string;
+  doubleOn: boolean;
+  /** „2026-11, 2026-12”. */
+  doubleMonths: string;
+  doubleVerifications: string;
+  doublePrecision: string;
+  doubleDlMargin: string;
 }
+
+const TCM_ROLE = "talent_community_manager";
 
 type TextKey = {
   [K in keyof RulesForm]: RulesForm[K] extends string ? K : never;
@@ -78,7 +88,28 @@ export function formFromRules(rules: BonusRules): RulesForm {
     extraDl: rules.extra_dl,
     dlHours: rules.dl_hours ?? [],
     individual: rules.individual_recruiters ?? [],
+    tcmAmount: (() => {
+      const tcm = rules.fixed_role_amounts?.find((rule) => rule.role === TCM_ROLE);
+      return tcm ? plain(tcm.amount) : "";
+    })(),
+    doubleOn: Boolean(rules.double_bonus),
+    doubleMonths: rules.double_bonus?.months.join(", ") ?? "",
+    doubleVerifications: plain(rules.double_bonus?.verifications_per_day ?? "4"),
+    doublePrecision: plain(rules.double_bonus?.precision_pct ?? "75"),
+    doubleDlMargin: plain(rules.double_bonus?.dl_min_margin ?? "50"),
   };
+}
+
+/** „2026-11, 2026-12” → lista miesięcy; `null`, gdy któryś nie ma formatu RRRR-MM. */
+export function parseMonths(text: string): string[] | null {
+  const months = text
+    .split(/[\s,;]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!months.length || months.some((value) => !/^20\d{2}-(0[1-9]|1[0-2])$/.test(value))) {
+    return null;
+  }
+  return [...new Set(months)].sort();
 }
 
 /** Formularz → treść `PUT /api/hr/payroll/rules`; zdanie błędu, gdy liczba jest zła. */
@@ -99,6 +130,28 @@ export function rulesPayload(
   const days = Number(form.businessDays);
   if (!Number.isInteger(hours) || hours < 1 || !Number.isInteger(days) || days < 1) {
     return { ok: false, error: "Godziny w miesiącu i dni robocze to liczby całkowite większe od zera." };
+  }
+  const tcm = form.tcmAmount.trim() ? parseAmount(form.tcmAmount) : "";
+  if (tcm === null || (tcm !== "" && Number(tcm) <= 0)) {
+    return { ok: false, error: "Stałą premię TCM podaj jako kwotę (np. 1000) albo zostaw puste pole." };
+  }
+  let double: Partial<Omit<BonusRules, "currency">>["double_bonus"] = null;
+  if (form.doubleOn) {
+    const months = parseMonths(form.doubleMonths);
+    const values = [form.doubleVerifications, form.doublePrecision, form.doubleDlMargin].map(parseAmount);
+    if (!months) {
+      return { ok: false, error: "Miesiące premii 200% podaj jako RRRR-MM, np. 2026-11, 2026-12." };
+    }
+    if (values.some((value) => value === null) || Number(values[1]) > 100) {
+      return { ok: false, error: "Progi premii 200% podaj jako liczby; precision od 0 do 100." };
+    }
+    const [verifications, precision, margin] = values as string[];
+    double = {
+      months,
+      verifications_per_day: verifications,
+      precision_pct: precision,
+      dl_min_margin: margin,
+    };
   }
   return {
     ok: true,
@@ -124,6 +177,8 @@ export function rulesPayload(
           expert_percent,
         }),
       ),
+      fixed_role_amounts: tcm ? [{ role: TCM_ROLE, amount: tcm }] : [],
+      double_bonus: double,
     },
   };
 }
@@ -312,6 +367,51 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
           />
         </FormField>
       </div>
+
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-medium text-foreground">Premia 200% za podpis w miesiącu</legend>
+        <p className="text-xs text-muted-foreground">
+          Placement podpisany w miesiącu programu daje premię ×2 wypłacaną w miesiącu podpisu, gdy
+          osoba zrobi cel. Rekruter: placementy podpisane w miesiącu co najmniej jak cel KPI poziomu,
+          weryfikacje na dzień pracy i precision. Delivery Lead: średnia marża placementów podpisanych
+          w miesiącu powyżej progu. Wynik liczy się po ostatnim dniu miesiąca. System indywidualny
+          i TCM są poza programem.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <Checkbox checked={form.doubleOn} onCheckedChange={(checked) => set("doubleOn", Boolean(checked))} />
+          Program włączony
+        </label>
+        {form.doubleOn ? (
+          <div className="space-y-4">
+            <FormField
+              label="Miesiące"
+              htmlFor="rules-double-months"
+              description="RRRR-MM, po przecinku."
+              className="max-w-sm"
+            >
+              <Input
+                id="rules-double-months"
+                value={form.doubleMonths}
+                placeholder="2026-11, 2026-12"
+                onChange={(event) => set("doubleMonths", event.target.value)}
+              />
+            </FormField>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {field("doubleVerifications", "Weryfikacje na dzień (od)", "rules-double-verifications")}
+              {field("doublePrecision", "Precision % (od)", "rules-double-precision")}
+              {field("doubleDlMargin", "DL: średnia marża powyżej (zł/h)", "rules-double-margin")}
+            </div>
+          </div>
+        ) : null}
+        <div className="max-w-xs">
+          {field(
+            "tcmAmount",
+            "Stała premia TCM (zł)",
+            "rules-tcm-amount",
+            "Talent Community Manager zamiast progów marży. Puste = progi.",
+          )}
+        </div>
+      </fieldset>
 
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium text-foreground">Premie z Ligi</legend>

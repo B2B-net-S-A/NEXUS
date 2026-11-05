@@ -136,12 +136,41 @@ export function cancelReasonLabel(
       return "kontrakt usunięty";
     case "rule_no_longer_applies":
       return "zmieniły się warunki premii";
+    case "guarantee":
+      return "zastępstwo w gwarancji: osoba zatrudniona przez tego samego DL odeszła przed rokiem";
     case "manual":
       return "anulowana przez Rozliczenia albo koordynatora";
     default:
       return null;
   }
 }
+
+/** „200% za cel w listopadzie 2026” — premia z programu 200% (miesiąc „RRRR-MM”). */
+export function doubleBonusNote(month: string): string {
+  const [year, number] = month.split("-").map(Number);
+  if (!year || !number || number < 1 || number > 12) return "200% za cel";
+  return `200% za cel w ${monthLocative(year, number)}`;
+}
+
+/** „listopadzie 2026” — miesiąc po „w”. */
+export function monthLocative(year: number, month: number): string {
+  return `${MONTH_LOCATIVE[month - 1] ?? ""} ${year}`.trim();
+}
+
+const MONTH_LOCATIVE = [
+  "styczniu",
+  "lutym",
+  "marcu",
+  "kwietniu",
+  "maju",
+  "czerwcu",
+  "lipcu",
+  "sierpniu",
+  "wrześniu",
+  "październiku",
+  "listopadzie",
+  "grudniu",
+];
 
 /** Procent paska „X z 21 dni roboczych” (0–100). */
 export function progressPercent(elapsed: number | null | undefined, required: number | undefined): number {
