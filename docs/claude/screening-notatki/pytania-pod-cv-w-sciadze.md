@@ -25,7 +25,12 @@ roli w 2 z 2 biegów, bez notatek w 0 z 2.
   Próba na 5 osobach: 3–14 s.
 - **Co wolno pokazać** (`parse_questions`): wymaganie z listy luk, firma z ról, stan z mapy, nie
   z modelu. Pytanie z formą zależną od płci („miałeś/aś”, „używałeś”), o stawkę albo dostępność
-  odpada. Zepsuta odpowiedź modelu daje stan `failed` z „Ponów”, nie pustą listę.
+  odpada. Zepsuta odpowiedź modelu i odrzucenie wszystkich pytań przy istniejących lukach dają stan
+  `failed` z „Ponów”, nie pustą listę, bo pusta lista mówi rekruterowi „nie ma o co dopytać”.
+- **Pusty tekst CV to nie brak wymagań.** `_original_cv` zwraca pusty tekst przy awarii magazynu i przy
+  skanie bez tekstu. Wtedy liczy się `raw_cv_text`, a bez niego stan `failed` bez wywołania modelu.
+- **Dok i podgląd tej samej osoby płacą raz:** rezerwacja pary w `lib/api/cvCallQuestions.ts` stoi poza
+  Reactem, bo oba widoki montują się w jednym przebiegu.
 - **Tylko otwarta rekrutacja i etap „Nowi” albo „Screening”** najnowszego wiersza pary. Dalej
   `not_applicable` i bez wywołania modelu. Bez Championa `no_requirements`, bez CV `no_cv`: sekcji nie ma.
 - **GET nic nie zapisuje, nie woła modelu i nie pobiera pliku CV.** Odcisk (`inputs_hash`) liczy się

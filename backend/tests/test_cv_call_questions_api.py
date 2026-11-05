@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.api import cv_call_questions_refresh
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
+from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.client import Client
 from app.models.cv_call_question import CvCallQuestions
 from app.models.job import Job, JobStatus
@@ -174,6 +175,81 @@ async def test_broken_model_answer_is_failed_not_an_empty_list(
     model["raw"] = "to nie jest json"
     resp = await app_client.post(f"{_url(world)}/refresh", headers=app_auth_headers)
     assert resp.json()["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_only_rejected_questions_are_failed_not_nothing_to_ask(
+    app_client, app_auth_headers, model
+) -> None:
+    world = await _seed()
+    model["raw"] = json.dumps(
+        {
+            "questions": [
+                {
+                    "requirement": "Kafka",
+                    "company": "Firma Alfa",
+                    "question": "Czy używałeś Kafki w Firmie Alfa?",
+                }
+            ]
+        }
+    )
+    resp = await app_client.post(f"{_url(world)}/refresh", headers=app_auth_headers)
+    assert resp.json()["status"] == "failed"
+
+
+async def _with_snapshot(world: dict, *, raw_cv_text: str | None) -> None:
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == world["candidate_id"],
+                CandidateStage.job_id == world["job_id"],
+            )
+        )
+        db.add(
+            CandidateStageCV(
+                candidate_stage_id=stage.id,
+                candidate_id=world["candidate_id"],
+                job_id=world["job_id"],
+                original_cv_filename="cv.pdf",
+                original_cv_content=b"pdf",
+                original_cv_sha256="a" * 64,
+            )
+        )
+        candidate = await db.get(Candidate, world["candidate_id"])
+        candidate.raw_cv_text = raw_cv_text
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_unreadable_cv_is_failed_without_calling_the_model(
+    app_client, app_auth_headers, model, monkeypatch
+) -> None:
+    world = await _seed()
+    await _with_snapshot(world, raw_cv_text=None)
+
+    async def unreadable(*_args, **_kwargs):
+        return {"text": None}
+
+    monkeypatch.setattr(cq.dz, "_original_cv", unreadable)
+    resp = await app_client.post(f"{_url(world)}/refresh", headers=app_auth_headers)
+    assert resp.json()["status"] == "failed"
+    assert model["calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_unreadable_file_falls_back_to_profile_text(
+    app_client, app_auth_headers, model, monkeypatch
+) -> None:
+    world = await _seed()
+    await _with_snapshot(world, raw_cv_text="Oracle, Kafka")
+
+    async def unreadable(*_args, **_kwargs):
+        return {"text": None}
+
+    monkeypatch.setattr(cq.dz, "_original_cv", unreadable)
+    resp = await app_client.post(f"{_url(world)}/refresh", headers=app_auth_headers)
+    assert resp.json()["status"] == "ready"
+    assert model["calls"] == 1
 
 
 @pytest.mark.asyncio

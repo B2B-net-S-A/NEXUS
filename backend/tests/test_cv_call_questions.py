@@ -115,8 +115,10 @@ class TestParseQuestions:
         assert out[0]["company"] == "Alfa"
 
     def test_requirement_outside_the_gaps_is_dropped(self) -> None:
-        assert self._parse(self._item("Oracle")) == []
-        assert self._parse(self._item("COBOL")) == []
+        out = self._parse(
+            self._item("Oracle"), self._item("COBOL"), self._item("Liquibase")
+        )
+        assert [q["requirement"] for q in out] == ["Liquibase"]
 
     def test_company_outside_the_roles_is_cleared(self) -> None:
         out = self._parse(self._item(company="Firma klienta"))
@@ -135,7 +137,8 @@ class TestParseQuestions:
         ],
     )
     def test_unusable_question_is_dropped(self, question: str) -> None:
-        assert self._parse(self._item(question=question)) == []
+        out = self._parse(self._item(question=question), self._item("Liquibase"))
+        assert [q["requirement"] for q in out] == ["Liquibase"]
 
     def test_one_question_per_requirement_in_map_order(self) -> None:
         out = self._parse(
@@ -151,6 +154,22 @@ class TestParseQuestions:
         rows = cq.requirement_map([_req(x) for x in labels], ROLES, "")
         raw = json.dumps({"questions": [self._item(x) for x in labels]})
         assert len(cq.parse_questions(raw, rows, ROLES)) == cq.MAX_QUESTIONS
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            '{"questions": []}',
+            '{"questions": [{"requirement": "Kafka", "company": "Alfa", '
+            '"question": "Czy używałeś Kafki w Firmie Alfa?"}]}',
+        ],
+    )
+    def test_gaps_without_a_usable_question_raise(self, raw: str) -> None:
+        with pytest.raises(ValueError):
+            cq.parse_questions(raw, self.ROWS, ROLES)
+
+    def test_no_gaps_and_no_questions_is_a_valid_empty_list(self) -> None:
+        rows = cq.requirement_map([_req("Oracle")], ROLES, "")
+        assert cq.parse_questions('{"questions": []}', rows, ROLES) == []
 
     @pytest.mark.parametrize("raw", ["nie json", "[]", '{"inne": 1}'])
     def test_broken_response_raises_instead_of_empty_list(self, raw: str) -> None:

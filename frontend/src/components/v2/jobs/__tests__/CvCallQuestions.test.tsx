@@ -85,6 +85,22 @@ describe("CvCallQuestions", () => {
     expect(apiPost.mock.calls[0][0]).toBe("/api/candidates/7/jobs/12/call-questions/refresh");
   });
 
+  it("dok i podgląd tej samej osoby proszą o pytania tylko raz", async () => {
+    apiGet.mockResolvedValue({ data: view({ status: "none", questions: [] }) });
+    apiPost.mockResolvedValue({ data: view() });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <CvCallQuestions candidateId={8} jobId={12} />
+        <CvCallQuestions candidateId={8} jobId={12} size="roomy" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findAllByText("Dopytaj pod CV · 2 opcjonalne")).toHaveLength(2);
+    expect(apiPost).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["not_applicable", "no_requirements", "no_cv"] as const)(
     "w stanie %s sekcji nie ma i model nie rusza",
     async (status) => {

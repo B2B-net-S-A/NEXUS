@@ -41,6 +41,11 @@ function refreshKey(candidateId: number, jobId: number) {
   return ["cv-call-questions-refresh", candidateId, jobId] as const;
 }
 
+// Pary z automatycznym odświeżeniem w toku. Poza Reactem, bo dok i podgląd montują
+// się razem, a `useIsMutating` w tym samym przebiegu jeszcze nie widzi drugiego żądania.
+const autoRefreshing = new Set<string>();
+const claimKey = (candidateId: number, jobId: number) => `${candidateId}:${jobId}`;
+
 const path = (candidateId: number, jobId: number) =>
   `/api/candidates/${candidateId}/jobs/${jobId}/call-questions`;
 
@@ -63,7 +68,8 @@ export function useRefreshCvCallQuestions(candidateId: number, jobId: number) {
         .post<CvCallQuestionsView>(`${path(candidateId, jobId)}/refresh`, undefined, {
           timeout: SLOW_ENDPOINT_TIMEOUT_MS,
         })
-        .then((r) => r.data),
+        .then((r) => r.data)
+        .finally(() => autoRefreshing.delete(claimKey(candidateId, jobId))),
     onSuccess: (data) => {
       qc.setQueryData(cvCallQuestionsKey(candidateId, jobId), data);
     },
@@ -95,7 +101,10 @@ export function useAutoRefreshCvCallQuestions(
   const { mutate } = refresh;
   useEffect(() => {
     if (!want || fired.current || running > 0) return;
+    const key = claimKey(candidateId, jobId);
+    if (autoRefreshing.has(key)) return;
+    autoRefreshing.add(key);
     fired.current = true;
     mutate();
-  }, [want, running, mutate]);
+  }, [want, running, mutate, candidateId, jobId]);
 }

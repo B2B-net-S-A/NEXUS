@@ -213,6 +213,9 @@ def parse_questions(
         for row in rows
         if row.requirement.label in by_label
     ]
+    # Luki są, a pytań nie ma: pusta lista czytałaby się jak „nie ma o co dopytać”.
+    if gaps and not ordered:
+        raise ValueError("no usable question for the gaps")
     return ordered[:MAX_QUESTIONS]
 
 
@@ -439,7 +442,20 @@ async def refresh(
     marker = await _snapshot_marker(db, candidate_id, job_id)
     inputs_hash = _inputs_hash(candidate, must, marker)
     original = await dz._original_cv(db, candidate, stage.id, job_id)
-    text = original.get("text") or ""
+    # `_original_cv` zwraca pusty tekst przy awarii magazynu i przy skanie bez tekstu.
+    # Mapa z pustego tekstu uznałaby wszystko za brak, więc model nie dostaje jej wcale.
+    text = original.get("text") or (candidate.raw_cv_text or "").strip()
+    if not text:
+        await _store(
+            db,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            status="failed",
+            inputs_hash=inputs_hash,
+            model=None,
+            questions=[],
+        )
+        return
     roles = dz.original_roles(dz.role_entries(candidate, text))
     rows = requirement_map(must, roles, text)
     if all(row.state == DESCRIBED for row in rows):
