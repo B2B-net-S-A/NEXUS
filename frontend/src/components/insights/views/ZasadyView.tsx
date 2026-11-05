@@ -8,8 +8,9 @@
  * Wartości liczy `GET /api/insights/rules-overview`.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -25,6 +26,7 @@ import { api } from "@/lib/api";
 import {
   isRuleId,
   lastChangeText,
+  RULES_OVERVIEW_QUERY_KEY,
   ruleHasOwnHeader,
   type RuleChange,
   type RuleId,
@@ -184,10 +186,28 @@ export function ZasadyView() {
   const activeRow = isRuleId(raw) ? rows.find((r) => r.id === raw && !r.href) : undefined;
 
   const query = useQuery({
-    queryKey: ["insights", "rules-overview"],
+    queryKey: RULES_OVERVIEW_QUERY_KEY,
     queryFn: async () =>
       (await api.get<{ rules: OverviewRow[] }>("/api/insights/rules-overview")).data.rules,
   });
+
+  // Panele z Ustawień nie znają tego klucza, a przegląd ma mówić, co obowiązuje
+  // teraz: odświeża się po każdym zapisie w zakładce i przy zmianie ekranu.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    return queryClient.getMutationCache().subscribe((event) => {
+      if (event.type === "updated" && event.action.type === "success") {
+        void queryClient.invalidateQueries({ queryKey: RULES_OVERVIEW_QUERY_KEY });
+      }
+    });
+  }, [queryClient]);
+  const previousRaw = useRef(raw);
+  useEffect(() => {
+    if (previousRaw.current === raw) return;
+    previousRaw.current = raw;
+    void queryClient.invalidateQueries({ queryKey: RULES_OVERVIEW_QUERY_KEY });
+  }, [raw, queryClient]);
+
   const values = new Map((query.data ?? []).map((row) => [row.id, row]));
 
   const open = (next: RuleRow) => pushUrl(next.href ?? `/insights?tab=zasady&zasada=${next.id}`);

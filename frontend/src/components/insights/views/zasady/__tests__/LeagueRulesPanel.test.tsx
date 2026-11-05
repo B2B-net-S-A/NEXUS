@@ -118,3 +118,32 @@ describe("LeagueRulesPanel", () => {
     await screen.findByRole("alert");
   });
 });
+
+describe("LeagueRulesPanel: wartości spoza zakresu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.get.mockResolvedValue({ data: CONFIG });
+    mocks.patch.mockResolvedValue({ data: {} });
+    mocks.askConfirm.mockResolvedValue(true);
+  });
+
+  it("puste pole nie zapisuje się jako 0", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const input = await screen.findByLabelText(/Punkty za placement/);
+    await user.clear(input);
+    expect(screen.getByRole("button", { name: "Zapisz punktację" })).toBeDisabled();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("Punkty za placement");
+    expect(mocks.patch).not.toHaveBeenCalled();
+  });
+
+  it("wartość powyżej zakresu blokuje zapis", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const input = await screen.findByLabelText(/Punkty za placement/);
+    await user.clear(input);
+    await user.type(input, "1001");
+    expect(screen.getByRole("button", { name: "Zapisz punktację" })).toBeDisabled();
+  });
+});

@@ -9,6 +9,8 @@ import {
 import { formatDate } from "@/lib/utils";
 import { hasRole, type useAuthStore } from "@/store/auth";
 
+export const RULES_OVERVIEW_QUERY_KEY = ["insights", "rules-overview"] as const;
+
 export type RuleId =
   | "przydzial"
   | "blizniaki"

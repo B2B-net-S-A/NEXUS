@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { RULES_OVERVIEW_QUERY_KEY } from "@/lib/insights-rules";
 import { isForbiddenError } from "@/lib/view-state";
 
 /**
@@ -49,6 +50,11 @@ const shortLabel = (label: string): string => {
   return short.charAt(0).toUpperCase() + short.slice(1);
 };
 
+// Pole puste albo spoza zakresu blokuje zapis: `Number("")` to 0, a zero jest
+// w zakresie punktów i progów, więc serwer przyjąłby je bez słowa.
+const isValid = (field: ScoringField, raw: string): boolean =>
+  /^\d+$/.test(raw) && Number(raw) >= field.min && Number(raw) <= field.max;
+
 export function LeagueRulesPanel() {
   const queryClient = useQueryClient();
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -68,10 +74,11 @@ export function LeagueRulesPanel() {
   const changed = useMemo(
     () =>
       (query.data?.fields ?? []).filter(
-        (f) => draft[f.key] !== undefined && Number(draft[f.key]) !== f.value,
+        (f) => draft[f.key] !== undefined && draft[f.key] !== String(f.value),
       ),
     [draft, query.data],
   );
+  const invalid = useMemo(() => changed.filter((f) => !isValid(f, draft[f.key])), [changed, draft]);
 
   const save = useMutation({
     mutationFn: async () =>
@@ -82,7 +89,7 @@ export function LeagueRulesPanel() {
       ).data,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["insights", "scoring-config"] });
-      void queryClient.invalidateQueries({ queryKey: ["insights", "rules-overview"] });
+      void queryClient.invalidateQueries({ queryKey: RULES_OVERVIEW_QUERY_KEY });
     },
     onError: (e) => setError(apiErrorMessage(e, "Nie udało się zapisać punktacji.")),
   });
@@ -135,6 +142,7 @@ export function LeagueRulesPanel() {
                         min={f.min}
                         max={f.max}
                         value={draft[f.key] ?? ""}
+                        aria-invalid={invalid.includes(f)}
                         onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
                         className="h-8 w-20 text-right"
                       />
@@ -147,13 +155,18 @@ export function LeagueRulesPanel() {
           );
         })}
       </div>
+      {invalid.length > 0 ? (
+        <p role="alert" className="text-sm text-destructive">
+          {invalid.map((f) => `${shortLabel(f.label)}: podaj liczbę od ${f.min} do ${f.max}`).join(" · ")}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
       <div className="flex items-center gap-3">
-        <Button onClick={onSave} disabled={changed.length === 0 || save.isPending}>
+        <Button onClick={onSave} disabled={changed.length === 0 || invalid.length > 0 || save.isPending}>
           Zapisz punktację
         </Button>
         <span className="text-xs text-muted-foreground">

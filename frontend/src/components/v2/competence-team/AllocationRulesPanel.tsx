@@ -17,6 +17,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice"
 import { useToast } from "@/components/Toast"
 import { Button } from "@/components/ui/button"
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2"
+import { RULES_OVERVIEW_QUERY_KEY } from "@/lib/insights-rules"
 import {
   MAX_LOAD_OPTIONS,
   MODE_LABEL,
@@ -624,6 +625,7 @@ export function AllocationRulesPanel() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: COMPETENCE_TEAM_QUERY_KEY }),
         queryClient.invalidateQueries({ queryKey: ["request-board"] }),
+        queryClient.invalidateQueries({ queryKey: RULES_OVERVIEW_QUERY_KEY }),
       ])
     }
   }

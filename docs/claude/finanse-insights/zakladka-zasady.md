@@ -24,6 +24,11 @@ Kod: `components/insights/views/ZasadyView.tsx`, `lib/insights-rules.ts`,
   automat nadpisuje co noc. Automat przydziału bierze późniejszy z dwóch śladów: wpisu
   `request_allocation_rules` i zdarzeń `allocation_*`. Wyjątek: Wykluczone placementy
   wpisuje automat, więc wiersz ma datę i słowo „automat”.
+- **Przegląd odświeża się sam:** po każdej udanej mutacji w zakładce (`getMutationCache`)
+  i przy zmianie ekranu, bo panele z Ustawień nie znają jego klucza. Automat zapisuje bez
+  `useMutation`, więc unieważnia `RULES_OVERVIEW_QUERY_KEY` sam.
+- **Pole punktów puste albo spoza zakresu blokuje zapis.** `Number("")` to 0, a zero mieści
+  się w zakresie punktów i progów, więc serwer przyjąłby je bez słowa.
 - **Przypomnienia nie ma.** Napis „Nigdy” w przeglądzie jest jedynym sygnałem. Kwartalny
   dzwonek Artur odłożył: da się go dołożyć, jeśli to nie wystarczy.
 - **Punkty Ligi, Wyścigu i progi Ścieżki rozwoju** dostały pierwszy ekran edycji
