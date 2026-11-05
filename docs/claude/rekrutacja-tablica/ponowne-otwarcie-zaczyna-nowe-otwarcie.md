@@ -20,13 +20,13 @@ rekrutacji. Pomiar na kopii produkcji z 04.11.2026:
 ## Decyzje Artura (05.11.2026)
 
 - **Nowe otwarcie.** `publish_core` przy ponownym otwarciu zapisuje
-  `jobs.cycle_started_at` (`services/job_opening.py`, migracja 0653, lustro
+  `jobs.cycle_started_at` (`services/job_opening.py`, migracja 0652, lustro
   w `entrypoint.sh`). Lustro w gałęzi PATCH statusu, choć PATCH z „Zamknięta”
   na „Opublikowana” odpowiada dziś 409 `reopen_required`.
 - **Przeniesienie z Traffita to nie nowe otwarcie** (`new_opening=False`
   w `traffit_transfer`): ta sama praca, karty są żywe. Uzupełnienie
   z historii (`BACKFILL_SQL`, jednorazowo ze znacznikiem
-  `0653_job_opening_backfill`) bierze ostatnie ponowne otwarcie przez
+  `0652_job_opening_backfill`) bierze ostatnie ponowne otwarcie przez
   człowieka i pomija `traffit_transfer`.
 - **Od otwarcia liczą się stany „na teraz”**, nic więcej:
   - obsada i wakaty — `job_fill.filled_by_job` (osoby z „Zatrudniony”

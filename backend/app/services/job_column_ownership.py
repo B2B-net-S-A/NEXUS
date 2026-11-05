@@ -135,7 +135,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "close_reason",
         "close_notes",
         "duplicate_of_job_id",
-        # 0653: początek bieżącego otwarcia — stawia „Otwórz ponownie”.
+        # 0652: początek bieżącego otwarcia — stawia „Otwórz ponownie”.
         "cycle_started_at",
         "competence_category_id",
         "tac_id",
