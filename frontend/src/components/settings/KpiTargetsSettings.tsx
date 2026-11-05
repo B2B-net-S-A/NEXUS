@@ -121,6 +121,10 @@ function KpiHeader({ kpi }: { kpi: KpiTargetKpi }) {
 
 /** Cel roli jako kafelki (20.10.2026) — jedna rola od 0411, więc tabela
  *  wskaźnik × rola miała jedną kolumnę. */
+/** Opis ekranu: strona w Ustawieniach i Insights → Zasady. */
+export const KPI_TARGETS_INTRO =
+  "Cel roli i wyjątki dla pojedynczych osób. Zmiana działa od razu w panelu „Moje KPI” i w widgecie.";
+
 export function KpiRoleTiles({
   data,
   busy,

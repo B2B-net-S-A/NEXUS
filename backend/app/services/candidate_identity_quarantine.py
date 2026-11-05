@@ -18,6 +18,7 @@ import hmac
 import logging
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -227,6 +228,65 @@ async def _restore_stage_copies(
     )
 
 
+def _same_cv_text(first: str | None, second: str | None) -> bool:
+    def folded(text: str | None) -> str:
+        return " ".join((text or "").split()).casefold()
+
+    return bool(folded(first)) and folded(first) == folded(second)
+
+
+async def _side_file_text(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    document_id: int,
+) -> str | None:
+    """Tekst pliku, który nie jest głównym CV, gdy profil ma tekst CV.
+
+    Odczyt biegnie przed blokadą wiersza kandydata, bo plik bywa skanem. Awaria
+    magazynu albo odczytu oznacza brak dowodu, a decyzja człowieka i tak zapada.
+    """
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.services import object_storage
+    from app.services.cv_backfill import _extract_text_from_bytes
+
+    document = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == document_id,
+            CandidateDocument.candidate_id == candidate_id,
+        )
+    )
+    if document is None or document.is_primary:
+        return None
+    raw_cv_text = await db.scalar(
+        select(Candidate.raw_cv_text).where(Candidate.id == candidate_id)
+    )
+    if not raw_cv_text:
+        return None
+    try:
+        if document.storage_key:
+            content = await run_in_threadpool(
+                object_storage.download_cv, document.storage_key
+            )
+        else:
+            content = await db.scalar(
+                select(CandidateDocument.file_content).where(
+                    CandidateDocument.id == document_id
+                )
+            )
+        if not content:
+            return None
+        return await _extract_text_from_bytes(bytes(content), document.filename)
+    except Exception as exc:  # noqa: BLE001 — brak dowodu, nie błąd decyzji
+        logger.warning(
+            "[identity_quarantine] side file unreadable document=%s: %s",
+            document_id,
+            type(exc).__name__,
+        )
+        return None
+
+
 async def _clear_quarantined_cv_projection(
     db: AsyncSession,
     *,
@@ -234,6 +294,7 @@ async def _clear_quarantined_cv_projection(
     source_kind: SourceKind,
     source_id: int,
     replaced_primary: ReplacedPrimaryCv | None = None,
+    source_text: str | None = None,
 ) -> dict[str, Any]:
     """Remove only facts provably projected from the quarantined CV source.
 
@@ -244,6 +305,13 @@ async def _clear_quarantined_cv_projection(
     z wcześniejszego CV albo importu właściwej osoby i zostają (12.10.2026: nowe
     CV jest domyślnie głównym; 91% profili nie ma zapisanego dokumentu
     źródłowego). `None` = ponowny odczyt pliku, który już był głównym CV.
+
+    `source_text` podaje decyzja człowieka: tekst CV w profilu równy tekstowi
+    pliku dowodzi pochodzenia także wtedy, gdy plik nie jest główny, a odczyt nie
+    zapisał `source_document_id` (6502 i 80774, 05.11.2026). Automat tego dowodu
+    nie dostaje: na produkcji 3 z 15 profili z tekstem zgodnym co najmniej w 95%
+    z plikiem w kwarantannie ma w odczycie imię i nazwisko właściciela profilu,
+    więc decyzja parsera bywa fałszywym alarmem.
     """
 
     if source_kind in {"note", "talent_radar_cv"}:
@@ -292,6 +360,8 @@ async def _clear_quarantined_cv_projection(
     owns_projection = (
         source_kind == "legacy_cv" and not legacy_has_newer_document
     ) or (projected_document_id == source_id)
+    if _same_cv_text(source_text, candidate.raw_cv_text):
+        owns_projection = True
     # Plik właśnie stał się głównym CV i nie był nim wcześniej (ponowne
     # wgranie TEGO SAMEGO głównego pliku to zwykły ponowny odczyt).
     freshly_selected = (
@@ -377,6 +447,29 @@ async def clear_foreign_cv_projection(
     return stats
 
 
+def _skills_without_cv_read(current: Any, parsed_skills: Any) -> list | None:
+    """Kolumna `skills` bez pozycji z odczytu CV; `None` = nie pochodzi z odczytu.
+
+    `_apply_cv_enrichment` zapisuje `normalize_llm_skills(x.skills)`, a w
+    `cv_extracted_data` zostaje surowy wynik modelu, więc samo porównanie
+    z odczytem zostawiało umiejętności innej osoby (80774, 05.11.2026). Odczyt
+    notatek dopisuje na końcu listy, dlatego wystarcza zgodny początek, a dopisek
+    zostaje. Inna kolejność nie jest dowodem: FILL_EMPTY nie nadpisuje kolumny.
+    """
+    from app.services.cv_enrichment import normalize_llm_skills
+
+    if parsed_skills is None:
+        return None
+    if current == parsed_skills:
+        return []
+    normalized = normalize_llm_skills(parsed_skills)
+    if not normalized or not isinstance(current, list):
+        return None
+    if current[: len(normalized)] != normalized:
+        return None
+    return current[len(normalized) :]
+
+
 async def _clear_cv_projection(
     db: AsyncSession,
     *,
@@ -396,12 +489,20 @@ async def _clear_cv_projection(
     candidate_id = candidate.id
     cleared_fields: list[str] = []
 
-    def clear_if_equal(attribute: str, parsed_key: str) -> None:
+    def locked(field: str) -> bool:
+        return bool(extracted.get(f"_manual_override_{field}"))
+
+    def clear_if_equal(
+        attribute: str,
+        parsed_key: str,
+        written_form: Callable[[Any], Any] | None = None,
+    ) -> None:
         parsed_value = extracted.get(parsed_key)
-        if (
-            parsed_value is not None
-            and getattr(candidate, attribute, None) == parsed_value
-            and not extracted.get(f"_manual_override_{parsed_key}")
+        if parsed_value is None or locked(parsed_key):
+            return
+        current = getattr(candidate, attribute, None)
+        if current == parsed_value or (
+            written_form is not None and current == written_form(parsed_value)
         ):
             setattr(candidate, attribute, None)
             cleared_fields.append(attribute)
@@ -423,18 +524,27 @@ async def _clear_cv_projection(
         candidate.ai_summary = None
         cleared_fields.append("ai_summary")
 
-    if extracted.get("skills") is not None and candidate.skills == extracted.get(
-        "skills"
-    ):
-        candidate.skills = []
-        cleared_fields.append("skills")
-    if extracted.get("education") is not None and candidate.education == extracted.get(
-        "education"
+    from app.services.cv_enrichment import (
+        NON_CV_EXTRACTED_KEYS,
+        _loaded_flag,
+        cv_experience_entries,
+    )
+
+    # Te same blokady, które `_apply_cv_enrichment` szanuje przy zapisie.
+    if not locked("skills") and not _loaded_flag(candidate, "skills_manually_curated"):
+        skills_left = _skills_without_cv_read(candidate.skills, extracted.get("skills"))
+        if skills_left is not None:
+            candidate.skills = skills_left
+            cleared_fields.append("skills")
+    # Wykształcenie i lata `_apply_cv_enrichment` zapisuje bez zmian, więc tu
+    # wystarcza równość z odczytem.
+    if (
+        extracted.get("education") is not None
+        and candidate.education == extracted.get("education")
+        and not locked("education")
     ):
         candidate.education = []
         cleared_fields.append("education")
-    from app.services.cv_enrichment import NON_CV_EXTRACTED_KEYS, cv_experience_entries
-
     # Ten sam kształt, który zapisał `_apply_cv_enrichment` (także stanowiska
     # z datami z odczytu v6) — inaczej doświadczenie złej osoby zostawałoby.
     expected_experience = cv_experience_entries(extracted)
@@ -445,16 +555,19 @@ async def _clear_cv_projection(
     ):
         candidate.experience = []
         cleared_fields.append("experience")
-    if extracted.get(
-        "years_it_experience"
-    ) is not None and candidate.years_it_experience == extracted.get(
-        "years_it_experience"
+    if (
+        extracted.get("years_it_experience") is not None
+        and candidate.years_it_experience == extracted.get("years_it_experience")
+        and not locked("years_it_experience")
     ):
         candidate.years_it_experience = None
         cleared_fields.append("years_it_experience")
 
     if not keep_contact:
-        clear_if_equal("email", "email")
+        # Zapis idzie małymi literami, a odczyt zostaje taki, jak w CV.
+        clear_if_equal(
+            "email", "email", lambda parsed: str(parsed).strip().lower()[:255]
+        )
         clear_if_equal("phone", "phone")
         clear_if_equal("city", "city")
     if "city" in cleared_fields:
@@ -465,13 +578,22 @@ async def _clear_cv_projection(
         if candidate.location != projected_location:
             candidate.location = projected_location
             cleared_fields.append("location")
+    parsed_linkedin = extracted.get("linkedin_url")
     if (
         not keep_contact
-        and extracted.get("linkedin_url")
-        and candidate.linkedin == extracted.get("linkedin_url")
+        and parsed_linkedin
+        and candidate.linkedin
+        and not locked("linkedin")
     ):
-        candidate.linkedin = None
-        cleared_fields.append("linkedin")
+        from app.services.proxycurl import normalize_linkedin_url
+
+        # Zapis idzie przez `normalize_linkedin_url`, a odczyt zostaje surowy.
+        if candidate.linkedin in (
+            parsed_linkedin,
+            normalize_linkedin_url(parsed_linkedin),
+        ):
+            candidate.linkedin = None
+            cleared_fields.append("linkedin")
 
     # Keep only explicit locks and integration-owned metadata. Raw parser
     # output can itself describe the wrong person.
@@ -889,6 +1011,11 @@ async def mark_confirmed_mismatch(
 ) -> CandidateSourceIdentityReview:
     """Human confirmation: quarantine a source and clear any old override."""
 
+    source_text = (
+        await _side_file_text(db, candidate_id=candidate_id, document_id=source_id)
+        if source_kind == "document"
+        else None
+    )
     await db.execute(
         select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
     )
@@ -930,6 +1057,7 @@ async def mark_confirmed_mismatch(
         candidate_id=candidate_id,
         source_kind=source_kind,
         source_id=source_id,
+        source_text=source_text,
     )
     candidate_audit.record_candidate_audit(
         db,

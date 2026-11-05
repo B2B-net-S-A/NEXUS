@@ -812,6 +812,29 @@
    }
   },
   {
+   "name": "rozmowa: wszystkie terminy minęły, nowe bierze DL",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 8,
+    "screening_done": null,
+    "hm_veto": false,
+    "interview_phase": "slots_expired"
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Terminy minęły — nowe od klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "delivery"
+   }
+  },
+  {
    "name": "akceptacja ignoruje fazę rozmowy",
    "group": "client",
    "column": {

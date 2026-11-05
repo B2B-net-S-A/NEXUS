@@ -1,8 +1,9 @@
 """Backfill name/contact data for candidates imported without a name.
 
 The Traffit importer stores ``name="?"`` / ``lastname="?"`` when the source
-record has neither a name nor a usable email, and downloads the CV to object
-storage **without parsing it**. This module recovers the missing data from the
+record has neither a name nor a usable email (some records carry ``"Unknown"``
+from Traffit itself), and downloads the CV to object storage **without parsing
+it**. This module recovers the missing data from the
 stored CV using the same ``parse_cv`` → ``_apply_cv_enrichment`` path as the
 manual upload flow, with a conservative CV-filename fallback for the name.
 
@@ -35,7 +36,11 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.models.candidate_document import CandidateDocument
-from app.services.cv_enrichment import _CV_PLACEHOLDER_NAMES, _apply_cv_enrichment
+from app.services.cv_enrichment import (
+    _CV_PLACEHOLDER_NAMES,
+    _apply_cv_contact_fields,
+    _apply_cv_enrichment,
+)
 from app.services.ai_models import model_for
 from app.core.log_safety import safe_filename, safe_storage_key
 
@@ -176,6 +181,15 @@ async def enrich_candidate_from_cv_bytes(
     cv_hash = hashlib.sha256(cv_bytes).hexdigest() if cv_bytes else None
     if _model_already_read(candidate, cv_hash):
         result["skipped_reason"] = "cv_already_read_by_model"
+        names = _names_from_stored_read(candidate)
+        if names:
+            quarantined, _ = await _identity_quarantined(db, candidate, cv_hash, names)
+            if quarantined:
+                result["identity_quarantined"] = True
+                return result
+            _apply_cv_contact_fields(candidate, names, candidate.cv_extracted_data)
+            result["name_source"] = "stored_read"
+            result["resolved"] = _name_resolved(candidate)
         return result
 
     raw_text: Optional[str] = None
@@ -216,37 +230,13 @@ async def enrich_candidate_from_cv_bytes(
             parsed["last_name"] = f_last
             result["name_source"] = result["name_source"] or "filename"
 
-    content_hash: str | None = None
-    document_id: int | None = None
-    if db is not None and hasattr(db, "add") and hasattr(db, "flush"):
-        from app.services.candidate_identity_quarantine import (
-            record_detected_identity,
-        )
-
-        content_hash = cv_hash
-        document_id = (
-            await db.scalar(
-                select(CandidateDocument.id).where(
-                    CandidateDocument.candidate_id == candidate.id,
-                    CandidateDocument.content_sha256 == content_hash,
-                    CandidateDocument.source_deleted_at.is_(None),
-                )
-            )
-            if content_hash
-            else None
-        )
-        review = await record_detected_identity(
-            db,
-            candidate=candidate,
-            source_kind="document" if document_id is not None else "legacy_cv",
-            source_id=document_id if document_id is not None else candidate.id,
-            observed_first_name=parsed.get("first_name"),
-            observed_last_name=parsed.get("last_name"),
-            provenance="cv_parser:backfill",
-        )
-        if review.is_quarantined:
-            result["identity_quarantined"] = True
-            return result
+    content_hash = cv_hash
+    quarantined, document_id = await _identity_quarantined(
+        db, candidate, content_hash, parsed
+    )
+    if quarantined:
+        result["identity_quarantined"] = True
+        return result
 
     # Guard the UNIQUE(email) constraint: duplicate Traffit rows (same CV) would
     # otherwise collide on commit and lose the whole enrichment. Drop a parsed
@@ -291,6 +281,64 @@ async def enrich_candidate_from_cv_bytes(
         )
     result["resolved"] = _name_resolved(candidate)
     return result
+
+
+async def _identity_quarantined(
+    db: Optional[AsyncSession],
+    candidate: Candidate,
+    content_hash: Optional[str],
+    parsed: dict[str, Any],
+) -> tuple[bool, Optional[int]]:
+    """Zapisz nazwę odczytaną z pliku w kwarantannie; (czy zablokowana, id dokumentu)."""
+    if db is None or not hasattr(db, "add") or not hasattr(db, "flush"):
+        return False, None
+    from app.services.candidate_identity_quarantine import record_detected_identity
+
+    document_id = (
+        await db.scalar(
+            select(CandidateDocument.id).where(
+                CandidateDocument.candidate_id == candidate.id,
+                CandidateDocument.content_sha256 == content_hash,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+        )
+        if content_hash
+        else None
+    )
+    review = await record_detected_identity(
+        db,
+        candidate=candidate,
+        source_kind="document" if document_id is not None else "legacy_cv",
+        source_id=document_id if document_id is not None else candidate.id,
+        observed_first_name=parsed.get("first_name"),
+        observed_last_name=parsed.get("last_name"),
+        provenance="cv_parser:backfill",
+    )
+    return review.is_quarantined, document_id
+
+
+def _names_from_stored_read(candidate: Candidate) -> dict[str, str]:
+    """Imię i nazwisko z zapisanego odczytu, gdy nazwisko jest w tekście CV.
+
+    Model przeczytał plik i zna nazwę, ale kolumna nadal ma wypełniacz: pomiar
+    05.11.2026, 287 profili z `?`, z czego u 12 nazwiska z odczytu nie ma w
+    tekście CV. Ten plik nie pójdzie do modelu drugi raz, więc bez tego kroku
+    nazwa nigdy nie trafiłaby do kolumny. Tekst jest dowodem, że odczyt dotyczy
+    tego CV; bez niego nic się nie zmienia.
+    """
+    from app.services.candidate_identity_quarantine import normalize_person_name_part
+
+    extracted = candidate.cv_extracted_data
+    if not isinstance(extracted, dict):
+        return {}
+    first = str(extracted.get("first_name") or "").strip()
+    last = str(extracted.get("last_name") or "").strip()
+    last_key = normalize_person_name_part(last)
+    if not (first and last_key):
+        return {}
+    if last_key not in normalize_person_name_part(candidate.raw_cv_text):
+        return {}
+    return {"first_name": first, "last_name": last}
 
 
 def _model_already_read(candidate: Candidate, cv_hash: Optional[str]) -> bool:
@@ -391,7 +439,7 @@ async def backfill_missing_names(
     prefer_llm: bool = True,
     progress: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Bulk-enrich Traffit candidates whose name/lastname is still ``"?"``.
+    """Bulk-enrich Traffit candidates whose name/lastname is still a placeholder.
 
     Commits per candidate so a long run is resumable and partial progress
     survives a container restart. ``since`` scopes to recently-touched rows
@@ -413,7 +461,7 @@ async def backfill_missing_names(
     # parameter and blow up at execute time.
     after_clause = "AND id > :after_id" if after_id is not None else ""
     limit_clause = "LIMIT :limit" if limit is not None else ""
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = {"placeholders": sorted(_CV_PLACEHOLDER_NAMES)}
     if since is not None:
         params["since"] = since
     if after_id is not None:
@@ -426,7 +474,7 @@ async def backfill_missing_names(
             f"""
             SELECT id FROM candidates
             WHERE external_source = 'traffit'
-              AND (name = '?' OR lastname = '?')
+              AND (name = ANY(:placeholders) OR lastname = ANY(:placeholders))
               {since_clause}
               {after_clause}
             ORDER BY id

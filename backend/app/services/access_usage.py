@@ -104,7 +104,8 @@ AREA_BY_SCREEN: dict[str, str] = {
         "order-mail",
     ),
     **_screens(FINANSE, "finance"),
-    **_screens(INSIGHTS, "insights"),
+    # Podgląd na telefonie stoi za tą samą bramką sekcji co Insights.
+    **_screens(INSIGHTS, "insights", "podglad"),
     **_screens(HR, "equipment", "people"),
     **_screens(SPRZEDAZ, "sales"),
     **_screens(GENERATOR_B2B, "contracts/b2b-generator"),

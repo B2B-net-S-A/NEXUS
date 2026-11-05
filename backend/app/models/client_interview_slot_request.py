@@ -9,7 +9,8 @@ wydarzenie ``client_interview`` w kalendarzu rekrutera — od niego liczy się
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Iterable
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -34,6 +35,21 @@ SLOT_STATUS_CONFIRMED = "confirmed"
 SLOT_STATUS_CANCELLED = "cancelled"
 OPEN_SLOT_STATUSES = (SLOT_STATUS_AWAITING_RECRUITER, SLOT_STATUS_AWAITING_DL)
 SLOT_STATUSES = (*OPEN_SLOT_STATUSES, SLOT_STATUS_CONFIRMED, SLOT_STATUS_CANCELLED)
+# Termin jeszcze się liczy tuż po starcie (zegary, rekruter w trakcie rozmowy).
+SLOT_PAST_TOLERANCE = timedelta(minutes=5)
+
+
+def all_slots_past(slots: Iterable[dict], now: datetime) -> bool:
+    """Minęły wszystkie terminy wniosku; okno klienta żyje do swojego końca."""
+
+    def last_moment(slot: dict) -> datetime:
+        moment = datetime.fromisoformat(slot.get("window_end") or slot["start"])
+        return (
+            moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+        )
+
+    moments = [last_moment(slot) for slot in slots]
+    return bool(moments) and max(moments) < now - SLOT_PAST_TOLERANCE
 
 
 class ClientInterviewSlotRequest(Base, TimestampMixin):

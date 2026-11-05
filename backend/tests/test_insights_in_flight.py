@@ -182,6 +182,7 @@ async def _seed() -> dict[str, Any]:
             "dl": dl.name,
             "dl_id": dl.id,
             "rec_id": rec.id,
+            "c0": c[0],
             "c1": c[1],
         }
 
@@ -265,6 +266,50 @@ async def test_my_in_flight_keeps_only_pairs_i_verified() -> None:
     assert person["column"] == "contract"
     assert person["stage_label"] == "Umowa wysłana"
     assert sum(c["count"] for c in result["columns"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_my_in_flight_credits_the_first_named_verifier_only() -> None:
+    """Pierwszy weryfikujący z kontem. Wiersz bez `moved_by` nie odbiera zasługi."""
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        # c1: dostaje wcześniejszą weryfikację DL-a, więc przestaje być rekrutera.
+        db.add(
+            CandidateStage(
+                candidate_id=world["c1"],
+                job_id=world["open_job"],
+                stage=PipelineStage.verified,
+                moved_at=_at(2, 1),
+                moved_by=world["dl_id"],
+            )
+        )
+        # c0: pierwszy wiersz „verified” jest bez konta, zasługa idzie za drugim.
+        db.add(
+            CandidateStage(
+                candidate_id=world["c0"],
+                job_id=world["open_job"],
+                stage=PipelineStage.verified,
+                moved_at=_at(2, 22),
+                moved_by=world["rec_id"],
+            )
+        )
+        await db.commit()
+
+    async def people_of(user_id: int) -> set[int]:
+        async with AsyncSessionLocal() as db:
+            result = await compute_in_flight(
+                db,
+                today=date(_YEAR, 3, 31),
+                now=_at(3, 31),
+                with_acceptances=False,
+                owner=("verifier", user_id),
+                with_people=True,
+                job_ids=[world["open_job"]],
+            )
+        return {p["candidate_id"] for p in result["people"]}
+
+    assert await people_of(world["rec_id"]) == {world["c0"]}
+    assert await people_of(world["dl_id"]) == {world["c1"]}
 
 
 @pytest.mark.asyncio

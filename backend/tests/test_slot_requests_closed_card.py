@@ -34,8 +34,16 @@ from app.models.pipeline_template import (
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services import interview_slots
-from app.services.interview_cycle import interview_badges_for_job
-from app.services.interview_slot_requests import create_slot_request_for_pair
+from app.services.candidate_followups import _waiting_processes
+from app.services.interview_cycle import (
+    interview_badges_for_job,
+    load_overview,
+    load_snapshots,
+)
+from app.services.interview_slot_requests import (
+    SlotsAlreadyOpen,
+    create_slot_request_for_pair,
+)
 from app.services.recruitment_process_commands import transition_process
 from scripts.cancel_open_slots_on_closed_cards import closed_card_open_requests
 
@@ -151,12 +159,28 @@ async def test_closing_the_card_cancels_the_open_request(closing, status):
 
 @pytest.mark.parametrize(
     "stage",
-    [PipelineStage.acceptance, PipelineStage.hired, PipelineStage.cv_sent],
+    [PipelineStage.cv_sent, PipelineStage.client_interview],
 )
 async def test_other_moves_leave_the_open_request(stage):
     pair = await _seed()
     await _move(pair, stage)
     assert await _status(pair) == SLOT_STATUS_AWAITING_RECRUITER
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        PipelineStage.acceptance,
+        PipelineStage.negotiation,
+        PipelineStage.onboarding,
+        PipelineStage.hired,
+    ],
+)
+async def test_card_past_the_interview_cancels_the_open_request(stage):
+    """Wnioski 12 i 29 na kopii z 03.11: zadanie przy karcie już po rozmowie."""
+    pair = await _seed()
+    await _move(pair, stage)
+    assert await _status(pair) == SLOT_STATUS_CANCELLED
 
 
 async def test_closing_the_card_leaves_a_confirmed_request():
@@ -226,3 +250,130 @@ async def test_repair_finds_only_open_requests_on_closed_cards():
     assert stale["request_id"] in found
     assert returned["request_id"] not in found
     assert active["request_id"] not in found
+
+
+async def test_repair_covers_cards_past_the_interview():
+    stale = await _seed()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=stale["candidate_id"],
+                job_id=stale["job_id"],
+                stage=PipelineStage.hired,
+                moved_by=stale["dl_id"],
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        found = {req.id for req in await closed_card_open_requests(db)}
+    assert stale["request_id"] in found
+
+
+async def _set_past_slots(pair: dict) -> None:
+    start = datetime.now(timezone.utc) - timedelta(days=3)
+    async with AsyncSessionLocal() as db:
+        req = await db.get(ClientInterviewSlotRequest, pair["request_id"])
+        req.slots = [
+            {
+                "start": start.isoformat(),
+                "end": (start + timedelta(hours=1)).isoformat(),
+            }
+        ]
+        await db.commit()
+
+
+async def _create_new(pair: dict, *, actor: bool = True):
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, pair["job_id"])
+        dl = await db.get(User, pair["dl_id"]) if actor else None
+        created = await create_slot_request_for_pair(
+            db,
+            job=job,
+            candidate_id=pair["candidate_id"],
+            slots=_slots(),
+            duration_minutes=60,
+            actor=dl,
+        )
+        await db.commit()
+        return created.request.status
+
+
+@pytest.mark.parametrize("actor", [True, False])
+async def test_request_with_past_slots_gives_way_to_a_new_one(actor):
+    """Bez autora to wniosek z panelu klienta, który dostawał tu 409."""
+    pair = await _seed()
+    await _set_past_slots(pair)
+    assert await _create_new(pair, actor=actor) == SLOT_STATUS_AWAITING_RECRUITER
+    assert await _status(pair) == SLOT_STATUS_CANCELLED
+
+
+async def test_request_with_slots_ahead_still_blocks_a_new_one():
+    pair = await _seed()
+    with pytest.raises(SlotsAlreadyOpen):
+        await _create_new(pair)
+    assert await _status(pair) == SLOT_STATUS_AWAITING_RECRUITER
+
+
+async def test_badge_on_past_slots_offers_no_pick():
+    pair = await _seed()
+    await _set_past_slots(pair)
+    async with AsyncSessionLocal() as db:
+        badges = await interview_badges_for_job(
+            db, job_id=pair["job_id"], candidate_ids=[pair["candidate_id"]]
+        )
+    badge = badges[pair["candidate_id"]]
+    assert badge["kind"] == "slots_expired"
+    assert badge["slot_request"]["expired"] is True
+    assert badge["phase"] == "slots_expired"
+
+
+async def test_closed_job_drops_the_open_request_from_the_cycle():
+    """Wnioski 10 i 11 na kopii z 03.11: rekrutacja zamknięta, „Potwierdź” u DL-a."""
+    pair = await _seed(SLOT_STATUS_AWAITING_DL)
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, pair["job_id"])
+        job.status = JobStatus.closed
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        snaps = await load_snapshots(
+            db,
+            [(pair["candidate_id"], pair["job_id"])],
+            window_start=now - timedelta(days=14),
+            window_end=now + timedelta(days=30),
+            now=now,
+        )
+        badges = await interview_badges_for_job(
+            db, job_id=pair["job_id"], candidate_ids=[pair["candidate_id"]]
+        )
+        dl = await db.get(User, pair["dl_id"])
+        overview = await load_overview(db, dl, scope="jobs", now=now)
+    snap = snaps[(pair["candidate_id"], pair["job_id"])]
+    assert snap.job_closed is True
+    assert snap.slot_request is None
+    assert pair["candidate_id"] not in badges
+    assert pair["candidate_id"] not in {i["candidate_id"] for i in overview["items"]}
+    assert pair["candidate_id"] not in {t["candidate_id"] for t in overview["todos"]}
+
+
+async def test_past_slots_no_longer_switch_off_the_followup():
+    """Otwarty wniosek gasił telefon do kandydata, także gdy terminy dawno minęły."""
+    pair = await _seed()
+    now = datetime.now(timezone.utc)
+    cid = pair["candidate_id"]
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=cid,
+                job_id=pair["job_id"],
+                stage=PipelineStage.cv_sent,
+                moved_by=pair["dl_id"],
+                moved_at=now - timedelta(days=5),
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert cid not in await _waiting_processes(db, now=now, candidate_ids=[cid])
+    await _set_past_slots(pair)
+    async with AsyncSessionLocal() as db:
+        assert cid in await _waiting_processes(db, now=now, candidate_ids=[cid])

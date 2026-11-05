@@ -24,6 +24,100 @@ export const WORK_MODE_MISMATCH_REASON = "work_mode_mismatch";
  *  `rejection_reason_labels.HM_ALREADY_INTERVIEWED`. */
 export const HM_ALREADY_INTERVIEWED_REASON = "hm_already_interviewed";
 
+/** Klucz powodu „Zatrudniony gdzie indziej” (04.11.2026) — lustro
+ *  `rejection_reason_labels.EMPLOYED_ELSEWHERE`. Serwer zapisuje przy nim
+ *  w profilu „Nie szuka” na 3 miesiące, a okno o tym uprzedza. */
+export const EMPLOYED_ELSEWHERE_REASON = "Zatrudniony gdzie indziej";
+
+/** Sześć powodów, które zespół wpisywał ręcznie pod „Inne” (04.11.2026, 0646) —
+ *  lustro `rejection_reason_labels`. */
+export const NOT_LOOKING_FOR_WORK_REASON = "not_looking_for_work";
+export const CLIENT_CONFLICT_REASON = "client_conflict";
+export const CONTRACT_FORM_REASON = "contract_form";
+export const NO_CONTACT_REASON = "no_contact";
+export const CLIENT_NO_REASON_REASON = "client_no_reason";
+export const CLIENT_CHOSE_OTHER_REASON = "client_chose_other";
+
+/** Tylko przy „Odrzuca klient”: my ani DL nie mówimy w imieniu klienta. */
+const CLIENT_ONLY_REASONS: ReadonlySet<string> = new Set([
+  CLIENT_NO_REASON_REASON,
+  CLIENT_CHOSE_OTHER_REASON,
+]);
+/** Nie przy „Odrzuca klient”: na 104 opisach klienta od 12.10 żaden tak nie
+ *  mówi, bo to sprawa osoby, nie decyzja klienta. */
+const NOT_CLIENT_REASONS: ReadonlySet<string> = new Set([
+  NOT_LOOKING_FOR_WORK_REASON,
+  NO_CONTACT_REASON,
+]);
+
+/**
+ * Czy powód pasuje do tego, kto kończy proces. Pozostałe powody (także dopisane
+ * przez admina w szablonie) pasują zawsze.
+ */
+export function reasonFitsEndedBy(
+  reason: Pick<RejectionReasonOption, "name">,
+  endedBy: "candidate" | "recruiter" | "delivery_lead" | "client",
+): boolean {
+  const name = reason.name?.trim() ?? "";
+  if (CLIENT_ONLY_REASONS.has(name)) return endedBy === "client";
+  if (NOT_CLIENT_REASONS.has(name)) return endedBy !== "client";
+  return true;
+}
+
+/** Grupy okna odrzucenia (04.11.2026): przy 1280 × 720 płaska lista 12 powodów
+ *  chowała nowe pod zgięciem. Klucze szablonu domyślnego; powód spoza grup
+ *  (także „Inne” i dopisane przez admina) stoi pod nimi w kolejności listy. */
+const REJECTED_REASON_GROUPS: { title: string; names: readonly string[] }[] = [
+  {
+    title: "Klient",
+    names: [CLIENT_NO_REASON_REASON, CLIENT_CHOSE_OTHER_REASON],
+  },
+  {
+    title: "Wymagania",
+    names: ["Brak doświadczenia", "Nie spełnia wymagań technicznych", "Nie pasuje kulturowo"],
+  },
+  {
+    title: "Warunki",
+    names: ["Za wysokie oczekiwania finansowe", WORK_MODE_MISMATCH_REASON, CONTRACT_FORM_REASON],
+  },
+  {
+    title: "Sprawa osoby",
+    names: [
+      NOT_LOOKING_FOR_WORK_REASON,
+      "Zatrudniony gdzie indziej",
+      CLIENT_CONFLICT_REASON,
+      NO_CONTACT_REASON,
+      HM_ALREADY_INTERVIEWED_REASON,
+    ],
+  },
+];
+
+export interface RejectionReasonGroup<T> {
+  /** `null` — żaden powód nie trafił do grupy (np. szablon z własną listą). */
+  title: string | null;
+  reasons: T[];
+}
+
+export function groupRejectedReasons<T extends { name?: string }>(
+  reasons: readonly T[],
+): RejectionReasonGroup<T>[] {
+  const byName = new Map(reasons.map((r) => [r.name?.trim() ?? "", r]));
+  const grouped = new Set<T>();
+  const groups: RejectionReasonGroup<T>[] = [];
+  for (const { title, names } of REJECTED_REASON_GROUPS) {
+    const members = names.flatMap((name) => {
+      const reason = byName.get(name);
+      return reason ? [reason] : [];
+    });
+    if (members.length === 0) continue;
+    members.forEach((r) => grouped.add(r));
+    groups.push({ title, reasons: members });
+  }
+  const rest = reasons.filter((r) => !grouped.has(r));
+  if (rest.length === 0) return groups;
+  return [...groups, { title: groups.length > 0 ? "Pozostałe" : null, reasons: rest }];
+}
+
 /**
  * Czy powód bez opisu nic nie mówi (20.10.2026) — lustro
  * `rejection_reason_labels.needs_description`. Przy „Inne” i „Już po rozmowie

@@ -65,7 +65,7 @@ const BLOCKED: MergePlan = {
   blockers: [
     {
       code: "both_external",
-      message: "Oba profile pochodzą z tego samego systemu zewnętrznego (traffit) — scal je najpierw tam, inaczej nocny import odtworzy usunięty profil.",
+      message: "Oba profile pochodzą z tego samego systemu zewnętrznego (talent_radar) — scal je najpierw tam, inaczej nocny import odtworzy usunięty profil.",
     },
   ],
 };

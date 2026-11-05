@@ -553,7 +553,147 @@ export interface SeniorityRegression {
   thresholds_fingerprint: string;
 }
 
+// Zakładka „Wnioski” — `/api/insights/wnioski*` (decyzje Artura 04.11.2026).
+export type WnioskiState = "approved" | "later" | "rejected";
+export type WnioskiBasis = "today" | "after";
+
+export interface WnioskiCase {
+  key: string;
+  number: string;
+  number_note: string;
+  count: number;
+  sample: number;
+  title: string;
+  why: string;
+  if_yes: string;
+  risk: string;
+  yes_label: string;
+  owner: string;
+  owner_role: string;
+  measure: string;
+  certainty: "Policzone" | "Szacunek";
+  evidence: { label: string; value: string }[];
+}
+
+export interface WnioskiResponse {
+  computed_at: string;
+  counted_from: string;
+  counted_from_label: string;
+  open_count: number;
+  cases: WnioskiCase[];
+  watching: { text: string; value: string }[];
+}
+
+export interface WnioskiReasonsResponse {
+  computed_at: string;
+  counted_from_label: string;
+  total: number;
+  why_out: { key: string; reason: string; today: number; after: number }[];
+  why_out_takeaway: string | null;
+  columns: { key: string; label: string }[];
+  heatmap: { client_id: number | null; client: string; total: number; values: number[] }[];
+  heatmap_takeaway: string | null;
+}
+
+export interface WnioskiPeopleFilter {
+  bucket: string;
+  basis: WnioskiBasis;
+  client_id?: number | null;
+}
+
+export interface WnioskiPerson {
+  candidate_id: number;
+  name: string;
+  rejected_at: string;
+  job_id: number;
+  job_title: string | null;
+  client: string;
+}
+
+export interface WnioskiPeopleResponse {
+  total: number;
+  rows: WnioskiPerson[];
+}
+
+export interface WnioskiCollectedResponse {
+  computed_at: string;
+  statuses: string[];
+  rows: { signal: string; amount: string; today: string; status: string; next: string }[];
+}
+
+export interface WnioskiRuleCohort {
+  hits: number;
+  added: number;
+  refused: number;
+  per_100: number | null;
+}
+
+export interface WnioskiHistoryResponse {
+  approved: {
+    key: string;
+    title: string;
+    number: string;
+    decided_at: string;
+    decided_by: string | null;
+    measure: string;
+    review_on: string | null;
+    measure_now: string | null;
+    change: string | null;
+  }[];
+  deferred: {
+    key: string;
+    title: string;
+    number: string;
+    decided_at: string;
+    decided_by: string | null;
+    state: "later" | "rejected";
+    return_on: string | null;
+    return_count: number | null;
+  }[];
+  rules: {
+    rule: string;
+    since: string;
+    metric: string;
+    before: WnioskiRuleCohort;
+    after: WnioskiRuleCohort;
+    review_on: string;
+    verdict: string | null;
+  }[];
+  rules_takeaway: string | null;
+}
+
 export const insightsApi = {
+  wnioski: () => api.get<WnioskiResponse>("/api/insights/wnioski").then((r) => r.data),
+
+  wnioskiDecide: (key: string, state: WnioskiState) =>
+    api
+      .post<{ key: string; state: WnioskiState }>(
+        `/api/insights/wnioski/${encodeURIComponent(key)}/decision`,
+        { state },
+      )
+      .then((r) => r.data),
+
+  wnioskiHistory: () =>
+    api.get<WnioskiHistoryResponse>("/api/insights/wnioski/history").then((r) => r.data),
+
+  wnioskiReasons: () =>
+    api.get<WnioskiReasonsResponse>("/api/insights/wnioski/reasons").then((r) => r.data),
+
+  wnioskiPeople: (filter: WnioskiPeopleFilter, limit: number) =>
+    api
+      .get<WnioskiPeopleResponse>("/api/insights/wnioski/reasons/people", {
+        params: {
+          bucket: filter.bucket,
+          basis: filter.basis,
+          ...(filter.client_id != null ? { client_id: filter.client_id } : {}),
+          limit,
+        },
+      })
+      .then((r) => r.data),
+
+  wnioskiCollected: () =>
+    api.get<WnioskiCollectedResponse>("/api/insights/wnioski/collected").then((r) => r.data),
+
   recruitmentFunnel: (p: InsightsPeriodParams) =>
     api
       .get<RecruitmentFunnelResponse>("/api/insights/recruitment/funnel", {
@@ -1191,6 +1331,12 @@ export interface HitRatioClosuresResponse {
 }
 
 export const insightsQueryKeys = {
+  wnioski: () => ["insights", "wnioski"] as const,
+  wnioskiHistory: () => ["insights", "wnioski", "history"] as const,
+  wnioskiReasons: () => ["insights", "wnioski", "reasons"] as const,
+  wnioskiCollected: () => ["insights", "wnioski", "collected"] as const,
+  wnioskiPeople: (filter: WnioskiPeopleFilter, limit: number) =>
+    ["insights", "wnioski", "people", filter, limit] as const,
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
     ["insights", "clients", "ranking", p] as const,

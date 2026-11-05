@@ -9,6 +9,7 @@ zamiast osoby (do wyjaśnienia), wolny telefon, numer już w rejestrze
 from __future__ import annotations
 
 import io
+import uuid
 
 import openpyxl
 import pytest_asyncio
@@ -20,11 +21,13 @@ from app.models.equipment import (
     EquipmentExternalPerson,
     EquipmentItem,
 )
+from app.services.equipment import sanitize
 from tests.test_equipment_api import (
     _headers,
     _item,
     _model,
     _tag,
+    _worker_name,
     make_people,
     modules_state,
 )
@@ -80,6 +83,19 @@ def _workbook(worker_name: str, taken_serial: str, tag: str) -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+def test_worker_name_survives_import_cleaning(monkeypatch) -> None:
+    """Losowa nazwa osoby z fikstury nie może wyglądać dla importu jak sekret.
+
+    Osiem cyfr w tekście to dla importu kod PUK (`sanitize.clean_text`). Tag
+    z samych cyfr (co 43. losowanie) ucinał nazwę, osoba nie miała konta w NEXUSIE
+    i `test_import_waits_for_approval_then_creates_items` padał: `None == id`.
+    """
+    assert sanitize.clean_text("Anna Przykładowa 12345678").value == "Anna Przykładowa"
+    monkeypatch.setattr(uuid, "uuid4", lambda: uuid.UUID("1" * 32))
+    name = _worker_name()
+    assert sanitize.clean_text(name).value == name
 
 
 async def test_import_waits_for_approval_then_creates_items(

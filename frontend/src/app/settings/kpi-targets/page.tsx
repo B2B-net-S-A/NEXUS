@@ -2,7 +2,7 @@
 
 import { Target } from "lucide-react";
 
-import { KpiTargetsSettings } from "@/components/settings/KpiTargetsSettings";
+import { KPI_TARGETS_INTRO, KpiTargetsSettings } from "@/components/settings/KpiTargetsSettings";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -34,8 +34,7 @@ export default function KpiTargetsPage() {
           Cele KPI
         </h1>
         <p className="text-sm text-muted-foreground">
-          Cel roli i wyjątki dla pojedynczych osób. Zmiana działa od razu
-          w panelu „Moje KPI” i w widgecie.
+          {KPI_TARGETS_INTRO}
         </p>
       </div>
       <KpiTargetsSettings />

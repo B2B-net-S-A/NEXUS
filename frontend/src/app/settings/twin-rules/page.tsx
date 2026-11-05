@@ -2,7 +2,7 @@
 
 import { ArrowLeftRight } from "lucide-react";
 
-import { TwinRulesSettings } from "@/components/settings/TwinRulesSettings";
+import { TWIN_RULES_INTRO, TwinRulesSettings } from "@/components/settings/TwinRulesSettings";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -34,9 +34,7 @@ export default function TwinRulesSettingsPage() {
           Zasady bliźniaków
         </h1>
         <p className="text-sm text-muted-foreground">
-          Kiedy dwie otwarte rekrutacje są bliźniakami. Zasady działają od razu u wszystkich: na liście „Możliwe
-          bliźniaki”, w kaflu „Otwarte podobne” i w oknie łączenia. „Wymagane” zdejmuje parę z listy propozycji —
-          połączyć ją ręcznie dalej można, okno pokaże ostrzeżenie.
+          {TWIN_RULES_INTRO}
         </p>
       </div>
       <TwinRulesSettings />

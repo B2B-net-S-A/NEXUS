@@ -30,6 +30,21 @@ def _nobody_is_a_previous_recruiter(monkeypatch):
     monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
 
 
+@pytest.fixture(autouse=True)
+def _nobody_has_a_substitute(monkeypatch):
+    """Atrapy sesji nie znają też dostępności. Bez tego test przechodził tylko
+    wtedy, gdy wcześniejszy test w shardzie zdążył ustawić w pamięci przełącznik
+    źródła (`availability_local._SOURCE`), więc zależał od kolejności plików."""
+    from app.services import workforce_availability
+
+    async def effective_owner_id(_db, owner_id):
+        return owner_id
+
+    monkeypatch.setattr(
+        workforce_availability, "effective_owner_id", effective_owner_id
+    )
+
+
 def test_exports_the_core_triggers():
     names = {
         "check_client_feedback_eobd",

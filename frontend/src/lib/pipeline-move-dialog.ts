@@ -77,6 +77,7 @@ export function needsInterviewDate(item: Pick<KanbanItem, "interview_badge">): b
   if (!badge) return true;
   const interview = badge.steps?.find((s) => s.key === "interview");
   if (interview?.state === "scheduled") return false;
+  if (badge.slot_request?.expired) return true;
   const slots = badge.slot_request?.status;
   return slots !== "awaiting_recruiter" && slots !== "awaiting_dl";
 }

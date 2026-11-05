@@ -972,8 +972,9 @@ export function PipelineCandidateDock({
   const interviewBadge = item.interview_badge ?? null;
   const interviewStepState = interviewBadge?.steps?.find((s) => s.key === "interview")?.state;
   const openSlotRequest =
-    interviewBadge?.slot_request?.status === "awaiting_recruiter" ||
-    interviewBadge?.slot_request?.status === "awaiting_dl";
+    !interviewBadge?.slot_request?.expired &&
+    (interviewBadge?.slot_request?.status === "awaiting_recruiter" ||
+      interviewBadge?.slot_request?.status === "awaiting_dl");
   // Para w „Rozmowie u klienta” bez rozmowy w kalendarzu — „Pytania z rozmowy”
   // zapisuje je z datą rozmowy (serwer zakłada odbytą rozmowę).
   const pairQuestionsWithoutEvent =

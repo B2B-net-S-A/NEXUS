@@ -124,6 +124,7 @@ export function CvToolbar({
                 type="button"
                 aria-pressed={active}
                 onClick={() => onViewChange(option.value)}
+                data-tour={option.value === "client_sheet" ? "dl-review.cover-sheet" : undefined}
                 className={pillClass(active)}
               >
                 {option.label}

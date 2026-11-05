@@ -52,7 +52,7 @@ export function JobAnnouncementSection({
               </Button>
             ) : null}
             {onGenerateInviteLink ? (
-              <Button type="button" variant="outline" size="sm" onClick={onGenerateInviteLink}>
+              <Button type="button" variant="outline" size="sm" onClick={onGenerateInviteLink} data-tour="job.team-links">
                 Wygeneruj link aplikacyjny
               </Button>
             ) : null}

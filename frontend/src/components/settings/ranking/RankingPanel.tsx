@@ -42,6 +42,10 @@ export interface RankingPanelProps {
   pollMeasurement?: boolean;
 }
 
+/** Opis ekranu: strona w Ustawieniach i Insights → Zasady. */
+export const RANKING_INTRO =
+  "Co liczy się najbardziej przy dopasowaniu kandydata. Te same zasady działają w „Szukaj w bazie”, „Przeszukaj całą bazę (AI)”, Talent Radarze i nocnych propozycjach.";
+
 export function RankingPanel({ insightsWrite, isAdmin, pollMeasurement = true }: RankingPanelProps) {
   const qc = useQueryClient();
   const searchParams = useSearchParams();

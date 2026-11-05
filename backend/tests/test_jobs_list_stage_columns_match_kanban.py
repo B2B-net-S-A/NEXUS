@@ -210,3 +210,56 @@ async def test_legacy_breakdown_still_counts_every_pair(
 
     assert sum(row["stage_breakdown"].values()) == 3
     assert sum(c["count"] for c in row["stage_columns"]) == 3
+
+
+async def test_compact_row_carries_only_the_preview_fields_and_same_columns(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`compact=true` zdejmuje resztę wiersza, nie zmienia liczb ani listy."""
+    world = await _seed()
+    full = await _list_row(app_client, app_auth_headers, world)
+
+    resp = await app_client.get(
+        "/api/jobs",
+        params={
+            "include_stage_counts": "true",
+            "client_id": world["client_id"],
+            "compact": "true",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 1
+    [row] = body["items"]
+    assert set(row) == {
+        "id",
+        "title",
+        "working_title",
+        "client_name",
+        "deadline",
+        "stage_columns",
+    }
+    assert {k: full[k] for k in row} == row
+
+
+async def test_compact_row_without_stage_counts_has_no_columns_key(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    world = await _seed()
+    resp = await app_client.get(
+        "/api/jobs",
+        params={"client_id": world["client_id"], "compact": "true"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    [row] = resp.json()["items"]
+    assert "stage_columns" not in row
+    assert "description" not in row
+
+
+async def test_full_row_is_the_default(app_client: AsyncClient, app_auth_headers: dict):
+    """Lista `/jobs` i kafelek „Moje rekrutacje” nie wysyłają `compact`."""
+    world = await _seed()
+    row = await _list_row(app_client, app_auth_headers, world)
+    assert {"description", "recruiters", "delivery_lead_id", "can_open"} <= set(row)

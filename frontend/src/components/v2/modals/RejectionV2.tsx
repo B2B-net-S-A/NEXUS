@@ -45,6 +45,7 @@ import {
 import {
  CLIENT_WIDE_REASONS,
  NOT_LOOKING_DEFAULT_MONTHS,
+ autofillReasonKeepsLabel,
  autofillReasonLabel,
  notLookingUntil,
  templateReasonFor,
@@ -55,7 +56,10 @@ import {
 import {
  HM_ALREADY_INTERVIEWED_REASON,
  WORK_MODE_MISMATCH_REASON,
+ EMPLOYED_ELSEWHERE_REASON,
+ groupRejectedReasons,
  isRateTooHighReason,
+ reasonFitsEndedBy,
  reasonNeedsDescription,
 } from "@/lib/rejection-reasons";
 
@@ -293,13 +297,22 @@ export function RejectionV2({
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
+ // 04.11.2026: lista zależy od „Kto kończy?”. Powód dla systemu liczy się
+ // z pełnej listy, bo tam człowiek nie wybiera powodu z szablonu.
+ const visibleReasons = filtered.filter((r) => reasonFitsEndedBy(r, endedByValue));
+ const reasonGroups =
+ terminalType === "rejected"
+ ? groupRejectedReasons(visibleReasons)
+ : [{ title: null, reasons: visibleReasons }];
  const autofillAsked = terminalType === "rejected" && autofill != null;
  // Osoba od systemu (27.10.2026): okno pyta o powód raz — powód z szablonu
  // do raportu lejka wynika z powodu dla systemu.
  const effectiveReasonId = autofillAsked
  ? templateReasonFor(autofillReason, filtered)?.id ?? ""
  : reasonId;
- const chosenReason = filtered.find((r) => r.id === effectiveReasonId);
+ const chosenReason = (autofillAsked ? filtered : visibleReasons).find(
+ (r) => r.id === effectiveReasonId,
+ );
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
  const rateReason = isRateTooHighReason(chosenReason);
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
@@ -311,7 +324,10 @@ export function RejectionV2({
  // Powód bez odpowiednika w szablonie idzie jako „Inne” z nazwą powodu
  // w opisie — inaczej w historii zostaje samo słowo.
  const reasonNotes =
- autofillAsked && autofillReason && autofillReason !== "other" && reasonNeedsDescription(chosenReason)
+ autofillAsked &&
+ autofillReason &&
+ autofillReason !== "other" &&
+ (reasonNeedsDescription(chosenReason) || autofillReasonKeepsLabel(autofillReason))
  ? [autofillReasonLabel(autofillReason), notes.trim()].filter(Boolean).join(". ")
  : notes;
  const several = (emailPreview?.people.length ?? 1) > 1;
@@ -338,6 +354,22 @@ export function RejectionV2({
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
+
+ // Przy 1280 × 720 pole opisu stoi pod listą powodów: bez tego „Potwierdź”
+ // szarzeje przy „Inne” bez widocznego powodu.
+ const notesRef = React.useRef<HTMLTextAreaElement>(null);
+ useEffect(() => {
+ if (open && descriptionRequired) notesRef.current?.focus();
+ }, [open, descriptionRequired]);
+
+ const changeEndedBy = (value: string) => {
+ const next = value as Exclude<EndedBy, "candidate">;
+ setEndedBy(next);
+ // Wybrany powód znika z listy innej osoby, która kończy — nie zostaje po
+ // cichu wybrany poza ekranem.
+ const current = filtered.find((r) => r.id === reasonId);
+ if (current && !reasonFitsEndedBy(current, next)) setReasonId("");
+ };
 
  const handleConfirm = () => {
  // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
@@ -393,7 +425,7 @@ export function RejectionV2({
  (autofillAsked
  ? hasReasons && !effectiveReasonId
  : hasReasons
- ? !reasonId
+ ? !chosenReason
  : !freeReason.trim()) ||
  (descriptionRequired && !notes.trim()) ||
  (offerResponseRequired && !offerResponse) ||
@@ -402,7 +434,7 @@ export function RejectionV2({
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
- <DialogContent size="md">
+ <DialogContent size="lg">
  <DialogHeader>
  <div className="flex items-center gap-2">
  <AlertTriangle className="h-4 w-4 text-primary" />
@@ -433,7 +465,7 @@ export function RejectionV2({
  <FormField label="Kto kończy?" required>
  <RadioGroup
  value={endedBy}
- onValueChange={(v) => setEndedBy(v as Exclude<EndedBy, "candidate">)}
+ onValueChange={changeEndedBy}
  className="grid gap-2 sm:grid-cols-3"
  >
  {endedByOptions.map((o) => (
@@ -501,10 +533,31 @@ export function RejectionV2({
  }
  >
  {hasReasons ? (
- <RadioGroup value={reasonId} onValueChange={setReasonId}>
- {filtered.map((r) => (
+ <RadioGroup
+ value={reasonId}
+ onValueChange={setReasonId}
+ className="grid gap-x-4 gap-y-2 sm:grid-cols-2"
+ >
+ {reasonGroups.map((group) => (
+ <fieldset
+ key={group.title ?? "lista"}
+ className={
+ group.title
+ ? "min-w-0 space-y-0.5"
+ : "grid min-w-0 gap-0.5 sm:col-span-2 sm:grid-cols-2 sm:gap-x-4"
+ }
+ >
+ {group.title ? (
+ <legend className="pb-0.5 text-xs font-semibold text-muted-foreground">
+ {group.title}
+ </legend>
+ ) : null}
+ {group.reasons.map((r) => (
  <React.Fragment key={r.id}>
- <label className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1.5 hover:bg-primary/10">
+ <label
+ className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1 hover:bg-primary/10"
+ data-tour={r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? "rejection.employed-elsewhere" : undefined}
+ >
  <RadioGroupItem value={r.id} />
  <span>{r.label}</span>
  </label>
@@ -528,7 +581,19 @@ export function RejectionV2({
  onIsMinimumChange={setNewRateIsMinimum}
  />
  ) : null}
+ {r.id === reasonId && r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? (
+ <p
+ className="ml-6 text-xs text-muted-foreground"
+ data-testid="rejection-employed-elsewhere"
+ >
+ W profilu zapiszemy „Nie szuka” na 3 miesiące i system nie doda{" "}
+ {several ? "tych osób" : "tej osoby"} do żadnej rekrutacji. Ręcznie można{" "}
+ {several ? "je" : "ją"} dodać, a datę zmienisz w profilu.
+ </p>
+ ) : null}
  </React.Fragment>
+ ))}
+ </fieldset>
  ))}
  </RadioGroup>
  ) : (
@@ -587,6 +652,7 @@ export function RejectionV2({
  }
  >
  <Textarea
+ ref={notesRef}
  value={notes}
  onChange={(e) => setNotes(e.target.value)}
  rows={3}

@@ -61,6 +61,7 @@ import {
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
+  reasonFitsEndedBy,
   type RejectionReasonOption,
 } from "@/lib/rejection-reasons";
 import {
@@ -843,8 +844,9 @@ function InterviewCard({
   );
   const [note, setNote] = useState<string>(feedback?.note ?? "");
 
-  const rejectedReasons = reasons.filter((r) =>
-    r.applies_to.includes("rejected"),
+  // Karta rozmowy zapisuje głos klienta, więc lista jak przy „Odrzuca klient”.
+  const rejectedReasons = reasons.filter(
+    (r) => r.applies_to.includes("rejected") && reasonFitsEndedBy(r, "client"),
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId) ?? null;
 
