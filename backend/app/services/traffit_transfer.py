@@ -923,8 +923,9 @@ async def process_job(
         # Te same funkcje co „Otwórz ponownie”: flaga „Prowadzona w NEXUSIE”,
         # status, „Szukamy”, przypisanie prowadzącego. Bramki braków NIE
         # sprawdzamy — rekrutacja jest już w pracy, braki niesie raport.
+        # Przeniesienie to ta sama praca, nie nowe otwarcie (05.11.2026).
         await job_lifecycle.publish_core(
-            db, job_row, actor, effects, reason=TRANSFER_REASON
+            db, job_row, actor, effects, reason=TRANSFER_REASON, new_opening=False
         )
         await job_lifecycle.reopen_keep_team_core(db, job_row, actor, effects)
         db.add(

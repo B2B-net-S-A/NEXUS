@@ -34,6 +34,7 @@ from app.services.insights_stage_breakdown import (
     _KEY_CASE_SQL,
     _load_def_map,
 )
+from app.services.job_opening import in_opening_sql
 from app.services.placement_exclusions import excluded_hired_sql
 
 # Kolumny Tablicy za weryfikacją, w kolejności lejka. Klucze to klucze wierszy
@@ -88,7 +89,8 @@ _COLUMN_CASE_SQL = (
 DEFINITIONS = {
     "columns": (
         "Stan na dziś: pary (kandydat, rekrutacja), których najnowszy etap stoi "
-        "w tej kolumnie Tablicy, w opublikowanych rekrutacjach. Od kiedy — od "
+        "w tej kolumnie Tablicy, w opublikowanych rekrutacjach. Po ponownym "
+        "otwarciu rekrutacji — tylko karty ruszone od otwarcia. Od kiedy — od "
         "wejścia do kolumny."
     ),
     "forecast": (
@@ -167,7 +169,8 @@ async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                          min(moved_at) FILTER (
                            WHERE col = latest_col
                              AND (left_at IS NULL OR moved_at > left_at)
-                         ) AS entered_at
+                         ) AS entered_at,
+                         max(moved_at) AS last_moved_at
                   FROM with_left_at
                   GROUP BY candidate_id, job_id, latest_key, latest_col
                 ),
@@ -183,7 +186,11 @@ async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                            LIMIT 1
                          ) AS verifier_id
                   FROM entered e
+                  JOIN jobs oj ON oj.id = e.job_id
                   WHERE e.entered_at IS NOT NULL
+                    -- Karta z poprzedniego otwarcia nie jest „w drodze”
+                    -- (`job_opening`, 05.11.2026).
+                    AND {in_opening_sql("oj", "e.last_moved_at")}
                 )
                 SELECT p.candidate_id, p.job_id, p.key, p.col, p.entered_at,
                        j.title AS job_title, j.client_id,

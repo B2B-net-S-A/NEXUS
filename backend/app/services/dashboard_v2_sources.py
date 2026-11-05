@@ -20,6 +20,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.client_identity import job_client_listed_clause
+from app.services.job_fill import filled_by_job
 from app.analytics import metrics
 from app.analytics.periods import Period
 from app.services.traffit_status import read_traffit_status
@@ -260,19 +261,9 @@ async def load_delivery_metrics(
             )
         ).all()
         first_recommendations = {int(row.job_id): row.reached_at for row in rec_rows}
-        filled_rows = (
-            await db.execute(
-                text(
-                    "SELECT job_id, COUNT(*) AS placements "
-                    "FROM analytics_first_milestones "
-                    "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
-                    "AND stage = 'hired' "
-                    "GROUP BY job_id"
-                ),
-                params,
-            )
-        ).all()
-        filled_vacancies = {int(row.job_id): int(row.placements) for row in filled_rows}
+        # Wakaty: obsada bieżącego otwarcia (`job_fill`, 05.11.2026), nie
+        # placementy z całej historii rekrutacji.
+        filled_vacancies = await filled_by_job(db, job_ids)
         placements = int(
             (
                 await db.execute(

@@ -346,6 +346,12 @@ class Job(Base, TimestampMixin):
     duplicate_of_job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
+    # 0652: początek bieżącego otwarcia — ustawia „Otwórz ponownie”
+    # (`services/job_opening.py`). NULL = rekrutacja nigdy nie otwarta
+    # ponownie, liczy się cała jej historia.
+    cycle_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Foreign keys
     # client_id: enforced NOT NULL od migracji 0120 (2026-05-27). Wcześniej

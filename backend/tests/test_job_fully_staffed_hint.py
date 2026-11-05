@@ -146,7 +146,7 @@ async def test_placements_are_counted_once_per_pair():
     """Powtórzony wiersz `hired` nie może liczyć się jako drugi placement."""
     from app.core.database import AsyncSessionLocal
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-    from app.services.job_fill import is_fully_staffed, placements_by_job
+    from app.services.job_fill import filled_by_job, is_fully_staffed
 
     world = await _seed(headcount=2)
     async with AsyncSessionLocal() as db:
@@ -168,7 +168,7 @@ async def test_placements_are_counted_once_per_pair():
         )
         await db.commit()
 
-        counted = (await placements_by_job(db, [world["job_id"]])).get(
+        counted = (await filled_by_job(db, [world["job_id"]])).get(
             world["job_id"], 0
         )
 
