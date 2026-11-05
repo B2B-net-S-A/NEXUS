@@ -88,4 +88,6 @@ TABLE_DDL: tuple[str, ...] = (
 ENUM_DDL: tuple[str, ...] = (
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_due'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_returned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_reminder'",
 )

@@ -7,6 +7,7 @@ zakłada własne dane (shard ma wspólną bazę).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
 from datetime import date, timedelta
@@ -28,6 +29,7 @@ from app.models.contract import Contract, ContractStatus, ContractType
 from app.models.job import Job, JobStatus
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.section_permission import UserSectionOverride
 from app.models.start_document import ClientStartDocument, PlacementStartDocument
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -267,6 +269,87 @@ async def test_recruiter_from_the_board_sees_state_but_no_file_and_no_pesel(
     assert downloaded.content == PDF
 
 
+async def test_candidate_outside_the_recruitment_gets_no_state_and_no_mail(
+    client: AsyncClient,
+) -> None:
+    """Dowolny `candidate_id` w adresie nie może dać cudzego adresu e-mail."""
+
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        stranger = Candidate(
+            name="Obcy", lastname="Kandydat", email=f"ob-{uuid.uuid4().hex[:8]}@x.com"
+        )
+        db.add(stranger)
+        await db.commit()
+        stranger_id = stranger.id
+    headers = await _headers(client, world["recruiter"])
+    base = f"/api/start-documents/pair/{stranger_id}/{world['job_id']}"
+    assert (await client.get(f"{base}/list-mail", headers=headers)).status_code == 404
+    assert (await client.post(f"{base}/list-mail", headers=headers)).status_code == 404
+    uploaded = await client.put(
+        f"{base}/items/{world['documents']['nda']}/file",
+        files={"file": ("nda.pdf", PDF, "application/pdf")},
+        headers=headers,
+    )
+    assert uploaded.status_code == 404
+    state = await client.get(
+        "/api/start-documents/pair",
+        params={"candidate_id": stranger_id, "job_id": world["job_id"]},
+        headers=headers,
+    )
+    assert state.status_code == 404
+
+
+async def test_read_only_recruitment_section_cannot_write(client: AsyncClient) -> None:
+    """Sekcja „Rekrutacje” tylko do odczytu: stan tak, plik, PESEL i mail nie."""
+
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            UserSectionOverride(
+                user_id=world["recruiter"][0],
+                section="pipeline",
+                access="read",
+            )
+        )
+        await db.commit()
+    headers = await _headers(client, world["recruiter"])
+    assert (await _pair(client, world, headers))["total"] == 3
+    assert (await _upload_nda(client, world, headers)).status_code == 403
+    pesel = await client.put(
+        _url(world, "pesel", "pesel"), json={"pesel": VALID_PESEL}, headers=headers
+    )
+    assert pesel.status_code == 403
+    mail_url = (
+        f"/api/start-documents/pair/{world['candidate_id']}/{world['job_id']}/list-mail"
+    )
+    assert (await client.post(mail_url, headers=headers)).status_code == 403
+
+
+async def test_link_on_the_list_must_be_a_real_address(client: AsyncClient) -> None:
+    """Zły link wywracał kartę wszystkim rekruterom klienta (`new URL` na froncie)."""
+
+    world = await _world()
+    dl = await _headers(client, world["dl"])
+    url = f"/api/start-documents/clients/{world['client_id']}"
+    for bad in (
+        "https://",
+        "https://a b",
+        "http://ekrk.ms.gov.pl",
+        "javascript:alert(1)",
+    ):
+        response = await client.post(
+            url, json={"name": "KRK", "link_url": bad}, headers=dl
+        )
+        assert response.status_code == 422, bad
+    good = await client.post(
+        url,
+        json={"name": "KRK", "link_url": "https://ekrk.ms.gov.pl/ep-web"},
+        headers=dl,
+    )
+    assert good.status_code == 201
+
+
 async def test_viewer_has_no_access_at_all(client: AsyncClient) -> None:
     world = await _world()
     async with AsyncSessionLocal() as db:
@@ -351,7 +434,8 @@ async def test_only_delivery_lead_reviews_and_return_takes_the_file_out_of_the_s
         bell = await db.scalar(
             select(Notification).where(
                 Notification.user_id == world["recruiter"][0],
-                Notification.notification_type == NotificationType.start_documents,
+                Notification.notification_type
+                == NotificationType.start_documents_returned,
             )
         )
     assert bell is not None
@@ -628,7 +712,7 @@ async def test_sweeper_sends_one_digest_a_day_and_skips_outside_hours(
 
     now = local_now()
     early = now.replace(hour=7)
-    assert (await sweeper.run_once(early))["owners"] == 0
+    assert (await sweeper.run_once(early))["recipients"] == 0
     late = now.replace(hour=10)
     with patch.object(sweeper, "load_calendar", _always_working):
         await sweeper.run_once(late)
@@ -658,6 +742,191 @@ async def test_sweeper_sends_one_digest_a_day_and_skips_outside_hours(
         ).all()
     # Start dziś: Delivery Lead i Head of Recruitment też dostają listę.
     assert set(escalated) == {world["dl"][0], world["head"][0]}
+
+
+async def test_undoing_not_applicable_does_not_count_a_returned_file(
+    client: AsyncClient,
+) -> None:
+    world = await _world()
+    recruiter = await _headers(client, world["recruiter"])
+    dl = await _headers(client, world["dl"])
+    await _upload_nda(client, world, recruiter)
+    await client.post(
+        _url(world, "nda", "return"), json={"reason": "brak podpisu"}, headers=dl
+    )
+    await client.post(
+        _url(world, "nda", "not-applicable"), json={"reason": "jednak nie"}, headers=dl
+    )
+    undone = await client.delete(_url(world, "nda", "state"), headers=dl)
+    assert _state(undone.json(), "NDA") == "missing"
+    assert undone.json()["done"] == 0
+
+
+async def test_returned_file_stops_being_stored(client: AsyncClient) -> None:
+    """Odrzucony plik z danymi o karalności nie leży dalej bez powodu."""
+
+    world = await _world()
+    recruiter = await _headers(client, world["recruiter"])
+    dl = await _headers(client, world["dl"])
+    await _upload_nda(client, world, recruiter)
+    await client.post(
+        _url(world, "nda", "return"), json={"reason": "brak podpisu"}, headers=dl
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(PlacementStartDocument).where(
+                PlacementStartDocument.candidate_id == world["candidate_id"]
+            )
+        )
+    assert row.file_path is None
+    assert row.file_name is None
+    assert (await client.get(_url(world, "nda", "file"), headers=dl)).status_code == 404
+
+
+async def test_two_returns_of_one_person_give_two_bells(client: AsyncClient) -> None:
+    world = await _world()
+    recruiter = await _headers(client, world["recruiter"])
+    dl = await _headers(client, world["dl"])
+    await _upload_nda(client, world, recruiter)
+    await client.put(
+        _url(world, "certs", "file"),
+        files={"file": ("cert.pdf", PDF, "application/pdf")},
+        headers=recruiter,
+    )
+    for key in ("nda", "certs"):
+        response = await client.post(
+            _url(world, key, "return"), json={"reason": f"zły plik {key}"}, headers=dl
+        )
+        assert response.status_code == 200
+    async with AsyncSessionLocal() as db:
+        bells = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == world["recruiter"][0],
+                    Notification.notification_type
+                    == NotificationType.start_documents_returned,
+                )
+            )
+        ).all()
+    assert len(bells) == 2
+
+
+async def test_remind_says_when_nothing_went_out(client: AsyncClient) -> None:
+    world = await _world()
+    dl = await _headers(client, world["dl"])
+    url = f"/api/start-documents/pair/{world['candidate_id']}/{world['job_id']}/remind"
+    assert (await client.post(url, headers=dl)).json() == {"sent": True}
+    assert (await client.post(url, headers=dl)).json() == {"sent": False}
+
+
+async def test_parallel_first_upload_gives_no_500_and_no_orphan_row(
+    client: AsyncClient,
+) -> None:
+    world = await _world()
+    recruiter = await _headers(client, world["recruiter"])
+    first, second = await asyncio.gather(
+        _upload_nda(client, world, recruiter), _upload_nda(client, world, recruiter)
+    )
+    assert {first.status_code, second.status_code} == {200}
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(PlacementStartDocument).where(
+                    PlacementStartDocument.candidate_id == world["candidate_id"]
+                )
+            )
+        ).all()
+    assert len(rows) == 1
+
+
+async def test_owner_and_delivery_lead_digests_merge_into_one(
+    client: AsyncClient,
+) -> None:
+    """Indeks dnia pozwala na jeden dzwonek: druga lista przepadała po cichu."""
+
+    world = await _world()
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        second_job = Job(
+            title="Tester",
+            client_id=world["client_id"],
+            delivery_lead_id=world["dl"][0],
+            status=JobStatus.published,
+        )
+        own = Candidate(
+            name="Własna", lastname="Osoba", email=f"wo-{uuid.uuid4().hex[:8]}@x.com"
+        )
+        db.add_all([second_job, own])
+        await db.flush()
+        # DL sam zweryfikował tę osobę, więc jest jej prowadzącym.
+        for stage in (PipelineStage.verified, PipelineStage.hired):
+            db.add(
+                CandidateStage(
+                    candidate_id=own.id,
+                    job_id=second_job.id,
+                    stage=stage,
+                    moved_by=world["dl"][0],
+                )
+            )
+            await db.flush()
+        for candidate_id, job_id in (
+            (world["candidate_id"], job.id),
+            (own.id, second_job.id),
+        ):
+            db.add(
+                Contract(
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    client_id=world["client_id"],
+                    status=ContractStatus.active,
+                    contract_type=ContractType.b2b,
+                    start_date=today,
+                )
+            )
+        await db.commit()
+    from app.core.scheduling import local_now
+
+    with patch.object(sweeper, "load_calendar", _always_working):
+        await sweeper.run_once(local_now().replace(hour=10))
+    async with AsyncSessionLocal() as db:
+        bells = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == world["dl"][0],
+                    Notification.related_entity_type == "start_documents_digest",
+                )
+            )
+        ).all()
+    assert len(bells) == 1
+    assert "Anna Testowa" in bells[0].message
+    assert "Własna Osoba" in bells[0].message
+
+
+async def test_inactive_delivery_lead_falls_back_to_the_client_portfolio_then_head(
+    client: AsyncClient,
+) -> None:
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        recruiter = await db.get(User, world["recruiter"][0])
+        recruiter.is_active = False
+        dead_dl = await db.get(User, world["dl"][0])
+        dead_dl.is_active = False
+        db.add(
+            DeliveryLeadClientAssignment(
+                client_id=world["client_id"],
+                delivery_lead_user_id=world["foreign_dl"][0],
+            )
+        )
+        await db.commit()
+        state = await svc.pair_state(db, world["candidate_id"], job)
+        assert state.delivery_lead_id == world["foreign_dl"][0]
+        foreign = await db.get(User, world["foreign_dl"][0])
+        foreign.is_active = False
+        await db.commit()
+        state = await svc.pair_state(db, world["candidate_id"], job)
+    assert state.owner_id is None
 
 
 async def _always_working(_db, _start: date, _end: date):

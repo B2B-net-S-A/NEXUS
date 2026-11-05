@@ -38,8 +38,10 @@ import {
   type PairStartDocs,
 } from "@/lib/api/start-documents";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
-import { startLine } from "@/lib/start-docs-format";
+import { dayMonth, startLine } from "@/lib/start-docs-format";
 import { cn } from "@/lib/utils";
+
+import { REMIND_NOT_SENT } from "./StartDocsTasks";
 
 const small = "h-7 px-2 text-xs";
 
@@ -266,11 +268,25 @@ function Row({
           {item.name}
           {item.required ? null : " (opcjonalnie)"}
         </span>
+        {!done && item.deadline ? (
+          <span className="ml-1.5 text-[11px] tabular-nums text-muted-foreground">
+            do {dayMonth(item.deadline)}
+          </span>
+        ) : null}
         {detail ? <span className="block text-[11px] text-muted-foreground">{detail}</span> : null}
         {children ? <div className="mt-1 flex flex-wrap items-center gap-1.5">{children}</div> : null}
       </div>
     </li>
   );
+}
+
+/** Stary wpis z błędnym adresem nie może wywrócić karty wszystkim rekruterom. */
+export function linkLabel(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 function detailOf(item: PairStartDoc, state: PairStartDocs): ReactNode {
@@ -313,7 +329,7 @@ function detailOf(item: PairStartDoc, state: PairStartDocs): ReactNode {
             rel="noreferrer"
             className="text-primary hover:underline"
           >
-            {new URL(item.link_url).hostname}
+            {linkLabel(item.link_url)}
             <ExternalLink className="ml-0.5 inline h-2.5 w-2.5" aria-hidden />
           </a>
         </>
@@ -330,7 +346,8 @@ export function StartDocsCard({ candidateId, jobId }: { candidateId: number; job
   const [uploadFor, setUploadFor] = useState<number | null>(null);
   const [reason, setReason] = useState<{ kind: ReasonKind; item: PairStartDoc } | null>(null);
   const [peselFor, setPeselFor] = useState<PairStartDoc | null>(null);
-  const [shownPesel, setShownPesel] = useState<string | null>(null);
+  // Numer jest przypięty do pary i do wpisu: po poprawce DL nie może widzieć starego.
+  const [shownPesel, setShownPesel] = useState<{ key: string; value: string } | null>(null);
   const [mailOpen, setMailOpen] = useState(false);
 
   if (query.isError) {
@@ -376,17 +393,22 @@ export function StartDocsCard({ candidateId, jobId }: { candidateId: number; job
       showError(apiErrorMessage(error, "Nie udało się pobrać pliku."));
     }
   };
-  const showPesel = async (documentId: number) => {
+  const peselKey = (item: PairStartDoc) =>
+    `${candidateId}-${jobId}-${item.id}-${item.delivered_at}`;
+  const showPesel = async (item: PairStartDoc) => {
     try {
-      setShownPesel(await startDocsApi.readPesel(candidateId, jobId, documentId));
+      setShownPesel({
+        key: peselKey(item),
+        value: await startDocsApi.readPesel(candidateId, jobId, item.id),
+      });
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się odczytać numeru."));
     }
   };
   const remind = async () => {
     try {
-      await startDocsApi.remind(candidateId, jobId);
-      showSuccess("Rekruter dostał przypomnienie.");
+      const { sent } = await startDocsApi.remind(candidateId, jobId);
+      showSuccess(sent ? "Rekruter dostał przypomnienie." : REMIND_NOT_SENT);
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się wysłać przypomnienia."));
     }
@@ -492,12 +514,12 @@ export function StartDocsCard({ candidateId, jobId }: { candidateId: number; job
                 </Button>
               ) : null}
               {item.kind === "pesel" && item.state === "delivered" && canViewPesel ? (
-                shownPesel ? (
+                shownPesel?.key === peselKey(item) ? (
                   <span className="font-mono text-xs tabular-nums" data-testid="start-docs-pesel">
-                    {shownPesel}
+                    {shownPesel.value}
                   </span>
                 ) : (
-                  <Button size="sm" variant="outline" className={small} onClick={() => void showPesel(item.id)}>
+                  <Button size="sm" variant="outline" className={small} onClick={() => void showPesel(item)}>
                     <KeyRound className="h-3 w-3" aria-hidden />
                     Pokaż
                   </Button>

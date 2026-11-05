@@ -596,7 +596,11 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "prep_change": ("prep_candidate_declined", "prep_changed_yours"),
     "client_accepted": ("client_accepted",),
     "pre_contract": ("pre_contract",),
-    "start_documents": ("start_documents_due",),
+    "start_documents": (
+        "start_documents_due",
+        "start_documents_returned",
+        "start_documents_reminder",
+    ),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
     JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),

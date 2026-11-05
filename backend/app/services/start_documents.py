@@ -33,6 +33,7 @@ from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.start_document import ClientStartDocument, PlacementStartDocument
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User
 from app.services.hr.calendar import WorkCalendar, load_calendar
 from app.services.hr.lifecycle_dates import shift_working_days
@@ -58,9 +59,9 @@ ACTIVE_STAGES: tuple[PipelineStage, ...] = (
 )
 #: Świeże placementy sprzed założenia listy też wchodzą (decyzja 05.11.2026).
 SINCE_GRACE_DAYS = 14
-#: Mail z przypomnieniem dopiero tyle dni roboczych przed startem.
+#: Mail z przypomnieniem dopiero tyle dni roboczych przed terminem pozycji.
 MAIL_FROM_WORKING_DAYS = 5
-#: Delivery Lead dostaje listę tyle dni roboczych przed startem.
+#: Delivery Lead dostaje listę tyle dni roboczych przed terminem pozycji.
 DL_FROM_WORKING_DAYS = 2
 _DEAD_CONTRACT = (ContractStatus.void, ContractStatus.ended)
 _LIVE_CONTRACT = (ContractStatus.active, ContractStatus.ending)
@@ -85,6 +86,8 @@ class ItemState:
     document: ClientStartDocument
     row: Optional[PlacementStartDocument]
     state: str
+    #: Termin tej pozycji: NDA przed startem, KRK po starcie (idzie do 2 tygodni).
+    deadline: Optional[date] = None
 
     @property
     def done(self) -> bool:
@@ -109,7 +112,8 @@ class PairState:
     deadline: Optional[date] = None
     tone: str = "calm"
     working: bool = False
-    working_days_to_start: Optional[int] = None
+    #: Dni robocze do najbliższego terminu; 0, gdy minął. Stąd mail i eskalacja.
+    working_days_to_deadline: Optional[int] = None
 
     @property
     def required(self) -> tuple[ItemState, ...]:
@@ -147,17 +151,21 @@ def item_state(
     return STATE_MISSING
 
 
-def deadline_of(
-    items: Iterable[ItemState], start_date: Optional[date], calendar: WorkCalendar
+def item_deadline(
+    document: ClientStartDocument, start_date: Optional[date], calendar: WorkCalendar
 ) -> Optional[date]:
-    """Najwcześniejszy termin brakującej wymaganej pozycji."""
-
     if start_date is None:
         return None
+    return shift_working_days(calendar, start_date, document.offset_days)
+
+
+def deadline_of(items: Iterable[ItemState]) -> Optional[date]:
+    """Najwcześniejszy termin brakującej wymaganej pozycji."""
+
     dates = [
-        shift_working_days(calendar, start_date, item.document.offset_days)
+        item.deadline
         for item in items
-        if item.document.required and not item.done
+        if item.document.required and not item.done and item.deadline is not None
     ]
     return min(dates) if dates else None
 
@@ -348,17 +356,39 @@ async def build_states(
     }
     context = await load_context(db, list(probes.values()))
     people = {pair: context.people(probe) for pair, probe in probes.items()}
-    # Konto, które odeszło, nie dostanie dzwonka (``emit``): sprawa idzie do DL-a.
+    # Konto, które odeszło, nie dostanie dzwonka (``emit``): sprawa idzie do DL-a,
+    # a przy nieaktywnym DL-u rekrutacji do aktywnego DL-a klienta.
     active = set(
         (
             await db.scalars(
                 select(User.id).where(
-                    User.id.in_({p[1] for p in people.values() if p[1]}),
+                    User.id.in_({uid for p in people.values() for uid in p[:2] if uid}),
                     User.is_active.is_(True),
                 )
             )
         ).all()
     )
+    client_dl: dict[int, int] = {}
+    for client_id, user_id in (
+        await db.execute(
+            select(
+                DeliveryLeadClientAssignment.client_id,
+                DeliveryLeadClientAssignment.delivery_lead_user_id,
+            )
+            .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
+            .where(
+                DeliveryLeadClientAssignment.client_id.in_(
+                    {j.client_id for j in jobs.values() if j.client_id}
+                ),
+                User.is_active.is_(True),
+            )
+            .order_by(
+                DeliveryLeadClientAssignment.is_head.desc(),
+                DeliveryLeadClientAssignment.id,
+            )
+        )
+    ).all():
+        client_dl.setdefault(client_id, user_id)
     calendar = await load_calendar(
         db, today - timedelta(days=60), today + timedelta(days=400)
     )
@@ -374,9 +404,12 @@ async def build_states(
         dl_id, recruiter_id, _source = people[pair]
         if recruiter_id not in active:
             recruiter_id = None
+        if dl_id not in active:
+            dl_id = client_dl.get(job.client_id)
         agreement_signed = pair in signed or (
             contract is not None and contract.status in _LIVE_CONTRACT
         )
+        start_date = contract.start_date if contract is not None else None
         items = tuple(
             ItemState(
                 document=document,
@@ -386,11 +419,11 @@ async def build_states(
                     rows.get((candidate_id, job_id, document.id)),
                     agreement_signed=agreement_signed,
                 ),
+                deadline=item_deadline(document, start_date, calendar),
             )
             for document in documents
         )
-        start_date = contract.start_date if contract is not None else None
-        deadline = deadline_of(items, start_date, calendar)
+        deadline = deadline_of(items)
         states.append(
             PairState(
                 candidate_id=candidate_id,
@@ -414,9 +447,9 @@ async def build_states(
                     and contract is not None
                     and contract.status in _LIVE_CONTRACT
                 ),
-                working_days_to_start=(
-                    working_days_between(calendar, today, start_date)
-                    if start_date is not None
+                working_days_to_deadline=(
+                    working_days_between(calendar, today, deadline)
+                    if deadline is not None
                     else None
                 ),
             )

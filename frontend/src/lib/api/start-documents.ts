@@ -28,6 +28,7 @@ export type ClientStartDocInput = Omit<ClientStartDoc, "id" | "template_name">;
 
 export interface PairStartDoc extends ClientStartDoc {
   state: StartDocState;
+  deadline: string | null;
   file_name: string | null;
   has_value: boolean;
   delivered_at: string | null;

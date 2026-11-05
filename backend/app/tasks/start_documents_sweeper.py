@@ -1,10 +1,13 @@
 """Dokumenty do startu: przypomnienia (co godzinę, działa raz dziennie po 9:00).
 
+Liczy się termin pozycji, nie sam start, bo wyciąg z KRK idzie do 2 tygodni
+i dostaje termin po starcie (wiadomość Delivery Leadów z 05.11.2026).
+
 * **Prowadzący**: jeden dzwonek zbiorczy z listą osób, w dni robocze. Od
-  ``MAIL_FROM_WORKING_DAYS`` dni roboczych przed startem (i po terminie) typ
+  ``MAIL_FROM_WORKING_DAYS`` dni roboczych przed terminem (i po nim) typ
   ``start_documents_due``, który idzie też mailem.
-* **Delivery Lead**: od ``DL_FROM_WORKING_DAYS`` dni roboczych przed startem.
-* **Head of Recruitment**: w dniu startu bez kompletu.
+* **Delivery Lead**: od ``DL_FROM_WORKING_DAYS`` dni roboczych przed terminem.
+* **Head of Recruitment**: w dniu startu z zaległością, a po starcie w dniu terminu.
 
 Dzień i odbiorcę pilnuje indeks ``ix_notif_dedup_daily`` (``emit``), więc restart
 pętli niczego nie wysyła drugi raz. Etap 1: bez wpływu na liczniki placementów.
@@ -15,7 +18,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Iterable
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +30,7 @@ from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services import loop_heartbeat
 from app.services import start_documents as svc
-from app.services.hr.calendar import load_calendar
+from app.services.hr.calendar import WorkCalendar, load_calendar
 from app.services.notification_triggers import emit
 
 logger = logging.getLogger(__name__)
@@ -39,19 +43,35 @@ _ENTITY = "start_documents_digest"
 
 
 def needs_mail(state: svc.PairState) -> bool:
-    if state.tone == "late":
-        return True
-    days = state.working_days_to_start
+    days = state.working_days_to_deadline
     return days is not None and days <= svc.MAIL_FROM_WORKING_DAYS
 
 
 def reaches_dl(state: svc.PairState) -> bool:
-    days = state.working_days_to_start
-    return state.working or (days is not None and days <= svc.DL_FROM_WORKING_DAYS)
+    days = state.working_days_to_deadline
+    return days is not None and days <= svc.DL_FROM_WORKING_DAYS
 
 
-def reaches_hor(state: svc.PairState, today: date) -> bool:
-    return state.start_date == today
+def _first_working_day(calendar: WorkCalendar, day: date) -> date:
+    current = day
+    while not calendar.is_working_day(current):
+        current += timedelta(days=1)
+    return current
+
+
+def reaches_hor(state: svc.PairState, today: date, calendar: WorkCalendar) -> bool:
+    """Dzień startu z zaległością, a po starcie dzień terminu (np. KRK).
+
+    Pętla w dzień wolny nie działa, więc start w niedzielę alarmuje w poniedziałek."""
+
+    if state.deadline is None or state.deadline > today or state.start_date is None:
+        return False
+    if _first_working_day(calendar, state.start_date) == today:
+        return True
+    return (
+        state.start_date < today
+        and _first_working_day(calendar, state.deadline) == today
+    )
 
 
 def digest_line(state: svc.PairState) -> str:
@@ -72,25 +92,65 @@ def _title(count: int) -> str:
     return f"Dokumenty do startu: {count} bez kompletu"
 
 
-async def _send(
-    db: AsyncSession,
+@dataclass
+class Digest:
+    states: dict[tuple[int, int], svc.PairState] = field(default_factory=dict)
+    due: bool = False
+
+    def add(self, state: svc.PairState, *, due: bool) -> None:
+        self.states[(state.candidate_id, state.job_id)] = state
+        self.due = self.due or due
+
+
+def plan_digests(
+    states: Iterable[svc.PairState],
     *,
-    user_id: int,
-    states: list[svc.PairState],
-    ntype: NotificationType,
-) -> None:
-    first = states[0]
+    today: date,
+    calendar: WorkCalendar,
+    head_ids: Iterable[int],
+) -> dict[int, Digest]:
+    """Jedna lista na odbiorcę: indeks dnia przepuści tylko jeden dzwonek tego typu."""
+
+    heads = list(head_ids)
+    plan: dict[int, Digest] = {}
+
+    def add(user_id: int, state: svc.PairState, *, due: bool) -> None:
+        plan.setdefault(user_id, Digest()).add(state, due=due)
+
+    for state in states:
+        owner = state.owner_id
+        if owner is not None:
+            add(owner, state, due=needs_mail(state))
+        elif needs_mail(state):
+            # Nikt nie odpowiada: sprawa nie może zniknąć.
+            for head in heads:
+                add(head, state, due=True)
+        if state.delivery_lead_id is not None and reaches_dl(state):
+            add(state.delivery_lead_id, state, due=True)
+        if reaches_hor(state, today, calendar):
+            for head in heads:
+                add(head, state, due=True)
+    return plan
+
+
+async def _send(db: AsyncSession, *, user_id: int, digest: Digest) -> None:
+    rows = list(digest.states.values())
+    first = rows[0]
     await emit(
         db,
         user_id=user_id,
-        title=_title(len(states)),
-        message=digest_message(states),
-        ntype=ntype,
+        title=_title(len(rows)),
+        message=digest_message(rows),
+        ntype=(
+            NotificationType.start_documents_due
+            if digest.due
+            else NotificationType.start_documents
+        ),
         related_entity_type=_ENTITY,
         related_entity_id=user_id,
         link=(
             f"/jobs/{first.job_id}?candidate={first.candidate_id}"
-            if len(states) == 1
+            if len(rows) == 1
             else "/dashboard"
         ),
     )
@@ -99,64 +159,28 @@ async def _send(
 async def run_once(now: datetime) -> dict[str, int]:
     """Jeden przebieg: w dzień wolny i przed 9:00 nic nie robi."""
 
-    counts = {"owners": 0, "delivery_leads": 0, "heads": 0}
+    counts = {"recipients": 0}
     today = now.date()
     if now.hour < FIRST_HOUR:
         return counts
     async with AsyncSessionLocal() as db:
-        calendar = await load_calendar(db, today, today)
+        calendar = await load_calendar(db, today - timedelta(days=45), today)
         if not calendar.is_working_day(today):
             return counts
         states = await svc.open_states(db)
         if not states:
             return counts
-
-        by_owner: dict[int, list[svc.PairState]] = {}
-        by_dl: dict[int, list[svc.PairState]] = {}
-        for state in states:
-            if state.owner_id is not None:
-                by_owner.setdefault(state.owner_id, []).append(state)
-            if (
-                state.delivery_lead_id is not None
-                and state.delivery_lead_id != state.owner_id
-                and reaches_dl(state)
-            ):
-                by_dl.setdefault(state.delivery_lead_id, []).append(state)
-
-        for user_id, rows in by_owner.items():
-            due = any(needs_mail(s) for s in rows)
-            await _send(
-                db,
-                user_id=user_id,
-                states=rows,
-                ntype=(
-                    NotificationType.start_documents_due
-                    if due
-                    else NotificationType.start_documents
-                ),
-            )
-            counts["owners"] += 1
-        for user_id, rows in by_dl.items():
-            await _send(
-                db,
-                user_id=user_id,
-                states=rows,
-                ntype=NotificationType.start_documents_due,
-            )
-            counts["delivery_leads"] += 1
-
-        starting = [s for s in states if reaches_hor(s, today)]
-        if starting:
-            heads = await db.scalars(select(User).where(User.is_active.is_(True)))
-            for head in heads.all():
-                if head.has_role(UserRole.head_of_recruitment):
-                    await _send(
-                        db,
-                        user_id=head.id,
-                        states=starting,
-                        ntype=NotificationType.start_documents_due,
-                    )
-                    counts["heads"] += 1
+        heads = [
+            user.id
+            for user in (
+                await db.scalars(select(User).where(User.is_active.is_(True)))
+            ).all()
+            if user.has_role(UserRole.head_of_recruitment)
+        ]
+        plan = plan_digests(states, today=today, calendar=calendar, head_ids=heads)
+        for user_id, digest in plan.items():
+            await _send(db, user_id=user_id, digest=digest)
+            counts["recipients"] += 1
         await db.commit()
     return counts
 

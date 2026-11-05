@@ -811,6 +811,8 @@ _ENUM_STATEMENTS = [
     # 0649: dokumenty do startu (dzwonek i dzwonek z mailem).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_due'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_returned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents_reminder'",
     # 0525: P0 na rekrutacji — dzwonek i mail obowiązkowy do zespołu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).

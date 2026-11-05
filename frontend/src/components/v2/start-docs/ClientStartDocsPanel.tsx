@@ -117,17 +117,37 @@ function EditDialog({
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Termin: dni robocze przed startem">
-            <Input
-              aria-label="Dni robocze przed startem"
-              type="number"
-              min={0}
-              max={30}
-              value={Math.abs(draft.offset_days)}
-              onChange={(event) =>
-                patch({ offset_days: -Math.min(30, Math.max(0, Number(event.target.value) || 0)) })
-              }
-            />
+          <FormField label="Termin w dniach roboczych">
+            <div className="flex gap-2">
+              <Input
+                aria-label="Dni robocze"
+                type="number"
+                min={0}
+                max={30}
+                value={Math.abs(draft.offset_days)}
+                onChange={(event) => {
+                  const days = Math.min(30, Math.max(0, Number(event.target.value) || 0));
+                  patch({ offset_days: draft.offset_days > 0 ? days : -days });
+                }}
+              />
+              <Select
+                value={draft.offset_days > 0 ? "after" : "before"}
+                onValueChange={(side) =>
+                  patch({
+                    offset_days:
+                      (side === "after" ? 1 : -1) * Math.max(1, Math.abs(draft.offset_days)),
+                  })
+                }
+              >
+                <SelectTrigger aria-label="Przed czy po starcie" className="min-w-[8.5rem]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="before">przed startem</SelectItem>
+                  <SelectItem value="after">po starcie</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </FormField>
         </div>
         <FormField label="Link (np. e-KRK)">

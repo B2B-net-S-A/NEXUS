@@ -131,6 +131,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Rekruter i DL mają dokończyć dokumenty osoby — imienne zadanie (0649).
     _T.start_documents: _C.mentions,
     _T.start_documents_due: _C.mentions,
+    _T.start_documents_returned: _C.mentions,
+    _T.start_documents_reminder: _C.mentions,
     # 0506: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
     # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
     _T.pre_contract: _C.mentions,

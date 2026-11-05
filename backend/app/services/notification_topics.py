@@ -123,6 +123,8 @@ _CONTRACTS = (
     # Brakuje dokumentów do startu osoby (0649).
     _T.start_documents,
     _T.start_documents_due,
+    _T.start_documents_returned,
+    _T.start_documents_reminder,
 )
 
 

@@ -38,8 +38,12 @@ def _document(**fields):
     return SimpleNamespace(**{**base, **fields})
 
 
-def _item(state: str = svc.STATE_MISSING, **fields) -> svc.ItemState:
-    return svc.ItemState(document=_document(**fields), row=None, state=state)
+def _item(
+    state: str = svc.STATE_MISSING, deadline: date | None = None, **fields
+) -> svc.ItemState:
+    return svc.ItemState(
+        document=_document(**fields), row=None, state=state, deadline=deadline
+    )
 
 
 def _pair(*items: svc.ItemState, **fields) -> svc.PairState:
@@ -124,24 +128,34 @@ def test_owner_is_the_delivery_lead_when_there_is_no_recruiter() -> None:
 
 
 def test_deadline_counts_working_days_back_from_start() -> None:
-    calendar = WorkCalendar()
     # Poniedziałek 09.11 minus 2 dni robocze to czwartek 05.11, nie sobota.
-    assert svc.deadline_of([_item()], date(2026, 11, 9), calendar) == date(2026, 11, 5)
+    document = _document(offset_days=-2)
+    assert svc.item_deadline(document, date(2026, 11, 9), WorkCalendar()) == date(
+        2026, 11, 5
+    )
 
 
-def test_deadline_ignores_what_is_done_and_optional() -> None:
-    items = [
-        _item(svc.STATUS_DELIVERED, offset_days=-10),
-        _item(required=False, offset_days=-20),
-        _item(offset_days=-1),
-    ]
-    assert svc.deadline_of(items, date(2026, 11, 9), WorkCalendar()) == date(
-        2026, 11, 6
+def test_krk_can_have_a_deadline_after_the_start() -> None:
+    document = _document(offset_days=10)
+    # 11.11 to święto: 10 dni roboczych od 09.11 kończy się 24.11.
+    assert svc.item_deadline(document, date(2026, 11, 9), WorkCalendar()) == date(
+        2026, 11, 24
     )
 
 
 def test_no_start_date_means_no_deadline() -> None:
-    assert svc.deadline_of([_item()], None, WorkCalendar()) is None
+    assert svc.item_deadline(_document(), None, WorkCalendar()) is None
+    assert svc.deadline_of([_item()]) is None
+
+
+def test_deadline_of_pair_ignores_what_is_done_and_optional() -> None:
+    items = [
+        _item(svc.STATUS_DELIVERED, deadline=date(2026, 11, 1)),
+        _item(required=False, deadline=date(2026, 11, 2)),
+        _item(deadline=date(2026, 11, 6)),
+        _item(deadline=date(2026, 11, 23)),
+    ]
+    assert svc.deadline_of(items) == date(2026, 11, 6)
 
 
 @pytest.mark.parametrize(
@@ -166,23 +180,49 @@ def test_working_days_between_skips_the_weekend_and_past_dates() -> None:
 # ── Przypomnienia ─────────────────────────────────────────────────────────────
 
 
-def test_mail_starts_five_working_days_before_start_or_after_the_deadline() -> None:
-    assert sweeper.needs_mail(_pair(_item(), working_days_to_start=5))
-    assert not sweeper.needs_mail(_pair(_item(), working_days_to_start=6))
-    assert sweeper.needs_mail(_pair(_item(), working_days_to_start=9, tone="late"))
-    assert not sweeper.needs_mail(_pair(_item(), working_days_to_start=None))
+def test_mail_starts_five_working_days_before_the_deadline() -> None:
+    assert sweeper.needs_mail(_pair(_item(), working_days_to_deadline=5))
+    assert sweeper.needs_mail(_pair(_item(), working_days_to_deadline=0))
+    assert not sweeper.needs_mail(_pair(_item(), working_days_to_deadline=6))
+    assert not sweeper.needs_mail(_pair(_item(), working_days_to_deadline=None))
 
 
-def test_delivery_lead_joins_two_working_days_before_start() -> None:
-    assert sweeper.reaches_dl(_pair(_item(), working_days_to_start=2))
-    assert not sweeper.reaches_dl(_pair(_item(), working_days_to_start=3))
-    assert sweeper.reaches_dl(_pair(_item(), working_days_to_start=0, working=True))
+def test_delivery_lead_joins_two_working_days_before_the_deadline() -> None:
+    assert sweeper.reaches_dl(_pair(_item(), working_days_to_deadline=2))
+    assert not sweeper.reaches_dl(_pair(_item(), working_days_to_deadline=3))
 
 
-def test_head_of_recruitment_only_on_the_day_of_start() -> None:
+def test_missing_krk_after_start_does_not_alarm_until_its_own_deadline() -> None:
+    """Sam KRK po starcie: osoba pracuje, a wyciąg ma jeszcze czas."""
+
+    calendar = WorkCalendar()
+    state = _pair(
+        _item(name="KRK", deadline=date(2026, 11, 24)),
+        start_date=date(2026, 11, 9),
+        deadline=date(2026, 11, 24),
+        working=True,
+        working_days_to_deadline=6,
+    )
+    assert not sweeper.needs_mail(state)
+    assert not sweeper.reaches_dl(state)
+    assert not sweeper.reaches_hor(state, date(2026, 11, 9), calendar)
+    assert sweeper.reaches_hor(state, date(2026, 11, 24), calendar)
+
+
+def test_head_of_recruitment_on_start_day_only_when_something_is_overdue() -> None:
+    calendar = WorkCalendar()
     day = date(2026, 11, 9)
-    assert sweeper.reaches_hor(_pair(_item(), start_date=day), day)
-    assert not sweeper.reaches_hor(_pair(_item(), start_date=day), date(2026, 11, 10))
+    state = _pair(_item(), start_date=day, deadline=date(2026, 11, 5))
+    assert sweeper.reaches_hor(state, day, calendar)
+    assert not sweeper.reaches_hor(state, date(2026, 11, 10), calendar)
+
+
+def test_start_on_a_day_off_alarms_on_the_next_working_day() -> None:
+    calendar = WorkCalendar()
+    # 01.11.2026 to niedziela: pętla w niej nie działa, więc alert idzie 02.11.
+    state = _pair(_item(), start_date=date(2026, 11, 1), deadline=date(2026, 10, 29))
+    assert sweeper.reaches_hor(state, date(2026, 11, 2), calendar)
+    assert not sweeper.reaches_hor(state, date(2026, 11, 3), calendar)
 
 
 def test_digest_lists_people_and_cuts_a_long_list() -> None:
@@ -199,7 +239,7 @@ def test_digest_lists_people_and_cuts_a_long_list() -> None:
 def _mail_pair() -> svc.PairState:
     return _pair(
         _item(svc.STATUS_DELIVERED, name="Umowa", kind=svc.KIND_AGREEMENT),
-        _item(name="NDA"),
+        _item(name="NDA", deadline=date(2026, 11, 5)),
         _item(
             name="Wyciąg z KRK",
             note="i oświadczenie",
@@ -213,9 +253,9 @@ def _mail_pair() -> svc.PairState:
 def test_list_skips_the_agreement_and_everything_already_delivered() -> None:
     texts = [line.text for line in mail.lines_for(_mail_pair().items)]
     assert not any("Umowa" in text for text in texts)
-    assert texts[0] == "NDA"
+    assert texts[0] == "NDA (do 05.11)"
     assert texts[1] == "Wyciąg z KRK: i oświadczenie"
-    assert texts[3] == "Certyfikaty (jeśli jest)"
+    assert texts[3] == "Certyfikaty (opcjonalnie)"
 
 
 def test_pesel_is_requested_by_phone_never_by_mail() -> None:
@@ -230,7 +270,7 @@ def test_mail_text_for_the_consultant_has_no_em_dash_and_no_second_signature() -
         assert "—" not in content
         assert "Pozdrawiamy" not in content
     assert subject == "Dokumenty przed startem u klienta Nordea"
-    assert "Prosimy o komplet do 05.11." in text
+    assert "NDA (do 05.11)" in text
     assert "Wzory są w załączniku." in text
 
 

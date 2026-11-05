@@ -22,13 +22,16 @@ Kto co może:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime
 from typing import Annotated, Any, Optional
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -40,8 +43,10 @@ from app.models.activity import Activity
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.contract import Contract
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.start_document import ClientStartDocument, PlacementStartDocument
 from app.models.user import User, UserRole
 from app.services import start_documents as svc
@@ -57,6 +62,7 @@ from app.services.b2b_esign.mail import mailbox_connected, send_from
 from app.services.board_tasks import dl_portfolio_client_ids
 from app.services.m365.sender import FileAttachment
 from app.services.notification_triggers import emit
+from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -70,6 +76,8 @@ router = APIRouter()
 MSG_ROLE = "Dokumenty do startu prowadzą osoby z rekrutacji i Delivery Lead klienta."
 MSG_NOT_FOUND = "Nie ma takiej pozycji na liście tego klienta."
 MSG_NO_LIST = "Ten klient nie ma listy dokumentów do startu."
+MSG_NOT_IN_JOB = "Ta osoba nie jest w tej rekrutacji."
+MSG_LINK = "Podaj pełny adres strony zaczynający się od https://."
 MSG_NO_REVIEW = "To robi Delivery Lead klienta, Head of Recruitment albo administrator."
 MSG_NO_FILE_ACCESS = (
     "Plik pobierze odpowiedzialny rekruter, Delivery Lead klienta, Head of "
@@ -96,17 +104,33 @@ _WORK_ROLES = (
 
 
 async def require_start_documents_access(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Bramka tras pary: rola rekrutacji i sekcja „Rekrutacje”, co najmniej odczyt."""
+    """Bramka tras pary: rola rekrutacji i sekcja „Rekrutacje”, jak Tablica.
+
+    Odczyt na odczyt, zapis na każdy krok (plik, PESEL, mail ze skrzynki osoby)."""
 
     if current_user.has_role(UserRole.user) or not current_user.has_any_role(
         *_WORK_ROLES
     ):
         raise HTTPException(status_code=403, detail=MSG_ROLE)
-    access = section_access_for_user(current_user, ProductSection.pipeline)
-    if access == SectionAccess.none:
-        raise HTTPException(status_code=403, detail=MSG_ROLE)
+    required = (
+        SectionAccess.read
+        if is_read_only_http_request(request.method, request.url.path)
+        else SectionAccess.write
+    )
+    granted = section_access_for_user(current_user, ProductSection.pipeline)
+    if granted < required:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "section_access_denied",
+                "section": ProductSection.pipeline.value,
+                "required": required.name,
+                "granted": granted.name,
+            },
+        )
     return current_user
 
 
@@ -147,8 +171,19 @@ class ClientDocumentIn(BaseModel):
         cleaned = (value or "").strip()
         if not cleaned:
             return None
-        if not cleaned.startswith("https://"):
-            raise ValueError("Link musi zaczynać się od https://.")
+        try:
+            parsed = urlparse(cleaned)
+            host = parsed.hostname
+        except ValueError:
+            host = None
+            parsed = None
+        if (
+            parsed is None
+            or parsed.scheme != "https"
+            or not host
+            or re.search(r"\s", cleaned)
+        ):
+            raise ValueError(MSG_LINK)
         return cleaned
 
 
@@ -303,12 +338,29 @@ class PairAccess:
         }
 
 
+async def _pair_exists(db: AsyncSession, candidate_id: int, job_id: int) -> bool:
+    """Osoba jest w tej rekrutacji: etap na Tablicy albo kontrakt."""
+
+    for model in (CandidateStage, Contract):
+        found = await db.scalar(
+            select(model.id)
+            .where(model.candidate_id == candidate_id, model.job_id == job_id)
+            .limit(1)
+        )
+        if found is not None:
+            return True
+    return False
+
+
 async def _pair_access(
     db: AsyncSession, user: User, candidate_id: int, job_id: int
 ) -> PairAccess:
     job = await db.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    # Bez tego dowolny `candidate_id` w adresie dawałby cudzy e-mail i mail do obcej osoby.
+    if not await _pair_exists(db, candidate_id, job_id):
+        raise HTTPException(status_code=404, detail=MSG_NOT_IN_JOB)
     state = await svc.pair_state(db, candidate_id, job)
     if state is None:
         raise HTTPException(status_code=404, detail=MSG_NO_LIST)
@@ -336,6 +388,8 @@ def _item_for(access: PairAccess, document_id: int) -> svc.ItemState:
 async def _row_for_update(
     db: AsyncSession, document_id: int, candidate_id: int, job_id: int
 ) -> Optional[PlacementStartDocument]:
+    # `populate_existing`: `_pair_access` wczytał ten wiersz bez blokady, a po
+    # odczekaniu na nią liczy się stan z bazy, nie z sesji.
     return await db.scalar(
         select(PlacementStartDocument)
         .where(
@@ -344,7 +398,28 @@ async def _row_for_update(
             PlacementStartDocument.job_id == job_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
+
+
+async def _lock_or_create_row(
+    db: AsyncSession, *, document_id: int, candidate_id: int, job_id: int, status: str
+) -> PlacementStartDocument:
+    """Wiersz pary pod blokadą. Dwa równoległe pierwsze zapisy nie dają błędu 500."""
+
+    await db.execute(
+        pg_insert(PlacementStartDocument)
+        .values(
+            document_id=document_id,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            status=status,
+        )
+        .on_conflict_do_nothing(constraint="uq_placement_start_documents_pair")
+    )
+    row = await _row_for_update(db, document_id, candidate_id, job_id)
+    assert row is not None  # wstawiony wyżej albo przez równoległe żądanie
+    return row
 
 
 def _item_out(item: svc.ItemState, names: dict[int, str]) -> dict[str, Any]:
@@ -353,6 +428,7 @@ def _item_out(item: svc.ItemState, names: dict[int, str]) -> dict[str, Any]:
     return {
         **_document_out(document),
         "state": item.state,
+        "deadline": _iso(item.deadline),
         "file_name": row.file_name if row else None,
         "has_value": bool(row and (row.file_path or row.pesel)),
         "delivered_at": row.delivered_at.isoformat()
@@ -466,15 +542,13 @@ async def _deliver_row(
     candidate_id: int,
     job_id: int,
 ) -> PlacementStartDocument:
-    row = await _row_for_update(db, document_id, candidate_id, job_id)
-    if row is None:
-        row = PlacementStartDocument(
-            document_id=document_id,
-            candidate_id=candidate_id,
-            job_id=job_id,
-            status=svc.STATUS_DELIVERED,
-        )
-        db.add(row)
+    row = await _lock_or_create_row(
+        db,
+        document_id=document_id,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        status=svc.STATUS_DELIVERED,
+    )
     row.status = svc.STATUS_DELIVERED
     row.delivered_at = svc.utcnow()
     row.delivered_by = user.id
@@ -507,18 +581,24 @@ async def upload_file(
     path, _size = storage_service.save_start_document_file(
         f"pairs/{candidate_id}-{job_id}", name, data
     )
-    row = await _deliver_row(
-        db,
-        user=current_user,
-        document_id=document_id,
-        candidate_id=candidate_id,
-        job_id=job_id,
-    )
-    previous = row.file_path
-    row.file_path = path
-    row.file_name = name
-    row.file_content_type = content_type
-    result = await _reload(db, current_user, candidate_id, job_id)
+    try:
+        row = await _deliver_row(
+            db,
+            user=current_user,
+            document_id=document_id,
+            candidate_id=candidate_id,
+            job_id=job_id,
+        )
+        previous = row.file_path
+        row.file_path = path
+        row.file_name = name
+        row.file_content_type = content_type
+        result = await _reload(db, current_user, candidate_id, job_id)
+    except Exception:
+        # Plik z danymi o karalności nie może zostać na dysku bez wskaźnika.
+        await db.rollback()
+        storage_service.delete_start_document_file(path)
+        raise
     if previous:
         storage_service.delete_start_document_file(previous)
     return result
@@ -650,21 +730,31 @@ async def check_item(
 
 
 async def _notify_owner(
-    db: AsyncSession, state: svc.PairState, *, actor: User, title: str, message: str
-) -> None:
+    db: AsyncSession,
+    state: svc.PairState,
+    *,
+    actor: User,
+    title: str,
+    message: str,
+    ntype: NotificationType,
+    entity_id: int,
+) -> bool:
+    """Czy dzwonek wyszedł: bez odbiorcy i przy powtórce tego dnia nie wychodzi."""
+
     owner = state.owner_id
     if owner is None or owner == actor.id:
-        return
-    await emit(
+        return False
+    sent = await emit(
         db,
         user_id=owner,
         title=title,
         message=message,
-        ntype=NotificationType.start_documents,
-        related_entity_type="candidate_start_documents",
-        related_entity_id=state.candidate_id,
+        ntype=ntype,
+        related_entity_type="placement_start_documents",
+        related_entity_id=entity_id,
         link=f"/jobs/{state.job_id}?candidate={state.candidate_id}",
     )
+    return sent is not None
 
 
 @router.post("/start-documents/pair/{candidate_id}/{job_id}/items/{document_id}/return")
@@ -683,8 +773,13 @@ async def return_item(
     row = await _row_for_update(db, document_id, candidate_id, job_id)
     if row is None or row.status != svc.STATUS_DELIVERED:
         raise HTTPException(status_code=409, detail=MSG_NOT_DELIVERED)
+    # Odrzucony plik nie zostaje: to dane o karalności, a nowy i tak przyjdzie.
+    rejected_path = row.file_path
     row.status = svc.STATUS_RETURNED
     row.pesel = None
+    row.file_path = None
+    row.file_name = None
+    row.file_content_type = None
     row.checked_at = None
     row.checked_by = None
     row.reason = payload.reason.strip()
@@ -698,8 +793,13 @@ async def return_item(
         message=(
             f"{access.state.candidate_name}: {item.document.name}. Powód: {row.reason}"
         ),
+        ntype=NotificationType.start_documents_returned,
+        entity_id=row.id,
     )
-    return await _reload(db, current_user, candidate_id, job_id)
+    result = await _reload(db, current_user, candidate_id, job_id)
+    if rejected_path:
+        storage_service.delete_start_document_file(rejected_path)
+    return result
 
 
 @router.post(
@@ -719,15 +819,13 @@ async def not_applicable(
     if not access.can_review:
         raise HTTPException(status_code=403, detail=MSG_NO_REVIEW)
     _item_for(access, document_id)
-    row = await _row_for_update(db, document_id, candidate_id, job_id)
-    if row is None:
-        row = PlacementStartDocument(
-            document_id=document_id,
-            candidate_id=candidate_id,
-            job_id=job_id,
-            status=svc.STATUS_NOT_APPLICABLE,
-        )
-        db.add(row)
+    row = await _lock_or_create_row(
+        db,
+        document_id=document_id,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        status=svc.STATUS_NOT_APPLICABLE,
+    )
     row.status = svc.STATUS_NOT_APPLICABLE
     row.reason = payload.reason.strip()
     row.reason_at = svc.utcnow()
@@ -775,7 +873,7 @@ async def remind_recruiter(
     state = access.state
     if state.complete:
         return {"sent": False}
-    await _notify_owner(
+    sent = await _notify_owner(
         db,
         state,
         actor=current_user,
@@ -784,9 +882,11 @@ async def remind_recruiter(
             f"{state.candidate_name}: brakuje "
             f"{', '.join(i.document.name for i in state.missing)}."
         ),
+        ntype=NotificationType.start_documents_reminder,
+        entity_id=state.candidate_id,
     )
     await db.commit()
-    return {"sent": True}
+    return {"sent": sent}
 
 
 # ── Wzory i mail do konsultanta ───────────────────────────────────────────────

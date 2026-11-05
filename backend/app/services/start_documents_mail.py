@@ -31,6 +31,10 @@ class ListLine:
     link: Optional[str] = None
 
 
+def _until(item: ItemState) -> str:
+    return f" (do {item.deadline:%d.%m})" if item.deadline else ""
+
+
 def lines_for(items: Iterable[ItemState]) -> list[ListLine]:
     """Pozycje do zrobienia przez konsultanta (bez umowy, bez tego, co już jest)."""
 
@@ -40,11 +44,17 @@ def lines_for(items: Iterable[ItemState]) -> list[ListLine]:
         if document.kind == KIND_AGREEMENT or item.done:
             continue
         if document.kind == KIND_PESEL:
-            lines.append(ListLine("PESEL: proszę podać telefonicznie, nie mailem."))
+            lines.append(
+                ListLine(
+                    f"PESEL: proszę podać telefonicznie, nie mailem{_until(item)}."
+                )
+            )
             continue
-        suffix = "" if document.required else " (jeśli jest)"
+        suffix = "" if document.required else " (opcjonalnie)"
         note = f": {document.note}" if document.note else ""
-        lines.append(ListLine(f"{document.name}{suffix}{note}", document.link_url))
+        lines.append(
+            ListLine(f"{document.name}{suffix}{_until(item)}{note}", document.link_url)
+        )
     return lines
 
 
@@ -55,7 +65,6 @@ def render(pair: PairState, attachments: Sequence[str]) -> tuple[str, str, str]:
     subject = SUBJECT.format(client=client)
     lines = lines_for(pair.items)
     start = f" {pair.start_date:%d.%m}" if pair.start_date else ""
-    deadline = f"Prosimy o komplet do {pair.deadline:%d.%m}." if pair.deadline else ""
     intro = f"przed startem u klienta {client}{start} potrzebujemy kilku dokumentów:"
     items_html = "".join(
         '<li style="margin-bottom: 6px">'
@@ -72,8 +81,6 @@ def render(pair: PairState, attachments: Sequence[str]) -> tuple[str, str, str]:
     parts = [_p("Dzień dobry,"), _p(html.escape(intro)), f"<ol>{items_html}</ol>"]
     if attachments:
         parts.append(_p("Wzory są w załączniku."))
-    if deadline:
-        parts.append(_p(deadline))
     text_lines = [
         "Dzień dobry,",
         "",
@@ -85,8 +92,6 @@ def render(pair: PairState, attachments: Sequence[str]) -> tuple[str, str, str]:
     ]
     if attachments:
         text_lines += ["", "Wzory są w załączniku."]
-    if deadline:
-        text_lines += ["", deadline]
     return subject, "".join(parts), "\n".join(text_lines)
 
 

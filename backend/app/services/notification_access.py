@@ -164,6 +164,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # 0649: link prowadzi do panelu osoby albo pulpitu rekrutacji.
     NotificationType.start_documents: ProductSection.pipeline,
     NotificationType.start_documents_due: ProductSection.pipeline,
+    NotificationType.start_documents_returned: ProductSection.pipeline,
+    NotificationType.start_documents_reminder: ProductSection.pipeline,
     NotificationType.candidate_rate_change: ProductSection.pipeline,
     NotificationType.candidate_rate_change_task: ProductSection.pipeline,
     NotificationType.request_assignment_changed: ProductSection.pipeline,

@@ -160,6 +160,40 @@ describe("StartDocsCard", () => {
     expect(await screen.findByTestId("start-docs-pesel")).toHaveTextContent("44051401458");
   });
 
+  it("zły adres na liście nie wywraca karty", async () => {
+    get.mockResolvedValue({
+      data: pair({ items: [item({ id: 2, name: "KRK", link_url: "https://a b" })] }),
+    });
+    renderCard();
+    expect(await screen.findByRole("link", { name: /https:\/\/a b/ })).toBeInTheDocument();
+  });
+
+  it("po nowym wpisie DL nie widzi starego numeru PESEL", async () => {
+    const delivered = (at: string) =>
+      pair({
+        permissions: { can_work: true, can_review: true, can_download: true, can_view_pesel: true },
+        items: [
+          item({ id: 3, name: "PESEL", kind: "pesel", state: "delivered", has_value: true, delivered_at: at }),
+        ],
+      });
+    let current = delivered("2026-11-05T10:00:00+00:00");
+    get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url.endsWith("/pesel") ? { pesel: "44051401458" } : current }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <StartDocsCard candidateId={5} jobId={7} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Pokaż/ }));
+    expect(await screen.findByTestId("start-docs-pesel")).toBeInTheDocument();
+    current = delivered("2026-11-05T12:00:00+00:00");
+    await act(() => client.invalidateQueries());
+    await waitFor(() => expect(screen.queryByTestId("start-docs-pesel")).toBeNull());
+    expect(screen.getByRole("button", { name: /Pokaż/ })).toBeInTheDocument();
+  });
+
   it("zwrócony dokument pokazuje powód", async () => {
     get.mockResolvedValue({
       data: pair({
@@ -271,6 +305,27 @@ describe("Pulpit i pasek", () => {
       "/jobs/7?candidate=5",
     );
     expect(screen.queryByRole("button", { name: /Przypomnij rekruterowi/ })).toBeNull();
+  });
+
+  it("awaria listy nie wygląda jak brak spraw", async () => {
+    get.mockRejectedValue({ response: { status: 500 } });
+    renderTasks(
+      <>
+        <StartDocsTasksSection />
+        <StartDocsTopbarBlock />
+      </>,
+    );
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts).toHaveLength(2);
+    expect(alerts[0]).toHaveTextContent("Nie udało się sprawdzić dokumentów do startu");
+    expect(screen.getAllByRole("button", { name: "Ponów" })).toHaveLength(2);
+  });
+
+  it("konto bez dostępu nie dostaje błędu", async () => {
+    get.mockRejectedValue({ response: { status: 403 } });
+    const { container } = renderTasks(<StartDocsTopbarBlock />);
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await waitFor(() => expect(container.querySelector('[role="alert"]')).toBeNull());
   });
 
   it("nic do zrobienia: sekcji i bloku nie ma", async () => {

@@ -22,6 +22,7 @@ import {
 import { startLine } from "@/lib/start-docs-format";
 
 const ROWS = 6;
+export const REMIND_NOT_SENT = "Dziś rekruter już dostał przypomnienie, drugiego nie wysyłam.";
 
 function personHref(row: MineStartDocRow): string {
   return `/jobs/${row.job_id}?candidate=${row.candidate_id}`;
@@ -29,6 +30,20 @@ function personHref(row: MineStartDocRow): string {
 
 function missingText(row: MineStartDocRow): string {
   return row.missing.length ? `Brakuje: ${row.missing.join(", ")}` : "Komplet";
+}
+
+/** Awaria nie może wyglądać jak „nic do zrobienia”. 403 to konto spoza rekrutacji. */
+function ListFailure({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  if (status === 403) return null;
+  return (
+    <p role="alert" className="px-3 py-2 text-xs text-destructive">
+      Nie udało się sprawdzić dokumentów do startu.{" "}
+      <button type="button" className="font-medium underline" onClick={onRetry}>
+        Ponów
+      </button>
+    </p>
+  );
 }
 
 export function useStartDocsCount(): number {
@@ -46,8 +61,8 @@ function RemindButton({ row }: { row: MineStartDocRow }) {
       onClick={async () => {
         setBusy(true);
         try {
-          await startDocsApi.remind(row.candidate_id, row.job_id);
-          showSuccess("Rekruter dostał przypomnienie.");
+          const { sent } = await startDocsApi.remind(row.candidate_id, row.job_id);
+          showSuccess(sent ? "Rekruter dostał przypomnienie." : REMIND_NOT_SENT);
         } catch (error) {
           showError(apiErrorMessage(error, "Nie udało się wysłać przypomnienia."));
         } finally {
@@ -64,6 +79,13 @@ export function StartDocsTasksSection() {
   const query = useMineStartDocs();
   const [all, setAll] = useState(false);
   const rows = query.data?.items ?? [];
+  if (query.isError) {
+    return (
+      <div className="min-w-0 lg:col-span-3">
+        <ListFailure error={query.error} onRetry={() => void query.refetch()} />
+      </div>
+    );
+  }
   if (!rows.length) return null;
   const asDl = query.data?.role === "delivery_lead";
   const shown = all ? rows : rows.slice(0, ROWS);
@@ -97,7 +119,8 @@ export function StartDocsTasksSection() {
                 className="block max-w-full truncate text-sm font-medium hover:underline"
               >
                 {row.candidate_name}
-                {row.working ? (
+                {/* Sam KRK w terminie po starcie to nie alarm: osoba pracuje zgodnie z planem. */}
+                {row.working && row.tone !== "calm" ? (
                   <Badge variant="danger" className="ml-2 align-middle">
                     Już pracuje
                   </Badge>
@@ -151,6 +174,9 @@ export function StartDocsTasksSection() {
 export function StartDocsTopbarBlock({ onNavigate }: { onNavigate?: () => void }) {
   const query = useMineStartDocs();
   const rows = query.data?.items ?? [];
+  if (query.isError) {
+    return <ListFailure error={query.error} onRetry={() => void query.refetch()} />;
+  }
   if (!rows.length) return null;
   const asDl = query.data?.role === "delivery_lead";
   return (
