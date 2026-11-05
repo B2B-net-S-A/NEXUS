@@ -709,7 +709,9 @@ async def insights_recruitment_monthly_trend(
                     "month_start": first.isoformat(),
                     "partial": _next_month(first) > today,
                     "counts": {
-                        stage: counts.get((first, stage), 0) if recorded(first, stage) else None
+                        stage: counts.get((first, stage), 0)
+                        if recorded(first, stage)
+                        else None
                         for stage in TREND_STAGES
                     },
                     "cutover_counts": (
