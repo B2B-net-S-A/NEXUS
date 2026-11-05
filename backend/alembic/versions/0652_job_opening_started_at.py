@@ -1,7 +1,7 @@
-"""Początek bieżącego otwarcia rekrutacji (0651).
+"""Początek bieżącego otwarcia rekrutacji (0652).
 
-Revision ID: 0651_job_opening_started_at
-Revises: 0650_manual_placement_exclusions
+Revision ID: 0652_job_opening_started_at
+Revises: 0651_cv_call_questions
 
 Decyzja Artura 05.11.2026: „Otwórz ponownie” zaczyna nowe otwarcie. Wakaty,
 „W drodze”, ostrzeżenie przy zamknięciu i bramka powodu liczą się od tej
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services.job_opening import BACKFILL_MARKER, BACKFILL_SQL
 
-revision = "0651_job_opening_started_at"
-down_revision = "0650_manual_placement_exclusions"
+revision = "0652_job_opening_started_at"
+down_revision = "0651_cv_call_questions"
 branch_labels = None
 depends_on = None
 

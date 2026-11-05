@@ -33,8 +33,8 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from app.models.job import Job
 
-# Jednorazowe uzupełnienie w ``entrypoint.sh`` (lustro migracji 0651).
-BACKFILL_MARKER = "0651_job_opening_backfill"
+# Jednorazowe uzupełnienie w ``entrypoint.sh`` (lustro migracji 0652).
+BACKFILL_MARKER = "0652_job_opening_backfill"
 
 # Ostatnie ponowne otwarcie przez człowieka (``publish_core`` zapisuje
 # ``published`` z ``reopened: true``). Bez przeniesień z Traffita.
