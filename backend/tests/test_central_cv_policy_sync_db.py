@@ -23,7 +23,7 @@ async def test_sync_publishes_once_preserves_history_and_never_activates_draft(m
         await db.commit()
         assert await policies.synchronize(db)==1
         assert old.version==8 and old.cv_language=='en'
-        assert old.generator_instructions is None and old.draft_payload is None
+        assert old.generator_instructions==policy['generator_instructions'] and old.draft_payload is None
         assert client.cv_content_mode_cap=='basic'
         assert await policies.synchronize(db)==0
         previous=await db.get(ClientCvRulePublication,(client.id,7))
