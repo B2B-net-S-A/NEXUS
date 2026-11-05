@@ -702,6 +702,10 @@ class _Session:
     async def scalar(self, _stmt: Any) -> Any:
         return self._answers.pop(0)
 
+    async def execute(self, _stmt: Any) -> Any:
+        # Pliki osoby w kwarantannie: żadnego, więc bez porównywania bajtów.
+        return SimpleNamespace(all=lambda: [])
+
     async def refresh(self, *_a: Any, **_kw: Any) -> None:
         return None
 

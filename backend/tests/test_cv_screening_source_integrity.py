@@ -156,6 +156,7 @@ async def test_worker_excludes_ai_only_notes_and_explains_omission(
     db = AsyncMock()
     db.get.return_value = SimpleNamespace(id=1, name="Audyt", lastname="Testowy")
     db.scalar.return_value = None
+    db.execute.return_value = SimpleNamespace(all=lambda: [])
     rows = [
         [],
         [],

@@ -7301,6 +7301,7 @@ async def _enrich_candidate_from_document_task(
     from app.services import cv_text_extractor
     from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
+    from app.services.cv_source import quarantined_copy_document_ids
     from app.services.cv_upload_dedup import profile_holds_read_of_file
 
     async with AsyncSessionLocal() as db:
@@ -7347,6 +7348,17 @@ async def _enrich_candidate_from_document_task(
                         document_id,
                     )
                     return
+
+            # Ten sam plik co w kwarantannie: odczyt mógłby przejść bramkę jako
+            # `inconclusive` i wpisać cudze dane do profilu. Wraca po zwolnieniu.
+            if document.id in await quarantined_copy_document_ids(db, candidate_id):
+                logger.info(
+                    "[cv_enrich] kopia pliku z kwarantanny, bez odczytu "
+                    "candidate=%s document=%s",
+                    candidate_id,
+                    document_id,
+                )
+                return
 
             content = await _candidate_document_bytes(db, document)
             if not content:
