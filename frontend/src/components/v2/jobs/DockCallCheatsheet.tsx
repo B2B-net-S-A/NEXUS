@@ -18,6 +18,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Loader2, RefreshCw } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
+import { CvCallQuestions } from "@/components/v2/jobs/CvCallQuestions";
 import { championApi, type ChampionProfile } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -164,35 +165,58 @@ function QaItem({ jobId, qa, size }: { jobId: number; qa: CandidateQa; size: Che
   );
 }
 
-export function DockCallCheatsheet({ jobId, roomy = false }: { jobId: number; roomy?: boolean }) {
+export function DockCallCheatsheet({
+  jobId,
+  roomy = false,
+  candidateId = null,
+}: {
+  jobId: number;
+  roomy?: boolean;
+  /** Osoba z rozmowy: ściąga pokazuje wtedy „Dopytaj pod CV” z jej oryginalnego CV. */
+  candidateId?: number | null;
+}) {
   const size: CheatsheetSize = roomy ? "roomy" : "dock";
   const toast = useToast();
   const query = usePlainBrief(jobId);
   const refresh = useRefreshPlainBrief(jobId);
   useAutoRefreshPlainBrief(jobId, query.data, refresh);
 
-  if (query.isLoading) return null;
+  // Sekcja stoi też bez reszty ściągi: pytania liczą się z CV osoby, nie z tekstów rekrutacji.
+  const cvQuestions = (framed: boolean) =>
+    candidateId != null ? (
+      <CvCallQuestions candidateId={candidateId} jobId={jobId} size={size} framed={framed} />
+    ) : null;
+
+  if (query.isLoading) return cvQuestions(true);
   if (query.isError) {
     return (
-      <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="alert">
-        Nie udało się wczytać ściągi do rozmowy.
-        <button
-          type="button"
-          onClick={() => void query.refetch()}
-          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-        >
-          <RefreshCw className="h-3 w-3" aria-hidden="true" /> Ponów
-        </button>
-      </p>
+      <>
+        <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="alert">
+          Nie udało się wczytać ściągi do rozmowy.
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            <RefreshCw className="h-3 w-3" aria-hidden="true" /> Ponów
+          </button>
+        </p>
+        {cvQuestions(true)}
+      </>
     );
   }
   const brief = query.data;
   if (!brief || !cheatsheetHasContent(brief)) {
-    return refresh.isPending ? (
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
-        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Przygotowuję ściągę do rozmowy…
-      </p>
-    ) : null;
+    return (
+      <>
+        {refresh.isPending ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Przygotowuję ściągę do rozmowy…
+          </p>
+        ) : null}
+        {cvQuestions(true)}
+      </>
+    );
   }
 
   const pitch = brief.pitch?.trim() || null;
@@ -213,6 +237,7 @@ export function DockCallCheatsheet({ jobId, roomy = false }: { jobId: number; ro
       <p className={cn("font-semibold uppercase tracking-wide text-muted-foreground", TYPE[size].label)}>
         Ściąga do rozmowy
       </p>
+      {cvQuestions(false)}
 
       {pitch ? (
         <div className="space-y-1.5 rounded-md border border-border bg-card p-2.5">
