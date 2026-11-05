@@ -157,8 +157,8 @@ async def _compute_current(
         else:
             ranked = await comp_service.compute_live(db, ctype, period)
 
-        # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja,
-        # wykluczenie lidera kwartału z wyścigu miesięcznego i remisy. Do 25.09.2026
+        # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja
+        # i remisy. Do 25.09.2026
         # ekran brał `ranked[:3]` (poza wyścigiem rekomendacji) — podium i kwoty
         # różniły się od tego, co potem wypłacało zamrożenie. Miejsce objęte
         # remisem, którego regulamin nie rozstrzyga, nie ma kwoty (`tied`).
@@ -283,11 +283,9 @@ async def monthly_races(
     period: Optional[str] = None,
 ):
     """Dwa wyścigi miesięczne w jednym response (dla hero dashboard):
-    Wyścig Rekomendacji + Wyścig Placementów. Każdy z warunkami kwal +
-    oznaczeniem czyją nagrodę wyklucza lider kwartału.
+    Wyścig Rekomendacji + Wyścig Placementów, każdy z warunkami kwalifikacji.
     """
-    # Kompozycja (rankingi + wykluczenie lidera kwartału) wyniesiona do
-    # serwisu — composite dashboardu używa dokładnie tej samej funkcji.
+    # Kompozycja rankingów wyniesiona do serwisu — composite dashboardu używa dokładnie tej samej funkcji.
     _check_period_format(CompetitionType.monthly_recommendations, period)
     key = f"{_CACHE_PREFIX}monthly-races:{period or ''}"
     async with cache_single_flight(key, db=db):
@@ -632,7 +630,7 @@ async def my_position(
     ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=None)
 
     # Ta sama numeracja co podium i lista pod nim (`award_ranked_rows`):
-    # niezakwalifikowany i wykluczony lider kwartału są na liście, ale bez
+    # niezakwalifikowani są na liście, ale bez
     # miejsca (`rank: null`). Do 25.09.2026 numer brano z pozycji w surowym
     # rankingu, więc „Mój miesiąc” mówił „1. miejsce” osobie bez nagrody.
     order = await comp_service.award_order(db, ctype, period, ranked)

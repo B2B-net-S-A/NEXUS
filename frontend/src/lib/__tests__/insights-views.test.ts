@@ -201,17 +201,6 @@ describe("zdanie Mojego miesiąca", () => {
     expect(other).not.toMatch(/Prowadzisz|do prowadzenia/);
   });
 
-  it("wykluczony lider kwartału nie „prowadzi” w wyścigu miesiąca", () => {
-    const sentence = myMonthSentence({
-      ...base,
-      raceRank: 1,
-      leaderName: null,
-      raceExcluded: true,
-    });
-    expect(sentence).not.toContain("Prowadzisz");
-    expect(sentence).toContain("lider kwartału");
-  });
-
   it("prowadzi wyłącznie zakwalifikowany lider", () => {
     expect(
       myMonthSentence({ ...base, raceRank: 1, raceLeader: true, leaderName: null }),

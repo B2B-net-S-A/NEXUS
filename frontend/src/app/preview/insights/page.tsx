@@ -200,18 +200,18 @@ function seeded(): QueryClient {
     { user_id: 11, name: "Ola K.", metric_value: 4, rank: 1, excluded: false, role: "recruiter" },
     { user_id: 12, name: "Kuba M.", metric_value: 3, rank: 2, excluded: false, role: "recruiter" },
     { user_id: 1, name: "Anna L.", metric_value: 2, rank: 3, excluded: false, role: "recruiter" },
-    { user_id: 14, name: "Marta W.", metric_value: 2, rank: 4, excluded: true, role: "recruiter" },
+    { user_id: 14, name: "Marta W.", metric_value: 2, rank: 4, excluded: false, role: "recruiter" },
   ];
   const recRanking = PEOPLE.slice(0, 6).map((p, i) => ({
-    user_id: p.id, name: p.name, metric_value: p.r, rank: i + 1, excluded: p.id === 14,
+    user_id: p.id, name: p.name, metric_value: p.r, rank: i + 1, excluded: false,
     role: "recruiter", verifications: p.v, recommendations: p.r, precision_pct: p.prec,
     required_verifications: 64, qualified: p.v >= 64, workdays: 16, per_day: +(p.v / 16).toFixed(1),
     workdays_source: "calendar",
   }));
   const race = (ranking: unknown[]) => ({
     period: currentMonthKey(), days_remaining: 6, prize: { amount_pln: 1500, name: "Nagroda 1 500 zł" },
-    requirements: ["Lider kwartalny wykluczony z nagrody miesięcznej"], ranking,
-    excluded_user_ids: [14], qualified_leader: ranking[0] ?? null, leader_tie_user_ids: [], ...mixed,
+    requirements: ["Minimum 2 placementy do kwalifikacji"], ranking,
+    excluded_user_ids: [], qualified_leader: ranking[0] ?? null, leader_tie_user_ids: [], ...mixed,
   });
   qc.setQueryData(["insights", "monthly-races", "current"], {
     recommendations: race(recRanking),

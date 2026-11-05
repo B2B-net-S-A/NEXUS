@@ -229,8 +229,7 @@ async def monthly_race_thresholds(
 # Migawka punktacji Ligi Mistrzów per kwartał (audyt 25.09.2026, R4-16) —
 # bliźniak progów wyścigu. Wagi i progi placementów Ligi admin zmienia bez
 # deployu, a Liga (10 000 zł) czytała je dopiero przy zamrożeniu: zmiana wag
-# 2 października przestawiała zwycięzcę III kwartału, a razem z nim lidera
-# wykluczanego z wyścigów miesięcznych tego kwartału. Pierwszy zapis w
+# 2 października przestawiała zwycięzcę III kwartału. Pierwszy zapis w
 # kwartale wygrywa (pętla autofreeze w bieżącym kwartale i zamrożenie);
 # GET-y tylko czytają. Kwartał bez migawki liczy się punktacją bieżącą.
 LEAGUE_SCORING_SNAPSHOT_SETTING = "league_scoring_config"
@@ -677,8 +676,8 @@ async def _rank_recruiters_by_points(
             # także w bieżącym kwartale — jak KPI i Insights od rundy 7. Kod
             # `interview` to od Rekrutacji v5 etap QC CV i punktów nie daje.
             #
-            # UWAGA: ten składnik niesie pieniądze (10 000 zł za kwartał
-            # i wykluczenie lidera z wyścigów miesięcznych). Każda zmiana
+            # UWAGA: ten składnik niesie pieniądze (10 000 zł za kwartał).
+            # Każda zmiana
             # etapu, który tu wpada, wymaga policzenia rankingu przed/po,
             # ZANIM kwartał zostanie zamrożony.
             bucket["interviews"] += cnt
@@ -1491,118 +1490,7 @@ async def hall_of_fame(db: AsyncSession, limit: int | None = 5) -> list[RankedUs
     return ranked
 
 
-# ── Wykluczenie lidera kwartału z wyścigów miesięcznych ─────────────────
-
-
-@dataclass(frozen=True)
-class RaceExclusion:
-    """Kto nie może wygrać wyścigu miesięcznego — i skąd to wiadomo."""
-
-    user_ids: frozenset[int]
-    # frozen_quarter | quarter_tie_pending | quarter_no_winner |
-    # live_quarter_to_month_end | no_qualified_quarter_leader
-    source: str
-    quarter_period: str
-
-
-def quarter_of_month(month_period: str) -> str:
-    """'2026-05' → 'Q2 2026' — kwartał, do którego należy DANY miesiąc."""
-    year, month = parse_month(month_period)
-    return f"Q{(month - 1) // 3 + 1} {year}"
-
-
-async def monthly_race_excluded_user_ids(
-    db: AsyncSession, month_period: str
-) -> RaceExclusion:
-    """Lider Ligi Mistrzów kwartału, do którego należy `month_period`.
-
-    JEDNA funkcja dla ekranu (`compose_monthly_races`) i dla wypłaty
-    (`freeze_competition`) — do 22.09.2026 wykluczenie znał tylko ekran, więc
-    lider Q2 dostał nagrody miesięczne. Kolejność źródeł:
-
-    1. zamrożony zwycięzca kwartału (rank 1 w `competition_winners`);
-    2. remis na 1. miejscu kwartału czekający na admina — wykluczamy WSZYSTKICH
-       remisujących, bo każdy z nich może zostać zwycięzcą kwartału;
-    3. kwartał zamknięty bez zwycięzcy — nikogo;
-    4. ranking na żywo od początku kwartału do KOŃCA TEGO MIESIĄCA, z progiem
-       udziału tego miesiąca w kwartale. Remis na szczycie = wszyscy
-       remisujący. Dzięki końcowi okna wynik jest powtarzalny: styczeń liczony
-       w marcu daje tego samego lidera co w ostatnim dniu stycznia.
-    """
-    from app.models.competition_period_closure import (
-        CLOSURE_NO_WINNER,
-        CLOSURE_TIE_PENDING,
-        CompetitionPeriodClosure,
-    )
-
-    year, month = parse_month(month_period)
-    quarter = (month - 1) // 3 + 1
-    quarter_period = f"Q{quarter} {year}"
-    league = CompetitionType.quarterly_champions_recruiter.value
-
-    frozen_leader = (
-        await db.execute(
-            select(CompetitionWinner.user_id).where(
-                CompetitionWinner.competition_type == league,
-                CompetitionWinner.period == quarter_period,
-                CompetitionWinner.rank == 1,
-            )
-        )
-    ).scalar_one_or_none()
-    if frozen_leader is not None:
-        return RaceExclusion(
-            frozenset({frozen_leader}), "frozen_quarter", quarter_period
-        )
-
-    closure = (
-        await db.execute(
-            select(
-                CompetitionPeriodClosure.status, CompetitionPeriodClosure.details
-            ).where(
-                CompetitionPeriodClosure.competition_type == league,
-                CompetitionPeriodClosure.period == quarter_period,
-            )
-        )
-    ).first()
-    if closure is not None and closure.status == CLOSURE_TIE_PENDING:
-        tied = {
-            int(uid)
-            for tie in (closure.details or {}).get("ties", [])
-            if 1 in tie.get("positions", [])
-            for uid in tie.get("user_ids", [])
-        }
-        return RaceExclusion(frozenset(tied), "quarter_tie_pending", quarter_period)
-    if closure is not None and closure.status == CLOSURE_NO_WINNER:
-        return RaceExclusion(frozenset(), "quarter_no_winner", quarter_period)
-
-    quarter_start, _ = quarter_bounds(year, quarter)
-    _, month_end = month_bounds(year, month)
-    # Punktacja kwartału, do którego należy miesiąc — ta sama migawka, którą
-    # zamrożenie Ligi rozlicza kwartał (R4-16).
-    config = await league_scoring_config(db, quarter_period)
-    month_in_quarter = (month - 1) % 3 + 1
-    ranked = qualified_for_award(
-        await _rank_recruiters_by_points(
-            db,
-            start=quarter_start,
-            end=month_end,
-            weights=league_points_formula(config),
-            min_placements=int(
-                config[f"league_min_placements_month{month_in_quarter}"]
-            ),
-        )
-    )
-    if not ranked:
-        return RaceExclusion(frozenset(), "no_qualified_quarter_leader", quarter_period)
-    top = ranked[0].metric_value
-    return RaceExclusion(
-        frozenset(r.user_id for r in ranked if r.metric_value == top),
-        "live_quarter_to_month_end",
-        quarter_period,
-    )
-
-
-# ── Kolejność nagrodowa (kwalifikacja + wykluczenie + remisy) ───────────
+# ── Kolejność nagrodowa (kwalifikacja + remisy) ─────────────────────────
 
 _MONTHLY_TYPES = (
     CompetitionType.monthly_recommendations,
@@ -1643,7 +1531,7 @@ def paid_slots(type_: CompetitionType, period: Optional[str] = None) -> int:
 
 @dataclass
 class AwardOrder:
-    """Zakwalifikowani i niewykluczeni w kolejności nagrodowej + remisy do admina."""
+    """Zakwalifikowani w kolejności nagrodowej + remisy do admina."""
 
     ordered: list[RankedUser]
     ties: list[TieGroup]
@@ -1660,8 +1548,6 @@ async def award_order(
     type_: CompetitionType,
     period: str,
     ranked: list[RankedUser],
-    *,
-    exclusion: Optional[RaceExclusion] = None,
 ) -> AwardOrder:
     """Kolejność, w jakiej ranking przechodzi w nagrody — wspólna dla ekranu i freeze'a.
 
@@ -1674,16 +1560,6 @@ async def award_order(
     * Liga Mistrzów rekrutacji i liga DL — każdy remis na płatnym miejscu → admin.
     """
     award = qualified_for_award(ranked)
-    excluded: list[int] = []
-    source: Optional[str] = None
-    quarter: Optional[str] = None
-    if type_ in _MONTHLY_TYPES:
-        if exclusion is None:
-            exclusion = await monthly_race_excluded_user_ids(db, period)
-        excluded = sorted(exclusion.user_ids)
-        source = exclusion.source
-        quarter = exclusion.quarter_period
-        award = [r for r in award if r.user_id not in exclusion.user_ids]
 
     counts = Counter(r.metric_value for r in award)
     tied_ids = [r.user_id for r in award if counts[r.metric_value] > 1]
@@ -1756,9 +1632,9 @@ async def award_order(
     return AwardOrder(
         ordered=ordered,
         ties=ties,
-        excluded_user_ids=excluded,
-        exclusion_source=source,
-        exclusion_quarter=quarter,
+        excluded_user_ids=[],
+        exclusion_source=None,
+        exclusion_quarter=None,
         tie_break_rule=rule,
         period=period,
     )
@@ -1771,8 +1647,7 @@ def award_ranked_rows(
 
     Najpierw osoby w kolejności nagrodowej z miejscem 1..n (miejsca objęte
     remisem do decyzji admina mają `tied` i kwotę 0), potem osoby bez miejsca
-    w klasyfikacji (`rank: None`): niezakwalifikowani i wykluczony lider
-    kwartału, w kolejności wyniku. Do 25.09.2026 lista pod podium numerowała
+    w klasyfikacji (`rank: None`): niezakwalifikowani, w kolejności wyniku. Do 25.09.2026 lista pod podium numerowała
     się po surowym rankingu, a podium po `award_order` — przy
     niezakwalifikowanym liderze dwie osoby miały „#1”, a „Mój miesiąc” mówił
     „1. miejsce” komuś, kto nagrody nie dostanie. Bez marży/h (pieniądze,
@@ -1838,12 +1713,14 @@ _MARGIN_EXTRAS = frozenset({"margin_per_hour_sum", "margin_placements"})
 async def compose_monthly_races(
     db: AsyncSession, month_period: Optional[str] = None
 ) -> dict:
-    """Oba wyścigi miesięczne + wykluczenie lidera kwartału, w jednym dictcie.
+    """Oba wyścigi miesięczne w jednym dictcie.
 
     Jedno źródło prawdy dla API `/api/competitions/monthly-races` ORAZ
-    composite'u `/api/dashboard/v2/recruitment-stats` — logika wykluczenia
-    lidera kwartalnego i wyboru „zakwalifikowanego lidera" nie może się
-    rozjechać między powierzchniami.
+    composite'u `/api/dashboard/v2/recruitment-stats` — wybór
+    „zakwalifikowanego lidera" nie może się rozjechać między powierzchniami.
+    Lider Ligi Mistrzów kwartału bierze nagrodę miesięczną jak każdy (decyzja
+    Artura 05.11.2026); wykluczenie zostaje tylko w okresach zamrożonych przed
+    tą zmianą — tam jest częścią tego, co wypłacono.
     """
     month_period = month_period or current_month_period()
 
@@ -1875,14 +1752,6 @@ async def compose_monthly_races(
     pl_ranked = await monthly_most_placements(db, month_period)
     thresholds = await monthly_race_thresholds(db, month_period)
 
-    # Wykluczenie: lider kwartału, do którego należy TEN miesiąc (nie bieżący
-    # kwartał!), nie może wygrać wyścigu miesięcznego — ale z rankingu nie
-    # wypada. Ta sama funkcja liczy wykluczenie przy zamrożeniu okresu, więc
-    # ekran i wypłata nie mogą się rozjechać (audyt 22.09.2026: lider Q2
-    # dostał nagrody miesięczne, bo freeze wykluczenia nie znał).
-    exclusion = await monthly_race_excluded_user_ids(db, month_period)
-    excluded_ids = exclusion.user_ids
-
     # Kolejność nagrodowa z regułą remisów (marża/h, precyzja). Remis, którego
     # regulamin nie rozstrzyga, zostawia miejsce 1 puste — ekran nie może
     # ogłaszać lidera, o którym zdecyduje admin.
@@ -1891,14 +1760,12 @@ async def compose_monthly_races(
         CompetitionType.monthly_recommendations,
         month_period,
         rec_ranked,
-        exclusion=exclusion,
     )
     pl_order = await award_order(
         db,
         CompetitionType.monthly_placements,
         month_period,
         pl_ranked,
-        exclusion=exclusion,
     )
 
     days_left = days_left_in_month(business_today())
@@ -1917,12 +1784,12 @@ async def compose_monthly_races(
                     if key not in _MARGIN_EXTRAS
                 },
                 "rank": idx + 1,
-                "excluded": r.user_id in excluded_ids,
+                "excluded": False,
             }
             for idx, r in enumerate(ranked)
         ]
         # Zakwalifikowany lider = pierwszy w kolejności nagrodowej (warunki
-        # spełnione, niewykluczony, remis rozstrzygnięty regulaminem).
+        # spełnione, remis rozstrzygnięty regulaminem).
         leader_tie = next((t for t in order.ties if 1 in t.positions), None)
         qualified = None
         if order.ordered and leader_tie is None:
@@ -1937,12 +1804,11 @@ async def compose_monthly_races(
                 "amount_pln": MONTHLY_RACE_PRIZE_PLN,
                 "name": MONTHLY_RACE_PRIZE_NAME,
             },
-            "requirements": extra_reqs
-            + ["Lider kwartalny wykluczony z nagrody miesięcznej"],
+            "requirements": extra_reqs,
             "ranking": ranking,
-            "excluded_user_ids": sorted(excluded_ids),
-            "exclusion_source": exclusion.source,
-            "exclusion_quarter": exclusion.quarter_period,
+            "excluded_user_ids": [],
+            "exclusion_source": None,
+            "exclusion_quarter": None,
             "qualified_leader": qualified,
             # Remis na 1. miejscu, którego regulamin nie rozstrzyga — o nagrodzie
             # zdecyduje admin przy zamknięciu okresu.
@@ -1958,14 +1824,12 @@ async def compose_monthly_races(
             rec_ranked,
             rec_order,
             # Na żywo liczą reguły NEXUS-a, także na wpisach DynaReportera.
-            _recommendation_requirements(thresholds, competition_history.SOURCE_NEXUS)[
-                :-1
-            ],
+            _recommendation_requirements(thresholds, competition_history.SOURCE_NEXUS),
         ),
         "placements": _format(
             pl_ranked,
             pl_order,
-            _placement_requirements(thresholds, competition_history.SOURCE_NEXUS)[:-1],
+            _placement_requirements(thresholds, competition_history.SOURCE_NEXUS),
         ),
     }
     # „X/dzień" dopisujemy DOPIERO tutaj, a nie do `extras`: `extras` trafia do
@@ -1976,6 +1840,8 @@ async def compose_monthly_races(
     return races
 
 
+# Okres zamrożony z wykluczeniem lidera (zasada do 05.11.2026) — tylko opis
+# tego, jak go rozliczono.
 _LEADER_EXCLUDED_REQUIREMENT = "Lider kwartalny wykluczony z nagrody miesięcznej"
 
 
@@ -2003,7 +1869,6 @@ def _recommendation_requirements(
             f"Wymóg: min. {int(thresholds.precision_pct)}% "
             "precision rate (rekomendacje / weryfikacje)"
         ),
-        _LEADER_EXCLUDED_REQUIREMENT,
     ]
 
 
@@ -2018,13 +1883,14 @@ def _placement_requirements(
     return [
         f"Minimum {thresholds.min_placements} "
         f"{_placements_word(thresholds.min_placements)} do kwalifikacji",
-        _LEADER_EXCLUDED_REQUIREMENT,
     ]
 
 
 def _frozen_race(period: str, frozen: "FrozenResult", requirements: list[str]) -> dict:
     """Wyścig zamkniętego miesiąca w kształcie `compose_monthly_races`."""
     excluded = set(frozen.excluded_user_ids)
+    if excluded and frozen.source != competition_history.SOURCE_DYNAREPORTER:
+        requirements = [*requirements, _LEADER_EXCLUDED_REQUIREMENT]
     ranking = [
         {
             **{k: v for k, v in entry.items() if k not in _MARGIN_EXTRAS},
@@ -2224,8 +2090,8 @@ async def _freeze_competition(
     i gdy remis na płatnym miejscu czeka na admina (`tie_pending`). Bez tego
     taki okres wyglądał na nierozliczony i autofreeze liczył go od nowa co
     godzinę przez cały następny okres. Kolejność nagrodowa idzie z
-    `award_order` — tej samej funkcji co ekran (wykluczenie lidera kwartału
-    danego miesiąca, reguły remisów). `reason` (manual | autofreeze) trafia
+    `award_order` — tej samej funkcji co ekran (kwalifikacja, reguły
+    remisów). `reason` (manual | autofreeze) trafia
     do snapshotu.
     """
     from app.models.competition_period_closure import (
@@ -2274,8 +2140,6 @@ async def _freeze_competition(
         # Progi, którymi ten okres jest rozliczany, zostają zapisane — okres
         # bez migawki (sprzed wdrożenia) dostaje progi bieżące, jak dotąd.
         await snapshot_monthly_race_thresholds(db, period)
-        # Wykluczenie lidera kwartału liczy Ligę tego kwartału (R4-16).
-        await snapshot_league_scoring_config(db, quarter_of_month(period))
     elif type_ == CompetitionType.quarterly_champions_recruiter:
         await snapshot_league_scoring_config(db, period)
     ranked = await compute_live(db, type_, period)

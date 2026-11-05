@@ -165,14 +165,14 @@ async def _winners(db, ctype: CompetitionType, period: str) -> list[CompetitionW
 _HIRED = (PipelineStage.cv_sent, PipelineStage.hired)
 
 
-# ── 1. Wykluczenie lidera kwartału danego MIESIĄCA ─────────────────────────
+# ── 1. Lider kwartału bierze nagrodę miesięczną ───────────────────────────
 
 
-async def test_freeze_excludes_leader_of_the_months_quarter() -> None:
-    """Lider Q1 nie bierze nagrody za luty — ani na ekranie, ani przy wypłacie.
+async def test_quarter_leader_wins_the_monthly_race() -> None:
+    """Lider Q1 bierze nagrodę za luty — na ekranie i przy wypłacie.
 
-    Do 22.09 wykluczenie znał tylko ekran, i to liczone z BIEŻĄCEGO kwartału
-    (dziś Q3 2026) — przy zamrożeniu lider kwartału zgarniał też wyścig.
+    Do 05.11.2026 lider Ligi kwartału był wykluczony z wyścigów miesięcznych;
+    Artur zniósł tę zasadę, wyścigi nie zależą od Ligi.
     """
     year = _year()
     period = f"{year}-02"
@@ -186,48 +186,22 @@ async def test_freeze_excludes_leader_of_the_months_quarter() -> None:
             await _pair(db, user=runner, job=job, at=_at(year, 2, day), stages=_HIRED)
         await db.commit()
 
-        exclusion = await competitions.monthly_race_excluded_user_ids(db, period)
-        assert exclusion.user_ids == frozenset({leader.id})
-        assert exclusion.quarter_period == f"Q1 {year}"
-        assert exclusion.source == "live_quarter_to_month_end"
-
         races = await competitions.compose_monthly_races(db, period)
         placements = races["placements"]
-        assert placements["excluded_user_ids"] == [leader.id]
-        assert placements["qualified_leader"]["user_id"] == runner.id
+        assert placements["excluded_user_ids"] == []
+        assert placements["qualified_leader"]["user_id"] == leader.id
+        assert not any(e["excluded"] for e in placements["ranking"])
 
         podium = await competitions.freeze_competition(
             db, CompetitionType.monthly_placements, period, reason="autofreeze"
         )
         assert podium.closure_status == "frozen"
         winners = await _winners(db, CompetitionType.monthly_placements, period)
-        assert [w.user_id for w in winners] == [runner.id]
+        assert [w.user_id for w in winners] == [leader.id]
         assert winners[0].prize_pln == competitions.MONTHLY_RACE_PRIZE_PLN
         snapshot = winners[0].frozen_snapshot
-        assert snapshot["excluded_user_ids"] == [leader.id]
+        assert snapshot["excluded_user_ids"] == []
         assert snapshot["freeze_reason"] == "autofreeze"
-        assert snapshot["exclusion_quarter"] == f"Q1 {year}"
-
-
-async def test_exclusion_prefers_the_frozen_quarter_winner() -> None:
-    year = _year()
-    async with AsyncSessionLocal() as db:
-        frozen = await _user(db, "Zamrożony zwycięzca")
-        db.add(
-            CompetitionWinner(
-                competition_type=CompetitionType.quarterly_champions_recruiter.value,
-                period=f"Q2 {year}",
-                user_id=frozen.id,
-                rank=1,
-                points=1,
-                metric_value=1,
-                prize_pln=5000,
-            )
-        )
-        await db.commit()
-        exclusion = await competitions.monthly_race_excluded_user_ids(db, f"{year}-06")
-    assert exclusion.user_ids == frozenset({frozen.id})
-    assert exclusion.source == "frozen_quarter"
 
 
 # ── 2. Termin zamknięcia: 3. dzień roboczy + dzienny import Traffita ──────
