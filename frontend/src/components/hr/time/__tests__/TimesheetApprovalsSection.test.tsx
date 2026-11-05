@@ -195,6 +195,48 @@ describe("TimesheetApprovalsSection", () => {
     );
   });
 
+  it("szkic osoby, która odeszła: „Potwierdź za osobę” wysyła decyzję dla jej raportu", async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        year: 2031,
+        month: 3,
+        norm_hours: 168,
+        items: [{ ...draftItem, can_confirm_for_person: true }],
+      },
+    });
+    mocks.post.mockResolvedValue({ data: header(304, "approved") });
+    renderSection({ is_manager: true, direct_reports: 1 });
+    fireEvent.click(await screen.findByRole("button", { name: "Potwierdź za osobę" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/hr/time/timesheets/304/confirm-for-person",
+        undefined,
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("Raport godzin potwierdzony za osobę", "success"),
+    );
+  });
+
+  it("„Potwierdź za osobę” nie ma przy pustym szkicu ani u osoby, która pracuje", async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        year: 2031,
+        month: 3,
+        norm_hours: 168,
+        items: [
+          { ...draftItem, can_confirm_for_person: true, hours: 0 },
+          { ...draftItem, user_id: 25, name: "Julia Testowa", timesheet: header(305, "draft") },
+        ],
+      },
+    });
+    renderSection({ is_manager: true, direct_reports: 1 });
+    await screen.findByText("Julia Testowa");
+    expect(screen.queryByRole("button", { name: "Potwierdź za osobę" })).toBeNull();
+    // Przypomnienie tylko u osoby w pracy: kto odszedł, nie ma konta.
+    expect(screen.getAllByRole("button", { name: "Przypomnij" })).toHaveLength(1);
+  });
+
   it("anulowany zwrot nie zostawia notatki na następne otwarcie", async () => {
     // Audyt 19.10.2026: „Anuluj” zamykał okno, a notatka zostawała i trafiała
     // do powiadomienia następnej zwracanej osoby.

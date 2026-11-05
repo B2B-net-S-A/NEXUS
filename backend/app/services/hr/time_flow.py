@@ -2,6 +2,7 @@
 
 * szkic → wysłany (co najmniej jeden wpis),
 * wysłany → zaakceptowany (zapis ``pdf_hash``),
+* szkic → zaakceptowany (osoba odeszła, akceptujący potwierdza za nią),
 * wysłany → szkic ze zwrotem (``return_note``; bez martwego ``rejected``),
 * zaakceptowany → wysłany (cofnięcie akceptacji — wiedzą o tym Płace).
 
@@ -28,6 +29,7 @@ from app.services.hr.notify import notify_each
 from app.services.hr.time_access import (
     Actor,
     approval_recipients,
+    left_company,
     users_with_permission,
 )
 from app.services.hr.time_entries import (
@@ -253,6 +255,69 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
         "PDF jest do pobrania w „Moim miesiącu”.",
         ntype=NotificationType.hr_timesheet_decided,
         link=my_month_link(timesheet.year, timesheet.month),
+    )
+    return await lock_timesheet(db, timesheet.id)
+
+
+async def confirm_for_person(
+    db: AsyncSession, *, timesheet_id: int, actor: Actor
+) -> Timesheet:
+    """Szkic osoby, która odeszła: akceptujący wysyła i potwierdza za nią.
+
+    Tylko po odejściu, także na zleceniu (decyzja Artura 05.11.2026). Konto
+    osoby jest wyłączone, więc bez dzwonka; ślad mówi, że raportu nie wysłała
+    sama. Cofnięcie jak przy zwykłej akceptacji (``revoke``).
+    """
+
+    period = await _payroll_period_shared(db, timesheet_id)
+    timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
+    if period is not None and period.status == "closed":
+        raise TimeConflict(payroll_periods.closed_detail(period.year, period.month))
+    if timesheet.status != "draft":
+        raise TimeConflict("Ten raport godzin jest już wysłany. Odśwież listę.")
+    profile = await people.profile_of(db, timesheet.user_id)
+    if profile is None or not left_company(profile):
+        raise TimeConflict("Za osobę potwierdzasz tylko raport kogoś, kto już odszedł.")
+    await sync_leave_paid(
+        db, timesheet=timesheet, employment_type=profile.employment_type
+    )
+    entries = await entries_of(db, timesheet.id)
+    if not entries:
+        raise TimeError("Raport godzin musi mieć co najmniej jeden wpis.")
+    done = await db.scalar(
+        update(Timesheet)
+        .where(
+            Timesheet.id == timesheet.id,
+            Timesheet.status == "draft",
+            Timesheet.payroll_locked.is_(False),
+            Timesheet.user_id != actor.user_id,
+        )
+        .values(
+            status="approved",
+            submitted_at=func.now(),
+            approved_by=actor.user_id,
+            approved_at=func.now(),
+            pdf_hash=hash_of(entries),
+            return_note=None,
+            returned_at=None,
+            employment_type=profile.employment_type,
+        )
+        .returning(Timesheet.id)
+    )
+    if done is None:
+        raise TimeConflict(CHANGED_DETAIL)
+    audit.record(
+        db,
+        actor_user_id=actor.user_id,
+        subject_user_id=timesheet.user_id,
+        entity_type="timesheet",
+        entity_id=timesheet.id,
+        action="timesheet_confirmed_for_person",
+        details={
+            "year": timesheet.year,
+            "month": timesheet.month,
+            **actor.cover_details(profile),
+        },
     )
     return await lock_timesheet(db, timesheet.id)
 
