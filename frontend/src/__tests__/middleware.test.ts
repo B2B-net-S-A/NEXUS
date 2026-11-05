@@ -16,7 +16,7 @@ import { NextRequest } from "next/server"
 
 import { middleware } from "@/middleware"
 
-const BASE = "https://nexus.dynaminds.pl"
+const BASE = "https://nexus.b2bnetwork.pl"
 
 function makeToken(payload: Record<string, unknown>): string {
   const b64url = (o: unknown) =>
@@ -1180,5 +1180,75 @@ describe("„Back office” (0645): /finance otwiera znacznik `fo`, nie sekcja",
   it("znacznik nie otwiera innych tras Finansów", () => {
     expect(destination("/settings/clients-overview", validBackOffice)).toBe("/403")
     expect(destination("/contracts/analytics", validBackOffice)).toBe("/403")
+  })
+})
+
+// ── Stara domena aplikacji (nexus.dynaminds.pl) ────────────────────────────
+//
+// Decyzja Artura z 05.11.2026. Od 19.10.2026 API odrzuca Origin starej domeny,
+// więc front pod nią wisiał na logowaniu. Linki z maili i CV mają dalej trafiać
+// w to samo miejsce, stąd ścieżka i parametry zostają bez zmian.
+describe("middleware — przekierowanie ze starej domeny", () => {
+  const LEGACY = "nexus.dynaminds.pl"
+
+  function legacyRedirect(
+    path: string,
+    headers: Record<string, string> = { host: LEGACY },
+    init: { method?: string } = {},
+  ) {
+    const res = middleware(
+      new NextRequest(new URL(path, `https://${LEGACY}`), { headers, ...init }),
+    )
+    return { status: res.status, location: res.headers.get("location") }
+  }
+
+  it("główna strona idzie na nową domenę", () => {
+    expect(legacyRedirect("/")).toEqual({
+      status: 307,
+      location: "https://nexus.b2bnetwork.pl/",
+    })
+  })
+
+  it("zachowuje ścieżkę i parametry: link z maila trafia w to samo miejsce", () => {
+    expect(legacyRedirect("/clients/15?tab=zamowienia&order=123").location).toBe(
+      "https://nexus.b2bnetwork.pl/clients/15?tab=zamowienia&order=123",
+    )
+  })
+
+  it("przekierowuje też publiczne linki tokenowe, bez kontroli sesji", () => {
+    for (const path of ["/cv/abc123", "/sign/abc123", "/apply/abc123", "/k/abc123"]) {
+      expect(legacyRedirect(path).location).toBe(`https://nexus.b2bnetwork.pl${path}`)
+    }
+  })
+
+  it("zna host z x-forwarded-host (Traefik) i ignoruje wielkość liter oraz port", () => {
+    expect(
+      legacyRedirect("/login", { host: "frontend:3000", "x-forwarded-host": LEGACY }).location,
+    ).toBe("https://nexus.b2bnetwork.pl/login")
+    expect(legacyRedirect("/login", { host: "NEXUS.DYNAMINDS.PL:443" }).location).toBe(
+      "https://nexus.b2bnetwork.pl/login",
+    )
+  })
+
+  it("podwójny ukośnik nie wyprowadza poza nową domenę", () => {
+    const { location } = legacyRedirect("//evil.example/x")
+    expect(new URL(location as string).hostname).toBe("nexus.b2bnetwork.pl")
+  })
+
+  it("307 zachowuje metodę POST", () => {
+    expect(legacyRedirect("/login", { host: LEGACY }, { method: "POST" }).status).toBe(307)
+  })
+
+  it("nowa domena i inne hosty nie są przekierowywane", () => {
+    const onNew = middleware(
+      new NextRequest(new URL("/login", BASE), { headers: { host: "nexus.b2bnetwork.pl" } }),
+    )
+    expect(onNew.headers.get("location")).toBeNull()
+    const local = middleware(
+      new NextRequest(new URL("/login", "http://localhost:3000"), {
+        headers: { host: "localhost:3000" },
+      }),
+    )
+    expect(local.headers.get("location")).toBeNull()
   })
 })

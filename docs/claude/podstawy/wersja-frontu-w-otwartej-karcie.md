@@ -56,6 +56,6 @@ zapominali, że mają coś kliknąć”).
   żadnej zmiany pola (sam klik) i bez okna, przepadnie przy przeładowaniu po
   minucie spokoju. Nowy ekran z takim stanem powinien trzymać go w adresie
   albo zapisywać.
-- Sprawdzenie po wdrożeniu: `curl -sI https://nexus.dynaminds.pl/login | grep -i cache-control`
+- Sprawdzenie po wdrożeniu: `curl -sI https://nexus.b2bnetwork.pl/login | grep -i cache-control`
   → `no-store`. Karty otwarte PRZED wdrożeniem tego mechanizmu nie mają go
   w sobie — potrzebują jednego ręcznego odświeżenia.
