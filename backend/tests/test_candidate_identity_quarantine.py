@@ -16,6 +16,8 @@ from app.models.index_outbox import IndexOutboxEvent
 from app.models.note import Note
 from app.models.user import User, UserRole
 from app.services import candidate_identity_quarantine as quarantine
+from app.services.cv_enrichment import _apply_cv_enrichment, normalize_llm_skills
+from app.services.proxycurl import normalize_linkedin_url
 
 
 def test_identity_match_accepts_transliterated_polish_name() -> None:
@@ -866,3 +868,289 @@ async def test_repair_clears_facts_read_from_a_foreign_document_but_not_the_poin
     assert db.added[0].operation == "delete"
     db.execute.assert_awaited_once()  # podsumowanie aktywności wyczyszczone
     assert result["cleared_fields"] >= 3
+
+
+def _silence_invalidation(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.match_score_cache.mark_stale_for_candidate", noop)
+    monkeypatch.setattr(
+        "app.services.embedding_service.delete_candidate_embedding",
+        AsyncMock(return_value=True),
+    )
+
+
+async def _clear_projection_of(candidate: SimpleNamespace) -> None:
+    await quarantine._clear_cv_projection(
+        _ProjectionDB(language_batches=[[]]),  # type: ignore[arg-type]
+        candidate=candidate,
+        extracted=dict(candidate.cv_extracted_data),
+        source_kind="document",
+        source_id=22,
+        document_filename=None,
+        document_hash=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "parsed_skills",
+    [
+        ["Python", "SQL"],
+        [{"name": "Python", "level": "SENIOR"}, {"name": " SQL "}],
+        '["Python", "SQL"]',
+        {"level": "senior", "technologies": ["Python", "SQL"]},
+    ],
+)
+@pytest.mark.asyncio
+async def test_clear_removes_skills_the_enrichment_normalized(
+    monkeypatch: pytest.MonkeyPatch, parsed_skills
+) -> None:
+    """Kolumna ma `normalize_llm_skills(x.skills)`, a odczyt zostaje surowy.
+
+    Profil 80774 (05.11.2026): `skills == x.skills` fałsz, `skills ==
+    normalize_llm_skills(x.skills)` prawda, 8 z 8 nazw wspólnych. Porównanie
+    z surowym odczytem zostawiało umiejętności innej osoby.
+    """
+    _silence_invalidation(monkeypatch)
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={"skills": parsed_skills},
+        skills=normalize_llm_skills(parsed_skills),
+    )
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.skills == []
+
+
+@pytest.mark.asyncio
+async def test_clear_keeps_skills_appended_from_notes_after_the_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Odczyt notatek dopisuje na końcu kolumny (`existing + new_items`), więc
+    początek listy to odczyt CV, a dopisek pochodzi od rekrutera."""
+    _silence_invalidation(monkeypatch)
+    from_notes = {"name": "Z notatki", "level": None}
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={"skills": ["Python", "SQL"]},
+        skills=[*normalize_llm_skills(["Python", "SQL"]), from_notes],
+    )
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.skills == [from_notes]
+
+
+@pytest.mark.asyncio
+async def test_clear_leaves_skills_that_did_not_come_from_this_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ta sama nazwa w innej kolejności nie dowodzi pochodzenia: FILL_EMPTY nie
+    nadpisuje kolumny, więc lista mogła istnieć przed odczytem."""
+    _silence_invalidation(monkeypatch)
+    own_skills = [
+        {"name": "SQL", "level": None},
+        {"name": "Python", "level": None},
+        {"name": "Java", "level": None},
+    ]
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={"skills": ["Python", "SQL"]},
+        skills=own_skills,
+    )
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.skills == own_skills
+
+
+@pytest.mark.parametrize(
+    "lock",
+    [
+        {"cv_extracted_data": {"_manual_override_skills": True}},
+        {"skills_manually_curated": True},
+    ],
+)
+@pytest.mark.asyncio
+async def test_clear_respects_manual_skill_locks(
+    monkeypatch: pytest.MonkeyPatch, lock: dict
+) -> None:
+    """Obie blokady są tak samo wiążące jak w `_apply_cv_enrichment`."""
+    _silence_invalidation(monkeypatch)
+    skills = normalize_llm_skills(["Python"])
+    extracted = {"skills": ["Python"], **lock.get("cv_extracted_data", {})}
+    candidate = _profile_with_cv_facts(cv_extracted_data=extracted, skills=skills)
+    if "skills_manually_curated" in lock:
+        candidate.skills_manually_curated = True
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.skills == skills
+
+
+@pytest.mark.asyncio
+async def test_clear_respects_manual_education_and_years_locks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _silence_invalidation(monkeypatch)
+    education = [{"school": "Poprawiona ręcznie"}]
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={
+            "education": education,
+            "years_it_experience": 7,
+            "_manual_override_education": True,
+            "_manual_override_years_it_experience": True,
+        },
+        education=education,
+        years_it_experience=7,
+    )
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.education == education
+    assert candidate.years_it_experience == 7
+
+
+@pytest.mark.asyncio
+async def test_clear_removes_education_and_years_written_unchanged_by_enrichment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_apply_cv_enrichment` zapisuje oba pola bez zmian, więc tu wystarcza
+    równość z odczytem; test pilnuje, że ten kontrakt się nie rozjedzie."""
+    _silence_invalidation(monkeypatch)
+    parsed = {"education": [{"school": "Obca"}], "years_it_experience": 9}
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={},
+        education=[],
+        skills=[],
+        years_it_experience=None,
+        experience=[],
+    )
+    _apply_cv_enrichment(candidate, parsed)
+    assert candidate.education == parsed["education"]
+    assert candidate.years_it_experience == 9
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.education == []
+    assert candidate.years_it_experience is None
+
+
+@pytest.mark.asyncio
+async def test_clear_removes_linkedin_and_email_in_the_written_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LinkedIn trafia do kolumny po `normalize_linkedin_url`, a e-mail małymi
+    literami: to ten sam rozjazd zapisu i porównania co przy umiejętnościach."""
+    _silence_invalidation(monkeypatch)
+    url = "http://www.linkedin.com/in/obca-osoba/?trk=abc"
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={"linkedin_url": url, "email": " Obca@Example.com "},
+        linkedin=normalize_linkedin_url(url),
+        email="obca@example.com",
+    )
+    assert candidate.linkedin != url
+
+    await _clear_projection_of(candidate)
+
+    assert candidate.linkedin is None
+    assert candidate.email is None
+
+
+def _foreign_side_file() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=22,
+        filename="inny.pdf",
+        storage_key="klucz",
+        content_sha256="c" * 64,
+        is_primary=False,
+    )
+
+
+async def _human_marks_side_file(
+    monkeypatch: pytest.MonkeyPatch, candidate: SimpleNamespace, file_text: str
+) -> None:
+    document = _foreign_side_file()
+    monkeypatch.setattr(
+        "app.services.object_storage.download_cv", lambda _key: b"bajty"
+    )
+    monkeypatch.setattr(
+        "app.services.cv_backfill._extract_text_from_bytes",
+        AsyncMock(return_value=file_text),
+    )
+    db = _ProjectionDB(document, candidate.raw_cv_text, None, candidate, document)
+    db.execute = AsyncMock()
+    await quarantine.mark_confirmed_mismatch(
+        db,  # type: ignore[arg-type]
+        candidate_id=11,
+        source_kind="document",
+        source_id=22,
+        actor_id=7,
+        provenance="test",
+    )
+
+
+@pytest.mark.asyncio
+async def test_human_mark_clears_facts_when_profile_text_comes_from_a_side_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Profile 6502 i 80774 (05.11.2026): plik nie był główny, odczyt nie miał
+    `source_document_id`, a tekst CV w profilu był tekstem tego pliku. Bez tego
+    dowodu oznaczenie cudzego pliku zostawiało w profilu wszystkie fakty."""
+    _silence_invalidation(monkeypatch)
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={"skills": ["Python"], "cv_highlights": {}},
+        raw_cv_text="Tekst CV  innej\nosoby",
+        skills=normalize_llm_skills(["Python"]),
+    )
+
+    await _human_marks_side_file(monkeypatch, candidate, "tekst cv innej osoby")
+
+    assert candidate.raw_cv_text is None
+    assert candidate.skills == []
+
+
+@pytest.mark.asyncio
+async def test_human_mark_keeps_profile_when_its_text_comes_from_another_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _forbid_invalidation(monkeypatch)
+    skills = normalize_llm_skills(["Python"])
+    candidate = _profile_with_cv_facts(
+        cv_extracted_data={"skills": ["Python"], "cv_highlights": {}},
+        skills=skills,
+    )
+
+    await _human_marks_side_file(monkeypatch, candidate, "zupełnie inny tekst")
+
+    assert candidate.raw_cv_text == "tekst CV właściwej osoby"
+    assert candidate.skills == skills
+
+
+@pytest.mark.asyncio
+async def test_unreadable_file_does_not_block_the_human_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Awaria magazynu nie jest dowodem pochodzenia ani powodem, by nie zapisać
+    decyzji człowieka: plik trafia do kwarantanny, a fakty zostają."""
+    _forbid_invalidation(monkeypatch)
+
+    def broken(_key: str) -> bytes:
+        raise OSError("magazyn niedostępny")
+
+    candidate = _profile_with_cv_facts(cv_extracted_data={"cv_highlights": {}})
+    document = _foreign_side_file()
+    monkeypatch.setattr("app.services.object_storage.download_cv", broken)
+    db = _ProjectionDB(document, candidate.raw_cv_text, None, candidate, document)
+    db.execute = AsyncMock()
+
+    row = await quarantine.mark_confirmed_mismatch(
+        db,  # type: ignore[arg-type]
+        candidate_id=11,
+        source_kind="document",
+        source_id=22,
+        actor_id=7,
+        provenance="test",
+    )
+
+    assert row.decision == "confirmed_mismatch"
+    assert candidate.raw_cv_text == "tekst CV właściwej osoby"

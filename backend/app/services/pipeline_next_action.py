@@ -46,6 +46,7 @@ Owner = Literal["recruiter", "review", "client", "candidate", "delivery", "none"
 InterviewPhase = Literal[
     "awaiting_recruiter_pick",
     "awaiting_dl_confirm",
+    "slots_expired",
     "scheduled",
     "debrief_due",
     "debriefed",
@@ -225,6 +226,8 @@ def _phase_action(phase: str, interview_date: Optional[str]) -> tuple[str, str, 
         return ("Wybierz termin rozmowy", "normal", "client")
     if phase == "awaiting_dl_confirm":
         return ("Potwierdź termin u klienta", "normal", "client")
+    if phase == "slots_expired":
+        return ("Terminy minęły — nowe od klienta", "normal", "client")
     if phase == "scheduled":
         day = _day_month(interview_date)
         label = (
@@ -328,8 +331,9 @@ def _owner(
     if _phase_applies(col, group, interview_phase):
         if interview_phase in _RECRUITER_PHASES:
             return "recruiter"
-        if interview_phase == "awaiting_dl_confirm":
-            # Termin potwierdza Delivery Lead u klienta — „Delivery” na karcie.
+        if interview_phase in ("awaiting_dl_confirm", "slots_expired"):
+            # Termin potwierdza i nowe bierze od klienta Delivery Lead — „Delivery”
+            # na karcie.
             return "delivery"
     if days >= NUDGE_DAYS:
         return "recruiter"

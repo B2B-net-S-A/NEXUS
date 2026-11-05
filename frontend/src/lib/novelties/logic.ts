@@ -298,6 +298,8 @@ const START_FREE_PREFIXES = [
   "/login",
   "/onboarding",
   "/settings/nowosci",
+  // Sam odczyt liczb na telefonie; przeklikania Startu i tak robi się na laptopie.
+  "/podglad",
 ];
 
 /** Czy ekran jest dostępny przed zaliczeniem Startu. */

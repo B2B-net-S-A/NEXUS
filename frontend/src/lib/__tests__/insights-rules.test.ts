@@ -40,8 +40,8 @@ describe("Insights → Zasady", () => {
 
   it("zakładka stoi między Źródłami a Raportami", () => {
     const tabs = getVisibleInsightTabIds(user("admin"));
-    expect(tabs.indexOf("zasady")).toBe(tabs.indexOf("raporty") - 1);
     expect(tabs.indexOf("zasady")).toBe(tabs.indexOf("zrodla") + 1);
+    expect(tabs.indexOf("zasady")).toBeLessThan(tabs.indexOf("raporty"));
   });
 
   it("administrator widzi wszystkie dziewięć zasad", () => {

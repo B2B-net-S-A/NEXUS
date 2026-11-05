@@ -125,7 +125,7 @@ export function SlotRequestDialog({
       setSlots([{ value: nextWorkdayAt(10, 1) }, { value: nextWorkdayAt(14, 2) }]);
     }
     setDuration(request?.duration_minutes ?? 60);
-    setRespondBy(request?.respond_by ? isoToLocalInput(request.respond_by) : "");
+    setRespondBy(request?.respond_by && !request.expired ? isoToLocalInput(request.respond_by) : "");
     setNote(request?.note ?? "");
     setError(null);
     setOpenRequestId(null);

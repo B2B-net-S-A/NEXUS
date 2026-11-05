@@ -10,6 +10,7 @@ import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/sess
 import { ssoErrorMessage } from "@/lib/sso-error";
 import { saveSsoBrowserNonce, saveSsoNextPath } from "@/lib/sso-browser-nonce";
 import { safeInternalPath } from "@/lib/safe-href";
+import { loginGreeting } from "@/lib/login-greeting";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ function LoginForm() {
   // zaraz zniknie pod nim wraz z przekierowaniem.
   const [checkingSession, setCheckingSession] = useState(false);
   const [methods, setMethods] = useState<AuthMethods>(LOCKED_DOWN);
+  const [{ greeting, date }] = useState(() => loginGreeting(new Date()));
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
@@ -244,14 +246,20 @@ function LoginForm() {
 
   return (
     <AuthShell
-      heading="Zaloguj się do Nexus"
-      subtitle="Twój pipeline rekrutacyjny w jednym miejscu."
+      heading={greeting}
+      largeHeading
+      subtitle={
+        <>
+          <span className="block">{date}</span>
+          <span className="block">Zaloguj się do NEXUSA</span>
+        </>
+      }
     >
       {/*
         Banery (wygasła sesja / błąd SSO) są POZA formularzem — muszą być
         widoczne także gdy logowanie hasłem jest wyłączone i formularza nie ma.
       */}
-      <div className="space-y-4">
+      <div className="mb-4 space-y-4 empty:hidden">
             {infoMessage && !error && (
               <div
                 role="status"
@@ -275,14 +283,14 @@ function LoginForm() {
       {checkingSession && (
         <p
           role="status"
-          className="pt-6 text-center text-sm text-muted-foreground"
+          className="text-sm text-muted-foreground"
         >
           Sprawdzam zapisaną sesję…
         </p>
       )}
 
       {!checkingSession && methods.password && (
-          <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <FormField label="Email" htmlFor="login-email" required>
               <Input
                 id="login-email"
@@ -331,7 +339,7 @@ function LoginForm() {
               <div className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-2 text-muted-foreground">lub</span>
+              <span className="bg-background px-2 text-muted-foreground">lub</span>
             </div>
           </div>
       )}
@@ -346,7 +354,7 @@ function LoginForm() {
             className={
               methods.password
                 ? "w-full min-h-11 sm:min-h-10 flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                : "mt-6 w-full flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                : "w-full flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             }
           >
             <svg
@@ -365,7 +373,7 @@ function LoginForm() {
       )}
 
       {checkingSession ? null : methods.self_registration ? (
-          <p className="text-center text-sm text-muted-foreground pt-5">
+          <p className="text-sm text-muted-foreground pt-5">
             Nie masz konta?{" "}
             <Link
               href="/register"
@@ -376,7 +384,7 @@ function LoginForm() {
           </p>
       ) : (
           // Narzędzie wewnętrzne — kont nie zakłada się samodzielnie.
-          <p className="text-center text-xs text-muted-foreground pt-5">
+          <p className="text-xs text-muted-foreground pt-5">
             Dostęp wyłącznie dla zespołu B2B.net. Konta zakłada administrator.
           </p>
       )}

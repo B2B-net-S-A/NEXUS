@@ -9,7 +9,8 @@ nikt nigdy nie zmienił.
 Kod: `components/insights/views/ZasadyView.tsx`, `lib/insights-rules.ts`,
 `api/insights_rules.py`, `services/insights_rules_overview.py`.
 
-- **Miejsce:** zakładka między Źródłami a Raportami. Widzą administrator i Head of
+- **Miejsce:** zakładka między Źródłami a Raportami, kolejność Źródła, Zasady, Wnioski, Raporty
+  (test „Wniosków” wymaga, żeby stały tuż przed Raportami). Widzą administrator i Head of
   Recruitment, lustro `RULES_ROLES` i `HeadOfRecruitmentPlus`.
 - **Pozycje zostają też w Ustawieniach.** To jeden komponent w dwóch miejscach. Delivery
   Lead czyta Ranking, Prepy i Bliźniaki wyłącznie w Ustawieniach, a usunięcie ich stamtąd
@@ -39,5 +40,5 @@ Kod: `components/insights/views/ZasadyView.tsx`, `lib/insights-rules.ts`,
 - **Staging:** panel automatu pokazuje tam „Wyłączony”, bo `RECRUITMENT_ALLOCATION_ENABLED`
   jest wyłączone, choć w bazie jest `auto`. Przegląd pisze to samo, bo czyta
   `effective_allocation_mode`.
-- **Pasek zakładek przy 1280 × 720** mieści się w jednym rzędzie tylko przy zwężonych
-  odstępach. Następna zakładka zrzuci tytuł „Insights” do osobnego wiersza (46 px).
+- **Pasek zakładek przy 1280 × 720:** dziewięć zakładek konta z Mój miesiąc mieści się w jednym
+  rzędzie tylko przy zwężonych odstępach. Następna zrzuci tytuł „Insights” do osobnego wiersza (46 px).

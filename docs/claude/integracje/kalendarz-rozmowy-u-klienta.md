@@ -115,5 +115,23 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   a wniosek miał terminy jeszcze do 5 dni po zamknięciu. Anuluje
   `transition_process` przy etapie `rejected` i `withdrawn`, więc obejmuje ruch
   z Tablicy, ruchy zbiorcze i CPro. Przywrócona karta dostaje nowe terminy nowym
-  wnioskiem. Potwierdzony termin zostaje, a „Akceptacja” i „Zatrudniony” wniosku
-  nie zamykają. Stare wiersze: `scripts/cancel_open_slots_on_closed_cards.py`.
+  wnioskiem. Potwierdzony termin zostaje. Od tej samej daty wniosek anuluje też
+  ruch dalej niż rozmowa („Akceptacja”, „Negocjacje”, „Onboarding”, „Zatrudniony”).
+  Stare wiersze: `scripts/cancel_open_slots_on_closed_cards.py`.
+- **Wszystkie terminy minęły = DL dodaje nowe, rekruter nie ma zadania** (decyzja
+  Artura 04.11.2026). Wybór takiego terminu kończył się 422, interfejs nie ma
+  anulowania, więc „Wybierz termin” i „Potwierdź” wisiały bez końca: 6 z 15 otwartych
+  wniosków na kopii z 03.11. Stan liczą `interview_cycle.slots_lapsed` (wniosek
+  otwarty, `all_slots_past`, okno klienta żyje do `window_end`) i `needs_new_slots`.
+  DL dostaje zadanie `slots_expired`, krok „Terminy” jest po terminie, a odznaka
+  mówi „Terminy minęły · czeka na DL”. Zadania nie ma na karcie zamkniętej i po
+  rozmowie ani gdy po wniosku rozmowa się odbyła albo jest zaplanowana (termin
+  ustalono poza wnioskiem). Taki wniosek nie blokuje nowego
+  (`_cancel_lapsed_request`, także dla klienta w panelu) ani follow-upu z kandydatem.
+- **Zamknięta rekrutacja gasi otwarty wniosek w odczycie** (decyzja Artura
+  04.11.2026): `load_snapshots` go pomija, wiersz zostaje bez zmian. Debrief i prep
+  zostają zadaniami, nie ma „Brak terminów” ani „Uzupełnij pytania”.
+- **Zamknięta karta z rozmową bez debriefu** ma odznakę „Debrief niezapisany”
+  (`debrief_missing`, decyzja Artura 04.11.2026), nie czerwone „Zadzwoń”. Nikt już
+  do tej osoby nie dzwoni, a ekran „Rozmowy u klienta” takiej pary nie pokazuje.
+  „Zapisz debrief” zostaje w doku, bo pytania klienta mają wartość dla następnych.

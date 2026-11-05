@@ -1381,6 +1381,15 @@ except Exception as _access_usage_schema_err:  # noqa: BLE001
     print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
     _ACCESS_USAGE_TABLE_DDL = []
 
+# 0647: decyzje z zakładki „Wnioski” (`app/services/insight_decisions_schema.py`).
+try:
+    from app.services import insight_decisions_schema as _insight_decisions_schema
+
+    _INSIGHT_DECISIONS_TABLE_DDL = list(_insight_decisions_schema.TABLE_DDL)
+except Exception as _insight_decisions_schema_err:  # noqa: BLE001
+    print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
+    _INSIGHT_DECISIONS_TABLE_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
@@ -7011,6 +7020,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_NOVELTY_TABLE_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
+    # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
+    *_INSIGHT_DECISIONS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -9228,6 +9239,29 @@ SELECT 'job', id, 'archived',
     "TRUE, FALSE, 'manual', NOW(), NOW() "
     "FROM pipeline_templates t "
     "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0646 — jednorazowo: sześć powodów, które zespół wpisywał ręcznie pod
+    # „Inne” (decyzja Artura 04.11.2026), w każdym szablonie, tuż przed „Inne”.
+    # Marker w tym samym statemencie, jak 0484. Lustro migracji (pilnuje
+    # `test_frequent_rejection_reasons.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('frequent_rejection_reasons_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, k.name, 'rejected'::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = 'rejected' "
+    "AND r.name = 'Inne (rejected)' LIMIT 1), 99), "
+    "TRUE, FALSE, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "CROSS JOIN (VALUES (1, 'not_looking_for_work'), (2, 'client_conflict'), "
+    "(3, 'contract_form'), (4, 'no_contact'), (5, 'client_no_reason'), "
+    "(6, 'client_chose_other')) AS k(pos, name) "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają

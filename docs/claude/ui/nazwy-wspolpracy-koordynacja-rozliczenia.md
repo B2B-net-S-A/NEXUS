@@ -28,6 +28,10 @@ z `ludzie/modul-ludzie-dostep-schemat-i-przelaczenie.md`.
 | P0 ultrapilne teraz | Pilne u klientów |
 | Rytm dnia, Za mało pracy | Aktywność w NEXUSIE, Niska aktywność |
 
+Na pasku zakładek Insights „Aktywność w NEXUSIE” ma od 04.11.2026 skrót „Aktywność”,
+bo przy 1280 px pełna nazwa spychała zakładki pod nagłówek. Ekran zakładki i pomoc
+zostają przy pełnej nazwie.
+
 „Administracja współpracy” jest w liczbie pojedynczej, więc „widzi”, „ustawi”,
 „poproś Administrację współpracy”. Bez tej odmiany wychodzą błędy typu
 „Administracja współpracy widzą”.

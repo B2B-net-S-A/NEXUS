@@ -14,6 +14,19 @@
     "dot_anchor": "insights.tabs.rules"
   },
   {
+    "id": "zakladka-wnioski",
+    "title": "Zakładka „Wnioski”: co się powtarza i decyzja, co z tym zrobić",
+    "why": "NEXUS pokazuje, co się powtarza w pracy zespołu i odmowach klientów, i pyta o decyzję: tak, nie teraz albo nie. Po 30 dniach widać, czy zmiana pomogła.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "pr": 3042,
+    "audience": { "roles": ["head_of_recruitment", "admin"] },
+    "where": "Insights → Wnioski",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.wnioski"
+  },
+  {
     "id": "zmien-termin-rozmowy",
     "title": "„Zmień termin” przy rozmowie u klienta",
     "why": "Klient przełożył rozmowę? Zmieniasz jej termin wprost w panelu kandydata, tak jak prep. Prepy, telefon i debrief zostają przy tej rozmowie, a rekruter i Delivery Lead dostają powiadomienie.",

@@ -289,7 +289,7 @@ export function CandidateCycleCard({
         <div className="rounded-lg bg-muted/50 p-3 text-xs">
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className="font-semibold text-foreground">Terminy od klienta</span>
-            {canManageSlots ? (
+            {canManageSlots && !req.expired ? (
               <button
                 type="button"
                 data-tour="calendar.slots.change"
@@ -300,7 +300,10 @@ export function CandidateCycleCard({
               </button>
             ) : null}
           </div>
-          <ul className="space-y-0.5">
+          {req.expired ? (
+            <p className="mb-1 font-medium text-warning-muted-foreground">Wszystkie terminy minęły.</p>
+          ) : null}
+          <ul className={cn("space-y-0.5", req.expired && "text-muted-foreground line-through")}>
             {req.slots.map((s, i) => (
               <li key={s.start} className={cn(i === req.chosen_index && "font-semibold text-primary")}>
                 {formatSlot(s)}

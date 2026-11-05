@@ -66,8 +66,18 @@ _TERMINAL_STAGES = {
     PipelineStage.withdrawn,
 }
 
-# Karta w kolumnie „Zamknięci” (`interview_cycle._CLOSED_STAGES`).
-_CLOSED_CARD_STAGES = {PipelineStage.rejected, PipelineStage.withdrawn}
+# Karta w kolumnie „Zamknięci” albo już po rozmowie u klienta: wniosek o terminy
+# nie ma tu po co czekać (`interview_cycle._CLOSED_STAGES`, `_PAST_INTERVIEW_STAGES`).
+SLOT_REQUEST_ENDING_STAGES = frozenset(
+    {
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+        PipelineStage.acceptance,
+        PipelineStage.negotiation,
+        PipelineStage.onboarding,
+        PipelineStage.hired,
+    }
+)
 
 # Stopnie, które `assignment_milestone_counts` faktycznie zlicza — tylko one
 # mogą unieważnić memo progresu otwarte przez `milestone_counts_scope`.
@@ -1188,7 +1198,7 @@ async def transition_process(
         await record_accepted_verification(
             db, stage=stage_row, verifier_user_id=actor_user_id, process=process
         )
-    if stage_row.stage in _CLOSED_CARD_STAGES:
+    if stage_row.stage in SLOT_REQUEST_ENDING_STAGES:
         await interview_slots.cancel_open_for_pair(
             db, candidate_id=candidate_id, job_id=job_id
         )

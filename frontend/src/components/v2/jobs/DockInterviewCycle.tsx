@@ -69,10 +69,12 @@ export function DockInterviewCycle({
   const [viewDebrief, setViewDebrief] = useState(false);
   const debrief = badge.debrief ?? null;
   const slotRequest = badge.slot_request ?? null;
-  const canPickSlot = slotRequest?.status === "awaiting_recruiter";
+  const slotsExpired = slotRequest?.expired === true;
+  const canPickSlot = slotRequest?.status === "awaiting_recruiter" && !slotsExpired;
   // Termin potwierdza osoba z prawem do terminów od klienta (ta sama, która je
   // dodaje) — przycisk „Terminy od klienta” jest tym samym sygnałem.
-  const canConfirmSlot = slotRequest?.status === "awaiting_dl" && Boolean(onAddClientSlots);
+  const canConfirmSlot =
+    slotRequest?.status === "awaiting_dl" && !slotsExpired && Boolean(onAddClientSlots);
   // Prep z oceną (także „niedostępna”) — okno mówi, co z niej wynika.
   const reviewedPreps = (badge.preps ?? []).filter((p) => p.review_status != null);
   // „Przełóż” (prep po rozmowie), „Zmień” i „Odwołaj” otwierają to samo okno.
@@ -185,7 +187,7 @@ export function DockInterviewCycle({
         latePrepId ||
         canPickSlot ||
         canConfirmSlot ||
-        (slotsOpen && onAddClientSlots && !slotRequest)) ? (
+        (slotsOpen && onAddClientSlots && (!slotRequest || slotsExpired))) ? (
         <div className="flex flex-wrap gap-2 pt-0.5">
           {canPickSlot ? (
             <button
@@ -234,13 +236,18 @@ export function DockInterviewCycle({
               Zaplanuj Prep {nextPrep}
             </button>
           ) : null}
-          {slotsOpen && onAddClientSlots && !slotRequest ? (
+          {slotsOpen && onAddClientSlots && (!slotRequest || slotsExpired) ? (
             <button
               type="button"
               onClick={onAddClientSlots}
-              className="h-8 rounded-md border border-border bg-card px-3 text-xs font-semibold hover:bg-muted"
+              className={cn(
+                "h-8 rounded-md px-3 text-xs font-semibold",
+                slotsExpired
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "border border-border bg-card hover:bg-muted",
+              )}
             >
-              Terminy od klienta
+              {slotsExpired ? "Dodaj nowe terminy" : "Terminy od klienta"}
             </button>
           ) : null}
         </div>

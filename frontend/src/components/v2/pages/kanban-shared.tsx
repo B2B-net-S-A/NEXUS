@@ -377,6 +377,10 @@ export interface KanbanItem {
 export type InterviewBadgeKind =
  | "call_due"
  | "choose_slot"
+ // 04.11.2026: wszystkie terminy minęły, ruch ma DL.
+ | "slots_expired"
+ // 04.11.2026: zamknięta karta z rozmową bez debriefu — bez „Zadzwoń”.
+ | "debrief_missing"
  | "awaiting_dl"
  // 0370: prepy w Teams — przypomnienie, nie bramka.
  | "prep_weak"
