@@ -6,7 +6,7 @@ Lidze ani wyścigach. Admin dodaje taką parę (kandydat, rekrutacja) w
 Ustawieniach → System → Wykluczone placementy, z powodem.
 
 - Działa przez tę samą tabelę `placement_exclusions` co reguła serii (0343),
-  powód `manual` (0650). Historia etapów zostaje.
+  powód `manual` (0651). Historia etapów zostaje.
 - Tylko wykluczenie `manual` da się przywrócić. Wykluczeń z reguły ekran nie
   zdejmuje, bo reguła dodałaby je z powrotem.
 - Para musi mieć etap „Zatrudniony”, inaczej 422: pomyłka w numerach nie

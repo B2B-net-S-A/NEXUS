@@ -415,7 +415,7 @@ async def test_custom_metric_hired_for_me_credits_the_verifier(app_client):
     assert as_mover.json()["value"] == 0.0
 
 
-# ── Ręczne wykluczenie (0650) ────────────────────────────────────────────────
+# ── Ręczne wykluczenie (0651) ────────────────────────────────────────────────
 
 
 @needs_db

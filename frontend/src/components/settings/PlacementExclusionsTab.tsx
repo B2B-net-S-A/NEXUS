@@ -7,7 +7,7 @@
  * placement w żadnej statystyce: Insights, Rada, KPI, wyścigi, pulpity,
  * raporty, kreator metryk, kampanie, ścieżka rozwoju, Hall of Fame.
  * Większość powstaje regułą (serwer, `services/placement_exclusions.py`).
- * Od 05.11.2026 (0650) admin wyklucza tu też pojedynczą parę ręcznie, z
+ * Od 05.11.2026 (0651) admin wyklucza tu też pojedynczą parę ręcznie, z
  * powodem — np. osoba nie podjęła pracy — i tylko taką może przywrócić.
  * Historia etapów kandydata zostaje nietknięta.
  */

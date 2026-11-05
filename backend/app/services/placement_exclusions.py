@@ -61,7 +61,7 @@ SERIES_TZ = "Europe/Warsaw"
 
 REASON_NO_CV = "admin_bulk_no_cv"
 REASON_2025_09_SERIES = "admin_bulk_2025_09_series"
-# 0650 (decyzja Artura 05.11.2026): admin wyklucza parę ręcznie, gdy osoba nie
+# 0651 (decyzja Artura 05.11.2026): admin wyklucza parę ręcznie, gdy osoba nie
 # podjęła pracy albo klient zakończył współpracę zaraz po starcie. Jedyny
 # powód, który admin może też zdjąć — reguła wyżej nigdy nie zdejmuje.
 REASON_MANUAL = "manual"
@@ -212,7 +212,7 @@ TABLE_DDL: tuple[str, ...] = (
 
 _REASONS_SQL = ", ".join(f"'{reason}'" for reason in REASONS)
 
-# 0650: powód ręczny. Osobno od ``TABLE_DDL`` (to zostaje definicją 0343),
+# 0651: powód ręczny. Osobno od ``TABLE_DDL`` (to zostaje definicją 0343),
 # idempotentne — entrypoint uruchamia je przy każdym starcie.
 REASON_CHECK_DDL: tuple[str, ...] = (
     "ALTER TABLE placement_exclusions "
@@ -495,7 +495,7 @@ async def list_exclusions(db: AsyncSession) -> list[dict[str, Any]]:
     return out
 
 
-# ── Ręczne wykluczenie (0650) ────────────────────────────────────────────────
+# ── Ręczne wykluczenie (0651) ────────────────────────────────────────────────
 
 
 class ManualExclusionError(Exception):

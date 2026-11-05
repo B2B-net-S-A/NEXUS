@@ -2,7 +2,7 @@
 
 Wyłącznie admin (admin ma dostęp do każdej sekcji, więc trasy spełniają
 kontrakt bramki sekcji). Większość wykluczeń powstaje regułą, a reguła i jej
-uzasadnienie żyją w ``app/services/placement_exclusions.py``. Od 0650
+uzasadnienie żyją w ``app/services/placement_exclusions.py``. Od 0651
 (decyzja Artura 05.11.2026) admin dodaje też pojedynczą parę ręcznie, z
 powodem, i tylko takie wykluczenie może zdjąć.
 """
