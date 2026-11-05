@@ -29,6 +29,13 @@ pomiar na tym harnessie.
   jej `min-content` i ostatni przycisk wystawał poza nią (11 px u admina). Pilnuje
   `min-w-max` z `TOPBAR_ACTIONS_CLASS`, nowa ikona nie musi o tym pamiętać.
 
+- **Ścieżka chowa się cała, zamiast ucinać się do litery (05.11.2026).** Rekruter ma
+  przy 1280 px na okruszki 63 px i widział „K.” albo „Kandy…”. Okruszek, który nie
+  mieści się cały, spada do ukrytego wiersza (pusty pierwszy element w `BreadcrumbTrail`),
+  a nazwa ekranu i tak stoi w treści strony. Skraca się tylko nazwa ponad sufitem 11rem.
+  Przez to przy 1280 px Delivery Lead zwykle nie ma też tytułu rekrutacji w ścieżce; numer
+  i tytuł są w nagłówku rekrutacji.
+
 Pilnuje `e2e/responsive-preview.spec.ts` („górny pasek”, projekt `preview-chromium`):
 „+” cały w oknie i klikalny przy 1280, 1366 i 1536 px, w tym na pasku „wszystko
 naraz”, a ostatnia ikona po przewinięciu jest osiągalna. Replika paska w harnessie

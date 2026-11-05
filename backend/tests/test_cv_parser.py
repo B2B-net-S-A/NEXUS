@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -457,11 +457,51 @@ def test_split_name_handles_polish_diacritics():
     assert last == "Żółty"
 
 
+def test_split_name_skips_line_of_common_cv_words():
+    cv = "Doświadczenie Zawodowe\nJan Kowalski\nj@x.com"
+    assert cvp._split_name_from_header(cv) == ("Jan", "Kowalski")
+
+
+def test_split_name_returns_none_when_only_common_cv_words():
+    cv = "Technical Skills\nWORK EXPERIENCE\nWarsaw, Poland"
+    assert cvp._split_name_from_header(cv) == (None, None)
+
+
+def test_split_name_keeps_surname_that_is_also_a_common_word():
+    # Jedno rzadkie słowo wystarcza: odrzucamy tylko linię z samych częstych słów.
+    assert cvp._split_name_from_header("Anna Test\nj@x.com") == ("Anna", "Test")
+    # „Jan” to też skrót stycznia, ale to przede wszystkim imię.
+    assert cvp._split_name_from_header("Jan Test\nj@x.com") == ("Jan", "Test")
+
+
+def test_contact_fallback_leaves_name_empty_when_header_is_only_common_words():
+    parsed = {"first_name": None, "last_name": None, "_confidence": {}}
+    out = cvp._apply_contact_fallbacks(parsed, "Work Experience\nProject Manager")
+    assert out["first_name"] is None
+    assert out["last_name"] is None
+
+
 def test_split_name_returns_none_when_no_capitalized_pair():
     cv = "lorem ipsum\ndolor sit amet"
     first, last = cvp._split_name_from_header(cv)
     assert first is None
     assert last is None
+
+
+def test_apply_contact_fallbacks_drops_empty_field_phrase_from_model():
+    # Model zwracał tekst pustego pola jako imię i nazwisko (27 profili z `?`).
+    cv = "Anna Nowak\nanna@example.com\n"
+    parsed = {"first_name": "Not", "last_name": "Provided"}
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    assert (out["first_name"], out["last_name"]) == ("Anna", "Nowak")
+
+
+def test_apply_contact_fallbacks_leaves_no_name_when_cv_has_none():
+    cv = "Not Provided\n10 years of backend work\n"
+    parsed = {"first_name": "not provided", "last_name": "NOT PROVIDED"}
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    assert not out.get("first_name")
+    assert not out.get("last_name")
 
 
 def test_apply_contact_fallbacks_fills_only_missing_slots():
@@ -484,6 +524,57 @@ def test_apply_contact_fallbacks_fills_only_missing_slots():
     assert out["_confidence"]["first_name"] == 0.95  # LLM-provided preserved
     assert out["_confidence"].get("last_name") == 0.6
     assert out["_confidence"].get("email") == 0.9
+
+
+@pytest.mark.parametrize(
+    ("first_name", "last_name"),
+    [(None, None), ("Jan", None), (None, "Kowalski")],
+)
+def test_name_filled_from_header_is_marked(first_name, last_name):
+    # Pewność 0,6 tego nie niesie: model ustawia `_confidence` także dla pustego
+    # pola, a `setdefault` zostawia jego wartość (na produkcji 26 profili ma 0,0).
+    parsed = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "_confidence": {"first_name": 0.0, "last_name": 0.0},
+    }
+
+    out = cvp._apply_contact_fallbacks(parsed, "Jan Kowalski\njan@example.com")
+
+    assert (out["first_name"], out["last_name"]) == ("Jan", "Kowalski")
+    assert out["_name_from_header"] is True
+
+
+def test_name_from_the_model_is_not_marked():
+    out = cvp._apply_contact_fallbacks(
+        {"first_name": "Jan", "last_name": "Kowalski"}, "Anna Nowak\n"
+    )
+
+    assert "_name_from_header" not in out
+
+
+def test_empty_name_with_no_header_match_is_not_marked():
+    out = cvp._apply_contact_fallbacks({"first_name": None}, "doswiadczenie\n")
+
+    assert out["first_name"] is None
+    assert "_name_from_header" not in out
+
+
+def test_regex_read_marks_the_name_it_took_from_the_header():
+    assert cvp._regex_fallback("Jan Kowalski\n")["_name_from_header"] is True
+
+
+@pytest.mark.asyncio
+async def test_marker_survives_parse_cv_when_the_model_leaves_the_name_empty():
+    with patch.object(
+        cvp,
+        "_parse_with_claude",
+        AsyncMock(return_value={"first_name": None, "last_name": None}),
+    ):
+        out = await cvp.parse_cv("Fikcyjny Inzynier\nPython\n")
+
+    assert (out["first_name"], out["last_name"]) == ("Fikcyjny", "Inzynier")
+    assert out["_name_from_header"] is True
 
 
 @pytest.mark.asyncio

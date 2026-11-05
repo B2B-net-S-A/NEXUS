@@ -11,6 +11,7 @@ Pokrywa:
 - tożsamość z Traffita przechodzi na ocalałego; oba z Traffita się scalają
   (Traffit wyłączony 14.10.2026), oba z innego żywego systemu = 409;
 - odcisk: rozjazd = 409; ten sam kandydat = 422; rekruter = 403;
+- ocalały zachowuje główne CV, a podgląd pokazuje plik, gdy główne się zmienia;
 - Historia zdarzeń bez imion i nazwisk.
 """
 
@@ -573,9 +574,141 @@ async def test_two_primary_cvs_both_survive_merge_with_one_primary(
             "nowe.pdf",
             "stare.pdf",
         ]
-        assert [d.filename for d in docs if d.is_primary] == ["nowe.pdf"]
+        assert [d.filename for d in docs if d.is_primary] == ["stare.pdf"]
         shas = [d.content_sha256 for d in docs if d.filename.startswith("kopia")]
         assert shas.count(same_sha) == 1
+
+
+async def _primary_doc(candidate_id: int, filename: str, *, at: datetime) -> int:
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    async with AsyncSessionLocal() as db:
+        doc = CandidateDocument(
+            candidate_id=candidate_id,
+            filename=filename,
+            storage_key=f"cv/t/{uuid.uuid4().hex}.pdf",
+            document_kind=CandidateDocumentKind.cv,
+            is_primary=True,
+            created_at=at,
+            updated_at=at,
+        )
+        db.add(doc)
+        await db.commit()
+        return doc.id
+
+
+async def _primary_filenames(candidate_id: int) -> list[str]:
+    from app.models.candidate_document import CandidateDocument
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(CandidateDocument.filename).where(
+                        CandidateDocument.candidate_id == candidate_id,
+                        CandidateDocument.is_primary.is_(True),
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_merge_keeps_survivor_primary_cv_when_duplicate_row_is_newer(
+    app_client: AsyncClient,
+):
+    """05.11.2026: data wiersza to data importu, nie wersja CV.
+
+    Nowszy wiersz duplikatu zabierał flagę: ocalały dostawał CV bez danych
+    osobowych albo starszą wersję, a podgląd tego nie pokazywał. Generator
+    i paczka CV brały potem ten plik.
+    """
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    now = datetime.now(timezone.utc)
+    kept = await _primary_doc(survivor, "ocalaly.pdf", at=now - timedelta(days=30))
+    await _primary_doc(duplicate, "duplikat.pdf", at=now)
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["primary_cv"]["changes"] is False
+    assert plan["primary_cv"]["after"]["document_id"] == kept
+
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 200, resp.text
+    assert await _primary_filenames(survivor) == ["ocalaly.pdf"]
+
+
+async def test_merge_preview_shows_duplicate_primary_cv_when_survivor_has_none(
+    app_client: AsyncClient,
+):
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    incoming = await _primary_doc(
+        duplicate, "duplikat.pdf", at=datetime.now(timezone.utc)
+    )
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["primary_cv"] == {
+        "before": None,
+        "after": {
+            "document_id": incoming,
+            "filename": "duplikat.pdf",
+            "from_duplicate": True,
+        },
+        "changes": True,
+    }
+
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 200, resp.text
+    assert await _primary_filenames(survivor) == ["duplikat.pdf"]
+
+
+async def test_merge_preview_shows_when_duplicate_primary_replaces_legacy_cv(
+    app_client: AsyncClient,
+):
+    """CV z kolumn ocalałego ustępuje dokumentowi w ``get_current_cv``."""
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate(
+        cv_filename="z-kolumn.pdf", cv_storage_key=f"cv/t/{uuid.uuid4().hex}.pdf"
+    )
+    duplicate = await _candidate()
+    await _primary_doc(duplicate, "duplikat.pdf", at=datetime.now(timezone.utc))
+
+    primary_cv = (await _preview(app_client, headers, survivor, duplicate)).json()[
+        "primary_cv"
+    ]
+    assert primary_cv["before"] == {
+        "document_id": None,
+        "filename": "z-kolumn.pdf",
+        "from_duplicate": False,
+    }
+    assert primary_cv["after"]["filename"] == "duplikat.pdf"
+    assert primary_cv["changes"] is True
+
+
+async def test_merge_fingerprint_follows_primary_cv(app_client: AsyncClient):
+    """Nowe główne CV między podglądem a scaleniem = nieaktualny podgląd."""
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    from app.models.candidate_document import CandidateDocument
+
+    doc_id = await _primary_doc(
+        duplicate, "duplikat.pdf", at=datetime.now(timezone.utc)
+    )
+    async with AsyncSessionLocal() as db:
+        (await db.get(CandidateDocument, doc_id)).is_primary = False
+        await db.commit()
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["primary_cv"]["changes"] is False
+    async with AsyncSessionLocal() as db:
+        (await db.get(CandidateDocument, doc_id)).is_primary = True
+        await db.commit()
+
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "fingerprint_mismatch"
 
 
 async def test_merge_keeps_duplicate_legacy_cv_as_extra_document(
