@@ -460,6 +460,20 @@ WHY_POINTS_STANDARD = 5
 _BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECASE)
 
 
+# Punkt, który ocenia dopasowanie zamiast podawać fakt. Podmiot musi być kandydatem
+# albo jego profilem: „Meeting SLA requirements” i „zgodnie z wymaganiami klientów”
+# w opisie zadania to fakty (1415 CV: 1 prawdziwe trafienie, reszta szerszego wzorca to fakty).
+_FIT_VERDICT_RE = re.compile(
+    r"^\W*(?:(?:core|key|main)\s+)?(?:kandydat\w*|profil\w*|kompetencj\w*|umiejętnoś\w*|"
+    r"doświadczeni\w*|candidate\w*|profile|skills?|competenc\w*|experience)\b.{0,25}?"
+    r"(?:spełnia\w*|odpowiada(?:ją)?\b|pasuj\w*|zgodn\w*|dopasowan\w*|"
+    r"meets?\b|fulfil\w*|match(?:es)?\b|fits?\b|aligned\b).{0,25}?"
+    r"(?:wymaga\w*|oczekiwa\w*|profil\w*|rol\w*|stanowisk\w*|"
+    r"requirements?|expectations|role|position)",
+    re.IGNORECASE,
+)
+
+
 def _apply_summary_standard(
     candidate_data: dict[str, Any], language: str, client_rule: Any = None
 ) -> list[str]:
@@ -474,6 +488,13 @@ def _apply_summary_standard(
     """
     points = candidate_data.get("why_points") or []
     notes: list[str] = []
+    verdicts = [p for p in points if isinstance(p, str) and _FIT_VERDICT_RE.search(p)]
+    if verdicts:
+        points = [p for p in points if p not in verdicts]
+        candidate_data["why_points"] = points
+        notes.append(
+            f"WERYFIKUJ: usunięto z podsumowania ocenę dopasowania: „{verdicts[0]}”."
+        )
     if len(points) > WHY_POINTS_STANDARD:
         points = points[: WHY_POINTS_STANDARD - 1] + points[-1:]
         candidate_data["why_points"] = points

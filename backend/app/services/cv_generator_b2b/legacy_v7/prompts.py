@@ -88,7 +88,7 @@ ZASADY DLA WHY_POINTS:
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
 - ZWIĘZŁOŚĆ (KRYTYCZNE): sekcja "Dlaczego nasz kandydat" to samo MIĘSO — konkrety, zero marketingowego lania wody. Twarde reguły:
   • DOKŁADNIE 5 punktów, zawsze w tej kolejności, bez dodatkowych punktów — wliczając punkty oparte na notatkach:
-    1) Liczba lat doświadczenia na stanowisku i nic więcej, np. „7 lat doświadczenia jako Android Developer”.
+    1) Liczba lat doświadczenia na stanowisku i nic więcej, np. „7 lat doświadczenia jako Android Developer”. Gdy na tym stanowisku kandydat ma mniej niż rok, podaj lata w pokrewnych rolach, np. „4 lata doświadczenia w operacjach finansowych”.
     2) Specjalizacja w technologiach: 4-6 głównych technologii kandydata ze źródeł, najpierw te z wymagań klienta, np. „Specjalizacja: Kotlin, Jetpack Compose, Kotlin Multiplatform”.
     3), 4), 5) Każdy punkt omawia INNE wymaganie MUST-HAVE z profilu Championa, od najważniejszego, które kandydat potwierdza w źródłach: jedno pełne zdanie do ~30 słów o tym, co kandydat z nim robił i w jakim kontekście albo skali. Must-have bez pokrycia w źródłach pomiń i weź kolejny.
     Gdy nie ma Championa albo potwierdzonych must-have jest mniej niż trzy, punkty 3-5 uzupełnij doświadczeniem najważniejszym dla tej roli. Gdy źródła nie dają faktów na 5 punktów, napisz mniej i niczego nie wypełniaj.
@@ -97,6 +97,7 @@ ZASADY DLA WHY_POINTS:
   • Żadnych dwóch punktów o tej samej myśli — każdy wnosi NOWĄ informację.
   • Sam tekst punktu: bez numeracji („1.”) i znaków listy, bo punktory dodaje szablon dokumentu.
   • PRZYKŁAD — ŹLE: „Doświadczony i zaangażowany specjalista z bogatym doświadczeniem w realizacji wielu projektów IT"; DOBRZE: „8 lat jako Backend Developer, w tym 3 lata w fintechu".
+- BEZ OCENY DOPASOWANIA (także w obowiązkach i umiejętnościach): nie pisz, że kandydat, jego profil albo kompetencje spełniają wymagania klienta, pasują do roli lub są zgodne z wymaganiami. Podaj fakt, z którego to wynika, i niech klient oceni sam
 - LATA DOŚWIADCZENIA: policz DOKŁADNIE łączny staż na podstawie dat (bez liczenia dwa razy nakładających się okresów i bez przerw między pracami), podaj pełne lata w dół, a gdy są jeszcze co najmniej 3 miesiące, napisz "Ponad N lat" (4 lata i 6 miesięcy to "Ponad 4 lata")
 - LICZBA LAT ZAWSZE PRZY ROLI, NIGDY PRZY POJEDYNCZEJ TECHNOLOGII (KRYTYCZNE): łączny staż (np. „6 lat") wiąż WYŁĄCZNIE z rolą lub specjalizacją zawodową ("6 lat jako administrator systemów / specjalista MDM"), NIGDY z konkretnym narzędziem ani technologią. NIE pisz „[X] lat doświadczenia z [technologia]" używając łącznego stażu — to FAŁSZYWIE zawyża doświadczenie z tą technologią (kandydat z 6-letnim stażem, który Intune używa od 2 lat, ma „2 lata doświadczenia z Microsoft Intune", a NIE „6 lat z Microsoft Intune"). Liczbę lat możesz postawić przy konkretnej technologii TYLKO wtedy, gdy odpowiada ona REALNEMU okresowi jej używania — policzonemu z dat tych ról, w których ta technologia faktycznie występuje w CV/notatkach. Gdy nie da się ustalić tego okresu — wymień technologię BEZ liczby lat.
 
@@ -454,7 +455,7 @@ RULES FOR WHY_POINTS:
 - Education is in a separate section and should not be repeated in why_points
 - CONCISENESS (CRITICAL): the "Why our candidate" section is pure SUBSTANCE — specifics, zero marketing filler. Hard rules:
   • EXACTLY 5 points, always in this order, no extra points — including points based on the notes:
-    1) Years of experience in the position and nothing else, e.g. "7 years of experience as an Android Developer".
+    1) Years of experience in the position and nothing else, e.g. "7 years of experience as an Android Developer". If the candidate has less than a year in this position, give the years in related roles, e.g. "4 years of experience in financial operations".
     2) Technology specialization: 4-6 of the candidate's main technologies from the sources, client requirements first, e.g. "Specialization: Kotlin, Jetpack Compose, Kotlin Multiplatform".
     3), 4), 5) Each point covers a DIFFERENT MUST-HAVE requirement from the Champion profile, starting with the most important one the sources confirm: one full sentence of up to ~30 words on what the candidate did with it and in what context or scale. Skip a must-have without source coverage and take the next one.
     Without a Champion, or with fewer than three confirmed must-haves, fill points 3-5 with the experience most important for this role. If the sources do not give facts for 5 points, write fewer and never pad.
@@ -463,6 +464,7 @@ RULES FOR WHY_POINTS:
   • No two points about the same idea — every point adds NEW information.
   • The point's text only: no numbering ("1.") and no list markers, because the document template adds the bullets.
   • EXAMPLE — BAD: "An experienced and committed specialist with rich experience delivering many IT projects"; GOOD: "8 years as a Backend Developer, including 3 years in fintech".
+- NO FIT VERDICTS (also in responsibilities and skills): do not write that the candidate, their profile or skills meet the client's requirements, fit the role or are aligned with the requirements. State the fact behind it and let the client judge
 - YEARS OF EXPERIENCE: count the total tenure EXACTLY from the dates (without double counting overlapping periods and without gaps between jobs), give whole years rounded down, and with at least 3 extra months write "Over N years" (4 years and 6 months is "Over 4 years")
 - YEARS ALWAYS WITH THE ROLE, NEVER WITH A SINGLE TECHNOLOGY (CRITICAL): tie the total tenure (e.g. "6 years") ONLY to a role or professional specialization ("6 years as a systems administrator / MDM specialist"), NEVER to a specific tool or technology. Do NOT write "[X] years of experience with [technology]" using the total tenure — that FALSELY inflates experience with that technology (a candidate with 6 years total who has used Intune for 2 years has "2 years of experience with Microsoft Intune", NOT "6 years with Microsoft Intune"). You may put a year count next to a specific technology ONLY when it equals the REAL time it was used — computed from the dates of the roles where that technology actually appears in the CV/notes. When that period cannot be established, list the technology WITHOUT a year count.
 

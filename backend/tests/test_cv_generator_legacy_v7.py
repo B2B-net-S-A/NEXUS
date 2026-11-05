@@ -879,6 +879,41 @@ def test_client_last_point_without_required_topic_is_reported():
     assert _helpers._apply_summary_standard(data, "pl", rule) == []
 
 
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        "Profil spełnia wymagania klienta",
+        "Kandydat w pełni odpowiada wymaganiom stanowiska",
+        "Core skills aligned with requirements: process mapping, data flow",
+        "Candidate meets the client's requirements",
+        "Doświadczenie zgodne z wymaganiami klienta",
+    ],
+)
+def test_fit_verdict_leaves_the_summary_and_the_recruiter_is_told(verdict):
+    data = _standard_data([*FIVE[:4], verdict])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert verdict not in data["why_points"]
+    assert any("ocenę dopasowania" in note for note in notes)
+    assert any("4 z 5" in note for note in notes)
+
+
+@pytest.mark.parametrize(
+    "fact",
+    [
+        "Improved process performance 4x while meeting SLA requirements",
+        "Coordinates business and IT stakeholders to align access requirements",
+        "Konfigurował środowiska ERP zgodnie z wymaganiami klientów",
+        "Zbieranie wymagań klienta i analiza procesów",
+        "Experience matching customer records across client databases",
+        "Doświadczenie jako Product Owner - samodzielne przekładanie wymagań na zadania",
+    ],
+)
+def test_facts_about_requirements_stay_in_the_summary(fact):
+    data = _standard_data([*FIVE[:4], fact])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert fact in data["why_points"]
+
+
 def test_empty_summary_is_reported():
     data = _standard_data([])
     notes = _helpers._apply_summary_standard(data, "pl")
@@ -889,6 +924,10 @@ def test_empty_summary_is_reported():
 def test_prompt_states_the_five_point_order_without_the_old_range(language):
     prompt = legacy_prompt(language, False, "tailored")
     assert ("DOKŁADNIE 5 punktów" if language == "pl" else "EXACTLY 5 points") in prompt
+    assert ("mniej niż rok" if language == "pl" else "less than a year") in prompt
+    assert (
+        "BEZ OCENY DOPASOWANIA" if language == "pl" else "NO FIT VERDICTS"
+    ) in prompt
     assert "Maksymalnie 3-5" not in prompt
     assert "At most 3-5" not in prompt
     assert "3-4 p" not in prompt

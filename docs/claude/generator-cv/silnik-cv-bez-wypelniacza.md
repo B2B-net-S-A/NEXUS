@@ -335,6 +335,12 @@ z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, 
   (`generator_instructions` w `cv_policies.json`). Bez potwierdzenia zostaje punkt o must-have
   i uwaga modelu o pominiętej instrukcji. Polityka centralna nie dokłada do każdego CV uwagi
   „zastosowano instrukcje”.
+- **Bez oceny dopasowania.** Generator nie pisze, że kandydat albo profil spełnia wymagania klienta.
+  Prompt zakazuje tego w całym CV, a `_FIT_VERDICT_RE` usuwa taki punkt z podsumowania i zostawia uwagę.
+  Wzorzec wymaga podmiotu „kandydat, profil, kompetencje”, bo „meeting SLA requirements” i „zgodnie
+  z wymaganiami klientów” to fakty: na 1415 CV szerszy wzorzec dał 1 prawdziwe trafienie.
+- **Punkt 1 przy nowej roli:** poniżej roku na stanowisku podaje lata w pokrewnych rolach. Na Solu
+  kandydat 510795: „Less than 1 year” w 2 z 4 biegów przed zmianą, w 0 z 6 po zmianie.
 - **„At most four” z `presentation_title` zastąpione pięcioma punktami**, a „Dopasuj pod
   rekrutację” w edytorze zmienia tylko punkty 3–5.
 - **Must-have na górze roli przestawia kod** (`_must_have_bullets_first`, tylko „Pod rekrutację”
