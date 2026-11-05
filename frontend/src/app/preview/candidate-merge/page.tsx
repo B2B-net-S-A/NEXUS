@@ -54,6 +54,11 @@ const PLAN: MergePlan = {
   moved_rows: 32,
   conflicts: 1,
   blockers: [],
+  primary_cv: {
+    before: null,
+    after: { document_id: 501, filename: "CV_przykladowe.pdf", from_duplicate: true },
+    changes: true,
+  },
   can_apply: true,
   fingerprint: "0".repeat(64),
 };

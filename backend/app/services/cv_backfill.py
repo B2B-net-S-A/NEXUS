@@ -36,6 +36,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.models.candidate_document import CandidateDocument
+from app.services.cv_common_words import is_common_cv_word, only_common_cv_words
 from app.services.cv_enrichment import (
     _CV_PLACEHOLDER_NAMES,
     _apply_cv_contact_fields,
@@ -121,6 +122,10 @@ def name_from_filename(filename: Optional[str]) -> tuple[Optional[str], Optional
         parts = _CAMEL_RE.findall(clean[0])
         if len(parts) == 2 and all(p.lower() not in _FILENAME_NOISE for p in parts):
             clean = parts
+
+    # Stanowisko na początku nazwy pliku to nie osoba: nazwa, jeśli jest, stoi za nim.
+    if only_common_cv_words(clean[:2]):
+        clean = [tok for tok in clean if not is_common_cv_word(tok)]
 
     if len(clean) >= 2:
         return _titlecase_token(clean[0]), _titlecase_token(clean[1])
@@ -372,7 +377,7 @@ def _names_from_stored_read(candidate: Candidate) -> dict[str, str]:
     first = str(extracted.get("first_name") or "").strip()
     last = str(extracted.get("last_name") or "").strip()
     last_key = normalize_person_name_part(last)
-    if not (first and last_key):
+    if not (normalize_person_name_part(first) and last_key):
         return {}
     if last_key not in normalize_person_name_part(candidate.raw_cv_text):
         return {}

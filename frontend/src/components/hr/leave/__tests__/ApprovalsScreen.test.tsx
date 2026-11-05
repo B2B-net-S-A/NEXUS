@@ -173,6 +173,35 @@ beforeEach(() => {
 });
 afterEach(() => window.history.replaceState({}, "", "/"));
 
+describe("Do potwierdzenia — osoba bez niczego do akceptowania", () => {
+  const screenFor = (config: HrConfig) => {
+    render(
+      <QueryClientProvider client={seed()}>
+        <ApprovalsScreen config={config} />
+      </QueryClientProvider>,
+    );
+  };
+
+  // Zgłoszenie Testera z 03.11.2026: zdanie o włączeniu modułów widziała osoba
+  // bez prawa do akceptacji, choć nieobecności i czas pracy działały.
+  it("moduły działają, a osoba nie ma prawa: nie mówi o włączaniu modułów", () => {
+    const config = hrConfig({ leave_approver: false });
+    expect(config.open_modules.leave && config.open_modules.time).toBe(true);
+    screenFor(config);
+    expect(screen.getByText("Nie masz nic do akceptowania")).toBeInTheDocument();
+    expect(screen.queryByText(/po włączeniu modułu/)).toBeNull();
+  });
+
+  it("moduły wyłączone: to samo zdanie, bo dla tej osoby znaczy to samo", () => {
+    const config = hrConfig({ people_admin: true });
+    screenFor({
+      ...config,
+      open_modules: { ...config.open_modules, leave: false, time: false, approvals: false },
+    });
+    expect(screen.getByText("Nie masz nic do akceptowania")).toBeInTheDocument();
+  });
+});
+
 describe("Do potwierdzenia — jedna lista", () => {
   it("„Wszystko”: pilna zgoda, potem nieobecności i zgody od najstarszych, do wiadomości; bez „Co akceptujesz”", async () => {
     open("");

@@ -40,9 +40,11 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja parse_cv
+from app.services.candidate_name_rules import is_empty_field_name
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_chain_for, model_for
+from app.services.cv_common_words import only_common_cv_words
 from app.services.cv_technology_grounding import drop_untraced_technologies
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,9 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
         tokens = [t for t in re.split(r"[\s,]+", line) if t]
         if not 2 <= len(tokens) <= 4:
             continue
+        # Section headings, cities and roles look like a name too (05.11.2026).
+        if only_common_cv_words(tokens):
+            continue
         # Each token must start with an uppercase letter; accept PL diacritics.
         if not all(
             re.match(r"^[A-ZŁŚŻŹĆŃÓĄĘ][\wŁłŚśŻżŹźĆćŃńÓóĄąĘę\-']+$", t) for t in tokens
@@ -172,6 +177,8 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
             continue
         first = tokens[0]
         last = " ".join(tokens[1:])
+        if is_empty_field_name(first) or is_empty_field_name(last):
+            continue
         return first, last
     return None, None
 
@@ -190,6 +197,10 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
     """
     out = dict(parsed)
     confidence = dict(out.get("_confidence") or {})
+
+    for key in ("first_name", "last_name"):
+        if is_empty_field_name(out.get(key)):
+            out[key] = None
 
     if not out.get("email"):
         email = _extract_email_from_text(cv_text)

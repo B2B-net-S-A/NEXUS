@@ -33,6 +33,39 @@ def test_identity_match_accepts_transliterated_polish_name() -> None:
     assert result.evidence["last_name_match"] is True
 
 
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Not Provided", "Not Provided"),
+        ("Not provided", "Not provided"),
+        ("Not Available", "Not Available"),
+        ("Not", "Provided"),
+        ("Not", "Specified"),
+        ("Not", "Available"),
+    ],
+)
+def test_empty_field_phrase_cannot_confirm_a_mismatch(first, last):
+    # Profil z taką „nazwą” nie ma tożsamości: każde własne CV dawało mismatch
+    # i czyściło fakty (78144, 287116, wrzesień i październik 2026).
+    as_candidate = quarantine.evaluate_identity_match(
+        candidate_first_name=first,
+        candidate_last_name=last,
+        observed_first_name="Anna",
+        observed_last_name="Nowak",
+    )
+    as_observed = quarantine.evaluate_identity_match(
+        candidate_first_name="Anna",
+        candidate_last_name="Nowak",
+        observed_first_name=first,
+        observed_last_name=last,
+    )
+
+    assert as_candidate.decision == "inconclusive"
+    assert as_candidate.evidence["candidate_identity_complete"] is False
+    assert as_observed.decision == "inconclusive"
+    assert as_observed.evidence["observed_identity_complete"] is False
+
+
 def test_identity_match_accepts_parser_name_order_swap() -> None:
     result = quarantine.evaluate_identity_match(
         candidate_first_name="Jan",

@@ -239,6 +239,7 @@ from app.services.candidate_location_writer import (
     normalize_candidate_location,
 )
 from app.services.candidate_name_rules import (
+    EMPTY_FIELD_NAME_PHRASES,
     NAME_MARKER_ERROR_TYPE,
     find_name_markers,
     name_marker_message,
@@ -1794,7 +1795,17 @@ _PL_SORT_SOURCE = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 _PL_SORT_TARGET = "acelnoszzACELNOSZZ"
 # Nazwiska-placeholdery (import Traffita bez imienia/nazwiska). Lista lustrzana
 # do `candidate_identity_quarantine._PLACEHOLDERS`.
-_NAME_SORT_PLACEHOLDERS = ("", "?", "-", "nieznane", "nieznany", "unknown", "n/a", "na")
+_NAME_SORT_PLACEHOLDERS = (
+    "",
+    "?",
+    "-",
+    "nieznane",
+    "nieznany",
+    "unknown",
+    "n/a",
+    "na",
+    *sorted(EMPTY_FIELD_NAME_PHRASES),
+)
 
 
 def _pl_sort_key(column):

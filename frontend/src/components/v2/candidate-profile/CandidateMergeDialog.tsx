@@ -128,6 +128,15 @@ export function MergePlanView({
         ) : null}
       </div>
 
+      {plan.primary_cv.changes && plan.primary_cv.after ? (
+        <p role="status" className="rounded-md border border-border bg-muted/40 p-3">
+          <span className="font-medium">Główne CV po scaleniu: </span>
+          <span className="break-words">{plan.primary_cv.after.filename}</span>
+          {plan.primary_cv.after.from_duplicate ? ` (z duplikatu #${plan.duplicate_id})` : ""}.
+          {" "}Teraz: <span className="break-words">{plan.primary_cv.before?.filename ?? "brak"}</span>.
+        </p>
+      ) : null}
+
       <div className="space-y-1">
         <p className="font-medium">
           Przejdzie na ten profil: {plan.moved_rows} {plan.moved_rows === 1 ? "rekord" : "rekordów"}
@@ -137,7 +146,11 @@ export function MergePlanView({
             {plan.references.map((r) => (
               <li key={`${r.table}.${r.column}`}>
                 {referenceLabel(r.table)}: {r.rows}
-                {r.conflicts > 0 ? ` (w tym ${r.conflicts} zdublowanych — zostaje nowszy wpis)` : ""}
+                {r.conflicts > 0
+                  ? r.table === "candidate_documents"
+                    ? ` (w tym ${r.conflicts} zdublowanych — oba pliki zostają)`
+                    : ` (w tym ${r.conflicts} zdublowanych — zostaje nowszy wpis)`
+                  : ""}
               </li>
             ))}
             {plan.polymorphic.map((p) => (
