@@ -364,7 +364,14 @@ async def _preview_row(
         db, contract, contract.start_date or business_today()
     )
     target = placement_bonuses.placement_targets(
-        margin.per_hour, dl_id, recruiter_id, rules, client_id=contract.client_id
+        margin.per_hour,
+        dl_id,
+        recruiter_id,
+        rules,
+        client_id=contract.client_id,
+        fixed_recruiter_amount=placement_bonuses.recruiter_fixed_amount(
+            context, recruiter_id, rules
+        ),
     ).get(role)
     automat_id = target.recipient_user_id if target else None
     item.update(

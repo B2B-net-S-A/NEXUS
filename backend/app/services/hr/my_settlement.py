@@ -204,7 +204,14 @@ async def bonus_forecast(
             db, contract, start, fx_rates=fx_by_start.get(start, {})
         )
         targets = placements.placement_targets(
-            margin.per_hour, dl_id, recruiter_id, rules, client_id=contract.client_id
+            margin.per_hour,
+            dl_id,
+            recruiter_id,
+            rules,
+            client_id=contract.client_id,
+            fixed_recruiter_amount=placements.recruiter_fixed_amount(
+                context, recruiter_id, rules
+            ),
         )
         candidate_name, client_name = context.names(contract)
         for role in candidates:

@@ -48,6 +48,7 @@ import { BonusDialog } from "./BonusDialog";
 import { BonusDeleteDialog } from "./BonusDeleteDialog";
 import { SettlementImportDialog } from "./SettlementImportDialog";
 import { BonusTable } from "./BonusTable";
+import { DoubleBonusCard } from "./DoubleBonusCard";
 import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
 import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
@@ -337,6 +338,7 @@ export function PayrollMonthScreen({
                   )}
                 </div>
               ) : null}
+              <DoubleBonusCard year={year} month={month} open={open} />
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                 <PayoutCard people={data.people} />
                 <DecisionPanel

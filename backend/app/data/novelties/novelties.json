@@ -1164,5 +1164,16 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.monthly-races"
+  },
+  {
+    "id": "premia-200-listopad-grudzien",
+    "title": "Do 200%: postęp w miesiącu podpisu",
+    "why": "W listopadzie i grudniu placement podpisany w miesiącu, w którym zrobisz cel, liczy się podwójnie i wypłaca od razu. Karta pokazuje, ile brakuje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead"] },
+    "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
+    "href": "/my-time",
+    "dot_anchor": "my-time.double-bonus"
   }
 ]
