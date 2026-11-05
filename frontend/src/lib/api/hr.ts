@@ -45,6 +45,8 @@ export interface HrConfig {
   modules: Record<HrModuleKey, boolean>;
   /** Moduły otwarte dla tej osoby (admin widzi wszystkie). */
   open_modules: Record<HrModuleKey, boolean>;
+  /** Panel konsultanta włączony: pakiet klienta działa też bez modułu wejścia. */
+  consultant_panel_on?: boolean;
   me: {
     has_profile: boolean;
     employment_status: EmploymentStatus | null;

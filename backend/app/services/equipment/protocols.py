@@ -492,16 +492,55 @@ async def sign_by_link(
     db: AsyncSession, token: str, *, signer_name: str
 ) -> EquipmentProtocol:
     """Osoba z linku potwierdza odbiór; recepcja potwierdza potem podpis (D4)."""
-    name = " ".join(signer_name.split())
-    if len(name) < 3:
-        raise EquipmentError("Wpisz imię i nazwisko.")
+    name = _signer(signer_name)
     link, protocol = await load_link(db, token, for_update=True)
     now = datetime.now(timezone.utc)
     link.used_at = now
+    return await _mark_signed(db, protocol, name=name, now=now, action="signed_by_link")
+
+
+async def sign_in_panel(
+    db: AsyncSession, protocol: EquipmentProtocol, *, signer_name: str
+) -> EquipmentProtocol:
+    """Konsultant potwierdza odbiór w swoim panelu. Linki do tego protokołu gasną."""
+    name = _signer(signer_name)
+    await lock(db, protocol)
+    if protocol.status != "oczekuje":
+        raise EquipmentError("Ten protokół jest już potwierdzony.", status=409)
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(EquipmentProtocolLink)
+        .where(
+            EquipmentProtocolLink.protocol_id == protocol.id,
+            EquipmentProtocolLink.used_at.is_(None),
+            EquipmentProtocolLink.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    return await _mark_signed(
+        db, protocol, name=name, now=now, action="signed_in_panel"
+    )
+
+
+def _signer(signer_name: str) -> str:
+    name = " ".join(signer_name.split())
+    if len(name) < 3:
+        raise EquipmentError("Wpisz imię i nazwisko.")
+    return name[:200]
+
+
+async def _mark_signed(
+    db: AsyncSession,
+    protocol: EquipmentProtocol,
+    *,
+    name: str,
+    now: datetime,
+    action: str,
+) -> EquipmentProtocol:
     protocol.status = "podpisany"
     protocol.signature_method = "link"
     protocol.signed_at = now
-    protocol.signer_name = name[:200]
+    protocol.signer_name = name
     await db.flush()
     audit.record(
         db,
@@ -509,7 +548,7 @@ async def sign_by_link(
         subject_user_id=protocol.user_id,
         entity_type="equipment_protocol",
         entity_id=protocol.id,
-        action="signed_by_link",
+        action=action,
     )
     # Podpis zapisany, dzwonek to dodatek — jego awaria idzie do logu.
     await notify_each(

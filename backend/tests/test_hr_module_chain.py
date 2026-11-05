@@ -109,6 +109,12 @@ CHAIN = (
         "0642_back_office",  # down_revision — przepina rechain_migration.py
         "consultant_portal_schema",
     ),
+    # Panel konsultanta: aktywacja, materiały, szablon, trenerzy (05.11.2026).
+    (
+        "0648_consultant_panel",
+        "0647_insight_decisions",  # down_revision — przepina rechain_migration.py
+        "consultant_panel_schema",
+    ),
 )
 
 

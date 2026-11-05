@@ -15,6 +15,7 @@ import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { UploadOnlyDocuments } from "@/components/contracts/documents/UploadOnlyDocuments";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
+import { ConsultantPanelCard } from "@/components/hr/onboarding/ConsultantPanelCard";
 import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
@@ -2586,10 +2587,13 @@ export default function ContractDetailPage() {
 
       {/* Tab: Wejście (dawniej „Onboarding”): lista wejścia konsultanta, stara lista przy wyłączonym module */}
       {activeTab === "onboarding" && (
-        <ContractEntryTab
-          contractId={id}
-          readOnly={!canEditContract}
-        />
+        <div className="space-y-4">
+          <ConsultantPanelCard contractId={id} />
+          <ContractEntryTab
+            contractId={id}
+            readOnly={!canEditContract}
+          />
+        </div>
       )}
 
       {/* Tab: Sprzęt */}

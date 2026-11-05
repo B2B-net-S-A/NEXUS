@@ -91,6 +91,7 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { ClientSettlementCard } from "./ClientSettlementCard";
 import { OnboardingPackTab } from "./OnboardingPackTab";
 import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
 import { OwnersTab } from "./OwnersTab";
@@ -1130,10 +1131,10 @@ export default function ClientDetailPage() {
   // Sprzedaż (27.10.2026): zakładka z powiązaną firmą sprzedaży i jej szansami.
   const canViewSales = hasAnyPermission(user, "sales_view");
   const equipmentOpen = hrConfig?.open_modules.equipment === true;
-  // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
-  // (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
+  // „Wejście u klienta” — moduł wejścia i odejścia albo włączony panel konsultanta;
+  // czyta podgląd Delivery (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
   const packOpen =
-    hrConfig?.open_modules.lifecycle === true &&
+    (hrConfig?.open_modules.lifecycle === true || hrConfig?.consultant_panel_on === true) &&
     hasAnyPermission(user, "delivery_view", "equipment");
   // „Faktury” (E8) — moduł faktur do klientów, konto z podglądem kwot klienta.
   const invoicingOpen =
@@ -1581,7 +1582,15 @@ export default function ClientDetailPage() {
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
 
-          {packOpen && activeTab === "wejscie" && <OnboardingPackTab clientId={Number(id)} />}
+          {packOpen && activeTab === "wejscie" && (
+            <div className="space-y-4">
+              <ClientSettlementCard
+                clientId={Number(id)}
+                canEdit={hasAnyPermission(user, "finance_module")}
+              />
+              <OnboardingPackTab clientId={Number(id)} />
+            </div>
+          )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 

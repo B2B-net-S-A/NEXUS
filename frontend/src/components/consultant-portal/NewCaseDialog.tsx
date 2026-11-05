@@ -18,10 +18,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import { portalApi, portalKeys, type PortalMe, type PortalTopic } from "@/lib/api/consultant-portal";
 
-export function NewCaseDialog({ me, onClose }: { me: PortalMe; onClose: () => void }) {
+export function NewCaseDialog({
+  me,
+  onClose,
+  initialTopic,
+  initialTitle = "",
+}: {
+  me: PortalMe;
+  onClose: () => void;
+  initialTopic?: PortalTopic;
+  initialTitle?: string;
+}) {
   const client = useQueryClient();
-  const [topic, setTopic] = useState<PortalTopic>(me.topics[0]?.key ?? "invoice");
-  const [title, setTitle] = useState("");
+  const [topic, setTopic] = useState<PortalTopic>(initialTopic ?? me.topics[0]?.key ?? "invoice");
+  const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

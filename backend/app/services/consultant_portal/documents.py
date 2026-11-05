@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.upload_filename import fit_filename_column
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract
+from app.models.consultant_panel import ClientSettlementRule
 from app.services import storage_service
 from app.services.consultant_portal import identity, portal_mail
 from app.services.consultant_portal.auth import PortalContext, PortalError
@@ -236,8 +237,40 @@ INVOICE_LABELS = {
 }
 
 
-def month_row(year: int, month: int, documents: list[CpDocument]) -> dict[str, Any]:
-    """Stan miesiąca i następny krok konsultanta (czysta funkcja)."""
+def _client_report_row(
+    year: int, month: int, documents: list[CpDocument]
+) -> dict[str, Any]:
+    """Raport przysyła klient, więc konsultant ma tylko krok z fakturą."""
+
+    invoice = _best(documents, "invoice")
+    action = "send_invoice" if invoice is None or invoice.status == "rejected" else None
+    return {
+        "year": year,
+        "month": month,
+        "report_label": "Raport: przysyła klient",
+        "invoice_label": INVOICE_LABELS[invoice.status]
+        if invoice
+        else "Faktura: czekamy",
+        "issue_invoice": action == "send_invoice",
+        "action": action,
+        "documents": [_doc_row(row) for row in documents],
+    }
+
+
+def month_row(
+    year: int,
+    month: int,
+    documents: list[CpDocument],
+    *,
+    mode: Optional[str] = None,
+) -> dict[str, Any]:
+    """Stan miesiąca i następny krok konsultanta (czysta funkcja).
+
+    ``mode`` to szablon rozliczenia klienta; bez szablonu raport wysyła konsultant.
+    """
+
+    if mode == "client_report":
+        return _client_report_row(year, month, documents)
 
     report = _best(documents, "report")
     invoice = _best(documents, "invoice")
@@ -295,8 +328,15 @@ async def overview(
     }
     for row in rows:
         by_month.setdefault((row.period_year, row.period_month), []).append(row)
+    rule = (
+        await db.get(ClientSettlementRule, contract.client_id)
+        if contract and contract.client_id
+        else None
+    )
     return [
-        month_row(year, month, by_month[(year, month)])
+        month_row(
+            year, month, by_month[(year, month)], mode=rule.mode if rule else None
+        )
         for year, month in sorted(by_month, reverse=True)
     ]
 

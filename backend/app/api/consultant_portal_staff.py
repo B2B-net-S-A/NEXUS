@@ -45,7 +45,6 @@ from app.services.consultant_portal import (
     ratings,
 )
 from app.services.consultant_portal.auth import PortalError
-from app.services.consultant_portal.sms import current_sender
 from app.services.consultant_portal_schema import (
     COMMENT_MAX,
     QUESTION_MAX,
@@ -120,11 +119,8 @@ async def portal_status(
     viewer = await access.load_viewer(db, current_user)
     return {
         "state": state.state,
-        "pilot_contract_ids": sorted(state.pilot_contract_ids)
-        if viewer.is_lead
-        else [],
+        "activated_count": len(state.activated_contract_ids),
         "booking_ready": meetings.booking_ready(),
-        "sms_available": current_sender().available,
         "mailbox": await mailbox.status(db) if viewer.owns("finance") else None,
         "viewer": {"is_lead": viewer.is_lead, "user_id": viewer.user_id},
     }
@@ -132,7 +128,6 @@ async def portal_status(
 
 class SwitchBody(BaseModel):
     state: Literal["off", "pilot", "all"]
-    pilot_contract_ids: list[int] = Field(default_factory=list, max_length=500)
 
 
 assert set(SwitchBody.model_fields["state"].annotation.__args__) == set(STATES)
@@ -142,9 +137,7 @@ assert set(SwitchBody.model_fields["state"].annotation.__args__) == set(STATES)
 async def save_settings(
     body: SwitchBody, current_user: PortalSwitch, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    saved = await portal_settings.save(
-        db, state=body.state, pilot_contract_ids=body.pilot_contract_ids
-    )
+    saved = await portal_settings.save(db, state=body.state)
     audit.record(
         db,
         actor_user_id=current_user.id,
@@ -152,7 +145,7 @@ async def save_settings(
         entity_type="consultant_portal",
         entity_id=0,
         action="portal_switch_changed",
-        details={"state": saved.state, "pilot": len(saved.pilot_contract_ids)},
+        details={"state": saved.state},
     )
     return saved.as_dict()
 
@@ -340,6 +333,17 @@ async def meeting_detail(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, MEETING_NOT_FOUND)
     meeting: CpMeeting = row[0]
+    if meeting.transcript_text:
+        # Pełny zapis rozmowy to dane osobowe: każde otwarcie zostawia ślad.
+        audit.record(
+            db,
+            actor_user_id=current_user.id,
+            subject_user_id=None,
+            entity_type="cp_meeting",
+            entity_id=meeting.id,
+            action="portal_transcript_read",
+            details={"contract_id": meeting.contract_id},
+        )
     return {
         **_meeting_row(row, viewer),
         "summary": meeting.summary,

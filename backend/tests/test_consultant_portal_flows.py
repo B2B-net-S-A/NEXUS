@@ -161,13 +161,13 @@ async def test_switching_off_ends_open_sessions(app_client) -> None:
     off = await app_client.put(
         f"{STAFF}/settings",
         headers=staff_headers(admin),
-        json={"state": "off", "pilot_contract_ids": []},
+        json={"state": "off"},
     )
     assert off.status_code == 200
     back_on = await app_client.put(
         f"{STAFF}/settings",
         headers=staff_headers(admin),
-        json={"state": "all", "pilot_contract_ids": []},
+        json={"state": "all"},
     )
     assert back_on.status_code == 200
     me = await app_client.get(f"{BASE}/me", headers=session)
@@ -185,9 +185,9 @@ async def test_only_admin_flips_the_switch(app_client) -> None:
     saved = await app_client.put(
         f"{STAFF}/settings",
         headers=staff_headers(admin),
-        json={"state": "pilot", "pilot_contract_ids": [5, 7]},
+        json={"state": "pilot"},
     )
-    assert saved.json() == {"state": "pilot", "pilot_contract_ids": [5, 7]}
+    assert saved.json() == {"state": "pilot"}
     wrong = await app_client.put(
         f"{STAFF}/settings", headers=staff_headers(admin), json={"state": "everyone"}
     )
@@ -1213,13 +1213,15 @@ async def test_rating_request_skips_contracts_outside_the_pilot(monkeypatch) -> 
 
     mailer = install_mailer(monkeypatch)
     inside = await make_person()
-    outside = await make_person()
-    await set_portal("pilot", [inside.contract_id])
+    outside = await make_person(activated=False)
+    await set_portal("pilot")
     await make_meeting(inside, None, start_in=timedelta(hours=-1))
     await make_meeting(outside, None, start_in=timedelta(hours=-1))
     async with AsyncSessionLocal() as db:
         await ratings.send_requests(db, now=datetime.now(timezone.utc))
-    assert {mail["to"] for mail in mailer.sent} == {inside.email}
+    recipients = {mail["to"] for mail in mailer.sent}
+    assert inside.email in recipients
+    assert outside.email not in recipients
 
 
 # ── Przegląd miesięczny ──────────────────────────────────────────────────────

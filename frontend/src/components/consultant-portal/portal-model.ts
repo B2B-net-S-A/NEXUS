@@ -1,6 +1,13 @@
 // Czyste reguły ekranów portalu (testy bez przeglądarki i bez API).
 
-import type { PortalFaqItem, PortalMonth, PortalTopic } from "@/lib/api/consultant-portal";
+import type {
+  PortalFaqItem,
+  PortalMeeting,
+  PortalMonth,
+  PortalRate,
+  PortalTopic,
+  SettlementMode,
+} from "@/lib/api/consultant-portal";
 
 const WARSAW = "Europe/Warsaw";
 const MONTHS = [
@@ -75,26 +82,80 @@ export function groupFaq(
     .filter((group) => group.items.length > 0);
 }
 
-/** Tylko cyfry, najwyżej 6: telefon wkleja kod ze spacją albo z tekstem SMS-a. */
-export function cleanCode(raw: string): string {
-  return raw.replace(/\D/g, "").slice(0, 6);
-}
-
 export function monthActionLabel(row: PortalMonth): string | null {
   if (row.action === "send_report") return "Wyślij raport";
   if (row.action === "send_invoice") return "Wyślij fakturę";
   return null;
 }
 
-/** Sekcja finansów ma trzy stany, a awaria zapytania nie może wyglądać jak jeden z nich. */
-export type FinanceView = "loading" | "error" | "unavailable" | "verify" | "open";
+const UNIT_LABELS: Record<string, string> = { hourly: "h", daily: "dzień", monthly: "miesiąc" };
 
-export function financeView(
-  status: { available: boolean; verified: boolean } | undefined,
-  { isError }: { isError: boolean },
-): FinanceView {
-  if (isError) return "error";
-  if (!status) return "loading";
-  if (!status.available) return "unavailable";
-  return status.verified ? "open" : "verify";
+/** „160,00 zł/h netto”: kwota po polsku, a waluta inna niż PLN zostaje kodem. */
+export function rateLabel(rate: PortalRate | null): string | null {
+  if (!rate) return null;
+  const amount = Number(rate.amount).toLocaleString("pl-PL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const currency = rate.currency === "PLN" ? "zł" : rate.currency;
+  return `${amount} ${currency}/${UNIT_LABELS[rate.unit] ?? rate.unit} netto`;
+}
+
+/** „3 dni robocze przed startem”: pakiet klienta liczy termin względem startu. */
+export function offsetLabel(days: number | null): string | null {
+  if (days === null) return null;
+  if (days === 0) return "w dniu startu";
+  const count = Math.abs(days);
+  const unit = count === 1 ? "dzień roboczy" : "dni robocze";
+  return `${count} ${unit} ${days < 0 ? "przed startem" : "po starcie"}`;
+}
+
+export const SETTLEMENT_MODES: Record<SettlementMode, { label: string; intro: string; steps: string[] }> = {
+  client_report: {
+    label: "Raport od klienta",
+    intro:
+      "Nie wysyłasz raportu. Klient przekazuje nam godziny, a Ty wystawiasz fakturę na tyle godzin, ile zaakceptował.",
+    steps: [
+      "Klient przekazuje nam raport za miesiąc.",
+      "Wystawiasz fakturę na godziny z raportu klienta.",
+      "Fakturę dosyłasz w zakładce Faktury albo na adres rozliczeń.",
+    ],
+  },
+  report_with_approval: {
+    label: "Raport i akceptacja klienta",
+    intro: "Sam zbierasz akceptację godzin u klienta i dołączasz ją do rozliczenia razem z raportem.",
+    steps: [
+      "Wgrywasz raport godzin razem z akceptacją klienta.",
+      "Finanse sprawdzają dokumenty i dają znać.",
+      "Wystawiasz fakturę na zaakceptowane godziny.",
+    ],
+  },
+  own_report: {
+    label: "Raport akceptowany przez B2B.net",
+    intro: "Wysyłasz raport do nas. Finanse go sprawdzają i dają sygnał, że możesz wystawić fakturę.",
+    steps: [
+      "Wgrywasz raport godzin w zakładce Faktury.",
+      "Finanse sprawdzają raport.",
+      "Po naszym sygnale wystawiasz fakturę.",
+    ],
+  },
+};
+
+export function saveBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Najbliższa umówiona rozmowa. Serwer sortuje od najnowszej, czyli od najdalszego terminu. */
+export function nextMeeting(items: PortalMeeting[], now: Date = new Date()): PortalMeeting | null {
+  const upcoming = items.filter(
+    (row) => row.status === "booked" && new Date(row.end_at).getTime() > now.getTime(),
+  );
+  return (
+    upcoming.sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())[0] ?? null
+  );
 }

@@ -94,7 +94,7 @@ stawki, Zakończenia. Zamówienia: Poczta zamówień, Przerwy, Przedłużenia (4
 Poza kodem, przed włączeniem: head back office w „Struktura”, zastępca, skład zespołów,
 uprawnienie „Sprawy” dla zespołu Opieka, `wsparcie@` w M365 (`ADMIN_CASES_MAILBOX` przez
 workflow „Coolify set env”), czytnik (`ADMIN_CASES_MAIL_INGEST_ENABLED`), potwierdzenie, że
-Compass nie prowadzi już spraw, FAQ, dostawca SMS, IOD.
+Compass nie prowadzi już spraw, FAQ, IOD.
 
 1. Wdrożenie kodu w oknie (moduł wyłączony: nic się nie zmienia). `/api/health` = SHA z maina.
 2. Włączyć `back_office` w Ustawienia → Kadry → Moduły, w oknie wdrożeń.

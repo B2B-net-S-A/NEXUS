@@ -251,6 +251,7 @@ from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import back_office as back_office_api
+from app.api import consultant_panel as consultant_panel_api
 from app.api import consultant_portal as consultant_portal_api
 from app.api import consultant_portal_staff as consultant_portal_staff_api
 from app.api import equipment as equipment_api
@@ -2254,6 +2255,12 @@ app.include_router(
 app.include_router(
     equipment_intune_api.router,
     prefix="/api/equipment/intune",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    consultant_panel_api.router,
+    prefix="/api/consultant-panel",
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )

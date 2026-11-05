@@ -568,6 +568,7 @@ const PUBLIC_PATHS = [
   // Umowa przedwstępna (0506) — sekcja panelu, lista i kafelek na danych w pamięci.
   "/preview/pre-contracts",
   "/preview/job-portals",
+  "/preview/consultant-panel",
   "/preview/academy",
   "/preview/request-allocation",
   // Strona „Daily — requesty i obłożenie” (`/jobs/daily`), wariant daily pulpitu.
