@@ -97,6 +97,8 @@ export const candidateQueryKeys = {
     ["candidate-card-overview", candidateId(id)] as const,
   documents: (id: number | string) =>
     ["candidate-documents", candidateId(id)] as const,
+  documentQuarantine: (id: number | string) =>
+    ["candidate-document-quarantine", candidateId(id)] as const,
   cvDocuments: (id: number | string) =>
     ["candidate-documents", candidateId(id), { kind: "cv" }] as const,
   contracts: (id: number | string) =>

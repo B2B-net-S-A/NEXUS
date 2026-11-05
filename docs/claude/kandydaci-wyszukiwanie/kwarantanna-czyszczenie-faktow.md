@@ -107,3 +107,26 @@ Odpowiedź liczymy przy odczycie, nie zapisujemy jej przy kopii:
 Profil bez kwarantanny płaci jedno zapytanie i nie pobiera plików. Narzędzia naprawcze
 w `app/cli` zostają przy `current_cv_filters`: nie wysyłają pliku dalej, a sam wybór
 i tak przechodzi przez powyższe.
+
+## Zwolnienie z listy plików profilu
+
+Decyzja Artura z 05.11.2026 (wariant A z makiety): zakładka „Dokumenty” → Pliki
+pokazuje stan w wierszu, bo po #3060 fałszywy alarm może zostawić osobę bez
+bieżącego CV, a rekruter nie miał następnego kroku.
+
+- `GET /api/candidates/{id}/identity-quarantine` zwraca pliki w kwarantannie i kopie.
+  Jest osobno od `GET /documents`, bo kopie liczą się czasem z plików w magazynie,
+  a tamtej listy używają też podgląd i panel rekrutacji. Awaria tej trasy ma na
+  ekranie własny komunikat, bo nie może wyglądać jak brak kwarantanny.
+- Widzi każdy, kto widzi pliki. Zwalnia admin i Head of Recruitment
+  (`candidate.identity_quarantine.override`), z powodem w `askReason`.
+- „Zwolnij” stoi przy oryginale, bo zwolnienie oddaje od razu wszystkie kopie. Przy
+  kopii stoi tylko wtedy, gdy oryginał usunięto z profilu. Usunięty oryginał nadal
+  trzyma kopie w kwarantannie, dlatego trasa zwolnienia przyjmuje taki plik.
+- Plik w kwarantannie i kopia nie mają „Ustaw jako główne CV”: pierwszy wróciłby
+  z kwarantanny bez odczytu, a druga zostałaby główna bez odczytu.
+- Zwolnienie nie czyta pliku i nie robi z niego głównego CV. Okno i komunikat mówią,
+  że trzeba go potem ustawić jako główne CV. Zdejmuje za to znacznik
+  `_identity_quarantine_source`, gdy wskazuje ten plik, bo inaczej ramka w profilu
+  dalej prosiłaby o zwolnienie.
+- Powód nie wraca na ekran: trasa go nie zwraca, bo można w nim wpisać dane osobowe.

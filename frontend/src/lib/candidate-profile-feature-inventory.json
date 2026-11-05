@@ -761,6 +761,13 @@
    "home": "Dokumenty → Pliki"
   },
   {
+   "id": "d.quarantine",
+   "opis": "Plik w kwarantannie tożsamości, jego kopia i „Zwolnij” (admin, Head of Recruitment)",
+   "file": "components/v2/files/CandidateFilesTab.tsx",
+   "marker": "Zwolnij z kwarantanny plik",
+   "home": "Dokumenty → Pliki → wiersz"
+  },
+  {
    "id": "c.similar-tab",
    "opis": "Zakładka „Podobni” — osoby z podobnym CV i umiejętnościami; kolejność bez żadnej rekrutacji, filtry „Bez „Nie szuka””, „Bez osób w procesie”, stawka, miasto (22.10.2026)",
    "file": "components/v2/similar-candidates/SimilarCandidatesTab.tsx",
