@@ -7070,6 +7070,7 @@ async def _parsed_source_is_quarantined(
         source_id=source_id,
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
+        observed_phone=parsed.get("phone"),
         provenance=provenance,
         replaced_primary=replaced_primary,
         observed_name_from_header=bool(parsed.get("_name_from_header")),
