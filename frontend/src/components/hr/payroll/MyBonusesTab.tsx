@@ -151,7 +151,7 @@ export function MyBonusesTab() {
           form,
         )}
       />
-      <MyClawbacksCard items={data.clawbacks} />
+      <MyClawbacksCard items={data.clawbacks} form={form} />
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           Nie masz jeszcze {words.bonuses_genitive}. {capitalize(words.bonus)} z placementu

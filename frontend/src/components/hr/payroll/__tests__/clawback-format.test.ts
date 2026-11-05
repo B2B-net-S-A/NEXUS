@@ -63,7 +63,7 @@ describe("clawback-format", () => {
       clawbackReason(claw({ origin: "manual", ended_on: null, note: "konsultant odszedł" })),
     ).toBe("Rozliczenia: konsultant odszedł");
     expect(clawbackProgress(claw({ settled: "1000.00", remaining: "512.00" }))).toMatch(
-      /^potrącono 1\s?000,00\szł z 1\s?512,00\szł · z premii od 11\.2026$/,
+      /^potrącono 1\s?000,00\szł z 1\s?512,00\szł · potrąca się od 11\.2026$/,
     );
   });
 });

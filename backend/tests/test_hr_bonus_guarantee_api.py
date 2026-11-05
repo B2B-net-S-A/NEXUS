@@ -32,6 +32,7 @@ from app.models.hr_payroll import (
     PayrollLine,
     PayrollPeriod,
 )
+from app.models.hr_ops import HrJobRun
 from app.models.hr_profile import EmployeeProfile
 from app.models.section_permission import UserActionOverride
 from app.models.user import User, UserRole
@@ -63,6 +64,8 @@ async def _wipe() -> None:
     async with AsyncSessionLocal() as db:
         await delete_settlement_rows(db)
         await db.execute(delete(HrBonusClawback))
+        # Zamknięcia przez API zostawiają ślad przebiegu; inne testy go liczą.
+        await db.execute(delete(HrJobRun).where(HrJobRun.kind == "payroll_close"))
         await db.execute(delete(PayrollLine))
         await db.execute(delete(PayrollPeriod))
         await db.execute(delete(HrBonus))

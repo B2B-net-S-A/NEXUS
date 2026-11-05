@@ -1,6 +1,8 @@
 "use client";
 
+import type { EmploymentType } from "@/lib/api/hr";
 import type { BonusClawback } from "@/lib/api/hr-payroll";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 
 import { totalsLabel } from "../me/overview-format";
 import { clawbackActive, clawbackProgress, clawbackReason, clawbackRemaining } from "./clawback-format";
@@ -8,9 +10,17 @@ import { clawbackActive, clawbackProgress, clawbackReason, clawbackRemaining } f
 /**
  * „Do zwrotu z gwarancji” nad premiami w „Moim czasie” (05.11.2026): konsultant
  * nie przepracował 12 miesięcy, więc premia DL za placement wraca — potrąca się
- * sama z kolejnych premii. Bez długów karty nie ma.
+ * sama z kolejnych premii. Bez długów karty nie ma. Przy B2B i zleceniu
+ * „wynagrodzenie dodatkowe” zamiast „premii” (decyzja Artura 21.10.2026).
  */
-export function MyClawbacksCard({ items }: { items: BonusClawback[] | undefined }) {
+export function MyClawbacksCard({
+  items,
+  form,
+}: {
+  items: BonusClawback[] | undefined;
+  form?: EmploymentType | null;
+}) {
+  const words = employmentTerms(form);
   const shown = (items ?? []).filter(clawbackActive);
   if (shown.length === 0) return null;
   const remaining = clawbackRemaining(shown);
@@ -24,8 +34,8 @@ export function MyClawbacksCard({ items }: { items: BonusClawback[] | undefined 
         {Object.keys(remaining).length > 0 ? totalsLabel(remaining) : "nic"}
       </h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Konsultant nie przepracował 12 miesięcy od startu, więc premia za placement wraca. Kwota
-        potrąca się sama z Twoich kolejnych premii.
+        Konsultant nie przepracował 12 miesięcy od startu, więc {words.bonus} za placement wraca.
+        Kwota potrąca się sama z {words.bonuses_genitive} w kolejnych miesiącach.
       </p>
       <ul className="mt-2 space-y-1.5">
         {shown.map((item) => (
