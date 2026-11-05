@@ -902,6 +902,18 @@
     "dot_anchor": "cv.file-name"
   },
   {
+    "id": "prosba-o-zgode-przy-screeningu",
+    "title": "O zgodę dla PKO BP poprosisz już przy screeningu",
+    "why": "Prośba o zgodę jest już w screeningu i w generatorze, nie dopiero przy gotowym CV. Zrzut wgrasz przy generowaniu, a ramka pokaże, czy prośba poszła i czy kandydat odpisał.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Panel osoby → Screening",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.consent-notice"
+  },
+  {
     "id": "prosba-o-zgode-pko",
     "title": "Prośba o zgodę dla PKO BP gotowa jednym kliknięciem",
     "why": "„Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata; zrzut bez B2B.net dostanie ostrzeżenie.",

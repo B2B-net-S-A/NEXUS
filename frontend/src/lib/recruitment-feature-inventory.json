@@ -1222,6 +1222,38 @@
    "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
+   "id": "cv.consent-request-early",
+   "area": "cv",
+   "opis": "Prośba o zgodę RODO przed powstaniem CV: pasek w screeningu i na karcie bez CV (reguła klienta z wymogiem zgody), znika po dołączeniu zrzutu",
+   "file": "components/v2/recruitment/ConsentRequestNotice.tsx",
+   "marker": "consent-request-notice",
+   "v3_home": "panel → Screening; panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.consent-request-generator",
+   "area": "cv",
+   "opis": "Ramka zgody RODO na górze generatora w karcie: prośba do kandydata i wgranie zrzutu odpowiedzi przed generowaniem",
+   "file": "components/v2/recruitment/CvGeneratePanel.tsx",
+   "marker": "cvgen-consent",
+   "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
+  },
+  {
+   "id": "cv.consent-request-status",
+   "area": "cv",
+   "opis": "Stan prośby o zgodę z wątków maili: „Prośba wysłana”, „Kandydat odpisał” (po nadawcy) i przycisk „Poproś ponownie”",
+   "file": "components/v2/recruitment/ConsentRequestButton.tsx",
+   "marker": "consent-request-status",
+   "v3_home": "wszędzie, gdzie jest „Poproś kandydata o zgodę”"
+  },
+  {
+   "id": "cv.preview-consent-frame",
+   "area": "cv",
+   "opis": "Brak zgody RODO w podglądzie CV firmowego (lewa kolumna panelu i przegląd DL): ramka z prośbą i wgraniem zrzutu zamiast samego komunikatu błędu",
+   "file": "components/v2/person/StageCvPreview.tsx",
+   "marker": "dl-review-consent-missing",
+   "v3_home": "panel → CV firmowe; przegląd DL"
+  },
+  {
    "id": "cv.to-client-sources",
    "area": "cv",
    "opis": "„Z czego powstało” w karcie „CV do klienta” (D4, 13.10.2026): „Generuj CV”, „Wygeneruj ponownie” i „Spróbuj ponownie” rozwijają panel w karcie — oryginalne CV i Profil Championa zawsze, przełączniki odpowiedzi ze screeningu (ile przeczy pytaniu), notatek, transkryptów (ile spoza rekrutacji) i prepu, notatki ze stawką zawsze wycinane, obróbka i język; start z wyboru bieżącej wersji; ponowna generacja przy istniejącym szkicu sama zastępuje szkic gotową wersją; od 14.10.2026 panel zwinięty do jednego zdania („Z oryginału CV, Championa… · tryb · język · Zmień”), rozwija się sam przy brakach i błędach; „Wygeneruj ponownie” gotowego CV jest w menu „⋯”",

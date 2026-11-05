@@ -52,6 +52,7 @@ import type { NoteFillChannel } from "@/lib/note-fill-channel";
 import { PersonPanelSide, usePersonPanelSideActive } from "@/components/v2/person/PersonPanelSide";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import { BeforeCallProfile } from "@/components/v2/screening-form/BeforeCallProfile";
+import { ConsentRequestNotice } from "@/components/v2/recruitment/ConsentRequestNotice";
 import { ScreeningFormHistory } from "@/components/v2/screening-form/ScreeningFormHistory";
 import { ScreeningFullForm } from "@/components/v2/screening-form/ScreeningFullForm";
 import { JointScreeningForm } from "@/components/v2/screening-form/JointScreeningForm";
@@ -535,6 +536,15 @@ export function ScreeningWorkbench({
             jobId={jobId}
             readOnly={readOnly}
             onOpenHistory={openHistory}
+          />
+        ) : null}
+        {!readOnly ? (
+          <ConsentRequestNotice
+            stageId={item.id}
+            candidateId={item.candidate_id}
+            candidateName={name}
+            jobId={jobId}
+            moment="screening"
           />
         ) : null}
         {jointEnabled && !jointSaving && restoredAt != null && memorySummary.hasEntries ? (
