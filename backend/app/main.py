@@ -2368,7 +2368,9 @@ app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
 app.include_router(cpro_mail_api.router, prefix="/api", tags=["cpro-mail"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
-app.include_router(cv_call_questions_api.router, prefix="/api", tags=["cv-call-questions"])
+app.include_router(
+    cv_call_questions_api.router, prefix="/api", tags=["cv-call-questions"]
+)
 app.include_router(
     cv_call_questions_refresh_api.router, prefix="/api", tags=["cv-call-questions"]
 )
