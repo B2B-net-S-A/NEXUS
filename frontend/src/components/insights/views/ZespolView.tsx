@@ -812,11 +812,13 @@ function PersonRow({
           (!delta || delta.tone === "neutral") && "text-muted-foreground",
         )}
         title={previousLabel ? `Placementy wobec: ${previousLabel}` : "Placementy wobec poprzedniego okresu"}
+        // Nie `sr-only`: pozycja absolutna wychodzi poza przewijaną tabelę i rozpycha stronę na telefonie.
+        aria-label={!hideComparison && (!delta || delta.tone === "neutral") ? "bez zmian" : undefined}
       >
         {hideComparison
           ? "—"
           : !delta || delta.tone === "neutral"
-          ? <span className="sr-only">bez zmian</span>
+          ? null
           : `${row.placements > row.previous_placements ? "▲" : "▼"} ${Math.abs(row.placements - row.previous_placements)}`}
       </td>
     </tr>
