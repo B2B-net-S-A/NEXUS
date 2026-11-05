@@ -41,6 +41,8 @@ _WIDE_HR_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/equipment/me"),
     ("GET", "/api/hr/payroll/me"),
     ("GET", "/api/hr/payroll/me/settlement"),
+    # premia 200%: tylko wiersz pytającego (double_bonus.rows_for, current_user)
+    ("GET", "/api/hr/payroll/me/double-bonus"),
     ("GET", "/api/hr/lifecycle/my-tasks"),
     # zastępstwa i nieobecności (krąg D6 w absence.py / leave_substitute)
     ("GET", "/api/hr/dashboard/substitution"),
