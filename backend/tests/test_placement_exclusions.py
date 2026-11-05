@@ -413,3 +413,108 @@ async def test_custom_metric_hired_for_me_credits_the_verifier(app_client):
     assert as_mover.status_code == 200, as_mover.text
     assert as_verifier.json()["value"] == 1.0
     assert as_mover.json()["value"] == 0.0
+
+
+# ── Ręczne wykluczenie (0650) ────────────────────────────────────────────────
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_admin_excludes_one_placement_by_hand_and_can_undo(app_client):
+    from app.core.database import AsyncSessionLocal
+
+    when = datetime(2026, 10, 29, 9, 0, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        admin = await _user(db, "admin")
+        recruiter = await _user(db, "recruiter")
+        job_id, ids = await _pairs(db, recruiter.id, count=1, when=when)
+        await db.commit()
+        admin_headers = await _token(admin)
+        recruiter_headers = await _token(recruiter)
+    body = {"candidate_id": ids[0], "job_id": job_id, "note": "Nie podjął pracy"}
+
+    denied = await app_client.post(
+        "/api/admin/placement-exclusions", headers=recruiter_headers, json=body
+    )
+    assert denied.status_code == 403
+
+    created = await app_client.post(
+        "/api/admin/placement-exclusions", headers=admin_headers, json=body
+    )
+    assert created.status_code == 201, created.text
+    exclusion_id = created.json()["id"]
+
+    again = await app_client.post(
+        "/api/admin/placement-exclusions", headers=admin_headers, json=body
+    )
+    assert again.status_code == 409
+
+    async with AsyncSessionLocal() as db:
+        view = await db.scalar(
+            text(
+                "SELECT count(*) FROM analytics_first_milestones "
+                "WHERE candidate_id = :c AND job_id = :j AND stage::text = 'hired'"
+            ),
+            {"c": ids[0], "j": job_id},
+        )
+    assert view == 0, "wykluczony placement znika z widoku"
+
+    listing = await app_client.get(
+        "/api/admin/placement-exclusions", headers=admin_headers
+    )
+    row = next(i for i in listing.json()["items"] if i["id"] == exclusion_id)
+    assert row["reason"] == "manual"
+    assert row["note"] == "Nie podjął pracy"
+    assert row["added_by_name"] == admin.name
+
+    undone = await app_client.delete(
+        f"/api/admin/placement-exclusions/{exclusion_id}", headers=admin_headers
+    )
+    assert undone.status_code == 204
+    async with AsyncSessionLocal() as db:
+        back = await db.scalar(
+            text(
+                "SELECT count(*) FROM analytics_first_milestones "
+                "WHERE candidate_id = :c AND job_id = :j AND stage::text = 'hired'"
+            ),
+            {"c": ids[0], "j": job_id},
+        )
+    assert back == 1
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_manual_exclusion_refuses_pair_without_hired_and_rule_rows(app_client):
+    from app.core.database import AsyncSessionLocal
+    from app.services.placement_exclusions import detect_new_series
+
+    when = datetime(2026, 4, 15, 9, 0, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        admin = await _user(db, "admin")
+        job_id, ids = await _pairs(db, admin.id, count=10, when=when)
+        await detect_new_series(db, only_candidate_ids=ids)
+        other_job, _ = await _pairs(db, admin.id, count=1, when=when)
+        await db.commit()
+        headers = await _token(admin)
+
+    wrong_pair = await app_client.post(
+        "/api/admin/placement-exclusions",
+        headers=headers,
+        json={"candidate_id": ids[0], "job_id": other_job, "note": "pomyłka"},
+    )
+    assert wrong_pair.status_code == 422
+    assert "Zatrudniony" in wrong_pair.json()["detail"]
+
+    blank = await app_client.post(
+        "/api/admin/placement-exclusions",
+        headers=headers,
+        json={"candidate_id": ids[0], "job_id": job_id, "note": "   "},
+    )
+    assert blank.status_code == 422
+
+    listing = await app_client.get("/api/admin/placement-exclusions", headers=headers)
+    rule_row = next(i for i in listing.json()["items"] if i["candidate_id"] == ids[0])
+    refused = await app_client.delete(
+        f"/api/admin/placement-exclusions/{rule_row['id']}", headers=headers
+    )
+    assert refused.status_code == 409, "wykluczenia z reguły nie zdejmujemy"
