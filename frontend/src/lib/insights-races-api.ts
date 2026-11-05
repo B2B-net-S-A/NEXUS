@@ -30,7 +30,7 @@ export interface MonthlyRaceEntry {
   /** Rekomendacje (Wyścig Rekomendacji) albo placementy (Wyścig Placementów). */
   metric_value: number;
   rank: number;
-  /** Lider kwartału — w rankingu zostaje, ale nagrody nie bierze. */
+  /** Lider kwartału bez nagrody — tylko okresy zamrożone przed 05.11.2026. */
   excluded: boolean;
   role?: string | null;
   hit_ratio?: number | null;
