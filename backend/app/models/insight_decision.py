@@ -1,4 +1,4 @@
-"""Decyzja o sprawie z zakładki „Wnioski” (0646) — ``services/insights_wnioski.py``."""
+"""Decyzja o sprawie z zakładki „Wnioski” (0647) — ``services/insights_wnioski.py``."""
 
 from datetime import date, datetime
 from typing import Optional

@@ -1,4 +1,4 @@
-"""DDL decyzji z zakładki „Wnioski” (0646) — jedno źródło dla migracji i entrypointu.
+"""DDL decyzji z zakładki „Wnioski” (0647) — jedno źródło dla migracji i entrypointu.
 
 Wiersz na każde kliknięcie, nic się nie nadpisuje: stan sprawy to ostatni wiersz, a
 historia zostaje. Patrz ``docs/claude/finanse-insights/zakladka-wnioski.md``.

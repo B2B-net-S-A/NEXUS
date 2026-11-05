@@ -6,7 +6,7 @@ NEXUS ma się uczyć z decyzji zespołu i klientów bez dodatkowego klikania: je
 zbiera wnioski z danych, które już są, a człowiek decyduje.
 
 Kod: `api/insights_wnioski.py`, `services/insights_wnioski.py`, tabela `insight_decisions`
-(0646, DDL w `services/insight_decisions_schema.py`, lustro w `entrypoint.sh`, sonda
+(0647, DDL w `services/insight_decisions_schema.py`, lustro w `entrypoint.sh`, sonda
 w `/api/health/deep`), front `components/insights/views/WnioskiView.tsx`,
 `sections/WnioskiPeoplePanel.tsx`.
 
