@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -500,6 +500,57 @@ def test_apply_contact_fallbacks_fills_only_missing_slots():
     assert out["_confidence"]["first_name"] == 0.95  # LLM-provided preserved
     assert out["_confidence"].get("last_name") == 0.6
     assert out["_confidence"].get("email") == 0.9
+
+
+@pytest.mark.parametrize(
+    ("first_name", "last_name"),
+    [(None, None), ("Jan", None), (None, "Kowalski")],
+)
+def test_name_filled_from_header_is_marked(first_name, last_name):
+    # Pewność 0,6 tego nie niesie: model ustawia `_confidence` także dla pustego
+    # pola, a `setdefault` zostawia jego wartość (na produkcji 26 profili ma 0,0).
+    parsed = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "_confidence": {"first_name": 0.0, "last_name": 0.0},
+    }
+
+    out = cvp._apply_contact_fallbacks(parsed, "Jan Kowalski\njan@example.com")
+
+    assert (out["first_name"], out["last_name"]) == ("Jan", "Kowalski")
+    assert out["_name_from_header"] is True
+
+
+def test_name_from_the_model_is_not_marked():
+    out = cvp._apply_contact_fallbacks(
+        {"first_name": "Jan", "last_name": "Kowalski"}, "Anna Nowak\n"
+    )
+
+    assert "_name_from_header" not in out
+
+
+def test_empty_name_with_no_header_match_is_not_marked():
+    out = cvp._apply_contact_fallbacks({"first_name": None}, "doswiadczenie\n")
+
+    assert out["first_name"] is None
+    assert "_name_from_header" not in out
+
+
+def test_regex_read_marks_the_name_it_took_from_the_header():
+    assert cvp._regex_fallback("Jan Kowalski\n")["_name_from_header"] is True
+
+
+@pytest.mark.asyncio
+async def test_marker_survives_parse_cv_when_the_model_leaves_the_name_empty():
+    with patch.object(
+        cvp,
+        "_parse_with_claude",
+        AsyncMock(return_value={"first_name": None, "last_name": None}),
+    ):
+        out = await cvp.parse_cv("Fikcyjny Inzynier\nPython\n")
+
+    assert (out["first_name"], out["last_name"]) == ("Fikcyjny", "Inzynier")
+    assert out["_name_from_header"] is True
 
 
 @pytest.mark.asyncio

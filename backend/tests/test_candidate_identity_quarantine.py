@@ -357,6 +357,152 @@ async def test_detected_identity_uses_fresh_locked_candidate_name(
     assert captured["candidate_last_name"] == "Nowak"
 
 
+def _noop(*_args, **_kwargs) -> None:
+    return None
+
+
+class _NewReviewDB(_FlushOnlyDB):
+    """Bramka zapisuje nowy wiersz przeglądu; test czyta go z `added`."""
+
+    def __init__(self, locked_candidate: object) -> None:
+        super().__init__(locked_candidate)
+        self.added: list[object] = []
+
+    def add(self, value: object) -> None:
+        self.added.append(value)
+
+
+async def _review_of_new_source(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    observed: tuple[str, str],
+    **gate_kwargs,
+) -> tuple[object, AsyncMock]:
+    async def no_review(*_args, **_kwargs):
+        return None
+
+    clear = AsyncMock(return_value={"cleared_fields": 0, "tombstoned_languages": 0})
+    monkeypatch.setattr(quarantine, "get_identity_review", no_review)
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", clear)
+    monkeypatch.setattr(quarantine, "_purge_candidate_summary_cache", AsyncMock())
+    monkeypatch.setattr(quarantine.candidate_audit, "record_candidate_audit", _noop)
+    candidate = SimpleNamespace(id=11, name="Jan", lastname="Kowalski")
+
+    review = await quarantine.record_detected_identity(
+        _NewReviewDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="document",
+        source_id=22,
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+        provenance="cv_parser:document",
+        **gate_kwargs,
+    )
+    return review, clear
+
+
+@pytest.mark.asyncio
+async def test_name_from_cv_header_alone_never_quarantines_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 05.11.2026: 9 z 9 przejrzanych plików to fałszywe alarmy, w 7 nazwa pasuje
+    # do reguły nagłówka, a w 4 linia nie była nazwą osoby. Profil tracił fakty.
+    review, clear = await _review_of_new_source(
+        monkeypatch,
+        observed=("Fikcyjny", "Inzynier"),
+        observed_name_from_header=True,
+    )
+
+    assert review.decision == "inconclusive"
+    assert review.is_quarantined is False
+    assert review.evidence["observed_name_from_header"] is True
+    clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_name_from_model_other_than_profile_still_quarantines_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review, clear = await _review_of_new_source(monkeypatch, observed=("Anna", "Nowak"))
+
+    assert review.decision == "confirmed_mismatch"
+    assert review.is_quarantined is True
+    assert review.evidence["observed_name_from_header"] is False
+    clear.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_name_from_cv_header_equal_to_profile_stays_a_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review, _ = await _review_of_new_source(
+        monkeypatch,
+        observed=("Jan", "Kowalski"),
+        observed_name_from_header=True,
+    )
+
+    assert review.decision == "confirmed_match"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("from_header", [False, True])
+async def test_candidate_cv_routes_tell_the_gate_where_the_name_came_from(
+    monkeypatch: pytest.MonkeyPatch, from_header: bool
+) -> None:
+    from app.api import candidates as candidates_api
+
+    gate = AsyncMock(return_value=SimpleNamespace(is_quarantined=False))
+    monkeypatch.setattr(candidates_api, "record_detected_identity", gate)
+    parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
+    if from_header:
+        parsed["_name_from_header"] = True
+
+    await candidates_api._parsed_source_is_quarantined(
+        object(),  # type: ignore[arg-type]
+        candidate=SimpleNamespace(id=11),  # type: ignore[arg-type]
+        parsed=parsed,
+        source_kind="document",
+        source_id=22,
+        provenance="cv_parser:document",
+    )
+
+    assert gate.await_args.kwargs["observed_name_from_header"] is from_header
+
+
+@pytest.mark.asyncio
+async def test_earlier_confirmed_mismatch_stays_when_reread_name_is_from_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = SimpleNamespace(
+        decision="confirmed_mismatch",
+        provenance="cv_parser:document",
+        override_at=None,
+        is_quarantined=True,
+    )
+
+    async def fake_get(*_args, **_kwargs):
+        return row
+
+    monkeypatch.setattr(quarantine, "get_identity_review", fake_get)
+    monkeypatch.setattr(quarantine, "_purge_candidate_summary_cache", AsyncMock())
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", AsyncMock())
+    candidate = SimpleNamespace(id=11, name="Jan", lastname="Kowalski")
+
+    result = await quarantine.record_detected_identity(
+        _FlushOnlyDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="document",
+        source_id=22,
+        observed_first_name="Fikcyjny",
+        observed_last_name="Inzynier",
+        provenance="cv_parser:retry",
+        observed_name_from_header=True,
+    )
+
+    assert result is row
+    assert row.decision == "confirmed_mismatch"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", [UserRole.admin, UserRole.head_of_recruitment])
 async def test_override_requires_reason_and_audits_only_its_hash(

@@ -185,6 +185,10 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
     Regex only writes into keys that are currently `None` or missing.
     Sets `_confidence` for regex-filled fields: 0.9 for exact email match,
     0.85 for phone with 9+ digits, 0.6 for name split heuristic.
+
+    A name taken from the header also gets `_name_from_header`: the identity gate
+    must not treat it as a read (05.11.2026). `_confidence` cannot carry that,
+    because the model scores empty fields too and `setdefault` keeps its 0.0.
     """
     out = dict(parsed)
     confidence = dict(out.get("_confidence") or {})
@@ -210,9 +214,11 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
         if first and not out.get("first_name"):
             out["first_name"] = first
             confidence.setdefault("first_name", 0.6)
+            out["_name_from_header"] = True
         if last and not out.get("last_name"):
             out["last_name"] = last
             confidence.setdefault("last_name", 0.6)
+            out["_name_from_header"] = True
 
     if confidence:
         out["_confidence"] = confidence

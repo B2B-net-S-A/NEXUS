@@ -503,6 +503,7 @@ async def try_parse_cv(
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
         provenance="cv_parser:m365",
+        observed_name_from_header=bool(parsed.get("_name_from_header")),
     )
     if review.is_quarantined:
         document.is_primary = False

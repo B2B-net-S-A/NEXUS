@@ -497,3 +497,45 @@ async def test_unreadable_name_cv_is_read_when_identity_comes_from_the_cv(
         assert attachment.parse_error == "identity_unreadable_not_primary"
         assert candidate.raw_cv_text is None
         enrichment.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("from_header", [False, True])
+async def test_gate_learns_whether_the_mail_cv_name_came_from_the_header(
+    monkeypatch, tmp_path, from_header
+):
+    parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
+    if from_header:
+        parsed["_name_from_header"] = True
+    (tmp_path / "synthetic.pdf").write_bytes(b"Synthetic CV")
+    monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *_: "Synthetic CV")
+    monkeypatch.setattr(cv_parser, "parse_cv", AsyncMock(return_value=parsed))
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", AsyncMock())
+    gate = AsyncMock(return_value=SimpleNamespace(is_quarantined=False))
+    monkeypatch.setattr(candidate_identity_quarantine, "record_detected_identity", gate)
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(name="Alex", lastname="Example")
+        db.add(candidate)
+        await db.flush()
+        attachment = SimpleNamespace(
+            id=1,
+            is_cv_candidate=True,
+            storage_path="synthetic.pdf",
+            filename="synthetic.pdf",
+            content_type="application/pdf",
+            sha256=None,
+            m365_attachment_id=f"m365-header-{uuid.uuid4().hex}",
+            parsed_candidate_id=None,
+            parse_error=None,
+        )
+        email = SimpleNamespace(
+            candidate_id=candidate.id,
+            received_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        await attachment_handler.try_parse_cv(db, attachment, email)
+        await db.rollback()
+
+    assert gate.await_args.kwargs["observed_name_from_header"] is from_header
