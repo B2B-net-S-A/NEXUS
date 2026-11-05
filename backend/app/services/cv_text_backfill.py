@@ -35,7 +35,7 @@ from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.cv_text_extractor import (
     GLUED_AVG_WORD_LEN,
     UnsupportedCvFormat,
-    extract_text,
+    extract_cv_text,
     looks_glued,
     sniff_extension,
 )
@@ -188,7 +188,7 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
         path = tmp.name
     try:
         sniffed = sniff_extension(path)
-        text = extract_text(path, filename or os.path.basename(storage_key))
+        text = extract_cv_text(path, filename or os.path.basename(storage_key))
     except UnsupportedCvFormat:
         return ExtractionResult("unsupported_format")
     except Exception as exc:  # noqa: BLE001

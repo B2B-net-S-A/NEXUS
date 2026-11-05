@@ -564,10 +564,12 @@ async def _extract_and_parse(
 ) -> Optional[tuple[str, dict]]:
     """Tekst i odczyt CV z załącznika albo None (powód w `parse_error`)."""
     from app.services.cv_parser import parse_cv
-    from app.services.cv_text_extractor import extract_text
+    from app.services.cv_text_extractor import extract_cv_text
 
     try:
-        text = await asyncio.to_thread(extract_text, str(abs_path), attachment.filename)
+        text = await asyncio.to_thread(
+            extract_cv_text, str(abs_path), attachment.filename
+        )
         if not text.strip():
             attachment.parse_error = "text_extraction_empty"
             return None
