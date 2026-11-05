@@ -19,6 +19,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import FinanceModuleUser, require_onboarded_user
+from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
@@ -365,7 +366,9 @@ class SettlementBody(BaseModel):
     instructions: str = Field(default="", max_length=INSTRUCTIONS_MAX)
 
 
-@router.put("/clients/{client_id}/settlement")
+@router.put(
+    "/clients/{client_id}/settlement", dependencies=FINANCE_SECTION_DEPENDENCIES
+)
 async def save_settlement(
     client_id: int,
     payload: SettlementBody,
