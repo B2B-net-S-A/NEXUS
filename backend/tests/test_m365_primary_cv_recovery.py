@@ -506,7 +506,7 @@ async def test_gate_learns_whether_the_mail_cv_name_came_from_the_header(
 ):
     parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
     if from_header:
-        parsed["_name_from_header"] = True
+        parsed["_name_from_header"] = ["first_name", "last_name"]
     (tmp_path / "synthetic.pdf").write_bytes(b"Synthetic CV")
     monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
     monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)

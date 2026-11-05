@@ -15,7 +15,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.candidates import _cv_preview_response, _derive_names_from_preview
+from app.api.candidates import (
+    _apply_from_cv_overrides,
+    _cv_preview_response,
+    _derive_names_from_preview,
+)
 from app.models.candidate import Candidate
 from app.services.candidate_name_rules import (
     MAX_SCANNED_NAME_LENGTH,
@@ -70,6 +74,33 @@ def test_cv_preview_does_not_prefill_marker() -> None:
         "0" * 64, {"first_name": "(czarna lista) Jan", "last_name": "Testowy"}
     )
     assert (preview.name, preview.lastname) == ("Jan", "Testowy")
+
+
+def test_cv_preview_does_not_prefill_a_name_from_the_header() -> None:
+    preview = _cv_preview_response(
+        "0" * 64,
+        {
+            "first_name": "Jan",
+            "last_name": "Developer",
+            "_name_from_header": ["last_name"],
+        },
+    )
+    assert (preview.name, preview.lastname) == ("Jan", None)
+
+
+def test_form_value_replaces_the_header_marker_for_that_field() -> None:
+    merged = _apply_from_cv_overrides(
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "_name_from_header": ["first_name", "last_name"],
+        },
+        {"first_name": "Jan", "last_name": None},
+    )
+    assert merged["_name_from_header"] == ["last_name"]
+    assert "_name_from_header" not in _apply_from_cv_overrides(
+        merged, {"last_name": "Nowak"}
+    )
 
 
 def test_cv_backfill_writes_name_without_marker() -> None:
