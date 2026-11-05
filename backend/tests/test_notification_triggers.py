@@ -40,7 +40,9 @@ def _nobody_has_a_substitute(monkeypatch):
     async def effective_owner_id(_db, owner_id):
         return owner_id
 
-    monkeypatch.setattr(workforce_availability, "effective_owner_id", effective_owner_id)
+    monkeypatch.setattr(
+        workforce_availability, "effective_owner_id", effective_owner_id
+    )
 
 
 def test_exports_the_core_triggers():
