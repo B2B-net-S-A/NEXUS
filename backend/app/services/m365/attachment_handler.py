@@ -502,6 +502,7 @@ async def try_parse_cv(
         source_id=document.id,
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
+        observed_phone=parsed.get("phone"),
         provenance="cv_parser:m365",
         observed_name_from_header=bool(parsed.get("_name_from_header")),
     )

@@ -335,6 +335,7 @@ async def _identity_quarantined(
         source_id=document_id if document_id is not None else candidate.id,
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
+        observed_phone=parsed.get("phone"),
         provenance="cv_parser:backfill",
         observed_name_from_header=bool(parsed.get("_name_from_header")),
     )

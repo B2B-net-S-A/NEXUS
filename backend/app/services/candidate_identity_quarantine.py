@@ -3,9 +3,10 @@
 The detector is intentionally conservative: an automatic mismatch is only
 confirmed when both identities have a usable first name and surname and both
 parts disagree after transliteration.  Missing surnames, partial disagreement,
-a word shared by both identities and a near-equal name part stay
-``inconclusive`` so a name change, another split of the same words or a parsing
-failure cannot silently quarantine a legitimate source.
+a word shared by both identities, a near-equal name part, the same sound or
+letters of the name and a profile phone from outside this read stay
+``inconclusive`` so a name change, another spelling or split of the same words
+or a parsing failure cannot silently quarantine a legitimate source.
 
 Raw names and free text never enter the review row or audit event.  Only
 booleans and keyed SHA-256 fingerprints are retained as provenance.
@@ -41,6 +42,7 @@ from app.services import candidate_audit
 from app.services.candidate_location_writer import project_candidate_location
 from app.services.candidate_name_rules import EMPTY_FIELD_NAME_PHRASES
 from app.services.cv_common_words import only_common_cv_words
+from app.services.dedup_service import _normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,41 @@ _NAME_TOKEN_MIN_CHARS = 3
 # Pomiar 05.11.2026 na 608 sprzecznościach: 280 to te same słowa w innym podziale
 # na imię i nazwisko, kolejne ok. 90 to literówka albo transliteracja.
 _NAME_PART_SIMILAR_RATIO = 0.8
+# Ta sama osoba bywa zapisana po polsku, rosyjsku i białorusku bez wspólnego słowa
+# (pomiar 05.11.2026 na 133 sprzecznościach: 64 własne CV i 46 cudzych; klucz
+# dźwięku zdjął 22 własne i 1 cudzy z tym samym nazwiskiem). Kolejność ma znaczenie.
+_NAME_SOUND_REPLACEMENTS = (
+    ("szcz", "shch"),
+    ("sch", "sh"),
+    ("sz", "sh"),
+    ("cz", "ch"),
+    ("rz", "zh"),
+    ("ts", "c"),
+    ("tz", "c"),
+    ("ck", "k"),
+    ("ph", "f"),
+    ("th", "t"),
+    ("kh", "h"),
+    ("ch", "h"),
+    ("zh", "z"),
+    ("sh", "s"),
+    ("x", "ks"),
+    ("w", "v"),
+    ("y", "i"),
+    ("j", "i"),
+    ("g", "h"),
+    ("q", "k"),
+    ("ou", "ov"),
+    ("au", "ov"),
+    ("e", "a"),
+    ("o", "a"),
+    ("u", "v"),
+)
+_REPEATED_CHAR_RE = re.compile(r"(.)\1+")
+# Krótszy ciąg liter bywa przypadkiem częścią cudzej nazwy.
+_SAME_LETTERS_MIN_CHARS = 6
+_FULL_PHONE_DIGITS = 9
+MISMATCH_HELD_EVIDENCE = "mismatch_held_for_review"
 
 
 class IdentityQuarantineConflict(RuntimeError):
@@ -759,6 +796,56 @@ def _name_parts_similar(left: str, right: str) -> bool:
     )
 
 
+def _name_sound_key(value: str) -> str:
+    """Znormalizowana część nazwy zapisana tak, jak brzmi w językach słowiańskich."""
+
+    key = _REPEATED_CHAR_RE.sub(r"\1", value)
+    for spelling, sound in _NAME_SOUND_REPLACEMENTS:
+        key = key.replace(spelling, sound)
+    return _REPEATED_CHAR_RE.sub(r"\1", key)
+
+
+def _same_letters_other_split(
+    first: str, last: str, other_first: str, other_last: str
+) -> bool:
+    """Te same litery, tylko inaczej podzielone na słowa („Ale Ksan Dra”)."""
+
+    if not (first and last and other_first and other_last):
+        return False
+    name = first + last
+    other = other_first + other_last
+    swapped = other_last + other_first
+    for left, right in ((name, other), (name, swapped), (last + first, other)):
+        shorter, longer = sorted((left, right), key=len)
+        if len(shorter) >= _SAME_LETTERS_MIN_CHARS and shorter in longer:
+            return True
+    return _name_parts_similar(name, other) or _name_parts_similar(name, swapped)
+
+
+def profile_phone_in_other_form(candidate: Any, observed_phone: Any) -> bool:
+    """Numer z profilu pochodzi spoza tego odczytu, a CV podaje te same cyfry.
+
+    `_apply_cv_contact_fields` zapisuje numer surowo, więc zapis równy odczytowi,
+    także zapisanemu wcześniej, mógł przyjść z tego samego pliku i niczego nie
+    dowodzi. E-mail nie ma takiego sygnału: zapis idzie małymi literami.
+    """
+
+    observed = str(observed_phone or "").strip()
+    if not observed:
+        return False
+    profile = str(candidate.phone or "").strip()
+    profile_key = _normalize_phone(profile)
+    if (
+        not profile_key
+        or len(profile_key) < _FULL_PHONE_DIGITS
+        or profile_key != _normalize_phone(observed)
+    ):
+        return False
+    stored_read = candidate.cv_extracted_data
+    stored_phone = stored_read.get("phone") if isinstance(stored_read, dict) else None
+    return profile not in {observed, str(stored_phone or "").strip()}
+
+
 def identity_unreadable(first_name: Any, last_name: Any) -> bool:
     """Imię albo nazwisko jest wpisane, ale normalizacja nic z niego nie zostawia.
 
@@ -795,6 +882,7 @@ def evaluate_identity_match(
     candidate_last_name: Any,
     observed_first_name: Any,
     observed_last_name: Any,
+    profile_phone_other_form: bool = False,
 ) -> IdentityMatchResult:
     """Compare a parsed source identity with the canonical candidate identity."""
 
@@ -845,6 +933,19 @@ def evaluate_identity_match(
                 (candidate_last, observed_first),
             )
         ),
+        "similar_name_sound": any(
+            _name_parts_similar(_name_sound_key(left), _name_sound_key(right))
+            for left, right in (
+                (candidate_first, observed_first),
+                (candidate_last, observed_last),
+                (candidate_first, observed_last),
+                (candidate_last, observed_first),
+            )
+        ),
+        "same_letters_other_split": _same_letters_other_split(
+            candidate_first, candidate_last, observed_first, observed_last
+        ),
+        "profile_phone_other_form": profile_phone_other_form,
     }
     if candidate_complete:
         evidence["candidate_identity_fingerprint"] = _fingerprint(
@@ -866,6 +967,9 @@ def evaluate_identity_match(
         or evidence["last_name_match"]
         or evidence["shared_name_word"]
         or evidence["similar_name_part"]
+        or evidence["similar_name_sound"]
+        or evidence["same_letters_other_split"]
+        or evidence["profile_phone_other_form"]
     ):
         return IdentityMatchResult("inconclusive", evidence)
     return IdentityMatchResult("confirmed_mismatch", evidence)
@@ -1000,12 +1104,19 @@ async def record_detected_identity(
     provenance: str,
     replaced_primary: ReplacedPrimaryCv | None = None,
     observed_name_from_header: bool = False,
+    observed_phone: Any = None,
+    hold_mismatch_for_review: bool = False,
 ) -> CandidateSourceIdentityReview:
     """Persist an automatic decision without weakening a manual decision.
 
     `observed_name_from_header`: nazwę dała reguła nagłówka CV, nie model. Taka
     linia bywa stanowiskiem albo nazwą firmy (05.11.2026: w 4 z 9 przejrzanych
     plików nie była nazwą osoby), więc sama nie dowodzi cudzego pliku.
+
+    `hold_mismatch_for_review`: sprzeczność nazw nie czyści profilu, tylko zostaje
+    znacznikiem `MISMATCH_HELD_EVIDENCE` do przeglądu człowieka. Dla biegu
+    masowego, bo nikt nie patrzy na wynik wiersz po wierszu, a 23 z 64 własnych CV
+    z pomiaru 05.11.2026 nie da się odróżnić od cudzych po nazwie.
     """
 
     # Serialize first review creation and re-read the identity under the same
@@ -1025,12 +1136,20 @@ async def record_detected_identity(
         candidate_last_name=locked_candidate.lastname,
         observed_first_name=observed_first_name,
         observed_last_name=observed_last_name,
+        profile_phone_other_form=profile_phone_in_other_form(
+            locked_candidate, observed_phone
+        ),
     )
+    mismatch = result.decision == "confirmed_mismatch"
     result = IdentityMatchResult(
         "inconclusive"
-        if observed_name_from_header and result.decision == "confirmed_mismatch"
+        if mismatch and (observed_name_from_header or hold_mismatch_for_review)
         else result.decision,
-        {**result.evidence, "observed_name_from_header": observed_name_from_header},
+        {
+            **result.evidence,
+            "observed_name_from_header": observed_name_from_header,
+            MISMATCH_HELD_EVIDENCE: mismatch and hold_mismatch_for_review,
+        },
     )
     now = datetime.now(timezone.utc)
     row = await get_identity_review(
@@ -1044,7 +1163,7 @@ async def record_detected_identity(
         # Confirmed mismatch is a sticky safety decision. Parser retries,
         # model upgrades and newly incomplete names may never make the source
         # eligible again; only the explicit admin/HoR override does that.
-        if row.is_quarantined:
+        if row.is_quarantined and not hold_mismatch_for_review:
             await _purge_candidate_summary_cache(db, candidate.id)
             await _clear_quarantined_cv_projection(
                 db,
