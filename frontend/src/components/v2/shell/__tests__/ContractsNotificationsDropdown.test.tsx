@@ -6,6 +6,10 @@ import type { ContractThreadList } from "@/lib/api/contractTopic";
 const push = vi.hoisted(() => vi.fn());
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
 
+vi.mock("@/components/v2/start-docs/StartDocsTasks", () => ({
+  useStartDocsCount: () => 0,
+  StartDocsTopbarBlock: () => null,
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/store/auth", () => ({
@@ -13,7 +17,10 @@ vi.mock("@/store/auth", () => ({
     selector({ user: { id: 5, authorization_version: 1 } }),
 }));
 
-import { ContractsNotificationsDropdown } from "../ContractsNotificationsDropdown";
+import {
+  ContractsNotificationsDropdown,
+  ContractsTopbarButton,
+} from "../ContractsNotificationsDropdown";
 
 const THREADS: ContractThreadList = {
   unread_contracts: 1,
@@ -58,6 +65,17 @@ beforeEach(() => {
   apiMock.put.mockReset();
   apiMock.get.mockResolvedValue({ data: THREADS });
   apiMock.put.mockResolvedValue({ data: { success: true, updated: 2 } });
+});
+
+describe("ContractsTopbarButton — dokumenty do startu (0649)", () => {
+  it("braki dają czerwoną liczbę, której nowości nie zasłaniają", () => {
+    render(<ContractsTopbarButton unreadContracts={1} startDocs={2} open={false} />);
+    const button = screen.getByRole("button", {
+      name: "Umowy — brakujące dokumenty do startu: 2",
+    });
+    expect(button).toHaveTextContent("3");
+    expect(button.querySelector("span")?.className).toContain("bg-destructive");
+  });
 });
 
 describe("ContractsNotificationsDropdown — ikona „Umowy” (26.10.2026)", () => {

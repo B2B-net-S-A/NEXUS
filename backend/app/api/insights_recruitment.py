@@ -629,6 +629,104 @@ async def insights_recruitment_weekly_trend(
         return result
 
 
+def trend_months(today: date, months: int) -> list[date]:
+    """Pierwsze dni ostatnich `months` miesięcy, ostatni = bieżący miesiąc."""
+
+    index = today.year * 12 + today.month - 1
+    return [
+        date((index - months + 1 + i) // 12, (index - months + 1 + i) % 12 + 1, 1)
+        for i in range(months)
+    ]
+
+
+def _next_month(first: date) -> date:
+    return (first + timedelta(days=32)).replace(day=1)
+
+
+@router.get("/monthly-trend")
+async def insights_recruitment_monthly_trend(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    months: int = Query(12, ge=2, le=24),
+):
+    """Ostatnie miesiące lejka, ta sama definicja co `/weekly-trend`.
+
+    Etap, którego w danym miesiącu nikt nie prowadził, to `None`, nie 0:
+    akceptacje przed 12.10.2026, a przed 2026 wszystko poza placementami.
+    Miesiąc przecinający 12.10.2026 niesie `cutover_counts` (dni od tej daty),
+    bo przejście z akceptacjami można policzyć tylko na tym samym odcinku.
+    """
+    today = business_today()
+    firsts = trend_months(today, months)
+    start = local_day_start_utc(firsts[0])
+    end = local_day_start_utc(_next_month(firsts[-1]))
+    cutover = competition_history.RESULTS_CUTOVER
+    history_start = competition_history.DR_HISTORY_START
+    cache_key = f"insights:recruitment:monthly-trend:v1:{months}:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        rows = (
+            await db.execute(
+                text(
+                    """
+                    SELECT (date_trunc(
+                              'month', fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
+                           ))::date AS month_start,
+                           fm.stage::text AS stage,
+                           count(*) AS cnt,
+                           count(*) FILTER (
+                             WHERE fm.first_reached_at >= :cutover_at
+                           ) AS since_cutover
+                    FROM analytics_kpi_milestones fm
+                    WHERE fm.first_reached_at >= :start
+                      AND fm.first_reached_at < :end
+                      AND fm.stage::text = ANY(:stages)
+                    GROUP BY 1, 2
+                    """
+                ),
+                {
+                    "start": start,
+                    "end": end,
+                    "stages": list(TREND_STAGES),
+                    "cutover_at": local_day_start_utc(cutover),
+                },
+            )
+        ).all()
+        counts = {(month, stage): int(cnt) for month, stage, cnt, _ in rows}
+        since = {(month, stage): int(value) for month, stage, _, value in rows}
+
+        def recorded(first: date, stage: str) -> bool:
+            # `_next_month`, nie `first`: miesiąc przecinający granicę już ją liczy.
+            if stage in HISTORY_STAGES:
+                return stage == "hired" or first >= history_start
+            return _next_month(first) > cutover
+
+        result = {
+            "months": [
+                {
+                    "month_start": first.isoformat(),
+                    "partial": _next_month(first) > today,
+                    "counts": {
+                        stage: counts.get((first, stage), 0)
+                        if recorded(first, stage)
+                        else None
+                        for stage in TREND_STAGES
+                    },
+                    "cutover_counts": (
+                        {stage: since.get((first, stage), 0) for stage in TREND_STAGES}
+                        if first < cutover < _next_month(first)
+                        else None
+                    ),
+                }
+                for first in firsts
+            ],
+        }
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
+
+
 @router.get("/available-periods")
 async def insights_available_periods(
     current_user: CurrentUser,

@@ -2,9 +2,11 @@
 
 The detector is intentionally conservative: an automatic mismatch is only
 confirmed when both identities have a usable first name and surname and both
-parts disagree after transliteration.  Missing surnames and partial
-disagreement stay ``inconclusive`` so a name change or parsing failure cannot
-silently quarantine a legitimate source.
+parts disagree after transliteration.  Missing surnames, partial disagreement,
+a word shared by both identities, a near-equal name part, the same sound or
+letters of the name and a profile phone from outside this read stay
+``inconclusive`` so a name change, another spelling or split of the same words
+or a parsing failure cannot silently quarantine a legitimate source.
 
 Raw names and free text never enter the review row or audit event.  Only
 booleans and keyed SHA-256 fingerprints are retained as provenance.
@@ -20,6 +22,7 @@ import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any, Literal
 
 from sqlalchemy import exists, select, update
@@ -37,6 +40,9 @@ from app.models.index_outbox import IndexOutboxEvent
 from app.models.user import User, UserRole
 from app.services import candidate_audit
 from app.services.candidate_location_writer import project_candidate_location
+from app.services.candidate_name_rules import EMPTY_FIELD_NAME_PHRASES
+from app.services.cv_common_words import only_common_cv_words
+from app.services.dedup_service import _normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +65,7 @@ _PLACEHOLDERS = frozenset(
         "n/a",
         "na",
     }
+    | EMPTY_FIELD_NAME_PHRASES
 )
 _SPECIAL_TRANSLITERATION = str.maketrans(
     {
@@ -78,6 +85,46 @@ _SPECIAL_TRANSLITERATION = str.maketrans(
     }
 )
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+# Krótsze słowo („de”, „Li”) bywa wspólne dwóm różnym osobom.
+_NAME_TOKEN_MIN_CHARS = 3
+# Pomiar 05.11.2026 na 608 sprzecznościach: 280 to te same słowa w innym podziale
+# na imię i nazwisko, kolejne ok. 90 to literówka albo transliteracja.
+_NAME_PART_SIMILAR_RATIO = 0.8
+# Ta sama osoba bywa zapisana po polsku, rosyjsku i białorusku bez wspólnego słowa
+# (pomiar 05.11.2026 na 133 sprzecznościach: 64 własne CV i 46 cudzych; klucz
+# dźwięku zdjął 22 własne i 1 cudzy z tym samym nazwiskiem). Kolejność ma znaczenie.
+_NAME_SOUND_REPLACEMENTS = (
+    ("szcz", "shch"),
+    ("sch", "sh"),
+    ("sz", "sh"),
+    ("cz", "ch"),
+    ("rz", "zh"),
+    ("ts", "c"),
+    ("tz", "c"),
+    ("ck", "k"),
+    ("ph", "f"),
+    ("th", "t"),
+    ("kh", "h"),
+    ("ch", "h"),
+    ("zh", "z"),
+    ("sh", "s"),
+    ("x", "ks"),
+    ("w", "v"),
+    ("y", "i"),
+    ("j", "i"),
+    ("g", "h"),
+    ("q", "k"),
+    ("ou", "ov"),
+    ("au", "ov"),
+    ("e", "a"),
+    ("o", "a"),
+    ("u", "v"),
+)
+_REPEATED_CHAR_RE = re.compile(r"(.)\1+")
+# Krótszy ciąg liter bywa przypadkiem częścią cudzej nazwy.
+_SAME_LETTERS_MIN_CHARS = 6
+_FULL_PHONE_DIGITS = 9
+MISMATCH_HELD_EVIDENCE = "mismatch_held_for_review"
 
 
 class IdentityQuarantineConflict(RuntimeError):
@@ -702,16 +749,101 @@ async def _clear_cv_projection(
     }
 
 
-def normalize_person_name_part(value: Any) -> str:
-    """Fold case, accents and punctuation for deterministic identity matching."""
-
+def _fold_person_name(value: Any) -> str:
     raw = str(value or "").strip()
     if raw.casefold() in _PLACEHOLDERS:
         return ""
     translated = raw.translate(_SPECIAL_TRANSLITERATION)
     decomposed = unicodedata.normalize("NFKD", translated)
     ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return _NON_ALNUM_RE.sub("", ascii_text.casefold())
+    return ascii_text.casefold()
+
+
+def normalize_person_name_part(value: Any) -> str:
+    """Fold case, accents and punctuation for deterministic identity matching."""
+
+    return _NON_ALNUM_RE.sub("", _fold_person_name(value))
+
+
+def _person_name_tokens(*values: Any) -> set[str]:
+    return {
+        token
+        for value in values
+        for token in _NON_ALNUM_RE.split(_fold_person_name(value))
+        if len(token) >= _NAME_TOKEN_MIN_CHARS
+    }
+
+
+def _name_of_common_cv_words(*values: Any) -> bool:
+    """Nazwa to wyłącznie częste słowa CV, więc porównanie z nią nic nie dowodzi.
+
+    Bez odsiewu krótkich słów: „Li” jest rzadkie i ratuje nazwę, choć
+    `_person_name_tokens` by je pominęło.
+    """
+    words = [
+        word
+        for value in values
+        for word in _NON_ALNUM_RE.split(_fold_person_name(value))
+        if word
+    ]
+    return bool(words) and only_common_cv_words(words)
+
+
+def _name_parts_similar(left: str, right: str) -> bool:
+    return (
+        bool(left and right)
+        and SequenceMatcher(None, left, right).ratio() >= _NAME_PART_SIMILAR_RATIO
+    )
+
+
+def _name_sound_key(value: str) -> str:
+    """Znormalizowana część nazwy zapisana tak, jak brzmi w językach słowiańskich."""
+
+    key = _REPEATED_CHAR_RE.sub(r"\1", value)
+    for spelling, sound in _NAME_SOUND_REPLACEMENTS:
+        key = key.replace(spelling, sound)
+    return _REPEATED_CHAR_RE.sub(r"\1", key)
+
+
+def _same_letters_other_split(
+    first: str, last: str, other_first: str, other_last: str
+) -> bool:
+    """Te same litery, tylko inaczej podzielone na słowa („Ale Ksan Dra”)."""
+
+    if not (first and last and other_first and other_last):
+        return False
+    name = first + last
+    other = other_first + other_last
+    swapped = other_last + other_first
+    for left, right in ((name, other), (name, swapped), (last + first, other)):
+        shorter, longer = sorted((left, right), key=len)
+        if len(shorter) >= _SAME_LETTERS_MIN_CHARS and shorter in longer:
+            return True
+    return _name_parts_similar(name, other) or _name_parts_similar(name, swapped)
+
+
+def profile_phone_in_other_form(candidate: Any, observed_phone: Any) -> bool:
+    """Numer z profilu pochodzi spoza tego odczytu, a CV podaje te same cyfry.
+
+    `_apply_cv_contact_fields` zapisuje numer surowo, więc zapis równy odczytowi,
+    także zapisanemu wcześniej, mógł przyjść z tego samego pliku i niczego nie
+    dowodzi. E-mail nie ma takiego sygnału: zapis idzie małymi literami.
+    """
+
+    observed = str(observed_phone or "").strip()
+    if not observed:
+        return False
+    profile = str(candidate.phone or "").strip()
+    profile_key = _normalize_phone(profile)
+    if (
+        not profile_key
+        or len(profile_key) < _FULL_PHONE_DIGITS
+        or profile_key != _normalize_phone(observed)
+    ):
+        return False
+    stored_read = candidate.cv_extracted_data
+    stored_phone = stored_read.get("phone") if isinstance(stored_read, dict) else None
+    return profile not in {observed, str(stored_phone or "").strip()}
 
 
 def identity_unreadable(first_name: Any, last_name: Any) -> bool:
@@ -750,6 +882,7 @@ def evaluate_identity_match(
     candidate_last_name: Any,
     observed_first_name: Any,
     observed_last_name: Any,
+    profile_phone_other_form: bool = False,
 ) -> IdentityMatchResult:
     """Compare a parsed source identity with the canonical candidate identity."""
 
@@ -757,11 +890,19 @@ def evaluate_identity_match(
     candidate_last = normalize_person_name_part(candidate_last_name)
     observed_first = normalize_person_name_part(observed_first_name)
     observed_last = normalize_person_name_part(observed_last_name)
-    candidate_complete = bool(candidate_first and candidate_last)
+    # Pomiar 05.11.2026: 25 z 68 280 profili ma taką nazwę, żadna nie jest nazwą
+    # osoby. Każde CV dawało przy niej mismatch, także to, z którego profil powstał.
+    candidate_name_common = _name_of_common_cv_words(
+        candidate_first_name, candidate_last_name
+    )
+    candidate_complete = bool(
+        candidate_first and candidate_last and not candidate_name_common
+    )
     observed_complete = bool(observed_first and observed_last)
 
     evidence: dict[str, bool | str] = {
         "candidate_identity_complete": candidate_complete,
+        "candidate_name_only_common_cv_words": candidate_name_common,
         "observed_identity_complete": observed_complete,
         "first_name_match": bool(
             candidate_first and observed_first and candidate_first == observed_first
@@ -777,6 +918,34 @@ def evaluate_identity_match(
             and candidate_first == observed_last
             and candidate_last == observed_first
         ),
+        # Imię i nazwisko bywają podzielone inaczej niż w CV (Traffit dzielił po
+        # pierwszej spacji): to samo słowo po obu stronach nie dowodzi innej osoby.
+        "shared_name_word": bool(
+            _person_name_tokens(candidate_first_name, candidate_last_name)
+            & _person_name_tokens(observed_first_name, observed_last_name)
+        ),
+        "similar_name_part": any(
+            _name_parts_similar(left, right)
+            for left, right in (
+                (candidate_first, observed_first),
+                (candidate_last, observed_last),
+                (candidate_first, observed_last),
+                (candidate_last, observed_first),
+            )
+        ),
+        "similar_name_sound": any(
+            _name_parts_similar(_name_sound_key(left), _name_sound_key(right))
+            for left, right in (
+                (candidate_first, observed_first),
+                (candidate_last, observed_last),
+                (candidate_first, observed_last),
+                (candidate_last, observed_first),
+            )
+        ),
+        "same_letters_other_split": _same_letters_other_split(
+            candidate_first, candidate_last, observed_first, observed_last
+        ),
+        "profile_phone_other_form": profile_phone_other_form,
     }
     if candidate_complete:
         evidence["candidate_identity_fingerprint"] = _fingerprint(
@@ -793,9 +962,17 @@ def evaluate_identity_match(
         "name_order_swapped"
     ]:
         return IdentityMatchResult("confirmed_match", evidence)
-    if not evidence["first_name_match"] and not evidence["last_name_match"]:
-        return IdentityMatchResult("confirmed_mismatch", evidence)
-    return IdentityMatchResult("inconclusive", evidence)
+    if (
+        evidence["first_name_match"]
+        or evidence["last_name_match"]
+        or evidence["shared_name_word"]
+        or evidence["similar_name_part"]
+        or evidence["similar_name_sound"]
+        or evidence["same_letters_other_split"]
+        or evidence["profile_phone_other_form"]
+    ):
+        return IdentityMatchResult("inconclusive", evidence)
+    return IdentityMatchResult("confirmed_mismatch", evidence)
 
 
 def source_is_quarantined_clause(
@@ -850,6 +1027,72 @@ async def get_identity_review(
     return await db.scalar(stmt)
 
 
+async def cv_bytes_quarantined(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    content_sha256: str,
+) -> bool:
+    """Czy bajty ze wskaźnika kandydata to plik z kwarantanny tej osoby.
+
+    `cv_storage_key` trzyma własną kopię pliku pod innym kluczem niż dokument
+    (pomiar 05.11.2026: 0 z 254 równych kluczy, 66 z 243 tych samych bajtów), więc
+    porównanie kluczy niczego nie wykrywa. Wskaźnika nie zdejmujemy, bo w pozostałych
+    177 profilach to inny plik, a zwolnienie z kwarantanny ma działać bez naprawy.
+
+    54 z tych 66 dokumentów nie ma zapisanego skrótu, więc liczymy go z bajtów. Gdy
+    pliku nie da się odczytać, nie da się też wykluczyć kopii, dlatego odpowiedź
+    brzmi „tak”: brak tekstu naprawia zwolnienie, cudzego tekstu nikt nie zauważy.
+    """
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.services import object_storage
+
+    documents = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.content_sha256,
+                CandidateDocument.storage_key,
+            ).where(
+                CandidateDocument.candidate_id == candidate_id,
+                source_is_quarantined_clause(
+                    candidate_id_column=CandidateDocument.candidate_id,
+                    source_id_column=CandidateDocument.id,
+                    source_kind="document",
+                ),
+            )
+        )
+    ).all()
+    if any(document.content_sha256 == content_sha256 for document in documents):
+        return True
+    for document in documents:
+        if document.content_sha256:
+            continue
+        try:
+            content = (
+                await run_in_threadpool(
+                    object_storage.download_cv, document.storage_key
+                )
+                if document.storage_key
+                else await db.scalar(
+                    select(CandidateDocument.file_content).where(
+                        CandidateDocument.id == document.id
+                    )
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — bez bajtów nie ma dowodu na inny plik
+            logger.warning(
+                "[identity_quarantine] quarantined file unreadable document=%s: %s",
+                document.id,
+                type(exc).__name__,
+            )
+            return True
+        if content and hashlib.sha256(bytes(content)).hexdigest() == content_sha256:
+            return True
+    return False
+
+
 async def record_detected_identity(
     db: AsyncSession,
     *,
@@ -860,8 +1103,21 @@ async def record_detected_identity(
     observed_last_name: Any,
     provenance: str,
     replaced_primary: ReplacedPrimaryCv | None = None,
+    observed_name_from_header: bool = False,
+    observed_phone: Any = None,
+    hold_mismatch_for_review: bool = False,
 ) -> CandidateSourceIdentityReview:
-    """Persist an automatic decision without weakening a manual decision."""
+    """Persist an automatic decision without weakening a manual decision.
+
+    `observed_name_from_header`: nazwę dała reguła nagłówka CV, nie model. Taka
+    linia bywa stanowiskiem albo nazwą firmy (05.11.2026: w 4 z 9 przejrzanych
+    plików nie była nazwą osoby), więc sama nie dowodzi cudzego pliku.
+
+    `hold_mismatch_for_review`: sprzeczność nazw nie czyści profilu, tylko zostaje
+    znacznikiem `MISMATCH_HELD_EVIDENCE` do przeglądu człowieka. Dla biegu
+    masowego, bo nikt nie patrzy na wynik wiersz po wierszu, a 23 z 64 własnych CV
+    z pomiaru 05.11.2026 nie da się odróżnić od cudzych po nazwie.
+    """
 
     # Serialize first review creation and re-read the identity under the same
     # row lock.  ``candidate`` may have been loaded before a slow parser/model
@@ -880,6 +1136,20 @@ async def record_detected_identity(
         candidate_last_name=locked_candidate.lastname,
         observed_first_name=observed_first_name,
         observed_last_name=observed_last_name,
+        profile_phone_other_form=profile_phone_in_other_form(
+            locked_candidate, observed_phone
+        ),
+    )
+    mismatch = result.decision == "confirmed_mismatch"
+    result = IdentityMatchResult(
+        "inconclusive"
+        if mismatch and (observed_name_from_header or hold_mismatch_for_review)
+        else result.decision,
+        {
+            **result.evidence,
+            "observed_name_from_header": observed_name_from_header,
+            MISMATCH_HELD_EVIDENCE: mismatch and hold_mismatch_for_review,
+        },
     )
     now = datetime.now(timezone.utc)
     row = await get_identity_review(
@@ -893,7 +1163,7 @@ async def record_detected_identity(
         # Confirmed mismatch is a sticky safety decision. Parser retries,
         # model upgrades and newly incomplete names may never make the source
         # eligible again; only the explicit admin/HoR override does that.
-        if row.is_quarantined:
+        if row.is_quarantined and not hold_mismatch_for_review:
             await _purge_candidate_summary_cache(db, candidate.id)
             await _clear_quarantined_cv_projection(
                 db,
@@ -1030,6 +1300,49 @@ async def mark_confirmed_mismatch(
     return row
 
 
+def _reopen_pointer_read(candidate: Candidate) -> None:
+    """Zwolniony plik wraca do odczytu tekstu: wyrok `quarantined` jest końcowy.
+
+    Gdy wskaźnik trzyma też kopię innego pliku z kwarantanny, następny bieg
+    zapisze ten wyrok ponownie.
+    """
+    from app.services.cv_text_backfill import _EXTRACTION_MARKER_KEY, _QUARANTINED
+
+    extracted = candidate.cv_extracted_data
+    marker = (
+        extracted.get(_EXTRACTION_MARKER_KEY) if isinstance(extracted, dict) else None
+    )
+    if isinstance(marker, dict) and marker.get("outcome") == _QUARANTINED:
+        candidate.cv_extracted_data = {
+            key: value
+            for key, value in extracted.items()
+            if key != _EXTRACTION_MARKER_KEY
+        }
+
+
+def _forget_released_source(
+    candidate: Candidate, *, source_kind: SourceKind, source_id: int
+) -> None:
+    """Profil przestaje mówić, że ten plik czeka na zwolnienie.
+
+    Bez tego ramka w profilu i dok rekrutacji nadal traktowały plik jak CV innej
+    osoby. Odczytu to nie wstrzymuje: fakty z tego pliku wyczyściła kwarantanna
+    (albo stoją na innym pliku), więc `profile_holds_read_of_file` i tak każe czytać.
+    """
+    extracted = candidate.cv_extracted_data
+    marker = (
+        extracted.get("_identity_quarantine_source")
+        if isinstance(extracted, dict)
+        else None
+    )
+    if marker == {"kind": source_kind, "id": source_id}:
+        candidate.cv_extracted_data = {
+            key: value
+            for key, value in extracted.items()
+            if key != "_identity_quarantine_source"
+        }
+
+
 async def override_identity_quarantine(
     db: AsyncSession,
     *,
@@ -1049,6 +1362,10 @@ async def override_identity_quarantine(
     if len(clean_reason) > 500:
         raise ValueError("override reason must be at most 500 characters")
 
+    # Ta sama kolejność blokad co przy zapisie decyzji: najpierw kandydat.
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
     row = await get_identity_review(
         db,
         candidate_id=candidate_id,
@@ -1065,6 +1382,9 @@ async def override_identity_quarantine(
     row.override_reason = clean_reason
     row.override_by_id = actor.id
     row.override_at = now
+    if candidate is not None:
+        _reopen_pointer_read(candidate)
+        _forget_released_source(candidate, source_kind=source_kind, source_id=source_id)
     reason_sha256 = hashlib.sha256(clean_reason.encode("utf-8")).hexdigest()
     candidate_audit.record_candidate_audit(
         db,

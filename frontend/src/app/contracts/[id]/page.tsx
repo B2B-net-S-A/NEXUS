@@ -12,9 +12,11 @@ import api, {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
+import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { UploadOnlyDocuments } from "@/components/contracts/documents/UploadOnlyDocuments";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
+import { ConsultantPanelCard } from "@/components/hr/onboarding/ConsultantPanelCard";
 import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
@@ -2554,10 +2556,16 @@ export default function ContractDetailPage() {
       {/* Tab: Dokumenty */}
       {activeTab === "documents" &&
         (canViewContractDocuments ? (
-          <ContractDocumentsTab
-            contractId={id}
-            readOnly={!canEditContractDocuments}
-          />
+          <div className="space-y-3">
+            {/* 0649: NDA i KRK leżą przy parze, nie w dokumentach kontraktu: węższy dostęp. */}
+            {contract?.candidate_id && contract?.job_id ? (
+              <StartDocsCard candidateId={contract.candidate_id} jobId={contract.job_id} />
+            ) : null}
+            <ContractDocumentsTab
+              contractId={id}
+              readOnly={!canEditContractDocuments}
+            />
+          </div>
         ) : (
           <UploadOnlyDocuments contractId={id} />
         ))}
@@ -2586,10 +2594,13 @@ export default function ContractDetailPage() {
 
       {/* Tab: Wejście (dawniej „Onboarding”): lista wejścia konsultanta, stara lista przy wyłączonym module */}
       {activeTab === "onboarding" && (
-        <ContractEntryTab
-          contractId={id}
-          readOnly={!canEditContract}
-        />
+        <div className="space-y-4">
+          <ConsultantPanelCard contractId={id} />
+          <ContractEntryTab
+            contractId={id}
+            readOnly={!canEditContract}
+          />
+        </div>
       )}
 
       {/* Tab: Sprzęt */}

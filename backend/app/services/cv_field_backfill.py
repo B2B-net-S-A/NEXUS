@@ -22,6 +22,12 @@ Zasady, które nie są kosmetyką:
   a regex nie wypełnia pól celu. Wiersz bez wyniku = pominięty, nie blokujący.
 * **`message.usage` jest zbierane** — bieg kalibracyjny ma zmierzyć realny
   koszt jednostkowy zamiast szacunku; sumy tokenów są w statusie.
+* **Odczyt przechodzi bramkę tożsamości** (`record_detected_identity`), zanim
+  cokolwiek trafi do profilu. Bieg z 08.2026 jej nie miał: 586 profili dostało
+  pola z tekstu pliku, w którym model przeczytał inne imię i nazwisko, a
+  kwarantanna nie miała o tym wiersza. Tekst bez dokumentu źródłowego idzie jako
+  `legacy_cv`, tak jak w `cv_backfill`. Przy sprzeczności nazw bieg nie wpisuje
+  faktów i niczego nie kasuje, tylko zostawia profil do przeglądu.
 * **Zaktualizowani trafiają do outboxu reindeksu** — tekst embeddingu kandydata
   zawiera skills/kategorię, więc wypełnienie pól BEZ oznaczenia do re-embeddingu
   zostawiłoby wektory stare i praca Claude'a nigdy nie dotarłaby do Voyage.
@@ -132,6 +138,34 @@ def _empty_now(candidate: Candidate) -> set[str]:
     return empty
 
 
+async def _read_names_another_person(
+    db: AsyncSession, candidate: Candidate, parsed: dict[str, Any]
+) -> bool:
+    """Zapisz decyzję bramki; True = faktów z tego odczytu nie wpisujemy."""
+
+    first_name = parsed.get("first_name")
+    last_name = parsed.get("last_name")
+    if not (first_name or last_name):
+        return False
+    from app.services.candidate_identity_quarantine import (
+        MISMATCH_HELD_EVIDENCE,
+        record_detected_identity,
+    )
+
+    review = await record_detected_identity(
+        db,
+        candidate=candidate,
+        source_kind="legacy_cv",
+        source_id=candidate.id,
+        observed_first_name=first_name,
+        observed_last_name=last_name,
+        observed_phone=parsed.get("phone"),
+        provenance="cv_parser:bulk_fields",
+        hold_mismatch_for_review=True,
+    )
+    return bool(review.is_quarantined or review.evidence.get(MISMATCH_HELD_EVIDENCE))
+
+
 async def count_scope(db: AsyncSession, *, after_id: int = 0) -> dict[str, int]:
     """Ile wierszy kwalifikuje się do biegu — i czego im brakuje.
 
@@ -208,6 +242,9 @@ async def backfill_cv_fields(
     # padło (limit, constraint, parser), a nie tylko że padło.
     stats.setdefault("error_types", {})
     stats.setdefault("email_collisions", 0)
+    stats.setdefault("identity_mismatch_held", 0)
+    # Do przeglądu człowieka; ta sama sprzeczność zostaje też w wierszu bramki.
+    stats.setdefault("identity_mismatch_ids", [])
     stats.setdefault("fields_filled", {f: 0 for f in TARGET_FIELDS})
     stats.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "calls": 0})
     stats.setdefault("reindex_enqueued", 0)
@@ -332,6 +369,31 @@ async def backfill_cv_fields(
                         )
                         + "\n"
                     )
+
+                try:
+                    async with db.begin_nested():
+                        if await _read_names_another_person(db, candidate, parsed):
+                            # Tekst i wektor zostają: sama nazwa nie odróżnia
+                            # własnego CV od cudzego. Znacznik, żeby kolejny bieg
+                            # nie płacił za ten sam tekst.
+                            _mark_read(candidate)
+                            await db.flush()
+                            stats["identity_mismatch_held"] += 1
+                            if len(stats["identity_mismatch_ids"]) < _MAX_ERROR_IDS:
+                                stats["identity_mismatch_ids"].append(candidate.id)
+                            continue
+                except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
+                    stats["errors"] += 1
+                    if len(stats["error_ids"]) < _MAX_ERROR_IDS:
+                        stats["error_ids"].append(candidate.id)
+                        stats["error_types"][candidate.id] = type(exc).__name__
+                    logger.warning(
+                        "[cv-backfill] bramka tożsamości padła dla id=%s: %s — "
+                        "wiersz pominięty, bieg trwa",
+                        candidate.id,
+                        type(exc).__name__,
+                    )
+                    continue
 
                 # Kolizja e-maila wykrywana PRZED zapisem, nie na commicie.
                 # `ix_candidates_email` jest UNIQUE, a FILL_EMPTY chroni tylko

@@ -19,6 +19,97 @@ export interface PortalMe {
   until: string | null;
   support_email: string | null;
   topics: { key: PortalTopic; label: string }[];
+  rate: PortalRate | null;
+  support_phone: string | null;
+  menu: { start: boolean; equipment: boolean };
+}
+
+export interface PortalRate {
+  amount: string;
+  currency: string;
+  unit: string;
+}
+
+export interface PortalTodoItem {
+  key: string;
+  title: string;
+  detail: string;
+  href: string;
+}
+
+export interface PortalMaterial {
+  id: number;
+  title: string;
+  kind: "file" | "link";
+  url: string | null;
+  file_name: string | null;
+  shared: boolean;
+}
+
+export interface PortalStart {
+  start_date: string | null;
+  first_day: {
+    place: string | null;
+    time: string | null;
+    bring: string | null;
+    contact_name: string | null;
+  } | null;
+  documents: { name: string; note: string | null; offset_days: number | null; required: boolean }[];
+  materials: PortalMaterial[];
+}
+
+export interface PortalEquipmentItem {
+  id: number;
+  name: string;
+  category: string;
+  inventory_number: string | null;
+  serial_number: string | null;
+  since: string;
+  protocol_id: number;
+  protocol_number: string;
+  protocol_status: string;
+  protocol_label: string;
+}
+
+export interface PortalProtocol {
+  id: number;
+  number: string;
+  kind: "wydanie" | "zwrot";
+  date: string;
+  status: string;
+  label: string;
+  items: string[];
+  can_confirm: boolean;
+}
+
+export interface PortalEquipment {
+  items: PortalEquipmentItem[];
+  protocols: PortalProtocol[];
+}
+
+export type SettlementMode = "client_report" | "report_with_approval" | "own_report";
+
+export interface PortalSettlement {
+  mode: SettlementMode | null;
+  instructions: string | null;
+  buyer: { name: string; nip: string; address: string };
+  payment_days: number;
+}
+
+export type TrainerForm = "online_or_onsite" | "online" | "onsite";
+
+export interface PortalTrainerInput {
+  topics: string[];
+  experience: string;
+  form: TrainerForm;
+  day_rate: string;
+  availability: string;
+  materials: string;
+}
+
+export interface PortalTrainerApplication extends PortalTrainerInput {
+  sent_at: string;
+  waiting: { who: "nobody" | "us" | "other" | "done"; label: string };
 }
 
 export interface PortalFaqItem {
@@ -65,13 +156,6 @@ export interface PortalMeeting {
   join_url: string | null;
   can_cancel: boolean;
   can_rate: boolean;
-}
-
-export interface PortalFinanceStatus {
-  available: boolean;
-  message: string | null;
-  verified: boolean;
-  phone_hint: string | null;
 }
 
 export interface PortalDocument {
@@ -196,9 +280,6 @@ export const portalApi = {
   ratingForm: (token: string) => postJson<PortalRatingForm>("/rating-form", { token }),
   rateByLink: (token: string, body: PortalRatingInput) =>
     postJson<{ ok: boolean }>("/rating", { token, ...body }),
-  financeStatus: () => getJson<PortalFinanceStatus>("/finance/status"),
-  sendCode: () => postJson<{ phone_hint: string | null }>("/finance/sms"),
-  verifyCode: (code: string) => postJson<{ verified: boolean }>("/finance/verify", { code }),
   financeOverview: () => getJson<{ months: PortalMonth[] }>("/finance/overview"),
   upload: async (form: FormData) =>
     (await (await request("/finance/documents", { method: "POST", body: form })).json()) as {
@@ -207,6 +288,23 @@ export const portalApi = {
     },
   downloadDocument: async (id: number): Promise<Blob> =>
     (await request(`/finance/documents/${id}/file`)).blob(),
+  todo: () => getJson<{ items: PortalTodoItem[] }>("/todo"),
+  start: () => getJson<PortalStart>("/start"),
+  downloadMaterial: async (id: number): Promise<Blob> =>
+    (await request(`/start/materials/${id}/file`)).blob(),
+  settlement: () => getJson<PortalSettlement>("/settlement"),
+  equipment: () => getJson<PortalEquipment>("/equipment"),
+  downloadProtocol: async (id: number): Promise<Blob> =>
+    (await request(`/equipment/protocols/${id}/document.pdf`)).blob(),
+  confirmProtocol: (id: number, signerName: string) =>
+    postJson<{ status: string }>(`/equipment/protocols/${id}/confirm`, {
+      signer_name: signerName,
+    }),
+  trainer: () => getJson<{ application: PortalTrainerApplication | null }>("/trainer"),
+  saveTrainer: async (body: PortalTrainerInput) =>
+    (
+      await request("/trainer", { method: "PUT", body: JSON.stringify(body) })
+    ).json() as Promise<{ application: PortalTrainerApplication }>,
 };
 
 export const portalKeys = {
@@ -215,8 +313,12 @@ export const portalKeys = {
   cases: ["consultant-portal", "cases"] as const,
   meetings: ["consultant-portal", "meetings"] as const,
   hosts: (topic: PortalTopic) => ["consultant-portal", "hosts", topic] as const,
-  financeStatus: ["consultant-portal", "finance-status"] as const,
   finance: ["consultant-portal", "finance"] as const,
+  todo: ["consultant-portal", "todo"] as const,
+  start: ["consultant-portal", "start"] as const,
+  settlement: ["consultant-portal", "settlement"] as const,
+  equipment: ["consultant-portal", "equipment"] as const,
+  trainer: ["consultant-portal", "trainer"] as const,
 };
 
 const retryExcept401 = (count: number, error: unknown): boolean =>

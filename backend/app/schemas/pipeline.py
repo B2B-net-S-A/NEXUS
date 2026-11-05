@@ -501,6 +501,8 @@ class CandidateStageResponse(BaseModel):
     # 0506: umowa przedwstępna pary — `{id, state, label, tone, detail}`
     # z `services/pre_contracts.badge` (front tylko pokazuje).
     pre_contract: Optional[dict] = None
+    # 0649: dokumenty do startu pary (`services/start_documents.card_badges`).
+    start_docs: Optional[dict] = None
     # Znacznik „Pracuje u nas” (`services/employment_marker.py`); `elsewhere`
     # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
     # go nie niesie (do 25 tablic w jednej odpowiedzi).

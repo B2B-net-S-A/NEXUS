@@ -94,3 +94,16 @@ firmowym i klik w wymaganie w przeglądzie DL.
   (`useRequirementFindWords`, ten sam klucz co Profil Championa). Wymaganie
   „do oceny” przycisku nie ma: lupa szukałaby zdania i zawsze mówiła „Brak
   wyników”.
+
+## Okno CV startuje od 100% (05.11.2026)
+
+Prośba rekruterki: CV otwarte z profilu kandydata startowało w ok. 300%. Okno
+`FilePreviewModal` zajmuje 95% ekranu, a domyślne `page-width` skaluje stronę do
+tej szerokości, więc na szerokim monitorze widać było tylko kawałek strony.
+
+- `FilePreviewModal` podaje `pdfFit="actual"`: 100%, a w oknie węższym od strony
+  tyle, ile się zmieści. Dotyczy każdego miejsca z tym oknem (profil, zakładka
+  Pliki, okno CV listy).
+- „Dopasuj do szerokości” dalej wypełnia szerokość; następny plik wraca do 100%.
+- Bez zmian: panel osoby i screening (`auto`, do 125%), Finanse i
+  `CVOriginalPreviewModal` (`page-width`, węższe okna).

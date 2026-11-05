@@ -187,6 +187,8 @@ export interface TeamQueueItem {
   overtime_hours: number;
   absence_days: number;
   can_decide: boolean;
+  /** Szkic osoby, która odeszła: akceptujący może wysłać i potwierdzić za nią. */
+  can_confirm_for_person?: boolean;
 }
 
 /** Kolejka „Akceptacji” za miesiąc (`GET /api/hr/time/team/{rok}/{miesiąc}`). */
@@ -542,7 +544,7 @@ export function useDeleteTeamEntry() {
   });
 }
 
-export type TimesheetDecision = "approve" | "return" | "revoke";
+export type TimesheetDecision = "approve" | "confirm-for-person" | "return" | "revoke";
 
 export function useDecideTimesheet() {
   const invalidate = useInvalidateTime();

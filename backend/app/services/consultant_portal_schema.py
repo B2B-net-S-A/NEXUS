@@ -4,8 +4,8 @@ JEDNO źródło instrukcji dla ``alembic/versions/0643_consultant_portal.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu
 jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 
-Konsultant nie ma konta w NEXUSIE: wchodzi linkiem z maila, a finanse otwiera
-kodem SMS. Wyłącznik ``app_settings['consultant_portal']`` jest domyślnie
+Konsultant nie ma konta w NEXUSIE: wchodzi linkiem z maila. Kod SMS przed finansami
+usunięto 04.11.2026, tabela ``cp_sms_codes`` i ``sms_verified_until`` zostały. Wyłącznik ``app_settings['consultant_portal']`` jest domyślnie
 wyłączony, więc kod wchodzi na produkcję ciemno.
 
 Tabele:

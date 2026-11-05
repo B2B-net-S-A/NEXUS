@@ -324,6 +324,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     DEPARTED_CARE_KIND: _candidate_bell(NotificationType.departed_pairs_care),
     JOB_IDLE_KIND: _candidate_bell(NotificationType.job_idle_reminder),
     "pre_contract": _candidate_bell(NotificationType.pre_contract),
+    "start_documents": _candidate_bell(NotificationType.start_documents_due),
     "team_task": _candidate_bell(NotificationType.note_reply),
     "hire_documents": _hire_documents,
     HR_MAIL_KIND: _hr_people,

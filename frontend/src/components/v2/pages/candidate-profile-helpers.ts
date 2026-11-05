@@ -182,7 +182,7 @@ export function getCvProjectionNotice(candidate: {
       kind: "quarantine",
       text:
         "Wgrane CV nie zasiliło profilu: imię i nazwisko w dokumencie nie " +
-        "zgadzają się z kandydatem. Plik zostaje w zakładce „Pliki i umowy”; " +
+        "zgadzają się z kandydatem. Plik zostaje w zakładce „Dokumenty”; " +
         "zwolnić go może administrator albo Head of Recruitment.",
     };
   }

@@ -55,7 +55,12 @@ from app.services.hr import (
     time_suggest,
 )
 from app.services.hr.modules import HrModule
-from app.services.hr.time_access import Actor, is_time_approver, load_actor
+from app.services.hr.time_access import (
+    Actor,
+    is_time_approver,
+    left_company,
+    load_actor,
+)
 from app.services.hr.time_entries import (
     EntryInput,
     TimeConflict,
@@ -66,6 +71,7 @@ from app.services.hr.time_entries import (
     clean_description,
     clean_hours,
     clean_project,
+    employed_on,
     entries_of,
     entry_payload,
     entry_with_timesheet,
@@ -889,6 +895,7 @@ async def add_team_entry(
         data = _entry_input(payload)
         actor = await _approver(db, current_user)
         _, profile = await _decidable_subject(db, actor, user_id)
+        _assert_leaver_worked_on(profile, data.work_date)
         timesheet = await open_draft(
             db, user_id, year, month, employment_type=profile.employment_type
         )
@@ -900,6 +907,13 @@ async def add_team_entry(
             db, actor, timesheet, "entry_added_by_approver", entry.work_date
         )
     return entry_payload(entry)
+
+
+def _assert_leaver_worked_on(profile: EmployeeProfile, day: date) -> None:
+    """Za osobę, która odeszła, nie dopisuje się godzin spoza jej współpracy."""
+
+    if left_company(profile) and not employed_on(profile, day):
+        raise TimeError("Tego dnia osoba już nie pracowała: po ostatnim dniu pracy.")
 
 
 def _audit_team_entry(
@@ -936,6 +950,8 @@ async def update_team_entry(
         changes = _entry_changes(payload)
         actor = await _approver(db, current_user)
         entry, timesheet, profile = await _team_entry(db, actor, entry_id)
+        if "work_date" in changes:
+            _assert_leaver_worked_on(profile, changes["work_date"])
         entry = await time_entries.update_entry(
             db,
             timesheet=timesheet,
@@ -986,6 +1002,19 @@ async def approve_timesheet(
         actor = await _approver(db, current_user)
         await _visible_timesheet(db, actor, timesheet_id)
         timesheet = await time_flow.approve(db, timesheet_id=timesheet_id, actor=actor)
+    return time_month.timesheet_payload(timesheet, approver_name=current_user.name)
+
+
+@router.post("/timesheets/{timesheet_id}/confirm-for-person")
+async def confirm_timesheet_for_person(
+    timesheet_id: int, current_user: ApproverUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    with _http_errors():
+        actor = await _approver(db, current_user)
+        await _visible_timesheet(db, actor, timesheet_id)
+        timesheet = await time_flow.confirm_for_person(
+            db, timesheet_id=timesheet_id, actor=actor
+        )
     return time_month.timesheet_payload(timesheet, approver_name=current_user.name)
 
 

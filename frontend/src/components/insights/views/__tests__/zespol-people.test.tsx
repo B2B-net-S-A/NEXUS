@@ -12,6 +12,8 @@
  *    zostają pod listą osób.
  * 4. **Aktywny rekruter bez ruchu ma wiersz z zerami** (20.10.2026) — nowa
  *    osoba nie może wyglądać, jakby jej nie było w zespole.
+ * 5. **Grupy mówią, jak daleko osoba doszła** (05.11.2026), a osoby bez celu są
+ *    zwinięte, ale ich liczby nie znikają.
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -161,7 +163,8 @@ describe("Zespół → Ludzie", () => {
   it("byli pracownicy domyślnie stoją jednym wierszem z sumami", async () => {
     const table = await peopleTable();
     const rows = bodyRows(table);
-    expect(rows).toHaveLength(3);
+    // Nagłówek grupy, dwie osoby, wiersz zbiorczy.
+    expect(rows).toHaveLength(4);
     const former = within(table).getByText(/Byli w zespole \(2\)/).closest("tr")!;
     expect(former.textContent).toContain("Ewa Była, Olga Była");
     const cells = within(former).getAllByRole("cell").map((cell) => cell.textContent);
@@ -181,10 +184,11 @@ describe("Zespół → Ludzie", () => {
 
   it("klik w nagłówek sortuje malejąco, drugi rosnąco; wiersz zbiorczy zostaje na dole", async () => {
     const table = await peopleTable();
-    const header = within(table).getByRole("columnheader", { name: "CV wysłane" });
+    const header = within(table).getByRole("columnheader", { name: "CV" });
     expect(header.getAttribute("aria-sort")).toBe("none");
-    // Bez kliknięcia — kolejność z API.
-    expect(bodyRows(table)[0]).toContain("Anna Test");
+    // Bez kliknięcia — grupy, a w grupie wyżej ten, kto dalej doszedł.
+    expect(bodyRows(table)[0]).toContain("Mają placement w tym okresie · 2");
+    expect(bodyRows(table)[1]).toContain("Jan Kowalski");
 
     fireEvent.click(within(header).getByRole("button"));
     expect(header.getAttribute("aria-sort")).toBe("descending");
@@ -235,6 +239,29 @@ describe("Zespół → Ludzie", () => {
     ]);
     expect(within(table).queryByText("Cichy Lead")).toBeNull();
     expect(screen.getByText(/Pominięto osoby bez ruchu w tym okresie: 1\./)).toBeTruthy();
+  });
+
+  it("osoby bez celu są zwinięte z sumami, klik je pokazuje", async () => {
+    const people = {
+      ...PEOPLE,
+      rows: [
+        ...PEOPLE.rows,
+        personRow(7, "Lena Lead", { role: "delivery_lead", placements_target: 0, recommendations: 4, placements: 1 }),
+      ],
+    };
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/insights/team/people") return Promise.resolve({ data: people });
+      if (url === "/api/insights/performance-flags") {
+        return Promise.resolve({ data: { flags_by_user: {}, types: [] } });
+      }
+      return new Promise(() => {});
+    });
+    const table = await peopleTable();
+    expect(within(table).queryByText("Lena Lead")).toBeNull();
+    const toggle = within(table).getByRole("button", { name: /Bez celu placementów · 1/ });
+    expect(toggle.textContent).toContain("4 CV, 1 plac.");
+    fireEvent.click(toggle);
+    expect(within(table).getByText("Lena Lead")).toBeTruthy();
   });
 
   it("zakładka Delivery Leadzi: ten sam przełącznik i wiersz zbiorczy", async () => {

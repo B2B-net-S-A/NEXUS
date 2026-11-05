@@ -282,6 +282,8 @@ export interface PrepSuggestionsParams {
   interviewStart: string;
   candidateFrom?: string | null;
   candidateTo?: string | null;
+  prep1Minutes?: number;
+  prep2Minutes?: number;
 }
 
 export const prepSuggestionsQueryKey = (p: PrepSuggestionsParams) =>
@@ -294,6 +296,8 @@ export const prepSuggestionsQueryKey = (p: PrepSuggestionsParams) =>
     p.interviewStart,
     p.candidateFrom ?? "",
     p.candidateTo ?? "",
+    p.prep1Minutes ?? null,
+    p.prep2Minutes ?? null,
   ] as const;
 
 export const prepOptionsQueryKey = (candidateId: number, jobId: number) =>
@@ -329,6 +333,8 @@ export const prepMeetingsApi = {
           interview_start: p.interviewStart,
           ...(p.candidateFrom ? { candidate_from: p.candidateFrom } : {}),
           ...(p.candidateTo ? { candidate_to: p.candidateTo } : {}),
+          ...(p.prep1Minutes ? { prep1_minutes: p.prep1Minutes } : {}),
+          ...(p.prep2Minutes ? { prep2_minutes: p.prep2Minutes } : {}),
         },
       })
       .then((r) => r.data),

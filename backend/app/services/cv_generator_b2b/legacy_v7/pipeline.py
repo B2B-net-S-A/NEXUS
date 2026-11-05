@@ -51,7 +51,9 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _cap_role_technologies,
     _champion_parse_warnings,
     _date_overlap_warnings,
+    _apply_summary_standard,
     _fabrication_warnings,
+    _must_have_bullets_first,
     _fix_experience_years,
     _fix_scoped_years,
     _normalize_candidate_data,
@@ -103,7 +105,8 @@ PIPELINE_ID = "legacy_v7"
 # 9 (15.10.2026): polska uczelnia w polskim CV ma polską nazwę.
 # 10 (02.11.2026): „obecnie” tylko, gdy oryginał tak mówi.
 # 11 (04.11.2026): why_points bez numeracji, kategorie umiejętności bez „must-have”.
-PROMPT_VERSION = 11
+# 12 (05.11.2026): standard 5 punktów why_points: lata, specjalizacja, 3 × must-have.
+PROMPT_VERSION = 12
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -377,6 +380,10 @@ def run_legacy_generation(
     _fix_experience_years(candidate_data, language)
     # Not part of 2bc6b14f: role/company-bound figures recomputed from dates.
     _fix_scoped_years(candidate_data, language)
+    # Standard 5 punktów: model bywa nieposłuszny, więc kod domyka limit i lata.
+    summary_notes = _apply_summary_standard(candidate_data, language, client_rule)
+    if champion_dto and mode == "tailored":
+        _must_have_bullets_first(candidate_data, champion_dto.must_have)
 
     # Pozycje wzięte z pytań rekrutera albo wymagań klienta, a nie od kandydata,
     # znikają, zanim zobaczą je bezpieczniki, kontrola AI i dokument.
@@ -420,6 +427,7 @@ def run_legacy_generation(
     answers_text = screening_text_without_questions(model_notes)
     source_text = f"{cv_text}\n{answers_text}"
     guard_warnings = list(question_notes)
+    guard_warnings.extend(summary_notes)
     guard_warnings.extend(_fabrication_warnings(candidate_data, source_text, language))
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))

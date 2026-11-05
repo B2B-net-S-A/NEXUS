@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildConsentRequest, fillSupplierName, isPkoClient, zobReference } from "@/lib/consent-mail";
+import {
+  buildConsentRequest,
+  consentClientLabel,
+  consentMailStatus,
+  fillSupplierName,
+  isPkoClient,
+  zobReference,
+} from "@/lib/consent-mail";
 
 describe("zobReference", () => {
   it("normalizuje oba zapisy numeru z rekrutacji", () => {
@@ -50,5 +57,61 @@ describe("isPkoClient", () => {
     expect(isPkoClient("Powszechna Kasa Oszczędności Bank Polski S.A")).toBe(true);
     expect(isPkoClient("Spko Sp. z o.o.")).toBe(false);
     expect(isPkoClient(null)).toBe(false);
+  });
+});
+
+describe("consentMailStatus", () => {
+  const CANDIDATE = "anna@example.com";
+  const thread = (subject: string | null, direction: string, from: string) => ({
+    subject,
+    latest: { direction, from_address: from, sent_at: "2026-10-29T12:00:00Z", received_at: "2026-10-29T12:00:02Z" },
+  });
+
+  it("własna wiadomość to wysłana prośba", () => {
+    const status = consentMailStatus(
+      [thread("ZOB-3109 - zgoda na przetwarzanie danych osobowych", "sent", "rekruter@example.com")],
+      "ZOB-3109",
+      CANDIDATE,
+    );
+    expect(status).toEqual({ kind: "sent", at: "2026-10-29T12:00:00Z" });
+  });
+
+  it("kopia własnej prośby w skrzynce firmy nie jest odpowiedzią kandydata", () => {
+    const status = consentMailStatus(
+      [thread("ZOB-3109 - zgoda na przetwarzanie danych osobowych", "received", "rekruter@example.com")],
+      "ZOB-3109",
+      CANDIDATE,
+    );
+    expect(status?.kind).toBe("sent");
+  });
+
+  it("odpowiedź kandydata rozpoznaje po nadawcy, bez względu na wielkość liter", () => {
+    const status = consentMailStatus(
+      [thread("RE: ZOB 3109 zgoda", "received", "Anna@Example.com")],
+      "ZOB-3109",
+      CANDIDATE,
+    );
+    expect(status).toEqual({ kind: "replied", at: "2026-10-29T12:00:02Z" });
+  });
+
+  it("nie myli innego zapytania, innego tematu ani szkicu z prośbą", () => {
+    const zgoda = "ZOB-3109 - zgoda na przetwarzanie danych osobowych";
+    expect(consentMailStatus([thread("ZOB-31090 - zgoda", "sent", "a@b.pl")], "ZOB-3109", CANDIDATE)).toBeNull();
+    expect(consentMailStatus([thread("ZOB-3109 stawka", "sent", "a@b.pl")], "ZOB-3109", CANDIDATE)).toBeNull();
+    expect(consentMailStatus([thread(zgoda, "draft", "a@b.pl")], "ZOB-3109", CANDIDATE)).toBeNull();
+    expect(consentMailStatus([thread(null, "sent", "a@b.pl")], "ZOB-3109", CANDIDATE)).toBeNull();
+  });
+
+  it("bez adresu kandydata nie ogłasza odpowiedzi", () => {
+    const status = consentMailStatus([thread("ZOB-3109 zgoda", "received", "anna@example.com")], "ZOB-3109", null);
+    expect(status?.kind).toBe("sent");
+  });
+});
+
+describe("consentClientLabel", () => {
+  it("skraca nazwę PKO z rejestru, resztę zostawia", () => {
+    expect(consentClientLabel("Powszechna Kasa Oszczędności Bank Polski S.A")).toBe("PKO BP");
+    expect(consentClientLabel("Inny Bank")).toBe("Inny Bank");
+    expect(consentClientLabel(null)).toBe("Klient");
   });
 });

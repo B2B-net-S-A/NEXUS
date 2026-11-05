@@ -33,6 +33,110 @@ def test_identity_match_accepts_transliterated_polish_name() -> None:
     assert result.evidence["last_name_match"] is True
 
 
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Not Provided", "Not Provided"),
+        ("Not provided", "Not provided"),
+        ("Not Available", "Not Available"),
+        ("Not", "Provided"),
+        ("Not", "Specified"),
+        ("Not", "Available"),
+    ],
+)
+def test_empty_field_phrase_cannot_confirm_a_mismatch(first, last):
+    # Profil z taką „nazwą” nie ma tożsamości: każde własne CV dawało mismatch
+    # i czyściło fakty (78144, 287116, wrzesień i październik 2026).
+    as_candidate = quarantine.evaluate_identity_match(
+        candidate_first_name=first,
+        candidate_last_name=last,
+        observed_first_name="Anna",
+        observed_last_name="Nowak",
+    )
+    as_observed = quarantine.evaluate_identity_match(
+        candidate_first_name="Anna",
+        candidate_last_name="Nowak",
+        observed_first_name=first,
+        observed_last_name=last,
+    )
+
+    assert as_candidate.decision == "inconclusive"
+    assert as_candidate.evidence["candidate_identity_complete"] is False
+    assert as_observed.decision == "inconclusive"
+    assert as_observed.evidence["observed_identity_complete"] is False
+
+
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Work", "Experience"),
+        ("Back-End", "Developer"),
+        ("Praca", "Zawodowe Doświadczenie"),
+        ("TEST", "test"),
+    ],
+)
+def test_profile_name_of_common_cv_words_cannot_confirm_a_mismatch(first, last) -> None:
+    # Taka nazwa nie mówi, czyje to CV: każdy plik daje mismatch, także ten, z którego
+    # profil powstał (529068, 17.09.2026: 7 wyczyszczonych pól).
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=first,
+        candidate_last_name=last,
+        observed_first_name="Anna",
+        observed_last_name="Nowak",
+    )
+
+    assert result.decision == "inconclusive"
+    assert result.evidence["candidate_identity_complete"] is False
+    assert result.evidence["candidate_name_only_common_cv_words"] is True
+    assert "candidate_identity_fingerprint" not in result.evidence
+
+
+def test_profile_name_of_common_cv_words_equal_to_the_read_is_no_match() -> None:
+    # Ten sam nagłówek po obu stronach to nie potwierdzenie tożsamości.
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name="Work",
+        candidate_last_name="Experience",
+        observed_first_name="Work",
+        observed_last_name="Experience",
+    )
+
+    assert result.decision == "inconclusive"
+
+
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Project", "Li"),
+        ("Fikcyjny", "Developer"),
+        ("Jan", "Kierownik"),
+    ],
+)
+def test_one_rare_word_in_profile_name_keeps_the_mismatch(first, last) -> None:
+    # Częste słowo bywa nazwiskiem, a krótkie słowo też się liczy („Li”).
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=first,
+        candidate_last_name=last,
+        observed_first_name="Anna",
+        observed_last_name="Nowak",
+    )
+
+    assert result.decision == "confirmed_mismatch"
+    assert result.evidence["candidate_identity_complete"] is True
+    assert result.evidence["candidate_name_only_common_cv_words"] is False
+
+
+def test_common_cv_words_only_in_the_read_keep_the_mismatch() -> None:
+    # Odczyt z takimi słowami załatwia parser (#3062), a odczytu modelu reguła nie rusza.
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name="Anna",
+        candidate_last_name="Nowak",
+        observed_first_name="Work",
+        observed_last_name="Experience",
+    )
+
+    assert result.decision == "confirmed_mismatch"
+
+
 def test_identity_match_accepts_parser_name_order_swap() -> None:
     result = quarantine.evaluate_identity_match(
         candidate_first_name="Jan",
@@ -322,6 +426,250 @@ async def test_detected_identity_uses_fresh_locked_candidate_name(
 
     assert captured["candidate_first_name"] == "Anna"
     assert captured["candidate_last_name"] == "Nowak"
+
+
+def _noop(*_args, **_kwargs) -> None:
+    return None
+
+
+class _NewReviewDB(_FlushOnlyDB):
+    """Bramka zapisuje nowy wiersz przeglądu; test czyta go z `added`."""
+
+    def __init__(self, locked_candidate: object) -> None:
+        super().__init__(locked_candidate)
+        self.added: list[object] = []
+
+    def add(self, value: object) -> None:
+        self.added.append(value)
+
+
+async def _review_of_new_source(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    observed: tuple[str, str],
+    **gate_kwargs,
+) -> tuple[object, AsyncMock]:
+    async def no_review(*_args, **_kwargs):
+        return None
+
+    clear = AsyncMock(return_value={"cleared_fields": 0, "tombstoned_languages": 0})
+    monkeypatch.setattr(quarantine, "get_identity_review", no_review)
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", clear)
+    monkeypatch.setattr(quarantine, "_purge_candidate_summary_cache", AsyncMock())
+    monkeypatch.setattr(quarantine.candidate_audit, "record_candidate_audit", _noop)
+    candidate = SimpleNamespace(id=11, name="Jan", lastname="Kowalski")
+
+    review = await quarantine.record_detected_identity(
+        _NewReviewDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="document",
+        source_id=22,
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+        provenance="cv_parser:document",
+        **gate_kwargs,
+    )
+    return review, clear
+
+
+@pytest.mark.asyncio
+async def test_detected_identity_passes_outside_phone_to_the_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_review(*_args, **_kwargs):
+        return None
+
+    clear = AsyncMock(return_value={"cleared_fields": 0, "tombstoned_languages": 0})
+    monkeypatch.setattr(quarantine, "get_identity_review", no_review)
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", clear)
+    candidate = SimpleNamespace(
+        id=11,
+        name="Jan",
+        lastname="Testowy",
+        phone="600100200",
+        cv_extracted_data=None,
+    )
+
+    review = await quarantine.record_detected_identity(
+        _NewReviewDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="document",
+        source_id=22,
+        observed_first_name="Piotr",
+        observed_last_name="Malinowski",
+        observed_phone="+48 600 100 200",
+        provenance="cv_parser:document",
+    )
+
+    assert review.decision == "inconclusive"
+    assert review.evidence["profile_phone_other_form"] is True
+    clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_held_mismatch_leaves_a_review_mark_and_clears_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 23 z 64 własnych CV nie da się odróżnić po nazwie (fałszywa nazwa w
+    # profilu, pseudonim), więc bieg masowy nie kasuje niczego bez człowieka.
+    review, clear = await _review_of_new_source(
+        monkeypatch, observed=("Piotr", "Malinowski"), hold_mismatch_for_review=True
+    )
+
+    assert review.decision == "inconclusive"
+    assert review.is_quarantined is False
+    assert review.evidence["mismatch_held_for_review"] is True
+    clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hold_does_not_mark_a_read_that_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review, clear = await _review_of_new_source(
+        monkeypatch, observed=("Jan", "Kowalski"), hold_mismatch_for_review=True
+    )
+
+    assert review.decision == "confirmed_match"
+    assert review.evidence["mismatch_held_for_review"] is False
+    clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hold_does_not_clear_again_under_an_old_quarantine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = SimpleNamespace(
+        decision="confirmed_mismatch",
+        provenance="cv_parser:document",
+        override_at=None,
+        is_quarantined=True,
+    )
+
+    async def fake_get(*_args, **_kwargs):
+        return row
+
+    clear = AsyncMock()
+    monkeypatch.setattr(quarantine, "get_identity_review", fake_get)
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", clear)
+    monkeypatch.setattr(quarantine, "_purge_candidate_summary_cache", AsyncMock())
+    candidate = SimpleNamespace(id=11, name="Jan", lastname="Kowalski")
+
+    result = await quarantine.record_detected_identity(
+        _FlushOnlyDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="legacy_cv",
+        source_id=11,
+        observed_first_name="Piotr",
+        observed_last_name="Malinowski",
+        provenance="cv_parser:bulk_fields",
+        hold_mismatch_for_review=True,
+    )
+
+    assert result is row
+    clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_name_from_cv_header_alone_never_quarantines_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 05.11.2026: 9 z 9 przejrzanych plików to fałszywe alarmy, w 7 nazwa pasuje
+    # do reguły nagłówka, a w 4 linia nie była nazwą osoby. Profil tracił fakty.
+    review, clear = await _review_of_new_source(
+        monkeypatch,
+        observed=("Fikcyjny", "Inzynier"),
+        observed_name_from_header=True,
+    )
+
+    assert review.decision == "inconclusive"
+    assert review.is_quarantined is False
+    assert review.evidence["observed_name_from_header"] is True
+    clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_name_from_model_other_than_profile_still_quarantines_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review, clear = await _review_of_new_source(monkeypatch, observed=("Anna", "Nowak"))
+
+    assert review.decision == "confirmed_mismatch"
+    assert review.is_quarantined is True
+    assert review.evidence["observed_name_from_header"] is False
+    clear.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_name_from_cv_header_equal_to_profile_stays_a_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review, _ = await _review_of_new_source(
+        monkeypatch,
+        observed=("Jan", "Kowalski"),
+        observed_name_from_header=True,
+    )
+
+    assert review.decision == "confirmed_match"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("from_header", [False, True])
+async def test_candidate_cv_routes_tell_the_gate_where_the_name_came_from(
+    monkeypatch: pytest.MonkeyPatch, from_header: bool
+) -> None:
+    from app.api import candidates as candidates_api
+
+    gate = AsyncMock(return_value=SimpleNamespace(is_quarantined=False))
+    monkeypatch.setattr(candidates_api, "record_detected_identity", gate)
+    parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
+    if from_header:
+        parsed["_name_from_header"] = ["first_name", "last_name"]
+
+    await candidates_api._parsed_source_is_quarantined(
+        object(),  # type: ignore[arg-type]
+        candidate=SimpleNamespace(id=11),  # type: ignore[arg-type]
+        parsed=parsed,
+        source_kind="document",
+        source_id=22,
+        provenance="cv_parser:document",
+    )
+
+    assert gate.await_args.kwargs["observed_name_from_header"] is from_header
+
+
+@pytest.mark.asyncio
+async def test_earlier_confirmed_mismatch_stays_when_reread_name_is_from_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = SimpleNamespace(
+        decision="confirmed_mismatch",
+        provenance="cv_parser:document",
+        override_at=None,
+        is_quarantined=True,
+    )
+
+    async def fake_get(*_args, **_kwargs):
+        return row
+
+    monkeypatch.setattr(quarantine, "get_identity_review", fake_get)
+    monkeypatch.setattr(quarantine, "_purge_candidate_summary_cache", AsyncMock())
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", AsyncMock())
+    candidate = SimpleNamespace(id=11, name="Jan", lastname="Kowalski")
+
+    result = await quarantine.record_detected_identity(
+        _FlushOnlyDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="document",
+        source_id=22,
+        observed_first_name="Fikcyjny",
+        observed_last_name="Inzynier",
+        provenance="cv_parser:retry",
+        observed_name_from_header=True,
+    )
+
+    assert result is row
+    assert row.decision == "confirmed_mismatch"
 
 
 @pytest.mark.asyncio
@@ -868,6 +1216,175 @@ async def test_repair_clears_facts_read_from_a_foreign_document_but_not_the_poin
     assert db.added[0].operation == "delete"
     db.execute.assert_awaited_once()  # podsumowanie aktywności wyczyszczone
     assert result["cleared_fields"] >= 3
+
+
+@pytest.mark.parametrize(
+    ("candidate", "observed"),
+    [
+        # Traffit dzielił nazwę po pierwszej spacji, model po sensie (pomiar
+        # 05.11.2026: 280 z 608 sprzeczności to te same słowa w innym podziale).
+        (("Jan", "Adam Testowy"), ("Jan Adam", "Testowy")),
+        (("Anna Maria", "Przykladowa Testowa"), ("Anna", "Przykladowa")),
+        # Literówka i transliteracja jednej części: ta sama klasa co częściowa
+        # niezgodność, a nie dowód cudzego pliku.
+        (("Oleksandr", "Fikcyjnenko"), ("Aleksandr", "Fikcyjnienko")),
+        (("Katarzyna", "Przykladowska"), ("Kasia", "Przykladowski")),
+    ],
+)
+def test_other_form_of_the_same_name_is_not_a_confirmed_mismatch(
+    candidate: tuple[str, str], observed: tuple[str, str]
+) -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=candidate[0],
+        candidate_last_name=candidate[1],
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+    )
+
+    assert result.decision == "inconclusive"
+
+
+def test_a_different_person_with_a_double_name_is_still_a_mismatch() -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name="Jan Adam",
+        candidate_last_name="Testowy",
+        observed_first_name="Maria Ewa",
+        observed_last_name="Fikcyjna-Bak",
+    )
+
+    assert result.decision == "confirmed_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("candidate", "observed"),
+    [
+        # Pomiar 05.11.2026: 133 sprzeczności, z tego 64 własne CV. Ta sama osoba
+        # bywa zapisana po polsku, po rosyjsku i po białorusku, bez wspólnego słowa.
+        (("Aleksiej", "Testov"), ("Aliaksei", "Testau")),
+        (("Sergiusz", "Gojtyszyk"), ("Siarhei", "Hoityshyk")),
+        (("Jerzy", "Testuć"), ("Yury", "Testuts")),
+        (("Eugeniusz", "Fikczakowski"), ("Yevhen", "Fikchakovski")),
+        # Tekst PDF z potrojonymi literami i odwróconą kolejnością.
+        (("Marta", "Testowa"), ("TTTEEESSSTTTOOOWWWAAA", "MMMAAARRRTTTAAA")),
+    ],
+)
+def test_same_name_sound_is_not_a_confirmed_mismatch(
+    candidate: tuple[str, str], observed: tuple[str, str]
+) -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=candidate[0],
+        candidate_last_name=candidate[1],
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+    )
+
+    assert result.decision == "inconclusive"
+    assert result.evidence["similar_name_sound"] is True
+
+
+@pytest.mark.parametrize(
+    ("candidate", "observed"),
+    [
+        (("Maciejtestowy", "Maciejtestowy"), ("Maciej", "Testowy")),
+        (("Testo", "Wyfikcja"), ("T.", "Testowyfikcja")),
+        (("Ale Ksan", "Dra Fikcyjna"), ("Aleksandra", "Fikcyjna Nowa")),
+    ],
+)
+def test_same_letters_in_another_split_are_not_a_confirmed_mismatch(
+    candidate: tuple[str, str], observed: tuple[str, str]
+) -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=candidate[0],
+        candidate_last_name=candidate[1],
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+    )
+
+    assert result.decision == "inconclusive"
+    assert result.evidence["same_letters_other_split"] is True
+
+
+@pytest.mark.parametrize(
+    ("candidate", "observed"),
+    [
+        (("Jan", "Testowy"), ("Piotr", "Malinowski")),
+        (("Anna", "Fikcyjna"), ("Bogdan", "Przykladowski")),
+        # Krótkie litery nie wystarczą, żeby uznać je za ten sam ciąg.
+        (("Xy", "Zw"), ("Xyzwabcdef", "Ghijklm")),
+    ],
+)
+def test_a_different_name_stays_a_confirmed_mismatch(
+    candidate: tuple[str, str], observed: tuple[str, str]
+) -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=candidate[0],
+        candidate_last_name=candidate[1],
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+    )
+
+    assert result.decision == "confirmed_mismatch"
+    assert result.evidence["similar_name_sound"] is False
+    assert result.evidence["same_letters_other_split"] is False
+    assert result.evidence["profile_phone_other_form"] is False
+
+
+def _phone_profile(phone: object, stored_read_phone: object = None) -> SimpleNamespace:
+    return SimpleNamespace(phone=phone, cv_extracted_data={"phone": stored_read_phone})
+
+
+@pytest.mark.parametrize(
+    ("profile_phone", "stored_read_phone", "observed_phone"),
+    [
+        ("600100200", None, "+48 600 100 200"),
+        ("+48600100200", "600 100 200", "+48 600 100 200"),
+    ],
+)
+def test_profile_phone_in_another_form_comes_from_outside_this_read(
+    profile_phone: str, stored_read_phone: str | None, observed_phone: str
+) -> None:
+    assert quarantine.profile_phone_in_other_form(
+        _phone_profile(profile_phone, stored_read_phone), observed_phone
+    )
+
+
+@pytest.mark.parametrize(
+    ("profile_phone", "stored_read_phone", "observed_phone"),
+    [
+        # `_apply_cv_contact_fields` zapisuje numer surowo: ten sam zapis mógł
+        # przyjść z tego samego pliku, więc niczego nie dowodzi.
+        ("+48 600 100 200", None, "+48 600 100 200"),
+        ("+48 600 100 200", "+48 600 100 200", "600100200"),
+        ("600100201", None, "600 100 200"),
+        ("600100200", None, None),
+        (None, None, "600 100 200"),
+        ("", None, "600 100 200"),
+        # Zaślepka i ucięty numer to brak numeru.
+        ("000000000", None, "000 000 000"),
+        ("1234", None, "12 34"),
+    ],
+)
+def test_phone_that_proves_nothing_is_not_outside_evidence(
+    profile_phone: str | None, stored_read_phone: str | None, observed_phone: str | None
+) -> None:
+    assert not quarantine.profile_phone_in_other_form(
+        _phone_profile(profile_phone, stored_read_phone), observed_phone
+    )
+
+
+def test_profile_phone_in_another_form_stops_a_confirmed_mismatch() -> None:
+    names = {
+        "candidate_first_name": "Jan",
+        "candidate_last_name": "Testowy",
+        "observed_first_name": "Piotr",
+        "observed_last_name": "Malinowski",
+    }
+
+    held = quarantine.evaluate_identity_match(**names, profile_phone_other_form=True)
+
+    assert held.decision == "inconclusive"
+    assert held.evidence["profile_phone_other_form"] is True
+    assert quarantine.evaluate_identity_match(**names).decision == "confirmed_mismatch"
 
 
 def _silence_invalidation(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -72,13 +72,15 @@ def recipe_for(policy: dict) -> dict:
         "require_champion": False,
         "require_screening_notes_min_chars": None,
         "notes": None,
-        "generator_instructions": None,
-        "generator_instructions_en": None,
+        # Tylko to, czego klient chce od układu CV (Nordea: ostatni punkt
+        # podsumowania o Scrumie/Agile). Reszta katalogu nie ma instrukcji.
+        "generator_instructions": policy.get("generator_instructions"),
+        "generator_instructions_en": policy.get("generator_instructions_en"),
         "omit_sections": None,
         "max_roles": None,
         "max_bullets_per_role": None,
         "max_bullet_chars": None,
-        # The "at most four summary points" standard lives in the central
+        # The five-point summary standard lives in the central
         # system prompt (presentation_title.instructions). Rendering it again
         # as a client instruction made the model report it as "skipped".
         "why_points_max": None,

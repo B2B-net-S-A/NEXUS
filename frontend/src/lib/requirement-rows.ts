@@ -898,3 +898,52 @@ export function sentGapForRow<T extends { label: string; words: readonly string[
     }) ?? null
   );
 }
+
+/** Pozycja starej listy „Musi mieć” jako warianty („Kafka lub RabbitMQ”). */
+export function mustItemWords(name: string): string[] {
+  return cleanWords(name.split(" lub "));
+}
+
+/** Stary profil bez wierszy: te same wymagania w trzech polach, które idą razem. */
+export interface LegacyRequirements<T extends { name: string }> {
+  must: readonly T[];
+  requirements: readonly string[][];
+  critical?: string[] | null;
+}
+
+function isRowOfItem(row: readonly string[], name: string): boolean {
+  const fold = (word: string) => word.trim().toLocaleLowerCase("pl");
+  const words = new Set(mustItemWords(name).map(fold));
+  return row.length === words.size && row.every((word) => words.has(fold(word)));
+}
+
+/** „+ lub X”: wariant dochodzi do pozycji, jej wiersza wyszukiwania i krytycznych. */
+export function addLegacyMustVariant<T extends { name: string }>(
+  legacy: LegacyRequirements<T>,
+  name: string,
+  word: string,
+): LegacyRequirements<T> {
+  const next = `${name} lub ${word}`;
+  return {
+    must: legacy.must.map((item) => (item.name === name ? { ...item, name: next } : item)),
+    requirements: legacy.requirements.map((row) => (isRowOfItem(row, name) ? [...row, word] : row)),
+    critical: legacy.critical?.map((label) => (label === name ? next : label)) ?? legacy.critical,
+  };
+}
+
+/**
+ * „Do rozmowy”: pozycja znika z trzech pól. Zdjęcie ostatniej krytycznej wraca do
+ * „nie zdecydowano” (`null`), bo pusta lista znaczyłaby świadome „Brak krytycznych”.
+ */
+export function removeLegacyMustItem<T extends { name: string }>(
+  legacy: LegacyRequirements<T>,
+  name: string,
+): LegacyRequirements<T> {
+  const critical = legacy.critical?.filter((label) => label !== name);
+  return {
+    must: legacy.must.filter((item) => item.name !== name),
+    requirements: legacy.requirements.filter((row) => !isRowOfItem(row, name)),
+    critical:
+      critical && critical.length === 0 && legacy.critical?.length ? null : (critical ?? legacy.critical),
+  };
+}

@@ -32,6 +32,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.consultant_portal import portal_settings
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import (
@@ -66,6 +67,7 @@ async def hr_config(
             "program": False,
             "modules": loaded,
             "open_modules": {key: False for key in loaded},
+            "consultant_panel_on": False,
             "me": {
                 "has_profile": False,
                 "employment_status": None,
@@ -99,6 +101,7 @@ async def hr_config(
         "open_modules": {
             key: hr_modules.module_open_for(current_user, loaded, key) for key in loaded
         },
+        "consultant_panel_on": await portal_settings.load_raw_state(db) != "off",
         "me": {
             "has_profile": profile is not None
             and profile.employment_status != EmploymentStatus.exited,

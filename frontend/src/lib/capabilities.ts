@@ -67,6 +67,7 @@ export type Capability =
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
   | "candidate.document.remove"
+  | "candidate.identity_quarantine.override"
   | "candidate.profile_fact.manage"
   | "candidate.requirement.verify"
   // ── Kuratela portfela klientów ─────────────────────────────────────────────
@@ -241,6 +242,9 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // DELETE /api/candidates/{id}/documents/{doc_id} →
   // CandidateDocumentRemoveAccess (candidate_access.py).
   "candidate.document.remove": DOCUMENT_REMOVERS,
+  // POST /api/candidates/{id}/identity-quarantine/…/override →
+  // CandidateIdentityQuarantineOverrideAccess (candidate_access.py).
+  "candidate.identity_quarantine.override": DOCUMENT_REMOVERS,
   // GET/PUT /api/candidates/{id}/languages + GET/PATCH .../profile-rate →
   // CandidateProfileFactsReadAccess i CandidateProfileFactsWriteAccess
   // (candidate_access.py); OBA = _INTERNAL_OPERATIONAL_ROLES, stąd jeden wpis
@@ -393,6 +397,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "hm_feedback.record": { section: "pipeline", required: "write" },
   "candidate.document.manage": { section: "sourcing", required: "write" },
   "candidate.document.remove": { section: "sourcing", required: "write" },
+  "candidate.identity_quarantine.override": { section: "sourcing", required: "write" },
   "candidate.profile_fact.manage": { section: "sourcing", required: "write" },
   "candidate.requirement.verify": { section: "sourcing", required: "write" },
   "client.portfolio.manage": { section: "delivery", required: "write" },
@@ -429,6 +434,7 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "hm_feedback.record",
   "candidate.document.manage",
   "candidate.document.remove",
+  "candidate.identity_quarantine.override",
   "candidate.profile_fact.manage",
   "candidate.requirement.verify",
   "client.portfolio.manage",

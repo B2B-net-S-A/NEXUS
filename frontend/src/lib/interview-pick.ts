@@ -119,6 +119,10 @@ export interface ManualPrepCheck {
   busy: Span | null;
 }
 
+/** Długości prepu do wyboru — te same co w „Zaplanuj prep” i „Zmień prep”. */
+export const PREP_DURATIONS = [30, 45, 60, 90];
+export const DEFAULT_PREP_MINUTES = 45;
+
 const PREP_GAP_MINUTES: Record<1 | 2, number> = { 1: 120, 2: 30 };
 const MIN_LEAD_MS = 2 * 60 * 60_000;
 const WORK_START_MIN = 8 * 60;

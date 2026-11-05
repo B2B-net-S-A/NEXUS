@@ -727,9 +727,12 @@ def rule_reminders(rule: Optional[CvRuleSnapshot]) -> tuple[str, ...]:
             "WERYFIKUJ: ten klient oczekuje CV po polsku ORAZ po angielsku — "
             "pamiętaj o wygenerowaniu drugiej wersji językowej."
         )
-    if (rule.generator_instructions or "").strip() or (
-        rule.generator_instructions_en or ""
-    ).strip():
+    # Polityka centralna to nasz stały standard, nie reguła do sprawdzania przy
+    # każdym CV: pominięcie instrukcji model i tak zgłasza osobno.
+    if not rule.managed_policy and (
+        (rule.generator_instructions or "").strip()
+        or (rule.generator_instructions_en or "").strip()
+    ):
         # Model dostał reguły prezentacji klienta i mógł którąś pominąć jako
         # niedozwoloną (dopisywanie faktów). Rekruter ma wiedzieć, że dokument
         # był kształtowany także tymi regułami — i sprawdzić go pod ich kątem.

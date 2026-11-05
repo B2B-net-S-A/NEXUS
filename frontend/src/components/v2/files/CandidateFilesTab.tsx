@@ -5,6 +5,8 @@
 // 04.10.2026: klik w nazwę otwiera podgląd, reszta akcji (pobierz, rodzaj,
 // główne CV, nieaktualne) w menu „⋯” wiersza.
 // 13.10.2026: „Usuń z profilu” w tym samym menu — admin i Head of Recruitment.
+// 05.11.2026: plakietka przy pliku w kwarantannie tożsamości i przy jego kopii,
+// „Zwolnij” dla admina i Head of Recruitment (wariant A, decyzja Artura).
 // 14.10.2026: CV z generatora też otwiera podgląd kliknięciem w nazwę — wcześniej
 // miało tylko „Pobierz” i każde CV wysłane klientowi trzeba było ściągać na dysk.
 // 13.10.2026 (E5): pliki w trzech grupach — „CV kandydata”, „CV wysłane
@@ -63,6 +65,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import {
+  FileQuarantineNotice,
+  fileQuarantineBadge,
+  quarantineReleaseOf,
+  type DocumentQuarantine,
+} from "@/components/v2/files/FileQuarantine";
 
 /** Grupa z większą liczbą plików pokazuje tyle wierszy + „Pokaż wszystkie”. */
 const GROUP_PREVIEW = 3;
@@ -86,7 +94,9 @@ export function CandidateFilesTab({
  // DELETE .../documents/{doc_id} stoi na węższym CandidateDocumentRemoveAccess
  // (admin, Head of Recruitment) — rekruter wgrywa i oznacza, ale nie usuwa.
  const canRemoveDocuments = useCapability("candidate.document.remove");
- const { askConfirm, confirmDialog } = useConfirmV2();
+ // POST .../identity-quarantine/…/override: admin i Head of Recruitment.
+ const canReleaseQuarantine = useCapability("candidate.identity_quarantine.override");
+ const { askConfirm, askReason, confirmDialog } = useConfirmV2();
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const [uploadKind, setUploadKind] =
  useState<CandidateDocument["document_kind"]>("cv");
@@ -103,6 +113,18 @@ export function CandidateFilesTab({
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
  `/api/candidates/${candidateId}/documents`,
+ );
+ return res.data;
+ },
+ staleTime: 30_000,
+ });
+ // Osobne zapytanie: kopie liczą się czasem z plików w magazynie, więc lista
+ // plików na to nie czeka. Awaria nie może wyglądać jak brak kwarantanny.
+ const quarantineQuery = useQuery<DocumentQuarantine[]>({
+ queryKey: candidateQueryKeys.documentQuarantine(candidateId),
+ queryFn: async () => {
+ const res = await api.get<DocumentQuarantine[]>(
+ `/api/candidates/${candidateId}/identity-quarantine`,
  );
  return res.data;
  },
@@ -134,6 +156,10 @@ export function CandidateFilesTab({
  });
  void queryClient.invalidateQueries({
  queryKey: candidateQueryKeys.quickView(candidateId),
+ });
+ // Cofnięcie „nieaktualne” albo zmiana rodzaju może zrobić z pliku kopię.
+ void queryClient.invalidateQueries({
+ queryKey: candidateQueryKeys.documentQuarantine(candidateId),
  });
  showToast(
  variables.outdated === true
@@ -179,6 +205,7 @@ export function CandidateFilesTab({
  onSettled: () => {
  for (const queryKey of [
  candidateQueryKeys.documents(candidateId),
+ candidateQueryKeys.documentQuarantine(candidateId),
  candidateQueryKeys.cvDocuments(candidateId),
  candidateQueryKeys.quickView(candidateId),
  candidateQueryKeys.detail(candidateId),
@@ -209,8 +236,10 @@ export function CandidateFilesTab({
  api.delete(`/api/candidates/${candidateId}/documents/${docId}`),
  onSuccess: () => {
  // `detail` też: usunięcie jedynego CV zdejmuje z profilu nazwę pliku CV.
+ // Stan kwarantanny też: po usunięciu oryginału „Zwolnij” przechodzi na kopię.
  for (const queryKey of [
  candidateQueryKeys.documents(candidateId),
+ candidateQueryKeys.documentQuarantine(candidateId),
  candidateQueryKeys.cvDocuments(candidateId),
  candidateQueryKeys.quickView(candidateId),
  candidateQueryKeys.detail(candidateId),
@@ -222,6 +251,58 @@ export function CandidateFilesTab({
  onError: (mutationError) =>
  showError(apiErrorMessage(mutationError, "Nie udało się usunąć pliku.")),
  });
+
+ const releaseMutation = useMutation({
+ mutationFn: ({ sourceId, reason }: { sourceId: number; reason: string }) =>
+ api.post(
+ `/api/candidates/${candidateId}/identity-quarantine/document/${sourceId}/override`,
+ { reason },
+ ),
+ onSuccess: () => {
+ // `detail` też: zwolnienie zdejmuje z profilu ramkę o kwarantannie.
+ for (const queryKey of [
+ candidateQueryKeys.documentQuarantine(candidateId),
+ candidateQueryKeys.documents(candidateId),
+ candidateQueryKeys.cvDocuments(candidateId),
+ candidateQueryKeys.quickView(candidateId),
+ candidateQueryKeys.detail(candidateId),
+ ]) {
+ void queryClient.invalidateQueries({ queryKey });
+ }
+ showToast(
+ "Plik zwolniony z kwarantanny. Żeby odczytać z niego dane, ustaw go jako główne CV.",
+ "success",
+ );
+ },
+ onError: (mutationError) =>
+ showError(
+ apiErrorMessage(mutationError, "Nie udało się zwolnić pliku z kwarantanny."),
+ ),
+ });
+
+ async function handleRelease(entry: DocumentQuarantine) {
+ const copies = (quarantineQuery.data ?? []).filter(
+ (item) => item.state === "copy" && item.source_document_id === entry.source_document_id,
+ ).length;
+ const reason = await askReason({
+ title: "Zwolnić plik z kwarantanny?",
+ description: [
+ `„${entry.source_filename}” znów będzie liczyć się jako CV tej osoby${copies > 0 ? `, razem z kopiami tego pliku (${copies})` : ""}.`,
+ "Zwolnij po obejrzeniu pliku, gdy to na pewno ta osoba.",
+ "Profil nie odświeży się sam: żeby odczytać dane, ustaw potem plik jako główne CV.",
+ ].join(" "),
+ confirmLabel: "Zwolnij",
+ field: {
+ label: "Powód",
+ placeholder: "Co w pliku potwierdza, że to ta osoba",
+ minLength: 3,
+ maxLength: 500,
+ },
+ });
+ if (reason) {
+ releaseMutation.mutate({ sourceId: entry.source_document_id, reason });
+ }
+ }
 
  async function handleRemove(doc: CandidateDocument) {
  // Główne CV też wolno usunąć. Następcy serwer nie wybiera sam (nowe główne
@@ -415,13 +496,23 @@ export function CandidateFilesTab({
  }
 
  const groups = groupCandidateFiles(docs, recruitmentCodes);
+ const quarantineByDocument = new Map(
+ (quarantineQuery.data ?? []).map((entry) => [entry.document_id, entry]),
+ );
  const renderRow = (doc: CandidateDocument) => (
  <FileRow
  key={doc.id}
  doc={doc}
+ quarantine={quarantineByDocument.get(doc.id)}
+ canReleaseQuarantine={canReleaseQuarantine}
+ onReleaseQuarantine={handleRelease}
  canEdit={canEditDocuments}
  canRemove={canRemoveDocuments}
- busy={metadataMutation.isPending || removeMutation.isPending}
+ busy={
+ metadataMutation.isPending ||
+ removeMutation.isPending ||
+ releaseMutation.isPending
+ }
  onPreview={() => handlePreview(doc)}
  onDownload={() => handleDownload(doc)}
  onChangeKind={(documentKind) =>
@@ -440,6 +531,18 @@ export function CandidateFilesTab({
  <div className="space-y-3">
  {header}
  {uploader}
+ {quarantineQuery.isError ? (
+ <p role="alert" className="text-sm text-destructive">
+ Nie udało się sprawdzić, które pliki są w kwarantannie.{" "}
+ <button
+ type="button"
+ className="font-medium underline"
+ onClick={() => void quarantineQuery.refetch()}
+ >
+ Ponów
+ </button>
+ </p>
+ ) : null}
  {/* Główne CV zawsze tutaj — grupa bez skracania listy. */}
  <FileGroup
  id="candidate-files-own-heading"
@@ -493,6 +596,9 @@ const KIND_OPTIONS: { value: CandidateDocument["document_kind"]; label: string }
 
 function FileRow({
  doc,
+ quarantine,
+ canReleaseQuarantine,
+ onReleaseQuarantine,
  canEdit,
  canRemove,
  busy,
@@ -504,6 +610,9 @@ function FileRow({
  onRemove,
 }: {
  doc: CandidateDocument;
+ quarantine?: DocumentQuarantine;
+ canReleaseQuarantine: boolean;
+ onReleaseQuarantine: (entry: DocumentQuarantine) => void;
  canEdit: boolean;
  canRemove: boolean;
  busy: boolean;
@@ -552,6 +661,7 @@ function FileRow({
  nieaktualne
  </Badge>
  ) : null}
+ {quarantine ? fileQuarantineBadge(quarantine) : null}
  <Badge size="sm" variant="neutral">
  {KIND_LABEL[doc.document_kind] ?? "inny"}
  </Badge>
@@ -571,7 +681,21 @@ function FileRow({
  </>
  ) : null}
  </div>
+ {quarantine ? (
+ <FileQuarantineNotice entry={quarantine} canRelease={canReleaseQuarantine} />
+ ) : null}
  </div>
+ {quarantine && canReleaseQuarantine && quarantineReleaseOf(quarantine) ? (
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={busy}
+ aria-label={`Zwolnij z kwarantanny plik ${quarantine.source_filename}`}
+ onClick={() => onReleaseQuarantine(quarantine)}
+ >
+ Zwolnij
+ </Button>
+ ) : null}
  <DropdownMenu modal={false}>
  <DropdownMenuTrigger asChild>
  <Button
@@ -604,7 +728,7 @@ function FileRow({
  </DropdownMenuRadioItem>
  ))}
  </DropdownMenuRadioGroup>
- {doc.document_kind === "cv" && !doc.is_primary && !doc.outdated_at ? (
+ {doc.document_kind === "cv" && !doc.is_primary && !doc.outdated_at && !quarantine ? (
  <>
  <DropdownMenuSeparator />
  <DropdownMenuItem onSelect={later(onSetPrimary)}>

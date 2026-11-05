@@ -3502,6 +3502,7 @@ async def build_kanban_view(
     viewer: Optional[User] = None,
     with_followups: bool = True,
     with_employment: bool = True,
+    with_start_docs: bool = True,
     with_cv_state: bool = True,
     with_other_jobs: bool = True,
     dl_review_memo: Optional[dict[Any, Any]] = None,
@@ -3842,6 +3843,12 @@ async def build_kanban_view(
     from app.services.pre_contracts import kanban_badges  # noqa: PLC0415
 
     pre_contract_badges = await kanban_badges(db, job_id, candidate_ids)
+    # 0649: dokumenty do startu. Klient bez listy to jedno zapytanie.
+    from app.services.start_documents import card_badges  # noqa: PLC0415
+
+    start_docs_badges = (
+        await card_badges(db, job, candidate_ids) if with_start_docs else {}
+    )
     # 0450 (D3): złota plakietka „Champion” na karcie — jedno zapytanie.
     from app.services.job_champions import live_candidate_ids  # noqa: PLC0415
 
@@ -4181,6 +4188,7 @@ async def build_kanban_view(
         )
         payload["employment_marker"] = employment_markers.get(e.candidate_id)
         payload["pre_contract"] = pre_contract_badges.get(e.candidate_id)
+        payload["start_docs"] = start_docs_badges.get(e.candidate_id)
         payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
         payload["is_champion"] = e.candidate_id in champion_ids
         v4 = v4_processes.get(e.candidate_id)
@@ -4524,6 +4532,7 @@ async def my_next_steps(
                     viewer=current_user,
                     with_followups=False,
                     with_employment=False,
+                    with_start_docs=False,
                     with_cv_state=False,
                     with_other_jobs=False,
                     dl_review_memo=dl_review_memo,

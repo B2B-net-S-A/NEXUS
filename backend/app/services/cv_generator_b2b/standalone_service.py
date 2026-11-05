@@ -2702,7 +2702,7 @@ async def load_candidate_generation_source(
 
     client = await db.get(Client, client_id) if client_id else None
     # ── 1. CV file ────────────────────────────────────────────────────────
-    from app.services.cv_source import current_cv_filters, current_cv_ordering
+    from app.services.cv_source import current_cv_filters_for, current_cv_ordering
 
     cv_doc_q = (
         select(CandidateDocument)
@@ -2722,7 +2722,7 @@ async def load_candidate_generation_source(
     else:
         # Wybór domyślny (bez pliku wskazanego przez rekrutera) tą samą regułą
         # co migawka oryginału CV (R9-N7-11).
-        cv_doc_q = cv_doc_q.where(*current_cv_filters())
+        cv_doc_q = cv_doc_q.where(*await current_cv_filters_for(db, candidate_id))
     cv_doc = (await db.scalars(cv_doc_q)).first()
     if cv_doc is None and cv_document_id is not None:
         raise StandaloneGenerationError(

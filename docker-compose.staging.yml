@@ -149,6 +149,8 @@ services:
       AUTENTI_ENABLED: "false"
       JJIT_ENABLED: "false"
       PROXYCURL_ENABLED: "false"
+      # Moduł „Ludzie” widoczny jak na produkcji, pętle zatrzymane wierszem niżej.
+      HR_PROGRAM_ENABLED: "true"
       HR_LOOPS_ENABLED: "false"
       SELF_REGISTRATION_ENABLED: "false"
       PASSWORD_LOGIN_ENABLED: "true"

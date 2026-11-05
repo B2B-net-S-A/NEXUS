@@ -226,6 +226,15 @@ const EXPECTED: Record<
     recruiter: false,
     user: false,
   },
+  // CandidateIdentityQuarantineOverrideAccess = admin + Head of Recruitment.
+  // Rekruter widzi plakietkę kwarantanny, ale pliku nie zwalnia.
+  "candidate.identity_quarantine.override": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: false,
+    recruiter: false,
+    user: false,
+  },
   // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES.
   // HoR CELOWO na true — polityka produktowa faktów globalnych.
   "candidate.profile_fact.manage": {
@@ -1405,6 +1414,10 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   // DELETE /api/candidates/{id}/documents/{doc_id}.
   "candidate.document.remove": {
     guards: [["candidateAccess", "CandidateDocumentRemoveAccess"]],
+  },
+  // POST /api/candidates/{id}/identity-quarantine/…/override.
+  "candidate.identity_quarantine.override": {
+    guards: [["candidateAccess", "CandidateIdentityQuarantineOverrideAccess"]],
   },
   // Odczyt i zapis faktów mają dziś ten sam zbiór; wpis celuje w ZAPIS, bo to
   // on decyduje o widoczności kontrolki. Gdy backend je rozdzieli, rozdziel

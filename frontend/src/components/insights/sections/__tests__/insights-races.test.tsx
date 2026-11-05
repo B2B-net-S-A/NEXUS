@@ -128,7 +128,6 @@ function racesPayload(
       requirements: [
         "Wymóg: min. 4 weryfikacje/dzień roboczy w tym miesiącu",
         "Wymóg: min. 75% precision rate (rekomendacje / weryfikacje)",
-        "Lider kwartalny wykluczony z nagrody miesięcznej",
       ],
       ranking: over.recommendations ?? [recEntry()],
       excluded_user_ids: [],
@@ -140,7 +139,6 @@ function racesPayload(
       prize,
       requirements: [
         "Minimum 2 placementy do kwalifikacji",
-        "Lider kwartalny wykluczony z nagrody miesięcznej",
       ],
       ranking: over.placements ?? [placEntry()],
       excluded_user_ids: [],
@@ -378,7 +376,7 @@ describe("InsightsRaces", () => {
     }
   });
 
-  it("lider kwartału jest oznaczony, a nie usunięty z rankingu", async () => {
+  it("okres zamrożony z wykluczeniem lidera kwartału pokazuje dawną zasadę", async () => {
     respond({
       [RACES]: racesPayload({
         recommendations: [
@@ -393,7 +391,7 @@ describe("InsightsRaces", () => {
     renderWithClient(<InsightsRaces month="2020-01" />);
 
     expect(await screen.findByText("Martyna Gołębska")).toBeInTheDocument();
-    expect(screen.getByText(/Lider kwartału/)).toBeInTheDocument();
+    expect(screen.getByText(/Lider kwartału/)).toHaveTextContent("zasada do 05.11.2026");
   });
 
   it("przy zerowych weryfikacjach precision to myślnik, nie 0%", async () => {

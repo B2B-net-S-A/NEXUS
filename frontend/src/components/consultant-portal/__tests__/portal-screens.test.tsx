@@ -4,11 +4,13 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ConsultantPortalPage from "@/app/konsultant/page";
+import ConsultantPanelLayout from "@/app/konsultant/(panel)/layout";
 import { PortalApiError, portalApi, savePortalSession, type PortalMe } from "@/lib/api/consultant-portal";
 
-import { FinanceSection } from "../FinanceSection";
+import { DocumentsSection } from "../DocumentsSection";
 import { LoginForm } from "../LoginForm";
+import { panelNavItems } from "../PanelNav";
+import { EquipmentScreen, HelpScreen, SettlementScreen, StartScreen, TrainerScreen } from "../PanelScreens";
 
 const ME: PortalMe = {
   first_name: "Anna",
@@ -17,7 +19,16 @@ const ME: PortalMe = {
   until: null,
   support_email: "wsparcie@example.com",
   topics: [{ key: "invoice", label: "Faktury i płatności" }],
+  rate: { amount: "160.00", currency: "PLN", unit: "hourly" },
+  support_phone: null,
+  menu: { start: true, equipment: false },
 };
+
+const Page = () => (
+  <ConsultantPanelLayout>
+    <p>Treść ekranu</p>
+  </ConsultantPanelLayout>
+);
 
 function wrap(children: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -43,22 +54,22 @@ describe("strefa konsultanta", () => {
 
   it("wyłączony portal mówi to zdaniem i nie pokazuje logowania", async () => {
     vi.spyOn(portalApi, "status").mockRejectedValue(refuse(404, "Not Found"));
-    wrap(<ConsultantPortalPage />);
-    expect(await screen.findByText("Strefa konsultanta nie jest jeszcze dostępna")).toBeTruthy();
+    wrap(<Page />);
+    expect(await screen.findByText("Panel konsultanta nie jest jeszcze dostępny")).toBeTruthy();
     expect(screen.queryByLabelText("Adres e-mail")).toBeNull();
   });
 
   it("awaria sieci nie wygląda jak wyłączony portal", { timeout: 12_000 }, async () => {
     vi.spyOn(portalApi, "status").mockRejectedValue(new TypeError("Failed to fetch"));
-    wrap(<ConsultantPortalPage />);
+    wrap(<Page />);
     // Awaria sieci ma dwa ponowienia, zanim ekran o niej powie.
-    expect(await screen.findByText("Nie udało się otworzyć strefy konsultanta", {}, { timeout: 8000 })).toBeTruthy();
-    expect(screen.queryByText("Strefa konsultanta nie jest jeszcze dostępna")).toBeNull();
+    expect(await screen.findByText("Nie udało się otworzyć panelu konsultanta", {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.queryByText("Panel konsultanta nie jest jeszcze dostępny")).toBeNull();
   });
 
   it("bez sesji prosi o link", async () => {
     vi.spyOn(portalApi, "status").mockResolvedValue({ open: true });
-    wrap(<ConsultantPortalPage />);
+    wrap(<Page />);
     expect(await screen.findByLabelText("Adres e-mail")).toBeTruthy();
   });
 
@@ -66,24 +77,24 @@ describe("strefa konsultanta", () => {
     savePortalSession("stary-token");
     vi.spyOn(portalApi, "status").mockResolvedValue({ open: true });
     vi.spyOn(portalApi, "me").mockRejectedValue(refuse(401, "Sesja wygasła."));
-    wrap(<ConsultantPortalPage />);
+    wrap(<Page />);
     expect(await screen.findByText("Sesja wygasła")).toBeTruthy();
     expect(screen.getByLabelText("Adres e-mail")).toBeTruthy();
     await waitFor(() => expect(window.sessionStorage.length).toBe(0));
   });
 
-  it("awaria spraw nie wygląda jak pusta lista", { timeout: 12_000 }, async () => {
+  it("z sesją pokazuje menu i ekran", async () => {
     savePortalSession("token");
     vi.spyOn(portalApi, "status").mockResolvedValue({ open: true });
     vi.spyOn(portalApi, "me").mockResolvedValue(ME);
+    wrap(<Page />);
+    expect(await screen.findByText("Treść ekranu")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Panel konsultanta" })).toBeTruthy();
+  });
+
+  it("awaria spraw nie wygląda jak pusta lista", { timeout: 12_000 }, async () => {
     vi.spyOn(portalApi, "cases").mockRejectedValue(refuse(500));
-    vi.spyOn(portalApi, "financeStatus").mockResolvedValue({
-      available: false,
-      message: "Faktury i raporty są chwilowo niedostępne.",
-      verified: false,
-      phone_hint: null,
-    });
-    wrap(<ConsultantPortalPage />);
+    wrap(<HelpScreen me={ME} />);
     expect(await screen.findByText("Nie udało się wczytać spraw. Odśwież stronę.", {}, { timeout: 8000 })).toBeTruthy();
     expect(screen.queryByText("Nie masz otwartych spraw.")).toBeNull();
   });
@@ -97,66 +108,104 @@ describe("strefa konsultanta", () => {
   });
 });
 
-describe("finanse w strefie konsultanta", () => {
+describe("ekrany panelu", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
   });
 
-  it("bez dostawcy SMS sekcja mówi, że jest niedostępna", async () => {
-    vi.spyOn(portalApi, "financeStatus").mockResolvedValue({
-      available: false,
-      message: "Faktury i raporty są chwilowo niedostępne.",
-      verified: false,
-      phone_hint: null,
-    });
-    const overview = vi.spyOn(portalApi, "financeOverview");
-    wrap(<FinanceSection supportEmail={null} />);
-    expect(await screen.findByText("Faktury i raporty są chwilowo niedostępne.")).toBeTruthy();
-    expect(overview).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: /Wyślij kod/ })).toBeNull();
+  it("menu pokazuje Sprzęt i Na start tylko z treścią", () => {
+    const labels = (menu: PortalMe["menu"]) => panelNavItems({ menu }).map((item) => item.label);
+    expect(labels({ start: false, equipment: false })).not.toContain("Sprzęt");
+    expect(labels({ start: false, equipment: false })).not.toContain("Na start");
+    expect(labels({ start: true, equipment: true })).toEqual(expect.arrayContaining(["Sprzęt", "Na start"]));
   });
 
-  it("przed kodem nie czyta dokumentów", async () => {
-    vi.spyOn(portalApi, "financeStatus").mockResolvedValue({
-      available: true,
-      message: null,
-      verified: false,
-      phone_hint: "••• 123",
-    });
-    const overview = vi.spyOn(portalApi, "financeOverview");
-    wrap(<FinanceSection supportEmail="wsparcie@example.com" />);
-    expect(await screen.findByRole("button", { name: "Wyślij kod SMS" })).toBeTruthy();
-    expect(overview).not.toHaveBeenCalled();
+  it("Start pokazuje stawkę i pustą listę dopiero po wczytaniu", async () => {
+    vi.spyOn(portalApi, "todo").mockResolvedValue({ items: [] });
+    vi.spyOn(portalApi, "meetings").mockResolvedValue({ items: [], note: "" });
+    wrap(<StartScreen me={ME} />);
+    expect(screen.getByText("160,00 zł/h netto")).toBeTruthy();
+    expect(await screen.findByText("Nic na Ciebie nie czeka.")).toBeTruthy();
   });
 
-  it("zły kod pokazuje komunikat serwera i czyści pole", async () => {
-    vi.spyOn(portalApi, "financeStatus").mockResolvedValue({
-      available: true,
-      message: null,
-      verified: false,
-      phone_hint: "••• 123",
-    });
-    vi.spyOn(portalApi, "sendCode").mockResolvedValue({ phone_hint: "••• 123" });
-    vi.spyOn(portalApi, "verifyCode").mockRejectedValue(
-      refuse(422, { message: "Ten kod nie pasuje albo wygasł.", code: "bad_code" }),
-    );
-    wrap(<FinanceSection supportEmail={null} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Wyślij kod SMS" }));
-    const input = await screen.findByLabelText("Kod SMS");
-    await userEvent.type(input, "123456");
-    await userEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
-    expect(await screen.findByText("Ten kod nie pasuje albo wygasł.")).toBeTruthy();
-    expect((input as HTMLInputElement).value).toBe("");
+  it("awaria listy Do zrobienia nie mówi, że nic nie czeka", { timeout: 12_000 }, async () => {
+    vi.spyOn(portalApi, "todo").mockRejectedValue(refuse(500));
+    vi.spyOn(portalApi, "meetings").mockResolvedValue({ items: [], note: "" });
+    wrap(<StartScreen me={ME} />);
+    expect(await screen.findByRole("alert", {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.queryByText("Nic na Ciebie nie czeka.")).toBeNull();
   });
 
-  it("po kodzie pokazuje krok miesiąca", async () => {
-    vi.spyOn(portalApi, "financeStatus").mockResolvedValue({
-      available: true,
-      message: null,
-      verified: true,
-      phone_hint: "••• 123",
+  it("bez szablonu nie zgaduje sposobu rozliczenia", async () => {
+    vi.spyOn(portalApi, "settlement").mockResolvedValue({
+      mode: null,
+      instructions: null,
+      buyer: { name: "B2B.net S.A.", nip: "0000000000", address: "Ulica 1" },
+      payment_days: 14,
     });
+    wrap(<SettlementScreen me={ME} />);
+    expect(await screen.findByText(/ustalają jeszcze Finanse/)).toBeTruthy();
+    expect(screen.queryByText("Raport od klienta")).toBeNull();
+  });
+
+  it("szablon klienta pokazuje kroki i dopisek Finansów", async () => {
+    vi.spyOn(portalApi, "settlement").mockResolvedValue({
+      mode: "client_report",
+      instructions: "Fakturę wystaw do 10.",
+      buyer: { name: "B2B.net S.A.", nip: "0000000000", address: "Ulica 1" },
+      payment_days: 14,
+    });
+    wrap(<SettlementScreen me={ME} />);
+    expect(await screen.findByText("Raport od klienta")).toBeTruthy();
+    expect(screen.getByText("Fakturę wystaw do 10.")).toBeTruthy();
+  });
+
+  it("potwierdzenie odbioru wysyła podpis i wraca do listy", async () => {
+    vi.spyOn(portalApi, "equipment").mockResolvedValue({
+      items: [],
+      protocols: [
+        {
+          id: 7,
+          number: "PZO/2026/11/1",
+          kind: "wydanie",
+          date: "2026-11-03",
+          status: "oczekuje",
+          label: "Czeka na Twoje potwierdzenie",
+          items: ["Laptop"],
+          can_confirm: true,
+        },
+      ],
+    });
+    const confirm = vi.spyOn(portalApi, "confirmProtocol").mockResolvedValue({ status: "podpisany" });
+    wrap(<EquipmentScreen me={ME} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Potwierdź odbiór" }));
+    await userEvent.type(screen.getByLabelText("Imię i nazwisko"), "Anna Przykładowa");
+    await userEvent.click(screen.getByRole("button", { name: "Potwierdzam odbiór" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(7, "Anna Przykładowa"));
+  });
+
+  it("formularz trenera wymaga tematu i doświadczenia", async () => {
+    vi.spyOn(portalApi, "trainer").mockResolvedValue({ application: null });
+    const save = vi.spyOn(portalApi, "saveTrainer");
+    wrap(<TrainerScreen />);
+    const send = await screen.findByRole("button", { name: /Wyślij zgłoszenie/ });
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "AWS" }));
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(screen.getByLabelText("Doświadczenie trenerskie"), "Pięć lat szkoleń");
+    expect((send as HTMLButtonElement).disabled).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+  });
+});
+
+describe("dokumenty w panelu", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("pokazuje krok miesiąca bez kodu SMS", async () => {
     vi.spyOn(portalApi, "financeOverview").mockResolvedValue({
       months: [
         {
@@ -170,8 +219,15 @@ describe("finanse w strefie konsultanta", () => {
         },
       ],
     });
-    wrap(<FinanceSection supportEmail={null} />);
+    wrap(<DocumentsSection />);
     expect(await screen.findByRole("button", { name: /Wyślij fakturę/ })).toBeTruthy();
     expect(screen.getByText(/Faktura: wystaw i wyślij/)).toBeTruthy();
+    expect(screen.queryByText(/kod/i)).toBeNull();
+  });
+
+  it("awaria nie wygląda jak pusta lista", { timeout: 12_000 }, async () => {
+    vi.spyOn(portalApi, "financeOverview").mockRejectedValue(refuse(500));
+    wrap(<DocumentsSection />);
+    expect(await screen.findByRole("alert", {}, { timeout: 8000 })).toBeTruthy();
   });
 });

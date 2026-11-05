@@ -183,6 +183,21 @@ describe("BreadcrumbV2 — ciasny pasek przy 1280 px (28.10.2026)", () => {
     expect(screen.getByText("Kandydaci").closest("[data-crumb]")).toHaveClass("shrink-0");
   });
 
+  // Zgłoszenie Testera z 03.11.2026: u rekrutera przy 1280 px zostawało „K.”.
+  // Pusty pierwszy element zajmuje widoczny wiersz, więc okruszek, który nie
+  // mieści się cały, spada do ukrytego, zamiast kurczyć się do jednej litery.
+  it("okruszek, który się nie mieści, chowa się cały: widoczny wiersz trzyma pusty element", async () => {
+    const nav = await navAt("/candidates/171672");
+    const guard = nav.firstElementChild as HTMLElement;
+    expect(guard).not.toHaveAttribute("data-crumb");
+    expect(guard).toHaveAttribute("aria-hidden", "true");
+    expect(guard).toHaveClass("w-0", "h-5");
+    const orders = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")].map((item) =>
+      Number(item.style.order),
+    );
+    expect(Number(guard.style.order)).toBeLessThan(Math.min(...orders));
+  });
+
   it("strzałka stoi za okruszkiem, więc po ukryciu początku ścieżka nie zaczyna się od „›”", async () => {
     const nav = await navAt("/candidates/171672");
     const items = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")];

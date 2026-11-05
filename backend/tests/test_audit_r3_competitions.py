@@ -138,21 +138,13 @@ async def test_live_league_podium_equals_freeze_with_tie_and_unqualified_leader(
     assert 1 not in {e["user_id"] for e in live["top3"]}
 
 
-async def test_live_monthly_podium_excludes_quarter_leader_and_hides_margin(
+async def test_live_monthly_podium_tie_goes_to_admin_and_hides_margin(
     monkeypatch,
 ) -> None:
-    """Wyścig placementów: lider kwartału wykluczony, marża/h nie wycieka."""
+    """Wyścig placementów: remis bez marży czeka na admina, marża/h nie wycieka."""
     ctype = CompetitionType.monthly_placements
     period = "2026-08"
-    ranked = _ranked([(1, 5, True), (2, 3, True), (3, 3, True), (4, 2, True)])
-    exclusion = competitions.RaceExclusion(
-        frozenset({1}), "live_quarter_to_month_end", "Q3 2026"
-    )
-    monkeypatch.setattr(
-        competitions,
-        "monthly_race_excluded_user_ids",
-        AsyncMock(return_value=exclusion),
-    )
+    ranked = _ranked([(2, 3, True), (3, 3, True), (4, 2, True)])
     # Marża niepoliczalna u obu remisujących → remis do admina.
     monkeypatch.setattr(
         competitions,
@@ -176,7 +168,7 @@ async def test_live_monthly_podium_excludes_quarter_leader_and_hides_margin(
         (3, 0, True),
         (4, 0, False),
     ]
-    assert live["excluded_user_ids"] == [1] == details["excluded_user_ids"]
+    assert live["excluded_user_ids"] == [] == details["excluded_user_ids"]
     assert winners and [(w.rank, w.user_id, w.prize_pln) for w in winners] == [
         (3, 4, 0)
     ]
@@ -185,29 +177,22 @@ async def test_live_monthly_podium_excludes_quarter_leader_and_hides_margin(
         assert "margin_placements" not in entry
 
 
-async def test_live_monthly_podium_pays_the_first_non_excluded(monkeypatch) -> None:
+async def test_live_monthly_podium_pays_the_quarter_leader(monkeypatch) -> None:
+    """Lider Ligi kwartału bierze nagrodę miesięczną jak każdy (05.11.2026)."""
     ctype = CompetitionType.monthly_placements
     ranked = _ranked([(1, 5, True), (2, 4, True), (3, 2, True)])
-    monkeypatch.setattr(
-        competitions,
-        "monthly_race_excluded_user_ids",
-        AsyncMock(
-            return_value=competitions.RaceExclusion(
-                frozenset({1}), "frozen_quarter", "Q3 2026"
-            )
-        ),
-    )
     monkeypatch.setattr(
         competitions, "compute_live", AsyncMock(return_value=deepcopy(ranked))
     )
     live = await competitions_api._compute_current(None, ctype, "2026-08")
     winners, _ = await _freeze_rows(monkeypatch, ctype, "2026-08", ranked)
 
-    assert live["top3"][0]["user_id"] == 2
+    assert live["top3"][0]["user_id"] == 1
     assert live["top3"][0]["prize_pln"] == competitions.MONTHLY_RACE_PRIZE_PLN
+    assert live["excluded_user_ids"] == []
     assert [(w.rank, w.user_id, w.prize_pln) for w in winners][0] == (
         1,
-        2,
+        1,
         competitions.MONTHLY_RACE_PRIZE_PLN,
     )
 

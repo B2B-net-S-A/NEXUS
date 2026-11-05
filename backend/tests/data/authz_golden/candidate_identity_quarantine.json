@@ -31,6 +31,7 @@
   "back_office"
  ],
  "routes": {
+  "GET /api/candidates/{candidate_id}/identity-quarantine": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"

@@ -220,10 +220,26 @@ def _is_empty_value(value) -> bool:
 # NOT NULL. ``/from-cv`` writes "Nieznane" when the LLM finds no name; the
 # Traffit importer writes "?" when the source record has neither name nor a
 # usable email; "Unknown" came as-is from Traffit's own name fields (78 profiles,
-# stamp in ``_nexus_identity``, 05.11.2026). All must be treated as blank so a
-# later CV parse can fill them.
+# stamp in ``_nexus_identity``, 05.11.2026); the "Not ..." forms are empty-field
+# text (``EMPTY_FIELD_NAME_PHRASES``), spelled as they are stored because the
+# selection in ``backfill_missing_names`` compares exact values. All must be
+# treated as blank so a later CV parse can fill them.
 _CV_PLACEHOLDER_NAME = "Nieznane"
-_CV_PLACEHOLDER_NAMES = frozenset({_CV_PLACEHOLDER_NAME, "?", "Unknown"})
+_CV_PLACEHOLDER_NAMES = frozenset(
+    {
+        _CV_PLACEHOLDER_NAME,
+        "?",
+        "Unknown",
+        "Not",
+        "Provided",
+        "Specified",
+        "Available",
+        "Not Provided",
+        "Not provided",
+        "Not Specified",
+        "Not Available",
+    }
+)
 
 
 def _is_blank_name(value) -> bool:
@@ -261,6 +277,21 @@ def _provenance_stamp(parsed: dict) -> dict:
     }
 
 
+def name_part_for_profile(parsed: dict, field: str) -> str:
+    """Imię albo nazwisko z odczytu CV, które wolno zapisać w profilu.
+
+    Część z reguły nagłówka (`_name_from_header`) nie nadaje nazwy: to pierwsza
+    linia z wielkich liter, bywa stanowiskiem albo firmą. Pomiar 05.11.2026: tam,
+    gdzie model zna nazwę, reguła podaje obcą w 23% plików, a gdzie model jej nie
+    znalazł, żadnej z 17 nazw nie potwierdził mail ani LinkedIn. Dopisek w imieniu
+    („Jan (CIPP/E)”) znika po cichu (D6, 13.10.2026); pole, które było samym
+    dopiskiem, zostaje puste.
+    """
+    if field in (parsed.get("_name_from_header") or ()):
+        return ""
+    return strip_name_markers(str(parsed.get(field) or "").strip())[0]
+
+
 def _apply_cv_contact_fields(
     candidate: Candidate, parsed: dict, existing_extracted: dict
 ) -> None:
@@ -278,13 +309,11 @@ def _apply_cv_contact_fields(
     def _locked(field: str) -> bool:
         return bool(existing_extracted.get(f"_manual_override_{field}"))
 
-    # Dopisek w imieniu odczytanym z CV („Jan (CIPP/E)”) znika po cichu
-    # (D6, 13.10.2026); pole, które było samym dopiskiem, zostaje puste.
-    first_name = strip_name_markers(str(parsed.get("first_name") or "").strip())[0]
+    first_name = name_part_for_profile(parsed, "first_name")
     if first_name and _is_blank_name(candidate.name) and not _locked("first_name"):
         candidate.name = first_name[:100]
 
-    last_name = strip_name_markers(str(parsed.get("last_name") or "").strip())[0]
+    last_name = name_part_for_profile(parsed, "last_name")
     if last_name and _is_blank_name(candidate.lastname) and not _locked("last_name"):
         candidate.lastname = last_name[:100]
 

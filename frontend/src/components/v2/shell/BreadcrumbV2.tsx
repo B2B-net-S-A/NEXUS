@@ -57,6 +57,13 @@ export const SEGMENT_LABELS: Record<string, string> = {
   konsultant: "Strefa konsultanta",
   wejscie: "Wejście",
   ocena: "Ocena rozmowy",
+  "na-start": "Na start",
+  rozliczenia: "Rozliczenia",
+  faktury: "Faktury",
+  rozmowy: "Rozmowy",
+  sprzet: "Sprzęt",
+  pomoc: "Pomoc",
+  trener: "Zostań trenerem",
   settings: "Ustawienia",
   templates: "Szablony email",
   admin: "Admin",
@@ -283,6 +290,14 @@ export interface BreadcrumbCrumb {
  * wysokość jednego wiersza, więc nadmiar spada do ukrytego wiersza.
  * `flex-row-reverse` z odwróconym `order` wypełnia wiersz od nazwy na końcu,
  * a DOM (i czytnik ekranu) zostaje w kolejności Dashboard → … → nazwa.
+ *
+ * Gdy nie mieści się nawet nazwa, ścieżka jest pusta (05.11.2026): przy 1280 px
+ * rekruter miał na nią 63 px i widział „K.” albo „Kandy…”, a nazwa ekranu i tak
+ * stoi w treści strony. Pusty element z `order: 0` zajmuje widoczny wiersz, więc
+ * okruszek szerszy od ścieżki spada do ukrytego, zamiast kurczyć się w widocznym.
+ * Margines w procentach daje zapas tylko przy układaniu wiersza (do szerokości
+ * treści się nie wlicza): grupa akcji ściska ścieżkę o ułamek piksela i sam
+ * „Dashboard” przy 77,016 px przy wymaganych 77,031 px spadał do ukrytego.
  */
 export function BreadcrumbTrail({
   crumbs,
@@ -299,14 +314,15 @@ export function BreadcrumbTrail({
         className,
       )}
     >
+      <span aria-hidden="true" className="h-5 w-0 -ml-[1%]" style={{ order: 0 }} />
       {crumbs.map((c, i) => {
         const isLast = i === crumbs.length - 1;
         return (
           // Stałe nazwy sekcji w środku ścieżki się nie kurczą (UAT M03-B09:
-          // „Dash… › Rekr… ›"); skraca się ostatni okruszek i nazwy encji.
-          // Nazwa ma sufit 11rem: dłuższa (pełna nazwa rekrutacji) wypchnęłaby
-          // sekcje do ukrytego wiersza także przy szerokim oknie. Przy 360 px
-          // okruszków to tyle, ile nazwa miała przed 28.10 obok dwóch sekcji.
+          // „Dash… › Rekr… ›"). Nazwa ma sufit 11rem i tylko ponad nim się
+          // skraca: dłuższa (pełna nazwa rekrutacji) wypchnęłaby sekcje do
+          // ukrytego wiersza także przy szerokim oknie. Przy 360 px okruszków
+          // to tyle, ile nazwa miała przed 28.10 obok dwóch sekcji.
           <div
             key={c.href}
             data-crumb

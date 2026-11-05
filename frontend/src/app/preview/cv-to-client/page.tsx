@@ -31,6 +31,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { consentRequestJobQuery } from "@/components/v2/recruitment/ConsentRequestButton";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api } from "@/lib/api";
 import type { CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
@@ -322,6 +323,8 @@ function seed(qc: QueryClient) {
     qc.setQueryData(candidateQueryKeys.cvDocuments(person.candidateId), [], FRESH);
     qc.setQueryData(["candidate-generated-cvs", person.candidateId], [], FRESH);
     qc.setQueryData(["central-cv-policy", null, person.stageId, false], {}, FRESH);
+    // Pasek o zgodzie czyta rekrutację z API; harness nie ma klienta z tym wymogiem.
+    qc.setQueryData(consentRequestJobQuery(JOB_ID).queryKey, { client_id: null }, FRESH);
 
     // Panel „Z czego powstało”: proces osoby, pliki CV, źródła dla AI, reguły klienta.
     for (const mode of ["polished", "tailored"]) {

@@ -5,19 +5,20 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Optional
 
 import pytest_asyncio
 from sqlalchemy import delete, update
 
 from app.core.database import AsyncSessionLocal
 from app.models.back_office import BoTeamMember
+from app.models.consultant_panel import CpActivation
 from app.models.consultant_portal import CpLink, CpMeeting
 from app.models.contract import ContractStatus, Contract
 from app.models.user import User, UserRole
 from app.services.care.announcement_mail import MailOutcome
 from app.services.consultant_portal import auth as portal_auth
-from app.services.consultant_portal import portal_mail, sms
+from app.services.consultant_portal import portal_mail
 from app.services.consultant_portal_schema import PORTAL_SETTING
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.care_announcements_seed import (
@@ -34,11 +35,8 @@ STAFF = "/api/back-office/portal"
 SESSION = "X-Portal-Session"
 
 
-async def set_portal(state: Optional[str], pilot: Iterable[int] = ()) -> None:
-    await _set_setting(
-        PORTAL_SETTING,
-        None if state is None else {"state": state, "pilot_contract_ids": list(pilot)},
-    )
+async def set_portal(state: Optional[str]) -> None:
+    await _set_setting(PORTAL_SETTING, None if state is None else {"state": state})
 
 
 @pytest_asyncio.fixture
@@ -69,21 +67,6 @@ async def portal_all(portal_restored):
 
 
 @dataclass
-class FakeSms:
-    available: bool = True
-    deliver: bool = True
-    sent: list[dict] = field(default_factory=list)
-
-    async def send(self, *, to: str, text: str) -> bool:
-        self.sent.append({"to": to, "text": text})
-        return self.deliver
-
-    @property
-    def last_code(self) -> str:
-        return self.sent[-1]["text"].split(": ")[1].split(".")[0]
-
-
-@dataclass
 class FakePortalMailer:
     sent: list[dict] = field(default_factory=list)
 
@@ -101,12 +84,6 @@ def install_mailer(monkeypatch) -> FakePortalMailer:
     return fake
 
 
-def install_sms(monkeypatch, **kwargs) -> FakeSms:
-    fake = FakeSms(**kwargs)
-    monkeypatch.setattr(sms, "_override", fake)
-    return fake
-
-
 @dataclass
 class Person:
     contract_id: int
@@ -121,6 +98,7 @@ async def make_person(
     email: Optional[str] = None,
     status: ContractStatus = ContractStatus.active,
     candidate_id: Optional[int] = None,
+    activated: bool = True,
 ) -> Person:
     address = email or f"konsultant-{tag()}@example.com"
     client_id = await make_client()
@@ -134,6 +112,8 @@ async def make_person(
         await db.execute(
             update(Contract).where(Contract.id == contract_id).values(**values)
         )
+        if activated:
+            db.add(CpActivation(contract_id=contract_id, email=address))
         await db.commit()
     return Person(
         contract_id=contract_id,
@@ -168,17 +148,6 @@ async def session_headers(client, person: Person) -> dict[str, str]:
     response = await client.post(f"{BASE}/session", json={"token": raw})
     assert response.status_code == 200, response.text
     return {SESSION: response.json()["session_token"]}
-
-
-async def finance_headers(client, person: Person, fake_sms: FakeSms) -> dict[str, str]:
-    headers = await session_headers(client, person)
-    response = await client.post(f"{BASE}/finance/sms", headers=headers)
-    assert response.status_code == 200, response.text
-    response = await client.post(
-        f"{BASE}/finance/verify", headers=headers, json={"code": fake_sms.last_code}
-    )
-    assert response.status_code == 200, response.text
-    return headers
 
 
 async def make_member(team: str, *, name: str = "Julia") -> User:

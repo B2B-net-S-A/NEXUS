@@ -40,4 +40,7 @@ SET revoked_at = COALESCE(revoked_at, now()),
 DELETE FROM password_reset_tokens;
 DELETE FROM email_verification_tokens;
 
+-- PESEL z dokumentów do startu: zwykłe pole na produkcji, na laptopie niepotrzebne.
+UPDATE placement_start_documents SET pesel = NULL WHERE pesel IS NOT NULL;
+
 COMMIT;

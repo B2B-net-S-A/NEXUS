@@ -33,6 +33,7 @@ def _no_document_db(*, legacy_quarantined: bool) -> AsyncMock:
     db = AsyncMock()
     db.scalars.return_value = Mock(first=Mock(return_value=None))
     db.scalar.return_value = legacy_quarantined
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     return db
 
 
@@ -67,6 +68,7 @@ async def test_generator_default_source_follows_the_same_rule():
     db.get.return_value = NS(id=2, name="A", lastname="B")
     db.scalars.return_value = Mock(first=Mock(return_value=None))
     db.scalar.return_value = None
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     with pytest.raises(svc.StandaloneGenerationError):
         await svc.load_candidate_generation_source(db, candidate_id=2, stage_id=None)
     sql = _sql(db.scalars.call_args_list[0].args[0])

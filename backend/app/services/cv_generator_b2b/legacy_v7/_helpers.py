@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from typing import Any
 
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
@@ -452,6 +453,123 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
             + point[match.end() :]
         )
         break
+
+
+# Standard „Dlaczego nasz kandydat” (05.11.2026): 5 punktów, punkt 1 to lata.
+WHY_POINTS_STANDARD = 5
+_BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECASE)
+
+
+# Punkt, który ocenia dopasowanie zamiast podawać fakt. Podmiot musi być kandydatem
+# albo jego profilem: „Meeting SLA requirements” i „zgodnie z wymaganiami klientów”
+# w opisie zadania to fakty (1415 CV: 1 prawdziwe trafienie, reszta szerszego wzorca to fakty).
+_FIT_VERDICT_RE = re.compile(
+    r"^\W*(?:(?:core|key|main)\s+)?(?:kandydat\w*|profil\w*|kompetencj\w*|umiejętnoś\w*|"
+    r"doświadczeni\w*|candidate\w*|profile|skills?|competenc\w*|experience)\b.{0,25}?"
+    r"(?:spełnia\w*|odpowiada(?:ją)?\b|pasuj\w*|zgodn\w*|dopasowan\w*|"
+    r"meets?\b|fulfil\w*|match(?:es)?\b|fits?\b|aligned\b).{0,25}?"
+    r"(?:wymaga\w*|oczekiwa\w*|profil\w*|rol\w*|stanowisk\w*|"
+    r"requirements?|expectations|role|position)",
+    re.IGNORECASE,
+)
+
+
+def _apply_summary_standard(
+    candidate_data: dict[str, Any], language: str, client_rule: Any = None
+) -> list[str]:
+    """Domknij w kodzie to, czego prompt nie gwarantuje; zwróć uwagi dla rekrutera.
+
+    Punktów ponad standard ubywa przed ostatnim, bo u Nordei ostatni mówi
+    o Scrumie/Agile. Mniej punktów zostaje z uwagą (bez wypełniacza, 13.10.2026).
+    Lata w punkcie 1 nie mogą przekroczyć sumy dat wszystkich ról: test 05.11
+    dał „Over 14 years” przy 13,2 roku, a `_fix_experience_years` nie rusza
+    stażu w roli, której nazwy nie dopasuje. Niższa liczba może być prawdziwa
+    (staż na stanowisku), więc zostaje.
+    """
+    points = candidate_data.get("why_points") or []
+    notes: list[str] = []
+    verdicts = [p for p in points if isinstance(p, str) and _FIT_VERDICT_RE.search(p)]
+    if verdicts:
+        points = [p for p in points if p not in verdicts]
+        candidate_data["why_points"] = points
+        notes.append(
+            f"WERYFIKUJ: usunięto z podsumowania ocenę dopasowania: „{verdicts[0]}”."
+        )
+    if len(points) > WHY_POINTS_STANDARD:
+        points = points[: WHY_POINTS_STANDARD - 1] + points[-1:]
+        candidate_data["why_points"] = points
+        notes.append(
+            f"WERYFIKUJ: podsumowanie skrócono do {WHY_POINTS_STANDARD} punktów."
+        )
+    limit = getattr(client_rule, "why_points_max", None)
+    if len(points) < min(WHY_POINTS_STANDARD, limit or WHY_POINTS_STANDARD):
+        notes.append(
+            f"WERYFIKUJ: podsumowanie ma {len(points)} z {WHY_POINTS_STANDARD} punktów, "
+            "bo źródła nie dały faktów na więcej. Dopisz punkt, jeśli znasz je z rozmowy."
+        )
+    if not points or not isinstance(points[0], str):
+        return notes
+    # Model zgłaszał pominięcie instrukcji Nordei w 2 z 8 biegów, więc mówi to kod.
+    policy = getattr(client_rule, "managed_policy", None) or {}
+    terms = policy.get("summary_last_point_terms") or ()
+    if terms and not any(term in str(points[-1]).casefold() for term in terms):
+        notes.append(
+            "WERYFIKUJ: ostatni punkt podsumowania nie opisuje pracy w Scrumie/Agile, "
+            "bo źródła tego nie potwierdzają. Dopytaj kandydata."
+        )
+    first = points[0]
+    match = _YEARS_PHRASE_RE.search(_SUBFIGURE_SPLIT_RE.split(first, maxsplit=1)[0])
+    figure = _tenure_figure(match) if match else None
+    if figure is None or first[: match.start()].strip():
+        notes.append(
+            "WERYFIKUJ: pierwszy punkt podsumowania nie podaje lat doświadczenia."
+        )
+        return notes
+    experience = [
+        job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
+    ]
+    total = _total_experience_months(experience)
+    claimed = figure * 12 - (6 if _BELOW_FIGURE_RE.match(match.group(0).strip()) else 0)
+    if total and total >= MIN_TENURE_MONTHS and claimed > total:
+        points[0] = _tenure_text(total, language, at_start=True) + first[match.end() :]
+        notes.append(
+            f"WERYFIKUJ: w pierwszym punkcie poprawiono lata do sumy dat ról: „{points[0]}”."
+        )
+    return notes
+
+
+def _must_have_bullets_first(
+    candidate_data: dict[str, Any], must_have: Sequence[str]
+) -> None:
+    """W każdej roli ustaw punkty z must-have na górze, od najważniejszego wymagania.
+
+    Robi to kod, bo prośba w prompcie (05.11.2026, 12 osób, po 2 biegi na Solu)
+    podniosła udział ról z must-have na górze tylko z 66% do 73%, a uwagi kontroli
+    w doświadczeniu z 34 do 52: model przepisywał punkty, zamiast je przestawić.
+    Tu zmienia się wyłącznie kolejność, a limit punktów klienta tnie już po niej.
+    """
+    from app.services.dz_review import Requirement, found_in, requirement_terms
+
+    requirements = [
+        Requirement(label=name, alternatives=(name,), terms=requirement_terms((name,)))
+        for name in must_have
+        if name
+    ]
+    if not requirements:
+        return
+
+    def rank(point: Any) -> int:
+        if not isinstance(point, str):
+            return len(requirements)
+        return next(
+            (i for i, req in enumerate(requirements) if found_in(point, req)),
+            len(requirements),
+        )
+
+    for role in candidate_data.get("experience") or []:
+        points = role.get("responsibilities") if isinstance(role, dict) else None
+        if isinstance(points, list):
+            role["responsibilities"] = sorted(points, key=rank)
 
 
 # Lata przypięte WPROST do roli albo firmy: „6 lat jako Backend Developer",

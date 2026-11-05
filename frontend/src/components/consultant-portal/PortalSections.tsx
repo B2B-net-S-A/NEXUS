@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, ChevronRight, Mail, Search, Video } from "lucide-react";
+import { ChevronRight, Search, Video } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { Badge } from "@/components/ui/badge";
@@ -20,9 +20,6 @@ import {
   type PortalRatingInput,
 } from "@/lib/api/consultant-portal";
 
-import { BookingDialog } from "./BookingDialog";
-import { FinanceSection } from "./FinanceSection";
-import { NewCaseDialog } from "./NewCaseDialog";
 import { formatDay, groupFaq, slotLabel } from "./portal-model";
 import { RatingFields } from "./RatingFields";
 
@@ -33,7 +30,7 @@ const WAITING_TONE: Record<PortalCase["waiting"]["who"], "warning" | "info" | "n
   done: "success",
 };
 
-function FaqSection({ me }: { me: PortalMe }) {
+export function FaqSection({ me }: { me: PortalMe }) {
   const [query, setQuery] = useState("");
   const faq = usePortalQuery(portalKeys.faq, portalApi.faq);
   const groups = faq.isSuccess ? groupFaq(faq.data.items, me.topics, query) : [];
@@ -84,7 +81,7 @@ function FaqSection({ me }: { me: PortalMe }) {
   );
 }
 
-function CasesSection() {
+export function CasesSection() {
   const cases = usePortalQuery(portalKeys.cases, portalApi.cases);
   return (
     <section className="rounded-xl border bg-card p-4">
@@ -147,7 +144,7 @@ function RateDialog({ meeting, onClose }: { meeting: PortalMeeting; onClose: () 
   );
 }
 
-function MeetingsSection({ data, isError, error }: { data?: PortalMeeting[]; isError: boolean; error: unknown }) {
+export function MeetingsSection({ data, isError, error }: { data?: PortalMeeting[]; isError: boolean; error: unknown }) {
   const client = useQueryClient();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [rating, setRating] = useState<PortalMeeting | null>(null);
@@ -225,58 +222,5 @@ function MeetingsSection({ data, isError, error }: { data?: PortalMeeting[]; isE
       {rating ? <RateDialog meeting={rating} onClose={() => setRating(null)} /> : null}
       {confirmDialog}
     </section>
-  );
-}
-
-export function PortalHome({ me }: { me: PortalMe }) {
-  const [dialog, setDialog] = useState<"booking" | "case" | null>(null);
-  const meetings = usePortalQuery(portalKeys.meetings, portalApi.meetings);
-  return (
-    <>
-      <section>
-        <h1 className="text-2xl font-semibold">{me.first_name ? `Cześć, ${me.first_name}` : "Cześć"}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {[
-            me.client,
-            me.since ? `z nami od ${formatDay(me.since)}` : null,
-            me.until ? `umowa do ${formatDay(me.until)}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-      </section>
-      <FaqSection me={me} />
-      <section>
-        <h2 className="mb-2 text-sm font-semibold">Porozmawiaj z nami</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-primary bg-card p-4 ring-1 ring-primary">
-            <CalendarClock aria-hidden className="size-5 text-primary" />
-            <p className="mt-2 font-medium">Umów rozmowę</p>
-            <p className="text-xs text-muted-foreground">Wybierasz osobę i godzinę, rozmowa w Teams, 20 min.</p>
-            <Button size="sm" className="mt-3 w-full" onClick={() => setDialog("booking")}>
-              Wybierz termin
-            </Button>
-          </div>
-          <div className="rounded-xl border bg-card p-4">
-            <Mail aria-hidden className="size-5 text-primary" />
-            <p className="mt-2 font-medium">Napisz</p>
-            {me.support_email ? <p className="break-all text-sm font-semibold">{me.support_email}</p> : null}
-            <p className="text-xs text-muted-foreground">
-              Jeden adres do wszystkiego: faktury, umowa, sprzęt. Sami przekażemy sprawę właściwej osobie.
-            </p>
-            <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => setDialog("case")}>
-              Nowe zgłoszenie
-            </Button>
-          </div>
-        </div>
-      </section>
-      <FinanceSection supportEmail={me.support_email} />
-      <CasesSection />
-      <MeetingsSection data={meetings.data?.items} isError={meetings.isError} error={meetings.error} />
-      {dialog === "booking" ? (
-        <BookingDialog me={me} note={meetings.data?.note ?? null} onClose={() => setDialog(null)} />
-      ) : null}
-      {dialog === "case" ? <NewCaseDialog me={me} onClose={() => setDialog(null)} /> : null}
-    </>
   );
 }

@@ -42,11 +42,17 @@ Cztery decyzje, które trzymają ten moduł uczciwym:
    w kopercie jako `outside_pool_placements`.
 
 4. **Placement = D2**, czyli PIERWSZE `hired` dla pary (kandydat, oferta).
-   Bierzemy je z widoku `analytics_first_milestones`, który deduplikuje
-   `ROW_NUMBER() OVER (PARTITION BY candidate_id, job_id, stage ORDER BY
-   moved_at, id)` (migracja 0184), więc dwa wiersze `hired` dla tej samej
-   pary — a import Traffita dopisuje wiersz na każde zdarzenie — liczą się
-   raz. NIGDY nie liczymy surowych wierszy `candidate_stages`.
+   Dwa wiersze `hired` tej samej pary — a import Traffita dopisuje wiersz na
+   każde zdarzenie — liczą się raz. NIGDY nie liczymy surowych wierszy
+   `candidate_stages`.
+
+5. **Placement należy do tej samej osoby co w Insights → Zespół → Ludzie:**
+   `credit_user` z `credited` (pierwsza weryfikacja pary, „Prowadzi”; dni do
+   11.10.2026 z wpisów DynaReportera). Do 05.11.2026 Ścieżka szła za
+   `first_moved_by`, czyli za tym, kto kliknął „Zatrudniony”. Od 12.10.2026
+   klikają głównie Finanse i Delivery Leadzi, spoza puli, więc na kopii
+   produkcji 16 z 22 placementów trafiało do innej osoby, a dwóm rekruterom
+   brakowało awansu na seniora.
 """
 
 import logging
@@ -56,6 +62,7 @@ from datetime import date
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.insights_scoring_config import get_scoring_config
 
 logger = logging.getLogger(__name__)
@@ -456,20 +463,24 @@ _POPULATION_SQL = """
       AND u.is_active IS TRUE
 """
 
-# Placementy per (osoba, miesiąc). Bez JOIN-a do `users` — potrzebujemy też
-# wierszy przypisanych do kont SPOZA puli, żeby móc je policzyć w kopercie
-# zamiast po cichu zgubić.
-_PLACEMENTS_SQL = """
-    SELECT fm.first_moved_by AS user_id,
+# Placementy per (osoba, miesiąc), atrybucja jak w tabeli Zespół (punkt 5
+# docstringa modułu). Bez JOIN-a do `users` — potrzebujemy też wierszy
+# przypisanych do kont SPOZA puli, żeby móc je policzyć w kopercie zamiast
+# po cichu zgubić.
+_PLACEMENTS_SQL = (
+    CREDITED_FROM_SNAPSHOT_CTE
+    + """
+    SELECT c.credit_user AS user_id,
            date_trunc(
-               'month', fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
+               'month', c.reached_at AT TIME ZONE 'Europe/Warsaw'
            )::date AS month,
            count(*) AS cnt
-    FROM analytics_kpi_milestones fm
-    WHERE fm.stage = 'hired'
-      AND (fm.first_reached_at AT TIME ZONE 'Europe/Warsaw')::date <= :as_of
+    FROM credited c
+    WHERE c.stage = 'hired'
+      AND (c.reached_at AT TIME ZONE 'Europe/Warsaw')::date <= :as_of
     GROUP BY 1, 2
 """
+)
 
 
 async def compute_seniority(
@@ -489,7 +500,14 @@ async def compute_seniority(
     pool = {int(r["user_id"]): (r["name"], str(r["role"] or "")) for r in population}
 
     placement_rows = (
-        (await db.execute(text(_PLACEMENTS_SQL), {"as_of": as_of})).mappings().all()
+        (
+            await db.execute(
+                text(_PLACEMENTS_SQL),
+                {"as_of": as_of, **await credited_bind(db, stage="hired")},
+            )
+        )
+        .mappings()
+        .all()
     )
 
     per_user: dict[int, dict[int, int]] = {}
@@ -499,14 +517,14 @@ async def compute_seniority(
         cnt = int(row["cnt"])
         raw_user = row["user_id"]
         if raw_user is None:
-            # Operator z importu bez odpowiednika w NEXUSIE. NIE wolno go
-            # wyciąć po cichu — bez tej liczby suma tabeli nie zgadza się
+            # Placement bez osoby (Rada przed 2026, operator z importu bez
+            # odpowiednika w NEXUSIE). NIE wolno go wyciąć po cichu — bez tej liczby suma tabeli nie zgadza się
             # z lejkiem i tabela czyta się jak błąd, a nie jak niekompletność.
             unattributed += cnt
             continue
         user_id = int(raw_user)
         if user_id not in pool:
-            # Inna rola albo konto-widmo (`is_active=false`) z importu.
+            # Inna rola albo konto nieaktywne, także konto-widmo z importu.
             outside_pool += cnt
             continue
         per_user.setdefault(user_id, {})[_month_index(row["month"])] = cnt

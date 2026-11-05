@@ -27,7 +27,6 @@ import {
   closeConflict,
   payrollPaths,
   useApproveBonus,
-  useCancelBonus,
   useCloseMonth,
   usePayrollMonth,
   type BonusRow,
@@ -41,7 +40,6 @@ import {
 } from "@/lib/api/hr-time";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
-import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl, shiftMonth } from "@/lib/date-pl";
 import { capitalize } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
@@ -66,6 +64,7 @@ import {
   ymSegment,
 } from "./payroll-format";
 import { MONTH_VIEW, PAYROLL_MONTH_TABS, payrollMonthTabs } from "./payroll-month-tabs";
+import { useCancelBonusRow } from "./useCancelBonusRow";
 
 /**
  * „Ludzie → Płace → miesiąc”: osoby, premie do decyzji, eksport i zamknięcie.
@@ -84,10 +83,10 @@ export function PayrollMonthScreen({
   const detail = usePayrollMonth(year, month);
   const close = useCloseMonth(year, month);
   const approve = useApproveBonus();
-  const cancel = useCancelBonus();
   const me = useAuthStore((state) => state.user);
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const cancelRow = useCancelBonusRow(askConfirm);
   const [bonusOpen, setBonusOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [deleting, setDeleting] = useState<BonusRow | null>(null);
@@ -182,31 +181,6 @@ export function PayrollMonthScreen({
       onSuccess: () => showToast("Premia zatwierdzona", "success"),
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zatwierdzić."), "error"),
     });
-
-  const cancelRow = async (row: BonusRow) => {
-    const proposal = row.status === "proposed";
-    const ok = await askConfirm({
-      title: proposal ? "Odrzucić propozycję premii?" : "Anulować premię?",
-      description: `${row.recipient_name ?? "Osoba"} · ${formatMoney(row.amount, row.currency)}. ${
-        proposal
-          ? row.source === "manual"
-            ? "Propozycja zniknie z decyzji Rozliczeń."
-            : "Automat nie zaproponuje jej ponownie."
-          : "Osoba dostanie powiadomienie o anulowaniu (bez kwoty)."
-      }`,
-      confirmLabel: proposal ? "Odrzuć" : "Anuluj premię",
-      cancelLabel: "Zostaw",
-      variant: "destructive",
-    });
-    if (!ok) return;
-    cancel.mutate(
-      { id: row.id },
-      {
-        onSuccess: () => showToast(proposal ? "Propozycja odrzucona" : "Premia anulowana", "success"),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
-      },
-    );
-  };
 
   if (state === "loading") {
     return <p className="p-6 text-sm text-muted-foreground">Wczytywanie miesiąca…</p>;

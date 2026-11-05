@@ -837,7 +837,7 @@ async def set_original_cv_from_document(
         client_filename_pattern,
         looks_like_client_cv,
     )
-    from app.services.cv_source import CurrentCV, current_cv_filters
+    from app.services.cv_source import CurrentCV, current_cv_filters_for
     from app.services.new_cv_company_cv import plan_after_new_cv
 
     csv_row = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
@@ -879,7 +879,8 @@ async def set_original_cv_from_document(
         )
     eligible = await db.scalar(
         select(CandidateDocument.id).where(
-            CandidateDocument.id == document.id, *current_cv_filters()
+            CandidateDocument.id == document.id,
+            *await current_cv_filters_for(db, candidate.id),
         )
     )
     if eligible is None:

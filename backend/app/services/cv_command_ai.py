@@ -228,9 +228,9 @@ PRESETS = {
     # NEXUSEM. Operacji nie nakłada się od razu; rekruter wybiera je z listy.
     TAILOR_PRESET: (
         "Dopasuj CV pod wymagania klienta tak, jak robi to rekruter przed wysyłką. "
-        "Zaproponuj do 7 najważniejszych zmian, tylko typu replace albo add: punkt "
-        "„Dlaczego nasz kandydat” jako jedno pełne zdanie do 30 słów pod konkretne "
-        "wymaganie, wymaganie nazwane w punkcie roli, której dotyczy, fakt z "
+        "Zaproponuj do 7 najważniejszych zmian, tylko typu replace albo add: punkt 3, 4 "
+        "albo 5 „Dlaczego nasz kandydat” jako jedno pełne zdanie do 30 słów pod konkretne "
+        "wymaganie (punkty 1 i 2, czyli lata i specjalizacja, zostają), wymaganie nazwane w punkcie roli, której dotyczy, fakt z "
         "oryginalnego CV pominięty w tym CV, konkret z odpowiedzi kandydata. Do każdej "
         "operacji dodaj pole cytat: fragment przepisany znak po znaku z "
         "candidate_material, który potwierdza tę zmianę. Bez cytatu nie proponuj. "

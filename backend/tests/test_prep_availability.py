@@ -316,6 +316,8 @@ async def test_suggestions_for_prep1_avoid_an_already_scheduled_prep2(monkeypatc
         interview_start=interview,
         candidate_from=None,
         candidate_to=None,
+        prep1_minutes=45,
+        prep2_minutes=45,
         db=_Db(),
     )
     prep1 = next(p for p in out.preps if p.prep_no == 1)

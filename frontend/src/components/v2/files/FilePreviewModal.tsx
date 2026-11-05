@@ -55,6 +55,7 @@ import {
   type DocumentTextAvailability,
 } from "./DocumentSearchBar";
 import { preloadPdfJs } from "@/lib/pdfjs-loader";
+import type { PdfFitMode } from "./PdfDocumentViewer";
 import { SearchablePdfPreview, useDebouncedValue } from "./SearchablePdfPreview";
 
 /**
@@ -224,8 +225,9 @@ export function FilePreviewContent({
   // powtórzyć to samo słowo po ręcznej zmianie pola.
   searchRequest?: DocumentSearchRequest | null;
   // Duża strefa podglądu w panelu osoby podaje `"auto"`: strona PDF rośnie
-  // najwyżej do 125%, zamiast wypełniać 1400 px szerokości.
-  pdfFit?: "page-width" | "auto";
+  // najwyżej do 125%, zamiast wypełniać 1400 px szerokości. Okno podglądu
+  // podaje `"actual"`: start od 100%.
+  pdfFit?: PdfFitMode;
 }) {
   const recruiterOnly = useRecruiterOnly();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -701,6 +703,7 @@ export function FilePreviewModal({
           className="flex-1 min-h-0"
           findShortcutScope="dialog"
           loadDocumentBlob={loadDocumentBlob}
+          pdfFit="actual"
         />
       </DialogContent>
     </Dialog>

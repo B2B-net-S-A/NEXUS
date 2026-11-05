@@ -243,7 +243,7 @@ async def _has_candidate_cv(db: AsyncSession, candidate_id: int) -> bool:
     from app.services.cv_generator_b2b.standalone_service import (
         _supported_cv_doc_filter,
     )
-    from app.services.cv_source import client_cv_file_clause, current_cv_filters
+    from app.services.cv_source import client_cv_file_clause, current_cv_filters_for
 
     return bool(
         await db.scalar(
@@ -253,7 +253,7 @@ async def _has_candidate_cv(db: AsyncSession, candidate_id: int) -> bool:
                 CandidateDocument.document_kind == CandidateDocumentKind.cv,
                 not_(client_cv_file_clause()),
                 _supported_cv_doc_filter(),
-                *current_cv_filters(),
+                *await current_cv_filters_for(db, candidate_id),
             )
             .limit(1)
         )
@@ -274,8 +274,12 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
     from app.services.cv_generator_b2b.standalone_service import (
         _supported_cv_doc_filter,
     )
-    from app.services.cv_source import current_cv_ordering
+    from app.services.cv_source import (
+        current_cv_ordering,
+        quarantined_copy_document_ids,
+    )
 
+    copies = await quarantined_copy_document_ids(db, stage.candidate_id)
     eligible = source_is_eligible_clause(
         candidate_id_column=CandidateDocument.candidate_id,
         source_id_column=CandidateDocument.id,
@@ -326,7 +330,7 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
                 filename=filename,
                 uploaded_at=uploaded_at,
                 is_primary=bool(primary),
-                outdated=bool(outdated) or not bool(ok),
+                outdated=bool(outdated) or not bool(ok) or doc_id in copies,
                 stage_original=is_original,
             )
         )

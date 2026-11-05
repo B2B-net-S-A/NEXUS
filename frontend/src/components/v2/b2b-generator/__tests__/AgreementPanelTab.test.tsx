@@ -19,6 +19,9 @@ vi.mock("@/lib/api", () => ({
     downloadGenerated: vi.fn(),
   },
 }));
+vi.mock("@/components/v2/start-docs/StartDocsCard", () => ({
+  StartDocsCard: () => null,
+}));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }),
 }));
