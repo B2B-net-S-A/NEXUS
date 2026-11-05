@@ -151,14 +151,12 @@ function RecruiterMonthView() {
   const raceRanking = placementsRace?.ranking ?? [];
   const myRaceEntry = raceRanking.find((e) => e.user_id === meId) ?? null;
   // Pierwsza pozycja listy to NIE kolejność nagrodowa: przy remisie na 1.
-  // miejscu lidera wskaże admin, a lider kwartału jest wykluczony z nagrody.
-  // Nie ogłaszamy wtedy nikogo „prowadzącym” (audyt 24.09.2026).
+  // miejscu lidera wskaże admin. Nie ogłaszamy wtedy nikogo „prowadzącym”
+  // (audyt 24.09.2026).
   const raceLeaderTie = (placementsRace?.leader_tie_user_ids ?? []).length > 0;
   const leader = raceLeaderTie
     ? null
-    : (placementsRace?.qualified_leader ??
-      raceRanking.find((e) => !e.excluded) ??
-      null);
+    : (placementsRace?.qualified_leader ?? raceRanking[0] ?? null);
 
   // Średnia zespołu TĄ SAMĄ atrybucją co moja liczba (kredyt pierwszego
   // weryfikatora, jak `/api/kpis/me/panel`). Wiersze tabeli liczą „kto
@@ -250,7 +248,6 @@ function RecruiterMonthView() {
             placementsRace?.qualified_leader?.user_id === meId &&
             meId !== null,
           raceLeaderTie,
-          raceExcluded: myRaceEntry?.excluded ?? false,
           leaderPlacements: leader?.metric_value ?? null,
           leaderName: leader && leader.user_id !== meId ? leader.name : null,
           verificationsToday: panel.weryfikacje.day,
@@ -317,11 +314,6 @@ function RecruiterMonthView() {
                     </span>
                     <span className="truncate text-foreground">
                       {entry.user_id === meId ? "Ty" : entry.name}
-                      {entry.excluded ? (
-                        <span className="ml-1 text-xs font-normal text-muted-foreground">
-                          (lider kwartału, bez nagrody)
-                        </span>
-                      ) : null}
                     </span>
                     <span className="text-right font-semibold tabular-nums">
                       {entry.metric_value}

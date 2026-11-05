@@ -237,13 +237,14 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
 - **Wypłata konkursów = `award_order` + zamknięcie okresu (0344, decyzje
   Artura 22.09.2026).** Ekran (`compose_monthly_races`) i `freeze_competition`
   biorą kolejność nagród z JEDNEJ funkcji `award_order`: kwalifikacja →
-  wykluczenie lidera kwartału, do którego należy DANY miesiąc
-  (`monthly_race_excluded_user_ids`: zamrożony zwycięzca kwartału → remis
-  w kwartale czekający na admina, wykluczeni wszyscy remisujący → ranking od
-  początku kwartału do końca tego miesiąca) → remisy
-  (`services/competition_rules.py`). Do 22.09 zamrożenie pomijało wykluczenie
-  i lider Q2 dostał też nagrody miesięczne za maj i czerwiec — te okresy
-  zostały świadomie bez korekty. Remisy: wyścig placementów rozstrzyga suma
+  remisy (`services/competition_rules.py`). **Lider Ligi kwartału bierze
+  nagrodę miesięczną jak każdy (decyzja Artura 05.11.2026)** — wyścigi nie
+  zależą od Ligi. Do 05.11.2026 lider kwartału, do którego należał dany
+  miesiąc, był z wyścigów miesięcznych wykluczony; okresy zamrożone z tą
+  zasadą zostają, jak je wypłacono (`excluded_user_ids` w zamrożeniu, na
+  ekranie plakietka „zasada do 05.11.2026” i dopisek w warunkach). Nie
+  przywracaj wykluczenia w `award_order` ani `compose_monthly_races`.
+  Remisy: wyścig placementów rozstrzyga suma
   marży/h (`fold_money`, stawki z dnia placementu), brak marży albo równość
   co do grosza → admin; wyścig rekomendacji — precyzja, potem wcześniejsza
   ostatnia rekomendacja, bez admina; Liga i liga DL do Q3 2026 — każdy remis

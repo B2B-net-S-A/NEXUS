@@ -36,6 +36,13 @@ from app.services.hr.recipients import (
 )
 
 
+def left_company(subject: EmployeeProfile) -> bool:
+    """Osoba po odejściu sama nie wyśle raportu: konto jest wyłączone
+    (``deactivation.py``), więc szkic domyka akceptujący."""
+
+    return subject.employment_status == "exited"
+
+
 @dataclass(frozen=True)
 class Actor:
     user: User

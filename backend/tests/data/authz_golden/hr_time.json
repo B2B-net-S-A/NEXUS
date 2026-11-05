@@ -62,6 +62,7 @@
   "POST /api/hr/time/role-defaults": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/team/{user_id}/{year}/{month}/entries": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/timesheets/{timesheet_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/time/timesheets/{timesheet_id}/confirm-for-person": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/timesheets/{timesheet_id}/return": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/time/timesheets/{timesheet_id}/revoke": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/time/me/attendance/{day}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB"

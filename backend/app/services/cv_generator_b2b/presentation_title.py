@@ -12,7 +12,7 @@ def instructions(language: str) -> str:
     target = "English (en)" if language == "en" else "Polish (pl)"
     return (
         "\nCentral CV standard: preserve all employment history, facts and seniority. "
-        "Use at most four evidence-backed summary points, fewer if warranted; never pad. "
+        "Use five evidence-backed summary points; fewer only when the sources lack facts; never pad. "
         f"The output document language is {target}. Extend the output JSON object with "
         "the REQUIRED string field presentation_position. Copy the provided presentation "
         "role into it EXACTLY as given — do not translate it, do not rephrase it, do not "
