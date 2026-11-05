@@ -4260,11 +4260,14 @@ async def build_kanban_view(
                 payload["taken_by_user_id"] = claim.user_id
                 payload["taken_by_name"] = user_name_by_id.get(claim.user_id)
             if viewer is not None:
-                payload["can_take"] = candidate_claim.can_take(
-                    v4, viewer, board_now, inactive_claimers
+                payload["can_take"] = (
+                    job.status != JobStatus.closed
+                    and candidate_claim.can_take(
+                        v4, viewer, board_now, inactive_claimers
+                    )
                 )
         elif viewer is not None:
-            payload["can_take"] = True
+            payload["can_take"] = job.status != JobStatus.closed
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
@@ -5147,6 +5150,13 @@ async def claim_candidate(
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     await ensure_job_membership(db, current_user, job.id)
+    # Tester 05.11.2026: blokada 12 h w zamkniętej rekrutacji nikomu nie służy,
+    # a „Biorę” przepisywało kartę i dzwoniło do poprzedniego rekrutera.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=409,
+            detail="Rekrutacja jest zamknięta — nie można wziąć tej osoby.",
+        )
 
     # Ta sama kolejność blokad co `/move`: kandydat, potem proces.
     locked = await db.scalar(
