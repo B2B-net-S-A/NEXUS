@@ -220,8 +220,9 @@ def compose(
     if portal_url:
         lines += [
             "",
-            "Odpowiedzi na częste pytania, Twoje sprawy, rozmowy i rozliczenia znajdziesz "
-            f"w strefie konsultanta: {portal_url}",
+            "Materiały na start, stawkę, rozliczenia, rozmowy i Twoje sprawy znajdziesz "
+            f"w panelu konsultanta: {portal_url}",
+            "Żeby wejść, podaj ten adres e-mail, a wyślemy Ci link do logowania.",
         ]
     if owner_name:
         lines += [
@@ -252,8 +253,13 @@ async def _owner(db: AsyncSession, contract_id: int) -> Optional[User]:
     return await db.get(User, user_id) if user_id else None
 
 
-async def draft_for(db: AsyncSession, contract_id: int) -> Draft:
-    """Podgląd maila dla kontraktu z listą braków (blokujących i nie)."""
+async def draft_for(
+    db: AsyncSession, contract_id: int, *, assume_panel_open: bool = False
+) -> Draft:
+    """Podgląd maila dla kontraktu z listą braków (blokujących i nie).
+
+    ``assume_panel_open``: podgląd przed aktywacją pokazuje treść, która wyjdzie po niej.
+    """
 
     contract = await db.get(Contract, contract_id)
     if contract is None:
@@ -324,7 +330,7 @@ async def draft_for(db: AsyncSession, contract_id: int) -> Draft:
         owner_email=owner.email if owner else None,
         # Link tylko przy portalu otwartym dla tego kontraktu: kod wchodzi ciemno.
         portal_url=portal_mail.portal_url()
-        if (await portal_settings.load(db)).open_for(contract.id)
+        if assume_panel_open or (await portal_settings.load(db)).open_for(contract.id)
         else None,
     )
     name = (

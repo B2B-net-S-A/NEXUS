@@ -18,7 +18,7 @@ from app.models.user import UserRole
 from app.services.consultant_portal import activation
 from app.services.consultant_portal.auth import PortalError
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
-from tests.care_announcements_seed import _set_setting, make_user
+from tests.care_announcements_seed import _set_setting, make_user, tag
 from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     BASE,
     install_mailer,
@@ -95,11 +95,12 @@ async def test_deactivation_closes_the_session_at_once(app_client) -> None:
 async def test_activation_confirms_the_address_on_the_contract() -> None:
     person = await make_person(activated=False)
     admin = await make_user(UserRole.admin)
+    suffix = tag()
     async with AsyncSessionLocal() as db:
         await activation.activate(
             db,
             person.contract_id,
-            email=" Nowy.Adres@Example.com ",
+            email=f" Nowy.{suffix}@Example.com ",
             actor=admin,
             now=_now(),
         )
@@ -109,7 +110,7 @@ async def test_activation_confirms_the_address_on_the_contract() -> None:
         row = await db.scalar(
             select(CpActivation).where(CpActivation.contract_id == person.contract_id)
         )
-    assert contract.candidate_email == "nowy.adres@example.com"
+    assert contract.candidate_email == f"nowy.{suffix}@example.com"
     assert row.activated_by == admin.id
     assert row.deactivated_at is None
 

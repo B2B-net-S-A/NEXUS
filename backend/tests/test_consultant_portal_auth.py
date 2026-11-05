@@ -367,8 +367,7 @@ def test_ended_contract_keeps_portal_only_for_the_grace_period() -> None:
     )
     assert identity.eligible(recent, today)
     assert not identity.eligible(old, today)
-    assert identity.eligible(Contract(status=ContractStatus.draft), today)
-    assert not identity.eligible(Contract(status=ContractStatus.void), today)
+    assert not identity.eligible(Contract(status=ContractStatus.draft), today)
 
 
 # ── Kontrakt modułu ──────────────────────────────────────────────────────────

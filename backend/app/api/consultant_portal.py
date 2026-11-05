@@ -34,7 +34,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,13 +47,21 @@ from app.services.consultant_portal import (
     content,
     documents,
     meetings,
+    panel,
     portal_mail,
     portal_settings,
     ratings,
 )
 from app.services.consultant_portal.auth import PortalContext, PortalError
 from app.services.consultant_portal.portal_settings import PortalSettings
+from app.services.consultant_panel_schema import (
+    MATERIAL_URL_MAX,
+    TRAINER_SHORT_MAX,
+    TRAINER_TEXT_MAX,
+)
 from app.services.consultant_portal_schema import COMMENT_MAX, REASON_MAX, TOPICS
+from app.services.equipment import protocols as equipment_protocols
+from app.services.equipment.errors import EquipmentError
 
 router = APIRouter()
 
@@ -205,7 +213,21 @@ async def me(
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await content.overview(db, context)
+    return {
+        **await content.overview(db, context),
+        **await panel.overview_extra(db, context, today=business_today()),
+    }
+
+
+@router.get("/todo")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def todo(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return {"items": await panel.todo(db, context, today=business_today(), now=_now())}
 
 
 @router.get("/faq")
@@ -490,3 +512,162 @@ async def finance_download(
         media_type=document.mime,
         headers={"Content-Disposition": content_disposition(name, "attachment")},
     )
+
+
+@router.get("/settlement")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def settlement(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await panel.settlement_screen(db, context)
+
+
+# ── Na start ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/start")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def start_screen(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await panel.start_screen(db, context)
+
+
+@router.get("/start/materials/{material_id}/file")
+@limiter.limit("30/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def start_material_file(
+    material_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    try:
+        material, path = await panel.own_material_file(db, context, material_id)
+    except PortalError as exc:
+        raise _translate(exc) from exc
+    name = material.file_name or f"material-{material.id}"
+    return FileResponse(
+        path,
+        media_type=material.mime,
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
+    )
+
+
+# ── Sprzęt ───────────────────────────────────────────────────────────────────
+
+
+@router.get("/equipment")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def equipment(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await panel.equipment_screen(db, context)
+
+
+@router.get("/equipment/protocols/{protocol_id}/document.pdf")
+@limiter.limit("30/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def equipment_protocol_pdf(
+    protocol_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    try:
+        protocol = await panel.own_protocol(db, context, protocol_id)
+    except PortalError as exc:
+        raise _translate(exc) from exc
+    try:
+        data = await equipment_protocols.render_pdf(db, protocol)
+    except EquipmentError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    name = equipment_protocols.protocol_filename(protocol, "pdf")
+    return Response(
+        data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
+    )
+
+
+class ProtocolConfirmRequest(BaseModel):
+    signer_name: str = Field(min_length=3, max_length=200)
+
+
+@router.post("/equipment/protocols/{protocol_id}/confirm")
+@limiter.limit("10/minute;30/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def equipment_protocol_confirm(
+    protocol_id: int,
+    payload: ProtocolConfirmRequest,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        protocol = await panel.own_protocol(db, context, protocol_id)
+        signed = await equipment_protocols.sign_in_panel(
+            db, protocol, signer_name=payload.signer_name
+        )
+    except PortalError as exc:
+        raise _translate(exc) from exc
+    except EquipmentError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    return {"status": signed.status}
+
+
+# ── Zostań trenerem ──────────────────────────────────────────────────────────
+
+
+@router.get("/trainer")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def trainer(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return {"application": await panel.trainer_application(db, context)}
+
+
+class TrainerRequest(BaseModel):
+    topics: list[str] = Field(min_length=1, max_length=20)
+    experience: str = Field(min_length=3, max_length=TRAINER_TEXT_MAX)
+    form: Literal["online_or_onsite", "online", "onsite"] = "online_or_onsite"
+    day_rate: str = Field(default="", max_length=TRAINER_SHORT_MAX)
+    availability: str = Field(default="", max_length=TRAINER_SHORT_MAX)
+    materials: str = Field(default="", max_length=MATERIAL_URL_MAX)
+
+
+@router.put("/trainer")
+@limiter.limit("10/minute;30/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def save_trainer(
+    payload: TrainerRequest,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        application = await panel.save_trainer_application(
+            db,
+            context,
+            topics=payload.topics,
+            experience=payload.experience,
+            form=payload.form,
+            day_rate=payload.day_rate,
+            availability=payload.availability,
+            materials=payload.materials,
+        )
+    except PortalError as exc:
+        raise _translate(exc) from exc
+    return {"application": application}

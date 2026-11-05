@@ -33,17 +33,22 @@
  "routes": {
   "GET /api/public/consultant-portal/booking/hosts": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/cases": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/equipment": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/equipment/protocols/{protocol_id}/document.pdf": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/faq": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/finance/documents/{document_id}/file": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/finance/overview": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/public/consultant-portal/finance/status": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/me": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/meetings": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/settlement": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/start": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/start/materials/{material_id}/file": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/status": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/todo": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/trainer": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/cases": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/equipment/protocols/{protocol_id}/confirm": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/finance/documents": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/public/consultant-portal/finance/sms": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/public/consultant-portal/finance/verify": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/link": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/logout": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/meetings": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -51,6 +56,7 @@
   "POST /api/public/consultant-portal/meetings/{meeting_id}/rating": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/rating": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/rating-form": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/public/consultant-portal/session": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+  "POST /api/public/consultant-portal/session": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "PUT /api/public/consultant-portal/trainer": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
  }
 }

@@ -32,12 +32,8 @@ EMAIL_TAKEN = (
 )
 NOT_ACTIVE = "Panel tego kontraktu nie jest aktywny."
 
-#: Szkic też: umowa bywa podpisana, zanim kontrakt przejdzie w „aktywny”.
-ACTIVATABLE = (
-    ContractStatus.draft,
-    ContractStatus.active,
-    ContractStatus.ending,
-)
+#: Szkic to umowa przed podpisem, a kontrakt z datą startu w przyszłości jest już aktywny.
+ACTIVATABLE = (ContractStatus.active, ContractStatus.ending)
 
 
 @dataclass(frozen=True)

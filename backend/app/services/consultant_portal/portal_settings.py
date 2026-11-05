@@ -73,6 +73,16 @@ async def load(db: AsyncSession) -> PortalSettings:
     )
 
 
+async def load_raw_state(db: AsyncSession) -> str:
+    """Ustawienie, a nie skutek: ekran wyłącznika pokazuje to, co wybrał admin."""
+
+    return parse(
+        await db.scalar(
+            select(AppSetting.value).where(AppSetting.key == PORTAL_SETTING)
+        )
+    ).state
+
+
 async def save(db: AsyncSession, *, state: str) -> PortalSettings:
     value = PortalSettings(state=state if state in STATES else "off").as_dict()
     await db.execute(
