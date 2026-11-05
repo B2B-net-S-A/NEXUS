@@ -866,3 +866,40 @@ async def test_repair_clears_facts_read_from_a_foreign_document_but_not_the_poin
     assert db.added[0].operation == "delete"
     db.execute.assert_awaited_once()  # podsumowanie aktywności wyczyszczone
     assert result["cleared_fields"] >= 3
+
+
+@pytest.mark.parametrize(
+    ("candidate", "observed"),
+    [
+        # Traffit dzielił nazwę po pierwszej spacji, model po sensie (pomiar
+        # 05.11.2026: 280 z 608 sprzeczności to te same słowa w innym podziale).
+        (("Jan", "Adam Kowalski"), ("Jan Adam", "Kowalski")),
+        (("Anna Maria", "Nowak Kowalska"), ("Anna", "Nowak")),
+        # Literówka i transliteracja jednej części: ta sama klasa co częściowa
+        # niezgodność, a nie dowód cudzego pliku.
+        (("Oleksandr", "Shevchenko"), ("Aleksandr", "Szewczenko")),
+        (("Katarzyna", "Wisniewska"), ("Kasia", "Wisniewska-Kot")),
+    ],
+)
+def test_other_form_of_the_same_name_is_not_a_confirmed_mismatch(
+    candidate: tuple[str, str], observed: tuple[str, str]
+) -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=candidate[0],
+        candidate_last_name=candidate[1],
+        observed_first_name=observed[0],
+        observed_last_name=observed[1],
+    )
+
+    assert result.decision == "inconclusive"
+
+
+def test_a_different_person_with_a_double_name_is_still_a_mismatch() -> None:
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name="Jan Adam",
+        candidate_last_name="Kowalski",
+        observed_first_name="Maria Anna",
+        observed_last_name="Zielinska-Bak",
+    )
+
+    assert result.decision == "confirmed_mismatch"
