@@ -857,7 +857,7 @@
       {
         "id": "hr.approvals.timesheets",
         "label": "Raporty godzin",
-        "describe": "Godziny zespołu za miesiąc wobec normy: filtr statusu, podgląd z cofnięciem nieobecności, akceptacja, zwrot, „Przypomnij”, CSV i ZIP."
+        "describe": "Godziny zespołu za miesiąc wobec normy: filtr statusu, podgląd z cofnięciem nieobecności, akceptacja, zwrot, „Potwierdź za osobę” przy szkicu kogoś, kto odszedł, „Przypomnij”, CSV i ZIP."
       },
       {
         "id": "hr.approvals.history",
