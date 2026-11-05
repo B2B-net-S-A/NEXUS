@@ -2,7 +2,7 @@
   {
     "id": "zakladka-wnioski",
     "title": "Zakładka „Wnioski”: co się powtarza i decyzja, co z tym zrobić",
-    "why": "NEXUS zbiera w jednym miejscu to, co powtarza się w pracy zespołu i odmowach klientów, i pyta o decyzję: tak, nie teraz albo nie. Zobaczysz też powody odrzuceń po klientach i historię decyzji z oceną po 30 dniach.",
+    "why": "NEXUS pokazuje, co się powtarza w pracy zespołu i odmowach klientów, i pyta o decyzję: tak, nie teraz albo nie. Po 30 dniach widać, czy zmiana pomogła.",
     "tier": "dot",
     "shipped_on": "2026-11-05",
     "pr": 3042,
