@@ -457,6 +457,30 @@ def test_split_name_handles_polish_diacritics():
     assert last == "Żółty"
 
 
+def test_split_name_skips_line_of_common_cv_words():
+    cv = "Doświadczenie Zawodowe\nJan Kowalski\nj@x.com"
+    assert cvp._split_name_from_header(cv) == ("Jan", "Kowalski")
+
+
+def test_split_name_returns_none_when_only_common_cv_words():
+    cv = "Technical Skills\nWORK EXPERIENCE\nWarsaw, Poland"
+    assert cvp._split_name_from_header(cv) == (None, None)
+
+
+def test_split_name_keeps_surname_that_is_also_a_common_word():
+    # Jedno rzadkie słowo wystarcza: odrzucamy tylko linię z samych częstych słów.
+    assert cvp._split_name_from_header("Anna Test\nj@x.com") == ("Anna", "Test")
+    # „Jan” to też skrót stycznia, ale to przede wszystkim imię.
+    assert cvp._split_name_from_header("Jan Test\nj@x.com") == ("Jan", "Test")
+
+
+def test_contact_fallback_leaves_name_empty_when_header_is_only_common_words():
+    parsed = {"first_name": None, "last_name": None, "_confidence": {}}
+    out = cvp._apply_contact_fallbacks(parsed, "Work Experience\nProject Manager")
+    assert out["first_name"] is None
+    assert out["last_name"] is None
+
+
 def test_split_name_returns_none_when_no_capitalized_pair():
     cv = "lorem ipsum\ndolor sit amet"
     first, last = cvp._split_name_from_header(cv)

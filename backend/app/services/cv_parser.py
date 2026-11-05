@@ -44,6 +44,7 @@ from app.services.candidate_name_rules import is_empty_field_name
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_chain_for, model_for
+from app.services.cv_common_words import only_common_cv_words
 from app.services.cv_technology_grounding import drop_untraced_technologies
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,9 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
             continue
         tokens = [t for t in re.split(r"[\s,]+", line) if t]
         if not 2 <= len(tokens) <= 4:
+            continue
+        # Section headings, cities and roles look like a name too (05.11.2026).
+        if only_common_cv_words(tokens):
             continue
         # Each token must start with an uppercase letter; accept PL diacritics.
         if not all(
