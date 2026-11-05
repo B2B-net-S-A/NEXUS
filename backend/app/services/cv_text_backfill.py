@@ -30,6 +30,7 @@ from sqlalchemy import DateTime, and_, cast, func, or_, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
+from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.cv_text_extractor import (
     GLUED_AVG_WORD_LEN,
     UnsupportedCvFormat,
@@ -263,6 +264,13 @@ def _pending_candidates_stmt(
             _marker_for_other_file(marker_key),
         ),
         _not_deferred(marker),
+        # Kwarantanna czyści tekst, ale `cv_storage_key` zostaje: bez tego warunku
+        # nocny odczyt przywracał tekst innej osoby z tego samego pliku.
+        source_is_eligible_clause(
+            candidate_id_column=Candidate.id,
+            source_id_column=Candidate.id,
+            source_kind="legacy_cv",
+        ),
     )
     # Runda 6 audytu: wiersze bez żadnego znacznika (nigdy nieczytane — czyli
     # nowe CV) idą przed ponowieniami, więc budżet nocy trafia najpierw do nich.

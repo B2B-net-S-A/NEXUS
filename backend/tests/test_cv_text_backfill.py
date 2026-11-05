@@ -490,3 +490,20 @@ def test_cv_text_phase_stats_survive_the_watermark_summary():
     assert out["download_failed"] == 2
     assert out["written"] == 0
     assert "glued" in out
+
+
+def test_pending_scope_skips_a_cv_quarantined_as_another_person() -> None:
+    """Odzyskanie tekstu z tego samego pliku przywracałoby cudze dane po kwarantannie."""
+
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.cv_text_backfill import _pending_candidates_stmt
+
+    sql = str(_pending_candidates_stmt(None).compile(dialect=postgresql.dialect()))
+
+    assert "candidate_source_identity_reviews" in sql
+    assert "confirmed_mismatch" in str(
+        _pending_candidates_stmt(None).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
