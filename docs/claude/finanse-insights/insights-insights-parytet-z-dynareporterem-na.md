@@ -164,6 +164,16 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z widoku `analytics_first_milestones`. `candidate_stages` nie ma unikalności
   na `(candidate_id, job_id, stage)`, a import Traffita dopisuje wiersz na każde
   zdarzenie — liczenie surowych wierszy dubluje powroty na etap.
+- **Każdy etap z zasługą liczy się raz na parę, także między podejściami
+  procesu** (decyzja Artura 05.11.2026, jak D2 dla `hired`). Nowe podejście
+  (`attempt_no + 1`, np. „Przywróć” po odrzuceniu) nie daje drugiej
+  weryfikacji, QC ani rekomendacji, jeśli para była już na tym etapie —
+  także przed 12.10.2026 albo przed oknem procesu. Odrzucona albo czekająca
+  weryfikacja nie jest wejściem pary. Warunek stoi w `classified_stage_ranked`
+  (`VERIFIER_ANCHORED_CTE`). Kopia z 04.11.2026: od 12.10 zdjęło to 11 wierszy
+  (weryfikacje −5, QC −3, rekomendacje −3), zawsze tej samej osobie; np. osoba
+  odrzucona przez DL, dodana ponownie i zweryfikowana 2 minuty później.
+  Kolejność Ligi i zwycięzca wyścigu X bez zmian.
 - **Weryfikacje i rekomendacje też liczymy per para (kandydat, rekrutacja),
   nie per osoba** (decyzja Artura 21.10.2026). Osoba zweryfikowana
   i zarekomendowana w trzech rekrutacjach to trzy weryfikacje i trzy
