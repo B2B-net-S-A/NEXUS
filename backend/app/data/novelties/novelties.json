@@ -1,5 +1,19 @@
 [
   {
+    "id": "zakladka-zasady",
+    "title": "Zakładka „Zasady”: co dziś obowiązuje i kto to zmienił",
+    "why": "Automat przydziału, bliźniaki, wagi rankingu, cele i punkty Ligi w jednym miejscu. Od razu widać wartości i to, czego nikt jeszcze nie zmieniał, a kliknięcie otwiera edycję.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {
+      "roles": ["head_of_recruitment", "admin"]
+    },
+    "where": "Insights → Zasady",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.rules"
+  },
+  {
     "id": "zatrudniony-nie-szuka-3-miesiace",
     "title": "„Zatrudniony gdzie indziej” chroni przed kolejnymi kartami",
     "why": "Po takim odrzuceniu profil dostaje „Nie szuka” na 3 miesiące, a system przestaje dodawać tę osobę do rekrutacji. Ręcznie nadal możesz ją dodać, a datę zmienisz w profilu.",

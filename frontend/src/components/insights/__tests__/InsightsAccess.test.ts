@@ -58,7 +58,7 @@ const user = (
   } as NonNullable<AuthUser>;
 };
 
-const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "zrodla", "wnioski", "raporty"];
+const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "zrodla", "zasady", "wnioski", "raporty"];
 
 describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {

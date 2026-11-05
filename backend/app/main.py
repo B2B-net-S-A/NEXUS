@@ -109,6 +109,7 @@ from app.api import insights_board
 from app.api import autofill_quality as autofill_quality_api
 from app.api import insights_clients
 from app.api import insights_delivery_leads
+from app.api import insights_rules
 from app.api import insights_scoring
 from app.api import insights_campaigns
 from app.api import insights_charts
@@ -1862,6 +1863,8 @@ app.include_router(
     prefix="/api/insights/scoring-config",
     tags=["insights"],
 )
+# Przegląd zakładki „Zasady”: tylko administrator i Head of Recruitment.
+app.include_router(insights_rules.router, prefix="/api/insights", tags=["insights"])
 # Tabela „Performance per osoba" i wykresy roczne. Prefiks `/api/insights`
 # (nie `/api/insights/recruitment`), bo obie powierzchnie opisują ZESPÓŁ,
 # a nie pojedynczy lejek — `/recruitment/*` jest zarezerwowane dla metryk

@@ -1,6 +1,6 @@
 "use client";
 
-import { RankingPanel } from "@/components/settings/ranking/RankingPanel";
+import { RANKING_INTRO, RankingPanel } from "@/components/settings/ranking/RankingPanel";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -28,8 +28,7 @@ export default function ScoringWeightsPage() {
       <div className="space-y-1.5">
         <h1 className="text-2xl font-bold text-foreground">Ranking kandydatów</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Co liczy się najbardziej przy dopasowaniu kandydata. Te same zasady działają w „Szukaj
-          w bazie”, „Przeszukaj całą bazę (AI)”, Talent Radarze i nocnych propozycjach.
+          {RANKING_INTRO}
         </p>
       </div>
       <RankingPanel
