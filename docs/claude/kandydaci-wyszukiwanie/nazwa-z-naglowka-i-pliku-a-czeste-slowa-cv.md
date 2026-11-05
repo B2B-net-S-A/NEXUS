@@ -8,8 +8,9 @@ technologię. Nazwę dawał kod, nie model:
 - `name_from_filename` (w nazwie pliku stanowisko przed nazwą osoby),
 - pole z Traffita albo profil testowy.
 
-Model z pewnością większą od zera podał takie słowa w 1 odczycie na 57 724, więc
-odczytu modelu ta reguła nie rusza.
+Model z pewnością większą od zera podał takie słowa w 1 odczycie na 57 724 przy
+liście z progu 5% i w 6 przy progu 4%, z czego 5 to nazwy potwierdzone mailem albo
+LinkedInem. Dlatego odczytu modelu ta reguła nie rusza.
 
 ## Reguła
 
