@@ -180,6 +180,7 @@ READ_ENDPOINTS = [
         None,
     ),
     ("GET", "/api/candidates/999999/documents", None),
+    ("GET", "/api/candidates/999999/identity-quarantine", None),
     ("GET", "/api/candidates/999999/cv-download", None),
     ("GET", "/api/candidates/999999/documents/1/content", None),
     ("GET", "/api/candidates/999999/documents/1/url", None),

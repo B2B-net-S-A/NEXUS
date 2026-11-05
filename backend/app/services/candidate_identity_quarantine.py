@@ -1320,6 +1320,29 @@ def _reopen_pointer_read(candidate: Candidate) -> None:
         }
 
 
+def _forget_released_source(
+    candidate: Candidate, *, source_kind: SourceKind, source_id: int
+) -> None:
+    """Profil przestaje mówić, że ten plik czeka na zwolnienie.
+
+    Bez tego ramka w profilu i dok rekrutacji nadal traktowały plik jak CV innej
+    osoby. Odczytu to nie wstrzymuje: fakty z tego pliku wyczyściła kwarantanna
+    (albo stoją na innym pliku), więc `profile_holds_read_of_file` i tak każe czytać.
+    """
+    extracted = candidate.cv_extracted_data
+    marker = (
+        extracted.get("_identity_quarantine_source")
+        if isinstance(extracted, dict)
+        else None
+    )
+    if marker == {"kind": source_kind, "id": source_id}:
+        candidate.cv_extracted_data = {
+            key: value
+            for key, value in extracted.items()
+            if key != "_identity_quarantine_source"
+        }
+
+
 async def override_identity_quarantine(
     db: AsyncSession,
     *,
@@ -1361,6 +1384,7 @@ async def override_identity_quarantine(
     row.override_at = now
     if candidate is not None:
         _reopen_pointer_read(candidate)
+        _forget_released_source(candidate, source_kind=source_kind, source_id=source_id)
     reason_sha256 = hashlib.sha256(clean_reason.encode("utf-8")).hexdigest()
     candidate_audit.record_candidate_audit(
         db,

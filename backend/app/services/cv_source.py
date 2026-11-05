@@ -100,10 +100,10 @@ async def _document_digest(db: AsyncSession, document: Row) -> str | None:
     return hashlib.sha256(bytes(content)).hexdigest() if content else None
 
 
-async def quarantined_copy_document_ids(
+async def quarantined_copy_sources(
     db: AsyncSession, candidate_id: int
-) -> frozenset[int]:
-    """Dokumenty osoby z bajtami jej pliku z kwarantanny tożsamości.
+) -> dict[int, int]:
+    """Dokumenty osoby z bajtami jej pliku z kwarantanny: kopia → ten plik.
 
     Kwarantanna dotyczy jednego wiersza, a pomiar 05.11.2026 to 17 żywych kopii
     w 16 profilach. Porównanie skrótów w SQL ich nie znajdzie, bo
@@ -126,7 +126,8 @@ async def quarantined_copy_document_ids(
     )
     quarantined = (
         await db.execute(
-            select(*columns).where(
+            select(*columns)
+            .where(
                 CandidateDocument.candidate_id == candidate_id,
                 source_is_quarantined_clause(
                     candidate_id_column=CandidateDocument.candidate_id,
@@ -134,10 +135,14 @@ async def quarantined_copy_document_ids(
                     source_kind="document",
                 ),
             )
+            # Ten sam plik w dwóch kwarantannach: kopia wskazuje plik z listy.
+            .order_by(
+                CandidateDocument.source_deleted_at.isnot(None), CandidateDocument.id
+            )
         )
     ).all()
     if not quarantined:
-        return frozenset()
+        return {}
     own_verdict = select(CandidateSourceIdentityReview.source_id).where(
         CandidateSourceIdentityReview.candidate_id == candidate_id,
         CandidateSourceIdentityReview.source_kind == "document",
@@ -156,16 +161,25 @@ async def quarantined_copy_document_ids(
         )
     ).all()
     if not others:
-        return frozenset()
-    digests = {await _document_digest(db, document) for document in quarantined}
-    digests.discard(None)
-    return frozenset(
-        [
-            document.id
-            for document in others
-            if await _document_digest(db, document) in digests
-        ]
-    )
+        return {}
+    sources: dict[str, int] = {}
+    for document in quarantined:
+        digest = await _document_digest(db, document)
+        if digest:
+            sources.setdefault(digest, document.id)
+    copies: dict[int, int] = {}
+    for document in others:
+        source_id = sources.get(await _document_digest(db, document) or "")
+        if source_id is not None:
+            copies[document.id] = source_id
+    return copies
+
+
+async def quarantined_copy_document_ids(
+    db: AsyncSession, candidate_id: int
+) -> frozenset[int]:
+    """Same id kopii z `quarantined_copy_sources`."""
+    return frozenset(await quarantined_copy_sources(db, candidate_id))
 
 
 async def current_cv_filters_for(db: AsyncSession, candidate_id: int) -> tuple:
