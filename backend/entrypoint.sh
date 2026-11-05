@@ -350,7 +350,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
-    # 0650: pytania pod CV w ściądze do rozmowy (Sonnet 5.5).
+    # 0651: pytania pod CV w ściądze do rozmowy (Sonnet 5.5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_call_questions'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
@@ -1406,7 +1406,7 @@ except Exception as _start_documents_schema_err:  # noqa: BLE001
     print(f"start documents schema unavailable: {_start_documents_schema_err!r}")
     _START_DOCUMENTS_TABLE_DDL = []
 
-# 0650: pytania pod CV w ściądze do rozmowy (`app/services/cv_call_questions_schema.py`).
+# 0651: pytania pod CV w ściądze do rozmowy (`app/services/cv_call_questions_schema.py`).
 try:
     from app.services import cv_call_questions_schema as _cv_call_questions_schema
 
@@ -7870,7 +7870,7 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
-    # 0650: seed klucza AI pytań pod CV w ściądze do rozmowy.
+    # 0651: seed klucza AI pytań pod CV w ściądze do rozmowy.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_call_questions', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

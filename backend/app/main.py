@@ -3827,7 +3827,7 @@ async def api_health_deep_check():
         ("plain_terms", PlainTerm),
         ("role_profiles", RoleProfile),
         ("job_plain_briefs", JobPlainBrief),
-        # 0650: pytania pod CV. Brak tabeli = 500 w ściądze do rozmowy.
+        # 0651: pytania pod CV. Brak tabeli = 500 w ściądze do rozmowy.
         ("cv_call_questions", CvCallQuestions),
         ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako

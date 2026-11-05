@@ -1,4 +1,4 @@
-// Pytania pod CV w ściądze do rozmowy (0650): kod porównuje must-have z rolami
+// Pytania pod CV w ściądze do rozmowy (0651): kod porównuje must-have z rolami
 // z oryginalnego CV, a model układa z luk opcjonalne pytania. Awaria nie blokuje
 // rozmowy. Reguły: `docs/claude/screening-notatki/pytania-pod-cv-w-sciadze.md`.
 

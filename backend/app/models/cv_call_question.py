@@ -1,4 +1,4 @@
-"""Pytania pod CV w ściądze do rozmowy (0650).
+"""Pytania pod CV w ściądze do rozmowy (0651).
 
 Jeden wiersz na parę osoba i rekrutacja, nie na wiersz etapu: każdy ruch karty
 zakłada nowy wiersz ``candidate_stages``, a pytania liczą się z CV i Championa.

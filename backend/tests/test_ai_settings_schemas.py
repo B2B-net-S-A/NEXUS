@@ -120,7 +120,7 @@ class TestFeatureKeyEnum:
             "requirement_word_hints",
             # 0638: podsumowanie rozmowy z portalu konsultanta.
             "portal_meeting_summary",
-            # 0650: pytania pod CV w ściądze do rozmowy.
+            # 0651: pytania pod CV w ściądze do rozmowy.
             "cv_call_questions",
         }
 

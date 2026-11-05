@@ -90,7 +90,7 @@ _RATE_LIMITED_MODULES = (
     "api/job_board_connection.py",
     # „Champion po ludzku” (0403): odświeżenie = płatny model i research w internecie.
     "api/plain_brief_refresh.py",
-    # Pytania pod CV w ściądze (0650): odświeżenie = płatny model.
+    # Pytania pod CV w ściądze (0651): odświeżenie = płatny model.
     "api/cv_call_questions_refresh.py",
     # Karta z notatki i „Ułóż w zdanie” (0421): każde wywołanie to płatny model.
     "api/recommendation_card_assist.py",

@@ -1,7 +1,7 @@
 """Pytania pod CV w ściądze do rozmowy: tabela i klucz AI F44.
 
-Revision ID: 0650_cv_call_questions
-Revises: 0649_start_documents
+Revision ID: 0651_cv_call_questions
+Revises: 0650_manual_placement_exclusions
 
 Decyzja Artura 05.11.2026: przed screeningiem system czyta Profil Championa
 i oryginalne CV i podpowiada opcjonalne pytania. DDL
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services.cv_call_questions_schema import DOWNGRADE_DDL, TABLE_DDL
 
-revision = "0650_cv_call_questions"
-down_revision = "0649_start_documents"
+revision = "0651_cv_call_questions"
+down_revision = "0650_manual_placement_exclusions"
 branch_labels = None
 depends_on = None
 
@@ -38,7 +38,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0650 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta';
+        RAISE EXCEPTION 'Downgrade 0651 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta';
     END IF;
 END $$"""
 

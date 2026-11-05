@@ -1,6 +1,6 @@
-"""Pytania pod CV w ściądze do rozmowy — SQL migracji 0650 i lustra w ``entrypoint.sh``.
+"""Pytania pod CV w ściądze do rozmowy — SQL migracji 0651 i lustra w ``entrypoint.sh``.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0650_cv_call_questions.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0651_cv_call_questions.py``
 i ``entrypoint.sh`` (alembic na prodzie bywa osierocony). Model:
 ``app.models.cv_call_question``.
 """

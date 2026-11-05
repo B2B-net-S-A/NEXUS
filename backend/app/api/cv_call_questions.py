@@ -1,4 +1,4 @@
-"""Pytania pod CV w ściądze do rozmowy — odczyt (migracja 0650).
+"""Pytania pod CV w ściądze do rozmowy — odczyt (migracja 0651).
 
 ``GET /api/candidates/{candidate_id}/jobs/{job_id}/call-questions`` nic nie
 zapisuje, nie woła modelu i nie pobiera pliku CV. Odświeżenie (płatny model) jest

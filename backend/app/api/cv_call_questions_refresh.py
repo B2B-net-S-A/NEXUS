@@ -1,4 +1,4 @@
-"""Pytania pod CV w ściądze do rozmowy — odświeżenie (płatny model, migracja 0650).
+"""Pytania pod CV w ściądze do rozmowy — odświeżenie (płatny model, migracja 0651).
 
 ``POST /api/candidates/{candidate_id}/jobs/{job_id}/call-questions/refresh`` liczy
 pytania, gdy ich nie ma albo zmieniło się CV lub Champion. Zwraca to samo co GET.

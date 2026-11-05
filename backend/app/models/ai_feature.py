@@ -195,7 +195,7 @@ class AIFeatureKey(str, enum.Enum):
     case_triage = "case_triage"
     # Portal konsultanta (0643): podsumowanie rozmowy do sprawy, dodatek do transkryptu.
     portal_meeting_summary = "portal_meeting_summary"
-    # 0650 (05.11.2026): pytania pod CV w ściądze do rozmowy, z Championa i oryginału CV.
+    # 0651 (05.11.2026): pytania pod CV w ściądze do rozmowy, z Championa i oryginału CV.
     cv_call_questions = "cv_call_questions"
 
 
