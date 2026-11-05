@@ -32,6 +32,8 @@ import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
+import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
+import { consentClientLabel } from "@/lib/consent-mail";
 import { AdvancedOptions } from "@/components/v2/cv-generator/AdvancedOptions";
 import { AiSourcesRows } from "@/components/v2/cv-generator/AiSourcesRows";
 import { LanguageChoice } from "@/components/v2/cv-generator/LanguageChoice";
@@ -382,6 +384,34 @@ function CvGeneratePanelForm({
           </span>
         </div>
       ) : null}
+      {confirming && g.consentRequired && g.recruitment ? (
+        <div
+          role="note"
+          data-testid="cvgen-consent"
+          className="flex flex-col items-start gap-2 rounded-md border border-warning/30 bg-warning-muted px-2.5 py-2 text-xs text-warning-muted-foreground"
+        >
+          <span>
+            {consentClientLabel(g.clientName)} przyjmuje CV tylko ze zgodą kandydata. Poproś o nią albo wgraj zrzut
+            odpowiedzi, jeśli już ją masz.
+          </span>
+          <ConsentRequestButton candidateId={candidateId} candidateName={candidateName} jobId={jobId} />
+          <div className="w-full">
+            <ConsentScreenshotField
+              context={{
+                candidateId,
+                stageId: g.recruitment.stage_id,
+                clientId: g.clientId,
+                projectRef: g.projectRef,
+              }}
+              value={g.consentToken}
+              onChange={(token) => g.setConsentToken(token)}
+              required={g.consentBlocksGeneration}
+              requiredForSending={!g.consentBlocksGeneration}
+              disabled={g.generating}
+            />
+          </div>
+        </div>
+      ) : null}
       {confirming && (g.aiSourcesQuery.data || g.aiSourcesQuery.isError) ? (
         <CvGenerateConfirm
           candidateId={candidateId}
@@ -402,7 +432,7 @@ function CvGeneratePanelForm({
         />
       ) : null}
       {choices}
-      {g.recruitment && g.consentBlocksGeneration ? (
+      {!confirming && g.recruitment && g.consentBlocksGeneration ? (
         <ConsentScreenshotField
           context={{
             candidateId,
@@ -416,7 +446,7 @@ function CvGeneratePanelForm({
           requiredForSending={false}
           disabled={g.generating}
         />
-      ) : g.consentRequired ? (
+      ) : !confirming && g.consentRequired ? (
         <p className="text-[11px] text-muted-foreground">
           {g.clientName ?? "Klient"} wymaga zrzutu zgody RODO — dołączysz go na karcie po generacji. Bez
           niego CV się nie pobierze.

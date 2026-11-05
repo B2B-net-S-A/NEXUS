@@ -78,6 +78,19 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   jest brzmieniem PKO BP, więc przy innym kliencie przycisku nie ma. Rekruter dalej
   wgrywa zrzut odpowiedzi kandydata, nie swojej prośby (`recruiter_request`).
   Bez skrzynki M365 „Program pocztowy” dostaje ten sam temat i treść.
+- **Prośba idzie wcześniej niż CV (uwaga Delivery Leada i decyzja Artura 05.11.2026).**
+  Ramka przy gotowym CV pojawiała się pod koniec ścieżki, a 32 z 56 osób w PKO BP
+  dostało pierwszą prośbę dopiero po „Zweryfikowany”. Dlatego pasek
+  `ConsentRequestNotice` stoi w screeningu i na karcie bez CV, a generator w karcie ma
+  na górze ramkę z prośbą i polem zrzutu. Ramka przy gotowym CV i w podglądzie
+  (`StageCvPreview`, też przegląd DL) zostaje jako zabezpieczenie, na górze karty, bo
+  przy 1280 × 720 była poza ekranem. Pasek włącza reguła klienta (centralna albo aktywna),
+  sam przycisk i brzmienie maila zostają przy PKO BP (`isPkoClient`). Zrzut przed
+  generowaniem idzie tokenem z tym samym kontekstem co pole w pełnym generatorze.
+- **Stan prośby liczy `consentMailStatus` z wątków kandydata:** numer ZOB i „zgod” w temacie.
+  „Kandydat odpisał” tylko po `from_address` równym adresowi kandydata, bo skrzynka firmy
+  dostaje kopię własnej prośby jako `received` sekundę po wysyłce. Bez poczty
+  (`M365_INTEGRATION_ENABLED`, awaria) stanu nie ma, a przycisk działa.
 - **Opis od klienta z „[Nazwa Dostawcy]”** pokazuje w tym miejscu podświetlone
   „B2B.net S.A.” tylko na ekranie; `jobs.description` zostaje jak w zapytaniu.
   Akapit zgody na karcie klienta PKO BP stoi w „Zasadach procesu” (znacznik

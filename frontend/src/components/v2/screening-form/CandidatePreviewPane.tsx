@@ -595,6 +595,7 @@ function CvTab({
               cvStageId={branded.cvStageId}
               revision={branded.query.data?.edit_revision}
               loadStageCvFile={loadStageCvFile}
+              readOnly={!canUpload}
               hideDownload
               fill
               searchable

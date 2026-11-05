@@ -16,13 +16,14 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import {
   DocumentSearchBar,
   DocumentSearchTerms,
@@ -36,7 +37,7 @@ import api, { type CVBrandedState } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
-import { stageBrandedQueryKey, stageCvOrigin } from "@/lib/cv-to-client";
+import { cvToClientRowsQueryKey, stageBrandedQueryKey, stageCvOrigin } from "@/lib/cv-to-client";
 import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
@@ -76,6 +77,7 @@ export function StageCvPreview({
   fill = false,
   revision,
   loadStageCvFile = fetchStageCvFile,
+  readOnly = false,
   hideDownload = false,
   searchable = false,
   searchRequest = null,
@@ -93,6 +95,8 @@ export function StageCvPreview({
   revision?: number;
   /** Harness: plik CV etapu bez sieci. */
   loadStageCvFile?: typeof fetchStageCvFile;
+  /** Bez prawa zapisu: sama informacja o braku zgody, bez przycisków. */
+  readOnly?: boolean;
   /**
    * Podgląd po „Rozwiń” ma „Pobierz Word / PDF” w pasku źródeł (15.10.2026, D3)
    * — drugi przycisk w treści byłby tym samym plikiem w innym miejscu.
@@ -104,6 +108,7 @@ export function StageCvPreview({
   searchRequest?: DocumentSearchRequest | null;
 }) {
   const { showError } = useToast();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["cv-generated", "dl-review", candidateId, jobId],
     queryFn: () =>
@@ -159,8 +164,15 @@ export function StageCvPreview({
   // Bez zgody RODO serwer odmawia pobrania pliku (409) — nie próbujemy go
   // renderować, tylko prosimy o zrzut.
   const consentMissing = !fromStage && cv?.status === "ready" && cv.consent_missing === true;
+  const stageConsentMissing = branded?.consent_missing === true;
   const readyId = cv?.status === "ready" && !consentMissing ? cv.id : null;
-  const sourceKey = fromStage ? `stage:${cvStageId}` : readyId != null ? `generated:${readyId}` : null;
+  const sourceKey = fromStage
+    ? stageConsentMissing
+      ? null
+      : `stage:${cvStageId}`
+    : readyId != null
+      ? `generated:${readyId}`
+      : null;
 
   useEffect(() => {
     if (sourceKey == null) return;
@@ -292,6 +304,47 @@ export function StageCvPreview({
     </>
   );
 
+  const consentGeneratedId = fromStage ? (branded?.generated_document_id ?? null) : (cv?.id ?? null);
+  const refreshConsent = () => {
+    void query.refetch();
+    void queryClient.invalidateQueries({ queryKey: ["cv-branded"] });
+    void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
+  };
+  const consentFrame = (
+    <div
+      role="note"
+      data-testid="dl-review-consent-missing"
+      className="space-y-2 rounded-lg border border-destructive/25 bg-destructive-muted px-3 py-3 text-xs text-destructive-muted-foreground"
+    >
+      <p className="font-medium">Brak zgody RODO (PKO BP)</p>
+      <p>
+        Reguła klienta wymaga zrzutu maila ze zgodą kandydata na końcu CV. Bez niego CV
+        nie da się pobrać ani obejrzeć — dołącz zrzut, a dokument przerysuje się bez
+        ponownej generacji.
+      </p>
+      {readOnly ? null : (
+        <div className="flex flex-wrap items-start gap-2">
+          <ConsentRequestButton candidateId={candidateId} jobId={jobId} />
+          {consentGeneratedId != null ? (
+            <ConsentAttachButton
+              compact
+              generatedId={consentGeneratedId}
+              hasConsent={false}
+              onAttached={refreshConsent}
+            />
+          ) : (
+            <ConsentAttachButton
+              compact
+              stageCopy={{ candidateId, stageId: cvStageId as number }}
+              hasConsent={false}
+              onAttached={refreshConsent}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <section ref={rootRef} aria-label="CV kandydata" className="space-y-2">
       <header className="flex flex-wrap items-center gap-2">
@@ -323,14 +376,16 @@ export function StageCvPreview({
             {origin.badge}
           </Badge>
         ) : null}
-        {!hideDownload && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (
+        {!hideDownload && !stageConsentMissing && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
             <Download className="h-3.5 w-3.5" />
             Pobierz DOCX
           </Button>
         ) : null}
       </header>
-      {fromStage ? (
+      {stageConsentMissing ? (
+        consentFrame
+      ) : fromStage ? (
         previewBox
       ) : query.isLoading ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -356,24 +411,7 @@ export function StageCvPreview({
           Generowanie CV nie powiodło się{cv.error_message ? `: ${cv.error_message}` : "."}
         </p>
       ) : consentMissing ? (
-        <div
-          role="note"
-          data-testid="dl-review-consent-missing"
-          className="space-y-2 rounded-lg border border-destructive/25 bg-destructive-muted px-3 py-3 text-xs text-destructive-muted-foreground"
-        >
-          <p className="font-medium">Brak zgody RODO (PKO BP)</p>
-          <p>
-            Reguła klienta wymaga zrzutu maila ze zgodą kandydata na końcu CV. Bez niego CV
-            nie da się pobrać ani obejrzeć — dołącz zrzut, a dokument przerysuje się bez
-            ponownej generacji.
-          </p>
-          <ConsentAttachButton
-            compact
-            generatedId={cv.id}
-            hasConsent={false}
-            onAttached={() => void query.refetch()}
-          />
-        </div>
+        consentFrame
       ) : (
         previewBox
       )}

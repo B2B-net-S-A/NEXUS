@@ -21,6 +21,11 @@ export function isPkoClient(clientName: string | null | undefined): boolean {
   return /\bpko\b|powszechna\s+kasa\s+oszcz/i.test(clientName ?? "");
 }
 
+/** Nazwa klienta w zdaniu; pełna nazwa PKO z rejestru nie mieści się w pasku. */
+export function consentClientLabel(clientName: string | null | undefined): string {
+  return isPkoClient(clientName) ? "PKO BP" : clientName?.trim() || "Klient";
+}
+
 /** Numer zapytania z „Numeru u klienta”, a gdy go nie ma, z nazwy rekrutacji. */
 export function zobReference(
   clientReference: string | null | undefined,
@@ -46,6 +51,41 @@ export function buildConsentRequest(fullName: string, reference: string): Consen
       `prowadzenia przez PKO Bank Polski postępowania ofertowego, o którym mowa powyżej oraz w okresie ` +
       `ewentualnego świadczenia przez Oferenta Usług na rzecz PKO Bank Polski z moim udziałem.`,
   };
+}
+
+export interface ConsentMailStatus {
+  kind: "sent" | "replied";
+  at: string;
+}
+
+interface ConsentThread {
+  subject: string | null;
+  latest: { direction: string; from_address?: string | null; sent_at: string | null; received_at: string };
+}
+
+/**
+ * Stan prośby z wątków kandydata: wątek ma w temacie numer ZOB i słowo „zgoda”.
+ * Odpowiedź liczy się po nadawcy: skrzynka firmy dostaje też kopię własnej prośby
+ * jako wiadomość przychodzącą, sekundę po wysyłce.
+ */
+export function consentMailStatus(
+  threads: ConsentThread[],
+  reference: string,
+  candidateEmail: string | null | undefined,
+): ConsentMailStatus | null {
+  const number = reference.replace(/\D/g, "");
+  const thread = threads.find((t) => {
+    const subject = t.subject ?? "";
+    return /zgod/i.test(subject) && ZOB_NUMBER.exec(subject)?.[1] === number;
+  });
+  if (!thread || thread.latest.direction === "draft") return null;
+  const fromCandidate =
+    thread.latest.direction === "received" &&
+    !!candidateEmail &&
+    thread.latest.from_address?.toLowerCase() === candidateEmail.toLowerCase();
+  return fromCandidate
+    ? { kind: "replied", at: thread.latest.received_at }
+    : { kind: "sent", at: thread.latest.sent_at ?? thread.latest.received_at };
 }
 
 /** Opis klienta na kawałki; `filled` = tu stał pusty wzór „[Nazwa Dostawcy]”. */

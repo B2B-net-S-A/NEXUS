@@ -133,6 +133,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
+import { ConsentRequestNotice } from "@/components/v2/recruitment/ConsentRequestNotice";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
@@ -1041,38 +1042,6 @@ export function CvToClientCard({
             Generator źle zrobił CV? Pobierz oryginał
           </button>
         ) : null}
-        {state.consentMissing ? (
-          <div
-            role="note"
-            className="flex flex-col items-start gap-2 rounded-md border border-destructive/25 bg-destructive-muted px-2.5 py-2 text-xs text-destructive-muted-foreground"
-          >
-            <span>
-              Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
-            </span>
-            {readOnly ? null : (
-              <div className="flex flex-wrap items-start gap-2">
-                <ConsentRequestButton candidateId={candidateId} candidateName={candidateName} jobId={jobId} />
-                {state.attached ? (
-                  <ConsentAttachButton
-                    compact
-                    generatedId={state.attached.id}
-                    hasConsent={false}
-                    onAttached={refresh}
-                  />
-                ) : (
-                  // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
-                  // dokumentu generatora — zgoda idzie na CV etapu.
-                  <ConsentAttachButton
-                    compact
-                    stageCopy={{ candidateId, stageId: cvStageId }}
-                    hasConsent={false}
-                    onAttached={refresh}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        ) : null}
         {rewriteResult && rewriteResult.stageId === cvStageId && rewriteResult.revision === branded.edit_revision ? (
           // Pasek znika sam, gdy rekruter zapisze dalsze poprawki (makieta „Ekran 4”).
           <div
@@ -1249,6 +1218,15 @@ export function CvToClientCard({
       <div className="space-y-2">
         <AutoCvSkipNotice jobId={jobId} candidateId={candidateId} />
         <p className="text-sm text-foreground">Jeszcze nie ma CV do klienta dla tej rekrutacji.</p>
+        {!readOnly && !generateOpen ? (
+          <ConsentRequestNotice
+            stageId={stageId}
+            candidateId={candidateId}
+            candidateName={candidateName}
+            jobId={jobId}
+            moment="cv"
+          />
+        ) : null}
         {readyHint}
         {!readOnly ? (
           <div className="space-y-1">
@@ -1276,6 +1254,39 @@ export function CvToClientCard({
     );
   }
 
+  const consentFrame = state.kind === "ready" && state.consentMissing ? (
+          <div
+            role="note"
+            className="flex flex-col items-start gap-2 rounded-md border border-destructive/25 bg-destructive-muted px-2.5 py-2 text-xs text-destructive-muted-foreground"
+          >
+            <span>
+              Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
+            </span>
+            {readOnly ? null : (
+              <div className="flex flex-wrap items-start gap-2">
+                <ConsentRequestButton candidateId={candidateId} candidateName={candidateName} jobId={jobId} />
+                {state.attached ? (
+                  <ConsentAttachButton
+                    compact
+                    generatedId={state.attached.id}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                ) : (
+                  // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
+                  // dokumentu generatora — zgoda idzie na CV etapu.
+                  <ConsentAttachButton
+                    compact
+                    stageCopy={{ candidateId, stageId: cvStageId }}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        ) : null;
+
   const original = originalQuery.data;
   return (
     <section
@@ -1285,6 +1296,7 @@ export function CvToClientCard({
       className="space-y-3 rounded-xl border border-border bg-card p-3"
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
+      {consentFrame}
       {confirmDialog}
       {cvUpload.confirmDialog}
       <NewCvProgress candidateId={candidateId} jobId={jobId} readOnly={!canUploadCv} />
