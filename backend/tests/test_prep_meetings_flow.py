@@ -1410,3 +1410,93 @@ async def test_prep_for_a_slot_awaiting_dl_names_the_chosen_interview_term(
     )
     assert late.status_code == 201, late.text
     assert "Termin rozmowy" not in graph.created[-1][1]["body"]["content"]
+
+
+async def _suggestions(client: AsyncClient, headers, job_id, cand_id, **params):
+    return await client.get(
+        "/api/interview-cycle/preps/suggestions",
+        headers=headers,
+        params={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "interview_start": _at(72),
+            **params,
+        },
+    )
+
+
+async def test_suggestions_use_the_length_chosen_for_each_prep(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Czas prepu wybrany w „Umów rozmowę i prepy” (05.11.2026): godziny
+    liczą się dla tej długości, osobno dla Prepu 1 i Prepu 2."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+
+    default = await _suggestions(app_client, rec_h, job_id, cand_id)
+    assert default.status_code == 200, default.text
+    assert [p["minutes"] for p in default.json()["preps"]] == [45, 45]
+
+    chosen = await _suggestions(
+        app_client, rec_h, job_id, cand_id, prep1_minutes=90, prep2_minutes=30
+    )
+    assert chosen.status_code == 200, chosen.text
+    prep1, prep2 = chosen.json()["preps"]
+    assert (prep1["minutes"], prep2["minutes"]) == (90, 30)
+
+    def lengths(prep: dict) -> set[int]:
+        return {
+            int(
+                (
+                    datetime.fromisoformat(o["end"])
+                    - datetime.fromisoformat(o["start"])
+                ).total_seconds()
+                // 60
+            )
+            for o in prep["options"]
+        }
+
+    assert lengths(prep1) == {90}
+    assert lengths(prep2) == {30}
+
+
+@pytest.mark.parametrize("field", ["prep1_minutes", "prep2_minutes"])
+async def test_suggestions_refuse_a_length_outside_the_list(
+    app_client: AsyncClient, graph: FakeGraph, field: str
+):
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+
+    response = await _suggestions(app_client, rec_h, job_id, cand_id, **{field: 50})
+    assert response.status_code == 422, response.text
+
+
+async def test_suggestions_report_the_real_length_of_a_scheduled_prep(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Do 05.11.2026 odpowiedź podawała 45 min także dla prepu 30-minutowego,
+    a okno liczyło z tego kolizję z drugim prepem."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=24)
+    created = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=start.isoformat(),
+        end=(start + timedelta(minutes=30)).isoformat(),
+    )
+    assert created.status_code == 201, created.text
+
+    response = await _suggestions(app_client, rec_h, job_id, cand_id, prep1_minutes=90)
+    assert response.status_code == 200, response.text
+    prep1 = response.json()["preps"][0]
+    assert prep1["scheduled_start"] is not None
+    assert prep1["minutes"] == 30
+    assert prep1["options"] == []

@@ -40,6 +40,7 @@ from app.services.cv_common_words import is_common_cv_word, only_common_cv_words
 from app.services.cv_enrichment import (
     _CV_PLACEHOLDER_NAMES,
     _apply_cv_contact_fields,
+    name_part_for_profile,
     _apply_cv_enrichment,
 )
 from app.services.ai_models import model_for
@@ -100,7 +101,7 @@ def name_from_filename(filename: Optional[str]) -> tuple[Optional[str], Optional
     Conservative by design — only returns a name when exactly two clean tokens
     survive noise filtering, or a single camelCase blob splits cleanly into two.
     Returns ``(None, None)`` for ambiguous filenames (e.g. "CV_fin.pdf") rather
-    than guessing garbage. Used only as a fallback when CV parsing finds no name.
+    than guessing garbage. Used only as a fallback for a file without text.
     """
     if not filename:
         return None, None
@@ -169,8 +170,8 @@ async def enrich_candidate_from_cv_bytes(
     """Core: text-extract + parse a CV blob and fold it into ``candidate``.
 
     Does NOT commit — the caller owns the transaction. Never raises on
-    extraction/parse failure: those degrade to the filename fallback so a
-    nameless row can still be partially resolved. The one exception is
+    extraction/parse failure. A file without text falls back to the filename, so
+    a nameless row can still be partially resolved. The one exception is
     ``AIQuotaExceeded`` — the run's quota brake, not a broken CV.
     """
     result: dict[str, Any] = {
@@ -215,7 +216,7 @@ async def enrich_candidate_from_cv_bytes(
         try:
             parsed = await _parse_cv_for_names(db, raw_text, prefer_llm=prefer_llm)
             result["parsed"] = True
-            if parsed.get("first_name"):
+            if name_part_for_profile(parsed, "first_name"):
                 result["name_source"] = "cv"
         except AIQuotaExceeded:
             # Hamulec BIEGU, nie zepsute CV: `backfill_missing_names` zatrzymuje
@@ -225,8 +226,12 @@ async def enrich_candidate_from_cv_bytes(
         except Exception as e:  # noqa: BLE001 — parse is best-effort
             logger.warning("[cv_backfill] parse_cv failed cand=%s: %s", candidate.id, e)
 
-    # Fallback: derive the name from the filename when the CV gave us nothing.
-    if not (parsed.get("first_name") and parsed.get("last_name")):
+    # Nazwa z pliku tylko przy pliku bez tekstu: tu model nie miał czego
+    # przeczytać. Gdy tekst jest, a nazwy brak, profil zostaje z wypełniaczem
+    # (05.11.2026: nazwa z pliku jest obca w 12% plików, w których model ją zna).
+    if not result["text_extracted"] and not (
+        parsed.get("first_name") and parsed.get("last_name")
+    ):
         f_first, f_last = name_from_filename(filename)
         if f_first and not parsed.get("first_name"):
             parsed["first_name"] = f_first
@@ -330,14 +335,34 @@ async def _identity_quarantined(
         source_id=document_id if document_id is not None else candidate.id,
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
+        observed_phone=parsed.get("phone"),
         provenance="cv_parser:backfill",
         observed_name_from_header=bool(parsed.get("_name_from_header")),
     )
     return review.is_quarantined, document_id
 
 
+def _stored_name_is_from_model(extracted: dict[str, Any]) -> bool:
+    """Czy nazwę w zapisanym odczycie podał model, a nie reguła nagłówka CV.
+
+    Znacznik `_name_from_header` istnieje od 05.11.2026. W starszych odczytach
+    dowodem jest wyłącznie pewność powyżej 0,6 przy obu częściach: reguła stempluje
+    0,6, a model ocenia też puste pola, więc 0,0 przy nazwie to pole wypełnione
+    kodem. Tekst CV tego nie rozstrzyga, bo nazwa z nagłówka zawsze w nim jest.
+    """
+    if extracted.get("_name_from_header"):
+        return False
+    confidence = extracted.get("_confidence")
+    if not isinstance(confidence, dict):
+        return False
+    return all(
+        isinstance(value, (int, float)) and value > 0.6
+        for value in (confidence.get("first_name"), confidence.get("last_name"))
+    )
+
+
 def _names_from_stored_read(candidate: Candidate) -> dict[str, str]:
-    """Imię i nazwisko z zapisanego odczytu, gdy nazwisko jest w tekście CV.
+    """Imię i nazwisko z zapisanego odczytu modelu, gdy nazwisko jest w tekście CV.
 
     Model przeczytał plik i zna nazwę, ale kolumna nadal ma wypełniacz: pomiar
     05.11.2026, 287 profili z `?`, z czego u 12 nazwiska z odczytu nie ma w
@@ -348,7 +373,7 @@ def _names_from_stored_read(candidate: Candidate) -> dict[str, str]:
     from app.services.candidate_identity_quarantine import normalize_person_name_part
 
     extracted = candidate.cv_extracted_data
-    if not isinstance(extracted, dict):
+    if not isinstance(extracted, dict) or not _stored_name_is_from_model(extracted):
         return {}
     first = str(extracted.get("first_name") or "").strip()
     last = str(extracted.get("last_name") or "").strip()
