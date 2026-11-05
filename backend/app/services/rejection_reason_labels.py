@@ -34,6 +34,10 @@ RATE_TOO_HIGH_REJECTED = "Za wysokie oczekiwania finansowe"
 SALARY_MISMATCH = "salary_mismatch"
 RATE_TOO_HIGH = frozenset({RATE_TOO_HIGH_REJECTED, SALARY_MISMATCH})
 
+# „Zatrudniony gdzie indziej” (04.11.2026): ruch zapisuje w profilu „Nie szuka”
+# na 3 miesiące (`autofill_feedback.mark_employed_elsewhere`).
+EMPLOYED_ELSEWHERE = "Zatrudniony gdzie indziej"
+
 # Sześć powodów, które zespół wpisywał ręcznie pod „Inne” (04.11.2026, migracja
 # 0646). Które pokazać przy którym „Kto kończy?”, decyduje okno
 # (`reasonFitsEndedBy` na froncie). Nie wymagają opisu i nie są werdyktem o osobie.
