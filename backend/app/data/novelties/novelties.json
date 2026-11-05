@@ -2,12 +2,12 @@
   {
     "id": "zespol-odpowiedz-i-soczewka",
     "title": "Zakładka Zespół: od razu widać, jak idzie, gdzie stoi i kto",
-    "why": "Na górze zdanie z odpowiedzią i tempo wobec celu. Niżej etapy lejka: klik w etap pokazuje jego wykres tydzień po tygodniu albo miesiącami, przejście z poprzedniego etapu i osoby. Na dole wszyscy w jednej linii, od razu widać, kto jak daleko doszedł.",
+    "why": "Na górze zdanie z odpowiedzią i tempo wobec celu. Klik w etap lejka pokazuje jego wykres tygodniami albo miesiącami i osoby. Na dole wszyscy w jednej linii, kto jak daleko doszedł.",
     "tier": "dot",
     "shipped_on": "2026-11-05",
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Insights → Zespół",
-    "href": "/insights?tab=zespol",
+    "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.team-lens"
   },
