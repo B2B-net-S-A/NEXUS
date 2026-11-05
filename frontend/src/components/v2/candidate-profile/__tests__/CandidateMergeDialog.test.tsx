@@ -28,6 +28,7 @@ const plan: MergePlan = {
   conflicts: 1,
   blockers: [],
   primary_cv: { before: null, after: null, changes: false },
+  cards: [],
   can_apply: true,
   fingerprint: "f".repeat(64),
 };
@@ -58,6 +59,41 @@ describe("candidate merge helpers", () => {
 });
 
 describe("MergePlanView", () => {
+  it("shows which stage stays on a card shared by both profiles", () => {
+    render(
+      <MergePlanView
+        plan={{
+          ...plan,
+          references: [{ table: "recruitment_processes", column: "candidate_id", rows: 1, conflicts: 1, unresolvable: false }],
+          cards: [
+            {
+              job_id: 7,
+              job_title: "Analityk danych",
+              survivor_stage: "cv_sent",
+              survivor_stage_name: "CV Wysłane",
+              duplicate_stage: "screening",
+              duplicate_stage_name: "Screening",
+              result_stage: "cv_sent",
+              result_stage_name: "CV Wysłane",
+              kept: "survivor",
+              restores: true,
+            },
+          ],
+        }}
+        choices={{}}
+        onChoose={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Analityk danych").closest("li");
+    expect(row).toHaveTextContent("Analityk danych: zostaje CV Wysłane (ten profil: CV Wysłane, duplikat: Screening)");
+    expect(screen.getByText(/zostaje proces karty/)).toBeInTheDocument();
+  });
+
+  it("hides the cards section when no recruitment is shared", () => {
+    render(<MergePlanView plan={plan} choices={{}} onChoose={vi.fn()} />);
+    expect(screen.queryByText("Karty w rekrutacjach obu profili")).not.toBeInTheDocument();
+  });
+
   it("renders conflict radios, counters and duplicate-row note", () => {
     const onChoose = vi.fn();
     render(<MergePlanView plan={plan} choices={{}} onChoose={onChoose} />);
