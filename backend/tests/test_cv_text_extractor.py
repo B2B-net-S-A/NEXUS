@@ -228,6 +228,191 @@ def test_zip_that_is_not_word_is_not_called_docx():
         os.unlink(path)
 
 
+# ── ODT ───────────────────────────────────────────────────────────────────────
+
+_ODT_MIME = "application/vnd.oasis.opendocument.text"
+_ODT_NS = (
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+    'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+    'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+    'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"'
+)
+
+
+def _odt_bytes(body: str, *, mime: str = _ODT_MIME, prolog: str = "") -> bytes:
+    import io
+    import zipfile
+
+    content = (
+        f"{prolog}<office:document-content {_ODT_NS}><office:body><office:text>"
+        f"{body}</office:text></office:body></office:document-content>"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mimetype", mime)
+        zf.writestr("content.xml", content)
+    return buf.getvalue()
+
+
+def _read_odt(data: bytes, name: str = "cv.odt", suffix: str = ".odt") -> str:
+    from app.services import cv_text_extractor as cte
+
+    path = _write(suffix, data)
+    try:
+        return cte.extract_text(path, name)
+    finally:
+        os.unlink(path)
+
+
+def test_odt_text_comes_from_content_xml():
+    text = _read_odt(
+        _odt_bytes(
+            "<text:h>Jan Testowy</text:h>"
+            "<text:p>Programista<text:s/>"
+            "<text:span>Python</text:span><text:tab/>Łódź<text:line-break/>"
+            "od 2020</text:p>"
+            "<text:list><text:list-item><text:p>Kubernetes</text:p>"
+            "</text:list-item></text:list>"
+            "<table:table><table:table-row><table:table-cell>"
+            "<text:p>Firma Przykładowa</text:p>"
+            "</table:table-cell></table:table-row></table:table>"
+        )
+    )
+    assert text.splitlines() == [
+        "Jan Testowy",
+        "Programista Python Łódź",
+        "od 2020",
+        "Kubernetes",
+        "Firma Przykładowa",
+    ]
+
+
+def test_odt_reads_text_boxes_and_keeps_words_apart():
+    text = _read_odt(
+        _odt_bytes(
+            "<text:p>przed<draw:frame><svg:title>opis obrazka</svg:title>"
+            "<draw:text-box><text:p>w ramce</text:p></draw:text-box></draw:frame>"
+            "po</text:p>"
+        )
+    )
+    assert text.splitlines() == ["przed", "w ramce", "po"]
+
+
+def test_odt_skips_what_is_not_visible_in_the_document():
+    """Usunięty tekst ze śledzenia zmian i komentarze nie są treścią CV."""
+    text = _read_odt(
+        _odt_bytes(
+            "<text:tracked-changes><text:changed-region><text:deletion>"
+            "<text:p>usunięte</text:p></text:deletion></text:changed-region>"
+            "</text:tracked-changes>"
+            "<text:p>widoczne<office:annotation><text:p>komentarz</text:p>"
+            "</office:annotation> dalej</text:p>"
+        )
+    )
+    assert text == "widoczne dalej"
+
+
+def test_odt_without_mimetype_is_read_by_its_name():
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "content.xml",
+            f"<office:document-content {_ODT_NS}><office:body><office:text>"
+            "<text:p>Tekst CV</text:p></office:text></office:body>"
+            "</office:document-content>",
+        )
+    assert _read_odt(buf.getvalue()) == "Tekst CV"
+
+
+def test_odt_saved_under_another_name_is_read_from_its_bytes():
+    from app.services import cv_text_extractor as cte
+
+    data = _odt_bytes("<text:p>Tekst CV</text:p>")
+    assert cte.sniff_extension_bytes(data) == ".odt"
+    path = _write(".docx", data)
+    try:
+        assert cte.sniff_extension(path) == ".odt"
+        assert cte.extract_text(path, "cv.docx") == "Tekst CV"
+    finally:
+        os.unlink(path)
+
+
+def test_other_opendocument_formats_are_not_odt():
+    from app.services import cv_text_extractor as cte
+
+    data = _odt_bytes(
+        "<text:p>arkusz</text:p>",
+        mime="application/vnd.oasis.opendocument.spreadsheet",
+    )
+    assert cte.sniff_extension_bytes(data) is None
+
+
+def test_odt_runs_in_the_worker_process(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    calls: list[str] = []
+
+    def _fake_worker(op, _path, **_kwargs):
+        calls.append(op)
+        return None
+
+    monkeypatch.setattr(cte, "_run_pdf_worker", _fake_worker)
+    assert _read_odt(_odt_bytes("<text:p>Tekst CV</text:p>")) == ""
+    assert calls == ["odt"]
+
+
+def test_odt_over_the_unpacked_limit_is_not_parsed(monkeypatch):
+    """Plik ma kilkanaście KB, a `content.xml` rozwija się ponad limit."""
+    from app.services import cv_text_extractor as cte
+    from app.core.zip_guard import MAX_XML_PART_UNCOMPRESSED
+
+    data = _odt_bytes("<text:p>" + "a" * (MAX_XML_PART_UNCOMPRESSED + 1) + "</text:p>")
+    assert len(data) < 100 * 1024
+    assert _read_odt(data) == ""
+
+    def _no_parse(*_args, **_kwargs):
+        raise AssertionError("content.xml nie powinien dojść do parsera")
+
+    monkeypatch.setattr(cte, "_odf_parse", _no_parse)
+    path = _write(".odt", data)
+    try:
+        assert cte._worker_odt(path) is None
+    finally:
+        os.unlink(path)
+
+
+def test_odt_entities_are_not_expanded(tmp_path):
+    """Ani „miliard śmiechów”, ani odczyt pliku z dysku przez encję zewnętrzną."""
+    secret = tmp_path / "sekret.txt"
+    secret.write_text("TAJNE", encoding="utf-8")
+    laughs = "".join(f'<!ENTITY lol{i} "{f"&lol{i - 1};" * 10}">' for i in range(1, 10))
+    prolog = (
+        '<?xml version="1.0"?><!DOCTYPE office:document-content ['
+        f'<!ENTITY lol0 "lol">{laughs}'
+        f'<!ENTITY plik SYSTEM "file://{secret}">]>'
+    )
+    text = _read_odt(
+        _odt_bytes("<text:p>start&lol9;&plik;koniec</text:p>", prolog=prolog)
+    )
+    assert "TAJNE" not in text
+    assert "lol" not in text
+
+
+def test_broken_odt_gives_empty_text_not_an_exception():
+    assert _read_odt(_odt_bytes("<text:p>bez domknięcia")) == ""
+    assert _read_odt(b"PK\x03\x04 to nie jest archiwum") == ""
+
+
+def test_backfill_keeps_the_odt_suffix_of_the_temp_file():
+    from app.services.cv_text_backfill import _extension_of
+
+    assert _extension_of("cv.ODT", "stage-cv/1/abc") == ".odt"
+
+
 # ── Sklejony tekst (słowa bez przerw) ─────────────────────────────────────────
 
 _GLUED = "ledtheqainitiativeandthedevelopmentofunittestingtoolforcobolprograms " * 8

@@ -234,7 +234,16 @@ _PDF_WORKER_MAX_CHARS = 2_000_000
 _BACKEND_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages", "word")
+_WORKER_OPS = (
+    "pdf",
+    "native",
+    "pdfminer",
+    "pages",
+    "words",
+    "all_pages",
+    "word",
+    "odt",
+)
 #: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
 _PDF_WORKER_MAX_WORDS = 50_000
 
@@ -512,6 +521,8 @@ def _worker_main(argv: list[str]) -> int:
         payload = _worker_all_pages(path)
     elif op == "word":
         payload["text"] = _worker_word(path)
+    elif op == "odt":
+        payload["text"] = _worker_odt(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
@@ -629,6 +640,89 @@ def _extract_docx(path: str) -> Optional[str]:
         return None
 
 
+_ODF_OFFICE = "{urn:oasis:names:tc:opendocument:xmlns:office:1.0}"
+_ODF_TEXT = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+_ODF_PARAGRAPHS = frozenset({f"{_ODF_TEXT}p", f"{_ODF_TEXT}h"})
+#: `text:s` niesie liczbę spacji z pliku, a `_normalize` i tak zwija je do jednej,
+#: więc liczba z pliku nie steruje kosztem odczytu.
+_ODF_INLINE_BREAKS = {
+    f"{_ODF_TEXT}s": " ",
+    f"{_ODF_TEXT}tab": "\t",
+    f"{_ODF_TEXT}line-break": "\n",
+}
+#: Usunięty tekst ze śledzenia zmian i komentarze: w pliku są, w dokumencie nie.
+_ODF_NOT_CONTENT = frozenset(
+    {f"{_ODF_TEXT}tracked-changes", f"{_ODF_OFFICE}annotation"}
+)
+
+
+def _odf_parse(content: bytes):
+    # Plik od kandydata: bez DTD, encji i sieci, jak `hr/bank/camt053.py`.
+    from lxml import etree
+
+    return etree.fromstring(
+        content,
+        etree.XMLParser(
+            resolve_entities=False,
+            no_network=True,
+            load_dtd=False,
+            huge_tree=False,
+            remove_comments=True,
+            remove_pis=True,
+        ),
+    )
+
+
+def _odf_collect(element, out: list[str], in_paragraph: bool = False) -> None:
+    """Tekst akapitów z poddrzewa. Poza `text:p` i `text:h` tekstu nie bierzemy,
+    bo leżą tam opisy obrazków i wzorce spisu treści."""
+    if in_paragraph and element.text:
+        out.append(element.text)
+    for child in element:
+        tag = child.tag
+        # Encja zostaje w drzewie jako węzeł bez nazwy; tekst po niej jest treścią.
+        if isinstance(tag, str) and tag not in _ODF_NOT_CONTENT:
+            if tag in _ODF_PARAGRAPHS:
+                out.append("\n")
+                _odf_collect(child, out, True)
+                out.append("\n")
+            elif tag in _ODF_INLINE_BREAKS:
+                out.append(_ODF_INLINE_BREAKS[tag])
+            else:
+                _odf_collect(child, out, in_paragraph and tag.startswith(_ODF_TEXT))
+        if in_paragraph and child.tail:
+            out.append(child.tail)
+
+
+def _worker_odt(path: str) -> Optional[str]:
+    """ODT: tekst z `content.xml`, w procesie odczytu, bo drzewo XML buduje się
+    z pliku od kandydata. Limit rozpakowanego rozmiaru daje `assert_safe_ooxml`."""
+    try:
+        import zipfile
+
+        from app.core.zip_guard import assert_safe_ooxml
+
+        assert_safe_ooxml(path)
+        with zipfile.ZipFile(path) as archive:
+            root = _odf_parse(archive.read("content.xml"))
+        parts: list[str] = []
+        _odf_collect(root.find(f"{_ODF_OFFICE}body"), parts)
+        return "\n".join(line for line in "".join(parts).splitlines() if line.strip())
+    except Exception as e:  # noqa: BLE001 — wynik best-effort
+        logger.warning(
+            "[cv_text_extractor] ODT read failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+
+
+def _extract_odt(path: str) -> Optional[str]:
+    result = _run_pdf_worker("odt", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
 def _extract_txt(path: str) -> Optional[str]:
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -654,12 +748,26 @@ def _declared_extension(file_path: str, filename: str) -> str:
 _PDF_MAGIC = b"%PDF-"
 _ZIP_MAGIC = b"PK\x03\x04"
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_ODT_MIMETYPE = b"application/vnd.oasis.opendocument.text"
 # PDF allows junk before the header; readers look within the first 1 KB.
 _SNIFF_BYTES = 1024
 
 
+def _zip_document_extension(archive) -> Optional[str]:
+    """``.docx`` albo ``.odt`` po zawartości archiwum; xlsx, pages czy arkusz ODS
+    to też ZIP, ale nie dokument tekstowy."""
+    names = archive.namelist()
+    if "word/document.xml" in names:
+        return ".docx"
+    if "mimetype" in names:
+        with archive.open("mimetype") as handle:
+            if handle.read(len(_ODT_MIMETYPE) + 1) == _ODT_MIMETYPE:
+                return ".odt"
+    return None
+
+
 def sniff_extension(file_path: str) -> Optional[str]:
-    """Real format from the file's first bytes: ``.pdf``, ``.docx``, ``.doc``.
+    """Real format from the file's first bytes: ``.pdf``, ``.docx``, ``.odt``, ``.doc``.
 
     The NAME lies. Measured on prod 2026-09-22: 3 320 Traffit CVs named
     ``*.docx`` are PDFs inside (Traffit serves its converted copy under the
@@ -680,11 +788,9 @@ def sniff_extension(file_path: str) -> Optional[str]:
             import zipfile
 
             with zipfile.ZipFile(file_path) as zf:
-                if "word/document.xml" in zf.namelist():
-                    return ".docx"
+                return _zip_document_extension(zf)
         except Exception:  # noqa: BLE001 — broken zip = unknown format
             return None
-        return None  # odt/xlsx/pages — a zip, but not a Word document
     if _PDF_MAGIC in head:
         return ".pdf"
     return None
@@ -706,11 +812,9 @@ def sniff_extension_bytes(data: bytes) -> Optional[str]:
             import zipfile
 
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                if "word/document.xml" in zf.namelist():
-                    return ".docx"
+                return _zip_document_extension(zf)
         except Exception:  # noqa: BLE001 — broken zip = unknown format
             return None
-        return None
     if _PDF_MAGIC in head:
         return ".pdf"
     return None
@@ -753,9 +857,9 @@ def extract_text(file_path: str, filename: str) -> str:
     Raises
     ------
     UnsupportedCvFormat
-        If the format is not one of: .pdf, .docx, .doc, .txt. The format comes
-        from the file's first bytes when they carry a known signature, so a PDF
-        saved as ``cv.docx`` (or ``cv.odt``) is read as a PDF.
+        If the format is not one of: .pdf, .docx, .doc, .odt, .txt. The format
+        comes from the file's first bytes when they carry a known signature, so
+        a PDF saved as ``cv.docx`` (or ``cv.odt``) is read as a PDF.
     """
     ext = _resolve_extension(file_path, filename)
 
@@ -763,12 +867,14 @@ def extract_text(file_path: str, filename: str) -> str:
         raw = _extract_pdf(file_path)
     elif ext in (".docx", ".doc"):
         raw = _extract_word(file_path)
+    elif ext == ".odt":
+        raw = _extract_odt(file_path)
     elif ext == ".txt":
         raw = _extract_txt(file_path)
     else:
         raise UnsupportedCvFormat(
             f"Unsupported CV format: {ext!r} (filename={filename!r}). "
-            "Supported: .pdf, .docx, .doc, .txt"
+            "Supported: .pdf, .docx, .doc, .odt, .txt"
         )
 
     return _normalize(raw or "")
