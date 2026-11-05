@@ -120,6 +120,9 @@ _CONTRACTS = (
     _T.b2b_signature_requested,
     # Umowę Twojej osoby wygenerował ktoś inny — wyślij ją i pilnuj podpisu.
     _T.b2b_agreement_ready,
+    # Brakuje dokumentów do startu osoby (0649).
+    _T.start_documents,
+    _T.start_documents_due,
 )
 
 

@@ -128,6 +128,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.b2b_signature_requested: _C.mentions,
     # Ktoś wygenerował umowę Twojej osoby — wyślij ją i pilnuj podpisu (0524).
     _T.b2b_agreement_ready: _C.mentions,
+    # Rekruter i DL mają dokończyć dokumenty osoby — imienne zadanie (0649).
+    _T.start_documents: _C.mentions,
+    _T.start_documents_due: _C.mentions,
     # 0506: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
     # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
     _T.pre_contract: _C.mentions,

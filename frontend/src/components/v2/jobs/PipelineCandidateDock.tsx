@@ -146,6 +146,7 @@ import {
 import { useCvQc, type QcResult } from "@/lib/api/cvQc";
 import { formatClientRate } from "@/lib/board-card-badges";
 import { CONTRACT_PANEL_STAGES, DockContractSteps } from "@/components/v2/jobs/DockContractSteps";
+import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { countForm, qcWarningsText } from "@/lib/cv-qc";
 import {
   acceptanceLine,
@@ -2216,6 +2217,10 @@ export function PipelineCandidateDock({
             )}
             {/* 04.10.2026: sekcja stoi też poza „Umową” i „Zatrudnionym”, gdy para
                 ma już umowę w Generatorze (wygenerowaną po rozmowie u klienta). */}
+            {/* 0649: nad umową, bo to ona bywa już na zielono, a klient czeka na resztę. */}
+            {CONTRACT_PANEL_STAGES.has(item.stage ?? "") && (
+              <StartDocsCard candidateId={item.candidate_id} jobId={jobId} />
+            )}
             {(CONTRACT_PANEL_STAGES.has(item.stage ?? "") || item.agreement) && (
               <DockContractSteps
                 candidateId={item.candidate_id}

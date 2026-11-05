@@ -210,6 +210,9 @@ class NotificationType(str, enum.Enum):
     # kandydata w rekrutacji — dzwonek do prowadzącego (placement, premia
     # i pilnowanie podpisu są jego); related_entity=(b2b_generated_contract, id).
     b2b_agreement_ready = "b2b_agreement_ready"
+    # 0649: dokumenty do startu. `_due` idzie też mailem (blisko startu albo po terminie).
+    start_documents = "start_documents"
+    start_documents_due = "start_documents_due"
     # 0418: zmiana stawki kandydata w procesie (od „Zweryfikowany”) — informacja
     # dla DL, Head of Recruitment i rekrutera kandydata; related_entity=
     # (candidate_rate_change, id).

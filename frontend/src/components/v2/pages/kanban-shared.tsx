@@ -16,6 +16,7 @@
 
 import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
+import type { CardStartDocs } from "@/lib/api/start-documents";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { CardAgreement } from "@/lib/b2b-agreement";
 import type { ClientAcceptanceBadge } from "@/lib/client-acceptance";
@@ -344,6 +345,8 @@ export interface KanbanItem {
  client_acceptance?: ClientAcceptanceBadge | null;
  /** 0506: umowa przedwstępna pary — plakietka z serwera (`services/pre_contracts.badge`). */
  pre_contract?: CardPreContract | null;
+ /** 0649: dokumenty do startu pary (`services/start_documents.card_badges`). */
+ start_docs?: CardStartDocs | null;
  // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni i kiedy
  // (liczone dla OSOBY, ze wszystkimi jej procesami).
  followup?: FollowupCardBadge | null;

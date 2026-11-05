@@ -14,6 +14,10 @@ import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-
 import { MY_NOTIFICATIONS_SETTINGS_HREF } from "@/lib/notification-topics";
 import { cn } from "@/lib/utils";
 import { useRealtimeStatus } from "@/store/realtime";
+import {
+  StartDocsTopbarBlock,
+  useStartDocsCount,
+} from "@/components/v2/start-docs/StartDocsTasks";
 
 function countLabel(n: number): string {
   return n > 99 ? "99+" : String(n);
@@ -168,12 +172,15 @@ export interface ContractsTopbarButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   unreadContracts: number;
   open: boolean;
+  /** Osoby bez dokumentów do startu: czerwona liczba, której nie da się odkliknąć. */
+  startDocs?: number;
 }
 
 /** Ikona „Umowy” w górnym pasku — dokument z piórem, jak pas podpisu na pulpicie. */
 export function ContractsTopbarButton({
   unreadContracts,
   open,
+  startDocs = 0,
   className,
   ref,
   ...props
@@ -182,8 +189,14 @@ export function ContractsTopbarButton({
     <button
       ref={ref}
       type="button"
-      aria-label={unreadContracts > 0 ? `Umowy — z nowościami: ${unreadContracts}` : "Umowy"}
-      title="Umowy — w podpisie i do potwierdzenia"
+      aria-label={
+        startDocs > 0
+          ? `Umowy — brakujące dokumenty do startu: ${startDocs}`
+          : unreadContracts > 0
+            ? `Umowy — z nowościami: ${unreadContracts}`
+            : "Umowy"
+      }
+      title="Umowy — w podpisie, do potwierdzenia i dokumenty do startu"
       className={cn(
         "relative rounded-lg p-2 transition-colors",
         open
@@ -194,9 +207,16 @@ export function ContractsTopbarButton({
       {...props}
     >
       <FileSignature className="h-5 w-5" aria-hidden />
-      {unreadContracts > 0 ? (
-        <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-primary-foreground tabular-nums">
-          {countLabel(unreadContracts)}
+      {unreadContracts + startDocs > 0 ? (
+        <span
+          className={cn(
+            "absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-xs font-bold tabular-nums",
+            startDocs > 0
+              ? "bg-destructive text-destructive-foreground"
+              : "bg-primary text-primary-foreground",
+          )}
+        >
+          {countLabel(unreadContracts + startDocs)}
         </span>
       ) : null}
     </button>
@@ -217,6 +237,7 @@ export function ContractsNotificationsDropdown() {
 
   const threads = threadsQuery.data?.items ?? [];
   const unreadContracts = threadsQuery.data?.unread_contracts ?? 0;
+  const startDocs = useStartDocsCount();
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
@@ -240,9 +261,10 @@ export function ContractsNotificationsDropdown() {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <ContractsTopbarButton unreadContracts={unreadContracts} open={open} />
+        <ContractsTopbarButton unreadContracts={unreadContracts} startDocs={startDocs} open={open} />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 overflow-hidden p-0">
+        <StartDocsTopbarBlock onNavigate={() => onOpenChange(false)} />
         <ContractThreadsPanel
           state={state}
           threads={threads}

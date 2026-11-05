@@ -109,6 +109,7 @@ import {
   AgreementWaitingSection,
   agreementTasksCount,
 } from "./AgreementTasksSection";
+import { StartDocsTasksSection } from "@/components/v2/start-docs/StartDocsTasks";
 import { BoardFlowOthers, BoardFlowSections, flowWorkCount, hasFlowOthers } from "./BoardFlowSections";
 import { DepartedCareSection, departedCareCount } from "./DepartedCareSection";
 import { BOARD_TASKS_ROWS, Section } from "./BoardTasksSection";
@@ -477,6 +478,7 @@ export function BoardTasksPanel({
         />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         <AgreementTasksSection tasks={data.agreements} />
+        <StartDocsTasksSection />
         <RateChangesSection rows={data.rate_changes} />
         {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         <PrepAttentionSection rows={preps} />
