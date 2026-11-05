@@ -1353,7 +1353,7 @@ export function CandidatePreviewPane({
             >
               {stacked ? <PaneHeading>Po ludzku</PaneHeading> : null}
               <PlainBriefBlock jobId={jobId} parts="summary" compact={dual && !cvCollapsed} />
-              <DockCallCheatsheet jobId={jobId} roomy={!dual || cvCollapsed} />
+              <DockCallCheatsheet jobId={jobId} roomy={!dual || cvCollapsed} candidateId={candidateId} />
             </div>
           ) : null}
           {extraTab && shown("extra") ? (

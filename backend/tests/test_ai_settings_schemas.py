@@ -120,6 +120,8 @@ class TestFeatureKeyEnum:
             "requirement_word_hints",
             # 0638: podsumowanie rozmowy z portalu konsultanta.
             "portal_meeting_summary",
+            # 0651: pytania pod CV w ściądze do rozmowy.
+            "cv_call_questions",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

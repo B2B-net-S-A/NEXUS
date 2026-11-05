@@ -65,6 +65,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F41 | requirement_word_hints           | claude-sonnet-5 (z Haiku)|
 | F42 | case_triage                      | claude-sonnet-5 (z Haiku)|
 | F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
+| F44 | cv_call_questions                | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -542,6 +543,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "transkryptu spotkania handlowca dla listy Spotkania: krótkie streszczenie jak "
         "podsumowanie aktywności (F12). Dodatek do transkryptu: handlowiec zawsze ma "
         "pełny tekst, awaria modelu zostawia spotkanie bez podsumowania.",
+    ),
+    AIFeatureKey.cv_call_questions: ModelChoice(
+        default=SONNET_55,
+        env_vars=("CV_CALL_QUESTIONS_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F44 (decyzja Artura 05.11.2026, POZA badaniem 16.09). Pytania pod CV "
+        "w ściądze do rozmowy: ten sam model co mapa wymagań (F3). Próba na 5 osobach ze "
+        "stagingu: 3-14 s na osobę. Dodatek do rozmowy: awaria modelu nie zatrzymuje screeningu.",
     ),
 }
 

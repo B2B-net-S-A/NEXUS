@@ -1164,5 +1164,18 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.monthly-races"
+  },
+  {
+    "id": "pytania-pod-cv-w-sciadze",
+    "pr": 3078,
+    "title": "Ściąga podpowiada pytania pod CV",
+    "why": "Do 5 opcjonalnych pytań o wymagania, których nie widać w opisie ról w CV. Odpowiedź wpisz w notatce i podaj nazwę firmy: wtedy CV opisze to w tej roli.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → Nowi albo Screening → Ściąga do rozmowy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cheatsheet.cv-questions"
   }
 ]
