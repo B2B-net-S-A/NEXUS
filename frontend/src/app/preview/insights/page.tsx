@@ -410,12 +410,26 @@ function seeded(): QueryClient {
   const trendWeek = (week_start: string, v: number, r: number, i: number, a: number | null, p: number, partial = false) => ({
     week_start, partial, counts: { verified: v, cv_sent: r, client_interview: i, acceptance: a, hired: p },
   });
-  qc.setQueryData(insightsQueryKeys.weeklyTrend(8), {
+  const trendWeeks = {
     weeks: [
       trendWeek("2026-08-31", 88, 34, 12, null, 4), trendWeek("2026-09-07", 95, 31, 14, null, 5),
       trendWeek("2026-09-14", 91, 36, 13, null, 6), trendWeek("2026-09-21", 104, 29, 11, null, 5),
       trendWeek("2026-09-28", 99, 27, 12, null, 7), trendWeek("2026-10-05", 110, 25, 15, null, 6),
       trendWeek("2026-10-12", 118, 26, 14, 9, 7), trendWeek("2026-10-19", 72, 15, 9, 6, 3, true),
+    ],
+  };
+  // Zakładka czyta 26 tygodni do wykresów i 8 do tabeli liczb.
+  qc.setQueryData(insightsQueryKeys.weeklyTrend(26), trendWeeks);
+  qc.setQueryData(insightsQueryKeys.weeklyTrend(8), trendWeeks);
+  const trendMonth = (month_start: string, verified: number, cv_sent: number, client_interview: number, acceptance: number | null, hired: number, partial = false) => ({
+    month_start, partial, cutover_counts: null,
+    counts: { verified, cv_sent, client_interview, acceptance, hired },
+  });
+  qc.setQueryData(insightsQueryKeys.monthlyTrend(12), {
+    months: [
+      trendMonth("2026-07-01", 420, 150, 55, null, 22), trendMonth("2026-08-01", 390, 140, 48, null, 19),
+      trendMonth("2026-09-01", 410, 128, 52, null, 25), trendMonth("2026-10-01", 440, 131, 60, 18, 24),
+      trendMonth("2026-11-01", 72, 15, 9, 6, 3, true),
     ],
   });
   qc.setQueryData(["insights", "recruitment", "funnel", CURRENT_MONTH], monthFunnel);

@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  insightsApi,
   insightsBoardApi,
   insightsQueryKeys,
   type InsightsPeriodParams,
@@ -28,7 +28,7 @@ import {
   type DlLeadSortKey,
   type TeamPeopleSortKey,
 } from "@/lib/insights-people-table";
-import { reportHref, type ReportId } from "@/lib/insights-reports";
+import { reportHref } from "@/lib/insights-reports";
 import {
   insightsTeamSignalsApi,
   insightsTeamSignalsQueryKeys,
@@ -36,13 +36,16 @@ import {
   type TeamPeopleRow,
 } from "@/lib/insights-team-api";
 import {
+  groupedPeople,
+  personGroup,
+  TEAM_STAGES,
+  worstColumn,
+} from "@/lib/insights-team-view";
+import {
   countDelta,
   DL_HIT_RATIO_PORTFOLIO_NOTE,
   isPeopleRowWorthShowing,
-  previousComparablePeriod,
 } from "@/lib/insights-views";
-import { hasSectionAccess } from "@/lib/section-access";
-import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
@@ -67,10 +70,10 @@ import {
   type WhoCountsMetric,
 } from "@/lib/kpi-who-counts";
 import { useUrlWriter } from "@/lib/url-selection";
-import { TeamFunnelPanel } from "./team/TeamFunnelPanel";
-import { TeamGoalsPanel } from "./team/TeamGoalsPanel";
-import { WeeklyTrendPanel } from "./team/WeeklyTrendPanel";
-import { Panel, PanelLoading, ViewHeader } from "./ViewKit";
+import { TeamAnswer } from "./team/TeamAnswer";
+import { TeamStageLens } from "./team/TeamStageLens";
+import { useTeamViewData } from "./team/useTeamViewData";
+import { PanelLoading } from "./ViewKit";
 
 export const ZESPOL_DEFAULT_PERIOD: InsightsPeriodParams = {
   period: "month",
@@ -88,118 +91,46 @@ export const ZESPOL_DL_PERIOD: InsightsPeriodParams = {
   offset: 0,
 };
 
-/** Akceptacja stojąca dłużej niż tyle dni trafia do „Do uwagi”. */
-const ACCEPTANCE_ATTENTION_DAYS = 14;
-
 /**
- * Zespół — „Jak idzie zespołowi?” (v3, 22.10.2026).
+ * Zespół — „Jak idzie zespołowi?” (v4, 05.11.2026): odpowiedź, tempo i sprawy na
+ * dziś, potem soczewka etapu z wykresami, na końcu mapa osób.
  *
- * Każdy widzi: cele zespołu (sumy), lejek w okresie z „stoi dziś” i ostatnie
- * tygodnie. Tabelę ludzi i „Do uwagi” — role z `view_team_kpi` (HoR, Delivery
- * Lead, TCM, Finanse, admin, Rada): to imienne wyniki cudzej pracy. Bez kwot.
+ * Każdy widzi odpowiedź, tempo i soczewkę bez nazwisk. Osoby i sygnały — role
+ * z `view_team_kpi` (HoR, Delivery Lead, TCM, Finanse, admin, Rada): to imienne
+ * wyniki cudzej pracy. Bez kwot.
  */
 export function ZespolView() {
   const user = useAuthStore((state) => state.user);
   const seesTeam =
     hasRole(user, "admin") || hasAnalyticsCapability(user, "view_team_kpi");
   const { period, setPeriod } = useInsightsPeriod(ZESPOL_DEFAULT_PERIOD);
-  const today = useMemo(() => new Date(), []);
-  const previous = useMemo(
-    () => previousComparablePeriod(period, today),
-    [period, today],
-  );
-
-  const funnelQuery = useQuery({
-    queryKey: ["insights", "recruitment", "funnel", period],
-    queryFn: () => insightsApi.recruitmentFunnel(period),
-  });
-  const previousFunnelQuery = useQuery({
-    queryKey: ["insights", "recruitment", "funnel", previous?.params ?? null],
-    queryFn: () =>
-      insightsApi.recruitmentFunnel(previous!.params as InsightsPeriodParams),
-    enabled: previous !== null,
-  });
-  const inFlightQuery = useQuery({
-    queryKey: insightsQueryKeys.inFlight(),
-    queryFn: () => insightsApi.inFlight(),
-    staleTime: 60 * 1000,
-  });
-
-  const funnel = funnelQuery.data;
-  const viewState = resolveViewState({
-    isLoading: funnelQuery.isPending,
-    isSuccess: funnelQuery.isSuccess,
-    isError: funnelQuery.isError,
-    error: funnelQuery.error,
-  });
-  const staleAcceptances = (inFlightQuery.data?.acceptances ?? []).filter(
-    (a) => a.days > ACCEPTANCE_ATTENTION_DAYS,
-  ).length;
+  const data = useTeamViewData(period, seesTeam);
+  const searchParams = useSearchParams();
+  const worst = worstColumn(data.inFlight);
+  const worstStage = TEAM_STAGES.find((stage) => stage.column === worst?.column);
+  const stallParams = new URLSearchParams(searchParams.toString());
+  if (worstStage) stallParams.set("etap", worstStage.stage);
 
   return (
-    <div className="space-y-6">
-      <ViewHeader
-        question="Jak idzie zespołowi?"
-        lede={previous ? `Porównanie: ${previous.label}.` : undefined}
-        actions={
+    <div className="space-y-5">
+      <TeamAnswer
+        data={data}
+        seesTeam={seesTeam}
+        stallHref={worstStage ? `/insights?${stallParams.toString()}` : null}
+        picker={
           <PeriodPicker
             value={period}
             onChange={setPeriod}
             defaultValue={ZESPOL_DEFAULT_PERIOD}
-            resolved={funnel?.period ?? null}
-            csv={buildFunnelCsvExport(funnel)}
+            resolved={data.funnel.data?.period ?? null}
+            csv={buildFunnelCsvExport(data.funnel.data)}
+            hideCaption
           />
         }
       />
-
-      <TeamGoalsPanel />
-
-      {viewState === "loading" ? (
-        <PanelLoading />
-      ) : isBlockingViewState(viewState) || !funnel ? (
-        <SectionError
-          label="Zespół"
-          error={funnelQuery.error}
-          onRetry={() => void funnelQuery.refetch()}
-        />
-      ) : (
-        <TeamFunnelPanel
-          funnel={funnel}
-          previous={previousFunnelQuery.data}
-          previousLabel={previous?.label}
-          inFlight={inFlightQuery.data}
-          period={period}
-          canOpenList={seesTeam}
-        />
-      )}
-
-      <div
-        className={cn(
-          "grid grid-cols-1 gap-4",
-          seesTeam && "xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]",
-        )}
-      >
-        <WeeklyTrendPanel />
-        {seesTeam ? (
-          <AttentionPanel
-            extra={
-              staleAcceptances > 0
-                ? [
-                    {
-                      kind: "stale_acceptances",
-                      count: staleAcceptances,
-                      label: `akceptacji czeka dłużej niż ${ACCEPTANCE_ATTENTION_DAYS} dni`,
-                      report: "akceptacje-w-toku" as ReportId,
-                    },
-                  ]
-                : []
-            }
-          />
-        ) : null}
-      </div>
-
+      <TeamStageLens data={data} seesTeam={seesTeam} period={period} />
       {seesTeam ? (
-        <PeoplePanel period={period} previousLabel={previous?.label ?? null} />
+        <PeoplePanel period={period} previousLabel={data.previousLabel ?? null} />
       ) : (
         <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
           Wyniki poszczególnych osób widzą liderzy zespołu (Head of Recruitment,
@@ -207,93 +138,6 @@ export function ZespolView() {
         </p>
       )}
     </div>
-  );
-}
-
-function AttentionPanel({
-  extra = [],
-}: {
-  /** Sygnały liczone na froncie (np. akceptacje stojące za długo). */
-  extra?: { kind: string; count: number; label: string; report?: ReportId }[];
-}) {
-  // „Pokaż listę” prowadzi do listy rekrutacji — bez sekcji Pipeline (Rada
-  // nadzorcza, 0490) zostaje odsyłacz do raportu, jeśli sygnał go ma.
-  const canOpenJobs = useAuthStore((s) => hasSectionAccess(s.user, "pipeline"));
-  const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: insightsTeamSignalsQueryKeys.attention(),
-    queryFn: () => insightsTeamSignalsApi.attention(),
-  });
-  return (
-    <Panel title="Do uwagi">
-      {isPending ? (
-        <PanelLoading />
-      ) : isError ? (
-        <SectionError
-          label="Do uwagi"
-          error={error}
-          onRetry={() => void refetch()}
-        />
-      ) : data.items.length === 0 && extra.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Nic nie wymaga uwagi — żaden sygnał nie przekracza progu.
-        </p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {data.items.map((item) => (
-            <li key={item.kind} className="flex items-start gap-3 py-3">
-              <span className="min-w-8 text-xl font-semibold tabular-nums text-warning-muted-foreground">
-                {item.count}
-              </span>
-              <div className="min-w-0 text-sm leading-snug">
-                <p className="text-foreground">{item.label}</p>
-                {item.href && canOpenJobs ? (
-                  // Sygnały „Gdzie stoi” niosą gotowy adres listy rekrutacji —
-                  // „Zobacz w tabeli” prowadziło je do tabeli ludzi.
-                  <Link
-                    href={item.href}
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    Pokaż listę
-                  </Link>
-                ) : item.report ? (
-                  <Link
-                    href={reportHref(item.report as ReportId)}
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    Pokaż listę
-                  </Link>
-                ) : (
-                  <a
-                    href="#ludzie"
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    Zobacz w tabeli
-                  </a>
-                )}
-              </div>
-            </li>
-          ))}
-          {extra.map((item) => (
-            <li key={item.kind} className="flex items-start gap-3 py-3">
-              <span className="min-w-8 text-xl font-semibold tabular-nums text-warning-muted-foreground">
-                {item.count}
-              </span>
-              <div className="min-w-0 text-sm leading-snug">
-                <p className="text-foreground">{item.label}</p>
-                {item.report ? (
-                  <Link
-                    href={reportHref(item.report)}
-                    className="font-semibold text-primary hover:underline"
-                  >
-                    Pokaż listę
-                  </Link>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
   );
 }
 
@@ -393,8 +237,9 @@ function RecruiterTable({
     queryKey: performanceFlagsQueryKey,
     queryFn: () => insightsFlagsApi.list(),
   });
-  // Bez kliknięcia nagłówka — kolejność z API.
+  // Bez kliknięcia nagłówka — grupy osób; klik sortuje całą listę.
   const [sort, setSort] = useState<ColumnSort<TeamPeopleSortKey> | null>(null);
+  const [showNoGoal, setShowNoGoal] = useState(false);
   const data = peopleQuery.data;
   const worthShowing = (data?.rows ?? []).filter(isPeopleRowWorthShowing);
   const quiet = (data?.rows.length ?? 0) - worthShowing.length;
@@ -456,6 +301,33 @@ function RecruiterTable({
 
   const low = data.low_precision_pct;
   const listSubject = teamListSubject(listWho, data.rows);
+  // Skala cieniowania: najwyższa wartość w kolumnie wśród osób z celem.
+  const heatMax = (value: (row: TeamPeopleRow) => number | null | undefined) =>
+    Math.max(0, ...rows.filter((row) => personGroup(row) !== "no_goal").map((row) => value(row) ?? 0));
+  const heat: PersonHeat = {
+    verifications_per_workday: heatMax((row) => row.verifications_per_workday),
+    recommendations: heatMax((row) => row.recommendations),
+    interviews: heatMax((row) => row.interviews),
+    acceptances: heatMax((row) => row.acceptances),
+    placements: heatMax((row) => row.placements),
+  };
+  const renderPerson = (row: TeamPeopleRow) => (
+    <PersonRow
+      key={row.user_id}
+      row={row}
+      heat={heat}
+      openMetric={
+        listSubject?.kind === "person" && listSubject.id === row.user_id
+          ? listMetric
+          : null
+      }
+      onOpen={(metric) => writeList(metric, String(row.user_id))}
+      lowPrecision={low}
+      flags={flagsQuery.data?.flags_by_user?.[String(row.user_id)] ?? []}
+      flagTypes={flagsQuery.data?.types ?? []}
+      previousLabel={previousLabel}
+    />
+  );
   const unattributed = data.unattributed;
   const unattributedShown =
     unattributed !== undefined &&
@@ -488,17 +360,14 @@ function RecruiterTable({
               {(
                 [
                   ["name", "Osoba"],
-                  ["verifications_per_workday", "Weryf. / dzień"],
-                  ["recommendations", "CV wysłane"],
-                  ["interviews", "Rozmowy u klienta"],
-                  ["acceptances", "Akceptacje"],
-                  ["placements", hasTargets ? "Placementy / cel" : "Placementy"],
-                  ["in_flight", "W drodze dziś"],
-                  ["precision_pct", "Precyzja 30 dni"],
-                  [
-                    "placements_delta",
-                    previousLabel ? "Placementy vs poprzednio" : "Zmiana",
-                  ],
+                  ["verifications_per_workday", "Weryf./dz."],
+                  ["recommendations", "CV"],
+                  ["interviews", "Rozmowy"],
+                  ["acceptances", "Akcept."],
+                  ["placements", hasTargets ? "Plac. / cel" : "Plac."],
+                  ["in_flight", "W drodze"],
+                  ["precision_pct", "Precyzja"],
+                  ["placements_delta", "Zmiana"],
                 ] as const
               ).map(([key, label]) => (
                 <SortableHeader
@@ -510,12 +379,12 @@ function RecruiterTable({
                   onSort={onSort}
                   align={key === "name" ? "left" : "right"}
                   className={cn(
-                    "py-2.5 font-semibold",
+                    "whitespace-nowrap py-2 font-semibold",
                     key === "name"
                       ? "sticky left-0 bg-card px-4"
                       : key === "placements_delta"
                         ? "px-4"
-                        : "px-3",
+                        : "px-2",
                   )}
                 />
               ))}
@@ -528,25 +397,42 @@ function RecruiterTable({
                   Nikt nie ruszył jeszcze kandydata w tym okresie.
                 </td>
               </tr>
+            ) : sort ? (
+              rows.map(renderPerson)
             ) : (
-              rows.map((row) => (
-                <PersonRow
-                  key={row.user_id}
-                  row={row}
-                  openMetric={
-                    listSubject?.kind === "person" && listSubject.id === row.user_id
-                      ? listMetric
-                      : null
-                  }
-                  onOpen={(metric) => writeList(metric, String(row.user_id))}
-                  lowPrecision={low}
-                  flags={flagsQuery.data?.flags_by_user?.[String(row.user_id)] ?? []}
-                  flagTypes={flagsQuery.data?.types ?? []}
-                />
-              ))
+              groupedPeople(rows).flatMap((group) => {
+                const collapsible = group.id === "no_goal";
+                const expanded = !collapsible || showNoGoal;
+                return [
+                  <tr key={group.id} className="h-7 border-b border-border bg-muted/50">
+                    <td colSpan={9} className="sticky left-0 px-4 py-1 text-xs font-semibold text-foreground">
+                      {collapsible ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowNoGoal((value) => !value)}
+                          aria-expanded={showNoGoal}
+                          className="inline-flex items-center gap-1 hover:text-primary"
+                        >
+                          {showNoGoal ? <ChevronDown className="h-3.5 w-3.5" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden />}
+                          {group.label} · {group.rows.length}
+                          {showNoGoal ? null : (
+                            <span className="font-normal text-muted-foreground">
+                              {" "}· {group.rows.reduce((sum, row) => sum + row.recommendations, 0)} CV,{" "}
+                              {group.rows.reduce((sum, row) => sum + row.placements, 0)} plac.
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <>{group.label} · {group.rows.length}</>
+                      )}
+                    </td>
+                  </tr>,
+                  ...(expanded ? group.rows.map(renderPerson) : []),
+                ];
+              })
             )}
             {formerSummary ? (
-              <tr className="border-t border-border text-muted-foreground">
+              <tr className="h-8 border-t border-border text-muted-foreground">
                 <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
                   <FormerEmployeesLabel
                     count={formerSummary.count}
@@ -572,7 +458,7 @@ function RecruiterTable({
               </tr>
             ) : null}
             {outside && outside.people > 0 ? (
-              <tr className="border-t border-border text-muted-foreground">
+              <tr className="h-8 border-t border-border text-muted-foreground">
                 <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
                   {outside.label} ({outside.people})
                 </td>
@@ -595,7 +481,7 @@ function RecruiterTable({
               </tr>
             ) : null}
             {unattributed && unattributedShown ? (
-              <tr className="border-t border-border text-muted-foreground">
+              <tr className="h-8 border-t border-border text-muted-foreground">
                 <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
                   Bez osoby z zasługą
                 </td>
@@ -722,6 +608,7 @@ function CountCell({
   onOpen,
   className,
   suffix,
+  shade,
 }: {
   value: number;
   metric: WhoCountsMetric;
@@ -731,47 +618,67 @@ function CountCell({
   className?: string;
   /** Dopisek za liczbą (np. „/ 2” — cel). */
   suffix?: ReactNode;
+  /** 0–1: im więcej w kolumnie, tym ciemniejsza komórka. */
+  shade?: number | null;
 }) {
   return (
-    <td
-      className={cn(
-        "px-3 py-2.5 text-right tabular-nums",
-        active && "bg-primary/5",
-        className,
-      )}
-    >
-      {value > 0 ? (
-        <button
-          type="button"
-          onClick={onOpen}
-          aria-pressed={active}
-          aria-label={`${who} · ${WHO_COUNTS_METRICS[metric].label}: ${value}. Pokaż osoby`}
-          className="rounded-sm underline decoration-dotted underline-offset-4 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {value}
-        </button>
-      ) : (
-        value
-      )}
-      {suffix}
+    <td className="px-0.5 py-0.5 text-right tabular-nums">
+      <span
+        className={cn(
+          "block rounded px-2 py-0.5",
+          value === 0 && "text-muted-foreground",
+          active && "ring-2 ring-primary/50",
+          className,
+        )}
+        style={shadeStyle(shade)}
+      >
+        {value > 0 ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-pressed={active}
+            aria-label={`${who} · ${WHO_COUNTS_METRICS[metric].label}: ${value}. Pokaż osoby`}
+            className="rounded-sm hover:text-primary hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {value}
+          </button>
+        ) : (
+          value
+        )}
+        {suffix}
+      </span>
     </td>
   );
 }
 
+function shadeStyle(shade: number | null | undefined) {
+  if (!shade || shade <= 0) return undefined;
+  return { backgroundColor: `hsl(var(--primary) / ${(0.05 + 0.27 * shade).toFixed(3)})` };
+}
+
+type PersonHeat = Record<
+  "verifications_per_workday" | "recommendations" | "interviews" | "acceptances" | "placements",
+  number
+>;
+
 function PersonRow({
   row,
+  heat,
   openMetric,
   onOpen,
   lowPrecision,
   flags,
   flagTypes,
+  previousLabel,
 }: {
   row: TeamPeopleRow;
+  heat: PersonHeat;
   openMetric: WhoCountsMetric | null;
   onOpen: (metric: WhoCountsMetric) => void;
   lowPrecision: number;
   flags: Parameters<typeof InsightsPerformanceFlags>[0]["flags"];
   flagTypes: Parameters<typeof InsightsFlagAdmin>[0]["types"];
+  previousLabel: string | null;
 }) {
   const delta = countDelta(row.placements, row.previous_placements, "");
   const isLow = row.precision_pct !== null && row.precision_pct < lowPrecision;
@@ -780,10 +687,14 @@ function PersonRow({
     row.placements_target != null && row.placements_target > 0
       ? row.placements_target
       : null;
+  // Osoby bez celu bez cienia: ich liczby nie są tym samym porównaniem.
+  const shaded = personGroup(row) !== "no_goal";
+  const shade = (value: number | null | undefined, max: number) =>
+    shaded && value && max > 0 ? value / max : null;
   return (
-    <tr className="border-b border-border/60 last:border-b-0">
-      <td className="sticky left-0 bg-card px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
+    <tr className="group/row h-8 border-b border-border/50 last:border-b-0 hover:bg-muted/40">
+      <td className="sticky left-0 whitespace-nowrap bg-card px-4 py-0.5 group-hover/row:bg-muted">
+        <span className="inline-flex items-center gap-1.5">
           <span className="font-medium text-foreground">{row.name}</span>
           {!row.is_active ? (
             <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
@@ -791,18 +702,25 @@ function PersonRow({
             </span>
           ) : null}
           <InsightsPerformanceFlags flags={flags} />
-          <InsightsFlagAdmin
-            userId={row.user_id}
-            userName={row.name}
-            flags={flags}
-            types={flagTypes}
-          />
-        </div>
+          <span className="flex h-4 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 pointer-coarse:opacity-100">
+            <InsightsFlagAdmin
+              userId={row.user_id}
+              userName={row.name}
+              flags={flags}
+              types={flagTypes}
+            />
+          </span>
+        </span>
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">
-        {row.verifications_per_workday === null
-          ? "—"
-          : row.verifications_per_workday.toLocaleString("pl-PL")}
+      <td className="px-0.5 py-0.5 text-right tabular-nums">
+        <span
+          className={cn("block rounded px-2 py-0.5", !row.verifications_per_workday && "text-muted-foreground")}
+          style={shadeStyle(shade(row.verifications_per_workday, heat.verifications_per_workday))}
+        >
+          {row.verifications_per_workday === null
+            ? "—"
+            : row.verifications_per_workday.toLocaleString("pl-PL")}
+        </span>
       </td>
       <CountCell
         value={row.recommendations}
@@ -810,6 +728,7 @@ function PersonRow({
         who={row.name}
         active={openMetric === "recommendation"}
         onOpen={() => onOpen("recommendation")}
+        shade={shade(row.recommendations, heat.recommendations)}
       />
       <CountCell
         value={row.interviews}
@@ -817,9 +736,15 @@ function PersonRow({
         who={row.name}
         active={openMetric === "interview"}
         onOpen={() => onOpen("interview")}
+        shade={shade(row.interviews, heat.interviews)}
       />
-      <td className="px-3 py-2.5 text-right tabular-nums">
-        {row.acceptances ?? "—"}
+      <td className="px-0.5 py-0.5 text-right tabular-nums">
+        <span
+          className={cn("block rounded px-2 py-0.5", !row.acceptances && "text-muted-foreground")}
+          style={shadeStyle(shade(row.acceptances, heat.acceptances))}
+        >
+          {row.acceptances ?? "—"}
+        </span>
       </td>
       <CountCell
         value={row.placements}
@@ -827,8 +752,9 @@ function PersonRow({
         who={row.name}
         active={openMetric === "placement"}
         onOpen={() => onOpen("placement")}
+        shade={shade(row.placements, heat.placements)}
         className={cn(
-          "font-semibold",
+          row.placements > 0 && "font-semibold",
           target !== null && row.placements >= target && "text-success-muted-foreground",
         )}
         suffix={
@@ -837,25 +763,29 @@ function PersonRow({
           ) : null
         }
       />
-      <td className="px-3 py-2.5 text-right tabular-nums">{row.in_flight ?? "—"}</td>
-      <td
-        className={cn(
-          "px-3 py-2.5 text-right tabular-nums",
-          isLow && "font-semibold text-warning-muted-foreground",
-        )}
-      >
-        {row.precision_pct === null ? "—" : `${Math.round(row.precision_pct)}%`}
+      <td className={cn("px-2 py-0.5 text-right tabular-nums", !row.in_flight && "text-muted-foreground")}>{row.in_flight ?? "—"}</td>
+      <td className="px-0.5 py-0.5 text-right tabular-nums">
+        <span
+          className={cn(
+            "block rounded px-2 py-0.5",
+            row.precision_pct === null && "text-muted-foreground",
+            isLow && "bg-warning-muted font-semibold text-warning-muted-foreground",
+          )}
+        >
+          {row.precision_pct === null ? "—" : `${Math.round(row.precision_pct)}%`}
+        </span>
       </td>
       <td
         className={cn(
-          "px-4 py-2.5 text-right tabular-nums",
+          "px-4 py-0.5 text-right text-xs tabular-nums",
           delta?.tone === "good" && "text-success-muted-foreground",
           delta?.tone === "bad" && "text-warning-muted-foreground",
           (!delta || delta.tone === "neutral") && "text-muted-foreground",
         )}
+        title={previousLabel ? `Placementy wobec: ${previousLabel}` : "Placementy wobec poprzedniego okresu"}
       >
         {!delta || delta.tone === "neutral"
-          ? "bez zmian"
+          ? <span className="sr-only">bez zmian</span>
           : `${row.placements > row.previous_placements ? "▲" : "▼"} ${Math.abs(row.placements - row.previous_placements)}`}
       </td>
     </tr>
@@ -970,7 +900,7 @@ function DeliveryTable({ showFormer }: { showFormer: boolean }) {
               ))
             )}
             {formerSummary ? (
-              <tr className="border-t border-border text-muted-foreground">
+              <tr className="h-8 border-t border-border text-muted-foreground">
                 <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
                   <FormerEmployeesLabel
                     count={formerSummary.count}

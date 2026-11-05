@@ -88,6 +88,8 @@ interface Props {
   csv?: InsightsCsvExport | null;
   /** Widok bez danych z DynaReportera (Źródła) nie pokazuje plakietki o nim. */
   hideHistoryNote?: boolean;
+  /** Widok sam nazywa okres w zdaniu z odpowiedzią (Zespół). */
+  hideCaption?: boolean;
 }
 
 /**
@@ -108,6 +110,7 @@ export function PeriodPicker({
   defaultValue,
   csv,
   hideHistoryNote = false,
+  hideCaption = false,
 }: Props) {
   const queryClient = useQueryClient();
   const offset = value.offset ?? 0;
@@ -302,7 +305,7 @@ export function PeriodPicker({
         </div>
       </div>
 
-      {caption && (
+      {caption && !hideCaption && (
         <div className="flex flex-col items-start gap-0.5 sm:items-end">
           {caption.headline !== caption.range && (
             <p className="text-xs font-medium text-foreground tabular-nums">

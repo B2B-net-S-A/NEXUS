@@ -19,7 +19,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.api.insights_recruitment import stage_counted_from, trend_weeks
+from app.api.insights_recruitment import stage_counted_from, trend_months, trend_weeks
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -474,6 +474,39 @@ async def test_weekly_trend_marks_acceptance_before_cutover_as_missing(
         if week["week_start"] < "2026-10-12":
             assert week["counts"]["acceptance"] is None
         assert isinstance(week["counts"]["hired"], int)
+
+
+@pytest.mark.asyncio
+async def test_monthly_trend_marks_what_nobody_recorded_as_missing(
+    fx_client: AsyncClient,
+) -> None:
+    headers = await _login(fx_client, UserRole.recruiter)
+    resp = await fx_client.get(
+        "/api/insights/recruitment/monthly-trend", headers=headers, params={"months": 24}
+    )
+    assert resp.status_code == 200, resp.text
+    months = resp.json()["months"]
+    assert len(months) == 24
+    assert months[-1]["partial"] is True
+    assert all(month["partial"] is False for month in months[:-1])
+    for month in months:
+        counts = month["counts"]
+        assert set(counts) == {"verified", "cv_sent", "client_interview", "acceptance", "hired"}
+        assert isinstance(counts["hired"], int)
+        if month["month_start"] < "2026-10-01":
+            assert counts["acceptance"] is None
+        if month["month_start"] < "2026-01-01":
+            assert counts["verified"] is None
+        # Tylko miesiąc przecinający 12.10.2026 ma osobny odcinek.
+        assert (month["cutover_counts"] is not None) == (month["month_start"] == "2026-10-01")
+
+
+def test_trend_months_cross_the_year_boundary() -> None:
+    assert trend_months(date(2026, 2, 15), 3) == [
+        date(2025, 12, 1),
+        date(2026, 1, 1),
+        date(2026, 2, 1),
+    ]
 
 
 @pytest.mark.asyncio

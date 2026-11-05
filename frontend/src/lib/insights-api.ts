@@ -114,6 +114,19 @@ export interface WeeklyTrendResponse {
   }[];
 }
 
+/** `GET /api/insights/recruitment/monthly-trend` — miesiące kalendarzowe. */
+export interface MonthlyTrendResponse {
+  months: {
+    month_start: string;
+    /** Bieżący miesiąc — jeszcze trwa. */
+    partial: boolean;
+    /** `null` = etapu w tym miesiącu nikt nie prowadził. */
+    counts: WeeklyTrendResponse["weeks"][number]["counts"];
+    /** Tylko miesiąc przecinający 12.10.2026: dni od tej daty, do przejść z akceptacjami. */
+    cutover_counts: WeeklyTrendResponse["weeks"][number]["counts"] | null;
+  }[];
+}
+
 /** Para w „Moje osoby w drodze” (`/in-flight/me`). */
 export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
   column: InFlightColumn["column"];
@@ -713,6 +726,10 @@ export const insightsApi = {
       .get<TeamGoalsResponse>("/api/insights/recruitment/team-goals")
       .then((r) => r.data),
 
+  monthlyTrend: (months: number) =>
+    api
+      .get<MonthlyTrendResponse>("/api/insights/recruitment/monthly-trend", { params: { months } })
+      .then((r) => r.data),
   weeklyTrend: (weeks: number) =>
     api
       .get<WeeklyTrendResponse>("/api/insights/recruitment/weekly-trend", {
@@ -1376,6 +1393,7 @@ export const insightsQueryKeys = {
   inFlightMe: (scope: InFlightScope) =>
     ["insights", "recruitment", "in-flight", "me", scope] as const,
   teamGoals: () => ["insights", "recruitment", "team-goals"] as const,
+  monthlyTrend: (months: number) => ["insights", "recruitment", "monthly-trend", months] as const,
   weeklyTrend: (weeks: number) =>
     ["insights", "recruitment", "weekly-trend", weeks] as const,
   hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
