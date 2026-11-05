@@ -87,8 +87,8 @@ async def test_read_of_another_person_leaves_a_review_and_no_facts(
 
     async def fake_parse(cv_text, *, model, template):
         return {
-            "first_name": "Maria",
-            "last_name": "Zielinska",
+            "first_name": "Ewa",
+            "last_name": "Fikcyjna",
             "city": "Gdańsk",
             "skills": ["Python"],
             "_confidence": {},
@@ -101,7 +101,7 @@ async def test_read_of_another_person_leaves_a_review_and_no_facts(
     async with AsyncSessionLocal() as db:
         candidate = Candidate(
             name="Jan",
-            lastname=f"Kowalski{uuid.uuid4().hex[:6]}",
+            lastname=f"Testowy{uuid.uuid4().hex[:6]}",
             email=f"bramka-{uuid.uuid4().hex[:8]}@example.com",
             raw_cv_text="Doświadczenie innej osoby. " * 20,
             cv_storage_key=f"cv/{uuid.uuid4().hex}.pdf",

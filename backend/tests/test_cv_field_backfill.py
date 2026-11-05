@@ -778,7 +778,7 @@ async def test_read_of_the_same_person_still_fills_fields(monkeypatch):
         runner,
         {
             "first_name": "Jan",
-            "last_name": "Kowalski",
+            "last_name": "Testowy",
             "city": "Kraków",
             "_confidence": {},
         },
@@ -787,7 +787,7 @@ async def test_read_of_the_same_person_still_fills_fields(monkeypatch):
 
     candidate = _quarantine_candidate(402)
     candidate.name = "Jan"
-    candidate.lastname = "Kowalski"
+    candidate.lastname = "Testowy"
     stats = await runner.backfill_cv_fields(_QuarantineDb([candidate]))
 
     assert len(calls) == 1
@@ -824,7 +824,7 @@ async def test_failed_identity_gate_writes_nothing_for_that_row(monkeypatch):
         runner,
         {
             "first_name": "Jan",
-            "last_name": "Nowak",
+            "last_name": "Testowy",
             "city": "Kraków",
             "_confidence": {},
         },
