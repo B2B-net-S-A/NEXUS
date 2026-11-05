@@ -197,8 +197,9 @@ async def test_quarter_leader_wins_the_monthly_race() -> None:
         )
         assert podium.closure_status == "frozen"
         winners = await _winners(db, CompetitionType.monthly_placements, period)
-        assert [w.user_id for w in winners] == [leader.id]
+        assert [w.user_id for w in winners] == [leader.id, runner.id]
         assert winners[0].prize_pln == competitions.MONTHLY_RACE_PRIZE_PLN
+        assert winners[1].prize_pln == 0
         snapshot = winners[0].frozen_snapshot
         assert snapshot["excluded_user_ids"] == []
         assert snapshot["freeze_reason"] == "autofreeze"
@@ -351,7 +352,9 @@ async def test_placement_tie_is_broken_by_margin_per_hour() -> None:
     top = winners[0].frozen_snapshot["top"]
     assert top[0]["margin_per_hour_sum"] == pytest.approx(100.0)
     assert top[1]["margin_per_hour_sum"] == pytest.approx(60.0)
-    assert winners[0].frozen_snapshot["excluded_user_ids"] == [leader.id]
+    # Lider kwartału (lipiec) w sierpniu nie startuje — i nikt nie jest wykluczony.
+    assert leader.id not in [w.user_id for w in winners]
+    assert winners[0].frozen_snapshot["excluded_user_ids"] == []
 
 
 async def test_monthly_races_screen_never_carries_margin() -> None:
