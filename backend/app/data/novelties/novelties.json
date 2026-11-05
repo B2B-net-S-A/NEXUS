@@ -1,6 +1,5 @@
 [
   {
-<<<<<<< HEAD
     "id": "zatrudniony-nie-szuka-3-miesiace",
     "title": "„Zatrudniony gdzie indziej” chroni przed kolejnymi kartami",
     "why": "Po takim odrzuceniu profil dostaje „Nie szuka” na 3 miesiące, a system przestaje dodawać tę osobę do rekrutacji. Ręcznie nadal możesz ją dodać, a datę zmienisz w profilu.",
@@ -19,7 +18,8 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "rejection.employed-elsewhere"
-=======
+  },
+  {
     "id": "zakladka-wnioski",
     "title": "Zakładka „Wnioski”: co się powtarza i decyzja, co z tym zrobić",
     "why": "NEXUS pokazuje, co się powtarza w pracy zespołu i odmowach klientów, i pyta o decyzję: tak, nie teraz albo nie. Po 30 dniach widać, czy zmiana pomogła.",
@@ -31,7 +31,6 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.tabs.wnioski"
->>>>>>> ebbfee047bdeb8a0c8fffcfe00ec0a215f6b0a3a
   },
   {
     "id": "zmien-termin-rozmowy",
