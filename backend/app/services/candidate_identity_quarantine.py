@@ -37,6 +37,7 @@ from app.models.index_outbox import IndexOutboxEvent
 from app.models.user import User, UserRole
 from app.services import candidate_audit
 from app.services.candidate_location_writer import project_candidate_location
+from app.services.candidate_name_rules import EMPTY_FIELD_NAME_PHRASES
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ _PLACEHOLDERS = frozenset(
         "n/a",
         "na",
     }
+    | EMPTY_FIELD_NAME_PHRASES
 )
 _SPECIAL_TRANSLITERATION = str.maketrans(
     {

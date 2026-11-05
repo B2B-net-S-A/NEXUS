@@ -55,6 +55,27 @@ _NAME_MARKER_MESSAGE = (
 # wartość i tak odpada dalej na limicie pola.
 MAX_SCANNED_NAME_LENGTH = 200
 
+# Tekst z pustego pola zamiast imienia i nazwiska: 136 profili z Traffita
+# (05.11.2026). Stempel `_nexus_identity` ma tę wartość u 106, u 27 stempel to
+# `?`, a zapisany odczyt CV zwykle podaje właśnie tę frazę. Słowa osobno, bo w
+# bazie stoi też imię „Not” i nazwisko „Provided”. Żaden inny profil ich nie używa.
+EMPTY_FIELD_NAME_PHRASES = frozenset(
+    {
+        "not",
+        "provided",
+        "specified",
+        "available",
+        "not provided",
+        "not specified",
+        "not available",
+    }
+)
+
+
+def is_empty_field_name(value: object) -> bool:
+    """Wartość to tekst z pustego pola, nie część nazwy osoby."""
+    return str(value or "").strip().casefold() in EMPTY_FIELD_NAME_PHRASES
+
 
 def name_marker_message() -> str:
     """Zdanie dla użytkownika przy odmowie zapisu imienia z dopiskiem."""

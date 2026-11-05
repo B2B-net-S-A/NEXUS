@@ -464,6 +464,22 @@ def test_split_name_returns_none_when_no_capitalized_pair():
     assert last is None
 
 
+def test_apply_contact_fallbacks_drops_empty_field_phrase_from_model():
+    # Model zwracał tekst pustego pola jako imię i nazwisko (27 profili z `?`).
+    cv = "Anna Nowak\nanna@example.com\n"
+    parsed = {"first_name": "Not", "last_name": "Provided"}
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    assert (out["first_name"], out["last_name"]) == ("Anna", "Nowak")
+
+
+def test_apply_contact_fallbacks_leaves_no_name_when_cv_has_none():
+    cv = "Not Provided\n10 years of backend work\n"
+    parsed = {"first_name": "not provided", "last_name": "NOT PROVIDED"}
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    assert not out.get("first_name")
+    assert not out.get("last_name")
+
+
 def test_apply_contact_fallbacks_fills_only_missing_slots():
     cv = "Jan Kowalski\n+48 600 123 456\njan@example.com"
     parsed: dict = {

@@ -220,10 +220,26 @@ def _is_empty_value(value) -> bool:
 # NOT NULL. ``/from-cv`` writes "Nieznane" when the LLM finds no name; the
 # Traffit importer writes "?" when the source record has neither name nor a
 # usable email; "Unknown" came as-is from Traffit's own name fields (78 profiles,
-# stamp in ``_nexus_identity``, 05.11.2026). All must be treated as blank so a
-# later CV parse can fill them.
+# stamp in ``_nexus_identity``, 05.11.2026); the "Not ..." forms are empty-field
+# text (``EMPTY_FIELD_NAME_PHRASES``), spelled as they are stored because the
+# selection in ``backfill_missing_names`` compares exact values. All must be
+# treated as blank so a later CV parse can fill them.
 _CV_PLACEHOLDER_NAME = "Nieznane"
-_CV_PLACEHOLDER_NAMES = frozenset({_CV_PLACEHOLDER_NAME, "?", "Unknown"})
+_CV_PLACEHOLDER_NAMES = frozenset(
+    {
+        _CV_PLACEHOLDER_NAME,
+        "?",
+        "Unknown",
+        "Not",
+        "Provided",
+        "Specified",
+        "Available",
+        "Not Provided",
+        "Not provided",
+        "Not Specified",
+        "Not Available",
+    }
+)
 
 
 def _is_blank_name(value) -> bool:
