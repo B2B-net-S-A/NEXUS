@@ -7039,6 +7039,7 @@ from app.services.cv_enrichment import (  # noqa: E402
     _CV_PLACEHOLDER_NAME,
     CvWritePolicy,
     _apply_cv_enrichment,  # noqa: F401 — re-eksport dla testów i starych importów
+    name_part_for_profile,
 )
 from app.services.candidate_language_writer import (  # noqa: E402
     normalize_language_payload,
@@ -7796,6 +7797,14 @@ def _apply_from_cv_overrides(
         # Pusty napis = pole świadomie wyczyszczone: wartość z CV nie wraca
         # (ani do profilu, ani do skanu duplikatów).
         merged[key] = value or None
+    # Wartość z formularza nie pochodzi już z reguły nagłówka CV.
+    from_header = [
+        field
+        for field in merged.pop("_name_from_header", None) or ()
+        if overrides.get(field) is None
+    ]
+    if from_header:
+        merged["_name_from_header"] = from_header
     return merged
 
 
@@ -7814,11 +7823,11 @@ def _cv_preview_response(sha256: str, parsed: dict[str, Any]) -> CandidateCVPrev
 
     def _name(key: str) -> Optional[str]:
         # Dopisek odczytany z CV nie trafia do formularza — zapis tego pola
-        # z dopiskiem dostałby 422 (D6, 13.10.2026).
-        value = _text(key)
-        if value is None:
+        # z dopiskiem dostałby 422 (D6, 13.10.2026). Nazwa z reguły nagłówka też
+        # nie: rekruter zatwierdziłby stanowisko jako nazwisko (05.11.2026).
+        if _text(key) is None:
             return None
-        return strip_name_markers(value)[0] or None
+        return name_part_for_profile(parsed, key) or None
 
     return CandidateCVPreview(
         cv_sha256=sha256,
@@ -8093,8 +8102,8 @@ async def create_candidate_from_cv(
         raise erased_email_conflict()
 
     # 4 — insert and enrich
-    first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
-    last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    first_name = name_part_for_profile(parsed, "first_name") or _CV_PLACEHOLDER_NAME
+    last_name = name_part_for_profile(parsed, "last_name") or _CV_PLACEHOLDER_NAME
     # E-mail w INSERT-cie, nie dopiero w uzupełnianiu z CV (ta sama postać co
     # `_apply_cv_contact_fields`): dwa równoległe zapisy tego samego adresu
     # mijały sprawdzenie wyżej, a drugi padał na unikalnym indeksie przy

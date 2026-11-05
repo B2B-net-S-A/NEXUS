@@ -604,7 +604,8 @@ async def try_create_candidate_from_cv(
     - TEN SAM PLIK leży już w czyimś profilu → CV idzie do tego profilu (bez
       tego ponownie przesłane CV bez e-maila zakładałoby kolejny profil);
     - adres albo plik wskazuje dwa profile → `conflicting_identity`;
-    - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`.
+    - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`, także gdy
+      imię albo nazwisko pochodzi z samego nagłówka i miałby powstać nowy profil.
 
     ``link_email=False`` (runda 6 audytu): kolejne CV z maila, który już
     wskazuje osobę z pierwszego CV — tożsamość z treści TEGO pliku, bez
@@ -706,6 +707,12 @@ async def try_create_candidate_from_cv(
 
     if await email_was_erased(db, email):
         attachment.parse_error = ERASED_EMAIL_CODE
+        return None
+
+    # Nazwa z samego nagłówka CV nie nadaje nazwy nowemu profilowi, a automat bez
+    # nazwy go nie zakłada. Do istniejącego profilu CV trafia wyżej, po adresie.
+    if parsed.get("_name_from_header"):
+        attachment.parse_error = "identity_insufficient"
         return None
 
     from app.models.activity import Activity
