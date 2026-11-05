@@ -32,7 +32,13 @@ vi.mock("@/lib/api/hr-payroll", async (importOriginal) => ({
   useRefreshProposals: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-import { BonusRulesCard, bonusExample, formFromRules } from "../BonusRulesCard";
+import {
+  BonusRulesCard,
+  bonusExample,
+  formFromRules,
+  parseMonths,
+  rulesPayload,
+} from "../BonusRulesCard";
 
 describe("bonusExample", () => {
   const form = formFromRules(RULES);
@@ -72,5 +78,51 @@ describe("BonusRulesCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cofnij" }));
     expect(screen.getByLabelText("Premia progu II")).toHaveValue("1500");
     expect(screen.queryByRole("button", { name: "Zapisz reguły" })).toBeNull();
+  });
+});
+
+describe("premia 200% i stała premia TCM w formularzu", () => {
+  const form = formFromRules(RULES);
+
+  it("wyłączony program i pusta kwota TCM dają null i pustą listę", () => {
+    const result = rulesPayload(form);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.double_bonus).toBeNull();
+    expect(result.payload.fixed_role_amounts).toEqual([]);
+  });
+
+  it("włączony program wysyła miesiące i progi, TCM stałą kwotę", () => {
+    const result = rulesPayload({
+      ...form,
+      doubleOn: true,
+      doubleMonths: "2026-12, 2026-11",
+      tcmAmount: "1000",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.double_bonus).toEqual({
+      months: ["2026-11", "2026-12"],
+      verifications_per_day: "4",
+      precision_pct: "75",
+      dl_min_margin: "50",
+    });
+    expect(result.payload.fixed_role_amounts).toEqual([
+      { role: "talent_community_manager", amount: "1000" },
+    ]);
+  });
+
+  it("zły miesiąc, precision ponad 100 albo zerowa kwota TCM to zdanie błędu", () => {
+    expect(rulesPayload({ ...form, doubleOn: true, doubleMonths: "listopad" }).ok).toBe(false);
+    expect(
+      rulesPayload({ ...form, doubleOn: true, doubleMonths: "2026-11", doublePrecision: "120" }).ok,
+    ).toBe(false);
+    expect(rulesPayload({ ...form, tcmAmount: "0" }).ok).toBe(false);
+  });
+
+  it("parseMonths: RRRR-MM po przecinku, bez powtórzeń", () => {
+    expect(parseMonths("2026-11 2026-11; 2026-12")).toEqual(["2026-11", "2026-12"]);
+    expect(parseMonths("2026-13")).toBeNull();
+    expect(parseMonths("")).toBeNull();
   });
 });

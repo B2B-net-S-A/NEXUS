@@ -58,6 +58,7 @@ from app.services.hr import audit, people
 from app.services.hr import modules as hr_modules
 from app.services.hr import (
     bonus_decisions,
+    double_bonus,
     bonus_flags,
     bonus_guarantee,
     bonus_rules,
@@ -225,6 +226,18 @@ class ExtraDlIn(BaseModel):
     client_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
+class FixedRoleAmountIn(BaseModel):
+    role: str = Field(max_length=40)
+    amount: Decimal
+
+
+class DoubleBonusIn(BaseModel):
+    months: list[str] = Field(max_length=24)
+    verifications_per_day: Decimal = Decimal("4")
+    precision_pct: Decimal = Decimal("75")
+    dl_min_margin: Decimal = Decimal("50")
+
+
 class DlHoursIn(BaseModel):
     user_id: int
     hours: int
@@ -250,6 +263,10 @@ class RulesIn(BaseModel):
     )
     automation_since: Optional[date] = None
     league_types: Optional[list[str]] = Field(default=None, max_length=10)
+    fixed_role_amounts: Optional[list[FixedRoleAmountIn]] = Field(
+        default=None, max_length=10
+    )
+    double_bonus: Optional[DoubleBonusIn] = None
 
 
 # ── Pomocnicze ────────────────────────────────────────────────────────────────
@@ -522,6 +539,30 @@ async def my_payroll_settlement(
     return await my_settlement.settlement(
         db, user_id=current_user.id, year=year or today.year, today=today
     )
+
+
+@router.get("/me/double-bonus")
+async def my_double_bonus(
+    current_user: PayrollMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Do 200%”: postęp osoby w bieżącym miesiącu programu (tylko o sobie)."""
+
+    if not await people.has_live_profile(db, current_user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NO_PROFILE_DETAIL)
+    today = business_today()
+    rules = await bonus_rules.load_rules(db)
+    evaluation = await double_bonus.cached_evaluation(
+        db, today.year, today.month, rules, today=today
+    )
+    mine = double_bonus.rows_for(evaluation, current_user, rules)
+    return {
+        "year": evaluation["year"],
+        "month": evaluation["month"],
+        "in_program": evaluation["in_program"],
+        "final": evaluation["final"],
+        "thresholds": evaluation.get("thresholds"),
+        "rows": mine,
+    }
 
 
 # ── Miesiące ──────────────────────────────────────────────────────────────────
@@ -1344,6 +1385,61 @@ async def apply_settlement_import(
             month=month,
             as_proposal=payload.as_proposal,
         )
+
+
+@router.get("/double-bonus/{year}/{month}")
+async def double_bonus_month(
+    year: int,
+    month: int,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Premia 200%: kto zrobił cel w miesiącu (w trakcie miesiąca: postęp)."""
+
+    with _http_errors():
+        payroll_periods.validate_period(year, month)
+    rules = await bonus_rules.load_rules(db)
+    return await double_bonus.evaluate_month(
+        db, year, month, rules, today=business_today()
+    )
+
+
+@router.post("/double-bonus/{year}/{month}/settle")
+async def settle_double_bonus(
+    year: int,
+    month: int,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Przelicza decyzję 200% po końcu miesiąca i uzgadnia jego kontrakty.
+
+    Działa też dla zamkniętego miesiąca podpisu: propozycje ×2 trafiają wtedy do
+    pierwszego otwartego miesiąca (np. stawka klienta dopisana po zamknięciu).
+    """
+
+    with _http_errors():
+        payroll_periods.validate_period(year, month)
+    loaded = await hr_modules.load_modules(db)
+    if not loaded.get(MODULE):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Automat premii działa po włączeniu modułu Rozliczeń.",
+        )
+    today = business_today()
+    if not double_bonus.month_ended((year, month), today):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Wynik premii 200% liczymy po ostatnim dniu miesiąca.",
+        )
+    rules = await bonus_rules.load_rules(db)
+    evaluation, contract_ids = await double_bonus.settle_month(
+        db, year, month, rules, today=today, actor_id=current_user.id
+    )
+    for contract_id in contract_ids:
+        await placement_bonuses.reconcile_contract(
+            db, contract_id, today=today, rules=rules
+        )
+    return evaluation
 
 
 @router.post("/proposals/refresh")

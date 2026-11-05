@@ -115,7 +115,8 @@ _PANEL_KPI_IDS = (
 # który pomija je w definicji. Tylko `hired`; pozostałe etapy bez zmian.
 # Drugie „Zatrudniony" tej samej pary w kolejnej próbie procesu też nie jest
 # placementem (15.10.2026) — próba otwarta po zatrudnieniu nie zatrudnia drugi
-# raz. Weryfikacje i pozostałe etapy kolejnej próby liczą się jak dotąd.
+# raz. Od 05.11.2026 tak samo pozostałe etapy: każdy liczy się raz na parę
+# (`finanse-insights/insights-insights-parytet-z-dynareporterem-na.md`).
 #
 # PRZED 12.10.2026 WYŁĄCZNIE DYNAREPORTER (decyzje Artura 17 i 18.10.2026):
 # zespół klika w NEXUS-ie od 12.10.2026. `credited` bierze ruchy Tablicy
@@ -198,20 +199,24 @@ VERIFIER_ANCHORED_CTE = """
                     AND pe.job_id = cs.job_id
               )
           )
-          -- Placement to PIERWSZE „Zatrudniony" pary (D2), także między
-          -- próbami procesu. Bez tego warunku para zatrudniona ręcznie
-          -- w NEXUSIE, a potem jeszcze raz z importu Traffita (nowa próba
-          -- otwarta chwilą importu), miała dwa placementy: na produkcji
-          -- 15.10.2026 cztery pary, październik 19 zamiast 16.
-          AND (
-              cs.stage::text <> 'hired'
-              OR NOT EXISTS (
-                  SELECT 1 FROM candidate_stages earlier
-                  WHERE earlier.candidate_id = cs.candidate_id
-                    AND earlier.job_id = cs.job_id
-                    AND earlier.stage::text = 'hired'
-                    AND earlier.moved_at < cp.opened_at
-              )
+          -- Każdy etap liczy się raz na parę, także między próbami procesu.
+          -- Placement to PIERWSZE „Zatrudniony" pary (D2): para zatrudniona
+          -- ręcznie, a potem drugi raz z importu Traffita (nowa próba), miała
+          -- dwa placementy (15.10.2026: październik 19 zamiast 16). To samo
+          -- dla niższych etapów (decyzja Artura 05.11.2026): osoba odrzucona
+          -- i dodana ponownie dawała drugą weryfikację, QC i rekomendację
+          -- (kopia z 04.11: 11 wierszy od 12.10). Odrzucona albo czekająca
+          -- weryfikacja nie jest wejściem pary, więc nie blokuje kolejnej.
+          AND NOT EXISTS (
+              SELECT 1 FROM candidate_stages earlier
+              WHERE earlier.candidate_id = cs.candidate_id
+                AND earlier.job_id = cs.job_id
+                AND earlier.stage = cs.stage
+                AND earlier.moved_at < cp.opened_at
+                AND (
+                    earlier.stage::text <> 'verified'
+                    OR earlier.verification_status::text = 'active'
+                )
           )
     ),
     classified_mf AS (

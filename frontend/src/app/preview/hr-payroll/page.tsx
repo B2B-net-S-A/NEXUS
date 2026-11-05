@@ -73,6 +73,16 @@ function prepare(params: URLSearchParams) {
     // Zwroty z gwarancji premii DL: pusta lista, sekcja się nie pokazuje (bez zapytania).
     client.setQueryData(payrollKeys.clawbacks, []);
   }
+  // Premia 200%: miesiąc harnessu poza programem — karta się nie pokazuje, bez żądań.
+  client.setQueryData(payrollKeys.doubleBonus(scene.year, scene.month), {
+    year: scene.year,
+    month: scene.month,
+    in_program: false,
+    final: false,
+    recruiters: [],
+    dls: [],
+    stored: null,
+  });
   return { user: viewer, client, value: { state, config, scene } };
 }
 
