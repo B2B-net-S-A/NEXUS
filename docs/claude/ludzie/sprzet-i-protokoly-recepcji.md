@@ -76,6 +76,9 @@ osobie z kartoteki i uczestniku Akademii.
   (`fonts-crosextra-caladea`), bez niej tekst się rozjeżdża. Podpisy to
   tabelka bez ramek, nie spacje i tabulatory; strona `/protocol/<token>`
   ukrywa ją po pierwszym wierszu („Strona przekazująca Strona przyjmująca”).
+- **Potwierdzenie w panelu konsultanta** (`protocols.sign_in_panel`, 05.11.2026): ta sama droga
+  co link (`signature_method='link'`), zamek `protocols.lock`, aktywne linki gasną. Panel pokazuje
+  tylko wydania z protokołem (`ludzie/portal-konsultanta.md`).
 - Link (D8): publiczna strona `/protocol/<token>`, trasa
   `/api/public/equipment-protocols/{token}` z limiterem (moduł bez
   `from __future__ import annotations`). Token tylko w adresie, w bazie SHA-256;
