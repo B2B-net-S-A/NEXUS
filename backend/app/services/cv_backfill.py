@@ -1,8 +1,9 @@
 """Backfill name/contact data for candidates imported without a name.
 
 The Traffit importer stores ``name="?"`` / ``lastname="?"`` when the source
-record has neither a name nor a usable email, and downloads the CV to object
-storage **without parsing it**. This module recovers the missing data from the
+record has neither a name nor a usable email (some records carry ``"Unknown"``
+from Traffit itself), and downloads the CV to object storage **without parsing
+it**. This module recovers the missing data from the
 stored CV using the same ``parse_cv`` → ``_apply_cv_enrichment`` path as the
 manual upload flow, with a conservative CV-filename fallback for the name.
 
@@ -438,7 +439,7 @@ async def backfill_missing_names(
     prefer_llm: bool = True,
     progress: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Bulk-enrich Traffit candidates whose name/lastname is still ``"?"``.
+    """Bulk-enrich Traffit candidates whose name/lastname is still a placeholder.
 
     Commits per candidate so a long run is resumable and partial progress
     survives a container restart. ``since`` scopes to recently-touched rows
@@ -460,7 +461,7 @@ async def backfill_missing_names(
     # parameter and blow up at execute time.
     after_clause = "AND id > :after_id" if after_id is not None else ""
     limit_clause = "LIMIT :limit" if limit is not None else ""
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = {"placeholders": sorted(_CV_PLACEHOLDER_NAMES)}
     if since is not None:
         params["since"] = since
     if after_id is not None:
@@ -473,7 +474,7 @@ async def backfill_missing_names(
             f"""
             SELECT id FROM candidates
             WHERE external_source = 'traffit'
-              AND (name = '?' OR lastname = '?')
+              AND (name = ANY(:placeholders) OR lastname = ANY(:placeholders))
               {since_clause}
               {after_clause}
             ORDER BY id

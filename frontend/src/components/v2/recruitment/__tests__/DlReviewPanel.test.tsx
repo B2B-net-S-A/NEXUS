@@ -1332,6 +1332,23 @@ describe("DlReviewPanel — odrzucenie z uzasadnieniem i rozmowa u tego managera
     loadJobRejectionReasons.mockResolvedValue(REASONS);
   });
 
+  it("lista DL-a nie ma powodów klienta (04.11.2026)", async () => {
+    loadJobRejectionReasons.mockResolvedValue([
+      ...REASONS,
+      { id: "20", name: "client_no_reason", label: "Klient nie podał powodu", applies_to: ["rejected"], disqualifies_person: false },
+      { id: "21", name: "client_chose_other", label: "Klient wybrał kogoś innego", applies_to: ["rejected"], disqualifies_person: false },
+      { id: "22", name: "no_contact", label: "Brak kontaktu", applies_to: ["rejected"], disqualifies_person: false },
+    ]);
+    mockApi();
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    const select = await within(group).findByRole("combobox");
+    await within(select).findByRole("option", { name: "Brak kontaktu" });
+    expect(within(select).queryByRole("option", { name: "Klient nie podał powodu" })).toBeNull();
+    expect(within(select).queryByRole("option", { name: "Klient wybrał kogoś innego" })).toBeNull();
+  });
+
   it("„Inne” wymaga opisu, a opis jedzie jako notatka ruchu", async () => {
     mockApi();
     renderPanel();

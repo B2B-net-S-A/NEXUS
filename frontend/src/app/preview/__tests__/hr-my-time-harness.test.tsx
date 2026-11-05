@@ -7,7 +7,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -36,7 +36,15 @@ function open(search: string) {
   render(<HrMyTimePreviewPage />);
 }
 
+// Fikstury kładą urlop na czwarty dzień roboczy miesiąca, a dzień z urlopem nie ma
+// przycisku „Dodaj wpis”. Bez stałej daty test padał w dniu takim jak 05.11.2026.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-18T10:00:00+01:00"));
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   attempts.mockClear();
   window.history.replaceState({}, "", "/");
   useAuthStore.setState({ user: null, realUser: null });
@@ -139,6 +147,15 @@ describe("/preview/hr-my-time", () => {
     expect(within(dialog).getByText("Z działu też nieobecni")).toBeInTheDocument();
     expect(within(dialog).queryByText(/Nie udało się policzyć dni/)).toBeNull();
     expect(attempted()).toEqual([]);
+  });
+
+  it("Mój miesiąc: urlop z danych nie wypada dziś, także w 4. dzień roboczy miesiąca", async () => {
+    // 05.11.2026 cała kolejka merge'ów padała: 4. dzień roboczy to urlop bez „Dodaj wpis”.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-05T09:00:00Z") });
+    open("?tab=month");
+
+    expect(await screen.findByRole("button", { name: "Dodaj wpis 2026-11-05" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj wpis 2026-11-09" })).toBeNull();
   });
 
   it("Mój miesiąc: dziś z podpowiedzią opisu, poprzedni miesiąc potwierdzony", async () => {

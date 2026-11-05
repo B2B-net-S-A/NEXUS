@@ -97,7 +97,9 @@ export const AUTOFILL_REASON_GROUPS: {
  * Powód z szablonu procesu dla powodu dla systemu (27.10.2026): przy osobie od
  * systemu okno pyta o powód raz, a powód do raportu lejka liczy się z tej mapy.
  * Klucz `rejection_reasons.name` szablonu domyślnego; `null` — „Inne” z nazwą
- * powodu jako opisem, bo w szablonie nie ma odpowiednika.
+ * powodu jako opisem, bo w szablonie nie ma odpowiednika. Od 04.11.2026 (0646)
+ * sprawy osoby mają własne powody; koszyki raportu liczy serwer z powodu dla
+ * systemu (`autofill_feedback.bucket_for`), więc ta mapa ich nie zmienia.
  */
 export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   missing_skill: "Nie spełnia wymagań technicznych",
@@ -109,15 +111,31 @@ export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   too_expensive: "Za wysokie oczekiwania finansowe",
   outdated_cv: null,
   profile_mismatch: null,
-  wrong_phone: null,
-  not_looking: null,
-  no_answer: null,
+  wrong_phone: "no_contact",
+  not_looking: "not_looking_for_work",
+  no_answer: "no_contact",
   in_other_process: null,
-  client_employed: null,
-  client_refused: null,
-  client_other_vendor: null,
+  client_employed: "client_conflict",
+  client_refused: "client_conflict",
+  client_other_vendor: "client_conflict",
   other: null,
 };
+
+/**
+ * Powód z szablonu jest tu szerszy niż wybór w oknie („Brak kontaktu” przy
+ * złym numerze), więc nazwa powodu zostaje w opisie, żeby historia nie straciła
+ * szczegółu, który dotąd niosło „Inne”.
+ */
+const COARSER_TEMPLATE_REASON: ReadonlySet<AutofillReason> = new Set([
+  "wrong_phone",
+  "client_employed",
+  "client_refused",
+  "client_other_vendor",
+]);
+
+export function autofillReasonKeepsLabel(reason: AutofillReason): boolean {
+  return COARSER_TEMPLATE_REASON.has(reason);
+}
 
 export function autofillReasonLabel(reason: AutofillReason): string {
   for (const group of AUTOFILL_REASON_GROUPS) {
