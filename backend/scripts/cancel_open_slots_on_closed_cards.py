@@ -1,7 +1,8 @@
-"""Otwarte wnioski o terminy na zamkniętych kartach sprzed reguły z 04.11.2026.
+"""Otwarte wnioski o terminy na kartach zamkniętych i po rozmowie sprzed reguły
+z 04.11.2026.
 
-Od tej daty zamknięcie karty anuluje wniosek w ``transition_process``. Ten skrypt
-domyka wiersze założone wcześniej (7 na kopii z 03.11.2026). Domyślnie podgląd
+Od tej daty taki ruch karty anuluje wniosek w ``transition_process``. Ten skrypt
+domyka wiersze założone wcześniej (9 na kopii z 03.11.2026). Domyślnie podgląd
 (bez zapisu), ``--apply`` anuluje to, co pokazał podgląd, pod blokadą wierszy.
 Wynik: JSON z samymi identyfikatorami.
 """
@@ -18,8 +19,9 @@ from app.models.client_interview_slot_request import (
     OPEN_SLOT_STATUSES,
     ClientInterviewSlotRequest,
 )
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_pipeline import CandidateStage
 from app.services import interview_slots
+from app.services.recruitment_process_commands import SLOT_REQUEST_ENDING_STAGES
 
 
 async def closed_card_open_requests(
@@ -49,7 +51,7 @@ async def closed_card_open_requests(
         )
         .where(
             ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
-            latest.c.stage.in_((PipelineStage.rejected, PipelineStage.withdrawn)),
+            latest.c.stage.in_(tuple(SLOT_REQUEST_ENDING_STAGES)),
         )
         .order_by(ClientInterviewSlotRequest.id)
     )

@@ -6186,7 +6186,7 @@
                 "type": "null"
               }
             ],
-            "description": "awaiting_recruiter_pick · awaiting_dl_confirm · scheduled · debrief_due · debriefed; null = w cyklu nic się nie dzieje.",
+            "description": "awaiting_recruiter_pick · awaiting_dl_confirm · slots_expired · scheduled · debrief_due · debriefed; null = w cyklu nic się nie dzieje.",
             "title": "Phase"
           },
           "slot_request_status": {

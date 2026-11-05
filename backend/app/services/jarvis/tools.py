@@ -681,6 +681,7 @@ _CYCLE_TODO_LABELS = {
     "questions_missing": "uzupełnij pytania z rozmowy u klienta (brak terminu w NEXUSIE)",
     "slots_pick": "wybierz termin z propozycji klienta",
     "slots_confirm": "potwierdź termin u klienta",
+    "slots_expired": "wszystkie terminy od klienta minęły — dodaj nowe",
     "prep_missing": "brak przygotowania (prep) przed rozmową",
     "slots_missing": "brak terminów od klienta",
     "prep2_missing": "brak drugiego przygotowania",

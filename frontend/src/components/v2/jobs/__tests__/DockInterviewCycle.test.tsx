@@ -301,6 +301,36 @@ describe("DockInterviewCycle", () => {
     expect(slotProps.current).toEqual(expect.objectContaining({ mode: "confirm" }));
   });
 
+  it("wszystkie terminy minęły: bez wyboru i potwierdzenia, DL dodaje nowe (04.11.2026)", () => {
+    const onAdd = vi.fn();
+    const expired = badge({
+      kind: "slots_expired",
+      label: "Terminy minęły · czeka na DL",
+      tone: "wait",
+      steps: steps({ slots: "overdue" }),
+      slot_request: { ...REQUEST, expired: true },
+    });
+    const { rerender } = render(
+      <DockInterviewCycle badge={expired} pair={PAIR} readOnly={false} onDebrief={() => {}} />,
+    );
+    // Rekruter: odznaka mówi, na kogo czeka, a klik kończyłby się 422.
+    expect(screen.getByText("Terminy minęły · czeka na DL")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wybierz termin z kandydatem" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dodaj nowe terminy" })).toBeNull();
+    rerender(
+      <DockInterviewCycle
+        badge={{ ...expired, slot_request: { ...REQUEST, status: "awaiting_dl", chosen_index: 0, expired: true } }}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+        onAddClientSlots={onAdd}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Potwierdź termin" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj nowe terminy" }));
+    expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
   it("prep z oceną otwiera okno oceny prepu", () => {
     render(
       <DockInterviewCycle

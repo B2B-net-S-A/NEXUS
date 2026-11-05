@@ -33,7 +33,11 @@ from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.client import Client
-from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+from app.models.client_interview_slot_request import (
+    OPEN_SLOT_STATUSES,
+    ClientInterviewSlotRequest,
+    all_slots_past,
+)
 from app.models.client_panel import (
     ClientPanel,
     ClientPanelCandidate,
@@ -435,11 +439,20 @@ async def _latest_slot_requests(
     return out
 
 
+def _slots_lapsed(req: ClientInterviewSlotRequest) -> bool:
+    return req.status in OPEN_SLOT_STATUSES and all_slots_past(
+        req.slots or (), datetime.now(timezone.utc)
+    )
+
+
 def interview_block(req: Optional[ClientInterviewSlotRequest]) -> dict[str, Any]:
     if req is None:
         return {"status": "none", "slots": [], "chosen": None}
     if req.status == "cancelled":
         return {"status": "cancelled", "slots": [], "chosen": None}
+    # Wszystkie terminy minęły: klient może podać nowe, serwer zastąpi ten wniosek.
+    if _slots_lapsed(req):
+        return {"status": "none", "slots": [], "chosen": None}
     slots = [
         {
             "start": slot.get("start"),
@@ -467,7 +480,9 @@ def candidate_state(
     if slot_request is not None:
         if slot_request.status == "confirmed":
             return "interview_confirmed"
-        if slot_request.status in ("awaiting_recruiter", "awaiting_dl"):
+        if slot_request.status in OPEN_SLOT_STATUSES and not _slots_lapsed(
+            slot_request
+        ):
             return "interview_requested"
     questions = [row for row in rows if row.kind == "question"]
     if any(row.status == "open" for row in questions):
