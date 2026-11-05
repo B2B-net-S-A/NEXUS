@@ -3157,7 +3157,7 @@ async def identify_upload(
     raw_text = ""
     try:
         raw_text = await run_in_threadpool(
-            cv_text_extractor.extract_text, tmp_path, filename
+            cv_text_extractor.extract_cv_text, tmp_path, filename
         )
     except Exception as exc:  # noqa: BLE001 — sito, nie bramka
         logger.warning("[cv_b2b] identify-upload: odczyt tekstu nieudany: %s", exc)

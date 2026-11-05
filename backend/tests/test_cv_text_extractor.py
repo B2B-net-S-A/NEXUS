@@ -809,3 +809,210 @@ def test_from_cv_logs_the_shape_of_a_file_it_could_not_read(
     assert refused.value.status_code == 400
     assert f"{len(content)} B" in caplog.text and ".doc" in caplog.text
     assert "Kowalski" not in caplog.text
+
+
+# ── Nazwisko i kontakt w grafice nagłówka ───────────────────────────────────
+
+_BODY_WITHOUT_CONTACT = (
+    "Doświadczenie zawodowe\nProgramista Python w firmie Przykład sp. z o.o.\n"
+    "Projektowanie usług i testów automatycznych dla systemu bankowego.\n"
+    "Wykształcenie\nInformatyka, Politechnika Przykładowa\n"
+)
+_HEADER_IN_GRAPHIC = "Anna Testowa\nanna.testowa@example.com\n+48 600 100 200\n"
+
+
+def _pdf_cv(monkeypatch, tmp_path, native: str, ocr):
+    """Plik z podpisem PDF, tekst PDF-a i wynik OCR pierwszej strony podstawione."""
+    from app.services import cv_text_extractor as cte
+
+    path = tmp_path / "cv.pdf"
+    path.write_bytes(b"%PDF-1.7 syntetyczny")
+    workers: list[str] = []
+
+    def _worker(op, _path, **_kwargs):
+        workers.append(op)
+        return {"text": ocr} if op == "first_page_ocr" else None
+
+    monkeypatch.setattr(cte, "_extract_pdf", lambda _p: native)
+    monkeypatch.setattr(cte, "_run_pdf_worker", _worker)
+    return cte, str(path), workers
+
+
+def test_cv_with_contact_in_graphic_header_gets_it_from_first_page_ocr(
+    monkeypatch, tmp_path
+):
+    """Profile 18566 i 5842: tekst bez nazwiska i kontaktu, a na obrazie strony są."""
+    from app.services.cv_parser import (
+        _extract_email_from_text,
+        _extract_phone_from_text,
+    )
+
+    cte, path, workers = _pdf_cv(
+        monkeypatch, tmp_path, _BODY_WITHOUT_CONTACT, _HEADER_IN_GRAPHIC
+    )
+
+    text = cte.extract_cv_text(path, "cv.pdf")
+
+    assert workers == ["first_page_ocr"]
+    assert text.startswith("Anna Testowa\n")
+    assert _extract_phone_from_text(text) == "+48 600 100 200"
+    assert text.endswith(cte._normalize(_BODY_WITHOUT_CONTACT))
+    # Adres z OCR bywa błędny, a wiadomość poszłaby do obcej osoby.
+    assert _extract_email_from_text(text) is None
+    assert "example.com" not in text
+
+
+@pytest.mark.parametrize(
+    "contact", ["kontakt: anna@example.com", "tel. 600 100 200", "+48600100200"]
+)
+def test_cv_with_contact_in_text_skips_ocr(monkeypatch, tmp_path, contact):
+    native = _BODY_WITHOUT_CONTACT + contact
+    cte, path, workers = _pdf_cv(monkeypatch, tmp_path, native, _HEADER_IN_GRAPHIC)
+
+    assert cte.extract_cv_text(path, "cv.pdf") == cte._normalize(native)
+    assert workers == []
+
+
+def test_cv_short_text_already_went_through_full_ocr(monkeypatch, tmp_path):
+    cte, path, workers = _pdf_cv(monkeypatch, tmp_path, "Krótki tekst", "Anna Testowa")
+
+    assert cte.extract_cv_text(path, "cv.pdf") == "Krótki tekst"
+    assert workers == []
+
+
+def test_cv_header_ocr_is_only_for_pdf(monkeypatch, tmp_path):
+    from app.services import cv_text_extractor as cte
+
+    path = tmp_path / "cv.txt"
+    path.write_text(_BODY_WITHOUT_CONTACT, encoding="utf-8")
+    monkeypatch.setattr(
+        cte,
+        "_run_pdf_worker",
+        lambda *_a, **_k: pytest.fail("OCR tylko dla PDF-a"),
+    )
+
+    assert cte.extract_cv_text(str(path), "cv.txt") == cte._normalize(
+        _BODY_WITHOUT_CONTACT
+    )
+
+
+@pytest.mark.parametrize("ocr", [None, "", 7])
+def test_cv_failed_header_ocr_keeps_pdf_text(monkeypatch, tmp_path, ocr):
+    cte, path, _ = _pdf_cv(monkeypatch, tmp_path, _BODY_WITHOUT_CONTACT, ocr)
+
+    assert cte.extract_cv_text(path, "cv.pdf") == cte._normalize(_BODY_WITHOUT_CONTACT)
+
+
+def test_worker_failed_first_page_ocr_returns_nothing(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    def _broken(_path, _number):
+        raise RuntimeError("tesseract")
+
+    monkeypatch.setattr(cte, "_ocr_one_page", _broken)
+
+    assert cte._worker_first_page_ocr("cv.pdf") is None
+
+
+def test_orders_and_other_documents_do_not_get_header_ocr(monkeypatch, tmp_path):
+    """`extract_text` czytają też zamówienia: ich tekst nie może się zmienić."""
+    cte, path, workers = _pdf_cv(
+        monkeypatch, tmp_path, _BODY_WITHOUT_CONTACT, _HEADER_IN_GRAPHIC
+    )
+
+    assert cte.extract_text(path, "zamowienie.pdf") == cte._normalize(
+        _BODY_WITHOUT_CONTACT
+    )
+    assert workers == []
+
+
+def test_header_ocr_adds_only_lines_missing_from_pdf_text():
+    from app.services.cv_text_extractor import _ocr_lines_missing_from_text
+
+    ocr = (
+        "Anna Testowa\n"
+        "Doświadczenie zawodowe\n"  # jest w tekście PDF-a
+        "© — |\n"  # ikony, które OCR czyta jako znaki
+        "Programista Pythen w firmie Przykład\n"  # literówka OCR w linii z tekstu
+        "anna@example.com\n"
+    )
+
+    assert _ocr_lines_missing_from_text(_BODY_WITHOUT_CONTACT, ocr) == ["Anna Testowa"]
+
+
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [
+        (
+            "Anna Testowa | anna@example.com | +48 600 100 200",
+            "Anna Testowa | | +48 600 100 200",
+        ),
+        ("annaGexample.com", None),  # `@` odczytana jako litera
+        ("anna@example.pl", None),
+        ("linkedin.com/in/anna-testowa", None),
+    ],
+)
+def test_header_ocr_never_adds_an_address(line, kept):
+    from app.services.cv_text_extractor import _ocr_lines_missing_from_text
+
+    assert _ocr_lines_missing_from_text("", line) == ([kept] if kept else [])
+
+
+def test_header_ocr_keeps_phone_line_even_when_rest_of_it_is_in_pdf_text():
+    from app.services.cv_text_extractor import _ocr_lines_missing_from_text
+
+    assert _ocr_lines_missing_from_text(
+        "Anna Testowa programista", "Anna Testowa programista 600 100 200"
+    ) == ["Anna Testowa programista 600 100 200"]
+
+
+def test_header_ocr_keeps_phone_line_behind_the_cap():
+    from app.services.cv_text_extractor import (
+        _OCR_HEADER_MAX_LINES,
+        _ocr_lines_missing_from_text,
+    )
+
+    filler = [f"Inny{number} wiersz{number}" for number in range(40)]
+    lines = _ocr_lines_missing_from_text("", "\n".join(filler + ["tel. 600 100 200"]))
+
+    assert lines == filler[:_OCR_HEADER_MAX_LINES] + ["tel. 600 100 200"]
+
+
+def test_header_ocr_block_is_capped():
+    from app.services.cv_text_extractor import (
+        _OCR_HEADER_MAX_LINES,
+        _ocr_lines_missing_from_text,
+    )
+
+    ocr = "\n".join(f"Inny{number} wiersz{number}" for number in range(100))
+
+    assert len(_ocr_lines_missing_from_text("", ocr)) == _OCR_HEADER_MAX_LINES
+
+
+def test_name_from_graphic_header_stays_behind_the_identity_rules(
+    monkeypatch, tmp_path
+):
+    """Nazwa z OCR to zwykły nagłówek: #3057 i #3062 działają na niej tak samo."""
+    from app.services.candidate_identity_quarantine import evaluate_identity_match
+    from app.services.cv_parser import _apply_contact_fallbacks
+
+    cte, path, _ = _pdf_cv(
+        monkeypatch,
+        tmp_path,
+        _BODY_WITHOUT_CONTACT,
+        "Project Manager\n" + _HEADER_IN_GRAPHIC,
+    )
+
+    parsed = _apply_contact_fallbacks({}, cte.extract_cv_text(path, "cv.pdf"))
+
+    assert (parsed["first_name"], parsed["last_name"]) == ("Anna", "Testowa")
+    assert parsed["_name_from_header"] == ["first_name", "last_name"]
+    # Inna nazwa w profilu: bramka widzi rozbieżność, a to wołający decyduje
+    # (`observed_name_from_header`), że nagłówek nie daje kwarantanny.
+    result = evaluate_identity_match(
+        candidate_first_name="Ewa",
+        candidate_last_name="Przykładowa",
+        observed_first_name=parsed["first_name"],
+        observed_last_name=parsed["last_name"],
+    )
+    assert result.decision == "confirmed_mismatch"

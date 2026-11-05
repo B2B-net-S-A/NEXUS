@@ -124,6 +124,8 @@ _REPEATED_CHAR_RE = re.compile(r"(.)\1+")
 # Krótszy ciąg liter bywa przypadkiem częścią cudzej nazwy.
 _SAME_LETTERS_MIN_CHARS = 6
 _FULL_PHONE_DIGITS = 9
+# Krótki tekst bywa przypadkiem końcem innego CV; próg jak w `extract_cv_text`.
+_SAME_TEXT_TAIL_MIN_CHARS = 100
 MISMATCH_HELD_EVIDENCE = "mismatch_held_for_review"
 
 
@@ -269,10 +271,18 @@ async def _restore_stage_copies(
 
 
 def _same_cv_text(first: str | None, second: str | None) -> bool:
+    """Ten sam tekst. Starszy odczyt nie ma linii z OCR nagłówka na początku
+    (`extract_cv_text`), więc krótszy tekst może być końcem dłuższego."""
+
     def folded(text: str | None) -> str:
         return " ".join((text or "").split()).casefold()
 
-    return bool(folded(first)) and folded(first) == folded(second)
+    shorter, longer = sorted((folded(first), folded(second)), key=len)
+    if not shorter:
+        return False
+    return shorter == longer or (
+        len(shorter) >= _SAME_TEXT_TAIL_MIN_CHARS and longer.endswith(shorter)
+    )
 
 
 async def _side_file_text(
