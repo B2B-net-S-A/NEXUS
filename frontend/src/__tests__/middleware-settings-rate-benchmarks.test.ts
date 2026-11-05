@@ -15,7 +15,7 @@ import { NextRequest } from "next/server"
 
 import { middleware } from "@/middleware"
 
-const BASE = "https://nexus.dynaminds.pl"
+const BASE = "https://nexus.b2bnetwork.pl"
 const HOUR = 3600
 const now = () => Math.floor(Date.now() / 1000)
 

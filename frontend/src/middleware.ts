@@ -728,10 +728,25 @@ function hasSignedSectionAccess(
 // dostępu do SECRET_KEY; prawdziwa walidacja sygnatury odbywa się po stronie
 // backendu (backend/app/api/deps.py::get_current_user). Tu tylko UX-guard.
 
+// Stara domena aplikacji: od 19.10.2026 API odrzuca jej Origin, więc front wisiał
+// na logowaniu. Pliki z kropką w nazwie omija `matcher` niżej, dlatego wtyczka
+// Outlooka (`/outlook-addin/*`, adres w manifeście) działa pod tą domeną dalej.
+const LEGACY_APP_HOST = "nexus.dynaminds.pl";
+const APP_ORIGIN = "https://nexus.b2bnetwork.pl";
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = requestHost(request.headers);
 
-  if (isCareerHost(requestHost(request.headers))) {
+  // 307, nie 308: przeglądarki nie zapamiętują przekierowania, jak przy karierze niżej.
+  if (host === LEGACY_APP_HOST) {
+    return NextResponse.redirect(
+      new URL(`${APP_ORIGIN}${pathname}${request.nextUrl.search}`),
+      307,
+    );
+  }
+
+  if (isCareerHost(host)) {
     return careerHostResponse(request);
   }
 
