@@ -49,6 +49,7 @@ from app.models.contract import Contract
 from app.services.current_employment import LIVE_CONTRACT_STATUSES
 from app.services.employment_marker import job_client_family
 from app.services.job_close_choice import validate_close_choice
+from app.services.job_opening import start_new_opening
 from app.services.pipeline_latest import latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
@@ -2906,6 +2907,7 @@ async def update_job(
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             job_lifecycle.clear_close_choice(job)
+            start_new_opening(job)
             _take_over_reopened_traffit_job(db, job, current_user)
             # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
             # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,

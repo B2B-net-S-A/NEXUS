@@ -4394,6 +4394,7 @@ async def build_kanban_view(
                 render=_stage_resp_with_name,
             ),
             viewer_owns_dl_review=viewer_owns_dl_review,
+            opening_started_at=job.cycle_started_at,
         )
 
     # ── Legacy fallback (no template seeded yet) ──────────────────────────────
@@ -4447,6 +4448,7 @@ async def build_kanban_view(
             render=_stage_resp_with_name,
         ),
         viewer_owns_dl_review=viewer_owns_dl_review,
+        opening_started_at=job.cycle_started_at,
     )
 
 

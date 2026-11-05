@@ -162,6 +162,7 @@ import {
  cardShortName,
  criticalGapBadge,
  cvStateBadge,
+ fromPreviousOpening,
  dlSendQueue,
  isReadyForDlSend,
  shortStepLabel,
@@ -302,6 +303,9 @@ interface KanbanBoardV2Props {
   *  portfel klienta). Nie mylić z prawem wysyłki (`recruitment_manage`), które
   *  ma admin i każdy DL: ono daje przycisk, to — „Czeka na Ciebie”. */
  viewerOwnsDlReview?: boolean;
+ /** Początek bieżącego otwarcia rekrutacji (`opening_started_at`, 05.11.2026):
+  *  karty ruszone wcześniej są wyszarzone, z etykietą „Sprzed otwarcia”. */
+ openingStartedAt?: string | null;
  /**
   * Pasek nad tablicą (02.10.2026: kafle „Kandydaci do dodania”). Dostaje
   * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
@@ -811,6 +815,8 @@ interface BoardV4Ctx {
  skipsFillGates: boolean;
  /** Przegląd tej rekrutacji NALEŻY do patrzącego (serwer). */
  viewerOwnsDlReview: boolean;
+ /** Początek bieżącego otwarcia rekrutacji (serwer: `opening_started_at`). */
+ openingStartedAt: string | null;
  /** „Przejrzyj i wyślij” — przegląd przed wysłaniem do klienta. */
  onReviewSend: (item: KanbanItem) => void;
  /** Otwórz panel osoby jak klik w kartę („Screening razem” z okienka karty). */
@@ -854,6 +860,7 @@ function CardV4Badges({
   now: new Date(),
   stageBadge,
   viewerOwnsDlReview: v4.viewerOwnsDlReview,
+  openingStartedAt: v4.openingStartedAt,
  };
  const badges = cardBadges(item, ctx);
  const action = v4.readOnly ? null : claimAction(item, ctx);
@@ -952,6 +959,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  // Rekrutacja v5: kolumna Tablicy karty, „kto ma ruch", strzałka „→" i chip QC.
  const v5 = React.useContext(BoardV4Context);
+ const previousOpening = fromPreviousOpening(item, v5?.openingStartedAt);
  const boardKey = v5?.columnByItemId.get(item.id) ?? null;
  const nextStep = v5
  ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId, viewerOwnsDlReview: v5.viewerOwnsDlReview })
@@ -1106,8 +1114,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
- item.hm_veto &&"border-destructive/50"
+ item.hm_veto &&"border-destructive/50",
+ // Karta z poprzedniego otwarcia (05.11.2026): wyszarzona z etykietą
+ // „Sprzed otwarcia …” — nie liczy się, dopóki ktoś jej nie ruszy.
+ previousOpening &&"opacity-60"
  )}
+ data-previous-opening={previousOpening ? "true" : undefined}
  title={
  [
  fullName,
@@ -2089,7 +2101,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -2409,11 +2421,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  canReviewAsDl,
  skipsFillGates,
  viewerOwnsDlReview,
+ openingStartedAt,
  onReviewSend,
  onOpenPerson: openPersonViaRef,
  onClientAccept,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, skipsFillGates, viewerOwnsDlReview, onReviewSend, openPersonViaRef, onClientAccept]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, skipsFillGates, viewerOwnsDlReview, openingStartedAt, onReviewSend, openPersonViaRef, onClientAccept]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -3242,8 +3255,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // Zamknięta rekrutacja (28.10.2026): osoby patrzącego od „CV wysłane”, którym
  // trzeba dać znać — ta sama osoba karty co dzwonek z serwera.
  const myWaiting = useMemo(
- () => (closedJob ? myWaitingItems(stageCols, authUser?.id) : []),
- [closedJob, stageCols, authUser?.id]
+ () => (closedJob ? myWaitingItems(stageCols, authUser?.id, openingStartedAt) : []),
+ [closedJob, stageCols, authUser?.id, openingStartedAt]
  );
  const dockItemColumn = dockItemColId
  ? (cols.find((c) => colId(c) === dockItemColId) ?? null)

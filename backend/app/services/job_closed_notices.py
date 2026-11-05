@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import func, select
@@ -44,6 +45,7 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.services.board_stage_badges import board_column_for
+from app.services.job_opening import in_opening
 from app.services.stage_verifier import first_verifier
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,7 @@ def waiting_cards(
     owners: Optional[dict[int, int]] = None,
     *,
     columns: Optional[Sequence[str]] = NOTIFY_COLUMNS,
+    since: Optional[datetime] = None,
 ) -> list[WaitingCard]:
     """Karty od „CV wysłane” w górę z osobą karty — bez bazy.
 
@@ -108,6 +111,8 @@ def waiting_cards(
     Bieżąca karta = najnowszy wiersz pary (jak Tablica), osoba karty =
     przypisana, potem pierwszy weryfikujący, potem autor najstarszego wiersza.
     ``columns=None`` = każda karta w toku (bez „Zamkniętych” i „Zatrudnionych”).
+    ``since`` = początek bieżącego otwarcia (``job_opening``): karta, której
+    najnowszy ruch był przed nim, została w poprzednim otwarciu.
     """
     owners = owners or {}
     by_candidate: dict[int, list[Any]] = {}
@@ -117,6 +122,8 @@ def waiting_cards(
     for candidate_id, rows in by_candidate.items():
         rows.sort(key=lambda r: (r.moved_at, r.id))
         latest = rows[-1]
+        if not in_opening(latest.moved_at, since):
+            continue
         column = board_column_for(
             latest.stage_name,
             getattr(latest.stage, "value", latest.stage),
@@ -204,11 +211,16 @@ async def load_recipients(
     ).all()
     from app.services.pair_owner import owners_for_job  # noqa: PLC0415
 
+    opening_started_at = await db.scalar(
+        select(Job.cycle_started_at).where(Job.id == job_id)
+    )
+
     assigned = await owners_for_job(db, job_id)
     cards = waiting_cards(
         rows,
         {cid: owner.owner_user_id for cid, owner in assigned.items()},
         columns=columns,
+        since=opening_started_at,
     )
     if not cards:
         return []

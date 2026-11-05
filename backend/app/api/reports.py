@@ -41,6 +41,7 @@ from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     VERIFIER_ANCHORED_MILESTONES,
 )
+from app.services.job_fill import filled_by_job
 from app.services.placement_exclusions import not_excluded_placement
 
 logger = logging.getLogger(__name__)
@@ -882,27 +883,12 @@ async def _compute_dl_metrics(
     )
     open_rows = (await db.execute(open_q)).all()
     open_job_ids = [r.id for r in open_rows]
-    # Już zajęte vacancy w otwartych Jobach (hired dla tych jobów, all-time).
-    # Per OSOBA, nie per wiersz: kandydat z powtórzonym etapem `hired` zajmuje
-    # jedno miejsce, a liczony po wierszach zabierał dwa i zaniżał wolne wakaty.
-    filled_map: dict[int, int] = {}
-    if open_job_ids:
-        filled_q = (
-            select(
-                CandidateStage.job_id,
-                func.count(func.distinct(CandidateStage.candidate_id)).label("cnt"),
-            )
-            .where(
-                CandidateStage.job_id.in_(open_job_ids),
-                CandidateStage.stage == PipelineStage.hired,
-                # 0343: wykluczony placement (seria bez CV) nie zajmuje wakatu.
-                not_excluded_placement(
-                    CandidateStage.candidate_id, CandidateStage.job_id
-                ),
-            )
-            .group_by(CandidateStage.job_id)
-        )
-        filled_map = {r.job_id: int(r.cnt) for r in (await db.execute(filled_q)).all()}
+    # Już zajęte vacancy w otwartych Jobach: osoby zatrudnione w bieżącym
+    # otwarciu (`job_fill.filled_by_job`), per OSOBA, bez wykluczonych
+    # placementów. Po „Otwórz ponownie” stare zatrudnienie nie zajmuje wakatu.
+    filled_map: dict[int, int] = (
+        await filled_by_job(db, list(open_job_ids)) if open_job_ids else {}
+    )
 
     open_by_dl: dict[int, dict[str, int]] = {}
     for r in open_rows:

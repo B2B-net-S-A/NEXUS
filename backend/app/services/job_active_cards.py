@@ -7,7 +7,8 @@ rekrutacji, a okno zamykania nic o nich nie mówiło.
 
 „W toku” = bieżąca karta osoby stoi w jednej z kolumn Tablicy poza
 „Zamkniętymi” i „Zatrudnionymi” — ta sama reguła kolumny co Tablica
-(``board_stage_badges.board_column_for``).
+(``board_stage_badges.board_column_for``). Po „Otwórz ponownie” liczą się
+karty ruszone w bieżącym otwarciu (``job_opening``, 05.11.2026).
 """
 
 from __future__ import annotations
@@ -17,10 +18,11 @@ from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ
+from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.board_stage_badges import BOARD_COLUMN_ORDER, board_column_for
@@ -96,7 +98,15 @@ async def load_active_cards(db: AsyncSession, job_id: int) -> ActiveCards:
             .outerjoin(
                 PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
             )
-            .where(CandidateStage.id.in_(select(latest.c.latest_id)))
+            .join(Job, Job.id == CandidateStage.job_id)
+            .where(
+                CandidateStage.id.in_(select(latest.c.latest_id)),
+                # Karta z poprzedniego otwarcia nie jest „w toku” (05.11.2026).
+                or_(
+                    Job.cycle_started_at.is_(None),
+                    CandidateStage.moved_at >= Job.cycle_started_at,
+                ),
+            )
         )
     ).all()
     return summarize(

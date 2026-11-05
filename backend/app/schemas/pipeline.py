@@ -589,6 +589,10 @@ class KanbanView(BaseModel):
     # (`board_tasks.reviews_as_dl`) — karta w „QC CV” mówi mu „Czeka na Ciebie”.
     # To nie jest prawo wysyłki: to ma każdy z `recruitment_manage`.
     viewer_owns_dl_review: bool = False
+    # Początek bieżącego otwarcia (`job_opening`, 05.11.2026): karta, której
+    # ostatni ruch był wcześniej, jest z poprzedniego otwarcia i nosi etykietę.
+    # `None` — rekrutacja nigdy nie otwarta ponownie.
+    opening_started_at: Optional[datetime] = None
 
 
 class MyNextStepsJob(BaseModel):

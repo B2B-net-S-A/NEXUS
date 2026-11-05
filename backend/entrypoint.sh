@@ -2576,6 +2576,8 @@ _COLUMN_STATEMENTS = [
     # 0504: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duplicate_of_job_id INTEGER "
     "NULL REFERENCES jobs(id) ON DELETE SET NULL",
+    # 0651: początek bieżącego otwarcia (app/services/job_opening.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTAMPTZ NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
     # candidates + tabela candidate_linkedin_snapshots. Bez nich Candidate
     # ORM SELECT pada — blokuje /api/candidates i /api/marketplace/candidates.
@@ -7527,6 +7529,21 @@ _DATA_STATEMENTS = [
     "WHERE coalesce(external_source, 'manual') <> 'traffit') "
     "AND NOT EXISTS (SELECT 1 FROM pipeline_stage_defs x "
     "WHERE x.template_id = pipeline_stage_defs.template_id AND x.name = 'QC CV') "
+    "AND EXISTS (SELECT 1 FROM marker)",
+    # 0651: początek bieżącego otwarcia z historii ponownych otwarć przez
+    # człowieka, bez przeniesień z Traffita — lustro `job_opening.BACKFILL_SQL`.
+    # Jednorazowo: znacznik wstawia ta sama instrukcja (migracja też go stawia).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('0651_job_opening_backfill', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE jobs j SET cycle_started_at = r.reopened_at "
+    "FROM (SELECT entity_id AS job_id, max(created_at) AS reopened_at "
+    "FROM activities WHERE entity_type = 'job' AND action = 'published' "
+    "AND details->>'reopened' = 'true' "
+    "AND coalesce(details->>'reason', '') <> 'traffit_transfer' "
+    "GROUP BY entity_id) r "
+    "WHERE j.id = r.job_id AND j.cycle_started_at IS NULL "
     "AND EXISTS (SELECT 1 FROM marker)",
     # 0273 + 0347: domyślne wartości akcji (recovery tylko przy pustej macierzy).
     # TCM ma pełny generator od decyzji z 22.09.2026 (0347); tylko legacy

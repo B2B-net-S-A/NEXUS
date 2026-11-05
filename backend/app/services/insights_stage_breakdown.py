@@ -21,7 +21,9 @@ Dwie liczby na wiersz:
   pierwsze `hired` pary, bez wykluczonych placementów), więc zgadzają się
   z lejkiem i z kaflem placementów.
 * **Teraz** — pary, których NAJNOWSZY wiersz stoi dziś na tym etapie,
-  w rekrutacjach opublikowanych. To stan na dziś, nie zależy od okna.
+  w rekrutacjach opublikowanych. To stan na dziś, nie zależy od okna. Po
+  ponownym otwarciu rekrutacji liczą się karty ruszone od otwarcia
+  (`job_opening`, 05.11.2026), jak w „W drodze”.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import competition_history
 from app.services.board_stage_badges import normalize_stage_name, stage_badge_kind
+from app.services.job_opening import in_opening_sql
 from app.services.placement_exclusions import excluded_hired_sql
 from app.services.rejection_reason_labels import rejection_reason_label
 
@@ -124,6 +127,7 @@ DEFINITIONS = {
     ),
     "now": (
         "Teraz — ile osób stoi dziś na tym etapie w opublikowanych rekrutacjach. "
+        "Po ponownym otwarciu rekrutacji — tylko karty ruszone od otwarcia. "
         "Nie zależy od wybranego okresu."
     ),
 }
@@ -376,7 +380,8 @@ async def _now(db: AsyncSession, params: dict[str, Any]) -> tuple[dict[str, int]
                 WITH {_DEF_MAP_CTE},
                 latest AS (
                   SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-                         cs.candidate_id, cs.job_id, cs.stage,
+                         cs.candidate_id, cs.job_id, cs.stage, cs.moved_at,
+                         j.cycle_started_at,
                          {_KEY_CASE_SQL} AS key
                   FROM candidate_stages cs
                   JOIN jobs j ON j.id = cs.job_id
@@ -399,6 +404,9 @@ async def _now(db: AsyncSession, params: dict[str, Any]) -> tuple[dict[str, int]
                 -- Para stojąca na wykluczonym „Zatrudniony” nie jest
                 -- zatrudnionym „teraz” (0343, runda 6 audytu).
                 WHERE {excluded_hired_sql("l")}
+                  -- Karta z poprzedniego otwarcia nie stoi tu „teraz” — ta
+                  -- sama reguła co „W drodze” (`job_opening`, 05.11.2026).
+                  AND {in_opening_sql("l", "l.moved_at")}
                 GROUP BY l.key
                 """
             ),
