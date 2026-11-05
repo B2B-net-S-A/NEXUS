@@ -118,6 +118,10 @@ def forecast_range(open_count: int, hired: int, resolved: int) -> dict[str, Any]
 async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str, Any]]:
     """Pary w kolumnach za weryfikacją, z wejściem do kolumny i rekrutacją."""
 
+    # Okna zamiast złączeń CTE ze sobą: planer szacował tu 1 wiersz i liczył
+    # weryfikującego osobno w każdym obrocie pętli (05.11.2026: 681 394 razy,
+    # ok. 2 s na każde wywołanie, także dla konta z kilkoma parami). Pierwszy
+    # weryfikujący liczy się raz na parę, w `pairs`.
     job_filter = _JOB_FILTER_SQL.format(col="cs.job_id")
     rows = (
         (
@@ -137,70 +141,65 @@ async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                 columned AS (
                   SELECT k.*, {_COLUMN_CASE_SQL} AS col FROM keyed k
                 ),
-                latest AS (
-                  SELECT DISTINCT ON (candidate_id, job_id)
-                         candidate_id, job_id, key, col, moved_at
-                  FROM columned
-                  ORDER BY candidate_id, job_id, moved_at DESC, id DESC
-                ),
-                left_column AS (
-                  SELECT c.candidate_id, c.job_id, max(c.moved_at) AS at
+                with_latest AS (
+                  SELECT c.candidate_id, c.job_id, c.moved_at, c.col,
+                         first_value(c.key) OVER newest AS latest_key,
+                         first_value(c.col) OVER newest AS latest_col
                   FROM columned c
-                  JOIN latest l
-                    ON l.candidate_id = c.candidate_id AND l.job_id = c.job_id
-                  WHERE c.col IS DISTINCT FROM l.col
-                  GROUP BY c.candidate_id, c.job_id
+                  WINDOW newest AS (
+                    PARTITION BY c.candidate_id, c.job_id
+                    ORDER BY c.moved_at DESC, c.id DESC
+                  )
+                ),
+                with_left_at AS (
+                  SELECT w.*,
+                         max(w.moved_at) FILTER (
+                           WHERE w.col IS DISTINCT FROM w.latest_col
+                         ) OVER (PARTITION BY w.candidate_id, w.job_id) AS left_at
+                  FROM with_latest w
+                  WHERE w.latest_col IS NOT NULL
                 ),
                 entered AS (
-                  SELECT c.candidate_id, c.job_id, min(c.moved_at) AS at
-                  FROM columned c
-                  JOIN latest l
-                    ON l.candidate_id = c.candidate_id AND l.job_id = c.job_id
-                   AND c.col = l.col
-                  LEFT JOIN left_column lc
-                    ON lc.candidate_id = c.candidate_id AND lc.job_id = c.job_id
-                  WHERE lc.at IS NULL OR c.moved_at > lc.at
-                  GROUP BY c.candidate_id, c.job_id
+                  SELECT candidate_id, job_id, latest_key AS key, latest_col AS col,
+                         min(moved_at) FILTER (
+                           WHERE col = latest_col
+                             AND (left_at IS NULL OR moved_at > left_at)
+                         ) AS entered_at
+                  FROM with_left_at
+                  GROUP BY candidate_id, job_id, latest_key, latest_col
+                ),
+                pairs AS MATERIALIZED (
+                  SELECT e.*,
+                         (
+                           SELECT v.moved_by FROM candidate_stages v
+                           WHERE v.candidate_id = e.candidate_id
+                             AND v.job_id = e.job_id
+                             AND v.stage::text = 'verified'
+                             AND v.moved_by IS NOT NULL
+                           ORDER BY v.moved_at, v.id
+                           LIMIT 1
+                         ) AS verifier_id
+                  FROM entered e
+                  WHERE e.entered_at IS NOT NULL
                 )
-                SELECT l.candidate_id, l.job_id, l.key, l.col,
-                       e.at AS entered_at,
+                SELECT p.candidate_id, p.job_id, p.key, p.col, p.entered_at,
                        j.title AS job_title, j.client_id,
                        cl.name AS client_name,
                        dl.name AS delivery_lead_name,
                        concat_ws(' ', cand.name, cand.lastname) AS candidate_name,
-                       (
-                         SELECT v.moved_by FROM candidate_stages v
-                         WHERE v.candidate_id = l.candidate_id
-                           AND v.job_id = l.job_id
-                           AND v.stage::text = 'verified'
-                           AND v.moved_by IS NOT NULL
-                         ORDER BY v.moved_at, v.id
-                         LIMIT 1
-                       ) AS verifier_id
-                FROM latest l
-                JOIN entered e
-                  ON e.candidate_id = l.candidate_id AND e.job_id = l.job_id
-                JOIN jobs j ON j.id = l.job_id
-                JOIN candidates cand ON cand.id = l.candidate_id
+                       p.verifier_id
+                FROM pairs p
+                JOIN jobs j ON j.id = p.job_id
+                JOIN candidates cand ON cand.id = p.candidate_id
                 LEFT JOIN clients cl ON cl.id = j.client_id
                 LEFT JOIN users dl ON dl.id = j.delivery_lead_id
-                WHERE l.col IS NOT NULL
-                  AND (
-                    CAST(:owner_kind AS text) IS NULL
-                    OR (CAST(:owner_kind AS text) = 'delivery_lead'
-                        AND j.delivery_lead_id = :owner_id)
-                    -- Ta sama zasługa co „Mój miesiąc” i wyścigi: pierwszy
-                    -- weryfikujący pary.
-                    OR (CAST(:owner_kind AS text) = 'verifier' AND (
-                      SELECT v.moved_by FROM candidate_stages v
-                      WHERE v.candidate_id = l.candidate_id
-                        AND v.job_id = l.job_id
-                        AND v.stage::text = 'verified'
-                        AND v.moved_by IS NOT NULL
-                      ORDER BY v.moved_at, v.id
-                      LIMIT 1
-                    ) = :owner_id)
-                  )
+                WHERE CAST(:owner_kind AS text) IS NULL
+                  OR (CAST(:owner_kind AS text) = 'delivery_lead'
+                      AND j.delivery_lead_id = :owner_id)
+                  -- Ta sama zasługa co „Mój miesiąc” i wyścigi: pierwszy
+                  -- weryfikujący pary.
+                  OR (CAST(:owner_kind AS text) = 'verifier'
+                      AND p.verifier_id = :owner_id)
                 """
                 ),
                 params,
@@ -222,6 +221,8 @@ async def _resolved_acceptances(
     zamknięcie procesu. Rekrutacja może być już zamknięta — liczy się los pary.
     """
 
+    # Etapy liczone tylko dla par z akceptacją w oknie, bez przeliczania całej
+    # historii (ok. 227 tys. wierszy) przy każdym wywołaniu „Moich osób w drodze”.
     job_filter = _JOB_FILTER_SQL.format(col="cs.job_id")
     row = (
         (
@@ -229,26 +230,26 @@ async def _resolved_acceptances(
                 text(
                     f"""
                 WITH {_DEF_MAP_CTE},
-                keyed AS (
-                  SELECT cs.id, cs.candidate_id, cs.job_id, cs.moved_at, cs.stage,
-                         {_KEY_CASE_SQL} AS key
+                accepted AS MATERIALIZED (
+                  SELECT DISTINCT cs.candidate_id, cs.job_id
                   FROM candidate_stages cs
                   LEFT JOIN def_map m ON m.def_id = cs.stage_def_id
                   WHERE {job_filter}
                     AND {excluded_hired_sql("cs")}
-                ),
-                accepted AS (
-                  SELECT DISTINCT candidate_id, job_id
-                  FROM keyed
-                  WHERE key IN ('acceptance', 'contract_sent', 'contract_signed')
-                    AND moved_at >= :since
+                    AND cs.moved_at >= :since
+                    AND {_KEY_CASE_SQL} IN (
+                      'acceptance', 'contract_sent', 'contract_signed'
+                    )
                 ),
                 latest AS (
-                  SELECT DISTINCT ON (k.candidate_id, k.job_id) k.key
-                  FROM keyed k
-                  JOIN accepted a
-                    ON a.candidate_id = k.candidate_id AND a.job_id = k.job_id
-                  ORDER BY k.candidate_id, k.job_id, k.moved_at DESC, k.id DESC
+                  SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
+                         {_KEY_CASE_SQL} AS key
+                  FROM accepted a
+                  JOIN candidate_stages cs
+                    ON cs.candidate_id = a.candidate_id AND cs.job_id = a.job_id
+                  LEFT JOIN def_map m ON m.def_id = cs.stage_def_id
+                  WHERE {excluded_hired_sql("cs")}
+                  ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
                 )
                 SELECT
                   count(*) FILTER (WHERE key IN ('hired', 'onboarding')) AS hired,
