@@ -660,6 +660,223 @@ async def test_people_admin_cannot_approve_own_timesheet(app_client) -> None:
     assert hr.id not in {item["user_id"] for item in queue.json()["items"]}
 
 
+# ── Potwierdzenie za osobę, która odeszła (05.11.2026) ────────────────────────
+
+
+async def _boss_and_leaver(**profile):
+    boss, worker = await _team(
+        employment_status="exited", last_working_day=date(Y, M, 10), **profile
+    )
+    # Kolejka liczy tylko żywych podwładnych, więc przełożony ma też kogoś w pracy.
+    async with AsyncSessionLocal() as db:
+        await make_user(db, "employee", manager_user_id=boss.id)
+        await db.commit()
+    return boss, worker
+
+
+async def _team_entry(app_client, boss, worker, day: int = 3):
+    return await app_client.post(
+        f"/api/hr/time/team/{worker.id}/{Y}/{M}/entries",
+        json=entry(day, 8),
+        headers=headers(boss),
+    )
+
+
+async def _queue_item(app_client, boss, worker) -> dict:
+    queue = await app_client.get(f"/api/hr/time/team/{Y}/{M}", headers=headers(boss))
+    assert queue.status_code == 200, queue.text
+    return next(i for i in queue.json()["items"] if i["user_id"] == worker.id)
+
+
+async def _timesheet_id(worker) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(Timesheet.id).where(
+                Timesheet.user_id == worker.id,
+                Timesheet.year == Y,
+                Timesheet.month == M,
+            )
+        )
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_approver_confirms_draft_of_person_who_left(app_client) -> None:
+    boss, worker = await _boss_and_leaver()
+    assert (await _team_entry(app_client, boss, worker)).status_code == 201
+    assert (await _queue_item(app_client, boss, worker))["can_confirm_for_person"]
+
+    ts_id = await _timesheet_id(worker)
+    confirmed = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/confirm-for-person", headers=headers(boss)
+    )
+
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "approved"
+    item = await _queue_item(app_client, boss, worker)
+    assert item["status"] == "approved"
+    assert not item["can_confirm_for_person"]
+    async with AsyncSessionLocal() as db:
+        timesheet = await db.get(Timesheet, ts_id)
+        assert timesheet.approved_by == boss.id
+        assert timesheet.submitted_at is not None
+        assert timesheet.pdf_hash
+        audit_actions = (
+            await db.scalars(
+                select(HrAuditEvent.action).where(HrAuditEvent.entity_id == str(ts_id))
+            )
+        ).all()
+    assert "timesheet_confirmed_for_person" in audit_actions
+    # Konto osoby jest wyłączone: bez dzwonka o raporcie, którego nie wysłała.
+    assert await notifications_of(worker.id, "hr_timesheet_decided") == []
+    # Cofnięcie działa jak przy zwykłej akceptacji.
+    revoked = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/revoke", headers=headers(boss)
+    )
+    assert revoked.status_code == 200, revoked.text
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_confirm_for_person_also_covers_mandate_contract(app_client) -> None:
+    boss, worker = await _boss_and_leaver(employment_type="zlecenie")
+    await _team_entry(app_client, boss, worker)
+    ts_id = await _timesheet_id(worker)
+    confirmed = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/confirm-for-person", headers=headers(boss)
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    async with AsyncSessionLocal() as db:
+        timesheet = await db.get(Timesheet, ts_id)
+    assert timesheet.employment_type == "zlecenie"
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_confirm_for_person_refused_while_person_still_works(app_client) -> None:
+    boss, worker = await _team()
+    await _team_entry(app_client, boss, worker)
+    assert not (await _queue_item(app_client, boss, worker))["can_confirm_for_person"]
+    ts_id = await _timesheet_id(worker)
+    refused = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/confirm-for-person", headers=headers(boss)
+    )
+    assert refused.status_code == 409
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Timesheet, ts_id)).status == "draft"
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_confirm_for_person_refused_outside_scope_and_when_empty(
+    app_client,
+) -> None:
+    boss, worker = await _boss_and_leaver()
+    entry_row = await _team_entry(app_client, boss, worker)
+    ts_id = await _timesheet_id(worker)
+    async with AsyncSessionLocal() as db:
+        stranger = await make_user(db, "recruiter", manager_user_id=None)
+        other_boss = await make_user(db, "recruiter")
+        await make_user(db, "employee", manager_user_id=other_boss.id)
+        await db.commit()
+    assert (
+        await app_client.post(
+            f"/api/hr/time/timesheets/{ts_id}/confirm-for-person",
+            headers=headers(stranger),
+        )
+    ).status_code == 403
+    assert (
+        await app_client.post(
+            f"/api/hr/time/timesheets/{ts_id}/confirm-for-person",
+            headers=headers(other_boss),
+        )
+    ).status_code == 404
+
+    removed = await app_client.delete(
+        f"/api/hr/time/team/entries/{entry_row.json()['id']}", headers=headers(boss)
+    )
+    assert removed.status_code == 204, removed.text
+    empty = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/confirm-for-person", headers=headers(boss)
+    )
+    assert empty.status_code == 422
+    assert "co najmniej jeden wpis" in empty.json()["detail"]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_confirm_for_person_only_from_draft_and_open_month(app_client) -> None:
+    boss, worker = await _boss_and_leaver()
+    await _team_entry(app_client, boss, worker)
+    ts_id = await _timesheet_id(worker)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE timesheets SET status = 'submitted' WHERE id = :id"),
+            {"id": ts_id},
+        )
+        await db.commit()
+    not_draft = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/confirm-for-person", headers=headers(boss)
+    )
+    assert not_draft.status_code == 409
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE timesheets SET status = 'draft' WHERE id = :id"),
+            {"id": ts_id},
+        )
+        await db.execute(
+            text(
+                "INSERT INTO payroll_periods (year, month, status, closed_at) "
+                "VALUES (:y, :m, 'closed', now()) "
+                "ON CONFLICT (year, month) DO UPDATE "
+                "SET status = 'closed', closed_at = now()"
+            ),
+            {"y": Y, "m": M},
+        )
+        await db.commit()
+    try:
+        closed = await app_client.post(
+            f"/api/hr/time/timesheets/{ts_id}/confirm-for-person",
+            headers=headers(boss),
+        )
+        assert closed.status_code == 409
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text(
+                    "UPDATE payroll_periods SET status = 'open', closed_at = NULL "
+                    "WHERE year = :y AND month = :m"
+                ),
+                {"y": Y, "m": M},
+            )
+            await db.commit()
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_team_entry_for_leaver_stops_at_last_working_day(app_client) -> None:
+    boss, worker = await _boss_and_leaver()
+    last_day = await _team_entry(app_client, boss, worker, day=10)
+    assert last_day.status_code == 201, last_day.text
+    after = await _team_entry(app_client, boss, worker, day=11)
+    assert after.status_code == 422
+    assert "ostatnim dniu pracy" in after.json()["detail"]
+    moved = await app_client.patch(
+        f"/api/hr/time/team/entries/{last_day.json()['id']}",
+        json={"work_date": date(Y, M, 11).isoformat()},
+        headers=headers(boss),
+    )
+    assert moved.status_code == 422
+    # Godziny tego samego dnia poprawia się bez przeszkód.
+    edited = await app_client.patch(
+        f"/api/hr/time/team/entries/{last_day.json()['id']}",
+        json={"hours": 6},
+        headers=headers(boss),
+    )
+    assert edited.status_code == 200, edited.text
+
+
 # ── PDF i ZIP ─────────────────────────────────────────────────────────────────
 
 
