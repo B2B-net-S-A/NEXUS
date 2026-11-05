@@ -217,7 +217,7 @@ _KNOWN_CONTRACT_FKS = {
     # (``placement_bonus_assigned_twice``), resztę rozstrzyga
     # ``_resolve_child_duplicates``. Premie ręczne przechodzą bez zmian.
     ("hr_bonuses", "contract_id"),
-    # Gwarancja premii DL (0652): dług wisi na premii (``bonus_id``), kontrakt to
+    # Gwarancja premii DL (0653): dług wisi na premii (``bonus_id``), kontrakt to
     # tylko odnośnik — bez unikatu, idzie za kontraktem zachowanym.
     ("hr_bonus_clawbacks", "contract_id"),
     ("invoices", "contract_id"),

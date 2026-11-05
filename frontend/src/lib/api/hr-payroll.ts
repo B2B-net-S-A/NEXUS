@@ -128,7 +128,7 @@ export interface PayrollLine {
   hours_amount: string | null;
   /** Premie po potrąceniu z gwarancji; przed potrąceniem = `bonus_total + clawback_total`. */
   bonus_total: string;
-  /** Potrącenie z gwarancji premii DL (0652); brak = linia sprzed gwarancji. */
+  /** Potrącenie z gwarancji premii DL (0653); brak = linia sprzed gwarancji. */
   clawback_total?: string;
   total: string;
 }

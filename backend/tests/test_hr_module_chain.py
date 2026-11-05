@@ -117,8 +117,8 @@ CHAIN = (
     ),
     # Gwarancja premii DL: dług i potrącenia (05.11.2026).
     (
-        "0652_hr_bonus_guarantee",
-        "0651_cv_call_questions",  # down_revision — przepina rechain_migration.py
+        "0653_hr_bonus_guarantee",
+        "0652_job_opening_started_at",  # down_revision — przepina rechain_migration.py
         "hr_bonus_guarantee_schema",
     ),
 )

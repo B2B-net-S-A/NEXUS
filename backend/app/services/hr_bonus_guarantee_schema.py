@@ -1,6 +1,6 @@
-"""„Ludzie w NEXUSIE” — gwarancja premii DL: SQL migracji ``0652_hr_bonus_guarantee`` i lustra entrypointu.
+"""„Ludzie w NEXUSIE” — gwarancja premii DL: SQL migracji ``0653_hr_bonus_guarantee`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0652_hr_bonus_guarantee.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0653_hr_bonus_guarantee.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Zasada Artura z 05.11.2026: konsultant, który nie przepracuje 12 miesięcy od

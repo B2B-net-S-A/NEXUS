@@ -1,9 +1,9 @@
-# Gwarancja premii Delivery Leada: zwrot, gdy konsultant nie przepracuje 12 miesięcy (0652, 05.11.2026)
+# Gwarancja premii Delivery Leada: zwrot, gdy konsultant nie przepracuje 12 miesięcy (0653, 05.11.2026)
 
 Zasada Artura z 05.11.2026: jeśli konsultant nie przepracuje 12 miesięcy, DL
 zwraca wypłaconą premię za ten placement, a kwota potrąca się z jego kolejnych
 premii. Kod: `services/hr/bonus_guarantee.py`, schemat
-`services/hr_bonus_guarantee_schema.py` (migracja 0652, lustro przez
+`services/hr_bonus_guarantee_schema.py` (migracja 0653, lustro przez
 `hr_schema_bundle`).
 
 ## Decyzje Artura (05.11.2026)
