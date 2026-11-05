@@ -415,6 +415,65 @@ async def promote_external_stage_row(
     return True
 
 
+# Decyzja, którą niesie wiersz etapu. Stawki i odpowiedzi ze screeningu czytelnicy
+# biorą z całej historii pary, więc kopia ich nie powtarza.
+_STAGE_DECISION_COLUMNS = (
+    "stage",
+    "stage_def_id",
+    "moved_by",
+    "rejection_reason_id",
+    "rejection_note",
+    "rejected_by",
+    "rejected_at",
+    "ended_by",
+    "approved_by",
+    "approved_at",
+    "verification_status",
+    "task_assignee_id",
+    "candidate_offer_response",
+    "client_accepted_on",
+    "planned_start_on",
+    "sla_alerted_at",
+)
+
+
+async def restore_stage_after_merge(
+    db: AsyncSession,
+    *,
+    source_stage_id: int,
+    candidate_id: int,
+    job_id: int,
+    moved_at: datetime,
+    default_note: str,
+) -> CandidateStage:
+    """Dopisz kopię wiersza etapu, który po scaleniu profili zostaje na karcie.
+
+    Scalenie to nie ruch karty: bez ``transition_process``, efektów ruchu
+    i powiadomień. Synchronizację procesu woła wołający
+    (``sync_external_observed_process``).
+    """
+
+    source = (
+        await db.execute(
+            select(
+                CandidateStage.notes,
+                *(getattr(CandidateStage, name) for name in _STAGE_DECISION_COLUMNS),
+            ).where(CandidateStage.id == source_stage_id)
+        )
+    ).one()
+    row = CandidateStage(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        moved_at=moved_at,
+        notes=source.notes or default_note,
+        external_source="manual",
+        **{name: getattr(source, name) for name in _STAGE_DECISION_COLUMNS},
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
 async def note_external_stage_row(
     db: AsyncSession, *, external_id: str, rejection_note: str
 ) -> bool:

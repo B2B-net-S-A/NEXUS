@@ -195,26 +195,6 @@ _CLOSED_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdrawn})
 _ENTRY_STAGES = frozenset({PipelineStage.posting, PipelineStage.new})
 _STAGE_RANK = {stage: rank for rank, stage in enumerate(STAGE_ORDER)}
 _CARD_RESTORED_NOTE = "Scalenie profili: zostaje etap dalej w procesie."
-# Decyzja, którą niesie wiersz etapu. Stawki i odpowiedzi ze screeningu czytelnicy
-# biorą z całej historii pary, więc kopia ich nie powtarza.
-_CARD_ROW_DECISION = (
-    "stage",
-    "stage_def_id",
-    "moved_by",
-    "rejection_reason_id",
-    "rejection_note",
-    "rejected_by",
-    "rejected_at",
-    "ended_by",
-    "approved_by",
-    "approved_at",
-    "verification_status",
-    "task_assignee_id",
-    "candidate_offer_response",
-    "client_accepted_on",
-    "planned_start_on",
-    "sla_alerted_at",
-)
 
 
 @dataclass(frozen=True)
@@ -1452,28 +1432,20 @@ async def _restore_kept_cards(
     dnia nie mogą uznać scalenia za nowy ruch. Autor zostaje z wiersza, a sam
     ruch nie wywołuje powiadomień (``run_move_effects`` stoi poza ``apply_move``).
     """
+    from app.services.recruitment_process_commands import restore_stage_after_merge
+
     restored: list[dict[str, Any]] = []
     for card in cards:
         if not card.restores:
             continue
-        source = (
-            await db.execute(
-                select(
-                    CandidateStage.notes,
-                    *(getattr(CandidateStage, name) for name in _CARD_ROW_DECISION),
-                ).where(CandidateStage.id == card.kept_row.id)
-            )
-        ).one()
-        new_row = CandidateStage(
+        new_row = await restore_stage_after_merge(
+            db,
+            source_stage_id=card.kept_row.id,
             candidate_id=survivor_id,
             job_id=card.job_id,
             moved_at=card.newest_moved_at + timedelta(microseconds=1),
-            notes=source.notes or _CARD_RESTORED_NOTE,
-            external_source="manual",
-            **{name: getattr(source, name) for name in _CARD_ROW_DECISION},
+            default_note=_CARD_RESTORED_NOTE,
         )
-        db.add(new_row)
-        await db.flush()
         restored.append(
             {
                 "job_id": card.job_id,
