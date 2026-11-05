@@ -492,13 +492,21 @@ async def prep_suggestions(
     interview_start: datetime = Query(...),
     candidate_from: Optional[str] = Query(None, max_length=5),
     candidate_to: Optional[str] = Query(None, max_length=5),
+    prep1_minutes: int = Query(prep_availability.PREP_MINUTES),
+    prep2_minutes: int = Query(prep_availability.PREP_MINUTES),
     db: AsyncSession = Depends(get_db),
 ) -> PrepSuggestionsOut:
     """Wolne godziny Prepu 1 i Prepu 2 przed wybieraną rozmową (20.10.2026).
 
     Niczego nie zapisuje. Zajętość z kalendarzy prowadzących przez aplikację
     prepów (``prep_availability``); bez niej godziny liczą się bez kalendarza.
+    Godziny liczą się dla czasu wybranego osobno dla każdego prepu.
     """
+    minutes_by_prep = {1: prep1_minutes, 2: prep2_minutes}
+    if any(m not in prep_availability.PREP_DURATIONS for m in minutes_by_prep.values()):
+        raise HTTPException(
+            status_code=422, detail="Czas prepu to 30, 45, 60 albo 90 minut."
+        )
     await ensure_job_membership(db, current_user, job_id)
     job = await db.get(Job, job_id)
     if job is None:
@@ -576,6 +584,7 @@ async def prep_suggestions(
                 busy=user_busy,
                 candidate_windows=windows,
                 avoid=avoid,
+                minutes=minutes_by_prep[prep_no],
             )
         )
         if options and event is None:
@@ -589,7 +598,11 @@ async def prep_suggestions(
                 else None,
                 calendar=calendar,
                 scheduled_start=event.start_time if event is not None else None,
-                minutes=prep_availability.PREP_MINUTES,
+                # Zaplanowany prep ma własną długość: okno liczy z niej kolizję
+                # z drugim prepem.
+                minutes=round((event.end_time - event.start_time).total_seconds() / 60)
+                if event is not None
+                else minutes_by_prep[prep_no],
                 options=[PrepOptionTime(start=o.start, end=o.end) for o in options],
                 busy=[PrepOptionTime(start=s, end=e) for s, e in user_busy or []],
             )
