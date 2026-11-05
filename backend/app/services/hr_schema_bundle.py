@@ -35,6 +35,7 @@ from app.services import hr_agreements_schema as agreements
 from app.services import hr_approval_basis_schema as approval_basis
 from app.services import hr_approval_settlement_schema as approval_settlement
 from app.services import hr_approvals_schema as approvals
+from app.services import hr_bonus_guarantee_schema as bonus_guarantee
 from app.services import hr_documents_schema as documents
 from app.services import hr_foundation_schema as foundation
 from app.services import hr_leave_proofs_schema as leave_proofs
@@ -80,6 +81,8 @@ MODULES = (
     consultant_portal,
     # 0648: panel konsultanta, aktywacja i materiały (05.11.2026).
     consultant_panel,
+    # 0650: gwarancja premii DL — dług i potrącenia (05.11.2026).
+    bonus_guarantee,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

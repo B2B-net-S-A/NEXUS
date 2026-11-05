@@ -115,6 +115,12 @@ CHAIN = (
         "0647_insight_decisions",  # down_revision — przepina rechain_migration.py
         "consultant_panel_schema",
     ),
+    # Gwarancja premii DL: dług i potrącenia (05.11.2026).
+    (
+        "0650_hr_bonus_guarantee",
+        "0649_start_documents",  # down_revision — przepina rechain_migration.py
+        "hr_bonus_guarantee_schema",
+    ),
 )
 
 

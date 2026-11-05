@@ -511,6 +511,7 @@ async def test_manager_sees_team_hours_and_bonuses_but_not_rates(
             "hourly_rate": "100.00",
             "hours_amount": "800.00",
             "bonus_total": "300.00",
+            "clawback_total": "0.00",
             "total": "1100.00",
         }
     ]

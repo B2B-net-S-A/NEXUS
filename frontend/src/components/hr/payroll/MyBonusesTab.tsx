@@ -11,6 +11,7 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
 import { BonusMonths } from "../me/BonusMonths";
+import { MyClawbacksCard } from "./MyClawbacksCard";
 import { MySettlementCard } from "../me/MySettlementCard";
 import { showsPreviousYear } from "../me/settlement-format";
 import {
@@ -150,6 +151,7 @@ export function MyBonusesTab() {
           form,
         )}
       />
+      <MyClawbacksCard items={data.clawbacks} />
       {state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           Nie masz jeszcze {words.bonuses_genitive}. {capitalize(words.bonus)} z placementu

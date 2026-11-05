@@ -113,6 +113,10 @@ export interface BonusRow {
   rule_snapshot?: Record<string, unknown>;
   /** Listy Płac: czy widz może zatwierdzić propozycję (ręczną przełożonego — tylko Płace). */
   can_approve?: boolean;
+  /** Gwarancja premii DL: premia ma dług do zwrotu (otwarty albo spłacony). */
+  has_clawback?: boolean;
+  /** Płace: „Zwrot z gwarancji” — przyznana premia DL bez długu, nie własna. */
+  can_clawback?: boolean;
   /** Propozycje „liczy się”: postęp do terminu. */
   business_days_elapsed?: number | null;
   business_days_required?: number;
@@ -122,8 +126,41 @@ export interface PayrollLine {
   currency: Currency;
   hourly_rate: string | null;
   hours_amount: string | null;
+  /** Premie po potrąceniu z gwarancji; przed potrąceniem = `bonus_total + clawback_total`. */
   bonus_total: string;
+  /** Potrącenie z gwarancji premii DL (0650); brak = linia sprzed gwarancji. */
+  clawback_total?: string;
   total: string;
+}
+
+/**
+ * Dług z gwarancji premii DL (05.11.2026): konsultant nie przepracował 12 miesięcy
+ * od startu kontraktu, więc DL oddaje całą premię — potrąca się sama z kolejnych.
+ */
+export interface BonusClawback {
+  id: number;
+  bonus_id: number;
+  recipient_user_id: number;
+  recipient_name: string | null;
+  contract_id: number | null;
+  description: string | null;
+  /** Miesiąc wypłaty premii, `RRRR-MM`. */
+  bonus_period: string;
+  amount: string;
+  currency: Currency;
+  /** Potrącone w zamkniętych miesiącach. */
+  settled: string;
+  remaining: string;
+  /** Dług anulowany po potrąceniu (np. cofnięty koniec kontraktu): do oddania premią. */
+  refund_due: string | null;
+  origin: "automatic" | "manual";
+  status: "open" | "settled" | "cancelled";
+  contract_start: string | null;
+  ended_on: string | null;
+  guarantee_until: string | null;
+  note: string | null;
+  cancel_reason: string | null;
+  created_at: string | null;
 }
 
 export interface PayrollPerson {
@@ -221,6 +258,8 @@ export interface MyPayroll {
   bonuses: BonusRow[];
   forecast?: BonusForecast[];
   business_days_required?: number;
+  /** Moje długi z gwarancji premii DL. */
+  clawbacks?: BonusClawback[];
 }
 
 export interface SettlementMonth {
@@ -334,6 +373,7 @@ export const payrollKeys = {
   month: (year: number, month: number) => ["hr", "payroll", "month", year, month] as const,
   person: (userId: number) => ["hr", "payroll", "person", userId] as const,
   rules: ["hr", "payroll", "rules"] as const,
+  clawbacks: ["hr", "payroll", "clawbacks"] as const,
   minimumRates: ["hr", "payroll", "minimum-rates"] as const,
 };
 
@@ -585,6 +625,35 @@ export function useApproveBonuses() {
           { ids },
         )
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Płace: długi z gwarancji premii DL (otwarte, spłacone, do oddania). */
+export function useBonusClawbacks(enabled = true) {
+  return useQuery({
+    queryKey: payrollKeys.clawbacks,
+    queryFn: async () =>
+      (await api.get<{ items: BonusClawback[] }>("/api/hr/payroll/clawbacks")).data.items,
+    enabled,
+  });
+}
+
+export function useRegisterClawback() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async ({ bonusId, note }: { bonusId: number; note: string }) =>
+      (await api.post<BonusClawback>(`/api/hr/payroll/bonuses/${bonusId}/clawback`, { note }))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useCancelClawback() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: number; note: string }) =>
+      (await api.post<BonusClawback>(`/api/hr/payroll/clawbacks/${id}/cancel`, { note })).data,
     onSuccess: invalidate,
   });
 }

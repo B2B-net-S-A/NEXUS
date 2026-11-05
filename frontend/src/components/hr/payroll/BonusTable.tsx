@@ -76,6 +76,9 @@ export function BonusTable({
                     {row.eligible_on ? ` · termin ${formatIsoDatePl(row.eligible_on)}` : ""}
                     {row.from_sheet ? " · z arkusza" : ""}
                     {row.edited ? " · kwota poprawiona" : ""}
+                    {row.has_clawback ? (
+                      <span className="text-warning">{" · zwrot z gwarancji"}</span>
+                    ) : null}
                     {row.contract_ended_early ? (
                       <span className="text-warning">
                         {" · kontrakt skończył się przed terminem — premia przepada"}

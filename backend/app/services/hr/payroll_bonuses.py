@@ -578,6 +578,10 @@ async def cancel_bonus(
     await db.flush()
     _audit(db, bonus, actor_id=viewer.user_id, action="bonus_cancelled")
     if was_assigned:
+        # Premia z otwartego miesiąca nie wyszła — dług z gwarancji za nią znika.
+        from app.services.hr import bonus_guarantee  # cykl importów
+
+        await bonus_guarantee.on_bonus_cancelled(db, bonus)
         await _notify(
             db,
             bonus,

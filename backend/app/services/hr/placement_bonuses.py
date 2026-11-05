@@ -1068,7 +1068,17 @@ async def _hook(db: AsyncSession, contract: Contract, event: str) -> dict[str, A
         if not modules.get(HrModule.payroll):
             return {"status": "disabled"}
         async with db.begin_nested():
-            return await reconcile_contract(db, contract.id)
+            counts = await reconcile_contract(db, contract.id)
+        # Gwarancja premii DL (0650): koniec przed rocznicą startu zakłada dług,
+        # cofnięcie końca zdejmuje dług automatu. Import tutaj — moduł gwarancji
+        # sam czyta ``contract_end`` z tego pliku.
+        from app.services.hr import bonus_guarantee
+
+        async with db.begin_nested():
+            guarantee = await bonus_guarantee.reconcile_contract(
+                db, contract, today=business_today()
+            )
+        return {**counts, **{f"guarantee_{k}": v for k, v in guarantee.items()}}
     except Exception as exc:  # noqa: BLE001 — patrz docstring
         # Klasa wyjątku, nie treść — DETAIL Postgresa niesie kwoty wiersza.
         logger.error(

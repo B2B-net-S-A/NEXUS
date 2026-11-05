@@ -6,7 +6,9 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 * ``EmployeeRate`` — stawka godzinowa od 1. dnia miesiąca (historia),
 * ``HrBonus`` — premia ręczna albo propozycja automatu (placement, Liga),
 * ``PayrollPeriod`` — miesiąc płac otwarty albo zamknięty,
-* ``PayrollLine`` — zamrożona linia zamkniętego miesiąca (osoba × waluta).
+* ``PayrollLine`` — zamrożona linia zamkniętego miesiąca (osoba × waluta),
+* ``HrBonusClawback`` / ``HrBonusClawbackOffset`` — gwarancja premii DL (0650):
+  dług za premię i potrącenia zamrożone przy zamknięciu miesiąca.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.services import hr_bonus_guarantee_schema as guarantee_schema
 from app.services import hr_payroll_schema as schema
 
 
@@ -220,6 +223,9 @@ class PayrollLine(Base):
         CheckConstraint(
             schema.CK_LINE_TIMESHEET_STATUS, name="ck_payroll_lines_timesheet_status"
         ),
+        CheckConstraint(
+            guarantee_schema.CK_LINE_CLAWBACK, name="ck_payroll_lines_clawback"
+        ),
         Index("ix_payroll_lines_user", "user_id"),
     )
 
@@ -248,6 +254,10 @@ class PayrollLine(Base):
     bonus_total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Potrącenie z gwarancji premii DL; ``bonus_total`` jest już po nim (0650).
+    clawback_total: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
     total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -258,6 +268,115 @@ class PayrollLine(Base):
         Numeric(5, 1), nullable=False, default=Decimal("0"), server_default="0"
     )
     timesheet_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class HrBonusClawback(Base, TimestampMixin):
+    """Dług za przyznaną premię DL: konsultant odszedł przed 12 miesiącami (0650)."""
+
+    __tablename__ = "hr_bonus_clawbacks"
+    __table_args__ = (
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_AMOUNT, name="ck_hr_bonus_clawbacks_amount"
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_CURRENCY,
+            name="ck_hr_bonus_clawbacks_currency",
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_ORIGIN, name="ck_hr_bonus_clawbacks_origin"
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_STATUS, name="ck_hr_bonus_clawbacks_status"
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_NOT_SELF_CREATED,
+            name="ck_hr_bonus_clawbacks_not_self_created",
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_NOT_SELF_CANCELLED,
+            name="ck_hr_bonus_clawbacks_not_self_cancelled",
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_CANCELLED_AT,
+            name="ck_hr_bonus_clawbacks_cancelled_at",
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_NOTE, name="ck_hr_bonus_clawbacks_note"
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_CLAWBACK_CANCEL_NOTE,
+            name="ck_hr_bonus_clawbacks_cancel_note",
+        ),
+        Index(
+            "uq_hr_bonus_clawbacks_live",
+            "bonus_id",
+            unique=True,
+            postgresql_where=text(guarantee_schema.LIVE_CLAWBACK_WHERE),
+        ),
+        Index("ix_hr_bonus_clawbacks_recipient", "recipient_user_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bonus_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_bonuses.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, default="PLN", server_default="PLN"
+    )
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", server_default="open"
+    )
+    contract_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    ended_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    guarantee_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancelled_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    cancel_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class HrBonusClawbackOffset(Base):
+    """Potrącenie długu zamrożone przy zamknięciu miesiąca płac (dług × okres)."""
+
+    __tablename__ = "hr_bonus_clawback_offsets"
+    __table_args__ = (
+        UniqueConstraint(
+            "clawback_id", "period_id", name="uq_hr_bonus_clawback_offsets_period"
+        ),
+        CheckConstraint(
+            guarantee_schema.CK_OFFSET_AMOUNT,
+            name="ck_hr_bonus_clawback_offsets_amount",
+        ),
+        Index("ix_hr_bonus_clawback_offsets_period", "period_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clawback_id: Mapped[int] = mapped_column(
+        ForeignKey("hr_bonus_clawbacks.id", ondelete="CASCADE"), nullable=False
+    )
+    period_id: Mapped[int] = mapped_column(
+        ForeignKey("payroll_periods.id", ondelete="CASCADE"), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
