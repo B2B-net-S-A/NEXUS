@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { PortalFaqItem, PortalMonth } from "@/lib/api/consultant-portal";
 
 import {
-  cleanCode,
-  financeView,
   formatDay,
   groupFaq,
   matchesFaq,
   monthActionLabel,
   monthLabel,
+  offsetLabel,
+  rateLabel,
   slotLabel,
 } from "../portal-model";
 
@@ -50,20 +50,18 @@ describe("portal-model", () => {
     expect(slotLabel("2026-11-05T08:30:00Z", now)).toContain("09:30");
   });
 
-  it("czyści kod SMS", () => {
-    expect(cleanCode("12 34 56")).toBe("123456");
-    expect(cleanCode("Kod: 1234567")).toBe("123456");
-    expect(cleanCode("abc")).toBe("");
+  it("pisze stawkę po polsku i nie zgaduje jej braku", () => {
+    expect(rateLabel({ amount: "160.00", currency: "PLN", unit: "hourly" })).toBe("160,00 zł/h netto");
+    expect(rateLabel({ amount: "900.50", currency: "EUR", unit: "daily" })).toBe("900,50 EUR/dzień netto");
+    expect(rateLabel(null)).toBeNull();
   });
 
-  it("awaria zapytania finansów to nie brak finansów", () => {
-    const open = { available: true, verified: true };
-    expect(financeView(undefined, { isError: true })).toBe("error");
-    expect(financeView(open, { isError: true })).toBe("error");
-    expect(financeView(undefined, { isError: false })).toBe("loading");
-    expect(financeView({ available: false, verified: false }, { isError: false })).toBe("unavailable");
-    expect(financeView({ available: true, verified: false }, { isError: false })).toBe("verify");
-    expect(financeView(open, { isError: false })).toBe("open");
+  it("opisuje termin dokumentu względem startu", () => {
+    expect(offsetLabel(-1)).toBe("1 dzień roboczy przed startem");
+    expect(offsetLabel(-3)).toBe("3 dni robocze przed startem");
+    expect(offsetLabel(0)).toBe("w dniu startu");
+    expect(offsetLabel(2)).toBe("2 dni robocze po starcie");
+    expect(offsetLabel(null)).toBeNull();
   });
 
   it("nazywa miesiąc i krok konsultanta", () => {

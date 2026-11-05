@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * `/konsultant` — strefa konsultanta. Bez sesji prośba o link, z sesją ekran główny.
+ * `/konsultant/*` — panel konsultanta. Bez sesji prośba o link, z sesją menu i ekrany.
  * Wyłączony portal (`app_settings['consultant_portal']`) odpowiada 404 i tu mówi to
  * zdaniem. Awaria sieci jest osobnym stanem: nie wygląda jak wyłączony portal.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { LoginForm } from "@/components/consultant-portal/LoginForm";
-import { PortalHome } from "@/components/consultant-portal/PortalHome";
+import { PanelNav } from "@/components/consultant-portal/PanelNav";
 import { PortalNotice, PortalShell } from "@/components/consultant-portal/PortalShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,7 @@ import {
   usePortalQuery,
 } from "@/lib/api/consultant-portal";
 
-export default function ConsultantPortalPage() {
+export default function ConsultantPanelLayout({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   // `sessionStorage` istnieje dopiero w przeglądarce, więc pierwszy render jest bez sesji.
   const [mounted, setMounted] = useState(false);
@@ -55,15 +55,18 @@ export default function ConsultantPortalPage() {
 
   const closed = status.error instanceof PortalApiError && status.error.status === 404;
   return (
-    <PortalShell onLogout={me.isSuccess ? logout : undefined}>
+    <PortalShell
+      onLogout={me.isSuccess ? logout : undefined}
+      nav={me.isSuccess ? <PanelNav me={me.data} /> : undefined}
+    >
       {!mounted || status.isLoading ? <p className="text-sm text-muted-foreground">Wczytujemy…</p> : null}
       {closed ? (
-        <PortalNotice title="Strefa konsultanta nie jest jeszcze dostępna">
+        <PortalNotice title="Panel konsultanta nie jest jeszcze dostępny">
           <p>W sprawach bieżących napisz do swojego opiekuna.</p>
         </PortalNotice>
       ) : null}
       {status.isError && !closed ? (
-        <PortalNotice tone="error" title="Nie udało się otworzyć strefy konsultanta">
+        <PortalNotice tone="error" title="Nie udało się otworzyć panelu konsultanta">
           <p>To chwilowy problem po naszej stronie. Spróbuj ponownie za kilka minut.</p>
           <Button size="sm" variant="outline" className="mt-2" onClick={() => status.refetch()}>
             Spróbuj ponownie
@@ -86,7 +89,7 @@ export default function ConsultantPortalPage() {
               </Button>
             </PortalNotice>
           ) : null}
-          {me.isSuccess ? <PortalHome me={me.data} /> : null}
+          {me.isSuccess ? children : null}
         </>
       ) : null}
     </PortalShell>

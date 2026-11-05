@@ -8,18 +8,22 @@ import { Button } from "@/components/ui/button";
 export function PortalShell({
   name,
   onLogout,
+  nav,
   children,
 }: {
   name?: string | null;
   onLogout?: () => void;
+  /** Menu panelu: po zalogowaniu ekran jest szerszy, bo ma kolumny. */
+  nav?: ReactNode;
   children: ReactNode;
 }) {
+  const width = nav ? "max-w-6xl" : "max-w-3xl";
   return (
-    <div className="min-h-dvh bg-background text-foreground">
+    <div className={`min-h-dvh text-foreground ${nav ? "bg-muted" : "bg-background"}`}>
       <header className="border-b bg-card">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+        <div className={`mx-auto flex ${width} items-center justify-between gap-3 px-4 py-3`}>
           <span className="text-sm font-semibold">
-            B2B.net <span className="font-normal text-muted-foreground">· strefa konsultanta</span>
+            B2B.net <span className="font-normal text-muted-foreground">panel konsultanta</span>
           </span>
           {onLogout ? (
             <Button size="sm" variant="ghost" onClick={onLogout}>
@@ -27,8 +31,9 @@ export function PortalShell({
             </Button>
           ) : null}
         </div>
+        {nav ? <div className={`mx-auto ${width} px-2`}>{nav}</div> : null}
       </header>
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className={`mx-auto ${width} space-y-4 px-4 py-5`}>
         {name ? <span className="sr-only">Zalogowano: {name}</span> : null}
         {children}
       </main>

@@ -5,7 +5,7 @@ modułu ``back_office``, bo pierwsza wersja panelu idzie na test na jednej osobi
 tablica ruszy (decyzja Artura 05.11.2026). Moduł nie jest więc tu warunkiem wstępu.
 
 * **aktywacja i materiały**: zespół Opieka, kierownik back office'u, admin,
-* **szablon rozliczenia — zapis**: Finanse (``FinanceModuleUser``); odczyt także Opieka,
+* **szablon rozliczenia**: zapis Finanse (``FinanceModuleUser``), odczyt też Opieka,
 * **wyłącznik panelu i maila powitalnego**: tylko admin.
 """
 
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import FinanceModuleUser, require_onboarded_user
 from app.core.database import get_db
 from app.models.user import User, UserRole
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.back_office import access
 from app.services.consultant_panel_schema import (
     INSTRUCTIONS_MAX,
@@ -80,7 +81,24 @@ def require_hr_panel_admin():
     return _check
 
 
+def require_hr_panel_rule_reader():
+    """Szablon rozliczenia czyta Opieka, kierownik, admin i Finanse."""
+
+    async def _check(
+        current_user: User = Depends(require_onboarded_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if has_permission(current_user, ProductAction.finance_module):
+            return current_user
+        if not (await access.load_viewer(db, current_user)).owns("care"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, OPERATOR_ONLY)
+        return current_user
+
+    return _check
+
+
 PanelOperator = Annotated[User, Depends(require_hr_panel_operator())]
+PanelRuleReader = Annotated[User, Depends(require_hr_panel_rule_reader())]
 PanelAdmin = Annotated[User, Depends(require_hr_panel_admin())]
 
 
@@ -278,7 +296,7 @@ async def retire_material(
 @router.get("/clients/{client_id}/settlement")
 async def get_settlement(
     client_id: int,
-    current_user: PanelOperator,
+    current_user: PanelRuleReader,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     return await materials.settlement_rule(db, client_id)
