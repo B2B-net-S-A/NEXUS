@@ -66,6 +66,77 @@ def test_empty_field_phrase_cannot_confirm_a_mismatch(first, last):
     assert as_observed.evidence["observed_identity_complete"] is False
 
 
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Work", "Experience"),
+        ("Back-End", "Developer"),
+        ("Praca", "Zawodowe Doświadczenie"),
+        ("TEST", "test"),
+    ],
+)
+def test_profile_name_of_common_cv_words_cannot_confirm_a_mismatch(first, last) -> None:
+    # Taka nazwa nie mówi, czyje to CV: każdy plik daje mismatch, także ten, z którego
+    # profil powstał (529068, 17.09.2026: 7 wyczyszczonych pól).
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=first,
+        candidate_last_name=last,
+        observed_first_name="Anna",
+        observed_last_name="Nowak",
+    )
+
+    assert result.decision == "inconclusive"
+    assert result.evidence["candidate_identity_complete"] is False
+    assert result.evidence["candidate_name_only_common_cv_words"] is True
+    assert "candidate_identity_fingerprint" not in result.evidence
+
+
+def test_profile_name_of_common_cv_words_equal_to_the_read_is_no_match() -> None:
+    # Ten sam nagłówek po obu stronach to nie potwierdzenie tożsamości.
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name="Work",
+        candidate_last_name="Experience",
+        observed_first_name="Work",
+        observed_last_name="Experience",
+    )
+
+    assert result.decision == "inconclusive"
+
+
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [
+        ("Project", "Li"),
+        ("Fikcyjny", "Developer"),
+        ("Jan", "Kierownik"),
+    ],
+)
+def test_one_rare_word_in_profile_name_keeps_the_mismatch(first, last) -> None:
+    # Częste słowo bywa nazwiskiem, a krótkie słowo też się liczy („Li”).
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name=first,
+        candidate_last_name=last,
+        observed_first_name="Anna",
+        observed_last_name="Nowak",
+    )
+
+    assert result.decision == "confirmed_mismatch"
+    assert result.evidence["candidate_identity_complete"] is True
+    assert result.evidence["candidate_name_only_common_cv_words"] is False
+
+
+def test_common_cv_words_only_in_the_read_keep_the_mismatch() -> None:
+    # Odczyt z takimi słowami załatwia parser (#3062), a odczytu modelu reguła nie rusza.
+    result = quarantine.evaluate_identity_match(
+        candidate_first_name="Anna",
+        candidate_last_name="Nowak",
+        observed_first_name="Work",
+        observed_last_name="Experience",
+    )
+
+    assert result.decision == "confirmed_mismatch"
+
+
 def test_identity_match_accepts_parser_name_order_swap() -> None:
     result = quarantine.evaluate_identity_match(
         candidate_first_name="Jan",
@@ -553,7 +624,7 @@ async def test_candidate_cv_routes_tell_the_gate_where_the_name_came_from(
     monkeypatch.setattr(candidates_api, "record_detected_identity", gate)
     parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
     if from_header:
-        parsed["_name_from_header"] = True
+        parsed["_name_from_header"] = ["first_name", "last_name"]
 
     await candidates_api._parsed_source_is_quarantined(
         object(),  # type: ignore[arg-type]

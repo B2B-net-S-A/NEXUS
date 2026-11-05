@@ -677,6 +677,54 @@ async def test_unknown_sender_cv_without_contact_creates_nothing(monkeypatch, tm
     assert attachment.parse_error == "identity_insufficient"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("marked", [["first_name", "last_name"], ["last_name"]])
+async def test_unknown_sender_cv_with_header_name_creates_nothing(
+    monkeypatch, tmp_path, marked
+):
+    handler, _ = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "phone": "600100200",
+            "_name_from_header": marked,
+        },
+        [],
+    )
+    attachment, email = _m365_inputs(tmp_path)
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email)
+        is None
+    )
+    assert attachment.parse_error == "identity_insufficient"
+
+
+@pytest.mark.asyncio
+async def test_unknown_sender_cv_with_header_name_still_links_by_email(
+    monkeypatch, tmp_path
+):
+    # Adres dowodzi osoby, nazwa z nagłówka nie jest tu potrzebna.
+    handler, parse = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "email": "jan@example.com",
+            "_name_from_header": ["first_name", "last_name"],
+        },
+        [{"candidate_id": 42, "match_score": 1.0, "match_reasons": ["email_exact"]}],
+    )
+    attachment, email = _m365_inputs(tmp_path)
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) == 42
+    )
+    assert attachment.parse_error is None
+    parse.assert_awaited_once()
+
+
 @needs_db
 async def test_unknown_sender_cv_creates_a_candidate(monkeypatch, tmp_path):
     from sqlalchemy import delete, select
