@@ -158,6 +158,7 @@ def _state_row(state: activation.ActivationState) -> dict[str, Any]:
         "last_login_at": state.last_login_at.isoformat()
         if state.last_login_at
         else None,
+        "address_changed": state.address_changed,
     }
 
 

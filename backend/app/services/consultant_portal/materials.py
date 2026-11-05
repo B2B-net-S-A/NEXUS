@@ -87,8 +87,8 @@ async def proposal(db: AsyncSession, contract_id: int) -> dict[str, Any]:
         "client": (client.display_name or client.name) if client else None,
         "start_date": contract.start_date.isoformat() if contract.start_date else None,
         "can_activate": contract.status in activation.ACTIVATABLE,
-        "suggested_email": state.email
-        or await activation.suggested_email(db, contract),
+        "suggested_email": await activation.suggested_email(db, contract)
+        or state.email,
         "activation": {
             "active": state.active,
             "email": state.email,
@@ -102,6 +102,7 @@ async def proposal(db: AsyncSession, contract_id: int) -> dict[str, Any]:
             "last_login_at": state.last_login_at.isoformat()
             if state.last_login_at
             else None,
+            "address_changed": state.address_changed,
         },
         "materials": [
             {

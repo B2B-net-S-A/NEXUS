@@ -161,3 +161,41 @@ async def test_reactivation_opens_the_same_row() -> None:
         ).all()
     assert len(rows) == 1
     assert rows[0].deactivated_at is None
+
+
+@pytest.mark.usefixtures("portal_restored")
+async def test_address_changed_after_activation_closes_the_panel(
+    app_client, monkeypatch
+) -> None:
+    mailer = install_mailer(monkeypatch)
+    person = await make_person()
+    await set_portal("pilot")
+    headers = await session_headers(app_client, person)
+    changed = f"zmieniony-{tag()}@example.com"
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, person.contract_id)
+        contract.candidate_email = changed
+        await db.commit()
+    assert (await app_client.get(f"{BASE}/me", headers=headers)).status_code == 401
+    await app_client.post(f"{BASE}/link", json={"email": changed})
+    assert mailer.sent == []
+    async with AsyncSessionLocal() as db:
+        state = await activation.state_for(db, person.contract_id)
+    assert state.active is True
+    assert state.address_changed is True
+
+
+@pytest.mark.usefixtures("portal_restored")
+async def test_copied_address_on_another_contract_does_not_block_the_owner(
+    app_client, monkeypatch
+) -> None:
+    mailer = install_mailer(monkeypatch)
+    owner = await make_person()
+    other = await make_person()
+    await set_portal("pilot")
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, other.contract_id)
+        contract.candidate_email = owner.email
+        await db.commit()
+    await app_client.post(f"{BASE}/link", json={"email": owner.email})
+    assert [mail["to"] for mail in mailer.sent] == [owner.email]

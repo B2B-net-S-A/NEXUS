@@ -14,13 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
 from app.models.consultant_panel import CpActivation
 from app.models.consultant_portal import CpSession
+from app.models.contract import Contract
 from app.services.hr import modules as hr_modules
 from app.services.consultant_portal_schema import PORTAL_SETTING, STATES
 
@@ -65,8 +66,15 @@ async def load(db: AsyncSession) -> PortalSettings:
         hr_modules.HrModule.back_office
     ):
         return PortalSettings()
+    # Adres zmieniony w kontrakcie po aktywacji zamyka panel: link wyszedłby na adres,
+    # którego nikt nie potwierdził, a kolizja adresów blokowałaby logowanie drugiej osoby.
     activated = await db.scalars(
-        select(CpActivation.contract_id).where(CpActivation.deactivated_at.is_(None))
+        select(CpActivation.contract_id)
+        .join(Contract, Contract.id == CpActivation.contract_id)
+        .where(
+            CpActivation.deactivated_at.is_(None),
+            func.lower(func.btrim(Contract.candidate_email)) == CpActivation.email,
+        )
     )
     return PortalSettings(
         state=state.state, activated_contract_ids=frozenset(activated.all())

@@ -26,6 +26,7 @@ export interface PanelActivation {
   activated_by: string | null;
   deactivated_at: string | null;
   last_login_at: string | null;
+  address_changed: boolean;
 }
 
 export interface PanelProposal {

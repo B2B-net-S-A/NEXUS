@@ -44,6 +44,8 @@ class ActivationState:
     activated_by: Optional[str]
     deactivated_at: Optional[datetime]
     last_login_at: Optional[datetime]
+    #: Adres w kontrakcie zmienił się po aktywacji: panel jest zamknięty do potwierdzenia.
+    address_changed: bool = False
 
 
 async def _row(db: AsyncSession, contract_id: int) -> Optional[CpActivation]:
@@ -68,6 +70,7 @@ async def state_for(db: AsyncSession, contract_id: int) -> ActivationState:
     if row is None:
         return ActivationState(False, None, None, None, None, None)
     actor = await db.get(User, row.activated_by) if row.activated_by else None
+    contract = await db.get(Contract, contract_id)
     last_login = await db.scalar(
         select(func.max(CpSession.created_at)).where(
             CpSession.contract_id == contract_id
@@ -80,6 +83,9 @@ async def state_for(db: AsyncSession, contract_id: int) -> ActivationState:
         activated_by=actor.name if actor else None,
         deactivated_at=row.deactivated_at,
         last_login_at=last_login,
+        address_changed=row.deactivated_at is None
+        and identity.normalize_email(contract.candidate_email if contract else None)
+        != row.email,
     )
 
 

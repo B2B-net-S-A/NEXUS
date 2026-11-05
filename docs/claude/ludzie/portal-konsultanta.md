@@ -14,7 +14,10 @@ Automatu nie ma (decyzja Artura 05.11.2026). Po podpisaniu umowy Opieka klika w 
 kontraktu: potwierdza adres (trafia do `contracts.candidate_email`), wybiera materiały i wysyła mail.
 `open_for` wymaga aktywnego wiersza `cp_activations` w każdym stanie wyłącznika, więc kontrakt bez
 aktywacji wygląda z zewnątrz jak nieznany adres. Wyłączenie zostawia wiersz i zamyka sesje od razu.
-Adres innej osoby z aktywnym panelem to odmowa. Szkic kontraktu nie aktywuje się, bo to umowa przed podpisem.
+Adres innej osoby z aktywnym panelem to odmowa. Adres zmieniony w kontrakcie po aktywacji zamyka panel do
+ponownego potwierdzenia (`portal_settings.load` porównuje go z `cp_activations.email`), bo inaczej link wyszedłby
+na niepotwierdzony adres. Mail powitalny wysyła przy aktywacji Opieka, także bez roli opiekuna kontraktu (decyzja
+Artura 05.11.2026); dawna trasa DL/TCM zostaje. Szkic kontraktu nie aktywuje się, bo to umowa przed podpisem.
 
 ## Wyłącznik
 
@@ -56,7 +59,8 @@ Odpowiedzi to listy dozwolonych pól (`services/consultant_portal/panel.py`), pi
 `test_consultant_panel_screens.py`:
 
 - **Stawka**: tylko stawka konsultanta z `effective_candidate_rate`, bez stawki klienta i marży.
-- **Sprzęt**: wyłącznie wydania z protokołem (decyzja Artura 05.11.2026), bez cennika, uwag i lokalizacji.
+- **Sprzęt**: wyłącznie wydania z protokołem (decyzja Artura 05.11.2026), na ekranie bez cennika, uwag i lokalizacji.
+  PDF protokołu ma wartości, tak samo jak dokument z publicznego linku odbioru.
   Stare wydania z importu nie mają protokołu, więc pozycja menu jest ukryta. Potwierdzenie odbioru
   (`protocols.sign_in_panel`) gasi linki do tego protokołu, a zatwierdza dalej recepcja (D4).
 - **Materiały**: tylko te wybrane przy aktywacji. Wycofany materiał znika z panelu, wiersz i plik zostają.

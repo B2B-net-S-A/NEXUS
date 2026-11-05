@@ -409,10 +409,17 @@ export function ConsultantPanelCard({ contractId }: { contractId: number }) {
         <p role="alert" className="text-sm text-destructive">
           {apiErrorMessage(proposal.error, "Nie udało się wczytać panelu konsultanta. Odśwież stronę.")}
         </p>
-      ) : proposal.data.activation.active ? (
+      ) : proposal.data.activation.active && !proposal.data.activation.address_changed ? (
         <ActiveState data={proposal.data} contractId={contractId} />
       ) : proposal.data.can_activate ? (
-        <ActivationForm data={proposal.data} contractId={contractId} />
+        <>
+          {proposal.data.activation.address_changed ? (
+            <p role="status" className="text-sm text-warning-muted-foreground">
+              Adres w kontrakcie zmienił się po aktywacji, więc panel jest zamknięty. Potwierdź adres, żeby go otworzyć.
+            </p>
+          ) : null}
+          <ActivationForm data={proposal.data} contractId={contractId} />
+        </>
       ) : (
         <p className="text-sm text-muted-foreground">Panel można aktywować przy działającym kontrakcie.</p>
       )}
