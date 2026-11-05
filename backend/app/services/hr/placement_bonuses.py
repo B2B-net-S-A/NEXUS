@@ -1069,7 +1069,7 @@ async def _hook(db: AsyncSession, contract: Contract, event: str) -> dict[str, A
             return {"status": "disabled"}
         async with db.begin_nested():
             counts = await reconcile_contract(db, contract.id)
-        # Gwarancja premii DL (0651): koniec przed rocznicą startu zakłada dług,
+        # Gwarancja premii DL (0652): koniec przed rocznicą startu zakłada dług,
         # cofnięcie końca zdejmuje dług automatu. Import tutaj — moduł gwarancji
         # sam czyta ``contract_end`` z tego pliku.
         from app.services.hr import bonus_guarantee

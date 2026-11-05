@@ -7,7 +7,7 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/*_schema.py`` modułu
 * ``HrBonus`` — premia ręczna albo propozycja automatu (placement, Liga),
 * ``PayrollPeriod`` — miesiąc płac otwarty albo zamknięty,
 * ``PayrollLine`` — zamrożona linia zamkniętego miesiąca (osoba × waluta),
-* ``HrBonusClawback`` / ``HrBonusClawbackOffset`` — gwarancja premii DL (0651):
+* ``HrBonusClawback`` / ``HrBonusClawbackOffset`` — gwarancja premii DL (0652):
   dług za premię i potrącenia zamrożone przy zamknięciu miesiąca.
 """
 
@@ -254,7 +254,7 @@ class PayrollLine(Base):
     bonus_total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
-    #: Potrącenie z gwarancji premii DL; ``bonus_total`` jest już po nim (0651).
+    #: Potrącenie z gwarancji premii DL; ``bonus_total`` jest już po nim (0652).
     clawback_total: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -274,7 +274,7 @@ class PayrollLine(Base):
 
 
 class HrBonusClawback(Base, TimestampMixin):
-    """Dług za przyznaną premię DL: konsultant odszedł przed 12 miesiącami (0651)."""
+    """Dług za przyznaną premię DL: konsultant odszedł przed 12 miesiącami (0652)."""
 
     __tablename__ = "hr_bonus_clawbacks"
     __table_args__ = (
