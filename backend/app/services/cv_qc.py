@@ -2171,7 +2171,7 @@ async def _newer_profile_cv(db: AsyncSession, src: dz.ReviewSources) -> Optional
     """
     from app.models.candidate_document import CandidateDocument
     from app.services.client_cv_upload import looks_like_client_cv
-    from app.services.cv_source import current_cv_filters, current_cv_ordering
+    from app.services.cv_source import current_cv_filters_for, current_cv_ordering
 
     snapshot_at = src.original.get("snapshot_at")
     if src.original.get("source") != "snapshot" or snapshot_at is None:
@@ -2181,7 +2181,7 @@ async def _newer_profile_cv(db: AsyncSession, src: dz.ReviewSources) -> Optional
             select(CandidateDocument)
             .where(
                 CandidateDocument.candidate_id == src.candidate.id,
-                *current_cv_filters(),
+                *await current_cv_filters_for(db, src.candidate.id),
             )
             .order_by(*current_cv_ordering())
             .limit(1)

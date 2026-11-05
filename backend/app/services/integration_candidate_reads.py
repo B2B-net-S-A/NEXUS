@@ -55,6 +55,7 @@ from app.services.client_identity import (
     job_client_listed_clause,
 )
 from app.services.cv_enrichment import NON_CV_EXTRACTED_KEYS
+from app.services.cv_source import quarantined_copy_document_ids
 from app.services.employment_marker import load_employment_markers
 from app.services.integration_actor import VIA_PREFIX
 from app.services.polish_ilike import polish_folded_ilike
@@ -421,7 +422,12 @@ async def list_documents(
         (
             await db.scalars(
                 select(CandidateDocument)
-                .where(*eligible_document_conditions(candidate_id))
+                .where(
+                    *eligible_document_conditions(candidate_id),
+                    CandidateDocument.id.notin_(
+                        await quarantined_copy_document_ids(db, candidate_id)
+                    ),
+                )
                 .order_by(
                     CandidateDocument.is_primary.desc(),
                     func.coalesce(
@@ -441,6 +447,9 @@ async def load_document(
         select(CandidateDocument).where(
             CandidateDocument.id == document_id,
             *eligible_document_conditions(candidate_id),
+            CandidateDocument.id.notin_(
+                await quarantined_copy_document_ids(db, candidate_id)
+            ),
         )
     )
 
