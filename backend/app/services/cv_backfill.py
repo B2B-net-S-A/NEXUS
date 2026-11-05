@@ -347,7 +347,7 @@ def _names_from_stored_read(candidate: Candidate) -> dict[str, str]:
     first = str(extracted.get("first_name") or "").strip()
     last = str(extracted.get("last_name") or "").strip()
     last_key = normalize_person_name_part(last)
-    if not (first and last_key):
+    if not (normalize_person_name_part(first) and last_key):
         return {}
     if last_key not in normalize_person_name_part(candidate.raw_cv_text):
         return {}
