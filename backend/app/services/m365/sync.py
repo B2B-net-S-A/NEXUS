@@ -74,6 +74,7 @@ from app.services.m365.calendar import M365_SOURCE
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
 from app.services.m365.matcher import IncomingMessage
+from app.services.m365.oauth import M365ReauthRequired
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
 from app.services.sales import meeting_transcripts as sales_transcripts
 from app.services.sales import outlook_activities as sales_outlook
@@ -295,6 +296,21 @@ async def _sync_connection_locked(
             subject_id=conn.id,
         )
         return result
+    except M365ReauthRequired:
+        # Stan zapisał już `GraphClient` (`reconnect_required`). Ogólna gałąź
+        # niżej nadpisałaby go zwykłym `error` i baner by się nie pokazał.
+        logger.warning("m365 sync_connection %s: refresh token odrzucony", conn.id)
+        result.errors += 1
+        result.error_samples.append("top: M365ReauthRequired")
+        from app.core.operation_telemetry import record_job_outcome
+
+        record_job_outcome(
+            "m365_sync",
+            False,
+            interval_seconds=max(60, settings.M365_SYNC_INTERVAL_SECONDS),
+            subject_id=conn.id,
+        )
+        return result
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
         await db.refresh(conn)
@@ -315,7 +331,11 @@ async def _sync_connection_locked(
         )
         return result
 
-    if result.errors > 0:
+    if conn.last_sync_status == M365SyncStatus.reconnect_required:
+        # Refresh odrzucony przy pojedynczej wiadomości: pętla per wiadomość
+        # połknęła wyjątek, ale połączenie jest już wyłączone. Stan zostaje.
+        pass
+    elif result.errors > 0:
         # Błędy per wiadomość/wydarzenie/strona są łapane w pętlach niżej,
         # żeby jeden zepsuty mail nie urwał reszty skrzynki — ale przebieg,
         # w którym coś przepadło, NIE jest udany. `idle` chowałby go przed

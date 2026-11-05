@@ -78,6 +78,14 @@ describe("SendEmailV2", () => {
     expect(screen.getByText(/nie zapisze się w historii kandydata/)).toBeInTheDocument();
   });
 
+  it("wyłączone połączenie prosi o ponowne połączenie, a nie o pierwsze podłączenie", async () => {
+    getConnection.mockResolvedValue({ data: { connected: false, requires_reconnect: true } });
+    renderWindow();
+    expect(
+      await screen.findByRole("heading", { name: "Połącz ponownie skrzynkę Microsoft 365" }),
+    ).toBeInTheDocument();
+  });
+
   it("awaria odczytu stanu skrzynki nie blokuje — kompozytor pokaże błąd wysyłki", async () => {
     getConnection.mockRejectedValue(new Error("500"));
     renderWindow();

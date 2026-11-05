@@ -27,9 +27,10 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import get_token_cipher
-from app.models.m365 import M365Connection, M365SyncStatus
+from app.models.m365 import M365Connection
 from app.services.m365 import oauth as m365_oauth
 from app.services.m365.access import require_eligible_connection_owner
+from app.services.m365.connection_status import mark_reconnect_required
 
 logger = logging.getLogger(__name__)
 
@@ -246,12 +247,10 @@ class GraphClient:
         logger.info("Graph 401 — refreshing tokens for connection %s", self._conn.id)
         try:
             bundle = await m365_oauth.refresh_tokens(self._refresh_token)
-        except m365_oauth.M365ReauthRequired:
-            # Mark connection inactive so the sync loop skips it until user reconnects.
-            self._conn.is_active = False
-            self._conn.last_sync_status = M365SyncStatus.error
-            self._conn.last_error = "refresh token invalid — user must reconnect"
-            await self._db.commit()
+        except m365_oauth.M365ReauthRequired as exc:
+            # Pętla pomija wyłączone połączenie, a sama nic nie naprawi: bez
+            # `reconnect_required` właściciel skrzynki nie dostaje banera.
+            await mark_reconnect_required(self._db, self._conn, f"{exc!r}"[:500])
             raise
 
         prev_access = self._access_token
