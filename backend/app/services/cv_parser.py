@@ -252,7 +252,7 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
         if from_header:
             out["_name_from_header"] = from_header
 
-    if confidence:
+    if confidence or out.get("_confidence"):
         out["_confidence"] = confidence
     return out
 
