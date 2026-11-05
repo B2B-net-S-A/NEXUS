@@ -3504,7 +3504,7 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_placement_exclusions_job_id "
     "ON placement_exclusions (job_id)",
-    # 0651: powód ręczny (REASON_CHECK_DDL w app/services/placement_exclusions.py).
+    # 0650: powód ręczny (REASON_CHECK_DDL w app/services/placement_exclusions.py).
     # Tylko gdy CHECK go jeszcze nie zna — bez blokady tabeli przy każdym starcie.
     """DO $$
     BEGIN

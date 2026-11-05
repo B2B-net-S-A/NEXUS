@@ -1,7 +1,7 @@
-"""Wykluczone placementy: powód ręczny (0651).
+"""Wykluczone placementy: powód ręczny (0650).
 
-Revision ID: 0651_manual_placement_exclusions
-Revises: 0650_cv_call_questions
+Revision ID: 0650_manual_placement_exclusions
+Revises: 0649_start_documents
 
 Decyzja Artura 05.11.2026: placement osoby, która nie podjęła pracy albo
 którą klient odprawił zaraz po starcie, nie ma się liczyć w statystykach,
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services.placement_exclusions import REASON_CHECK_DDL
 
-revision = "0651_manual_placement_exclusions"
-down_revision = "0650_cv_call_questions"
+revision = "0650_manual_placement_exclusions"
+down_revision = "0649_start_documents"
 branch_labels = None
 depends_on = None
 

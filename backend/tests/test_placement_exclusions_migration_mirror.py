@@ -79,7 +79,7 @@ def test_migration_chains_and_uses_the_service():
 
 
 def test_manual_reason_check_is_mirrored_and_migrated():
-    """0651: CHECK z powodem ``manual`` w migracji i w entrypoincie.
+    """0650: CHECK z powodem ``manual`` w migracji i w entrypoincie.
 
     Bez lustra produkcja z osieroconym alembikiem odrzuci ręczne wykluczenie
     błędem CHECK, choć CI (migracja) jest zielone.
@@ -90,7 +90,7 @@ def test_manual_reason_check_is_mirrored_and_migrated():
     assert _collapse(add) in flat
     assert "'manual'" in add
     migration = (
-        BACKEND / "alembic" / "versions" / "0651_manual_placement_exclusions.py"
+        BACKEND / "alembic" / "versions" / "0650_manual_placement_exclusions.py"
     ).read_text()
     assert "REASON_CHECK_DDL" in migration
 
