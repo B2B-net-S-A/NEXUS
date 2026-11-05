@@ -352,6 +352,17 @@ z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, 
   „Less than 1 year” z uwagą. Nordea ze Scrumem w źródłach 24 z 24, bez źródeł Scrum nie
   pojawia się (8 z 8). Model zgłaszał pominięcie tylko w 2 z 8, więc uwagę daje kod
   (`summary_last_point_terms` w katalogu). CV wygenerowane wcześniej nie zmieniają się same.
+- **Niższe lata na stanowisku albo w obszarze to nie fabrykacja** (`_helpers._position_or_area_years_within_dates`,
+  tylko `legacy_v7`, tylko `why_points`). Standard każe pisać staż na stanowisku, a test na Solu
+  dawał „BRAK POKRYCIA” przy „4 lata doświadczenia jako SQL Developer” (11,9 roku z dat) i „Over 14
+  years of experience as an SDET” (23,2 roku), w każdym biegu. Bez uwagi: liczba nie większa niż suma
+  dat ról, stojąca przy „jako”, „as”, „na stanowisku”, „w roli” albo przy obszarze ze zwykłych słów
+  („w analizie danych”, „in test automation”, „w IT”). Uwaga zostaje przy liczbie ponad sumę dat, przy
+  samej liczbie, przy roli bez czytelnych dat, w obowiązkach ról i przy wszystkim z wielką literą po
+  „w” („w Oracle Database”, „w Bank Millennium”), a także przy „z”, „with”, „at” i „of” („4 lata
+  z Kafką”, „4 years of Go”), bo daty ról nie potwierdzają stażu w technologii ani firmie.
+  Bezpiecznik nie sprawdza, czy kandydat naprawdę był na tym stanowisku; to czyta kontrola AI.
+  Pomiar na 3150 CV z kopii produkcji (120 dni): uwag o latach w `why_points` 739 → 295.
 
 ## Daty stanowisk jak w oryginale (02.11.2026)
 

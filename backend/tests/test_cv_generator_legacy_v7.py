@@ -1636,3 +1636,98 @@ def test_prompt_forbids_requirement_words_in_skill_labels(language):
     assert (
         "NIE używaj w niej słów" if language == "pl" else "do NOT use the words"
     ) in prompt
+
+
+# ── Bezpiecznik: lata na stanowisku albo w obszarze niższe niż suma dat ─────
+
+_YEARS_SOURCE = "Programista baz danych w Acme i Beta. Technologie: Kafka, Oracle."
+_YEARS_ROLES = [
+    {"dates": "01.2015 - 12.2021", "company": "Acme", "position": "Programista"},
+    {"dates": "01.2008 - 12.2014", "company": "Beta", "position": "Analityk"},
+]
+
+
+def _years_alarms(point, *, roles=_YEARS_ROLES, language="pl"):
+    data = {"why_points": [point], "experience": roles}
+    prefix = "NOT IN SOURCE" if language == "en" else "BRAK POKRYCIA"
+    return [
+        issue
+        for issue in _helpers._fabrication_warnings(data, _YEARS_SOURCE, language)
+        if issue.startswith(prefix)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("point", "language"),
+    [
+        # Te dwa kształty dawały uwagę na Solu w każdym biegu (05.11.2026).
+        ("4 lata doświadczenia jako SQL Developer", "pl"),
+        ("Over 9 years of experience as an SDET", "en"),
+        ("5 lat na stanowisku Senior QA Engineer", "pl"),
+        ("Ponad 5 lat doświadczenia w roli AI Engineer", "pl"),
+        ("3.5 years as a Customer Service Analyst", "en"),
+        ("9 lat komercyjnego doświadczenia jako backend developer w Pythonie", "pl"),
+        ("4 lata doświadczenia w analizie danych", "pl"),
+        ("Ponad 9 lat w bankowości", "pl"),
+        ("Over 9 years in test automation", "en"),
+        ("12 lat w IT, w tym 4 lata jako .NET Developer", "pl"),
+        ("Around 4 years of hands-on experience in IT project management", "en"),
+    ],
+)
+def test_guard_accepts_lower_years_in_position_or_area(point, language):
+    assert _years_alarms(point, language=language) == []
+
+
+@pytest.mark.parametrize(
+    ("point", "language"),
+    [
+        # Więcej niż suma dat (14 lat).
+        ("20 lat doświadczenia jako SQL Developer", "pl"),
+        ("Over 29 years of experience as an SDET", "en"),
+        ("20 lat doświadczenia w analizie danych", "pl"),
+        # Sama liczba, bez stanowiska i obszaru.
+        ("4 lata doświadczenia", "pl"),
+        ("4 years", "en"),
+        # Pojedyncza technologia nie ma pokrycia w datach.
+        ("4 lata w Kafce", "pl"),
+        ("4 lata doświadczenia z Kafką", "pl"),
+        ("4 lata doświadczenia w Oracle Database", "pl"),
+        ("Ponad 4 lata doświadczenia w pracy z Oracle i PL/SQL", "pl"),
+        ("4 years of experience with Playwright", "en"),
+        ("4 years of Go", "en"),
+        ("4 years of Java experience", "en"),
+        ("9 lat jako analityk, w tym 4 lata w Kafce", "pl"),
+        # Firma ma własną poprawkę z dat.
+        ("4 lata w Bank Millennium", "pl"),
+        ("4 years at Nordea", "en"),
+    ],
+)
+def test_guard_still_flags_other_years_claims(point, language):
+    assert len(_years_alarms(point, language=language)) == 1
+
+
+def test_guard_flags_position_years_when_no_dates_can_cover_them():
+    roles = [{"dates": "", "company": "Acme", "position": "Programista"}]
+    assert len(_years_alarms("4 lata jako SQL Developer", roles=roles)) == 1
+
+
+def test_guard_checks_position_years_only_in_why_points():
+    data = {
+        "why_points": [],
+        "experience": [
+            {**_YEARS_ROLES[0], "responsibilities": ["4 lata jako SQL Developer"]},
+            _YEARS_ROLES[1],
+        ],
+    }
+    issues = _helpers._fabrication_warnings(data, _YEARS_SOURCE, "pl")
+    assert any(issue.startswith("BRAK POKRYCIA") for issue in issues)
+
+
+def test_position_years_do_not_silence_other_figures_in_the_point():
+    point = "4 lata jako SQL Developer, zespół 47 osób u wielu klientów"
+    issues = _helpers._fabrication_warnings(
+        {"why_points": [point], "experience": _YEARS_ROLES}, _YEARS_SOURCE, "pl"
+    )
+    assert any("47 osob" in issue for issue in issues)
+    assert any("wielu" in issue for issue in issues)
+    assert not any("'4 lat" in issue for issue in issues)
