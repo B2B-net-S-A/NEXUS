@@ -21,7 +21,13 @@ from app.models.prep_meeting import PrepReviewConfigVersion
 from app.models.recruitment_priority import RecruitmentPriorityAuditEvent
 from app.models.scoring_weight_change import ScoringWeightChange
 from app.models.user import User
-from app.services import job_twin_rules, prep_review_config, qc_quality, ranking_weights, work_rhythm
+from app.services import (
+    job_twin_rules,
+    prep_review_config,
+    qc_quality,
+    ranking_weights,
+    work_rhythm,
+)
 from app.services.cv_qc import LABELS
 from app.services.insights_scoring_config import get_scoring_config
 from app.services.kpi_target_editor import build_matrix
@@ -79,16 +85,24 @@ def allocation_now(mode: str, rules: AllocationRules) -> str:
     if mode == "off":
         return f"{label} · przegląd {rules.review_time}"
     scope = "P0, P1 i P2" if rules.include_p2 else "P0 i P1"
-    load = "bez limitu obłożenia" if rules.max_load is None else f"limit obłożenia {rules.max_load}"
+    load = (
+        "bez limitu obłożenia"
+        if rules.max_load is None
+        else f"limit obłożenia {rules.max_load}"
+    )
     return f"{label} · {scope} · {rules.people_per_p1} os. na P1 · {load} · przegląd {rules.review_time}"
 
 
 def twin_now(rules: dict[str, Any]) -> str:
     required = [
-        label for key, label in _TWIN_RULE_LABELS.items() if rules[key]["mode"] == "required"
+        label
+        for key, label in _TWIN_RULE_LABELS.items()
+        if rules[key]["mode"] == "required"
     ]
     parts = [f"Podobieństwo od {rules['min_similarity']}%"]
-    parts.append(f"wymagane: {', '.join(required)}" if required else "bez zasad wymaganych")
+    parts.append(
+        f"wymagane: {', '.join(required)}" if required else "bez zasad wymaganych"
+    )
     parts.append(f"najwyżej {rules['max_twins']} bliźniaki")
     return " · ".join(parts)
 
@@ -151,11 +165,15 @@ def qc_now(states: dict[str, dict[str, Any]], effective: dict[str, str]) -> str:
     ]
     if measured:
         precision, key = min(measured)
-        parts.append(f"najsłabsza trafność: {LABELS.get(key, key)} {round(precision * 100)}%")
+        parts.append(
+            f"najsłabsza trafność: {LABELS.get(key, key)} {round(precision * 100)}%"
+        )
     return " · ".join(parts)
 
 
-def qc_last_change(states: dict[str, dict[str, Any]]) -> Optional[tuple[datetime, Optional[int]]]:
+def qc_last_change(
+    states: dict[str, dict[str, Any]],
+) -> Optional[tuple[datetime, Optional[int]]]:
     """Ręczny stan sprawdzenia. `updated_at` wpisu nie mówi nic, bo automat
     przelicza w nim trafność co noc."""
     manual = [
@@ -193,7 +211,11 @@ async def _allocation_change(db: AsyncSession) -> Optional[LastChange]:
     row = (
         await db.execute(
             select(RecruitmentPriorityAuditEvent.occurred_at, User.name)
-            .join(User, User.id == RecruitmentPriorityAuditEvent.actor_user_id, isouter=True)
+            .join(
+                User,
+                User.id == RecruitmentPriorityAuditEvent.actor_user_id,
+                isouter=True,
+            )
             .where(RecruitmentPriorityAuditEvent.event_type.in_(_ALLOCATION_EVENTS))
             .order_by(RecruitmentPriorityAuditEvent.occurred_at.desc())
             .limit(1)
@@ -286,7 +308,9 @@ async def build_overview(db: AsyncSession, *, is_admin: bool) -> list[dict[str, 
     rows = [
         _row(
             "przydzial",
-            allocation_now(await effective_allocation_mode(db), await load_allocation_rules(db)),
+            allocation_now(
+                await effective_allocation_mode(db), await load_allocation_rules(db)
+            ),
             await _allocation_change(db),
         ),
         _row(
@@ -296,7 +320,10 @@ async def build_overview(db: AsyncSession, *, is_admin: bool) -> list[dict[str, 
         ),
         _row(
             "ranking",
-            ranking_now(ranking_weights.profile_shares(profile), published.as_dict()["threshold"]),
+            ranking_now(
+                ranking_weights.profile_shares(profile),
+                published.as_dict()["threshold"],
+            ),
             await _ranking_change(db),
         ),
         _row(
@@ -316,12 +343,18 @@ async def build_overview(db: AsyncSession, *, is_admin: bool) -> list[dict[str, 
 
     states = await qc_quality.load_states(db)
     manual = qc_last_change(states)
-    qc_change = LastChange(manual[0], await _user_name(db, manual[1])) if manual else None
-    placement_count = await db.scalar(select(func.count()).select_from(PlacementExclusion))
+    qc_change = (
+        LastChange(manual[0], await _user_name(db, manual[1])) if manual else None
+    )
+    placement_count = await db.scalar(
+        select(func.count()).select_from(PlacementExclusion)
+    )
     placement_at = await db.scalar(select(func.max(PlacementExclusion.detected_at)))
     rows += [
         _row("qc", qc_now(states, qc_quality.effective_states(states)), qc_change),
-        _row("liga", league_now(await get_scoring_config(db)), await _league_change(db)),
+        _row(
+            "liga", league_now(await get_scoring_config(db)), await _league_change(db)
+        ),
         _row(
             "placementy",
             placements_now(placement_count or 0),
