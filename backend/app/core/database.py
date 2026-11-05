@@ -41,10 +41,16 @@ def _connect_args(url: str) -> dict[str, Any]:
     `jit=off`: CTE KPI (`VERIFIER_ANCHORED_CTE`) kompilował przy każdym
     wywołaniu 364 funkcje — 2,5 s z 4,6 s na produkcji 27.10.2026; bez JIT
     to samo zapytanie trwa 2,2 s. Krótkie zapytania JIT-a i tak nie dostają.
+
+    `statement_timeout` ustawia dla samego uvicorna `entrypoint.sh`; skrypty,
+    CLI i start kontenera biegną bez limitu. → `podstawy/statement-timeout.md`
     """
     if not url.startswith("postgresql+asyncpg://"):
         return {}
-    return {"server_settings": {"application_name": "nexus-backend", "jit": "off"}}
+    server_settings = {"application_name": "nexus-backend", "jit": "off"}
+    if settings.DB_STATEMENT_TIMEOUT_MS > 0:
+        server_settings["statement_timeout"] = str(settings.DB_STATEMENT_TIMEOUT_MS)
+    return {"server_settings": server_settings}
 
 
 engine = create_async_engine(

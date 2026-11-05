@@ -24,6 +24,7 @@ from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
 from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
+from app.core.statement_timeout import STATEMENT_TIMEOUT_DETAIL, is_statement_timeout
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.access_usage_middleware import AccessUsageMiddleware
@@ -529,6 +530,16 @@ class UnhandledErrorMiddleware(BaseHTTPMiddleware):
                     "Integer out of range on %s %s", request.method, request.url.path
                 )
                 return JSONResponse(status_code=422, content={"detail": OUT_OF_RANGE})
+            if is_statement_timeout(exc):
+                # Świadomie 500, nie 504: front ponawia odczyty na 502/503/504,
+                # a to zapytanie właśnie trwało 2 minuty. `logger.exception`
+                # idzie do Sentry i niesie SQL bez parametrów.
+                logger.exception(
+                    "Statement timeout on %s %s", request.method, request.url.path
+                )
+                return JSONResponse(
+                    status_code=500, content={"detail": STATEMENT_TIMEOUT_DETAIL}
+                )
             logger.exception(
                 "Unhandled error on %s %s", request.method, request.url.path
             )
