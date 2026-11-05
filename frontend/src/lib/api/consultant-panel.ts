@@ -122,7 +122,11 @@ export function usePanelAddMaterial(contractId: number) {
       if (input.clientId !== null) form.set("client_id", String(input.clientId));
       if (input.url) form.set("url", input.url);
       if (input.file) form.set("file", input.file);
-      return (await api.post<PanelMaterial>(`${BASE}/materials`, form)).data;
+      return (
+        await api.post<PanelMaterial>(`${BASE}/materials`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: keys.proposal(contractId) }),
   });

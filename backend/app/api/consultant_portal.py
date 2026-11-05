@@ -536,7 +536,7 @@ async def start_screen(
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await panel.start_screen(db, context)
+    return await panel.start_screen(db, context, today=business_today())
 
 
 @router.get("/start/materials/{material_id}/file")

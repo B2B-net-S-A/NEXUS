@@ -624,3 +624,40 @@ async def test_contract_merge_keeps_one_active_activation() -> None:
         ).all()
     assert [row.contract_id for row in rows] == [loser.contract_id]
     assert rows[0].deactivated_at is None
+
+
+def test_start_screen_stays_for_30_days_after_later_of_start_and_activation() -> None:
+    from app.services.consultant_portal.panel import _start_visible
+
+    today = date(2026, 11, 5)
+    old = Contract(start_date=date(2022, 6, 8))
+    fresh = CpActivation(activated_at=datetime(2026, 11, 1, 12, tzinfo=timezone.utc))
+    stale = CpActivation(activated_at=datetime(2026, 9, 1, 12, tzinfo=timezone.utc))
+    assert _start_visible(old, fresh, today) is True
+    assert _start_visible(old, stale, today) is False
+    assert _start_visible(Contract(start_date=date(2026, 11, 20)), None, today) is True
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_person_already_working_gets_invite_without_first_day(app_client) -> None:
+    from app.services.hr import welcome_mail
+
+    person = await make_person()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == person.contract_id)
+            .values(start_date=date(2022, 6, 8))
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        draft = await welcome_mail.draft_for(
+            db, person.contract_id, assume_panel_open=True
+        )
+    assert draft.subject == "Twój panel konsultanta B2B.net"
+    assert "zaczynasz" not in draft.body
+    assert "2022" not in draft.body
+    session = await session_headers(app_client, person)
+    start = (await app_client.get(f"{BASE}/start", headers=session)).json()
+    assert start["first_day"] is None
+    assert start["start_date"] is None

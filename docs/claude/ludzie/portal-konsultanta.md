@@ -14,7 +14,8 @@ Automatu nie ma (decyzja Artura 05.11.2026). Po podpisaniu umowy Opieka klika w 
 kontraktu: potwierdza adres (trafia do `contracts.candidate_email`), wybiera materiały i wysyła mail.
 `open_for` wymaga aktywnego wiersza `cp_activations` w każdym stanie wyłącznika, więc kontrakt bez
 aktywacji wygląda z zewnątrz jak nieznany adres. Wyłączenie zostawia wiersz i zamyka sesje od razu.
-Adres innej osoby z aktywnym panelem to odmowa. Adres zmieniony w kontrakcie po aktywacji zamyka panel do
+Mail dla osoby, która już pracuje, to samo zaproszenie do panelu, bez „zaczynasz” i pierwszego dnia
+(`welcome_mail.compose_panel_invite`). Adres innej osoby z aktywnym panelem to odmowa. Adres zmieniony w kontrakcie po aktywacji zamyka panel do
 ponownego potwierdzenia (`portal_settings.load` porównuje go z `cp_activations.email`), bo inaczej link wyszedłby
 na niepotwierdzony adres. Mail powitalny wysyła przy aktywacji Opieka, także bez roli opiekuna kontraktu (decyzja
 Artura 05.11.2026); dawna trasa DL/TCM zostaje. Szkic kontraktu nie aktywuje się, bo to umowa przed podpisem.

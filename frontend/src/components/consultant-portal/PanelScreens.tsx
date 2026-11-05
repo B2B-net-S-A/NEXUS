@@ -219,13 +219,14 @@ export function StartMaterialsScreen({ me }: { me: PortalMe }) {
     <div className="min-w-0 space-y-4">
       <ScreenTitle
         title="Na start"
-        lead={me.client ? `Wszystko, czego potrzebujesz na początek pracy: ${me.client}.` : undefined}
+        lead={me.client ? `Materiały i informacje na początek: ${me.client}.` : undefined}
       />
       {start.isLoading ? <Loading /> : null}
       {start.isError ? <Failure error={start.error} text="Nie udało się wczytać tego ekranu. Odśwież stronę." /> : null}
       {start.isSuccess ? (
         <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <div className="min-w-0 space-y-4">
+            {start.data.start_date || start.data.first_day ? (
             <Panel title="Pierwszy dzień">
               <dl className="space-y-2">
                 <Fact
@@ -244,6 +245,7 @@ export function StartMaterialsScreen({ me }: { me: PortalMe }) {
                 {start.data.first_day?.bring ? <Fact label="Co zabrać" value={start.data.first_day.bring} /> : null}
               </dl>
             </Panel>
+            ) : null}
             {start.data.documents.length > 0 ? (
               <Panel title="Dokumenty do dostarczenia">
                 <ul className="divide-y text-sm">

@@ -14,11 +14,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.scheduling import DEFAULT_TZ
 from app.models.admin_case import AdminCase
 from app.models.consultant_panel import (
     ClientOnboardingMaterial,
@@ -58,7 +60,7 @@ BUYER = {
 }
 #: Termin zapłaty z umowy B2B: dni od nadania numeru KSeF.
 PAYMENT_DAYS = 14
-#: Tak długo po starcie kontraktu ekran „Na start” zostaje w menu.
+#: Tak długo po starcie albo aktywacji ekran „Na start” zostaje w menu.
 START_SCREEN_DAYS = 30
 MATERIAL_NOT_FOUND = "Nie ma takiego materiału."
 PROTOCOL_NOT_FOUND = "Nie ma takiego protokołu."
@@ -78,6 +80,10 @@ TRAINER_TOPICS_MAX = 20
 
 
 # ── Współpraca i menu ────────────────────────────────────────────────────────
+
+
+def local_date(moment: datetime) -> date:
+    return moment.astimezone(ZoneInfo(DEFAULT_TZ)).date()
 
 
 async def _contract_with_rates(
@@ -115,10 +121,18 @@ async def _has_equipment(db: AsyncSession, contract_ids: tuple[int, ...]) -> boo
     )
 
 
-def _start_visible(contract: Optional[Contract], today: date) -> bool:
-    if contract is None or contract.start_date is None:
+def _start_visible(
+    contract: Optional[Contract], activation: Optional[CpActivation], today: date
+) -> bool:
+    """Do 30 dni od późniejszej z dat: startu albo aktywacji, bo materiały dostaje też
+    osoba pracująca od dawna, której panel włączamy dopiero teraz."""
+
+    days = [contract.start_date] if contract and contract.start_date else []
+    if activation is not None:
+        days.append(local_date(activation.activated_at))
+    if not days:
         return contract is not None
-    return today <= contract.start_date + timedelta(days=START_SCREEN_DAYS)
+    return today <= max(days) + timedelta(days=START_SCREEN_DAYS)
 
 
 async def overview_extra(
@@ -126,11 +140,14 @@ async def overview_extra(
 ) -> dict[str, Any]:
     consultant = context.consultant
     contract = await _contract_with_rates(db, consultant.contract_id)
+    activation = await db.scalar(
+        select(CpActivation).where(CpActivation.contract_id == consultant.contract_id)
+    )
     return {
         "rate": _rate(contract, today) if contract else None,
         "support_phone": settings.CONSULTANT_PORTAL_SUPPORT_PHONE.strip() or None,
         "menu": {
-            "start": _start_visible(contract, today),
+            "start": _start_visible(contract, activation, today),
             "equipment": await _has_equipment(db, consultant.contract_ids),
         },
     }
@@ -255,18 +272,24 @@ def _document_row(item: client_pack.PackItem) -> dict[str, Any]:
     }
 
 
-async def start_screen(db: AsyncSession, context: PortalContext) -> dict[str, Any]:
+async def start_screen(
+    db: AsyncSession, context: PortalContext, *, today: date
+) -> dict[str, Any]:
     consultant = context.consultant
     contract = await db.get(Contract, consultant.contract_id)
-    first_day = await client_pack.first_day(db, consultant.contract_id)
+    # Osoba już pracuje: pierwszy dzień i dokumenty na start nie mają sensu, zostają materiały.
+    started = bool(contract and contract.start_date and contract.start_date < today)
+    first_day = (
+        None if started else await client_pack.first_day(db, consultant.contract_id)
+    )
     pack = (
         await client_pack.load_pack(db, contract.client_id)
-        if contract and contract.client_id
+        if contract and contract.client_id and not started
         else None
     )
     return {
         "start_date": contract.start_date.isoformat()
-        if contract and contract.start_date
+        if contract and contract.start_date and not started
         else None,
         "first_day": {
             "place": first_day.place,
