@@ -26,6 +26,7 @@ import { useAuthStore } from "@/store/auth";
 import { BonusDeleteDialog } from "./BonusDeleteDialog";
 import { BonusDialog } from "./BonusDialog";
 import { BonusTable } from "./BonusTable";
+import { ClawbackDialog } from "./ClawbackDialog";
 import { assignedBonusActions } from "./payroll-format";
 import { RateDialog } from "./RateDialog";
 import { useCancelBonusRow } from "./useCancelBonusRow";
@@ -115,6 +116,7 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
   const [bonusOpen, setBonusOpen] = useState(false);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [deleting, setDeleting] = useState<BonusRow | null>(null);
+  const [clawing, setClawing] = useState<BonusRow | null>(null);
   const state = resolveViewState({
     isLoading: payroll.isLoading,
     isError: payroll.isError,
@@ -149,9 +151,14 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
   const renderBonusActions = (row: BonusRow) => {
     if (row.status === "cancelled") return null;
     const actions = assignedBonusActions(row, { open: true, payroll: payrollScope, meId: me?.id });
-    if (!actions.edit && !actions.cancel) return null;
+    if (!actions.edit && !actions.cancel && !row.can_clawback) return null;
     return (
       <div className="flex justify-end gap-1">
+        {row.can_clawback ? (
+          <Button size="sm" variant="ghost" onClick={() => setClawing(row)}>
+            Zwrot z gwarancji
+          </Button>
+        ) : null}
         {actions.edit ? (
           <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
             Zmień
@@ -271,6 +278,9 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
         />
       ) : null}
       {deleting ? <BonusDeleteDialog row={deleting} onClose={() => setDeleting(null)} /> : null}
+      {clawing ? (
+        <ClawbackDialog mode="register" bonus={clawing} onClose={() => setClawing(null)} />
+      ) : null}
       {confirmDialog}
     </Card>
   );

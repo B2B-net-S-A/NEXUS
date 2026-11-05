@@ -78,6 +78,9 @@ export function BonusTable({
                     {row.from_sheet ? " · z arkusza" : ""}
                     {row.double_bonus_month ? ` · ${doubleBonusNote(row.double_bonus_month)}` : ""}
                     {row.edited ? " · kwota poprawiona" : ""}
+                    {row.has_clawback ? (
+                      <span className="text-warning">{" · zwrot z gwarancji"}</span>
+                    ) : null}
                     {row.contract_ended_early ? (
                       <span className="text-warning">
                         {" · kontrakt skończył się przed terminem — premia przepada"}

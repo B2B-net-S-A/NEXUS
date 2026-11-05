@@ -480,6 +480,7 @@ async def test_settlement_closed_month_is_final_current_is_estimate(
             "hourly_rate": "100.00",
             "hours_amount": "16000.00",
             "bonus_total": "500.00",
+            "clawback_total": "0.00",
             "total": "16500.00",
         }
     ]
@@ -503,6 +504,7 @@ async def test_settlement_closed_month_is_final_current_is_estimate(
             "hourly_rate": "100.00",
             "hours_amount": "2400.00",
             "bonus_total": "300.00",
+            "clawback_total": "0.00",
             "total": "2700.00",
         }
     ]

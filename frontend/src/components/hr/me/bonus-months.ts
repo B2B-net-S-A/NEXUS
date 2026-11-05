@@ -67,12 +67,13 @@ export function monthBase(month: Pick<BonusMonth, "settled">): Record<string, st
   return Object.fromEntries(linesWithBase(month).map((line) => [line.currency, line.hours_amount as string]));
 }
 
-/** Przyznane w miesiącu per waluta (bez propozycji i anulowanych). */
+/** Przyznane w miesiącu per waluta (bez propozycji i anulowanych), przed potrąceniem. */
 export function monthAssigned(month: Pick<BonusMonth, "settled" | "rows">): Record<string, number> {
   const sums: Record<string, number> = {};
   if (month.settled) {
     for (const line of month.settled.lines) {
-      if (Number(line.bonus_total) > 0) sums[line.currency] = Number(line.bonus_total);
+      const gross = Number(line.bonus_total) + Number(line.clawback_total ?? 0);
+      if (gross > 0) sums[line.currency] = gross;
     }
     return sums;
   }
@@ -83,9 +84,21 @@ export function monthAssigned(month: Pick<BonusMonth, "settled" | "rows">): Reco
   return sums;
 }
 
-/** Podstawa + przyznane per waluta; pusto = na razie nie ma czego sumować. */
+/** Potrącenie z gwarancji premii DL w miesiącu per waluta (05.11.2026). */
+export function monthClawback(month: Pick<BonusMonth, "settled">): Record<string, number> {
+  const sums: Record<string, number> = {};
+  for (const line of month.settled?.lines ?? []) {
+    if (Number(line.clawback_total ?? 0) > 0) sums[line.currency] = Number(line.clawback_total);
+  }
+  return sums;
+}
+
+/** Podstawa + przyznane − potrącenie per waluta; pusto = na razie nie ma czego sumować. */
 export function monthTotal(month: Pick<BonusMonth, "settled" | "rows">): Record<string, number> {
   const totals = monthAssigned(month);
+  for (const [currency, amount] of Object.entries(monthClawback(month))) {
+    totals[currency] = (totals[currency] ?? 0) - amount;
+  }
   for (const line of linesWithBase(month)) {
     totals[line.currency] = (totals[line.currency] ?? 0) + Number(line.hours_amount);
   }

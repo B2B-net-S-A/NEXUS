@@ -579,6 +579,8 @@ z odnośnikiem `hr_documents.leave_request_id`.
   wsteczną po zatwierdzeniu; decyzja Artura 19.10.2026): automat jej nie anuluje, ale widok
   miesiąca Płac i zamknięcie dają ostrzeżenie `bonus_contract_ended_early` (do
   potwierdzenia), a premia na liście ma znacznik „premia przepada” (`contract_ended_early`).
+  Od 05.11.2026 przyznana premia DL dostaje też dług z gwarancji 12 miesięcy, który
+  potrąca się z kolejnych premii — `gwarancja-premii-dl.md`.
 - Urlop zatwierdzony albo anulowany w zamkniętym miesiącu płac: odpowiedź API niesie
   `payroll_locked_months` i `payroll_warning` (front pokazuje je w komunikacie), Płace
   dostają powiadomienie i mail bez rodzaju nieobecności, ślad z `sensitivity="payroll"`.

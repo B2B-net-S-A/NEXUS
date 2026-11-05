@@ -13,6 +13,10 @@ Bramki:
   (``payroll_access.PayrollViewer``),
 * ``require_hr_payroll_reopen`` — ponowne otwarcie miesiąca: tylko admin.
 
+Gwarancja premii DL (``/clawbacks``, ``/bonuses/{id}/clawback``, 05.11.2026):
+lista długów i ręczny zwrot albo jego zdjęcie — tylko Płace; osoba widzi
+swoje długi w ``GET /me`` (``clawbacks``).
+
 Kwoty nie trafiają do logów ani ``critical_events`` — ślad zmian płacowych to
 ``hr_audit_events`` z ``sensitivity='payroll'``.
 """
@@ -56,6 +60,7 @@ from app.services.hr import (
     bonus_decisions,
     double_bonus,
     bonus_flags,
+    bonus_guarantee,
     bonus_rules,
     my_settlement,
     placement_bonuses,
@@ -203,6 +208,10 @@ class PayrollCancelIn(BaseModel):
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
+class ClawbackIn(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
 class CloseIn(BaseModel):
     acknowledge_warnings: bool = False
 
@@ -289,6 +298,7 @@ def _person_payload(
                 if line.hours_amount is None
                 else str(line.hours_amount),
                 "bonus_total": str(line.bonus_total),
+                "clawback_total": str(line.clawback_total),
                 "total": str(line.total),
             }
             for line in person.lines
@@ -332,6 +342,7 @@ async def _bonus_list(
         if viewer.payroll
         else {}
     )
+    with_clawback = await bonus_guarantee.live_by_bonus(db, [b.id for b in bonuses])
     return [
         {
             **payroll_bonuses.bonus_payload(
@@ -341,6 +352,13 @@ async def _bonus_list(
             "can_approve": payroll_bonuses.can_approve(viewer, bonus),
             "contract_ended_early": bonus.id in ended_early,
             "flags": flags.get(bonus.id, []),
+            "has_clawback": bonus.id in with_clawback,
+            # „Zwrot z gwarancji”: Płace, przyznana premia DL, nie własna (05.11.2026).
+            "can_clawback": viewer.payroll
+            and bonus.status == "assigned"
+            and bonus.category == bonus_guarantee.GUARANTEED_CATEGORY
+            and bonus.recipient_user_id != viewer.user_id
+            and bonus.id not in with_clawback,
         }
         for bonus in bonuses
     ]
@@ -498,6 +516,8 @@ async def my_payroll(
         "bonuses": items,
         "forecast": forecast,
         "business_days_required": rules.eligible_business_days,
+        # Gwarancja premii DL: moje długi do zwrotu i spłacone.
+        "clawbacks": await bonus_guarantee.list_clawbacks(db, user_id=current_user.id),
     }
 
 
@@ -1010,6 +1030,52 @@ async def cancel_bonuses(
             await payroll_bonuses.cancel_bonus(db, viewer, bonus_id, note=payload.note)
         cancelled += 1
     return {"cancelled": cancelled}
+
+
+# ── Gwarancja premii DL ───────────────────────────────────────────────────────
+
+
+@router.get("/clawbacks")
+async def list_clawbacks(
+    current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Długi z gwarancji: otwarte, spłacone i anulowane z potrąceniem do oddania."""
+
+    return {"items": await bonus_guarantee.list_clawbacks(db)}
+
+
+@router.post("/bonuses/{bonus_id}/clawback", status_code=status.HTTP_201_CREATED)
+async def register_clawback(
+    bonus_id: int,
+    payload: ClawbackIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zwrot z gwarancji ręcznie: konsultant odszedł, kontrakt w NEXUSIE jeszcze trwa."""
+
+    with _http_errors():
+        clawback = await bonus_guarantee.register_manual(
+            db,
+            bonus_id=bonus_id,
+            actor_id=current_user.id,
+            note=payload.note,
+            today=business_today(),
+        )
+    return await bonus_guarantee.payload_for(db, clawback)
+
+
+@router.post("/clawbacks/{clawback_id}/cancel")
+async def cancel_clawback(
+    clawback_id: int,
+    payload: ClawbackIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        clawback = await bonus_guarantee.cancel_manual(
+            db, clawback_id=clawback_id, actor_id=current_user.id, note=payload.note
+        )
+    return await bonus_guarantee.payload_for(db, clawback)
 
 
 @router.get("/contracts/{contract_id}/bonuses")

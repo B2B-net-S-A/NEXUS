@@ -33,6 +33,7 @@
  "routes": {
   "DELETE /api/hr/payroll/rates/{rate_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/payroll/clawbacks": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/contracts/{contract_id}/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/decisions": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/double-bonus/{year}/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
@@ -52,6 +53,8 @@
   "POST /api/hr/payroll/bonuses/cancel-batch": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/bonuses/{bonus_id}/clawback": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/clawbacks/{clawback_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/double-bonus/{year}/{month}/settle": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/close": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/reopen": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",

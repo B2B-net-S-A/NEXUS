@@ -57,7 +57,7 @@ from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services import fx_service
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.hr import modules as hr_modules
-from app.services.hr import payroll_rates, settlements
+from app.services.hr import bonus_guarantee, payroll_rates, settlements
 from app.services.hr import placement_bonuses as placements
 from app.services.hr.bonus_rules import (
     BonusRules,
@@ -260,12 +260,15 @@ def _line_payload(
     hours_amount: Optional[Decimal],
     bonus_total: Decimal,
     total: Decimal,
+    clawback_total: Decimal = ZERO,
 ) -> dict[str, Any]:
     return {
         "currency": currency,
         "hourly_rate": None if hourly_rate is None else str(hourly_rate),
         "hours_amount": None if hours_amount is None else str(hours_amount),
+        # Po potrąceniu z gwarancji premii DL; premie przed nim = suma obu.
         "bonus_total": str(bonus_total),
+        "clawback_total": str(clawback_total),
         "total": str(total),
     }
 
@@ -357,6 +360,7 @@ def _frozen_month(year: int, month: int, lines: list[PayrollLine]) -> dict[str, 
                 hours_amount=line.hours_amount,
                 bonus_total=Decimal(line.bonus_total),
                 total=Decimal(line.total),
+                clawback_total=Decimal(line.clawback_total),
             )
             for line in lines
         ],
@@ -370,6 +374,7 @@ def _estimate_month(
     timesheet: Optional[tuple[str, Decimal]],
     rate: Any,
     bonuses: dict[str, Decimal],
+    clawbacks: Optional[dict[str, Decimal]] = None,
 ) -> dict[str, Any]:
     """Szacunek miesiąca regułą raportu płac (``payroll_report.compute_live``)."""
 
@@ -379,7 +384,8 @@ def _estimate_month(
         currencies.add(rate.currency)
     lines = []
     for currency in sorted(currencies):
-        bonus_total = money(bonuses.get(currency, ZERO))
+        clawback = money((clawbacks or {}).get(currency, ZERO))
+        bonus_total = money(bonuses.get(currency, ZERO)) - clawback
         hourly: Optional[Decimal] = None
         hours_amount: Optional[Decimal] = None
         if rate is not None and rate.currency == currency:
@@ -392,6 +398,7 @@ def _estimate_month(
                 hours_amount=hours_amount,
                 bonus_total=bonus_total,
                 total=money((hours_amount or ZERO) + bonus_total),
+                clawback_total=clawback,
             )
         )
     return {
@@ -471,6 +478,17 @@ async def settlement(
             and (timesheet is None or not timesheet[1])
         ):
             continue
+        clawbacks = (
+            bonus_guarantee.deducted_by_currency(
+                (
+                    await bonus_guarantee.month_deductions(
+                        db, year, month, user_ids={user_id}
+                    )
+                ).get(user_id, ())
+            )
+            if month_bonuses
+            else None
+        )
         months.append(
             _estimate_month(
                 year,
@@ -478,6 +496,7 @@ async def settlement(
                 timesheet=timesheet,
                 rate=payroll_rates.rate_on(rates, month_start(year, month)),
                 bonuses=month_bonuses,
+                clawbacks=clawbacks,
             )
         )
     return {
