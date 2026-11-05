@@ -53,6 +53,7 @@ from app.services.debrief_gate import (
     pick_current_round,
     pick_prep_round,
 )
+from app.services.hr.time_suggest import plural
 from app.services.job_working_title import job_display_title_expr
 
 Scope = Literal["mine", "jobs", "all"]
@@ -429,6 +430,10 @@ def _interview_end(ev: EventRef) -> datetime:
     return ev.end or (ev.start + timedelta(hours=1))
 
 
+def slots_to_choose_label(count: int) -> str:
+    return f"{count} {plural(count, 'termin', 'terminy', 'terminów')} do wyboru"
+
+
 def _step(
     key: str, state: StepState, *, at=None, event_id=None, meta=None, quality=None
 ) -> dict:
@@ -545,7 +550,7 @@ def compute_steps(
                 "choice",
                 "overdue" if overdue else "todo",
                 at=req.respond_by,
-                meta=f"{len(req.slots)} terminy do wyboru",
+                meta=slots_to_choose_label(len(req.slots)),
             )
         )
     else:
