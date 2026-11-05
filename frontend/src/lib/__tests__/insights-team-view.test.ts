@@ -5,6 +5,8 @@ import type { TeamPeopleRow } from "@/lib/insights-team-api";
 import {
   groupedPeople,
   isFairComparison,
+  periodName,
+  stageNotRecorded,
   monthlySeries,
   niceAxisMax,
   peopleWithGoal,
@@ -59,6 +61,19 @@ describe("teamVerdict", () => {
     expect(pace).toBe("Październik 2026: 26 placementów w firmie, 19 u osób z celem 36. Do celu zabrakło 17.");
   });
 
+  it("okres, który trwa: licznik firmy inny niż osób z celem stoi obok planu", () => {
+    const goals = { ...GOALS, goals: GOALS.goals.map((g) => (g.goal_id === "team_monthly_placements" ? { ...g, current: 3 } : g)) } as TeamGoalsResponse;
+    const { pace } = teamVerdict({ window: NOVEMBER, running: true, workdays: 4, funnel: funnel(NOVEMBER, { hired: 12 }), goals, inFlight: undefined, rows: [] });
+    expect(pace).toBe("Listopad 2026, 4. dzień roboczy: 12 placementów w firmie, 3 u osób z celem przy planie 6 na dziś. Cel miesiąca: 36.");
+  });
+
+  it("miesiąc sprzed 2026 nie dostaje dzisiejszych celów", () => {
+    const january = { ...OCTOBER, start: "2025-01-01T00:00:00+01:00", end: "2025-02-01T00:00:00+01:00" };
+    const rows = [row({ placements: 1, placements_target: 3 })];
+    const { pace } = teamVerdict({ window: january, running: false, workdays: 21, funnel: funnel(january, { hired: 5 }), goals: GOALS, inFlight: undefined, rows });
+    expect(pace).toBe("Styczeń 2025: 5 placementów.");
+  });
+
   it("cel osiągnięty i te same liczby: jedno zdanie bez rozbicia", () => {
     const rows = [row({ placements: 5, placements_target: 3 })];
     const { pace } = teamVerdict({ window: OCTOBER, running: false, workdays: 22, funnel: funnel(OCTOBER, { hired: 5 }), goals: GOALS, inFlight: undefined, rows });
@@ -92,6 +107,44 @@ describe("tempoRows", () => {
   });
 });
 
+describe("tempoRows poza miesiącem", () => {
+  const YEAR = { ...OCTOBER, kind: "year", start: "2025-01-01T00:00:00+01:00", end: "2026-01-01T00:00:00+01:00" } as RecruitmentFunnelResponse["period"];
+
+  it("rok nie dostaje celu z dzisiejszych wartości razy dni, a nie policzono to nie 0", () => {
+    const stages = funnel(YEAR, { verified: 0, cv_sent: 0, hired: 40 });
+    stages.stages = stages.stages.map((s) => (s.stage === "verified" ? { ...s, counted_from: "2026-01-01" } : s));
+    const rows = tempoRows({ window: YEAR, running: false, workdays: 250, funnel: stages, goals: GOALS, inFlight: undefined, rows: [] });
+    expect(rows[0]).toMatchObject({ current: null, target: null });
+    expect(rows[1]).toMatchObject({ current: 0, target: null });
+    expect(rows[2]).toMatchObject({ current: 40, target: null });
+  });
+
+  it("precyzja bez wartości nie udaje 0%", () => {
+    const goals = { ...GOALS, goals: GOALS.goals.map((g) => (g.goal_id === "team_monthly_precision" ? { ...g, current: null } : g)) } as unknown as TeamGoalsResponse;
+    const rows = tempoRows({ window: NOVEMBER, running: true, workdays: 4, funnel: funnel(NOVEMBER, { hired: 1 }), goals, inFlight: undefined, rows: [] });
+    expect(rows[3]).toMatchObject({ current: null, target: 75 });
+  });
+});
+
+describe("periodName i etap bez danych", () => {
+  it("nazwa niesie rok i rodzaj okresu", () => {
+    expect(periodName(OCTOBER)).toBe("Październik 2026");
+    expect(periodName({ ...OCTOBER, kind: "quarter", start: "2026-07-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00" })).toBe("III kwartał 2026");
+    expect(periodName({ ...OCTOBER, kind: "year", start: "2025-01-01T00:00:00+01:00", end: "2026-01-01T00:00:00+01:00" })).toBe("Rok 2025");
+    expect(periodName({ ...OCTOBER, kind: "custom", start: "2025-11-05T00:00:00+01:00", end: "2026-11-06T00:00:00+01:00" })).toBe("5.11.2025 – 5.11.2026");
+  });
+
+  it("okno przed dniem, od którego etap się liczy, to brak danych; okno przecinające ten dzień ma liczbę", () => {
+    const september = { ...OCTOBER, start: "2026-09-01T00:00:00+02:00", end: "2026-10-01T00:00:00+02:00" };
+    const before = funnel(september, { acceptance: 0 });
+    before.stages = before.stages.map((s) => ({ ...s, counted_from: "2026-10-12" }));
+    expect(stageNotRecorded(before, "acceptance")).toBe(true);
+    const crossing = funnel(OCTOBER, { acceptance: 27 });
+    crossing.stages = crossing.stages.map((s) => ({ ...s, counted_from: "2026-10-12" }));
+    expect(stageNotRecorded(crossing, "acceptance")).toBe(false);
+  });
+});
+
 describe("peopleWithGoal", () => {
   it("nie liczy byłych członków zespołu ani osób z celem 0", () => {
     const rows = [row({ placements: 2, placements_target: 3 }), row({ placements: 4, placements_target: 1, is_active: false }), row({ placements: 1, placements_target: 0 })];
@@ -110,12 +163,26 @@ describe("rankedSignals", () => {
       ],
       IN_FLIGHT,
       [row({ user_id: 7, name: "Ewa Test" })],
+      true,
     );
     expect(signals.map((s) => s.kind)).toEqual(["stale_acceptances", "dl_send_stale", "low_precision", "stale_postings"]);
     expect(signals[0].count).toBe(1);
     expect(signals[2].names).toEqual(["Ewa Test"]);
     // Sygnał bez listy nie udaje linku do tabeli, w której go nie ma.
     expect(signals[3].href).toBeNull();
+  });
+
+  it("bez sekcji Pipeline adres listy rekrutacji znika, raport zostaje", () => {
+    const signals = rankedSignals(
+      [
+        { kind: "dl_send_stale", count: 26, label: "CV", report: null, href: "/jobs?tosend=stale" },
+        { kind: "stale_jobs", count: 5, label: "bez ruchu", report: "bez-ruchu", href: "/jobs?stale=1" },
+      ],
+      undefined,
+      [],
+      false,
+    );
+    expect(signals.map((s) => s.href)).toEqual([null, "/insights?tab=raporty&report=bez-ruchu"]);
   });
 });
 

@@ -161,5 +161,61 @@ describe("Zespół: odpowiedź i soczewka", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByRole("button", { name: /Spróbuj|Ponów|ponownie/i })).toBeTruthy();
+    // Pasek okresu zostaje: przy awarii jednego okresu trzeba móc przejść na inny.
+    expect(screen.getByRole("group", { name: "Granulacja okresu" })).toBeTruthy();
+  });
+
+  it("awaria stanu na dziś ma komunikat, a nie znika po cichu", async () => {
+    setUser("head_of_recruitment", ["view_team_kpi"]);
+    mocks.get.mockImplementation((url: string) =>
+      url === "/api/insights/recruitment/in-flight"
+        ? Promise.reject(new Error("500"))
+        : url in RESPONSES
+          ? Promise.resolve({ data: RESPONSES[url] })
+          : new Promise(() => {}),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ZespolView />
+      </QueryClientProvider>,
+    );
+    expect((await screen.findAllByRole("button", { name: /Spróbuj|Ponów|ponownie/i })).length).toBeGreaterThan(0);
+  });
+
+  it("cele w trakcie ładowania nie rysują zer", async () => {
+    setUser("head_of_recruitment", ["view_team_kpi"]);
+    mocks.get.mockImplementation((url: string) =>
+      url === "/api/insights/recruitment/team-goals"
+        ? new Promise(() => {})
+        : url in RESPONSES
+          ? Promise.resolve({ data: RESPONSES[url] })
+          : new Promise(() => {}),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ZespolView />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("tab", { name: /Cały lejek/ });
+    expect(screen.queryByText("30 dni")).toBeNull();
+    expect(screen.getByRole("group", { name: "Granulacja okresu" })).toBeTruthy();
+  });
+
+  it("Rada bez sekcji Pipeline nie dostaje linku do rekrutacji", async () => {
+    useAuthStore.setState({
+      user: { id: 99, role: "board", roles: ["board"], analytics_capabilities: ["view_team_kpi"], section_access: { pipeline: false } },
+    } as never);
+    renderView();
+    const send = await screen.findByText("CV czeka na wysyłkę");
+    expect(send.closest("a")).toBeNull();
+  });
+
+  it("Delivery Lead: klik w osobę w soczewce przełącza na tabelę z listą", async () => {
+    setUser("delivery_lead", ["view_team_kpi"]);
+    mocks.search = "etap=cv_sent&kto=rekomendacje&osoba=1";
+    renderView();
+    expect(await screen.findByRole("heading", { name: /Kto się liczy · Anna Test/ })).toBeTruthy();
   });
 });

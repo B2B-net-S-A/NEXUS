@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 
@@ -9,7 +9,13 @@ import { cn } from "@/lib/utils";
 import { insightsApi, insightsQueryKeys, type InsightsPeriodParams } from "@/lib/insights-api";
 import { columnOf, forecastLabel } from "@/lib/insights-in-flight";
 import { reportHref } from "@/lib/insights-reports";
-import { rankedSignals, stageCount, TEAM_STAGES, type TeamStage } from "@/lib/insights-team-view";
+import {
+  stageCount,
+  stageCountedFrom,
+  stageNotRecorded,
+  TEAM_STAGES,
+  type TeamStage,
+} from "@/lib/insights-team-view";
 import { addDays, metricFromSlug, WHO_COUNTS_METRICS, type WhoCountsMetric } from "@/lib/kpi-who-counts";
 import { useUrlWriter } from "@/lib/url-selection";
 import { TeamListReconcileLine, TeamWhoCountsPanel } from "@/components/insights/sections/WhoCountsPanel";
@@ -43,6 +49,10 @@ function DeltaText({ now, before }: { now: number; before: number | undefined })
   );
 }
 
+function dayMonth(iso: string): string {
+  return `${Number(iso.slice(8, 10))}.${iso.slice(5, 7)}`;
+}
+
 function PeopleBars({
   data,
   stage,
@@ -65,6 +75,13 @@ function PeopleBars({
   const top = all.slice(0, 7);
   const rest = all.slice(7);
   const max = Math.max(1, ...top.map(value));
+  if (stageNotRecorded(data.funnel.data, stage.stage)) {
+    return (
+      <p className="py-6 text-sm text-muted-foreground">
+        Tego etapu w tym okresie nikt nie prowadził. Liczy się od {dayMonth(stageCountedFrom(data.funnel.data, stage.stage) ?? "")}.
+      </p>
+    );
+  }
   if (all.length === 0) {
     return <p className="py-6 text-sm text-muted-foreground">Nikt nie ma jeszcze tego etapu w tym okresie.</p>;
   }
@@ -132,7 +149,9 @@ function StageWeeksTable({ data, onOpen, openMetric, canOpenList }: { data: Team
               <tr key={stage.stage} className="h-8 border-b border-border/60 last:border-b-0">
                 <td className="whitespace-nowrap px-3 py-1 font-medium text-foreground">{stage.label}</td>
                 <td className={cn("px-2 py-1 text-right font-semibold text-foreground", openMetric === stage.metric && "bg-primary/10")}>
-                  {canOpenList && count > 0 ? (
+                  {stageNotRecorded(data.funnel.data, stage.stage) ? (
+                    "—"
+                  ) : canOpenList && count > 0 ? (
                     <button type="button" onClick={() => onOpen(stage.metric)} aria-label={`${stage.label}: ${count}. Pokaż osoby`} className="underline decoration-dotted underline-offset-4 hover:text-primary">
                       {count.toLocaleString("pl-PL")}
                     </button>
@@ -206,15 +225,12 @@ export function TeamStageLens({ data, seesTeam, period }: { data: TeamViewData; 
       else params.delete("os");
     }, "replace");
 
-  const signals = useMemo(
-    () => rankedSignals(data.attention.data?.items ?? [], data.inFlight, data.rows),
-    [data.attention.data, data.inFlight, data.rows],
-  );
+  const { signals } = data;
   const funnel = data.funnel.data;
   if (!funnel) return null;
   const verified = stageCount(funnel, "verified");
   const hired = stageCount(funnel, "hired");
-  const whole = verified >= 30 ? `${((100 * hired) / verified).toLocaleString("pl-PL", { maximumFractionDigits: 1 })}%` : "—";
+  const whole = verified >= 30 && !stageNotRecorded(funnel, "hired") ? `${((100 * hired) / verified).toLocaleString("pl-PL", { maximumFractionDigits: 1 })}%` : "—";
   const stageSignals = selected ? signals.filter((signal) => STAGE_SIGNALS[selected.stage].includes(signal.kind)) : [];
   const selectedColumn = selected?.column ? columnOf(data.inFlight?.columns ?? [], selected.column) : null;
   const range = { start: funnel.period.start.slice(0, 10), end: addDays(funnel.period.end.slice(0, 10), -1) };
@@ -226,6 +242,12 @@ export function TeamStageLens({ data, seesTeam, period }: { data: TeamViewData; 
   return (
     <div className="space-y-5">
       <div>
+        {data.previousLabel ? (
+          <p className="pb-1.5 text-xs text-muted-foreground">Porównanie: {data.previousLabel}.</p>
+        ) : null}
+        {data.inFlightQuery.isError ? (
+          <SectionError label="Stan na dziś" error={data.inFlightQuery.error} onRetry={() => void data.inFlightQuery.refetch()} />
+        ) : null}
         <div className="overflow-x-auto">
           <div role="tablist" aria-label="Etap lejka" data-tour="insights.team-lens" className="grid min-w-[52rem] grid-cols-[7.5rem_repeat(5,minmax(0,1fr))]">
             <button type="button" role="tab" aria-selected={selected === null} onClick={() => selectStage(null)} className={cn(tabBase, tabState(selected === null))}>
@@ -252,8 +274,14 @@ export function TeamStageLens({ data, seesTeam, period }: { data: TeamViewData; 
                     ) : null}
                   </span>
                   <span className="mt-0.5 flex items-baseline gap-2">
-                    <span className="text-2xl font-semibold tabular-nums text-foreground">{count.toLocaleString("pl-PL")}</span>
-                    {stage.stage === "acceptance" ? null : <DeltaText now={count} before={before} />}
+                    <span className="text-2xl font-semibold tabular-nums text-foreground">
+                      {stageNotRecorded(funnel, stage.stage) ? "—" : count.toLocaleString("pl-PL")}
+                    </span>
+                    {stageCountedFrom(funnel, stage.stage) ? (
+                      <span className="text-xs tabular-nums text-muted-foreground">od {dayMonth(stageCountedFrom(funnel, stage.stage) ?? "")}</span>
+                    ) : (
+                      <DeltaText now={count} before={before} />
+                    )}
                   </span>
                   {stage.column === null ? (
                     <span className="mt-1 block truncate text-xs tabular-nums text-muted-foreground">
@@ -345,7 +373,7 @@ export function TeamStageLens({ data, seesTeam, period }: { data: TeamViewData; 
 
       {data.hiddenComparison ? (
         <p className="text-xs text-muted-foreground">
-          Bez porównania z 1–5 października: te dni to tygodniowe wpisy z DynaReportera, więc początek listopada zawsze wychodziłby jako spadek.
+          Bez porównania z poprzednim okresem: dni sprzed 12.10.2026 to tygodniowe wpisy z DynaReportera, więc okres, który trwa, zawsze wychodziłby przy nich gorzej.
         </p>
       ) : null}
     </div>

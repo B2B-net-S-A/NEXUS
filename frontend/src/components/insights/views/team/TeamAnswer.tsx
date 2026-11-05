@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { ArrowRight, Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { rankedSignals, teamVerdict, tempoRows, type TeamSignal, type TempoRow } from "@/lib/insights-team-view";
+import { teamVerdict, tempoRows, type TeamSignal, type TempoRow } from "@/lib/insights-team-view";
 import { SectionError } from "@/components/insights/sections/_shared";
 
 import { PanelLoading } from "../ViewKit";
@@ -15,16 +15,19 @@ import type { TeamViewData } from "./useTeamViewData";
 const VISIBLE_SIGNALS = 3;
 
 function TempoBar({ row }: { row: TempoRow }) {
-  const scale = Math.max(row.target ?? 0, row.current, row.forecast ?? 0, 1);
+  // Bez celu pasek zawsze byłby pełny, a to czyta się jak wykonany plan.
+  if (row.target === null) return <div />;
+  const current = row.current ?? 0;
+  const scale = Math.max(row.target ?? 0, current, row.forecast ?? 0, 1);
   const pct = (v: number) => `${Math.min(100, (100 * v) / scale)}%`;
-  const hit = row.target !== null && row.current >= row.target;
+  const hit = row.target !== null && current >= row.target;
   return (
     <div className="relative h-5" aria-hidden>
       <div className="absolute inset-x-0 top-1.5 h-2 rounded-full bg-border" />
-      {row.forecast != null && row.forecast > row.current ? (
+      {row.forecast != null && row.forecast > current ? (
         <div className="absolute left-0 top-1.5 h-2 rounded-full bg-primary/30" style={{ width: pct(row.forecast) }} />
       ) : null}
-      <div className={cn("absolute left-0 top-1.5 h-2 rounded-full", hit ? "bg-success" : "bg-primary")} style={{ width: pct(row.current) }} />
+      <div className={cn("absolute left-0 top-1.5 h-2 rounded-full", hit ? "bg-success" : "bg-primary")} style={{ width: pct(current) }} />
       {row.expected !== null ? (
         <span className="absolute top-0 h-5 w-0.5 rounded-full bg-foreground" style={{ left: pct(row.expected) }} title={`Plan na teraz: ${Math.round(row.expected)}`} />
       ) : null}
@@ -33,6 +36,7 @@ function TempoBar({ row }: { row: TempoRow }) {
 }
 
 function TempoStatus({ row }: { row: TempoRow }) {
+  if (row.current === null) return <span className="text-muted-foreground">nie policzono</span>;
   const hit = row.target !== null && row.current >= row.target;
   const gap = row.expected !== null ? Math.round(row.current - row.expected) : null;
   if (hit) {
@@ -63,7 +67,7 @@ function TempoLine({ row }: { row: TempoRow }) {
       </div>
       <TempoBar row={row} />
       <p className="whitespace-nowrap text-right text-sm tabular-nums">
-        <span className="font-semibold text-foreground">{Math.round(row.current).toLocaleString("pl-PL")}{unit}</span>
+        <span className="font-semibold text-foreground">{row.current === null ? "—" : `${Math.round(row.current).toLocaleString("pl-PL")}${unit}`}</span>
         {row.target !== null ? <span className="text-muted-foreground"> / {Math.round(row.target).toLocaleString("pl-PL")}{unit}</span> : null}
       </p>
       <p className="col-span-3 text-xs sm:col-span-1">
@@ -102,7 +106,7 @@ function SignalsColumn({ data }: { data: TeamViewData }) {
   if (attention.isError) {
     return <SectionError label="Najpierw to" error={attention.error} onRetry={() => void attention.refetch()} />;
   }
-  const signals = rankedSignals(attention.data.items, data.inFlight, data.rows);
+  const { signals } = data;
   if (signals.length === 0) {
     return <p className="text-sm text-muted-foreground">Nic nie wymaga uwagi. Żaden sygnał nie przekracza progu.</p>;
   }
@@ -137,9 +141,23 @@ export function TeamAnswer({
   stallHref: string | null;
 }) {
   const funnel = data.funnel.data;
-  if (data.funnel.isPending) return <PanelLoading />;
+  // Pasek okresu stoi zawsze: przy awarii jednego okresu trzeba móc przejść na inny.
+  const bar = <div className="flex justify-end">{picker}</div>;
+  if (data.funnel.isPending) {
+    return (
+      <>
+        {bar}
+        <PanelLoading />
+      </>
+    );
+  }
   if (data.funnel.isError || !funnel) {
-    return <SectionError label="Zespół" error={data.funnel.error} onRetry={() => void data.funnel.refetch()} />;
+    return (
+      <>
+        {bar}
+        <SectionError label="Zespół" error={data.funnel.error} onRetry={() => void data.funnel.refetch()} />
+      </>
+    );
   }
   const input = {
     window: funnel.period,
@@ -154,7 +172,7 @@ export function TeamAnswer({
   return (
     <>
       <div className="space-y-3">
-        <div className="flex justify-end">{picker}</div>
+        {bar}
         <h2 className="max-w-4xl text-xl font-semibold leading-snug tracking-tight text-foreground [text-wrap:pretty]">
           {pace}
           {stall ? (
@@ -174,14 +192,23 @@ export function TeamAnswer({
 
       <div className={cn("grid grid-cols-1 gap-6 border-y border-border py-3", seesTeam && "xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]")}>
         <section aria-label="Tempo" className="min-w-0">
-          {data.goals.isError ? (
+          {data.goals.isPending ? (
+            <PanelLoading />
+          ) : data.goals.isError ? (
             <SectionError label="Cele zespołu" error={data.goals.error} onRetry={() => void data.goals.refetch()} />
           ) : (
-            <ul className="divide-y divide-border/60">
-              {tempoRows(input).map((row) => (
-                <TempoLine key={row.id} row={row} />
-              ))}
-            </ul>
+            <>
+              <ul className="divide-y divide-border/60">
+                {tempoRows(input).map((row) => (
+                  <TempoLine key={row.id} row={row} />
+                ))}
+              </ul>
+              {!data.running && data.workdays ? (
+                <p className="pt-1 text-xs text-muted-foreground">
+                  Cel okresu zamkniętego: dzisiejsze cele dnia i tygodnia razy dni robocze. Historii celów nie ma.
+                </p>
+              ) : null}
+            </>
           )}
         </section>
         {seesTeam ? (

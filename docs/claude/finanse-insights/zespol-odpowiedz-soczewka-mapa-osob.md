@@ -26,7 +26,13 @@ czy dowieziemy, gdzie się zatyka, kto.
   załamanie. Jest w tabeli „Liczby tydzień po tygodniu”.
 - **Porównanie z okresem sprzed 12.10.2026 ukryte, gdy okres trwa**
   (`isFairComparison`). „1–5 października” to tygodniowe wpisy DynaReportera
-  z datą raportu, 211 weryfikacji z ponad tygodnia. Od grudnia wraca samo.
+  z datą raportu, 211 weryfikacji z ponad tygodnia. Kolumna „Zmiana” w tabeli
+  ma wtedy „—”. Porównanie wraca, gdy poprzedni okres zaczyna się od 12.10.2026.
+- **Etap, którego w oknie nikt nie prowadził, to „—”, nie 0** (`stageNotRecorded`).
+  Etap liczony od 12.10.2026 ma przy liczbie „od 12.10”. Cele z dzisiejszych wartości
+  razy dni robocze tylko w miesiącu i tygodniu od 2026.
+- **Bez sekcji Pipeline (Rada) sygnał nie prowadzi do `/jobs`**, tylko do raportu,
+  jeśli go ma.
 - **Bez wniosku „najwięcej odpada między…” z małej próby.** Ramka z 1 z 12 w cztery
   dni alarmowała na początku każdego miesiąca. Procent przy etapie dopiero
   od 30 w mianowniku.

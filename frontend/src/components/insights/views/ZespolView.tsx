@@ -71,6 +71,7 @@ import {
 } from "@/lib/kpi-who-counts";
 import { useUrlWriter } from "@/lib/url-selection";
 import { TeamAnswer } from "./team/TeamAnswer";
+import { TEAM_LIST_SLUG } from "./team/TeamFunnelPanel";
 import { TeamStageLens } from "./team/TeamStageLens";
 import { useTeamViewData } from "./team/useTeamViewData";
 import { PanelLoading } from "./ViewKit";
@@ -130,7 +131,11 @@ export function ZespolView() {
       />
       <TeamStageLens data={data} seesTeam={seesTeam} period={period} />
       {seesTeam ? (
-        <PeoplePanel period={period} previousLabel={data.previousLabel ?? null} />
+        <PeoplePanel
+          period={period}
+          previousLabel={data.previousLabel ?? null}
+          hideComparison={data.hiddenComparison}
+        />
       ) : (
         <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
           Wyniki poszczególnych osób widzą liderzy zespołu (Head of Recruitment,
@@ -146,18 +151,36 @@ type PeopleScope = "recruiters" | "delivery";
 function PeoplePanel({
   period,
   previousLabel,
+  hideComparison,
 }: {
   period: InsightsPeriodParams;
   previousLabel: string | null;
+  /** Trwający okres wobec dni z DynaReportera: kolumna „Zmiana” bez wartości. */
+  hideComparison: boolean;
 }) {
   const user = useAuthStore((state) => state.user);
   // Delivery Lead bez roli rekrutacyjnej zaczyna od swojej perspektywy.
-  const [scope, setScope] = useState<PeopleScope>(
+  const [chosenScope, setScope] = useState<PeopleScope>(
     hasRole(user, "delivery_lead") &&
       !hasRole(user, "admin", "head_of_recruitment", "recruiter")
       ? "delivery"
       : "recruiters",
   );
+  // Lista osoby żyje w tabeli rekruterów, a klik w osobę w soczewce przychodzi też z zakładki DL.
+  const searchParams = useSearchParams();
+  const { pushUrl } = useUrlWriter();
+  const who = searchParams.get("osoba");
+  const personListOpen = who !== null && who !== TEAM_LIST_SLUG;
+  const scope: PeopleScope = personListOpen ? "recruiters" : chosenScope;
+  const chooseScope = (next: PeopleScope) => {
+    setScope(next);
+    if (next === "delivery" && personListOpen) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("kto");
+      params.delete("osoba");
+      pushUrl(`${window.location.pathname}?${params.toString()}`);
+    }
+  };
   // Konta wyłączone stoją jednym wierszem pod listą (prośba z zespołu,
   // 19.10.2026); przełącznik wspólny dla obu zakładek, domyślnie zwinięte.
   const [showFormer, setShowFormer] = useState(false);
@@ -193,7 +216,7 @@ function PeoplePanel({
                 key={value}
                 type="button"
                 aria-pressed={scope === value}
-                onClick={() => setScope(value)}
+                onClick={() => chooseScope(value)}
                 className={cn(
                   "min-h-9 rounded-md px-3 text-sm font-semibold transition-colors",
                   scope === value
@@ -211,6 +234,7 @@ function PeoplePanel({
         <RecruiterTable
           period={period}
           previousLabel={previousLabel}
+          hideComparison={hideComparison}
           showFormer={showFormer}
         />
       ) : (
@@ -223,10 +247,12 @@ function PeoplePanel({
 function RecruiterTable({
   period,
   previousLabel,
+  hideComparison,
   showFormer,
 }: {
   period: InsightsPeriodParams;
   previousLabel: string | null;
+  hideComparison: boolean;
   showFormer: boolean;
 }) {
   const peopleQuery = useQuery({
@@ -326,6 +352,7 @@ function RecruiterTable({
       flags={flagsQuery.data?.flags_by_user?.[String(row.user_id)] ?? []}
       flagTypes={flagsQuery.data?.types ?? []}
       previousLabel={previousLabel}
+      hideComparison={hideComparison}
     />
   );
   const unattributed = data.unattributed;
@@ -670,6 +697,7 @@ function PersonRow({
   flags,
   flagTypes,
   previousLabel,
+  hideComparison,
 }: {
   row: TeamPeopleRow;
   heat: PersonHeat;
@@ -679,8 +707,9 @@ function PersonRow({
   flags: Parameters<typeof InsightsPerformanceFlags>[0]["flags"];
   flagTypes: Parameters<typeof InsightsFlagAdmin>[0]["types"];
   previousLabel: string | null;
+  hideComparison: boolean;
 }) {
-  const delta = countDelta(row.placements, row.previous_placements, "");
+  const delta = hideComparison ? null : countDelta(row.placements, row.previous_placements, "");
   const isLow = row.precision_pct !== null && row.precision_pct < lowPrecision;
   // Cel tylko w oknie miesiąca i tylko dodatni — „2 / 0” to nie cel.
   const target =
@@ -784,7 +813,9 @@ function PersonRow({
         )}
         title={previousLabel ? `Placementy wobec: ${previousLabel}` : "Placementy wobec poprzedniego okresu"}
       >
-        {!delta || delta.tone === "neutral"
+        {hideComparison
+          ? "—"
+          : !delta || delta.tone === "neutral"
           ? <span className="sr-only">bez zmian</span>
           : `${row.placements > row.previous_placements ? "▲" : "▼"} ${Math.abs(row.placements - row.previous_placements)}`}
       </td>

@@ -63,7 +63,16 @@ function dayBefore(iso: string): string {
   return day.toISOString().slice(0, 10);
 }
 
+function dayMonthYear(iso: string): string {
+  return `${dayMonth(iso)}.${iso.slice(0, 4)}`;
+}
+
+const QUARTER_NAMES = ["I", "II", "III", "IV"];
+
+/** Zdanie jest jedynym podpisem okresu, więc nazwa niesie rok. */
 export function periodName(window: RecruitmentFunnelResponse["period"]): string {
+  const year = window.start.slice(0, 4);
+  const month = Number(window.start.slice(5, 7));
   if (window.kind === "month") {
     const name = new Date(window.start).toLocaleDateString("pl-PL", {
       month: "long",
@@ -72,7 +81,27 @@ export function periodName(window: RecruitmentFunnelResponse["period"]): string 
     });
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
-  return `${dayMonth(window.start)} – ${dayMonth(dayBefore(window.end))}`;
+  if (window.kind === "quarter") return `${QUARTER_NAMES[Math.floor((month - 1) / 3)]} kwartał ${year}`;
+  if (window.kind === "year") return `Rok ${year}`;
+  return `${dayMonthYear(window.start)} – ${dayMonthYear(dayBefore(window.end))}`;
+}
+
+/** Cele mają sens tylko w miesiącu albo tygodniu od 2026: wcześniej nikt tych etapów nie prowadził. */
+function goalsApply(window: RecruitmentFunnelResponse["period"]): boolean {
+  return (window.kind === "month" || window.kind === "week") && window.start.slice(0, 4) >= "2026";
+}
+
+export function stageCountedFrom(funnel: RecruitmentFunnelResponse | undefined, stage: string): string | null {
+  return funnel?.stages.find((s) => s.stage === stage)?.counted_from ?? null;
+}
+
+/**
+ * Okno kończy się przed dniem, od którego etap jest liczony: to „brak danych”,
+ * nie 0. Akceptacje we wrześniu 2026 nie są zerem, tylko nikt ich nie prowadził.
+ */
+export function stageNotRecorded(funnel: RecruitmentFunnelResponse | undefined, stage: string): boolean {
+  const from = stageCountedFrom(funnel, stage);
+  return from !== null && funnel !== undefined && funnel.period.end.slice(0, 10) <= from;
 }
 
 // ─── Cel placementów zespołu ─────────────────────────────────────────────────
@@ -121,13 +150,17 @@ export function teamVerdict(input: {
     const day = workdays ? `, ${workdays}. dzień roboczy` : "";
     const forecast = inFlight ? forecastLabel(inFlight.forecast) : null;
     const total = inFlight ? monthForecast(hired, inFlight.forecast) : null;
-    pace = `${name}${day}: ${placementsWord(hired)} przy planie ${Math.round(goal.expected ?? 0)} na dziś.`;
+    const plan = Math.round(goal.expected ?? 0);
+    // Cel sumuje tylko osoby z celem, licznik całą firmę: obie liczby muszą stać obok siebie.
+    pace =
+      goal.current != null && goal.current !== hired
+        ? `${name}${day}: ${placementsWord(hired)} w firmie, ${goal.current} u osób z celem przy planie ${plan} na dziś.`
+        : `${name}${day}: ${placementsWord(hired)} przy planie ${plan} na dziś.`;
     if (forecast && total) pace += ` W akceptacjach ${forecast} kolejnych, razem ${total} z celu ${goal.target}.`;
     else pace += ` Cel miesiąca: ${goal.target}.`;
-  } else if (window.kind === "month") {
+  } else if (window.kind === "month" && goalsApply(window)) {
     const people = peopleWithGoal(rows);
     if (people) {
-      // Cel sumuje tylko osoby z celem, licznik całą firmę: obie liczby muszą stać obok siebie.
       const reached = people.placements >= people.target;
       pace =
         people.placements === hired
@@ -149,7 +182,8 @@ export interface TempoRow {
   id: string;
   label: string;
   horizon: string;
-  current: number;
+  /** `null` = nie policzono, nie 0. */
+  current: number | null;
   target: number | null;
   /** Plan na teraz (kreska na pasku); `null` = okres zamknięty. */
   expected: number | null;
@@ -195,13 +229,13 @@ export function tempoRows(input: {
     );
   } else {
     // Cel okresu = dzisiejszy cel dnia i tygodnia × dni robocze okresu; historii celów nie ma.
-    const days = workdays ?? 0;
+    const days = goalsApply(window) ? (workdays ?? 0) : 0;
     const horizon = workdays ? `${workdays} dni` : "w okresie";
-    const people = window.kind === "month" ? peopleWithGoal(rows) : null;
+    const people = window.kind === "month" && goalsApply(window) ? peopleWithGoal(rows) : null;
     const hired = stageCount(funnel, "hired");
     out.push(
-      { id: "verified", label: "Weryfikacje", horizon, current: stageCount(funnel, "verified"), target: verif?.target != null && days ? verif.target * days : null, expected: null },
-      { id: "cv_sent", label: "Rekomendacje", horizon, current: stageCount(funnel, "cv_sent"), target: recs?.target != null && days ? Math.round((recs.target * days) / 5) : null, expected: null },
+      { id: "verified", label: "Weryfikacje", horizon, current: stageNotRecorded(funnel, "verified") ? null : stageCount(funnel, "verified"), target: verif?.target != null && days ? verif.target * days : null, expected: null },
+      { id: "cv_sent", label: "Rekomendacje", horizon, current: stageNotRecorded(funnel, "cv_sent") ? null : stageCount(funnel, "cv_sent"), target: recs?.target != null && days ? Math.round((recs.target * days) / 5) : null, expected: null },
       {
         id: "hired",
         label: "Placementy",
@@ -214,7 +248,7 @@ export function tempoRows(input: {
     );
   }
   if (precision) {
-    out.push({ id: "precision", label: "Precyzja", horizon: "30 dni", current: precision.current ?? 0, target: precision.target ?? null, expected: null, unit: "%" });
+    out.push({ id: "precision", label: "Precyzja", horizon: "30 dni", current: precision.current, target: precision.target ?? null, expected: null, unit: "%" });
   }
   return out;
 }
@@ -240,6 +274,8 @@ export function rankedSignals(
   items: readonly TeamAttentionItem[],
   inFlight: InFlightResponse | undefined,
   rows: readonly TeamPeopleRow[],
+  /** Bez sekcji Pipeline (Rada nadzorcza) gotowy adres listy rekrutacji prowadzi donikąd. */
+  canOpenJobs: boolean,
 ): TeamSignal[] {
   const stale = (inFlight?.acceptances ?? []).filter((a) => a.days > ACCEPTANCE_ATTENTION_DAYS).length;
   const nameOf = (id: number) => rows.find((r) => r.user_id === id)?.name ?? null;
@@ -247,7 +283,7 @@ export function rankedSignals(
     kind: item.kind,
     count: item.count,
     label: item.label,
-    href: item.href ?? (item.report ? reportHref(item.report as ReportId) : null),
+    href: (canOpenJobs ? item.href : null) ?? (item.report ? reportHref(item.report as ReportId) : null),
     names: (item.user_ids ?? []).map(nameOf).filter((n): n is string => Boolean(n)),
   }));
   if (stale > 0) {
