@@ -306,9 +306,10 @@ def test_schema_has_one_source_and_a_mirror() -> None:
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     assert "from app.services import insight_decisions_schema" in entrypoint
     assert "*_INSIGHT_DECISIONS_TABLE_DDL," in entrypoint
-    migration = (BACKEND / "alembic/versions/0646_insight_decisions.py").read_text(
-        encoding="utf-8"
-    )
+    # Bez numeru w ścieżce: pas migracji przepina numer, gdy inny PR wejdzie pierwszy.
+    migration = next(
+        (BACKEND / "alembic/versions").glob("*_insight_decisions.py")
+    ).read_text(encoding="utf-8")
     assert "from app.services.insight_decisions_schema import TABLE_DDL" in migration
 
 
@@ -451,6 +452,37 @@ async def test_protected_words_outrank_every_other_reading(note: str) -> None:
         await db.commit()
         rows = (await db.execute(text(service._REASONS_SQL), {"since": since})).all()
     assert [(row.k, int(row.total)) for row in rows] == [("Nieodczytane", 1)]
+
+
+@pytest.mark.parametrize(
+    ("reason", "kind"),
+    [
+        ("not_looking_for_work", "Rezygnacja"),
+        ("client_conflict", "KonfliktKlient"),
+        ("contract_form", "FormaUmowy"),
+        ("no_contact", "BrakKontaktu"),
+        ("client_no_reason", "KlientBezKonkretu"),
+        ("client_chose_other", "KlientWybral"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_reasons_from_the_rejection_window_land_in_their_groups(
+    reason: str, kind: str
+) -> None:
+    """Powody z okna odrzucenia (#3040) to już wybór człowieka, nie „Pozostałe”."""
+    since = _window()
+    async with AsyncSessionLocal() as db:
+        client_id, template_id, _ = await _rejection_setup(db)
+        picked = RejectionReason(
+            template_id=template_id, name=reason, category=TerminalType.rejected
+        )
+        db.add(picked)
+        await db.flush()
+        job_id = await _job(db, client_id, "Powód z okna")
+        await _refusal(db, job_id, picked.id, since + timedelta(days=1), "")
+        await db.commit()
+        rows = (await db.execute(text(service._REASONS_SQL), {"since": since})).all()
+    assert [(row.k, row.is_other) for row in rows] == [(kind, False)]
 
 
 @pytest.mark.asyncio

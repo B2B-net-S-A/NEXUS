@@ -30,7 +30,7 @@ w `/api/health/deep`), front `components/insights/views/WnioskiView.tsx`,
   w NEXUSIE dopiero od 12.10.2026, więc ekran nie pisze „90 dni”.
 - **Odczyt opisów „Inne” to szacunek.** Słowa kluczowe w `_READ_CASE`, liczone przy odczycie,
   niezapisywane. Ręczne sprawdzenie 90 wpisów dało ok. 90% trafności: to dolna jakość, nie
-  prawda. Oryginalne wpisy zostają nietknięte. Każda liczba z odczytu ma etykietę „Szacunek”.
+  prawda. Nowy powód w oknie odrzucenia dopisz do `_READ_CASE`, inaczej trafi do „Pozostałe”. Oryginalne wpisy zostają nietknięte. Każda liczba z odczytu ma etykietę „Szacunek”.
 - **Cechy chronione nigdy nie stają się wnioskiem ani regułą.** Opis ze słowami o narodowości,
   wieku, zdrowiu albo ciąży (`PROTECTED_RE`) liczy się jako „Nieodczytane”, nie trafia do
   cytatów, przykładów ani licznika „Powtarza się”. Lista jest szeroka, bo fałszywe trafienie
@@ -48,7 +48,7 @@ w `/api/health/deep`), front `components/insights/views/WnioskiView.tsx`,
   zaczęli częściej odrzucać. Werdykt dopiero po 30 dniach (`rule_verdict`, od 200 dodanych
   w każdej grupie, poprawa od 25%). Procent dopasowania się tu nie zmienia.
 - **Historia:** decyzje z zakładki, dwie zatwierdzone 04.11.2026 poza nią (`APPROVED_AT_LAUNCH`:
-  zatrudnieni gdzie indziej z #3034 i nowe powody w oknie, liczby z tamtego dnia) oraz reguły
+  zatrudnieni gdzie indziej z #3034 i nowe powody w oknie z #3040, liczby z tamtego dnia) oraz reguły
   z października z nagłówka `services/new_column_autofill.py`.
 - **Poza etapem 1:** wiersz „Powtarza się” na Tablicy i usunięcie kciuków to etap 2, przykłady
   poprawek CV z propozycją instrukcji to etap 3, pierwszy z modelem. Procent dopasowania,

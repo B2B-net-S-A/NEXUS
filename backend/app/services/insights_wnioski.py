@@ -82,6 +82,12 @@ _READ_CASE = rf"""
         WHEN powod IN ('lost_interest', 'Kandydat się wycofał', 'process_too_long',
                        'counter_offer', 'personal_reasons') THEN 'Rezygnacja'
         WHEN powod IN ('Kandydat nieosiągalny', 'Brak odpowiedzi') THEN 'BrakKontaktu'
+        WHEN powod = 'not_looking_for_work' THEN 'Rezygnacja'
+        WHEN powod = 'client_conflict' THEN 'KonfliktKlient'
+        WHEN powod = 'contract_form' THEN 'FormaUmowy'
+        WHEN powod = 'no_contact' THEN 'BrakKontaktu'
+        WHEN powod = 'client_no_reason' THEN 'KlientBezKonkretu'
+        WHEN powod = 'client_chose_other' THEN 'KlientWybral'
         WHEN powod NOT ILIKE 'Inne%' THEN 'Reszta'
         WHEN t = '' THEN 'BezOpisu'
         WHEN t ~ '{PROTECTED_RE}' THEN 'Nieodczytane'
@@ -264,7 +270,7 @@ APPROVED_AT_LAUNCH = (
         "number": "38%",
         "number_note": "odrzuceń to „Inne”",
         "measure": "udział „Inne” w odrzuceniach",
-        "change": "nowe powody w oknie",
+        "change": "#3040",
         "decided_on": date(2026, 11, 4),
         "review_on": date(2026, 12, 4),
     },
