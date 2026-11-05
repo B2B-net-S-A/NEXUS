@@ -422,7 +422,7 @@ async def test_candidate_cv_routes_tell_the_gate_where_the_name_came_from(
     monkeypatch.setattr(candidates_api, "record_detected_identity", gate)
     parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
     if from_header:
-        parsed["_name_from_header"] = True
+        parsed["_name_from_header"] = ["first_name", "last_name"]
 
     await candidates_api._parsed_source_is_quarantined(
         object(),  # type: ignore[arg-type]

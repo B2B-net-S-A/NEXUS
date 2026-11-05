@@ -502,7 +502,19 @@ def test_name_filled_from_header_is_marked(first_name, last_name):
     out = cvp._apply_contact_fallbacks(parsed, "Jan Kowalski\njan@example.com")
 
     assert (out["first_name"], out["last_name"]) == ("Jan", "Kowalski")
-    assert out["_name_from_header"] is True
+    assert out["_name_from_header"] == [
+        field
+        for field, value in (("first_name", first_name), ("last_name", last_name))
+        if value is None
+    ]
+
+
+def test_only_the_part_taken_from_the_header_is_marked():
+    # 24 odczyty na 57 568 (05.11.2026): model podał jedną część nazwy.
+    out = cvp._apply_contact_fallbacks({"first_name": "Jan"}, "Anna Nowak\n")
+
+    assert (out["first_name"], out["last_name"]) == ("Jan", "Nowak")
+    assert out["_name_from_header"] == ["last_name"]
 
 
 def test_name_from_the_model_is_not_marked():
@@ -521,7 +533,10 @@ def test_empty_name_with_no_header_match_is_not_marked():
 
 
 def test_regex_read_marks_the_name_it_took_from_the_header():
-    assert cvp._regex_fallback("Jan Kowalski\n")["_name_from_header"] is True
+    assert cvp._regex_fallback("Jan Kowalski\n")["_name_from_header"] == [
+        "first_name",
+        "last_name",
+    ]
 
 
 @pytest.mark.asyncio
@@ -534,7 +549,7 @@ async def test_marker_survives_parse_cv_when_the_model_leaves_the_name_empty():
         out = await cvp.parse_cv("Fikcyjny Inzynier\nPython\n")
 
     assert (out["first_name"], out["last_name"]) == ("Fikcyjny", "Inzynier")
-    assert out["_name_from_header"] is True
+    assert out["_name_from_header"] == ["first_name", "last_name"]
 
 
 @pytest.mark.asyncio

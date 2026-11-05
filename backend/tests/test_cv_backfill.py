@@ -176,7 +176,25 @@ async def test_enrich_prefers_cv_content_over_filename(monkeypatch):
     assert res["resolved"] is True
 
 
-async def test_enrich_falls_back_to_filename_when_cv_has_no_name(monkeypatch):
+async def test_filename_names_a_profile_only_when_the_file_has_no_text(monkeypatch):
+    c = _ph_candidate(name="?", lastname="?", cv_filename="Adam Haluszczynski CV.docx")
+
+    async def fake_extract(_bytes, _name):
+        return ""  # skan: model nie miał czego przeczytać
+
+    monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)
+
+    res = await enrich_candidate_from_cv_bytes(None, c, b"PK..", c.cv_filename)
+
+    assert c.name == "Adam" and c.lastname == "Haluszczynski"
+    assert res["name_source"] == "filename"
+    assert res["resolved"] is True
+
+
+async def test_filename_does_not_name_a_profile_when_the_text_gave_no_name(monkeypatch):
+    # Model przeczytał tekst i nie znalazł nazwy: 05.11.2026 w 12% takich plików
+    # nazwa z pliku była cudza, a przy 9 profilach z tej ścieżki żadnej nie
+    # potwierdził mail ani LinkedIn.
     c = _ph_candidate(name="?", lastname="?", cv_filename="Adam Haluszczynski CV.docx")
 
     async def fake_extract(_bytes, _name):
@@ -189,9 +207,50 @@ async def test_enrich_falls_back_to_filename_when_cv_has_no_name(monkeypatch):
 
     res = await enrich_candidate_from_cv_bytes(None, c, b"PK..", c.cv_filename)
 
-    assert c.name == "Adam" and c.lastname == "Haluszczynski"
-    assert res["name_source"] == "filename"
-    assert res["resolved"] is True
+    assert (c.name, c.lastname) == ("?", "?")
+    assert res["name_source"] is None
+    assert res["resolved"] is False
+
+
+async def test_header_name_does_not_fill_an_empty_profile(monkeypatch):
+    c = _ph_candidate(name="?", lastname="?", cv_filename="CV_fin.pdf")
+
+    async def fake_extract(_bytes, _name):
+        return "Senior Developer\nPython"
+
+    fake_parse = _fake_parse_cv(
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "_name_from_header": ["first_name", "last_name"],
+        }
+    )
+
+    monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)
+    monkeypatch.setattr("app.services.cv_parser.parse_cv", fake_parse)
+
+    res = await enrich_candidate_from_cv_bytes(None, c, b"PK..", c.cv_filename)
+
+    assert (c.name, c.lastname) == ("?", "?")
+    assert res["name_source"] is None
+    assert res["resolved"] is False
+    # Odczyt zostaje razem ze znacznikiem, żeby `_names_from_stored_read` go znał.
+    assert c.cv_extracted_data["_name_from_header"] == ["first_name", "last_name"]
+
+
+def test_header_part_is_skipped_and_the_model_part_is_written():
+    c = _ph_candidate(name="?", lastname="?")
+
+    _apply_cv_enrichment(
+        c,
+        {
+            "first_name": "Jan",
+            "last_name": "Developer",
+            "_name_from_header": ["last_name"],
+        },
+    )
+
+    assert (c.name, c.lastname) == ("Jan", "?")
 
 
 async def test_enrich_unresolved_when_no_text_and_unhelpful_filename(monkeypatch):
@@ -462,6 +521,7 @@ def _read_candidate(cv: bytes, **kw) -> Candidate:
             "cv_highlights": _model_stamp(cv),
             "first_name": "Halina",
             "last_name": "Kwiatkowska",
+            "_confidence": {"first_name": 0.98, "last_name": 0.98},
             **kw.pop("extracted", {}),
         },
         **kw,
@@ -527,6 +587,39 @@ async def test_stored_read_without_proof_in_the_cv_changes_nothing(extracted, ra
     assert (c.name, c.lastname) == ("?", "?")
 
 
+@pytest.mark.parametrize(
+    "extracted",
+    [
+        pytest.param(
+            {"_name_from_header": ["first_name", "last_name"]}, id="znacznik-nagłówka"
+        ),
+        pytest.param({"_name_from_header": ["last_name"]}, id="znacznik-na-części"),
+        # Stare odczyty nie mają znacznika. Model zostawił pole puste (0,0), a kod
+        # je wypełnił, albo w odczycie stoi 0,6 reguły nagłówka.
+        pytest.param(
+            {"_confidence": {"first_name": 0.0, "last_name": 0.0}}, id="pewnosc-0"
+        ),
+        pytest.param(
+            {"_confidence": {"first_name": 0.6, "last_name": 0.6}}, id="pewnosc-0-6"
+        ),
+        pytest.param(
+            {"_confidence": {"first_name": 0.98, "last_name": 0.0}}, id="jedna-czesc"
+        ),
+        pytest.param({"_confidence": None}, id="bez-pewnosci"),
+    ],
+)
+async def test_stored_read_without_the_model_name_changes_nothing(extracted):
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, extracted=extracted)
+
+    res = await enrich_candidate_from_cv_bytes(
+        _FakeDB(clash=False), c, cv, c.cv_filename
+    )
+
+    assert res["name_source"] is None
+    assert (c.name, c.lastname) == ("?", "?")
+
+
 async def test_stored_read_respects_the_manual_lock():
     cv = b"PK.. ten sam plik"
     c = _read_candidate(cv, extracted={"_manual_override_first_name": True})
@@ -579,7 +672,7 @@ async def test_gate_learns_whether_the_name_came_from_the_cv_header(
     monkeypatch.setattr(quarantine, "record_detected_identity", fake_record)
     parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
     if from_header:
-        parsed["_name_from_header"] = True
+        parsed["_name_from_header"] = ["first_name", "last_name"]
 
     await _identity_quarantined(_DB(clash=False), _ph_candidate(), None, parsed)
 
