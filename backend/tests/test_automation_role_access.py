@@ -59,6 +59,8 @@ READ_LIKE_WRITES = frozenset(
         "POST /api/job-intake/critical-suggestion",
         "POST /api/job-intake/requirement-rows",
         "POST /api/jobs/{job_id}/plain-brief/refresh",
+        # 0651: pytania pod CV — pamięć podręczna, jak „Po ludzku”.
+        "POST /api/candidates/{candidate_id}/jobs/{job_id}/call-questions/refresh",
         "POST /api/emails/preview",
         "POST /api/microsoft365/free-busy",
         "POST /api/prep-kit/generate",

@@ -350,6 +350,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
+    # 0651: pytania pod CV w ściądze do rozmowy (Sonnet 5.5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_call_questions'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -1403,6 +1405,15 @@ try:
 except Exception as _start_documents_schema_err:  # noqa: BLE001
     print(f"start documents schema unavailable: {_start_documents_schema_err!r}")
     _START_DOCUMENTS_TABLE_DDL = []
+
+# 0651: pytania pod CV w ściądze do rozmowy (`app/services/cv_call_questions_schema.py`).
+try:
+    from app.services import cv_call_questions_schema as _cv_call_questions_schema
+
+    _CV_CALL_QUESTIONS_TABLE_DDL = list(_cv_call_questions_schema.TABLE_DDL)
+except Exception as _cv_call_questions_schema_err:  # noqa: BLE001
+    print(f"cv call questions schema unavailable: {_cv_call_questions_schema_err!r}")
+    _CV_CALL_QUESTIONS_TABLE_DDL = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -7050,6 +7061,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
+    *_CV_CALL_QUESTIONS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7871,6 +7883,11 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
+    # 0651: seed klucza AI pytań pod CV w ściądze do rozmowy.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_call_questions', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_call_questions')",
     # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
     *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
