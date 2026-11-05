@@ -36,5 +36,10 @@ wymaganie przesadzone niż błąd odczytu, a nie sposób na obniżenie fałszywy
   Wynik czyta z pamięci procesu po odcisku profilu, jak liczby osób przy `rare_word`:
   pulpit nie czyta CV w żądaniu. Dolicza go pętla `requirement_row_counts`, pulpit
   sam tylko brakujące w limicie 1,5 s. Średnio 0,11 s na rekrutację.
+- **Stary profil bez wierszy (05.11.2026, decyzja Artura).** Sama propozycja to za mało: mówi
+  jednym ogólnym zdaniem i wymaga przyjęcia całej zmiany, a na rekrutacji 454615 serwer zwracał
+  2 wiersze i edytor nie pokazywał żadnego. `StackSentGaps` pokazuje to samo ostrzeżenie pod „Musi mieć”, z tymi samymi
+  akcjami: „Do rozmowy” zdejmuje pozycję z „Musi mieć”, wierszy wyszukiwania i krytycznych, a słowo
+  z podpowiedzi dochodzi jako wariant „A lub B”. Propozycja i „Uprość do słów kluczowych” zostają.
 - **Pomiar z modułami dopasowania poza lifespanem** musi wywołać `refresh_alias_map`:
   bez słownika `k8s` nie łączy się z Kubernetesem, a fałszywe braki wychodzą 24,5% zamiast 22,8%.

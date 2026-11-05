@@ -984,12 +984,10 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
   });
   const groups = queueGroups({ decide, info, consents: consentRows, today, chip });
 
+  // `access` łączy stan modułów z prawami osoby: to samo zdanie widzi osoba bez
+  // prawa do akceptacji przy działających modułach i każdy przy wyłączonych.
   if (!access.leave && !access.time && !access.consents) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Lista „Do potwierdzenia” ruszy po włączeniu modułu nieobecności, czasu pracy albo zgód.
-      </p>
-    );
+    return <p className="text-sm text-muted-foreground">Nie masz nic do akceptowania</p>;
   }
 
   const setFilter = (next: { chip: ApprovalsChip; view: ApprovalsView }) => {

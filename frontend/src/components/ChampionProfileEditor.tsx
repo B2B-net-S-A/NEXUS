@@ -103,6 +103,7 @@ import {
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
+import { StackSentGaps } from "@/components/champion/StackSentGaps";
 import {
   RequirementRowsEditor,
   type RequirementSentGaps,
@@ -1524,6 +1525,23 @@ export function ChampionProfileEditor({
                 onChange={(items) => patchStack({ nice: items })}
               />
             </div>
+            {sentGaps && !disabled ? (
+              <StackSentGaps
+                className="mt-3"
+                must={draft.stack.must ?? []}
+                requirements={draft.search.requirements ?? []}
+                critical={draft.stack.critical}
+                gaps={sentGaps}
+                onChange={({ must, requirements, critical }) =>
+                  setDraft((d) => ({
+                    ...d,
+                    stack: { ...d.stack, must: [...must], critical },
+                    search: { ...d.search, requirements: [...requirements] },
+                  }))
+                }
+                onMoveToTalk={moveToTalk}
+              />
+            ) : null}
             <div className="mt-3">
               <Labeled label="Niuanse wersji / zakresu" field="stack.notes">
                 <input
