@@ -51,7 +51,7 @@ MIN_USEFUL_TEXT_CHARS = 200
 
 # Rozszerzenie z nazwy wybiera tylko sufiks pliku tymczasowego; format czytamy
 # z bajtów (`sniff_extension`, od 22.09.2026).
-_KNOWN_EXTENSIONS = (".pdf", ".docx", ".txt", ".doc")
+_KNOWN_EXTENSIONS = (".pdf", ".docx", ".txt", ".doc", ".odt")
 
 _EXTRACTION_MARKER_KEY = "_cv_text_extraction"
 # Outcomes that will not change on a retry. Rows carrying one of these are
