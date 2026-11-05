@@ -12,6 +12,20 @@
     "dot_anchor": "insights.team-lens"
   },
   {
+    "id": "dokumenty-do-startu",
+    "title": "Dokumenty do startu: NDA, KRK i reszta w jednym miejscu",
+    "why": "Klient wpuszcza osobę dopiero z kompletem. Karta w panelu osoby mówi, czego brakuje i do kiedy, a jeden przycisk wysyła konsultantowi całą listę z wypełnionym NDA.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {
+      "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"]
+    },
+    "where": "Panel osoby → Dokumenty do startu",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "start-docs.card"
+  },
+  {
     "id": "zakladka-zasady",
     "title": "Zakładka „Zasady”: co dziś obowiązuje i kto to zmienił",
     "why": "Automat przydziału, bliźniaki, wagi rankingu, cele i punkty Ligi w jednym miejscu. Od razu widać wartości i to, czego nikt jeszcze nie zmieniał, a kliknięcie otwiera edycję.",

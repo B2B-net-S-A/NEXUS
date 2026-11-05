@@ -708,26 +708,37 @@ async def test_limit_stop_leaves_cursor_on_the_last_processed_row(monkeypatch):
 # ── Bramka tożsamości (05.11.2026) ─────────────────────────────────────────
 
 
-def _install_identity_review(monkeypatch, *, quarantined: bool) -> list[dict]:
+def _install_identity_review(
+    monkeypatch, *, quarantined: bool = False, held: bool = False
+) -> list[dict]:
     from app.services import candidate_identity_quarantine as quarantine
 
     calls: list[dict] = []
 
     async def fake_record(db, **kwargs):
         calls.append(kwargs)
-        return SimpleNamespace(is_quarantined=quarantined)
+        return SimpleNamespace(
+            is_quarantined=quarantined,
+            evidence={"mismatch_held_for_review": held},
+        )
 
     monkeypatch.setattr(quarantine, "record_detected_identity", fake_record)
     return calls
 
 
 @pytest.mark.asyncio
-async def test_read_of_another_person_writes_no_facts_and_drops_the_text(monkeypatch):
-    """Odczyt z 08.2026 zapisał 586 profilom fakty z tekstu pliku bez bramki.
+@pytest.mark.parametrize(
+    "gate", [{"held": True}, {"quarantined": True}], ids=["held", "old_quarantine"]
+)
+async def test_read_of_another_person_writes_no_facts_and_keeps_the_text(
+    monkeypatch, gate
+):
+    """Bieg nie kasuje tekstu ani wektora przy sprzeczności nazw.
 
-    Pole `cv_field_backfill` jako jedyne czytało model i wpisywało wynik do
-    profilu bez `record_detected_identity`, więc profil dostawał umiejętności
-    i miasto innej osoby, a kwarantanna nie miała o tym wiersza.
+    Odczyt z 08.2026 zapisał 586 profilom fakty z pliku bez bramki, więc faktów
+    z takiego odczytu nie wpisujemy. Czyszczenie to osobna sprawa: pomiar
+    05.11.2026 na 133 sprzecznościach to 64 własne CV i 46 cudzych, a 23 własnych
+    nie da się odróżnić po nazwie. Profil idzie do przeglądu człowieka.
     """
 
     from app.services import cv_field_backfill as runner
@@ -738,12 +749,13 @@ async def test_read_of_another_person_writes_no_facts_and_drops_the_text(monkeyp
         {
             "first_name": "Inna",
             "last_name": "Osoba",
+            "phone": "+48 600 100 200",
             "skills": ["Python"],
             "city": "Kraków",
             "_confidence": {},
         },
     )
-    calls = _install_identity_review(monkeypatch, quarantined=True)
+    calls = _install_identity_review(monkeypatch, **gate)
     enqueued: list[int] = []
 
     async def fake_reindex(db, entity, ids):
@@ -755,18 +767,25 @@ async def test_read_of_another_person_writes_no_facts_and_drops_the_text(monkeyp
     monkeypatch.setattr(outbox, "record_bulk_reindex", fake_reindex)
 
     candidate = _quarantine_candidate(401)
+    text_before = candidate.raw_cv_text
     stats = await runner.backfill_cv_fields(_QuarantineDb([candidate]))
 
     assert calls[0]["source_kind"] == "legacy_cv"
     assert calls[0]["source_id"] == 401
     assert calls[0]["observed_first_name"] == "Inna"
     assert calls[0]["observed_last_name"] == "Osoba"
-    assert stats["identity_quarantined"] == 1
+    assert calls[0]["observed_phone"] == "+48 600 100 200"
+    assert calls[0]["hold_mismatch_for_review"] is True
+    assert stats["identity_mismatch_held"] == 1
+    assert stats["identity_mismatch_ids"] == [401]
     assert stats["updated"] == 0
     assert candidate.city is None
     assert candidate.skills is None
-    assert candidate.raw_cv_text is None, "tekst innej osoby nie zostaje w profilu"
-    assert enqueued == [401], "wektor z cudzego tekstu trzeba przeliczyć"
+    assert candidate.raw_cv_text == text_before, "własne CV nie może stracić tekstu"
+    assert enqueued == [], "tekst bez zmian, wektora nie ma po co przeliczać"
+    assert candidate.cv_extracted_data[runner.READ_MARK_KEY] == runner.cv_text_digest(
+        text_before
+    ), "następny bieg nie płaci za ten sam tekst"
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,7 @@
 import { callTone, callWhen, type CallTone } from "@/lib/screening-call";
 import { boardCardBadge } from "@/lib/recommendation-card";
 import { agreementBadge } from "@/lib/b2b-agreement";
+import { startLine } from "@/lib/start-docs-format";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
@@ -810,6 +811,20 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       label: agreement.label,
       tone: agreement.tone === "success" ? "ok" : agreement.tone === "warning" ? "wait" : "info",
       title: agreement.title,
+    });
+  }
+  // 0649: dokumenty do startu. Pełny komplet nie potrzebuje plakietki.
+  const startDocs = item.start_docs;
+  if (startDocs && startDocs.done < startDocs.total) {
+    out.push({
+      key: "start_docs",
+      label: `Dokumenty ${startDocs.done}/${startDocs.total}`,
+      tone: startDocs.tone === "calm" ? "wait" : "urgent",
+      title: `Brakuje: ${startDocs.missing.join(", ")}. ${startLine(
+        startDocs.start_date,
+        startDocs.deadline,
+        startDocs.tone,
+      )}.`,
     });
   }
   // 17.10.2026: „Pracuje u nas” daje wyłącznie umowa w Kontraktach — karta

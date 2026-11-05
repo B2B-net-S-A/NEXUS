@@ -25,6 +25,34 @@ LinkedInem. Dlatego odczytu modelu ta reguła nie rusza.
 - `jan` i `maja` są poza listą, bo to przede wszystkim imiona. Nie dopisuj tam imion
   ani nazwisk: repo jest publiczne, a lista ma zawierać wyłącznie słowa z treści CV.
 
+## Taka nazwa już w profilu: bramka tożsamości nie ma z czym porównać
+
+`evaluate_identity_match` traktuje nazwę profilu z samych częstych słów jak `?`:
+`candidate_identity_complete = false`, wynik `inconclusive`, także gdy odczyt podaje te
+same słowa. `evidence.candidate_name_only_common_cv_words` pozwala policzyć takie decyzje.
+
+Pomiar z 05.11.2026 na kopii z 04.11: 25 z 68 280 profili ma taką nazwę, a słowo nazwy
+jest w mailu tylko w 2 profilach testowych. `confirmed_mismatch` mają 2 ze 191 decyzji:
+
+- 529068 powstał z pliku, który 11 godzin później trafił do kwarantanny. Profil osoby
+  z tego pliku założył Traffit 12 godzin po decyzji.
+- 334057 to pusty profil z Traffita. Człowiek wgrał na niego plik osoby, której profil
+  powstał 11 godzin po decyzji. Nie da się ustalić, czy plik był cudzy.
+
+Porównanie maila w pliku z mailem w profilu nie rozstrzyga takich przypadków, bo
+kwarantanna czyści kontakt z profilu (tu 7 i 5 pól). Sprawdź oś czasu: `created_from_cv`,
+`cv_uploaded` i datę założenia drugiego profilu.
+
+Narażone były też 6 profili z własnym mailem i telefonem w tekście CV. Przy 2 z nich
+zapisany odczyt modelu dawał `confirmed_mismatch` na własnym CV, a 4 były w zasięgu
+`backfill_cv_fields`, który od #3046 idzie przez bramkę.
+
+- Koszt: cudzy plik wgrany na taki profil nie trafi do kwarantanny. Tak samo jest
+  z profilem `?` i `Not Provided`.
+- Reguła dotyczy tylko nazwy w profilu. Odczyt z samych częstych słów nadal daje
+  `confirmed_mismatch`, bo tej strony pilnuje parser, a odczytu modelu reguła nie rusza.
+- Decyzja `confirmed_mismatch` zapisana wcześniej zostaje. Zwalnia ją tylko człowiek.
+
 ## Czego ta reguła nie załatwia
 
 - Działa na nowe odczyty. Nazw zapisanych w profilach sama nie poprawia.

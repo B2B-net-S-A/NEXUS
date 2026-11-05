@@ -154,6 +154,22 @@ SPECS: dict[str, _Spec] = {
     "pre_contract": _Spec(
         "Umowa przedwstępna", chip="Umowa przedwstępna", label="Otwórz kandydata"
     ),
+    # Dokumenty do startu: lista dzienna ma liczbę w tytule dzwonka.
+    "start_documents_due": _Spec(
+        "Uzupełnij dokumenty do startu",
+        chip="Dokumenty do startu",
+        use_title=True,
+    ),
+    "start_documents_returned": _Spec(
+        "Popraw dokument do startu",
+        chip="Dokumenty do startu",
+        label="Otwórz kandydata",
+    ),
+    "start_documents_reminder": _Spec(
+        "Delivery Lead prosi o dokumenty do startu",
+        chip="Dokumenty do startu",
+        label="Otwórz kandydata",
+    ),
     "cpro_send_assigned": _Spec("Wyślij CV do klienta", label="Otwórz kandydata"),
     "note_reply": _Spec(
         "Odpowiedź na Twoją notatkę", chip="Notatka", label="Otwórz notatkę"

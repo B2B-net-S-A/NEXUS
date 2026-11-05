@@ -37,6 +37,7 @@ import { registerSearchHref } from "@/lib/b2b-generator-register";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { hasSectionAccess } from "@/lib/section-access";
+import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { useAuthStore } from "@/store/auth";
 
 const GeneratorForm = dynamic(
@@ -258,6 +259,7 @@ export function AgreementPanelTab({
           }}
         />
       ) : null}
+      <StartDocsCard candidateId={candidateId} jobId={jobId} />
     </section>
   );
 }

@@ -133,6 +133,62 @@ async def test_from_cv_happy_path_creates_candidate(
 
 
 @pytest.mark.asyncio
+async def test_from_cv_header_name_leaves_the_placeholder(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Bez nazwy od modelu profil zostaje z wypełniaczem."""
+    parsed = {
+        **FAKE_PARSED,
+        "first_name": "Senior",
+        "last_name": "Developer",
+        "_name_from_header": ["first_name", "last_name"],
+    }
+    _patch_parser_and_extractor(monkeypatch, parsed)
+    await _cleanup_candidate(parsed["email"])
+
+    files = {"file": ("cv.pdf", _unique_pdf_bytes(), "application/pdf")}
+    resp = await app_client.post(
+        "/api/candidates/from-cv", headers=app_auth_headers, files=files
+    )
+
+    try:
+        assert resp.status_code == 201, resp.text
+        candidate = resp.json()["candidate"]
+        assert (candidate["name"], candidate["lastname"]) == ("Nieznane", "Nieznane")
+    finally:
+        await _cleanup_candidate(parsed["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_form_name_wins_over_the_header_marker(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    parsed = {
+        **FAKE_PARSED,
+        "first_name": "Senior",
+        "last_name": "Developer",
+        "_name_from_header": ["first_name", "last_name"],
+    }
+    _patch_parser_and_extractor(monkeypatch, parsed)
+    await _cleanup_candidate(parsed["email"])
+
+    files = {"file": ("cv.pdf", _unique_pdf_bytes(), "application/pdf")}
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files=files,
+        data={"name": "Janina", "lastname": "Testowa"},
+    )
+
+    try:
+        assert resp.status_code == 201, resp.text
+        candidate = resp.json()["candidate"]
+        assert (candidate["name"], candidate["lastname"]) == ("Janina", "Testowa")
+    finally:
+        await _cleanup_candidate(parsed["email"])
+
+
+@pytest.mark.asyncio
 async def test_from_cv_returns_409_on_duplicate_email(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

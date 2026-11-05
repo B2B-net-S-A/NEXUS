@@ -18,12 +18,15 @@ import logging
 from dataclasses import dataclass
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import ColumnElement, and_, case, func, not_, or_, select
+from sqlalchemy import ColumnElement, Row, and_, case, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+from app.models.candidate_source_identity_review import (
+    CandidateSourceIdentityReview,
+)
 from app.services import object_storage
 from app.services.candidate_identity_quarantine import (
     cv_bytes_quarantined,
@@ -57,6 +60,9 @@ def current_cv_filters() -> tuple:
       (`usun-plik-z-profilu-kandydata.md`). Plików „…B2B…” nie odsiewamy po
       nazwie: pomiar 02.11.2026 to 1280 osób, dla których firmowy Word jest
       jedynym CV. Ustępują CV kandydata w `current_cv_ordering`.
+
+    Warunek jest po id, więc nie widzi drugiego dokumentu z bajtami pliku
+    z kwarantanny. Kto wybiera plik jednej osoby, bierze `current_cv_filters_for`.
     """
     return (
         CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),
@@ -68,6 +74,106 @@ def current_cv_filters() -> tuple:
             source_kind="document",
         ),
     )
+
+
+async def _document_digest(db: AsyncSession, document: Row) -> str | None:
+    """Skrót bajtów dokumentu; `None`, gdy pliku nie da się odczytać."""
+    if document.content_sha256:
+        return document.content_sha256
+    try:
+        content = (
+            await run_in_threadpool(object_storage.download_cv, document.storage_key)
+            if document.storage_key
+            else await db.scalar(
+                select(CandidateDocument.file_content).where(
+                    CandidateDocument.id == document.id
+                )
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — bez bajtów nie ma dowodu na kopię
+        logger.warning(
+            "quarantined_copy_document_ids: file unreadable document=%s: %s",
+            document.id,
+            type(exc).__name__,
+        )
+        return None
+    return hashlib.sha256(bytes(content)).hexdigest() if content else None
+
+
+async def quarantined_copy_document_ids(
+    db: AsyncSession, candidate_id: int
+) -> frozenset[int]:
+    """Dokumenty osoby z bajtami jej pliku z kwarantanny tożsamości.
+
+    Kwarantanna dotyczy jednego wiersza, a pomiar 05.11.2026 to 17 żywych kopii
+    w 16 profilach. Porównanie skrótów w SQL ich nie znajdzie, bo
+    `ux_candidate_documents_candidate_sha` nie pozwala na dwa takie same skróty
+    w profilu, więc kopia nie ma zapisanego skrótu albo nie ma go oryginał.
+
+    Odpowiedź liczymy przy odczycie, bez zapisu decyzji przy kopii: decyzja parsera
+    bywa fałszywym alarmem, a tak jedno zwolnienie oryginału od razu oddaje osobie
+    wszystkie kopie. Wiersz z własnym werdyktem (zwolniony albo odczytany jako ta
+    osoba) nie jest kopią, bo to dowód o tym pliku, nie o jego bliźniaku.
+
+    Nieczytelny plik nie jest kopią. Inaczej niż przy wskaźniku kandydata
+    (`cv_bytes_quarantined`) jeden brakujący plik w magazynie ukryłby tu wszystkie
+    pliki osoby, a pomiar 05.11.2026 to 0 nieczytelnych z 245 w kwarantannie.
+    """
+    columns = (
+        CandidateDocument.id,
+        CandidateDocument.content_sha256,
+        CandidateDocument.storage_key,
+    )
+    quarantined = (
+        await db.execute(
+            select(*columns).where(
+                CandidateDocument.candidate_id == candidate_id,
+                source_is_quarantined_clause(
+                    candidate_id_column=CandidateDocument.candidate_id,
+                    source_id_column=CandidateDocument.id,
+                    source_kind="document",
+                ),
+            )
+        )
+    ).all()
+    if not quarantined:
+        return frozenset()
+    own_verdict = select(CandidateSourceIdentityReview.source_id).where(
+        CandidateSourceIdentityReview.candidate_id == candidate_id,
+        CandidateSourceIdentityReview.source_kind == "document",
+        or_(
+            CandidateSourceIdentityReview.override_at.isnot(None),
+            CandidateSourceIdentityReview.decision == "confirmed_match",
+        ),
+    )
+    others = (
+        await db.execute(
+            select(*columns).where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.id.notin_(own_verdict),
+                *current_cv_filters(),
+            )
+        )
+    ).all()
+    if not others:
+        return frozenset()
+    digests = {await _document_digest(db, document) for document in quarantined}
+    digests.discard(None)
+    return frozenset(
+        [
+            document.id
+            for document in others
+            if await _document_digest(db, document) in digests
+        ]
+    )
+
+
+async def current_cv_filters_for(db: AsyncSession, candidate_id: int) -> tuple:
+    """`current_cv_filters` jednej osoby, bez kopii jej plików z kwarantanny."""
+    copies = await quarantined_copy_document_ids(db, candidate_id)
+    if not copies:
+        return current_cv_filters()
+    return (*current_cv_filters(), CandidateDocument.id.notin_(copies))
 
 
 async def _legacy_cv_quarantined(db: AsyncSession, candidate_id: int) -> bool:
@@ -164,7 +270,7 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                     func.lower(CandidateDocument.filename).like("%.docx"),
                     func.lower(CandidateDocument.filename).like("%.doc"),
                 ),
-                *current_cv_filters(),
+                *await current_cv_filters_for(db, candidate.id),
             )
             .order_by(*current_cv_ordering())
             .limit(1)
