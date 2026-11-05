@@ -325,7 +325,9 @@ async def _identity_quarantined(
     ):
         return True, None
     # Skrót mógł trafić w kopię pliku z kwarantanny: jej własnej decyzji nie ma.
-    if document_id in await quarantined_copy_document_ids(db, candidate.id):
+    if document_id is not None and document_id in await quarantined_copy_document_ids(
+        db, candidate.id
+    ):
         return True, None
     review = await record_detected_identity(
         db,
