@@ -3504,6 +3504,19 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_placement_exclusions_job_id "
     "ON placement_exclusions (job_id)",
+    # 0650: powód ręczny (REASON_CHECK_DDL w app/services/placement_exclusions.py).
+    # Tylko gdy CHECK go jeszcze nie zna — bez blokady tabeli przy każdym starcie.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_placement_exclusions_reason'
+              AND pg_get_constraintdef(oid) LIKE '%manual%'
+        ) THEN
+            ALTER TABLE placement_exclusions DROP CONSTRAINT IF EXISTS ck_placement_exclusions_reason;
+            ALTER TABLE placement_exclusions ADD CONSTRAINT ck_placement_exclusions_reason CHECK (reason IN ('admin_bulk_no_cv', 'admin_bulk_2025_09_series', 'manual'));
+        END IF;
+    END $$""",
     """CREATE OR REPLACE VIEW analytics_first_milestones AS
         SELECT
             candidate_id,

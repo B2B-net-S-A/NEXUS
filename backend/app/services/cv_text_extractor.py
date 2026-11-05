@@ -243,6 +243,7 @@ _WORKER_OPS = (
     "all_pages",
     "word",
     "odt",
+    "first_page_ocr",
 )
 #: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
 _PDF_WORKER_MAX_WORDS = 50_000
@@ -439,6 +440,15 @@ def _ocr_one_page(path: str, number: int) -> str:
         )
 
 
+def _worker_first_page_ocr(path: str) -> Optional[str]:
+    """OCR pierwszej strony; awaria to brak nagłówka, nie brak tekstu CV."""
+    try:
+        os.environ["OMP_THREAD_LIMIT"] = "1"
+        return _ocr_one_page(path, 1)
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return None
+
+
 def _worker_all_pages(path: str) -> dict:
     """Strona po stronie: tekst z PDF-a, a gdy go brak, OCR tej strony."""
     try:
@@ -523,6 +533,8 @@ def _worker_main(argv: list[str]) -> int:
         payload["text"] = _worker_word(path)
     elif op == "odt":
         payload["text"] = _worker_odt(path)
+    elif op == "first_page_ocr":
+        payload["text"] = _worker_first_page_ocr(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
@@ -878,6 +890,88 @@ def extract_text(file_path: str, filename: str) -> str:
         )
 
     return _normalize(raw or "")
+
+
+# ── Nazwisko i kontakt w grafice nagłówka CV (05.11.2026) ────────────────────
+#
+# PDF z tekstem w treści i nagłówkiem w obrazku przekracza próg
+# ``_OCR_FALLBACK_THRESHOLD_CHARS``, więc OCR nie rusza, a tekst nie ma nazwiska,
+# maila ani telefonu. Reguła nagłówka bierze wtedy nagłówek sekcji, a wykrywanie
+# duplikatów nie ma czego szukać. Pomiar: ``kandydaci-wyszukiwanie/odczyt-naglowka-z-grafiki.md``.
+
+#: OCR jednej strony z procesem odczytu: mediana ok. 2,4 s, najgorszy plik 27 s.
+_FIRST_PAGE_OCR_TIMEOUT_SECONDS = 45
+#: Sufit bloku: to nagłówek, nie druga kopia pierwszej strony.
+_OCR_HEADER_MAX_LINES = 15
+_OCR_WORD = re.compile(r"[^\W_]+")
+#: Linia OCR jest nowa, gdy co najmniej tyle jej słów nie ma w tekście PDF-a.
+#: OCR myli pojedyncze litery, więc linia z tekstu PDF-a bywa nowa w części.
+_OCR_NEW_LINE_MIN_SHARE = 0.6
+#: Adres z OCR nie wchodzi do tekstu, także z `@` odczytaną jako litera. Kalibracja na
+#: 190 CV z mailem w tekście: 8 z 80 odczytanych adresów było błędnych, a drugi odczyt
+#: w 300 dpi tego nie łapie (w 5 z 55 par mylą się oba). Wiadomość do kandydata
+#: poszłaby do obcej osoby. Telefon: 2 z 179 błędnych.
+_OCR_ADDRESS = re.compile(
+    r"\S*(?:@|\.(?:com|pl|eu|net|org|io|de|uk)\b)\S*", re.IGNORECASE
+)
+
+
+def _ocr_lines_missing_from_text(native: str, ocr: str) -> list[str]:
+    """Linie z OCR, których tekst PDF-a nie ma, w kolejności ze strony.
+
+    Linia z telefonem zostaje zawsze: reszta jej słów bywa w tekście PDF-a, a sam
+    numer leży czasem w stopce, za sufitem bloku.
+    """
+    from app.services.cv_parser import _extract_phone_from_text
+
+    known = {word.casefold() for word in _OCR_WORD.findall(native)}
+    lines: list[str] = []
+    other_lines = 0
+    for raw_line in ocr.splitlines():
+        line = _HORIZONTAL_WS.sub(" ", _OCR_ADDRESS.sub("", raw_line)).strip()
+        if _extract_phone_from_text(line):
+            lines.append(line)
+            continue
+        words = [w.casefold() for w in _OCR_WORD.findall(line) if len(w) >= 2]
+        if not words or other_lines >= _OCR_HEADER_MAX_LINES:
+            continue
+        new_words = [word for word in words if word not in known]
+        if len(new_words) >= _OCR_NEW_LINE_MIN_SHARE * len(words):
+            lines.append(line)
+            other_lines += 1
+    return lines
+
+
+def extract_cv_text(file_path: str, filename: str) -> str:
+    """``extract_text`` dla CV: PDF bez maila i telefonu dostaje OCR pierwszej strony.
+
+    Linie, których nie ma w tekście PDF-a, idą bez adresów na początek, jak nagłówek
+    na stronie. Dalej to zwykły tekst CV: nazwa z niego przechodzi przez odczyt
+    modelu, ``record_detected_identity`` i bramkę, jak każda inna. Zamówienia
+    i dokumenty klientów zostają przy ``extract_text``. Awaria OCR zostawia tekst PDF-a.
+    """
+    text = extract_text(file_path, filename)
+    # Krótszy tekst przeszedł już OCR w `_extract_pdf_inprocess`, cały plik.
+    if (
+        len(text) < _OCR_FALLBACK_THRESHOLD_CHARS
+        or sniff_extension(file_path) != ".pdf"
+    ):
+        return text
+    from app.services.cv_parser import (
+        _extract_email_from_text,
+        _extract_phone_from_text,
+    )
+
+    if _extract_email_from_text(text) or _extract_phone_from_text(text):
+        return text
+    result = _run_pdf_worker(
+        "first_page_ocr", file_path, timeout=_FIRST_PAGE_OCR_TIMEOUT_SECONDS
+    )
+    ocr = result.get("text") if result else None
+    lines = _ocr_lines_missing_from_text(text, ocr) if isinstance(ocr, str) else []
+    if not lines:
+        return text
+    return _normalize("\n".join(lines) + "\n\n" + text)
 
 
 if __name__ == "__main__":  # proces odczytu PDF (``_run_pdf_worker``)

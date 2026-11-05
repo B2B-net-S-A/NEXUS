@@ -732,7 +732,7 @@ async def _persist_cv(
         from app.services import cv_text_extractor
 
         raw_text = await asyncio.to_thread(
-            cv_text_extractor.extract_text, file_path, filename
+            cv_text_extractor.extract_cv_text, file_path, filename
         )
     except Exception as e:  # pragma: no cover — defensive
         # Runda 10 (R10-N10-6): `UnsupportedCvFormat` niesie nazwę pliku CV
@@ -787,7 +787,7 @@ async def _persist_submission_cv(
             with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
                 tmp.write(content)
                 tmp.flush()
-                return cv_text_extractor.extract_text(tmp.name, filename)
+                return cv_text_extractor.extract_cv_text(tmp.name, filename)
 
         raw_text = await asyncio.to_thread(_extract)
     except Exception as e:  # pragma: no cover — defensive

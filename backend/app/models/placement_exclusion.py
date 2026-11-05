@@ -45,7 +45,7 @@ class PlacementExclusion(Base):
             "candidate_id", "job_id", name="uq_placement_exclusions_candidate_job"
         ),
         CheckConstraint(
-            "reason IN ('admin_bulk_no_cv', 'admin_bulk_2025_09_series')",
+            "reason IN ('admin_bulk_no_cv', 'admin_bulk_2025_09_series', 'manual')",
             name="ck_placement_exclusions_reason",
         ),
     )

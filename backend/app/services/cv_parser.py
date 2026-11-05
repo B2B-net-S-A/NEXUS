@@ -115,6 +115,22 @@ def _extract_linkedin_from_text(cv_text: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+def _email_is_in_text(email: Any, cv_text: str) -> bool:
+    """Adres od modelu stoi w tekście CV, choćby rozcięty odstępami albo z „(at)”.
+
+    Sklejenie odstępów nie dotyczy samej części lokalnej: sklejone „Anna Testowa”
+    zawiera zmyśloną „annatestowa”. Sama część lokalna też nie wystarcza, bo model
+    dokłada domenę do resztki adresu z OCR („jan45©”).
+    """
+    address = "".join(str(email or "").split()).casefold()
+    local_part, _, domain = address.partition("@")
+    if not (local_part and domain):
+        return False
+    text = (cv_text or "").casefold()
+    squeezed = "".join(text.split())
+    return address in squeezed or (local_part in text and domain in squeezed)
+
+
 def _extract_email_from_text(cv_text: str) -> Optional[str]:
     """Return the first plausible email address in the CV (lowercased)."""
     if not cv_text:
@@ -190,6 +206,10 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
     Sets `_confidence` for regex-filled fields: 0.9 for exact email match,
     0.85 for phone with 9+ digits, 0.6 for name split heuristic.
 
+    A model email that is not in the CV text is dropped first: with a name and no
+    address the model builds one from the name (profile 9772, 3 reads out of 3,
+    05.11.2026), and a message would go to a stranger.
+
     A name taken from the header is listed in `_name_from_header`, field by field:
     the identity gate must not treat it as a read, and it does not name a profile
     (05.11.2026). `_confidence` cannot carry that, because the model scores empty
@@ -201,6 +221,10 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
     for key in ("first_name", "last_name"):
         if is_empty_field_name(out.get(key)):
             out[key] = None
+
+    if out.get("email") and not _email_is_in_text(out["email"], cv_text):
+        out["email"] = None
+        confidence.pop("email", None)
 
     if not out.get("email"):
         email = _extract_email_from_text(cv_text)
@@ -228,7 +252,7 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
         if from_header:
             out["_name_from_header"] = from_header
 
-    if confidence:
+    if confidence or out.get("_confidence"):
         out["_confidence"] = confidence
     return out
 

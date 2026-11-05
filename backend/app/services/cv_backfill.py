@@ -150,7 +150,7 @@ async def _extract_text_from_bytes(cv_bytes: bytes, filename: Optional[str]) -> 
         tmp.flush()
         tmp.close()
         return await asyncio.to_thread(
-            cv_text_extractor.extract_text, tmp.name, safe_name
+            cv_text_extractor.extract_cv_text, tmp.name, safe_name
         )
     finally:
         try:
