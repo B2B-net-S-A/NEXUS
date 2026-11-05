@@ -557,6 +557,32 @@ async def test_stored_read_stops_on_identity_quarantine(monkeypatch):
     assert (c.name, c.lastname) == ("?", "?")
 
 
+@pytest.mark.parametrize("from_header", [True, False])
+async def test_gate_learns_whether_the_name_came_from_the_cv_header(
+    monkeypatch, from_header
+):
+    from app.services import candidate_identity_quarantine as quarantine
+    from app.services.cv_backfill import _identity_quarantined
+
+    class _DB(_FakeDB):
+        add = flush = object()
+
+    seen: dict = {}
+
+    async def fake_record(*_a, **kw):
+        seen.update(kw)
+        return SimpleNamespace(is_quarantined=False)
+
+    monkeypatch.setattr(quarantine, "record_detected_identity", fake_record)
+    parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
+    if from_header:
+        parsed["_name_from_header"] = True
+
+    await _identity_quarantined(_DB(clash=False), _ph_candidate(), None, parsed)
+
+    assert seen["observed_name_from_header"] is from_header
+
+
 @pytest.mark.parametrize(
     "stamp",
     [

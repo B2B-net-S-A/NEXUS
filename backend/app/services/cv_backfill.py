@@ -313,6 +313,7 @@ async def _identity_quarantined(
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
         provenance="cv_parser:backfill",
+        observed_name_from_header=bool(parsed.get("_name_from_header")),
     )
     return review.is_quarantined, document_id
 

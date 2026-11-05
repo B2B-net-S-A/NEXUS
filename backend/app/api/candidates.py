@@ -7061,6 +7061,7 @@ async def _parsed_source_is_quarantined(
         observed_last_name=parsed.get("last_name"),
         provenance=provenance,
         replaced_primary=replaced_primary,
+        observed_name_from_header=bool(parsed.get("_name_from_header")),
     )
     return review.is_quarantined
 
