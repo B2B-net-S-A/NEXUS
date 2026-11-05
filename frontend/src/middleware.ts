@@ -382,6 +382,8 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
+  // Podgląd liczb na telefonie: te same bramki co Insights, reszta na trasach API.
+  { prefix: "/podglad", roles: INSIGHTS_ROLES, section: "insights" },
   // Praktykanci (0374). `/trainee` = lista telefonów TEGO praktykanta — nawet
   // admin jej nie otwiera (patrzy w panel `/trainees`). Resolver bierze
   // najdłuższy prefiks, więc `/trainees` nie wpada w regułę `/trainee`.

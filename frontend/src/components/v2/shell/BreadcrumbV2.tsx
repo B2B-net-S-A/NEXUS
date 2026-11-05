@@ -10,6 +10,10 @@ import { clientReferenceParts } from "@/lib/job-names";
 import { cn } from "@/lib/utils";
 
 export const SEGMENT_LABELS: Record<string, string> = {
+  podglad: "Podgląd",
+  dzis: "Dziś",
+  rekrutacje: "Rekrutacje",
+  zespol: "Zespół",
   "talent-radar": "Talent Radar",
   "": "Dashboard",
   candidates: "Kandydaci",

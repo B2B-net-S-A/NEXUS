@@ -16,6 +16,8 @@ import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
 import { useStartGate } from "@/components/novelties/useStartGate";
+import { PREVIEW_PATH } from "@/components/phone-preview/access";
+import { PhonePreviewRedirect } from "@/components/phone-preview/usePhonePreviewRedirect";
 import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
@@ -154,6 +156,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const startBlocked = useStartGate();
 
   if (isLoginPage) return <>{children}</>;
+  if (pathname === PREVIEW_PATH || pathname?.startsWith(`${PREVIEW_PATH}/`)) return <>{children}</>;
   if (isSharePage) return <>{children}</>;
   if (isApplyPage) return <>{children}</>;
   if (isSignPage) return <>{children}</>;
@@ -194,6 +197,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // telefonie 100vh jest wyższe niż widoczny obszar.
   return (
     <div className="app-shell-root relative flex h-dvh overflow-hidden bg-background text-foreground">
+      <PhonePreviewRedirect />
       {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
           po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
       <a
