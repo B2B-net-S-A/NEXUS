@@ -124,6 +124,16 @@ def test_question_mark_name_is_overwritten_by_parse():
     assert c.phone == "+48 600 100 200"
 
 
+def test_unknown_name_from_traffit_is_overwritten_by_parse():
+    # 78 profili z Traffita ma `Unknown` / `Unknown` (05.11.2026): to wartość
+    # z pola w Trafficie, nie nazwisko. Sama nazwa nie liczy się też jako ustalona.
+    c = _ph_candidate(name="Unknown", lastname="Unknown")
+    assert cv_backfill._name_resolved(c) is False
+    _apply_cv_enrichment(c, {"first_name": "Anna", "last_name": "Nowak"})
+    assert (c.name, c.lastname) == ("Anna", "Nowak")
+    assert cv_backfill._name_resolved(c) is True
+
+
 def test_real_name_is_never_overwritten():
     c = _ph_candidate(name="Jan", lastname="Kowalski")
     _apply_cv_enrichment(c, {"first_name": "Other", "last_name": "Person"})
@@ -395,6 +405,15 @@ async def test_backfill_run_stops_on_quota_refusal(monkeypatch):
     assert db.scalar.await_count == 1  # drugi kandydat nie jest już nawet wczytany
     db.commit.assert_not_awaited()
     assert (first.name, first.lastname) == ("?", "?")
+
+
+async def test_backfill_selects_every_placeholder_name():
+    db = SimpleNamespace(execute=AsyncMock(return_value=[]))
+
+    await cv_backfill.backfill_missing_names(db, dry_run=True)
+
+    params = db.execute.await_args.args[1]
+    assert set(params["placeholders"]) == {"?", "Nieznane", "Unknown"}
 
 
 # ── ten sam plik CV nie idzie do modelu drugi raz ───────────────────────────

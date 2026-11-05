@@ -8,7 +8,8 @@ Pokrywa:
 - FK o innej nazwie kolumny (``application_submissions.matched_candidate_id``);
 - referencje polimorficzne (``activities``, ``notifications`` z linkiem);
 - wybór pól przy konflikcie + kontakt duplikatu zachowany w ``custom_fields``;
-- tożsamość z Traffita przechodzi na ocalałego; oba z Traffita = 409;
+- tożsamość z Traffita przechodzi na ocalałego; oba z Traffita się scalają
+  (Traffit wyłączony 14.10.2026), oba z innego żywego systemu = 409;
 - odcisk: rozjazd = 409; ten sam kandydat = 422; rekruter = 403;
 - Historia zdarzeń bez imion i nazwisk.
 """
@@ -224,13 +225,38 @@ async def test_traffit_identity_moves_to_survivor(app_client: AsyncClient):
         assert (kept.external_source, kept.external_id) == ("traffit", ext)
 
 
-async def test_both_from_traffit_is_blocked(app_client: AsyncClient):
+async def test_both_from_traffit_merge_keeps_duplicate_id_in_history(
+    app_client: AsyncClient,
+):
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor_ext = f"tt-{uuid.uuid4().hex[:8]}"
+    duplicate_ext = f"tt-{uuid.uuid4().hex[:8]}"
+    survivor = await _candidate(external_source="traffit", external_id=survivor_ext)
+    duplicate = await _candidate(external_source="traffit", external_id=duplicate_ext)
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["can_apply"] is True
+    assert plan["blockers"] == []
+
+    resp = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Candidate, duplicate) is None
+        kept = await db.get(Candidate, survivor)
+        assert (kept.external_source, kept.external_id) == ("traffit", survivor_ext)
+        entry = kept.custom_fields["merged_duplicates"][-1]
+        assert entry["candidate_id"] == duplicate
+        assert entry["external_source"] == "traffit"
+        assert entry["external_id"] == duplicate_ext
+
+
+async def test_both_from_same_live_external_source_is_blocked(app_client: AsyncClient):
     _, headers = await _user(app_client, UserRole.admin)
     survivor = await _candidate(
-        external_source="traffit", external_id=f"tt-{uuid.uuid4().hex[:8]}"
+        external_source="talent_radar", external_id=f"tr-{uuid.uuid4().hex[:8]}"
     )
     duplicate = await _candidate(
-        external_source="traffit", external_id=f"tt-{uuid.uuid4().hex[:8]}"
+        external_source="talent_radar", external_id=f"tr-{uuid.uuid4().hex[:8]}"
     )
     plan = (await _preview(app_client, headers, survivor, duplicate)).json()
     assert plan["can_apply"] is False
