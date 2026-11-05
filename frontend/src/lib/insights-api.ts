@@ -84,6 +84,10 @@ export interface InFlightColumn {
   /** Ile par stoi w kolumnie dłużej niż `stale_days`. */
   stale_count: number;
   oldest_days: number | null;
+  /** Pary stojące w kolumnie najwyżej `recent_days` dni. */
+  recent_count: number;
+  /** Z nich dłużej niż `stale_days` — to liczy zdanie o zatorze. */
+  recent_stale_count: number;
 }
 
 export interface InFlightAcceptance {
@@ -114,6 +118,19 @@ export interface WeeklyTrendResponse {
   }[];
 }
 
+/** `GET /api/insights/recruitment/monthly-trend` — miesiące kalendarzowe. */
+export interface MonthlyTrendResponse {
+  months: {
+    month_start: string;
+    /** Bieżący miesiąc — jeszcze trwa. */
+    partial: boolean;
+    /** `null` = etapu w tym miesiącu nikt nie prowadził. */
+    counts: WeeklyTrendResponse["weeks"][number]["counts"];
+    /** Tylko miesiąc przecinający 12.10.2026: dni od tej daty, do przejść z akceptacjami. */
+    cutover_counts: WeeklyTrendResponse["weeks"][number]["counts"] | null;
+  }[];
+}
+
 /** Para w „Moje osoby w drodze” (`/in-flight/me`). */
 export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
   column: InFlightColumn["column"];
@@ -131,6 +148,7 @@ export interface TeamGoalsResponse extends MyKpiGoals {
 export interface InFlightResponse {
   asof: string;
   stale_days: number;
+  recent_days: number;
   columns: InFlightColumn[];
   /** `null` = konto bez `view_team_kpi` (lista ma klientów i Delivery Leadów). */
   acceptances: InFlightAcceptance[] | null;
@@ -713,6 +731,10 @@ export const insightsApi = {
       .get<TeamGoalsResponse>("/api/insights/recruitment/team-goals")
       .then((r) => r.data),
 
+  monthlyTrend: (months: number) =>
+    api
+      .get<MonthlyTrendResponse>("/api/insights/recruitment/monthly-trend", { params: { months } })
+      .then((r) => r.data),
   weeklyTrend: (weeks: number) =>
     api
       .get<WeeklyTrendResponse>("/api/insights/recruitment/weekly-trend", {
@@ -1376,6 +1398,7 @@ export const insightsQueryKeys = {
   inFlightMe: (scope: InFlightScope) =>
     ["insights", "recruitment", "in-flight", "me", scope] as const,
   teamGoals: () => ["insights", "recruitment", "team-goals"] as const,
+  monthlyTrend: (months: number) => ["insights", "recruitment", "monthly-trend", months] as const,
   weeklyTrend: (weeks: number) =>
     ["insights", "recruitment", "weekly-trend", weeks] as const,
   hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,

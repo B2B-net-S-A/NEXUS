@@ -31,11 +31,12 @@ function funnel(
 const inFlight: InFlightResponse = {
   asof: "2026-10-22",
   stale_days: 10,
+  recent_days: 30,
   columns: [
-    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: 38, stale_count: 0, oldest_days: 3 },
-    { column: "cv_sent", label: "Czekają na decyzję klienta", count: 64, stale_count: 21, oldest_days: 30 },
-    { column: "client_interview", label: "Rozmowy u klienta", count: 23, stale_count: 0, oldest_days: 6 },
-    { column: "contract", label: "Akceptacje do domknięcia", count: 10, stale_count: 1, oldest_days: 19 },
+    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: 38, stale_count: 0, oldest_days: 3, recent_count: 0, recent_stale_count: 0 },
+    { column: "cv_sent", label: "Czekają na decyzję klienta", count: 64, stale_count: 21, oldest_days: 30, recent_count: 0, recent_stale_count: 0 },
+    { column: "client_interview", label: "Rozmowy u klienta", count: 23, stale_count: 0, oldest_days: 6, recent_count: 0, recent_stale_count: 0 },
+    { column: "contract", label: "Akceptacje do domknięcia", count: 10, stale_count: 1, oldest_days: 19, recent_count: 0, recent_stale_count: 0 },
   ],
   acceptances: null,
   forecast: { open: 10, hired: 43, resolved: 50, min_sample: 10, since: "2026-10-12", rate_pct: 86, low: 8, high: 9 },
