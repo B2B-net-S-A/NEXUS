@@ -1151,5 +1151,18 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.link-people"
+  },
+  {
+    "id": "lider-kwartalu-w-wyscigach",
+    "pr": 3081,
+    "title": "Lider Ligi bierze też nagrodę w wyścigu miesiąca",
+    "why": "Lider Ligi Mistrzów kwartału nie jest już wykluczany z wyścigów miesiąca. Nagrodę bierze pierwsza osoba, która spełnia warunki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {},
+    "where": "Insights → Rywalizacja → Wyścigi miesiąca",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.monthly-races"
   }
 ]
