@@ -27,6 +27,7 @@ pozostałe faktury tego nabywcy dopasowują się od razu.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -143,9 +144,18 @@ def _item_price(item: dict[str, Any]) -> Optional[Decimal]:
         return None
 
 
+def _fold(text: str) -> str:
+    """Bez polskich znaków: faktury dla klientów z zagranicy piszą „Lukasz”."""
+
+    text = text.replace("ł", "l").replace("Ł", "L")
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
 def _named_in(line: BillingLine, item_name: str) -> bool:
-    parts = line.consultant.split()
-    return len(parts) >= 2 and all(_pattern(part).search(item_name) for part in parts)
+    parts = _fold(line.consultant).split()
+    name = _fold(item_name)
+    return len(parts) >= 2 and all(_pattern(part).search(name) for part in parts)
 
 
 def _person_and_price(
