@@ -65,7 +65,7 @@ function SkillPicker({ onPick }: { onPick: (skill: SkillDictionaryItem) => void 
   const debounced = useDebouncedValue(q.trim(), 300);
   const matches = useQuery({
     queryKey: ["skills-admin", "skills", "picker", debounced],
-    queryFn: () => skillsAdminApi.list({ q: debounced, limit: 8 }),
+    queryFn: () => skillsAdminApi.list({ q: debounced, kind: "skills", limit: 8 }),
     enabled: debounced.length > 0,
   });
   return (

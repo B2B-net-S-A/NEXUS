@@ -65,3 +65,28 @@ lepiej, 0 gorzej). Decyzja Artura „Etap 1: A + B”.
   bez propozycji → `care/skills.suggester` („Może chodzi o …?”). Przycisk
   zmiany słownika („Dodaj do słownika”, „Zmapuj w słowniku”) widzi tylko HoR+
   (`can_curate`), a trasa ma własną bramkę.
+
+## Etap 2 — porządek w słowniku (06.11.2026)
+
+- **Kategoria jest obowiązkowa przy nowym haśle** (`POST /api/skills-admin/skills`,
+  422 bez kategorii albo z kategorią spoza listy). Bez niej hasło nie działa
+  w pogrubianiu CV, QC ani bramce must. Lista: `skill_curation.category_choices`
+  — kategorie słownika bez ról plus `practice` i `domain`, ta sama co
+  w propozycjach. „Nowa umiejętność” z nieznanego terminu też pyta o kategorię.
+- **„Popraw” hasło** (`PATCH /api/skills-admin/skills/{id}`): nazwa i kategoria.
+  Zmiana nazwy większa niż wielkość liter zostawia starą nazwę jako alias, więc
+  zapisy w profilach i wymaganiach dalej trafiają w hasło. Tak poprawia się
+  małe litery w nazwach („nosql” → „NoSQL”) bez migracji danych.
+- **Role osobno.** Hasła `role_*` to stanowiska: lista Słownika ma przełącznik
+  „Umiejętności / Role” (`kind`), wybór hasła do „Zmapuj” szuka bez ról, a rola
+  nie przyjmuje nowych aliasów (`skill_curation._add_alias`, także „Zmapuj”
+  w opiece i w propozycjach). Istniejące aliasy ról zostają.
+- **Zapamiętane wyniki dopasowania po zmianie słownika.** Klucz pamięci wyników
+  (`scoring_algorithm_version`) nie zależy od treści słownika, a pamięć nie ma
+  TTL, więc wynik sprzed nowego aliasu żył dalej (test
+  `test_cached_score_is_recomputed_after_new_alias`). Każda zmiana słownika
+  (nowe hasło, alias, „Zmapuj”, „Popraw”, propozycje) kończy się
+  `skill_curation.after_dictionary_change`: najpierw nowa mapa aliasów, potem
+  unieważnienie wyników rekrutacji, których wymagania wymieniają hasło w którymś
+  zapisie (`mark_stale_for_jobs`). Punktowo, nie całej tabeli, jak przy
+  profilach wag.

@@ -2747,12 +2747,16 @@ export interface SkillDictionaryItem {
   id: number;
   name: string;
   category: string | null;
+  /** Rola (`role_*`) to stanowisko, nie umiejętność: nie przyjmuje aliasów. */
+  is_role?: boolean;
   aliases: string[];
 }
 
 export interface SkillDictionaryPage {
   items: SkillDictionaryItem[];
   total: number;
+  /** Kategorie do wyboru przy haśle (bez ról), etap 2 słownika. */
+  categories?: string[];
 }
 
 export type UnmatchedSkillTermStatus = "new" | "mapped" | "ignored";
@@ -2774,16 +2778,30 @@ export interface CreatedSkill {
 }
 
 export const skillsAdminApi = {
-  list: (params: { q?: string; limit?: number; offset?: number } = {}) =>
+  list: (
+    params: {
+      q?: string;
+      kind?: "all" | "skills" | "roles";
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) =>
     api
       .get<SkillDictionaryPage>("/api/skills-admin/skills", { params })
       .then((r) => r.data),
   create: (payload: {
     canonical_name: string;
-    category?: string | null;
+    category: string;
     aliases?: string[];
     from_term_id?: number;
   }) => api.post<CreatedSkill>("/api/skills-admin/skills", payload).then((r) => r.data),
+  update: (skillId: number, payload: { canonical_name?: string; category?: string }) =>
+    api
+      .patch<{ id: number; canonical_name: string; category: string | null }>(
+        `/api/skills-admin/skills/${skillId}`,
+        payload,
+      )
+      .then((r) => r.data),
   addAlias: (skillId: number, alias: string) =>
     api
       .post<{ skill_id: number; alias: string; inserted: boolean }>(
