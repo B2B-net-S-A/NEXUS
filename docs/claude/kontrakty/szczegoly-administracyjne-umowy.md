@@ -91,7 +91,10 @@ w trzech miejscach.
   (`api/hr_contract_admin_details.py`, za przełącznikiem programu i modułu Płac).
   Kto: „Płace” albo „Umowy B2B: oznaczanie jako podpisane”
   (`require_any_permission`); konto rządzone portfelem DL-a tylko u swoich
-  klientów, TCM i Płace u wszystkich. Pola nie idą przez zwykły PATCH kontraktu.
+  klientów, TCM i Płace u wszystkich. Poza Płacami nikt nie zapisuje
+  kontraktu, z którego sam dostaje premię (rekruter, DL, dodatkowy DL, odbiorca
+  wiersza z arkusza): 403, bo „Nie” przywróciłoby mu premię anulowaną przez
+  Płace (przegląd kodu 06.11.2026). Pola nie idą przez zwykły PATCH kontraktu.
 - PUT niesie komplet trzech pól i **obowiązkowy powód** (min. 3 znaki, 422 bez
   niego). „Tak” bez osoby i osoba zastępująca samą siebie (ten sam kontrakt
   albo ten sam kandydat) = 422. Ślad: `admin_details_changed` w historii

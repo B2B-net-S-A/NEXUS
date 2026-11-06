@@ -862,6 +862,19 @@ async def reconcile_contract(
         if ended_early and not doubled:
             # Wiersz z arkusza to decyzja Delivery: oznaczenie, nie anulowanie.
             # Premia 200% zostaje mimo końca przed terminem: ryzyko firmy (05.11.2026).
+            if (
+                from_sheet
+                and bonus.status == "cancelled"
+                and bonus.cancel_reason == CLIENT_REFERRAL
+            ):
+                # „Kandydat od klienta” cofnięty: wiersz z arkusza wraca, bo przy
+                # końcu przed terminem automat go nie anuluje (tylko oznacza).
+                bonus.status = "proposed"
+                bonus.cancel_reason = None
+                bonus.cancelled_at = None
+                bonus.cancelled_by = None
+                counts["restored"] += 1
+                continue
             if bonus is not None and bonus.status == "proposed" and not from_sheet:
                 _auto_cancel(bonus, "contract_ended")
                 ended_on = contract_end(contract)

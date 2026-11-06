@@ -74,7 +74,8 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
   proponuje żadnej premii z placementu (rekruter, DL, dodatkowa premia DL).
   Propozycje `proposed`, także z arkusza i poprawione ręcznie, anuluje
   z powodem `client_referral` (w `AUTO_CANCEL_REASONS`, więc „Nie” je
-  przywraca z zachowaniem ręcznych poprawek). Premii zatwierdzonej nie rusza.
+  przywraca z zachowaniem ręcznych poprawek; wiersz z arkusza wraca też przy
+  końcu kontraktu przed terminem). Premii zatwierdzonej nie rusza.
 - Premia 200%: kontrakt nie liczy się rekruterowi do celu placementów ani do
   średniej marży DL-a (`double_bonus.month_contracts`). Zapisany już wynik
   miesiąca zmienia dopiero „Przelicz wynik”.

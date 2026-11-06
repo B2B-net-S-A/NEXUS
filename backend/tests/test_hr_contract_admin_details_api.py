@@ -245,3 +245,47 @@ async def test_replacement_yes_needs_the_person(app_client) -> None:
     )
     assert response.status_code == 422
     assert "za kogo" in response.text
+
+
+@pytest.mark.asyncio
+async def test_bonus_recipient_cannot_change_own_contract(app_client) -> None:
+    """Rekruter z „oznaczaniem podpisu” nie cofa „kandydata od klienta”
+    na kontrakcie, z którego sam dostaje premię (przegląd kodu 06.11.2026)."""
+
+    world = await _placement(started_days_ago=10)
+    await _reconcile(world["contract"])
+    payroll = await _headers()
+    body = {"is_replacement": False, "replaced_contract_id": None, "reason": "ERSTE"}
+    response = await app_client.put(
+        _url(world["contract"]),
+        json={**body, "is_client_referral": True},
+        headers=payroll,
+    )
+    assert response.status_code == 200, response.text
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            UserActionOverride(
+                user_id=world["recruiter"],
+                action="b2b_signature_confirmation",
+                access="manage",
+            )
+        )
+        await db.commit()
+    own = {
+        "Authorization": "Bearer "
+        + create_access_token(subject=world["recruiter"], role="recruiter")
+    }
+    response = await app_client.put(
+        _url(world["contract"]),
+        json={**body, "is_client_referral": False, "reason": "pomyłka"},
+        headers=own,
+    )
+    assert response.status_code == 403
+    assert "Płace" in response.text
+    found = await _bonuses(world["contract"])
+    assert {b.cancel_reason for b in found.values()} == {"client_referral"}
+    # Odczyt zostaje: widzi, dlaczego premii nie ma.
+    assert (
+        await app_client.get(_url(world["contract"]), headers=own)
+    ).status_code == 200

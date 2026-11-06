@@ -180,3 +180,35 @@ async def test_forecast_skips_client_referral() -> None:
     async with AsyncSessionLocal() as db:
         after = await bonus_forecast(db, user_id=world["recruiter"], today=today)
     assert world["contract"] not in {item["contract_id"] for item in after}
+
+
+@pytest.mark.asyncio
+async def test_sheet_row_of_contract_ended_early_comes_back_after_no() -> None:
+    """Wiersz z arkusza przy końcu przed terminem jest tylko oznaczany — po
+    „Tak” i z powrotem „Nie” musi wrócić, a nie zostać anulowany na stałe."""
+
+    from datetime import timedelta
+
+    from tests.test_hr_bonus_automation import _sheet_row
+
+    world = await _placement(started_days_ago=5)
+    await _sheet_row(world["contract"], "recruiter", world["recruiter"])
+    start = business_today() - timedelta(days=5)
+    from app.models.contract import ContractStatus
+
+    await _update_contract(
+        world["contract"],
+        status=ContractStatus.ended,
+        end_date=start + timedelta(days=2),
+    )
+    await _update_contract(world["contract"], is_client_referral=True)
+    await _reconcile(world["contract"])
+    assert (await _bonuses(world["contract"]))["recruiter"].cancel_reason == (
+        "client_referral"
+    )
+
+    await _update_contract(world["contract"], is_client_referral=False)
+    await _reconcile(world["contract"])
+    row = (await _bonuses(world["contract"]))["recruiter"]
+    assert row.status == "proposed"
+    assert row.cancel_reason is None
