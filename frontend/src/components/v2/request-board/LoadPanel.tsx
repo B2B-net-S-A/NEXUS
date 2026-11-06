@@ -122,6 +122,7 @@ function PersonRow({
           className="inline-flex h-5 items-center justify-center gap-0.5 rounded-md bg-destructive px-1 text-[11px] font-bold tabular-nums text-destructive-foreground"
           title={`P0: ${p0}`}
           data-testid="load-p0"
+          data-tour="daily.load-p0"
         >
           <Flame className="h-3 w-3" aria-hidden />
           {p0}

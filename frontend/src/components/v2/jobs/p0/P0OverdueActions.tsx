@@ -22,14 +22,22 @@ export interface P0OverdueActionsProps {
  * „Zakończ P0”; reszta zespołu widzi, że P0 trwa do tej decyzji.
  * Samo kliknięcie jest potwierdzeniem — bez drugiego okna.
  */
-export function P0OverdueActions({ jobId, canDecide, className }: P0OverdueActionsProps) {
+export function P0OverdueActions({
+  jobId,
+  canDecide,
+  className,
+}: P0OverdueActionsProps) {
   if (!canDecide) {
     return (
       <p
-        className={cn("text-[11px] font-medium text-destructive-muted-foreground", className)}
+        className={cn(
+          "text-[11px] font-medium text-destructive-muted-foreground",
+          className,
+        )}
         data-testid="p0-overdue-waiting"
       >
-        Termin minął — P0 trwa, dopóki Head of Recruitment go nie przedłuży albo nie zakończy.
+        Termin minął — P0 trwa, dopóki Head of Recruitment go nie przedłuży albo
+        nie zakończy.
       </p>
     );
   }
@@ -37,7 +45,13 @@ export function P0OverdueActions({ jobId, canDecide, className }: P0OverdueActio
 }
 
 /** Przyciski osobno: zapytania i toasty tylko u tych, którzy decydują. */
-function DecideButtons({ jobId, className }: { jobId: number; className?: string }) {
+function DecideButtons({
+  jobId,
+  className,
+}: {
+  jobId: number;
+  className?: string;
+}) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [busy, setBusy] = useState<"extend" | "clear" | null>(null);
@@ -47,12 +61,16 @@ function DecideButtons({ jobId, className }: { jobId: number; className?: string
     try {
       await (kind === "extend" ? extendJobP0(jobId) : clearJobP0(jobId));
       invalidateP0(queryClient, jobId);
-      toast.showSuccess(kind === "extend" ? "P0 przedłużone o 24 h." : "P0 zakończone.");
+      toast.showSuccess(
+        kind === "extend" ? "P0 przedłużone o 24 h." : "P0 zakończone.",
+      );
     } catch (err) {
       toast.showError(
         apiErrorMessage(
           err,
-          kind === "extend" ? "Nie udało się przedłużyć P0." : "Nie udało się zakończyć P0.",
+          kind === "extend"
+            ? "Nie udało się przedłużyć P0."
+            : "Nie udało się zakończyć P0.",
         ),
       );
     } finally {
@@ -61,7 +79,11 @@ function DecideButtons({ jobId, className }: { jobId: number; className?: string
   };
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)} data-testid="p0-overdue-actions">
+    <div
+      className={cn("flex flex-wrap items-center gap-1.5", className)}
+      data-testid="p0-overdue-actions"
+      data-tour="p0.overdue-actions"
+    >
       <Button
         size="sm"
         variant="outline"
