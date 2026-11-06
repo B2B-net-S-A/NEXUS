@@ -474,6 +474,25 @@ _FIT_VERDICT_RE = re.compile(
 )
 
 
+# Punkty 3–5 to zdania, nie „ETL: …” (zgłoszenie 06.11.2026, na Solu większość
+# punktów zaczynała się od etykiety). Etykieta to do 5 słów przed dwukropkiem.
+_WHY_LABEL_RE = re.compile(r"^\s*([^:.;\d][^:.;]{0,48}?)\s*:\s+(?=\S)")
+
+
+def _drop_why_labels(points: list[Any]) -> list[Any]:
+    """Zdejmij etykietę z dwukropkiem z punktów 3–5; punkt 2 to „Specjalizacja: …”."""
+    out = list(points)
+    for i in range(2, len(out)):
+        point = out[i]
+        if not isinstance(point, str):
+            continue
+        match = _WHY_LABEL_RE.match(point)
+        if match and len(match.group(1).split()) <= 5:
+            rest = point[match.end() :]
+            out[i] = rest[:1].upper() + rest[1:]
+    return out
+
+
 def _apply_summary_standard(
     candidate_data: dict[str, Any], language: str, client_rule: Any = None
 ) -> list[str]:
@@ -495,6 +514,8 @@ def _apply_summary_standard(
         notes.append(
             f"WERYFIKUJ: usunięto z podsumowania ocenę dopasowania: „{verdicts[0]}”."
         )
+    points = _drop_why_labels(points)
+    candidate_data["why_points"] = points
     if len(points) > WHY_POINTS_STANDARD:
         points = points[: WHY_POINTS_STANDARD - 1] + points[-1:]
         candidate_data["why_points"] = points
@@ -1164,6 +1185,123 @@ def _requirement_label_rest(label: str) -> str | None:
     if rest == whole:
         return None
     return "" if _EMPTY_LABEL_REST_RE.fullmatch(rest) else rest
+
+
+# Umiejętności to umiejętności (zgłoszenie 06.11.2026): na 1080 CV od 06.10 w 87 stały
+# tryb pracy, cechy osobiste albo prawo jazdy, w 59 kategoria umiejętności miękkich.
+_NOT_A_SKILL_RE = re.compile(
+    r"^\s*(?:praca\s+zdalna|praca\s+hybrydowa|praca\s+w\s+zespole|zdalna\s+praca|"
+    r"remote\s+work(?:ing)?|hybrid\s+work|remote\s+team\s+collaboration|teamwork|team\s+work|"
+    r"team\s+player|komunikatywność|komunikacja|communication(?:\s+skills)?|"
+    r"zarządzanie\s+czasem|time\s+management|adaptability|adaptacyjność|elastyczność|"
+    r"samodzielność|odpowiedzialność|kreatywność|creativity|multitasking|punktualność|"
+    r"prawo\s+jazdy(?:\s+kat\.?\s*b)?|(?:category\s+b\s+)?driving\s+licen[cs]e(?:\s*\(?category\s+b\)?)?)"
+    r"\s*$",
+    re.IGNORECASE,
+)
+_SOFT_CATEGORY_RE = re.compile(
+    r"miękkie|soft\s+skills|interpersonal|personal\s+skills|kompetencje\s+osobiste|"
+    r"professional\s+competencies|working\s+competencies|work\s+skills",
+    re.IGNORECASE,
+)
+_SPOKEN_LANGUAGE_RE = re.compile(
+    r"^\s*(?:język\s+)?(polski|angielski|niemiecki|francuski|hiszpański|włoski|rosyjski|"
+    r"ukraiński|czeski|węgierski|niderlandzki|polish|english|german|french|spanish|italian|"
+    r"russian|ukrainian|czech|hungarian|dutch)\b\s*(?:[-–:(]\s*)?"
+    r"(?:ojczysty|native|biegły|fluent|komunikatywny|zaawansowany|advanced|podstawowy|basic|"
+    r"[abc][12]\+?)?\s*\)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def clean_skill_sections(candidate_data: dict[str, Any]) -> list[str]:
+    """Usuń z umiejętności to, co nie jest umiejętnością; zwróć usunięte pozycje.
+
+    Język obcy zostaje w osobnej sekcji: gdy kandydat jej nie ma, język tam
+    przechodzi, więc kod niczego nie gubi. Pusta kategoria znika.
+    """
+    skills = candidate_data.get("skills")
+    if not isinstance(skills, list):
+        return []
+    languages = candidate_data.get("languages")
+    if not isinstance(languages, list):
+        languages = []
+    known = {str(item).casefold() for item in languages}
+    removed: list[str] = []
+    kept_categories: list[Any] = []
+    for category in skills:
+        if not isinstance(category, dict):
+            kept_categories.append(category)
+            continue
+        label = str(category.get("label") or "")
+        items = _split_skills(str(category.get("content") or ""))
+        if _SOFT_CATEGORY_RE.search(label):
+            removed.extend(items)
+            continue
+        kept: list[str] = []
+        for item in items:
+            spoken = _SPOKEN_LANGUAGE_RE.match(item)
+            if spoken:
+                if not any(spoken.group(1).casefold() in k for k in known):
+                    languages.append(item)
+                    known.add(item.casefold())
+                removed.append(item)
+            elif _NOT_A_SKILL_RE.match(item):
+                removed.append(item)
+            else:
+                kept.append(item)
+        if kept:
+            kept_categories.append({**category, "content": ", ".join(kept)})
+        elif not items:
+            kept_categories.append(category)
+    if removed:
+        candidate_data["skills"] = kept_categories
+        candidate_data["languages"] = languages
+    return removed
+
+
+# Metodyki pisane w CV z nazwy. Model gubił je, gdy reguła mówiła, że metodyka to
+# „kontekst” (06.11.2026: Scrum Mastera bez Scruma w umiejętnościach w 2 z 2 biegów).
+_SOURCE_METHODOLOGIES = (
+    ("Scrum", re.compile(r"\bscrum\b", re.IGNORECASE)),
+    ("Kanban", re.compile(r"\bkanban\b", re.IGNORECASE)),
+    ("SAFe", re.compile(r"\bSAFe\b")),
+    ("Agile", re.compile(r"\bagile\b", re.IGNORECASE)),
+    ("PRINCE2", re.compile(r"\bprince\s?2\b", re.IGNORECASE)),
+    ("ITIL", re.compile(r"\bITIL\b")),
+)
+
+
+def keep_source_methodologies(
+    candidate_data: dict[str, Any], cv_text: str, language: str
+) -> list[str]:
+    """Dopisz do „Metodyk” metodykę, którą oryginał wymienia, a umiejętności zgubiły."""
+    skills = candidate_data.get("skills")
+    if not isinstance(skills, list):
+        return []
+    have = " ".join(
+        f"{c.get('label', '')} {c.get('content', '')}"
+        for c in skills
+        if isinstance(c, dict)
+    )
+    missing = [
+        name
+        for name, pattern in _SOURCE_METHODOLOGIES
+        if pattern.search(cv_text or "") and not pattern.search(have)
+    ]
+    if not missing:
+        return []
+    label = "Methodologies:" if language == "en" else "Metodyki:"
+    for category in skills:
+        if (
+            isinstance(category, dict)
+            and str(category.get("label") or "").strip() == label
+        ):
+            content = str(category.get("content") or "").strip()
+            category["content"] = ", ".join([content, *missing] if content else missing)
+            return missing
+    skills.append({"label": label, "content": ", ".join(missing)})
+    return missing
 
 
 def clean_requirement_skill_labels(

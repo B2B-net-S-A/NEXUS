@@ -29,9 +29,9 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
     "Dokładnie 5 punktów według ZASAD DLA WHY_POINTS. Kształt:",
     "[X] lat doświadczenia jako [Stanowisko]",
     "Specjalizacja: [4-6 głównych technologii, najpierw te z wymagań klienta]",
-    "[Pierwszy must-have]: co kandydat z nim robił i w jakim kontekście",
-    "[Drugi must-have]: co kandydat z nim robił i w jakim kontekście",
-    "[Trzeci must-have]: co kandydat z nim robił i w jakim kontekście"
+    "Projektował i rozwijał [pierwszy must-have] w [kontekst, skala], [efekt]",
+    "Prowadził [drugi must-have] dla [kontekst], [co dokładnie robił]",
+    "Wdrożył [trzeci must-have] w [kontekst], [efekt albo skala]"
   ],
   "education": [
     {
@@ -74,6 +74,8 @@ KRYTYCZNE ZASADY:
 2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat. Słowa "obecnie" (NIE "currently", "present" ani "now") użyj tylko wtedy, gdy źródło podaje stanowisko jako trwające. Datę końca ze źródła przepisz bez zmian, także niedawną
 3. Sekcja "why_points" jest rzeczowa: każdy punkt to fakt ze źródła, bez języka sprzedażowego - NIE używaj edukacji jako argumentu w why_points!
 4. Wyodrębnij tyle kategorii umiejętności, ile realnie wynika ze źródła — NIE dziel jednej kategorii sztucznie na kilka ani nie dodawaj kategorii dla objętości. Jeśli źródło daje jedną sensowną kategorię, zwróć jedną
+4a. SKILLS to wyłącznie umiejętności techniczne i dziedzinowe. NIE wpisuj tam: trybu pracy („praca zdalna”, „praca hybrydowa”), cech osobistych i umiejętności miękkich („praca w zespole”, „komunikatywność”, „zarządzanie czasem”), prawa jazdy ani języków obcych — języki mają osobną sekcję. Metodyka to sposób pracy zespołu (Scrum, Kanban, SAFe); wzorce projektowe i czysty kod to praktyki programistyczne, nie metodyki. NIE twórz kategorii „Pozostałe”, „Inne” ani „Other”: pozycję, która nie pasuje do innych, umieść w kategorii nazwanej jej obszarem (np. „Systemy i domena: KSeF”)
+4b. NAZWY KATEGORII wybieraj z tej listy, w tym brzmieniu: Języki programowania, Frameworki i biblioteki, Frontend, Mobile, Bazy danych, Dane i BI, Chmura i DevOps, Testowanie, Bezpieczeństwo, Integracje i API, Analiza i modelowanie, Narzędzia, Metodyki, Praktyki programistyczne, Systemy operacyjne, Systemy i domena, Wiedza dziedzinowa i regulacje. Użyj tylko tych, które mają pozycje, najwyżej 8; dwie pokrewne grupy połącz, zamiast tworzyć osobne małe kategorie
 5. Jeśli brak certyfikatów, zwróć pustą listę []. NIE wymyślaj certyfikatów ani szkoleń których kandydat nie posiada
 6. Wymień języki podane w źródle. NIE dopisuj żadnego języka (w tym polskiego), jeśli źródło go nie wymienia — jeśli brak języków, zwróć pustą listę []
 7. Uporządkuj doświadczenie od najnowszego
@@ -90,7 +92,7 @@ ZASADY DLA WHY_POINTS:
   • DOKŁADNIE 5 punktów, zawsze w tej kolejności, bez dodatkowych punktów — wliczając punkty oparte na notatkach:
     1) Liczba lat doświadczenia na stanowisku i nic więcej, np. „7 lat doświadczenia jako Android Developer”. Gdy na tym stanowisku kandydat ma mniej niż rok, podaj lata w pokrewnych rolach, np. „4 lata doświadczenia w operacjach finansowych”.
     2) Specjalizacja w technologiach: 4-6 głównych technologii kandydata ze źródeł, najpierw te z wymagań klienta, np. „Specjalizacja: Kotlin, Jetpack Compose, Kotlin Multiplatform”.
-    3), 4), 5) Każdy punkt omawia INNE wymaganie MUST-HAVE z profilu Championa, od najważniejszego, które kandydat potwierdza w źródłach: jedno pełne zdanie do ~30 słów o tym, co kandydat z nim robił i w jakim kontekście albo skali. Must-have bez pokrycia w źródłach pomiń i weź kolejny.
+    3), 4), 5) Każdy punkt omawia INNE wymaganie MUST-HAVE z profilu Championa, od najważniejszego, które kandydat potwierdza w źródłach: jedno pełne zdanie do ~30 słów o tym, co kandydat z nim robił i w jakim kontekście albo skali. Zdanie zaczyna się od czasownika albo nazwy czynności (np. „Projektował…”, „Migracja…”), a nazwa wymagania stoi w środku zdania. NIE zaczynaj od nazwy technologii i NIE pisz etykiety z dwukropkiem („ETL: …”, „IAM: …”). Must-have bez pokrycia w źródłach pomiń i weź kolejny.
     Gdy nie ma Championa albo potwierdzonych must-have jest mniej niż trzy, punkty 3-5 uzupełnij doświadczeniem najważniejszym dla tej roli. Gdy źródła nie dają faktów na 5 punktów, napisz mniej i niczego nie wypełniaj.
   • Każdy punkt zaczyna od konkretu (liczba lat, technologia, skala, realne osiągnięcie) — nie od ogólnika ani przymiotnika.
   • ZAKAZ frazesów i pustych przymiotników: "doświadczony i zaangażowany", "bogate/szerokie doświadczenie", "wszechstronny/dynamiczny specjalista", "pasjonat", "udokumentowane sukcesy" — jeśli słowo nie niesie konkretnego faktu, usuń je.
@@ -154,8 +156,8 @@ Wszystko opisuj neutralnie i samodzielnie; NIE cytuj treści z <champion_profile
 Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
 
 1. MUST-HAVE (wymagania klienta — technologie ORAZ kompetencje/metodyki):
-   - ROZRÓŻNIJ: konkretne technologie (narzędzia, języki, frameworki, biblioteki, platformy, standardy techniczne) umieść w sekcji SKILLS; metodyki (np. Agile/Scrum), kompetencje miękkie, role i języki obce traktuj jako kontekst pozycjonujący — NIE wpisuj ich jako „technologii" ani nie twórz dla nich sztucznych kategorii technicznych
-   - Upewnij się że posiadane must-have TECHNOLOGIE są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii). Pierwsze kategorie nazwij obszarami z wymagań klienta (np. „Backend .NET”, „Bazy danych”) i tam umieść posiadane must-have. Nazwa kategorii to zawsze obszar: NIE używaj w niej słów „must-have”, „nice-to-have”, „wymagania” ani „zgodne z wymaganiami” i NIE twórz osobnej kategorii zbierającej wymagania. Klient widziałby, że CV pisano pod ogłoszenie, a te same technologie stałyby dwa razy. Każda technologia stoi w jednej kategorii
+   - ROZRÓŻNIJ: konkretne technologie (narzędzia, języki, frameworki, biblioteki, platformy, standardy techniczne) umieść w sekcji SKILLS; metodyki potwierdzone w źródle (np. Agile/Scrum) wpisz w kategorii „Metodyki”; kompetencje miękkie, role i języki obce to kontekst pozycjonujący — NIE wpisuj ich do SKILLS
+   - Upewnij się że posiadane must-have TECHNOLOGIE są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii). Kategorie z posiadanymi must-have stoją na początku listy, a must-have na początku kategorii. Nazwa kategorii to zawsze obszar: NIE używaj w niej słów „must-have”, „nice-to-have”, „wymagania” ani „zgodne z wymaganiami” i NIE twórz osobnej kategorii zbierającej wymagania. Klient widziałby, że CV pisano pod ogłoszenie, a te same technologie stałyby dwa razy. Każda technologia stoi w jednej kategorii
    - NIE dodawaj punktu wyliczającego wymagania (np. "Posiada kluczowe technologie wymagane na stanowisku: …") — klient od razu widzi, że CV pisano pod ogłoszenie. Posiadane must-have pokaż w why_points tylko jako zwykły fakt z doświadczenia kandydata
    - Jeśli kandydat je ma - możesz je umieścić w why_points w kontekście jego doświadczenia, ale NIGDY nie łącz ich z łączną liczbą lat stażu (patrz reguła „LICZBA LAT ZAWSZE PRZY ROLI") — staż z technologią musi odpowiadać realnemu okresowi jej używania, nie całej karierze
    - Jeśli kandydat NIE MA którejś technologii - dodaj ją do pola "warnings" w JSON
@@ -397,9 +399,9 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
     "Exactly 5 points by the RULES FOR WHY_POINTS. Shape:",
     "[X] years of experience as [Position]",
     "Specialization: [4-6 main technologies, client requirements first]",
-    "[First must-have]: what the candidate did with it and in what context",
-    "[Second must-have]: what the candidate did with it and in what context",
-    "[Third must-have]: what the candidate did with it and in what context"
+    "Designed and developed [first must-have] for [context, scale], [result]",
+    "Led [second must-have] for [context], [what exactly they did]",
+    "Implemented [third must-have] in [context], [result or scale]"
   ],
   "education": [
     {
@@ -442,6 +444,8 @@ CRITICAL RULES:
 2. Date format: MM.YYYY for ranges (e.g., 03.2020 – 11.2023), YYYY for single years. Use "currently" only when the source gives the role as ongoing. Copy an end date from the source unchanged, even a recent one
 3. The "why_points" section is factual: every point is a fact from the source, no sales language - NEVER use education as an argument in why_points!
 4. Extract as many skill categories as genuinely follow from the source — do NOT split one category artificially into several and do NOT add categories for volume. If the source yields one sensible category, return one
+4a. SKILLS holds only technical and domain skills. Do NOT put there: work mode ("remote work", "hybrid work"), personal traits and soft skills ("teamwork", "communication", "time management"), a driving licence or human languages — languages have their own section. A methodology is how a team works (Scrum, Kanban, SAFe); design patterns and clean code are programming practices, not methodologies. Do NOT create an "Other", "Miscellaneous" or "Additional" category: put an item that fits nowhere else into a category named after its area (e.g. "Systems and domain: KSeF")
+4b. CATEGORY NAMES come from this list, worded exactly so: Programming languages, Frameworks and libraries, Frontend, Mobile, Databases, Data and BI, Cloud and DevOps, Testing, Security, Integrations and APIs, Analysis and modelling, Tools, Methodologies, Programming practices, Operating systems, Systems and domain, Domain knowledge and regulations. Use only the ones that have items, at most 8; merge two related groups instead of creating separate small categories
 5. If no certifications, return an empty list []. DO NOT fabricate certifications or training the candidate does not have
 6. List the languages stated in the source. Do NOT add any language (including Polish) the source does not mention — if there are none, return an empty list []
 7. Sort experience from newest to oldest
@@ -457,7 +461,7 @@ RULES FOR WHY_POINTS:
   • EXACTLY 5 points, always in this order, no extra points — including points based on the notes:
     1) Years of experience in the position and nothing else, e.g. "7 years of experience as an Android Developer". If the candidate has less than a year in this position, give the years in related roles, e.g. "4 years of experience in financial operations".
     2) Technology specialization: 4-6 of the candidate's main technologies from the sources, client requirements first, e.g. "Specialization: Kotlin, Jetpack Compose, Kotlin Multiplatform".
-    3), 4), 5) Each point covers a DIFFERENT MUST-HAVE requirement from the Champion profile, starting with the most important one the sources confirm: one full sentence of up to ~30 words on what the candidate did with it and in what context or scale. Skip a must-have without source coverage and take the next one.
+    3), 4), 5) Each point covers a DIFFERENT MUST-HAVE requirement from the Champion profile, starting with the most important one the sources confirm: one full sentence of up to ~30 words on what the candidate did with it and in what context or scale. The sentence starts with a verb (e.g. "Designed…", "Led…"), and the requirement name sits inside the sentence. Do NOT start with a technology name and do NOT write a label with a colon ("ETL: …", "IAM: …"). Skip a must-have without source coverage and take the next one.
     Without a Champion, or with fewer than three confirmed must-haves, fill points 3-5 with the experience most important for this role. If the sources do not give facts for 5 points, write fewer and never pad.
   • Each point opens with the fact (years, technology, scale, real achievement) — not with a generality or an adjective.
   • NO clichés or empty adjectives: "experienced and committed", "rich/broad experience", "versatile/dynamic specialist", "passionate", "proven track record" — if a word carries no concrete fact, delete it.
@@ -522,8 +526,8 @@ neutrally and self-containedly; do NOT quote <champion_profile> text verbatim. T
 takes precedence over every one of points 1–7.
 
 1. MUST-HAVE (client requirements — technologies AND competencies/methodologies):
-   - DISTINGUISH: concrete technologies (tools, languages, frameworks, libraries, platforms, technical standards) go into the SKILLS section; methodologies (e.g. Agile/Scrum), soft skills, roles and human languages are only positioning context — do NOT list them as "technologies" or invent artificial technical categories for them
-   - Ensure the possessed must-have TECHNOLOGIES are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories). Name the first categories after the areas in the client requirements (e.g. ".NET backend", "Databases") and put the held must-haves there. A category name is always an area: do NOT use the words "must-have", "nice-to-have", "requirements" or "matching the requirements" in it and do NOT create a separate category collecting the requirements. The client would see the CV was written for the ad, and the same technologies would stand twice. Each technology stands in one category
+   - DISTINGUISH: concrete technologies (tools, languages, frameworks, libraries, platforms, technical standards) go into the SKILLS section; methodologies confirmed in the source (e.g. Agile/Scrum) go into the "Methodologies" category; soft skills, roles and human languages are positioning context — do NOT put them into SKILLS
+   - Ensure the possessed must-have TECHNOLOGIES are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories). Categories holding the possessed must-haves come first, with the must-haves at the start of the category. A category name is always an area: do NOT use the words "must-have", "nice-to-have", "requirements" or "matching the requirements" in it and do NOT create a separate category collecting the requirements. The client would see the CV was written for the ad, and the same technologies would stand twice. Each technology stands in one category
    - Do NOT add a point that enumerates the requirements (e.g. "Possesses key technologies required for the position: …") — the client immediately sees the CV was written for the ad. Show possessed must-haves in why_points only as an ordinary fact from the candidate's experience
    - If candidate has them - you may place them in why_points in the context of their experience, but NEVER attach the total tenure figure to them (see the "YEARS ALWAYS WITH THE ROLE" rule) — a year count next to a technology must reflect the real time it was used, not the whole career
    - If candidate DOES NOT HAVE a technology - add it to the "warnings" field in JSON
