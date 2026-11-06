@@ -334,6 +334,11 @@ def hybrid_schedule(options: dict[str, Any]) -> Optional[dict[str, int]]:
     return {"officeDays": days, "remoteDays": 5 - days}
 
 
+def native_apply_enabled() -> bool:
+    """Kandydat aplikuje formularzem portalu (``JJIT_APPLY_EMAIL``, 06.11.2026)."""
+    return bool((settings.JJIT_APPLY_EMAIL or "").strip())
+
+
 def apply_method(apply_url: str) -> dict[str, Any]:
     """``apply`` 1EP: dokładnie jedno z ``url`` / ``email`` (``ApplySharedDto``).
 

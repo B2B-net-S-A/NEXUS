@@ -526,6 +526,51 @@ describe("KanbanBoardV2 — kolejka w „Nowych” (02.11.2026)", () => {
   });
 });
 
+describe("KanbanBoardV2 — zgłoszenia w „Nowych” (06.11.2026)", () => {
+  const applicants = () =>
+    [
+      {
+        stage: "new",
+        name: "Nowi",
+        category: "new",
+        stage_def_id: null,
+        count: 3,
+        items: [1, 2, 3].map((id) => ({
+          id,
+          candidate_id: id,
+          name: `Osoba${id}`,
+          lastname: "Test",
+          stage: "new",
+          days_in_stage: 1,
+          entry_source: id === 1 ? "added_manual" : "application",
+        })),
+      },
+    ] as never;
+
+  it("aplikujący z kompletem na górze, z brakiem krytycznej zwinięty pod kolumną", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    const gaps = new Map([[3, ["BigQuery"]]]);
+
+    const { container } = renderBoard(applicants(), undefined, false, false, false, gaps);
+
+    await screen.findByTestId("new-column-section-applied");
+    const order = () =>
+      [...container.querySelectorAll("[data-candidate-id]")].map((el) => el.getAttribute("data-candidate-id"));
+    expect(order()).toEqual(["2", "1"]);
+    expect(screen.getByTestId("new-column-section-applied").textContent).toContain("Aplikowali na ogłoszenie");
+    const toggle = screen.getByTestId("new-column-applied-gap-toggle");
+    expect(toggle.textContent).toContain("Pokaż 1");
+
+    await userEvent.click(toggle);
+
+    expect(order()).toEqual(["2", "1", "3"]);
+    expect(screen.getByTestId("new-column-section-applied_gap").textContent).toContain("brak „musi mieć”");
+    expect(screen.getByTestId("new-column-applied-gap-toggle").textContent).toBe("Zwiń");
+  });
+});
+
 describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -154,6 +154,43 @@ def portal_apply_url(link_url: str, portal: Portal, job_id: int) -> str:
     return f"{link_url}{'&' if '?' in link_url else '?'}{query}"
 
 
+async def _build_native_content(
+    db: AsyncSession,
+    job: Job,
+    ad: JobAd,
+    profile: Optional[JobPublicProfile],
+    options: Any,
+) -> BuiltContent:
+    """Treść dla formularza portalu: zakładka JustJoin.IT po kontroli, bez linku.
+
+    ``apply_url`` zostaje pusty, bo ``jjit_payload.apply_method`` wysyła wtedy
+    ``apply.email``. Odcisk opisu publicznego bierze to, co jest (albo pusty),
+    żeby zatwierdzenie strony kariery dalej kolejkowało aktualizację portalu.
+    """
+    from app.services.job_ad import portal_content
+
+    prepared = await portal_content.prepare(db, job, ad)
+    if prepared.blocked:
+        raise PortalRequestError(
+            409,
+            "job_ad_blocked",
+            "W treści są fragmenty, których nie publikujemy — usuń je "
+            "w oknie „Ogłoszenie”.",
+        )
+    content = PostingContent(
+        title=prepared.title,
+        job=prepared.job,
+        apply_url="",
+        options=dict(options or {}),
+    )
+    return BuiltContent(
+        content=content,
+        profile_hash=(profile.approved_hash if profile is not None else "") or "",
+        payload_hash=_hash(prepared.job, "", options),
+        ad_hash=prepared.ad_hash,
+    )
+
+
 async def build_content(
     db: AsyncSession, job: Job, *, portal: Portal, options: Any = None
 ) -> BuiltContent:
@@ -169,6 +206,13 @@ async def build_content(
     profile = await db.scalar(
         select(JobPublicProfile).where(JobPublicProfile.job_id == job.id)
     )
+    ad = await db.get(JobAd, job.id) if portal in JJIT_FAMILY else None
+    # 06.11.2026: formularz portalu (``apply.email``) — kandydat nie widzi
+    # strony kariery, a treść idzie z zakładki JustJoin.IT, więc ani opis
+    # publiczny, ani link kariery nie są warunkiem publikacji.
+    native = ad is not None and jjit_payload.native_apply_enabled()
+    if native:
+        return await _build_native_content(db, job, ad, profile, options)
     status, _default, title = await resolve_status(db, job, profile)
     if profile is None or status != STATUS_APPROVED:
         raise PortalRequestError(
@@ -185,7 +229,6 @@ async def build_content(
             "Rekrutacja nie ma aktywnego linku aplikacyjnego — utwórz link na "
             "stronie kariery; kandydaci z portalu aplikują przez niego.",
         )
-    ad = await db.get(JobAd, job.id) if portal in JJIT_FAMILY else None
     ad_hash: Optional[str] = None
     if ad is not None:
         from app.services.job_ad import portal_content

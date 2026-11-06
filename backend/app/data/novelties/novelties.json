@@ -162,6 +162,19 @@
     "dot_anchor": "jarvis.mascot.hide"
   },
   {
+    "id": "nowi-aplikowali-na-gorze",
+    "title": "W „Nowych” najpierw ci, którzy sami aplikowali",
+    "why": "Osoby ze strony kariery i z JustJoin.IT, które mają wszystkie „musi mieć”, stoją na górze kolumny. Te, którym brakuje krytycznej, czekają zwinięte na dole — rozwiniesz je jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "pr": 3100,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Tablica → kolumna „Nowi”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-applied"
+  },
+  {
     "id": "justjoin-aplikacja-do-nowych",
     "title": "Aplikacje z JustJoin.IT same trafiają do „Nowi”",
     "why": "Kandydat aplikuje jednym kliknięciem na JustJoin.IT, bez naszej strony kariery. Następnego dnia po imporcie jego karta czeka w „Nowi” tej rekrutacji, także przy ogłoszeniu oznaczonym ręcznie.",

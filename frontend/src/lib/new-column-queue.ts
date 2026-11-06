@@ -14,6 +14,14 @@
  * nie zmienia. Co 5. miejsce wśród osób bez uwag należy do najlepszej osoby bez
  * procesu (`entry_autofill.fresh`, decyzja z 03.11.2026), ta sama zasada co
  * `with_fresh_slots` na serwerze. Zasady: docs/claude/rekrutacja-tablica/kolejka-w-nowych.md.
+ *
+ * Zgłoszenia (06.11.2026, makiety https://claude.ai/artifact/JMTL5qwBym7Twd2dU1uYsb):
+ * osoba, która sama aplikowała (`entry_source = application`: strona kariery,
+ * formularz JustJoin.IT), stoi na samej górze, jeśli ma wszystkie „musi mieć”.
+ * Z brakiem krytycznej idzie na koniec, do grupy „Aplikowali, brak »musi mieć«”,
+ * którą tablica domyślnie zwija. Pomiar 06.11: 32 z 81 aplikujących z JJIT
+ * nie miało którejś krytycznej, a 12 z nich miało wynik ≥ 65, dlatego
+ * odkładamy, nie odrzucamy.
  */
 
 export const CALL_FIRST_COUNT = 5;
@@ -63,7 +71,12 @@ export function knownFactLabels(known: KnownFacts | null | undefined): string[] 
   return labels;
 }
 
-export type NewColumnSection = "team" | "call_first" | "rest";
+export type NewColumnSection = "applied" | "team" | "call_first" | "rest" | "applied_gap";
+
+/** Osoba sama się zgłosiła (strona kariery, formularz portalu). */
+export function isApplication(item: QueueItem): boolean {
+  return item.entry_source === "application";
+}
 
 /** Karta od systemu, której jeszcze nikt nie wziął. */
 export function waitsInSystemQueue(item: QueueItem): boolean {
@@ -110,8 +123,20 @@ function withFreshSlots<T extends QueueItem>(sorted: readonly T[], start = 0): {
 export function orderNewColumn<T extends QueueItem>(
   items: readonly T[],
   criticalGaps?: ReadonlyMap<number, string[]>,
-): { items: T[]; ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } {
-  const team = items.filter((item) => !waitsInSystemQueue(item));
+): {
+  items: T[];
+  ranks: Map<number, number>;
+  total: number;
+  freshFirst: boolean;
+  freshSlots: Set<number>;
+  sections: Map<number, NewColumnSection>;
+  appliedGapIds: Set<number>;
+} {
+  const hasGap = (item: T) => Boolean(criticalGaps?.get(item.candidate_id)?.length);
+  const outsideQueue = items.filter((item) => !waitsInSystemQueue(item));
+  const applied = outsideQueue.filter((item) => isApplication(item) && !hasGap(item));
+  const appliedGap = outsideQueue.filter((item) => isApplication(item) && hasGap(item));
+  const team = outsideQueue.filter((item) => !isApplication(item));
   const queue = items
     .filter(waitsInSystemQueue)
     .map((item) => ({ item, tier: tier(item, criticalGaps) }))
@@ -126,12 +151,19 @@ export function orderNewColumn<T extends QueueItem>(
   const ordered = [...first, ...clean.items, ...queue.filter(({ tier }) => tier > 0).map(({ item }) => item)];
   const ranks = new Map<number, number>();
   ordered.forEach((item, index) => ranks.set(item.id, index + 1));
+  const sections = new Map<number, NewColumnSection>();
+  applied.forEach((item) => sections.set(item.id, "applied"));
+  team.forEach((item) => sections.set(item.id, "team"));
+  ordered.forEach((item, index) => sections.set(item.id, newColumnSection(index + 1)));
+  appliedGap.forEach((item) => sections.set(item.id, "applied_gap"));
   return {
-    items: [...team, ...ordered],
+    items: [...applied, ...team, ...ordered, ...appliedGap],
     ranks,
     total: ordered.length,
     freshFirst: first.length > 0,
     freshSlots: clean.slots,
+    sections,
+    appliedGapIds: new Set(appliedGap.map((item) => item.id)),
   };
 }
 
