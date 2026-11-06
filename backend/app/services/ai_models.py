@@ -66,6 +66,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F42 | case_triage                      | claude-sonnet-5 (z Haiku)|
 | F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
 | F44 | cv_call_questions                | claude-sonnet-5-5 (z 5)  |
+| F45 | skill_dictionary_proposals       | gpt-6.1-sol (z Sonnet 5.5)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -551,6 +552,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F44 (decyzja Artura 05.11.2026, POZA badaniem 16.09). Pytania pod CV "
         "w ściądze do rozmowy: ten sam model co mapa wymagań (F3). Próba na 5 osobach ze "
         "stagingu: 3-14 s na osobę. Dodatek do rozmowy: awaria modelu nie zatrzymuje screeningu.",
+    ),
+    AIFeatureKey.skill_dictionary_proposals: ModelChoice(
+        default=GPT_SOL,
+        env_vars=("SKILL_DICTIONARY_PROPOSALS_MODEL",),
+        fallbacks=(SONNET_55,),
+        rationale="F45 (decyzja Artura 06.11.2026, audyt słownika, POZA badaniem 16.09). Nocna "
+        "klasyfikacja nazw spoza słownika: próba na 400 rodzinach na Solu podniosła pokrycie "
+        "must-have z 46% do 56% i P@5 z 0,103 do 0,117. Dodatek: nic nie wchodzi do słownika "
+        "bez zatwierdzenia HoR+, awaria modelu zostawia wczorajsze propozycje.",
     ),
 }
 

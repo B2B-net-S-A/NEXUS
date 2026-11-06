@@ -192,6 +192,97 @@ async def ignore_term(
         raise _curation_error(exc) from exc
 
 
+# ── Propozycje do słownika (0658) ───────────────────────────────────────────
+# Liczy je co noc model (``services/skill_proposals``); do słownika wchodzi
+# tylko to, co zatwierdzi HoR+ (D7: nic nie mapuje się samo).
+
+
+class AcceptProposalRequest(BaseModel):
+    decision: Optional[str] = Field(default=None, pattern="^(new|alias)$")
+    canonical: Optional[str] = Field(default=None, max_length=200)
+    category: Optional[str] = Field(default=None, max_length=64)
+    target_skill_id: Optional[int] = None
+
+
+def _proposal_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=getattr(exc, "status_code", 422), detail=str(exc))
+
+
+@router.get("/proposals")
+async def list_proposals(
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+    proposal_status: str = Query(
+        "open", alias="status", pattern="^(open|accepted|rejected)$"
+    ),
+    decision: Optional[str] = Query(None, pattern="^(new|alias|generic|soft|noise)$"),
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """Propozycje od najcięższych (profile + CV + 20 × wymagania), z sumami."""
+    from app.services import skill_proposals
+
+    return await skill_proposals.list_proposals(
+        db, status=proposal_status, decision=decision, q=q, limit=limit, offset=offset
+    )
+
+
+@router.post("/proposals/accept-sure")
+async def accept_sure_proposals(
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zatwierdź pewne: nowe hasła i warianty z pewnością „high”, bez uwag, z kategorią."""
+    from app.services import skill_proposals
+
+    return await skill_proposals.accept_sure(
+        db, curated_by=getattr(user, "email", None)
+    )
+
+
+@router.post("/proposals/{proposal_id}/accept")
+async def accept_proposal(
+    proposal_id: int,
+    user: HeadOfRecruitmentPlus,
+    payload: Optional[AcceptProposalRequest] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zatwierdź propozycję (opcjonalnie z poprawką decyzji, nazwy, kategorii, hasła)."""
+    from app.services import skill_proposals
+
+    body = payload or AcceptProposalRequest()
+    try:
+        return await skill_proposals.accept(
+            db,
+            proposal_id,
+            curated_by=getattr(user, "email", None),
+            decision=body.decision,
+            canonical=body.canonical,
+            category=body.category,
+            target_skill_id=body.target_skill_id,
+        )
+    except skill_proposals.ProposalError as exc:
+        raise _proposal_error(exc) from exc
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(
+    proposal_id: int,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Odrzuć propozycję — ta rodzina zapisów nie wraca w kolejnych nocach."""
+    from app.services import skill_proposals
+
+    try:
+        return await skill_proposals.reject(
+            db, proposal_id, curated_by=getattr(user, "email", None)
+        )
+    except skill_proposals.ProposalError as exc:
+        raise _proposal_error(exc) from exc
+
+
 # ── Słowniczek „po ludzku” (0403) ───────────────────────────────────────────
 # Definicje technologii dla rekruterów (blok „Po ludzku” w Podglądzie
 # Championa). Poprawiają admin i Head of Recruitment (decyzja 29.09.2026);

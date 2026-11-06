@@ -16,6 +16,10 @@ import { Loader2, Plus } from "lucide-react";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { SkillReviewPanel } from "@/components/care/SkillReviewPanel";
 import { PlainTermsSection } from "@/components/settings/PlainTermsSection";
+import {
+  SkillProposalsSection,
+  useOpenProposalCount,
+} from "@/components/settings/SkillProposalsSection";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -320,13 +324,7 @@ function UnmatchedTermsSection() {
   );
 }
 
-type SkillTab = "skills" | "unmatched" | "plain" | "conversations";
-
-const SKILL_TABS = [
-  { value: "skills", label: "Słownik" },
-  { value: "unmatched", label: "Nieznane terminy" },
-  { value: "plain", label: "Po ludzku" },
-];
+type SkillTab = "skills" | "proposals" | "unmatched" | "plain" | "conversations";
 
 /**
  * „Nazwy z rozmów do przejrzenia” (22.10.2026, dawna zakładka Opieki
@@ -351,9 +349,18 @@ export function ConversationSkillNamesSection() {
 export function SkillDictionaryTab() {
   const [tab, setTab] = useState<SkillTab>("skills");
   const careOpen = useHrConfig().data?.open_modules.care === true;
-  const tabs = careOpen
-    ? [...SKILL_TABS, { value: "conversations", label: "Nazwy z rozmów" }]
-    : SKILL_TABS;
+  // Propozycje z nocnego biegu (06.11.2026) — liczba w etykiecie, gdy już znana.
+  const proposalCount = useOpenProposalCount();
+  const tabs = [
+    { value: "skills", label: "Słownik" },
+    {
+      value: "proposals",
+      label: proposalCount === null ? "Propozycje" : `Propozycje · ${proposalCount}`,
+    },
+    { value: "unmatched", label: "Nieznane terminy" },
+    { value: "plain", label: "Po ludzku" },
+    ...(careOpen ? [{ value: "conversations", label: "Nazwy z rozmów" }] : []),
+  ];
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const debounced = useDebouncedValue(search.trim(), 300);
@@ -466,6 +473,8 @@ export function SkillDictionaryTab() {
           </section>
         </>
       ) : null}
+
+      {tab === "proposals" ? <SkillProposalsSection /> : null}
 
       {tab === "unmatched" ? <UnmatchedTermsSection /> : null}
 

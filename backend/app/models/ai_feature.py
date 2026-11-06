@@ -197,6 +197,9 @@ class AIFeatureKey(str, enum.Enum):
     portal_meeting_summary = "portal_meeting_summary"
     # 0651 (05.11.2026): pytania pod CV w ściądze do rozmowy, z Championa i oryginału CV.
     cv_call_questions = "cv_call_questions"
+    # 0658 (06.11.2026): nocne propozycje do słownika umiejętności (nazwy spoza
+    # słownika), zatwierdza Head of Recruitment albo admin.
+    skill_dictionary_proposals = "skill_dictionary_proposals"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -246,6 +249,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.case_triage: "Back office — do którego zespołu trafia mail albo zgłoszenie",
     AIFeatureKey.portal_meeting_summary: "Portal konsultanta — podsumowanie rozmowy do sprawy",
     AIFeatureKey.cv_call_questions: "Ściąga do rozmowy — pytania pod CV z Championa i oryginalnego CV",
+    AIFeatureKey.skill_dictionary_proposals: "Słownik umiejętności — nocne propozycje haseł i wariantów do zatwierdzenia",
 }
 
 
@@ -454,6 +458,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.cv_call_questions: [
         "Must-have rekrutacji i stanowiska z CV kandydata: firma, nazwa, opis i technologie",
         "(bez imienia i nazwiska, kontaktu, stawek i notatek)",
+    ],
+    AIFeatureKey.skill_dictionary_proposals: [
+        "Nazwy umiejętności spoza słownika z profili, CV i wymagań rekrutacji",
+        "Hasła słownika umiejętności i ich kategorie",
+        "(bez danych osób: imion, nazwisk, kontaktów, stawek i treści CV)",
     ],
 }
 

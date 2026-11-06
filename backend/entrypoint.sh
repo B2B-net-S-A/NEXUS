@@ -352,6 +352,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
     # 0651: pytania pod CV w ściądze do rozmowy (Sonnet 5.5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_call_questions'",
+    # 0658: propozycje do słownika umiejętności (GPT-6.1 Sol).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'skill_dictionary_proposals'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -1426,6 +1428,15 @@ try:
 except Exception as _cv_call_questions_schema_err:  # noqa: BLE001
     print(f"cv call questions schema unavailable: {_cv_call_questions_schema_err!r}")
     _CV_CALL_QUESTIONS_TABLE_DDL = []
+
+# 0658: propozycje do słownika umiejętności (`app/services/skill_proposals_schema.py`).
+try:
+    from app.services import skill_proposals_schema as _skill_proposals_schema
+
+    _SKILL_PROPOSALS_TABLE_DDL = list(_skill_proposals_schema.TABLE_DDL)
+except Exception as _skill_proposals_schema_err:  # noqa: BLE001
+    print(f"skill proposals schema unavailable: {_skill_proposals_schema_err!r}")
+    _SKILL_PROPOSALS_TABLE_DDL = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -7091,6 +7102,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,
+    *_SKILL_PROPOSALS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7932,6 +7944,11 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_call_questions', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_call_questions')",
+    # 0658: seed klucza AI propozycji do słownika umiejętności.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'skill_dictionary_proposals', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'skill_dictionary_proposals')",
     # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
     *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są

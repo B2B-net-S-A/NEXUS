@@ -373,6 +373,39 @@ async def requirement_rows(
     )
 
 
+class DictionaryHintsRequest(BaseModel):
+    words: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=60
+    )
+
+
+@router.post("/dictionary-hints")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def dictionary_hints(
+    request: Request,
+    body: DictionaryHintsRequest,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Podpowiedź przy słowie wymagania, którego słownik nie zna (06.11.2026).
+
+    Bez modelu: czyta nocne propozycje (``services/skill_proposals``) i, gdy
+    ich nie ma, ``care/skills.suggester``. Delivery Lead zmienia nią tylko swój
+    wiersz; słownik zmienia wyłącznie HoR+ (``can_curate``, trasa
+    ``/api/skills-admin/proposals/{id}/accept`` ma własną bramkę).
+    """
+    from app.models.user import UserRole
+    from app.services.skill_proposals import dictionary_hints as build_hints
+
+    hints = await build_hints(db, body.words)
+    return {
+        "hints": hints,
+        "can_curate": current_user.has_any_role(
+            UserRole.admin, UserRole.head_of_recruitment
+        ),
+    }
+
+
 class CategorySuggestionRequest(BaseModel):
     role: Optional[str] = Field(default=None, max_length=300)
     client_title: Optional[str] = Field(default=None, max_length=300)
