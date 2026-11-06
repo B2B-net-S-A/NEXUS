@@ -1184,19 +1184,18 @@ function ReviewSections({
           />
           <MissingNote show={isMissing("context")} />
         </div>
-        {form.responsibilities && (
-          <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.resp} hint="opcjonalnie" offerUnit="responsibilities">
-              Obowiązki
-            </FieldLabel>
-            <Textarea
-              id={ids.resp}
-              rows={2}
-              value={form.responsibilities}
-              onChange={(e) => set("responsibilities", e.target.value)}
-            />
-          </div>
-        )}
+        <div className="flex flex-col gap-2">
+          <FieldLabel htmlFor={ids.resp} hint="opcjonalnie" offerUnit="responsibilities">
+            Obowiązki
+          </FieldLabel>
+          <Textarea
+            id={ids.resp}
+            rows={2}
+            value={form.responsibilities}
+            onChange={(e) => set("responsibilities", e.target.value)}
+            placeholder="np. analiza wymagań, makiety, udział w testach"
+          />
+        </div>
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.selling}
