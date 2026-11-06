@@ -353,14 +353,45 @@ export interface DoubleBonusRule {
   dl_min_margin: string;
 }
 
+/**
+ * Skąd jest dzień podpisu (06.11.2026): `pdf` — podpis konsultanta w pliku,
+ * `manual` — wpisany ręcznie z powodem (podpis odręczny albo poprawka Płac),
+ * `esign` — podpis kontraktora w NEXUSIE, `signed` — oznaczenie sprzed tej
+ * zmiany (data z okna), `created` — dzień założenia kontraktu bez Generatora.
+ */
+export type DoubleBonusSignedSource = "pdf" | "manual" | "esign" | "signed" | "created";
+
+/** Umowa, z której jest dzień podpisu (tylko Płace). */
+export interface DoubleBonusAgreement {
+  generated_contract_id: number;
+  contract_number: string | null;
+  signed_on_source: "pdf" | "manual" | "esign" | null;
+  signed_on_reason: string | null;
+  set_by_name: string | null;
+  marked_by_name: string | null;
+  marked_at: string | null;
+  consultant_signed_at: string | null;
+  has_signed_file: boolean;
+}
+
 export interface DoubleBonusContract {
   contract_id: number;
   label: string;
   signed_on: string;
-  /** `signed` = potwierdzenie podpisu obu stron, `created` = dzień założenia kontraktu. */
-  signed_source: "signed" | "created";
+  signed_source: DoubleBonusSignedSource;
   /** Tylko Płace; „Moja współpraca” dostaje kontrakty bez marży. */
   margin_per_hour?: string | null;
+  /** Tylko Płace; `null` = kontrakt bez umowy z Generatora. */
+  agreement?: DoubleBonusAgreement | null;
+}
+
+export interface SignedOnCorrection {
+  generated_contract_id: number;
+  contract_id: number;
+  signed_on: string;
+  previous_signed_on: string | null;
+  /** Miesiące programu z zapisanym wynikiem do przeliczenia (`RRRR-MM`). */
+  settle_months: string[];
 }
 
 export interface DoubleBonusRecruiter {
@@ -527,6 +558,25 @@ export function useSettleDoubleBonus(year: number, month: number) {
       (
         await api.post<DoubleBonusMonth>(
           `/api/hr/payroll/double-bonus/${year}/${month}/settle`,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Płace poprawiają dzień podpisu umowy z powodem (ślad w historii umowy). */
+export function useCorrectSignedOn() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (input: {
+      generatedContractId: number;
+      signedOn: string;
+      reason: string;
+    }) =>
+      (
+        await api.post<SignedOnCorrection>(
+          `/api/hr/payroll/double-bonus/agreements/${input.generatedContractId}/signed-on`,
+          { signed_on: input.signedOn, reason: input.reason },
         )
       ).data,
     onSuccess: invalidate,

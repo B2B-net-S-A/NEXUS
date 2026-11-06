@@ -10,11 +10,27 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
 - **Ustawienie** `hr_bonus_rules.double_bonus` (Ustawienia → Rozliczenia → Premie):
   miesiące `RRRR-MM`, weryfikacje na dzień (4), precision (75%), marża DL (50 zł/h).
   `null` = program wyłączony. Osób w kodzie nie ma.
-- **Miesiąc podpisu** = dzień potwierdzenia podpisu obu stron w NEXUSIE
-  (`b2b_generated_contracts.signed_at`, ostatnia umowa kontraktu z `signed_both`).
+- **Miesiąc podpisu** = dzień podpisu umowy przez konsultanta
+  (`b2b_generated_contracts.signed_on`, ostatnia umowa kontraktu z `signed_both`),
+  a bez niego dzień potwierdzenia podpisu obu stron (`signed_at`). Zmiana
+  z 06.11.2026 (decyzja Artura): wcześniej liczył się dzień kliknięcia, a przy
+  jednej z umów DL oznaczył podpis 30.10, konsultant podpisał
+  02.11 07:32 i premia trafiłaby do października. Skąd jest `signed_on`
+  (`signed_on_source`): `pdf` — podpis konsultanta w pliku z okna „Oznacz jako
+  podpisaną”, `manual` — data wpisana ręcznie z powodem, `esign` — podpis
+  kontraktora w NEXUSIE, NULL — oznaczenie sprzed tej zmiany (data z okna,
+  domyślnie dzień kliknięcia). → `kontrakty/data-podpisu-z-podpisu-konsultanta.md`.
   Kontrakt bez umowy z Generatora liczy się od dnia założenia. Data na umowie
   (`signing_date`) się nie liczy: w październiku arkusz mieszał obie i podwoił
   3 kontrakty z podpisem 29–30.09, a pominął 2 z października.
+- **Płace poprawiają dzień podpisu** w karcie „Premia 200%”: przy osobie lista
+  jej umów z dniem i źródłem („z pliku”, „ręcznie przez …”, „e-podpis”,
+  „wpisany przy oznaczeniu … · bez pliku” z plakietką „sprawdź”) i „Popraw
+  datę” (`POST /api/hr/payroll/double-bonus/agreements/{id}/signed-on`,
+  uprawnienie „Płace”, powód obowiązkowy, wpis `signed_on_corrected` w historii
+  umowy z datą przed i po, źródło `manual`). Decyzja miesiąca jest zamrożona
+  w `hr_double_bonus_results`, więc po poprawce w miesiącu z zapisanym wynikiem
+  trzeba „Przelicz wynik” (odpowiedź podaje te miesiące, komunikat je wymienia).
 - **Rekruter** (każdy poziom, te same KPI ilościowe): placementy podpisane
   w miesiącu ≥ cel KPI osoby (junior 1, senior 2, ekspert 3, w proporcji do
   dni pracy, jak Insights → Zespół), weryfikacje na dzień pracy ≥ próg,

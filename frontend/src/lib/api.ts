@@ -3817,16 +3817,38 @@ export const b2bGeneratorApi = {
     api.get(`/api/b2b-generator/generated/${id}/docx`, {
       responseType: "blob",
     }),
+  /**
+   * „Oznacz jako podpisaną” (06.11.2026): plik podpisanej umowy obowiązkowy,
+   * dzień podpisu serwer czyta z podpisu konsultanta w PDF-ie.
+   */
   confirmFullySigned: (
     id: number,
-    body: B2BConfirmFullySignedRequest = {},
-  ) =>
-    api
+    body: B2BConfirmFullySignedRequest,
+    file: File,
+  ) => {
+    const form = new FormData();
+    form.append("payload", JSON.stringify(body));
+    form.append("file", file);
+    return api
       .post<B2BConfirmFullySignedResult>(
         `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
-        body,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
       )
-      .then((r) => r.data),
+      .then((r) => r.data);
+  },
+  /** Podpisy z wgranego pliku (podgląd w oknie, bez zapisu). */
+  readSignatures: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<B2BSignatureRead>(
+        `/api/b2b-generator/generated/${id}/signatures`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      )
+      .then((r) => r.data);
+  },
   /** Podpisany egzemplarz umowy (PDF, JPG, PNG) → Dokumenty kontraktu (0496). */
   attachSignedFile: (id: number, file: File) => {
     const form = new FormData();
@@ -4122,6 +4144,11 @@ export interface B2BGeneratedContractRow {
   signed_at: string | null;
   /** 0514: dzień podpisu umowy (`YYYY-MM-DD`); `signed_at` to chwila oznaczenia. */
   signed_on?: string | null;
+  /** 0654: skąd jest `signed_on` (`null` = oznaczenie sprzed 06.11.2026). */
+  signed_on_source?: "pdf" | "manual" | "esign" | null;
+  signed_on_reason?: string | null;
+  signed_on_set_by_name?: string | null;
+  consultant_signed_at?: string | null;
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
@@ -4320,8 +4347,34 @@ export interface B2BConfirmFullySignedRequest {
    * pozostałych odmów (duplikaty, inny klient, umowa podpisana) nie obchodzi.
    */
   keep_existing_contract_terms?: boolean;
-  /** 0514: dzień podpisu (`YYYY-MM-DD`); brak = dziś w kalendarzu firmy. */
+  /**
+   * 0514/0654: dzień podpisu (`YYYY-MM-DD`) — liczy się tylko przy skanie bez
+   * podpisu elektronicznego (podpis odręczny) i wtedy z `signed_on_reason`.
+   */
   signed_on?: string;
+  signed_on_reason?: string;
+}
+
+/** Podpis odczytany z pliku podpisanej umowy (0654). */
+export interface B2BSignatureReadItem {
+  signer: string;
+  signed_at: string | null;
+  time_source: "timestamp" | "declared" | null;
+  intact: boolean;
+  party: "consultant" | "company" | "other";
+}
+
+export interface B2BSignatureRead {
+  /**
+   * `pdf` — dzień z podpisu konsultanta; `manual` — brak podpisu
+   * elektronicznego (data i powód ręcznie); `blocked` — podpisy są, ale nie
+   * konsultanta; `unreadable` — pliku nie da się odczytać.
+   */
+  mode: "pdf" | "manual" | "blocked" | "unreadable";
+  signatures: B2BSignatureReadItem[];
+  consultant_signed_at: string | null;
+  consultant_signed_on: string | null;
+  message: string | null;
 }
 
 export interface B2BConfirmFullySignedResult {

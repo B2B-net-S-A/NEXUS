@@ -12,9 +12,12 @@ podpisu (bez czekania na próg dni roboczych), gdy osoba zrobiła w tym miesiąc
   które należy mu się premia DL, większa niż próg (50,00 nie wystarcza);
   dodatkowa premia DL idzie za wynikiem DL-a.
 
-Miesiąc podpisu = dzień potwierdzenia podpisu obu stron w NEXUSIE
-(``b2b_generated_contracts.signed_at``); kontrakt bez umowy z Generatora liczy
-się od dnia założenia. Wynik znamy dopiero po ostatnim dniu miesiąca: automat
+Miesiąc podpisu = dzień podpisu umowy przez konsultanta
+(``b2b_generated_contracts.signed_on``: z podpisu w pliku, z e-podpisu albo
+wpisany ręcznie z powodem, decyzja Artura 06.11.2026), a bez niego dzień
+potwierdzenia podpisu obu stron w NEXUSIE (``signed_at``); kontrakt bez umowy
+z Generatora liczy się od dnia założenia. Płace poprawiają dzień podpisu
+(``correct_signed_on``); po zapisanej decyzji miesiąca trzeba „Przelicz wynik”. Wynik znamy dopiero po ostatnim dniu miesiąca: automat
 zapisuje go raz (``app_settings['hr_double_bonus_results']``) i wtedy podwaja
 propozycje, a w trakcie miesiąca ekran pokazuje tylko postęp. Konsultant, który
 odejdzie przed progiem, nie odbiera premii 200% — ryzyko firmy.
@@ -27,7 +30,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable, Optional
 
-from sqlalchemy import exists, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,10 +74,12 @@ def month_ended(month: YearMonth, today: date) -> bool:
 async def signed_dates(
     db: AsyncSession, contract_ids: Iterable[int]
 ) -> dict[int, tuple[date, str]]:
-    """Dzień podpisu kontraktów: potwierdzenie obu stron, zapasowo dzień założenia.
+    """Dzień podpisu kontraktów i jego źródło, zapasowo dzień założenia.
 
-    Liczy się ostatnia umowa kontraktu z podpisem obu stron. Kontrakt, który ma
-    umowę z Generatora bez podpisu, nie jest podpisany.
+    Liczy się ostatnia umowa kontraktu z podpisem obu stron: jej ``signed_on``
+    (źródło ``pdf`` | ``manual`` | ``esign``, a sprzed 0654 ``signed``), bez
+    niego dzień ``signed_at`` (``signed``). Kontrakt, który ma umowę
+    z Generatora bez podpisu, nie jest podpisany.
     """
 
     ids = sorted(set(contract_ids))
@@ -87,13 +92,19 @@ async def signed_dates(
             B2BGeneratedContract.contract_id,
             B2BGeneratedContract.signature_status,
             B2BGeneratedContract.signed_at,
+            B2BGeneratedContract.signed_on,
+            B2BGeneratedContract.signed_on_source,
         )
         .where(B2BGeneratedContract.contract_id.in_(ids))
         .order_by(B2BGeneratedContract.id)
     )
-    for contract_id, status, signed_at in rows.all():
+    for contract_id, status, signed_at, signed_on, source in rows.all():
         with_agreement.add(contract_id)
-        if status == SIGNED_BOTH and signed_at is not None:
+        if status != SIGNED_BOTH:
+            continue
+        if signed_on is not None:
+            found[contract_id] = (signed_on, source or "signed")
+        elif signed_at is not None:
             found[contract_id] = (business_date(signed_at, DEFAULT_TZ), "signed")
     missing = [cid for cid in ids if cid not in with_agreement]
     if missing:
@@ -104,6 +115,157 @@ async def signed_dates(
             if created_at is not None:
                 found[contract_id] = (business_date(created_at, DEFAULT_TZ), "created")
     return found
+
+
+async def signed_agreements(
+    db: AsyncSession, contract_ids: Iterable[int]
+) -> dict[int, dict[str, Any]]:
+    """Ostatnia podpisana umowa kontraktu: skąd data, kto oznaczył, czy jest plik."""
+
+    ids = sorted(set(contract_ids))
+    if not ids:
+        return {}
+    rows = (
+        await db.scalars(
+            select(B2BGeneratedContract)
+            .where(
+                B2BGeneratedContract.contract_id.in_(ids),
+                B2BGeneratedContract.signature_status == SIGNED_BOTH,
+            )
+            .order_by(B2BGeneratedContract.id)
+        )
+    ).all()
+    user_ids = {
+        uid
+        for row in rows
+        for uid in (row.signed_by_user_id, row.signed_on_set_by)
+        if uid
+    }
+    names: dict[int, Optional[str]] = {}
+    if user_ids:
+        names = dict(
+            (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(sorted(user_ids)))
+                )
+            ).all()
+        )
+    found: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        assert row.contract_id is not None
+        found[row.contract_id] = {
+            "generated_contract_id": row.id,
+            "contract_number": row.contract_number,
+            "signed_on_source": row.signed_on_source,
+            "signed_on_reason": row.signed_on_reason,
+            "set_by_name": names.get(row.signed_on_set_by or -1),
+            "marked_by_name": names.get(row.signed_by_user_id or -1),
+            "marked_at": row.signed_at.isoformat() if row.signed_at else None,
+            "consultant_signed_at": (
+                row.consultant_signed_at.isoformat()
+                if row.consultant_signed_at
+                else None
+            ),
+            "has_signed_file": row.signed_document_id is not None,
+        }
+    return found
+
+
+class SignedOnCorrectionError(Exception):
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+async def correct_signed_on(
+    db: AsyncSession,
+    generated_id: int,
+    *,
+    signed_on: date,
+    reason: str,
+    actor_id: int,
+    rules: BonusRules,
+    today: date,
+) -> dict[str, Any]:
+    """Płace poprawiają dzień podpisu umowy (z powodem, ślad w historii); bez commita.
+
+    Zapisana decyzja 200% jest zamrożona, więc odpowiedź podaje miesiące
+    programu z zapisanym wynikiem, które trzeba przeliczyć („Przelicz wynik”).
+    """
+
+    from app.models.activity import Activity
+
+    text = " ".join((reason or "").split())
+    if len(text) < 3:
+        raise SignedOnCorrectionError(422, "Podaj powód poprawki daty podpisu.")
+    if signed_on > today:
+        raise SignedOnCorrectionError(422, "Data podpisu nie może być z przyszłości.")
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise SignedOnCorrectionError(404, "Umowa nie została znaleziona.")
+    if row.signature_status != SIGNED_BOTH or row.contract_id is None:
+        raise SignedOnCorrectionError(
+            409, "Datę podpisu poprawia się w umowie podpisanej obustronnie."
+        )
+    generated_on = business_date(row.created_at, DEFAULT_TZ) if row.created_at else None
+    if generated_on is not None and signed_on < generated_on:
+        raise SignedOnCorrectionError(
+            422,
+            "Data podpisu nie może być wcześniejsza niż wygenerowanie umowy "
+            f"({generated_on:%d.%m.%Y}).",
+        )
+    before = {
+        "signed_on": row.signed_on.isoformat() if row.signed_on else None,
+        "signed_on_source": row.signed_on_source,
+        "signed_on_reason": row.signed_on_reason,
+    }
+    previous_day = (await signed_dates(db, [row.contract_id])).get(row.contract_id)
+    row.signed_on = signed_on
+    row.signed_on_source = "manual"
+    row.signed_on_reason = text[:500]
+    row.signed_on_set_by = actor_id
+    db.add(
+        Activity(
+            entity_type="b2b_generated_contract",
+            entity_id=row.id,
+            action="signed_on_corrected",
+            user_id=actor_id,
+            details={
+                "contract_number": row.contract_number,
+                "contract_id": row.contract_id,
+                "before": before,
+                "after": {
+                    "signed_on": signed_on.isoformat(),
+                    "signed_on_source": "manual",
+                    "signed_on_reason": row.signed_on_reason,
+                },
+            },
+        )
+    )
+    await db.flush()
+    _cache.clear()
+    stored = await stored_results(db)
+    touched = {(signed_on.year, signed_on.month)}
+    if previous_day is not None:
+        touched.add((previous_day[0].year, previous_day[0].month))
+    rule = rules.double_bonus
+    settle = sorted(
+        month_key(month)
+        for month in touched
+        if rule is not None and rule.covers(*month) and month_key(month) in stored
+    )
+    return {
+        "generated_contract_id": row.id,
+        "contract_id": row.contract_id,
+        "signed_on": signed_on.isoformat(),
+        "previous_signed_on": previous_day[0].isoformat() if previous_day else None,
+        "settle_months": settle,
+    }
 
 
 async def month_contracts(db: AsyncSession, year: int, month: int) -> list[Contract]:
@@ -117,12 +279,24 @@ async def month_contracts(db: AsyncSession, year: int, month: int) -> list[Contr
     from app.services.hr.placement_bonuses import STARTED_STATUSES
 
     bounds = local_month_bounds(date(year, month, 1))
+    first = date(year, month, 1)
+    after = date(year + (month == 12), month % 12 + 1, 1)
+    # Kandydaci: dzień podpisu w miesiącu albo oznaczenie w miesiącu (umowa bez
+    # ``signed_on``); ostatecznie rozstrzyga ``signed_dates``.
     signed = await db.scalars(
         select(B2BGeneratedContract.contract_id).where(
             B2BGeneratedContract.contract_id.is_not(None),
             B2BGeneratedContract.signature_status == SIGNED_BOTH,
-            B2BGeneratedContract.signed_at >= bounds.start_utc,
-            B2BGeneratedContract.signed_at < bounds.end_utc,
+            or_(
+                and_(
+                    B2BGeneratedContract.signed_on >= first,
+                    B2BGeneratedContract.signed_on < after,
+                ),
+                and_(
+                    B2BGeneratedContract.signed_at >= bounds.start_utc,
+                    B2BGeneratedContract.signed_at < bounds.end_utc,
+                ),
+            ),
         )
     )
     created = await db.scalars(
@@ -272,6 +446,7 @@ async def evaluate_month(
     contracts = await month_contracts(db, year, month)
     context = await placement_bonuses.load_context(db, contracts)
     dates = await signed_dates(db, [c.id for c in contracts])
+    agreements = await signed_agreements(db, [c.id for c in contracts])
     by_recruiter: dict[int, list[dict[str, Any]]] = {}
     by_dl: dict[int, list[dict[str, Any]]] = {}
     for contract in contracts:
@@ -285,6 +460,9 @@ async def evaluate_month(
             "label": f"{candidate} ({client})",
             "signed_on": dates[contract.id][0].isoformat(),
             "signed_source": dates[contract.id][1],
+            # Umowa, z której jest data (``None`` = kontrakt bez Generatora):
+            # Płace widzą, kto i skąd wpisał datę, i mogą ją poprawić.
+            "agreement": agreements.get(contract.id),
             "margin_per_hour": None
             if margin.per_hour is None
             else str(margin.per_hour),
@@ -376,7 +554,11 @@ def rows_for(
         {
             **row,
             "contracts": [
-                {k: v for k, v in item.items() if k != "margin_per_hour"}
+                {
+                    k: v
+                    for k, v in item.items()
+                    if k not in ("margin_per_hour", "agreement")
+                }
                 for item in row["contracts"]
             ],
         }
@@ -516,6 +698,9 @@ async def settle_due_months(
 
 __all__ = [
     "Decision",
+    "SignedOnCorrectionError",
+    "correct_signed_on",
+    "signed_agreements",
     "RESULTS_KEY",
     "cached_evaluation",
     "contract_decision",

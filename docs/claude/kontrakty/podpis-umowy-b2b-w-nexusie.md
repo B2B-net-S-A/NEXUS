@@ -159,7 +159,10 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
 - **Dzień podpisu umowy = dzień podpisu kontraktora** (0514, 23.10.2026):
   po podpisie firmy `_after_both_signed` przekazuje do potwierdzenia
   `signed_on` = dzień `contractor_signed_at` w Europe/Warsaw, nie dzień podpisu
-  reprezentanta. Tę datę pokazuje eksport „Placementy”.
+  reprezentanta. Tę datę pokazuje eksport „Placementy”. Od 0654 (06.11.2026)
+  wiersz ma `signed_on_source = 'esign'` i `consultant_signed_at` = chwila
+  podpisu kontraktora; premia 200% liczy ten dzień
+  (`data-podpisu-z-podpisu-konsultanta.md`).
 
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
