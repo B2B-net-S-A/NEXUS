@@ -47,7 +47,7 @@ router = APIRouter()
 ACTIVITY_ACTION = "admin_details_changed"
 
 
-def require_contract_admin_editor():
+def require_hr_contract_admin_editor():
     """Płace albo oznaczanie podpisu umów B2B (zakres klientów w handlerze)."""
 
     async def _check(
@@ -64,7 +64,7 @@ def require_contract_admin_editor():
     return _check
 
 
-ContractAdminEditor = Annotated[User, Depends(require_contract_admin_editor())]
+ContractAdminEditor = Annotated[User, Depends(require_hr_contract_admin_editor())]
 
 
 class ContractAdminDetailsIn(BaseModel):
