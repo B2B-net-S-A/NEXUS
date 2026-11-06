@@ -1316,5 +1316,18 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contract.admin-details"
+  },
+  {
+    "id": "kandydaci-ostatnie-odrzucenie",
+    "pr": 3101,
+    "title": "Filtr po powodzie odrzucenia na liście kandydatów",
+    "why": "Pigułka „Odrzucenie” i pasek nad tabelą: z jakiego powodu i kto zakończył ostatni proces osoby. Kliknięciem pokażesz tylko takie osoby albo je ukryjesz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Kandydaci → filtry → „Odrzucenie”",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.rejection-filter"
   }
 ]

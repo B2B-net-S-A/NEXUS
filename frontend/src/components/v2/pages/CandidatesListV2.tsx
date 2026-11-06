@@ -47,6 +47,14 @@ import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
 import { cn } from "@/lib/utils";
 import { addedToBaseView } from "@/lib/added-to-base";
 import { lastTalkCell } from "@/lib/candidate-last-talk";
+import {
+  hasLaterLiveProcess,
+  lastRejectionCell,
+  rejectionFilterCount,
+  type LastRejection,
+  type RejectionFacets,
+} from "@/lib/candidate-last-rejection";
+import { RejectionFacetBar } from "@/components/v2/candidates/RejectionFilter";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
@@ -328,6 +336,8 @@ interface Candidate {
   last_talk_by?: string | null;
   last_talk_preview?: string | null;
   contact_attempts?: number | null;
+  /** „Ostatnie odrzucenie” — tylko przy `include_last_rejection` (lista je wysyła). */
+  last_rejection?: LastRejection | null;
   years_it_experience?: number | null;
   /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
   cv_filename?: string | null;
@@ -389,6 +399,8 @@ interface CandidateListResponse {
   /** D5: ile z `total` spełnia filtr stawki/miasta/stażu Z DANYMI;
    *  `null` = żaden z tych filtrów nie zostawia osób bez danych. */
   known_match_count?: number | null;
+  /** Pasek „Ostatnie odrzucenie w tym wyniku” — przy `include_rejection_facets`. */
+  rejection_facets?: RejectionFacets | null;
 }
 
 /**
@@ -410,7 +422,30 @@ export function candidatesListApiParams(
     include_last_activity: includeLastActivity || undefined,
     // Kolumna „Ostatnia rozmowa”: dwa lekkie zapytania na stronę.
     include_last_talk: true,
+    // Kolumna „Ostatnie odrzucenie” (06.11.2026): jedno zapytanie na stronę.
+    include_last_rejection: true,
   });
+}
+
+/**
+ * Parametry paska „Ostatnie odrzucenie w tym wyniku”: te same kryteria co
+ * lista, jedna osoba na stronie i bez danych wierszy. Bez strony i sortowania
+ * — przejście na kolejną stronę nie liczy rozkładu od nowa.
+ */
+export function rejectionFacetsApiParams(
+  listParams: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    page: _page,
+    sort: _sort,
+    include_active_recruitments: _ar,
+    include_last_talk: _lt,
+    include_last_rejection: _lr,
+    include_match_stats: _ms,
+    include_last_activity: _la,
+    ...criteria
+  } = listParams;
+  return { ...criteria, page: 1, page_size: 1, include_rejection_facets: true };
 }
 
 export function candidatesListQueryKey(params: Record<string, unknown>) {
@@ -479,6 +514,45 @@ function CandidateLastTalkCell({
       {talk.secondary ? (
         <div className="truncate text-xs text-muted-foreground">{talk.secondary}</div>
       ) : null}
+    </div>
+  );
+}
+
+const REJECTION_WHO_CLASSES: Record<string, string> = {
+  client: "bg-warning-muted text-warning-muted-foreground",
+  us: "bg-primary/10 text-primary",
+  candidate: "bg-muted text-foreground",
+  traffit: "bg-muted text-muted-foreground",
+};
+
+/**
+ * „Ostatnie odrzucenie” (06.11.2026): powód (albo opis z Traffita), kto
+ * zakończył, klient i data; „potem: w toku”, gdy osoba weszła potem w proces,
+ * który trwa. Dymek ma rekrutację, autora i pełny opis.
+ */
+function CandidateLastRejectionCell({
+  candidate,
+}: {
+  candidate: Pick<Candidate, "last_rejection" | "active_recruitments">;
+}) {
+  const row = candidate.last_rejection;
+  if (!row) return <span className="text-xs text-muted-foreground/80">—</span>;
+  const view = lastRejectionCell(row);
+  const later = hasLaterLiveProcess(row, candidate.active_recruitments);
+  return (
+    <div className="min-w-0 text-sm" title={view.title}>
+      <div className={cn("truncate", view.primaryIsNote ? "italic text-foreground" : "font-medium text-foreground")}>
+        {view.primary}
+      </div>
+      <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <span className={cn("shrink-0 rounded px-1 text-[11px] font-medium", REJECTION_WHO_CLASSES[view.who])}>
+          {view.whoLabel}
+        </span>
+        <span className="truncate">
+          {view.secondary}
+          {later ? <span className="text-success"> · potem: w toku</span> : null}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1366,6 +1440,24 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  refetchOnWindowFocus: false,
  });
 
+ // Pasek i pigułka „Powód odrzucenia” — osobne, lekkie zapytanie (1 osoba),
+ // bo rozkład dotyczy całego wyniku, a nie strony.
+ const rejectionFacetsParams = useMemo(
+ () => rejectionFacetsApiParams(candidatesApiParams),
+ [candidatesApiParams],
+ );
+ const rejectionFacetsQuery = useQuery({
+ queryKey: candidatesListQueryKey(rejectionFacetsParams),
+ queryFn: ({ signal }) =>
+ fetchCandidateListPage<CandidateListResponse>(rejectionFacetsParams, signal),
+ staleTime: 60_000,
+ refetchOnWindowFocus: false,
+ });
+ const rejectionFacets: RejectionFacets | null | undefined = rejectionFacetsQuery.isError
+ ? null
+ : rejectionFacetsQuery.isSuccess
+ ? (rejectionFacetsQuery.data?.rejection_facets ?? null)
+ : undefined;
  const items: Candidate[] = data?.items ?? [];
  // Zaznaczenie przeżywa zmianę strony, a wiersze nie — osoby ze znacznikiem
  // „Pracuje u nas” zapamiętujemy, żeby okno „Dodaj do rekrutacji” znało je
@@ -1847,6 +1939,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  recruitmentIds.length +
  traffitExtras.recruitmentClientIds.length +
  (traffitExtras.recruitmentPresence ? 1 : 0) +
+ rejectionFilterCount(traffitExtras) +
  traffitExtras.stageColumns.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (rateMin !== null || rateMax !== null ? 1 : 0) +
@@ -2183,6 +2276,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
       onSearch={runSearch}
       recruitmentFilterLocked={forJob}
       keywordsSourceNote={embed?.keywordsNote}
+      rejectionFacets={rejectionFacets}
+      showRejectionFilter
     />
   );
 
@@ -2501,6 +2596,16 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
 
           {/* Pasek „obserwowanych” zdjęty 13.10.2026 (D1): bez „Obserwuj” na
               profilu nic nie tworzy przypięć — przez całą historię 0. */}
+
+          <RejectionFacetBar
+            filters={filtersSnapshot}
+            facets={rejectionFacets}
+            onPatch={(patch) => {
+              // Klik w pasek działa od razu, jak zdjęcie chipa.
+              applyFiltersPatch({ ...patch, page: 1 });
+              requestApply();
+            }}
+          />
 
           {listViewState === "refresh-error" && (
             <div
@@ -2956,6 +3061,10 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                 case "last_contact":
                                   return (
 <CandidateLastTalkCell candidate={candidate} />
+                                  );
+                                case "last_rejection":
+                                  return (
+<CandidateLastRejectionCell candidate={candidate} />
                                   );
                                 case "added":
                                   return (

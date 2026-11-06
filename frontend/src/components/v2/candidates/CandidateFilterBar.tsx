@@ -10,6 +10,7 @@ import {
   Plus,
   SlidersHorizontal,
   Sparkles,
+  UserX,
   Wallet,
   X,
 } from "lucide-react";
@@ -75,6 +76,11 @@ import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete
 import { TAG_SUGGEST_ENDPOINT } from "@/lib/api/candidateTags";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { RecruitmentScopePicker } from "@/components/v2/filters/RecruitmentScopePicker";
+import { RejectionFilterFields } from "@/components/v2/candidates/RejectionFilter";
+import {
+  NO_REJECTION_FILTER,
+  type RejectionFacets,
+} from "@/lib/candidate-last-rejection";
 import {
   hasRecruitmentScope,
   patchForRecruitmentMode,
@@ -132,6 +138,13 @@ export interface CandidateFilterBarProps {
   recruitmentFilterLocked?: boolean;
   /** Zdanie nad wierszami słów (okno rekrutacji: skąd są wymagania). */
   keywordsSourceNote?: string;
+  /**
+   * Rozkład ostatnich odrzuceń w wyniku (pigułka „Powód odrzucenia”).
+   * `undefined` = liczy się, `null` = błąd. Bez propsa pigułki nie ma
+   * (okna, w których lista nie liczy rozkładu).
+   */
+  rejectionFacets?: RejectionFacets | null | undefined;
+  showRejectionFilter?: boolean;
   className?: string;
 }
 
@@ -335,6 +348,8 @@ export function CandidateFilterBar({
   onSearch,
   recruitmentFilterLocked = false,
   keywordsSourceNote,
+  rejectionFacets,
+  showRejectionFilter = false,
   className,
 }: CandidateFilterBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -496,6 +511,22 @@ export function CandidateFilterBar({
             recruitmentFilterLocked={recruitmentFilterLocked}
           />
         </FilterPill>
+        {showRejectionFilter ? (
+          // Kotwica nowości „Odrzucenie na liście” (novelties.json).
+          <span data-tour="candidates.rejection-filter" className="inline-flex shrink-0">
+          <FilterPill
+            label="Odrzucenie"
+            icon={<UserX />}
+            // Sam licznik, jak „Rekrutacje i historia”: opis przy 1280
+            // spychał „Więcej filtrów” do drugiego rzędu; pełny opis ma chip.
+            count={counts.rejection}
+            onClear={() => onPatch(NO_REJECTION_FILTER)}
+            contentClassName="w-[380px] max-w-[calc(100vw-2rem)]"
+          >
+            <RejectionFilterFields filters={filters} onPatch={onPatch} facets={rejectionFacets} />
+          </FilterPill>
+          </span>
+        ) : null}
         <FilterPill
           label="Umiejętności"
           icon={<Sparkles />}
