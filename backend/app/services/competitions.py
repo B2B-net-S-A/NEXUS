@@ -87,6 +87,47 @@ DL_LEAGUE_UNPAID_FROM = (2026, 4)
 QUARTERLY_PRIZES_PLN = {1: 5000, 2: 3000, 3: 2000}
 MONTHLY_RACE_PRIZE_PLN = 1500
 MONTHLY_RACE_PRIZE_NAME = "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)"
+# Od października 2026 wygrana w wyścigu to premia w Płacach, nie voucher
+# (decyzja Artura 06.11.2026). Wypłatę zakłada automat Ligi, gdy wyścig jest
+# w `league_types` ustawień premii.
+MONTHLY_RACE_PAYROLL_FROM = "2026-10"
+# Kwartały z podwojonymi nagrodami (decyzja Artura 06.11.2026): oba wyścigi
+# miesięczne kwartału i Liga Mistrzów. Mnożnik idzie z okresu, więc zamrożony
+# wynik i propozycja premii mają tę samą kwotę co ekran.
+PRIZE_MULTIPLIER_BY_QUARTER: dict[str, int] = {"Q4 2026": 2}
+
+
+def _quarter_of(period: Optional[str]) -> Optional[str]:
+    if not period:
+        return None
+    if re.match(r"^Q[1-4] \d{4}$", period):
+        return period
+    monthly = re.match(r"^(\d{4})-(\d{2})$", period)
+    if monthly:
+        return f"Q{(int(monthly.group(2)) - 1) // 3 + 1} {monthly.group(1)}"
+    return None
+
+
+def prize_multiplier(period: Optional[str]) -> int:
+    return PRIZE_MULTIPLIER_BY_QUARTER.get(_quarter_of(period) or "", 1)
+
+
+def quarterly_prizes(period: Optional[str]) -> dict[int, int]:
+    """Nagrody Ligi Mistrzów kwartału (z podwojeniem, gdy kwartał je ma)."""
+    multiplier = prize_multiplier(period)
+    return {rank: amount * multiplier for rank, amount in QUARTERLY_PRIZES_PLN.items()}
+
+
+def monthly_race_prize(period: Optional[str]) -> int:
+    return MONTHLY_RACE_PRIZE_PLN * prize_multiplier(period)
+
+
+def monthly_race_prize_name(period: Optional[str]) -> str:
+    if not period or period < MONTHLY_RACE_PAYROLL_FROM:
+        return MONTHLY_RACE_PRIZE_NAME
+    amount = f"{monthly_race_prize(period):,}".replace(",", "\u00a0")
+    return f"Premia {amount} zł"
+
 
 # System punktowy Liga Mistrzów Rekrutacja — wagi i warunek udziału są
 # KONFIGUROWALNE (decyzja D3, tabela `insights_scoring_config`). Stałe zniknęły
@@ -1801,8 +1842,8 @@ async def compose_monthly_races(
             "period": month_period,
             "days_remaining": days_left,
             "prize": {
-                "amount_pln": MONTHLY_RACE_PRIZE_PLN,
-                "name": MONTHLY_RACE_PRIZE_NAME,
+                "amount_pln": monthly_race_prize(month_period),
+                "name": monthly_race_prize_name(month_period),
             },
             "requirements": extra_reqs,
             "ranking": ranking,
@@ -1911,8 +1952,8 @@ def _frozen_race(period: str, frozen: "FrozenResult", requirements: list[str]) -
         "period": period,
         "days_remaining": None,
         "prize": {
-            "amount_pln": MONTHLY_RACE_PRIZE_PLN,
-            "name": MONTHLY_RACE_PRIZE_NAME,
+            "amount_pln": monthly_race_prize(period),
+            "name": monthly_race_prize_name(period),
         },
         "requirements": requirements,
         "ranking": ranking,
@@ -1981,16 +2022,61 @@ async def compute_live(
     raise ValueError(f"Unknown competition type: {type_}")
 
 
+WIN_LABELS: dict[str, str] = {
+    CompetitionType.quarterly_champions_recruiter.value: "Liga Mistrzów rekruterów",
+    CompetitionType.quarterly_champions_dl.value: "Liga Mistrzów DL",
+    CompetitionType.monthly_recommendations.value: "Wyścig rekomendacji",
+    CompetitionType.monthly_placements.value: "Wyścig placementów",
+}
+
+
+async def wins_for_user(db: AsyncSession, user_id: int) -> list[dict]:
+    """Miejsca na podium zamkniętych okresów jednej osoby, najnowsze pierwsze.
+
+    Profil pokazuje wygrane (decyzja Artura 06.11.2026). Wiersz z
+    `competition_winners` to to, co rozliczono: miejsce i kwota po decyzji
+    admina, bez przeliczania.
+    """
+    rows = (
+        await db.scalars(
+            select(CompetitionWinner).where(
+                CompetitionWinner.user_id == user_id,
+                CompetitionWinner.competition_type.in_(list(WIN_LABELS)),
+                CompetitionWinner.rank <= 3,
+            )
+        )
+    ).all()
+    wins = [
+        {
+            "competition_type": row.competition_type,
+            "label": WIN_LABELS[row.competition_type],
+            "period": row.period,
+            "rank": row.rank,
+            "metric_value": row.metric_value,
+            "prize_pln": row.prize_pln,
+        }
+        for row in rows
+    ]
+    wins.sort(key=lambda w: (_period_end_month(w["period"]), -w["rank"]), reverse=True)
+    return wins
+
+
+def _period_end_month(period: str) -> tuple[int, int]:
+    """(rok, ostatni miesiąc okresu) — kwartał i miesiąc na jednej osi."""
+    year, sub = period_sort_key(period)[:2]
+    return (year, sub * 3) if period.startswith("Q") else (year, sub)
+
+
 def _prize_for(type_: CompetitionType, rank: int, period: Optional[str] = None) -> int:
     if type_ == CompetitionType.quarterly_champions_dl:
-        return QUARTERLY_PRIZES_PLN.get(rank, 0) if dl_league_pays(period) else 0
+        return quarterly_prizes(period).get(rank, 0) if dl_league_pays(period) else 0
     if type_ == CompetitionType.quarterly_champions_recruiter:
-        return QUARTERLY_PRIZES_PLN.get(rank, 0)
+        return quarterly_prizes(period).get(rank, 0)
     if type_ in (
         CompetitionType.monthly_recommendations,
         CompetitionType.monthly_placements,
     ):
-        return MONTHLY_RACE_PRIZE_PLN if rank == 1 else 0
+        return monthly_race_prize(period) if rank == 1 else 0
     return 0
 
 

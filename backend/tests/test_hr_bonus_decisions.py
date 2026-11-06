@@ -244,3 +244,58 @@ async def test_voucher_confirmation_once_and_not_own(payroll_on) -> None:  # noq
         async with AsyncSessionLocal() as db:
             await db.delete(await db.get(CompetitionWinner, winner_id))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_race_paid_in_payroll_is_not_also_a_voucher(
+    payroll_on,  # noqa: F811
+    monkeypatch,
+) -> None:
+    """Wyścig w `league_types` to premia z automatu Ligi, nie voucher (06.11.2026)."""
+    from datetime import date
+
+    from app.services.hr.bonus_rules import BonusRules
+
+    other = await _other_person()
+    async with AsyncSessionLocal() as db:
+        winner = CompetitionWinner(
+            competition_type=CompetitionType.monthly_placements.value,
+            period="2099-02",
+            user_id=other,
+            rank=1,
+            points=1,
+            metric_value=1,
+            prize_pln=100,
+        )
+        db.add(winner)
+        await db.commit()
+        winner_id = winner.id
+
+    async def rules_with(types):
+        async def _load(_db):
+            return BonusRules(automation_since=date(2099, 1, 1), league_types=types)
+
+        return _load
+
+    try:
+        monkeypatch.setattr(
+            bonus_decisions,
+            "load_rules",
+            await rules_with(("quarterly_champions_recruiter",)),
+        )
+        async with AsyncSessionLocal() as db:
+            vouchers = await bonus_decisions.pending_vouchers(db)
+        assert winner_id in {v["id"] for v in vouchers}
+
+        monkeypatch.setattr(
+            bonus_decisions,
+            "load_rules",
+            await rules_with(("quarterly_champions_recruiter", "monthly_placements")),
+        )
+        async with AsyncSessionLocal() as db:
+            vouchers = await bonus_decisions.pending_vouchers(db)
+        assert winner_id not in {v["id"] for v in vouchers}
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.delete(await db.get(CompetitionWinner, winner_id))
+            await db.commit()

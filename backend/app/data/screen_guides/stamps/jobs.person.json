@@ -1,9 +1,9 @@
 {
-  "entry": "e8a3053d6c3670a58578b5e670a910db6f39b5a7b932977560c143a94289509f",
+  "entry": "50d34f5fd79f668bb4452f91f3a0c76fa0a0be1100009495cfd8d68b498a0510",
   "guide": "jobs.person",
   "sources": {
     "frontend/src/components/v2/jobs/DockContractSteps.tsx": "9c0fdd661037f833edf16095bd4277ef0dae2ce546ed2cd5dabb47c7199e249c",
-    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "41ada7ff1c7cd368ce276e174304738d5009c96682fa31cef5ac823aec9a2d2e",
+    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "477e26a8bbe1d4189422b567c3997410d3c94323d13885caee24a102ab95c364",
     "frontend/src/components/v2/screening-form/ScreeningFullForm.tsx": "da35a21020ef9274e44d4b3cc71d1900869a9a9a142b945090fc0346530422a8"
   }
 }

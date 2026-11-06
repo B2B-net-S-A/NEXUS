@@ -1206,5 +1206,17 @@
     "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
     "href": "/my-time",
     "dot_anchor": "my-time.double-bonus"
+  },
+  {
+    "id": "profil-twoje-wygrane",
+    "pr": 3091,
+    "title": "Twoje wygrane w profilu",
+    "why": "Twoje miejsca na podium Ligi i wyścigów widać w profilu, z kwotą. W IV kwartale nagrody są podwójne, a wygrana w wyścigu to premia w wynagrodzeniu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Profil → Twoje wygrane",
+    "href": "/profile",
+    "dot_anchor": "profile.my-wins"
   }
 ]

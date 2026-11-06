@@ -190,7 +190,7 @@ async def _compute_current(
         days_remaining = (
             None if frozen is not None else comp_service.days_left_in_quarter(today)
         )
-        prize_pool = sum(comp_service.QUARTERLY_PRIZES_PLN.values())
+        prize_pool = sum(comp_service.quarterly_prizes(period).values())
         if ctype == CompetitionType.quarterly_champions_dl:
             if comp_service.dl_league_pays(period):
                 # Kwartały do Q3 2026 — zasady, którymi je rozliczono.
@@ -235,7 +235,7 @@ async def _compute_current(
         days_remaining = (
             None if frozen is not None else comp_service.days_left_in_month(today)
         )
-        prize_pool = comp_service.MONTHLY_RACE_PRIZE_PLN
+        prize_pool = comp_service.monthly_race_prize(period)
 
     return {
         "type": ctype.value,
@@ -262,7 +262,7 @@ async def _compute_current(
         "requirement": requirement,
         "points_formula": points_formula,
         "quarterly_prizes_pln": (
-            comp_service.QUARTERLY_PRIZES_PLN
+            comp_service.quarterly_prizes(period)
             if ctype == CompetitionType.quarterly_champions_recruiter
             or (
                 ctype == CompetitionType.quarterly_champions_dl
@@ -561,7 +561,7 @@ async def my_league(
         "days_remaining": comp_service.days_left_in_quarter(today),
         # Liga DL od Q4 2026 bez nagród — pusty słownik, pasek nie pisze kwot.
         "prizes_pln": (
-            comp_service.QUARTERLY_PRIZES_PLN
+            comp_service.quarterly_prizes(period)
             if ctype == CompetitionType.quarterly_champions_recruiter
             or comp_service.dl_league_pays(quarter)
             else {}
@@ -596,6 +596,15 @@ async def my_league(
         int(config[f"league_min_placements_month{month}"]) for month in (1, 2, 3)
     ]
     return payload
+
+
+@router.get("/my-wins")
+async def my_wins(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Wygrane zalogowanej osoby w zamkniętych okresach (profil, 06.11.2026)."""
+    return {"items": await comp_service.wins_for_user(db, current_user.id)}
 
 
 @router.get("/my-position")

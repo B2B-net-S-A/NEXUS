@@ -24,6 +24,7 @@ from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.hr import double_bonus
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
@@ -266,3 +267,50 @@ async def test_settle_month_stores_dl_above_threshold_and_doubles(
     found = await _bonuses(world["contract"])
     assert found["dl"].amount == Decimal("1848.00")  # 2 × 10% × 55 × 168
     assert found["recruiter"].amount == Decimal("2000.00")
+
+
+async def _verified_earlier_by_departed(world: dict) -> None:
+    """Tę osobę u tego klienta zweryfikował wcześniej rekruter, który odszedł."""
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, world["contract"])
+        old_job = await db.get(Job, contract.job_id)
+        departed = User(
+            email=f"odszedl-{world['contract']}@example.com",
+            name="Osoba Odeszła",
+            role=UserRole.recruiter,
+            roles=["recruiter"],
+            is_active=False,
+        )
+        db.add(departed)
+        await db.flush()
+        earlier = Job(
+            title="Wcześniejsza rekrutacja",
+            client_id=old_job.client_id,
+            status=old_job.status,
+            recruiter_id=departed.id,
+        )
+        db.add(earlier)
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=contract.candidate_id,
+                job_id=earlier.id,
+                stage=PipelineStage.verified,
+                moved_by=departed.id,
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_recruiter_closing_after_departed_recruiter_gets_no_bonus() -> None:
+    """Domknięcie po osobie, która odeszła = bez premii rekrutera (06.11.2026)."""
+
+    world = await _placement(started_days_ago=40)
+    await _verified_earlier_by_departed(world)
+    await _reconcile(world["contract"])
+
+    found = await _bonuses(world["contract"])
+    assert "recruiter" not in found
+    assert found["dl"].status == "proposed"

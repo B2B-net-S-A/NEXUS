@@ -242,23 +242,23 @@ class PlacementContext:
         (decyzje Artura 18.10.2026). DL, który sam zweryfikował osobę, nie
         dostaje do premii DL-a premii rekrutera (decyzja Artura 22.10.2026) —
         chyba że ma też rolę rekrutera: wtedy dostaje obie (25.10.2026). Domknięcie
-        po rekruterze, który odszedł, to obowiązek DL-a: tylko premia DL (02.11.2026).
+        po rekruterze, który odszedł, nie daje premii rekrutera nikomu: DL-owi
+        (02.11.2026) ani rekruterowi, który domknął (06.11.2026).
         """
 
+        pair = (contract.candidate_id, contract.job_id)
         recruiter_id = (
-            self.verifiers.get((contract.candidate_id, contract.job_id))
+            self.verifiers.get(pair)
             if contract.candidate_id is not None and contract.job_id is not None
             else None
         )
         dl_id, source = self._delivery_lead(contract)
-        if (
+        if pair in self.closed_after_departure:
+            recruiter_id = None
+        elif (
             dl_id is not None
             and recruiter_id == dl_id
-            and (
-                recruiter_id not in self.recruiter_roles
-                or (contract.candidate_id, contract.job_id)
-                in self.closed_after_departure
-            )
+            and recruiter_id not in self.recruiter_roles
         ):
             recruiter_id = None
         return dl_id, recruiter_id, source
@@ -393,8 +393,8 @@ async def _closed_after_departure(
     Przekazanie z ``departure_care`` przypina parę do osoby, która odeszła, ale nie
     obejmuje odejść sprzed 28.10.2026 ani nowej rekrutacji u tego samego klienta.
     Ślad zostaje w etapach: kandydata zweryfikowała u klienta osoba z wyłączonym
-    kontem. ``PlacementContext.people`` bierze to pod uwagę tylko przy DL-u, który
-    sam zweryfikował osobę.
+    kontem. Taka para nie daje premii rekrutera nikomu (``PlacementContext.people``,
+    decyzje Artura 02.11 i 06.11.2026).
     """
 
     wanted = [
