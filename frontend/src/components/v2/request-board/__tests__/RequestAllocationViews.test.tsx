@@ -623,6 +623,40 @@ describe("RequestBoardView — sama tabela (panel P0, 28.10.2026)", () => {
   })
 })
 
+describe("RequestBoardView — P0 po terminie (06.11.2026)", () => {
+  it("termin minął po południu dnia firmy — wiersz mówi, że P0 czeka na decyzję", () => {
+    // Regresja: wiersz liczył P0 względem 12:00 dnia firmy, więc P0, które
+    // minęło przed chwilą, plakietka pokazywała jako po terminie, a wiersz nie.
+    const overdueBoard: RequestBoard = {
+      ...board,
+      requests: [
+        {
+          ...board.requests[3],
+          is_p0: true,
+          p0_until: new Date(Date.now() - 60_000).toISOString(),
+          p0_reason: "3 wakaty",
+        },
+      ],
+    }
+    render(
+      <RequestBoardView
+        board={overdueBoard}
+        today={TODAY}
+        filters={EMPTY_FILTERS}
+        onFilters={vi.fn()}
+        canStaff={false}
+        canDecide={false}
+        onAddPerson={vi.fn()}
+        onRemovePerson={vi.fn()}
+        onAcceptProposal={vi.fn()}
+        tableOnly
+      />,
+    )
+    expect(screen.getByTestId("p0-chip")).toHaveAttribute("data-overdue", "true")
+    expect(screen.getByTestId("p0-overdue-waiting")).toHaveTextContent("dopóki Head of Recruitment")
+  })
+})
+
 describe("CompetenceTeamView", () => {
   it("adds a person to 1st priority and excludes from allocation", async () => {
     const user = userEvent.setup()

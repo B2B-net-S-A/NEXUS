@@ -23,10 +23,6 @@ export interface P0OverdueActionsProps {
  * Samo kliknięcie jest potwierdzeniem — bez drugiego okna.
  */
 export function P0OverdueActions({ jobId, canDecide, className }: P0OverdueActionsProps) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [busy, setBusy] = useState<"extend" | "clear" | null>(null);
-
   if (!canDecide) {
     return (
       <p
@@ -37,6 +33,14 @@ export function P0OverdueActions({ jobId, canDecide, className }: P0OverdueActio
       </p>
     );
   }
+  return <DecideButtons jobId={jobId} className={className} />;
+}
+
+/** Przyciski osobno: zapytania i toasty tylko u tych, którzy decydują. */
+function DecideButtons({ jobId, className }: { jobId: number; className?: string }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState<"extend" | "clear" | null>(null);
 
   const run = async (kind: "extend" | "clear") => {
     setBusy(kind);
