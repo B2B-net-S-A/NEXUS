@@ -5,7 +5,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import api from "@/lib/api"
-import type { RecruiterVia } from "@/lib/job-team"
+import type { RecruiterChannel, RecruiterVia } from "@/lib/job-team"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import type { PriorityLevel } from "@/lib/request-priority"
 import type { VisibleState, WorkState } from "@/lib/request-work-state"
@@ -26,6 +26,8 @@ export interface BoardPerson {
   via?: RecruiterVia
   /** Kto przypisał; `null` = nie wiadomo. */
   assigned_by_name?: string | null
+  /** Koszyk (0654): baza NEXUSA albo LinkedIn; brak = nie wybrano. */
+  channel?: RecruiterChannel | null
 }
 
 export interface BoardRequest {
@@ -51,6 +53,11 @@ export interface BoardRequest {
   p0_reason?: string | null
   /** Data otwarcia requestu (ISO): `opened_at`, a bez niej data dodania. */
   opened_effective_at?: string | null
+  /** 0654: plan koszyków; `null` = bez planu. */
+  channel_plan_base?: number | null
+  channel_plan_linkedin?: number | null
+  /** Rekruterzy, którzy ruszają karty bez przypisania do zespołu (30 dni). */
+  unassigned_workers?: { user_id: number; name: string; cards: number }[]
 }
 
 export interface BoardGroup {
@@ -77,6 +84,9 @@ export interface LoadPerson {
   count: number
   /** Propozycje automatu czekające na akceptację. */
   proposed?: number
+  /** Z `count`: rekrutacje P1 w koszyku „Baza” / „LinkedIn” (reszta bez koszyka). */
+  base?: number
+  linkedin?: number
   /** Rekrutacje bez priorytetu i „Przyjmujemy” — poza obłożeniem. */
   outside_p1?: number
   leave_until: string | null

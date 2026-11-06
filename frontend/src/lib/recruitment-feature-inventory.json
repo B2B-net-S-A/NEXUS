@@ -200,7 +200,7 @@
   {
    "id": "team.claim-join",
    "area": "naglowek",
-   "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin",
+   "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin; przy obsadzonej od 06.11.2026 „Dołącz do bazy” / „Dołącz do LinkedIna” w koszykach",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "joinJob",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
@@ -228,6 +228,30 @@
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "proposalActions",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
+  },
+  {
+   "id": "team.channel-buckets",
+   "area": "naglowek",
+   "opis": "Koszyki „Baza” / „LinkedIn” w zespole: kto szuka w bazie NEXUSA, a kto na LinkedInie, „→ Baza” / „→ LinkedIn”, „Bez koszyka”, „Dołącz do bazy / LinkedIna” (06.11.2026)",
+   "file": "components/v2/jobs/JobChannelBuckets.tsx",
+   "marker": "Bez koszyka",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji”"
+  },
+  {
+   "id": "team.channel-plan",
+   "area": "naglowek",
+   "opis": "Plan koszyków: ile osób w bazie i na LinkedInie; pusty koszyk z planem świeci (Head of Recruitment, Delivery Lead, admin)",
+   "file": "components/v2/jobs/JobChannelBuckets.tsx",
+   "marker": "Zapisz plan",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji”"
+  },
+  {
+   "id": "team.unassigned-workers",
+   "area": "naglowek",
+   "opis": "„Pracują bez przypisania”: rekruterzy, którzy w 30 dni ruszali karty, a nie są w zespole — ostrzeżenie zamiast bramki, z „Do bazy” / „Do LinkedIna”",
+   "file": "components/v2/jobs/JobChannelBuckets.tsx",
+   "marker": "Pracują bez przypisania",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji”"
   },
   {
    "id": "team.category",
