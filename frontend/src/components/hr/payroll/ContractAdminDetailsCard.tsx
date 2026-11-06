@@ -234,6 +234,7 @@ export function ContractAdminDetailsCard({
     <section
       aria-label="Szczegóły administracyjne"
       className="rounded-lg border border-border bg-card px-4 py-3"
+      data-tour="contract.admin-details"
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">

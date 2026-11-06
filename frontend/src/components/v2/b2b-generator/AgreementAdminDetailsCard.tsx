@@ -598,7 +598,10 @@ export function AgreementAdminDetailsCard({
             ) : null}
           </div>
 
-          <div className="@xl:col-span-2">
+          <div
+            className="@xl:col-span-2"
+            data-tour="b2b-generator.client-referral"
+          >
             <FieldLabel required={false}>
               Kandydat wskazany przez klienta
             </FieldLabel>

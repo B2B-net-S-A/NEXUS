@@ -1218,5 +1218,31 @@
     "where": "Profil → Twoje wygrane",
     "href": "/profile",
     "dot_anchor": "profile.my-wins"
+  },
+  {
+    "id": "kandydat-wskazany-przez-klienta",
+    "pr": 3097,
+    "title": "„Kandydat wskazany przez klienta” w umowie",
+    "why": "Gdy klient sam wskazał osobę, a my tylko przepuszczamy ją przez siebie, zaznacz „Tak”. Za taki placement premii nie ma i nie liczy się on do premii 200%.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "talent_community_manager"] },
+    "where": "Generator umów → Szczegóły administracyjne",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.client-referral"
+  },
+  {
+    "id": "szczegoly-administracyjne-kontraktu",
+    "pr": 3097,
+    "title": "Replacement i kandydat od klienta na podpisanym kontrakcie",
+    "why": "Zastępstwo, „za kogo” i kandydata wskazanego przez klienta poprawisz teraz w kontrakcie, z powodem. Premie kontraktu przeliczą się od razu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "permissions": ["payroll"] },
+    "where": "Kontrakt → Szczegóły administracyjne",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.admin-details"
   }
 ]
