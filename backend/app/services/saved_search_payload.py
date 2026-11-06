@@ -71,6 +71,8 @@ _LIST_DROPPED = frozenset(
         "include_active_recruitments",
         "include_last_activity",
         "include_last_talk",
+        "include_last_rejection",
+        "include_rejection_facets",
         "match_threshold",
         "profile_id",
         "semantics_version",

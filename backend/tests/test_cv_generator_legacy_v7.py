@@ -914,6 +914,100 @@ def test_facts_about_requirements_stay_in_the_summary(fact):
     assert fact in data["why_points"]
 
 
+def test_labels_with_colon_leave_points_three_to_five_only():
+    data = _standard_data(
+        [
+            "3 lata doświadczenia jako QA",
+            "Specjalizacja: Selenium",
+            "ETL: projektował procesy w hurtowni danych",
+            "Scrum/Agile: served as Scrum Master for four teams",
+            "Wdrożenie testów: 2 lata w Acme",
+        ]
+    )
+    _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"][1] == "Specjalizacja: Selenium"
+    assert data["why_points"][2] == "Projektował procesy w hurtowni danych"
+    assert data["why_points"][3] == "Served as Scrum Master for four teams"
+    assert data["why_points"][4] == "2 lata w Acme"
+
+
+def test_long_text_before_a_colon_is_not_a_label():
+    point = "Projektował procesy w hurtowni danych banku dla trzech zespołów analitycznych: ETL i raporty"
+    data = _standard_data([*FIVE[:2], point, *FIVE[3:]])
+    _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"][2] == point
+
+
+def _skill_data(*categories, languages=None):
+    return {
+        "skills": [
+            {"label": label, "content": content} for label, content in categories
+        ],
+        "languages": list(languages or []),
+    }
+
+
+def test_work_mode_soft_traits_and_driving_licence_leave_skill_data():
+    data = _skill_data(
+        (
+            "Narzędzia i metodyki:",
+            "Git (GitHub, Bitbucket), Jira, wzorce projektowe, Scrum, praca zdalna",
+        ),
+        ("Additional qualifications:", "Category B driving licence"),
+        ("Professional competencies:", "Time management, adaptability"),
+    )
+    removed = _helpers.clean_skill_sections(data)
+    assert data["skills"] == [
+        {
+            "label": "Narzędzia i metodyki:",
+            "content": "Git (GitHub, Bitbucket), Jira, wzorce projektowe, Scrum",
+        }
+    ]
+    assert "praca zdalna" in removed and "Category B driving licence" in removed
+
+
+def test_spoken_languages_leave_skills_without_getting_lost():
+    data = _skill_data(
+        ("Pozostałe:", "KSeF"),
+        ("Języki obce:", "Polski - ojczysty, Angielski - C1"),
+        languages=["Polski – ojczysty"],
+    )
+    _helpers.clean_skill_sections(data)
+    assert data["skills"] == [{"label": "Pozostałe:", "content": "KSeF"}]
+    assert data["languages"] == ["Polski – ojczysty", "Angielski - C1"]
+
+
+def test_technical_skills_that_mention_a_language_stay():
+    data = _skill_data(
+        ("Regulacje:", "Polish AML/CFT Act, German GwG"),
+        ("Języki programowania:", "Python, SQL"),
+    )
+    assert _helpers.clean_skill_sections(data) == []
+    assert len(data["skills"]) == 2
+
+
+def test_methodology_named_in_the_cv_is_not_lost_from_skills():
+    data = _skill_data(("Narzędzia:", "Git, Jira"))
+    added = _helpers.keep_source_methodologies(
+        data,
+        "Senior Engineer / Scrum master. Umiejętności: Scrum, Kanban, praca zdalna",
+        "pl",
+    )
+    assert added == ["Scrum", "Kanban"]
+    assert data["skills"][-1] == {"label": "Metodyki:", "content": "Scrum, Kanban"}
+
+
+def test_methodology_already_in_skills_or_absent_from_cv_adds_nothing():
+    data = _skill_data(("Metodyki:", "Scrum"))
+    assert (
+        _helpers.keep_source_methodologies(
+            data, "Scrum. Safe working conditions.", "pl"
+        )
+        == []
+    )
+    assert data["skills"] == [{"label": "Metodyki:", "content": "Scrum"}]
+
+
 def test_empty_summary_is_reported():
     data = _standard_data([])
     notes = _helpers._apply_summary_standard(data, "pl")
@@ -928,6 +1022,12 @@ def test_prompt_states_the_five_point_order_without_the_old_range(language):
     assert (
         "BEZ OCENY DOPASOWANIA" if language == "pl" else "NO FIT VERDICTS"
     ) in prompt
+    assert (
+        "Wiedza dziedzinowa i regulacje"
+        if language == "pl"
+        else "Domain knowledge and regulations"
+    ) in prompt
+    assert ("„Pozostałe”" if language == "pl" else '"Other"') in prompt
     assert "Maksymalnie 3-5" not in prompt
     assert "At most 3-5" not in prompt
     assert "3-4 p" not in prompt

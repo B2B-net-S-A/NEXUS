@@ -522,6 +522,46 @@ class ActiveRecruitmentBrief(BaseModel):
     moved_by_name: Optional[str] = None
 
 
+class LastRejectionBrief(BaseModel):
+    """„Ostatnie odrzucenie” na liście (06.11.2026, `candidate_last_rejection`).
+
+    Najnowsze odrzucenie albo rezygnacja, które jest nadal stanem swojej pary
+    (osoba, rekrutacja). `key` to klucz filtra (`r:…`, `t:…`, `none`), `who`
+    kto zakończył (`client` / `us` / `candidate`, reguła Insights).
+    """
+
+    key: str
+    label: str
+    who: Literal["client", "us", "candidate"]
+    ended_by: Optional[str] = None
+    note: Optional[str] = None
+    at: Optional[datetime] = None
+    job_id: int
+    job_title: Optional[str] = None
+    client_name: Optional[str] = None
+    moved_by_name: Optional[str] = None
+
+
+class RejectionFacetItem(BaseModel):
+    key: str
+    label: str
+    count: int
+
+
+class RejectionWhoCount(BaseModel):
+    key: Literal["client", "us", "candidate"]
+    count: int
+
+
+class RejectionFacets(BaseModel):
+    """Rozkład ostatnich odrzuceń w CAŁYM wyniku (bez samego filtra odrzucenia)."""
+
+    total: int
+    without_rejection: int
+    items: list[RejectionFacetItem]
+    who: list[RejectionWhoCount]
+
+
 class StageMatchBrief(BaseModel):
     """Przejście, które spełniło filtr „Dodany na etap / przez / od–do” (19.10.2026).
 
@@ -865,6 +905,8 @@ class CandidateResponse(BaseModel):
     last_note_preview: Optional[str] = None
     last_rejection_reason: Optional[str] = None
     last_rate: Optional[str] = None
+    # „Ostatnie odrzucenie” — tylko przy `include_last_rejection=true`.
+    last_rejection: Optional[LastRejectionBrief] = None
     # „Ostatnia rozmowa” (03.10.2026) — tylko przy `include_last_talk=true`:
     # najnowsza notatka z zakładki „Rozmowy” i liczba prób kontaktu.
     last_talk_at: Optional[datetime] = None
@@ -1042,6 +1084,9 @@ class CandidateList(BaseModel):
     # z tych filtrów nie działa albo osoby bez danych są ukryte — wtedy
     # `total` to same trafienia.
     known_match_count: Optional[int] = None
+    # Pasek „Ostatnie odrzucenie w tym wyniku” — tylko przy
+    # `include_rejection_facets=true`.
+    rejection_facets: Optional[RejectionFacets] = None
 
 
 class CandidateFromCVDuplicate(BaseModel):

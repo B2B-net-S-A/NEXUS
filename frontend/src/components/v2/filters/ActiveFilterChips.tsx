@@ -1,5 +1,6 @@
 "use client";
 
+import { NO_REJECTION_FILTER, rejectionFilterSummary } from "@/lib/candidate-last-rejection";
 import { useMemo } from"react";
 import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
@@ -586,6 +587,14 @@ function collectChips(
  clear: () => onUpdate({ recruitmentPresence: "", page: 1 }),
  });
  }
+ const rejectionLabel = rejectionFilterSummary(filters);
+ if (rejectionLabel) {
+ chips.push({
+ key: "rejection",
+ label: rejectionLabel,
+ clear: () => onUpdate({ ...NO_REJECTION_FILTER, page: 1 }),
+ });
+ }
  if (filters.experienceMin !== null || filters.experienceMax !== null) {
  const lo = filters.experienceMin;
  const hi = filters.experienceMax;
@@ -819,6 +828,7 @@ export function ActiveFilterChips({
  recruitmentMatch: "assigned",
  recruitmentClientIds: [],
  recruitmentPresence: "",
+ ...NO_REJECTION_FILTER,
  experienceMin: null,
  experienceMax: null,
  rateMin: null,

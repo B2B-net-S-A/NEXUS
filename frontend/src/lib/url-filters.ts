@@ -36,6 +36,11 @@ export type RecruitmentMatch = "assigned" | "not_assigned";
  */
 export type RecruitmentPresence = "" | "never" | "ever" | "not_in_process";
 export type RecentlyChangedJobs = 1 | 2 | 3 | null;
+/** Kto zakończył ostatni odrzucony proces — `rejection_by` w API. */
+export type RejectionWho = "client" | "us" | "candidate";
+export const REJECTION_WHO_VALUES: readonly RejectionWho[] = ["client", "us", "candidate"];
+/** Okres ostatniego odrzucenia: 0 = kiedykolwiek. */
+export type RejectionWithinMonths = 0 | 3 | 12;
 
 export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
 /**
@@ -183,6 +188,13 @@ export interface CandidateFilters {
   // zapisuj jego łatkami, nie ręcznie. W URL `recr_cl` (CSV) i `recr_p`.
   recruitmentClientIds: number[];
   recruitmentPresence: RecruitmentPresence;
+  // „Ostatnie odrzucenie” (06.11.2026): klucze powodów z API (`r:<etykieta>`,
+  // `t:<kategoria Traffita>`, `none`), kto zakończył, okres i „Ukryj”.
+  // W URL `rej` (PIPE — etykiety mają przecinki), `rej_by`, `rej_m`, `rej_x`.
+  rejectionKeys: string[];
+  rejectionBy: RejectionWho[];
+  rejectionWithinMonths: RejectionWithinMonths;
+  rejectionExclude: boolean;
   // Lata doświadczenia — inclusive numeric band (years of IT experience).
   // `null` on either side means that bound is open. The backend matches against
   // a derived per-candidate interval (exact `years_it_experience` or the coarse
@@ -316,6 +328,10 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   recruitmentMatch: "assigned",
   recruitmentClientIds: [],
   recruitmentPresence: "",
+  rejectionKeys: [],
+  rejectionBy: [],
+  rejectionWithinMonths: 0,
+  rejectionExclude: false,
   experienceMin: null,
   experienceMax: null,
   rateMin: null,
@@ -395,6 +411,16 @@ const RECRUITMENT_PRESENCE_VALUES: ReadonlySet<string> = new Set([
 const parseRecruitmentPresence = (raw: string | null): RecruitmentPresence =>
   raw && RECRUITMENT_PRESENCE_VALUES.has(raw) ? (raw as RecruitmentPresence) : "";
 
+const parseRejectionMonths = (raw: string | null): RejectionWithinMonths =>
+  raw === "3" ? 3 : raw === "12" ? 12 : 0;
+
+/** Czy filtr „Powód odrzucenia” coś zawęża (samo „Ukryj” — nie). */
+export function rejectionFilterActive(
+  f: Pick<CandidateFilters, "rejectionKeys" | "rejectionBy" | "rejectionWithinMonths">,
+): boolean {
+  return f.rejectionKeys.length > 0 || f.rejectionBy.length > 0 || f.rejectionWithinMonths > 0;
+}
+
 // Skill boolean expression. New URLs carry `skills_q` verbatim. Legacy URLs /
 // saved searches stored a flat `skills` CSV plus a `skill_combine` of `and`/`or`
 // — reconstruct an equivalent expression (`a AND b` / `a OR b`) so old shares
@@ -454,6 +480,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   }
   if (f.recruitmentClientIds.length) p.set("recr_cl", CSV(f.recruitmentClientIds));
   if (f.recruitmentPresence) p.set("recr_p", f.recruitmentPresence);
+  if (f.rejectionKeys.length) p.set("rej", PIPE(f.rejectionKeys));
+  if (f.rejectionBy.length) p.set("rej_by", CSV(f.rejectionBy));
+  if (f.rejectionWithinMonths) p.set("rej_m", String(f.rejectionWithinMonths));
+  if (f.rejectionExclude && rejectionFilterActive(f)) p.set("rej_x", "1");
   if (f.experienceMin !== null) p.set("exp_min", String(f.experienceMin));
   if (f.experienceMax !== null) p.set("exp_max", String(f.experienceMax));
   if (f.rateMin !== null) p.set("rate_min", String(f.rateMin));
@@ -579,6 +609,12 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
       sp.get("recr_mode") === "not_assigned" ? "not_assigned" : "assigned",
     recruitmentClientIds: parseCsvInt(sp.get("recr_cl")),
     recruitmentPresence: parseRecruitmentPresence(sp.get("recr_p")),
+    rejectionKeys: parsePipe(sp.get("rej")),
+    rejectionBy: parseCsv(sp.get("rej_by")).filter((v): v is RejectionWho =>
+      (REJECTION_WHO_VALUES as readonly string[]).includes(v),
+    ),
+    rejectionWithinMonths: parseRejectionMonths(sp.get("rej_m")),
+    rejectionExclude: sp.get("rej_x") === "1",
     experienceMin: parseYearBound(sp.get("exp_min")),
     experienceMax: parseYearBound(sp.get("exp_max")),
     rateMin: parseRateBound(sp.get("rate_min")),
@@ -831,6 +867,11 @@ export function filtersToApiParams(
       ? filters.recruitmentClientIds
       : undefined,
     recruitment_presence: filters.recruitmentPresence || undefined,
+    rejection_key: filters.rejectionKeys.length ? filters.rejectionKeys : undefined,
+    rejection_by: filters.rejectionBy.length ? filters.rejectionBy : undefined,
+    rejection_within_months: filters.rejectionWithinMonths || undefined,
+    rejection_exclude:
+      filters.rejectionExclude && rejectionFilterActive(filters) ? true : undefined,
     min_experience: filters.experienceMin ?? undefined,
     max_experience: filters.experienceMax ?? undefined,
     min_rate: filters.rateMin ?? undefined,
@@ -982,6 +1023,8 @@ export function filtersToApiCriteria(
     "include_active_recruitments",
     "include_last_activity",
     "include_last_talk",
+    "include_last_rejection",
+    "include_rejection_facets",
     "match_threshold",
   ]);
   return Object.fromEntries(
@@ -1067,6 +1110,10 @@ export type TraffitExtraFilters = Pick<
   | "contactedByIds"
   | "recruitmentClientIds"
   | "recruitmentPresence"
+  | "rejectionKeys"
+  | "rejectionBy"
+  | "rejectionWithinMonths"
+  | "rejectionExclude"
   | "stageColumns"
 >;
 
@@ -1083,6 +1130,10 @@ const TRAFFIT_EXTRA_KEYS = [
   "contactedByIds",
   "recruitmentClientIds",
   "recruitmentPresence",
+  "rejectionKeys",
+  "rejectionBy",
+  "rejectionWithinMonths",
+  "rejectionExclude",
   "stageColumns",
 ] as const satisfies ReadonlyArray<keyof TraffitExtraFilters>;
 
@@ -1100,6 +1151,10 @@ export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilter
     contactedByIds: filters.contactedByIds,
     recruitmentClientIds: filters.recruitmentClientIds,
     recruitmentPresence: filters.recruitmentPresence,
+    rejectionKeys: filters.rejectionKeys,
+    rejectionBy: filters.rejectionBy,
+    rejectionWithinMonths: filters.rejectionWithinMonths,
+    rejectionExclude: filters.rejectionExclude,
     stageColumns: filters.stageColumns,
   };
 }
