@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     Time,
@@ -351,6 +352,14 @@ class Job(Base, TimestampMixin):
     # ponownie, liczy się cała jej historia.
     cycle_started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # 0654: plan koszyków zespołu — ile osób ma szukać w bazie NEXUSA, a ile
+    # na LinkedInie (`services/job_channels.py`). NULL = bez planu.
+    channel_plan_base: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    channel_plan_linkedin: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
     )
 
     # Foreign keys

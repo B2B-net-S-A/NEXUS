@@ -35,7 +35,7 @@ Loader (``recruiters_for_jobs``) i klauzule SQL (``jobs_worked_by_clause``,
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, Optional
 
 from sqlalchemy import and_, exists, not_, or_, select, true
@@ -46,6 +46,7 @@ from sqlalchemy.orm import aliased, load_only
 from app.models.activity import Activity
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+from app.models.job_recruiter_channel import JobRecruiterChannel
 from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.user import User, UserRole
 from app.services.job_previous_recruiters import (
@@ -67,6 +68,9 @@ class TeamPerson:
     # Źródło żywego wiersza przypisania osoby (``auto`` | ``manual``); brak =
     # osoba jest przy rekrutacji bez takiego wiersza (prowadzący, współpracownik).
     assignment_source: Optional[str] = None
+    # Koszyk przy tej rekrutacji: ``base`` (baza NEXUSA) | ``linkedin``;
+    # brak = nikt jeszcze nie wybrał (0654, ``services/job_channels.py``).
+    channel: Optional[str] = None
 
 
 # Role, które pracują nad requestem (pulpit „Requesty i obłożenie”, planer).
@@ -293,6 +297,18 @@ async def recruiters_for_jobs(
     ).all()
 
     parked = await load_parked(db, ids)
+    channels: dict[tuple[int, int], str] = {
+        (row.job_id, row.user_id): row.channel
+        for row in (
+            await db.execute(
+                select(
+                    JobRecruiterChannel.job_id,
+                    JobRecruiterChannel.user_id,
+                    JobRecruiterChannel.channel,
+                ).where(JobRecruiterChannel.job_id.in_(ids))
+            )
+        ).all()
+    }
     wanted = {uid for uid in owners.values() if uid is not None}
     wanted.update(user_id for _job_id, user_id in collaborator_rows)
     users: dict[int, User] = {}
@@ -391,7 +407,12 @@ async def recruiters_for_jobs(
                 )
             )
             seen.add(row.user_id)
-        out[job_id] = people
+        out[job_id] = [
+            replace(person, channel=channels[(job_id, person.user_id)])
+            if (job_id, person.user_id) in channels
+            else person
+            for person in people
+        ]
     return out
 
 

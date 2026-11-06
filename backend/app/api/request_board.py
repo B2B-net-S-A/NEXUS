@@ -43,7 +43,7 @@ from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
-from app.services import job_p0
+from app.services import job_channels, job_p0
 from app.services.job_p0 import p0_rank_expr
 from app.services.job_priority import level_of
 from app.services.job_similarity import at_client_counts, board_column_counts
@@ -94,6 +94,12 @@ class BoardLead(BaseModel):
     name: str
 
 
+class BoardUnassigned(BaseModel):
+    user_id: int
+    name: str
+    cards: int
+
+
 class BoardRequest(BaseModel):
     job_id: int
     title: str
@@ -118,6 +124,11 @@ class BoardRequest(BaseModel):
     p0_reason: Optional[str] = None
     # Data otwarcia requestu; dla rekrutacji bez niej — data założenia wiersza.
     opened_effective_at: Optional[datetime] = None
+    # 0654: plan koszyków (ile osób w bazie / na LinkedInie; None = bez planu)
+    # i rekruterzy, którzy ruszają karty bez przypisania do zespołu.
+    channel_plan_base: Optional[int] = None
+    channel_plan_linkedin: Optional[int] = None
+    unassigned_workers: list[BoardUnassigned] = []
 
 
 class BoardGroup(BaseModel):
@@ -145,6 +156,10 @@ class LoadPerson(BaseModel):
     # (``proposed``) — do akceptacji to jeszcze nie praca.
     count: int
     proposed: int = 0
+    # Z ``count``: w ilu requestach P1 osoba jest w koszyku „Baza” / „LinkedIn”
+    # (0654); reszta to osoby bez wybranego koszyka.
+    base: int = 0
+    linkedin: int = 0
     # Requesty bez priorytetu i „Przyjmujemy” — poza obłożeniem, tylko liczba.
     outside_p1: int = 0
     leave_until: Optional[date]
@@ -239,6 +254,7 @@ def _board_person(person: TeamPerson, row_source: Optional[str]) -> BoardPerson:
         via=person.via,
         proposed=person.proposed,
         assigned_by_name=person.assigned_by_name,
+        channel=person.channel,
         source=source,
     )
 
@@ -311,6 +327,15 @@ async def get_request_board(
         )
     }
 
+    unassigned = await job_channels.unassigned_workers(
+        db,
+        {
+            job_id: [p.user_id for p in people if not p.proposed]
+            for job_id, people in team.items()
+        },
+        now=now,
+    )
+
     requests = [
         BoardRequest(
             job_id=job.id,
@@ -335,6 +360,12 @@ async def get_request_board(
             priority_level=level_of(job.priority),
             **_p0_fields(job, now),
             opened_effective_at=job.opened_at or job.created_at,
+            channel_plan_base=job.channel_plan_base,
+            channel_plan_linkedin=job.channel_plan_linkedin,
+            unassigned_workers=[
+                BoardUnassigned(user_id=w.user_id, name=w.name, cards=w.cards)
+                for w in unassigned.get(job.id, [])
+            ],
         )
         for job in jobs
     ]
@@ -398,6 +429,10 @@ async def get_request_board(
                 entry.proposed += 1
             else:
                 entry.count += 1
+                if person.channel == "base":
+                    entry.base += 1
+                elif person.channel == "linkedin":
+                    entry.linkedin += 1
             entry.requests.append(
                 LoadRequest(
                     job_id=request.job_id,
