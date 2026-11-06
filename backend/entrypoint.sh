@@ -5536,7 +5536,7 @@ END $$""",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS fte NUMERIC(3, 2)",
     "CREATE INDEX IF NOT EXISTS ix_contracts_replaced_contract_id "
     "ON contracts (replaced_contract_id)",
-    # 0654: kandydat wskazany przez klienta — bez premii z placementu.
+    # 0655: kandydat wskazany przez klienta — bez premii z placementu.
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
     "is_client_referral BOOLEAN",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS is_client_referral BOOLEAN",

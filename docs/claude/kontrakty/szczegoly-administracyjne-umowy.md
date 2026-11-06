@@ -1,5 +1,5 @@
-# Szczegóły administracyjne umowy — rekruter i DL z reguły premii, replacement, FTE i kandydat od klienta (0524, 0654)
-<!-- indeks: kafelek w Generatorze (B2B i zlecenie), rekruter/DL tylko do odczytu = odbiorcy premii, replacement + FTE obowiązkowe przy rekrutacji, kopia do kontraktu przy podpisie, dzwonek i przypomnienia dla prowadzącego, kandydat wskazany przez klienta bez premii (0654), kafelek w kontrakcie z powodem po podpisie -->
+# Szczegóły administracyjne umowy — rekruter i DL z reguły premii, replacement, FTE i kandydat od klienta (0524, 0655)
+<!-- indeks: kafelek w Generatorze (B2B i zlecenie), rekruter/DL tylko do odczytu = odbiorcy premii, replacement + FTE obowiązkowe przy rekrutacji, kopia do kontraktu przy podpisie, dzwonek i przypomnienia dla prowadzącego, kandydat wskazany przez klienta bez premii (0655), kafelek w kontrakcie z powodem po podpisie -->
 
 Zgłoszenie 26.10.2026: kafelek „Szczegóły administracyjne” w Generatorze pod
 „Źródłem danych” (Rekruter, Delivery Lead, Replacement, Wymiar FTE), dane
@@ -68,7 +68,7 @@ w trzech miejscach.
 - Kafelek w zakładce Szczegóły kontraktu (z edycją i terminem premii) to
   osobny PR; tak samo zmiany automatu premii (FTE, gwarancja).
 
-## Kandydat wskazany przez klienta (0654, 06.11.2026)
+## Kandydat wskazany przez klienta (0655, 06.11.2026)
 
 - Zgłoszenie Płac, decyzja Artura z 06.11.2026: klient sam wskazuje osobę,
   a my ją tylko przepuszczamy przez siebie (ERSTE, kontrakt 687). **Premii
@@ -76,7 +76,7 @@ w trzech miejscach.
   a kontrakt nie liczy się do premii 200% (`ludzie/premia-200-tcm-gwarancja.md`).
 - Kolumna `is_client_referral` (bool, NULL = nie wiadomo, liczy się jak „Nie”)
   w `b2b_generated_contracts` i `contracts`. Trzecie pole kafelka w Generatorze
-  (Tak/Nie, domyślnie „Nie”, nieobowiązkowe: umowa sprzed 0654 odtwarza się
+  (Tak/Nie, domyślnie „Nie”, nieobowiązkowe: umowa sprzed 0655 odtwarza się
   bez niego). „Oznacz jako podpisaną” kopiuje je fill-only jak FTE.
 
 ## Zmiana po podpisie: kafelek w kontrakcie (06.11.2026)

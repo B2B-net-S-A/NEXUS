@@ -109,7 +109,7 @@ async def signed_dates(
 async def month_contracts(db: AsyncSession, year: int, month: int) -> list[Contract]:
     """Kontrakty podpisane w miesiącu (bez szkiców, unieważnionych i powrotów).
 
-    Bez kandydatów wskazanych przez klienta (0654): nie liczą się rekruterowi
+    Bez kandydatów wskazanych przez klienta (0655): nie liczą się rekruterowi
     do celu ani do średniej marży DL-a (decyzja Artura 06.11.2026).
     """
 

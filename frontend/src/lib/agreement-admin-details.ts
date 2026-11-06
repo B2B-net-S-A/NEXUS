@@ -2,7 +2,7 @@
  * „Szczegóły administracyjne” umowy w Generatorze (0524, decyzje Artura
  * 26.10.2026). Rekruter i Delivery Lead to odbiorcy premii z reguły automatu
  * (tylko do odczytu); wpisuje się replacement, wymiar FTE i „kandydat
- * wskazany przez klienta” (0654, decyzja Artura 06.11.2026). Czyste funkcje —
+ * wskazany przez klienta” (0655, decyzja Artura 06.11.2026). Czyste funkcje —
  * kafelek i oba formularze (B2B, zlecenie) korzystają z tych samych.
  */
 
@@ -87,7 +87,7 @@ export function adminFromSaved(
     isReplacement: form.is_replacement ?? null,
     replaced: form.is_replacement ? (replaced ?? null) : null,
     fte,
-    // Umowa sprzed 0654 nie zapisała pola: liczy się jak „Nie”.
+    // Umowa sprzed 0655 nie zapisała pola: liczy się jak „Nie”.
     isClientReferral: form.is_client_referral ?? false,
   };
 }

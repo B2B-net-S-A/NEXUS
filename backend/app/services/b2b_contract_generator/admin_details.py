@@ -263,7 +263,7 @@ async def apply_admin_details(
 
     Przy umowie powiązanej z rekrutacją replacement i FTE są obowiązkowe.
     „Kandydat wskazany przez klienta” nie: formularz wysyła domyślne „Nie”,
-    a brak pola (``render_payload`` sprzed 0654) zostawia NULL = „Nie”.
+    a brak pola (``render_payload`` sprzed 0655) zostawia NULL = „Nie”.
     Umowa ręczna (bez rekrutacji) zapisuje to, co przyszło.
     """
 
