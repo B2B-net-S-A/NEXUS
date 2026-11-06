@@ -27,6 +27,20 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 - **Odczyt produkcji przez SSH jest dozwolony dla rutyn, tylko do odczytu**
   (`default_transaction_read_only`), wąskimi zapytaniami: id, liczby, daty.
   Bez treści notatek. Odmowa uprawnień = wpis w raporcie, bez obchodzenia.
+- **Rutyny czytają produkcję wyłącznie przez `scripts/prod_readonly.py`**
+  (decyzja Artura z 06.11.2026), nie surowym `ssh`. W trybie auto klasyfikator
+  raz przepuszczał, raz odrzucał tę samą komendę SSH, a reguła zgody na `ssh`
+  dałaby rutynie dowolną komendę na produkcji. Skrypt ma stałe podkomendy:
+  `sql` (tylko SELECT/WITH, bez poleceń psql; w bazie sesja i transakcja
+  READ ONLY zakończona ROLLBACK), `env NAZWA…` (zmienne procesu 1 backendu
+  z białej listy, filtr na serwerze, nazwy sekretów odrzucone), `backup-log [N]`
+  i `health`. Reguła zgody Claude Code obejmuje tylko kopię skryptu
+  w `~/.claude/nexus-rutyny/bin/`, a host i klucz są w
+  `~/.claude/nexus-rutyny/prod-readonly.conf`, bo repo jest publiczne.
+  Kopia nie podąża za mainem sama: zmiana skryptu wchodzi do rutyn dopiero po
+  `install -m 755 scripts/prod_readonly.py ~/.claude/nexus-rutyny/bin/`, więc
+  scalony PR rutyny nie poszerza sam, co rutyny mogą na produkcji.
+  Bramki pilnuje `backend/tests/test_prod_readonly_script.py`.
 - **Nic nie idzie do ludzi.** Rutyna pisze szkic „daj znać”, wysyła Artur.
 - **Backup jest poza rutynami:** robi go admin osobno, więc `#1247`
   i `backup-drill.yml` nie są sprawą Dyżurnego.
