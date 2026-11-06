@@ -38,7 +38,6 @@ from app.services.care.skills import (
     name_key,
     suggester,
 )
-from app.services.skill_taxonomy_loader import refresh_alias_map
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +49,6 @@ JOB_WEIGHT = 20
 USAGE_KEY = "skill_dictionary_usage"
 DECISIONS = ("new", "alias", "generic", "soft", "noise")
 ACCEPTABLE = ("new", "alias")
-# Kategorie słownika bez ról (rola to nie umiejętność) + dwie, których słownik
-# jeszcze nie miał, a audyt pokazał ich dużo: praktyki i wiedza domenowa.
-EXTRA_CATEGORIES = ("practice", "domain")
 NAME_MAX = 100
 WORDS_MAX = 6
 
@@ -219,10 +215,7 @@ def loose_index(dictionary: SkillDictionary) -> dict[str, int]:
 
 
 def allowed_categories(dictionary: SkillDictionary) -> set[str]:
-    cats = {
-        c for c in dictionary.categories.values() if c and not c.startswith("role_")
-    }
-    return cats | set(EXTRA_CATEGORIES)
+    return skill_curation.allowed_categories(dictionary.categories.values())
 
 
 @dataclass
@@ -699,10 +692,7 @@ async def accept(
     if canonical is not None:
         row.canonical = canonical.strip()[:200] or None
     if category is not None:
-        known = allowed_categories(dictionary) | {
-            c for c in dictionary.categories.values() if c
-        }
-        if category and category not in known:
+        if category and category not in allowed_categories(dictionary):
             raise ProposalError(f"Nieznana kategoria „{category}”.")
         row.category = category or None
     if target_skill_id is not None:
@@ -722,8 +712,9 @@ async def accept(
         await db.rollback()
         raise ProposalError(str(exc)) from exc
     await db.commit()
-    await refresh_alias_map()
-    return {"id": row.id, "status": row.status, "skill_id": row.target_skill_id}
+    skill_id = row.target_skill_id
+    await skill_curation.after_dictionary_change(db, [skill_id] if skill_id else [])
+    return {"id": row.id, "status": row.status, "skill_id": skill_id}
 
 
 async def reject(
@@ -747,7 +738,7 @@ async def accept_sure(db: AsyncSession, *, curated_by: Optional[str]) -> dict:
             .with_for_update()
         )
     ).all()
-    accepted = 0
+    accepted: list[int] = []
     skipped: list[dict] = []
     for row in rows:
         if not is_sure(row):
@@ -755,13 +746,13 @@ async def accept_sure(db: AsyncSession, *, curated_by: Optional[str]) -> dict:
         try:
             async with db.begin_nested():
                 await _apply(db, row, curated_by=curated_by)
-            accepted += 1
+            accepted.append(row.target_skill_id)
         except (skill_curation.CurationError, ProposalError) as exc:
             skipped.append({"id": row.id, "name": row.display_name, "reason": str(exc)})
     await db.commit()
     if accepted:
-        await refresh_alias_map()
-    return {"accepted": accepted, "skipped": skipped}
+        await skill_curation.after_dictionary_change(db, [i for i in accepted if i])
+    return {"accepted": len(accepted), "skipped": skipped}
 
 
 # ── Odczyt ──────────────────────────────────────────────────────────────────

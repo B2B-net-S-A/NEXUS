@@ -36,6 +36,7 @@
   "GET /api/skills-admin/proposals": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PATCH /api/skills-admin/skills/{skill_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "POST /api/skills-admin/proposals/accept-sure": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "POST /api/skills-admin/proposals/{proposal_id}/accept": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "POST /api/skills-admin/proposals/{proposal_id}/reject": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
