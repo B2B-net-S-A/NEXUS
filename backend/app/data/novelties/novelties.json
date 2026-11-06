@@ -1329,5 +1329,31 @@
     "href": "/candidates",
     "section": "sourcing",
     "dot_anchor": "candidates.rejection-filter"
+  },
+  {
+    "id": "p0-w-oblozeniu",
+    "pr": 3103,
+    "title": "Liczba P0 przy każdej osobie w „Obłożeniu”",
+    "why": "Czerwona plakietka mówi, ile rekrutacji P0 ma osoba. Najbardziej obłożeni P0 stoją na górze listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Daily → Obłożenie",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "daily.load-p0"
+  },
+  {
+    "id": "p0-po-terminie-decyzja",
+    "pr": 3103,
+    "title": "P0 po terminie czeka na Twoją decyzję",
+    "why": "P0 nie znika już samo, gdy minie termin. Plakietka mówi „P0 · minęło …”, a Ty wybierasz „Przedłuż o 24 h” albo „Zakończ P0”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Daily → wiersz z P0 po terminie",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "p0.overdue-actions"
   }
 ]

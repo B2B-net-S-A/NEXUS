@@ -7,8 +7,7 @@ w poziom ponad P1:
 * ustawia Head of Recruitment albo admin, z powodem, który widzą wszyscy;
 * trwa 24 h (do wyboru 48 h albo do piątku 18:00), „Przedłuż o 24 h”
   i „Zdejmij P0” w nagłówku rekrutacji; bez limitu naraz;
-* P0 to nakładka z terminem nad ``jobs.priority`` — po terminie po prostu
-  przestaje obowiązywać (bez pętli w tle), a zespół nie przechodzi do
+* P0 to nakładka z terminem nad ``jobs.priority``; zespół nie przechodzi do
   „Poprzedni rekruter”, bo priorytet się nie zmienia;
 * P0 stoi na górze listy rekrutacji, tablicy requestów i Daily niezależnie
   od sortowania; automat przydziału traktuje je jak P1; champion go nie
@@ -26,6 +25,12 @@ Propozycje Olafa z 28.10.2026 (decyzje Artura):
   i czas); Head of Recruitment albo admin zatwierdza (= ustawia P0 z tym
   powodem i czasem) albo odrzuca. Jedna oczekująca prośba na rekrutację.
 
+Prośba Olafa z 06.11.2026 (decyzja Artura): P0 po terminie nie znika samo.
+Trwa „po terminie”, dopóki Head of Recruitment albo admin nie wybierze
+„Przedłuż o 24 h” albo „Zakończ P0”; pętla ``tasks/job_p0_overdue`` dzwoni
+wtedy do nich raz na termin. Dotyczy terminów od ``CONFIRM_FROM`` — starsze
+P0 skończyły się po staremu i nie wracają.
+
 Reguła: ``docs/claude/rekrutacja-tablica/p0-ultrapilne-24-h.md``.
 """
 
@@ -38,7 +43,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ
@@ -68,6 +73,11 @@ ACTION_REQUESTED = "p0_requested"
 ACTION_REQUEST_REJECTED = "p0_request_rejected"
 
 REQUEST_DENIED = "O P0 prosi Delivery Lead tej rekrutacji."
+
+# 06.11.2026: od tego terminu P0 po terminie czeka na decyzję (północ
+# 06.11 w Warszawie). Starsze terminy skończyły się, zanim była ta reguła —
+# decyzja Artura: wracają tylko P0, które minęły 06.11 i później.
+CONFIRM_FROM = datetime(2026, 11, 5, 23, 0, tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -126,17 +136,25 @@ def normalize_reason(raw: Optional[str]) -> str:
 
 
 def is_active(job: Any, now: Optional[datetime] = None) -> bool:
+    """P0 obowiązuje: przed terminem i po terminie, dopóki ktoś go nie zakończy."""
     until = getattr(job, "p0_until", None)
     if until is None or getattr(job, "status", None) != JobStatus.published:
         return False
-    return _utc(until) > (now or datetime.now(timezone.utc))
+    until = _utc(until)
+    return until > (now or datetime.now(timezone.utc)) or until >= CONFIRM_FROM
+
+
+def is_overdue(job: Any, now: Optional[datetime] = None) -> bool:
+    """Termin minął, P0 czeka na „Przedłuż” albo „Zakończ”."""
+    now = now or datetime.now(timezone.utc)
+    return is_active(job, now) and _utc(job.p0_until) <= now
 
 
 def active_clause():
-    """SQL: rekrutacja otwarta z P0, którego termin jeszcze nie minął."""
+    """SQL: rekrutacja otwarta z P0 przed terminem albo czekającym na decyzję."""
     return and_(
         Job.p0_until.is_not(None),
-        Job.p0_until > func.now(),
+        or_(Job.p0_until > func.now(), Job.p0_until >= CONFIRM_FROM),
         Job.status == JobStatus.published,
     )
 
@@ -147,7 +165,7 @@ def p0_rank_expr():
 
 
 def fields(job: Any, *, set_by_name: Optional[str] = None) -> dict[str, Any]:
-    """Pola P0 do odpowiedzi API; po terminie — puste."""
+    """Pola P0 do odpowiedzi API; bez P0 — puste."""
     if not is_active(job):
         return {
             "is_p0": False,
@@ -212,12 +230,12 @@ async def extend_p0(
     actor_id: Optional[int],
     now: Optional[datetime] = None,
 ) -> None:
-    """„Przedłuż o 24 h” — od obecnego terminu, nie od teraz."""
+    """„Przedłuż o 24 h” — od obecnego terminu, a po terminie od teraz."""
     _require_open(job)
     now = now or datetime.now(timezone.utc)
     if not is_active(job, now):
         raise P0Error(409, "P0 już nie obowiązuje — ustaw je od nowa z powodem.")
-    job.p0_until = _utc(job.p0_until) + EXTEND_BY
+    job.p0_until = max(_utc(job.p0_until), now) + EXTEND_BY
     db.add(
         Activity(
             entity_type="job",
@@ -237,8 +255,9 @@ async def clear_p0(
     actor_id: Optional[int],
     now: Optional[datetime] = None,
 ) -> bool:
-    """„Zdejmij P0”. ``False``, gdy P0 już nie obowiązywało."""
+    """„Zdejmij P0” (po terminie „Zakończ P0”). ``False``, gdy P0 już nie obowiązywało."""
     active = is_active(job, now)
+    overdue = is_overdue(job, now)
     job.p0_until = None
     job.p0_reason = None
     job.p0_set_at = None
@@ -250,7 +269,7 @@ async def clear_p0(
                 entity_id=job.id,
                 action=ACTION_CLEARED,
                 user_id=actor_id,
-                details={},
+                details={"overdue": True} if overdue else {},
             )
         )
     await db.flush()
@@ -338,6 +357,83 @@ async def reject_request(
         )
     )
     await db.flush()
+
+
+async def overdue_recipients(db: AsyncSession, job: Job) -> list[int]:
+    """Kto decyduje o P0 po terminie: Head of Recruitment (bez nich admini)
+    i osoba, która ustawiła P0, jeśli nadal może je ustawiać."""
+    ids = list(await head_of_recruitment_recipients(db))
+    if job.p0_set_by is not None:
+        setter = await db.get(User, job.p0_set_by)
+        if setter is not None and setter.is_active and can_set_p0(setter):
+            ids.append(setter.id)
+    return list(dict.fromkeys(ids))
+
+
+async def notify_overdue(db: AsyncSession, now: Optional[datetime] = None) -> int:
+    """Dzwonek „Termin P0 minął” — raz na termin każdej rekrutacji.
+
+    Ślad = wpis ``job_p0_overdue`` dla tej rekrutacji nie starszy niż obecny
+    termin, więc restart pętli nic nie powtarza, a po „Przedłuż” i kolejnym
+    upływie terminu dzwonek przychodzi znowu.
+    """
+    from app.models.notification import Notification  # noqa: PLC0415
+    from app.services.job_working_title import display_title  # noqa: PLC0415
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    now = now or datetime.now(timezone.utc)
+    jobs = (
+        await db.scalars(
+            select(Job)
+            .where(active_clause(), Job.p0_until <= now)
+            .order_by(Job.p0_until.asc(), Job.id.asc())
+        )
+    ).all()
+    sent = 0
+    for job in jobs:
+        already = await db.scalar(
+            select(func.count(Notification.id)).where(
+                Notification.notification_type == NotificationType.job_p0_overdue,
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == job.id,
+                Notification.created_at >= job.p0_until,
+            )
+        )
+        if already:
+            continue
+        client_name = await db.scalar(
+            select(func.coalesce(Client.display_name, Client.name)).where(
+                Client.id == job.client_id
+            )
+        )
+        head = display_title(job)
+        head = f"{head} · {client_name}" if client_name else head
+        for user_id in await overdue_recipients(db, job):
+            try:
+                async with db.begin_nested():
+                    row = await emit(
+                        db,
+                        user_id=user_id,
+                        title="Termin P0 minął — przedłuż albo zakończ",
+                        message=(
+                            f"{head}. Termin {_local_label(job.p0_until)}. "
+                            f"Powód: {job.p0_reason}. P0 trwa, dopóki go nie zakończysz."
+                        ),
+                        ntype=NotificationType.job_p0_overdue,
+                        related_entity_type="job",
+                        related_entity_id=job.id,
+                        link=f"/jobs/{job.id}",
+                    )
+                if row is not None:
+                    sent += 1
+            except Exception:  # noqa: BLE001 — jeden dzwonek nie zatrzymuje reszty
+                logger.exception(
+                    "job_p0: dzwonek po terminie dla user_id=%s job_id=%s nie powstał",
+                    user_id,
+                    job.id,
+                )
+    await db.commit()
+    return sent
 
 
 def request_fields(job: Any) -> dict[str, Any]:

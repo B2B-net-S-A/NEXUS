@@ -104,6 +104,8 @@ def test_prep_change_catalog_names_everyone_who_gets_the_mail():
         ("job_p0_set", "P0: ultrapilne do 28.10 10:09", "job", "job_p0"),
         # 28.10.2026: Delivery Lead prosi o P0 — mail do Head of Recruitment.
         ("job_p0_requested", "Marcin K. prosi o P0", "job", "job_p0"),
+        # 06.11.2026: termin P0 minął — Head of Recruitment przedłuża albo kończy.
+        ("job_p0_overdue", "Termin P0 minął — przedłuż albo zakończ", "job", "job_p0"),
         # 28.10.2026: zamknięta rekrutacja z Twoimi osobami od „CV wysłane”.
         (
             "job_closed_people_waiting",

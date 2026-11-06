@@ -92,8 +92,10 @@ import { warsawDateOf } from "@/lib/warsaw-date"
 import { ChangesPanel, LoadPanel } from "./LoadPanel"
 import { RequestBoardFilters } from "./RequestBoardFilters"
 import { P0Chip } from "@/components/v2/jobs/p0/P0Chip"
+import { P0OverdueActions } from "@/components/v2/jobs/p0/P0OverdueActions"
+import { useNow } from "@/components/v2/jobs/p0/useNow"
 import { SetP0Dialog } from "@/components/v2/jobs/p0/SetP0Dialog"
-import { isP0Active } from "@/lib/job-p0"
+import { isP0Active, isP0Overdue } from "@/lib/job-p0"
 import { hasRole, useAuthStore } from "@/store/auth"
 
 // Układ zależy od szerokości KONTENERA, nie okna: ten sam pulpit stoi
@@ -360,7 +362,11 @@ function RequestRow({
 }: RowProps) {
   const toast = useToastIfProvided()
   const [p0DialogOpen, setP0DialogOpen] = useState(false)
-  const p0 = isP0Active(request, now)
+  const p0 = isP0Active(request)
+  // 06.11.2026: P0 po terminie trwa do decyzji Head of Recruitment. Zegar,
+  // nie `now` wiersza — to 12:00 dnia firmy, do terminów klienta.
+  const clock = useNow()
+  const overdue = isP0Overdue(request, clock)
   const people = sortByChannel(boardPeople(request))
   const channelNotes = boardChannelNotes(request)
   const busy = (person: BoardPerson) =>
@@ -456,6 +462,9 @@ function RequestRow({
             open={p0DialogOpen}
             onOpenChange={setP0DialogOpen}
           />
+        ) : null}
+        {overdue ? (
+          <P0OverdueActions jobId={request.job_id} canDecide={canSetP0} className="mt-1" />
         ) : null}
         {/* Powód P0 (28.10.2026): w samym dymku chipu nikt go nie czytał. */}
         {p0 && request.p0_reason ? (
@@ -767,7 +776,7 @@ export function RequestBoardView({
             !daily && "@min-[640px]/rboard:grid-cols-2",
           )}
         >
-          <LoadPanel load={board.load} today={today} />
+          <LoadPanel load={board.load} today={today} requests={board.requests} />
           {!daily && <ChangesPanel changes={board.changes} since={board.changes_since} />}
         </aside>
       </div>

@@ -19,10 +19,10 @@ import {
 } from "@/lib/api/jobP0";
 import { useRequestBoard } from "@/lib/api/requestAllocation";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
-import { isP0Active, P0_DURATION_OPTIONS } from "@/lib/job-p0";
+import { isP0Active, isP0Overdue, P0_DURATION_OPTIONS } from "@/lib/job-p0";
 
 import { P0Chip } from "./P0Chip";
-import { useNow } from "./useNow";
+import { P0OverdueActions } from "./P0OverdueActions";
 
 /** Ile P0 panel pokazuje od razu — 5 wierszy tabeli zajmuje cały ekran 1280 × 720. */
 export const P0_PANEL_VISIBLE = 3;
@@ -38,7 +38,7 @@ function durationLabel(duration: P0Request["duration"]): string {
 }
 
 /** Wiersz P0 spoza tablicy requestów (np. rekrutacja z championem, nie „Szukamy”). */
-function FallbackRow({ item }: { item: P0Job }) {
+function FallbackRow({ item, canDecide }: { item: P0Job; canDecide: boolean }) {
   return (
     <li
       className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-lg border border-destructive/25 bg-card px-3 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
@@ -63,6 +63,10 @@ function FallbackRow({ item }: { item: P0Job }) {
             ? ` · DL: ${shortenPersonName(item.delivery_lead_name) ?? item.delivery_lead_name}`
             : null}
         </p>
+        {/* 06.11.2026: P0 po terminie trwa do decyzji Head of Recruitment. */}
+        {isP0Overdue(item) ? (
+          <P0OverdueActions jobId={item.job_id} canDecide={canDecide} className="mt-1" />
+        ) : null}
       </div>
       <Button asChild size="sm" variant="outline" className="col-span-2 justify-self-start bg-card sm:col-span-1">
         <Link href={`/jobs/${item.job_id}`}>Otwórz tablicę</Link>
@@ -164,12 +168,11 @@ function P0Requests({ requests, canDecide }: { requests: P0Request[]; canDecide:
  * prośby Delivery Leadów o P0.
  */
 export function P0NowPanel({ className }: { className?: string }) {
-  const now = useNow();
   const query = useP0Jobs();
   const board = useRequestBoard({ enabled: query.isSuccess });
   const [expanded, setExpanded] = useState(false);
   const items = (query.data?.items ?? []).filter((item) =>
-    isP0Active({ is_p0: true, p0_until: item.p0_until }, now),
+    isP0Active({ is_p0: true, p0_until: item.p0_until }),
   );
   const requests = query.data?.requests ?? [];
   const boardIds = useMemo(
@@ -213,7 +216,7 @@ export function P0NowPanel({ className }: { className?: string }) {
       {outside.length > 0 ? (
         <ul className="grid gap-2">
           {outside.map((item) => (
-            <FallbackRow key={item.job_id} item={item} />
+            <FallbackRow key={item.job_id} item={item} canDecide={query.data.can_set} />
           ))}
         </ul>
       ) : null}

@@ -183,6 +183,9 @@ SPECS: dict[str, _Spec] = {
     "job_p0_requested": _Spec(
         "Prośba o P0 do zatwierdzenia", chip="P0", label="Otwórz pulpit"
     ),
+    "job_p0_overdue": _Spec(
+        "Termin P0 minął — przedłuż albo zakończ", chip="P0", label="Otwórz rekrutację"
+    ),
     "job_closed_people_waiting": _Spec(
         "Daj znać swoim osobom",
         chip="Rekrutacja zamknięta",

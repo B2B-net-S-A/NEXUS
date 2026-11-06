@@ -342,3 +342,44 @@ async def test_hor_rejects_request_and_no_p0_appears(app_client: AsyncClient):
         f"/api/jobs/{world['job']}/p0/request", headers=world["recruiter"]
     )
     assert outsider_reject.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_overdue_p0_stays_listed_and_rings_hor_once(app_client: AsyncClient):
+    """06.11.2026: P0 po terminie trwa (pasek, pulpit) i dzwoni do HoR raz na termin."""
+    from app.services import job_p0
+
+    world = await _world()
+    setter_id, setter = await _user(UserRole.admin)
+    assert (await _set(app_client, setter, world["job"])).status_code == 200
+    past = datetime.now(timezone.utc) - timedelta(hours=2)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job"])
+        job.p0_until = past
+        await db.commit()
+
+    listed = await app_client.get("/api/p0-jobs", headers=world["hor"])
+    assert world["job"] in [item["job_id"] for item in listed.json()["items"]]
+
+    async with AsyncSessionLocal() as db:
+        await job_p0.notify_overdue(db)
+    async with AsyncSessionLocal() as db:
+        await job_p0.notify_overdue(db)  # drugi przebieg nic nie powtarza
+        rows = (
+            await db.scalars(
+                select(Notification.user_id).where(
+                    Notification.notification_type == NotificationType.job_p0_overdue,
+                    Notification.related_entity_id == world["job"],
+                )
+            )
+        ).all()
+    assert rows.count(world["hor_id"]) == 1
+    assert rows.count(setter_id) == 1
+    assert world["recruiter_id"] not in rows
+
+    ended = await app_client.delete(
+        f"/api/jobs/{world['job']}/p0", headers=world["hor"]
+    )
+    assert ended.status_code == 200
+    listed = await app_client.get("/api/p0-jobs", headers=world["hor"])
+    assert world["job"] not in [item["job_id"] for item in listed.json()["items"]]

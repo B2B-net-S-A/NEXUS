@@ -143,9 +143,12 @@ CATALOG = (
         label="P0 na rekrutacji",
         module="Rekrutacje",
         trigger="Head of Recruitment albo administrator ustawił rekrutacji P0 — "
-        "ultrapilne przez 24 h (48 h albo do piątku), z powodem.",
+        "ultrapilne przez 24 h (48 h albo do piątku), z powodem. Też: Delivery "
+        "Lead prosi o P0 i termin P0 minął (P0 trwa do decyzji).",
         recipient_rule="Rekruterzy pracujący nad rekrutacją i jej Delivery Lead, "
-        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin.",
+        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin. "
+        "Prośba DL i termin po upływie — Head of Recruitment (termin też osoba, "
+        "która ustawiła P0).",
     ),
     # Mail obowiązkowy (28.10.2026) — `services/job_closed_notices.py`.
     dict(
@@ -603,7 +606,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     ),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
-    JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
+    JOB_P0_KIND: ("job_p0_set", "job_p0_requested", "job_p0_overdue"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
     DEPARTED_CARE_KIND: ("departed_pairs_care",),
     ANNOUNCEMENT_KIND: ("announcement_important",),
