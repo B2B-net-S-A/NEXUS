@@ -3498,7 +3498,7 @@ export interface AgreementAdminFields {
   is_replacement?: boolean | null;
   replaced_contract_id?: number | null;
   fte?: AgreementFte | null;
-  /** Kandydat wskazany przez klienta (0655): bez premii z placementu. */
+  /** Kandydat wskazany przez klienta (0656): bez premii z placementu. */
   is_client_referral?: boolean | null;
 }
 

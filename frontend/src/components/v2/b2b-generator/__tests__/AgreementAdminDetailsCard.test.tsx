@@ -1,7 +1,7 @@
 /**
  * Kafelek „Szczegóły administracyjne” (0524): odbiorcy premii z rekrutacji
  * tylko do odczytu, komunikat o osobie prowadzącej, podpowiedzi po wybraniu
- * rekrutacji, „Replacement za kogo” i „Kandydat wskazany przez klienta” (0655).
+ * rekrutacji, „Replacement za kogo” i „Kandydat wskazany przez klienta” (0656).
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

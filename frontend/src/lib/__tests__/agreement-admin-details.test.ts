@@ -1,7 +1,7 @@
 /**
  * „Szczegóły administracyjne” umowy (0524): podpowiedzi, kompletność,
  * ładunek, odtworzenie przy „Popraw umowę”, gwarancja i termin premii przy FTE,
- * „kandydat wskazany przez klienta” (0655).
+ * „kandydat wskazany przez klienta” (0656).
  */
 import { describe, expect, it } from "vitest";
 

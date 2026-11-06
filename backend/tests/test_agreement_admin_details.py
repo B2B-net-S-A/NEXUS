@@ -202,7 +202,7 @@ def test_signature_keeps_what_the_contract_already_says() -> None:
 
 
 def test_signature_copies_client_referral_fill_only() -> None:
-    """Kandydat wskazany przez klienta (0655): jak FTE — kontrakt wygrywa."""
+    """Kandydat wskazany przez klienta (0656): jak FTE — kontrakt wygrywa."""
 
     contract = Contract(id=10)
     row = B2BGeneratedContract(is_client_referral=True)

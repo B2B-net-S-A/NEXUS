@@ -1,7 +1,7 @@
 """Kandydat wskazany przez klienta: bez premii z placementu.
 
-Revision ID: 0655_client_referral_contract
-Revises: 0654_b2b_signed_on_source
+Revision ID: 0656_client_referral_contract
+Revises: 0655_job_recruiter_channels
 
 Decyzja Artura z 06.11.2026 (zgłoszenie Płac): za kandydata, którego klient
 wskazał do przepuszczenia przez nas, premii z placementu nie dostaje nikt —
@@ -16,8 +16,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0655_client_referral_contract"
-down_revision = "0654_b2b_signed_on_source"
+revision = "0656_client_referral_contract"
+down_revision = "0655_job_recruiter_channels"
 branch_labels = None
 depends_on = None
 

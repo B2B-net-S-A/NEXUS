@@ -9,7 +9,7 @@
  * `admin`). Umowę może wygenerować każdy, ale gdy robi to ktoś inny niż
  * prowadzący, kafelek mówi wprost, że placement, premia i przypomnienia
  * zostają przy prowadzącym. Wpisuje się replacement, wymiar FTE i „kandydat
- * wskazany przez klienta” (0655): przy „Tak” premii z placementu nie dostaje
+ * wskazany przez klienta” (0656): przy „Tak” premii z placementu nie dostaje
  * nikt, a kontrakt nie liczy się do premii 200%.
  */
 

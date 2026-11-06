@@ -144,7 +144,7 @@ async def bonus_forecast(
                 Contract.start_date.is_not(None),
                 Contract.start_date >= floor,
                 Contract.returned_from_contract_id.is_(None),
-                # Kandydat wskazany przez klienta (0655): premii nie będzie.
+                # Kandydat wskazany przez klienta (0656): premii nie będzie.
                 Contract.is_client_referral.is_not(True),
                 _relevance_clause(user_id, dl_ids, client_ids),
             )

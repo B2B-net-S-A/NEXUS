@@ -265,7 +265,7 @@ class Contract(Base, TimestampMixin):
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
-    # Kandydat wskazany przez klienta (0655, decyzja Artura 06.11.2026): premii
+    # Kandydat wskazany przez klienta (0656, decyzja Artura 06.11.2026): premii
     # z placementu nie dostaje nikt i kontrakt nie liczy się do premii 200%.
     # NULL = nie wiadomo, liczy się jak „Nie”.
     is_client_referral: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

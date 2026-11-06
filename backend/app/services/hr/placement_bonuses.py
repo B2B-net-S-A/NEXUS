@@ -37,7 +37,7 @@ przez automat, ale nie wiersze z arkusza: te zostają z oznaczeniem do sprawdzen
 cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
 propozycje anulowane na stałe (``contract_deleted``, poza
 ``AUTO_CANCEL_REASONS``: nie ma czego przywracać), przyznane zostają. Kandydat wskazany przez
-klienta (``contracts.is_client_referral``, 0655) → żadnej premii z placementu,
+klienta (``contracts.is_client_referral``, 0656) → żadnej premii z placementu,
 propozycje anulowane z powodem ``client_referral``; „Nie” je przywraca. Gdy miesiąc premii
 zamknięto w międzyczasie, przywrócona propozycja idzie na pierwszy otwarty
 miesiąc (``restored_from_closed_period`` w migawce) — o wypłacie i tak
@@ -681,7 +681,7 @@ async def _lock_periods(
     )
 
 
-#: Powód anulowania przez automat: kandydat wskazany przez klienta (0655).
+#: Powód anulowania przez automat: kandydat wskazany przez klienta (0656).
 CLIENT_REFERRAL = "client_referral"
 
 #: Zastępstwo w gwarancji: krócej niż rok współpracy osoby zastąpionej.
