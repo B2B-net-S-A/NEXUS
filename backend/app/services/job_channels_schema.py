@@ -1,6 +1,6 @@
-"""DDL koszyków „Baza” / „LinkedIn” w zespole rekrutacji (0654, 06.11.2026).
+"""DDL koszyków „Baza” / „LinkedIn” w zespole rekrutacji (0655, 06.11.2026).
 
-Jedno źródło SQL dla migracji ``0654_job_recruiter_channels`` i lustra
+Jedno źródło SQL dla migracji ``0655_job_recruiter_channels`` i lustra
 w ``entrypoint.sh`` (alembic na produkcji bywa osierocony). Opis reguły:
 ``docs/claude/rekrutacja-tablica/koszyki-baza-linkedin-w-zespole.md``.
 

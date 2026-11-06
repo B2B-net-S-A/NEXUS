@@ -69,7 +69,7 @@ class TeamPerson:
     # osoba jest przy rekrutacji bez takiego wiersza (prowadzący, współpracownik).
     assignment_source: Optional[str] = None
     # Koszyk przy tej rekrutacji: ``base`` (baza NEXUSA) | ``linkedin``;
-    # brak = nikt jeszcze nie wybrał (0654, ``services/job_channels.py``).
+    # brak = nikt jeszcze nie wybrał (0655, ``services/job_channels.py``).
     channel: Optional[str] = None
 
 

@@ -36,7 +36,7 @@ export interface JobRecruiter {
   proposed: boolean;
   /** Kto przypisał (akceptacja propozycji, dodanie z pulpitu); `null` = nie wiadomo. */
   assigned_by_name: string | null;
-  /** Koszyk przy rekrutacji (0654): baza NEXUSA albo LinkedIn; brak = nie wybrano. */
+  /** Koszyk przy rekrutacji (0655): baza NEXUSA albo LinkedIn; brak = nie wybrano. */
   channel?: RecruiterChannel | null;
 }
 

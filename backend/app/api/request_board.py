@@ -124,7 +124,7 @@ class BoardRequest(BaseModel):
     p0_reason: Optional[str] = None
     # Data otwarcia requestu; dla rekrutacji bez niej — data założenia wiersza.
     opened_effective_at: Optional[datetime] = None
-    # 0654: plan koszyków (ile osób w bazie / na LinkedInie; None = bez planu)
+    # 0655: plan koszyków (ile osób w bazie / na LinkedInie; None = bez planu)
     # i rekruterzy, którzy ruszają karty bez przypisania do zespołu.
     channel_plan_base: Optional[int] = None
     channel_plan_linkedin: Optional[int] = None
@@ -157,7 +157,7 @@ class LoadPerson(BaseModel):
     count: int
     proposed: int = 0
     # Z ``count``: w ilu requestach P1 osoba jest w koszyku „Baza” / „LinkedIn”
-    # (0654); reszta to osoby bez wybranego koszyka.
+    # (0655); reszta to osoby bez wybranego koszyka.
     base: int = 0
     linkedin: int = 0
     # Requesty bez priorytetu i „Przyjmujemy” — poza obłożeniem, tylko liczba.

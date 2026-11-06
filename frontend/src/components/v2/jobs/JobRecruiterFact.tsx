@@ -109,7 +109,7 @@ export function JobRecruiterFact({
   const people = recruitersOf(job);
   const view = recruiterFactView(people, viewerId);
   const staffed = recruitersSummary(people).tooltip || "Bez rekrutera";
-  // Koszyk zalogowanej osoby (0654): rekruter widzi na Tablicy, czy szuka
+  // Koszyk zalogowanej osoby (0655): rekruter widzi na Tablicy, czy szuka
   // w bazie, czy na LinkedInie.
   const myChannel =
     people.find((p) => p.user_id === viewerId && !p.proposed)?.channel ?? null;

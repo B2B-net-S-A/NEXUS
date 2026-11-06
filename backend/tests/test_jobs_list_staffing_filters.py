@@ -423,7 +423,7 @@ async def test_rows_and_detail_carry_the_recruiter_role(
             "via",
             "proposed",
             "assigned_by_name",
-            # 0654: koszyk „Baza” / „LinkedIn” (``None`` = nie wybrano).
+            # 0655: koszyk „Baza” / „LinkedIn” (``None`` = nie wybrano).
             "channel",
         }
         assert [

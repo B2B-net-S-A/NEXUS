@@ -1378,7 +1378,7 @@ except Exception as _novelty_schema_err:  # noqa: BLE001
     print(f"novelty schema unavailable: {_novelty_schema_err!r}")
     _NOVELTY_TABLE_DDL = []
 
-# Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0654) — JEDNO źródło
+# Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655) — JEDNO źródło
 # z migracją (`app/services/job_channels_schema.py`).
 try:
     from app.services import job_channels_schema as _job_channels_schema
@@ -2599,7 +2599,7 @@ _COLUMN_STATEMENTS = [
     "NULL REFERENCES jobs(id) ON DELETE SET NULL",
     # 0652: początek bieżącego otwarcia (app/services/job_opening.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTAMPTZ NULL",
-    # 0654: plan koszyków Baza / LinkedIn (app/services/job_channels_schema.py).
+    # 0655: plan koszyków Baza / LinkedIn (app/services/job_channels_schema.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS channel_plan_base SMALLINT NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS channel_plan_linkedin SMALLINT NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na

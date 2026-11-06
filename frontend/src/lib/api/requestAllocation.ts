@@ -26,7 +26,7 @@ export interface BoardPerson {
   via?: RecruiterVia
   /** Kto przypisał; `null` = nie wiadomo. */
   assigned_by_name?: string | null
-  /** Koszyk (0654): baza NEXUSA albo LinkedIn; brak = nie wybrano. */
+  /** Koszyk (0655): baza NEXUSA albo LinkedIn; brak = nie wybrano. */
   channel?: RecruiterChannel | null
 }
 
@@ -53,7 +53,7 @@ export interface BoardRequest {
   p0_reason?: string | null
   /** Data otwarcia requestu (ISO): `opened_at`, a bez niej data dodania. */
   opened_effective_at?: string | null
-  /** 0654: plan koszyków; `null` = bez planu. */
+  /** 0655: plan koszyków; `null` = bez planu. */
   channel_plan_base?: number | null
   channel_plan_linkedin?: number | null
   /** Rekruterzy, którzy ruszają karty bez przypisania do zespołu (30 dni). */
