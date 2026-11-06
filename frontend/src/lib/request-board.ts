@@ -421,11 +421,12 @@ export function unstaffedCount(
 }
 
 /** W grupie: szukane od najbliższego terminu, champion na dole. */
-export function orderRequests(rows: BoardRequest[], now: Date = new Date()): BoardRequest[] {
+export function orderRequests(rows: BoardRequest[]): BoardRequest[] {
   return [...rows].sort((a, b) => {
-    // P0 — ultrapilne przez 24 h (27.10.2026) zawsze na górze kategorii.
-    const p0a = isP0Active(a, now)
-    const p0b = isP0Active(b, now)
+    // P0 — ultrapilne przez 24 h (27.10.2026) zawsze na górze kategorii;
+    // od 06.11.2026 także po terminie, dopóki ktoś go nie zakończy.
+    const p0a = isP0Active(a)
+    const p0b = isP0Active(b)
     if (p0a !== p0b) return p0a ? -1 : 1
     if (a.champion !== b.champion) return a.champion ? 1 : -1
     const da = a.deadline ?? "9999-12-31"

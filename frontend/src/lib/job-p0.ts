@@ -3,7 +3,8 @@
  * `backend/app/services/job_p0.py`.
  *
  * P0 to nakładka z terminem nad priorytetem: obowiązuje, dopóki rekrutacja
- * jest otwarta, a `p0_until` jest w przyszłości. Ustawia Head of Recruitment
+ * jest otwarta i nikt go nie zakończył — od 06.11.2026 także po terminie
+ * (prośba Olafa: koniec potwierdza Head of Recruitment). Ustawia Head of Recruitment
  * albo administrator, z powodem, który widzą wszyscy. P0 stoi na górze listy
  * rekrutacji, Daily i w górnym pasku; na pulpicie każdej osoby jest stały
  * panel. Reguła: `docs/claude/rekrutacja-tablica/p0-ultrapilne-24-h.md`.
@@ -24,7 +25,7 @@ export const P0_LABEL = "P0 Teraz — ultrapilne";
 // 28.10.2026 (propozycje Olafa): pulpit i górny pasek pokazują P0 tylko
 // zespołowi rekrutacji; lista rekrutacji i Daily — wszystkim, jak dotąd.
 export const P0_HINT =
-  "Na górze listy rekrutacji i Daily, a w górnym pasku i na pulpicie u rekruterów i Delivery Leada tej rekrutacji. Po terminie znika samo, priorytet zostaje.";
+  "Na górze listy rekrutacji i Daily, a w górnym pasku i na pulpicie u rekruterów i Delivery Leada tej rekrutacji. Po terminie trwa, dopóki Head of Recruitment go nie przedłuży albo nie zakończy; priorytet zostaje.";
 export const P0_SET_BY_HINT =
   "P0 ustawia Head of Recruitment albo administrator; Delivery Lead rekrutacji może o nie poprosić.";
 export const P0_REQUEST_HINT =
@@ -39,12 +40,29 @@ export interface P0Source {
   status?: string | null;
 }
 
-/** Czy P0 nadal obowiązuje — termin liczony na kliencie, bo strona wisi godzinami. */
-export function isP0Active(source: P0Source | null | undefined, now: Date = new Date()): boolean {
+/**
+ * Czy P0 obowiązuje. Od 06.11.2026 termin go nie kończy (koniec potwierdza
+ * Head of Recruitment), więc decyduje serwer: oddaje `p0_until` tylko
+ * rekrutacjom z P0 — przed terminem albo po nim, do decyzji.
+ */
+export function isP0Active(source: P0Source | null | undefined): boolean {
   if (!source || source.is_p0 === false || !source.p0_until) return false;
   if (source.status && source.status !== "published") return false;
-  const until = Date.parse(source.p0_until);
-  return Number.isFinite(until) && until > now.getTime();
+  return Number.isFinite(Date.parse(source.p0_until));
+}
+
+/** Termin minął, P0 czeka na „Przedłuż o 24 h” albo „Zakończ P0”. */
+export function isP0Overdue(source: P0Source | null | undefined, now: Date = new Date()): boolean {
+  return isP0Active(source) && Date.parse(source?.p0_until ?? "") <= now.getTime();
+}
+
+/** Ile po terminie: „minęło 55 min”, „minęło 3 h”, „minęło 2 dni”. */
+export function p0OverdueLabel(until: string, now: Date = new Date()): string {
+  const minutes = Math.max(Math.floor((now.getTime() - Date.parse(until)) / 60_000), 0);
+  if (minutes < 60) return `minęło ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `minęło ${hours} h`;
+  return `minęło ${Math.floor(hours / 24)} dni`;
 }
 
 /** Ile zostało: „23 h”, „45 min”, „2 dni 4 h”. Po terminie — `null`. */

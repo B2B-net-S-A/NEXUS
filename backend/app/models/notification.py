@@ -315,6 +315,10 @@ class NotificationType(str, enum.Enum):
     # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
     # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
     job_p0_requested = "job_p0_requested"
+    # 0657 (06.11.2026): termin P0 minął, a P0 trwa do decyzji — do Head of
+    # Recruitment i osoby, która ustawiła P0 („Przedłuż” albo „Zakończ”);
+    # related_entity=(job, id), raz na termin. Mail obowiązkowy jak przy P0.
+    job_p0_overdue = "job_p0_overdue"
     # 0617 (28.10.2026): rekrutacje bez ruchu Delivery Leada — JEDEN wpis
     # dziennie na osobę: DL (14 i 21 dni), Head of Recruitment (21 dni)
     # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).

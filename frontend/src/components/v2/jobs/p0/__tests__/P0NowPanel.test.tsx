@@ -86,10 +86,10 @@ describe("P0NowPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("bez tablicy requestów: zapasowe wiersze z powodem; wygasłe P0 pomija", () => {
+  it("bez tablicy requestów: zapasowe wiersze z powodem", () => {
     state.value = {
       isSuccess: true,
-      data: { items: [item(1, 23), { ...item(2, 1), p0_until: inHours(-2) }], can_set: false },
+      data: { items: [item(1, 23)], can_set: false },
     };
     state.board = { isSuccess: false, isError: true };
     render(<P0NowPanel />);
@@ -99,6 +99,25 @@ describe("P0NowPanel", () => {
     expect(rows[0]).toHaveTextContent("„Klient czeka na CV”");
     expect(screen.getByRole("link", { name: "Otwórz tablicę" })).toHaveAttribute("href", "/jobs/1");
     expect(screen.queryByTestId("p0-board")).toBeNull();
+  });
+
+  it("P0 po terminie zostaje (06.11.2026): HoR ma „Przedłuż” i „Zakończ”, reszta widzi, że czeka", () => {
+    const overdue = { ...item(2, 1), p0_until: inHours(-3) };
+    state.value = { isSuccess: true, data: { items: [item(1, 23), overdue], can_set: true } };
+    state.board = { isSuccess: false, isError: true };
+    const { unmount } = render(<P0NowPanel />);
+    expect(screen.getByRole("heading")).toHaveTextContent("Pilne u klientów · 2");
+    const rows = screen.getAllByTestId("p0-now-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toHaveTextContent("P0 · minęło 2 h");
+    expect(screen.getByRole("button", { name: "Przedłuż o 24 h" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zakończ P0" })).toBeInTheDocument();
+    unmount();
+
+    state.value = { isSuccess: true, data: { items: [overdue], can_set: false } };
+    render(<P0NowPanel />);
+    expect(screen.queryByRole("button", { name: "Zakończ P0" })).toBeNull();
+    expect(screen.getByTestId("p0-overdue-waiting")).toHaveTextContent("dopóki Head of Recruitment");
   });
 
   it("P0 z tablicy requestów idą wierszami Daily, reszta zapasowym wierszem", () => {

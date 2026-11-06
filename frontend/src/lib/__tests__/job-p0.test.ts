@@ -1,19 +1,49 @@
 import { describe, expect, it } from "vitest";
 
-import { isP0Active, p0Remaining, p0UntilLabel, validateP0Reason } from "@/lib/job-p0";
+import {
+  isP0Active,
+  isP0Overdue,
+  p0OverdueLabel,
+  p0Remaining,
+  p0UntilLabel,
+  validateP0Reason,
+} from "@/lib/job-p0";
 
 const NOW = new Date("2026-10-27T09:09:00Z"); // wtorek 10:09 w Warszawie
 
 describe("isP0Active", () => {
-  it("obowiązuje do terminu na otwartej rekrutacji", () => {
-    expect(isP0Active({ is_p0: true, p0_until: "2026-10-28T09:09:00Z", status: "published" }, NOW)).toBe(true);
+  it("obowiązuje na otwartej rekrutacji z terminem — także po terminie (06.11.2026)", () => {
+    expect(isP0Active({ is_p0: true, p0_until: "2026-10-28T09:09:00Z", status: "published" })).toBe(true);
+    expect(isP0Active({ is_p0: true, p0_until: "2026-10-27T09:08:00Z", status: "published" })).toBe(true);
   });
-  it("po terminie, bez terminu, na zamkniętej i przy is_p0=false — nie", () => {
-    expect(isP0Active({ p0_until: "2026-10-27T09:08:00Z" }, NOW)).toBe(false);
-    expect(isP0Active({ p0_until: null }, NOW)).toBe(false);
-    expect(isP0Active({ p0_until: "2026-10-28T09:09:00Z", status: "closed" }, NOW)).toBe(false);
-    expect(isP0Active({ is_p0: false, p0_until: "2026-10-28T09:09:00Z" }, NOW)).toBe(false);
-    expect(isP0Active(null, NOW)).toBe(false);
+  it("bez terminu, na zamkniętej i przy is_p0=false — nie", () => {
+    expect(isP0Active({ p0_until: null })).toBe(false);
+    expect(isP0Active({ p0_until: "nie-data" })).toBe(false);
+    expect(isP0Active({ p0_until: "2026-10-28T09:09:00Z", status: "closed" })).toBe(false);
+    expect(isP0Active({ is_p0: false, p0_until: "2026-10-28T09:09:00Z" })).toBe(false);
+    expect(isP0Active(null)).toBe(false);
+  });
+});
+
+describe("isP0Overdue", () => {
+  it("termin minął, a P0 trwa — czeka na decyzję", () => {
+    expect(isP0Overdue({ is_p0: true, p0_until: "2026-10-27T09:08:00Z" }, NOW)).toBe(true);
+    expect(isP0Overdue({ is_p0: true, p0_until: "2026-10-27T09:09:00Z" }, NOW)).toBe(true);
+  });
+  it("przed terminem, bez P0 i na zamkniętej — nie", () => {
+    expect(isP0Overdue({ is_p0: true, p0_until: "2026-10-27T09:10:00Z" }, NOW)).toBe(false);
+    expect(isP0Overdue({ is_p0: false, p0_until: "2026-10-27T09:08:00Z" }, NOW)).toBe(false);
+    expect(isP0Overdue({ p0_until: "2026-10-27T09:08:00Z", status: "closed" }, NOW)).toBe(false);
+    expect(isP0Overdue(null, NOW)).toBe(false);
+  });
+});
+
+describe("p0OverdueLabel", () => {
+  it("minuty, godziny i dni po terminie", () => {
+    expect(p0OverdueLabel("2026-10-27T08:14:00Z", NOW)).toBe("minęło 55 min");
+    expect(p0OverdueLabel("2026-10-27T06:09:00Z", NOW)).toBe("minęło 3 h");
+    expect(p0OverdueLabel("2026-10-25T09:09:00Z", NOW)).toBe("minęło 2 dni");
+    expect(p0OverdueLabel("2026-10-27T09:09:00Z", NOW)).toBe("minęło 0 min");
   });
 });
 

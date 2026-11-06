@@ -8,7 +8,6 @@ import { useP0Jobs } from "@/lib/api/jobP0";
 import { isP0Active } from "@/lib/job-p0";
 
 import { P0Chip } from "./P0Chip";
-import { useNow } from "./useNow";
 
 function jobsWord(n: number): string {
   if (n === 1) return "rekrutacja";
@@ -65,10 +64,9 @@ export function P0TopbarTrigger({
  * z sekcją Rekrutacje. Bez P0 nie ma przycisku; klik pokazuje listę z powodami.
  */
 export function P0TopbarButton() {
-  const now = useNow();
   const query = useP0Jobs();
   const items = (query.data?.items ?? []).filter((item) =>
-    isP0Active({ is_p0: true, p0_until: item.p0_until }, now),
+    isP0Active({ is_p0: true, p0_until: item.p0_until }),
   );
   if (!query.isSuccess || items.length === 0) return null;
   const label = p0Label(items.length);

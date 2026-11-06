@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import { clearJobP0, extendJobP0, invalidateP0 } from "@/lib/api/jobP0";
-import { isP0Active, p0UntilLabel, type P0Source } from "@/lib/job-p0";
+import { isP0Active, isP0Overdue, p0OverdueLabel, p0UntilLabel, type P0Source } from "@/lib/job-p0";
 
 import { useNow } from "./useNow";
 
@@ -23,6 +23,8 @@ export interface JobP0StripProps {
 /**
  * Pasek P0 nad tytułem rekrutacji (27.10.2026): do kiedy, kto i po co.
  * „Przedłuż o 24 h” i „Zdejmij P0” tylko dla osób, które ustawiają P0.
+ * Po terminie (06.11.2026) pasek mówi, że P0 trwa do decyzji, a przycisk
+ * zdejmowania nazywa się „Zakończ P0”.
  */
 export function JobP0Strip({ jobId, job, canSet }: JobP0StripProps) {
   const now = useNow();
@@ -30,7 +32,8 @@ export function JobP0Strip({ jobId, job, canSet }: JobP0StripProps) {
   const toast = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [busy, setBusy] = useState<"extend" | "clear" | null>(null);
-  if (!isP0Active(job, now) || !job.p0_until) return null;
+  if (!isP0Active(job) || !job.p0_until) return null;
+  const overdue = isP0Overdue(job, now);
 
   const run = async (kind: "extend" | "clear") => {
     if (kind === "clear") {
@@ -66,7 +69,11 @@ export function JobP0Strip({ jobId, job, canSet }: JobP0StripProps) {
       data-testid="job-p0-strip"
     >
       <Flame className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span className="font-semibold">P0 — ultrapilne do {p0UntilLabel(job.p0_until, now)}</span>
+      <span className="font-semibold">
+        {overdue
+          ? `P0 po terminie (${p0UntilLabel(job.p0_until, now)}, ${p0OverdueLabel(job.p0_until, now)}) — trwa do decyzji`
+          : `P0 — ultrapilne do ${p0UntilLabel(job.p0_until, now)}`}
+      </span>
       {job.p0_reason ? (
         <span className="min-w-0 break-words">
           · {job.p0_set_by_name ? `${job.p0_set_by_name}: ` : ""}„{job.p0_reason}”
@@ -92,7 +99,7 @@ export function JobP0Strip({ jobId, job, canSet }: JobP0StripProps) {
             disabled={busy !== null}
             onClick={() => void run("clear")}
           >
-            Zdejmij P0
+            {overdue ? "Zakończ P0" : "Zdejmij P0"}
           </Button>
         </span>
       ) : null}

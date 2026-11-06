@@ -862,6 +862,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cpro_mail import cpro_mail_loop
     from app.tasks.job_idle import job_idle_loop
+    from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -1034,6 +1035,8 @@ async def lifespan(app: FastAPI):
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
+            # 06.11.2026: P0 po terminie trwa do decyzji — dzwonek do Head of Recruitment.
+            "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
             "cpro_mail": asyncio.create_task(cpro_mail_loop()),
             # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
