@@ -80,6 +80,7 @@ from app.models.candidate_source_event import CandidateSourceEvent, SourceChanne
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
+from app.services import candidate_last_rejection as last_rejection
 from app.services import candidate_stage_column as stage_column_filter
 from app.services import note_kinds
 from app.services.keyword_terms import KeywordTooShort
@@ -103,6 +104,8 @@ from app.schemas.candidate import (
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
     StageMatchBrief,
+    LastRejectionBrief,
+    RejectionFacets,
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
@@ -438,6 +441,12 @@ class CandidateFilterSpec(BaseModel):
     # zakresu — był / nie był w jakiejkolwiek rekrutacji, nie ma procesu w toku.
     recruitment_client_id: Optional[list[int]] = None
     recruitment_presence: Optional[Literal["never", "ever", "not_in_process"]] = None
+    # „Ostatnie odrzucenie” (06.11.2026, `candidate_last_rejection`): klucze
+    # powodów (`r:…`, `t:…`, `none`), kto zakończył, okres i „Ukryj”.
+    rejection_key: Optional[list[str]] = None
+    rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = None
+    rejection_within_months: Optional[Literal[3, 12]] = None
+    rejection_exclude: Optional[bool] = None
     recently_changed_jobs: Optional[int] = Field(None, ge=1, le=3)
     open_to: Optional[list[str]] = None
     q_all: Optional[list[str]] = None
@@ -1493,6 +1502,23 @@ def _unknown_rank_expr(f: CandidateFilterSpec):
     )
 
 
+def _rejection_spec(f: "CandidateFilterSpec") -> last_rejection.RejectionFilter:
+    return last_rejection.RejectionFilter(
+        keys=tuple(k for k in (f.rejection_key or []) if k),
+        who=tuple(f.rejection_by or []),
+        within_months=f.rejection_within_months,
+        exclude=bool(f.rejection_exclude),
+    )
+
+
+_NO_REJECTION_FILTER = {
+    "rejection_key": None,
+    "rejection_by": None,
+    "rejection_within_months": None,
+    "rejection_exclude": None,
+}
+
+
 async def _build_candidate_filtered_query(
     db: AsyncSession,
     filters: CandidateFilterSpec,
@@ -1748,6 +1774,9 @@ async def _build_candidate_filtered_query(
     recruitment_presence = recruitment_filter.presence_clause(f.recruitment_presence)
     if recruitment_presence is not None:
         query = query.where(recruitment_presence)
+    rejection_clause = await last_rejection.filter_clause(db, _rejection_spec(f))
+    if rejection_clause is not None:
+        query = query.where(rejection_clause)
     if f.recently_changed_jobs in (1, 2, 3):
         cutoff = datetime.now(timezone.utc) - timedelta(
             days=30 * f.recently_changed_jobs
@@ -2464,6 +2493,23 @@ async def list_candidates(
             "per page; no N+1."
         ),
     ),
+    include_last_rejection: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `last_rejection` — the newest "
+            "rejection/withdrawal that is still the state of its (person, "
+            "recruitment) pair: reason key and label, who ended it, note, date, "
+            "recruitment and client. One query per page."
+        ),
+    ),
+    include_rejection_facets: bool = Query(
+        False,
+        description=(
+            "When true, the response carries `rejection_facets`: the last-"
+            "rejection distribution over the WHOLE result, computed without the "
+            "rejection filter itself (keys, who ended it, people without one)."
+        ),
+    ),
     match_threshold: float = Query(
         _MATCH_STATS_DEFAULT_THRESHOLD,
         ge=0.0,
@@ -2584,6 +2630,27 @@ async def list_candidates(
             "`not_in_process` (no pair whose latest stage is non-terminal on a "
             "non-closed recruitment — the rule of the list's process column). "
             "Combines with the scope filter by AND."
+        ),
+    ),
+    rejection_key: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Last-rejection filter: reason keys — `r:<label>` (NEXUS reason), "
+            "`t:<category>` (Traffit category without a reason) or `none`. OR "
+            "within the list; AND with `rejection_by` and the period."
+        ),
+    ),
+    rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = Query(
+        None, description="Who ended the last rejected process (OR)."
+    ),
+    rejection_within_months: Optional[Literal[3, 12]] = Query(
+        None, description="Last rejection no older than 3 or 12 months."
+    ),
+    rejection_exclude: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` = hide people whose last rejection matches; people without "
+            "any rejection stay."
         ),
     ),
     recently_changed_jobs: Optional[int] = Query(
@@ -2938,6 +3005,10 @@ async def list_candidates(
         recruitment_match=recruitment_match,
         recruitment_client_id=recruitment_client_id,
         recruitment_presence=recruitment_presence,
+        rejection_key=rejection_key,
+        rejection_by=rejection_by,
+        rejection_within_months=rejection_within_months,
+        rejection_exclude=rejection_exclude,
         recently_changed_jobs=recently_changed_jobs,
         open_to=open_to,
         q_all=q_all,
@@ -3439,6 +3510,21 @@ async def list_candidates(
     stage_match_by_candidate = await _stage_matches(
         db, await _resolve_stage_filter(db, filters), [c.id for c in items]
     )
+    last_rejection_by_id: dict[int, dict] = {}
+    if include_last_rejection and items:
+        last_rejection_by_id = await last_rejection.page_rows(db, [c.id for c in items])
+    rejection_facets = None
+    if include_rejection_facets:
+        facets_query, _ = await _build_candidate_filtered_query(
+            db,
+            filters.model_copy(update=_NO_REJECTION_FILTER),
+            semantic_pool_ids=pool_ids,
+        )
+        rejection_facets = RejectionFacets(
+            **await last_rejection.facets(
+                db, facets_query.with_only_columns(Candidate.id)
+            )
+        )
     response_items: list[CandidateResponse] = []
     distance_places = _radius_places(filters)
     for cand in items:
@@ -3483,6 +3569,11 @@ async def list_candidates(
                     "last_talk_preview": talk[2] if talk else None,
                     "contact_attempts": contact_attempts_by_candidate.get(cand.id, 0),
                 }
+            )
+        if include_last_rejection:
+            row = last_rejection_by_id.get(cand.id)
+            payload = payload.model_copy(
+                update={"last_rejection": LastRejectionBrief(**row) if row else None}
             )
         if include_last_activity:
             payload = payload.model_copy(
@@ -3564,6 +3655,7 @@ async def list_candidates(
         ),
         sort_applied=sort_applied,
         known_match_count=known_count,
+        rejection_facets=rejection_facets,
     )
 
 
