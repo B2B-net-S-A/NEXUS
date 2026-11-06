@@ -1,5 +1,5 @@
-# Szczegóły administracyjne umowy — rekruter i DL z reguły premii, replacement i FTE (0524, 26.10.2026)
-<!-- indeks: kafelek w Generatorze (B2B i zlecenie), rekruter/DL tylko do odczytu = odbiorcy premii, replacement + FTE obowiązkowe przy rekrutacji, kopia do kontraktu przy podpisie, dzwonek i przypomnienia dla prowadzącego -->
+# Szczegóły administracyjne umowy — rekruter i DL z reguły premii, replacement, FTE i kandydat od klienta (0524, 0654)
+<!-- indeks: kafelek w Generatorze (B2B i zlecenie), rekruter/DL tylko do odczytu = odbiorcy premii, replacement + FTE obowiązkowe przy rekrutacji, kopia do kontraktu przy podpisie, dzwonek i przypomnienia dla prowadzącego, kandydat wskazany przez klienta bez premii (0654), kafelek w kontrakcie z powodem po podpisie -->
 
 Zgłoszenie 26.10.2026: kafelek „Szczegóły administracyjne” w Generatorze pod
 „Źródłem danych” (Rekruter, Delivery Lead, Replacement, Wymiar FTE), dane
@@ -67,3 +67,36 @@ w trzech miejscach.
   (`admin_details_filled`).
 - Kafelek w zakładce Szczegóły kontraktu (z edycją i terminem premii) to
   osobny PR; tak samo zmiany automatu premii (FTE, gwarancja).
+
+## Kandydat wskazany przez klienta (0654, 06.11.2026)
+
+- Zgłoszenie Płac, decyzja Artura z 06.11.2026: klient sam wskazuje osobę,
+  a my ją tylko przepuszczamy przez siebie (ERSTE, kontrakt 687). **Premii
+  z placementu nie dostaje nikt**, ani rekruter, ani Delivery Lead,
+  a kontrakt nie liczy się do premii 200% (`ludzie/premia-200-tcm-gwarancja.md`).
+- Kolumna `is_client_referral` (bool, NULL = nie wiadomo, liczy się jak „Nie”)
+  w `b2b_generated_contracts` i `contracts`. Trzecie pole kafelka w Generatorze
+  (Tak/Nie, domyślnie „Nie”, nieobowiązkowe: umowa sprzed 0654 odtwarza się
+  bez niego). „Oznacz jako podpisaną” kopiuje je fill-only jak FTE.
+
+## Zmiana po podpisie: kafelek w kontrakcie (06.11.2026)
+
+- Decyzja Artura z 06.11.2026: Płace muszą oznaczyć zastępstwo i kandydata
+  od klienta przy kontraktach podpisanych wcześniej (pole w kontrakcie miało
+  1 z 86 kontraktów od września). Kafelek „Szczegóły administracyjne” nad
+  „Premiami z tego kontraktu” (`ContractAdminDetailsCard`): Replacement,
+  „Za kogo” (ten sam wybór co w Generatorze, `replacement-options`) i „Kandydat
+  wskazany przez klienta”.
+- Trasa `GET|PUT /api/hr/payroll/contracts/{id}/admin-details`
+  (`api/hr_contract_admin_details.py`, za przełącznikiem programu i modułu Płac).
+  Kto: „Płace” albo „Umowy B2B: oznaczanie jako podpisane”
+  (`require_any_permission`); konto rządzone portfelem DL-a tylko u swoich
+  klientów, TCM i Płace u wszystkich. Pola nie idą przez zwykły PATCH kontraktu.
+- PUT niesie komplet trzech pól i **obowiązkowy powód** (min. 3 znaki, 422 bez
+  niego). „Tak” bez osoby i osoba zastępująca samą siebie (ten sam kontrakt
+  albo ten sam kandydat) = 422. Ślad: `admin_details_changed` w historii
+  kontraktu (pola „przed → po” i powód) i w `hr_audit_events`
+  (`sensitivity='payroll'`).
+- Zapis od razu uzgadnia premie kontraktu
+  (`placement_bonuses.on_admin_details_changed`): gwarancja DL anuluje premię
+  DL z powodem `guarantee`, kandydat od klienta — wszystkie z `client_referral`.

@@ -138,6 +138,8 @@ export function cancelReasonLabel(
       return "zmieniły się warunki premii";
     case "guarantee":
       return "zastępstwo w gwarancji: osoba zatrudniona przez tego samego DL odeszła przed rokiem";
+    case "client_referral":
+      return "kandydat wskazany przez klienta: bez premii z placementu";
     case "manual":
       return "anulowana przez Rozliczenia albo koordynatora";
     default:

@@ -269,6 +269,8 @@ class AgreementAdminDetails(BaseModel):
     is_replacement: Optional[bool] = None
     replaced_contract_id: Optional[int] = Field(None, ge=1, le=2_147_483_647)
     fte: Optional[Decimal] = None
+    # Kandydat wskazany przez klienta (0654): bez premii z placementu.
+    is_client_referral: Optional[bool] = None
 
     @field_validator("fte")
     @classmethod

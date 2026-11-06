@@ -67,6 +67,19 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
   zmienią). Rekruter gwarancji nie ma: dostaje premię, a zastępstwo liczy mu się
   do celu 200% (decyzja Artura 05.11.2026, zmienia „rekruterzy od 2027” z 26.10).
 
+## Kandydat wskazany przez klienta (06.11.2026)
+
+- `contracts.is_client_referral` = „Tak” (pole w Generatorze i w edycji
+  kontraktu, `kontrakty/szczegoly-administracyjne-umowy.md`): automat nie
+  proponuje żadnej premii z placementu (rekruter, DL, dodatkowa premia DL).
+  Propozycje `proposed`, także z arkusza i poprawione ręcznie, anuluje
+  z powodem `client_referral` (w `AUTO_CANCEL_REASONS`, więc „Nie” je
+  przywraca z zachowaniem ręcznych poprawek). Premii zatwierdzonej nie rusza.
+- Premia 200%: kontrakt nie liczy się rekruterowi do celu placementów ani do
+  średniej marży DL-a (`double_bonus.month_contracts`). Zapisany już wynik
+  miesiąca zmienia dopiero „Przelicz wynik”.
+- Prognoza „w drodze” (`my_settlement.bonus_forecast`) go pomija.
+
 ## Poza zakresem (nie dopisuj „przy okazji”)
 
 - Następca rekrutera, który odszedł: premia rekrutera nikomu (decyzja 05.11.2026).

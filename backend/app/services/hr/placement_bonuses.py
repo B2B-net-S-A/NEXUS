@@ -36,7 +36,9 @@ Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
 przez automat, ale nie wiersze z arkusza: te zostają z oznaczeniem do sprawdzenia;
 cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
 propozycje anulowane na stałe (``contract_deleted``, poza
-``AUTO_CANCEL_REASONS``: nie ma czego przywracać), przyznane zostają. Gdy miesiąc premii
+``AUTO_CANCEL_REASONS``: nie ma czego przywracać), przyznane zostają. Kandydat wskazany przez
+klienta (``contracts.is_client_referral``, 0654) → żadnej premii z placementu,
+propozycje anulowane z powodem ``client_referral``; „Nie” je przywraca. Gdy miesiąc premii
 zamknięto w międzyczasie, przywrócona propozycja idzie na pierwszy otwarty
 miesiąc (``restored_from_closed_period`` w migawce) — o wypłacie i tak
 decydują Płace, bo to znów propozycja. Premii zatwierdzonej
@@ -679,6 +681,9 @@ async def _lock_periods(
     )
 
 
+#: Powód anulowania przez automat: kandydat wskazany przez klienta (0654).
+CLIENT_REFERRAL = "client_referral"
+
 #: Zastępstwo w gwarancji: krócej niż rok współpracy osoby zastąpionej.
 GUARANTEE_DAYS = 365
 
@@ -755,6 +760,16 @@ async def reconcile_contract(
                 counts["cancelled"] += 1
         await db.flush()
         return counts
+    if contract.is_client_referral:
+        # Kandydat wskazany przez klienta (decyzja Artura 06.11.2026): premii
+        # z placementu nie dostaje nikt. Propozycje — też z arkusza i poprawione
+        # ręcznie — anulowane z powodem, który automat cofa po zmianie na „Nie”.
+        for bonus in existing.values():
+            if bonus.status == "proposed":
+                _auto_cancel(bonus, CLIENT_REFERRAL)
+                counts["cancelled"] += 1
+        await db.flush()
+        return {**counts, "skipped": CLIENT_REFERRAL}
     if status not in STARTED_STATUSES or contract.start_date is None:
         return {**counts, "skipped": "not_started"}
     if contract.returned_from_contract_id is not None:
@@ -1190,6 +1205,14 @@ async def on_contract_started(db: AsyncSession, contract: Contract) -> dict[str,
 
 async def on_contract_ended(db: AsyncSession, contract: Contract) -> dict[str, Any]:
     return await _hook(db, contract, "ended")
+
+
+async def on_admin_details_changed(
+    db: AsyncSession, contract: Contract
+) -> dict[str, Any]:
+    """Replacement albo „kandydat od klienta” zmienione na kontrakcie (06.11.2026)."""
+
+    return await _hook(db, contract, "admin_details")
 
 
 async def on_contract_deleted(db: AsyncSession, contract: Contract) -> int:

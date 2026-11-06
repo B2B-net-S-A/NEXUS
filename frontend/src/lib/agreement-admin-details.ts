@@ -1,7 +1,8 @@
 /**
  * „Szczegóły administracyjne” umowy w Generatorze (0524, decyzje Artura
  * 26.10.2026). Rekruter i Delivery Lead to odbiorcy premii z reguły automatu
- * (tylko do odczytu); wpisuje się replacement i wymiar FTE. Czyste funkcje —
+ * (tylko do odczytu); wpisuje się replacement, wymiar FTE i „kandydat
+ * wskazany przez klienta” (0654, decyzja Artura 06.11.2026). Czyste funkcje —
  * kafelek i oba formularze (B2B, zlecenie) korzystają z tych samych.
  */
 
@@ -22,18 +23,25 @@ export interface AgreementAdminValue {
   isReplacement: boolean | null;
   replaced: B2BReplaceableContract | null;
   fte: AgreementFte | null;
+  /**
+   * Kandydat wskazany przez klienta do przepuszczenia przez nas: „Tak” =
+   * premii z placementu nie dostaje nikt. null = nikt jeszcze nie wybrał.
+   */
+  isClientReferral: boolean | null;
 }
 
 export const EMPTY_ADMIN_VALUE: AgreementAdminValue = {
   isReplacement: null,
   replaced: null,
   fte: null,
+  isClientReferral: null,
 };
 
 /**
  * Wartości po wybraniu rekrutacji: zastępstwo z tytułu (z osobą, gdy serwer
  * ją jednoznacznie wskazał), inaczej „Nie”; FTE 1 — rekrutacja nie ma pola FTE,
- * a pełny etat ma każda z 4495 rekrutacji na kopii produkcji.
+ * a pełny etat ma każda z 4495 rekrutacji na kopii produkcji. Kandydat
+ * wskazany przez klienta: domyślnie „Nie”.
  */
 export function adminDefaults(
   defaults: B2BAgreementAdminDefaults | null | undefined,
@@ -44,6 +52,7 @@ export function adminDefaults(
       ? (defaults.replaced ?? null)
       : null,
     fte: "1",
+    isClientReferral: false,
   };
 }
 
@@ -63,6 +72,7 @@ export function adminPayload(value: AgreementAdminValue): AgreementAdminFields {
       ? (value.replaced?.contract_id ?? null)
       : null,
     fte: value.fte,
+    is_client_referral: value.isClientReferral,
   };
 }
 
@@ -77,6 +87,8 @@ export function adminFromSaved(
     isReplacement: form.is_replacement ?? null,
     replaced: form.is_replacement ? (replaced ?? null) : null,
     fte,
+    // Umowa sprzed 0654 nie zapisała pola: liczy się jak „Nie”.
+    isClientReferral: form.is_client_referral ?? false,
   };
 }
 

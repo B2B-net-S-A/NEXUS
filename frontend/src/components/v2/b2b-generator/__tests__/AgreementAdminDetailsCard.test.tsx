@@ -1,11 +1,11 @@
 /**
  * Kafelek „Szczegóły administracyjne” (0524): odbiorcy premii z rekrutacji
  * tylko do odczytu, komunikat o osobie prowadzącej, podpowiedzi po wybraniu
- * rekrutacji i „Replacement za kogo”.
+ * rekrutacji, „Replacement za kogo” i „Kandydat wskazany przez klienta” (0654).
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,6 +104,11 @@ function Harness({
   );
 }
 
+/** Przyciski Tak/Nie jednego pola (dwa pola mają te same etykiety). */
+function inGroup(label: string) {
+  return within(screen.getByRole("group", { name: label }));
+}
+
 function renderCard(props: React.ComponentProps<typeof Harness> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -128,7 +133,12 @@ describe("AgreementAdminDetailsCard", () => {
     expect(
       screen.getAllByText("Uzupełni się po wybraniu rekrutacji"),
     ).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Tak" })).toBeDisabled();
+    expect(inGroup("Replacement").getByRole("button", { name: "Tak" })).toBeDisabled();
+    expect(
+      inGroup("Kandydat wskazany przez klienta").getByRole("button", {
+        name: "Tak",
+      }),
+    ).toBeDisabled();
     expect(screen.getByRole("button", { name: "1" })).toBeDisabled();
   });
 
@@ -143,18 +153,23 @@ describe("AgreementAdminDetailsCard", () => {
     expect(
       screen.getByText(/Tworzysz umowę za osobę prowadzącą: Anna Przykładowa/),
     ).toBeInTheDocument();
-    // Podpowiedzi po wybraniu rekrutacji: Nie i pełny etat.
+    // Podpowiedzi po wybraniu rekrutacji: Nie, pełny etat, nie od klienta.
     await waitFor(() =>
       expect(onValue).toHaveBeenLastCalledWith({
         isReplacement: false,
         replaced: null,
         fte: "1",
+        isClientReferral: false,
       }),
     );
-    expect(screen.getByRole("button", { name: "Nie" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(
+      inGroup("Replacement").getByRole("button", { name: "Nie" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      inGroup("Kandydat wskazany przez klienta").getByRole("button", {
+        name: "Nie",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("prowadząca widzi, że placement i premia są jej", async () => {
@@ -196,12 +211,13 @@ describe("AgreementAdminDetailsCard", () => {
     renderCard({ onValue });
     await screen.findByText("Zofia Przykładowa");
 
-    await user.click(screen.getByRole("button", { name: "Nie" }));
+    await user.click(inGroup("Replacement").getByRole("button", { name: "Nie" }));
     expect(screen.queryByText("Replacement za kogo")).not.toBeInTheDocument();
     expect(onValue).toHaveBeenLastCalledWith({
       isReplacement: false,
       replaced: null,
       fte: "1",
+      isClientReferral: false,
     });
 
     await user.click(screen.getByRole("button", { name: "0,5" }));
@@ -229,7 +245,7 @@ describe("AgreementAdminDetailsCard", () => {
     renderCard();
     await screen.findByText("Anna Przykładowa");
 
-    await user.click(screen.getByRole("button", { name: "Tak" }));
+    await user.click(inGroup("Replacement").getByRole("button", { name: "Tak" }));
     await user.click(screen.getByRole("combobox"));
     expect(
       await screen.findByText("zakończony 31.08.2026"),
@@ -247,5 +263,32 @@ describe("AgreementAdminDetailsCard", () => {
     expect(
       screen.getByRole("button", { name: "Usuń Piotr Fikcyjny" }),
     ).toBeInTheDocument();
+  });
+
+  it("kandydat wskazany przez klienta: Tak mówi, że premii nie będzie", async () => {
+    mocks.prefill.mockResolvedValue(prefillWith({}));
+    const onValue = vi.fn();
+    const user = userEvent.setup();
+    renderCard({ onValue });
+    await screen.findByText("Anna Przykładowa");
+
+    await user.click(
+      inGroup("Kandydat wskazany przez klienta").getByRole("button", {
+        name: "Tak",
+      }),
+    );
+    expect(onValue).toHaveBeenLastCalledWith({
+      isReplacement: false,
+      replaced: null,
+      fte: "1",
+      isClientReferral: true,
+    });
+    expect(
+      screen.getByText(/Bez premii z placementu: ani rekruter, ani Delivery Lead/),
+    ).toBeInTheDocument();
+    // Replacement zostaje nietknięty.
+    expect(
+      inGroup("Replacement").getByRole("button", { name: "Nie" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 });

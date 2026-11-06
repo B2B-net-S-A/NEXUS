@@ -257,11 +257,14 @@ async def apply_admin_details(
     fte: Optional[Decimal],
     candidate_id: Optional[int],
     linked: bool,
+    is_client_referral: Optional[bool] = None,
 ) -> None:
-    """Zapis replacementu i FTE w wierszu umowy (walidacja przy generowaniu).
+    """Zapis replacementu, FTE i „wskazany przez klienta” w wierszu umowy.
 
-    Przy umowie powiązanej z rekrutacją oba pola są obowiązkowe. Umowa
-    ręczna (bez rekrutacji) zapisuje to, co przyszło.
+    Przy umowie powiązanej z rekrutacją replacement i FTE są obowiązkowe.
+    „Kandydat wskazany przez klienta” nie: formularz wysyła domyślne „Nie”,
+    a brak pola (``render_payload`` sprzed 0654) zostawia NULL = „Nie”.
+    Umowa ręczna (bez rekrutacji) zapisuje to, co przyszło.
     """
 
     if linked and (is_replacement is None or fte is None):
@@ -295,12 +298,13 @@ async def apply_admin_details(
     row.is_replacement = is_replacement
     row.replaced_contract_id = replaced_contract_id
     row.fte = fte
+    row.is_client_referral = is_client_referral
 
 
 def copy_admin_details_to_contract(
     contract: Contract, row: B2BGeneratedContract
 ) -> list[str]:
-    """Podpis: replacement i FTE z umowy do kontraktu, fill-only.
+    """Podpis: replacement, FTE i „wskazany przez klienta” do kontraktu, fill-only.
 
     Zwraca nazwy uzupełnionych pól (do audytu). Wpisane już w kontrakcie
     wygrywają — kontrakt jest od podpisu źródłem tych danych.
@@ -320,7 +324,66 @@ def copy_admin_details_to_contract(
         ):
             contract.replaced_contract_id = row.replaced_contract_id
             filled.append("replaced_contract_id")
+    if contract.is_client_referral is None and row.is_client_referral is not None:
+        contract.is_client_referral = row.is_client_referral
+        filled.append("is_client_referral")
     return filled
+
+
+#: Pola „Szczegółów administracyjnych” edytowane na kontrakcie po podpisie.
+CONTRACT_ADMIN_FIELDS = ("is_replacement", "replaced_contract_id", "is_client_referral")
+
+
+async def update_contract_admin_details(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    is_replacement: Optional[bool],
+    replaced_contract_id: Optional[int],
+    is_client_referral: Optional[bool],
+) -> dict[str, dict[str, object]]:
+    """Replacement, „za kogo” i „kandydat od klienta” na podpisanym kontrakcie.
+
+    Płace oznaczają zastępstwo przy kontraktach podpisanych przed kafelkiem
+    (decyzja Artura 06.11.2026). Te same reguły co w Generatorze: „Tak” wymaga
+    osoby, osoba nie zastępuje samej siebie. Zwraca zmienione pola
+    ``{pole: {"from": …, "to": …}}`` do audytu (bez commita).
+    """
+
+    if not is_replacement:
+        replaced_contract_id = None
+    elif replaced_contract_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Wskaż w „Replacement za kogo”, kogo zastępuje ta osoba.",
+        )
+    else:
+        replaced = await db.get(Contract, replaced_contract_id)
+        if replaced is None or replaced.status not in REPLACEABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Wskazanego kontraktu nie ma albo nie był zawarty.",
+            )
+        if replaced.id == contract.id or (
+            contract.candidate_id is not None
+            and replaced.candidate_id == contract.candidate_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Osoba nie może być replacementem samej siebie.",
+            )
+    target = {
+        "is_replacement": is_replacement,
+        "replaced_contract_id": replaced_contract_id,
+        "is_client_referral": is_client_referral,
+    }
+    changed: dict[str, dict[str, object]] = {}
+    for field in CONTRACT_ADMIN_FIELDS:
+        before = getattr(contract, field)
+        if before != target[field]:
+            changed[field] = {"from": before, "to": target[field]}
+            setattr(contract, field, target[field])
+    return changed
 
 
 async def notify_pair_owner(

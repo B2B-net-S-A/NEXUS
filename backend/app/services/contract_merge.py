@@ -282,6 +282,8 @@ _MERGEABLE_FIELDS = (
     "notice_period_months",
     # Wymiar etatu z umowy (0524) — puste ← wypełnione, różnica to decyzja.
     "fte",
+    # Kandydat wskazany przez klienta (0654) — puste ← wypełnione.
+    "is_client_referral",
     "target_rate_min",
     "target_rate_max",
     "project_code",

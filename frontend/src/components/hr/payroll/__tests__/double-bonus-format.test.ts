@@ -86,5 +86,8 @@ describe("opisy premii", () => {
 
   it("gwarancja ma własny powód anulowania", () => {
     expect(cancelReasonLabel("guarantee")).toContain("gwarancji");
+    expect(cancelReasonLabel("client_referral")).toContain(
+      "kandydat wskazany przez klienta",
+    );
   });
 });

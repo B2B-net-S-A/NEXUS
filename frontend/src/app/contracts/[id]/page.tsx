@@ -100,6 +100,7 @@ import {
   ContractStatusControl,
   SELECTABLE_CONTRACT_STATUSES,
 } from "@/components/contracts/ContractStatusControl";
+import { ContractAdminDetailsCard } from "@/components/hr/payroll/ContractAdminDetailsCard";
 import { ContractBonusesCard } from "@/components/hr/payroll/ContractBonusesCard";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
@@ -1442,6 +1443,12 @@ export default function ContractDetailPage() {
         </section>
       )}
 
+      {!editing && (
+        <ContractAdminDetailsCard
+          contractId={id}
+          clientName={contract.client_name ?? null}
+        />
+      )}
       {!editing && <ContractBonusesCard contractId={id} />}
 
       {/* Tabs */}
