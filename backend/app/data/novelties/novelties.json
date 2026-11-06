@@ -167,7 +167,7 @@
     "why": "Osoby ze strony kariery i z JustJoin.IT, które mają wszystkie „musi mieć”, stoją na górze kolumny. Te, którym brakuje krytycznej, czekają zwinięte na dole — rozwiniesz je jednym kliknięciem.",
     "tier": "dot",
     "shipped_on": "2026-11-06",
-    "pr": 0,
+    "pr": 3100,
     "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
     "where": "Rekrutacja → Tablica → kolumna „Nowi”",
     "href": "/jobs",
