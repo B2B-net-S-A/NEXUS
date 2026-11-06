@@ -55,6 +55,7 @@
   "POST /api/hr/payroll/bonuses/{bonus_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/clawback": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/clawbacks/{clawback_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/double-bonus/agreements/{generated_id}/signed-on": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/double-bonus/{year}/{month}/settle": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/close": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/reopen": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",

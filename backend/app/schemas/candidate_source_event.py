@@ -92,3 +92,25 @@ class SourceReportResponse(BaseModel):
             "pominięte w oknie."
         ),
     )
+
+
+class PortalApplicationCreate(BaseModel):
+    """Aplikacja z formularza portalu (import z panelu 1EP, 06.11.2026).
+
+    ``ad_id`` = id ogłoszenia z panelu pracodawcy (UUID, ten sam co w API),
+    ``ad_slug`` = slug albo link ogłoszenia — rozpoznaje ogłoszenie wklejone
+    ręcznie po linku z „Oznacz jako opublikowane”.
+    """
+
+    portal: Literal["justjoinit", "rocketjobs"]
+    ad_id: str = Field(..., min_length=1, max_length=64)
+    ad_slug: Optional[str] = Field(None, max_length=500)
+    ad_title: Optional[str] = Field(None, max_length=255)
+    applied_at: Optional[datetime] = None
+
+
+class PortalApplicationOut(BaseModel):
+    outcome: Literal["added", "already_in_job", "skipped", "no_job", "job_not_open"]
+    job_id: Optional[int] = None
+    stage_id: Optional[int] = None
+    reason: Optional[str] = None

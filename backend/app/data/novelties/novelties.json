@@ -162,6 +162,19 @@
     "dot_anchor": "jarvis.mascot.hide"
   },
   {
+    "id": "justjoin-aplikacja-do-nowych",
+    "title": "Aplikacje z JustJoin.IT same trafiają do „Nowi”",
+    "why": "Kandydat aplikuje jednym kliknięciem na JustJoin.IT, bez naszej strony kariery. Następnego dnia po imporcie jego karta czeka w „Nowi” tej rekrutacji, także przy ogłoszeniu oznaczonym ręcznie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "pr": 3099,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Rekrutacja → Ogłoszenie → JustJoin.IT",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.jjit.publish"
+  },
+  {
     "id": "opublikuj-na-justjoin",
     "title": "„Opublikuj na JustJoin.IT” prosto z NEXUSA",
     "why": "W oknie ogłoszenia publikujesz na JustJoin.IT bez kopiowania treści. NEXUS sam zapisze link i pokaże, czy ogłoszenie wisi.",
@@ -1218,6 +1231,39 @@
     "where": "Profil → Twoje wygrane",
     "href": "/profile",
     "dot_anchor": "profile.my-wins"
+  },
+  {
+    "id": "podpis-umowy-z-pliku",
+    "pr": 3096,
+    "title": "Podpis umowy B2B: plik i data z podpisu konsultanta",
+    "why": "„Oznacz jako podpisaną” wymaga podpisanego PDF-a. Datę podpisu NEXUS czyta z podpisu konsultanta w pliku. Przy skanie z podpisem odręcznym wpisujesz datę i powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": {
+      "permissions": [
+        "b2b_signature_confirmation"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Oznacz jako podpisaną (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.confirm-signed"
+  },
+  {
+    "id": "premia-200-data-podpisu",
+    "pr": 3096,
+    "title": "Premia 200%: skąd data podpisu i jej poprawka",
+    "why": "Przy każdej osobie widzisz jej umowy z datą podpisu i źródłem. Datę wpisaną przy oznaczeniu bez pliku poprawisz z powodem, a potem przeliczysz wynik miesiąca.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": {
+      "permissions": [
+        "payroll"
+      ]
+    },
+    "where": "Ludzie → Rozliczenia → miesiąc → Premia 200%",
+    "href": "/people/payroll",
+    "dot_anchor": "payroll.double-bonus"
   },
   {
     "id": "zespol-koszyki-baza-linkedin",

@@ -1442,6 +1442,39 @@ async def settle_double_bonus(
     return evaluation
 
 
+class SignedOnCorrectionIn(BaseModel):
+    signed_on: date
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/double-bonus/agreements/{generated_id}/signed-on")
+async def correct_agreement_signed_on(
+    generated_id: int,
+    payload: SignedOnCorrectionIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Płace poprawiają dzień podpisu umowy B2B z powodem (decyzja Artura 06.11.2026).
+
+    Dzień decyduje o miesiącu premii 200%. Ślad w historii umowy
+    (``signed_on_corrected``); miesiąc z zapisanym wynikiem trzeba przeliczyć."""
+
+    try:
+        result = await double_bonus.correct_signed_on(
+            db,
+            generated_id,
+            signed_on=payload.signed_on,
+            reason=payload.reason,
+            actor_id=current_user.id,
+            rules=await bonus_rules.load_rules(db),
+            today=business_today(),
+        )
+    except double_bonus.SignedOnCorrectionError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    await db.commit()
+    return result
+
+
 @router.post("/proposals/refresh")
 async def refresh_proposals(
     current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)

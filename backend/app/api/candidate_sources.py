@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import Integer, case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,8 @@ from app.models.candidate_source_event import (
 from app.schemas.candidate_source_event import (
     CandidateSourceEventCreate,
     CandidateSourceEventOut,
+    PortalApplicationCreate,
+    PortalApplicationOut,
     SourceFunnelRow,
     SourceReportResponse,
 )
@@ -127,6 +129,62 @@ async def add_candidate_source(
     await db.commit()
     await db.refresh(row)
     return _serialize(row)
+
+
+@router.post(
+    "/candidates/{candidate_id}/portal-application",
+    response_model=PortalApplicationOut,
+)
+async def add_portal_application(
+    request: Request,
+    candidate_id: int,
+    payload: PortalApplicationCreate,
+    _: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> PortalApplicationOut:
+    """Aplikacja z formularza JustJoin.IT / RocketJobs → karta w „Nowi”.
+
+    Tylko dla tokenu integracji (import z panelu pracodawcy): trasa zakłada
+    kartę w rekrutacji ogłoszenia bez sprawdzania członkostwa w zespole, więc
+    człowiekowi zostaje „Dodaj do rekrutacji”. Ogłoszenie bez rekrutacji
+    w NEXUSIE = ``no_job``, bez zmian w bazie. ``services/portal_application``.
+    """
+    from app.services import candidate_claim, portal_application  # noqa: PLC0415
+    from app.services.pipeline_realtime import (  # noqa: PLC0415
+        broadcast_pipeline_changed,
+    )
+
+    if not candidate_claim.is_integration_request(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tę trasę woła tylko import z portalu.",
+        )
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found"
+        )
+    result = await portal_application.place_application(
+        db,
+        candidate_id=candidate_id,
+        portal=payload.portal,
+        ad_id=payload.ad_id,
+        ad_slug=payload.ad_slug,
+        ad_title=payload.ad_title,
+        applied_at=payload.applied_at,
+    )
+    await db.commit()
+    if result.outcome == "added" and result.job_id is not None:
+        await broadcast_pipeline_changed(db, result.job_id, None)
+        await portal_application.notify_recruiter(
+            db, job_id=result.job_id, candidate_id=candidate_id, portal=payload.portal
+        )
+    return PortalApplicationOut(
+        outcome=result.outcome,
+        job_id=result.job_id,
+        stage_id=result.stage_id,
+        reason=result.reason,
+    )
 
 
 # ── /reports/sources aggregation ─────────────────────────────────────────────

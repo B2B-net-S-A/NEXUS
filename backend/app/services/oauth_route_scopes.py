@@ -91,6 +91,9 @@ OAUTH_ROUTE_RESOURCES: dict[str, RouteResources] = {
         "PATCH": ("candidate",),
     },
     "/api/notes": {"POST": ("candidate",)},
+    # 06.11.2026: aplikacja z formularza JustJoin.IT do rekrutacji ogłoszenia
+    # (``services/portal_application``) — import z panelu pracodawcy.
+    "/api/candidates/{candidate_id}/portal-application": {"POST": ("candidate",)},
 }
 
 

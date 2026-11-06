@@ -46,6 +46,7 @@ from app.models.team_structure import (
     DeliveryLeadClientAssignment,
 )
 from app.models.user import User, UserRole
+from tests._confirm_signed import confirm_request
 
 
 CONFIRM_PATH = "/api/b2b-generator/generated/{generated_id}/confirm-fully-signed"
@@ -260,8 +261,8 @@ async def _confirm(
 ):
     return await app_client.post(
         CONFIRM_PATH.format(generated_id=generated_id),
-        json=payload or {},
         headers=headers,
+        **confirm_request(payload),
     )
 
 
@@ -2734,14 +2735,15 @@ async def test_signed_file_waits_for_the_signature_and_lands_in_contract_documen
 
     confirmed = await _confirm(app_client, headers, scenario["generated_id"])
     assert confirmed.status_code == 200, confirmed.text
+    # Od 06.11.2026 plik przychodzi razem z potwierdzeniem (obowiązkowy).
     signed_item = await _listed(app_client, headers, scenario)
     assert signed_item["can_attach_signed_file"] is True
-    assert signed_item["signed_document_id"] is None
+    first_doc_id = signed_item["signed_document_id"]
+    assert first_doc_id is not None
 
     attached = await _attach_file(app_client, headers, scenario["generated_id"])
     assert attached.status_code == 200, attached.text
-    first_doc_id = attached.json()["signed_document_id"]
-    assert first_doc_id is not None
+    assert attached.json()["signed_document_id"] == first_doc_id
     async with AsyncSessionLocal() as db:
         row = await db.get(B2BGeneratedContract, scenario["generated_id"])
         doc = await db.get(ContractDocument, first_doc_id)
@@ -2908,8 +2910,8 @@ async def test_signing_day_from_the_dialog_is_stored(
 
     response = await app_client.post(
         CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
-        json={"signed_on": day.isoformat()},
         headers=app_auth_headers,
+        **confirm_request(signed_on=day),
     )
 
     assert response.status_code == 200, response.text
@@ -2941,8 +2943,8 @@ async def test_signing_day_in_the_future_or_before_generation_changes_nothing(
 
     response = await app_client.post(
         CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
-        json={"signed_on": day.isoformat()},
         headers=app_auth_headers,
+        **confirm_request(signed_on=day),
     )
 
     assert response.status_code == 422, response.text

@@ -11,6 +11,7 @@ Dane fikcyjne; stawki zmyślone.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -314,3 +315,201 @@ async def test_recruiter_closing_after_departed_recruiter_gets_no_bonus() -> Non
     found = await _bonuses(world["contract"])
     assert "recruiter" not in found
     assert found["dl"].status == "proposed"
+
+
+# ── Dzień podpisu z pliku zamiast kliknięcia (decyzja Artura 06.11.2026) ──────
+
+_WAW = ZoneInfo("Europe/Warsaw")
+
+
+async def _signed_agreement(
+    contract_id: int,
+    *,
+    signed_at: datetime,
+    signed_on: date | None,
+    source: str | None,
+) -> int:
+    """Umowa z Generatora podpisana obustronnie, powiązana z kontraktem."""
+
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    marker = uuid.uuid4().int
+    async with AsyncSessionLocal() as db:
+        row = B2BGeneratedContract(
+            year=2098,
+            seq=marker % 10_000_000,
+            contract_number=f"{marker % 10_000_000}/2098",
+            partner_name="Jan Przykładowy",
+            client_name="Firma Przykładowa",
+            language="pl",
+            signature_status="signed_both",
+            signature_source="manual_confirmation",
+            contract_status="active",
+            contract_id=contract_id,
+            signed_at=signed_at,
+            signed_on=signed_on,
+            signed_on_source=source,
+            created_at=datetime(2026, 10, 1, 9, 0, tzinfo=_WAW),
+        )
+        db.add(row)
+        await db.commit()
+        return row.id
+
+
+async def _month_ids(year: int, month: int) -> set[int]:
+    async with AsyncSessionLocal() as db:
+        return {c.id for c in await double_bonus.month_contracts(db, year, month)}
+
+
+@pytest.mark.asyncio
+async def test_signing_day_decides_the_month_not_the_click() -> None:
+    # Przypadek z 06.11.2026: DL oznaczył podpis 30.10, konsultant podpisał 02.11 07:32.
+    world = await _placement(started_days_ago=3)
+    await _signed_agreement(
+        world["contract"],
+        signed_at=datetime(2026, 10, 30, 14, 0, tzinfo=_WAW),
+        signed_on=date(2026, 11, 2),
+        source="pdf",
+    )
+    async with AsyncSessionLocal() as db:
+        dates = await double_bonus.signed_dates(db, [world["contract"]])
+    assert dates[world["contract"]] == (date(2026, 11, 2), "pdf")
+    assert world["contract"] in await _month_ids(2026, 11)
+    assert world["contract"] not in await _month_ids(2026, 10)
+
+
+@pytest.mark.asyncio
+async def test_without_signing_day_the_click_day_counts() -> None:
+    world = await _placement(started_days_ago=3)
+    await _signed_agreement(
+        world["contract"],
+        signed_at=datetime(2026, 10, 30, 14, 0, tzinfo=_WAW),
+        signed_on=None,
+        source=None,
+    )
+    async with AsyncSessionLocal() as db:
+        dates = await double_bonus.signed_dates(db, [world["contract"]])
+    assert dates[world["contract"]] == (date(2026, 10, 30), "signed")
+    assert world["contract"] in await _month_ids(2026, 10)
+
+
+async def _payroll_headers() -> dict[str, str]:
+    from app.core.security import create_access_token
+    from app.models.section_permission import UserActionOverride
+    from tests.test_hr_bonus_automation import _person
+
+    async with AsyncSessionLocal() as db:
+        person = await _person(db, "recruiter")
+        db.add(UserActionOverride(user_id=person.id, action="payroll", access="manage"))
+        await db.commit()
+    return {
+        "Authorization": f"Bearer {create_access_token(subject=person.id, role='recruiter')}"
+    }
+
+
+@pytest.mark.asyncio
+async def test_payroll_corrects_signing_day_with_reason_and_trace(
+    app_client, results_clean
+) -> None:
+    from app.models.activity import Activity
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    world = await _placement(started_days_ago=3)
+    generated_id = await _signed_agreement(
+        world["contract"],
+        signed_at=datetime(2026, 10, 30, 14, 0, tzinfo=_WAW),
+        signed_on=date(2026, 10, 30),
+        source=None,
+    )
+    await _set_setting(RULES_KEY, {"double_bonus": {"months": ["2026-10", "2026-11"]}})
+    await _set_setting(
+        double_bonus.RESULTS_KEY,
+        {"2026-10": {"recruiters": [], "dls": [], "recruiter_contracts": {}}},
+    )
+    headers = await _payroll_headers()
+
+    response = await app_client.post(
+        f"/api/hr/payroll/double-bonus/agreements/{generated_id}/signed-on",
+        json={"signed_on": "2026-11-02", "reason": "podpis konsultanta 02.11 07:32"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["previous_signed_on"] == "2026-10-30"
+    assert body["signed_on"] == "2026-11-02"
+    # Październik ma zapisany wynik — trzeba go przeliczyć; listopad jeszcze nie.
+    assert body["settle_months"] == ["2026-10"]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, generated_id)
+        assert (row.signed_on, row.signed_on_source) == (date(2026, 11, 2), "manual")
+        assert row.signed_on_reason == "podpis konsultanta 02.11 07:32"
+        assert row.signed_on_set_by is not None
+        trace = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "b2b_generated_contract",
+                Activity.entity_id == generated_id,
+                Activity.action == "signed_on_corrected",
+            )
+        )
+        assert trace is not None
+        assert trace.details["before"]["signed_on"] == "2026-10-30"
+    assert world["contract"] in await _month_ids(2026, 11)
+
+    month = await app_client.get(
+        "/api/hr/payroll/double-bonus/2026/11", headers=headers
+    )
+    assert month.status_code == 200, month.text
+    items = [
+        item
+        for row in month.json()["recruiters"]
+        for item in row["contracts"]
+        if item["contract_id"] == world["contract"]
+    ]
+    assert items and items[0]["agreement"]["signed_on_source"] == "manual"
+    assert items[0]["agreement"]["generated_contract_id"] == generated_id
+
+
+@pytest.mark.asyncio
+async def test_signing_day_correction_needs_payroll_and_a_reason(app_client) -> None:
+    from app.core.security import create_access_token
+    from tests.test_hr_bonus_automation import _person
+
+    world = await _placement(started_days_ago=3)
+    generated_id = await _signed_agreement(
+        world["contract"],
+        signed_at=datetime(2026, 10, 30, 14, 0, tzinfo=_WAW),
+        signed_on=date(2026, 10, 30),
+        source=None,
+    )
+    async with AsyncSessionLocal() as db:
+        other = await _person(db, "delivery_lead")
+        await db.commit()
+    path = f"/api/hr/payroll/double-bonus/agreements/{generated_id}/signed-on"
+    denied = await app_client.post(
+        path,
+        json={"signed_on": "2026-11-02", "reason": "podpis 02.11"},
+        headers={
+            "Authorization": "Bearer "
+            + create_access_token(subject=other.id, role="delivery_lead")
+        },
+    )
+    assert denied.status_code == 403, denied.text
+
+    headers = await _payroll_headers()
+    no_reason = await app_client.post(
+        path, json={"signed_on": "2026-11-02", "reason": " "}, headers=headers
+    )
+    assert no_reason.status_code == 422, no_reason.text
+    future = await app_client.post(
+        path,
+        json={
+            "signed_on": (business_today() + timedelta(days=1)).isoformat(),
+            "reason": "podpis jutro",
+        },
+        headers=headers,
+    )
+    assert future.status_code == 422, future.text
+    async with AsyncSessionLocal() as db:
+        dates = await double_bonus.signed_dates(db, [world["contract"]])
+    assert dates[world["contract"]] == (date(2026, 10, 30), "signed")
