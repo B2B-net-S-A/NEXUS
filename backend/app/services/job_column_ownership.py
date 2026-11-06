@@ -137,6 +137,10 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "duplicate_of_job_id",
         # 0652: początek bieżącego otwarcia — stawia „Otwórz ponownie”.
         "cycle_started_at",
+        # 0655: plan koszyków „Baza” / „LinkedIn” — ustawia Head of
+        # Recruitment albo Delivery Lead w NEXUSIE (`services/job_channels.py`).
+        "channel_plan_base",
+        "channel_plan_linkedin",
         "competence_category_id",
         "tac_id",
         "delivery_lead_id",

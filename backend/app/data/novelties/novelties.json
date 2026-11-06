@@ -1266,6 +1266,19 @@
     "dot_anchor": "payroll.double-bonus"
   },
   {
+    "id": "zespol-koszyki-baza-linkedin",
+    "pr": 3098,
+    "title": "Baza czy LinkedIn w zespole rekrutacji",
+    "why": "W okienku „Rekruter” zespół stoi w dwóch koszykach: kto szuka w bazie, a kto na LinkedInie. Swój koszyk wybierasz sam, a Head of Recruitment może ustawić, ile osób ma być w każdym.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Rekrutacja → nagłówek → „Rekruter” → Zespół rekrutacji",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.recruiter-team"
+  },
+  {
     "id": "kandydat-wskazany-przez-klienta",
     "pr": 3097,
     "title": "„Kandydat wskazany przez klienta” w umowie",

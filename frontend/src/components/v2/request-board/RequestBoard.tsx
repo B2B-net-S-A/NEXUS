@@ -44,6 +44,7 @@ import {
 } from "@/components/v2/jobs/ClientReferenceChip"
 import { JobDeadlineCell } from "@/components/v2/jobs/JobListCells"
 import { useToastIfProvided } from "@/components/v2/jobs/JobNameLabel"
+import { ChannelBadge } from "@/components/v2/jobs/ChannelBadge"
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips"
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip"
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2"
@@ -82,6 +83,7 @@ import {
   type BoardFilters,
   type ShownGroup,
 } from "@/lib/request-board"
+import { boardChannelNotes, sortByChannel } from "@/lib/job-channels"
 import { automatAssigns, priorityLevelOf } from "@/lib/request-priority"
 import { cn } from "@/lib/utils"
 import { resolveViewState } from "@/lib/view-state"
@@ -359,7 +361,8 @@ function RequestRow({
   const toast = useToastIfProvided()
   const [p0DialogOpen, setP0DialogOpen] = useState(false)
   const p0 = isP0Active(request, now)
-  const people = boardPeople(request)
+  const people = sortByChannel(boardPeople(request))
+  const channelNotes = boardChannelNotes(request)
   const busy = (person: BoardPerson) =>
     busyKeys?.has(boardPersonKey(request.job_id, person.user_id)) === true
   const categoryShort =
@@ -525,6 +528,9 @@ function RequestRow({
           // zamiast wypychać tabelę w poziome przewijanie.
           className="max-w-full"
           label={`Rekruter: ${request.title}`}
+          adornment={(person) =>
+            person.channel ? <ChannelBadge channel={person.channel} iconOnly /> : null
+          }
           onRemove={(person) => onRemovePerson(request, person)}
           canRemove={(person) =>
             !busy(person) &&
@@ -555,6 +561,15 @@ function RequestRow({
             )
           }
         />
+        {channelNotes.map((note) => (
+          <span
+            key={note}
+            data-testid="request-channel-note"
+            className="rounded-full bg-warning-muted px-2 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
+          >
+            {note}
+          </span>
+        ))}
         {canStaff && !request.champion && (
           <AddPerson
             board={board}

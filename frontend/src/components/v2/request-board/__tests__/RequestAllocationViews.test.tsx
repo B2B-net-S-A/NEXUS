@@ -466,8 +466,9 @@ describe("RequestBoardView", () => {
       "Bartek Testowy, urlop do 29.09.2026, 1 rekrutacja P1",
     )
     // Pasek: Anna (2 + 1) ma pełny, 1 rekrutacja to jedna trzecia — nie stała 5.
-    expect((annaRow.querySelector(".bg-primary") as HTMLElement).style.width).toMatch(/^66\.6/)
-    expect((celinaRow.querySelector(".bg-primary") as HTMLElement).style.width).toMatch(/^33\.3/)
+    // Bez danych o koszykach cała praca to odcinek „bez koszyka” (06.11.2026).
+    expect((annaRow.querySelector("[data-load-base] + [data-load-linkedin] + span") as HTMLElement).style.width).toMatch(/^66\.6/)
+    expect((celinaRow.querySelector("[data-load-base] + [data-load-linkedin] + span") as HTMLElement).style.width).toMatch(/^33\.3/)
     expect(within(panel).getByText("Obłożenie").parentElement).toHaveTextContent("ObłożenieP1")
     expect(
       within(panel).getByText("Ile rekrutacji P1 w stanie „Szukamy” ma każda osoba w roli „Rekruter”."),

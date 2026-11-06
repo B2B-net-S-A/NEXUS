@@ -15,6 +15,8 @@ export interface RecruiterChipsProps<T extends RecruiterLike = RecruiterLike> {
   compact?: boolean;
   /** Ile osób `compact` pokazuje z nazwiska, jedna pod drugą, zanim da „+N” (domyślnie 1). */
   maxNames?: number;
+  /** Znaczek za nazwiskiem, np. koszyk „Baza” / „LinkedIn” na pulpicie. */
+  adornment?: (person: T) => ReactNode;
   /** Linia pod osobą, np. `assignedByCaption` („przydzielił(a) Anna L.”). */
   caption?: (person: T) => ReactNode;
   /** Podanie funkcji pokazuje przycisk „Zdejmij {imię i nazwisko}”. */
@@ -85,6 +87,7 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
   compact = false,
   maxNames = 1,
   caption,
+  adornment,
   onRemove,
   canRemove,
   proposalActions,
@@ -222,6 +225,7 @@ export function RecruiterChips<T extends RecruiterLike = RecruiterLike>({
               {/* W wąskiej kolumnie najpierw kurczy się etykieta, nazwisko dopiero
                   po niej. Współczynnik jest tak duży, żeby nazwisko nie traciło
                   nawet ułamka piksela (ucięcie z „…”) przed zniknięciem etykiety. */}
+              {adornment?.(person)}
               {tags && (
                 <span className="min-w-0 shrink-[1000000] truncate text-[11px] text-muted-foreground">
                   {tags}

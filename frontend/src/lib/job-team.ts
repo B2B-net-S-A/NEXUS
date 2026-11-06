@@ -25,6 +25,9 @@ import { shortenPersonName } from "@/lib/job-header-subtitle";
 /** Skąd osoba jest przy rekrutacji. */
 export type RecruiterVia = "owner" | "assignment" | "collaborator";
 
+/** Koszyk zespołu: szuka w bazie NEXUSA albo na LinkedInie (06.11.2026). */
+export type RecruiterChannel = "base" | "linkedin";
+
 export interface JobRecruiter {
   user_id: number;
   name: string;
@@ -33,6 +36,8 @@ export interface JobRecruiter {
   proposed: boolean;
   /** Kto przypisał (akceptacja propozycji, dodanie z pulpitu); `null` = nie wiadomo. */
   assigned_by_name: string | null;
+  /** Koszyk przy rekrutacji (0655): baza NEXUSA albo LinkedIn; brak = nie wybrano. */
+  channel?: RecruiterChannel | null;
 }
 
 /**
