@@ -18,6 +18,7 @@ import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.skill import Skill, SkillAlias
 from app.models.skill_proposal import SkillProposal
@@ -131,10 +132,14 @@ async def _seed(state: dict) -> None:
                     ],
                 )
             )
+        client = Client(name=f"Klient słownika {tag}")
+        db.add(client)
+        await db.flush()
         db.add(
             Job(
                 title=f"Analityk {tag}",
                 status=JobStatus.published,
+                client_id=client.id,
                 must_skills=[
                     {"name": state["new_ms"]},
                     {"name": f"{state['generic']} lub {state['rule']}"},
