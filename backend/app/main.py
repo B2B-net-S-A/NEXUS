@@ -239,6 +239,7 @@ from app.api import hr_m365 as hr_m365_api
 from app.api import hr_leave as hr_leave_api
 from app.api import hr_time as hr_time_api
 from app.api import hr_payroll as hr_payroll_api
+from app.api import hr_contract_admin_details as hr_contract_admin_details_api
 from app.api import hr_settlements as hr_settlements_api
 from app.api import hr_ksef as hr_ksef_api
 from app.api import hr_payments as hr_payments_api
@@ -2151,6 +2152,12 @@ app.include_router(
 )
 app.include_router(
     hr_payroll_api.router,
+    prefix="/api/hr/payroll",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    hr_contract_admin_details_api.router,
     prefix="/api/hr/payroll",
     tags=["hr"],
     dependencies=_HR_PROGRAM,

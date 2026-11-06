@@ -107,4 +107,23 @@ describe("contract timeline labels", () => {
     expect(row.label).toBe("some new key");
     expect(row.value).toBe('{"a":1}');
   });
+
+  it("zmiana szczegółów administracyjnych: pola „przed → po” i powód", () => {
+    expect(contractActivityLabel("admin_details_changed")).toMatch(
+      /szczegóły administracyjne/,
+    );
+    const rows = contractActivityDetailRows({
+      is_replacement: { from: false, to: true },
+      replaced_contract_id: { from: null, to: 497 },
+      is_client_referral: { from: null, to: true },
+      reason: "zastępstwo potwierdzone",
+    });
+    const byKey = Object.fromEntries(rows.map((row) => [row.key, row]));
+    expect(byKey.is_replacement.value).toBe("nie → tak");
+    expect(byKey.replaced_contract_id.label).toBe("Za kogo (kontrakt)");
+    expect(byKey.replaced_contract_id.value).toBe("#497");
+    expect(byKey.is_client_referral.label).toBe("Kandydat wskazany przez klienta");
+    expect(byKey.is_client_referral.value).toBe("tak");
+    expect(byKey.reason.value).toBe("zastępstwo potwierdzone");
+  });
 });

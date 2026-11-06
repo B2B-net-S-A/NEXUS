@@ -91,6 +91,7 @@ from app.services.job_ad import (
 )
 from app.services.job_ad_publication_schema import PORTAL_JJIT
 from app.services.job_ad_reminder_schema import CHANNEL_PRACUJ
+from app.services.job_portals.jjit_payload import native_apply_enabled
 from app.services.job_portals.service import (
     LIVE_STATUSES,
     PortalRequestError,
@@ -916,8 +917,9 @@ async def publish_ad_on_jjit(
     """Ogłoszenie na JustJoin.IT przez API: publikacja albo aktualizacja żywego.
 
     Publikuje DL rekrutacji, Head of Recruitment albo admin; tylko otwarta
-    rekrutacja, wersja z ekranu, treść bez znalezisk blokujących. Kandydat
-    aplikuje przez stronę kariery, więc ta musi wisieć w tej samej wersji.
+    rekrutacja, wersja z ekranu, treść bez znalezisk blokujących. Przy
+    linku do strony kariery (``apply.url``) ta musi wisieć w tej samej wersji;
+    przy formularzu portalu (``JJIT_APPLY_EMAIL``) nie jest potrzebna.
     Samo zlecenie idzie do kolejki, portal woła worker.
     """
     job = await _load_job(db, current_user, job_id)
@@ -946,7 +948,9 @@ async def publish_ad_on_jjit(
                 ),
             },
         )
-    if reply.career.status != career.STATUS_LIVE:
+    # 06.11.2026: przy formularzu portalu kandydat nie przechodzi przez
+    # stronę kariery, więc nie musi ona wisieć (``JJIT_APPLY_EMAIL``).
+    if reply.career.status != career.STATUS_LIVE and not native_apply_enabled():
         raise HTTPException(
             status_code=409,
             detail={

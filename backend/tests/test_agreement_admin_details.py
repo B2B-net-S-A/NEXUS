@@ -201,6 +201,21 @@ def test_signature_keeps_what_the_contract_already_says() -> None:
     assert (contract.is_replacement, contract.fte) == (False, Decimal("1"))
 
 
+def test_signature_copies_client_referral_fill_only() -> None:
+    """Kandydat wskazany przez klienta (0656): jak FTE — kontrakt wygrywa."""
+
+    contract = Contract(id=10)
+    row = B2BGeneratedContract(is_client_referral=True)
+    assert admin_details.copy_admin_details_to_contract(contract, row) == [
+        "is_client_referral"
+    ]
+    assert contract.is_client_referral is True
+
+    kept = Contract(id=11, is_client_referral=False)
+    assert admin_details.copy_admin_details_to_contract(kept, row) == []
+    assert kept.is_client_referral is False
+
+
 def test_signature_never_points_a_contract_at_itself() -> None:
     contract = Contract(id=497)
     row = B2BGeneratedContract(is_replacement=True, replaced_contract_id=497)

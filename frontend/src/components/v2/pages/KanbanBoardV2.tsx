@@ -1690,7 +1690,16 @@ interface ColProps {
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
  /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
- newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } | null;
+ newQueue?: {
+ ranks: Map<number, number>;
+ total: number;
+ freshFirst: boolean;
+ freshSlots: Set<number>;
+ sections: Map<number, NewColumnSection>;
+ appliedGapIds: Set<number>;
+ } | null;
+ /** Zwinięta grupa „Aplikowali, brak »musi mieć«” (06.11.2026). */
+ appliedGap?: { count: number; collapsed: boolean; onToggle: () => void } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1762,7 +1771,11 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
 function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
  const callFirst = Math.min(total, CALL_FIRST_COUNT);
  const label =
- section === "team"
+ section === "applied"
+ ? "Aplikowali na ogłoszenie"
+ : section === "applied_gap"
+ ? "Aplikowali, brak „musi mieć”"
+ : section === "team"
  ? "Dodani przez zespół"
  : section === "call_first"
  ? `Zadzwoń najpierw · ${callFirst} z ${total}`
@@ -1770,7 +1783,7 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  return (
  <div
  data-testid={`new-column-section-${section}`}
- data-tour={section === "call_first" ? "board.new-queue" : undefined}
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
  className="px-0.5 pt-1 text-[11px] leading-tight"
  >
  <div className={cn("font-semibold", section === "call_first" ? "text-primary" : "text-muted-foreground")}>
@@ -1785,6 +1798,21 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  );
 }
 
+/** Przełącznik grupy aplikujących bez kompletu „musi mieć” (06.11.2026). */
+function AppliedGapToggle({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
+ return (
+ <button
+ type="button"
+ data-testid="new-column-applied-gap-toggle"
+ aria-expanded={!collapsed}
+ onClick={onToggle}
+ className="mt-0.5 text-[10.5px] font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ {collapsed ? `Pokaż ${count} — sami się zgłosili, ale brakuje krytycznej` : "Zwiń"}
+ </button>
+ );
+}
+
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
  jobId,
@@ -1794,6 +1822,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  scoreMap,
  criticalGapMap,
  newQueue = null,
+ appliedGap = null,
  scoresLoading,
  stagesWithScorecard,
  onOpenScorecard,
@@ -1818,6 +1847,11 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  filterEmpty = null,
 }: ColProps) {
  const headerCount = col.count;
+ // Nagłówki sekcji „Nowi”: kolejka od systemu albo zgłoszenia (06.11.2026).
+ const showNewSections =
+ newQueue != null &&
+ (newQueue.total > 0 ||
+ [...newQueue.sections.values()].some((s) => s === "applied" || s === "applied_gap"));
  // Kolumna pusta przez filtr „Kto dodał” nie jest wąska — mieści napis
  // „Brak osób dodanych przez…” i „Pokaż wszystkich”.
  const peopleCount = totalCount ?? headerCount;
@@ -1978,16 +2012,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  >
  {col.items.map((item, index) => {
- const section = newQueue && newQueue.total > 0 ? newColumnSection(newQueue.ranks.get(item.id)) : null;
+ const sectionOf = (it: KanbanItem): NewColumnSection | null =>
+ newQueue && showNewSections ? newQueue.sections.get(it.id) ?? newColumnSection(newQueue.ranks.get(it.id)) : null;
+ const section = sectionOf(item);
  const previous = index > 0 ? col.items[index - 1] : null;
- const startsSection =
- section != null &&
- (previous == null || newColumnSection(newQueue?.ranks.get(previous.id)) !== section);
+ const startsSection = section != null && (previous == null || sectionOf(previous) !== section);
  const rank = newQueue?.ranks.get(item.id);
  return (
  <Fragment key={String(item.id)}>
  {startsSection && newQueue ? (
  <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ ) : null}
+ {startsSection && section === "applied_gap" && appliedGap ? (
+ <AppliedGapToggle count={appliedGap.count} collapsed={false} onToggle={appliedGap.onToggle} />
  ) : null}
  <Draggable
  draggableId={String(item.id)}
@@ -2040,6 +2077,12 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </Fragment>
  );
  })}
+ {appliedGap && appliedGap.collapsed && appliedGap.count > 0 ? (
+ <div className="px-0.5 pt-1">
+ <div className="text-[11px] font-semibold leading-tight text-muted-foreground">Aplikowali, brak „musi mieć”</div>
+ <AppliedGapToggle count={appliedGap.count} collapsed onToggle={appliedGap.onToggle} />
+ </div>
+ ) : null}
  {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
  karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
  kolumna jest po prostu pusta (04.10.2026). */}
@@ -2130,14 +2173,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  ),
  [boardFold, criticalGapMap]
  );
+ // Grupa „Aplikowali, brak »musi mieć«” jest domyślnie zwinięta (06.11.2026):
+ // chowamy ją tak jak filtr „Kto dodał” — przed przeciąganiem, żeby indeksy
+ // kart były indeksami widocznej listy.
+ const [appliedGapOpen, setAppliedGapOpen] = useState(false);
+ const appliedGapCount = newColumnQueue.appliedGapIds.size;
  const allDisplayCols = useMemo(
  () =>
- boardFold.columns.map((f) => ({
- ...f.host,
- items: f.key === "new" ? newColumnQueue.items : f.items,
- count: f.count,
- })),
- [boardFold, newColumnQueue]
+ boardFold.columns.map((f) => {
+ if (f.key !== "new") return { ...f.host, items: f.items, count: f.count };
+ const items = appliedGapOpen
+ ? newColumnQueue.items
+ : newColumnQueue.items.filter((item) => !newColumnQueue.appliedGapIds.has(item.id));
+ return { ...f.host, items, count: f.count };
+ }),
+ [boardFold, newColumnQueue, appliedGapOpen]
  );
  // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
@@ -4467,6 +4517,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  scoreMap={scoreMap}
  criticalGapMap={criticalGapMap}
  newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
+ appliedGap={
+ boardKeyByColId.get(entry.key) === "new" && appliedGapCount > 0
+ ? {
+ count: appliedGapCount,
+ collapsed: !appliedGapOpen,
+ onToggle: () => setAppliedGapOpen((open) => !open),
+ }
+ : null
+ }
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
  onOpenScorecard={handleOpenScorecard}

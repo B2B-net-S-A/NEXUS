@@ -15,6 +15,30 @@ const system = (id: number, score: number, extra: object = {}) => ({
   ...extra,
 });
 const team = (id: number) => ({ id, candidate_id: id * 10, entry_source: "added_manual" });
+const applied = (id: number) => ({ id, candidate_id: id * 10, entry_source: "application" });
+
+describe("orderNewColumn — zgłoszenia (06.11.2026)", () => {
+  it("aplikujący z kompletem „musi mieć” na górze, z brakiem na samym końcu", () => {
+    const gaps = new Map([[30, ["BigQuery"]]]);
+    const { items, sections, appliedGapIds, total } = orderNewColumn(
+      [team(1), applied(2), applied(3), system(4, 80)],
+      gaps,
+    );
+    expect(items.map((i) => i.id)).toEqual([2, 1, 4, 3]);
+    expect(sections.get(2)).toBe("applied");
+    expect(sections.get(1)).toBe("team");
+    expect(sections.get(4)).toBe("call_first");
+    expect(sections.get(3)).toBe("applied_gap");
+    expect([...appliedGapIds]).toEqual([3]);
+    expect(total).toBe(1);
+  });
+
+  it("bez wyniku braków (zapytanie jeszcze leci) nikogo nie odkłada", () => {
+    const { appliedGapIds, sections } = orderNewColumn([applied(1), applied(2)]);
+    expect(appliedGapIds.size).toBe(0);
+    expect(sections.get(1)).toBe("applied");
+  });
+});
 
 describe("orderNewColumn", () => {
   it("odwraca paczkę od systemu: najwyższy wynik pierwszy, zespół na górze", () => {

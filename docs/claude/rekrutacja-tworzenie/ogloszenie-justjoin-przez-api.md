@@ -25,7 +25,10 @@ front `components/v2/job-ad/JjitPublishDialog.tsx`, karta w `AdPublications`
   Bez wiersza `job_ads` kolejka wysyła jak dawniej opis publiczny.
 - **Publikuje DL rekrutacji, Head of Recruitment albo admin**, także starszymi trasami
   `/portals/justjoinit/*`, bo kredyt jest płatny. Rekruter robi stronę kariery i widzi stan.
-- **Strona kariery musi wisieć w tej samej wersji** (409 `career_not_live`). Kandydat
+- **Strona kariery musi wisieć w tej samej wersji** (409 `career_not_live`) —
+  tylko w trybie linku (`apply.url`). Przy `JJIT_APPLY_EMAIL` (formularz
+  portalu, od 06.11.2026) nie jest warunkiem:
+  `aplikacja-z-formularza-justjoin-do-rekrutacji-ogloszenia.md`. Kandydat
   aplikuje przez `/r/<slug>`, więc nie może trafić na starszą treść. „Zaktualizuj na
   stronie” sama kolejkuje aktualizację portalu (`queue_content_update`).
 - **Ogłoszenie oznaczone ręcznie nie kupuje drugiego kredytu** (409 `ad_marked_published`):

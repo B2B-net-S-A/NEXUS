@@ -162,6 +162,19 @@
     "dot_anchor": "jarvis.mascot.hide"
   },
   {
+    "id": "nowi-aplikowali-na-gorze",
+    "title": "W „Nowych” najpierw ci, którzy sami aplikowali",
+    "why": "Osoby ze strony kariery i z JustJoin.IT, które mają wszystkie „musi mieć”, stoją na górze kolumny. Te, którym brakuje krytycznej, czekają zwinięte na dole — rozwiniesz je jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "pr": 3100,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Tablica → kolumna „Nowi”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-applied"
+  },
+  {
     "id": "justjoin-aplikacja-do-nowych",
     "title": "Aplikacje z JustJoin.IT same trafiają do „Nowi”",
     "why": "Kandydat aplikuje jednym kliknięciem na JustJoin.IT, bez naszej strony kariery. Następnego dnia po imporcie jego karta czeka w „Nowi” tej rekrutacji, także przy ogłoszeniu oznaczonym ręcznie.",
@@ -1277,6 +1290,32 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "job.recruiter-team"
+  },
+  {
+    "id": "kandydat-wskazany-przez-klienta",
+    "pr": 3097,
+    "title": "„Kandydat wskazany przez klienta” w umowie",
+    "why": "Gdy klient sam wskazał osobę, a my tylko przepuszczamy ją przez siebie, zaznacz „Tak”. Za taki placement premii nie ma i nie liczy się on do premii 200%.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "talent_community_manager"] },
+    "where": "Generator umów → Szczegóły administracyjne",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.client-referral"
+  },
+  {
+    "id": "szczegoly-administracyjne-kontraktu",
+    "pr": 3097,
+    "title": "Replacement i kandydat od klienta na podpisanym kontrakcie",
+    "why": "Zastępstwo, „za kogo” i kandydata wskazanego przez klienta poprawisz teraz w kontrakcie, z powodem. Premie kontraktu przeliczą się od razu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "permissions": ["payroll"] },
+    "where": "Kontrakt → Szczegóły administracyjne",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.admin-details"
   },
   {
     "id": "kandydaci-ostatnie-odrzucenie",

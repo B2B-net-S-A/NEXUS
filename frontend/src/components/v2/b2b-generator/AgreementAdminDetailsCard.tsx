@@ -8,7 +8,9 @@
  * i premii po 168 h, liczeni tą samą regułą co automat premii (`/prefill` →
  * `admin`). Umowę może wygenerować każdy, ale gdy robi to ktoś inny niż
  * prowadzący, kafelek mówi wprost, że placement, premia i przypomnienia
- * zostają przy prowadzącym. Wpisuje się replacement i wymiar FTE.
+ * zostają przy prowadzącym. Wpisuje się replacement, wymiar FTE i „kandydat
+ * wskazany przez klienta” (0656): przy „Tak” premii z placementu nie dostaje
+ * nikt, a kontrakt nie liczy się do premii 200%.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -194,7 +196,8 @@ function WarrantyNotice({ replaced }: { replaced: B2BReplaceableContract }) {
   );
 }
 
-function ReplacedPicker({
+/** „Replacement za kogo” — też w kafelku kontraktu (`ContractAdminDetailsCard`). */
+export function ReplacedPicker({
   candidateId,
   clientId,
   clientName,
@@ -593,6 +596,48 @@ export function AgreementAdminDetailsCard({
                 {STANDARD_BUSINESS_DAYS} — premie przyjdą później.
               </p>
             ) : null}
+          </div>
+
+          <div
+            className="@xl:col-span-2"
+            data-tour="b2b-generator.client-referral"
+          >
+            <FieldLabel required={false}>
+              Kandydat wskazany przez klienta
+            </FieldLabel>
+            <div
+              className="flex gap-2"
+              role="group"
+              aria-label="Kandydat wskazany przez klienta"
+            >
+              {[true, false].map((option) => (
+                <Button
+                  key={String(option)}
+                  type="button"
+                  size="sm"
+                  disabled={!hasRecruitment}
+                  variant={
+                    value.isClientReferral === option ? "primary" : "outline"
+                  }
+                  aria-pressed={value.isClientReferral === option}
+                  onClick={() => set({ isClientReferral: option })}
+                >
+                  {option ? "Tak" : "Nie"}
+                </Button>
+              ))}
+            </div>
+            <p
+              className={cn(
+                "mt-1.5 text-xs",
+                value.isClientReferral
+                  ? "text-warning-muted-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {value.isClientReferral
+                ? "Bez premii z placementu: ani rekruter, ani Delivery Lead jej nie dostaną, a kontrakt nie liczy się do premii 200%."
+                : "Klient sam wskazał osobę i tylko przepuszczamy ją przez nas? Zaznacz „Tak” — wtedy premii z placementu nie ma."}
+            </p>
           </div>
 
           {value.isReplacement ? (

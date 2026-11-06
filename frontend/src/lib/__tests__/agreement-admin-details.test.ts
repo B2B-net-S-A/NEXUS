@@ -1,6 +1,7 @@
 /**
  * „Szczegóły administracyjne” umowy (0524): podpowiedzi, kompletność,
- * ładunek, odtworzenie przy „Popraw umowę”, gwarancja i termin premii przy FTE.
+ * ładunek, odtworzenie przy „Popraw umowę”, gwarancja i termin premii przy FTE,
+ * „kandydat wskazany przez klienta” (0656).
  */
 import { describe, expect, it } from "vitest";
 
@@ -40,7 +41,12 @@ describe("adminDefaults", () => {
         replacement_from_title: false,
         replaced: null,
       }),
-    ).toEqual({ isReplacement: false, replaced: null, fte: "1" });
+    ).toEqual({
+      isReplacement: false,
+      replaced: null,
+      fte: "1",
+      isClientReferral: false,
+    });
   });
 
   it("zastępstwo z tytułu bierze wskazaną osobę", () => {
@@ -56,6 +62,7 @@ describe("adminDefaults", () => {
       isReplacement: true,
       replaced: REPLACED,
       fte: "1",
+      isClientReferral: false,
     });
     expect(isAdminComplete(value)).toBe(true);
   });
@@ -81,18 +88,45 @@ describe("isAdminComplete i adminPayload", () => {
 
   it("Nie nie wysyła osoby, nawet gdy została w stanie", () => {
     expect(
-      adminPayload({ isReplacement: false, replaced: REPLACED, fte: "0.5" }),
+      adminPayload({
+        isReplacement: false,
+        replaced: REPLACED,
+        fte: "0.5",
+        isClientReferral: false,
+      }),
     ).toEqual({
       is_replacement: false,
       replaced_contract_id: null,
       fte: "0.5",
+      is_client_referral: false,
     });
   });
 
   it("Tak wysyła kontrakt osoby zastąpionej", () => {
     expect(
-      adminPayload({ isReplacement: true, replaced: REPLACED, fte: "1" }),
-    ).toEqual({ is_replacement: true, replaced_contract_id: 497, fte: "1" });
+      adminPayload({
+        isReplacement: true,
+        replaced: REPLACED,
+        fte: "1",
+        isClientReferral: true,
+      }),
+    ).toEqual({
+      is_replacement: true,
+      replaced_contract_id: 497,
+      fte: "1",
+      is_client_referral: true,
+    });
+  });
+
+  it("kandydat od klienta nie jest obowiązkowy do kompletu", () => {
+    expect(
+      isAdminComplete({
+        isReplacement: false,
+        replaced: null,
+        fte: "1",
+        isClientReferral: null,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -111,7 +145,21 @@ describe("adminFromSaved", () => {
         },
         REPLACED,
       ),
-    ).toEqual({ isReplacement: true, replaced: REPLACED, fte: "0.5" });
+    ).toEqual({
+      isReplacement: true,
+      replaced: REPLACED,
+      fte: "0.5",
+      isClientReferral: false,
+    });
+  });
+
+  it("odtwarza „kandydat wskazany przez klienta”", () => {
+    expect(
+      adminFromSaved(
+        { is_replacement: false, fte: "1", is_client_referral: true },
+        null,
+      )?.isClientReferral,
+    ).toBe(true);
   });
 });
 

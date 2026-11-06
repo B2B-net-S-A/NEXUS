@@ -2321,6 +2321,7 @@ async def _stamp_admin_details(
         fte=payload.fte,
         candidate_id=payload.candidate_id,
         linked=linked_job is not None,
+        is_client_referral=payload.is_client_referral,
     )
     if linked_job is None or payload.candidate_id is None:
         return None
@@ -3858,6 +3859,7 @@ async def rerender_generated_contract(
         fte=payload.fte,
         candidate_id=row.candidate_id,
         linked=row.job_id is not None,
+        is_client_referral=payload.is_client_referral,
     )
     row.render_payload = {
         **payload.model_dump(mode="json"),

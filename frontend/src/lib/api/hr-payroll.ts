@@ -7,7 +7,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
+import { api, type B2BReplaceableContract } from "@/lib/api";
 import type { EmploymentType } from "@/lib/api/hr";
 import { paymentKeys } from "@/lib/api/hr-payments";
 import { settlementKeys } from "@/lib/api/hr-settlements";
@@ -753,6 +753,55 @@ export function useContractBonuses(contractId: number, enabled: boolean) {
       (await api.get<{ items: BonusRow[] }>(`/api/hr/payroll/contracts/${contractId}/bonuses`)).data
         .items,
     enabled,
+  });
+}
+
+/**
+ * „Szczegóły administracyjne” podpisanego kontraktu (06.11.2026): replacement,
+ * „za kogo” i kandydat wskazany przez klienta. Od nich zależą premie z placementu.
+ */
+export interface ContractAdminDetails {
+  contract_id: number;
+  candidate_id: number | null;
+  client_id: number | null;
+  is_replacement: boolean | null;
+  replaced_contract_id: number | null;
+  replaced: B2BReplaceableContract | null;
+  is_client_referral: boolean | null;
+}
+
+export interface ContractAdminDetailsInput {
+  is_replacement: boolean | null;
+  replaced_contract_id: number | null;
+  is_client_referral: boolean | null;
+  reason: string;
+}
+
+export function useContractAdminDetails(contractId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "contract-admin", contractId],
+    queryFn: async () =>
+      (
+        await api.get<ContractAdminDetails>(
+          `/api/hr/payroll/contracts/${contractId}/admin-details`,
+        )
+      ).data,
+    enabled,
+  });
+}
+
+export function useSaveContractAdminDetails(contractId: number) {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (input: ContractAdminDetailsInput) =>
+      (
+        await api.put<ContractAdminDetails & { changed: string[] }>(
+          `/api/hr/payroll/contracts/${contractId}/admin-details`,
+          input,
+        )
+      ).data,
+    // Premie kontraktu przelicza serwer — odświeżamy też „Premie z tego kontraktu”.
+    onSuccess: invalidate,
   });
 }
 

@@ -53,3 +53,8 @@ scraper na Macu (`rocketjobs-traffit-scraper`: `CURRENT_AD`,
   (scraper szuka `slug`, `url`, `publicUrl`). Bez niego ogłoszenia wklejone
   ręcznie nie zostaną rozpoznane, a działać będą tylko te z API. Sprawdzenie:
   linia `🗂️ NEXUS rekrutacja ogłoszenia:` w logu biegu.
+- **Strona kariery nie jest warunkiem publikacji na JJIT przy formularzu
+  portalu (06.11.2026).** Przy `JJIT_APPLY_EMAIL` trasa `portal-ad/jjit` nie
+  zwraca 409 `career_not_live`, a `build_content` nie wymaga zatwierdzonego
+  opisu publicznego ani linku kariery (`_build_native_content`: zakładka
+  JustJoin.IT, `apply_url` pusty). Bez zmiennej obowiązuje stara reguła.

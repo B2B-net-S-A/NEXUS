@@ -72,7 +72,13 @@ BONUS_MIN = Decimal("0.01")
 BONUS_MAX = Decimal("1000000")
 #: Powody anulowania nadawane przez automaty (automat może je cofnąć).
 AUTO_CANCEL_REASONS: frozenset[str] = frozenset(
-    {"contract_ended", "contract_void", "rule_no_longer_applies", "guarantee"}
+    {
+        "contract_ended",
+        "contract_void",
+        "rule_no_longer_applies",
+        "guarantee",
+        "client_referral",
+    }
 )
 
 CATEGORY_LABELS: dict[str, str] = {
