@@ -2067,7 +2067,13 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     fireEvent.click(within(viaArrow).getByRole("button", { name: "Anuluj" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Klient zaakceptował/ })).toBeNull());
 
-    fireEvent.click(screen.getByRole("button", { name: "Klient zaakceptował: Karol Wzorcowy" }));
+    // 06.11.2026: przycisk mówi, co zrobić, a nie że klient już zaakceptował —
+    // zielony „✓ Klient zaakceptował” na każdej karcie w „Rozmowie u klienta”
+    // DL brał za fakt (karta bez żadnej akceptacji w bazie).
+    const acceptButton = screen.getByRole("button", { name: "Zaznacz akceptację klienta: Karol Wzorcowy" });
+    expect(acceptButton).toHaveTextContent("Zaznacz akceptację");
+    expect(acceptButton).not.toHaveTextContent("Klient zaakceptował");
+    fireEvent.click(acceptButton);
     const dialog = await screen.findByRole("dialog", { name: /Klient zaakceptował: Karol Wzorcowy/ });
     expect(await within(dialog).findByText("Marta Nowak")).toBeInTheDocument();
     const save = within(dialog).getByRole("button", { name: "Zapisz akceptację" });

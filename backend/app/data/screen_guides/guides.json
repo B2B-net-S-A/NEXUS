@@ -66,7 +66,7 @@
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno pyta „Kiedy rozmowa?” — termin włącza przypomnienie o telefonie i pytaniach klienta. Klient zaakceptował osobę? „Klient zaakceptował” na karcie przenosi ją do „Akceptacja i umowa”.",
+        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno pyta „Kiedy rozmowa?” — termin włącza przypomnienie o telefonie i pytaniach klienta. Klient zaakceptował osobę? „Zaznacz akceptację” na karcie przenosi ją do „Akceptacja i umowa”.",
         "anchor": "jobs.board.columns"
       },
       {
@@ -176,7 +176,7 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Zaznacz akceptację klienta” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
         "anchor": "jobs.person.expand"
       }
     ],
