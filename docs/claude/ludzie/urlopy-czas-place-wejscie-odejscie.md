@@ -524,8 +524,13 @@ z odnośnikiem `hr_documents.leave_request_id`.
   `individual_recruiters` (procent marży zamiast progów, od 3. startu w miesiącu
   rośnie dla całego miesiąca). W kodzie nie ma osób, listy są w ustawieniach.
 - **Ikona premii w pasku** (`GET /decisions`): z podpisanych umów, Liga i wyścigi, do
-  sprawdzenia. Wyścig miesięczny zostaje voucherem: „Potwierdź” zapisuje ślad
-  w `app_settings['hr_voucher_confirmations']`, bez przelewu i bez Płac. Etapy
+  sprawdzenia. Od października 2026 wyścig miesięczny to premia w Płacach
+  (decyzja Artura 06.11.2026): automat Ligi zakłada propozycję, gdy wyścig jest
+  w `league_types`, i wtedy nie ma vouchera. Wyścig spoza `league_types` zostaje
+  voucherem: „Potwierdź” zapisuje ślad w `app_settings['hr_voucher_confirmations']`.
+  Q4 2026 ma nagrody podwojone: wyścigi po 3000 zł, Liga 10 000 / 6000 / 4000 zł
+  (`PRIZE_MULTIPLIER_BY_QUARTER` w `services/competitions.py`). Wygrane osoba
+  widzi w profilu („Twoje wygrane”). Etapy
   (podpis, kontrakt, zamówienie, start, dni) są w „Moim czasie”, dzwonek tylko
   „może zostać naliczona” (`notify_ready`, raz, bez kwoty) i przy zatwierdzeniu.
   Nie pisz „przepracował 160 h”: NEXUS zna dni robocze od startu, nie godziny.

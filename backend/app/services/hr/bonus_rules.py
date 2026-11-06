@@ -51,11 +51,14 @@ CENT = Decimal("0.01")
 #: zakłada nic nowego (lepiej brak propozycji niż premie zdublowane z Compassem).
 AUTOMATION_STOPPED = date.max
 
-#: Rywalizacje z nagrodą pieniężną wypłacaną przez płace (kwartalna Liga).
-#: Wyścig miesięczny daje voucher, nie przelew — domyślnie poza płacami.
+#: Rywalizacje z nagrodą pieniężną wypłacaną przez płace: kwartalna Liga i od
+#: października 2026 oba wyścigi miesięczne (decyzja Artura 06.11.2026, wcześniej
+#: voucher). Ustawienie w Płacach może to zawęzić.
 DEFAULT_LEAGUE_TYPES: tuple[str, ...] = (
     CompetitionType.quarterly_champions_dl.value,
     CompetitionType.quarterly_champions_recruiter.value,
+    CompetitionType.monthly_recommendations.value,
+    CompetitionType.monthly_placements.value,
 )
 KNOWN_LEAGUE_TYPES: frozenset[str] = frozenset(
     {

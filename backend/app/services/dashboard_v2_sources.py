@@ -475,7 +475,7 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
         "period": period,
         "days_remaining": comp.days_left_in_quarter(business_today()),
         "points_formula": league_points_formula(_config),
-        "prizes_pln": {str(k): v for k, v in comp.QUARTERLY_PRIZES_PLN.items()},
+        "prizes_pln": {str(k): v for k, v in comp.quarterly_prizes(period).items()},
         # Ten sam tekst co /api/competitions/current?type=quarterly_champions_recruiter.
         # Prog jest PROGRESYWNY (1/2/3 wg miesiaca kwartalu) — napis musi mowic
         # to samo, co kwalifikacja. Plaskie „3" oswiadczalo w styczniu wymog,

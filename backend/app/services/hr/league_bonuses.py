@@ -3,8 +3,9 @@
 Źródło: ``competition_winners`` (``prize_pln`` > 0) okresów zamkniętych
 w ``competition_period_closures`` jako ``frozen`` albo ``tie_resolved``
 (remis czekający na decyzję admina nie ma jeszcze wierszy podium). Domyślnie
-tylko kwartalna Liga (5000 / 3000 / 2000 zł); wyścig miesięczny daje voucher,
-nie przelew (rodzaje rywalizacji to ustawienie ``league_types``).
+kwartalna Liga (5000 / 3000 / 2000 zł) i od października 2026 oba wyścigi
+miesięczne (1500 zł, decyzja Artura 06.11.2026); Q4 2026 podwojony. Rodzaje
+rywalizacji to ustawienie ``league_types``.
 
 Propozycja trafia do miesiąca po końcu okresu (Q3 → październik; zamknięty
 miesiąc → pierwszy otwarty), status ``proposed`` — zatwierdzają Płace.

@@ -168,7 +168,9 @@ def test_dl_prizes_end_with_q3_2026(period, pays) -> None:
 
 
 def test_recruiter_league_keeps_its_prizes() -> None:
-    assert competitions._prize_for(RECRUITER, 1, "Q4 2026") == 5000
+    # Q4 2026 ma nagrody podwojone (decyzja Artura 06.11.2026).
+    assert competitions._prize_for(RECRUITER, 1, "Q4 2026") == 10_000
+    assert competitions._prize_for(RECRUITER, 1, "Q3 2026") == 5000
     assert competitions._prize_for(RECRUITER, 3, "Q1 2027") == 2000
     assert competitions.paid_slots(RECRUITER, "Q4 2026") == 3
 

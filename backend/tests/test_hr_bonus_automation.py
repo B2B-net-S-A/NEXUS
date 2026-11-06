@@ -592,10 +592,15 @@ def test_league_period_parsing() -> None:
     assert league_bonuses.period_end("all_time") is None
 
 
-def test_monthly_vouchers_are_outside_payroll_by_default() -> None:
+def test_monthly_races_are_paid_through_payroll_by_default() -> None:
+    """Od października 2026 wyścig to premia w Płacach (decyzja Artura 06.11.2026)."""
     rules = parse_rules({})
-    assert "monthly_placements" not in rules.league_types
+    assert "monthly_placements" in rules.league_types
+    assert "monthly_recommendations" in rules.league_types
     assert "quarterly_champions_dl" in rules.league_types
+    # Ustawienie zapisane bez wyścigów nadal je wyłącza.
+    narrowed = parse_rules({"league_types": ["quarterly_champions_recruiter"]})
+    assert "monthly_placements" not in narrowed.league_types
 
 
 @pytest.mark.asyncio
