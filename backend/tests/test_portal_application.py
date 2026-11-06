@@ -26,6 +26,11 @@ from tests.test_pipeline_membership_gate import (
 SLUG = "b2bnetwork-data-engineer-k-m-x--warszawa-data"
 
 
+def _unique_slug() -> str:
+    """Baza testów jest wspólna: żywa publikacja jednego testu znalazłaby się w drugim."""
+    return f"b2bnetwork-data-engineer-{uuid.uuid4().hex[:8]}--warszawa-data"
+
+
 # ── bez bazy ────────────────────────────────────────────────────────────
 
 
@@ -173,9 +178,10 @@ async def test_manual_ad_found_by_slug_of_marked_link(app_client):
     _, uid = await _seed_recruiter(app_client)
     job_id, _ = await _seed_job(owner_id=uid)
     cand = await _seed_candidate()
-    await _publication(job_id, f"https://justjoin.it/job-offer/{SLUG}")
+    slug = _unique_slug()
+    await _publication(job_id, f"https://justjoin.it/job-offer/{slug}")
 
-    result = await _place(cand, ad_id=str(uuid.uuid4()), ad_slug=SLUG)
+    result = await _place(cand, ad_id=str(uuid.uuid4()), ad_slug=slug)
 
     assert (result.outcome, result.job_id) == ("added", job_id)
 
@@ -186,10 +192,11 @@ async def test_slug_must_match_whole_last_segment_and_live_publication(app_clien
     longer_job, _ = await _seed_job(owner_id=uid)
     removed_job, _ = await _seed_job(owner_id=uid)
     cand = await _seed_candidate()
-    await _publication(longer_job, f"https://justjoin.it/job-offer/{SLUG}-senior")
-    await _publication(removed_job, f"https://justjoin.it/job-offer/{SLUG}", True)
+    slug = _unique_slug()
+    await _publication(longer_job, f"https://justjoin.it/job-offer/{slug}-senior")
+    await _publication(removed_job, f"https://justjoin.it/job-offer/{slug}", True)
 
-    result = await _place(cand, ad_id=str(uuid.uuid4()), ad_slug=SLUG)
+    result = await _place(cand, ad_id=str(uuid.uuid4()), ad_slug=slug)
 
     assert result.outcome == "no_job"
     assert await _stage(cand, longer_job) is None
