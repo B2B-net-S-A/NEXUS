@@ -53,6 +53,11 @@
   równa: w próbie 20 faktur Nordei nazwisko wskazywało jedną osobę 20/20, cena była równa 20/20, godziny
   różne 18/20. Warunek: pełne imię i nazwisko prowadzi do jednej pozycji zamówień miesiąca i cena równa
   co do grosza; inaczej faktura czeka na Finanse. Numer zamówienia i równa kwota mają pierwszeństwo.
+  Nazwisko porównujemy bez polskich znaków (`Łukasz` = `Lukasz`): pomiar 06.11.2026 na nocnej kopii
+  produkcji dał 736 z 821 faktur Nordei przez `person`, a 5 z 75 `amount_differs` miało tylko tę różnicę.
+  Pozostałe 70 to dane, nie reguła: 50 osób bez pozycji zamówienia w miesiącu usługi z faktury (24 mają ją
+  w kolejnym miesiącu, 5 o miesiąc wcześniej albo dwa później, 21 nie mają w ±2 miesiącach), 11 osób
+  z dwiema pozycjami w miesiącu (celowo czeka) i 9 z inną ceną.
 - **Numer nabywcy idzie do klienta przy ręcznym przypisaniu.** Pomiar z 02.11.2026 na fakturach z października:
   173 ze 188 NIP-ów nabywców nie ma klienta w NEXUSIE, ok. 197 faktur miesięcznie; numer w profilu ma 18 ze 169
   klientów. Okno „Przypisz” pozwala wskazać klienta, a przycisk „Przypisz i dopisz NIP” (`save_buyer_number`) zapisuje

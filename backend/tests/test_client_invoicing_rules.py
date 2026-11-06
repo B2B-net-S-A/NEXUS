@@ -510,6 +510,23 @@ def test_person_name_order_and_case_do_not_matter():
 
 
 @pytest.mark.parametrize(
+    ("consultant", "item_name"),
+    [
+        # Faktura po angielsku bez polskich znaków (pomiar 06.11.2026: 5 faktur).
+        ("Łukasz Żółtowski", "Consulting services, Lukasz Zoltowski"),
+        # I odwrotnie: w NEXUSIE bez znaków, na fakturze ze znakami.
+        ("Lukasz Zoltowski", "Usługa, Łukasz Żółtowski"),
+    ],
+)
+def test_person_name_without_polish_letters_still_points_at_the_person(
+    consultant, item_name
+):
+    decision = _decide_person((10, consultant, "150"), item_name=item_name)
+    assert decision.method == "person"
+    assert decision.targets == (Target(order_id=10),)
+
+
+@pytest.mark.parametrize(
     ("people", "item_name", "price"),
     [
         # Inna cena: to może być inna umowa albo błąd, decydują Finanse.
