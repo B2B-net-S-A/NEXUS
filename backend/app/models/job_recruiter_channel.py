@@ -1,4 +1,4 @@
-"""Koszyk „Baza” / „LinkedIn” osoby przy rekrutacji (0654, 06.11.2026).
+"""Koszyk „Baza” / „LinkedIn” osoby przy rekrutacji (0655, 06.11.2026).
 
 Jeden wiersz na parę (rekrutacja, osoba). Reguła i powody:
 ``app/services/job_channels.py``.

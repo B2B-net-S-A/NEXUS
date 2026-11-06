@@ -17,7 +17,7 @@ class JobRecruiterOut(BaseModel):
     proposed: bool = False
     # Kto przypisał (akceptacja propozycji, dodanie z pulpitu); brak = nie wiadomo.
     assigned_by_name: Optional[str] = None
-    # Koszyk przy rekrutacji (0654): baza NEXUSA albo LinkedIn; brak = nie wybrano.
+    # Koszyk przy rekrutacji (0655): baza NEXUSA albo LinkedIn; brak = nie wybrano.
     channel: Optional[Literal["base", "linkedin"]] = None
 
 

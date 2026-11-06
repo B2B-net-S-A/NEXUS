@@ -1,4 +1,4 @@
-# Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0654, 06.11.2026)
+# Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655, 06.11.2026)
 <!-- indeks: kto szuka w bazie NEXUSA, a kto na LinkedInie; plan koszyków; „Pracują bez przypisania” jako ostrzeżenie, nie bramka -->
 
 Decyzje Artura z 06.11.2026. Makiety (wariant B):
@@ -20,7 +20,7 @@ wie więc tylko zespół: koszyk jest planem, nie pomiarem.
 - **Dane:** tabela `job_recruiter_channels` (rekrutacja, osoba, `base` |
   `linkedin`, kto i kiedy ustawił) i kolumny `jobs.channel_plan_base` oraz
   `jobs.channel_plan_linkedin` (`NULL` = bez planu). SQL jest w
-  `services/job_channels_schema.py`, a migracja 0654 i `entrypoint.sh` czytają
+  `services/job_channels_schema.py`, a migracja 0655 i `entrypoint.sh` czytają
   go z tego jednego miejsca. Tabela stoi osobno od trzech źródeł „Rekrutera”
   (`job_team`), bo zmiana prowadzącego albo akceptacja propozycji nie może
   zgubić koszyka.

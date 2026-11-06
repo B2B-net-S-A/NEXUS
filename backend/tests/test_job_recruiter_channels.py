@@ -1,4 +1,4 @@
-"""Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0654, decyzja Artura 06.11.2026).
+"""Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655, decyzja Artura 06.11.2026).
 
 * osoba w zespole ma koszyk ``base`` albo ``linkedin`` (albo żaden), widoczny
   w ``recruiters`` rekrutacji i w ``people`` pulpitu;

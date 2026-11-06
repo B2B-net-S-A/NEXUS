@@ -55,7 +55,7 @@ import {
 
 /** Pola rekrutacji (`GET /api/jobs/{id}`), z których panel czyta obsadę. */
 export interface JobOwnershipJob extends JobTeamSource, PrioritySource {
-  /** 0654: plan koszyków „Baza” / „LinkedIn”; brak = bez planu. */
+  /** 0655: plan koszyków „Baza” / „LinkedIn”; brak = bez planu. */
   channel_plan_base?: number | null;
   channel_plan_linkedin?: number | null;
   primary_owner?: UserBrief | null;

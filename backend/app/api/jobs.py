@@ -5750,7 +5750,7 @@ async def set_recruiter_channel(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Koszyk osoby w zespole: baza NEXUSA albo LinkedIn (0654, 06.11.2026).
+    """Koszyk osoby w zespole: baza NEXUSA albo LinkedIn (0655, 06.11.2026).
 
     Rekruter przestawia siebie; każdego z zespołu przestawia rola, która
     przydziela ludzi do rekrutacji (``user_can_staff_job``: Head of

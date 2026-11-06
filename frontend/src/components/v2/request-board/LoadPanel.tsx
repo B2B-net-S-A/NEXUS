@@ -98,7 +98,7 @@ function PersonRow({
         )}
       </span>
       <span className="flex h-2.5 overflow-hidden rounded" aria-hidden>
-        {/* 0654: odcinki koszyków — Baza, LinkedIn, potem bez koszyka. */}
+        {/* 0655: odcinki koszyków — Baza, LinkedIn, potem bez koszyka. */}
         <span
           data-load-base
           className="h-full bg-primary"

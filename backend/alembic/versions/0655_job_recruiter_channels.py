@@ -1,7 +1,7 @@
-"""Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0654).
+"""Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655).
 
-Revision ID: 0654_job_recruiter_channels
-Revises: 0653_hr_bonus_guarantee
+Revision ID: 0655_job_recruiter_channels
+Revises: 0654_b2b_signed_on_source
 
 Decyzja Artura 06.11.2026 (wariant B z makiet): przy każdej rekrutacji widać,
 kto szuka w bazie NEXUSA, a kto na LinkedInie, oraz plan liczby osób w każdym
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import job_channels_schema as schema
 
-revision = "0654_job_recruiter_channels"
-down_revision = "0653_hr_bonus_guarantee"
+revision = "0655_job_recruiter_channels"
+down_revision = "0654_b2b_signed_on_source"
 branch_labels = None
 depends_on = None
 

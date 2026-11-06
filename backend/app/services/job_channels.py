@@ -1,4 +1,4 @@
-"""Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0654, 06.11.2026).
+"""Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655, 06.11.2026).
 
 Decyzje Artura 06.11.2026 (wariant B z makiet
 https://claude.ai/artifact/Whdf5UxmLqKiUpmbcUYTyk):

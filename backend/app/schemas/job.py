@@ -391,7 +391,7 @@ class JobResponse(BaseModel):
     recruiters: list[JobRecruiterOut] = []
     # „Poprzedni rekruter” — osoby uśpione przy zejściu z P1 albo zamknięciu.
     previous_recruiters: list[JobPreviousRecruiterOut] = []
-    # 0654: plan koszyków zespołu (ile osób w bazie / na LinkedInie); None = bez planu.
+    # 0655: plan koszyków zespołu (ile osób w bazie / na LinkedInie); None = bez planu.
     channel_plan_base: Optional[int] = None
     channel_plan_linkedin: Optional[int] = None
     # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
@@ -538,7 +538,7 @@ class JobCollaboratorAdd(BaseModel):
     """Add a collaborator (read-only participant) to a job."""
 
     user_id: int
-    # 0654: koszyk, do którego osoba od razu dołącza („Dołącz do bazy”,
+    # 0655: koszyk, do którego osoba od razu dołącza („Dołącz do bazy”,
     # „+ Dodaj do LinkedIna”); brak = bez koszyka.
     channel: Optional[Literal["base", "linkedin"]] = None
 
