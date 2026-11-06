@@ -12,6 +12,7 @@ Pokrywa:
   (Traffit wyłączony 14.10.2026), oba z innego żywego systemu = 409;
 - odcisk: rozjazd = 409; ten sam kandydat = 422; rekruter = 403;
 - ocalały zachowuje główne CV, a podgląd pokazuje plik, gdy główne się zmienia;
+- karta w rekrutacji wspólnej dla obu profili: reguła etapu, podgląd, proces;
 - Historia zdarzeń bez imion i nazwisk.
 """
 
@@ -29,10 +30,15 @@ from app.core.security import hash_password
 from app.models.activity import Activity
 from app.models.application_submission import ApplicationSubmission
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.critical_event import CriticalEvent
+from app.models.job import Job, JobStatus
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import Notification, NotificationType
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
+from app.services.candidate_merge import CardRow, card_after_merge
 
 pytestmark = pytest.mark.asyncio
 
@@ -776,3 +782,322 @@ async def test_merge_restrictive_facts_and_empty_fields_come_from_duplicate(
         assert kept.accepts_more_office_days is False
         assert kept.skills == [{"name": "Kotlin"}]
         assert kept.work_time_preference == "part_time_only"
+
+
+async def _job(recruiter_id: int) -> int:
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Merge client {tag}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Merge job {tag}",
+            client_id=client.id,
+            status=JobStatus.published,
+            recruiter_id=recruiter_id,
+        )
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+async def _stages(
+    candidate_id: int, job_id: int, *rows: tuple[PipelineStage, datetime]
+) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=stage,
+                moved_at=moved_at,
+            )
+            for stage, moved_at in rows
+        )
+        await db.commit()
+
+
+async def _board_stage(api, headers, job_id: int, candidate_id: int) -> list[str]:
+    resp = await api.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return [
+        item["stage"]
+        for column in resp.json()["columns"]
+        for item in column["items"]
+        if item["candidate_id"] == candidate_id
+    ]
+
+
+@pytest.mark.parametrize(
+    ("survivor", "duplicate", "kept"),
+    [
+        # Dwa żywe etapy: zostaje dalszy, niezależnie od daty i strony.
+        (("cv_sent", 1), ("screening", 2), "survivor"),
+        (("screening", 2), ("cv_sent", 1), "duplicate"),
+        (("new", 1), ("screening", 2), "duplicate"),
+        # Ten sam etap: nowszy wiersz.
+        (("new", 2), ("new", 1), "survivor"),
+        (("new", 1), ("new", 2), "duplicate"),
+        # Zatrudniony wygrywa zawsze, także z nowszym odrzuceniem.
+        (("hired", 1), ("rejected", 2), "survivor"),
+        (("screening", 2), ("hired", 1), "duplicate"),
+        # Automatyczne „Nowi” po odrzuceniu niczego nie odwołuje (789166).
+        (("new", 2), ("rejected", 1), "duplicate"),
+        (("posting", 2), ("withdrawn", 1), "duplicate"),
+        # Nowsza praca dalej niż „Nowi” odwołuje starsze odrzucenie.
+        (("screening", 2), ("rejected", 1), "survivor"),
+        # Nowsze odrzucenie zostaje, nawet gdy drugi profil był dalej.
+        (("cv_sent", 1), ("rejected", 2), "duplicate"),
+        # Dwa etapy końcowe: nowszy wiersz.
+        (("rejected", 2), ("withdrawn", 1), "survivor"),
+        (("rejected", 1), ("withdrawn", 2), "duplicate"),
+    ],
+)
+async def test_card_after_merge_rule(survivor, duplicate, kept):
+    base = datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+    def row(spec: tuple[str, int], row_id: int) -> CardRow:
+        return CardRow(
+            stage=PipelineStage(spec[0]),
+            moved_at=base + timedelta(days=spec[1]),
+            id=row_id,
+        )
+
+    assert card_after_merge(row(survivor, 1), row(duplicate, 2)) == kept
+
+
+async def _card_history(job_id: int, candidate_id: int) -> list[CandidateStage]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(CandidateStage)
+                    .where(
+                        CandidateStage.candidate_id == candidate_id,
+                        CandidateStage.job_id == job_id,
+                    )
+                    .order_by(CandidateStage.moved_at, CandidateStage.id)
+                )
+            ).all()
+        )
+
+
+async def test_merge_keeps_the_card_further_in_the_process(app_client: AsyncClient):
+    """Nowszy wiersz duplikatu nie cofa karty z „CV wysłane” na „Screening”."""
+    admin_id, headers = await _user(app_client, UserRole.admin)
+    job_id = await _job(admin_id)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    t0 = datetime.now(timezone.utc) - timedelta(days=10)
+    await _stages(
+        survivor,
+        job_id,
+        (PipelineStage.new, t0),
+        (PipelineStage.cv_sent, t0 + timedelta(days=1)),
+    )
+    newest = t0 + timedelta(days=3)
+    await _stages(
+        duplicate,
+        job_id,
+        (PipelineStage.new, t0 + timedelta(days=2)),
+        (PipelineStage.screening, newest),
+    )
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert len(plan["cards"]) == 1
+    card = plan["cards"][0]
+    assert card["job_id"] == job_id
+    assert card["survivor_stage"] == "cv_sent"
+    assert card["duplicate_stage"] == "screening"
+    assert card["result_stage"] == "cv_sent"
+    assert card["result_stage_name"] == "CV Wysłane"
+    assert card["kept"] == "survivor"
+    assert card["restores"] is True
+
+    merged = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert merged.status_code == 200, merged.text
+    assert merged.json()["cards_restored"] == 1
+
+    assert await _board_stage(app_client, headers, job_id, survivor) == ["cv_sent"]
+    history = await _card_history(job_id, survivor)
+    # Historia obu profili zostaje, wynik to dopisany wiersz tuż po najnowszym:
+    # bez nowej daty liczniki dnia i terminy z etapu nie ruszają się od scalenia.
+    assert [row.stage.value for row in history] == [
+        "new",
+        "cv_sent",
+        "new",
+        "screening",
+        "cv_sent",
+    ]
+    assert history[-1].moved_at == newest + timedelta(microseconds=1)
+    assert history[-1].notes
+
+    async with AsyncSessionLocal() as db:
+        activity = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == survivor,
+                Activity.action == "candidates_merged",
+            )
+        )
+        assert activity.details["cards_restored"] == [
+            {
+                "job_id": job_id,
+                "stage": "cv_sent",
+                "new_stage_row_id": history[-1].id,
+                "from_stage_row_id": history[1].id,
+            }
+        ]
+
+    move = await app_client.post(
+        "/api/pipeline/move",
+        json={"candidate_id": survivor, "job_id": job_id, "stage": "client_interview"},
+        headers=headers,
+    )
+    assert move.status_code == 200, move.text
+    assert await _board_stage(app_client, headers, job_id, survivor) == [
+        "client_interview"
+    ]
+
+
+async def test_merge_newest_card_wins_adds_no_row(app_client: AsyncClient):
+    admin_id, headers = await _user(app_client, UserRole.admin)
+    job_id = await _job(admin_id)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    t0 = datetime.now(timezone.utc) - timedelta(days=10)
+    await _stages(survivor, job_id, (PipelineStage.new, t0))
+    await _stages(duplicate, job_id, (PipelineStage.cv_sent, t0 + timedelta(days=1)))
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["cards"][0]["restores"] is False
+    assert plan["cards"][0]["kept"] == "duplicate"
+    merged = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert merged.status_code == 200, merged.text
+    assert merged.json()["cards_restored"] == 0
+    assert len(await _card_history(job_id, survivor)) == 2
+    assert await _board_stage(app_client, headers, job_id, survivor) == ["cv_sent"]
+
+
+async def test_merge_older_rejection_beats_newer_entry_row_with_its_reason(
+    app_client: AsyncClient,
+):
+    """Karta wraca na odrzucenie z powodem i notatką, jak na wierszu człowieka."""
+    admin_id, headers = await _user(app_client, UserRole.admin)
+    job_id = await _job(admin_id)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    t0 = datetime.now(timezone.utc) - timedelta(days=10)
+    await _stages(survivor, job_id, (PipelineStage.new, t0 + timedelta(minutes=3)))
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=duplicate,
+                job_id=job_id,
+                stage=PipelineStage.rejected,
+                moved_at=t0,
+                moved_by=admin_id,
+                notes="Pracuje u tego klienta",
+                rejection_note="Inne",
+                ended_by="recruiter",
+            )
+        )
+        await db.commit()
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["cards"][0]["result_stage"] == "rejected"
+    assert plan["cards"][0]["restores"] is True
+    merged = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert merged.status_code == 200, merged.text
+
+    kept = (await _card_history(job_id, survivor))[-1]
+    assert kept.stage == PipelineStage.rejected
+    assert kept.notes == "Pracuje u tego klienta"
+    assert kept.rejection_note == "Inne"
+    assert kept.ended_by == "recruiter"
+    assert kept.moved_by == admin_id
+
+
+async def test_merge_process_follows_the_kept_card(app_client: AsyncClient):
+    """Opiekun i kredyt zostają z kartą, nie z nowszym wierszem procesu."""
+    admin_id, headers = await _user(app_client, UserRole.admin)
+    job_id = await _job(admin_id)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    t0 = datetime.now(timezone.utc) - timedelta(days=10)
+    await _stages(survivor, job_id, (PipelineStage.cv_sent, t0))
+    await _stages(duplicate, job_id, (PipelineStage.screening, t0 + timedelta(days=1)))
+    async with AsyncSessionLocal() as db:
+        kept_process = RecruitmentProcess(
+            candidate_id=survivor,
+            job_id=job_id,
+            attempt_no=1,
+            status=ProcessStatus.open,
+            owner_user_id=admin_id,
+            credit_user_id=admin_id,
+            updated_at=t0,
+        )
+        db.add(kept_process)
+        db.add(
+            RecruitmentProcess(
+                candidate_id=duplicate,
+                job_id=job_id,
+                attempt_no=1,
+                status=ProcessStatus.open,
+                updated_at=t0 + timedelta(days=1),
+            )
+        )
+        await db.commit()
+        kept_process_id = kept_process.id
+
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    merged = await _merge(app_client, headers, survivor, duplicate, plan["fingerprint"])
+    assert merged.status_code == 200, merged.text
+
+    history = await _card_history(job_id, survivor)
+    async with AsyncSessionLocal() as db:
+        processes = (
+            await db.scalars(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.candidate_id == survivor,
+                    RecruitmentProcess.job_id == job_id,
+                )
+            )
+        ).all()
+    assert [p.id for p in processes] == [kept_process_id]
+    assert processes[0].owner_user_id == admin_id
+    assert processes[0].credit_user_id == admin_id
+    assert processes[0].legacy_current_candidate_stage_id == history[-1].id
+
+
+async def test_merge_preview_fingerprint_changes_when_a_card_moves(
+    app_client: AsyncClient,
+):
+    admin_id, headers = await _user(app_client, UserRole.admin)
+    job_id = await _job(admin_id)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    t0 = datetime.now(timezone.utc) - timedelta(days=10)
+    await _stages(survivor, job_id, (PipelineStage.new, t0))
+    await _stages(duplicate, job_id, (PipelineStage.new, t0 + timedelta(days=1)))
+    first = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert first["cards"][0]["restores"] is False
+    await _stages(survivor, job_id, (PipelineStage.cv_sent, t0 + timedelta(days=2)))
+    second = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert second["cards"][0]["result_stage"] == "cv_sent"
+    assert second["fingerprint"] != first["fingerprint"]
+
+
+async def test_merge_preview_lists_no_card_without_a_shared_job(
+    app_client: AsyncClient,
+):
+    admin_id, headers = await _user(app_client, UserRole.admin)
+    job_a = await _job(admin_id)
+    job_b = await _job(admin_id)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    now = datetime.now(timezone.utc)
+    await _stages(survivor, job_a, (PipelineStage.cv_sent, now))
+    await _stages(duplicate, job_b, (PipelineStage.screening, now))
+    plan = (await _preview(app_client, headers, survivor, duplicate)).json()
+    assert plan["cards"] == []

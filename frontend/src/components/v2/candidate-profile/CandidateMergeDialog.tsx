@@ -137,6 +137,24 @@ export function MergePlanView({
         </p>
       ) : null}
 
+      {plan.cards.length > 0 ? (
+        <div className="space-y-1">
+          <p className="font-medium">Karty w rekrutacjach obu profili</p>
+          <ul className="space-y-1">
+            {plan.cards.map((card) => (
+              <li key={card.job_id} className="break-words">
+                <span>{card.job_title ?? `Rekrutacja #${card.job_id}`}</span>
+                {": zostaje "}
+                <span className="font-medium">{card.result_stage_name}</span>
+                <span className="text-muted-foreground">
+                  {" "}(ten profil: {card.survivor_stage_name}, duplikat: {card.duplicate_stage_name})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="space-y-1">
         <p className="font-medium">
           Przejdzie na ten profil: {plan.moved_rows} {plan.moved_rows === 1 ? "rekord" : "rekordów"}
@@ -149,7 +167,9 @@ export function MergePlanView({
                 {r.conflicts > 0
                   ? r.table === "candidate_documents"
                     ? ` (w tym ${r.conflicts} zdublowanych — oba pliki zostają)`
-                    : ` (w tym ${r.conflicts} zdublowanych — zostaje nowszy wpis)`
+                    : r.table === "recruitment_processes"
+                      ? ` (w tym ${r.conflicts} zdublowanych — zostaje proces karty)`
+                      : ` (w tym ${r.conflicts} zdublowanych — zostaje nowszy wpis)`
                   : ""}
               </li>
             ))}
