@@ -128,6 +128,7 @@ export function JobRecruiterFact({
           } — zespół rekrutacji`}
           title={staffed}
           data-testid="job-header-recruiter"
+          data-tour="job.recruiter-team"
           data-state-kind={view.kind}
           className={cn(
             "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border text-[13px] font-semibold transition-colors",

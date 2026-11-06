@@ -211,9 +211,9 @@ function PlanEditor({
   const [open, setOpen] = useState(false);
   const [base, setBase] = useState("");
   const [linkedin, setLinkedin] = useState("");
-  const parsedBase = parsePlanInput(base);
-  const parsedLinkedin = parsePlanInput(linkedin);
-  const invalid = parsedBase === "invalid" || parsedLinkedin === "invalid";
+  const basePlanInput = parsePlanInput(base);
+  const liPlanInput = parsePlanInput(linkedin);
+  const invalid = basePlanInput === "invalid" || liPlanInput === "invalid";
 
   return (
     <Popover
@@ -241,7 +241,7 @@ function PlanEditor({
               inputMode="numeric"
               value={base}
               onChange={(e) => setBase(e.target.value)}
-              aria-invalid={parsedBase === "invalid"}
+              aria-invalid={basePlanInput === "invalid"}
             />
           </label>
           <label className="space-y-1 text-xs font-medium">
@@ -251,7 +251,7 @@ function PlanEditor({
               inputMode="numeric"
               value={linkedin}
               onChange={(e) => setLinkedin(e.target.value)}
-              aria-invalid={parsedLinkedin === "invalid"}
+              aria-invalid={liPlanInput === "invalid"}
             />
           </label>
         </div>
@@ -271,8 +271,8 @@ function PlanEditor({
               "plan",
               () =>
                 setChannelPlan(jobId, {
-                  base: parsedBase as number | null,
-                  linkedin: parsedLinkedin as number | null,
+                  base: basePlanInput as number | null,
+                  linkedin: liPlanInput as number | null,
                 }),
               { done: "Zapisano plan koszyków.", failed: "Nie udało się zapisać planu koszyków." },
             );
