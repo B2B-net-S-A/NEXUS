@@ -1231,5 +1231,38 @@
     "where": "Profil → Twoje wygrane",
     "href": "/profile",
     "dot_anchor": "profile.my-wins"
+  },
+  {
+    "id": "podpis-umowy-z-pliku",
+    "pr": 3096,
+    "title": "Podpis umowy B2B: plik i data z podpisu konsultanta",
+    "why": "„Oznacz jako podpisaną” wymaga podpisanego PDF-a. Datę podpisu NEXUS czyta z podpisu konsultanta w pliku. Przy skanie z podpisem odręcznym wpisujesz datę i powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": {
+      "permissions": [
+        "b2b_signature_confirmation"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Oznacz jako podpisaną (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.confirm-signed"
+  },
+  {
+    "id": "premia-200-data-podpisu",
+    "pr": 3096,
+    "title": "Premia 200%: skąd data podpisu i jej poprawka",
+    "why": "Przy każdej osobie widzisz jej umowy z datą podpisu i źródłem. Datę wpisaną przy oznaczeniu bez pliku poprawisz z powodem, a potem przeliczysz wynik miesiąca.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": {
+      "permissions": [
+        "payroll"
+      ]
+    },
+    "where": "Ludzie → Rozliczenia → miesiąc → Premia 200%",
+    "href": "/people/payroll",
+    "dot_anchor": "payroll.double-bonus"
   }
 ]

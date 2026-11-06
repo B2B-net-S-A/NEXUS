@@ -5524,6 +5524,13 @@ END $$""",
     "signed_document_id INTEGER REFERENCES contract_documents(id) ON DELETE SET NULL",
     # 0514: prawdziwy dzień podpisu umowy (pole w „Oznacz jako podpisaną”).
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS signed_on DATE",
+    # 0654: źródło dnia podpisu (plik z podpisem, ręcznie z powodem, e-podpis).
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS signed_on_source VARCHAR(16)",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS signed_on_reason TEXT",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS signed_on_set_by "
+    "INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS "
+    "consultant_signed_at TIMESTAMPTZ",
     # 0524: szczegóły administracyjne umowy — replacement i wymiar FTE
     # (CHECK-i w _CONSTRAINT_STATEMENTS).
     "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS is_replacement BOOLEAN",
@@ -10038,6 +10045,14 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (
                 signature_source IS NULL OR
                 signature_source IN ('manual_confirmation', 'validated_upload')
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_signed_on_source
+            CHECK (
+                signed_on_source IS NULL OR
+                signed_on_source IN ('pdf', 'manual', 'esign')
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """DO $$ BEGIN

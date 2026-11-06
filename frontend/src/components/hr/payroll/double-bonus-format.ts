@@ -1,6 +1,6 @@
 // Premia 200% — czyste funkcje opisu warunków (karta Płac i „Moja współpraca”).
 
-import type { DoubleBonusDl, DoubleBonusRecruiter } from "@/lib/api/hr-payroll";
+import type { DoubleBonusContract, DoubleBonusDl, DoubleBonusRecruiter } from "@/lib/api/hr-payroll";
 
 const decimal = (value: string | null | undefined, digits = 1): string =>
   value == null ? "—" : Number(value).toLocaleString("pl-PL", { maximumFractionDigits: digits });
@@ -49,4 +49,53 @@ export function progressShare(value: string | number | null | undefined, goal: s
   const target = Number(goal);
   if (!Number.isFinite(current) || !Number.isFinite(target) || target <= 0) return current > 0 ? 100 : 0;
   return Math.max(0, Math.min(100, Math.round((current / target) * 100)));
+}
+
+export interface SignedSourceInfo {
+  /** „z pliku · podpis 02.11.2026 07:32”, „ręcznie przez Anna Kowalska” itd. */
+  text: string;
+  /** Plakietka przy dacie. */
+  tag: string;
+  /** Data z kliknięcia albo z dnia założenia — Płace powinny ją sprawdzić. */
+  needsCheck: boolean;
+}
+
+/**
+ * Skąd jest dzień podpisu umowy (decyzja Artura 06.11.2026). Data sprzed tej
+ * zmiany (`signed`) to dzień wpisany w oknie „Oznacz jako podpisaną” (domyślnie
+ * dzień kliknięcia), więc dostaje „sprawdź”.
+ */
+export function signedSourceInfo(
+  contract: DoubleBonusContract,
+  formatMoment: (iso: string) => string,
+): SignedSourceInfo {
+  const agreement = contract.agreement ?? null;
+  switch (contract.signed_source) {
+    case "pdf":
+      return {
+        text: agreement?.consultant_signed_at
+          ? `z pliku · podpis ${formatMoment(agreement.consultant_signed_at)}`
+          : "z pliku",
+        tag: "z podpisu",
+        needsCheck: false,
+      };
+    case "esign":
+      return { text: "e-podpis w NEXUSIE", tag: "z podpisu", needsCheck: false };
+    case "manual": {
+      const who = agreement?.set_by_name ? ` przez ${agreement.set_by_name}` : "";
+      const why = agreement?.signed_on_reason ? ` · ${agreement.signed_on_reason}` : "";
+      return { text: `ręcznie${who}${why}`, tag: "ręcznie", needsCheck: false };
+    }
+    case "signed": {
+      const who = agreement?.marked_by_name ? ` przez ${agreement.marked_by_name}` : "";
+      const file = agreement?.has_signed_file ? "" : " · bez pliku";
+      return { text: `wpisany przy oznaczeniu${who}${file}`, tag: "sprawdź", needsCheck: true };
+    }
+    default:
+      return {
+        text: "dzień założenia kontraktu (bez umowy z Generatora)",
+        tag: "sprawdź",
+        needsCheck: true,
+      };
+  }
 }
