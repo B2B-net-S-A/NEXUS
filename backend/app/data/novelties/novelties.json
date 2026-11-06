@@ -1,5 +1,22 @@
 [
   {
+    "id": "biore-przy-prowadzi",
+    "pr": 3004,
+    "title": "„Biorę” przy „Prowadzi” w panelu z formularzem",
+    "why": "Wolną osobę weźmiesz na 12 h bez wychodzenia z panelu. Przy osobie od systemu przycisk mówi „Dzwonię”, a w „Trybie rozmowy” stoi obok imienia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby z formularzem → wiersz „Prowadzi”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.owner.take"
+  },
+  {
     "id": "zespol-odpowiedz-i-soczewka",
     "title": "Zakładka Zespół: od razu widać, jak idzie, gdzie stoi i kto",
     "why": "Na górze zdanie z odpowiedzią i tempo wobec celu. Klik w etap lejka pokazuje jego wykres tygodniami albo miesiącami i osoby. Na dole wszyscy w jednej linii, kto jak daleko doszedł.",
