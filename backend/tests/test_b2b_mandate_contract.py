@@ -27,6 +27,7 @@ from sqlalchemy import select
 from app.schemas.b2b_contract_generator import B2BMandateRenderRequest
 from app.services.b2b_contract_filename import mandate_file_name
 from app.services.b2b_contract_generator import mandate
+from tests._confirm_signed import confirm_request
 
 # Fikcyjny PESEL z poprawną cyfrą kontrolną (nie należy do nikogo z firmy).
 PESEL = "44051401458"
@@ -390,8 +391,8 @@ async def test_signing_a_mandate_creates_a_mandate_contract_with_period_and_rate
 
     confirm = await app_client.post(
         f"/api/b2b-generator/generated/{generated_id}/confirm-fully-signed",
-        json={},
         headers=app_auth_headers,
+        **confirm_request(),
     )
     assert confirm.status_code == 200, confirm.text
     body = confirm.json()
@@ -475,8 +476,8 @@ async def test_signing_converts_an_existing_monthly_client_rate_to_hourly(
     generated_id = int(response.headers["x-generated-contract-id"])
     confirm = await app_client.post(
         f"/api/b2b-generator/generated/{generated_id}/confirm-fully-signed",
-        json={},
         headers=app_auth_headers,
+        **confirm_request(),
     )
     assert confirm.status_code == 200, confirm.text
     assert confirm.json()["contract_id"] == contract_id

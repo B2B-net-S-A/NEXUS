@@ -641,7 +641,7 @@
       },
       {
         "q": "Jak podpisać umowę i co dalej?",
-        "a": "„Wyślij do podpisu”: link do kontraktora, potem podpis za B2B Network; kontrakt i plik powstaną same. Termin mija? „Przedłuż termin”, a po nim „Wyślij nowy link” (ten sam PDF). Droga mailowa: „Oznacz jako podpisaną” (bez uprawnienia „Podpis B2B” poproś DL), dzień podpisu i plik. Powstaje kontrakt, szkic zamówienia, kandydat idzie na „Zatrudniony”.",
+        "a": "„Wyślij do podpisu”: link do kontraktora, potem podpis za B2B Network; kontrakt i plik powstaną same. Termin mija? „Przedłuż termin” albo „Wyślij nowy link”. Droga mailowa: „Oznacz jako podpisaną” (bez „Podpis B2B” poproś DL) z podpisanym PDF-em; dzień podpisu z podpisu konsultanta, przy skanie data i powód. Kandydat idzie na „Zatrudniony”.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {

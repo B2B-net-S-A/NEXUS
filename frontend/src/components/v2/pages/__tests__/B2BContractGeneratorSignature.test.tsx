@@ -13,6 +13,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   B2BConfirmFullySignedResult,
   B2BGeneratedContractRow,
+  B2BSignatureRead,
 } from "@/lib/api";
 import { warsawToday } from "@/lib/warsaw-date";
 
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   generated: vi.fn(),
   confirmFullySigned: vi.fn(),
+  readSignatures: vi.fn(),
   attachSignedFile: vi.fn(),
   updateGenerated: vi.fn(),
   deleteGenerated: vi.fn(),
@@ -65,11 +67,11 @@ vi.mock("@/lib/api", () => ({
     generated: (...args: unknown[]) => mocks.generated(...args),
     confirmFullySigned: (...args: unknown[]) =>
       mocks.confirmFullySigned(...args),
+    readSignatures: (...args: unknown[]) => mocks.readSignatures(...args),
     attachSignedFile: (...args: unknown[]) => mocks.attachSignedFile(...args),
     updateGenerated: (...args: unknown[]) => mocks.updateGenerated(...args),
     deleteGenerated: (...args: unknown[]) => mocks.deleteGenerated(...args),
-    downloadGenerated: (...args: unknown[]) =>
-      mocks.downloadGenerated(...args),
+    downloadGenerated: (...args: unknown[]) => mocks.downloadGenerated(...args),
   },
   extractErrorMsg: (error: unknown) =>
     error instanceof Error ? error.message : "Błąd",
@@ -175,6 +177,47 @@ function confirmationResult(
       can_edit: false,
     }),
   };
+}
+
+/** Podpis konsultanta 02.11.2026 07:32 i firmy — odczyt z pliku (0654). */
+const CONSULTANT_READING: B2BSignatureRead = {
+  mode: "pdf",
+  signatures: [
+    {
+      signer: "Jan Kowalski",
+      signed_at: "2026-11-02T06:32:00Z",
+      time_source: "timestamp",
+      intact: true,
+      party: "consultant",
+    },
+    {
+      signer: "Anna Reprezentant",
+      signed_at: "2026-11-03T09:00:00Z",
+      time_source: "timestamp",
+      intact: true,
+      party: "company",
+    },
+  ],
+  consultant_signed_at: "2026-11-02T06:32:00Z",
+  consultant_signed_on: "2026-11-02",
+  message: null,
+};
+
+beforeEach(() => {
+  mocks.readSignatures.mockResolvedValue(CONSULTANT_READING);
+});
+
+const signedPdf = () =>
+  new File(["%PDF-1.7"], "umowa-podpisana.pdf", { type: "application/pdf" });
+
+/** Plik podpisanej umowy jest obowiązkowy (06.11.2026). */
+async function attachSignedPdf(file: File = signedPdf()) {
+  const dialog = screen.getByRole("dialog");
+  await userEvent.upload(
+    within(dialog).getByLabelText("Podpisana umowa (PDF)"),
+    file,
+  );
+  return file;
 }
 
 function renderTab(rows: B2BGeneratedContractRow[]) {
@@ -313,9 +356,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
   });
 
   it("scala równoległe akcje dla tej samej rekrutacji do jednego /generate", async () => {
-    let resolveGenerate:
-      | ((value: { contract_id: number }) => void)
-      | undefined;
+    let resolveGenerate: ((value: { contract_id: number }) => void) | undefined;
     const generate = vi.fn(
       (_contractId: number | null) =>
         new Promise<{ contract_id: number }>((resolve) => {
@@ -402,9 +443,11 @@ describe("GeneratedContractsTab — status podpisu", () => {
     );
     const dialog = screen.getByRole("dialog");
     expect(
-      within(dialog).getByText("To nie jest walidacja podpisu elektronicznego"),
+      within(dialog).getByText("To nie jest walidacja podpisu kwalifikowanego"),
     ).toBeInTheDocument();
-    expect(within(dialog).getByText(/NEXUS nie sprawdza podpisów/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/nie sprawdza, czy podpis jest kwalifikowany/i),
+    ).toBeInTheDocument();
 
     const confirm = within(dialog).getByRole("button", {
       name: "Potwierdź podpisanie",
@@ -416,23 +459,25 @@ describe("GeneratedContractsTab — status podpisu", () => {
     await userEvent.click(await screen.findByText("Jan Nowak"));
 
     await waitFor(() =>
-      expect(
-        within(dialog).getAllByRole("combobox")[1],
-      ).not.toBeDisabled(),
+      expect(within(dialog).getAllByRole("combobox")[1]).not.toBeDisabled(),
     );
     await userEvent.click(within(dialog).getAllByRole("combobox")[1]);
     await userEvent.click(
       await screen.findByText("Cloud Engineer · Screening"),
     );
 
+    await attachSignedPdf();
     await waitFor(() => expect(confirm).toBeEnabled());
     await userEvent.click(confirm);
     await waitFor(() =>
-      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(1, {
-        candidate_id: 7,
-        job_id: 20,
-        signed_on: warsawToday(),
-      }),
+      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
+        1,
+        {
+          candidate_id: 7,
+          job_id: 20,
+        },
+        expect.any(File),
+      ),
     );
   });
 
@@ -456,11 +501,12 @@ describe("GeneratedContractsTab — status podpisu", () => {
         await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
       );
       expect(
-        screen.getByText("To nie jest walidacja podpisu elektronicznego"),
+        screen.getByText("To nie jest walidacja podpisu kwalifikowanego"),
       ).toBeInTheDocument();
       const confirmButton = screen.getByRole("button", {
         name: "Potwierdź podpisanie",
       });
+      await attachSignedPdf();
       await waitFor(() => expect(confirmButton).toBeEnabled());
       await userEvent.click(confirmButton);
 
@@ -500,6 +546,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     const confirmButton = screen.getByRole("button", {
       name: "Potwierdź podpisanie",
     });
+    await attachSignedPdf();
     await waitFor(() => expect(confirmButton).toBeEnabled());
     await userEvent.click(confirmButton);
 
@@ -556,6 +603,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
     const confirmButton = within(dialog).getByRole("button", {
       name: "Potwierdź podpisanie",
     });
+    await attachSignedPdf();
     await waitFor(() => expect(confirmButton).toBeEnabled());
     await userEvent.click(confirmButton);
 
@@ -571,16 +619,18 @@ describe("GeneratedContractsTab — status podpisu", () => {
         within(dialog).getByText(label, { selector: "li" }),
       ).toBeInTheDocument();
     }
-    expect(within(dialog).getByRole("link", { name: /Kontrakt #619/ })).toHaveAttribute(
-      "href",
-      "/contracts/619",
-    );
+    expect(
+      within(dialog).getByRole("link", { name: /Kontrakt #619/ }),
+    ).toHaveAttribute("href", "/contracts/619");
     expect(mocks.confirmFullySigned).toHaveBeenCalledTimes(1);
-    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
-      candidate_id: 7,
-      job_id: 20,
-      signed_on: warsawToday(),
-    });
+    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(
+      1,
+      {
+        candidate_id: 7,
+        job_id: 20,
+      },
+      expect.any(File),
+    );
 
     const checkbox = within(dialog).getByRole("checkbox", {
       name: /Zachowaj dotychczasowe warunki kontraktu #619/,
@@ -594,12 +644,15 @@ describe("GeneratedContractsTab — status podpisu", () => {
     await waitFor(() =>
       expect(mocks.confirmFullySigned).toHaveBeenCalledTimes(2),
     );
-    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
-      candidate_id: 7,
-      job_id: 20,
-      signed_on: warsawToday(),
-      keep_existing_contract_terms: true,
-    });
+    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(
+      1,
+      {
+        candidate_id: 7,
+        job_id: 20,
+        keep_existing_contract_terms: true,
+      },
+      expect.any(File),
+    );
     await waitFor(() =>
       expect(mocks.showActionToast).toHaveBeenCalledWith(
         expect.stringContaining("dotychczasowe warunki zostały bez zmian"),
@@ -690,11 +743,14 @@ describe("GeneratedContractsTab — status podpisu", () => {
       expect(within(dialog).getAllByRole("combobox")[1]).not.toBeDisabled(),
     );
     await userEvent.click(within(dialog).getAllByRole("combobox")[1]);
-    await userEvent.click(await screen.findByText("Cloud Engineer · Screening"));
+    await userEvent.click(
+      await screen.findByText("Cloud Engineer · Screening"),
+    );
 
     const confirmButton = within(dialog).getByRole("button", {
       name: "Potwierdź podpisanie",
     });
+    await attachSignedPdf();
     await waitFor(() => expect(confirmButton).toBeEnabled());
     await userEvent.click(confirmButton);
     await userEvent.click(
@@ -720,11 +776,14 @@ describe("GeneratedContractsTab — status podpisu", () => {
     await waitFor(() =>
       expect(mocks.confirmFullySigned).toHaveBeenCalledTimes(2),
     );
-    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
-      candidate_id: 7,
-      job_id: 21,
-      signed_on: warsawToday(),
-    });
+    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(
+      1,
+      {
+        candidate_id: 7,
+        job_id: 21,
+      },
+      expect.any(File),
+    );
   });
 });
 
@@ -824,13 +883,18 @@ describe("GeneratedContractsTab — wyszukiwarka kandydata w potwierdzeniu podpi
   });
 });
 
-describe("GeneratedContractsTab — data podpisu umowy (0514)", () => {
+describe("GeneratedContractsTab — plik i data podpisu konsultanta (06.11.2026)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.readSignatures.mockResolvedValue(CONSULTANT_READING);
     mocks.apiGet.mockImplementation((url: string) =>
       url === "/api/jobs/20"
         ? Promise.resolve({
-            data: { title: "Cloud Engineer", client_id: 3, client_name: "Nordea" },
+            data: {
+              title: "Cloud Engineer",
+              client_id: 3,
+              client_name: "Nordea",
+            },
           })
         : Promise.reject(new Error(`Unexpected GET ${url}`)),
     );
@@ -846,158 +910,149 @@ describe("GeneratedContractsTab — data podpisu umowy (0514)", () => {
     return dialog;
   }
 
-  function nextDay(iso: string): string {
-    const day = new Date(`${iso}T12:00:00Z`);
-    day.setUTCDate(day.getUTCDate() + 1);
-    return day.toISOString().slice(0, 10);
-  }
+  const confirmButton = (dialog: HTMLElement) =>
+    within(dialog).getByRole("button", { name: "Potwierdź podpisanie" });
 
-  it("domyślnie podpowiada dziś i wysyła tę datę", async () => {
+  it("bez pliku nie da się potwierdzić", async () => {
     renderTab([generatedRow()]);
     const dialog = await openDialog();
-    const field = within(dialog).getByLabelText("Data podpisu umowy");
-    expect(field).toHaveValue(warsawToday());
-    expect(field).toHaveAttribute("min", "2026-07-24");
-    expect(field).toHaveAttribute("max", warsawToday());
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    expect(
+      within(dialog).getByText(/Plik jest obowiązkowy/),
+    ).toBeInTheDocument();
+    expect(confirmButton(dialog)).toBeDisabled();
+    expect(within(dialog).queryByLabelText("Data podpisu umowy")).toBeNull();
+  });
+
+  it("pokazuje podpisy z pliku i wysyła plik bez ręcznej daty", async () => {
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    const file = await attachSignedPdf();
+    await waitFor(() =>
+      expect(mocks.readSignatures).toHaveBeenCalledWith(1, file),
     );
+    const list = await within(dialog).findByRole("list", {
+      name: "Podpisy w pliku",
+    });
+    expect(within(list).getByText("Jan Kowalski")).toBeInTheDocument();
+    expect(within(list).getByText("konsultant")).toBeInTheDocument();
+    expect(within(list).getByText("Anna Reprezentant")).toBeInTheDocument();
+    expect(within(list).getByText("firma")).toBeInTheDocument();
+    expect(within(list).getByText(/02\.11\.2026.*07:32/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Data podpisu konsultanta"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("02.11.2026")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/decyduje o miesiącu premii 200%/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(confirmButton(dialog));
     await waitFor(() =>
       expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
         1,
-        expect.objectContaining({ signed_on: warsawToday() }),
+        { candidate_id: 7, job_id: 20 },
+        file,
       ),
     );
-  });
-
-  it("wysyła dzień podpisu wybrany w oknie", async () => {
-    renderTab([generatedRow()]);
-    const dialog = await openDialog();
-    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
-      target: { value: "2026-07-28" },
-    });
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
-    );
-    await waitFor(() =>
-      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
-        1,
-        expect.objectContaining({ signed_on: "2026-07-28" }),
-      ),
-    );
-  });
-
-  it("data z przyszłości blokuje potwierdzenie z powodem", async () => {
-    renderTab([generatedRow()]);
-    const dialog = await openDialog();
-    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
-      target: { value: nextDay(warsawToday()) },
-    });
-    expect(
-      within(dialog).getByText("Data podpisu nie może być z przyszłości."),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
-    ).toBeDisabled();
-  });
-
-  it("data sprzed wygenerowania umowy blokuje potwierdzenie z powodem", async () => {
-    renderTab([generatedRow()]);
-    const dialog = await openDialog();
-    fireEvent.change(within(dialog).getByLabelText("Data podpisu umowy"), {
-      target: { value: "2026-07-23" },
-    });
-    expect(
-      within(dialog).getByText(
-        "Data podpisu nie może być wcześniejsza niż wygenerowanie umowy (24.07.2026).",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
-    ).toBeDisabled();
-    expect(mocks.confirmFullySigned).not.toHaveBeenCalled();
-  });
-});
-
-describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
-  const pdf = () =>
-    new File(["%PDF-1.7"], "umowa-podpisana.pdf", { type: "application/pdf" });
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.apiGet.mockImplementation((url: string) =>
-      url === "/api/jobs/20"
-        ? Promise.resolve({
-            data: { title: "Cloud Engineer", client_id: 3, client_name: "Nordea" },
-          })
-        : Promise.reject(new Error(`Unexpected GET ${url}`)),
-    );
-    mocks.confirmFullySigned.mockResolvedValue(confirmationResult("created"));
-  });
-
-  async function openDialog() {
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
-    );
-    const dialog = screen.getByRole("dialog");
-    await within(dialog).findByText("Cloud Engineer");
-    return dialog;
-  }
-
-  it("bez pliku potwierdza jak dotąd i niczego nie wgrywa", async () => {
-    renderTab([generatedRow()]);
-    const dialog = await openDialog();
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
-    );
-    await waitFor(() => expect(mocks.confirmFullySigned).toHaveBeenCalled());
     expect(mocks.attachSignedFile).not.toHaveBeenCalled();
   });
 
-  it("wgrywa wybrany plik dopiero po udanym potwierdzeniu", async () => {
-    mocks.attachSignedFile.mockResolvedValue(generatedRow());
+  it("bez podpisu konsultanta w pliku blokuje potwierdzenie z powodem", async () => {
+    mocks.readSignatures.mockResolvedValue({
+      ...CONSULTANT_READING,
+      mode: "blocked",
+      signatures: [CONSULTANT_READING.signatures[1]],
+      consultant_signed_at: null,
+      consultant_signed_on: null,
+      message:
+        "W pliku nie ma podpisu konsultanta z tej umowy, więc nie da się oznaczyć umowy jako podpisanej obustronnie.",
+    } satisfies B2BSignatureRead);
     renderTab([generatedRow()]);
     const dialog = await openDialog();
-    const file = pdf();
-    await userEvent.upload(
-      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
-      file,
+    await attachSignedPdf();
+    expect(
+      await within(dialog).findByText(/W pliku nie ma podpisu konsultanta/),
+    ).toBeInTheDocument();
+    expect(confirmButton(dialog)).toBeDisabled();
+  });
+
+  it("skan bez podpisu elektronicznego wymaga daty i powodu", async () => {
+    mocks.readSignatures.mockResolvedValue({
+      mode: "manual",
+      signatures: [],
+      consultant_signed_at: null,
+      consultant_signed_on: null,
+      message: null,
+    } satisfies B2BSignatureRead);
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    const file = await attachSignedPdf();
+    const date = await within(dialog).findByLabelText(
+      "Data podpisu konsultanta",
     );
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
+    // Bez domyślnej daty: „dziś” w tym polu przeniosło umowę z podpisem 02.11 na 30.10.
+    expect(date).toHaveValue("");
+    expect(date).toHaveAttribute("min", "2026-07-24");
+    expect(date).toHaveAttribute("max", warsawToday());
+    expect(confirmButton(dialog)).toBeDisabled();
+
+    fireEvent.change(date, { target: { value: "2026-07-28" } });
+    expect(confirmButton(dialog)).toBeDisabled();
+    await userEvent.type(
+      within(dialog).getByLabelText("Powód ręcznej daty"),
+      "podpis odręczny 28.07",
     );
+    await waitFor(() => expect(confirmButton(dialog)).toBeEnabled());
+    await userEvent.click(confirmButton(dialog));
     await waitFor(() =>
-      expect(mocks.attachSignedFile).toHaveBeenCalledWith(1, file),
+      expect(mocks.confirmFullySigned).toHaveBeenCalledWith(
+        1,
+        {
+          candidate_id: 7,
+          job_id: 20,
+          signed_on: "2026-07-28",
+          signed_on_reason: "podpis odręczny 28.07",
+        },
+        file,
+      ),
     );
-    expect(mocks.confirmFullySigned.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.attachSignedFile.mock.invocationCallOrder[0],
-    );
-    expect(mocks.showError).not.toHaveBeenCalled();
   });
 
-  it("nieudany zapis pliku nie cofa podpisu i mówi, gdzie dołączyć plik", async () => {
-    mocks.attachSignedFile.mockRejectedValue(new Error("Plik jest pusty."));
+  it("ręczna data z przyszłości blokuje potwierdzenie z powodem", async () => {
+    mocks.readSignatures.mockResolvedValue({
+      mode: "manual",
+      signatures: [],
+      consultant_signed_at: null,
+      consultant_signed_on: null,
+      message: null,
+    } satisfies B2BSignatureRead);
+    renderTab([generatedRow()]);
+    const dialog = await openDialog();
+    await attachSignedPdf();
+    const day = new Date(`${warsawToday()}T12:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + 1);
+    fireEvent.change(
+      await within(dialog).findByLabelText("Data podpisu konsultanta"),
+      {
+        target: { value: day.toISOString().slice(0, 10) },
+      },
+    );
+    await userEvent.type(
+      within(dialog).getByLabelText("Powód ręcznej daty"),
+      "podpis odręczny",
+    );
+    expect(
+      within(dialog).getByText("Data podpisu nie może być z przyszłości."),
+    ).toBeInTheDocument();
+    expect(confirmButton(dialog)).toBeDisabled();
+    expect(mocks.confirmFullySigned).not.toHaveBeenCalled();
+  });
+
+  it("plik w złym formacie blokuje potwierdzenie z powodem i nie jest czytany", async () => {
     renderTab([generatedRow()]);
     const dialog = await openDialog();
     await userEvent.upload(
-      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
-      pdf(),
-    );
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
-    );
-    await waitFor(() => expect(mocks.showError).toHaveBeenCalled());
-    expect(mocks.showError.mock.calls[0][0]).toContain(
-      "plik nie został zapisany",
-    );
-    expect(mocks.showError.mock.calls[0][0]).toContain("Dołącz podpisaną umowę");
-  });
-
-  it("plik w złym formacie blokuje potwierdzenie z powodem", async () => {
-    renderTab([generatedRow()]);
-    const dialog = await openDialog();
-    await userEvent.upload(
-      within(dialog).getByLabelText("Podpisana umowa (opcjonalnie)"),
+      within(dialog).getByLabelText("Podpisana umowa (PDF)"),
       new File(["PK"], "umowa.docx"),
       { applyAccept: false },
     );
@@ -1006,9 +1061,25 @@ describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
         "Podpisana umowa musi być plikiem PDF, JPG albo PNG.",
       ),
     ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("button", { name: "Potwierdź podpisanie" }),
-    ).toBeDisabled();
+    expect(confirmButton(dialog)).toBeDisabled();
+    expect(mocks.readSignatures).not.toHaveBeenCalled();
+  });
+});
+
+describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/jobs/20"
+        ? Promise.resolve({
+            data: {
+              title: "Cloud Engineer",
+              client_id: 3,
+              client_name: "Nordea",
+            },
+          })
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
   });
 
   it("wiersz podpisany bez pliku daje „Dołącz podpisaną umowę”, z plikiem — link do Dokumentów", async () => {
@@ -1044,10 +1115,15 @@ describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
     const dialog = screen.getByRole("dialog");
     const save = within(dialog).getByRole("button", { name: "Zapisz plik" });
     expect(save).toBeDisabled();
-    const file = pdf();
-    await userEvent.upload(within(dialog).getByLabelText("Podpisana umowa"), file);
+    const file = signedPdf();
+    await userEvent.upload(
+      within(dialog).getByLabelText("Podpisana umowa"),
+      file,
+    );
     await userEvent.click(save);
-    await waitFor(() => expect(mocks.attachSignedFile).toHaveBeenCalledWith(2, file));
+    await waitFor(() =>
+      expect(mocks.attachSignedFile).toHaveBeenCalledWith(2, file),
+    );
     expect(mocks.showSuccess).toHaveBeenCalledWith(
       "Podpisana umowa zapisana w Dokumentach kontraktu.",
     );
@@ -1058,7 +1134,8 @@ describe("GeneratedContractsTab — podpisany plik umowy (0496)", () => {
     mocks.signedPdf.mockResolvedValue({
       data: blob,
       headers: {
-        "content-disposition": 'attachment; filename="Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf"',
+        "content-disposition":
+          'attachment; filename="Umowa B2B 1555-2026 Kowalski Jan podpisana.pdf"',
       },
     });
     const esign = {

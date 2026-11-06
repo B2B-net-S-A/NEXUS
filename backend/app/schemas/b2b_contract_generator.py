@@ -768,6 +768,12 @@ class B2BGeneratedContractItem(BaseModel):
     signed_at: Optional[str] = None
     # 0514: dzień podpisu umowy; ``signed_at`` to chwila oznaczenia w NEXUSIE.
     signed_on: Optional[date] = None
+    # 0654: skąd jest ``signed_on`` (``pdf`` | ``manual`` | ``esign``; ``None``
+    # = oznaczenie sprzed 06.11.2026, data z okna) i chwila podpisu konsultanta.
+    signed_on_source: Optional[Literal["pdf", "manual", "esign"]] = None
+    signed_on_reason: Optional[str] = None
+    signed_on_set_by_name: Optional[str] = None
+    consultant_signed_at: Optional[datetime] = None
     signed_by_name: Optional[str] = None
     can_confirm_signed: bool = False
     blocked_reason: Optional[str] = None
@@ -1005,6 +1011,35 @@ class B2BConfirmFullySignedRequest(BaseModel):
                 "candidate_id i job_id muszą być przekazane razem albo pominięte"
             )
         return self
+
+
+class B2BConfirmFullySignedForm(B2BConfirmFullySignedRequest):
+    """Pole ``payload`` okna „Oznacz jako podpisaną” (06.11.2026).
+
+    Plik jest obowiązkowy i idzie obok. ``signed_on`` liczy się tylko przy
+    skanie bez podpisu elektronicznego (podpis odręczny) i wtedy wymaga
+    ``signed_on_reason``; przy PDF-ie z podpisem konsultanta dzień bierze się
+    z podpisu."""
+
+    signed_on_reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class B2BSignatureReadItem(BaseModel):
+    signer: str
+    signed_at: Optional[datetime] = None
+    time_source: Optional[Literal["timestamp", "declared"]] = None
+    intact: bool
+    party: Literal["consultant", "company", "other"]
+
+
+class B2BSignatureReadResponse(BaseModel):
+    """Podpisy odczytane z wgranego pliku (bez zapisu)."""
+
+    mode: Literal["pdf", "manual", "blocked", "unreadable"]
+    signatures: list[B2BSignatureReadItem] = Field(default_factory=list)
+    consultant_signed_at: Optional[datetime] = None
+    consultant_signed_on: Optional[date] = None
+    message: Optional[str] = None
 
 
 class B2BConfirmFullySignedResponse(BaseModel):

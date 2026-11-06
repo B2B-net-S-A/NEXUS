@@ -10,6 +10,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type UseQueryResult,
 } from "@tanstack/react-query";
 import {
   Calendar,
@@ -95,6 +96,8 @@ import api, {
   type B2BCompanyRepresentative,
   type B2BContractVariant,
   type B2BConfirmFullySignedResult,
+  type B2BSignatureRead,
+  type B2BSignatureReadItem,
   type B2BContractStatus,
   type B2BGeneratedContractRow,
   type B2BGeneratedContractUpdate,
@@ -119,7 +122,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
-import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatIsoDatePl, formatMomentPl } from "@/lib/date-pl";
 import {
   AGREEMENT_TERMINATION_MODES,
   agreementModeLabel,
@@ -772,6 +775,165 @@ export function B2BContractGeneratorV2() {
 const SIGNED_FILE_FORMAT_MESSAGE =
   "Podpisana umowa musi być plikiem PDF, JPG albo PNG.";
 
+const SIGNATURE_PARTY_LABEL: Record<B2BSignatureReadItem["party"], string> = {
+  consultant: "konsultant",
+  company: "firma",
+  other: "inna osoba",
+};
+
+/** Podpisy odczytane z pliku i dzień podpisu konsultanta (0654, 06.11.2026). */
+function SignedFileReading({
+  rowId,
+  query,
+  manualOn,
+  onManualOn,
+  manualOnProblem,
+  manualReason,
+  onManualReason,
+  manualReasonProblem,
+  generatedOn,
+  today,
+  disabled,
+}: {
+  rowId: number;
+  query: UseQueryResult<B2BSignatureRead>;
+  manualOn: string;
+  onManualOn: (value: string) => void;
+  manualOnProblem: string | null;
+  manualReason: string;
+  onManualReason: (value: string) => void;
+  manualReasonProblem: string | null;
+  generatedOn: string | null;
+  today: string;
+  disabled: boolean;
+}) {
+  if (query.isPending) {
+    return (
+      <p className="text-xs text-muted-foreground" role="status">
+        Czytam podpisy z pliku…
+      </p>
+    );
+  }
+  if (query.isError) {
+    return (
+      <Alert
+        variant="error"
+        title="Nie udało się odczytać pliku"
+        description={apiErrorMessage(query.error, "Spróbuj wybrać plik jeszcze raz.")}
+      />
+    );
+  }
+  const reading = query.data;
+  return (
+    <div className="space-y-3">
+      {reading.signatures.length > 0 ? (
+        <ul
+          aria-label="Podpisy w pliku"
+          className="divide-y divide-border rounded-lg border border-border"
+        >
+          {reading.signatures.map((signature, index) => (
+            <li
+              key={`${signature.signer}-${index}`}
+              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+            >
+              <div className="min-w-0">
+                <span className="font-medium text-foreground">{signature.signer}</span>
+                <span className="text-muted-foreground"> · podpis elektroniczny</span>
+                <div className="text-xs text-muted-foreground">
+                  {signature.signed_at
+                    ? formatMomentPl(signature.signed_at)
+                    : "bez czasu podpisu"}
+                  {signature.intact ? "" : " · naruszony (plik zmieniono po podpisie)"}
+                </div>
+              </div>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-semibold",
+                  signature.party === "consultant"
+                    ? "bg-success-muted text-success-muted-foreground"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {SIGNATURE_PARTY_LABEL[signature.party]}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {reading.mode === "pdf" ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">
+            Data podpisu konsultanta
+          </p>
+          <p className="text-sm font-semibold text-foreground">
+            {formatIsoDatePl(reading.consultant_signed_on)}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Z podpisu w pliku. Ta data decyduje o miesiącu premii 200%.
+          </p>
+        </div>
+      ) : null}
+
+      {reading.mode === "blocked" || reading.mode === "unreadable" ? (
+        <Alert
+          variant="error"
+          title={
+            reading.mode === "blocked"
+              ? "Brak podpisu konsultanta"
+              : "Nie da się odczytać pliku"
+          }
+          description={reading.message ?? "W pliku nie ma podpisu konsultanta."}
+        />
+      ) : null}
+
+      {reading.mode === "manual" ? (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            W pliku nie ma podpisu elektronicznego. Podpis odręczny (skan): wpisz
+            datę i powód, np. „podpis odręczny 09.10”.
+          </p>
+          <div className="space-y-1">
+            <Label htmlFor={`b2b-signed-on-${rowId}`} className="mb-1.5 block">
+              Data podpisu konsultanta
+            </Label>
+            <Input
+              id={`b2b-signed-on-${rowId}`}
+              type="date"
+              className="w-44"
+              value={manualOn}
+              min={generatedOn ?? undefined}
+              max={today}
+              disabled={disabled}
+              aria-invalid={manualOn && manualOnProblem ? true : undefined}
+              onChange={(e) => onManualOn(e.target.value)}
+            />
+            {manualOn && manualOnProblem ? (
+              <p className="text-xs text-destructive">{manualOnProblem}</p>
+            ) : null}
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`b2b-signed-on-reason-${rowId}`} className="mb-1.5 block">
+              Powód ręcznej daty
+            </Label>
+            <Textarea
+              id={`b2b-signed-on-reason-${rowId}`}
+              rows={2}
+              maxLength={500}
+              value={manualReason}
+              disabled={disabled}
+              onChange={(e) => onManualReason(e.target.value)}
+            />
+            {manualReason && manualReasonProblem ? (
+              <p className="text-xs text-destructive">{manualReasonProblem}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ConfirmFullySignedDialog({
   row,
   open,
@@ -795,24 +957,48 @@ export function ConfirmFullySignedDialog({
   // (stawka dzienna w kontrakcie vs godzinowa w dokumencie) nigdy nie
   // dotarłby do operatora.
   const [keepExistingTerms, setKeepExistingTerms] = useState(false);
-  // Podpisany egzemplarz (0496) — dobrowolny; trafia do Dokumentów kontraktu
-  // dopiero PO udanym podpisie, bo to podpis zakłada kontrakt.
+  // Podpisany egzemplarz — obowiązkowy od 06.11.2026 (decyzja Artura): dzień
+  // podpisu bierze się z podpisu konsultanta w PDF-ie, a nie z kliknięcia.
+  // Plik idzie razem z potwierdzeniem i trafia do Dokumentów kontraktu.
   const [signedFile, setSignedFile] = useState<File | null>(null);
   const signedFileProblem = signedFile
     ? scanFileProblem(signedFile, SIGNED_FILE_FORMAT_MESSAGE)
     : null;
-  // Dzień podpisu umowy (0514) — nie dzień kliknięcia. Te same granice co na
-  // serwerze: nie z przyszłości, nie sprzed wygenerowania umowy.
-  const [signedOn, setSignedOn] = useState(() => warsawToday());
+  const signaturesQuery = useQuery({
+    queryKey: [
+      "b2b-signed-file-signatures",
+      row.id,
+      signedFile?.name,
+      signedFile?.size,
+      signedFile?.lastModified,
+    ],
+    queryFn: () => b2bGeneratorApi.readSignatures(row.id, signedFile as File),
+    enabled: open && !!signedFile && !signedFileProblem,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  });
+  const reading = signedFile && !signedFileProblem ? signaturesQuery.data : undefined;
+  // Podpis odręczny (skan bez podpisu elektronicznego): data i powód ręcznie.
+  // Bez domyślnej daty — „dziś” w tym polu przeniosło umowę z podpisem 02.11 na 30.10.
+  const [manualOn, setManualOn] = useState("");
+  const [manualReason, setManualReason] = useState("");
   const today = warsawToday();
   const generatedOn = warsawDateOf(row.created_at);
-  const signedOnProblem = !signedOn
-    ? "Podaj datę podpisu."
-    : signedOn > today
+  const manualOnProblem = !manualOn
+    ? "Wpisz datę podpisu konsultanta."
+    : manualOn > today
       ? "Data podpisu nie może być z przyszłości."
-      : generatedOn && signedOn < generatedOn
+      : generatedOn && manualOn < generatedOn
         ? `Data podpisu nie może być wcześniejsza niż wygenerowanie umowy (${formatIsoDatePl(generatedOn)}).`
         : null;
+  const manualReasonProblem =
+    manualReason.trim().length < 3
+      ? "Podaj powód ręcznej daty, np. „podpis odręczny 09.10”."
+      : null;
+  const signedOnReady =
+    reading?.mode === "pdf" ||
+    (reading?.mode === "manual" && !manualOnProblem && !manualReasonProblem);
 
   useEffect(() => {
     if (!open) return;
@@ -823,7 +1009,8 @@ export function ConfirmFullySignedDialog({
     setSubmitError(null);
     setKeepExistingTerms(false);
     setSignedFile(null);
-    setSignedOn(warsawToday());
+    setManualOn("");
+    setManualReason("");
   }, [open, row.id]);
 
   const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
@@ -907,37 +1094,26 @@ export function ConfirmFullySignedDialog({
       if (!effectiveCandidateId || !effectiveJobId) {
         throw new Error("Wybierz kandydata i konkretną rekrutację.");
       }
-      const result = await b2bGeneratorApi.confirmFullySigned(row.id, {
-        candidate_id: effectiveCandidateId,
-        job_id: effectiveJobId,
-        signed_on: signedOn,
-        // Klucz dopiero po świadomym zaznaczeniu — `false` nie leci wcale,
-        // żeby zwykłe potwierdzenie było bajt w bajt tym samym żądaniem co
-        // przed tą zmianą. Czytamy WYŁĄCZNIE stan checkboxa: `onMutate`
-        // czyści `submitError` przed wywołaniem `mutationFn`, więc warunek
-        // na błędzie w tym miejscu widziałby już `null` i gubił flagę.
-        ...(keepExistingTerms ? { keep_existing_contract_terms: true } : {}),
-      });
-      if (!signedFile) return { result, fileError: null };
-      // Podpis jest już zapisany — nieudana wysyłka pliku go nie cofa, plik
-      // da się dołączyć z wiersza rejestru.
-      try {
-        await b2bGeneratorApi.attachSignedFile(row.id, signedFile);
-        return { result, fileError: null };
-      } catch (error) {
-        return {
-          result,
-          fileError: apiErrorMessage(error, "Nie udało się zapisać pliku."),
-        };
-      }
+      if (!signedFile) throw new Error("Dołącz podpisaną umowę.");
+      return b2bGeneratorApi.confirmFullySigned(
+        row.id,
+        {
+          candidate_id: effectiveCandidateId,
+          job_id: effectiveJobId,
+          // Data ręcznie tylko przy skanie bez podpisu elektronicznego; przy
+          // PDF-ie z podpisem konsultanta serwer czyta dzień z pliku.
+          ...(reading?.mode === "manual"
+            ? { signed_on: manualOn, signed_on_reason: manualReason.trim() }
+            : {}),
+          // Klucz dopiero po świadomym zaznaczeniu. Czytamy WYŁĄCZNIE stan
+          // checkboxa: `onMutate` czyści `submitError` przed `mutationFn`.
+          ...(keepExistingTerms ? { keep_existing_contract_terms: true } : {}),
+        },
+        signedFile,
+      );
     },
-    onSuccess: ({ result, fileError }) => {
+    onSuccess: (result) => {
       onConfirmed(result);
-      if (fileError) {
-        toast.showError(
-          `Umowa oznaczona jako podpisana, ale plik nie został zapisany: ${fileError} Dołącz go z wiersza rejestru („Dołącz podpisaną umowę”).`,
-        );
-      }
       onOpenChange(false);
     },
     onError: (error) => {
@@ -991,8 +1167,9 @@ export function ConfirmFullySignedDialog({
     !!effectiveJobId &&
     jobQuery.isSuccess &&
     !canonicalClientMismatch &&
+    !!signedFile &&
     !signedFileProblem &&
-    !signedOnProblem &&
+    signedOnReady &&
     !confirmMut.isPending;
 
   return (
@@ -1174,52 +1351,42 @@ export function ConfirmFullySignedDialog({
           ) : null}
 
           <div className="space-y-1">
-            <Label htmlFor={`b2b-signed-on-${row.id}`} className="mb-1.5 block">
-              Data podpisu umowy
-            </Label>
-            <Input
-              id={`b2b-signed-on-${row.id}`}
-              type="date"
-              className="w-44"
-              value={signedOn}
-              min={generatedOn ?? undefined}
-              max={today}
-              disabled={confirmMut.isPending}
-              aria-invalid={signedOnProblem ? true : undefined}
-              aria-describedby={`b2b-signed-on-help-${row.id}`}
-              onChange={(e) => setSignedOn(e.target.value)}
-            />
-            <p
-              id={`b2b-signed-on-help-${row.id}`}
-              className={cn(
-                "text-xs",
-                signedOnProblem ? "text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {signedOnProblem ??
-                "Dzień, w którym umowę podpisano, nie dzień oznaczenia w NEXUSIE."}
-            </p>
-          </div>
-
-          <div className="space-y-1">
             <ScanFileField
               id={`b2b-signed-file-${row.id}`}
               file={signedFile}
               onFile={setSignedFile}
               disabled={confirmMut.isPending}
-              label="Podpisana umowa (opcjonalnie)"
+              label="Podpisana umowa (PDF)"
               formatMessage={SIGNED_FILE_FORMAT_MESSAGE}
             />
-            <p className="text-xs text-muted-foreground">
-              Bez pliku potwierdzenie działa jak dotąd — plik dołączysz później
-              z wiersza rejestru.
-            </p>
+            {!signedFile ? (
+              <p className="text-xs text-muted-foreground">
+                Plik jest obowiązkowy. Dzień podpisu NEXUS czyta z podpisu
+                kwalifikowanego konsultanta w pliku.
+              </p>
+            ) : null}
           </div>
+
+          {signedFile && !signedFileProblem ? (
+            <SignedFileReading
+              rowId={row.id}
+              query={signaturesQuery}
+              manualOn={manualOn}
+              onManualOn={setManualOn}
+              manualOnProblem={manualOnProblem}
+              manualReason={manualReason}
+              onManualReason={setManualReason}
+              manualReasonProblem={manualReasonProblem}
+              generatedOn={generatedOn}
+              today={today}
+              disabled={confirmMut.isPending}
+            />
+          ) : null}
 
           <Alert
             variant="warning"
-            title="To nie jest walidacja podpisu elektronicznego"
-            description="Potwierdzenie zapisze autora i czas deklaracji. Dołączony plik trafi do Dokumentów kontraktu, ale NEXUS nie sprawdza podpisów w nim."
+            title="To nie jest walidacja podpisu kwalifikowanego"
+            description="Potwierdzenie zapisze autora i czas deklaracji, a plik trafi do Dokumentów kontraktu. NEXUS czyta z pliku, kto i kiedy podpisał, ale nie sprawdza, czy podpis jest kwalifikowany."
           />
 
           {submitError ? (
