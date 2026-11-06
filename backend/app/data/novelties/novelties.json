@@ -162,6 +162,19 @@
     "dot_anchor": "jarvis.mascot.hide"
   },
   {
+    "id": "justjoin-aplikacja-do-nowych",
+    "title": "Aplikacje z JustJoin.IT same trafiają do „Nowi”",
+    "why": "Kandydat aplikuje jednym kliknięciem na JustJoin.IT, bez naszej strony kariery. Następnego dnia po imporcie jego karta czeka w „Nowi” tej rekrutacji, także przy ogłoszeniu oznaczonym ręcznie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "pr": 3099,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Rekrutacja → Ogłoszenie → JustJoin.IT",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.jjit.publish"
+  },
+  {
     "id": "opublikuj-na-justjoin",
     "title": "„Opublikuj na JustJoin.IT” prosto z NEXUSA",
     "why": "W oknie ogłoszenia publikujesz na JustJoin.IT bez kopiowania treści. NEXUS sam zapisze link i pokaże, czy ogłoszenie wisi.",
