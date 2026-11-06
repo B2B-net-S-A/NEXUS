@@ -290,7 +290,9 @@ export function JobOwnershipPanel({
         proposalActions={proposalActions}
         // Przy poprzednich rekruterach pusty wiersz to stan zamierzony —
         // mówi o nim zdanie niżej, bez bursztynowej plakietki.
-        emptyLabel={previous.length > 0 ? undefined : NO_RECRUITER_LABEL}
+        // Przy koszykach ta lista niesie same propozycje — jej pustka nie
+        // znaczy „Bez rekrutera”.
+        emptyLabel={showBuckets || previous.length > 0 ? undefined : NO_RECRUITER_LABEL}
       />
       {nextStep ? (
         <p className="text-[11px] leading-snug text-muted-foreground">

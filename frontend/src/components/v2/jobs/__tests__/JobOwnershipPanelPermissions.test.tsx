@@ -405,6 +405,12 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 });
 
 describe("JobOwnershipPanel — co widać w wierszu", () => {
+  it("zespół w koszykach: pusta lista propozycji nie mówi „Bez rekrutera”", () => {
+    renderPanel(JOBS.staffed);
+    expect(screen.getByTestId("job-channel-buckets")).toBeInTheDocument();
+    expect(screen.queryByText("Bez rekrutera")).not.toBeInTheDocument();
+  });
+
   it("nikt nie pracuje: „Bez rekrutera” i zdanie, co dalej — inne dla każdej roli", () => {
     const staff = renderPanel(
       { ...JOBS.empty, priority_level: "p1" },
