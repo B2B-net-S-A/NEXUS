@@ -567,9 +567,10 @@ z odnośnikiem `hr_documents.leave_request_id`.
     Kwota inna niż z reguły i niż podwójna z reguły daje oznaczenie `amount_rule`
     i przycisk „Ustaw kwotę z reguły”. Uwaga z arkusza (`settlement_note`) jest
     w migawce, którą widzą tylko Płace.
-  - DL z rolą rekrutera, który domyka po rekruterze z wyłączonym kontem, dostaje
-    tylko premię DL: osobę zweryfikowała u tego klienta osoba, która odeszła
-    (`PlacementContext.closed_after_departure`). Wyjątek od decyzji z 25.10.2026.
+  - Domknięcie po rekruterze z wyłączonym kontem nie daje premii rekrutera nikomu:
+    osobę zweryfikowała u tego klienta osoba, która odeszła
+    (`PlacementContext.closed_after_departure`). DL dostaje swoją premię DL
+    (02.11.2026), rekruter, który domknął, nic (decyzja Artura 06.11.2026).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
   potwierdzenia, linie zamrożone w `payroll_lines`, timesheety zablokowane.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
