@@ -3,6 +3,6 @@
   "guide": "contracts.b2b_generator",
   "sources": {
     "frontend/src/components/v2/b2b-generator/MandateAgreementForm.tsx": "d322b3a934e21126b30a23cdd3c3dc68473cbd2a77faae2463ec5c477f202f97",
-    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "bcb4f810e7860dca39250d58ad2c22330349712ebb96fb0defef28446a2b97d4"
+    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "acb110b4bb98eff695fef62600ac197652990e5b3bb6760511e23bb852999a66"
   }
 }

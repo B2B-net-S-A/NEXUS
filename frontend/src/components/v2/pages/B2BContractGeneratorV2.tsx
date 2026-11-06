@@ -3243,6 +3243,7 @@ export function GeneratedContractsTab({
                                   variant="outline"
                                   size="sm"
                                   className="h-8"
+                                  data-tour="b2b.confirm-signed"
                                   onClick={() => setSignatureRow(r)}
                                 >
                                   <FileSignature className="h-4 w-4" />
@@ -3256,6 +3257,7 @@ export function GeneratedContractsTab({
                               variant="outline"
                               size="sm"
                               className="h-8"
+                              data-tour="b2b.confirm-signed"
                               onClick={() => setSignatureRow(r)}
                             >
                               <FileSignature className="h-4 w-4" />

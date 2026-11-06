@@ -57,7 +57,7 @@ export function DoubleBonusCard({ year, month, open }: DoubleBonusCardProps) {
     });
 
   return (
-    <Card className="space-y-3 p-4">
+    <Card className="space-y-3 p-4" data-tour="payroll.double-bonus">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
