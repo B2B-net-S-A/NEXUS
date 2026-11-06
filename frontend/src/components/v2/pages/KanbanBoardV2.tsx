@@ -20,7 +20,6 @@ import {
  ClipboardList,
  ChevronLeft,
  ChevronRight,
- CircleCheck,
  Clock,
  FileArchive,
  FileSignature,
@@ -1577,7 +1576,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  />
 
- {/* D1 (16.10.2026): „Klient zaakceptował” na karcie po rozmowie u klienta —
+ {/* D1 (16.10.2026): akceptacja klienta na karcie po rozmowie u klienta —
  okno akceptacji (data, debrief, kto dostanie dzwonek), potem ruch. */}
  {boardKey === "client_interview" && v5?.onClientAccept && !readOnly && (
  <button
@@ -1588,14 +1587,13 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  v5.onClientAccept?.(item);
  }}
- aria-label={`Klient zaakceptował: ${fullName}`}
+ aria-label={`Zaznacz akceptację klienta: ${fullName}`}
  className={cn(
- "mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-success/40 bg-success-muted text-[11px] font-semibold text-success-muted-foreground transition-colors hover:bg-success/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9",
+ "mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-primary/40 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
- <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
- Klient zaakceptował
+ Zaznacz akceptację
  </button>
  )}
 

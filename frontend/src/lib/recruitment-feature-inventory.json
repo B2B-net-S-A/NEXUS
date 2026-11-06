@@ -3284,7 +3284,7 @@
   {
    "id": "board.client-accept",
    "area": "tablica",
-   "opis": "Akceptacja klienta (D1, 16.10.2026): przycisk „Klient zaakceptował” na karcie w „Rozmowie u klienta” otwiera okno akceptacji (data, planowany start, słowa klienta, debrief, kto dostanie dzwonek); zapis = ruch na etap „Akceptacja” i werdykt „Akceptuje”",
+   "opis": "Akceptacja klienta (D1, 16.10.2026): przycisk „Zaznacz akceptację” (do 06.11.2026 zielony „Klient zaakceptował”, mylony z faktem) na karcie w „Rozmowie u klienta” otwiera okno akceptacji (data, planowany start, słowa klienta, debrief, kto dostanie dzwonek); zapis = ruch na etap „Akceptacja” i werdykt „Akceptuje”",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "card-client-accept",
    "v3_home": "Tablica → karta w „Rozmowie u klienta”"
@@ -3348,7 +3348,7 @@
   {
    "id": "panel.client-accept",
    "area": "panel",
-   "opis": "Panel osoby: „Klient zaakceptował” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
+   "opis": "Panel osoby: „Zaznacz akceptację klienta” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
    "marker": "Cofnij akceptację klienta",
    "v3_home": "Panel osoby → głowa panelu / menu „⋯”"
