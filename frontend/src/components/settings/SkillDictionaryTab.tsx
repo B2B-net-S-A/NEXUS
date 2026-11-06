@@ -355,7 +355,11 @@ export function SkillDictionaryTab() {
     { value: "skills", label: "Słownik" },
     {
       value: "proposals",
-      label: proposalCount === null ? "Propozycje" : `Propozycje · ${proposalCount}`,
+      label: (
+        <span data-tour="skills.proposals">
+          {proposalCount === null ? "Propozycje" : `Propozycje · ${proposalCount}`}
+        </span>
+      ),
     },
     { value: "unmatched", label: "Nieznane terminy" },
     { value: "plain", label: "Po ludzku" },

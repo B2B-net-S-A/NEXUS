@@ -1355,5 +1355,30 @@
     "href": "/jobs/daily",
     "section": "pipeline",
     "dot_anchor": "p0.overdue-actions"
+  },
+  {
+    "id": "slownik-propozycje",
+    "pr": 3104,
+    "title": "Propozycje do słownika umiejętności",
+    "why": "Co noc NEXUS proponuje nowe hasła i warianty z nazw, których słownik nie zna. Do słownika wchodzi tylko to, co zatwierdzisz; „Zatwierdź pewne” bierze propozycje bez wątpliwości.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Ustawienia → Słownik umiejętności → Propozycje",
+    "href": "/settings",
+    "dot_anchor": "skills.proposals"
+  },
+  {
+    "id": "wymagania-slowo-spoza-slownika",
+    "pr": 3104,
+    "title": "Podpowiedź przy wymaganiu, którego słownik nie zna",
+    "why": "Gdy wpiszesz słowo, którego słownik nie zna (np. „mikroserwisy”), pod wierszem zobaczysz, jak ludzie zapisują to w profilach, i jednym kliknięciem dopiszesz warianty do wiersza.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.dictionary-hint"
   }
 ]

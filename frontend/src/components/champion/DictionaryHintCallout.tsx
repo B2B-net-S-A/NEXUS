@@ -54,6 +54,7 @@ export function DictionaryHintCallout({
     <div
       role="note"
       data-testid="dictionary-hint"
+      data-tour="requirements.dictionary-hint"
       className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-muted px-3 py-1.5 text-xs text-warning-muted-foreground"
     >
       <span className="min-w-0 flex-[1_1_16rem]">{hintMessage(hint)}</span>
