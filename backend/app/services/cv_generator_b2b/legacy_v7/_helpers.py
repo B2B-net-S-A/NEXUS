@@ -770,11 +770,16 @@ def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> lis
     return issues
 
 
-def _norm_for_guard(text: str) -> str:
+def _fold_for_guard(text: str) -> str:
+    """Tekst bez ogonków, z wielkością liter; długość jak w `_norm_for_guard`."""
     text = text.translate(_TRANSLIT)
     nkfd = unicodedata.normalize("NFKD", text)
     text = "".join(ch for ch in nkfd if not unicodedata.combining(ch))
-    return re.sub(r"\s+", " ", text.lower())
+    return re.sub(r"\s+", " ", text)
+
+
+def _norm_for_guard(text: str) -> str:
+    return _fold_for_guard(text).lower()
 
 
 _GUARD_TOKEN_RE = re.compile(r"[^a-z0-9+#]+")
@@ -1462,6 +1467,55 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
     return allowed
 
 
+# Standard „Dlaczego nasz kandydat” każe w punkcie 1 podać lata na stanowisku, więc
+# liczba bywa uczciwie niższa niż suma dat kariery. Wzorce czytają `_fold_for_guard`.
+_TENURE_ADJECTIVE = r"(?:(?:zawodowego|komercyjnego|praktycznego)\s+)?"
+_TENURE_QUALIFIER_RE = re.compile(
+    rf"s?\s*{_TENURE_ADJECTIVE}"
+    rf"(?:doswiadczenia\s+{_TENURE_ADJECTIVE}|(?:of\s+)?(?:[\w-]+\s+){{0,3}}?experience\s+)?",
+    re.IGNORECASE,
+)
+_TENURE_POSITION_RE = re.compile(
+    r"(?:jako|as|na\s+stanowisk\w*|w\s+rol\w+|in\s+(?:the\s+)?roles?)\s", re.IGNORECASE
+)
+_TENURE_AREA_RE = re.compile(
+    r"(?:w|we|in)\s+(.+?)(?=[,;:()]|\s(?:w tym|including|incl)\b|$)", re.IGNORECASE
+)
+# Wielka litera w nazwie obszaru to zwykle technologia albo firma; te skróty to obszary.
+_AREA_ABBREVIATIONS = {"IT", "QA", "UX", "UI", "BI"}
+
+
+def _position_or_area_years_within_dates(
+    text: str, match: re.Match[str], total_months: int | None
+) -> bool:
+    """Czy liczba lat z `_YEARS_CLAIM_RE` to staż na stanowisku albo w obszarze.
+
+    Nie przekracza sumy dat i stoi przy „jako X”, „na stanowisku X” albo przy
+    obszarze ze zwykłych słów („w analizie danych”). „4 lata w Kafce”, „z Oracle”,
+    „w Bank Millennium” i sama liczba bez zakresu przechodzą to sprawdzenie dalej,
+    bo daty ról ich nie potwierdzają.
+    """
+    if total_months is None:
+        return False
+    folded = _fold_for_guard(text)
+    # `_YEARS_CLAIM_RE` z „3.5 years” bierze samo „5”.
+    whole = re.search(r"(\d+)[.,]$", folded[: match.start(1)])
+    figure = float(f"{whole.group(1)}.{match.group(1)}" if whole else match.group(1))
+    if figure * 12 > total_months:
+        return False
+    tail = folded[match.end() :]
+    qualifier = _TENURE_QUALIFIER_RE.match(tail)
+    tail = tail[qualifier.end() :] if qualifier else tail
+    if _TENURE_POSITION_RE.match(tail):
+        return True
+    area = _TENURE_AREA_RE.match(tail)
+    return bool(area) and all(
+        word[0].islower() or word in _AREA_ABBREVIATIONS
+        for word in re.split(r"[\s/-]+", area.group(1))
+        if word
+    )
+
+
 def _free_text_fields(candidate_data: dict[str, Any]) -> list[tuple[str, str]]:
     """(label, text) pairs of every prose field the model writes freely."""
     out: list[tuple[str, str]] = []
@@ -1491,6 +1545,7 @@ def _free_text_warnings(
     med = _MED_PREFIX["en" if language == "en" else "pl"]
     source_numbers = _numbers_in_source(source_norm)
     allowed_years = _derivable_years(candidate_data)
+    total_months = _total_experience_months(candidate_data.get("experience") or [])
     issues: list[str] = []
     seen: set[str] = set()
 
@@ -1517,6 +1572,10 @@ def _free_text_warnings(
         for match in _YEARS_CLAIM_RE.finditer(norm):
             years = match.group(1)
             if years in source_numbers or years in allowed_years:
+                continue
+            if label == "why_points" and _position_or_area_years_within_dates(
+                text, match, total_months
+            ):
                 continue
             key = f"yrs:{label}:{years}"
             if key in seen:
