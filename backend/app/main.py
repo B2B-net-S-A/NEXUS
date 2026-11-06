@@ -863,6 +863,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cpro_mail import cpro_mail_loop
     from app.tasks.job_idle import job_idle_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
+    from app.tasks.skill_proposals import skill_proposals_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -1037,6 +1038,8 @@ async def lifespan(app: FastAPI):
             "job_idle": asyncio.create_task(job_idle_loop()),
             # 06.11.2026: P0 po terminie trwa do decyzji — dzwonek do Head of Recruitment.
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
+            # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
+            "skill_proposals": asyncio.create_task(skill_proposals_loop()),
             # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
             "cpro_mail": asyncio.create_task(cpro_mail_loop()),
             # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -3563,6 +3566,7 @@ async def api_health_deep_check():
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.cv_call_question import CvCallQuestions
+    from app.models.skill_proposal import SkillProposal
     from app.models.plain_knowledge import (
         JobPlainBrief,
         PlainKnowledgeEvent,
@@ -3839,6 +3843,8 @@ async def api_health_deep_check():
         ("job_plain_briefs", JobPlainBrief),
         # 0651: pytania pod CV. Brak tabeli = 500 w ściądze do rozmowy.
         ("cv_call_questions", CvCallQuestions),
+        # 0658: propozycje do słownika — zakładka „Propozycje” i podpowiedź w wymaganiach.
+        ("skill_proposals", SkillProposal),
         ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
         # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.

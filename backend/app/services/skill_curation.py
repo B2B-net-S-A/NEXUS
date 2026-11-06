@@ -139,6 +139,35 @@ async def create_skill(
 
     Jeśli ``from_term_id`` podany — oznacz ten unmatched term jako mapped i dodaj
     go jako alias nowego skilla."""
+    skill_id, name = await create_skill_rows(
+        db, canonical_name=canonical_name, category=category, aliases=aliases
+    )
+
+    term_note = None
+    if from_term_id is not None:
+        term = await _term_by_id(db, from_term_id)
+        await _add_alias(db, skill_id, term.term)
+        term.status = "mapped"
+        term.curated_by = curated_by
+        term.curated_at = func.now()
+        term_note = term.term
+
+    await db.commit()
+    await refresh_alias_map()
+    return {"id": skill_id, "canonical_name": name, "mapped_term": term_note}
+
+
+async def create_skill_rows(
+    db: AsyncSession,
+    *,
+    canonical_name: str,
+    category: Optional[str] = None,
+    aliases: Optional[list[str]] = None,
+) -> tuple[int, str]:
+    """Nowa umiejętność z aliasami BEZ commita i odświeżenia mapy.
+
+    Dla wołających, którzy zapisują kilka zmian w jednej transakcji
+    (propozycje do słownika, „Zatwierdź pewne”) i odświeżają mapę raz."""
     name = canonical_name.strip()
     if not name:
         raise CurationError("Nazwa kanoniczna nie może być pusta")
@@ -163,19 +192,7 @@ async def create_skill(
 
     for alias in aliases or []:
         await _add_alias(db, skill_id, alias)
-
-    term_note = None
-    if from_term_id is not None:
-        term = await _term_by_id(db, from_term_id)
-        await _add_alias(db, skill_id, term.term)
-        term.status = "mapped"
-        term.curated_by = curated_by
-        term.curated_at = func.now()
-        term_note = term.term
-
-    await db.commit()
-    await refresh_alias_map()
-    return {"id": skill_id, "canonical_name": name, "mapped_term": term_note}
+    return skill_id, name
 
 
 async def add_alias(
@@ -186,3 +203,33 @@ async def add_alias(
     await db.commit()
     await refresh_alias_map()
     return {"skill_id": skill_id, "alias": alias.strip().lower(), "inserted": inserted}
+
+
+async def add_alias_rows(db: AsyncSession, skill_id: int, aliases: list[str]) -> int:
+    """Kilka aliasów naraz BEZ commita; zwraca liczbę nowych.
+
+    Nazwa równa nazwie samej umiejętności jest pomijana (nie jest wariantem)."""
+    skill = await _skill_by_id(db, skill_id)
+    inserted = 0
+    for alias in aliases:
+        if alias.strip().lower() == skill.canonical_name.strip().lower():
+            continue
+        if await _add_alias(db, skill_id, alias):
+            inserted += 1
+    return inserted
+
+
+async def add_aliases(
+    db: AsyncSession,
+    skill_id: int,
+    aliases: list[str],
+    *,
+    curated_by: Optional[str] = None,
+) -> dict:
+    """Kilka aliasów jednej umiejętności w jednej transakcji, mapa odświeżona raz.
+
+    Konflikt któregokolwiek aliasu (należy do innej umiejętności) cofa całość."""
+    inserted = await add_alias_rows(db, skill_id, aliases)
+    await db.commit()
+    await refresh_alias_map()
+    return {"skill_id": skill_id, "inserted": inserted}

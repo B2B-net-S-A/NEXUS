@@ -17,6 +17,7 @@ import {
   type RowCriticalState,
   type StoredRequirementRow,
 } from "@/lib/requirement-rows";
+import type { DictionaryHint, DictionaryHintsResponse } from "@/lib/dictionary-hints";
 import { keywordLongEnough } from "@/lib/keyword-requirements";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -62,6 +63,56 @@ export function useRowCriticalInfo(
     isError: current && query.isError,
     retry: () => void query.refetch(),
   };
+}
+
+/** Najwięcej słów w jednym żądaniu `dictionary-hints` (limit serwera). */
+const HINT_WORDS_MAX = 60;
+
+export const dictionaryHintsKey = ["dictionary-hints"] as const;
+
+export interface DictionaryHintsState {
+  /** Po słowie (małymi literami); pusto, dopóki zapytanie nie skończy się sukcesem. */
+  byWord: Record<string, DictionaryHint>;
+  canCurate: boolean;
+}
+
+/**
+ * Podpowiedzi przy słowach wierszy, których słownik nie zna (06.11.2026).
+ * Bez modelu: serwer czyta nocne propozycje. Wyłączone razem z liczbami
+ * (`countEnabled=false`). Podpowiedź to dodatek: dopóki zapytanie nie
+ * zakończy się sukcesem, edytor nic nie pokazuje.
+ */
+export function useDictionaryHints(
+  rows: readonly RequirementRowForm[],
+  { enabled = true, debounceMs = 600 }: { enabled?: boolean; debounceMs?: number } = {},
+): DictionaryHintsState {
+  const words = Array.from(
+    new Set(rows.flatMap((row) => row.words).map((word) => word.trim()).filter(Boolean)),
+  )
+    .sort()
+    .slice(0, HINT_WORDS_MAX);
+  const settled = JSON.parse(useDebouncedValue(JSON.stringify(words), debounceMs)) as string[];
+  const query = useQuery({
+    queryKey: [...dictionaryHintsKey, settled],
+    enabled: enabled && settled.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: ({ signal }) =>
+      api
+        .post<DictionaryHintsResponse>(
+          "/api/job-intake/dictionary-hints",
+          { words: settled },
+          { signal },
+        )
+        .then((r) => r.data),
+  });
+  const byWord: Record<string, DictionaryHint> = {};
+  const hints = enabled && query.isSuccess ? query.data?.hints : undefined;
+  if (Array.isArray(hints)) {
+    for (const hint of hints) {
+      if (typeof hint?.word === "string") byWord[hint.word.trim().toLowerCase()] = hint;
+    }
+  }
+  return { byWord, canCurate: Array.isArray(hints) && query.data?.can_curate === true };
 }
 
 /** Najwięcej wierszy w jednym żądaniu `critical-suggestion` (limit serwera). */

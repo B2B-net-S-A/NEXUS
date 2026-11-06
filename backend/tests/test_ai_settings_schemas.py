@@ -122,6 +122,8 @@ class TestFeatureKeyEnum:
             "portal_meeting_summary",
             # 0651: pytania pod CV w ściądze do rozmowy.
             "cv_call_questions",
+            # 0658: nocne propozycje do słownika umiejętności.
+            "skill_dictionary_proposals",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

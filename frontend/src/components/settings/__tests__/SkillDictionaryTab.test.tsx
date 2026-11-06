@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SkillDictionaryTab } from "../SkillDictionaryTab";
 
-const api = vi.hoisted(() => ({ list: vi.fn(), unmatchedTerms: vi.fn() }));
+const api = vi.hoisted(() => ({ list: vi.fn(), unmatchedTerms: vi.fn(), proposals: vi.fn() }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -34,6 +34,13 @@ describe("SkillDictionaryTab — trzy listy w zakładkach (20.10.2026)", () => {
       items: [{ id: 1, name: "Kubernetes", category: null, aliases: ["k8s"] }],
     });
     api.unmatchedTerms.mockResolvedValue([]);
+    api.proposals.mockResolvedValue({
+      items: [],
+      total: 0,
+      totals: { open: 7, names: 12, sure: 0, by_decision: {} },
+      computed_at: null,
+      categories: [],
+    });
   });
 
   it("otwiera słownik; nieznane terminy i „Po ludzku” ładują się dopiero w swojej zakładce", async () => {
@@ -49,5 +56,10 @@ describe("SkillDictionaryTab — trzy listy w zakładkach (20.10.2026)", () => {
 
     await user.click(screen.getByRole("tab", { name: "Po ludzku" }));
     expect(screen.getByText("Lista haseł po ludzku")).toBeInTheDocument();
+  });
+
+  it("zakładka „Propozycje” pokazuje liczbę otwartych propozycji (06.11.2026)", async () => {
+    renderTab();
+    expect(await screen.findByRole("tab", { name: "Propozycje · 7" })).toBeInTheDocument();
   });
 });

@@ -173,6 +173,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.portal_meeting_summary: ("F43", "gpt-6-luna"),
     # F44 — 05.11.2026: pytania pod CV w ściądze do rozmowy.
     AIFeatureKey.cv_call_questions: ("F44", "claude-sonnet-5-5"),
+    # F45 — 06.11.2026: nocne propozycje do słownika umiejętności.
+    AIFeatureKey.skill_dictionary_proposals: ("F45", "gpt-6.1-sol"),
 }
 
 

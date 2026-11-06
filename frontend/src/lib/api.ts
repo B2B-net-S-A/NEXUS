@@ -2803,7 +2803,81 @@ export const skillsAdminApi = {
       .then((r) => r.data),
   ignoreTerm: (termId: number) =>
     api.post(`/api/skills-admin/unmatched-terms/${termId}/ignore`).then((r) => r.data),
+  proposals: (params: SkillProposalQuery = {}) =>
+    api
+      .get<SkillProposalPage>("/api/skills-admin/proposals", { params })
+      .then((r) => r.data),
+  acceptProposal: (id: number, fix: SkillProposalFix = {}) =>
+    api
+      .post<{ id: number; status: string; skill_id: number | null }>(
+        `/api/skills-admin/proposals/${id}/accept`,
+        fix,
+      )
+      .then((r) => r.data),
+  rejectProposal: (id: number) =>
+    api
+      .post<{ id: number; status: string }>(`/api/skills-admin/proposals/${id}/reject`)
+      .then((r) => r.data),
+  acceptSureProposals: () =>
+    api
+      .post<{ accepted: number; skipped: { id: number; name: string; reason: string }[] }>(
+        "/api/skills-admin/proposals/accept-sure",
+      )
+      .then((r) => r.data),
 };
+
+// Propozycje do słownika (0658): liczy je co noc model, zatwierdza HoR+.
+export type SkillProposalDecision = "new" | "alias" | "generic" | "soft" | "noise";
+
+export interface SkillProposalName {
+  name: string;
+  count: number;
+  cand?: number;
+}
+
+export interface SkillProposal {
+  id: number;
+  family_key: string;
+  display_name: string;
+  names: SkillProposalName[];
+  cand_count: number;
+  cv_count: number;
+  job_count: number;
+  weight: number;
+  decision: SkillProposalDecision | null;
+  canonical: string | null;
+  target_skill_id: number | null;
+  target_name: string | null;
+  category: string | null;
+  replacements: string[];
+  confidence: "high" | "low" | null;
+  review_note: string | null;
+  status: "open" | "accepted" | "rejected";
+  sure: boolean;
+}
+
+export interface SkillProposalPage {
+  items: SkillProposal[];
+  total: number;
+  totals: { open: number; names: number; sure: number; by_decision: Record<string, number> };
+  computed_at: string | null;
+  categories: string[];
+}
+
+export interface SkillProposalQuery {
+  status?: "open" | "accepted" | "rejected";
+  decision?: SkillProposalDecision;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SkillProposalFix {
+  decision?: "new" | "alias";
+  canonical?: string;
+  category?: string;
+  target_skill_id?: number;
+}
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────
 export interface PipelineTemplateSummary {

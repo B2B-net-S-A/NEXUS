@@ -1,0 +1,67 @@
+# Słownik rośnie z danych: nocne propozycje i podpowiedź w wymaganiach (06.11.2026)
+
+Audyt słownika z 06.11.2026: słownik (`skills`, 256 haseł, 493 aliasy) znał 46%
+must-have w rekrutacjach, a 89% rekrutacji miało choć jedno wymaganie spoza
+słownika. Takie słowo dopasowanie i bramka must-have szukają dosłownie, więc
+„mikroserwisy” nie znajduje osób z „Microservices”. Próba z 400 hasłami
+podniosła pokrycie do 56%, a P@5 dopasowania z 0,103 do 0,117 (6 rekrutacji
+lepiej, 0 gorzej). Decyzja Artura „Etap 1: A + B”.
+
+## Zasada D7 bez wyjątków
+
+- Jeden słownik dla wymagań, profili i mapy klienta. **Nic nie mapuje się
+  samo**: model tylko proponuje, do słownika wchodzi to, co zatwierdzi Head of
+  Recruitment albo admin. Delivery Lead zmienia podpowiedzią wyłącznie swój
+  wiersz wymagań.
+
+## A — zakładka „Propozycje” (Ustawienia → Słownik umiejętności)
+
+- Pętla `tasks/skill_proposals.py` raz na dobę 1:00–5:00 (Warszawa,
+  `local_now`), dzień biegu w `app_settings['skill_proposals_state']`, więc
+  deploy nie liczy drugi raz tej samej nocy. Na stagingu zablokowana (woła AI).
+  Ręcznie: `python -m scripts.skill_proposals_run [--no-model]`.
+- Źródła nazw (`services/skill_proposals.collect_names`): `candidates.skills[*].name`
+  (liczba profili), `cv_generated_documents.render_payload->skills[*].content`
+  ze statusem `ready`, bez odrzuconych, rozcięte po przecinku i średniku poza
+  nawiasem (liczba CV), `jobs.must_skills||nice_skills[*].name` z „A lub B”
+  i „A / B” rozciętymi na dwa zapisy (liczba rekrutacji). Pomijane: krótsze niż
+  2 znaki, dłuższe niż 100, więcej niż 6 słów.
+- Znane = `care/skills.load_dictionary().resolve()`. Rodzina = `loose_key` po
+  zdjęciu nawiasów i przedrostków ms/microsoft/apache. Waga = profile + CV +
+  20 × rekrutacje. Co noc top 400 rodzin, z pominięciem zatwierdzonych
+  i odrzuconych: ich nazwy nie wracają.
+- Rodzina, której każdy zapis trafia `loose_key` w to samo hasło, to wariant
+  z pewnością „high” bez modelu. Reszta idzie do modelu F45 (GPT-6.1 Sol,
+  zapas Sonnet 5.5) w partiach po 50; raz sklasyfikowana rodzina nie wraca do
+  modelu, nawet gdy dojdą do niej nowe zapisy.
+- **Bezpieczniki** (`apply_guards`), bo wynik modelu to propozycja, nie fakt:
+  wariant roli (`role_*`) → „low” i „Wskazuje rolę …, nie umiejętność: tylko
+  ręcznie”; wariant nieistniejącego hasła → „low”; nowe hasło równe
+  istniejącemu hasłu albo aliasowi → wariant; kategoria spoza listy
+  (kategorie słownika bez `role_*` plus `practice`, `domain`) → brak i „low”;
+  ogólnik dostaje zamienniki wyłącznie z haseł słownika. Po klasyfikacji
+  rodziny z tym samym hasłem łączą się w jeden wiersz.
+- Decyzje (`/api/skills-admin/proposals…`, HoR+ jak reszta słownika):
+  „Dodaj” = `skill_curation.create_skill_rows` z zapisami jako aliasami,
+  „Zmapuj” = `add_alias_rows`, „Zmień” = poprawka decyzji, nazwy, kategorii
+  albo hasła, „Pomiń” = odrzucenie. Ogólnika, cechy i śmiecia nie da się
+  zatwierdzić (422). Konflikt aliasu z innym hasłem = 409, jak w kuracji.
+- „Zatwierdź pewne” (przez `useConfirmV2`): tylko „high”, nowe hasło albo
+  wariant, bez uwagi, z kategorią. Każda propozycja we własnym savepoincie
+  (konflikt jednej nie cofa reszty), mapa aliasów odświeżona raz.
+- Nocą pętla zapisuje też liczbę profili per hasło słownika
+  (`app_settings['skill_dictionary_usage']`) — liczby w podpowiedzi. To suma
+  po zapisach, więc osoba z „Java” i „java 11” liczy się dwa razy.
+
+## B — podpowiedź w edytorze wymagań
+
+- `POST /api/job-intake/dictionary-hints` (OperationalUser, limiter jak
+  `critical-suggestion`, do 60 słów, bez modelu). Hook `useDictionaryHints`
+  w `lib/requirement-rows-api.ts`, wyłączony przy `countEnabled=false`;
+  podpowiedź pojawia się tylko po udanym zapytaniu, „Zostaw” chowa ją na tym
+  ekranie.
+- Wariant → „Dodaj do wiersza „Microservices””, ogólnik → „Dodaj warianty:
+  PostgreSQL, MySQL…”, nowe hasło → „Dodaj zapisy: microsoft excel, ms excel”,
+  bez propozycji → `care/skills.suggester` („Może chodzi o …?”). Przycisk
+  zmiany słownika („Dodaj do słownika”, „Zmapuj w słowniku”) widzi tylko HoR+
+  (`can_curate`), a trasa ma własną bramkę.

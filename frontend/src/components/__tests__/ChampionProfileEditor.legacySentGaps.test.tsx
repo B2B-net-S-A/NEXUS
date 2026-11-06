@@ -34,6 +34,9 @@ vi.mock("@/lib/requirement-sent-gaps-api", () => ({
   useRequirementWordHints: () => hintsMock(),
 }));
 vi.mock("@/lib/requirement-rows-api", () => ({
+  // Podpowiedź słownika (06.11.2026) ma własny test (DictionaryHintCallout).
+  useDictionaryHints: () => ({ byWord: {}, canCurate: false }),
+  dictionaryHintsKey: ["dictionary-hints"],
   useTalkItemReadings: () => null,
   useWordCounts: () => ({}),
   useRowCriticalInfo: () => ({ info: {}, isLoading: false, isError: false, retry: () => undefined }),
