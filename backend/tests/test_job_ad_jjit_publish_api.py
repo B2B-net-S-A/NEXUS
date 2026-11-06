@@ -273,6 +273,7 @@ async def test_portal_url_outside_its_domain_is_not_shown_as_a_link(
 
 
 async def test_needs_a_current_career_page(api, monkeypatch, jjit_ready):
+    monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "")
     recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
     await _edit(api, recruiter, job_id)
     resp = await _publish(api, lead, job_id)
@@ -285,6 +286,24 @@ async def test_needs_a_current_career_page(api, monkeypatch, jjit_ready):
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "career_not_live"
     assert await _posting(job_id) is None
+
+
+async def test_portal_form_needs_no_career_page(api, monkeypatch, jjit_ready):
+    """06.11.2026: przy formularzu JJIT kandydat nie widzi strony kariery."""
+    monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "justjoin.it@example.com")
+    recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
+    await _edit(api, recruiter, job_id)
+
+    resp = await _publish(api, lead, job_id)
+
+    assert resp.status_code == 200, resp.text
+    assert await _posting(job_id) is not None
+    await _process(job_id)
+    published = [c for kind, c in FakeJjit.calls if kind == "publish"]
+    assert len(published) == 1
+    assert published[0].apply_url == ""
+    row = await _publication(job_id)
+    assert row is not None and row.url == AD_URL and row.removed_at is None
 
 
 async def test_refuses_stale_version_and_blocked_text(api, monkeypatch, jjit_ready):
