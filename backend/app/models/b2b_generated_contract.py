@@ -395,6 +395,8 @@ class B2BGeneratedContract(Base, TimestampMixin):
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
     )
     fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
+    # Kandydat wskazany przez klienta (0656): podpis kopiuje do kontraktu.
+    is_client_referral: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     def __repr__(self) -> str:
         return f"<B2BGeneratedContract id={self.id} number={self.contract_number!r}>"

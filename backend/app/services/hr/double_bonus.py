@@ -269,7 +269,11 @@ async def correct_signed_on(
 
 
 async def month_contracts(db: AsyncSession, year: int, month: int) -> list[Contract]:
-    """Kontrakty podpisane w miesiącu (bez szkiców, unieważnionych i powrotów)."""
+    """Kontrakty podpisane w miesiącu (bez szkiców, unieważnionych i powrotów).
+
+    Bez kandydatów wskazanych przez klienta (0656): nie liczą się rekruterowi
+    do celu ani do średniej marży DL-a (decyzja Artura 06.11.2026).
+    """
 
     from app.services.contract_rates import RATE_SCHEDULE_LOADS
     from app.services.hr.placement_bonuses import STARTED_STATUSES
@@ -319,6 +323,7 @@ async def month_contracts(db: AsyncSession, year: int, month: int) -> list[Contr
                 Contract.id.in_(ids),
                 Contract.status.in_(list(STARTED_STATUSES)),
                 Contract.returned_from_contract_id.is_(None),
+                Contract.is_client_referral.is_not(True),
             )
             .order_by(Contract.id)
         )

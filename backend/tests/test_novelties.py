@@ -597,9 +597,11 @@ def test_novelty_of_a_section_without_read_access_is_not_for_the_person(
 def test_every_start_tour_on_a_section_screen_names_its_section() -> None:
     """Pozycja Startu blokuje pracę — nie może trafić do osoby, która jej ekranu
     nie otworzy. Ekrany z sekcją w middleware muszą ją mieć w rejestrze."""
+    # Kolejność jak w middleware: Generator umów pod /contracts to Sourcing.
     screen_section = {
         "/jobs": "pipeline",
         "/candidates": "sourcing",
+        "/contracts/b2b-generator": "sourcing",
         "/contracts": "delivery",
         "/finance": "finance",
         "/insights": "insights",
