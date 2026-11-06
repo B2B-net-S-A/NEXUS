@@ -172,7 +172,8 @@ async def test_dashboard_league_podium_skips_unqualified_leader(monkeypatch) -> 
         for idx, entry in enumerate(league["ranked"])
     ]
     assert entries[1].rank is None
-    assert entries[0].prize_pln == competitions.QUARTERLY_PRIZES_PLN[1]
+    # Kwota z bieżącego kwartału (Q4 2026 ma nagrody podwojone, 06.11.2026).
+    assert entries[0].prize_pln == competitions.quarterly_prizes(league["period"])[1]
     assert entries[1].prize_pln is None
 
 
