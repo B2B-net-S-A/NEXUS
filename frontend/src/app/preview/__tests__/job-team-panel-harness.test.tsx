@@ -91,9 +91,15 @@ describe("/preview/job-team-panel", () => {
     // Bez roli rekrutera nie ma „Biorę” ani „Dołącz” (14.10.2026).
     expect(recruiterActions(proposal)).toEqual(["Przypisz…"]);
     expect(within(proposal).getByText("Czeka na akceptację Head of Recruitment")).toBeInTheDocument();
+    // Koszyki „Baza” / „LinkedIn” (06.11.2026): obie osoby bez koszyka.
     expect(recruiterActions(staffed)).toEqual([
       "Zdejmij Bartek Testowy",
+      "Przenieś Bartek Testowy do koszyka Baza",
+      "Przenieś Bartek Testowy do koszyka LinkedIn",
       "Zdejmij Celina Wzorcowa",
+      "Przenieś Celina Wzorcowa do koszyka Baza",
+      "Przenieś Celina Wzorcowa do koszyka LinkedIn",
+      "Ustaw plan koszyków",
       "Zmień rekrutera",
       "+ Dodaj osobę",
     ]);
@@ -112,9 +118,15 @@ describe("/preview/job-team-panel", () => {
       "Odrzuć",
       "Przypisz…",
     ]);
+    // Koszyki „Baza” / „LinkedIn” (06.11.2026): obie osoby bez koszyka.
     expect(recruiterActions(staffed)).toEqual([
       "Zdejmij Bartek Testowy",
+      "Przenieś Bartek Testowy do koszyka Baza",
+      "Przenieś Bartek Testowy do koszyka LinkedIn",
       "Zdejmij Celina Wzorcowa",
+      "Przenieś Celina Wzorcowa do koszyka Baza",
+      "Przenieś Celina Wzorcowa do koszyka LinkedIn",
+      "Ustaw plan koszyków",
       "Zmień rekrutera",
       "+ Dodaj osobę",
     ]);
@@ -133,8 +145,9 @@ describe("/preview/job-team-panel", () => {
 
     expect(recruiterActions(proposal)).toEqual(["Biorę", "+ Dodaj osobę"]);
     expect(recruiterActions(staffed)).toEqual([
+      "Dołącz do bazy",
+      "Dołącz do LinkedIna",
       "Zdejmij Celina Wzorcowa",
-      "Dołącz",
       "+ Dodaj osobę",
     ]);
     expect(recruiterActions(empty)).toEqual(["Biorę", "+ Dodaj osobę"]);

@@ -1,6 +1,7 @@
 import enum
 import logging
 import unicodedata
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal, Optional
 
@@ -128,6 +129,7 @@ from app.api.recruitment_access import (
     user_can_staff_job,
 )
 from app.services.requirement_contract import apply_requirement_source_update
+from app.services import job_channels
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.services.section_permissions import (
     ProductSection,
@@ -5724,6 +5726,119 @@ async def claim_job(
     return await get_job(job_id, current_user, db)
 
 
+class JobChannelPayload(BaseModel):
+    # ``None`` zdejmuje wybór — osoba zostaje w zespole „bez koszyka”.
+    channel: Optional[Literal["base", "linkedin"]] = None
+
+
+class JobChannelPlanPayload(BaseModel):
+    base: Optional[int] = Field(default=None, ge=0, le=job_channels.PLAN_MAX)
+    linkedin: Optional[int] = Field(default=None, ge=0, le=job_channels.PLAN_MAX)
+
+
+class UnassignedWorkerOut(BaseModel):
+    user_id: int
+    name: str
+    cards: int
+
+
+@router.put("/{job_id}/channels/{user_id}", response_model=JobRecruiterOut)
+async def set_recruiter_channel(
+    job_id: int,
+    user_id: int,
+    payload: JobChannelPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Koszyk osoby w zespole: baza NEXUSA albo LinkedIn (0655, 06.11.2026).
+
+    Rekruter przestawia siebie; każdego z zespołu przestawia rola, która
+    przydziela ludzi do rekrutacji (``user_can_staff_job``: Head of
+    Recruitment, Delivery Lead w swoim zakresie, admin). Osoba musi pracować
+    nad rekrutacją (reguła ``job_team``) — propozycja automatu jeszcze nie.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    is_self = user_id == current_user.id and current_user.has_any_role(
+        *_OWNERSHIP_ELIGIBLE_ROLES
+    )
+    if not is_self and not await user_can_staff_job(db, current_user, job):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Koszyk innej osoby zmienia Head of Recruitment albo Delivery Lead.",
+        )
+    team = await recruiters_for_jobs(db, [job_id])
+    person = next((p for p in working(team[job_id]) if p.user_id == user_id), None)
+    if person is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ta osoba nie pracuje nad rekrutacją — najpierw dodaj ją do zespołu.",
+        )
+    await job_channels.set_channel(
+        db, job=job, user_id=user_id, channel=payload.channel, actor_id=current_user.id
+    )
+    await db.commit()
+    return JobRecruiterOut.model_validate(
+        replace(person, channel=payload.channel), from_attributes=True
+    )
+
+
+@router.put("/{job_id}/channel-plan", response_model=JobChannelPlanPayload)
+async def set_channel_plan(
+    job_id: int,
+    payload: JobChannelPlanPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Plan liczby osób w koszykach „Baza” i „LinkedIn” — ta sama bramka co
+    przydział ludzi (``user_can_staff_job``)."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if not await user_can_staff_job(db, current_user, job):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Plan koszyków ustawia Head of Recruitment albo Delivery Lead.",
+        )
+    await job_channels.set_plan(
+        db,
+        job=job,
+        base=payload.base,
+        linkedin=payload.linkedin,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    return JobChannelPlanPayload(
+        base=job.channel_plan_base, linkedin=job.channel_plan_linkedin
+    )
+
+
+@router.get("/{job_id}/unassigned-workers", response_model=list[UnassignedWorkerOut])
+async def list_unassigned_workers(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rekruterzy, którzy w ostatnich 30 dniach dodali albo przesunęli karty
+    tej rekrutacji, a nie są w zespole — „pracuje bez przypisania”. Ostrzeżenie,
+    nie bramka (decyzja Artura 06.11.2026, „Kanban bez bramek”)."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    team = await recruiters_for_jobs(db, [job_id])
+    found = await job_channels.unassigned_workers(
+        db, {job_id: [p.user_id for p in working(team[job_id])]}
+    )
+    return [
+        UnassignedWorkerOut(user_id=w.user_id, name=w.name, cards=w.cards)
+        for w in found[job_id]
+    ]
+
+
 @router.get("/{job_id}/collaborators", response_model=list[UserBrief])
 async def list_collaborators(
     job_id: int,
@@ -5811,6 +5926,14 @@ async def add_collaborator(
     added = await add_manual_member(
         db, job_id=job_id, user_id=target.id, actor_id=current_user.id
     )
+    if payload.channel is not None:
+        await job_channels.set_channel(
+            db,
+            job=job,
+            user_id=target.id,
+            channel=payload.channel,
+            actor_id=current_user.id,
+        )
     if (
         added
         and not already_working

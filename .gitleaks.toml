@@ -65,6 +65,11 @@ regexes = [
   # Slug publicznego posta LinkedIn (źródło bazy ról, historia PR #1929) —
   # ``rpa-…`` ma kształt klucza Voyage. Dokładna wartość.
   '''pa-automatyzacja-architekturait-activity-7088050127667441664-cqTG''',
+  # Nazwa zmiennej z formularza planu koszyków (#3098, commit 49bec4b) —
+  # ``linkedin: parsedLinkedin`` ma kształt reguły ``linkedin-client-id``
+  # (14 znaków po „linkedin:”). Zmieniona na ``liPlanInput``, ale skan
+  # zakresu PR-a widzi stary commit. Dokładna wartość.
+  '''^parsedLinkedin$''',
   # Atrapa klucza konta serwisowego z harnessu „Klucze API” (#2215, commit
   # 32627e5) — same zera w id i słowa „PODGLAD-to-nie-jest-prawdziwy-klucz”;
   # zastąpiona wartością spoza reguły, ale skan zakresu PR-a widzi stary commit.

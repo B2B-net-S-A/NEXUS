@@ -213,14 +213,30 @@ const conflict = (detail: string) => ({ response: { status: 409, data: { detail 
 
 beforeEach(() => {
   for (const mock of [...Object.values(apiMock), ...Object.values(toast)]) mock.mockReset();
-  apiMock.get.mockResolvedValue({ data: DIRECTORY });
+  // „Pracują bez przypisania” (06.11.2026) ma własne zapytanie — tu nikogo.
+  apiMock.get.mockImplementation((url: string) =>
+    Promise.resolve({ data: url.includes("unassigned-workers") ? [] : DIRECTORY }),
+  );
   apiMock.post.mockResolvedValue({ data: {} });
   apiMock.delete.mockResolvedValue({ data: {} });
 });
 
 describe("JobOwnershipPanel — kto widzi który przycisk", () => {
   const ACCEPT = ["Akceptuj", "Zmień propozycję: Anna Przykładowa", "Odrzuć"];
-  const REMOVE_BOTH = ["Zdejmij Bartek Testowy", "Zdejmij Celina Wzorcowa"];
+  // Koszyki „Baza” / „LinkedIn” (06.11.2026): obie osoby są „bez koszyka”,
+  // więc rola przydzielająca ma przy każdej wybór koszyka i plan koszyków.
+  const move = (name: string) => [
+    `Przenieś ${name} do koszyka Baza`,
+    `Przenieś ${name} do koszyka LinkedIn`,
+  ];
+  const REMOVE_BOTH = [
+    "Zdejmij Bartek Testowy",
+    ...move("Bartek Testowy"),
+    "Zdejmij Celina Wzorcowa",
+    ...move("Celina Wzorcowa"),
+    "Ustaw plan koszyków",
+  ];
+  const JOIN = ["Dołącz do bazy", "Dołącz do LinkedIna"];
 
   it.each<[string, User, Record<keyof typeof JOBS, string[]>]>([
     [
@@ -237,7 +253,7 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
       recruitingLead,
       {
         proposalOnly: ["Przypisz…", "Biorę"],
-        staffed: [...REMOVE_BOTH, "Dołącz", "Zmień rekrutera", "+ Dodaj osobę"],
+        staffed: [...JOIN, ...REMOVE_BOTH, "Zmień rekrutera", "+ Dodaj osobę"],
         empty: ["Przypisz…", "Biorę"],
       },
     ],
@@ -264,7 +280,7 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
       recruiter,
       {
         proposalOnly: ["Biorę", "+ Dodaj osobę"],
-        staffed: ["Zdejmij Celina Wzorcowa", "Dołącz", "+ Dodaj osobę"],
+        staffed: ["Dołącz do bazy", "Dołącz do LinkedIna", "Zdejmij Celina Wzorcowa", "+ Dodaj osobę"],
         empty: ["Biorę", "+ Dodaj osobę"],
       },
     ],
@@ -302,7 +318,13 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 
   it("osoba, która już pracuje nad rekrutacją, nie widzi „Dołącz”", () => {
     renderPanel(JOBS.staffed, { as: { ...recruiter, id: second.user_id } });
-    expect(actions()).toEqual(["Zdejmij Celina Wzorcowa", "+ Dodaj osobę"]);
+    // Własny koszyk wybiera sam rekruter — cudzego nie.
+    expect(actions()).toEqual([
+      "Zdejmij Celina Wzorcowa",
+      "Przenieś Celina Wzorcowa do koszyka Baza",
+      "Przenieś Celina Wzorcowa do koszyka LinkedIn",
+      "+ Dodaj osobę",
+    ]);
   });
 
   it("`can_staff` z serwera wygrywa z rolą — Delivery Lead spoza zakresu nie przydziela", () => {
@@ -320,9 +342,15 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
       },
     });
     expect(actions()).toEqual([
+      "Dołącz do bazy",
+      "Dołącz do LinkedIna",
       "Zdejmij Bartek Testowy",
+      "Przenieś Bartek Testowy do koszyka Baza",
+      "Przenieś Bartek Testowy do koszyka LinkedIn",
       "Zdejmij Celina Wzorcowa",
-      "Dołącz",
+      "Przenieś Celina Wzorcowa do koszyka Baza",
+      "Przenieś Celina Wzorcowa do koszyka LinkedIn",
+      "Ustaw plan koszyków",
       "Zmień rekrutera",
       "+ Dodaj osobę",
     ]);
@@ -377,6 +405,12 @@ describe("JobOwnershipPanel — kto widzi który przycisk", () => {
 });
 
 describe("JobOwnershipPanel — co widać w wierszu", () => {
+  it("zespół w koszykach: pusta lista propozycji nie mówi „Bez rekrutera”", () => {
+    renderPanel(JOBS.staffed);
+    expect(screen.getByTestId("job-channel-buckets")).toBeInTheDocument();
+    expect(screen.queryByText("Bez rekrutera")).not.toBeInTheDocument();
+  });
+
   it("nikt nie pracuje: „Bez rekrutera” i zdanie, co dalej — inne dla każdej roli", () => {
     const staff = renderPanel(
       { ...JOBS.empty, priority_level: "p1" },
@@ -465,7 +499,8 @@ describe("JobOwnershipPanel — co widać w wierszu", () => {
       },
       { as: viewer },
     );
-    const list = screen.getByRole("list", { name: "Rekruter" });
+    // Pracujący stoją w koszykach; bez wybranego koszyka — w „Bez koszyka”.
+    const list = screen.getByRole("list", { name: "Bez koszyka" });
     expect(within(list).getByText("Bartek Testowy")).toBeInTheDocument();
     expect(within(list).getByText("Celina Wzorcowa")).toBeInTheDocument();
     expect(within(list).queryByText("Cała Kategoria")).not.toBeInTheDocument();
@@ -509,15 +544,16 @@ describe("JobOwnershipPanel — zapisy", () => {
     expectTeamRefreshed(invalidatedKeys());
   });
 
-  it("„Dołącz” dopisuje zalogowaną osobę jako kolejną", async () => {
+  it("„Dołącz do LinkedIna” dopisuje zalogowaną osobę od razu w koszyku", async () => {
     const user = userEvent.setup();
     renderPanel(JOBS.staffed, { as: recruiter });
 
-    await user.click(screen.getByRole("button", { name: "Dołącz" }));
+    await user.click(screen.getByRole("button", { name: "Dołącz do LinkedIna" }));
 
     await waitFor(() =>
       expect(apiMock.post).toHaveBeenCalledWith(`/api/jobs/${JOB_ID}/collaborators`, {
         user_id: recruiter.id,
+        channel: "linkedin",
       }),
     );
   });

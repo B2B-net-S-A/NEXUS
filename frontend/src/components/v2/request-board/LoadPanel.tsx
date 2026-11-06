@@ -61,6 +61,8 @@ function PersonRow({
   onToggle: () => void
 }) {
   const proposed = person.proposed ?? 0
+  const base = person.base ?? 0
+  const linkedin = person.linkedin ?? 0
   const summary = loadSummary(person)
   return (
     <button
@@ -96,7 +98,21 @@ function PersonRow({
         )}
       </span>
       <span className="flex h-2.5 overflow-hidden rounded" aria-hidden>
-        <span className="h-full bg-primary" style={{ width: barShare(person.count, scale) }} />
+        {/* 0655: odcinki koszyków — Baza, LinkedIn, potem bez koszyka. */}
+        <span
+          data-load-base
+          className="h-full bg-primary"
+          style={{ width: barShare(base, scale) }}
+        />
+        <span
+          data-load-linkedin
+          className="h-full bg-info"
+          style={{ width: barShare(linkedin, scale, base) }}
+        />
+        <span
+          className="h-full bg-primary/40"
+          style={{ width: barShare(person.count - base - linkedin, scale, base + linkedin) }}
+        />
         {/* Propozycja: jaśniejszy odcinek z przerywaną krawędzią —
             ten sam język co przerywana ramka przy osobie. */}
         {proposed > 0 && (
@@ -130,8 +146,16 @@ function PersonRequests({
   className: string
 }) {
   const outside = person.outside_p1 ?? 0
+  const base = person.base ?? 0
+  const linkedin = person.linkedin ?? 0
   return (
     <ul className={className}>
+      {person.count > 0 && (
+        <li className="text-xs text-muted-foreground" data-testid="load-channels">
+          Baza: {base} · LinkedIn: {linkedin}
+          {person.count - base - linkedin > 0 ? ` · bez koszyka: ${person.count - base - linkedin}` : ""}
+        </li>
+      )}
       {person.requests.length === 0 ? (
         <li className="text-xs text-muted-foreground">
           Brak rekrutacji P1 — ma miejsce na kolejną.

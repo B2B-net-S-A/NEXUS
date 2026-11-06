@@ -1378,6 +1378,16 @@ except Exception as _novelty_schema_err:  # noqa: BLE001
     print(f"novelty schema unavailable: {_novelty_schema_err!r}")
     _NOVELTY_TABLE_DDL = []
 
+# Koszyki „Baza” / „LinkedIn” w zespole rekrutacji (0655) — JEDNO źródło
+# z migracją (`app/services/job_channels_schema.py`).
+try:
+    from app.services import job_channels_schema as _job_channels_schema
+
+    _JOB_CHANNELS_DDL = list(_job_channels_schema.ALL_DDL)
+except Exception as _job_channels_schema_err:  # noqa: BLE001
+    print(f"job channels schema unavailable: {_job_channels_schema_err!r}")
+    _JOB_CHANNELS_DDL = []
+
 # Licznik użycia obszarów (0632) — JEDNO źródło z migracją
 # (`app/services/access_usage_schema.py`).
 try:
@@ -2589,6 +2599,9 @@ _COLUMN_STATEMENTS = [
     "NULL REFERENCES jobs(id) ON DELETE SET NULL",
     # 0652: początek bieżącego otwarcia (app/services/job_opening.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTAMPTZ NULL",
+    # 0655: plan koszyków Baza / LinkedIn (app/services/job_channels_schema.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS channel_plan_base SMALLINT NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS channel_plan_linkedin SMALLINT NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
     # candidates + tabela candidate_linkedin_snapshots. Bez nich Candidate
     # ORM SELECT pada — blokuje /api/candidates i /api/marketplace/candidates.
@@ -7065,6 +7078,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_INVITE_LINK_VISITS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
+    *_JOB_CHANNELS_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).

@@ -351,6 +351,7 @@ describe("useNotifications — przydział requestów (propozycje automatu i akce
       // Rekrutacja żyje pod dwoma kluczami (liczba i napis z adresu).
       JSON.stringify(["job", 42]),
       JSON.stringify(["job", "42"]),
+      JSON.stringify(["job-unassigned-workers", 42]),
       JSON.stringify(["jobs-v2"]),
       JSON.stringify(["jobs-quick-counts"]),
       JSON.stringify(["request-board"]),
