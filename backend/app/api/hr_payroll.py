@@ -13,6 +13,10 @@ Bramki:
   (``payroll_access.PayrollViewer``),
 * ``require_hr_payroll_reopen`` — ponowne otwarcie miesiąca: tylko admin.
 
+Gwarancja premii DL (``/clawbacks``, ``/bonuses/{id}/clawback``, 05.11.2026):
+lista długów i ręczny zwrot albo jego zdjęcie — tylko Płace; osoba widzi
+swoje długi w ``GET /me`` (``clawbacks``).
+
 Kwoty nie trafiają do logów ani ``critical_events`` — ślad zmian płacowych to
 ``hr_audit_events`` z ``sensitivity='payroll'``.
 """
@@ -54,7 +58,9 @@ from app.services.hr import audit, people
 from app.services.hr import modules as hr_modules
 from app.services.hr import (
     bonus_decisions,
+    double_bonus,
     bonus_flags,
+    bonus_guarantee,
     bonus_rules,
     my_settlement,
     placement_bonuses,
@@ -202,6 +208,10 @@ class PayrollCancelIn(BaseModel):
     note: Optional[str] = Field(default=None, max_length=1000)
 
 
+class ClawbackIn(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
 class CloseIn(BaseModel):
     acknowledge_warnings: bool = False
 
@@ -214,6 +224,18 @@ class ExtraDlIn(BaseModel):
     dl_user_id: int
     recipient_user_id: int
     client_ids: list[int] = Field(default_factory=list, max_length=50)
+
+
+class FixedRoleAmountIn(BaseModel):
+    role: str = Field(max_length=40)
+    amount: Decimal
+
+
+class DoubleBonusIn(BaseModel):
+    months: list[str] = Field(max_length=24)
+    verifications_per_day: Decimal = Decimal("4")
+    precision_pct: Decimal = Decimal("75")
+    dl_min_margin: Decimal = Decimal("50")
 
 
 class DlHoursIn(BaseModel):
@@ -241,6 +263,10 @@ class RulesIn(BaseModel):
     )
     automation_since: Optional[date] = None
     league_types: Optional[list[str]] = Field(default=None, max_length=10)
+    fixed_role_amounts: Optional[list[FixedRoleAmountIn]] = Field(
+        default=None, max_length=10
+    )
+    double_bonus: Optional[DoubleBonusIn] = None
 
 
 # ── Pomocnicze ────────────────────────────────────────────────────────────────
@@ -272,6 +298,7 @@ def _person_payload(
                 if line.hours_amount is None
                 else str(line.hours_amount),
                 "bonus_total": str(line.bonus_total),
+                "clawback_total": str(line.clawback_total),
                 "total": str(line.total),
             }
             for line in person.lines
@@ -315,6 +342,7 @@ async def _bonus_list(
         if viewer.payroll
         else {}
     )
+    with_clawback = await bonus_guarantee.live_by_bonus(db, [b.id for b in bonuses])
     return [
         {
             **payroll_bonuses.bonus_payload(
@@ -324,6 +352,13 @@ async def _bonus_list(
             "can_approve": payroll_bonuses.can_approve(viewer, bonus),
             "contract_ended_early": bonus.id in ended_early,
             "flags": flags.get(bonus.id, []),
+            "has_clawback": bonus.id in with_clawback,
+            # „Zwrot z gwarancji”: Płace, przyznana premia DL, nie własna (05.11.2026).
+            "can_clawback": viewer.payroll
+            and bonus.status == "assigned"
+            and bonus.category == bonus_guarantee.GUARANTEED_CATEGORY
+            and bonus.recipient_user_id != viewer.user_id
+            and bonus.id not in with_clawback,
         }
         for bonus in bonuses
     ]
@@ -481,6 +516,8 @@ async def my_payroll(
         "bonuses": items,
         "forecast": forecast,
         "business_days_required": rules.eligible_business_days,
+        # Gwarancja premii DL: moje długi do zwrotu i spłacone.
+        "clawbacks": await bonus_guarantee.list_clawbacks(db, user_id=current_user.id),
     }
 
 
@@ -502,6 +539,30 @@ async def my_payroll_settlement(
     return await my_settlement.settlement(
         db, user_id=current_user.id, year=year or today.year, today=today
     )
+
+
+@router.get("/me/double-bonus")
+async def my_double_bonus(
+    current_user: PayrollMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Do 200%”: postęp osoby w bieżącym miesiącu programu (tylko o sobie)."""
+
+    if not await people.has_live_profile(db, current_user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NO_PROFILE_DETAIL)
+    today = business_today()
+    rules = await bonus_rules.load_rules(db)
+    evaluation = await double_bonus.cached_evaluation(
+        db, today.year, today.month, rules, today=today
+    )
+    mine = double_bonus.rows_for(evaluation, current_user, rules)
+    return {
+        "year": evaluation["year"],
+        "month": evaluation["month"],
+        "in_program": evaluation["in_program"],
+        "final": evaluation["final"],
+        "thresholds": evaluation.get("thresholds"),
+        "rows": mine,
+    }
 
 
 # ── Miesiące ──────────────────────────────────────────────────────────────────
@@ -971,6 +1032,52 @@ async def cancel_bonuses(
     return {"cancelled": cancelled}
 
 
+# ── Gwarancja premii DL ───────────────────────────────────────────────────────
+
+
+@router.get("/clawbacks")
+async def list_clawbacks(
+    current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Długi z gwarancji: otwarte, spłacone i anulowane z potrąceniem do oddania."""
+
+    return {"items": await bonus_guarantee.list_clawbacks(db)}
+
+
+@router.post("/bonuses/{bonus_id}/clawback", status_code=status.HTTP_201_CREATED)
+async def register_clawback(
+    bonus_id: int,
+    payload: ClawbackIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zwrot z gwarancji ręcznie: konsultant odszedł, kontrakt w NEXUSIE jeszcze trwa."""
+
+    with _http_errors():
+        clawback = await bonus_guarantee.register_manual(
+            db,
+            bonus_id=bonus_id,
+            actor_id=current_user.id,
+            note=payload.note,
+            today=business_today(),
+        )
+    return await bonus_guarantee.payload_for(db, clawback)
+
+
+@router.post("/clawbacks/{clawback_id}/cancel")
+async def cancel_clawback(
+    clawback_id: int,
+    payload: ClawbackIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        clawback = await bonus_guarantee.cancel_manual(
+            db, clawback_id=clawback_id, actor_id=current_user.id, note=payload.note
+        )
+    return await bonus_guarantee.payload_for(db, clawback)
+
+
 @router.get("/contracts/{contract_id}/bonuses")
 async def contract_bonuses(
     contract_id: int, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
@@ -1278,6 +1385,61 @@ async def apply_settlement_import(
             month=month,
             as_proposal=payload.as_proposal,
         )
+
+
+@router.get("/double-bonus/{year}/{month}")
+async def double_bonus_month(
+    year: int,
+    month: int,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Premia 200%: kto zrobił cel w miesiącu (w trakcie miesiąca: postęp)."""
+
+    with _http_errors():
+        payroll_periods.validate_period(year, month)
+    rules = await bonus_rules.load_rules(db)
+    return await double_bonus.evaluate_month(
+        db, year, month, rules, today=business_today()
+    )
+
+
+@router.post("/double-bonus/{year}/{month}/settle")
+async def settle_double_bonus(
+    year: int,
+    month: int,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Przelicza decyzję 200% po końcu miesiąca i uzgadnia jego kontrakty.
+
+    Działa też dla zamkniętego miesiąca podpisu: propozycje ×2 trafiają wtedy do
+    pierwszego otwartego miesiąca (np. stawka klienta dopisana po zamknięciu).
+    """
+
+    with _http_errors():
+        payroll_periods.validate_period(year, month)
+    loaded = await hr_modules.load_modules(db)
+    if not loaded.get(MODULE):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Automat premii działa po włączeniu modułu Rozliczeń.",
+        )
+    today = business_today()
+    if not double_bonus.month_ended((year, month), today):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Wynik premii 200% liczymy po ostatnim dniu miesiąca.",
+        )
+    rules = await bonus_rules.load_rules(db)
+    evaluation, contract_ids = await double_bonus.settle_month(
+        db, year, month, rules, today=today, actor_id=current_user.id
+    )
+    for contract_id in contract_ids:
+        await placement_bonuses.reconcile_contract(
+            db, contract_id, today=today, rules=rules
+        )
+    return evaluation
 
 
 @router.post("/proposals/refresh")

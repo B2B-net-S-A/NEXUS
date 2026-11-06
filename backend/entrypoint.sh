@@ -350,6 +350,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
+    # 0651: pytania pod CV w ściądze do rozmowy (Sonnet 5.5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_call_questions'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -1403,6 +1405,15 @@ try:
 except Exception as _start_documents_schema_err:  # noqa: BLE001
     print(f"start documents schema unavailable: {_start_documents_schema_err!r}")
     _START_DOCUMENTS_TABLE_DDL = []
+
+# 0651: pytania pod CV w ściądze do rozmowy (`app/services/cv_call_questions_schema.py`).
+try:
+    from app.services import cv_call_questions_schema as _cv_call_questions_schema
+
+    _CV_CALL_QUESTIONS_TABLE_DDL = list(_cv_call_questions_schema.TABLE_DDL)
+except Exception as _cv_call_questions_schema_err:  # noqa: BLE001
+    print(f"cv call questions schema unavailable: {_cv_call_questions_schema_err!r}")
+    _CV_CALL_QUESTIONS_TABLE_DDL = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -2576,6 +2587,8 @@ _COLUMN_STATEMENTS = [
     # 0504: rekrutacja, która zostaje, gdy zamykana jest duplikatem.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS duplicate_of_job_id INTEGER "
     "NULL REFERENCES jobs(id) ON DELETE SET NULL",
+    # 0652: początek bieżącego otwarcia (app/services/job_opening.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTAMPTZ NULL",
     # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
     # candidates + tabela candidate_linkedin_snapshots. Bez nich Candidate
     # ORM SELECT pada — blokuje /api/candidates i /api/marketplace/candidates.
@@ -3504,6 +3517,19 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_placement_exclusions_job_id "
     "ON placement_exclusions (job_id)",
+    # 0650: powód ręczny (REASON_CHECK_DDL w app/services/placement_exclusions.py).
+    # Tylko gdy CHECK go jeszcze nie zna — bez blokady tabeli przy każdym starcie.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_placement_exclusions_reason'
+              AND pg_get_constraintdef(oid) LIKE '%manual%'
+        ) THEN
+            ALTER TABLE placement_exclusions DROP CONSTRAINT IF EXISTS ck_placement_exclusions_reason;
+            ALTER TABLE placement_exclusions ADD CONSTRAINT ck_placement_exclusions_reason CHECK (reason IN ('admin_bulk_no_cv', 'admin_bulk_2025_09_series', 'manual'));
+        END IF;
+    END $$""",
     """CREATE OR REPLACE VIEW analytics_first_milestones AS
         SELECT
             candidate_id,
@@ -7037,6 +7063,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
+    *_CV_CALL_QUESTIONS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7515,6 +7542,21 @@ _DATA_STATEMENTS = [
     "AND NOT EXISTS (SELECT 1 FROM pipeline_stage_defs x "
     "WHERE x.template_id = pipeline_stage_defs.template_id AND x.name = 'QC CV') "
     "AND EXISTS (SELECT 1 FROM marker)",
+    # 0652: początek bieżącego otwarcia z historii ponownych otwarć przez
+    # człowieka, bez przeniesień z Traffita — lustro `job_opening.BACKFILL_SQL`.
+    # Jednorazowo: znacznik wstawia ta sama instrukcja (migracja też go stawia).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('0652_job_opening_backfill', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE jobs j SET cycle_started_at = r.reopened_at "
+    "FROM (SELECT entity_id AS job_id, max(created_at) AS reopened_at "
+    "FROM activities WHERE entity_type = 'job' AND action = 'published' "
+    "AND details->>'reopened' = 'true' "
+    "AND coalesce(details->>'reason', '') <> 'traffit_transfer' "
+    "GROUP BY entity_id) r "
+    "WHERE j.id = r.job_id AND j.cycle_started_at IS NULL "
+    "AND EXISTS (SELECT 1 FROM marker)",
     # 0273 + 0347: domyślne wartości akcji (recovery tylko przy pustej macierzy).
     # TCM ma pełny generator od decyzji z 22.09.2026 (0347); tylko legacy
     # viewer zaczyna od podglądu.
@@ -7858,6 +7900,11 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
+    # 0651: seed klucza AI pytań pod CV w ściądze do rozmowy.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_call_questions', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_call_questions')",
     # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
     *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są

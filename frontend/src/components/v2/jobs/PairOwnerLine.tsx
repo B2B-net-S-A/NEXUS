@@ -184,6 +184,7 @@ function TakeButton({ item, onTake, taking, short }: TakeProps & { item: OwnerIt
       onClick={onTake}
       disabled={taking}
       aria-label={takeLabel(item)}
+      data-tour="person.owner.take"
       className="shrink-0 rounded border border-primary/40 px-1.5 text-[11px] font-semibold leading-[14px] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:p-2"
     >
       {short ? shortLabel : takeLabel(item)}

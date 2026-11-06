@@ -7368,7 +7368,7 @@ async def _enrich_candidate_from_document_task(
                 handle.write(content)
                 temp_path = handle.name
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text,
+                cv_text_extractor.extract_cv_text,
                 temp_path,
                 document.filename,
             )
@@ -7672,7 +7672,7 @@ async def _extract_uploaded_cv_text(
     try:
         try:
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text, tmp_path, client_filename or ""
+                cv_text_extractor.extract_cv_text, tmp_path, client_filename or ""
             )
         except cv_text_extractor.UnsupportedCvFormat as e:
             raise HTTPException(

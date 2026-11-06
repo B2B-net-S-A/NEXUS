@@ -325,7 +325,7 @@ function RaceRow({
 
         {entry.excluded ? (
           <p className="mt-1 inline-flex rounded border border-info/25 bg-info-muted px-1.5 py-0.5 text-[11px] font-medium text-info-muted-foreground">
-            Lider kwartału — w rankingu zostaje, nagrody miesięcznej nie bierze
+            Lider kwartału — bez nagrody miesięcznej (zasada do 05.11.2026)
           </p>
         ) : null}
 

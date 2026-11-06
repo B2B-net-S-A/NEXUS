@@ -24,7 +24,7 @@ from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
 from app.services.hit_ratio_scope import close_reason_group
-from app.services.job_fill import placements_by_job
+from app.services.job_fill import filled_by_job
 
 _CLOSE_ACTIONS = ("closed", "close_reason_changed")
 
@@ -65,7 +65,7 @@ async def hit_ratio_closures(
         q = q.where(Job.closed_at < end)
     rows = (await db.execute(q)).all()
     job_ids = [r.id for r in rows]
-    hired = await placements_by_job(db, job_ids)
+    hired = await filled_by_job(db, job_ids)
 
     # Kto zamknął albo ostatni zmienił powód — z historii rekrutacji.
     closed_by: dict[int, tuple[Optional[int], datetime]] = {}

@@ -133,6 +133,26 @@ export function TimesheetApprovalsSection({
     );
   };
 
+  const confirmForPerson = async (item: TeamQueueItem) => {
+    if (!item.timesheet) return;
+    const ok = await askConfirm({
+      title: `Potwierdzić raport godzin za osobę: ${item.name}?`,
+      description: `${monthTitlePl(period)} · ${formatHours(item.hours)} h. Osoba już odeszła i nie wyśle raportu sama. W historii zostanie ślad, że potwierdzasz go za nią. Po akceptacji powstaje PDF z sumą kontrolną.`,
+      confirmLabel: "Potwierdź za osobę",
+    });
+    if (!ok) return;
+    decide.mutate(
+      { id: item.timesheet.id, decision: "confirm-for-person" },
+      {
+        onSuccess: () => {
+          showToast("Raport godzin potwierdzony za osobę", "success");
+          setPreviewId(null);
+        },
+        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się potwierdzić raportu godzin."), "error"),
+      },
+    );
+  };
+
   const revoke = async (item: TeamQueueItem) => {
     if (!item.timesheet) return;
     const ok = await askConfirm({
@@ -182,7 +202,8 @@ export function TimesheetApprovalsSection({
     );
 
   const remindButton = (item: TeamQueueItem, size: "sm" | "md" = "sm") =>
-    canRemindInQueue(item) ? (
+    // Kto odszedł, nie ma konta: przypomnienie do niego nie dojdzie.
+    canRemindInQueue(item) && !item.can_confirm_for_person ? (
       <Button
         variant="outline"
         size={size}
@@ -206,6 +227,13 @@ export function TimesheetApprovalsSection({
 
   const decisionButtons = (item: TeamQueueItem, size: "sm" | "md" = "sm") => {
     if (!item.can_decide || !item.timesheet || item.timesheet.payroll_locked) return null;
+    if (item.can_confirm_for_person && item.hours > 0) {
+      return (
+        <Button size={size} onClick={() => confirmForPerson(item)} disabled={decide.isPending}>
+          Potwierdź za osobę
+        </Button>
+      );
+    }
     if (item.status === "submitted") {
       return (
         <>

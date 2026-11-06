@@ -1,5 +1,22 @@
 [
   {
+    "id": "biore-przy-prowadzi",
+    "pr": 3004,
+    "title": "„Biorę” przy „Prowadzi” w panelu z formularzem",
+    "why": "Wolną osobę weźmiesz na 12 h bez wychodzenia z panelu. Przy osobie od systemu przycisk mówi „Dzwonię”, a w „Trybie rozmowy” stoi obok imienia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby z formularzem → wiersz „Prowadzi”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.owner.take"
+  },
+  {
     "id": "zespol-odpowiedz-i-soczewka",
     "title": "Zakładka Zespół: od razu widać, jak idzie, gdzie stoi i kto",
     "why": "Na górze zdanie z odpowiedzią i tempo wobec celu. Klik w etap lejka pokazuje jego wykres tygodniami albo miesiącami i osoby. Na dole wszyscy w jednej linii, kto jak daleko doszedł.",
@@ -1151,5 +1168,43 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.link-people"
+  },
+  {
+    "id": "lider-kwartalu-w-wyscigach",
+    "pr": 3081,
+    "title": "Lider Ligi bierze też nagrodę w wyścigu miesiąca",
+    "why": "Lider Ligi Mistrzów kwartału nie jest już wykluczany z wyścigów miesiąca. Nagrodę bierze pierwsza osoba, która spełnia warunki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {},
+    "where": "Insights → Rywalizacja → Wyścigi miesiąca",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.monthly-races"
+  },
+  {
+    "id": "pytania-pod-cv-w-sciadze",
+    "pr": 3078,
+    "title": "Ściąga podpowiada pytania pod CV",
+    "why": "Do 5 opcjonalnych pytań o wymagania, których nie widać w opisie ról w CV. Odpowiedź wpisz w notatce i podaj nazwę firmy: wtedy CV opisze to w tej roli.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → Nowi albo Screening → Ściąga do rozmowy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cheatsheet.cv-questions"
+  },
+  {
+    "id": "premia-200-listopad-grudzien",
+    "pr": 3085,
+    "title": "Do 200%: postęp w miesiącu podpisu",
+    "why": "W listopadzie i grudniu placement podpisany w miesiącu, w którym zrobisz cel, liczy się podwójnie i wypłaca od razu. Karta pokazuje, ile brakuje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead"] },
+    "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
+    "href": "/my-time",
+    "dot_anchor": "my-time.double-bonus"
   }
 ]

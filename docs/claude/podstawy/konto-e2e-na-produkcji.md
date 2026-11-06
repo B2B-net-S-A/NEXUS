@@ -46,8 +46,10 @@ Rekruter by nie wystarczył jako „mniejsza” rola: ma zapis i eksport danych 
 6. **Włącznik po deployu:** `env -u GH_TOKEN gh variable set E2E_POST_DEPLOY_ENABLED --repo B2B-net-S-A/NEXUS --body true`.
 
 `E2E_BASE_URL` i `E2E_API_URL` nie są potrzebne: domyślne adresy w `e2e.yml` to
-`nexus.b2bnetwork.pl`. Stary front `nexus.dynaminds.pl` odpowiada 200, ale API odrzuca
-jego Origin, więc każdy test UI przeciw niemu pada.
+`nexus.b2bnetwork.pl`. Stary front `nexus.dynaminds.pl` przekierowuje tam 307 z tą samą
+ścieżką i parametrami (`frontend/src/middleware.ts`, decyzja Artura z 05.11.2026), bo API
+odrzuca jego Origin. Wyjątek to pliki z kropką w nazwie (`/outlook-addin/*`), które idą
+bez przekierowania, bo wskazuje na nie manifest wtyczki Outlooka.
 
 ## Jak czytać wynik
 

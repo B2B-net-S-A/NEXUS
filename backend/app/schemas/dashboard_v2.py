@@ -396,7 +396,8 @@ class CompetitionRankingEntry(DashboardModel):
     """
 
     # `None` = osoba w rankingu bez miejsca w klasyfikacji nagrodowej
-    # (niezakwalifikowana albo wykluczony lider kwartału).
+    # (niezakwalifikowana; w okresach zamrożonych do 05.11.2026 także
+    # wykluczony lider kwartału).
     rank: int | None
     user_id: int
     name: str
@@ -448,7 +449,8 @@ class RecruitmentMonthlyRaces(DashboardModel):
 
 class RecruitmentHallOfFameHistoryEntry(DashboardModel):
     # `None` = osoba w rankingu bez miejsca w klasyfikacji nagrodowej
-    # (niezakwalifikowana albo wykluczony lider kwartału).
+    # (niezakwalifikowana; w okresach zamrożonych do 05.11.2026 także
+    # wykluczony lider kwartału).
     rank: int | None
     user_id: int
     name: str

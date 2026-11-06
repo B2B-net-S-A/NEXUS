@@ -55,7 +55,7 @@ def stored_files(monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes]:
     monkeypatch.setattr(object_storage, "download_cv", download)
     monkeypatch.setattr(cv_text_backfill, "is_available", lambda: True)
     monkeypatch.setattr(cv_text_backfill, "sniff_extension", lambda _path: ".pdf")
-    monkeypatch.setattr(cv_text_backfill, "extract_text", lambda *_a: FILE_TEXT)
+    monkeypatch.setattr(cv_text_backfill, "extract_cv_text", lambda *_a: FILE_TEXT)
     return files
 
 

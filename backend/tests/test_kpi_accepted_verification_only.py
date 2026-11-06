@@ -264,8 +264,8 @@ async def test_second_hired_in_a_later_attempt_is_not_a_second_placement():
     Produkcja 15.10.2026: „Zatrudniony” wpisany ręcznie w NEXUSIE, a dzień
     później ten sam z importu Traffita, który otwierał nową próbę procesu
     chwilą zatrudnienia. Każda próba dawała placement, więc cztery pary
-    liczyły się dwa razy (październik 19 zamiast 16). Weryfikacja nowej
-    próby nadal się liczy — to jest praca, nie powtórzony wynik.
+    liczyły się dwa razy (październik 19 zamiast 16). Pierwsza weryfikacja
+    pary, która wypadła dopiero w nowej próbie, nadal się liczy.
     """
     async with AsyncSessionLocal() as db:
         u = uuid.uuid4().hex[:8]
@@ -337,6 +337,114 @@ async def test_second_hired_in_a_later_attempt_is_not_a_second_placement():
 
     assert sorted(credited) == [("hired", user.id), ("verified", user.id)], (
         f"the same pair was placed twice across process attempts: {credited}"
+    )
+
+
+async def _seed_two_attempts(db, *, first_verified_status: VerificationStatus):
+    """Para z dwoma podejściami ``assigned``; każde ma verified → QC → odrzucenie.
+
+    Podejście 1 ma też ``cv_sent``, podejście 2 drugie ``cv_sent`` — jak na
+    produkcji 26–27.10.2026: Delivery Lead odrzuca, rekruter dodaje osobę
+    jeszcze raz i weryfikuje ją po dwóch minutach.
+    """
+    u = uuid.uuid4().hex[:8]
+    user = User(
+        email=f"kpi-reattempt-{u}@example.com",
+        password_hash=hash_password("x"),
+        name="Recruiter RA",
+        role=UserRole.recruiter,
+        is_active=True,
+    )
+    client = Client(name=f"KPI Reattempt Client {u}")
+    db.add_all([user, client])
+    await db.flush()
+    job = Job(title=f"KPI Reattempt Job {u}", client_id=client.id)
+    cand = Candidate(name="Rafał", lastname=f"RA-{u}")
+    db.add_all([job, cand])
+    await db.flush()
+    second_attempt_at = T0 + timedelta(days=5)
+
+    def stage(kind, at, status=VerificationStatus.active):
+        return CandidateStage(
+            candidate_id=cand.id,
+            job_id=job.id,
+            stage=kind,
+            moved_at=at,
+            moved_by=user.id,
+            verification_status=status,
+        )
+
+    def attempt(no, opened_at, closed_at):
+        return RecruitmentProcess(
+            candidate_id=cand.id,
+            job_id=job.id,
+            client_id=client.id,
+            attempt_no=no,
+            status=ProcessStatus.closed,
+            origin_kind=PriorityOriginKind.assigned,
+            opened_at=opened_at,
+            closed_at=closed_at,
+            credit_user_id=user.id,
+            kpi_eligible=True,
+        )
+
+    db.add_all(
+        [
+            attempt(1, T0, T0 + timedelta(days=3)),
+            stage(
+                PipelineStage.verified, T0 + timedelta(hours=1), first_verified_status
+            ),
+            stage(PipelineStage.interview, T0 + timedelta(hours=2)),
+            stage(PipelineStage.cv_sent, T0 + timedelta(days=1)),
+            stage(PipelineStage.rejected, T0 + timedelta(days=3)),
+            attempt(2, second_attempt_at, second_attempt_at + timedelta(days=1)),
+            stage(PipelineStage.verified, second_attempt_at + timedelta(minutes=2)),
+            stage(PipelineStage.interview, second_attempt_at + timedelta(minutes=3)),
+            stage(PipelineStage.cv_sent, second_attempt_at + timedelta(minutes=4)),
+            stage(PipelineStage.rejected, second_attempt_at + timedelta(days=1)),
+        ]
+    )
+    await db.commit()
+    return {"candidate_id": cand.id, "job_id": job.id, "user_id": user.id}
+
+
+async def test_each_stage_counts_once_per_pair_across_attempts():
+    """Etap liczy się raz na parę (kandydat, rekrutacja), jak placement (D2).
+
+    Kopia produkcji z 04.11.2026: od 12.10 cztery pary miały ten sam etap
+    policzony w dwóch podejściach procesu (weryfikacja +3, QC +2,
+    rekomendacja +1), zawsze dla tej samej osoby. Decyzja Artura 05.11.2026:
+    kolejne podejście po odrzuceniu nie daje drugiej zasługi.
+    """
+    async with AsyncSessionLocal() as db:
+        ids = await _seed_two_attempts(
+            db, first_verified_status=VerificationStatus.active
+        )
+        credited = await _credited(db, ids)
+
+    user = ids["user_id"]
+    assert sorted(credited) == [
+        ("cv_sent", user),
+        ("interview", user),
+        ("verified", user),
+    ], f"a stage was credited again in a later process attempt: {credited}"
+
+
+async def test_rejected_verification_in_first_attempt_does_not_block_the_accepted_one():
+    """Odrzucona weryfikacja z podejścia 1 nie jest kamieniem milowym pary.
+
+    Zaakceptowana weryfikacja z podejścia 2 jest więc PIERWSZĄ weryfikacją
+    pary i musi się liczyć; QC i rekomendacja z podejścia 1 już się liczyły.
+    """
+    async with AsyncSessionLocal() as db:
+        ids = await _seed_two_attempts(
+            db, first_verified_status=VerificationStatus.rejected
+        )
+        credited = await _credited(db, ids)
+
+    stages = sorted(stage for stage, _ in credited)
+    assert stages == ["cv_sent", "interview", "verified"], (
+        f"the first accepted verification of the pair was lost: {credited}"
     )
 
 

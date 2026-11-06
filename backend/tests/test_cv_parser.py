@@ -880,3 +880,47 @@ async def test_parser_output_passes_through_the_filter(aliases, monkeypatch):
     out = await cvp._parse_with_claude("Programuję w Pythonie.")
 
     assert [s["name"] for s in out["skills"]] == ["Python"]
+
+
+@pytest.mark.parametrize(
+    ("model_email", "cv_text", "kept"),
+    [
+        ("anna.testowa@example.com", "Kontakt: anna.testowa@example.com", True),
+        ("ANNA.TESTOWA@example.com", "Kontakt: anna.testowa@example.com", True),
+        # Rozcięty odstępami albo zapisany słownie: adres stoi w tekście.
+        ("anna.testowa@example.com", "anna.testowa @ example . com", True),
+        ("anna.testowa@example.com", "anna.testowa (at) example.com", True),
+        # Sklejony z odstępów, rozcięty także w części lokalnej.
+        ("anna.testowa@example.com", "anna . testowa @ example . com", True),
+        # Zmyślony z nazwy: tekst ma nazwisko, a adresu nie ma.
+        ("anna.testowa@gmail.com", "Anna Testowa\nProgramista", False),
+        ("annatestowa@gmail.com", "Anna Testowa\nProgramista", False),
+        # Resztka adresu z OCR: część lokalna jest, a domenę dołożył model.
+        ("jan45@gmail.com", "Kontakt: jan45©\nProgramista", False),
+        ("jan45", "Kontakt: jan45", False),
+    ],
+)
+def test_model_email_must_be_in_cv_text(model_email, cv_text, kept):
+    from app.services.cv_parser import _apply_contact_fallbacks
+
+    parsed = _apply_contact_fallbacks(
+        {"email": model_email, "_confidence": {"email": 0.7}}, cv_text
+    )
+
+    if kept:
+        assert parsed["email"] == model_email
+        assert parsed["_confidence"]["email"] == 0.7
+    else:
+        assert parsed["email"] is None
+        assert "email" not in parsed.get("_confidence", {})
+
+
+def test_made_up_model_email_gives_way_to_address_from_text():
+    from app.services.cv_parser import _apply_contact_fallbacks
+
+    parsed = _apply_contact_fallbacks(
+        {"email": "inny@example.com"}, "Programista\nanna@example.pl"
+    )
+
+    assert parsed["email"] == "anna@example.pl"
+    assert parsed["_confidence"]["email"] == 0.9

@@ -21,7 +21,7 @@ import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import { qcCountsText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
 import type { PreContractTone } from "@/lib/api/preContracts";
 import { offLimitsConfirmedDay } from "@/lib/off-limits";
@@ -71,6 +71,9 @@ export interface CardBadgeContext {
   /** Przegląd przed wysłaniem do klienta w tej rekrutacji należy do patrzącego
    *  (serwer: `viewer_owns_dl_review`) — „Czeka na Ciebie” zamiast „Czeka na DL”. */
   viewerOwnsDlReview?: boolean;
+  /** Początek bieżącego otwarcia rekrutacji (serwer: `opening_started_at`,
+   *  05.11.2026). Karta ruszona wcześniej jest z poprzedniego otwarcia. */
+  openingStartedAt?: string | null;
 }
 
 export const CARD_BADGE_TONE_CLASS: Record<CardBadgeTone, string> = {
@@ -654,9 +657,32 @@ function bookedCallBadge(item: KanbanItem, now: Date): CardBadge | null {
   };
 }
 
+/** Karta z poprzedniego otwarcia: jej ostatni ruch był przed „Otwórz ponownie”
+ *  (05.11.2026). Nie liczy się w „W drodze” ani w obsadzie, dopóki ktoś jej
+ *  nie ruszy — serwer liczy tak samo (`job_opening`). */
+export function fromPreviousOpening(item: KanbanItem, openingStartedAt: string | null | undefined): boolean {
+  if (!openingStartedAt || !item.moved_at) return false;
+  return new Date(item.moved_at).getTime() < new Date(openingStartedAt).getTime();
+}
+
+function previousOpeningBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
+  if (!fromPreviousOpening(item, ctx.openingStartedAt)) return null;
+  const day = warsawDateOf(ctx.openingStartedAt);
+  const label = day ? `Sprzed otwarcia ${day.split("-").reverse().join(".")}` : "Sprzed otwarcia";
+  return {
+    key: "previous_opening",
+    label,
+    tone: "neutral",
+    title:
+      "Karta z poprzedniego otwarcia rekrutacji. Nie liczy się w „W drodze” ani w obsadzie, dopóki jej nie ruszysz.",
+  };
+}
+
 export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[] {
   const out: CardBadge[] = [];
   const column = ctx.column;
+  const previous = previousOpeningBadge(item, ctx);
+  if (previous) out.push(previous);
   // Champion pierwszy (D3, 15.10.2026) — oznacza go Delivery Lead w nagłówku
   // rekrutacji, karta tylko to pokazuje.
   if (item.is_champion) {

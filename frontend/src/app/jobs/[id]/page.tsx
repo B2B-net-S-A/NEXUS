@@ -1421,6 +1421,8 @@ export default function JobDetailPage() {
               // Przegląd przed wysłaniem do klienta należy do patrzącego
               // (Delivery Lead rekrutacji albo portfel klienta) — liczy serwer.
               viewerOwnsDlReview={kanban?.viewer_owns_dl_review === true}
+              // Ponowne otwarcie (05.11.2026): karty sprzed niego mają etykietę.
+              openingStartedAt={kanban?.opening_started_at ?? null}
               // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
               addedBy={addedBy}
               onAddedByChange={setAddedBy}

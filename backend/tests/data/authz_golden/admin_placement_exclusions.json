@@ -31,6 +31,8 @@
   "back_office"
  ],
  "routes": {
-  "GET /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/admin/placement-exclusions/{exclusion_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

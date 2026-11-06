@@ -140,6 +140,7 @@ from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
+from app.models.cv_call_question import CvCallQuestions  # noqa: F401
 from app.models.plain_knowledge import (  # noqa: F401
     JobPlainBrief,
     PlainKnowledgeEvent,
@@ -473,6 +474,7 @@ __all__ = [
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
+    "CvCallQuestions",
     "JobPlainBrief",
     "PlainKnowledgeEvent",
     "PlainTerm",

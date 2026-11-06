@@ -164,6 +164,16 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z widoku `analytics_first_milestones`. `candidate_stages` nie ma unikalności
   na `(candidate_id, job_id, stage)`, a import Traffita dopisuje wiersz na każde
   zdarzenie — liczenie surowych wierszy dubluje powroty na etap.
+- **Każdy etap z zasługą liczy się raz na parę, także między podejściami
+  procesu** (decyzja Artura 05.11.2026, jak D2 dla `hired`). Nowe podejście
+  (`attempt_no + 1`, np. „Przywróć” po odrzuceniu) nie daje drugiej
+  weryfikacji, QC ani rekomendacji, jeśli para była już na tym etapie —
+  także przed 12.10.2026 albo przed oknem procesu. Odrzucona albo czekająca
+  weryfikacja nie jest wejściem pary. Warunek stoi w `classified_stage_ranked`
+  (`VERIFIER_ANCHORED_CTE`). Kopia z 04.11.2026: od 12.10 zdjęło to 11 wierszy
+  (weryfikacje −5, QC −3, rekomendacje −3), zawsze tej samej osobie; np. osoba
+  odrzucona przez DL, dodana ponownie i zweryfikowana 2 minuty później.
+  Kolejność Ligi i zwycięzca wyścigu X bez zmian.
 - **Weryfikacje i rekomendacje też liczymy per para (kandydat, rekrutacja),
   nie per osoba** (decyzja Artura 21.10.2026). Osoba zweryfikowana
   i zarekomendowana w trzech rekrutacjach to trzy weryfikacje i trzy
@@ -237,13 +247,14 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
 - **Wypłata konkursów = `award_order` + zamknięcie okresu (0344, decyzje
   Artura 22.09.2026).** Ekran (`compose_monthly_races`) i `freeze_competition`
   biorą kolejność nagród z JEDNEJ funkcji `award_order`: kwalifikacja →
-  wykluczenie lidera kwartału, do którego należy DANY miesiąc
-  (`monthly_race_excluded_user_ids`: zamrożony zwycięzca kwartału → remis
-  w kwartale czekający na admina, wykluczeni wszyscy remisujący → ranking od
-  początku kwartału do końca tego miesiąca) → remisy
-  (`services/competition_rules.py`). Do 22.09 zamrożenie pomijało wykluczenie
-  i lider Q2 dostał też nagrody miesięczne za maj i czerwiec — te okresy
-  zostały świadomie bez korekty. Remisy: wyścig placementów rozstrzyga suma
+  remisy (`services/competition_rules.py`). **Lider Ligi kwartału bierze
+  nagrodę miesięczną jak każdy (decyzja Artura 05.11.2026)** — wyścigi nie
+  zależą od Ligi. Do 05.11.2026 lider kwartału, do którego należał dany
+  miesiąc, był z wyścigów miesięcznych wykluczony; okresy zamrożone z tą
+  zasadą zostają, jak je wypłacono (`excluded_user_ids` w zamrożeniu, na
+  ekranie plakietka „zasada do 05.11.2026” i dopisek w warunkach). Nie
+  przywracaj wykluczenia w `award_order` ani `compose_monthly_races`.
+  Remisy: wyścig placementów rozstrzyga suma
   marży/h (`fold_money`, stawki z dnia placementu), brak marży albo równość
   co do grosza → admin; wyścig rekomendacji — precyzja, potem wcześniejsza
   ostatnia rekomendacja, bez admina; Liga i liga DL do Q3 2026 — każdy remis

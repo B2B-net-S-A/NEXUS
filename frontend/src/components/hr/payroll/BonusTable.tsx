@@ -20,6 +20,7 @@ import {
   BONUS_STATUS_TONE,
   bonusStateLabel,
   bonusTitle,
+  doubleBonusNote,
   cancelReasonLabel,
   progressPercent,
 } from "./payroll-format";
@@ -75,7 +76,11 @@ export function BonusTable({
                     {row.category_label}
                     {row.eligible_on ? ` · termin ${formatIsoDatePl(row.eligible_on)}` : ""}
                     {row.from_sheet ? " · z arkusza" : ""}
+                    {row.double_bonus_month ? ` · ${doubleBonusNote(row.double_bonus_month)}` : ""}
                     {row.edited ? " · kwota poprawiona" : ""}
+                    {row.has_clawback ? (
+                      <span className="text-warning">{" · zwrot z gwarancji"}</span>
+                    ) : null}
                     {row.contract_ended_early ? (
                       <span className="text-warning">
                         {" · kontrakt skończył się przed terminem — premia przepada"}

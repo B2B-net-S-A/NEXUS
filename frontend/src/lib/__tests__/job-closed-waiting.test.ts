@@ -29,6 +29,17 @@ describe("myWaitingItems — osoby patrzącego w zamkniętej rekrutacji (28.10.2
     expect(myWaitingItems(columns, null)).toEqual([]);
   });
 
+  it("po ponownym otwarciu pomija karty z poprzedniego otwarcia (05.11.2026)", () => {
+    const reopened = [
+      col("cv_sent", [
+        { candidate_id: 20, verified_by_id: 7, moved_at: "2026-05-14T09:00:00Z" },
+        { candidate_id: 21, verified_by_id: 7, moved_at: "2026-10-20T09:00:00Z" },
+      ]),
+    ];
+    expect(myWaitingItems(reopened, 7, "2026-10-08T07:30:00Z").map((i) => i.candidate_id)).toEqual([21]);
+    expect(myWaitingItems(reopened, 7).map((i) => i.candidate_id)).toEqual([20, 21]);
+  });
+
   it("osoba karty: przypisana, potem weryfikujący, potem dodający", () => {
     expect(cardPersonId({ candidate_id: 1, owner_user_id: 3, verified_by_id: 4, added_to_job_by_id: 5 })).toBe(3);
     expect(cardPersonId({ candidate_id: 1, verified_by_id: 4, added_to_job_by_id: 5 })).toBe(4);

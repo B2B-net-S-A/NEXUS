@@ -17,6 +17,7 @@ import {
   defaultMonth,
   monthAssigned,
   monthBase,
+  monthClawback,
   monthKey,
   monthTotal,
   type BonusMonth,
@@ -66,6 +67,7 @@ function MonthSummary({
   const caption = "text-[11px] leading-4 text-muted-foreground";
   const value = "font-display text-base font-semibold leading-5 tabular-nums text-foreground";
   const assigned = monthAssigned(month);
+  const clawback = monthClawback(month);
   return (
     <section
       aria-label={`Podsumowanie: ${month.name} ${month.year}`}
@@ -81,6 +83,15 @@ function MonthSummary({
           <dt className={caption}>{capitalize(words.bonuses)}</dt>
           <dd className={value}>{Object.keys(assigned).length > 0 ? totalsLabel(assigned) : EMPTY_VALUE}</dd>
         </div>
+        {Object.keys(clawback).length > 0 ? (
+          <>
+            <span aria-hidden className="text-muted-foreground">−</span>
+            <div className={cell}>
+              <dt className={caption}>Potrącenie z gwarancji</dt>
+              <dd className={value}>{totalsLabel(clawback)}</dd>
+            </div>
+          </>
+        ) : null}
         <span aria-hidden className="text-muted-foreground">=</span>
         <div className={cell}>
           <dt className={caption}>Razem za {month.name}</dt>

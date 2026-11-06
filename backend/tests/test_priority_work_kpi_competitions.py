@@ -608,10 +608,10 @@ def test_only_qualified_recruiters_can_receive_monthly_award() -> None:
 
 
 def _no_closure_no_exclusion(monkeypatch) -> None:
-    """Atrapa dla testów mockowych: okres bez zamknięcia, nikt nie wykluczony.
+    """Atrapa dla testów mockowych: okres bez zamknięcia.
 
-    Zamknięcia (0344) i wykluczenie lidera kwartału mają własne testy na
-    żywym Postgresie w `test_competition_freeze_rules.py`.
+    Zamknięcia (0344) mają własne testy na żywym Postgresie
+    w `test_competition_freeze_rules.py`.
     """
     monkeypatch.setattr(competitions, "_period_closure", AsyncMock(return_value=None))
     # Migawka progów (R3-15) pisze do `app_settings` — sesja-atrapa jej nie zna.
@@ -621,13 +621,6 @@ def _no_closure_no_exclusion(monkeypatch) -> None:
     # Migawka punktacji Ligi (R4-16) — też `app_settings`.
     monkeypatch.setattr(
         competitions, "snapshot_league_scoring_config", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        competitions,
-        "monthly_race_excluded_user_ids",
-        AsyncMock(
-            return_value=competitions.RaceExclusion(frozenset(), "test", "Q3 2026")
-        ),
     )
 
 

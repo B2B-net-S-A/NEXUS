@@ -1,7 +1,8 @@
 """Pętla „Premie liczą się same” (``run_once`` raz dziennie).
 
 Jeden przebieg: propozycje z placementów (``placement_bonuses.sync_placements``)
-i z Ligi (``league_bonuses.sync_league``). Rezerwacja dnia w ``hr_job_runs``
+i z Ligi (``league_bonuses.sync_league``) oraz długi z gwarancji premii DL
+(``bonus_guarantee.sync_guarantees``). Rezerwacja dnia w ``hr_job_runs``
 (``hr_bonus_proposals`` + data w kalendarzu firmy) — restart przy nocnym
 wdrożeniu nie liczy dnia drugi raz, a przebieg przerwany (rezerwacja starsza
 niż godzina albo ``failed``) można powtórzyć. Liczby przebiegu nie niosą kwot.
@@ -18,7 +19,7 @@ from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_now
-from app.services.hr import job_runs
+from app.services.hr import bonus_guarantee, job_runs
 from app.services.hr import modules as hr_modules
 from app.services.hr.bonus_decisions import notify_ready
 from app.services.hr.bonus_rules import load_rules
@@ -39,9 +40,11 @@ async def refresh_proposals(db: AsyncSession, *, today: date) -> dict[str, Any]:
     placements = await sync_placements(db, today=today, rules=rules)
     league = await sync_league(db, today=today, rules=rules)
     ready = await notify_ready(db, today=today)
+    guarantees = await bonus_guarantee.sync_guarantees(db, today=today)
     return {
         **{f"placement_{k}": v for k, v in placements.items()},
         **{f"league_{k}": v for k, v in league.items()},
+        **{f"guarantee_{k}": v for k, v in guarantees.items()},
         "ready_notified": ready,
     }
 

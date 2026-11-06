@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import Job, JobCloseReason
 from app.services.hit_ratio_scope import close_reason_group
-from app.services.job_fill import placements_by_job
+from app.services.job_fill import filled_by_job
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,9 @@ async def validate_close_choice(
                 "close_notes_required",
                 "Napisz uzasadnienie — ta rekrutacja nie wejdzie do hit ratio.",
             )
-        if (await placements_by_job(db, [job.id])).get(job.id):
+        # Zatrudnienie w bieżącym otwarciu — po „Otwórz ponownie” stare nie
+        # blokuje „nie liczy się” (05.11.2026).
+        if (await filled_by_job(db, [job.id])).get(job.id):
             raise _reject(
                 "close_reason_has_hire",
                 "W tej rekrutacji jest zatrudnienie od nas — zamknij ją jako "

@@ -302,6 +302,10 @@ function queue(team: HarnessPerson[], period: YearMonth, closed: boolean): TeamQ
   const items = team.map((person) => {
     if (!closed) {
       if (person.id === julia.id) return queueItem(person, period, "missing", 0);
+      // Ola w harnessie odeszła: jej szkic domyka akceptujący („Potwierdź za osobę”).
+      if (person.id === ola.id) {
+        return { ...queueItem(person, period, "draft", 72), can_confirm_for_person: true };
+      }
       return queueItem(person, period, "draft", person.id === kamil.id ? norm : 72);
     }
     if (person.id === ewa.id) return queueItem(person, period, "submitted", norm - 8, 0, 1);

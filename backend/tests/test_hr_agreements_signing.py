@@ -13,6 +13,7 @@ znacznik dla Symfonii i pętlę z rezerwacją przebiegu. Dane fikcyjne.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -598,7 +599,10 @@ async def test_signature_by_hr_without_payroll_leaves_rate_to_payroll(
     assert team.hr2.id not in recipients and team.b2b.id not in recipients
     bell = next(bell for bell in bells if bell.user_id == team.payroll.id)
     assert bell.link == f"/people/{team.b2b.id}#place"
-    assert "32" not in bell.title + bell.message
+    # Kwota stawki (32,00) nie trafia do dzwonka. Szukamy kwoty, nie samych cyfr:
+    # losowy znacznik w nazwisku osoby (np. „d3204c3d”) też bywa z „32”.
+    text = bell.title + bell.message
+    assert not re.search(r"(?<![0-9a-f])32(?:[.,]00)?\s*(?:zł|PLN|/h)|32[.,]00", text)
     assert applied.details["rate"] == "pending_payroll"
     assert applied.details["rate_set"] is False
 
