@@ -865,6 +865,19 @@ async def list_proposals(
 # ── Podpowiedź w edytorze wymagań ───────────────────────────────────────────
 
 
+def hint_worthy(row: SkillProposal) -> bool:
+    """Propozycja, którą wolno podpowiedzieć przy wierszu.
+
+    Wariant i nowe hasło tylko pewne i bez uwagi: wariant roli („team
+    management” → „Engineering Management”) czeka w zakładce na decyzję
+    człowieka, więc podpowiedź nie może go podsuwać jednym kliknięciem."""
+    if row.decision == "generic":
+        return True
+    return (
+        row.decision in ACCEPTABLE and row.confidence == "high" and not row.review_note
+    )
+
+
 async def dictionary_hints(db: AsyncSession, words: list[str]) -> list[dict]:
     """Podpowiedź przy słowie wiersza, którego słownik nie zna.
 
@@ -898,7 +911,7 @@ async def dictionary_hints(db: AsyncSession, words: list[str]) -> list[dict]:
         seen.add(key)
         row = by_name.get(key) or by_family.get(family_key(word))
         hint: Optional[dict] = None
-        if row is not None and row.decision in ("new", "alias", "generic"):
+        if row is not None and hint_worthy(row):
             names = {str(n.get("name")): n for n in row.names or []}
             own = names.get(key, {})
             hint = {

@@ -298,3 +298,14 @@ def test_names_with_parentheses_do_not_become_aliases() -> None:
         ]
     )
     assert sp.alias_names(row) == ["excel", "ms excel"]
+
+
+def test_hint_skips_role_and_unsure_proposals() -> None:
+    sure = dict(confidence="high", review_note=None)
+    assert sp.hint_worthy(SkillProposal(decision="new", **sure))
+    assert sp.hint_worthy(SkillProposal(decision="generic", confidence="low"))
+    assert not sp.hint_worthy(
+        SkillProposal(decision="alias", confidence="low", review_note="Wskazuje rolę")
+    )
+    assert not sp.hint_worthy(SkillProposal(decision="new", confidence="low"))
+    assert not sp.hint_worthy(SkillProposal(decision="soft", **sure))
