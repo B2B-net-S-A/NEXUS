@@ -58,6 +58,8 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _fix_scoped_years,
     _normalize_candidate_data,
     clean_requirement_skill_labels,
+    clean_skill_sections,
+    keep_source_methodologies,
     screening_text_without_questions,
     strip_unsupported_terms,
 )
@@ -324,6 +326,8 @@ def run_legacy_generation(
     # umiejętności (04.11.2026).
     if clean_requirement_skill_labels(candidate_data, language):
         logger.info("[cv_b2b][%s] requirement skill labels cleaned", request_id)
+    removed_skills = clean_skill_sections(candidate_data)
+    keep_source_methodologies(candidate_data, cv_text, language)
     # Polska uczelnia w polskim CV po polsku także wtedy, gdy model przepisał
     # angielską nazwę ze źródła (15.10.2026).
     localize_education(candidate_data, language)
@@ -428,6 +432,12 @@ def run_legacy_generation(
     source_text = f"{cv_text}\n{answers_text}"
     guard_warnings = list(question_notes)
     guard_warnings.extend(summary_notes)
+    if removed_skills:
+        guard_warnings.append(
+            "WERYFIKUJ: usunięto z umiejętności pozycje, które nie są umiejętnościami: "
+            + ", ".join(removed_skills[:8])
+            + "."
+        )
     guard_warnings.extend(_fabrication_warnings(candidate_data, source_text, language))
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))

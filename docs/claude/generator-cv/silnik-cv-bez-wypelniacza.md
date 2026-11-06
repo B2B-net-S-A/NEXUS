@@ -353,6 +353,28 @@ z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, 
   pojawia się (8 z 8). Model zgłaszał pominięcie tylko w 2 z 8, więc uwagę daje kod
   (`summary_last_point_terms` w katalogu). CV wygenerowane wcześniej nie zmieniają się same.
 
+## Umiejętności i zdania w punktach 3–5 (06.11.2026)
+
+Zgłoszenie z zespołu: „praca zdalna” wśród metodyk, „Pozostałe: KSeF”, języki obce w umiejętnościach
+przy osobnej sekcji, punkty 3–5 zaczynające się od technologii. Na 1080 CV od 06.10: kategoria
+„Pozostałe/Other” w 147, tryb pracy, cechy osobiste albo prawo jazdy w 87, kategoria miękka w 59.
+Makiety: https://claude.ai/artifact/E3xpCnq7o7PqG8TRHJdMzW
+
+- **Punkty 3–5 to zdania od czasownika** (prompt), a etykietę „X: …” do 5 słów zdejmuje
+  `_drop_why_labels`. Na Solu etykiety miało 44 z 54 punktów, po zmianie 0. Przykład w schemacie
+  z 05.11 („[must-have]: co robił”) sam ją podsuwał. Punkt 2 „Specjalizacja: …” zostaje.
+- **Umiejętności to umiejętności** (prompt reguły 4a i 4b): bez trybu pracy, cech osobistych,
+  prawa jazdy i języków obcych; metodyka to sposób pracy zespołu, wzorce projektowe to praktyka.
+  `clean_skill_sections` usuwa pozycje z zamkniętej listy i kategorie miękkie, a język obcy
+  przenosi do sekcji „Języki”, gdy go tam nie ma. Rekruter dostaje uwagę z listą usuniętych pozycji.
+- **Stała lista nazw kategorii** (4b, PL i EN), najwyżej 8, bez „Pozostałych”. Kategorie
+  z posiadanymi must-have idą pierwsze. Na Solu (9 CV, po 2 biegi): różnych nazw 63 → 24,
+  wszystkie 95 kategorii z listy, pozycji 631 → 642.
+- **Metodyki trafiają do „Metodyk”**, nie są już „tylko kontekstem”. Model i tak gubił Scruma
+  u Scrum Mastera, więc `keep_source_methodologies` dopisuje metodykę, którą oryginał wymienia
+  z nazwy (Scrum, Kanban, SAFe, Agile, PRINCE2, ITIL). Może przez to powstać 9. kategoria.
+- Kod nie przypisuje kategorii sam: słownik NEXUSA obejmuje dziś 35% pozycji z CV.
+
 ## Daty stanowisk jak w oryginale (02.11.2026)
 
 Zgłoszenie rekruterki: koniec pracy 05.2026 stawał się w CV firmowym „obecnie”.
