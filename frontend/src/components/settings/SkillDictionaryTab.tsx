@@ -224,7 +224,7 @@ function CreateSkillForm() {
   return (
     <form
       onSubmit={submit}
-      className="grid gap-2 rounded-xl border border-border p-4 sm:grid-cols-[1fr_1fr_auto_auto]"
+      className="grid gap-2 rounded-xl border border-border p-4 sm:grid-cols-2"
       aria-label="Nowa umiejętność"
     >
       <Input
