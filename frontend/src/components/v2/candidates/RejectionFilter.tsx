@@ -6,6 +6,7 @@ import { PillGroup, toggleInList } from "@/components/v2/candidates/filters/Filt
 import {
   REJECTION_MONTHS_OPTIONS,
   REJECTION_WHO_LABELS,
+  NO_REASON_KEY,
   TRAFFIT_KEY_PREFIX,
   cycleFacetKey,
   rejectionKeyLabel,
@@ -100,7 +101,10 @@ export function RejectionFilterFields({ filters, onPatch, facets }: RejectionFil
     ...(facets?.items ?? []).map((it) => it.key),
     ...filters.rejectionKeys.filter((k) => !counts.has(k)),
   ];
-  const nexus = keys.filter((k) => !k.startsWith(TRAFFIT_KEY_PREFIX));
+  // „Bez powodu” na końcu — to brak danych, nie powód.
+  const nexus = keys
+    .filter((k) => !k.startsWith(TRAFFIT_KEY_PREFIX))
+    .sort((a, b) => Number(a === NO_REASON_KEY) - Number(b === NO_REASON_KEY));
   const traffit = keys.filter((k) => k.startsWith(TRAFFIT_KEY_PREFIX));
   const toggleKey = (key: string) => onPatch({ rejectionKeys: toggleInList(filters.rejectionKeys, key) });
   const whoCounts = new Map((facets?.who ?? []).map((w) => [w.key, w.count]));
@@ -157,7 +161,7 @@ export function RejectionFilterFields({ filters, onPatch, facets }: RejectionFil
         ) : nexus.length === 0 ? (
           <p className="text-xs text-muted-foreground">Nikt w tym wyniku nie ma powodu ze słownika.</p>
         ) : (
-          <div className="max-h-56 overflow-y-auto pr-1">{nexus.map(option)}</div>
+          <div>{nexus.map(option)}</div>
         )}
       </div>
       {traffit.length > 0 ? (
@@ -165,7 +169,7 @@ export function RejectionFilterFields({ filters, onPatch, facets }: RejectionFil
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Traffit (kategoria zamiast powodu)
           </p>
-          <div className="max-h-40 overflow-y-auto pr-1">{traffit.map(option)}</div>
+          <div>{traffit.map(option)}</div>
         </div>
       ) : null}
     </div>

@@ -15,7 +15,7 @@ z ostatniej rekrutacji”.
   znaczy „bez decyzji”, a włączenie zapisuje znacznik `last_rejection:shown`
   (`addedAfterSavedPrefs` w `candidate-table-columns.ts`). Bez tego każdy
   z zapisanym wyborem dostałby ją na laptopie.
-- **Pigułka „Powód odrzucenia”** w rzędzie filtrów, obok „Rekrutacje
+- **Pigułka „Odrzucenie”** (krótka nazwa: z licznikiem i „Wyczyść” mieści się w jednym rzędzie przy 1280; pełny opis ma chip) w rzędzie filtrów, obok „Rekrutacje
   i historia”: Pokaż tylko / Ukryj, okres (kiedykolwiek / 3 / 12 mies.),
   kto zakończył (Klient / My / Kandydat), powody NEXUSA i osobno kategorie
   Traffita. Liczby przy opcjach dotyczą bieżącego wyniku.

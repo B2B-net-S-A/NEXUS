@@ -2643,8 +2643,10 @@ async def list_candidates(
     rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = Query(
         None, description="Who ended the last rejected process (OR)."
     ),
-    rejection_within_months: Optional[Literal[3, 12]] = Query(
-        None, description="Last rejection no older than 3 or 12 months."
+    # `int`, nie `Literal[3, 12]`: parametr zapytania przychodzi jako tekst,
+    # a `Literal` z liczbami go nie zamienia (422 na „3” z adresu).
+    rejection_within_months: Optional[int] = Query(
+        None, description="Last rejection no older than 3 or 12 months (3 | 12)."
     ),
     rejection_exclude: Optional[bool] = Query(
         None,
@@ -2958,6 +2960,11 @@ async def list_candidates(
         max_experience=max_experience,
     )
     _reject_invalid_location_places(location_places)
+    if rejection_within_months not in (None, *last_rejection.WITHIN_MONTHS):
+        raise HTTPException(
+            status_code=422,
+            detail="rejection_within_months: dozwolone 3 albo 12.",
+        )
     filters = CandidateFilterSpec(
         status=status,
         location=location,

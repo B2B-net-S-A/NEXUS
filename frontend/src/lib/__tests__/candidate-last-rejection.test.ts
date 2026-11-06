@@ -7,7 +7,6 @@ import {
   rejectionFilterCount,
   rejectionFilterSummary,
   rejectionKeyLabel,
-  rejectionPillSummary,
   type LastRejection,
 } from "@/lib/candidate-last-rejection";
 import { decodeFilters, encodeFilters, DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
@@ -65,6 +64,12 @@ describe("komórka „Ostatnie odrzucenie”", () => {
     const v = lastRejectionCell({ ...base, key: "none", label: "Bez powodu", ended_by: null });
     expect(v.primary).toBe("bez powodu");
   });
+
+  it("Traffit bez opisu: kategoria w pierwszej linii, nie dwa razy", () => {
+    const v = lastRejectionCell({ ...base, key: "t:Po CV", label: "Traffit · Po CV", ended_by: null });
+    expect(v.primary).toBe("Po CV");
+    expect(v.whoLabel).toBe("Traffit");
+  });
 });
 
 describe("„potem: w toku”", () => {
@@ -95,8 +100,8 @@ describe("filtr „Powód odrzucenia”", () => {
     expect(rejectionFilterSummary(set)).toBe(
       "Odrzucenie: Brak doświadczenia, Traffit · Po CV, Klient · 3 mies.",
     );
-    expect(rejectionPillSummary({ ...set, rejectionExclude: true })).toBe(
-      "ukryj: Brak doświadczenia, Traffit · Po CV, Klient · 3 mies.",
+    expect(rejectionFilterSummary({ ...set, rejectionExclude: true })).toBe(
+      "Ukryte odrzucenie: Brak doświadczenia, Traffit · Po CV, Klient · 3 mies.",
     );
     expect(rejectionKeyLabel("none")).toBe("Bez powodu");
   });

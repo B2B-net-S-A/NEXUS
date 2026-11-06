@@ -56,6 +56,7 @@ export const REJECTION_MONTHS_OPTIONS: ReadonlyArray<{
 ];
 
 export const TRAFFIT_KEY_PREFIX = "t:";
+export const NO_REASON_KEY = "none";
 
 /** Etykieta klucza bez odpowiedzi API (np. z adresu, zanim przyjdzie pasek). */
 export function rejectionKeyLabel(key: string): string {
@@ -90,12 +91,6 @@ function rejectionWhat(f: RejectionFilterFields): string {
   const what = parts.length ? parts.join(", ") : "dowolne";
   const when = f.rejectionWithinMonths ? ` · ${f.rejectionWithinMonths} mies.` : "";
   return `${what}${when}`;
-}
-
-/** Podsumowanie na pigułce („Brak doświadczenia · 3 mies.”, „ukryj: …”). */
-export function rejectionPillSummary(f: RejectionFilterFields): string | null {
-  if (rejectionFilterCount(f) === 0) return null;
-  return `${f.rejectionExclude ? "ukryj: " : ""}${rejectionWhat(f)}`;
 }
 
 /**
@@ -179,21 +174,25 @@ export interface LastRejectionCellView {
  */
 export function lastRejectionCell(row: LastRejection): LastRejectionCellView {
   const traffit = row.key.startsWith(TRAFFIT_KEY_PREFIX);
+  const category = traffit ? row.key.slice(TRAFFIT_KEY_PREFIX.length) : "";
   const note = row.note?.trim() || "";
   let primary = row.label;
   let primaryIsNote = false;
-  if (traffit || row.key === "none") {
+  if (traffit || row.key === NO_REASON_KEY) {
     if (note) {
       primary = `„${note}”`;
       primaryIsNote = true;
-    } else if (row.key === "none") {
-      primary = "bez powodu";
+    } else {
+      primary = traffit ? category : "bez powodu";
     }
   } else if (row.label === "Inne" && note) {
     primary = `Inne · „${note}”`;
   }
+  // Kategoria Traffita stoi w odznace tylko wtedy, gdy pierwsza linia to opis.
   const whoLabel = traffit
-    ? `Traffit · ${row.key.slice(TRAFFIT_KEY_PREFIX.length)}`
+    ? note
+      ? `Traffit · ${category}`
+      : "Traffit"
     : row.ended_by === "delivery_lead"
       ? "DL"
       : REJECTION_WHO_LABELS[row.who];

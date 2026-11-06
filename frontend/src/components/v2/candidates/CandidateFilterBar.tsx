@@ -79,7 +79,6 @@ import { RecruitmentScopePicker } from "@/components/v2/filters/RecruitmentScope
 import { RejectionFilterFields } from "@/components/v2/candidates/RejectionFilter";
 import {
   NO_REJECTION_FILTER,
-  rejectionPillSummary,
   type RejectionFacets,
 } from "@/lib/candidate-last-rejection";
 import {
@@ -514,9 +513,10 @@ export function CandidateFilterBar({
         </FilterPill>
         {showRejectionFilter ? (
           <FilterPill
-            label="Powód odrzucenia"
+            label="Odrzucenie"
             icon={<UserX />}
-            summary={rejectionPillSummary(filters)}
+            // Sam licznik, jak „Rekrutacje i historia”: opis przy 1280
+            // spychał „Więcej filtrów” do drugiego rzędu; pełny opis ma chip.
             count={counts.rejection}
             onClear={() => onPatch(NO_REJECTION_FILTER)}
             contentClassName="w-[380px] max-w-[calc(100vw-2rem)]"
