@@ -67,8 +67,15 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
   zmienią). Rekruter gwarancji nie ma: dostaje premię, a zastępstwo liczy mu się
   do celu 200% (decyzja Artura 05.11.2026, zmienia „rekruterzy od 2027” z 26.10).
 
+## Domknięcie po rekruterze, który odszedł (06.11.2026)
+
+- Gdy osobę u tego klienta zweryfikował wcześniej rekruter z wyłączonym kontem,
+  premii rekrutera nie dostaje nikt, także rekruter, który ją domknął (przypadek
+  z arkusza października, potwierdzone przez Płace i Artura). Taki placement nie liczy się rekruterowi
+  do celu 200%. DL dostaje swoją premię DL.
+
 ## Poza zakresem (nie dopisuj „przy okazji”)
 
 - Następca rekrutera, który odszedł: premia rekrutera nikomu (decyzja 05.11.2026).
-- Premia za „dodanie do bazy” i domknięcie po osobie, która odeszła, przy
-  rekruterze: czeka na odpowiedź Delivery.
+- Premia za „dodanie do bazy”: Delivery zapłaciło ją ostatni raz w październiku,
+  od listopada jej nie ma (06.11.2026).
