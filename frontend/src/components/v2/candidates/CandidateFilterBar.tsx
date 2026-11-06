@@ -512,6 +512,8 @@ export function CandidateFilterBar({
           />
         </FilterPill>
         {showRejectionFilter ? (
+          // Kotwica nowości „Odrzucenie na liście” (novelties.json).
+          <span data-tour="candidates.rejection-filter" className="inline-flex shrink-0">
           <FilterPill
             label="Odrzucenie"
             icon={<UserX />}
@@ -523,6 +525,7 @@ export function CandidateFilterBar({
           >
             <RejectionFilterFields filters={filters} onPatch={onPatch} facets={rejectionFacets} />
           </FilterPill>
+          </span>
         ) : null}
         <FilterPill
           label="Umiejętności"
