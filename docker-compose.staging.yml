@@ -148,6 +148,9 @@ services:
       CLOUDTALK_ENABLED: "false"
       AUTENTI_ENABLED: "false"
       JJIT_ENABLED: "false"
+      # JustJoin.IT w oknie „Ogłoszenie” jak na produkcji. Publikacji nie będzie:
+      # `job_portal_worker` stoi, a host portalu jest poza listą wyjścia.
+      PORTAL_JJIT_ENABLED: "true"
       PROXYCURL_ENABLED: "false"
       # Moduł „Ludzie” widoczny jak na produkcji, pętle zatrzymane wierszem niżej.
       HR_PROGRAM_ENABLED: "true"
