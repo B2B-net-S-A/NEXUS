@@ -108,7 +108,8 @@ PIPELINE_ID = "legacy_v7"
 # 10 (02.11.2026): „obecnie” tylko, gdy oryginał tak mówi.
 # 11 (04.11.2026): why_points bez numeracji, kategorie umiejętności bez „must-have”.
 # 12 (05.11.2026): standard 5 punktów why_points: lata, specjalizacja, 3 × must-have.
-PROMPT_VERSION = 12
+# 13 (06.11.2026): punkty 3–5 jako zdania, umiejętności bez trybu pracy i języków, stałe kategorie.
+PROMPT_VERSION = 13
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
