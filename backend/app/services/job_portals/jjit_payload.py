@@ -26,6 +26,8 @@ import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Optional
 
+from app.core.config import settings
+
 BOARD_JJIT = "justjoinit"
 BOARD_ROCKETJOBS = "rocketjobs"
 BOARDS = (BOARD_JJIT, BOARD_ROCKETJOBS)
@@ -332,6 +334,19 @@ def hybrid_schedule(options: dict[str, Any]) -> Optional[dict[str, int]]:
     return {"officeDays": days, "remoteDays": 5 - days}
 
 
+def apply_method(apply_url: str) -> dict[str, Any]:
+    """``apply`` 1EP: dokładnie jedno z ``url`` / ``email`` (``ApplySharedDto``).
+
+    ``email`` = formularz portalu („internal CV collection system”), bez
+    przejścia na stronę kariery — decyzja Artura 06.11.2026, bo część ludzi
+    odpada na drugim formularzu. Kartę w „Nowi” zakłada wtedy import z panelu.
+    """
+    email = (settings.JJIT_APPLY_EMAIL or "").strip()
+    if email:
+        return {"url": None, "email": email}
+    return {"url": apply_url, "email": None}
+
+
 def content_fields(
     board: str,
     job: dict[str, Any],
@@ -348,7 +363,7 @@ def content_fields(
         "experienceLevel": options["experience_level"],
         "customConsent": None,
         "futureConsent": None,
-        "apply": {"url": apply_url, "email": None},
+        "apply": apply_method(apply_url),
         "requirements": requirements(board, job, skill_ids),
         "languages": None,
         "locations": [

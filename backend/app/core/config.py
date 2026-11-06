@@ -1746,6 +1746,12 @@ class Settings(BaseSettings):
     # fladze + client_id/secret/redirect_uri + aktywnym połączeniu.
     PORTAL_JJIT_ENABLED: bool = False
     PORTAL_ROCKETJOBS_ENABLED: bool = False
+    # 06.11.2026 (decyzja Artura): adres = kandydat aplikuje formularzem
+    # portalu (``apply.email``, jedno kliknięcie, CV w panelu pracodawcy),
+    # a import z panelu zakłada kartę w rekrutacji ogłoszenia
+    # (``services/portal_application``). Pusty = jak dotąd link do strony
+    # kariery (``apply.url``). Zmienia go tylko workflow „Coolify set env”.
+    JJIT_APPLY_EMAIL: str = ""
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""
