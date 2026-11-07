@@ -90,6 +90,7 @@ import {
   roleGaps,
   segmentCv,
   splitChecks,
+  splitDlReturns,
   taskPendingItem,
   taskTitle,
   thingsLabel,
@@ -479,7 +480,9 @@ export function CvQcBody({
     restoring: restore.isPending,
   };
 
-  const { tasks, notes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  const { tasks, notes: allNotes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  // R4 (07.11.2026): uwagi, za które DL najczęściej cofa kartę, idą wyżej.
+  const { dlReturns, rest: notes } = useMemo(() => splitDlReturns(allNotes), [allNotes]);
   // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
@@ -531,6 +534,16 @@ export function CvQcBody({
         )}
         {data.cv && hasAiGaps ? (
           <AiFixes stageId={stageId} ctx={ctx} />
+        ) : null}
+        {dlReturns.length > 0 ? (
+          <section aria-label="Delivery Lead zwykle o to cofa" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Delivery Lead zwykle o to cofa ({dlReturns.length})</h3>
+            <ul className="space-y-2">
+              {dlReturns.map((check) => (
+                <CheckRow key={check.key} check={check} ctx={ctx} />
+              ))}
+            </ul>
+          </section>
         ) : null}
         {notes.length > 0 ? (
           <section aria-label="Warto poprawić — nie blokuje" className="space-y-2">

@@ -1565,7 +1565,8 @@ describe("CvQcDialog — QC CV", () => {
       post.mockResolvedValue({ data: passed() });
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      // R4 (07.11.2026): daty stanowisk stoją w „Delivery Lead zwykle o to cofa”.
+      const notes = await within(dialog).findByRole("region", { name: "Delivery Lead zwykle o to cofa" });
       await userEvent.click(within(notes).getByRole("button", { name: /Daty stanowisk jak w oryginale/ }));
       expect(within(notes).getByText(DATE_ITEM.detail)).toBeTruthy();
       expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
@@ -1695,5 +1696,39 @@ describe("CvQcDialog — QC CV", () => {
       expect(await within(notes).findByText(/Nie udało się wczytać zrzutu/)).toBeTruthy();
       expect(within(notes).queryByRole("button", { name: "Pokaż zrzut zgody" })).toBeNull();
     });
+  });
+
+  it("„Delivery Lead zwykle o to cofa” stoi nad „Warto poprawić” (R4, 07.11.2026)", async () => {
+    serve(
+      withCheck("must_bolded", { status: "pass", items: [] }, {
+        ...passed(),
+        checks: [
+          ...passed().checks.filter((c) => c.key !== "spelling"),
+          {
+            key: "role_dates",
+            label: "Daty stanowisk jak w oryginale",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ detail: "W CV: „07.2022 – 02.2024”. W oryginale: „07.2022 – 02.2023”." }],
+          },
+          {
+            key: "spelling",
+            label: "Pisownia technologii",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ term: "Postgres", detail: "„Postgres” → „PostgreSQL”", fix: "spelling" }],
+          },
+        ],
+      }),
+    );
+    renderDialog();
+    const dlReturns = await screen.findByRole("region", { name: "Delivery Lead zwykle o to cofa" });
+    expect(dlReturns).toHaveTextContent("Daty stanowisk jak w oryginale");
+    expect(dlReturns).not.toHaveTextContent("Pisownia technologii");
+    const notes = screen.getByRole("region", { name: "Warto poprawić — nie blokuje" });
+    expect(notes).toHaveTextContent("Pisownia technologii");
+    expect(notes).not.toHaveTextContent("Daty stanowisk jak w oryginale");
   });
 });
