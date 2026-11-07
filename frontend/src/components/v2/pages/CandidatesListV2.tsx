@@ -32,6 +32,7 @@ import api, { savedSearchesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { candidateListsApi } from "@/lib/api/candidateLists";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ReviewBatchBlockedNotice } from "@/components/v2/review-batch/ReviewBatchBlockedNotice";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
 import {
@@ -2607,6 +2608,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
             }}
           />
 
+          {/* Porcja dnia (07.11.2026): 423 przed minimum decyzji. */}
+          {isError ? <ReviewBatchBlockedNotice error={candidatesError} /> : null}
           {listViewState === "refresh-error" && (
             <div
               role="alert"

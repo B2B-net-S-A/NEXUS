@@ -149,6 +149,11 @@ def _score(meta) -> float:
         return 0.0
 
 
+def owner_of(meta) -> Optional[int]:
+    """Właściciel karty z porcji (``entry_meta.review_owner_id``)."""
+    return _owner(meta)
+
+
 def _owner(meta) -> Optional[int]:
     value = (meta or {}).get(OWNER_KEY) if isinstance(meta, dict) else None
     try:
@@ -365,6 +370,9 @@ class BatchStatus:
     required: int
     met: bool
     jobs: tuple[JobShare, ...] = ()
+    # Rekrutacje w pracy, w których osoba jest rekruterem (z czekającymi u niej
+    # osobami albo bez) — lista do „Dodaj 20 kolejnych”.
+    team_jobs: tuple[JobShare, ...] = ()
 
     @property
     def remaining(self) -> int:
@@ -373,6 +381,7 @@ class BatchStatus:
     def as_dict(self) -> dict:
         out = asdict(self)
         out["jobs"] = [j.as_dict() for j in self.jobs]
+        out["team_jobs"] = [j.as_dict() for j in self.team_jobs]
         out["remaining"] = self.remaining
         return out
 
@@ -435,7 +444,37 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         required=required,
         met=met,
         jobs=tuple(jobs),
+        team_jobs=tuple(await _team_jobs(db, user.id, counts, now=now)),
     )
+
+
+async def _team_jobs(
+    db: AsyncSession, user_id: int, counts: dict[int, int], *, now: datetime
+) -> list[JobShare]:
+    from app.models.job import JobStatus
+    from app.services import job_p0
+    from app.services.job_team import jobs_worked_by_clause
+    from app.services.request_work_state import IN_WORK_STATES
+
+    rows = (
+        await db.scalars(
+            select(Job).where(
+                jobs_worked_by_clause([user_id]),
+                Job.status == JobStatus.published,
+                Job.work_state.in_(IN_WORK_STATES),
+            )
+        )
+    ).all()
+    ordered = sorted(rows, key=lambda j: (_priority_rank(j, now), j.id))
+    return [
+        JobShare(
+            job_id=j.id,
+            title=j.title or "",
+            pending=counts.get(j.id, 0),
+            p0=job_p0.is_active(j, now),
+        )
+        for j in ordered
+    ]
 
 
 async def assert_search_allowed(db: AsyncSession, user: User) -> None:

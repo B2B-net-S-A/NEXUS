@@ -245,10 +245,16 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
     monkeypatch.setattr(rb, "_own_cards", _own)
     jobs = [
         SimpleNamespace(
-            id=10, priority=JobPriority.medium, p0_until=None, status=JobStatus.published
+            id=10,
+            priority=JobPriority.medium,
+            p0_until=None,
+            status=JobStatus.published,
         ),
         SimpleNamespace(
-            id=20, priority=JobPriority.urgent, p0_until=None, status=JobStatus.published
+            id=20,
+            priority=JobPriority.urgent,
+            p0_until=None,
+            status=JobStatus.published,
         ),
         SimpleNamespace(
             id=30,

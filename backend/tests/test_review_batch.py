@@ -216,7 +216,9 @@ async def test_daily_tick_runs_once_per_day(small_batch):
         return [world["job_id"]]
 
     small_batch.setattr(autofill, "_jobs_in_work", _only_mine)
-    small_batch.setattr(autofill.settings, "NEW_COLUMN_AUTOFILL_ENABLED", True, raising=False)
+    small_batch.setattr(
+        autofill.settings, "NEW_COLUMN_AUTOFILL_ENABLED", True, raising=False
+    )
     async with AsyncSessionLocal() as db:
         row = await db.get(AppSetting, autofill.BATCH_DAY_KEY)
         if row is not None:

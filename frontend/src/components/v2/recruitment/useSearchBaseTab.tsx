@@ -33,6 +33,8 @@ import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-que
 import { getCurrentTitle, type CandidateLite } from "@/components/v2/pages/candidate-list-helpers";
 import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { reviewBatchBlock } from "@/lib/api/reviewBatch";
+import { ReviewBatchBlockedNotice } from "@/components/v2/review-batch/ReviewBatchBlockedNotice";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { candidateSearchApi, proposalsBulkApi } from "@/lib/candidate-search-api";
 import { jobProposalsKeys, talkCheckLabel, type TalkCheck } from "@/lib/job-proposals-api";
@@ -504,7 +506,9 @@ export function useSearchBaseTab(
             </p>
           </section>
 
-          {list.isError ? (
+          {list.isError && reviewBatchBlock(list.error) ? (
+            <ReviewBatchBlockedNotice error={list.error} />
+          ) : list.isError ? (
             <p role="alert" className="text-sm text-destructive">
               {apiErrorMessage(list.error, "Nie udało się wyszukać w bazie.")}{" "}
               <button type="button" className="underline" onClick={() => void list.refetch()}>

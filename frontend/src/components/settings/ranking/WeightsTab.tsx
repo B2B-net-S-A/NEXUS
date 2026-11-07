@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import type { RankingKnownPoints, RankingPanelState, RankingPanelWeights } from "@/lib/api";
+import { ReviewBatchMinimumBlock } from "./ReviewBatchMinimumBlock";
 import { cn } from "@/lib/utils";
 
 import { ShareBar } from "./HowItWorksTab";
@@ -118,6 +119,8 @@ export function WeightsTab({
             busy={busy}
             onSave={onSaveKnownPoints}
           />
+
+          <ReviewBatchMinimumBlock canEdit={canEdit} />
 
           <div className="space-y-2 border-t border-border pt-3.5">
             <LockedLayer label="Stawka" colorClass={LAYER_COLORS.salary} badge="plakietka, nie punkty" />
