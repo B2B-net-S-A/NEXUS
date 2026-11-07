@@ -2222,7 +2222,35 @@ def _month_args(args: dict[str, Any]) -> tuple[int, int]:
     return int(year), int(month)
 
 
+_TIMESHEET_KEYS = (
+    "status",
+    "submitted_at",
+    "returned_at",
+    "return_note",
+    "approved_at",
+    "approved_by_name",
+    "payroll_locked",
+)
+
+
 def _shape_my_month(data: Any, _args: dict[str, Any]) -> Any:
+    return _month_summary(data, timesheet_keys=_TIMESHEET_KEYS)
+
+
+def _shape_person_month(data: Any, _args: dict[str, Any]) -> Any:
+    """Miesiąc innej osoby: bez powodu zwrotu (notatka akceptującego), bez
+    rodzaju nieobecności i opisów wpisów — tylko status, sumy i braki."""
+
+    summary = _month_summary(
+        data,
+        timesheet_keys=tuple(k for k in _TIMESHEET_KEYS if k != "return_note"),
+    )
+    if not isinstance(data, dict) or not isinstance(summary, dict):
+        return summary
+    return {**pick(data, ("user_id", "name")), **summary}
+
+
+def _month_summary(data: Any, *, timesheet_keys: tuple[str, ...]) -> Any:
     if not isinstance(data, dict):
         return trim(data)
     from app.core.scheduling import business_today
@@ -2241,18 +2269,7 @@ def _shape_my_month(data: Any, _args: dict[str, Any]) -> Any:
     return trim(
         {
             **pick(data, ("year", "month", "deadline", "approver_name")),
-            "timesheet": pick(
-                timesheet,
-                (
-                    "status",
-                    "submitted_at",
-                    "returned_at",
-                    "return_note",
-                    "approved_at",
-                    "approved_by_name",
-                    "payroll_locked",
-                ),
-            )
+            "timesheet": pick(timesheet, timesheet_keys)
             if isinstance(timesheet, dict)
             else {"status": "nierozpoczęty"},
             "totals": pick(
@@ -2461,6 +2478,36 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         hr_module="time",
         build=lambda a: _get("/api/hr/time/me/{}/{}".format(*_month_args(a))),
         shape=_shape_my_month,
+    ),
+    JarvisTool(
+        name="person_month",
+        label="Sprawdzam raport godzin osoby",
+        description=(
+            "Raport godzin innej osoby z kontem NEXUSA za miesiąc (domyślnie "
+            "bieżący), po user_id — najpierw ustal id przez global_search "
+            "(kategoria `people`) albo who_is_absent. Zwraca to, co ekran "
+            "„Akceptacje”: status raportu (draft, submitted, approved), termin, "
+            "akceptującego, sumę godzin i nadgodzin, dni robocze bez wpisu do "
+            "dziś. Bez rodzaju nieobecności, opisów wpisów i powodu zwrotu. "
+            "Własny miesiąc to my_month. 404 = osoba nie ma kartoteki w "
+            "„Ludziach” (raportu godzin nie prowadzi)."
+        ),
+        input_schema=_schema(
+            {"user_id": INT, "year": _YEAR_ARG, "month": _MONTH_ARG}, ("user_id",)
+        ),
+        tier="read",
+        method="GET",
+        path="/api/hr/time/team/{user_id}/{year}/{month}",
+        section=None,
+        hr_module="time",
+        # Te same osoby, które trasa wpuszcza do miesiąca każdego (Actor.
+        # approves_everyone; admin ma wszystkie uprawnienia). Przełożony bez
+        # nich czyta swój zespół na ekranie „Akceptacje”.
+        any_permission=("timesheets", "people_admin"),
+        build=lambda a: _get(
+            "/api/hr/time/team/{}/{}/{}".format(_int(a, "user_id"), *_month_args(a))
+        ),
+        shape=_shape_person_month,
     ),
     JarvisTool(
         name="my_equipment",
