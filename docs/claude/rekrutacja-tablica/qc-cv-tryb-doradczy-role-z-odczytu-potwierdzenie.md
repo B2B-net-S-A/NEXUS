@@ -56,6 +56,19 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   doradczym i tylko dla niezużytego obejścia; odcisk zmienia się w sesji
   wołającego (bez osobnego commitu). Test na bazie:
   `test_advisory_override_follows_the_cv_until_a_new_blocker_appears`.
+- **Trzy stany QC wszędzie (R1, decyzja Artura 07.11.2026).** Zdane QC
+  z blokującym sprawdzeniem w stanie `manual` („sprawdź ręcznie”, np. odczyt CV
+  bez opisów ról) było „QC ✓”, choć krytycznych nikt nie sprawdził (139 z 535
+  zdanych par w 30 dniach). `cv_qc.pair_statuses` zwraca `manual_checks` —
+  etykiety blokujących sprawdzeń `manual` najnowszego przebiegu, liczone
+  w bazie (`jsonb_path_query_array`, bez ciągnięcia JSON-a sprawdzeń). Idzie
+  do karty Tablicy (`qc.manual_checks`), zadań pulpitu i kolejki DL
+  (`qc_manual`), kontekstu i kolejki przeglądu DL (`qc_manual`). Napis liczy
+  jedna funkcja `qcStateText`: „QC: sprawdzone”, „QC: sprawdź ręcznie · N”
+  (bursztyn), „QC: N do poprawy”. Uwagi nieblokujące `manual` się nie liczą.
+  Ramka „Następny etap” przed „QC CV” ma wiersz `cv_qc_result` (nie blokuje,
+  `open_qc`) — do 07.11 mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”.
+  Kolejka Cpro bez zmian (osobny model wiersza).
 - **Integracje nie decydują w QC.** Token klienta OAuth (scraper, n8n) działa
   jako konto z rolą operacyjną i przechodzi `ensure_job_membership`, więc
   obejście w trybie doradczym i `…/qc/confirm` odmawiają mu jawnie

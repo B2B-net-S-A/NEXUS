@@ -43,7 +43,7 @@ from typing import Any, Optional, Sequence
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, literal_column, or_, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -3883,6 +3883,13 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
 # ── Tablica i bramka ────────────────────────────────────────────────────────
 
 
+# Etykiety blokujących sprawdzeń „sprawdź ręcznie” z wyniku przebiegu — liczone
+# w bazie, żeby karta Tablicy nie ciągnęła całego JSON-a sprawdzeń.
+_MANUAL_BLOCKING_PATH = (
+    '\'lax $[*] ? (@.status == "manual" && @.severity == "blocking").label\'::jsonpath'
+)
+
+
 async def pair_statuses(
     db: AsyncSession, pairs: Iterable[tuple[int, int]]
 ) -> dict[tuple[int, int], dict]:
@@ -3910,6 +3917,12 @@ async def pair_statuses(
 
     ``warnings_count`` — uwagi nieblokujące najnowszego przebiegu (14.10.2026,
     karta „CV gotowe · N do poprawy”); 0 bez przebiegu.
+
+    ``manual_checks`` (R1, 07.11.2026) — etykiety blokujących sprawdzeń
+    najnowszego przebiegu ze stanem ``manual`` („sprawdź ręcznie”, np. odczyt
+    CV bez opisów ról). Przebieg z nimi przechodzi, ale tego nikt nie
+    sprawdził: 139 z 535 zdanych par w 30 dniach, a DL widział „QC ✓”.
+    Uwagi nieblokujące „sprawdź ręcznie” się nie liczą.
     """
 
     wanted = {(int(c), int(j)) for c, j in pairs}
@@ -3920,6 +3933,7 @@ async def pair_statuses(
             "ok_at": None,
             "dismissed_blocking": 0,
             "warnings_count": 0,
+            "manual_checks": [],
         }
         for pair in wanted
     }
@@ -3946,6 +3960,9 @@ async def pair_statuses(
                 CvQcRun.warnings_count,
                 CvQcRun.created_at,
                 CvQcRun.result["dismissed_blocking"].astext.label("dismissed"),
+                func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_MANUAL_BLOCKING_PATH)
+                ).label("manual"),
                 has_override,
                 override_at,
             )
@@ -4006,6 +4023,7 @@ async def pair_statuses(
             "ok_at": ok_at,
             "dismissed_blocking": dismissed if passed else 0,
             "warnings_count": int(row.warnings_count or 0),
+            "manual_checks": [str(label) for label in row.manual or [] if label],
         }
     return out
 

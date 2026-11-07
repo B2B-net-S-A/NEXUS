@@ -252,6 +252,7 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": now,
             "dismissed_blocking": 4,
             "warnings_count": 0,
+            "manual_checks": [],
         }
         async with AsyncSessionLocal() as db:
             spent = await dismissals.restore_on_card_return(db, cid, jid)
@@ -276,6 +277,7 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": None,
             "dismissed_blocking": 0,
             "warnings_count": 0,
+            "manual_checks": [],
         }
     finally:
         async with AsyncSessionLocal() as db:
