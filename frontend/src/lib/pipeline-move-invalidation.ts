@@ -18,6 +18,7 @@ import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
 import { MOVE_REQUIREMENTS_PREFIX } from "@/lib/api/moveRequirements";
 import { invalidateAfterChampionsChange } from "@/lib/job-champions-api";
 import { candidateStageHistoryKey } from "@/lib/pipeline-version-conflict";
+import { REVIEW_BATCH_QUERY_KEY } from "@/lib/api/reviewBatch";
 
 /** Prefiks follow-upu osoby (`candidateFollowupKeys.detail`). */
 export const CANDIDATE_FOLLOWUP_PREFIX = ["candidate-followup"] as const;
@@ -36,6 +37,8 @@ export function invalidateAfterPipelineMove(
   void queryClient.invalidateQueries({ queryKey: CANDIDATE_FOLLOWUP_PREFIX });
   void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
+  // Porcja dnia (07.11.2026): ruch karty od systemu to decyzja z porcji.
+  void queryClient.invalidateQueries({ queryKey: REVIEW_BATCH_QUERY_KEY });
   if (candidateId != null) {
     void queryClient.invalidateQueries({
       queryKey: candidateStageHistoryKey(candidateId, jobId),

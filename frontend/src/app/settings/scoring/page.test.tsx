@@ -41,6 +41,11 @@ vi.mock("@/store/auth", () => ({
     !!user && roles.some((role) => new Set([user.role, ...(user.roles ?? [])]).has(role)),
 }));
 
+// Porcja dnia ma własne API i testy (`ReviewBatchMinimumBlock`); tu sam panel wag.
+vi.mock("@/components/settings/ranking/ReviewBatchMinimumBlock", () => ({
+  ReviewBatchMinimumBlock: () => null,
+}));
+
 vi.mock("@/lib/api", () => ({
   scoringWeightsApi: {
     panel: mocks.panel,

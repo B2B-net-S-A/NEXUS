@@ -832,6 +832,8 @@ async def advanced_candidate_search(
 ) -> CandidateSearchResponse:
     """Hybrid candidate search.
 
+    Porcja dnia (07.11.2026): rekruter bez minimum decyzji dostaje 423.
+
     Composes three filter layers (AND-ed together) and orders by either
     ``ts_rank`` (when a free-text query is present and ``sort=relevance``),
     ``updated_at DESC``, or ``lastname ASC`` — all postgres-side, so paging
@@ -841,6 +843,10 @@ async def advanced_candidate_search(
     BM25 + Voyage dense + RRF fusion + Voyage Rerank 2.5 pipeline, which
     research benchmarks at 91% recall@10 vs 78% dense-only.
     """
+    from app.services import review_batch
+
+    # Okno „+ Dodaj”: nazwisko, mail, telefon przechodzą (porcja dnia, 07.11.2026).
+    await review_batch.assert_body_search_allowed(db, current_user, body)
     started_at = time.monotonic()
 
     clauses: list[Any] = []
@@ -1391,6 +1397,9 @@ async def semantic_search(
     POST /api/search/semantic
     Falls back to ILIKE text search when Qdrant/Voyage is unavailable.
     """
+    from app.services import review_batch
+
+    await review_batch.assert_search_allowed(db, current_user)
     from app.services.embedding_service import search_candidates_semantic
 
     q = body.query.strip()

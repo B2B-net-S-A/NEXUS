@@ -9,6 +9,7 @@ import { WeightsTab } from "./WeightsTab";
 
 vi.mock("./LivePreview", () => ({ LivePreview: () => null }));
 vi.mock("./ScoringProfilesAdmin", () => ({ ScoringProfilesAdmin: () => null }));
+vi.mock("./ReviewBatchMinimumBlock", () => ({ ReviewBatchMinimumBlock: () => null }));
 
 /** Render dłuższy niż 5 ms: planista Reacta oddaje wątek zaraz po commicie,
  *  więc efekty montowania czekają na kolejne zadanie. Tak wygląda obciążony runner. */

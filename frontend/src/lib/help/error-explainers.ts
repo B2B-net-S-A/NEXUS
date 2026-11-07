@@ -37,6 +37,10 @@ export const ERROR_EXPLAINERS: Readonly<Record<string, ErrorExplainer>> = {
     title: "Tę osobę prowadzi teraz ktoś inny",
     text: "Osoba dodana do Nowych jest przez 12 godzin zarezerwowana dla rekrutera, który ją wziął. Przejąć ją mogą Delivery Lead, Head of Recruitment i admin — albo poczekaj, aż rezerwacja wygaśnie.",
   },
+  REVIEW_MINIMUM_PENDING: {
+    title: "Najpierw porcja od Nexusa",
+    text: "Codziennie rano dostajesz osoby od Nexusa z Twoich rekrutacji. Zanim zaczniesz szukać ręcznie, zdecyduj o minimum osób z porcji (screening albo odrzucenie z powodem) w „Porcji dnia”. Konkretną osobę znajdziesz po nazwisku, telefonie albo mailu, a osobę spoza bazy dodasz zawsze.",
+  },
   ELIGIBILITY_WARNING: {
     title: "Kandydat ma ostrzeżenie",
     text: "System wstrzymał ruch, bo kandydat ma ostrzeżenie (np. czarna lista albo weto hiring managera). Przeczytaj powód w oknie i, jeśli to w porządku, użyj „Przenieś mimo to”.",

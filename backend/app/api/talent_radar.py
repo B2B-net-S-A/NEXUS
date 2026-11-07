@@ -166,6 +166,9 @@ async def talent_radar_search(
     kandydata pozostaje za bramkami modułu kandydatów. Sam `status` tej
     warstwy mówi prawdę o tym, czy weszła do wyniku (`_shape_result`).
     """
+    from app.services import review_batch
+
+    await review_batch.assert_search_allowed(db, current_user)
     from app.services.client_access import assert_client_assignable
 
     # Runda 9 (R9-N5-8): klient usunięty albo scalony nie jest celem nowego
