@@ -574,6 +574,11 @@ def _isolate_skill_taxonomy():
     canonical_to_aliases = {k: list(v) for k, v in _sn.CANONICAL_TO_ALIASES.items()}
     categories = dict(_sn.CANONICAL_CATEGORY)
     text_aliases = {k: list(v) for k, v in _sn.TEXT_ALIASES.items()}
+    relations = (
+        {k: set(v) for k, v in _sn.RELATION_IMPLIED_BY.items()},
+        {k: set(v) for k, v in _sn.RELATION_ALTERNATIVES.items()},
+        {k: set(v) for k, v in _sn.RELATION_TYPICAL_BY.items()},
+    )
     try:
         yield
     finally:
@@ -594,6 +599,16 @@ def _isolate_skill_taxonomy():
                 canonical_to_aliases=canonical_to_aliases,
                 categories=categories,
                 text_aliases=text_aliases,
+            )
+        if (
+            _sn.RELATION_IMPLIED_BY != relations[0]
+            or _sn.RELATION_ALTERNATIVES != relations[1]
+            or _sn.RELATION_TYPICAL_BY != relations[2]
+        ):
+            _sn.set_relations(
+                implied_by=relations[0],
+                alternatives=relations[1],
+                typical_by=relations[2],
             )
 
 

@@ -159,6 +159,7 @@ import {
  compactCardBadge,
  cardOwner,
  cardShortName,
+ criticalAlternativeBadge,
  criticalGapBadge,
  cvStateBadge,
  fromPreviousOpening,
@@ -256,6 +257,9 @@ interface KanbanBoardV2Props {
  /** Krytyczne bez śladu u osoby (`/pipeline-scores` → `exclusions`) —
   *  plakietka „brak: …” na karcie (16.10.2026). */
  criticalGapMap?: Map<number, string[]>;
+ /** Krytyczne bez śladu, ale z zamiennikiem (`exclusions` → `alternatives`,
+  *  mapa wiedzy IT 07.11.2026) — plakietka „FastAPI? zna Flask”. */
+ criticalAltMap?: Map<number, Record<string, string[]>>;
  // True while the scores query is first resolving → cards show a placeholder
  // ring instead of nothing (cold pipelines don't look broken).
  scoresLoading?: boolean;
@@ -718,6 +722,7 @@ interface CardProps {
  overBudget: boolean;
  /** Krytyczne bez śladu w profilu, CV i notatkach — odznaka, nie blokada. */
  criticalGaps?: string[];
+ criticalAlternatives?: Record<string, string[]>;
  /** Miejsce w „Zadzwoń najpierw” kolumny „Nowi” (`lib/new-column-queue.ts`). */
  callFirstRank?: number;
  /** Przeskoczył na co 5. miejsce jako osoba bez procesu (`freshSlots`). */
@@ -943,6 +948,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScorecard,
  overBudget,
  criticalGaps,
+ criticalAlternatives,
  callFirstRank,
  freshSlot,
  matchScore,
@@ -1024,7 +1030,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Konflikty z klientem i czarna lista: serwer niesie je w `warnings`,
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
- const criticalGap = criticalGapBadge(criticalGaps);
+ const criticalGap =
+ criticalGapBadge(criticalGaps) ?? criticalAlternativeBadge(criticalAlternatives);
  // Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem, którą
  // domyka Delivery Lead — „Prowadzi” zostaje przy osobie, która odeszła.
  const care =
@@ -1689,6 +1696,7 @@ interface ColProps {
  onOpenScreening: (stageId: number, name: string) => void;
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
+ criticalAltMap?: Map<number, Record<string, string[]>>;
  /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
  newQueue?: {
  ranks: Map<number, number>;
@@ -1821,6 +1829,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScreening,
  scoreMap,
  criticalGapMap,
+ criticalAltMap,
  newQueue = null,
  appliedGap = null,
  scoresLoading,
@@ -2059,6 +2068,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScorecard={(it) => onOpenScorecard(it, col)}
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
  criticalGaps={criticalGapMap?.get(item.candidate_id)}
+ criticalAlternatives={criticalAltMap?.get(item.candidate_id)}
  callFirstRank={rank != null && rank <= CALL_FIRST_COUNT ? rank : undefined}
  freshSlot={newQueue?.freshSlots.has(item.id) ?? false}
  matchScore={scoreMap?.get(item.candidate_id)}
@@ -2142,7 +2152,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, criticalAltMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -4516,6 +4526,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onOpenScreening={handleOpenScreening}
  scoreMap={scoreMap}
  criticalGapMap={criticalGapMap}
+ criticalAltMap={criticalAltMap}
  newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
  appliedGap={
  boardKeyByColId.get(entry.key) === "new" && appliedGapCount > 0

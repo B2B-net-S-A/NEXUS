@@ -272,6 +272,11 @@ async def evaluate_batch(
             "eligibility": annotations.get(cid),
             "brief_status": request.brief_status,
         }
+        # Mapa wiedzy IT (07.11.2026): krytycznego brakuje, ale osoba ma
+        # zamiennik, więc bramka jej nie ukryła — karta pyta „FastAPI? zna Flask”.
+        alternatives = getattr(candidate, "_critical_alternatives", None)
+        if alternatives:
+            evidence["critical_alternatives"] = alternatives
         if with_prior:
             # Pytania TEJ rekrutacji z dopasowaną wcześniejszą odpowiedzią —
             # bez tytułu, klienta i treści odpowiedzi z innej rekrutacji.
