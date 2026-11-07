@@ -153,6 +153,9 @@ class PairFacts:
     client_form_missing: Optional[int] = None
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): blokujące sprawdzenia, których QC nie umiało sprawdzić
+    # („sprawdź ręcznie”) — przebieg „przechodzi”, ale nikt tego nie sprawdził.
+    qc_manual: tuple[str, ...] = ()
     client_rate: bool = False
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
@@ -667,6 +670,57 @@ def _client_form_item(column: str, f: PairFacts) -> _Item:
     )
 
 
+def _qc_result_item(column: str, f: PairFacts) -> _Item:
+    """Wynik QC CV przed przekazaniem Delivery Leadowi (R1, 07.11.2026).
+
+    Przypomnienie, nie bramka: do „QC CV” przekazuje się także z uwagami
+    (tryb doradczy), a bramka QC stoi przed wysyłką. Ramka „Następny etap”
+    mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”.
+    """
+
+    open_qc = _action("open_qc", "Otwórz QC", f.stage_id)
+    if f.qc_status == "failed":
+        return _Item(
+            column,
+            "cv_qc_result",
+            "QC CV",
+            MISSING,
+            False,
+            f"do poprawy: {max(1, f.qc_blocking_failed)}",
+            open_qc,
+        )
+    if f.qc_status == "overridden":
+        return _Item(
+            column,
+            "cv_qc_result",
+            "QC CV",
+            OK,
+            False,
+            "przepuszczone mimo uwag (z powodem)",
+        )
+    if f.qc_status == "passed" and f.qc_manual:
+        return _Item(
+            column,
+            "cv_qc_result",
+            "QC CV",
+            WAITING,
+            False,
+            "sprawdź ręcznie: " + ", ".join(f.qc_manual),
+            open_qc,
+        )
+    if f.qc_status == "passed":
+        return _Item(column, "cv_qc_result", "QC CV", OK, False, "sprawdzone")
+    return _Item(
+        column,
+        "cv_qc_result",
+        "QC CV",
+        WAITING,
+        False,
+        "QC jeszcze nie policzone",
+        open_qc,
+    )
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if f.client_form and column == "cv_qc":
@@ -709,7 +763,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             ),
         ]
     if column == "cv_qc":
-        return [
+        items = [
             _Item(
                 column,
                 "company_cv",
@@ -722,6 +776,9 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 else _action("generate_cv", "Wygeneruj teraz", sid),
             )
         ]
+        if f.company_cv:
+            items.append(_qc_result_item(column, f))
+        return items
     if column == "cv_sent":
         qc_ok = f.qc_status in QC_OK_STATUSES
         # Osoba już w kolejce Cpro przeszła QC przy wejściu do niej — serwer
@@ -1514,6 +1571,7 @@ async def load_pair_facts(
         client_form_missing=form_state.missing if form_state else None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
+        qc_manual=tuple(qc.get("manual_checks") or ()),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         skips_fill_gates=skips_fill_gates(user),

@@ -113,6 +113,8 @@ export interface DlReviewContext {
   category_name: string | null;
   qc_status: string;
   qc_blocking_failed: number;
+  /** R1 (07.11.2026): blokujące „sprawdź ręcznie” przy zdanym QC. */
+  qc_manual?: string[];
   qc_override?: DlReviewQcOverride | null;
   can_see_amounts: boolean;
   can_see_client_rates: boolean;
@@ -169,6 +171,7 @@ export interface DlReviewQueueItem {
   stage_id: number | null;
   since: string;
   qc_status: string | null;
+  qc_manual?: string[];
   overall_fit: "fit" | "uncertain" | "miss" | null;
   overall_fit_label: string | null;
   requirements_met: number;

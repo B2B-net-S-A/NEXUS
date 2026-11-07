@@ -381,7 +381,7 @@ describe("DlSendQueueBand — „Do wysłania do klienta” nad pulpitem", () =>
     expect(inBudget).toHaveTextContent("Marek Dąb");
     expect(within(inBudget).getByText("150 zł/h")).toBeTruthy();
     expect(within(inBudget).getByText("budżet do 170 zł/h")).toHaveClass("text-muted-foreground");
-    expect(within(inBudget).getByText("QC ✓")).toBeTruthy();
+    expect(within(inBudget).getByText("QC: sprawdzone")).toBeTruthy();
     expect(within(inBudget).getByText("Screening: brakuje 3")).toBeTruthy();
     expect(within(inBudget).getByText("od 6 dni")).toHaveClass("text-destructive", "font-semibold");
 

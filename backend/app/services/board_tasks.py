@@ -148,6 +148,8 @@ class BoardTask:
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” przy zdanym QC.
+    qc_manual: list[str] = field(default_factory=list)
     # 0380: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
     # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
     job_working_title: Optional[str] = None
@@ -202,6 +204,7 @@ class BoardTask:
             "return_stage_def_id": self.return_stage_def_id,
             "qc_status": self.qc_status,
             "qc_blocking_failed": self.qc_blocking_failed,
+            "qc_manual": list(self.qc_manual),
             "card_status": self.card_status,
             "card_missing": self.card_missing,
             "ready": self.ready,
@@ -577,6 +580,7 @@ async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:
         status = statuses.get((t.candidate_id, t.job_id)) or {}
         t.qc_status = status.get("status") or "unchecked"
         t.qc_blocking_failed = int(status.get("blocking_failed") or 0)
+        t.qc_manual = list(status.get("manual_checks") or [])
 
 
 async def _attach_dl_review_details(

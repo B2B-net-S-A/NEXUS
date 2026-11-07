@@ -107,6 +107,7 @@ def _run(**kw) -> SimpleNamespace:
         dismissed=None,
         has_override=False,
         override_at=None,
+        manual=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -129,6 +130,7 @@ async def test_pass_through_dismissals_is_overridden_while_they_last() -> None:
         "ok_at": AT,
         "dismissed_blocking": 2,
         "warnings_count": 0,
+        "manual_checks": [],
     }
 
 
@@ -143,6 +145,7 @@ async def test_returned_card_without_a_new_run_is_no_longer_passed_through() -> 
         "ok_at": None,
         "dismissed_blocking": 0,
         "warnings_count": 0,
+        "manual_checks": [],
     }
     out = await _status([_run(dismissed="1")], [])
     assert out["status"] == "failed" and out["blocking_failed"] == 1
@@ -155,6 +158,18 @@ async def test_returned_dismissals_still_leave_a_senders_override() -> None:
 
 
 @pytest.mark.asyncio
+async def test_passed_run_carries_blocking_checks_nobody_verified() -> None:
+    """R1 (07.11.2026): zdane QC z „sprawdź ręcznie” przy blokującym sprawdzeniu
+    niesie jego etykietę — karta, panel i przegląd DL mówią to samo."""
+    out = await _status(
+        [_run(manual=["Umiejętności krytyczne są w CV i opisane w rolach", None])],
+        [],
+    )
+    assert out["status"] == "passed"
+    assert out["manual_checks"] == ["Umiejętności krytyczne są w CV i opisane w rolach"]
+
+
+@pytest.mark.asyncio
 async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
     assert (await _status([_run()], []))["status"] == "passed"
     failed = await _status([_run(passed=False, blocking_failed=3)], [])
@@ -164,6 +179,7 @@ async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
         "ok_at": None,
         "dismissed_blocking": 0,
         "warnings_count": 0,
+        "manual_checks": [],
     }
 
 

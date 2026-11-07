@@ -2814,6 +2814,8 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         qc_card = dict(cards[0]["qc"])
         # Uwagi nieblokujące przebiegu (14.10.2026) — liczba zależy od reguł QC.
         assert isinstance(qc_card.pop("warnings_count"), int)
+        # R1 (07.11.2026): blokujące „sprawdź ręcznie” — zależy od odczytu CV.
+        assert isinstance(qc_card.pop("manual_checks"), list)
         assert qc_card == {
             "status": "failed",
             "blocking_failed": 2,
@@ -5849,7 +5851,12 @@ def test_role_dates_warns_when_cv_says_ongoing_and_original_has_an_end():
 
 
 def test_role_dates_passes_and_skips():
-    assert _role_dates(ROLE_DATES_HTML, "Senior Developer, Acme Bank 03.2021 – obecnie")["status"] == "pass"
+    assert (
+        _role_dates(ROLE_DATES_HTML, "Senior Developer, Acme Bank 03.2021 – obecnie")[
+            "status"
+        ]
+        == "pass"
+    )
     assert _role_dates(ROLE_DATES_HTML, "")["status"] == "skip"
     # Bez znaczników stanowisk role są zgadywane: nie zgłaszamy nic.
     pasted = "<p>Senior Developer 03.2021 – obecnie</p><p>Acme Bank</p>"
@@ -5857,7 +5864,9 @@ def test_role_dates_passes_and_skips():
 
 
 def test_role_dates_warning_does_not_block_sending():
-    data = _qc_input(ROLE_DATES_HTML, must=_reqs("Java"), original_text=ROLE_DATES_ORIGINAL)
+    data = _qc_input(
+        ROLE_DATES_HTML, must=_reqs("Java"), original_text=ROLE_DATES_ORIGINAL
+    )
     assert "role_dates" not in qc.BLOCKING_KEYS
     assert "role_dates" in {c["key"] for c in qc.compute_checks(data)}
 
@@ -5878,5 +5887,6 @@ def test_restore_dates_action_is_applied_alone_and_not_in_bulk():
     out, applied, skipped = run(bulk=False)
     assert "03.2021 - 05.2026" in out and applied and not skipped
     out, applied, skipped = run(bulk=True)
-    assert out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
-
+    assert (
+        out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
+    )
