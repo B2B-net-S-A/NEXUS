@@ -240,6 +240,7 @@ class QcApplyRequest(BaseModel):
 class QcTransformAction(BaseModel):
     # `years`, `title`, `strip_client_rules`, `remove_line` — tylko edytor CV
     # (panel „Do poprawy”, wariant A, PR 2); okno QC dalej `QcApplyRequest`.
+    # `languages_lines` — „Szybkie poprawki” edytora (E1, 07.11.2026).
     action: Literal[
         "ai_fix",
         "bold_all",
@@ -251,6 +252,7 @@ class QcTransformAction(BaseModel):
         "title",
         "strip_client_rules",
         "remove_line",
+        "languages_lines",
     ]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)

@@ -16,7 +16,10 @@
 //
 // Asystent (Edytor CV 3, PR 4) dostaje odpowiedzi z `command-fixture.ts`:
 // „dopisz terraform” pyta o źródło, „pogrub …” pogrubia, „stanowisko: X”
-// zmienia „Rozważany na stanowisko”, „Skróć do 2 stron” usuwa i łączy.
+// zmienia „Rozważany na stanowisko”, „skróć do 2 stron” usuwa i łączy.
+// Podpowiedzi z 07.11.2026: „+ Punkt do podsumowania” daje propozycję
+// z cytatem, „Wymagania do obowiązków” nazywa Dockera w punkcie roli,
+// „Usuń rolę spoza profilu” i „dzięki” — pusty wynik z powodem.
 //
 // Panel „Do poprawy” dostaje QC, uwagi i poprawki z `issues-fixture.ts`:
 // lista liczy się z ostatnio zapisanej treści, więc widać cały obieg

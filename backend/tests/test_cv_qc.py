@@ -342,11 +342,38 @@ def test_critical_skill_in_several_roles_is_one_task() -> None:
     assert qc.summarize(checks)[:2] == (False, 1)
 
 
-def test_critical_skill_absent_everywhere_asks_the_candidate() -> None:
+def test_critical_skill_absent_everywhere_is_a_decision_for_the_dl() -> None:
+    """R2 (decyzja Artura 07.11.2026): brak krytycznej w CV, w oryginale
+    i w rozmowie to luka kandydata, nie poprawka CV — rekruter nie ma czego
+    poprawić. Nie blokuje; idzie do informacji z `candidate_gap`, a Delivery
+    Lead decyduje o wysyłce (DL odrzucił w „QC CV” 33 osoby za wymagania)."""
     checks = qc.compute_checks(_qc_input(BRANDED_HTML, critical=_reqs("Scala")))
-    item = _by_key(checks)["critical_skills"]["items"][0]
-    assert item["requirement"] == "Scala" and item["role"] is None
-    assert item["fix"] == "ask_candidate"
+    critical = _by_key(checks)["critical_skills"]
+    assert critical["items"] == []
+    (gap,) = critical["info"]
+    assert gap["requirement"] == "Scala" and gap["role"] is None
+    assert gap["fix"] == "ask_candidate" and gap["candidate_gap"] is True
+    assert gap["detail"] == (
+        "Kandydat tego nie ma: brak w CV, w oryginale i w rozmowie. W CV nie ma "
+        "czego poprawić — o wysyłce zdecyduje Delivery Lead."
+    )
+    assert critical["summary"] == "Luka kandydata: Scala"
+    assert qc.summarize(checks)[:2] == (True, 0)
+
+
+def test_critical_skill_in_the_sources_is_still_a_block() -> None:
+    """R2 nie zmienia blokady, gdy krytyczna jest w oryginale albo w rozmowie,
+    a brakuje jej w CV — to poprawka CV."""
+    checks = qc.compute_checks(
+        _qc_input(
+            BRANDED_HTML,
+            critical=_reqs("Scala"),
+            notes_text="Kandydat: Scala w Acme Bank od dwóch lat.",
+        )
+    )
+    critical = _by_key(checks)["critical_skills"]
+    (item,) = critical["items"]
+    assert item["requirement"] == "Scala" and item.get("candidate_gap") is None
     assert qc.summarize(checks)[:2] == (False, 1)
 
 
@@ -971,6 +998,13 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(public_profile, "_client_names", no_names)
+    # Reguła klienta bez numeru zapytania w nagłówku (0661); `db` to tu None.
+    import app.services.job_working_title as working_title
+
+    async def no_reference(_db, _client_id):
+        return False
+
+    monkeypatch.setattr(working_title, "header_reference_enabled", no_reference)
     src = SimpleNamespace(
         job=SimpleNamespace(
             title="PL_IT_Developer_expert_TP#40379 (43020)",
@@ -981,6 +1015,29 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
     titles = await qc.expected_titles(None, src, {"presentation_position": "(43020)"})
     # 26.10.2026 (D4): kod stanowiska Nordei „_TP#…” i „PL_” też schodzą.
     assert titles == ("IT Developer expert",)
+
+
+async def test_expected_titles_put_the_numbered_header_first(monkeypatch) -> None:
+    """07.11.2026: reguła klienta z numerem zapytania — „Zmień tytuł” wpisuje
+    nagłówek z numerem, a sama rola dalej jest zgodna."""
+    import app.services.job_public_profile as public_profile
+    import app.services.job_working_title as working_title
+
+    async def no_names(_db, _client_id):
+        return []
+
+    async def with_reference(_db, _client_id):
+        return True
+
+    monkeypatch.setattr(public_profile, "_client_names", no_names)
+    monkeypatch.setattr(working_title, "header_reference_enabled", with_reference)
+    src = SimpleNamespace(
+        job=SimpleNamespace(
+            title="AML Analyst (43114)", client_reference="43114", client_id=11
+        )
+    )
+    titles = await qc.expected_titles(None, src, {})
+    assert titles == ("AML Analyst (43114)", "AML Analyst")
 
 
 async def test_service_title_header_does_not_confirm_itself() -> None:
@@ -1102,7 +1159,11 @@ def test_critical_skill_is_not_found_in_a_word_that_only_starts_like_it() -> Non
     check = _by_key(qc.compute_checks(_qc_input(html, must=spring, critical=spring)))[
         "critical_skills"
     ]
-    assert check["status"] == "fail"
+    # Od R2 (07.11.2026) brak wszędzie to luka kandydata (informacja), nie
+    # blokada — ważne, że „sprint” nie zalicza „Spring”.
+    assert [i["requirement"] for i in check["info"] if i.get("candidate_gap")] == [
+        "Spring"
+    ]
 
 
 def test_answers_keep_dotted_names_versions_and_continuation_lines() -> None:
@@ -2936,6 +2997,8 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         assert isinstance(qc_card.pop("warnings_count"), int)
         # R1 (07.11.2026): blokujące „sprawdź ręcznie” — zależy od odczytu CV.
         assert isinstance(qc_card.pop("manual_checks"), list)
+        # R2 (07.11.2026): luki kandydata w krytycznych.
+        assert isinstance(qc_card.pop("candidate_gaps"), list)
         assert qc_card == {
             "status": "failed",
             "blocking_failed": 2,
@@ -5020,6 +5083,47 @@ def test_similar_in_original_stays_quiet_without_evidence(term, original):
     assert qc.similar_in_original(term, original) is None
 
 
+@pytest.mark.parametrize(
+    "original",
+    [
+        # Staging 07.11.2026: „Git — w oryginale pod inną nazwą?” z cytatem
+        # linii kontaktu; „github” stało tylko w adresie profilu.
+        "Jan Nowak\n+48 600 000 000 jnowak.dev github.com/jnowak in/jan-nowak Lublin\n"
+        "Doświadczenie\nPython, Django, Docker",
+        "Kontakt: https://gitlab.com/jnowak\nPython, Docker",
+        "www.bitbucket.org/jnowak · Python",
+        "jan@github-fan.pl, Python, Docker",
+    ],
+)
+def test_similar_in_original_ignores_urls_and_emails(original):
+    assert qc.similar_in_original("Git", original) is None
+
+
+def test_contact_mask_keeps_technologies_with_dots():
+    text = "Socket.io, ASP.NET Core, Node.js, Vue.js"
+    assert qc._without_contacts(text) == text
+
+
+def test_similar_in_original_skips_url_and_finds_the_real_mention():
+    original = "jnowak.dev github.com/jnowak Lublin\nNarzędzia: GitHub, Jira"
+    similar = qc.similar_in_original("Git", original)
+    assert similar is not None and similar["term"] == "GitHub"
+    assert "github.com" not in similar["quote"]
+    assert similar["quote"] in original
+
+
+def test_no_unsupported_does_not_quote_contact_line_as_other_name():
+    html = "<h1>CV</h1><ul><li><p>Praca z Git.</p></li></ul>"
+    data = _qc_input(
+        html,
+        must=_reqs("Git"),
+        original_text="+48 600 000 000 github.com/jnowak Lublin\nPython, Docker.",
+    )
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert "similar" not in item
+    assert "nie ma tego w oryginale" in item["detail"]
+
+
 def test_similar_quote_starts_and_ends_on_whole_words():
     original = "raporty z danymi źródłowymi; tworzyłem testy i pipeline’y GitHub Actions, potem kolejne wdrożenia."
     quote = qc.similar_in_original("Data Pipelines", original)["quote"]
@@ -6133,3 +6237,214 @@ def test_restore_dates_action_is_applied_alone_and_not_in_bulk():
     assert (
         out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
     )
+
+
+# ── Szybkie poprawki edytora (E1, 07.11.2026) ───────────────────────────────
+
+E1_HTML = (
+    "<h1>AML Analyst – Anna P.</h1>"
+    '<h2 data-cv-section="why_points">WHY OUR CANDIDATE?</h2>'
+    "<ul>"
+    "<li><p>Junior AML Specialist at BNP Paribas – analysed transaction alerts.</p></li>"
+    "<li><p><b>CDD/EDD</b>: practical experience in customer assessment.</p></li>"
+    "<li><p>Reviewed law enforcement requests at InPost.</p></li>"
+    "<li><p>Banking: reviews.</p></li>"
+    "</ul>"
+    '<h2 data-cv-section="languages">LANGUAGES</h2>'
+    "<p>English - advanced · Russian - basic</p>"
+    '<p class="rodo" data-cv-section="rodo">I hereby consent to the processing · of data</p>'
+)
+
+
+def test_languages_lines_splits_one_paragraph_per_language() -> None:
+    out, count = qc.languages_lines_html(E1_HTML)
+    assert count == 1
+    assert "<p>English – advanced</p><p>Russian – basic</p>" in out
+    # Klauzula zgody i reszta CV nietknięte.
+    assert "I hereby consent to the processing · of data" in out
+    assert out.replace("<p>English – advanced</p><p>Russian – basic</p>", "") == (
+        E1_HTML.replace("<p>English - advanced · Russian - basic</p>", "")
+    )
+
+
+@pytest.mark.parametrize(
+    ("paragraph", "expected"),
+    [
+        # Nic nie dopisuje: bez poziomu zostaje sam język.
+        ("Polski · Angielski (C1)", "<p>Polski</p><p>Angielski – C1</p>"),
+        ("Polish: native · German — B1", "<p>Polish – native</p><p>German – B1</p>"),
+        (
+            "<b>English</b> - B2 · <b>Polish</b> - native",
+            "<p><b>English</b> – B2</p><p><b>Polish</b> – native</p>",
+        ),
+        ("English – C1 ·  · Polish", "<p>English – C1</p><p>Polish</p>"),
+        # Akapit z formatowaniem: bez pustych akapitów i bez złamania linii na
+        # początku albo końcu języka (przegląd kodu, 07.11.2026).
+        (
+            "<strong>English</strong> – C1 · <strong>Polish</strong> – native ·",
+            "<p><strong>English</strong> – C1</p><p><strong>Polish</strong> – native</p>",
+        ),
+        (
+            "<strong>English</strong> - C1 ·· <strong>Polish</strong>",
+            "<p><strong>English</strong> – C1</p><p><strong>Polish</strong></p>",
+        ),
+        ("English - B2 ·<br>Polish - C1", "<p>English – B2</p><p>Polish – C1</p>"),
+        ("English - B2<br> · Polish - C1", "<p>English – B2</p><p>Polish – C1</p>"),
+    ],
+)
+def test_languages_lines_writes_language_dash_level(paragraph, expected) -> None:
+    html = f"<h2>Języki</h2><p>{paragraph}</p>"
+    out, count = qc.languages_lines_html(html)
+    assert count == 1 and out == f"<h2>Języki</h2>{expected}"
+
+
+def test_languages_lines_touches_only_the_languages_section() -> None:
+    html = (
+        "<h2>Umiejętności</h2><p>Java · Kotlin</p>"
+        "<h2>Languages</h2><p>English – C1</p><p>Polish – native</p>"
+    )
+    out, count = qc.languages_lines_html(html)
+    assert count == 0 and out == html
+
+
+def test_languages_lines_goes_through_transform_and_bulk() -> None:
+    common = dict(must=[], nice=[], fixes={}, experience=[])
+    out, applied, skipped = qc.transform_html(
+        E1_HTML, [{"action": "languages_lines"}], bulk=True, **common
+    )
+    assert [a["action"] for a in applied] == ["languages_lines"] and not skipped
+    assert "<p>Russian – basic</p>" in out
+    # Punkty podsumowania zostają bez zmian (pogrubianie początku odłożone).
+    assert "<li><p>Junior AML Specialist at BNP Paribas – analysed" in out
+    assert "I hereby consent to the processing · of data" in out
+    _, applied, skipped = qc.transform_html(
+        out, [{"action": "languages_lines"}], bulk=True, **common
+    )
+    assert applied == [] and skipped[0]["code"] == "nothing_to_do"
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        # Tysiące języków w jednym akapicie.
+        lambda: qc.languages_lines_html(
+            "<h2>Languages</h2><p>" + "English - B2 · " * 20000 + "</p>"
+        ),
+        # Odstępy bez łącznika po nich.
+        lambda: qc.languages_lines_html(
+            "<h2>Languages</h2><p>a" + " " * K_PR2 + "x · b</p>"
+        ),
+        lambda: qc.languages_lines_html(
+            "<h2>Languages</h2><p><b>a</b>" + " " * K_PR2 + "x · b</p>"
+        ),
+    ],
+)
+def test_quick_fixes_are_linear(run) -> None:
+    spent = _cpu(run)
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+# ── R4: to, za co Delivery Lead cofa kartę (07.11.2026) ──────────────────────
+
+SUMMARY_ONLY_HTML = (
+    '<h2 data-cv-section="summary">Dlaczego nasz kandydat?</h2>'
+    "<ul><li>Prowadził zespoły w <b>SAFe</b> i Scrum.</li></ul>"
+    '<h2 data-cv-section="skills">Umiejętności</h2><p>SAFe, Jira, Confluence</p>'
+    + ROLES_HTML
+)
+
+
+def test_must_only_in_summary_and_skills_is_a_warning() -> None:
+    """R4: 6 z 34 zwrotów od DL — „SAFe tylko w skillsach i WHY, w doświadczeniu
+    też musi być”. Wymaganie z oryginału, które w CV stoi tylko poza rolami,
+    to uwaga (nie blokada). Oryginał wiąże SAFe ze stanowiskiem (technologie
+    roli z odczytu)."""
+    read = [
+        {**ROLES_READ[0], "technologies": [*ROLES_READ[0]["technologies"], "SAFe"]},
+        ROLES_READ[1],
+    ]
+    checks = _by_key(
+        qc.compute_checks(
+            _qc_input(
+                SUMMARY_ONLY_HTML,
+                must=_reqs("SAFe"),
+                original_text=ROLES_EXPERIENCE_TEXT,
+                experience=read,
+            )
+        )
+    )
+    check = checks["must_only_summary"]
+    assert check["severity"] == "warning" and check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["requirement"] == "SAFe"
+    assert item["detail"] == (
+        "Jest tylko w „Dlaczego” albo „Umiejętnościach”, w żadnym stanowisku. "
+        "Delivery Lead zwykle cofa za to kartę — dopisz zdanie w roli, w której "
+        "kandydat tego używał."
+    )
+
+
+def test_must_in_a_role_or_missing_from_the_original_is_not_flagged() -> None:
+    """Wymaganie opisane w stanowisku — w porządku; oryginał nie wiąże go
+    z żadnym stanowiskiem (np. tylko sekcja umiejętności) — bez uwagi."""
+    in_role = _by_key(
+        qc.compute_checks(
+            _qc_input(ROLES_HTML, must=_reqs("Django"), experience=ROLES_READ)
+        )
+    )["must_only_summary"]
+    assert in_role["status"] == "pass"
+    not_in_original = _by_key(
+        qc.compute_checks(
+            _qc_input(
+                SUMMARY_ONLY_HTML,
+                must=_reqs("SAFe"),
+                original_text=ROLES_EXPERIENCE_TEXT + "UMIEJĘTNOŚCI\nSAFe, Jira\n",
+                experience=ROLES_READ,
+            )
+        )
+    )["must_only_summary"]
+    assert not_in_original["items"] == []
+    # CV bez rozpoznanych stanowisk — nie ma czego porównać.
+    no_roles = _by_key(
+        qc.compute_checks(
+            _qc_input("<p>SAFe</p>", must=_reqs("SAFe"), original_text="SAFe")
+        )
+    )["must_only_summary"]
+    assert no_roles["status"] == "skip"
+
+
+def test_role_without_employer_is_a_warning() -> None:
+    """R4: „W pierwszym doświadczeniu nie ma nazwy firmy” (2 zwroty)."""
+    html = ROLES_HTML.replace('<p data-cv-section="employer">Acme Soft</p>', "")
+    check = _by_key(qc.compute_checks(_qc_input(html, must=[], experience=ROLES_READ)))[
+        "role_employer"
+    ]
+    assert check["severity"] == "warning" and check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["detail"] == "„Backend Developer 2022–obecnie” nie ma nazwy firmy."
+    assert item["role_index"] == 0
+    ok = _by_key(
+        qc.compute_checks(_qc_input(ROLES_HTML, must=[], experience=ROLES_READ))
+    )["role_employer"]
+    assert ok["status"] == "pass"
+
+
+def test_dl_returns_group_lists_the_checks_dl_returns_cards_for() -> None:
+    """R4: okno QC zbiera je w „Delivery Lead zwykle o to cofa”; lustro
+    `QC_DL_RETURN_KEYS` we froncie."""
+    assert qc.DL_RETURN_KEYS == (
+        "must_only_summary",
+        "role_dates",
+        "role_employer",
+        "title_matches_role",
+    )
+    assert set(qc.DL_RETURN_KEYS) <= set(qc.WARNING_KEYS)
+    source = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/cv-qc.ts"
+    ).read_text()
+    block = (
+        source.split("export const QC_DL_RETURN_KEYS", 1)[1]
+        .split("= [", 1)[1]
+        .split("]", 1)[0]
+    )
+    assert re.findall(r'"([a-z_]+)"', block) == list(qc.DL_RETURN_KEYS)

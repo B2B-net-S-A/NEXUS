@@ -13,6 +13,13 @@ describe("qcStateText: trzy stany QC wszędzie tak samo (R1, 07.11.2026)", () =>
     expect(qcStateText({ status: "failed", blocking_failed: 0 })).toBe("QC do poprawy");
     expect(qcStateText({ status: "overridden", blocking_failed: 1 })).toBe("Przepuszczone mimo QC");
     expect(qcStateText({ status: "unchecked", blocking_failed: 0 })).toBe("QC nie sprawdzone");
+    // R2 (07.11.2026): luka kandydata nie blokuje, ale nie jest „sprawdzone”.
+    expect(qcStateText({ status: "passed", blocking_failed: 0, candidate_gaps: ["FastAPI"] })).toBe(
+      "QC: luka kandydata · 1",
+    );
+    expect(
+      qcStateText({ status: "passed", blocking_failed: 0, candidate_gaps: ["FastAPI"], manual_checks: ["A"] }),
+    ).toBe("QC: luka kandydata · 1");
   });
 });
 

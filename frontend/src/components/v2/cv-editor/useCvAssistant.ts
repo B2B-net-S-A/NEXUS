@@ -30,6 +30,7 @@ import {
   CV_COMMAND_FOCUS_MAX,
   CV_COMMAND_HISTORY_MAX,
   CV_COMMAND_HISTORY_TEXT_MAX,
+  CV_PROPOSAL_PRESETS,
   networkCommandApi,
   type CvCommandPreset,
   type CvEditorCommandApi,
@@ -58,7 +59,10 @@ export interface AssistantQuestion {
   state: "open" | "busy" | "yes" | "no";
 }
 
-/** „Dopasuj pod rekrutację”: propozycje czekają na wybór rekrutera (02.11.2026). */
+/**
+ * „Dopasuj pod rekrutację” (02.11.2026) i „+ Punkt do podsumowania” (07.11.2026):
+ * propozycje z cytatem czekają na wybór rekrutera.
+ */
 export interface AssistantProposals {
   operations: CvPlanOperation[];
   /** Wiersze CV z chwili wysłania wiadomości. */
@@ -124,6 +128,8 @@ const MSG_IDLE_ONE = "Tej zmiany nie da się już nałożyć na CV — nic nie z
 const MSG_NOTHING = "Nie znalazłem zmian, które da się zrobić w tym CV.";
 const MSG_NO_PROPOSALS =
   "Nie mam propozycji z potwierdzeniem w oryginale ani w rozmowie. To CV zostaje bez zmian.";
+const MSG_SUMMARY_POINT =
+  "Propozycja punktu do podsumowania. Pod spodem cytat ze źródła — zastosuj, jeśli pasuje.";
 /** Lista dłuższa niż jedna paczka zmian — reszta nie może przepaść po cichu (15.10.2026). */
 const MSG_TRUNCATED = ` Lista miała więcej zmian, niż asystent robi naraz (${CV_COMMAND_OPERATIONS_MAX}) — sprawdź, czego brakuje, i dopisz to w kolejnej wiadomości.`;
 const MSG_LATE = "Odpowiedź przyszła, gdy CV się zapisywało — nic nie zmieniłem. Napisz jeszcze raz.";
@@ -392,7 +398,7 @@ export function useCvAssistant({
           push({ role: "assistant", text: result.message ?? MSG_FAILED, tone: "info" });
           return;
         }
-        if (input.preset === "tailor") {
+        if (input.preset && CV_PROPOSAL_PRESETS.has(input.preset)) {
           const usable = result.operations.filter((operation) => canApply(operation, snapshot));
           if (usable.length === 0) {
             push({ role: "assistant", text: result.message ?? MSG_NO_PROPOSALS, tone: "info" });
@@ -400,7 +406,10 @@ export function useCvAssistant({
           }
           push({
             role: "assistant",
-            text: `Mam ${usable.length} ${proposalsLabel(usable.length)} pod tę rekrutację. Przy każdej jest cytat ze źródła. Wybierz, co zastosować.`,
+            text:
+              input.preset === "summary_point"
+                ? MSG_SUMMARY_POINT
+                : `Mam ${usable.length} ${proposalsLabel(usable.length)} pod tę rekrutację. Przy każdej jest cytat ze źródła. Wybierz, co zastosować.`,
             proposals: {
               operations: usable,
               lines: snapshot,

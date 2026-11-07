@@ -1565,7 +1565,8 @@ describe("CvQcDialog — QC CV", () => {
       post.mockResolvedValue({ data: passed() });
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      // R4 (07.11.2026): daty stanowisk stoją w „Delivery Lead zwykle o to cofa”.
+      const notes = await within(dialog).findByRole("region", { name: "Delivery Lead zwykle o to cofa" });
       await userEvent.click(within(notes).getByRole("button", { name: /Daty stanowisk jak w oryginale/ }));
       expect(within(notes).getByText(DATE_ITEM.detail)).toBeTruthy();
       expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
@@ -1769,6 +1770,67 @@ describe("CvQcDialog — QC CV", () => {
       await userEvent.click(within(passedList).getAllByRole("button", { name: /Umiejętności krytyczne są w CV/ }).at(-1)!);
       expect(await screen.findByText(/wskazał\(a\) Zofia C\./)).toBeTruthy();
     });
+  });
+
+  it("luka kandydata stoi w „Do decyzji Delivery Leada”, nie w poprawkach (R2, 07.11.2026)", async () => {
+    serve(
+      withCheck(
+        "critical_skills",
+        {
+          status: "pass",
+          summary: "Luka kandydata: FastAPI",
+          items: [],
+          info: [
+            {
+              requirement: "FastAPI",
+              detail: "Kandydat tego nie ma: brak w CV, w oryginale i w rozmowie. W CV nie ma czego poprawić — o wysyłce zdecyduje Delivery Lead.",
+              fix: "ask_candidate",
+              candidate_gap: true,
+            },
+          ],
+        },
+        passed(),
+      ),
+    );
+    renderDialog();
+    const section = await screen.findByRole("region", { name: "Do decyzji Delivery Leada" });
+    expect(section).toHaveTextContent("FastAPI");
+    expect(section).toHaveTextContent("o wysyłce zdecyduje Delivery Lead");
+    expect(within(section).getByRole("button", { name: "Skopiuj pytanie do kandydata" })).toBeTruthy();
+  });
+
+  it("„Delivery Lead zwykle o to cofa” stoi nad „Warto poprawić” (R4, 07.11.2026)", async () => {
+    serve(
+      withCheck("must_bolded", { status: "pass", items: [] }, {
+        ...passed(),
+        checks: [
+          ...passed().checks.filter((c) => c.key !== "spelling"),
+          {
+            key: "role_dates",
+            label: "Daty stanowisk jak w oryginale",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ detail: "W CV: „07.2022 – 02.2024”. W oryginale: „07.2022 – 02.2023”." }],
+          },
+          {
+            key: "spelling",
+            label: "Pisownia technologii",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ term: "Postgres", detail: "„Postgres” → „PostgreSQL”", fix: "spelling" }],
+          },
+        ],
+      }),
+    );
+    renderDialog();
+    const dlReturns = await screen.findByRole("region", { name: "Delivery Lead zwykle o to cofa" });
+    expect(dlReturns).toHaveTextContent("Daty stanowisk jak w oryginale");
+    expect(dlReturns).not.toHaveTextContent("Pisownia technologii");
+    const notes = screen.getByRole("region", { name: "Warto poprawić — nie blokuje" });
+    expect(notes).toHaveTextContent("Pisownia technologii");
+    expect(notes).not.toHaveTextContent("Daty stanowisk jak w oryginale");
   });
 
   it("Delivery Lead z przeglądu dostaje objaśnienie dla siebie (R5, 07.11.2026)", async () => {

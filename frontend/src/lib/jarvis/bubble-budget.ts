@@ -1,10 +1,11 @@
 /**
- * Budżet nieproszonych dymków Jarvisa (dymek ekranu, dymek „utknięcia”).
+ * Budżet nieproszonych dymków Jarvisa (dziś tylko dymek „utknięcia”; dymek
+ * ekranu wyłączony 07.11.2026 — 714 pokazań, 2 otwarcia przewodnika).
  *
  * Najwyżej `DAILY_UNSOLICITED_BUBBLES` dziennie na osobę — wspólnie dla
  * wszystkich źródeł, bo każde z osobna wygląda niewinnie, a razem robią
  * z maskotki Clippy'ego. Poranny skrót i przypomnienie „Moi ludzie” mają
- * własne reguły i się tu nie liczą. Dymek ekranu pokazuje się raz na ekran.
+ * własne reguły i się tu nie liczą.
  */
 
 import { readStorage, storageKey, todayKey, writeStorage } from "./storage";
@@ -13,10 +14,6 @@ export const DAILY_UNSOLICITED_BUBBLES = 3;
 
 function budgetKey(userId: number | undefined): string {
   return storageKey(userId, "bubble-budget");
-}
-
-function seenKey(userId: number | undefined): string {
-  return storageKey(userId, "screens-seen");
 }
 
 function usedToday(userId: number | undefined, today: string): number {
@@ -32,28 +29,4 @@ export function canShowUnsolicited(userId: number | undefined, today: string = t
 
 export function recordUnsolicited(userId: number | undefined, today: string = todayKey()): void {
   writeStorage(budgetKey(userId), `${today}:${usedToday(userId, today) + 1}`);
-}
-
-function seenList(userId: number | undefined): string[] {
-  try {
-    const parsed = JSON.parse(readStorage(seenKey(userId)) || "[]");
-    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-export function screenSeen(userId: number | undefined, key: string): boolean {
-  return seenList(userId).includes(key);
-}
-
-export function markScreenSeen(userId: number | undefined, key: string): void {
-  const seen = seenList(userId);
-  if (!seen.includes(key)) writeStorage(seenKey(userId), JSON.stringify([...seen, key]));
-}
-
-/** „Pokaż wskazówki od nowa” (ustawienia Jarvisa). */
-export function resetScreenSeen(userId: number | undefined): void {
-  writeStorage(seenKey(userId), null);
-  writeStorage(budgetKey(userId), null);
 }

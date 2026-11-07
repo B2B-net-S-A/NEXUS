@@ -314,6 +314,23 @@ export function splitChecks(checks: QcCheck[]): QcSplit {
   return split;
 }
 
+/**
+ * Uwagi, za które Delivery Lead najczęściej cofa kartę (R4, 07.11.2026) —
+ * okno QC stawia je nad „Warto poprawić”. Lustro `cv_qc.DL_RETURN_KEYS`.
+ */
+export const QC_DL_RETURN_KEYS: readonly string[] = [
+  "must_only_summary",
+  "role_dates",
+  "role_employer",
+  "title_matches_role",
+];
+
+/** Dzieli uwagi na „DL zwykle o to cofa” i resztę, zachowując kolejność. */
+export function splitDlReturns(notes: readonly QcCheck[]): { dlReturns: QcCheck[]; rest: QcCheck[] } {
+  const dlReturns = notes.filter((check) => check.status === "fail" && QC_DL_RETURN_KEYS.includes(check.key));
+  return { dlReturns, rest: notes.filter((check) => !dlReturns.includes(check)) };
+}
+
 /** „Kontrola CV” w przeglądzie DL (R5, 07.11.2026). */
 export interface CvControl {
   /** Sprawdzenia, które automat zaliczył (bez „nie dotyczy”). */
@@ -324,6 +341,8 @@ export interface CvControl {
   unverified: string[];
   /** Rzeczy do poprawy, które blokują (jak „Do poprawy” w oknie QC). */
   blocking: number;
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL. */
+  gaps: string[];
 }
 
 export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
@@ -345,6 +364,7 @@ export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
     manual: [...manual].map(([requirement, entry]) => ({ requirement, ...entry })),
     unverified: [...unverified],
     blocking: blockingTasks([...checks]).length,
+    gaps: candidateGapItems(checks).map((item) => item.requirement ?? "").filter(Boolean),
   };
 }
 
@@ -781,6 +801,15 @@ export interface QcPairState {
   blocking_failed: number;
   /** R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” zdanego przebiegu. */
   manual_checks?: readonly string[] | null;
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma (nie blokują). */
+  candidate_gaps?: readonly string[] | null;
+}
+
+/** Luki kandydata z wyniku QC (R2) — pozycje informacyjne krytycznych. */
+export function candidateGapItems(checks: readonly QcCheck[]): QcItem[] {
+  return checks
+    .filter((check) => check.key === "critical_skills")
+    .flatMap((check) => (check.info ?? []).filter((item) => item.candidate_gap === true));
 }
 
 /**
@@ -790,6 +819,8 @@ export interface QcPairState {
  */
 export function qcStateText(state: QcPairState): string {
   const manual = state.manual_checks?.length ?? 0;
+  const gaps = state.candidate_gaps?.length ?? 0;
+  if (state.status === "passed" && gaps > 0) return `QC: luka kandydata · ${gaps}`;
   if (state.status === "passed" && manual > 0) return `QC: sprawdź ręcznie · ${manual}`;
   if (state.status === "failed" && state.blocking_failed > 0) return `QC: ${state.blocking_failed} do poprawy`;
   return QC_STATUS_LABEL[state.status];

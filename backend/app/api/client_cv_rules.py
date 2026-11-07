@@ -154,6 +154,7 @@ RULE_FIELDS: tuple[str, ...] = (
     "highlight_policy",
     "highlight_terms",
     "cv_text_align",
+    "cv_title_with_reference",
 )
 CLIENT_FLAG_FIELDS: tuple[str, ...] = (
     "cv_content_mode_cap",
@@ -195,6 +196,7 @@ class ClientCvRulePayload(BaseModel):
     ] = "technologies"
     highlight_terms: list[str] = Field(default_factory=list, max_length=50)
     cv_text_align: Literal["justify", "left"] = "justify"
+    cv_title_with_reference: bool = False
 
     @model_validator(mode="after")
     def _explicit_highlights_for_publication(self) -> "ClientCvRulePayload":
@@ -373,6 +375,7 @@ class ClientCvRuleRead(BaseModel):
     highlight_policy: str = "technologies"
     highlight_terms: list[str] = Field(default_factory=list)
     cv_text_align: str = "justify"
+    cv_title_with_reference: bool = False
     edit_revision: int = 0
     draft_payload: Optional[dict[str, Any]] = None
     client_id: int
@@ -587,6 +590,7 @@ def _to_read(
         highlight_policy=rule.highlight_policy or "technologies",
         highlight_terms=list(rule.highlight_terms or []),
         cv_text_align=rule.cv_text_align or "justify",
+        cv_title_with_reference=bool(getattr(rule, "cv_title_with_reference", False)),
         edit_revision=int(rule.edit_revision or 1),
         draft_payload=rule.draft_payload,
         seed_key=rule.seed_key,
@@ -696,6 +700,8 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
             value = value or "technologies"
         if field == "cv_text_align":
             value = value or "justify"
+        if field == "cv_title_with_reference":
+            value = bool(value)
         state[field] = value
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
@@ -752,6 +758,7 @@ def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
     rule.highlight_policy = payload.highlight_policy
     rule.highlight_terms = list(payload.highlight_terms) or None
     rule.cv_text_align = payload.cv_text_align
+    rule.cv_title_with_reference = payload.cv_title_with_reference
     rule.filename_pattern = payload.filename_pattern
     rule.spaces_to_underscores = payload.spaces_to_underscores
     rule.cv_language = payload.cv_language

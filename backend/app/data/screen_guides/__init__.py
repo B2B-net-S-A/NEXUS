@@ -2,8 +2,8 @@
 
 Jedno źródło treści (``guides.json``) dla dwóch odbiorców:
 
-- **front** pobiera je trasą ``GET /api/help/screens`` i pokazuje dymek przy
-  pierwszej wizycie na ekranie oraz kartę przewodnika w panelu Jarvisa — bez
+- **front** pobiera je trasą ``GET /api/help/screens`` i pokazuje kartę
+  przewodnika w panelu Jarvisa oraz pytania ``asked`` w pustym panelu — bez
   wywołania modelu;
 - **Jarvis** czyta je narzędziem ``get_screen_guide``, gdy ktoś pyta
   „jak…/gdzie…/co tu…”, i podświetla elementy z listy ``anchors``.
@@ -29,7 +29,7 @@ import json
 from collections.abc import Collection
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -120,6 +120,12 @@ class ScreenGuide(BaseModel):
     what: str = Field(min_length=1, max_length=240)
     tasks: list[GuideTask] = Field(min_length=3, max_length=5)
     pitfalls: list[str] = Field(default_factory=list, max_length=4)
+    #: Pytania, które ludzie naprawdę zadali Jarvisowi na tym ekranie (rozmowy
+    #: z produkcji 23.09–06.11.2026). Pusty panel Jarvisa pokazuje je jako
+    #: „Na tym ekranie ludzie pytali” — zamiast dymka ekranu, wyłączonego 07.11.
+    asked: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(
+        default_factory=list, max_length=4
+    )
     anchors: list[GuideAnchor] = Field(min_length=2, max_length=6)
     help_slug: Optional[str] = None
     sources: list[str] = Field(min_length=1, max_length=3)
