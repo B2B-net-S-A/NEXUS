@@ -314,6 +314,40 @@ export function splitChecks(checks: QcCheck[]): QcSplit {
   return split;
 }
 
+/** „Kontrola CV” w przeglądzie DL (R5, 07.11.2026). */
+export interface CvControl {
+  /** Sprawdzenia, które automat zaliczył (bez „nie dotyczy”). */
+  autoOk: number;
+  /** Krytyczne, przy których rekruter wskazał role (R3). */
+  manual: { requirement: string; roles: string[]; by: string | null }[];
+  /** Krytyczne „sprawdź ręcznie”, których nikt nie wskazał. */
+  unverified: string[];
+  /** Rzeczy do poprawy, które blokują (jak „Do poprawy” w oknie QC). */
+  blocking: number;
+}
+
+export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
+  const manual = new Map<string, { roles: string[]; by: string | null }>();
+  const unverified = new Set<string>();
+  for (const check of checks) {
+    if (check.key !== "critical_skills") continue;
+    for (const role of check.roles ?? []) {
+      if (role.state === "unverified") unverified.add(role.requirement);
+      else if (role.manual) {
+        const entry = manual.get(role.requirement) ?? { roles: [], by: role.manual.by ?? null };
+        if (role.state === "described" || role.state === "missing") entry.roles.push(role.role);
+        manual.set(role.requirement, entry);
+      }
+    }
+  }
+  return {
+    autoOk: checks.filter((check) => check.status === "pass").length,
+    manual: [...manual].map(([requirement, entry]) => ({ requirement, ...entry })),
+    unverified: [...unverified],
+    blocking: blockingTasks([...checks]).length,
+  };
+}
+
 export function blockingTasks(checks: QcCheck[]): QcTask[] {
   return splitChecks(checks).tasks;
 }

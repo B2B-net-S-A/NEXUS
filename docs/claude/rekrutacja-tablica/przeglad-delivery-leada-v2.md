@@ -67,3 +67,26 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   i `generated_document_id`), a nie z najnowszego wiersza pary. Plik wgrany ręcznie
   ma odznakę z `stageCvOrigin` („z pliku Word”). Póki CV etapu nieznane lub odczyt
   padł, odznak nie ma. Test: `StageCvPreview.origin.test.tsx`.
+
+## „Kontrola CV” i punkty CV w „Wróć do poprawy” (R5, decyzja Artura 07.11.2026)
+
+Analiza z 07.11.2026: wynik QC był w przeglądzie tylko pigułką „QC ✓”, choć 139
+z 535 zdanych par miało krytyczne „sprawdź ręcznie”, a w 12 z 16 próśb
+o poprawki DL zaznaczał samo „CV firmowe”.
+
+- **„Kontrola CV”** (`dl-review/CvControlSummary.tsx`) stoi w `facts` kolumny
+  decyzji, pod uwagą od rekrutera i nad „Warunkami wobec rekrutacji”:
+  sprawdzenia automatu w porządku, rzeczy do poprawy, krytyczne wskazane ręcznie
+  przez rekrutera (kto, R3) i niesprawdzone, z „Otwórz QC”. Liczy
+  `cvControlSummary` z wyniku QC. Linii o obejściu nie powtarza, gdy panel ma
+  baner obejścia.
+- Wynik czyta `useCvQcSummary` — ten sam klucz co okno QC, ale `staleTime`
+  60 s zamiast liczenia przy każdym montowaniu: przegląd „po kolei” nie liczy
+  QC dwa razy, a harness `/preview/dl-review` ma zasiany fikcyjny wynik
+  i nie wysyła zapytań.
+- **„Wróć do poprawy”**: zaznaczone „CV firmowe” rozwija punkty QC
+  (`cvReturnPoints`: niesprawdzone krytyczne i niezaliczone sprawdzenia).
+  Wybrane idą do uwagi jako „W CV popraw: • …” — klucz pola zostaje `cv`,
+  serwer bez zmian.
+- **Okno QC w trybie DL** (`CvQcDialog audience="dl"`): objaśnienie dla
+  Delivery Leada zamiast „możesz przesunąć kartę mimo uwag”.

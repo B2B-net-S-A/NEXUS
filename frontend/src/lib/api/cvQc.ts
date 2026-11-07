@@ -84,6 +84,8 @@ export interface QcRoleState {
   requirement: string;
   role: string;
   state: QcRoleStateKind;
+  /** R3 (07.11.2026): stan z ręcznego wskazania roli — kto i kiedy. */
+  manual?: { by?: string | null; at?: string | null } | null;
 }
 
 export interface QcCheck {
@@ -279,6 +281,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
     // liczy QC od nowa.
     staleTime: 0,
     refetchOnMount: "always",
+  });
+}
+
+/**
+ * Wynik QC do podsumowania obok (R5, 07.11.2026: „Kontrola CV” w przeglądzie
+ * DL). Ten sam klucz co okno QC, ale bez przeliczania przy każdym montowaniu —
+ * przegląd „po kolei” nie liczy QC dwa razy na osobę, a harness z zasianym
+ * wynikiem nie wysyła zapytań.
+ */
+export function useCvQcSummary(stageId: number | null) {
+  return useQuery<QcResult>({
+    queryKey: cvQcQueryKey(stageId ?? 0),
+    queryFn: () => api.get<QcResult>(`/api/pipeline/stages/${stageId}/qc`).then((r) => r.data),
+    enabled: stageId != null,
+    staleTime: 60_000,
   });
 }
 
