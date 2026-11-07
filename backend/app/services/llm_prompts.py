@@ -969,7 +969,7 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=14,
+    version=15,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -1035,7 +1035,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '    "regulations": [{{"name": str, "level": "must"|"nice", "quote": str}}]\n'
         "  }},\n"
         '  "project_about": str|null,         // cel projektu, MAKSYMALNIE 2 zdania po polsku\n'
-        '  "responsibilities": str|null,      // obowiązki, krótko po polsku\n'
+        '  "responsibilities": str|null,      // obowiązki jako lista punktów po polsku (zasady niżej)\n'
         '  "search": {{\n'
         '    "target_companies": str,         // firmy, z których warto szukać (może być pusty)\n'
         '    "disqualifiers": [str],          // kogo odrzucamy od razu, tylko gdy wynika z maila\n'
@@ -1105,6 +1105,18 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "techniczne”, „angielski B2”), oraz wymagania z wersją — DOSŁOWNIE "
         "z maila. Język pracy wpisz także do language, dziedzinę także do "
         "experience.domains, lata do seniority_min_years.\n\n"
+        "Obowiązki (responsibilities): przepisz po polsku WSZYSTKIE obowiązki i zadania "
+        "z requestu, własnymi słowami, jako punkty — każdy w osobnej linii zaczynającej się "
+        'od "- ". Jeden punkt = jeden obowiązek z requestu: zachowaj ich liczbę i kolejność, '
+        "połącz tylko punkty, które się powtarzają. Nie kopiuj zdań klienta i nie streszczaj "
+        "do ogólników: punkt to jedno krótkie zdanie (do ok. 120 znaków), zaczyna się od "
+        "rzeczownika czynności („Koordynacja…”, „Projektowanie…”) i zostawia konkret — nazwy "
+        "systemów, technologii, regulacji, procesów i skróty (np. KYC, TM, RTS, GraphQL, "
+        "Single Customer View) bez tłumaczenia. Gdy request dzieli obowiązki na obszary, "
+        "poprzedź punkty obszaru linią z jego nazwą po polsku zakończoną dwukropkiem. "
+        "Oczekiwane rezultaty usługi dopisz jako ostatni obszar „Oczekiwane rezultaty:”. "
+        "Gdy mail nie wymienia obowiązków, napisz 2–3 zdania o tym, czym kandydat będzie "
+        "się zajmował.\n\n"
         "Miasta biura (office_cities): każde miasto osobno, polską nazwą "
         "(„Warsaw” → „Warszawa”, „Gdansk” → „Gdańsk”); „Trójmiasto” zostaje "
         "„Trójmiasto”. Pusta lista, gdy mail nie podaje miasta.\n\n"

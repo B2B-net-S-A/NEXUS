@@ -70,6 +70,10 @@ MAX_DISQUALIFIERS = 8
 # 02.10.2026: wiersze wymagań są też listą must — limit jak w zapisie profilu.
 MAX_SEARCH_ROWS = 10
 MAX_DESCRIPTIVE = 12
+# 07.11.2026 (decyzja Artura, wariant B): „Obowiązki” to każdy obowiązek
+# z requestu osobnym punktem po polsku. Najdłuższy z próbek (57 linii opisu)
+# dał ok. 3 000 znaków; nadmiar odpada całymi punktami i z uwagą dla DL.
+MAX_RESPONSIBILITIES_CHARS = 4000
 MAX_SEARCH_WORDS = 6
 # 27.10.2026: słowa z CV obok frazy klienta (`cv_words`) — najwyżej dwa na wiersz,
 # a całe sprawdzanie w bazie ma sufit czasu, bo odczyt czeka na nie z formularzem.
@@ -205,6 +209,74 @@ def _text(value: Any, limit: int) -> Optional[str]:
         return None
     cleaned = re.sub(r"\s+", " ", value).strip()
     return cleaned[:limit] or None
+
+
+_POINT_MARK = re.compile(r"^\s*(?:[-–—•*·▪●]|\d+[.)])\s*")
+_DUTIES_TITLE = re.compile(
+    r"^(?:obowiązki|zakres obowiązków|responsibilities)\s*:?$", re.I
+)
+
+
+def _responsibilities(value: Any) -> tuple[Optional[str], Optional[str]]:
+    """„Obowiązki” jako lista: punkt („- …”) na obowiązek, nazwy obszarów
+    jako osobne linie z dwukropkiem. Zwraca tekst i uwagę o nadmiarze.
+
+    Do 07.11.2026 pole szło przez `_text`, które skleja linie w jeden akapit,
+    a prompt prosił o „krótko” — 12–57 punktów requestu dawało jedno zdanie.
+    Powtórzony punkt (ten sam w kilku obszarach) zostaje raz; obszar bez
+    punktów i ogólny nagłówek „Obowiązki:” odpadają. Tekst bez punktów (mail
+    bez listy obowiązków) zostaje akapitem, jak dotąd.
+    """
+    if isinstance(value, list):
+        lines = [
+            "- " + _POINT_MARK.sub("", item, count=1)
+            for item in value
+            if isinstance(item, str)
+        ]
+    elif isinstance(value, str):
+        lines = value.splitlines()
+    else:
+        return None, None
+    cleaned: list[tuple[str, str]] = []  # ("point" | "title", tekst)
+    seen: set[str] = set()
+    for raw in lines:
+        text = re.sub(r"\s+", " ", raw).strip()
+        if not text or _DUTIES_TITLE.match(text):
+            continue
+        if _POINT_MARK.match(text):
+            point = _POINT_MARK.sub("", text, count=1).strip()
+            key = point.casefold()
+            if point and key not in seen:
+                seen.add(key)
+                cleaned.append(("point", point))
+        else:
+            cleaned.append(("title", text))
+    if not any(kind == "point" for kind, _ in cleaned):
+        return _text(value if isinstance(value, str) else None, 2000), None
+    # Obszar bez punktów (wszystkie były powtórzeniami) nie zostaje.
+    cleaned = [
+        item
+        for index, item in enumerate(cleaned)
+        if item[0] == "point"
+        or (index + 1 < len(cleaned) and cleaned[index + 1][0] == "point")
+    ]
+    out: list[str] = []
+    dropped = 0
+    for kind, text in cleaned:
+        line = f"- {text}" if kind == "point" else text
+        if dropped or len("\n".join([*out, line])) > MAX_RESPONSIBILITIES_CHARS:
+            dropped += kind == "point"
+            continue
+        out.append(line)
+    while out and not out[-1].startswith("- "):
+        out.pop()
+    note = (
+        f"Obowiązki: pominięte punkty (limit pola {MAX_RESPONSIBILITIES_CHARS} "
+        f"znaków): {dropped} — dopisz je z requestu, jeśli są ważne."
+        if dropped
+        else None
+    )
+    return "\n".join(out) or None, note
 
 
 def _requirement(value: Any) -> Optional[str]:
@@ -1163,7 +1235,9 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             for names in (must, nice)
         )
     project_about = _text(data.get("project_about"), 600)
-    responsibilities = _text(data.get("responsibilities"), 2000)
+    responsibilities, responsibilities_note = _responsibilities(
+        data.get("responsibilities")
+    )
     questions = _questions(data.get("screening_questions"))
 
     experience, year_notes = _check_domain_years(
@@ -1171,6 +1245,8 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         _int_in(data.get("seniority_min_years"), 0, 40),
     )
     advisories.extend(year_notes)
+    if responsibilities_note:
+        advisories.append(responsibilities_note)
     for items in experience.values():
         for item in items:
             if item["quote"] not in evidence:
