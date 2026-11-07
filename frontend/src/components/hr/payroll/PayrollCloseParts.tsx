@@ -233,7 +233,12 @@ export function DecisionPanel({
   };
 
   return (
-    <section aria-label="Premie do decyzji" data-tour="payroll.bonus-decisions" data-help="hr.payroll.decisions" className="overflow-hidden rounded-xl border border-border bg-card">
+    <section
+      aria-label="Premie do decyzji"
+      data-tour="payroll.bonus-decisions"
+      data-help="hr.payroll.decisions"
+      className="overflow-hidden rounded-xl border border-border bg-card"
+    >
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           Premie do decyzji
