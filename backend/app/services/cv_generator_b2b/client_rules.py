@@ -706,7 +706,7 @@ def apply_header_reference(
     z nazwy roli przed tą zmianą. Wołane PRZED migawką ``render_payload``,
     więc ponowne pobranie i edytor mają ten sam nagłówek.
     """
-    if rule is None or not rule.title_with_reference:
+    if not getattr(rule, "title_with_reference", False):
         return
     header = str(candidate_data.get("presentation_position") or "").strip()
     if not header:

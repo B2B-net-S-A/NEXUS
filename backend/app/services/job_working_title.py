@@ -457,7 +457,7 @@ async def header_reference_enabled(db: AsyncSession, client_id: Optional[int]) -
         rule = snapshot_rule(await resolve_client_rule(db, client_id))
     except HTTPException:
         return False
-    return bool(rule and rule.title_with_reference)
+    return bool(getattr(rule, "title_with_reference", False))
 
 
 async def cv_position_for_form(db: AsyncSession, job: Any) -> str:

@@ -538,7 +538,7 @@ async def detached_copy_settings(
     header = cv_header_title(
         title,
         getattr(job, "client_reference", None) if job is not None else None,
-        bool(rule and rule.title_with_reference),
+        bool(getattr(rule, "title_with_reference", False)),
     )
     return DetachedCopySettings(
         filename=copy_filename(rule, title, name, pko_job_reference(job)),
