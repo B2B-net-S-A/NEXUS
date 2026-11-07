@@ -212,6 +212,19 @@
     "dot_anchor": "board.new-applied"
   },
   {
+    "id": "opublikuj-ogloszenie-jeden-przycisk",
+    "title": "„Opublikuj ogłoszenie” — kilka kanałów jednym przyciskiem",
+    "why": "Zaznaczasz JustJoin.IT, Pracuj.pl i stronę kariery, klikasz raz, a NEXUS prowadzi po kolei: strona od razu, potem kategoria JustJoin.IT, potem stawka w mailu do opiekuna Pracuj.pl.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "pr": 3120,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Rekrutacja → Ogłoszenie → Opublikuj ogłoszenie",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.publish-all"
+  },
+  {
     "id": "justjoin-aplikacja-do-nowych",
     "title": "Aplikacje z JustJoin.IT same trafiają do „Nowi”",
     "why": "Kandydat aplikuje jednym kliknięciem na JustJoin.IT, bez naszej strony kariery. Następnego dnia po imporcie jego karta czeka w „Nowi” tej rekrutacji, także przy ogłoszeniu oznaczonym ręcznie.",

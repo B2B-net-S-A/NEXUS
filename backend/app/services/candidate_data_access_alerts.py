@@ -1,4 +1,4 @@
-"""Alarm o masowym przeglądaniu CV kandydatów — bez blokady (0508, 22.10.2026).
+"""Alarm o masowym pobieraniu CV kandydatów — bez blokady (0508, 22.10.2026).
 
 12.10.2026 dziewięć nowych kont (kursanci Akademii Sourcera, rola Rekruter
 nadana automatycznie przy pierwszym logowaniu) otworzyło w trzy godziny pliki
@@ -17,12 +17,16 @@ dotyka ścieżki pobierania. Zdarzenia API integracji nie mają osoby
 nie jest tu liczone: CV nie opuszcza serwera, rekruter widzi tylko cytaty —
 to ta funkcja ma zastąpić pobieranie CV do prywatnego czatu.
 
-Progi z ruchu produkcji (30 dni do 22.10.2026, rekruterzy): 99. percentyl
-33 różnych kandydatów w godzinę, maksimum 61; na dysk najwyżej 20 plików
-dziennie. Juniorzy 12.10 pojedynczo nie przekroczyli tych liczb (najwięcej
-55 kandydatów dziennie) — wyróżniało ich to, że były to NOWE konta i że
-zaczęło ich naraz dziewięć. Stąd niższe progi dla konta młodszego niż 14 dni
-i osobny alarm „kilka nowych kont naraz”.
+Samo przeglądanie nie wywołuje alarmu (decyzja Artura 07.11.2026): podgląd
+pliku w NEXUSIE to zwykła praca rekrutera, a alarm za „40 kandydatów
+w godzinę” przychodził mailem jako alarm bezpieczeństwa. Alarm budzi tylko
+to, co opuszcza NEXUS: zapis na dysk (pobranie, link do pobrania, paczka ZIP)
+i eksport. Liczba przejrzanych kandydatów zostaje w treści jako kontekst.
+
+Progi z ruchu produkcji (30 dni do 22.10.2026, rekruterzy): na dysk najwyżej
+20 plików dziennie. Konto młodsze niż 14 dni ma progi o połowę niższe,
+a osobny alarm „kilka nowych kont naraz” liczy nowe konta, które dziś
+zapisały plik kandydata na dysk (12.10 dziewięć nowych kont zapisało 41).
 
 Jeden alarm dziennie na osobę i odbiorcę: dzienny dedup ``emit``
 (``ix_notif_dedup_daily``) patrzy na odbiorcę, typ i ``related_entity_id`` —
@@ -50,7 +54,6 @@ from app.services import candidate_audit
 
 logger = logging.getLogger(__name__)
 
-HOUR_CANDIDATES = int(os.environ.get("DATA_ACCESS_ALERT_HOUR_CANDIDATES", "40"))
 DAY_DISK_FILES = int(os.environ.get("DATA_ACCESS_ALERT_DAY_DISK_FILES", "25"))
 DAY_EXPORT_ROWS = int(os.environ.get("DATA_ACCESS_ALERT_DAY_EXPORT_ROWS", "200"))
 NEW_ACCOUNT_DAYS = int(os.environ.get("DATA_ACCESS_ALERT_NEW_ACCOUNT_DAYS", "14"))
@@ -76,12 +79,11 @@ LINK = "/settings?item=people"
 
 @dataclass(frozen=True)
 class Usage:
-    """Ruch jednej osoby: ostatnia godzina i dzień w kalendarzu firmy."""
+    """Ruch jednej osoby od północy w kalendarzu firmy."""
 
     user_id: int
     name: str
     account_created_at: Optional[datetime]
-    candidates_last_hour: int = 0
     candidates_today: int = 0
     disk_files_today: int = 0
     export_rows_today: int = 0
@@ -95,19 +97,14 @@ def is_new_account(usage: Usage, now: datetime) -> bool:
 def reasons(usage: Usage, *, new_account: bool) -> list[str]:
     """Przekroczone progi po polsku; pusta lista = nic do zgłoszenia.
 
-    Konto młodsze niż ``NEW_ACCOUNT_DAYS`` ma progi o połowę niższe.
+    Konto młodsze niż ``NEW_ACCOUNT_DAYS`` ma progi o połowę niższe. Liczba
+    przejrzanych kandydatów (podgląd) nie jest progiem — tylko dysk i eksport.
     """
 
     divisor = 2 if new_account else 1
-    hour = HOUR_CANDIDATES // divisor
     disk = DAY_DISK_FILES // divisor
     export = DAY_EXPORT_ROWS // divisor
     out: list[str] = []
-    if usage.candidates_last_hour > hour:
-        out.append(
-            f"pliki {usage.candidates_last_hour} kandydatów w ostatniej godzinie "
-            f"(próg {hour})"
-        )
     if usage.disk_files_today > disk:
         out.append(
             f"{usage.disk_files_today} plików zapisanych na dysk dziś (próg {disk})"
@@ -122,7 +119,7 @@ def alert_text(
 ) -> tuple[str, str]:
     """Tytuł i treść alarmu. Bez nazwisk kandydatów — wiadomość idzie mailem."""
 
-    title = f"{usage.name}: masowe przeglądanie CV kandydatów"
+    title = f"{usage.name}: masowe pobieranie CV kandydatów"
     since = ""
     if new_account and usage.account_created_at is not None:
         days = (now - usage.account_created_at).days
@@ -142,9 +139,9 @@ def alert_text(
 def burst_text(new_accounts: list[Usage]) -> tuple[str, str]:
     names = ", ".join(u.name for u in new_accounts[:10])
     more = f" i {len(new_accounts) - 10} innych" if len(new_accounts) > 10 else ""
-    title = f"{len(new_accounts)} nowe konta otwierają CV kandydatów"
+    title = f"{len(new_accounts)} nowe konta zapisują CV kandydatów na dysk"
     message = (
-        f"W ostatniej godzinie pliki kandydatów otworzyły konta założone w ciągu "
+        f"Dziś pliki kandydatów zapisały na dysk konta założone w ciągu "
         f"{NEW_ACCOUNT_DAYS} dni: {names}{more}. Sprawdź, czy te osoby powinny mieć "
         "dostęp do kandydatów (Ustawienia → Osoby i role). NEXUS niczego nie zablokował."
     )
@@ -152,13 +149,11 @@ def burst_text(new_accounts: list[Usage]) -> tuple[str, str]:
 
 
 def usage_query(now: datetime) -> Select:
-    """Ruch osób od północy w kalendarzu firmy (i z ostatniej godziny) do ``now``."""
+    """Ruch osób od północy w kalendarzu firmy do ``now``."""
 
     day_start = now.astimezone(ZoneInfo(DEFAULT_TZ)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    since = min(day_start.astimezone(timezone.utc), now - timedelta(hours=1))
-    hour_ago = now - timedelta(hours=1)
     details = Activity.details
     is_file = Activity.action.in_(FILE_ACTIONS)
     is_today = Activity.created_at >= day_start
@@ -185,9 +180,6 @@ def usage_query(now: datetime) -> Select:
             Activity.user_id,
             User.name,
             User.created_at,
-            func.count(func.distinct(Activity.entity_id)).filter(
-                is_file, Activity.created_at >= hour_ago, Activity.entity_id > 0
-            ),
             func.count(func.distinct(Activity.entity_id)).filter(
                 is_file, is_today, Activity.entity_id > 0
             ),
@@ -226,7 +218,7 @@ def usage_query(now: datetime) -> Select:
         .join(User, User.id == Activity.user_id)
         .where(
             Activity.user_id.is_not(None),
-            Activity.created_at >= since,
+            Activity.created_at >= day_start,
             Activity.created_at <= now,
             Activity.entity_type == "candidate",
             Activity.action.in_(WATCHED_ACTIONS),
@@ -242,12 +234,11 @@ async def collect(db: AsyncSession, now: datetime) -> list[Usage]:
             user_id=user_id,
             name=name or f"Konto {user_id}",
             account_created_at=created_at,
-            candidates_last_hour=int(hour or 0),
             candidates_today=int(today or 0),
             disk_files_today=int(disk or 0),
             export_rows_today=int(export or 0),
         )
-        for user_id, name, created_at, hour, today, disk, export in rows
+        for user_id, name, created_at, today, disk, export in rows
     ]
 
 
@@ -306,7 +297,7 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
         if found:
             flagged.append((usage, found, new_account))
     new_active = [
-        u for u in usages if u.candidates_last_hour > 0 and is_new_account(u, now)
+        u for u in usages if u.disk_files_today > 0 and is_new_account(u, now)
     ]
     burst = len(new_active) >= NEW_ACCOUNTS_BURST
     if not flagged and not burst:
@@ -316,9 +307,8 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
     for usage, found, new_account in flagged:
         title, message = alert_text(usage, found, new_account=new_account, now=now)
         logger.warning(
-            "data_access_alert: user_id=%s hour=%s today=%s disk=%s export=%s",
+            "data_access_alert: user_id=%s today=%s disk=%s export=%s",
             usage.user_id,
-            usage.candidates_last_hour,
             usage.candidates_today,
             usage.disk_files_today,
             usage.export_rows_today,
@@ -333,9 +323,7 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
             entity_id=usage.user_id,
         )
     if burst:
-        logger.warning(
-            "data_access_alert: %s new accounts opening CVs", len(new_active)
-        )
+        logger.warning("data_access_alert: %s new accounts saving CVs", len(new_active))
         title, message = burst_text(new_active)
         sent += await _notify(
             db,

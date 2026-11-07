@@ -30,6 +30,11 @@ import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import type { ChampionBlock } from "@/lib/champion-blocks";
+import {
+  responsibilityCount,
+  responsibilityGroups,
+  type ResponsibilityGroup,
+} from "@/lib/champion-responsibilities";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
 import { criticalBriefLine } from "@/lib/critical-skills";
 import { formatBudgetHourly, formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
@@ -240,10 +245,7 @@ export function ChampionBriefView({
     .filter(Boolean)
     .join(" · ");
   const projectAbout = profile.project?.about?.trim() ?? "";
-  const responsibilities = (profile.project?.responsibilities ?? "")
-    .split(/\n|;/)
-    .map((line) => line.replace(/^[-•*]\s*/, "").trim())
-    .filter(Boolean);
+  const responsibilities = responsibilityGroups(profile.project?.responsibilities ?? "");
   const experienceCount =
     (profile.experience?.domains?.length ?? 0) +
     (profile.experience?.certifications?.length ?? 0) +
@@ -530,7 +532,8 @@ export function ChampionBriefView({
  * nie wchodzi się w edycję, żeby doczytać opis). Bez obowiązków ucięty
  * opis rozwija „Cały opis”.
  */
-function ProjectAbout({ about, responsibilities }: { about: string; responsibilities: string[] }) {
+function ProjectAbout({ about, responsibilities }: { about: string; responsibilities: ResponsibilityGroup[] }) {
+  const count = responsibilityCount(responsibilities);
   const [open, setOpen] = useState(false);
   const [clamped, setClamped] = useState(false);
   const aboutRef = useRef<HTMLParagraphElement>(null);
@@ -547,9 +550,7 @@ function ProjectAbout({ about, responsibilities }: { about: string; responsibili
   }, [about, open]);
 
   const label =
-    responsibilities.length > 0
-      ? `${clamped ? "Cały opis i obowiązki" : "Obowiązki"} (${responsibilities.length})`
-      : "Cały opis";
+    count > 0 ? `${clamped ? "Cały opis i obowiązki" : "Obowiązki"} (${count})` : "Cały opis";
 
   return (
     <>
@@ -563,16 +564,19 @@ function ProjectAbout({ about, responsibilities }: { about: string; responsibili
       ) : (
         <p className="text-[13px] text-muted-foreground">Delivery Lead nie opisał jeszcze projektu.</p>
       )}
-      {responsibilities.length > 0 || (about && clamped) ? (
+      {count > 0 || (about && clamped) ? (
         <details className="text-sm" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
           <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">{label}</summary>
-          {responsibilities.length > 0 ? (
-            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-foreground">
-              {responsibilities.map((line, i) => (
-                <li key={`${i}-${line}`}>{line}</li>
-              ))}
-            </ul>
-          ) : null}
+          {responsibilities.map((group, g) => (
+            <div key={`${g}-${group.title ?? ""}`} className="mt-1">
+              {group.title ? <p className="mt-2 text-[13px] font-medium text-foreground">{group.title}</p> : null}
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-5 text-foreground">
+                {group.items.map((line, i) => (
+                  <li key={`${i}-${line}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </details>
       ) : null}
     </>

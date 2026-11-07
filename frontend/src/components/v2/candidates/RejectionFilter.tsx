@@ -176,14 +176,19 @@ export function RejectionFilterFields({ filters, onPatch, facets }: RejectionFil
   );
 }
 
-/** Pasek nad tabelą: rozkład ostatnich odrzuceń w bieżącym wyniku. */
+/**
+ * Pasek nad tabelą: rozkład ostatnich odrzuceń w bieżącym wyniku. Tylko od
+ * 1800 px (decyzja Artura 07.11.2026): przy 1280 × 720 osobny rząd spychał
+ * pierwszy wiersz listy na 0,66 okna. Poniżej ten sam rozkład jest
+ * w pigułce „Odrzucenie”.
+ */
 export function RejectionFacetBar({ filters, onPatch, facets }: RejectionFilterProps) {
   if (!facets || facets.items.length === 0) return null;
   return (
     <div
       role="group"
       aria-label="Ostatnie odrzucenie w tym wyniku"
-      className="flex items-center gap-1.5 overflow-x-auto rounded-lg border border-dashed border-primary/30 bg-primary/5 px-2.5 py-1.5"
+      className="hidden items-center min-[1800px]:flex gap-1.5 overflow-x-auto rounded-lg border border-dashed border-primary/30 bg-primary/5 px-2.5 py-1.5"
     >
       <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         Ostatnie odrzucenie

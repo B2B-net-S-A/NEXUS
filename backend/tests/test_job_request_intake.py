@@ -693,7 +693,7 @@ def test_prompt_asks_for_keywords_and_a_deal_breaker() -> None:
     rendered = JOB_REQUEST_INTAKE.render(
         client_name="Klient", client_context="brak", request_text="mail"
     )
-    assert JOB_REQUEST_INTAKE.version == 14
+    assert JOB_REQUEST_INTAKE.version == 15
     assert '"requirements"' in rendered and '"deal_breaker"' in rendered
     assert '"keywords"' not in rendered
     assert '"must": [str]' not in rendered

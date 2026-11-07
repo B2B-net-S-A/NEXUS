@@ -45,7 +45,9 @@ def test_interactive_prompt_is_untouched():
     # v7 — świadoma zmiana (17.09.2026): pełny profil (technologie per
     # stanowisko, certyfikaty, projekty, wykształcenie z latami).
     # v8 — świadoma zmiana (02.11.2026): JSON bez wcięć, ok. 19% tokenów wyjścia mniej.
-    assert CV_ENRICHMENT.version == 8
+    # v9 — świadoma zmiana (07.11.2026): branża, zespół i regulacje stanowiska,
+    # seniority i obywatelstwo, przed ponownym odczytem bazy.
+    assert CV_ENRICHMENT.version == 9
     rendered = CV_ENRICHMENT.render(cv_text="x")
     assert "professional_profile" in rendered
     assert "career_summary" in rendered

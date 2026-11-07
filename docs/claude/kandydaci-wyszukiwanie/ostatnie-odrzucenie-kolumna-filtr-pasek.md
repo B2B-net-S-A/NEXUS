@@ -21,7 +21,13 @@ z ostatniej rekrutacji”.
   Traffita. Liczby przy opcjach dotyczą bieżącego wyniku.
 - **Pasek „Ostatnie odrzucenie” nad tabelą**: rozkład w całym wyniku, klik =
   pokaż tylko, drugi klik = ukryj, trzeci = zdejmij. Działa od razu, bez
-  „Szukaj”, jak zdjęcie chipa.
+  „Szukaj”, jak zdjęcie chipa. **Tylko od 1800 px szerokości okna**
+  (`min-[1800px]:flex`, decyzja Artura 07.11.2026): przy 1280 × 720 osobny
+  rząd paska spychał pierwszy wiersz listy z 0,59 na 0,66 okna i oblewał
+  test „okna laptopów z Windows” w `e2e/responsive-preview.spec.ts`. Poniżej
+  1800 px ten sam rozkład z licznikami jest w pigułce „Odrzucenie”. Nie
+  przywracaj paska na laptopie osobnym rzędem; w rzędzie licznika przy 1280
+  zostaje ok. 190 px, a pasek potrzebuje ok. 1160 px.
 
 ## Definicje (jedno miejsce: `app/services/candidate_last_rejection.py`)
 
