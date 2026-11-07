@@ -91,6 +91,7 @@ import {
   roleGaps,
   segmentCv,
   splitChecks,
+  candidateGapItems,
   taskPendingItem,
   taskTitle,
   thingsLabel,
@@ -491,6 +492,8 @@ export function CvQcBody({
   };
 
   const { tasks, notes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  // R2 (07.11.2026): luka kandydata — nie poprawka CV, decyzja DL.
+  const gaps = useMemo(() => candidateGapItems(data.checks), [data.checks]);
   // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
@@ -540,6 +543,25 @@ export function CvQcBody({
             Nic nie blokuje wysyłki tego CV.
           </p>
         )}
+        {gaps.length > 0 ? (
+          <section aria-label="Do decyzji Delivery Leada" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Do decyzji Delivery Leada ({gaps.length})</h3>
+            <ul className="space-y-2">
+              {gaps.map((item, i) => (
+                <li
+                  key={item.key ?? i}
+                  className="space-y-1.5 rounded-lg border border-warning/40 bg-warning-muted/40 px-3 py-2 text-sm"
+                >
+                  <p className="font-medium">{item.requirement} — kandydat tego nie ma</p>
+                  {item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : null}
+                  <Button size="sm" variant="outline" onClick={() => ctx.copyQuestion(item)}>
+                    Skopiuj pytanie do kandydata
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {data.cv && hasAiGaps ? (
           <AiFixes stageId={stageId} ctx={ctx} />
         ) : null}

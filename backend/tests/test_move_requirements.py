@@ -126,6 +126,10 @@ def test_qc_column_shows_the_qc_result_without_blocking() -> None:
     )
     assert manual["action"]["kind"] == "open_qc"
 
+    gap = qc_item(qc_status="passed", qc_gaps=("FastAPI",))
+    assert gap["status"] == "waiting"
+    assert gap["detail"] == "luka kandydata: FastAPI — zdecyduje Delivery Lead"
+
     checked = qc_item(qc_status="passed")
     assert checked["status"] == "ok" and checked["detail"] == "sprawdzone"
     assert checked["action"] is None

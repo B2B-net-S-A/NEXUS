@@ -95,7 +95,9 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # w tekście CV („AML” przy „Anti-Money Laundering”); pogrubianie bez zmian.
 # „qc-truth-6” (07.11.2026, mapa wiedzy IT): powiązania „wynika z” i „część”
 # spełniają wymaganie (GitHub ⇒ Git), zamiennik i „typowe” dają gotowe pytanie.
-QC_VERSION = "qc-truth-6"
+# „qc-truth-7” (07.11.2026, R2): krytyczna, której nie ma w CV, w oryginale ani
+# w rozmowie, to luka kandydata (informacja `candidate_gap`), nie blokada.
+QC_VERSION = "qc-truth-7"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -1759,6 +1761,26 @@ def compute_checks(data: QcInput) -> list[dict]:
             related = (
                 None if in_sources or similar else related_hint(req.label, sources)
             )
+            if not in_sources and not similar and not related:
+                # R2 (decyzja Artura 07.11.2026): luka kandydata, nie poprawka
+                # CV — rekruter nie ma czego poprawić. Nie blokuje; o wysyłce
+                # decyduje Delivery Lead („Do decyzji DL” w oknie QC).
+                critical_info.append(
+                    {
+                        **_item(
+                            requirement=req.label,
+                            detail=(
+                                "Kandydat tego nie ma: brak w CV, w oryginale i w "
+                                "rozmowie. W CV nie ma czego poprawić — o wysyłce "
+                                "zdecyduje Delivery Lead."
+                            ),
+                            fix="ask_candidate",
+                        ),
+                        "searched": searched(req),
+                        "candidate_gap": True,
+                    }
+                )
+                continue
             critical_items.append(
                 {
                     **_item(
@@ -1795,8 +1817,11 @@ def compute_checks(data: QcInput) -> list[dict]:
         # wiemy, w których rolach kandydat jej używał — nie blokujemy na
         # zgadywaniu (decyzja Artura 12.10.2026).
         roles_unverified = any(r["state"] == "unverified" for r in critical_roles)
+        gaps = [i["requirement"] for i in critical_info if i.get("candidate_gap")]
         if critical_items:
             summary = f"{len(data.critical) - len(failing)}/{len(data.critical)}"
+        elif gaps:
+            summary = "Luka kandydata: " + ", ".join(gaps)
         elif roles_unknown:
             summary = "Nie rozpoznano ról w CV — sprawdź ręcznie"
         elif roles_unverified:
@@ -4067,6 +4092,11 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
 
 # Etykiety blokujących sprawdzeń „sprawdź ręcznie” z wyniku przebiegu — liczone
 # w bazie, żeby karta Tablicy nie ciągnęła całego JSON-a sprawdzeń.
+# R2: wymagania „luka kandydata” (krytyczna nieobecna nigdzie) z informacji.
+_CANDIDATE_GAP_PATH = (
+    '\'lax $[*] ? (@.key == "critical_skills").info[*] '
+    "? (@.candidate_gap == true).requirement'::jsonpath"
+)
 _MANUAL_BLOCKING_PATH = (
     '\'lax $[*] ? (@.status == "manual" && @.severity == "blocking").label\'::jsonpath'
 )
@@ -4105,6 +4135,10 @@ async def pair_statuses(
     CV bez opisów ról). Przebieg z nimi przechodzi, ale tego nikt nie
     sprawdził: 139 z 535 zdanych par w 30 dniach, a DL widział „QC ✓”.
     Uwagi nieblokujące „sprawdź ręcznie” się nie liczą.
+
+    ``candidate_gaps`` (R2, 07.11.2026) — krytyczne, których nie ma w CV,
+    w oryginale ani w rozmowie. Nie blokują (decyduje Delivery Lead), więc
+    zdany przebieg z nimi nie może wyglądać jak „sprawdzone”.
     """
 
     wanted = {(int(c), int(j)) for c, j in pairs}
@@ -4116,6 +4150,7 @@ async def pair_statuses(
             "dismissed_blocking": 0,
             "warnings_count": 0,
             "manual_checks": [],
+            "candidate_gaps": [],
         }
         for pair in wanted
     }
@@ -4145,6 +4180,9 @@ async def pair_statuses(
                 func.jsonb_path_query_array(
                     CvQcRun.result["checks"], literal_column(_MANUAL_BLOCKING_PATH)
                 ).label("manual"),
+                func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_CANDIDATE_GAP_PATH)
+                ).label("gaps"),
                 has_override,
                 override_at,
             )
@@ -4206,6 +4244,7 @@ async def pair_statuses(
             "dismissed_blocking": dismissed if passed else 0,
             "warnings_count": int(row.warnings_count or 0),
             "manual_checks": [str(label) for label in row.manual or [] if label],
+            "candidate_gaps": [str(r) for r in getattr(row, "gaps", None) or [] if r],
         }
     return out
 
