@@ -33,9 +33,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { screeningQuestionHint } from "@/lib/screening-question-hint";
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
+import { IntakeRequirementProposals } from "@/components/v2/jobs/new/IntakeRequirementProposals";
 import { TalkChecksPanel } from "@/components/champion/TalkChecksPanel";
 import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
-import type { RowCriticalState, TalkItem } from "@/lib/requirement-rows";
+import {
+  addNiceRows,
+  applyCriticalProposal,
+  type RowCriticalState,
+  type TalkItem,
+} from "@/lib/requirement-rows";
 import type { IntakeOffer, IntakeUnit } from "@/lib/job-intake-fill";
 import { IntakeOfferChip } from "./IntakeOfferChip";
 import {
@@ -803,6 +809,26 @@ function ReviewSections({
             <ProvenanceChip basis={basis("requirements")} />
           </div>
           <FieldOffer unit="rows" />
+          <IntakeRequirementProposals
+            rows={form.rows}
+            noCritical={form.noCritical}
+            criticalProposal={form.criticalProposal}
+            mailTechnologies={form.mailTechnologies}
+            onApproveCritical={() =>
+              onChange((f) =>
+                markEdited(
+                  { ...f, rows: applyCriticalProposal(f.rows, f.criticalProposal), criticalProposal: [] },
+                  "requirements",
+                ),
+              )
+            }
+            onNoCritical={() => onChange((f) => ({ ...f, noCritical: true, criticalProposal: [] }))}
+            onDismissCritical={() => onChange((f) => ({ ...f, criticalProposal: [] }))}
+            onAddTechnologies={(names) =>
+              onChange((f) => markEdited({ ...f, rows: addNiceRows(f.rows, names) }, "requirements"))
+            }
+            onDismissTechnologies={() => onChange((f) => ({ ...f, mailTechnologies: [] }))}
+          />
           <RequirementRowsEditor
             rows={form.rows}
             onRowsChange={(rows) => onChange((f) => markEdited({ ...f, rows }, "requirements"))}
