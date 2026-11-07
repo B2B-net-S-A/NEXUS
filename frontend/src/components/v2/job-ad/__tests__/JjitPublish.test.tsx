@@ -200,6 +200,12 @@ describe("AdChannels", () => {
     expect(screen.getByText(/Najpierw opublikuj na stronie kariery/)).toBeTruthy();
   });
 
+  it("przy formularzu JJIT strona kariery nie blokuje publikacji (06.11.2026)", () => {
+    channels(adState({ jjit_api: { ...READY, career_required: false }, reminders }));
+    expect((screen.getByTestId("jjit-publish") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/Najpierw opublikuj na stronie kariery/)).toBeNull();
+  });
+
   it("osoba bez prawa decyzji nie dostaje przycisku", () => {
     channels(
       adState({
