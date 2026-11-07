@@ -971,6 +971,13 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(public_profile, "_client_names", no_names)
+    # Reguła klienta bez numeru zapytania w nagłówku (0661); `db` to tu None.
+    import app.services.job_working_title as working_title
+
+    async def no_reference(_db, _client_id):
+        return False
+
+    monkeypatch.setattr(working_title, "header_reference_enabled", no_reference)
     src = SimpleNamespace(
         job=SimpleNamespace(
             title="PL_IT_Developer_expert_TP#40379 (43020)",
@@ -981,6 +988,29 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
     titles = await qc.expected_titles(None, src, {"presentation_position": "(43020)"})
     # 26.10.2026 (D4): kod stanowiska Nordei „_TP#…” i „PL_” też schodzą.
     assert titles == ("IT Developer expert",)
+
+
+async def test_expected_titles_put_the_numbered_header_first(monkeypatch) -> None:
+    """07.11.2026: reguła klienta z numerem zapytania — „Zmień tytuł” wpisuje
+    nagłówek z numerem, a sama rola dalej jest zgodna."""
+    import app.services.job_public_profile as public_profile
+    import app.services.job_working_title as working_title
+
+    async def no_names(_db, _client_id):
+        return []
+
+    async def with_reference(_db, _client_id):
+        return True
+
+    monkeypatch.setattr(public_profile, "_client_names", no_names)
+    monkeypatch.setattr(working_title, "header_reference_enabled", with_reference)
+    src = SimpleNamespace(
+        job=SimpleNamespace(
+            title="AML Analyst (43114)", client_reference="43114", client_id=11
+        )
+    )
+    titles = await qc.expected_titles(None, src, {})
+    assert titles == ("AML Analyst (43114)", "AML Analyst")
 
 
 async def test_service_title_header_does_not_confirm_itself() -> None:

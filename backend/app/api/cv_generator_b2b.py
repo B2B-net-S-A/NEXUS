@@ -3042,6 +3042,9 @@ async def generate_from_upload(
         client_rule=snapshot_rule(rule),
         position=position or "",
         project_ref=project_ref or "",
+        client_reference=(getattr(job, "client_reference", None) or "")
+        if job is not None
+        else "",
         source_warnings=(mode_notice,) if mode_notice else (),
     )
 

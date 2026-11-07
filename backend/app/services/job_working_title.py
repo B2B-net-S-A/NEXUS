@@ -337,6 +337,40 @@ def cv_role_title(
     return role
 
 
+_HEADER_REFERENCE = re.compile(r"(?:[A-Z]{2,5}-)?\d{3,7}")
+
+
+def cv_header_title(
+    role: Optional[str], client_reference: Optional[str], with_reference: bool
+) -> str:
+    """Nagłówek CV: nazwa roli i — gdy reguła klienta tak chce — numer zapytania.
+
+    07.11.2026: rekruterzy dopisywali numer ręcznie („AML Analyst (43114) –
+    Imię Nazwisko”), więc reguła CV klienta może go włączyć
+    (`client_cv_rules.cv_title_with_reference`). Domyślnie bez numeru (D2/D4).
+    Numer, który już stoi w nazwie, nie jest dopisywany drugi raz. Tylko
+    nagłówek — nazwa pliku ma numer ze wzoru klienta albo nie ma go wcale.
+    """
+    text = _clean(role)
+    # Tylko numer zapytania („43114”, „ZOB-3103”). Kody stanowisk i zgłoszeń
+    # („TP#43288”, „RITM0553762”) D4 celowo zdejmuje z nagłówka.
+    parts = [
+        part
+        for part in client_reference_parts(client_reference)
+        if _HEADER_REFERENCE.fullmatch(part)
+    ]
+    if not with_reference or not text or not parts:
+        return text
+    missing = [
+        part
+        for part in parts
+        if not re.search(
+            rf"(?<![A-Za-z0-9]){re.escape(part)}(?![A-Za-z0-9])", text, re.IGNORECASE
+        )
+    ]
+    return f"{text} ({', '.join(missing)})" if missing else text
+
+
 def _role_without_codes(base: str, names: list[str]) -> str:
     # Tylko prefiks klienta ze strony kariery: jej usuwanie nawiasów z cyfrą
     # zjadało „(K8s)” z nazwy roli.
@@ -405,6 +439,25 @@ async def cv_role_title_for_job(db: AsyncSession, job: Any) -> str:
         ):
             return champion
     return role
+
+
+async def header_reference_enabled(db: AsyncSession, client_id: Optional[int]) -> bool:
+    """Czy reguła CV klienta chce numeru zapytania w nagłówku (07.11.2026).
+
+    Reguła czekająca na synchronizację (503 z polityk centralnych) = nie.
+    """
+    from fastapi import HTTPException
+
+    from app.services.cv_generator_b2b.client_rules import (
+        resolve_client_rule,
+        snapshot_rule,
+    )
+
+    try:
+        rule = snapshot_rule(await resolve_client_rule(db, client_id))
+    except HTTPException:
+        return False
+    return bool(rule and rule.title_with_reference)
 
 
 async def cv_position_for_form(db: AsyncSession, job: Any) -> str:
