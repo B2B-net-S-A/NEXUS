@@ -8,7 +8,6 @@ import api from "@/lib/api";
 import {
   Plug,
   Mail,
-  RefreshCw,
   AlertCircle,
   Loader2,
   HelpCircle,
@@ -45,7 +44,6 @@ import JobBoardsCard from "@/components/settings/JobBoardsCard";
 import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
 import { useHrProgram } from "@/lib/api/hr";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
-import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
 import { openJarvis } from "@/lib/jarvis/events";
 import {
   findSettingsArea,
@@ -663,12 +661,8 @@ function CoachingSettings() {
 
 function OnboardingSettings() {
   // Dawny czterokrokowy przewodnik (zgnił: „Ogłoszenia”) zastąpiły
-  // przewodniki ekranów Jarvisa — dymek raz na ekran i przycisk „?” w panelu.
-  const userId = useAuthStore((s) => s.user?.id);
-  const handleReset = () => {
-    resetScreenSeen(userId);
-    openJarvis({});
-  };
+  // przewodniki ekranów Jarvisa — przycisk „?” w panelu i pytania, które ludzie
+  // zadawali na danym ekranie. Dymka przy pierwszej wizycie nie ma od 07.11.2026.
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
@@ -679,19 +673,19 @@ function OnboardingSettings() {
         <div>
           <h3 className="text-base font-bold text-foreground dark:text-foreground">Wskazówki na ekranach</h3>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Asystent przy pierwszej wizycie na ekranie podpowiada, co się tu robi. Na każdym ekranie
-            możesz też kliknąć „?” w jego panelu.
+            Otwórz asystenta na dowolnym ekranie: pokaże pytania, które ludzie tu zadawali, a „?”
+            w jego panelu otworzy przewodnik po ekranie.
           </p>
         </div>
       </div>
 
       <button
         type="button"
-        onClick={handleReset}
+        onClick={() => openJarvis({})}
         className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
       >
-        <RefreshCw className="w-4 h-4" />
-        Pokaż wskazówki od nowa
+        <MessageSquare className="w-4 h-4" />
+        Otwórz asystenta
       </button>
 
       <div className="mt-6 pt-6 border-t border-border dark:border-border">

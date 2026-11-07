@@ -837,7 +837,11 @@ export function DlReviewBody({
         <CvToolbar
           className={TOOLBAR_CLASS[mode]}
           // R1 (07.11.2026): wiersz z Tablicy może nie znać „sprawdź ręcznie” — kontekst przeglądu zna.
-          task={task.qc_manual ? task : { ...task, qc_manual: context.data?.qc_manual ?? null }}
+          task={{
+            ...task,
+            qc_manual: task.qc_manual ?? context.data?.qc_manual ?? null,
+            qc_gaps: task.qc_gaps ?? context.data?.qc_gaps ?? null,
+          }}
           view={shownCvView}
           coverSheet={coverSheet != null}
           onViewChange={(view) => {

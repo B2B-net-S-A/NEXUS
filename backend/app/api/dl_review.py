@@ -170,6 +170,8 @@ class DlReviewContext(BaseModel):
     # R1 (07.11.2026): zdane QC, ale tych blokujących sprawdzeń nikt nie
     # sprawdził („sprawdź ręcznie”).
     qc_manual: list[str] = Field(default_factory=list)
+    # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
+    qc_gaps: list[str] = Field(default_factory=list)
     qc_override: Optional[QcOverrideOut] = None
     can_see_amounts: bool
     can_see_client_rates: bool
@@ -204,6 +206,7 @@ class DlReviewQueueItem(BaseModel):
     since: datetime
     qc_status: Optional[str] = None
     qc_manual: list[str] = Field(default_factory=list)
+    qc_gaps: list[str] = Field(default_factory=list)
     overall_fit: Optional[str] = None
     overall_fit_label: Optional[str] = None
     requirements_met: int

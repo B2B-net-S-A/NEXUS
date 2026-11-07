@@ -1541,6 +1541,26 @@
     ]
   },
   {
+    "id": "szybkie-poprawki-jezyki-w-liniach",
+    "pr": 3139,
+    "title": "Języki w osobnych liniach jednym kliknięciem",
+    "why": "„Szybkie poprawki” na górze „Do poprawy” rozbijają „English - B2 · Polish - native” na osobne linie „Język – poziom”. Zmianę widzisz przed kliknięciem, nic nie jest dopisywane.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.quick-fixes"
+  },
+  {
     "id": "moi-ludzie-na-tablicy",
     "pr": 3143,
     "title": "„Moi ludzie” na Tablicy rekrutacji",

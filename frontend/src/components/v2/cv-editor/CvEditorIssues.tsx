@@ -52,7 +52,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { IssueRowView, type IssueDismiss, type RowContext } from "@/components/v2/cv-editor/CvEditorIssueRows";
+import { IssueRowView, QuickFixRow, type IssueDismiss, type RowContext } from "@/components/v2/cv-editor/CvEditorIssueRows";
 import {
   Confirmations,
   DismissButton,
@@ -108,6 +108,7 @@ import {
   type IssueRange,
   type IssueRow,
 } from "@/lib/cv-editor-issues";
+import { quickFixAction, quickFixLabel, quickFixes, type QuickFix } from "@/lib/cv-editor-quick-fixes";
 import { classifyCvWarnings, type ClassifiedCvWarning } from "@/lib/cv-generator";
 import { humanizeCvWarning } from "@/lib/cv-warning-text";
 import { candidateQuestion, countForm, qcDismissedMessage, type IssueTarget } from "@/lib/cv-qc";
@@ -689,6 +690,12 @@ export function CvEditorIssues({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [editor, checks, warnings, presentFindings, docTick],
   );
+  // „Szybkie poprawki” (E1, 07.11.2026): układ i pogrubienie liczone na bieżącej
+  // treści, niezależnie od QC — działają też w CV wgranym z Worda.
+  // Po dokumencie, nie po `docTick`: okno wczytuje treść tuż po zamontowaniu
+  // panelu, a wynik policzony na pustym dokumencie zostawał do pierwszej zmiany.
+  const quickDoc = editor.isDestroyed || !hasStage ? null : editor.state.doc;
+  const quick = useMemo(() => (quickDoc ? quickFixes(quickDoc) : []), [quickDoc]);
   const total = list.total;
   const anyBlocking = checks.some((check) => check.status === "fail" && check.severity === "blocking");
   const blocking = qc && !otherDocument ? qc.blocking_failed : 0;
@@ -788,6 +795,17 @@ export function CvEditorIssues({
       Popraw wszystkie ({plan.actions.length})
     </Button>
   );
+  const applyQuick = (fix: QuickFix) =>
+    void run([quickFixAction(fix)], false, `${quickFixLabel(fix.action)}. Ctrl+Z cofa.`);
+  const applyAllQuick = () =>
+    void run(quick.map(quickFixAction), true, "Szybkie poprawki nałożone — jedno Ctrl+Z cofa wszystkie.");
+  // Miejsce liczone przy kliknięciu — lista odświeża się z opóźnieniem po pisaniu.
+  const locateQuick = (action: QuickFix["action"]) => {
+    if (editor.isDestroyed) return;
+    const found = quickFixes(editor.state.doc).find((fix) => fix.action === action);
+    if (found) flash(found.where);
+    else showError("Tego miejsca nie ma już w treści CV.");
+  };
   const appliedCount = applied.reduce((sum, entry) => sum + entry.labels.length, 0);
   const status = qcQuery.isFetching
     ? "Sprawdzam zapisaną treść…"
@@ -870,6 +888,38 @@ export function CvEditorIssues({
       </header>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        {quick.length > 0 ? (
+          <IssueGroup
+            label="Szybkie poprawki"
+            count={quick.length}
+            action={
+              quick.length > 1 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={working || readOnly}
+                  title="Zmienia tylko układ i pogrubienie, nie treść. Jedno Ctrl+Z cofa wszystkie."
+                  onClick={applyAllQuick}
+                >
+                  Zastosuj wszystkie ({quick.length})
+                </Button>
+              ) : null
+            }
+          >
+            <ul className={ROWS}>
+              {quick.map((fix) => (
+                <QuickFixRow
+                  key={fix.action}
+                  fix={fix}
+                  busy={working || readOnly}
+                  onApply={() => applyQuick(fix)}
+                  onLocate={() => locateQuick(fix.action)}
+                />
+              ))}
+            </ul>
+          </IssueGroup>
+        ) : null}
         {qcQuery.isLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />

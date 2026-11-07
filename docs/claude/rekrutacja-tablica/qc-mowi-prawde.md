@@ -108,6 +108,19 @@ w żadnym źródle.
   (`__file__` nakładki) i pomiar kończy się samymi `FileNotFoundError`. Przed
   skryptem pomiaru ustaw `_QC_TRANSLATIONS_FILE` na plik z obrazu i wyczyść
   `_translation_groups`.
+- **Luka kandydata w krytycznej też nie blokuje (R2, decyzja Artura
+  07.11.2026, `qc-truth-7`).** Krytyczna, której nie ma w CV, w oryginale ani
+  w rozmowie (i bez „pod inną nazwą” / podpowiedzi pokrewnej), idzie do
+  `critical_skills.info` z `fix: "ask_candidate"` i `candidate_gap: true`, nie
+  do `items`. Rekruter nie ma czego poprawić w CV; o wysyłce decyduje Delivery
+  Lead. Brak w CV przy krytycznej z oryginału albo rozmowy zostaje blokadą.
+  `pair_statuses` niesie `candidate_gaps` (jsonpath w bazie) → `qc_gaps`
+  w zadaniach pulpitu, kolejce DL i przeglądzie DL; napis „QC: luka kandydata ·
+  N” (bursztyn) wygrywa z „sprawdź ręcznie”, a okno QC ma część „Do decyzji
+  Delivery Leada”. Pomiar (947 par z 23 dni, kopia): zaliczone 621 → 713,
+  pozycje blokujące 400 → 285, `critical_skills` fail 178 → 75. Do tej zmiany
+  DL odrzucał w „QC CV” osoby za wymagania (33 z 57 odrzuceń w 30 dniach) po
+  tym, jak rekruter próbował „poprawić” CV.
 - **Luka kandydata to informacja, nie uwaga** (D2, decyzja Artura
   17.10.2026). `must_in_cv`: wymaganie, którego nie ma w CV, w oryginale ani
   w rozmowie, idzie do `check["info"]` z `fix: "ask_candidate"` i detalem

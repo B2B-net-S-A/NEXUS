@@ -368,6 +368,8 @@ export interface KanbanItem {
   warnings_count?: number;
   /** R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” zdanego przebiegu. */
   manual_checks?: string[];
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL. */
+  candidate_gaps?: string[];
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.

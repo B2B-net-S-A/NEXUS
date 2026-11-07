@@ -156,6 +156,8 @@ class PairFacts:
     # R1 (07.11.2026): blokujące sprawdzenia, których QC nie umiało sprawdzić
     # („sprawdź ręcznie”) — przebieg „przechodzi”, ale nikt tego nie sprawdził.
     qc_manual: tuple[str, ...] = ()
+    # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
+    qc_gaps: tuple[str, ...] = ()
     client_rate: bool = False
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
@@ -697,6 +699,16 @@ def _qc_result_item(column: str, f: PairFacts) -> _Item:
             OK,
             False,
             "przepuszczone mimo uwag (z powodem)",
+        )
+    if f.qc_status == "passed" and f.qc_gaps:
+        return _Item(
+            column,
+            "cv_qc_result",
+            "QC CV",
+            WAITING,
+            False,
+            "luka kandydata: " + ", ".join(f.qc_gaps) + " — zdecyduje Delivery Lead",
+            open_qc,
         )
     if f.qc_status == "passed" and f.qc_manual:
         return _Item(
@@ -1582,6 +1594,7 @@ async def load_pair_facts(
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         qc_manual=tuple(qc.get("manual_checks") or ()),
+        qc_gaps=tuple(qc.get("candidate_gaps") or ()),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         skips_fill_gates=skips_fill_gates(user),

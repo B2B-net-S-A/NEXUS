@@ -342,11 +342,38 @@ def test_critical_skill_in_several_roles_is_one_task() -> None:
     assert qc.summarize(checks)[:2] == (False, 1)
 
 
-def test_critical_skill_absent_everywhere_asks_the_candidate() -> None:
+def test_critical_skill_absent_everywhere_is_a_decision_for_the_dl() -> None:
+    """R2 (decyzja Artura 07.11.2026): brak krytycznej w CV, w oryginale
+    i w rozmowie to luka kandydata, nie poprawka CV — rekruter nie ma czego
+    poprawić. Nie blokuje; idzie do informacji z `candidate_gap`, a Delivery
+    Lead decyduje o wysyłce (DL odrzucił w „QC CV” 33 osoby za wymagania)."""
     checks = qc.compute_checks(_qc_input(BRANDED_HTML, critical=_reqs("Scala")))
-    item = _by_key(checks)["critical_skills"]["items"][0]
-    assert item["requirement"] == "Scala" and item["role"] is None
-    assert item["fix"] == "ask_candidate"
+    critical = _by_key(checks)["critical_skills"]
+    assert critical["items"] == []
+    (gap,) = critical["info"]
+    assert gap["requirement"] == "Scala" and gap["role"] is None
+    assert gap["fix"] == "ask_candidate" and gap["candidate_gap"] is True
+    assert gap["detail"] == (
+        "Kandydat tego nie ma: brak w CV, w oryginale i w rozmowie. W CV nie ma "
+        "czego poprawić — o wysyłce zdecyduje Delivery Lead."
+    )
+    assert critical["summary"] == "Luka kandydata: Scala"
+    assert qc.summarize(checks)[:2] == (True, 0)
+
+
+def test_critical_skill_in_the_sources_is_still_a_block() -> None:
+    """R2 nie zmienia blokady, gdy krytyczna jest w oryginale albo w rozmowie,
+    a brakuje jej w CV — to poprawka CV."""
+    checks = qc.compute_checks(
+        _qc_input(
+            BRANDED_HTML,
+            critical=_reqs("Scala"),
+            notes_text="Kandydat: Scala w Acme Bank od dwóch lat.",
+        )
+    )
+    critical = _by_key(checks)["critical_skills"]
+    (item,) = critical["items"]
+    assert item["requirement"] == "Scala" and item.get("candidate_gap") is None
     assert qc.summarize(checks)[:2] == (False, 1)
 
 
@@ -1132,7 +1159,11 @@ def test_critical_skill_is_not_found_in_a_word_that_only_starts_like_it() -> Non
     check = _by_key(qc.compute_checks(_qc_input(html, must=spring, critical=spring)))[
         "critical_skills"
     ]
-    assert check["status"] == "fail"
+    # Od R2 (07.11.2026) brak wszędzie to luka kandydata (informacja), nie
+    # blokada — ważne, że „sprint” nie zalicza „Spring”.
+    assert [i["requirement"] for i in check["info"] if i.get("candidate_gap")] == [
+        "Spring"
+    ]
 
 
 def test_answers_keep_dotted_names_versions_and_continuation_lines() -> None:
@@ -2966,6 +2997,8 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         assert isinstance(qc_card.pop("warnings_count"), int)
         # R1 (07.11.2026): blokujące „sprawdź ręcznie” — zależy od odczytu CV.
         assert isinstance(qc_card.pop("manual_checks"), list)
+        # R2 (07.11.2026): luki kandydata w krytycznych.
+        assert isinstance(qc_card.pop("candidate_gaps"), list)
         assert qc_card == {
             "status": "failed",
             "blocking_failed": 2,
@@ -6204,6 +6237,111 @@ def test_restore_dates_action_is_applied_alone_and_not_in_bulk():
     assert (
         out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
     )
+
+
+# ── Szybkie poprawki edytora (E1, 07.11.2026) ───────────────────────────────
+
+E1_HTML = (
+    "<h1>AML Analyst – Anna P.</h1>"
+    '<h2 data-cv-section="why_points">WHY OUR CANDIDATE?</h2>'
+    "<ul>"
+    "<li><p>Junior AML Specialist at BNP Paribas – analysed transaction alerts.</p></li>"
+    "<li><p><b>CDD/EDD</b>: practical experience in customer assessment.</p></li>"
+    "<li><p>Reviewed law enforcement requests at InPost.</p></li>"
+    "<li><p>Banking: reviews.</p></li>"
+    "</ul>"
+    '<h2 data-cv-section="languages">LANGUAGES</h2>'
+    "<p>English - advanced · Russian - basic</p>"
+    '<p class="rodo" data-cv-section="rodo">I hereby consent to the processing · of data</p>'
+)
+
+
+def test_languages_lines_splits_one_paragraph_per_language() -> None:
+    out, count = qc.languages_lines_html(E1_HTML)
+    assert count == 1
+    assert "<p>English – advanced</p><p>Russian – basic</p>" in out
+    # Klauzula zgody i reszta CV nietknięte.
+    assert "I hereby consent to the processing · of data" in out
+    assert out.replace("<p>English – advanced</p><p>Russian – basic</p>", "") == (
+        E1_HTML.replace("<p>English - advanced · Russian - basic</p>", "")
+    )
+
+
+@pytest.mark.parametrize(
+    ("paragraph", "expected"),
+    [
+        # Nic nie dopisuje: bez poziomu zostaje sam język.
+        ("Polski · Angielski (C1)", "<p>Polski</p><p>Angielski – C1</p>"),
+        ("Polish: native · German — B1", "<p>Polish – native</p><p>German – B1</p>"),
+        (
+            "<b>English</b> - B2 · <b>Polish</b> - native",
+            "<p><b>English</b> – B2</p><p><b>Polish</b> – native</p>",
+        ),
+        ("English – C1 ·  · Polish", "<p>English – C1</p><p>Polish</p>"),
+        # Akapit z formatowaniem: bez pustych akapitów i bez złamania linii na
+        # początku albo końcu języka (przegląd kodu, 07.11.2026).
+        (
+            "<strong>English</strong> – C1 · <strong>Polish</strong> – native ·",
+            "<p><strong>English</strong> – C1</p><p><strong>Polish</strong> – native</p>",
+        ),
+        (
+            "<strong>English</strong> - C1 ·· <strong>Polish</strong>",
+            "<p><strong>English</strong> – C1</p><p><strong>Polish</strong></p>",
+        ),
+        ("English - B2 ·<br>Polish - C1", "<p>English – B2</p><p>Polish – C1</p>"),
+        ("English - B2<br> · Polish - C1", "<p>English – B2</p><p>Polish – C1</p>"),
+    ],
+)
+def test_languages_lines_writes_language_dash_level(paragraph, expected) -> None:
+    html = f"<h2>Języki</h2><p>{paragraph}</p>"
+    out, count = qc.languages_lines_html(html)
+    assert count == 1 and out == f"<h2>Języki</h2>{expected}"
+
+
+def test_languages_lines_touches_only_the_languages_section() -> None:
+    html = (
+        "<h2>Umiejętności</h2><p>Java · Kotlin</p>"
+        "<h2>Languages</h2><p>English – C1</p><p>Polish – native</p>"
+    )
+    out, count = qc.languages_lines_html(html)
+    assert count == 0 and out == html
+
+
+def test_languages_lines_goes_through_transform_and_bulk() -> None:
+    common = dict(must=[], nice=[], fixes={}, experience=[])
+    out, applied, skipped = qc.transform_html(
+        E1_HTML, [{"action": "languages_lines"}], bulk=True, **common
+    )
+    assert [a["action"] for a in applied] == ["languages_lines"] and not skipped
+    assert "<p>Russian – basic</p>" in out
+    # Punkty podsumowania zostają bez zmian (pogrubianie początku odłożone).
+    assert "<li><p>Junior AML Specialist at BNP Paribas – analysed" in out
+    assert "I hereby consent to the processing · of data" in out
+    _, applied, skipped = qc.transform_html(
+        out, [{"action": "languages_lines"}], bulk=True, **common
+    )
+    assert applied == [] and skipped[0]["code"] == "nothing_to_do"
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        # Tysiące języków w jednym akapicie.
+        lambda: qc.languages_lines_html(
+            "<h2>Languages</h2><p>" + "English - B2 · " * 20000 + "</p>"
+        ),
+        # Odstępy bez łącznika po nich.
+        lambda: qc.languages_lines_html(
+            "<h2>Languages</h2><p>a" + " " * K_PR2 + "x · b</p>"
+        ),
+        lambda: qc.languages_lines_html(
+            "<h2>Languages</h2><p><b>a</b>" + " " * K_PR2 + "x · b</p>"
+        ),
+    ],
+)
+def test_quick_fixes_are_linear(run) -> None:
+    spent = _cpu(run)
+    assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
 
 
 # ── R4: to, za co Delivery Lead cofa kartę (07.11.2026) ──────────────────────
