@@ -1337,6 +1337,22 @@ _TERM_FAMILIES = {
 }
 _SIMILAR_WORD_MIN = 5
 _SIMILAR_CONTEXT = 50
+# Adresy i e-maile z linii kontaktu („github.com/jnowak”, „jan@gitlab.pl”) to
+# nie nazwa narzędzia: staging 07.11.2026 pytał „Git pod inną nazwą?” cytatem
+# nagłówka CV. Domena bez schematu tylko z popularną końcówką albo ścieżką,
+# żeby „Socket.io” i „ASP.NET” zostały technologiami.
+_CONTACT_TOKEN = re.compile(
+    r"(?:https?://|www\.)\S+"
+    r"|[\w.+-]+@[\w-]+(?:\.[\w-]+)+"
+    r"|[\w-]+(?:\.[\w-]+)*\.(?:com|pl|org|eu|dev|me|info)(?![\w-])\S*"
+    r"|[\w-]+(?:\.[\w-]+)*\.[a-z]{2,6}/\S*",
+    re.IGNORECASE,
+)
+
+
+def _without_contacts(text: str) -> str:
+    """Tekst z adresami i e-mailami zamienionymi na spacje (ta sama długość)."""
+    return _CONTACT_TOKEN.sub(lambda m: " " * len(m.group()), text)
 
 
 def similar_in_original(
@@ -1352,7 +1368,8 @@ def similar_in_original(
     dawał 342 trafienia na 1195 prawdziwych luk.
     Cytat stoi w oryginale dosłownie, bez wielokropka, bo sprawdza go pominięcie.
     """
-    folded = dz._fold(original or "")
+    original = original or ""
+    folded = dz._fold(_without_contacts(original))
     name = dz._fold(term or "").strip()
     if not folded or not name:
         return None
@@ -1376,8 +1393,12 @@ def similar_in_original(
         match = re.search(pattern, folded)
         if match is None:
             continue
-        start = max(0, match.start() - _SIMILAR_CONTEXT)
-        end = min(len(original), match.end() + _SIMILAR_CONTEXT)
+        # Cytat z jednej linii: linia nad trafieniem bywa nagłówkiem kontaktu.
+        line_start = original.rfind("\n", 0, match.start()) + 1
+        line_end = original.find("\n", match.end())
+        line_end = len(original) if line_end < 0 else line_end
+        start = max(line_start, match.start() - _SIMILAR_CONTEXT)
+        end = min(line_end, match.end() + _SIMILAR_CONTEXT)
         # Cytat od pełnego słowa do pełnego słowa.
         while start > 0 and not original[start - 1].isspace():
             start += 1
