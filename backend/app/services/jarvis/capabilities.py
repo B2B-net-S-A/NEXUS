@@ -23,6 +23,7 @@ READ: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("zapisy w umowach ramowych", ("search_framework_contracts",)),
     ("liczby: placementy, CV, kontrakty", ("evaluate_metric",)),
     ("urlopy i sprzęt", ("my_leave_balance", "my_equipment")),
+    ("raport godzin osoby za miesiąc", ("person_month",)),
 )
 # Zapisy z ``undo``: wykonane od razu, z „Cofnij” na karcie.
 NOW: tuple[tuple[str, tuple[str, ...]], ...] = (
