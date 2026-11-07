@@ -1797,4 +1797,12 @@ describe("CvQcDialog — QC CV", () => {
     expect(section).toHaveTextContent("o wysyłce zdecyduje Delivery Lead");
     expect(within(section).getByRole("button", { name: "Skopiuj pytanie do kandydata" })).toBeTruthy();
   });
+
+  it("Delivery Lead z przeglądu dostaje objaśnienie dla siebie (R5, 07.11.2026)", async () => {
+    serve(passed({ advisory: true }));
+    renderDialog({ audience: "dl" });
+    const explainer = await screen.findByRole("region", { name: "Co sprawdza QC" });
+    expect(explainer).toHaveTextContent("Patrzysz jako Delivery Lead");
+    expect(explainer).not.toHaveTextContent("możesz przesunąć kartę mimo uwag");
+  });
 });

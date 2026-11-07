@@ -2731,17 +2731,78 @@ def test_override_reason_is_a_ready_label_or_a_free_description() -> None:
     )
     assert qc.override_reason_text(None, "bo tak") == "bo tak"
 
-    # Gotowy powód nie wymaga opisu; bez minimum znaków.
+    # Gotowy powód nie wymaga opisu.
     assert QcOverrideRequest(reason_code="client_short_cv").reason == ""
-    assert QcOverrideRequest(reason="  bo   tak ").reason == "bo tak"
+    assert QcOverrideRequest(reason="  Klient zna   go z projektu ").reason == (
+        "Klient zna go z projektu"
+    )
     for body in (
         {},
         {"reason_code": "other"},
         {"reason_code": "other", "reason": "   "},
-        {"reason_code": "nieznany", "reason": "Klient prosił."},
+        {"reason_code": "nieznany", "reason": "Klient prosił o to."},
+        # R6 (07.11.2026): „Inny powód” to co najmniej trzy słowa — 15 z 91
+        # obejść miało „x”, „.” albo „dw”.
+        {"reason_code": "other", "reason": "x"},
+        {"reason_code": "other", "reason": "bo tak"},
+        {"reason": "dw ."},
+        # Kod automatu „DL match” nie jest powodem do wyboru w oknie.
+        {"reason_code": "dl_match", "reason": "Delivery Lead wysłał z przeglądu"},
     ):
         with pytest.raises(ValidationError):
             QcOverrideRequest(**body)
+
+
+def test_other_override_reason_must_name_a_current_blocker() -> None:
+    """R6 (07.11.2026): „Inny powód” wskazuje, której blokady dotyczy.
+
+    Serwer bierze tylko klucze blokad z bieżącego przebiegu; gdy żadna nie
+    pasuje, a blokady są, obejście odmawia. Gotowy powód nie wymaga wskazania.
+    """
+
+    checks = [
+        {
+            "key": "critical_skills",
+            "severity": "blocking",
+            "status": "fail",
+            "items": [{"key": "critical_skills|java|cv"}],
+        },
+        {
+            "key": "no_unsupported",
+            "severity": "blocking",
+            "status": "fail",
+            "items": [{"key": "no_unsupported|kafka|cv"}],
+        },
+        {
+            "key": "dates",
+            "severity": "warning",
+            "status": "fail",
+            "items": [{"key": "dates|x|cv"}],
+        },
+    ]
+    assert qc.override_about(
+        checks, ["no_unsupported|kafka|cv", "dates|x|cv", "obcy"], "other"
+    ) == ["no_unsupported|kafka|cv"]
+    assert qc.override_about(checks, [], "client_short_cv") == []
+    with pytest.raises(qc.OverrideAboutMissing):
+        qc.override_about(checks, [], "other")
+    with pytest.raises(qc.OverrideAboutMissing):
+        qc.override_about(checks, ["dates|x|cv"], None)
+    # Bez blokad z kluczami (np. samo `cv_present`) nie ma czego wskazać.
+    no_keys = [
+        {"key": "cv_present", "severity": "blocking", "status": "fail", "items": []}
+    ]
+    assert qc.override_about(no_keys, [], "other") == []
+    # Automat „DL match” ma własny kod i nie wskazuje blokad.
+    assert qc.override_about(checks, [], qc.DL_MATCH_OVERRIDE) == []
+
+
+def test_dl_match_override_uses_its_own_reason_code() -> None:
+    """R6: obejście z „DL match” liczyło się jako „Inny powód” (11 z 91)."""
+
+    source = (Path(__file__).resolve().parents[1] / "app/api/dl_match.py").read_text()
+    assert "reason_code=cv_qc.DL_MATCH_OVERRIDE" in source
+    assert qc.DL_MATCH_OVERRIDE not in qc.OVERRIDE_REASONS
 
 
 def test_qc_override_reasons_mirror() -> None:
@@ -2951,14 +3012,50 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         assert (
             status[(world["candidate_id"], world["job_id"])]["status"] == "overridden"
         )
-        # Front sprzed zmiany wysyła sam opis — działa jak „Inny powód”,
-        # bez minimum znaków.
+        # „Inny powód” (R6, 07.11.2026): co najmniej trzy słowa i wskazana
+        # blokada z bieżącego przebiegu.
         with hydrated_taxonomy():
-            legacy = await api_client.post(
+            too_short = await api_client.post(
                 override_url, headers=dl, json={"reason": "bo tak"}
             )
-        assert legacy.status_code == 200, legacy.text
-        assert legacy.json()["override"]["reason"] == "bo tak"
+            unnamed = await api_client.post(
+                override_url,
+                headers=dl,
+                json={"reason_code": "other", "reason": "Klient zna go z projektu"},
+            )
+            current = (
+                await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=dl)
+            ).json()
+        assert too_short.status_code == 422, too_short.text
+        assert unnamed.status_code == 422, unnamed.text
+        assert "której uwagi" in unnamed.json()["detail"]
+        blocker = next(
+            item["key"]
+            for check in current["checks"]
+            if check["severity"] == "blocking" and check["status"] == "fail"
+            for item in check["items"]
+            if item.get("key")
+        )
+        with hydrated_taxonomy():
+            other = await api_client.post(
+                override_url,
+                headers=dl,
+                json={
+                    "reason_code": "other",
+                    "reason": "Klient zna go z projektu",
+                    "about_keys": [blocker],
+                },
+            )
+        assert other.status_code == 200, other.text
+        assert other.json()["override"]["reason"] == "Klient zna go z projektu"
+        async with AsyncSessionLocal() as db:
+            about = await db.scalar(
+                select(CvQcRun.result["override_about"])
+                .where(CvQcRun.candidate_stage_id == stage_id)
+                .order_by(CvQcRun.id.desc())
+                .limit(1)
+            )
+        assert about == [blocker]
 
         with hydrated_taxonomy():
             moved = await api_client.post("/api/pipeline/move", headers=dl, json=send)

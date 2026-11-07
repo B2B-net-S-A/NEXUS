@@ -32,6 +32,7 @@ from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
+from app.services import review_batch
 from app.services.client_off_limits import off_limits_badge
 from app.services.process_entry_meta import (
     application_link_owner_id,
@@ -3720,6 +3721,14 @@ async def build_kanban_view(
         and (owner := application_link_owner_id(p.entry_meta)) is not None
     }
     owner_ids |= set(link_owner_by_candidate.values())
+    # Porcja dnia (07.11.2026): „Dla: …” na karcie od systemu.
+    review_owner_by_candidate = {
+        cid: owner
+        for cid, p in v4_processes.items()
+        if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        and (owner := review_batch.owner_of(p.entry_meta)) is not None
+    }
+    owner_ids |= set(review_owner_by_candidate.values())
     # …i ślad ponownego zgłoszenia osoby, która już była w rekrutacji:
     # „Zgłosił się też z Twojego linku” / „Zgłosił się też z linku: Marta”.
     reapplied_link_owners = _reapplied_link_owners(
@@ -4226,6 +4235,12 @@ async def build_kanban_view(
                 )
                 payload["entry_autofill"]["fresh"] = (
                     e.candidate_id in without_process_ids
+                )
+                review_owner = review_owner_by_candidate.get(e.candidate_id)
+                payload["entry_autofill"]["review_owner"] = (
+                    {"id": review_owner, "name": user_name_by_id.get(review_owner)}
+                    if review_owner is not None
+                    else None
                 )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_portal"] = portal_application_portal(v4.entry_meta)

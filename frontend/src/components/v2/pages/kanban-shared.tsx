@@ -242,6 +242,8 @@ export interface KanbanItem {
   fresh_first?: boolean;
   /** 03.11.2026: bez procesu w innej rekrutacji — co 5. miejsce w kolejce. */
   fresh?: boolean;
+  /** 07.11.2026: porcja dnia — czyja to karta do przejrzenia („Dla: …”). */
+  review_owner?: { id: number; name: string | null } | null;
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”

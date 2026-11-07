@@ -1219,7 +1219,7 @@ const BEFORE_VERIFIED_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "sc
 export interface CardOwner {
   /** Pełne imię i nazwisko; `null` = brak zapisanej osoby. */
   name: string | null;
-  role: "verified" | "added" | "assigned" | "taken";
+  role: "verified" | "added" | "assigned" | "taken" | "review";
 }
 
 /**
@@ -1235,7 +1235,12 @@ export interface CardOwner {
 export function cardOwner(
   item: Pick<
     KanbanItem,
-    "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name" | "taken_by_name"
+    | "added_to_job_by_name"
+    | "verified_by_name"
+    | "entry_source"
+    | "owner_name"
+    | "taken_by_name"
+    | "entry_autofill"
   >,
   column: BoardColumnKey | null
 ): CardOwner {
@@ -1250,7 +1255,14 @@ export function cardOwner(
     return { name: verifier, role: "verified" };
   }
   // Osoba od silnika „Nowi na 20” (23.10.2026) nie ma osoby dodającej.
-  if (item.entry_source === "system") return { name: "System", role: "added" };
+  // Porcja dnia (07.11.2026): karta ma osobę, która ją przegląda — „Dla: …”.
+  if (item.entry_source === "system") {
+    const reviewer = item.entry_autofill?.review_owner?.name?.trim();
+    if (reviewer && (column == null || BEFORE_VERIFIED_COLUMNS.has(column))) {
+      return { name: reviewer, role: "review" };
+    }
+    return { name: "System", role: "added" };
+  }
   return { name: item.added_to_job_by_name?.trim() || null, role: "added" };
 }
 

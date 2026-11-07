@@ -363,6 +363,8 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // ten dostęp w polityce startowej, ale jawny override użytkownika musi móc
   // go odebrać bez pozostawiania bocznego wejścia przez URL.
   { prefix: "/talent-radar", roles: null, section: "sourcing" },
+  // Porcja dnia od Nexusa (07.11.2026) — karty z rekrutacji, sekcja Rekrutacje.
+  { prefix: "/porcja", roles: null, section: "pipeline" },
   {
     prefix: "/sourcing",
     roles: SOURCING_OPERATIONAL_ROLES,

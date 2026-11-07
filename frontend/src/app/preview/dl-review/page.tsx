@@ -39,6 +39,7 @@ import { DlReviewBody, DlReviewPanel } from "@/components/v2/recruitment/DlRevie
 import api, { type CVBrandedState, type CVOriginalSnapshot } from "@/lib/api";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
+import { cvQcQueryKey, type QcResult } from "@/lib/api/cvQc";
 import {
   dlReviewContextQueryKey,
   dlReviewQueueQueryKey,
@@ -564,6 +565,31 @@ const MATCH: DlMatchSuggestions = {
   already_in: [{ job_id: 214, title: "Java Tech Lead", client_reference: "ZOB-9690", column: "screening" }],
 };
 
+const QC_PREVIEW = {
+  stage_id: STAGE_ID,
+  candidate_id: CANDIDATE_ID,
+  job_id: JOB_ID,
+  passed: true,
+  blocking_failed: 0,
+  warnings_count: 0,
+  checks: [
+    { key: "dates", label: "Każda rola ma daty", severity: "warning", status: "pass", summary: "OK", items: [] },
+    { key: "spelling", label: "Pisownia technologii", severity: "warning", status: "pass", summary: "OK", items: [] },
+    {
+      key: "critical_skills",
+      label: "Umiejętności krytyczne są w CV i opisane w rolach",
+      severity: "blocking",
+      status: "manual",
+      summary: "Odczyt CV nie ma opisów ról — sprawdź role ręcznie",
+      items: [],
+      roles: [
+        { requirement: "Java", role: "Firma Alfa", state: "described", manual: { by: "Ewa P.", at: "2026-11-07" } },
+        { requirement: "Kafka", role: "Firma Alfa", state: "unverified" },
+      ],
+    },
+  ],
+} as unknown as QcResult;
+
 function seededClient(): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -629,6 +655,9 @@ function seededClient(): QueryClient {
   qc.setQueryData(stageBrandedQueryKey(STAGE_ID), BRANDED_NONE, fresh);
   qc.setQueryData(recommendationCardQueryKey(CANDIDATE_ID, JOB_ID), CARD, fresh);
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
+  // „Kontrola CV” (R5, 07.11.2026): fikcyjny wynik QC — dwa sprawdzenia
+  // automatu, jedna krytyczna wskazana ręcznie, jedna niesprawdzona.
+  qc.setQueryData(cvQcQueryKey(STAGE_ID), QC_PREVIEW, fresh);
   qc.setQueryData(dlReviewQueueQueryKey(JOB_ID), QUEUE, fresh);
   qc.setQueryData(dlMatchKeys.one(JOB_ID, CANDIDATE_ID), MATCH, fresh);
   // Klient bez wzoru „Karty przed CV” — pigułki karty nie ma.
