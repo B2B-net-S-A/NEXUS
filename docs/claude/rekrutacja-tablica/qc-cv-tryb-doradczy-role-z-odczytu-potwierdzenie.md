@@ -108,6 +108,20 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   zdanie jest wymagane tylko tam, gdzie oryginał OPISUJE umiejętność w opisie
   roli; sama lista technologii albo nazwa stanowiska to informacja
   (`listed_only`) — patrz „QC CV mówi prawdę”.
+- **„Sprawdź ręcznie” ma właściciela (R3, decyzja Artura 07.11.2026).** Przy
+  krytycznej z rolami `unverified` okno QC pokazuje stanowiska oryginału jako
+  przyciski i „Nigdzie — tylko na liście”. `POST …/qc/manual-roles`
+  (`cv_qc.record_manual_roles`, rekruter+ członek rekrutacji, bez integracji)
+  przyjmuje tylko taką krytyczną i role z jej listy (inaczej 422
+  `CV_QC_MANUAL_ROLES_FAILED`) i zapisuje wpis `Activity` kandydata
+  (`MANUAL_ROLES_ACTION`, `details.job_id`, ostatni dla wymagania wygrywa) —
+  bez nowej tabeli. `evaluate` czyta wskazania (`manual_role_checks`) do
+  `QcInput.manual_roles`; `_apply_manual_roles`: wskazana rola liczy się jak
+  rola z opisem (zdanie w CV tej roli = `described`, brak = pozycja do
+  poprawy bez propozycji AI), niewskazana i „nigdzie” = `not_in_original`
+  (zdanie nie jest wymagane — reguła z 13.10). Stan i pozycja niosą `manual`
+  (kto, kiedy), a „Rola po roli” pisze „wskazał(a) X”. Panel w edytorze CV
+  przycisków nie ma (tylko okno QC).
 - **Pozycja niesie dowód:** `evidence` (zdanie z opisu roli, lista technologii
   roli albo nazwa stanowiska) i `evidence_kind`; sprawdzenie niesie `roles`
   („rola po roli”: `described` / `missing` / `listed_only` / `not_in_original`
