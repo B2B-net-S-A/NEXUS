@@ -5020,6 +5020,47 @@ def test_similar_in_original_stays_quiet_without_evidence(term, original):
     assert qc.similar_in_original(term, original) is None
 
 
+@pytest.mark.parametrize(
+    "original",
+    [
+        # Staging 07.11.2026: „Git — w oryginale pod inną nazwą?” z cytatem
+        # linii kontaktu; „github” stało tylko w adresie profilu.
+        "Jan Nowak\n+48 600 000 000 jnowak.dev github.com/jnowak in/jan-nowak Lublin\n"
+        "Doświadczenie\nPython, Django, Docker",
+        "Kontakt: https://gitlab.com/jnowak\nPython, Docker",
+        "www.bitbucket.org/jnowak · Python",
+        "jan@github-fan.pl, Python, Docker",
+    ],
+)
+def test_similar_in_original_ignores_urls_and_emails(original):
+    assert qc.similar_in_original("Git", original) is None
+
+
+def test_contact_mask_keeps_technologies_with_dots():
+    text = "Socket.io, ASP.NET Core, Node.js, Vue.js"
+    assert qc._without_contacts(text) == text
+
+
+def test_similar_in_original_skips_url_and_finds_the_real_mention():
+    original = "jnowak.dev github.com/jnowak Lublin\nNarzędzia: GitHub, Jira"
+    similar = qc.similar_in_original("Git", original)
+    assert similar is not None and similar["term"] == "GitHub"
+    assert "github.com" not in similar["quote"]
+    assert similar["quote"] in original
+
+
+def test_no_unsupported_does_not_quote_contact_line_as_other_name():
+    html = "<h1>CV</h1><ul><li><p>Praca z Git.</p></li></ul>"
+    data = _qc_input(
+        html,
+        must=_reqs("Git"),
+        original_text="+48 600 000 000 github.com/jnowak Lublin\nPython, Docker.",
+    )
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert "similar" not in item
+    assert "nie ma tego w oryginale" in item["detail"]
+
+
 def test_similar_quote_starts_and_ends_on_whole_words():
     original = "raporty z danymi źródłowymi; tworzyłem testy i pipeline’y GitHub Actions, potem kolejne wdrożenia."
     quote = qc.similar_in_original("Data Pipelines", original)["quote"]
