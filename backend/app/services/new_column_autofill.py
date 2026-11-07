@@ -978,7 +978,18 @@ async def _batch_tick(now: datetime) -> dict:
             await db.commit()
     pending = [int(j) for j in state.get("pending") or []]
     if not pending:
-        return {"pass": "batch", "day": today, "jobs": 0, "pending": 0, "filled": {}}
+        # Rekrutacja założona w ciągu dnia dostaje porcję zaraz po pierwszym
+        # przeglądzie (R6), a nie dopiero jutro rano.
+        async with AsyncSessionLocal() as db:
+            pending = await _jobs_without_batch(db)
+        if not pending:
+            return {
+                "pass": "batch",
+                "day": today,
+                "jobs": 0,
+                "pending": 0,
+                "filled": {},
+            }
     budget = _budget()
     filled: dict[int, int] = {}
     done: set[int] = set()
@@ -1015,3 +1026,32 @@ async def _batch_tick(now: datetime) -> dict:
         "pending": len(left),
         "filled": filled,
     }
+
+
+async def _jobs_without_batch(db) -> list[int]:
+    """Rekrutacje z ostatnich 2 dni, w pracy, z pulą i rekruterem, które nie
+    dostały jeszcze żadnej karty od systemu (po pierwszym przeglądzie w dzień)."""
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services import review_batch
+
+    rows = await db.execute(
+        select(Job.id)
+        .where(
+            Job.created_at >= datetime.now(timezone.utc) - timedelta(days=2),
+            Job.status == JobStatus.published,
+            Job.work_state.in_(IN_WORK_STATES),
+            select(JobAutofillPool.job_id)
+            .where(JobAutofillPool.job_id == Job.id)
+            .exists(),
+            ~select(RecruitmentProcess.id)
+            .where(
+                RecruitmentProcess.job_id == Job.id,
+                RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
+            )
+            .exists(),
+        )
+        .order_by(Job.id)
+    )
+    ids = [int(job_id) for (job_id,) in rows.all()]
+    teams = await review_batch.recruiter_ids_for_jobs(db, ids) if ids else {}
+    return [job_id for job_id in ids if teams.get(job_id)]

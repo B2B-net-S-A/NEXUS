@@ -596,6 +596,11 @@ class Settings(BaseSettings):
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60
     # Zdarzenia rekrutacji starsze niż tyle dni nie uruchamiają przeglądu.
     AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS: int = 14
+    # Pierwszy przegląd nowej rekrutacji jeszcze tego samego dnia (07.11.2026,
+    # R6): w dni robocze 7–19 pojedynczo, rekrutacje bez żadnego przeglądu,
+    # najwyżej tyle dziennie. False = pierwszy przegląd dopiero w nocy.
+    AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED: bool = True
+    AUTO_FULL_REVIEW_DAYTIME_MAX: int = 10
     # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
     # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę
     # „Nowi” każdej rekrutacji w pracy osobami z puli nocnego przeglądu.

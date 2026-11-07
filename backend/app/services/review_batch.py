@@ -222,13 +222,9 @@ async def recruiter_ids_for_jobs(
     if not user_ids:
         return {job_id: [] for job_id in teams}
     allowed = {
-        uid
-        for uid, role, active in (
-            await db.execute(
-                select(User.id, User.role, User.is_active).where(User.id.in_(user_ids))
-            )
-        ).all()
-        if active and role == UserRole.recruiter
+        user.id
+        for user in (await db.scalars(select(User).where(User.id.in_(user_ids)))).all()
+        if user.is_active and applies_to(user)
     }
     return {
         job_id: sorted({p.user_id for p in working(people) if p.user_id in allowed})
@@ -386,9 +382,23 @@ class BatchStatus:
         return out
 
 
+# Kto przegląda porcję i jest blokowany: rekruter bez żadnej z tych ról
+# (konta mają role dodatkowe, np. admin z rolą rekrutera).
+_EXEMPT_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+)
+
+
 def applies_to(user: User) -> bool:
-    """Blokada dotyczy tylko konta z rolą rekrutera (admin, HoR, DL i inne
-    role porcji nie przeglądają)."""
+    """Porcję dostaje i blokadę ma konto z rolą rekrutera bez roli admina,
+    Head of Recruitment ani Delivery Leada (także jako roli dodatkowej)."""
+    has_role = getattr(user, "has_role", None)
+    if callable(has_role):
+        return has_role(UserRole.recruiter) and not any(
+            has_role(r) for r in _EXEMPT_ROLES
+        )
     return getattr(user, "role", None) == UserRole.recruiter
 
 

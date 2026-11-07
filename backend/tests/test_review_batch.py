@@ -215,7 +215,11 @@ async def test_daily_tick_runs_once_per_day(small_batch):
     async def _only_mine(_db):
         return [world["job_id"]]
 
+    async def _no_new(_db):
+        return []
+
     small_batch.setattr(autofill, "_jobs_in_work", _only_mine)
+    small_batch.setattr(autofill, "_jobs_without_batch", _no_new)
     small_batch.setattr(
         autofill.settings, "NEW_COLUMN_AUTOFILL_ENABLED", True, raising=False
     )
@@ -242,3 +246,20 @@ async def test_daily_tick_runs_once_per_day(small_batch):
 
     again = await autofill.tick(now=_WORKDAY)
     assert again["filled"] == {} and again["jobs"] == 0
+
+
+async def test_new_job_gets_its_batch_the_same_day(small_batch):
+    """Rekrutacja założona w ciągu dnia (po pierwszym przeglądzie) dostaje
+    porcję od razu, a nie dopiero jutro o 7:00; bez rekrutera — nie."""
+    a = await _user()
+    world = await _world(5, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(world["ids"])})
+    lonely = await _world(2, recruiters=[])
+    await _pool(lonely["job_id"], {cid: 90 for cid in lonely["ids"]})
+    async with AsyncSessionLocal() as db:
+        ids = await autofill._jobs_without_batch(db)
+    assert world["job_id"] in ids and lonely["job_id"] not in ids
+
+    await _fill(world["job_id"])
+    async with AsyncSessionLocal() as db:
+        assert world["job_id"] not in await autofill._jobs_without_batch(db)

@@ -271,3 +271,26 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
     queue = await rb.review_queue(_JobsDb(), _user(), now=NOW)
     # P0 (30), potem pilna (20), potem średnia (10); w każdej od najlepszej
     assert [c.process_id for c in queue] == [6, 4, 1, 5, 2, 3]
+
+
+def _multi(role: UserRole, extra: list[str]):
+    roles = {role.value, *extra}
+    return SimpleNamespace(
+        id=9,
+        role=role,
+        has_role=lambda r: (r.value if hasattr(r, "value") else str(r)) in roles,
+    )
+
+
+@pytest.mark.parametrize(
+    "role, extra, applies",
+    [
+        (UserRole.recruiter, [], True),
+        (UserRole.recruiter, ["delivery_lead"], False),
+        (UserRole.admin, ["head_of_recruitment", "recruiter"], False),
+        (UserRole.delivery_lead, ["recruiter"], False),
+        (UserRole.talent_community_manager, [], False),
+    ],
+)
+def test_who_gets_the_batch(role, extra, applies):
+    assert rb.applies_to(_multi(role, extra)) is applies

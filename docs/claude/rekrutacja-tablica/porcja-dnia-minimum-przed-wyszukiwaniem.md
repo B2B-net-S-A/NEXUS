@@ -75,3 +75,25 @@ w `entry_meta` zostają i nic nie psują.
 Testy: `backend/tests/test_review_batch.py`, `test_review_batch_unit.py`,
 `frontend/src/components/v2/review-batch/__tests__/ReviewBatchCard.test.tsx`,
 `frontend/src/lib/api/__tests__/reviewBatch.test.ts`.
+
+## Pula spoza rekrutacji i pierwszy przegląd w dzień (R2, R6)
+
+- **Pula dopełniania = 150 osób SPOZA rekrutacji** (`auto_full_review.refresh_autofill_pool`,
+  `_in_job_ids`: wiersze `candidate_stages` i `candidate_stage_removals` tej
+  rekrutacji). Do 07.11 pula liczyła też osoby już w rekrutacji: w AML (789163)
+  118 ze 150, a 80 ze 185 rekrutacji miało mniej niż 20 wolnych osób od 70%.
+- **Pustosząca pula idzie na początek nocnej kolejki** (`_pool_running_low`,
+  `POOL_LOW_FREE` = 40 wolnych osób), tak jak zdarzenie albo zmieniony odcisk.
+  Rekrutacja bez puli nie liczy się jako pustosząca — o niej decyduje wiek.
+- **Pierwszy pełny przegląd tego samego dnia** (`_daytime_first_review`): dni
+  robocze 7–19, rekrutacje w pracy bez żadnego przeglądu automatycznego
+  (`first_review_job_ids`), pojedynczo (ustępuje każdemu aktywnemu przeglądowi),
+  najwyżej `AUTO_FULL_REVIEW_DAYTIME_MAX` (10) dziennie poza nocnym oknem.
+  Wyłącznik `AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED`. Szybkie dopasowanie przy
+  zapisie (`new_cv`, 11–19 osób) zostaje.
+- **Porcja dla nowej rekrutacji jeszcze tego dnia** (`_jobs_without_batch`):
+  po dziennym przebiegu silnik co tick dokłada porcję rekrutacjom z ostatnich
+  2 dni, które mają pulę i rekrutera, a nie mają żadnej karty od systemu.
+
+Testy: `backend/tests/test_auto_full_review.py` (sekcja z 07.11.2026),
+`test_review_batch.py::test_new_job_gets_its_batch_the_same_day`.
