@@ -1146,7 +1146,11 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="list_clients",
         label="Przeglądam klientów",
-        description="Katalog klientów (aktywni / relacja / nieaktywni), z wyszukiwaniem po nazwie.",
+        description=(
+            "Katalog klientów (aktywni / relacja / nieaktywni), z wyszukiwaniem po nazwie. "
+            "effective_date i expiry_date to wpis w kartotece, nie treść umowy: pytanie "
+            "o okres obowiązywania albo datę zawarcia sprawdź przez search_framework_contracts."
+        ),
         input_schema=_schema(
             {
                 "query": STR,
