@@ -604,6 +604,16 @@ zapełnić.
   i myślników, potem bez końcówki „js”). Kolejka pokazuje „Zmapuj na „X””
   jednym kliknięciem — to zwykłe „Zmapuj” (alias), więc bez duplikatu
   w słowniku. Nic nie mapuje się samo, także w imporcie z Compassa.
+- **„Dodaj do słownika” wymaga kategorii (07.11.2026)**, tak jak „Nowa
+  umiejętność” w Słowniku od etapu 2 (#3105): hasło bez kategorii nie działa
+  w pogrubianiu CV, QC ani bramce must. `POST /api/care/skill-review/{id}/create`
+  daje 422 po polsku bez kategorii („Wybierz kategorię hasła.”) i z kategorią
+  spoza `skill_curation.category_choices` (kategorie słownika bez ról `role_*`
+  plus `practice`, `domain`) — pozycja zostaje otwarta. Listę do wyboru podaje
+  sama kolejka (`GET /api/care/skill-review` → `categories`, pusta dla
+  czytelnika bez prawa decyzji), bo decyduje tu też TCM, który nie czyta
+  `/api/skills-admin`. Okno używa `SkillCategorySelect` bez „Bez kategorii”;
+  „Dodaj” jest nieaktywne, dopóki kategoria nie jest wybrana.
 
 ## Karty z Compassa i kontrakty (import 18.10.2026)
 
