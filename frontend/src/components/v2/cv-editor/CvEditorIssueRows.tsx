@@ -1152,7 +1152,14 @@ export function QuickFixRow({
             ))}
           </div>
         </div>
-        <Button size="sm" variant="outline" className={SMALL} disabled={busy} onClick={onApply}>
+        <Button
+          size="sm"
+          variant="outline"
+          className={SMALL}
+          disabled={busy}
+          onClick={onApply}
+          data-tour="cv-editor.quick-fixes"
+        >
           Zmień
         </Button>
       </div>
