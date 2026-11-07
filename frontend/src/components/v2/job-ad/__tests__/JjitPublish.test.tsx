@@ -206,6 +206,15 @@ describe("AdChannels", () => {
     expect(screen.queryByText(/Najpierw opublikuj na stronie kariery/)).toBeNull();
   });
 
+  it("„Opublikuj ogłoszenie” otwiera najpierw okno JustJoin.IT (07.11.2026)", async () => {
+    channels(adState({ jjit_api: { ...READY, career_required: false }, reminders }));
+    expect(screen.getByTestId("publish-all")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("publish-all-start"));
+
+    expect(await screen.findByRole("dialog", { name: /Opublikuj na JustJoin.IT/ })).toBeTruthy();
+  });
+
   it("osoba bez prawa decyzji nie dostaje przycisku", () => {
     channels(
       adState({
