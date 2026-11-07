@@ -1,5 +1,5 @@
 {
-  "entry": "3cd7cb1e7d7206664d91f1e41909786dd8a2c0f1c419297a0038767e555fad6c",
+  "entry": "48c7fe39a6ad928047ad63da133b9dd73d64d2a92020ac31732c01bcd46e5bd6",
   "guide": "hr.approvals",
   "sources": {
     "frontend/src/components/hr/leave/ApprovalsScreen.tsx": "cc9ae4dbbfaff2f1f810db4874cbc579345765557edd03049c97309863eeec85",
