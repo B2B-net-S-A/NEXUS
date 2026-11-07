@@ -954,7 +954,14 @@ async def test_apply_via_job_link_creates_candidate_consent_and_notification(api
         files=_cv(),
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json() == {"ok": True, "status": "received"}
+    # 07.11.2026: odpowiedź niesie też imię i e-mail dla ekranu „Dziękujemy”
+    # (przy samym CV kandydat ich nie wpisuje).
+    assert resp.json() == {
+        "ok": True,
+        "status": "received",
+        "first_name": "Jan",
+        "email": applicant,
+    }
 
     async with AsyncSessionLocal() as db:
         cand = await db.scalar(select(Candidate).where(Candidate.email == applicant))
