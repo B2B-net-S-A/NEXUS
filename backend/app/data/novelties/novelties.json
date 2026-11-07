@@ -217,7 +217,7 @@
     "why": "Zaznaczasz JustJoin.IT, Pracuj.pl i stronę kariery, klikasz raz, a NEXUS prowadzi po kolei: strona od razu, potem kategoria JustJoin.IT, potem stawka w mailu do opiekuna Pracuj.pl.",
     "tier": "dot",
     "shipped_on": "2026-11-07",
-    "pr": 0,
+    "pr": 3120,
     "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
     "where": "Rekrutacja → Ogłoszenie → Opublikuj ogłoszenie",
     "href": "/jobs",
