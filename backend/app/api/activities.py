@@ -219,9 +219,16 @@ async def get_activity_feed(
     i surowe ``details`` — nie dla roli ``user`` (guard OperationalUser).
     """
     # Load activities with user join
-    query = select(Activity, User.name.label("user_name")).outerjoin(
-        User,
-        Activity.user_id == User.id,
+    from app.services.cv_edit_summary import ACTION as CV_EDIT_SUMMARY_ACTION
+
+    # Pomiar poprawek CV (E3) dubluje „zatwierdzenie CV” — to liczby, nie zdarzenie.
+    query = (
+        select(Activity, User.name.label("user_name"))
+        .outerjoin(
+            User,
+            Activity.user_id == User.id,
+        )
+        .where(Activity.action != CV_EDIT_SUMMARY_ACTION)
     )
     query = await apply_activity_feed_scope(query, current_user, db)
     query = query.order_by(desc(Activity.created_at)).limit(limit)

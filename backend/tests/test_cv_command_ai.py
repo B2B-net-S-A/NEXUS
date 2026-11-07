@@ -898,9 +898,14 @@ def test_unbold_skips_terms_that_are_not_bold_anywhere() -> None:
     )
 
 
-def test_mixed_refusals_keep_the_general_message() -> None:
+def test_mixed_refusals_name_the_real_refusal() -> None:
+    # „Już pogrubione” nie jest odmową; zdanie mówi o tej, która nią jest (07.11.2026).
     assert (
         cmd.dropped_message([{"reason": "already_bold"}, {"reason": "not_editable"}])
+        == cmd.MSG_DROPPED_TEMPLATE
+    )
+    assert (
+        cmd.dropped_message([{"reason": "already_bold"}, {"reason": "overlap"}])
         == cmd.MSG_ALL_DROPPED
     )
 
@@ -1040,6 +1045,8 @@ async def test_plan_comes_back_checked_and_the_model_runs_outside_the_transactio
         "asks": 0,
         "history": 0,
         "focus": False,
+        "question": False,
+        "reasons": {},
     }
 
 
@@ -1105,7 +1112,10 @@ async def test_plan_with_nothing_usable_says_why(wired) -> None:
         {"operations": [{"type": "replace", "line": 6, "text": "Senior Developer"}]}
     )
     refused = await _plan(db)
-    assert (refused["status"], refused["message"]) == ("empty", cmd.MSG_ALL_DROPPED)
+    assert (refused["status"], refused["message"]) == (
+        "empty",
+        cmd.MSG_DROPPED_TEMPLATE,
+    )
     assert refused["dropped"][0]["reason"] == "not_editable"
 
 
@@ -1376,7 +1386,7 @@ async def test_without_facts_the_assistant_asks_instead_of_finding_nothing(
 def test_prompt_lets_the_model_write_from_the_material_and_ask() -> None:
     from app.services.llm_prompts import CV_EDITOR_COMMAND
 
-    assert CV_EDITOR_COMMAND.version == 4
+    assert CV_EDITOR_COMMAND.version >= 4
     text = CV_EDITOR_COMMAND.system_prompt + CV_EDITOR_COMMAND.template
     assert "{material}" in CV_EDITOR_COMMAND.template
     assert '"question"' in text
@@ -1546,3 +1556,206 @@ def test_tailor_quote_about_another_company_does_not_go_into_this_role() -> None
     result = cmd.verify_tailor(raw, lines, (), quote)
     assert result["operations"] == []
     assert result["dropped"][0]["reason"] == "other_role"
+
+
+# ── Podpowiedzi z pomiaru 07.11.2026 (E2) ───────────────────────────────────
+#
+# Najczęstsze ręczne zmiany w 266 CV: punkt dopisany do podsumowania (30% CV),
+# wymagania dopisane do obowiązków, usunięta rola spoza profilu.
+
+SUMMARY_QUOTE = "pracowałem z bankowością korporacyjną od 2020 roku"
+
+
+def summary(*operations: dict, conversation: str = "") -> dict:
+    raw = json.dumps({"operations": list(operations)}, ensure_ascii=False)
+    return cmd.verify_summary_point(raw, LINES, (), TAILOR_SOURCES, conversation)
+
+
+def summary_point(**extra: object) -> dict:
+    return {
+        "type": "add",
+        "after": 4,
+        "text": "Pracuje z bankowością korporacyjną od 2020 roku.",
+        "why": "Domena klienta",
+        "cytat": SUMMARY_QUOTE,
+        **extra,
+    }
+
+
+def test_summary_point_is_one_quoted_point_in_the_summary() -> None:
+    (operation,) = summary(summary_point())["operations"]
+    assert operation["type"] == "add" and operation["lines"] == [4]
+    assert operation["quote"] == SUMMARY_QUOTE
+    assert operation["source"] == "oryginal"
+
+
+def test_summary_point_does_not_land_outside_the_summary() -> None:
+    # Za punktem roli to już „Wymagania do obowiązków”, nie podsumowanie.
+    result = summary(summary_point(after=10))
+    assert result["operations"] == []
+    assert [item["reason"] for item in result["dropped"]] == ["not_summary"]
+
+
+def test_summary_point_never_rewrites_existing_points() -> None:
+    result = summary(rewrite(cytat=SUMMARY_QUOTE))
+    assert [item["reason"] for item in result["dropped"]] == ["bad_type"]
+
+
+def test_summary_point_is_a_single_point() -> None:
+    second = summary_point(
+        after=3,
+        text="Projektuje usługi w Javie.",
+        cytat="Projektowałem usługi w Javie",
+    )
+    result = summary(summary_point(), second)
+    assert len(result["operations"]) == 1
+    assert [item["reason"] for item in result["dropped"]] == ["one_point"]
+
+
+@pytest.mark.parametrize(
+    ("extra", "reason"),
+    [
+        ({"cytat": None}, "no_quote"),
+        ({"cytat": "w Javie"}, "no_quote"),
+        ({"cytat": "Potwierdzone z kandydatem: Gradle"}, "no_quote"),
+        ({"text": "Brak potwierdzonego doświadczenia w chmurze."}, "about_a_gap"),
+        ({"why": "Stawka 150 PLN/h"}, "amount"),
+        (
+            {"text": "Wdrażał Terraform w bankowości korporacyjnej od 2020 roku."},
+            "needs_question",
+        ),
+    ],
+)
+def test_summary_point_keeps_the_rules_of_tailor(extra: dict, reason: str) -> None:
+    result = summary(summary_point(**extra))
+    assert result["operations"] == []
+    assert [item["reason"] for item in result["dropped"]] == [reason]
+
+
+def test_offprofile_preset_only_removes_whole_roles() -> None:
+    raw = json.dumps(
+        {
+            "operations": [
+                {"type": "remove", "lines": [11], "why": "x"},
+                {"type": "remove_role", "role": 1, "why": "Rola spoza profilu."},
+            ]
+        }
+    )
+    result = cmd.verify_plan(
+        raw, LINES, (), "", allowed=cmd.PRESET_TYPES["drop_offprofile_role"]
+    )
+    assert [op["type"] for op in result["operations"]] == ["remove_role"]
+    assert [item["reason"] for item in result["dropped"]] == ["bad_type"]
+
+
+def test_offprofile_role_with_the_only_requirement_asks_first() -> None:
+    raw = json.dumps({"operations": [{"type": "remove_role", "role": 1, "why": "x"}]})
+    result = cmd.verify_plan(
+        raw,
+        LINES,
+        reqs("sklepu internetowego"),
+        "",
+        allowed=cmd.PRESET_TYPES["drop_offprofile_role"],
+    )
+    (operation,) = result["operations"]
+    assert operation["ask"] == "loses"
+    assert operation["loses"] == ["sklepu internetowego"]
+
+
+def test_presets_behind_the_three_buttons_live_in_code() -> None:
+    for preset in ("summary_point", "more_requirements", "drop_offprofile_role"):
+        assert cmd.PRESETS[preset].strip()
+    assert "cytat" in cmd.PRESETS["summary_point"]
+    assert "obowiązk" in cmd.PRESETS["more_requirements"]
+
+
+@pytest.mark.parametrize(
+    ("reasons", "message"),
+    [
+        (["amount"], "MSG_DROPPED_AMOUNT"),
+        (["not_editable", "amount", "not_editable"], "MSG_DROPPED_TEMPLATE"),
+        (["would_empty_role"], "MSG_DROPPED_EMPTY_ROLE"),
+        (["no_quote", "no_quote"], "MSG_DROPPED_NO_QUOTE"),
+        (["needs_question"], "MSG_DROPPED_NEW_FACT"),
+        (["overlap"], "MSG_ALL_DROPPED"),
+        (["already_bold"], "MSG_ALREADY_BOLD"),
+        (["roles_in_order", "amount"], "MSG_ROLES_IN_ORDER"),
+    ],
+)
+def test_empty_plan_says_why_nothing_changed(reasons: list[str], message: str) -> None:
+    dropped_items = [{"type": None, "reason": r, "problem": None} for r in reasons]
+    assert cmd.dropped_message(dropped_items) == getattr(cmd, message)
+
+
+def test_fallback_for_nothing_found_tells_what_to_write() -> None:
+    # Dawne „nie znalazł zmian” nie mówiło, co dalej (25% poleceń, 12.10–05.11).
+    assert "Napisz" in cmd.MSG_EMPTY and "np." in cmd.MSG_EMPTY
+    for preset in (
+        "summary_point",
+        "more_requirements",
+        "drop_offprofile_role",
+        "tailor",
+    ):
+        assert cmd.PRESET_EMPTY[preset] != cmd.MSG_EMPTY
+
+
+@pytest.mark.asyncio
+async def test_summary_point_reads_the_original_and_comes_back_as_a_proposal(
+    wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db, calls, state = wired
+
+    async def original(_db, _stage) -> str:
+        return TAILOR_SOURCES
+
+    monkeypatch.setattr(cmd, "_original_text", original)
+    state["answer"] = json.dumps({"operations": [summary_point()]}, ensure_ascii=False)
+    out = await _plan(db, preset="summary_point")
+    assert out["status"] == "ok"
+    (operation,) = out["operations"]
+    assert operation["quote"] == SUMMARY_QUOTE
+    assert "bankowością korporacyjną" in calls[0]["prompt"]
+    assert db.added[0].details["preset"] == "summary_point"
+
+
+@pytest.mark.asyncio
+async def test_empty_preset_answer_has_its_own_sentence_or_the_models_reason(
+    wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db, _calls, state = wired
+
+    async def original(_db, _stage) -> str:
+        return TAILOR_SOURCES
+
+    monkeypatch.setattr(cmd, "_original_text", original)
+    state["answer"] = json.dumps({"operations": [], "question": None})
+    out = await _plan(db, preset="summary_point")
+    assert (out["status"], out["message"]) == (
+        "empty",
+        cmd.PRESET_EMPTY["summary_point"],
+    )
+    reason = "Wszystkie stanowiska pasują do profilu Java — nic nie usuwam."
+    state["answer"] = json.dumps(
+        {"operations": [], "question": reason}, ensure_ascii=False
+    )
+    out = await _plan(db, preset="drop_offprofile_role")
+    assert out["message"] == reason
+    # Ślad bez treści: było zdanie modelu, a odrzucenia mają same nazwy powodów.
+    assert db.added[-1].details["question"] is True
+    state["answer"] = json.dumps(
+        {"operations": [{"type": "remove", "lines": [3], "why": "x"}]}
+    )
+    out = await _plan(db, preset="drop_offprofile_role")
+    assert out["message"] == cmd.MSG_DROPPED_TYPE
+    assert db.added[-1].details["reasons"] == {"bad_type": 1}
+    assert db.added[-1].details["question"] is False
+
+
+def test_prompt_v5_answers_once_and_always_says_why() -> None:
+    from app.services.llm_prompts import CV_EDITOR_COMMAND
+
+    assert CV_EDITOR_COMMAND.version == 5
+    system = CV_EDITOR_COMMAND.system_prompt or ""
+    # Rekruter odpowiedział na pytanie asystenta → model pisze z odpowiedzi, nie pyta drugi raz.
+    assert "nie pytaj drugi raz" in system
+    assert "dlaczego nic nie zmieniasz" in system

@@ -1213,6 +1213,7 @@ async def company_cv_refs(
             document_cv_ambiguous,
             document_cv_conditions,
             pick_document_cv,
+            rows_from_job,
         )
 
         candidate_ids = sorted({c for c, _ in missing})
@@ -1236,6 +1237,7 @@ async def company_cv_refs(
                 (doc_id, filename, uploaded_at, created_at)
             )
         client_names: dict[int, Optional[str]] = {}
+        job_created: dict[int, Any] = {}
         job_ids = sorted({j for c, j in missing if c in by_candidate})
         if job_ids:
             for job_id, display_name, name in (
@@ -1246,8 +1248,16 @@ async def company_cv_refs(
                 )
             ).all():
                 client_names[job_id] = display_name or name
+            job_created = dict(
+                (
+                    await db.execute(
+                        select(Job.id, Job.created_at).where(Job.id.in_(job_ids))
+                    )
+                ).all()
+            )
         for cand, job in missing:
-            rows = by_candidate.get(cand, [])
+            # Plik starszy niż rekrutacja nie jest jej CV (`rows_from_job`).
+            rows = rows_from_job(by_candidate.get(cand, []), job_created.get(job))
             doc_id = pick_document_cv(rows, client_names.get(job))
             if doc_id is not None:
                 out[(cand, job)] = {

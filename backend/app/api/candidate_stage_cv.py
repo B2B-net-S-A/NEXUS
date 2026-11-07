@@ -1806,6 +1806,7 @@ async def _apply_generated_from_other_job(
     from app.services.candidate_stage_cv_service import detached_copy_settings
     from app.services.cv_approval_provenance import capture_editor_origin
     from app.services.cv_document_assets import default_template
+    from app.services.cv_edit_summary import START_HTML_KEY
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
@@ -1847,6 +1848,9 @@ async def _apply_generated_from_other_job(
             source_job_id=generated.job_id,
             blind_identity_guard=origin["blind_identity_guard"],
             blind_identity_terms=origin["blind_identity_terms"],
+            # Start kopii dla pomiaru poprawek (E3); bez skrótu generacji, bo
+            # kopia ma inny nagłówek niż generacja i nie przejmuje jej kontroli.
+            **{START_HTML_KEY: origin[START_HTML_KEY]},
         ),
         blind=bool(public["blind"]),
         language=public["language"],
