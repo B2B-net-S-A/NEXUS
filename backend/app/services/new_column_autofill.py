@@ -710,12 +710,24 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
 
 
 async def fill_job(
-    db, job_id: int, *, now: datetime, limit: Optional[int] = None
+    db,
+    job_id: int,
+    *,
+    now: datetime,
+    limit: Optional[int] = None,
+    batch: bool = False,
+    extra_for: Optional[int] = None,
 ) -> list[int]:
     """Dopełnij „Nowych” do ``TARGET``, osobami nowymi w bazie także do
     ``TARGET + FRESH_OVER_TARGET`` (najwyżej ``limit`` osób naraz). Nowi w bazie
-    wchodzą pierwsi. Zwraca id dodanych osób. Bez commitu."""
+    wchodzą pierwsi. Zwraca id dodanych osób. Bez commitu.
+
+    ``batch`` = porcja dnia (``review_batch``, 07.11.2026): liczą się tylko
+    czekające karty od systemu, do ``review_batch.BATCH_SIZE`` od
+    ``review_batch.MIN_SCORE``, wyłącznie w rekrutacji z rekruterem; karty
+    dostają właścicieli. ``extra_for`` = „Dodaj 20 kolejnych” tej osoby."""
     from app.api.proposals_bulk import add_candidates_to_job
+    from app.services import review_batch
     from app.services.known_queue_points import without_process
 
     job = await db.get(Job, job_id)
@@ -725,22 +737,37 @@ async def fill_job(
         or job.work_state not in IN_WORK_STATES
     ):
         return []
-    have = (await new_column_counts(db, [job_id])).get(job_id, 0)
-    missing = TARGET - have
-    fresh_room = missing + FRESH_OVER_TARGET
+    min_score: Optional[float] = None
+    if batch:
+        team = (await review_batch.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
+        if not team:
+            return []
+        have = len(await review_batch.pending_cards(db, job_ids=[job_id]))
+        missing = review_batch.BATCH_SIZE - (0 if extra_for else have)
+        fresh_room = missing
+        min_score = review_batch.MIN_SCORE
+    else:
+        have = (await new_column_counts(db, [job_id])).get(job_id, 0)
+        missing = TARGET - have
+        fresh_room = missing + FRESH_OVER_TARGET
     if limit is not None:
         missing = min(missing, limit)
         fresh_room = min(fresh_room, limit)
     chosen: list[Pick] = []
     if fresh_room > 0:
         fresh = await new_in_base_picks(db, job, now=now)
+        if min_score is not None:
+            # Porcja: próg panelu HoR może być niższy niż 65% porcji.
+            fresh = [pick for pick in fresh if pick.score >= min_score]
         fresh = fresh[: fresh_room * _PICK_HEADROOM + 10]
         chosen = (await _allowed(db, job, fresh, now))[:fresh_room]
     missing -= len(chosen)
     if missing > 0:
         taken = {pick.candidate_id for pick in chosen}
         picks = await _by_rules(
-            db, job, await ranked_picks(db, job_id, limit=_RULES_WINDOW)
+            db,
+            job,
+            await ranked_picks(db, job_id, limit=_RULES_WINDOW, min_score=min_score),
         )
         picks = [pick for pick in picks if pick.candidate_id not in taken]
         picks = with_fresh_slots(
@@ -753,6 +780,8 @@ async def fill_job(
         picks = picks[: missing * _PICK_HEADROOM + 10]
         chosen += (await _allowed(db, job, picks, now))[:missing]
     if not chosen:
+        if batch:
+            await review_batch.assign_owners(db, job_id, now=now, only=extra_for)
         return []
     candidates = {
         c.id: c
@@ -804,6 +833,8 @@ async def fill_job(
             )
         )
         await db.flush()
+    if batch:
+        await review_batch.assign_owners(db, job_id, now=now, only=extra_for)
     return added
 
 
@@ -867,12 +898,16 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
     """Jeden krok pętli. Każda rekrutacja w osobnej transakcji."""
     from app.core.database import AsyncSessionLocal
 
+    from app.services import review_batch
+
     now = now or datetime.now(timezone.utc)
     if not enabled():
         return {"skipped": "disabled"}
     if not in_work_hours(now):
         _state.last_tick = None
         return {"skipped": "outside_hours"}
+    if review_batch.enabled():
+        return await _batch_tick(now)
     full = not _state.pending and (
         _state.last_full_pass is None or now - _state.last_full_pass >= FULL_PASS_EVERY
     )
@@ -918,3 +953,108 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
         "pending": len(_state.pending),
         "filled": filled,
     }
+
+
+# ── Porcja dnia (07.11.2026) ────────────────────────────────────────────────
+
+BATCH_DAY_KEY = "review_batch_day"
+
+
+async def _batch_tick(now: datetime) -> dict:
+    """Porcja dnia: jeden przebieg dziennie po rekrutacjach w pracy, bez
+    dopełniania po każdym ruchu karty. Postęp przebiegu siedzi w
+    ``app_settings[BATCH_DAY_KEY]``, więc restart w ciągu dnia nie dokłada
+    drugiej porcji w miejsce kart, o których już zdecydowano."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+
+    today = business_today().isoformat()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, BATCH_DAY_KEY)
+        state = row.value if row is not None and isinstance(row.value, dict) else {}
+        if state.get("day") != today:
+            state = {"day": today, "pending": await _jobs_in_work(db)}
+            if row is None:
+                db.add(AppSetting(key=BATCH_DAY_KEY, value=state))
+            else:
+                row.value = state
+            await db.commit()
+    pending = [int(j) for j in state.get("pending") or []]
+    if not pending:
+        # Rekrutacja założona w ciągu dnia dostaje porcję zaraz po pierwszym
+        # przeglądzie (R6), a nie dopiero jutro rano.
+        async with AsyncSessionLocal() as db:
+            pending = await _jobs_without_batch(db)
+        if not pending:
+            return {
+                "pass": "batch",
+                "day": today,
+                "jobs": 0,
+                "pending": 0,
+                "filled": {},
+            }
+    budget = _budget()
+    filled: dict[int, int] = {}
+    done: set[int] = set()
+    cut_short: Optional[int] = None
+    for job_id in pending:
+        if budget <= 0:
+            break
+        done.add(job_id)
+        async with AsyncSessionLocal() as db:
+            try:
+                added = await fill_job(db, job_id, now=now, limit=budget, batch=True)
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje reszty
+                await db.rollback()
+                logger.warning(
+                    "[review_batch] job=%s failed: %s", job_id, type(exc).__name__
+                )
+                continue
+        if added:
+            filled[job_id] = len(added)
+            budget -= len(added)
+            if budget <= 0:
+                cut_short = job_id
+    left = [j for j in pending if j not in done or j == cut_short]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, BATCH_DAY_KEY)
+        if row is not None:
+            row.value = {"day": today, "pending": left}
+            await db.commit()
+    return {
+        "pass": "batch",
+        "day": today,
+        "jobs": len(done),
+        "pending": len(left),
+        "filled": filled,
+    }
+
+
+async def _jobs_without_batch(db) -> list[int]:
+    """Rekrutacje z ostatnich 2 dni, w pracy, z pulą i rekruterem, które nie
+    dostały jeszcze żadnej karty od systemu (po pierwszym przeglądzie w dzień)."""
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services import review_batch
+
+    rows = await db.execute(
+        select(Job.id)
+        .where(
+            Job.created_at >= datetime.now(timezone.utc) - timedelta(days=2),
+            Job.status == JobStatus.published,
+            Job.work_state.in_(IN_WORK_STATES),
+            select(JobAutofillPool.job_id)
+            .where(JobAutofillPool.job_id == Job.id)
+            .exists(),
+            ~select(RecruitmentProcess.id)
+            .where(
+                RecruitmentProcess.job_id == Job.id,
+                RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
+            )
+            .exists(),
+        )
+        .order_by(Job.id)
+    )
+    ids = [int(job_id) for (job_id,) in rows.all()]
+    teams = await review_batch.recruiter_ids_for_jobs(db, ids) if ids else {}
+    return [job_id for job_id in ids if teams.get(job_id)]

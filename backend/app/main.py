@@ -148,6 +148,7 @@ from app.api import academy as academy_api
 from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
+from app.api import review_batch as review_batch_api
 from app.api import candidate_followups as candidate_followups_api
 from app.api import screening_calls as screening_calls_api
 from app.api import interview_cycle as interview_cycle_api
@@ -1622,6 +1623,8 @@ app.include_router(
     prefix="/api/board-tasks",
     tags=["board-tasks"],
 )
+# Porcja dnia od Nexusa (07.11.2026): minimum decyzji przed wyszukiwaniem.
+app.include_router(review_batch_api.router)
 # 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon na osobę.
 app.include_router(
     candidate_followups_api.router,

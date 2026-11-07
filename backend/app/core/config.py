@@ -596,6 +596,13 @@ class Settings(BaseSettings):
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60
     # Zdarzenia rekrutacji starsze niż tyle dni nie uruchamiają przeglądu.
     AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS: int = 14
+    # Pierwszy przegląd nowej rekrutacji jeszcze tego samego dnia (07.11.2026,
+    # R6): w dni robocze 7–19 pojedynczo, rekrutacje bez żadnego przeglądu,
+    # najwyżej tyle dziennie. False = pierwszy przegląd dopiero w nocy.
+    # Domyślnie wyłączone: przegląd (4–5 min) idzie w procesie web, który
+    # w dzień ma już wolne trasy; włącza się razem z porcją dnia.
+    AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED: bool = False
+    AUTO_FULL_REVIEW_DAYTIME_MAX: int = 10
     # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
     # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę
     # „Nowi” każdej rekrutacji w pracy osobami z puli nocnego przeglądu.
@@ -609,6 +616,12 @@ class Settings(BaseSettings):
     # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
     # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
     NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
+    # Porcja dnia (decyzje Artura z 07.11.2026, `services/review_batch.py`):
+    # silnik „Nowych” raz dziennie daje każdej rekrutacji z rekruterem do 20
+    # osób od 65%, dzieli je między rekruterów, a rekruter bez minimum decyzji
+    # (domyślnie 50, ustawia HoR) nie szuka ręcznie (423). Wymaga też
+    # NEW_COLUMN_AUTOFILL_ENABLED. False = silnik jak przed 07.11.
+    REVIEW_BATCH_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
