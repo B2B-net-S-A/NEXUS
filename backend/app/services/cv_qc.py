@@ -1500,8 +1500,10 @@ def _title_matches(head: str, expected: str) -> bool:
 
 
 def _bold_patterns(req: Requirement) -> list[re.Pattern[str]]:
-    """Wzorce, którymi generator pogrubia wymaganie — tylko technologie,
-    nie domeny i pojęcia („bankowość”, „hurtownia danych”)."""
+    """Wzorce, którymi generator pogrubia wymaganie — technologie, narzędzia,
+    standardy i AI ze słownika z ich innym zapisem, nie domeny i pojęcia
+    („bankowość”, „hurtownia danych”). Na nich stoją licznik QC, sprawdzenie
+    „pogrubione nie wszędzie” i poprawka „Pogrub wymagania”."""
     from app.services.cv_generator_b2b.docx_renderer import compile_keyword_patterns
 
     return compile_keyword_patterns(list(req.alternatives or (req.label,)))
@@ -1510,9 +1512,7 @@ def _bold_patterns(req: Requirement) -> list[re.Pattern[str]]:
 def _has_unbolded(blocks: list[Block], req: Requirement) -> bool:
     """Czy wymaganie stoi gdzieś bez pogrubienia tam, gdzie pogrubiłaby je
     poprawka `bold_all` — treść bez nagłówków i szablonu, te same wzorce."""
-    patterns = [
-        p for name in req.terms or req.alternatives for p in dz._tech_patterns(name)
-    ]
+    patterns = _bold_patterns(req)
     return any(
         p.search(run["t"])
         for block in blocks
@@ -5275,8 +5275,10 @@ def _wrap_matches(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, int]
             if at > 0 and spans[at - 1][1] > a:
                 continue
             spans.insert(at, (a, b))
-    if not spans:
-        return html_lib.escape(text, quote=False), 0
+    return _wrap_spans(text, spans)
+
+
+def _wrap_spans(text: str, spans: list[tuple[int, int]]) -> tuple[str, int]:
     out, pos = [], 0
     for a, b in spans:
         out.append(html_lib.escape(text[pos:a], quote=False))
@@ -5287,12 +5289,15 @@ def _wrap_matches(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, int]
 
 
 def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
-    """Pogrub wystąpienia wymagań w treści (poza nagłówkami i szablonem)."""
+    """Pogrub wystąpienia wymagań w treści (poza nagłówkami i szablonem)
+    dokładnie tak, jak pogrubia generator (G2, 07.11.2026): te same wzorce
+    i to samo scalanie zakresów. Wcześniej poprawka brała nazwę każdego
+    wymagania, więc pogrubiała też „Scrum” i „bankowość”, których generator
+    i licznik QC nie pogrubiają, a narzędzi ze słownika nie łączyła z ich
+    innym zapisem."""
+    from app.services.cv_generator_b2b.docx_renderer import highlight_spans
 
-    patterns: list[re.Pattern[str]] = []
-    for req in requirements:
-        for name in req.terms or req.alternatives:
-            patterns.extend(dz._tech_patterns(name))
+    patterns = [p for req in requirements for p in _bold_patterns(req)]
     doc = EditableCv.parse(html)
     count = 0
     for i, tok, ctx in list(doc.data_tokens()):
@@ -5301,7 +5306,10 @@ def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
             continue
         if block.kind == "h" or block.section in _NON_CONTENT_SECTIONS:
             continue
-        wrapped, n = _wrap_matches(tok["text"], patterns)
+        spans = highlight_spans(tok["text"], patterns) if patterns else []
+        if not spans:
+            continue
+        wrapped, n = _wrap_spans(tok["text"], spans)
         if n:
             doc.tokens[i] = {"k": "tag", "raw": wrapped}
             count += n
