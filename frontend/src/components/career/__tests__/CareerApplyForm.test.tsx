@@ -100,7 +100,7 @@ describe("CareerApplyForm — walidacja", () => {
 
     const summary = screen.getByRole("alert");
     expect(summary).toHaveTextContent("nie udało się wysłać — popraw 5 pól:");
-    expect(summary).toHaveTextContent("imię · nazwisko · e-mail · cv · zgoda");
+    expect(summary).toHaveTextContent("cv · imię · nazwisko · e-mail · zgoda");
     expect(document.activeElement).toBe(summary);
     expect(screen.getByText(/wpisz imię/)).toBeInTheDocument();
     expect(screen.getByText(/dodaj CV — pdf, doc lub docx do 10 MB/)).toBeInTheDocument();
@@ -127,6 +127,25 @@ describe("CareerApplyForm — walidacja", () => {
     submit();
     expect(screen.getByText(/po @ nie może być myślnika/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("pola opcjonalne są zwinięte, a błąd w nich rozwija sekcję (07.11.2026)", () => {
+    const { container } = renderForm();
+    const optional = container.querySelector(".kr-opt-fields") as HTMLElement;
+    expect(optional).toHaveAttribute("data-collapsed", "true");
+    expect(screen.getByRole("button", { name: /dodaj więcej/i })).toHaveAttribute("aria-expanded", "false");
+
+    fillValid(container);
+    type(container, "expected_rate_hourly", "0");
+    submit();
+
+    expect(optional).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("CV jest pierwszym polem formularza", () => {
+    const { container } = renderForm();
+    const names = [...container.querySelectorAll("input[name]")].map((el) => el.getAttribute("name"));
+    expect(names.slice(0, 2)).toEqual(["cv", "first_name"]);
   });
 
   it("waliduje stawkę opcjonalną i złe CV", () => {

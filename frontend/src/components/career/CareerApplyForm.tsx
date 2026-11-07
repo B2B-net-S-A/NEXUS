@@ -44,10 +44,10 @@ export type CareerFieldErrors = Partial<Record<CareerField, string>>;
 
 /** Kolejność i etykiety pól w podsumowaniu błędów. */
 const FIELD_ORDER: { field: CareerField; label: string }[] = [
+  { field: "cv", label: "cv" },
   { field: "first_name", label: "imię" },
   { field: "last_name", label: "nazwisko" },
   { field: "email", label: "e-mail" },
-  { field: "cv", label: "cv" },
   { field: "expected_rate_hourly", label: "stawka" },
   { field: "availability_date", label: "dostępność" },
   { field: "city", label: "miasto" },
@@ -146,7 +146,7 @@ const COPY = {
     alertTag: "[err]",
     required: "// pola z * są wymagane",
     fileTypes: "· pdf/doc/docx · 10\u00a0MB",
-    optToggle: "// opcjonalnie",
+    optToggle: "// dodaj więcej (nieobowiązkowe)",
     optJob: "// opcjonalnie — przyspieszy rozmowę",
     optGeneral: "// opcjonalnie",
     sending: "wysyłanie…",
@@ -160,7 +160,7 @@ const COPY = {
     alertTag: null,
     required: "Pola oznaczone * są wymagane.",
     fileTypes: "· PDF, DOC, DOCX do 10\u00a0MB",
-    optToggle: "Opcjonalnie",
+    optToggle: "Dodaj więcej (nieobowiązkowe): stawka, dostępność, miasto",
     optJob: "Opcjonalnie — przyspieszy rozmowę",
     optGeneral: "Opcjonalnie",
     sending: "Wysyłanie…",
@@ -195,7 +195,8 @@ export function CareerApplyForm({
   const [status, setStatus] = useState<Status>("idle");
   const [cvName, setCvName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [optionalOpen, setOptionalOpen] = useState(true);
+  // 07.11.2026: zwinięte — mniej pól przed „Wyślij” (decyzja Artura).
+  const [optionalOpen, setOptionalOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const utmRef = useRef<Record<string, string>>({});
@@ -409,17 +410,6 @@ export function CareerApplyForm({
         </span>
       )}
 
-      <div className="kr-grid2">
-        {textInput("first_name", "Imię *", { autoComplete: "given-name", required: true })}
-        {textInput("last_name", "Nazwisko *", { autoComplete: "family-name", required: true })}
-      </div>
-      {textInput("email", "E-mail *", {
-        type: "email",
-        autoComplete: "email",
-        inputMode: "email",
-        required: true,
-      })}
-
       <div>
         <span className="kr-label" id={id("cv-label")}>
           CV *
@@ -468,6 +458,17 @@ export function CareerApplyForm({
         </label>
         {fieldError("cv")}
       </div>
+
+      <div className="kr-grid2">
+        {textInput("first_name", "Imię *", { autoComplete: "given-name", required: true })}
+        {textInput("last_name", "Nazwisko *", { autoComplete: "family-name", required: true })}
+      </div>
+      {textInput("email", "E-mail *", {
+        type: "email",
+        autoComplete: "email",
+        inputMode: "email",
+        required: true,
+      })}
 
       <button
         type="button"

@@ -444,9 +444,8 @@ select.kr-input {
   .kr-file { min-height: 64px; font-size: 13px; gap: 6px; }
   .kr-file-hint-desktop { display: inline; }
   .kr-file-hint-mobile { display: none; }
-  .kr-opt-toggle { display: none; }
-  .kr-opt-label { display: block; }
-  .kr-opt-fields[data-collapsed="true"] { display: grid; }
+  /* 07.11.2026: pola opcjonalne zwinięte także na komputerze — do wysłania
+     wystarczy CV, imię, nazwisko, e-mail i zgoda. */
   .kr-consent { padding: 12px; }
   .kr-consent input { width: 18px; height: 18px; margin-top: 2px; }
 }
