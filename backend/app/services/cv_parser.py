@@ -372,6 +372,14 @@ _EDUCATION_LEVELS = frozenset(
     {"secondary", "bachelor", "engineer", "master", "phd", "other"}
 )
 _MAX_TECH_PER_ENTRY = 12
+_MAX_REGULATIONS_PER_ENTRY = 8
+_MAX_SECTORS = 8
+# Kanon `Job.seniority`, żeby poziom kandydata dało się porównać z rekrutacją.
+_SENIORITY_LEVELS = frozenset({"junior", "mid", "senior", "lead", "architect"})
+_SENIORITY_ALIASES = {"regular": "mid", "medior": "mid", "intern": "junior"}
+# Zespół większy niż to nie jest „ludźmi, których prowadził”, tylko liczbą
+# pracowników firmy przepisaną z CV.
+_MAX_TEAM_SIZE = 500
 
 
 def _clean_text(value: Any, limit: int) -> Optional[str]:
@@ -442,10 +450,86 @@ def _normalize_experience(value: Any) -> list[dict[str, Any]]:
         client = _clean_text(item.get("client"), 160)
         if client:
             entry["client"] = client
+        # v9: branża, wielkość zespołu i regulacje stanowiska.
+        sector = _clean_text(item.get("sector"), 80)
+        if sector:
+            entry["sector"] = sector
+        team_size = _clean_team_size(item.get("team_size"))
+        if team_size:
+            entry["team_size"] = team_size
+        regulations = _unique_strings(
+            item.get("regulations"), limit=_MAX_REGULATIONS_PER_ENTRY
+        )
+        if regulations:
+            entry["regulations"] = regulations
         entries.append(entry)
         if len(entries) >= _EXPERIENCE_MAX_ENTRIES:
             break
     return entries
+
+
+def _clean_team_size(value: Any) -> Optional[int]:
+    """Liczba prowadzonych osób 1–500 albo None (bool i ułamki odrzucone)."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        size = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return size if 1 <= size <= _MAX_TEAM_SIZE else None
+
+
+def _clean_seniority(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    level = value.strip().casefold()
+    level = _SENIORITY_ALIASES.get(level, level)
+    return level if level in _SENIORITY_LEVELS else None
+
+
+# Obywatelstwo zostaje tylko z CV, które je nazywa. Model potrafi „wywnioskować”
+# narodowość z imienia albo języka CV, a to byłaby fabrykacja w polu karty
+# rekomendacji, które klient może wymagać.
+_NATIONALITY_CUE_RE = re.compile(
+    r"obywatelstw|narodowo|nationalit|citizenship|staatsangeh|громадянств|гражданств",
+    re.IGNORECASE,
+)
+# Ta sama regulacja pod różnymi nazwami w CV po polsku, angielsku i niemiecku.
+_REGULATION_ALIASES = (frozenset({"gdpr", "rodo", "dsgvo", "rgpd"}),)
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\W_]+", "", text.casefold())
+
+
+def drop_untraced_profile_facts(parsed: dict[str, Any], cv_text: str) -> None:
+    """Usuń regulacje bez śladu w CV i obywatelstwo z CV, które go nie podaje.
+
+    Ten sam powód co `drop_untraced_technologies`: fakt, którego nie ma w pliku,
+    trafiłby do profilu i do karty rekomendacji jako odczytany z CV.
+    """
+    compact_cv = _compact(cv_text or "")
+    nationality = parsed.get("nationality")
+    if nationality and not _NATIONALITY_CUE_RE.search(cv_text or ""):
+        parsed["nationality"] = None
+    for entry in parsed.get("experience") or []:
+        if not isinstance(entry, dict) or not isinstance(
+            entry.get("regulations"), list
+        ):
+            continue
+        kept = []
+        for name in entry["regulations"]:
+            if not isinstance(name, str) or not name.strip():
+                continue
+            key = _compact(name)
+            names = next((g for g in _REGULATION_ALIASES if key in g), {key})
+            # Numer normy wystarcza: „ISO 27001” w CV bywa „ISO/IEC 27001:2013”.
+            number = re.search(r"\d{3,}", name)
+            if any(n and n in compact_cv for n in names) or (
+                number and number.group(0) in compact_cv
+            ):
+                kept.append(name)
+        entry["regulations"] = kept
 
 
 def _normalize_education(value: Any) -> Optional[list[dict[str, Any]]]:
@@ -635,8 +719,12 @@ def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
         technologies = output.get("skills")
     output["technologies"] = _unique_strings(technologies, limit=8)
     output["sectors"] = _unique_strings(
-        output.get("sectors") or output.get("industries"), limit=4
+        output.get("sectors") or output.get("industries"), limit=_MAX_SECTORS
     )
+    if "seniority_level" in output:
+        output["seniority_level"] = _clean_seniority(output.get("seniority_level"))
+    if "nationality" in output:
+        output["nationality"] = _clean_text(output.get("nationality"), 60)
 
     started_at = output.get("current_position_started_at")
     if isinstance(started_at, str):
@@ -915,6 +1003,7 @@ async def _parse_with_claude(
         if not isinstance(data, dict):
             return None
         drop_untraced_technologies(data, cv_text)
+        drop_untraced_profile_facts(data, cv_text)
         data["_source"] = f"claude:{template.name}:v{template.version}"
         # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
         # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w
