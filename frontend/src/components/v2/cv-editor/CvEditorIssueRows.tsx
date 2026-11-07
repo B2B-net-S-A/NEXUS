@@ -38,6 +38,7 @@ import {
   yearsPreview,
   type IssueRow,
 } from "@/lib/cv-editor-issues";
+import type { QuickFix } from "@/lib/cv-editor-quick-fixes";
 import type { ClassifiedCvWarning } from "@/lib/cv-generator";
 import { humanizeCvWarning } from "@/lib/cv-warning-text";
 import {
@@ -1108,4 +1109,53 @@ export function IssueRowView({ row, ctx }: { row: IssueRow; ctx: RowContext }) {
     case "finding":
       return <FindingRow finding={row.finding} ctx={ctx} />;
   }
+}
+
+// ── „Szybkie poprawki” (E1, 07.11.2026) ─────────────────────────────────────
+
+const INS = "block w-fit rounded-sm bg-success-muted px-0.5 text-foreground no-underline";
+
+/**
+ * Wiersz grupy „Szybkie poprawki”: nazwa, podgląd zmiany i jeden przycisk.
+ * Zmiana dotyczy tylko układu, nie treści — dlatego bez szczegółów
+ * i „To nieprawda”; tytuł pokazuje miejsce na kartce.
+ */
+export function QuickFixRow({
+  fix,
+  busy,
+  onApply,
+  onLocate,
+}: {
+  fix: QuickFix;
+  busy: boolean;
+  onApply: () => void;
+  onLocate: () => void;
+}) {
+  const title = `Języki w osobnych liniach${fix.count > 1 ? ` (${fix.count})` : ""}`;
+  return (
+    <li data-issue-row={`quick:${fix.action}`} className="space-y-1 px-2.5 py-2">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <button
+            type="button"
+            onClick={onLocate}
+            className="block w-full rounded-sm text-left text-sm font-medium leading-snug [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title}
+          </button>
+          <div className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+            <del className="block">{fix.before}</del>
+            {fix.after.map((line, index) => (
+              <ins key={index} className={INS}>
+                {line}
+              </ins>
+            ))}
+          </div>
+        </div>
+        <Button size="sm" variant="outline" className={SMALL} disabled={busy} onClick={onApply}>
+          Zmień
+        </Button>
+      </div>
+    </li>
+  );
 }

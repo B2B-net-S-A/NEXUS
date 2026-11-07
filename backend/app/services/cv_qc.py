@@ -5852,6 +5852,145 @@ def remove_line_html(html: str, text: str) -> tuple[str, int]:
     return (doc.html(), count) if count else (html, 0)
 
 
+# ── Szybkie poprawki w edytorze (E1, 07.11.2026) ─────────────────────────────
+#
+# Pomiar 266 CV z generatora (07.11.2026): rekruterzy ręcznie rozbijają
+# języki „English - B2 · Polish - native” na osobne linie. Poprawka zmienia
+# tylko układ, nie treść — kod, bez AI, ta sama droga co „Pogrub wymagania”.
+# Sekcję rozpoznaje znacznik nagłówka albo jego tytuł (CV z Worda nie ma
+# znaczników) — lustro `cvOutline` w `lib/cv-editor-blocks.ts`.
+
+_CV_SECTION_KEYS = frozenset(
+    {"why_points", "education", "skills", "certifications", "languages", "experience"}
+)
+# Znaczniki, które nie zamykają się osobnym `</…>`.
+_VOID_TAGS = frozenset({"br", "img", "hr", "wbr", "input", "meta", "link", "col"})
+_TAG_NAME = re.compile(r"</?([a-zA-Z][\w-]*)")
+# Separator „Język – poziom” zapisany łącznikiem albo pauzą („English - B2”).
+# Kotwica na początku ciągu odstępów i kwantyfikatory zaborcze — węzły tekstu
+# mają surowe odstępy od klienta.
+_LANG_DASH = re.compile(r"(?<!\s)[^\S\n]++[-—][^\S\n]++(?=\S)")
+_LANG_PARENS = re.compile(r"(?P<n>[^():–—]{1,60}?)[^\S\n]*\((?P<l>[^()]{1,40})\)")
+_LANG_COLON = re.compile(r"(?P<n>[^\s:][^:–—]{0,39}):[^\S\n]*(?P<l>\S.{0,59})")
+# Normalizujemy tylko krótkie pozycje — dłuższa to zdanie, nie „Język – poziom”.
+_LANG_PART_MAX = 80
+
+
+def _tag_name(raw: str) -> str:
+    match = _TAG_NAME.match(raw)
+    return match.group(1).lower() if match else ""
+
+
+def _section_blocks(doc: EditableCv, key: str) -> list[int]:
+    """Indeksy bloków treści w sekcji `key` (bez nagłówka i klauzuli zgody)."""
+    from app.services.cv_approved_docx import _SECTION_TITLES, _norm_title
+
+    out: list[int] = []
+    current: Optional[str] = None
+    for index, block in enumerate(doc.blocks):
+        if block.ends_section:
+            current = (
+                block.section
+                if block.section in _CV_SECTION_KEYS
+                else _SECTION_TITLES.get(_norm_title(block.text))
+            )
+            continue
+        if block.section == dz.RODO_SECTION:
+            current = None
+            continue
+        if (
+            current == key
+            and block.kind != "h"
+            and block.section not in _NON_CONTENT_SECTIONS
+        ):
+            out.append(index)
+    return out
+
+
+def _language_part(part: str) -> str:
+    """„English - B2”, „English (B2)”, „English: B2” → „English – B2”.
+
+    Tylko zapis: żadnego poziomu ani języka spoza tekstu."""
+    text = " ".join(part.split())
+    if len(text) > _LANG_PART_MAX:
+        return text
+    text = _LANG_DASH.sub(" – ", text)
+    for pattern in (_LANG_PARENS, _LANG_COLON):
+        match = pattern.fullmatch(text)
+        if match:
+            return f"{match.group('n').strip()} – {match.group('l').strip()}"
+    return text
+
+
+def languages_lines_html(html: str) -> tuple[str, int]:
+    """Języki rozdzielone „ · ” w jednym akapicie sekcji języków → akapit na
+    język, zapis „Język – poziom”. Nic nie dopisuje; akapit bez separatora
+    zostaje jak był."""
+
+    doc = EditableCv.parse(html)
+    count = 0
+    for index in _section_blocks(doc, "languages"):
+        block = doc.blocks[index]
+        if block.kind != "p":
+            continue
+        if len([part for part in block.text.split("·") if part.strip()]) < 2:
+            continue
+        start, end = doc.spans[index]
+        if start is None or end is None or doc.tokens[start] is None:
+            continue
+        open_raw = doc.tokens[start]["raw"]
+        close_raw = doc.tokens[end]["raw"] if doc.tokens[end] is not None else "</p>"
+        if _tag_name(open_raw) != "p":
+            # Luźny tekst albo inny kontener — nie ma czego powielić.
+            continue
+        inner = [tok for tok in doc.tokens[start + 1 : end] if tok is not None]
+        if all(tok["k"] == "data" for tok in inner):
+            parts = [
+                _language_part(part)
+                for part in "".join(tok["text"] for tok in inner).split("·")
+                if part.strip()
+            ]
+            rebuilt = "".join(
+                f"{open_raw}{html_lib.escape(part, quote=False)}{close_raw}"
+                for part in parts
+            )
+        else:
+            # Pogrubione nazwy języków (CV z Worda): dzielimy w węzłach tekstu,
+            # zamykając i otwierając na nowo znaczniki, które są w tym miejscu otwarte.
+            out: list[str] = [open_raw]
+            stack: list[tuple[str, str]] = []
+            for tok in inner:
+                if tok["k"] == "tag":
+                    raw = tok["raw"]
+                    name = _tag_name(raw)
+                    if raw.startswith("</"):
+                        if stack and stack[-1][0] == name:
+                            stack.pop()
+                    elif name not in _VOID_TAGS and not raw.endswith("/>"):
+                        stack.append((name, raw))
+                    out.append(raw)
+                    continue
+                pieces = tok["text"].split("·")
+                for n, piece in enumerate(pieces):
+                    if n:
+                        out.extend(f"</{name}>" for name, _ in reversed(stack))
+                        out.append(close_raw + open_raw)
+                        out.extend(raw for _, raw in stack)
+                        piece = piece.lstrip()
+                    if n < len(pieces) - 1:
+                        piece = piece.rstrip()
+                    out.append(
+                        html_lib.escape(_LANG_DASH.sub(" – ", piece), quote=False)
+                    )
+            out.append(close_raw)
+            rebuilt = "".join(out)
+        doc.tokens[start] = {"k": "tag", "raw": rebuilt}
+        for j in range(start + 1, end + 1):
+            doc.tokens[j] = None
+        count += 1
+    return (doc.html(), count) if count else (html, 0)
+
+
 def ensure_fresh_draft(csv: CandidateStageCV, expected: Optional[int]) -> None:
     """409 `CV_CHANGED`, gdy szkic zmienił się od wczytania listy QC.
 
@@ -5887,7 +6026,11 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 # D4 (17.10.2026): lata i tytuł liczy kod z danych, które QC już zna — wchodzą
 # do „Popraw wszystkie”. Usunięcia treści (termin, stawka i kontakt, linia
 # z kontroli AI) i kolejność stanowisk rekruter zatwierdza pojedynczo.
-BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix", "years", "title"})
+# E1 (07.11.2026): „Szybkie poprawki” — języki w liniach zmieniają tylko układ,
+# więc są w hurcie.
+BULK_ACTIONS = frozenset(
+    {"bold_all", "spelling", "ai_fix", "years", "title", "languages_lines"}
+)
 ROLE_DATES_NOTHING = "Daty stanowisk zgadzają się z oryginałem."
 ROLE_ORDER_NOTHING = "Stanowiska już są ułożone od najnowszego."
 ROLE_ORDER_UNKNOWN = (
@@ -6049,6 +6192,10 @@ def transform_html(
             elif action == "strip_client_rules":
                 changed, count = strip_client_rules_html(current, email, phone)
                 nothing = "W CV nie ma stawki ani kontaktu kandydata do usunięcia."
+                done = {"action": action}
+            elif action == "languages_lines":
+                changed, count = languages_lines_html(current)
+                nothing = "Języki już stoją w osobnych liniach."
                 done = {"action": action}
             elif action == "remove_line":
                 line = str(payload.get("text") or "").strip()

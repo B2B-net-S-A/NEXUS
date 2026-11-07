@@ -235,7 +235,9 @@ export type QcFixAction =
   | { action: "years" }
   | { action: "title" }
   | { action: "strip_client_rules" }
-  | { action: "remove_line"; text: string };
+  | { action: "remove_line"; text: string }
+  // „Szybkie poprawki” edytora (E1, 07.11.2026) — tylko `qc/transform`.
+  | { action: "languages_lines" };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 
