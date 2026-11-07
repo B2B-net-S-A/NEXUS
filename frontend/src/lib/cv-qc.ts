@@ -314,6 +314,23 @@ export function splitChecks(checks: QcCheck[]): QcSplit {
   return split;
 }
 
+/**
+ * Uwagi, za które Delivery Lead najczęściej cofa kartę (R4, 07.11.2026) —
+ * okno QC stawia je nad „Warto poprawić”. Lustro `cv_qc.DL_RETURN_KEYS`.
+ */
+export const QC_DL_RETURN_KEYS: readonly string[] = [
+  "must_only_summary",
+  "role_dates",
+  "role_employer",
+  "title_matches_role",
+];
+
+/** Dzieli uwagi na „DL zwykle o to cofa” i resztę, zachowując kolejność. */
+export function splitDlReturns(notes: readonly QcCheck[]): { dlReturns: QcCheck[]; rest: QcCheck[] } {
+  const dlReturns = notes.filter((check) => check.status === "fail" && QC_DL_RETURN_KEYS.includes(check.key));
+  return { dlReturns, rest: notes.filter((check) => !dlReturns.includes(check)) };
+}
+
 /** „Kontrola CV” w przeglądzie DL (R5, 07.11.2026). */
 export interface CvControl {
   /** Sprawdzenia, które automat zaliczył (bez „nie dotyczy”). */

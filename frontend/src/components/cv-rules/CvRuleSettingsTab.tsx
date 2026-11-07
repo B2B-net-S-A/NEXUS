@@ -379,6 +379,15 @@ export function CvRuleSettingsTab({
           <option value="left">Do lewej</option>
         </select>
         <p className="text-xs text-muted-foreground">Dotyczy nowych CV tego klienta. Rekruter może zmienić wyrównanie wybranego akapitu w edytorze. Nagłówki i tabela edukacji zostają do lewej.</p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.cv_title_with_reference}
+            onChange={(event) => set("cv_title_with_reference", event.target.checked)}
+          />
+          Numer zapytania w nagłówku CV
+        </label>
+        <p className="text-xs text-muted-foreground">Np. „AML Analyst (43114) – Imię Nazwisko”. Numer bierzemy z rekrutacji; nazwa pliku się nie zmienia.</p>
       </Group>
 
       {/* ── GRUPA 2: Wskazówki dla generatora ── */}
