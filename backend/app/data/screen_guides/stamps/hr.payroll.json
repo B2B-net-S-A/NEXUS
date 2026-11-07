@@ -1,0 +1,9 @@
+{
+  "entry": "c167840e6042d2f46984dae353b81d87407018661f0401104eb26749331296ca",
+  "guide": "hr.payroll",
+  "sources": {
+    "frontend/src/components/hr/payroll/BonusDialog.tsx": "0577af0c8f22ec276deb7980e6b6c1d3e9a373d55d036a1a08faa02617a3dc3a",
+    "frontend/src/components/hr/payroll/PayrollCloseParts.tsx": "babe830e3ebe414fd277b6fe4d1449f94de7fa2cef3404430d0a157984c5db61",
+    "frontend/src/components/hr/payroll/PayrollMonthScreen.tsx": "fb3b6ba772f6bc53868aceec6c59019c6cd3ecd9534f8463cac8ebcd7e7c899c"
+  }
+}
