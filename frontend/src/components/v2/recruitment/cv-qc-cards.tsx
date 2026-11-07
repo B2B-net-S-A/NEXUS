@@ -187,6 +187,7 @@ function ManualRolePicker({ requirement, roles, ctx }: { requirement: string; ro
     <div
       role="group"
       aria-label={`Gdzie oryginał opisuje: ${requirement}`}
+      data-tour="qc.manual-roles"
       className="space-y-1.5 rounded-md border border-info/30 bg-info-muted/40 px-2.5 py-2 text-sm"
     >
       <p className="text-xs text-muted-foreground">
