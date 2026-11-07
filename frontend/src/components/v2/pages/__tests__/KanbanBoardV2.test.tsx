@@ -569,6 +569,20 @@ describe("KanbanBoardV2 — zgłoszenia w „Nowych” (06.11.2026)", () => {
     expect(screen.getByTestId("new-column-section-applied_gap").textContent).toContain("brak „musi mieć”");
     expect(screen.getByTestId("new-column-applied-gap-toggle").textContent).toBe("Zwiń");
   });
+
+  it("„Zaznacz wszystkich” zaznacza grupę i rozwija ją — dalej „Odrzuć” w pasku (07.11.2026)", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    renderBoard(applicants(), undefined, false, false, false, new Map([[3, ["BigQuery"]]]));
+
+    await screen.findByTestId("new-column-section-applied");
+    await userEvent.click(screen.getByTestId("new-column-applied-gap-toggle"));
+    await userEvent.click(screen.getByTestId("new-column-applied-gap-select"));
+
+    expect(screen.getByText(/Zaznaczono/).textContent).toContain("1");
+    expect(screen.getByTestId("new-column-applied-gap-ai-check").textContent).toBe("Sprawdź w CV (AI)");
+  });
 });
 
 describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {

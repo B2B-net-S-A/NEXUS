@@ -40,6 +40,8 @@ type QueueItem = {
   candidate_id: number;
   entry_source?: string | null;
   claim_user_id?: number | null;
+  /** Wynik „Sprawdź w CV” / przeglądu AI — „pasuje” wyciąga z grupy zwiniętej. */
+  entry_ai_screening?: { verdict?: string | null } | null;
   entry_autofill?: {
     score: number;
     decided: boolean;
@@ -132,7 +134,9 @@ export function orderNewColumn<T extends QueueItem>(
   sections: Map<number, NewColumnSection>;
   appliedGapIds: Set<number>;
 } {
-  const hasGap = (item: T) => Boolean(criticalGaps?.get(item.candidate_id)?.length);
+  // „AI: pasuje” (przegląd albo „Sprawdź w CV”) wygrywa z brakiem słowa w CV.
+  const hasGap = (item: T) =>
+    Boolean(criticalGaps?.get(item.candidate_id)?.length) && item.entry_ai_screening?.verdict !== "fits";
   const outsideQueue = items.filter((item) => !waitsInSystemQueue(item));
   const applied = outsideQueue.filter((item) => isApplication(item) && !hasGap(item));
   const appliedGap = outsideQueue.filter((item) => isApplication(item) && hasGap(item));

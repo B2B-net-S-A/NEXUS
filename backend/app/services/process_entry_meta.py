@@ -214,7 +214,14 @@ def application_screening_entry_meta(
 
 
 def application_screening_badge(meta: Any) -> Optional[dict]:
-    """Plakietka dla frontu — tylko znane pola; cokolwiek innego = ``None``."""
+    """Plakietka dla frontu — tylko znane pola; cokolwiek innego = ``None``.
+
+    07.11.2026: wynik „Sprawdź w CV” przy zgłoszeniu z brakiem „musi mieć”
+    leży pod kluczem ``ai_check`` obok rodzaju wejścia (link, portal), żeby
+    nie gubić plakietki źródła.
+    """
+    if isinstance(meta, dict) and meta.get("kind") != APPLICATION_SCREENING_KIND:
+        meta = meta.get(AI_CHECK_KEY)
     if not isinstance(meta, dict) or meta.get("kind") != APPLICATION_SCREENING_KIND:
         return None
     verdict = meta.get("verdict")
@@ -246,6 +253,29 @@ def application_screening_badge(meta: Any) -> Optional[dict]:
 APPLICATION_LINK_KIND = "application_link"
 LINK_OWNER_KEY = "link_owner_id"
 _LINK_OWNER_KINDS = (APPLICATION_LINK_KIND, APPLICATION_SCREENING_KIND)
+
+
+# „Sprawdź w CV” przy zgłoszeniu z brakiem „musi mieć” (07.11.2026).
+AI_CHECK_KEY = "ai_check"
+
+
+# Aplikacja z formularza portalu (06.11.2026, ``services/portal_application``):
+# plakietka „Z JustJoin.IT” obok „Z Twojego linku”.
+PORTAL_APPLICATION_KIND = "portal_application"
+PORTAL_APPLICATION_PORTALS = ("justjoinit", "rocketjobs", "pracuj")
+
+
+def portal_application_entry_meta(portal: str) -> dict:
+    """Kształt ``entry_meta`` aplikacji z formularza portalu."""
+    return {"kind": PORTAL_APPLICATION_KIND, "portal": portal}
+
+
+def portal_application_portal(meta: Any) -> Optional[str]:
+    """Portal, z którego osoba aplikowała; ``None`` = inne wejście."""
+    if not isinstance(meta, dict) or meta.get("kind") != PORTAL_APPLICATION_KIND:
+        return None
+    portal = meta.get("portal")
+    return portal if portal in PORTAL_APPLICATION_PORTALS else None
 
 
 def application_link_entry_meta(link_owner_id: int) -> dict:

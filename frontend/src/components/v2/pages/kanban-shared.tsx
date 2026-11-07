@@ -275,6 +275,8 @@ export interface KanbanItem {
   */
  entry_link_owner_id?: number | null;
  entry_link_owner_name?: string | null;
+ /** Aplikacja z formularza portalu (07.11.2026) — plakietka „Z JustJoin.IT”. */
+ entry_portal?: "justjoinit" | "rocketjobs" | "pracuj" | null;
  /**
   * …i właściciele innych linków, z których osoba zgłosiła się ponownie, gdy
   * już była w rekrutacji — „Zgłosił się też z Twojego linku”.

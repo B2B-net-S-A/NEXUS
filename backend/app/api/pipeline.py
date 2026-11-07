@@ -36,6 +36,7 @@ from app.services.client_off_limits import off_limits_badge
 from app.services.process_entry_meta import (
     application_link_owner_id,
     application_screening_badge,
+    portal_application_portal,
     auto_match_badge,
     autofill_badge,
 )
@@ -4227,6 +4228,7 @@ async def build_kanban_view(
                     e.candidate_id in without_process_ids
                 )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
+            payload["entry_portal"] = portal_application_portal(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id
             )
