@@ -877,6 +877,26 @@
     "dot_anchor": "payroll.bonus-decisions"
   },
   {
+    "id": "moje-wygenerowane-cv",
+    "pr": 3146,
+    "title": "Moje wygenerowane CV w jednym miejscu",
+    "why": "Wszystkie Twoje CV z generatora: data, kandydat, rekrutacja, podgląd i pobranie. Szukasz po nazwisku, kliencie albo stanowisku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Kandydaci → Moje CV",
+    "href": "/candidates/generated-cvs",
+    "section": "sourcing",
+    "dot_anchor": "candidates.my-generated-cvs"
+  },
+  {
     "id": "sprzedaz-oferty-spotkania-filtry",
     "title": "Sprzedaż: Oferty, Spotkania i nowe filtry",
     "why": "Doszły zakładki Oferty i Spotkania. W Szansach przegrane są na tablicy, szukasz też po NIP i filtrujesz po modelu i dacie utworzenia. Kontakt dodasz prosto z zakładki Kontakty.",
@@ -1270,6 +1290,23 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.monthly-races"
+  },
+  {
+    "id": "lista-dokoncz-szkic-requestu",
+    "pr": 3144,
+    "title": "„Dokończ szkic requestu” na liście rekrutacji",
+    "why": "Request został w połowie? Na liście rekrutacji, obok „Nowa rekrutacja”, przycisk z datą otwiera ostatni niedokończony formularz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacje → Dokończ szkic requestu",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.list.unfinished-request"
   },
   {
     "id": "pytania-pod-cv-w-sciadze",

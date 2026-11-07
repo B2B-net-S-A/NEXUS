@@ -13,6 +13,7 @@ import {
   JobsFilterBar,
   type JobsFilterBarValue,
 } from "@/components/v2/jobs/JobsFilterBar";
+import { UnfinishedRequestButton } from "@/components/v2/jobs/UnfinishedRequestButton";
 import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -1161,6 +1162,8 @@ export function JobsListV2({
               <Link href="/jobs/umowy-przedwstepne">Umowy przedwstępne</Link>
             </Button>
           )}
+          {/* Niedokończony formularz `/jobs/new` (07.11.2026) — przy „Nowa rekrutacja”. */}
+          <UnfinishedRequestButton enabled={canCreateJob} />
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
             <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")} data-help="jobs.list.new">
