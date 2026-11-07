@@ -3567,6 +3567,7 @@ async def api_health_deep_check():
     from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.cv_call_question import CvCallQuestions
     from app.models.skill_proposal import SkillProposal
+    from app.models.skill_relation import SkillRelation
     from app.models.plain_knowledge import (
         JobPlainBrief,
         PlainKnowledgeEvent,
@@ -3845,6 +3846,9 @@ async def api_health_deep_check():
         ("cv_call_questions", CvCallQuestions),
         # 0658: propozycje do słownika — zakładka „Propozycje” i podpowiedź w wymaganiach.
         ("skill_proposals", SkillProposal),
+        # 0660: mapa wiedzy IT — powiązania haseł. Brak tabeli = przeładowanie
+        # słownika (`refresh_alias_map`) pada przy starcie i przy każdej kuracji.
+        ("skill_relations", SkillRelation),
         ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
         # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
