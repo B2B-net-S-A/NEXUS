@@ -60,9 +60,18 @@ class QcSimilar(BaseModel):
     quote: str
 
 
+class QcManualBy(BaseModel):
+    """Kto i kiedy wskazał rolę ręcznie (R3, 07.11.2026)."""
+
+    by: Optional[str] = None
+    at: Optional[str] = None
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
+    # R3: pozycja z ręcznego wskazania roli — kto i kiedy.
+    manual: Optional[QcManualBy] = None
     requirement: Optional[str] = None
     role: Optional[str] = None
     detail: Optional[str] = None
@@ -84,6 +93,7 @@ class QcRoleState(BaseModel):
     state: Literal[
         "described", "missing", "listed_only", "not_in_original", "unverified"
     ]
+    manual: Optional[QcManualBy] = None
 
 
 class QcCheck(BaseModel):
@@ -291,6 +301,13 @@ class QcConfirmRequest(BaseModel):
     term: str = Field(min_length=1, max_length=120)
     text: Optional[str] = Field(default=None, max_length=1000)
     role: Optional[str] = Field(default=None, max_length=200)
+
+
+class QcManualRolesRequest(BaseModel):
+    """R3: role oryginału, które opisują umiejętność krytyczną; pusta = „nigdzie”."""
+
+    requirement: str = Field(min_length=1, max_length=200)
+    roles: list[str] = Field(default_factory=list, max_length=30)
 
 
 class QcRoleFact(BaseModel):
@@ -689,6 +706,41 @@ async def confirm_stage_qc_item(
         raise HTTPException(
             status_code=422,
             detail={"code": "CV_QC_CONFIRM_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return await _response(db, request, current_user, result)
+
+
+@router.post("/stages/{stage_id}/qc/manual-roles", response_model=QcResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def manual_roles_stage_qc(
+    request: Request,
+    stage_id: int,
+    payload: QcManualRolesRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcResponse:
+    """„Sprawdź ręcznie” (R3, 07.11.2026): wskaż role oryginału, które opisują
+    umiejętność krytyczną (albo „nigdzie”), i zwróć świeże QC.
+
+    422, gdy QC już o to nie prosi albo rola jest spoza listy tej pozycji.
+    """
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.record_manual_roles(
+            db,
+            stage,
+            requirement=payload.requirement,
+            roles=[r.strip()[:200] for r in payload.roles],
+            user_id=current_user.id,
+        )
+    except cv_qc.ApplyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_MANUAL_ROLES_FAILED", "message": str(exc)},
         ) from exc
     await db.commit()
     return await _response(db, request, current_user, result)

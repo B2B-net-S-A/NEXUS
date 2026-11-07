@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
 
+import { qcStateText } from "@/lib/cv-qc";
+
+describe("qcStateText: trzy stany QC wszędzie tak samo (R1, 07.11.2026)", () => {
+  it("sprawdzone / sprawdź ręcznie · N / N do poprawy, a obok przepuszczone i niesprawdzone", () => {
+    expect(qcStateText({ status: "passed", blocking_failed: 0 })).toBe("QC: sprawdzone");
+    expect(qcStateText({ status: "passed", blocking_failed: 0, manual_checks: [] })).toBe("QC: sprawdzone");
+    expect(qcStateText({ status: "passed", blocking_failed: 0, manual_checks: ["A", "B"] })).toBe(
+      "QC: sprawdź ręcznie · 2",
+    );
+    expect(qcStateText({ status: "failed", blocking_failed: 2 })).toBe("QC: 2 do poprawy");
+    expect(qcStateText({ status: "failed", blocking_failed: 0 })).toBe("QC do poprawy");
+    expect(qcStateText({ status: "overridden", blocking_failed: 1 })).toBe("Przepuszczone mimo QC");
+    expect(qcStateText({ status: "unchecked", blocking_failed: 0 })).toBe("QC nie sprawdzone");
+  });
+});
+
 import { groupCproByJob, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { QcCheck, QcCvBlock } from "@/lib/api/cvQc";
 import {

@@ -31,7 +31,7 @@ from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,6 +109,8 @@ class BoardTaskRow(BaseModel):
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
     qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): zdane QC z blokującymi sprawdzeniami „sprawdź ręcznie”.
+    qc_manual: list[str] = Field(default_factory=list)
     # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
     card_status: Optional[Literal["complete", "partial", "empty"]] = None
     card_missing: int = 0

@@ -199,6 +199,11 @@ class RequestIntake:
     # Pierwsze słowo wiersza → propozycja modelu. `apply_people_reach` podmienia
     # wiersz tylko po sprawdzeniu w bazie; formularz tego pola nie czyta.
     cv_words: dict[str, list[str]] = field(default_factory=dict)
+    # ── 07.11.2026 (M1, M2): propozycje do kliknięcia, nic nie zapisuje się samo ──
+    # Krytyczne z lat w mailu albo z tytułu (`[{"label", "reason"}]`) i hasła
+    # słownika z maila, których nie ma w żadnym wierszu.
+    critical_proposal: list[dict[str, str]] = field(default_factory=list)
+    mail_technologies: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1409,8 +1414,91 @@ async def read_request(
         system_prompt=JOB_REQUEST_INTAKE.system_prompt or "",
         max_tokens=6000,
     )
-    read = await apply_people_reach(db, normalize_model_output(raw, text))
+    read = refine_rows(normalize_model_output(raw, text), text)
+    read = with_proposals(await apply_people_reach(db, read), text)
     return await match_hiring_manager(db, client_id=client_id, intake=read)
+
+
+def _with_rows(
+    intake: RequestIntake,
+    rows: list[dict[str, Any]],
+    *,
+    notes: list[str],
+    talk: list[dict[str, Any]],
+) -> RequestIntake:
+    """Odczyt z nowymi wierszami: pola wyprowadzone, limity i tytuł jak przy zapisie."""
+    from app.services.champion_requirement_rows import derive, split_rows
+    from app.services.job_working_title import compose_working_title
+
+    cleaned, dropped = split_rows(rows)
+    derived = derive(cleaned)
+    must = [item["name"] for item in derived["must"]]
+    nice = [item["name"] for item in derived["nice"]]
+    skills = list(intake.experience.get("skills") or [])
+    known = {str(item.get("name", "")).casefold() for item in skills}
+    skills += [item for item in talk if item["name"].casefold() not in known]
+    return replace(
+        intake,
+        requirements=cleaned,
+        must=must,
+        nice=nice,
+        search_requirements=derived["requirements"],
+        experience={**intake.experience, "skills": skills},
+        advisories=[*intake.advisories, *notes],
+        dropped=[*intake.dropped, *(d for d in dropped if d not in intake.dropped)],
+        working_title_suggestion=compose_working_title(
+            intake.role_name,
+            must,
+            intake.seniority_min_years,
+            next(
+                (
+                    d["name"]
+                    for d in intake.experience.get("domains", [])
+                    if d.get("level") == "must"
+                ),
+                None,
+            ),
+        ),
+    )
+
+
+def refine_rows(intake: RequestIntake, request_text: str) -> RequestIntake:
+    """M4 i M5 (07.11.2026): wyliczanka bez „lub” w mailu to osobne wiersze,
+    cechy osoby idą do rozmowy (`intake_requirements_refine`)."""
+    from app.services.intake_requirements_refine import (
+        split_listed_alternatives,
+        traits_to_talk,
+    )
+    from app.services.keyword_suggest import fold
+
+    if not intake.requirements:
+        return intake
+    rows, split_notes = split_listed_alternatives(
+        [{**row, "words": list(row["words"])} for row in intake.requirements],
+        fold(request_text),
+    )
+    traits = traits_to_talk(rows)
+    if not split_notes and not traits.talk:
+        return intake
+    return _with_rows(
+        intake, traits.rows, notes=[*split_notes, *traits.notes], talk=traits.talk
+    )
+
+
+def with_proposals(intake: RequestIntake, request_text: str) -> RequestIntake:
+    """M1 i M2 (07.11.2026): propozycja krytycznych i technologie z maila
+    spoza wierszy — do kliknięcia na formularzu."""
+    from app.services.intake_requirements_refine import (
+        critical_proposal,
+        mail_technologies,
+    )
+
+    titles = [t for t in (intake.client_title, intake.role_name) if t]
+    return replace(
+        intake,
+        critical_proposal=critical_proposal(intake.requirements, request_text, titles),
+        mail_technologies=mail_technologies(request_text, intake.requirements),
+    )
 
 
 def _people(count: int) -> str:
