@@ -244,7 +244,9 @@ async def apply_result(
         _mark(candidate, digest, "ok")
         await db.flush()
     stats.applied += 1
-    extracted = candidate.cv_extracted_data or {}
+    extracted = candidate.cv_extracted_data
+    if not isinstance(extracted, dict):
+        return
     if any(
         isinstance(e, dict) and e.get("months")
         for e in extracted.get("skill_timeline") or []
