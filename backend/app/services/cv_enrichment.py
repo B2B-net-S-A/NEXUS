@@ -344,6 +344,10 @@ _RICH_EXPERIENCE_KEYS = (
     "employment_type",
     "location",
     "client",
+    # v9 (07.11.2026)
+    "sector",
+    "team_size",
+    "regulations",
 )
 _LEGAL_SUFFIX_RE = re.compile(
     r"\b(sp\.?\s*z\s*o\.?\s*o\.?|s\.?\s*a\.?|sp\.?\s*j\.?|sp\.?\s*k\.?|"
@@ -574,6 +578,9 @@ def _apply_cv_enrichment(
         "certifications",
         "projects",
         "achievements",
+        # v9: tylko pełny odczyt je zbiera, więc słabszy nie może ich skasować.
+        "seniority_level",
+        "nationality",
     )
     if not is_rich_profile_parse(parsed) and policy is CvWritePolicy.FILL_EMPTY:
         # Słabszy odczyt (regex, szablon masowy, nocny backfill) nie kasuje
