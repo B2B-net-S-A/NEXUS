@@ -167,6 +167,10 @@ class CVEditorIssues(BaseModel):
     content_review: CVContentReviewIssues = CVContentReviewIssues()
     # Uwagi oznaczone „To nieprawda” (D5) — poza listą, z przywróceniem.
     dismissed: list[CVEditorDismissed] = []
+    # „Szybkie poprawki” (E1, 07.11.2026): nagłówek z numerem zapytania, gdy
+    # reguła CV klienta go chce (`cv_title_with_reference`) — ten sam, który
+    # wpisuje poprawka `title` w `qc/transform`. `None` = reguła wyłączona.
+    header_title: str | None = None
 
 
 class CVEditorDismissRequest(BaseModel):

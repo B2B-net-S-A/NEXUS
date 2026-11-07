@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_document_version import CvDocumentVersion
 from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.job import Job
 from app.services.cv_editor_review import EDITOR_REVIEW_VERSION, _review_lines
 
 REVIEW_STATUSES = frozenset({"verified", "reviewed", "unverified"})
@@ -92,7 +93,33 @@ async def stage_issues(
     issues = await _raw_issues(db, csv)
     if pair is not None:
         await _split_dismissed(db, issues, pair)
+        issues["header_title"] = await header_title(db, pair[1])
     return issues
+
+
+async def header_title(db: AsyncSession, job_id: int) -> Optional[str]:
+    """Nagłówek z numerem zapytania dla „Szybkich poprawek” (E1, 07.11.2026).
+
+    Ten sam, który `cv_qc.expected_titles` stawia pierwszy, a poprawka
+    `title` wpisuje: rola rekrutacji + „(numer)”, tylko gdy reguła CV klienta
+    to włącza. Bez reguły, bez numeru albo gdy nagłówek nie różni się od roli
+    — `None`. Reguła czekająca na synchronizację = wyłączona
+    (`header_reference_enabled`).
+    """
+    from app.services.job_working_title import (
+        cv_header_title,
+        cv_role_title_for_job,
+        header_reference_enabled,
+    )
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        return None
+    role = await cv_role_title_for_job(db, job)
+    if not role or not await header_reference_enabled(db, job.client_id):
+        return None
+    title = cv_header_title(role, job.client_reference, True)
+    return title if title and title != role else None
 
 
 async def _split_dismissed(

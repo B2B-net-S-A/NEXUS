@@ -1543,8 +1543,8 @@
   {
     "id": "szybkie-poprawki-jezyki-w-liniach",
     "pr": 3139,
-    "title": "Języki w osobnych liniach jednym kliknięciem",
-    "why": "„Szybkie poprawki” na górze „Do poprawy” rozbijają „English - B2 · Polish - native” na osobne linie „Język – poziom”. Zmianę widzisz przed kliknięciem, nic nie jest dopisywane.",
+    "title": "Szybkie poprawki: tytuł z numerem zapytania i języki w liniach",
+    "why": "Na górze „Do poprawy”: numer zapytania w tytule (gdy klient tego chce) i „English - B2 · Polish - native” w osobnych liniach. Zmianę widzisz przed kliknięciem.",
     "tier": "dot",
     "shipped_on": "2026-11-07",
     "audience": {

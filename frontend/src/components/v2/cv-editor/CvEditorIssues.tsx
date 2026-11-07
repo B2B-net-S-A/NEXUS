@@ -103,6 +103,7 @@ import {
   fixStep,
   issueMarks,
   issueRows,
+  itemQuickFix,
   locateTarget,
   rowInBulk,
   type IssueRange,
@@ -695,7 +696,17 @@ export function CvEditorIssues({
   // Po dokumencie, nie po `docTick`: okno wczytuje treść tuż po zamontowaniu
   // panelu, a wynik policzony na pustym dokumencie zostawał do pierwszej zmiany.
   const quickDoc = editor.isDestroyed || !hasStage ? null : editor.state.doc;
-  const quick = useMemo(() => (quickDoc ? quickFixes(quickDoc) : []), [quickDoc]);
+  // Tytuł z numerem (G3): nagłówek z reguły klienta z uwag edytora, imię z QC.
+  // Gdy QC już ma uwagę „Tytuł” z przyciskiem, wiersz stoi tam — nie drugi raz.
+  const titleInQc = checks.some((check) => check.items.some((item) => itemQuickFix(check, item)?.action === "title"));
+  const quickContext = useMemo(
+    () => ({
+      headerTitle: titleInQc ? null : (issuesQuery.data?.header_title ?? null),
+      candidateName: qc?.candidate_name ?? null,
+    }),
+    [titleInQc, issuesQuery.data?.header_title, qc?.candidate_name],
+  );
+  const quick = useMemo(() => (quickDoc ? quickFixes(quickDoc, quickContext) : []), [quickDoc, quickContext]);
   const total = list.total;
   const anyBlocking = checks.some((check) => check.status === "fail" && check.severity === "blocking");
   const blocking = qc && !otherDocument ? qc.blocking_failed : 0;
@@ -802,7 +813,7 @@ export function CvEditorIssues({
   // Miejsce liczone przy kliknięciu — lista odświeża się z opóźnieniem po pisaniu.
   const locateQuick = (action: QuickFix["action"]) => {
     if (editor.isDestroyed) return;
-    const found = quickFixes(editor.state.doc).find((fix) => fix.action === action);
+    const found = quickFixes(editor.state.doc, quickContext).find((fix) => fix.action === action);
     if (found) flash(found.where);
     else showError("Tego miejsca nie ma już w treści CV.");
   };

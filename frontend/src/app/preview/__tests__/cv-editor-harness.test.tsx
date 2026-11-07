@@ -192,23 +192,27 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   noNetwork();
 });
 
-it("„Szybkie poprawki” (E1): języki w osobnych liniach — jedno kliknięcie, jedno Cofnij, bez sieci", async () => {
+it("„Szybkie poprawki” (E1): tytuł z numerem zapytania i języki w liniach — jedno kliknięcie, jedno Cofnij, bez sieci", async () => {
   const dialog = await openEditor();
   // Szybkie poprawki nie są uwagami QC — licznik w pasku bez zmian.
   fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));
   const quick = await within(dialog).findByRole("region", { name: "Szybkie poprawki" });
-  expect(quick).toHaveTextContent("Szybkie poprawki · 1");
+  await waitFor(() => expect(quick).toHaveTextContent("Szybkie poprawki · 2"));
+  expect(quick).toHaveTextContent("Senior Java Developer (ZOB-1234) – Anna Przykładowa");
   expect(quick).toHaveTextContent("polski – ojczysty · angielski – B2");
   const paper = dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement;
-  fireEvent.click(within(quick).getByRole("button", { name: "Zmień" }));
-  await waitFor(() => expect([...paper.querySelectorAll("p")].map((p) => p.textContent)).toContain("angielski – B2"));
-  expect([...paper.querySelectorAll("p")].map((p) => p.textContent)).toContain("polski – ojczysty");
+  fireEvent.click(within(quick).getByRole("button", { name: "Zastosuj wszystkie (2)" }));
+  await waitFor(() => expect(paper.querySelector("h1")).toHaveTextContent("Senior Java Developer (ZOB-1234) – Anna Przykładowa"));
+  const lines = [...paper.querySelectorAll("p")].map((p) => p.textContent);
+  expect(lines).toContain("polski – ojczysty");
+  expect(lines).toContain("angielski – B2");
   fireEvent.click(within(dialog).getByRole("button", { name: /^Do poprawy \(/ }));
   await waitFor(() => expect(within(dialog).queryByRole("region", { name: "Szybkie poprawki" })).toBeNull());
   const done = within(dialog).getByRole("region", { name: "Poprawione" });
   expect(done).toHaveTextContent("Języki w osobnych liniach");
-  fireEvent.click(within(done).getByRole("button", { name: "Cofnij" }));
+  fireEvent.click(within(done).getByRole("button", { name: "Cofnij wszystkie" }));
   expect(paper).toHaveTextContent("polski – ojczysty · angielski – B2");
+  expect(paper.querySelector("h1")).toHaveTextContent("Senior Java Developer – Anna Przykładowa");
   noNetwork();
 });
 

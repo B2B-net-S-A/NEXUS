@@ -513,11 +513,20 @@ poprawi. Raport i makieta: https://claude.ai/artifact/5Qd2t5rbuM6kpv12txwruc
 - **Liniowo:** `test_quick_fixes_are_linear` (20 tys. języków w akapicie,
   200 tys. odstępów bez łącznika); separator z `(?<!\s)` i kwantyfikatorami
   zaborczymi.
+- **„Tytuł z numerem zapytania” (po G3, #3134).** Wiersz tylko przy
+  włączonym polu reguły klienta `cv_title_with_reference`: nagłówek podaje
+  `GET …/cv/branded/issues` (`header_title`, `cv_editor_issues.header_title`
+  — rola z `cv_role_title_for_job` + `cv_header_title`, ten sam, który
+  `cv_qc.expected_titles` stawia pierwszy). Wpisuje go istniejąca akcja
+  `title` — tylko w układzie generatora „Rola – Imię” (imię z QC po prawej
+  stronie ostatniego separatora, lustro `set_title_html`); inny układ = bez
+  wiersza. Pole jest w uwagach edytora, nie w wyniku QC: nowe pole QC
+  zmieniłoby skrót przebiegu i czas w kolejce DL. Gdy QC ma już uwagę „Tytuł”
+  z „Wpisz”, wiersz w „Szybkich poprawkach” się nie dubluje. Tytuł stoi przed
+  językami; „Zastosuj wszystkie” bierze oba (oba w `BULK_ACTIONS`).
 - **Odłożone:** pogrubianie początku punktów podsumowania (Artur, 07.11.2026 —
   standard 5 punktów z #3074 i zdania od czasownika już działają, a 251 z 266
   zmierzonych CV powstało przed nimi; najpierw pomiar za ok. 2 tygodnie).
-  Wiersz „Tytuł z numerem zapytania” dochodzi po PR-ze G3 (#3134, pole reguły
-  klienta `cv_title_with_reference`), na istniejącej akcji `title`.
 
 ## AI na zaznaczeniu (PR 3, 13.10.2026)
 

@@ -44,6 +44,12 @@ export interface CvEditorIssuesData {
   };
   /** Pominięte uwagi — serwer zdejmuje je z list wyżej. Starsza odpowiedź ich nie ma. */
   dismissed?: CvDismissedIssue[];
+  /**
+   * Nagłówek z numerem zapytania, gdy reguła CV klienta go chce (E1,
+   * 07.11.2026) — ten sam, który wpisuje poprawka `title`. Brak = reguła
+   * wyłączona albo starsza odpowiedź.
+   */
+  header_title?: string | null;
 }
 
 /** „To nieprawda” przy uwadze generatora albo kontroli AI — tekst jak na liście. */

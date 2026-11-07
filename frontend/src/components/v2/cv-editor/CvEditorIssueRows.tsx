@@ -1117,8 +1117,8 @@ const INS = "block w-fit rounded-sm bg-success-muted px-0.5 text-foreground no-u
 
 /**
  * Wiersz grupy „Szybkie poprawki”: nazwa, podgląd zmiany i jeden przycisk.
- * Zmiana dotyczy tylko układu, nie treści — dlatego bez szczegółów
- * i „To nieprawda”; tytuł pokazuje miejsce na kartce.
+ * Zmiana dotyczy układu albo nagłówka z reguły klienta, nie treści — dlatego
+ * bez szczegółów i „To nieprawda”; tytuł pokazuje miejsce na kartce.
  */
 export function QuickFixRow({
   fix,
@@ -1131,7 +1131,8 @@ export function QuickFixRow({
   onApply: () => void;
   onLocate: () => void;
 }) {
-  const title = `Języki w osobnych liniach${fix.count > 1 ? ` (${fix.count})` : ""}`;
+  const name = fix.action === "title" ? "Tytuł z numerem zapytania" : "Języki w osobnych liniach";
+  const title = `${name}${fix.count > 1 ? ` (${fix.count})` : ""}`;
   return (
     <li data-issue-row={`quick:${fix.action}`} className="space-y-1 px-2.5 py-2">
       <div className="flex items-start gap-2">

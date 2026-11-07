@@ -1318,6 +1318,61 @@ describe("„Szybkie poprawki” (E1, 07.11.2026)", () => {
     expect(ensureDraft).not.toHaveBeenCalled();
   });
 
+  it("tytuł z numerem zapytania z reguły klienta: wiersz nad językami, „Zastosuj wszystkie (2)” hurtem", async () => {
+    const TITLED = "<h1>Senior Java Developer – Anna Przykładowa</h1>" + QUICK_CV;
+    const api = memoryApi({
+      issues: vi.fn(async () => ({ ...ISSUES, header_title: "Senior Java Developer (ZOB-1234)" })),
+      transform: vi.fn(async (_stage: number, body: QcTransformBody) => ({
+        content_html: body.content_html
+          .replace("Senior Java Developer – ", "Senior Java Developer (ZOB-1234) – ")
+          .replace("<p>English - advanced · Russian - basic</p>", SPLIT),
+        changed: true,
+        applied: [
+          { action: "title", count: 1 },
+          { action: "languages_lines", count: 1 },
+        ],
+        skipped: [],
+      })),
+    });
+    const editor = openQuick(TITLED);
+    setup({ api, editor });
+    const group = await screen.findByRole("region", { name: "Szybkie poprawki" });
+    await waitFor(() => expect(group).toHaveTextContent("Szybkie poprawki · 2"));
+    const rows = within(group).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("Tytuł z numerem zapytania");
+    expect(rows[0].querySelector("del")).toHaveTextContent("Senior Java Developer – Anna Przykładowa");
+    expect(rows[0].querySelector("ins")).toHaveTextContent("Senior Java Developer (ZOB-1234) – Anna Przykładowa");
+    const before = editor.getHTML();
+    fireEvent.click(within(group).getByRole("button", { name: "Zastosuj wszystkie (2)" }));
+    await waitFor(() => expect(editor.getHTML()).toContain("Senior Java Developer (ZOB-1234) – Anna"));
+    expect(api.transform).toHaveBeenCalledWith(STAGE, {
+      content_html: before,
+      actions: [{ action: "title" }, { action: "languages_lines" }],
+      bulk: true,
+    });
+    expect(editor.getHTML()).toContain(SPLIT);
+  });
+
+  it("gdy QC ma już uwagę „Tytuł” z przyciskiem, szybka poprawka tytułu nie dubluje wiersza", async () => {
+    const TITLED = "<h1>Java Developer – Anna Przykładowa</h1>" + QUICK_CV;
+    const api = memoryApi({
+      issues: vi.fn(async () => ({ ...ISSUES, header_title: "Senior Java Developer (ZOB-1234)" })),
+      qc: vi.fn(async () =>
+        qcResult({
+          checks: [
+            ...CHECKS,
+            check({ key: "title_matches_role", label: "Tytuł", items: [{ term: "Senior Java Developer (ZOB-1234)" }] }),
+          ],
+        }),
+      ),
+    });
+    setup({ api, editor: openQuick(TITLED) });
+    const group = await screen.findByRole("region", { name: "Szybkie poprawki" });
+    await screen.findByRole("button", { name: "Wpisz tytuł: Senior Java Developer (ZOB-1234)" });
+    expect(group).toHaveTextContent("Szybkie poprawki · 1");
+    expect(group).not.toHaveTextContent("Tytuł z numerem zapytania");
+  });
+
   it("bez etapu (wynik generatora) nie ma szybkich poprawek — trasa jest per etap", () => {
     setup({ editor: openQuick(), props: { stageId: undefined } });
     expect(screen.queryByRole("region", { name: "Szybkie poprawki" })).not.toBeInTheDocument();

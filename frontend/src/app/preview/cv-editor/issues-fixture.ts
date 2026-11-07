@@ -191,6 +191,8 @@ function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: b
   ];
 }
 
+const HEADER_REFERENCE = "ZOB-1234";
+
 const ISSUES: CvEditorIssuesData = {
   generated_document_id: 77,
   generator_warnings: [
@@ -209,6 +211,8 @@ const ISSUES: CvEditorIssuesData = {
       { text: "Testy jednostkowe i integracyjne (JUnit, Testcontainers).", status: "weak" },
     ],
   },
+  // Reguła klienta „numer zapytania w nagłówku” (G3) — wiersz „Szybkie poprawki”.
+  header_title: `Senior Java Developer (${HEADER_REFERENCE})`,
 };
 
 const NO_ISSUES: CvEditorIssuesData = {
@@ -400,6 +404,9 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
                 .map((part) => `<p>${languagePart(part)}</p>`)
                 .join(""),
           );
+        } else if (action.action === "title" && variant !== "clean") {
+          // Lustro `cv_qc.set_title_html` z nagłówkiem z reguły klienta (`header_title`).
+          next = html.replace("<h1>Senior Java Developer – ", `<h1>Senior Java Developer (${HEADER_REFERENCE}) – `);
         } else if (action.action === "years" || action.action === "title" || action.action === "strip_client_rules") {
           // Harness nie ma tych uwag w QC — serwer odpowiedziałby „nie ma czego poprawić”.
           next = html;

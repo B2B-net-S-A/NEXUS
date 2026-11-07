@@ -72,6 +72,35 @@ describe("quickFixes", () => {
   });
 });
 
+describe("tytuł z numerem zapytania (G3)", () => {
+  const ctx = { headerTitle: "AML Analyst (43114)", candidateName: "Anna Przykładowa" };
+
+  it("zamienia rolę w układzie „Rola – Imię” na nagłówek z reguły klienta", () => {
+    const editor = open(CV);
+    const [title] = quickFixes(editor.state.doc, ctx);
+    expect(title).toMatchObject({
+      action: "title",
+      count: 1,
+      before: "AML Analyst – Anna Przykładowa",
+      after: ["AML Analyst (43114) – Anna Przykładowa"],
+    });
+    expect(editor.state.doc.textBetween(title.where.from, title.where.to)).toBe("AML Analyst – Anna Przykładowa");
+    // Kolejność panelu: tytuł, potem języki.
+    expect(quickFixes(editor.state.doc, ctx).map((fix) => fix.action)).toEqual(["title", "languages_lines"]);
+  });
+
+  it.each([
+    ["reguła wyłączona", "<h1>AML Analyst – Anna Przykładowa</h1>", { ...ctx, headerTitle: null }],
+    ["numer już jest", "<h1>AML Analyst (43114) – Anna Przykładowa</h1>", ctx],
+    ["„Imię – Rola”", "<h1>Anna Przykładowa – AML Analyst</h1>", ctx],
+    ["bez separatora", "<h1>AML Analyst</h1>", ctx],
+    ["bez imienia z QC", "<h1>AML Analyst – Anna Przykładowa</h1>", { ...ctx, candidateName: null }],
+  ])("bez wiersza: %s", (_case, html, context) => {
+    const editor = open(html);
+    expect(quickFixes(editor.state.doc, context)).toEqual([]);
+  });
+});
+
 describe("languagePart", () => {
   it.each([
     ["English - B2", "English – B2"],

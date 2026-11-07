@@ -6415,3 +6415,36 @@ def test_dl_returns_group_lists_the_checks_dl_returns_cards_for() -> None:
         .split("]", 1)[0]
     )
     assert re.findall(r'"([a-z_]+)"', block) == list(qc.DL_RETURN_KEYS)
+
+
+async def test_editor_header_title_only_when_the_client_rule_wants_the_reference(
+    monkeypatch,
+) -> None:
+    """„Szybkie poprawki”: wiersz tytułu dostaje ten sam nagłówek, który wpisze
+    poprawka `title` (`expected_titles` stawia go pierwszy) — tylko przy
+    włączonej regule klienta i gdy różni się od samej roli."""
+    from app.services import cv_editor_issues
+    from app.services import job_working_title as jwt
+
+    job = SimpleNamespace(client_id=7, client_reference="43114")
+    rule = {"on": True}
+
+    class Db:
+        async def get(self, model, key):
+            return job
+
+    async def role_title(db, value):
+        return "AML Analyst"
+
+    async def reference_enabled(db, client_id):
+        assert client_id == 7
+        return rule["on"]
+
+    monkeypatch.setattr(jwt, "cv_role_title_for_job", role_title)
+    monkeypatch.setattr(jwt, "header_reference_enabled", reference_enabled)
+    assert await cv_editor_issues.header_title(Db(), 1) == "AML Analyst (43114)"
+    rule["on"] = False
+    assert await cv_editor_issues.header_title(Db(), 1) is None
+    rule["on"] = True
+    job.client_reference = None
+    assert await cv_editor_issues.header_title(Db(), 1) is None
