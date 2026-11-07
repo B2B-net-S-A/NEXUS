@@ -38,7 +38,12 @@ których ekrany jeszcze nie czytają.
   restartuje kontener i zabija bieg w połowie zapisu paczki: po restarcie zbierz
   paczki jeszcze raz (`collect`), wiersze ze znacznikiem `ok` dla tego samego
   tekstu są pomijane (`already`), a dopiero potem puść `run`, bo inaczej CV z
-  niezebranej paczki pójdą do modelu drugi raz. Znaczniki biegów
+  niezebranej paczki pójdą do modelu drugi raz. Paczki zbieraj po jednej,
+  jednym procesem, a `run` puszczaj najwyżej jeden obok: każdy proces ładuje
+  całą aplikację w kontenerze webu (limit 4 GB). 07.11 strażnik po wdrożeniu
+  puszczał naraz 13 procesów `collect` i system zabił uvicorn z braku pamięci.
+  Paczkę zebraną w całości (`=== KONIEC ===` w logu `collect`) skreśl z listy
+  do wznowienia, zamiast zbierać ją po każdym restarcie. Znaczniki biegów
   `_cv_*` (`CV_RUN_MARKER_KEYS`) nie giną przy kolejnych odczytach CV.
 - **Faza nocna** `candidates_cv_fields` czyta pełnym promptem i odświeża
   `candidate_skill_usage`, więc nowe osoby z tej ścieżki nie potrzebują drugiego odczytu.
