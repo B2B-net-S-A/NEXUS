@@ -1470,6 +1470,19 @@
     "dot_anchor": "requirements.relation-hint"
   },
   {
+    "id": "odczyt-maila-propozycja-krytycznych",
+    "pr": 3124,
+    "title": "Odczyt maila proponuje krytyczne i technologie z maila",
+    "why": "Po wklejeniu maila: propozycja krytycznych z cytatem (np. „minimum 5 lat z D365”) do zatwierdzenia jednym kliknięciem i technologie z maila, których brakuje w wymaganiach.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.intake-proposals"
+  },
+  {
     "id": "porcja-dnia-od-nexusa",
     "pr": 3125,
     "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",
