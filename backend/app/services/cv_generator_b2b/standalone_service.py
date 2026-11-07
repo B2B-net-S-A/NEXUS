@@ -69,6 +69,7 @@ from app.services.cv_generator_b2b.champion_builder import (
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
     apply_date_format,
+    apply_header_reference,
     apply_presentation_policy,
     build_filename as build_client_filename,
     build_prompt_blocks,
@@ -228,6 +229,9 @@ class UploadGenerationInput:
     # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy — podaje rekruter.
     position: str = ""
     project_ref: str = ""
+    # Numer zapytania rekrutacji, pod którą idzie upload — do nagłówka przy
+    # regule klienta `title_with_reference` (07.11.2026).
+    client_reference: str = ""
     # Server notices decided before generation (e.g. "tailored" fell back to
     # polished for want of a Champion); appended to the document warnings.
     source_warnings: tuple[str, ...] = ()
@@ -1637,6 +1641,7 @@ def _run_generation_pipeline(
     prepared_source_facts: PreparedSourceFacts | None = None,
     position_fallback: str | None = None,
     instruction: str = "",
+    title_reference: str | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1677,6 +1682,7 @@ def _run_generation_pipeline(
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
             instruction=instruction,
+            title_reference=title_reference,
         )
     # Pipeline v10 (CV_GENERATION_PIPELINE=v10) nie czyta uwagi rekrutera —
     # „Napisz od nowa” działa na domyślnej ścieżce legacy_v7.
@@ -1886,6 +1892,7 @@ def _run_generation_pipeline(
             # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
             # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
             candidate_data["presentation_position"] = explicit_position
+    apply_header_reference(candidate_data, client_rule, title_reference)
 
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
@@ -2610,6 +2617,10 @@ class CandidateGenerationSource:
     # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): życzenie
     # rekrutera co do formy i akcentów, nigdy źródło faktów. Bez stawek.
     instruction: str = ""
+    # Numer zapytania klienta (`jobs.client_reference`) — do nagłówka CV, gdy
+    # reguła klienta ma `title_with_reference` (07.11.2026). Domyślnie pusty,
+    # więc snapshoty zadań sprzed zmiany dekodują się bez niego.
+    client_reference: str = ""
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2879,6 +2890,9 @@ async def load_candidate_generation_source(
             tuple(chosen_sources(sources).items()) if stage is not None else ()
         ),
         instruction=recruiter_instruction(instruction),
+        client_reference=(getattr(job, "client_reference", None) or "")
+        if job is not None
+        else "",
     )
 
 
@@ -2937,6 +2951,7 @@ async def generate_cv_from_candidate_source(
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
             instruction=source.instruction,
+            title_reference=source.client_reference or None,
         )
     )
     if source.source_warnings:
@@ -3093,6 +3108,7 @@ def generate_cv_from_uploads(
         project_ref=payload.project_ref or None,
         position_ref=payload.position or None,
         prepared_source_facts=prepared_source_facts,
+        title_reference=payload.client_reference or None,
     )
     if payload.source_warnings:
         result.warnings.extend(payload.source_warnings)

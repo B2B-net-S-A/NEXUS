@@ -5,6 +5,9 @@
  * przysłał edytor. Dane są fikcyjne; reguły doboru proste i przewidywalne,
  * żeby dało się przeklikać każdy rodzaj operacji (Edytor CV 3, PR 4: także
  * dopisanie z pytaniem o źródło, pogrubienie i „Rozważany na stanowisko”).
+ * 07.11.2026: trzy podpowiedzi nad asystentem — punkt do podsumowania
+ * z cytatem, wymagania do obowiązków i rola spoza profilu (tu: pusty wynik
+ * z powodem, bo obie role są z Javy).
  */
 
 import type {
@@ -21,11 +24,68 @@ function bulletsOfRole(lines: CvCommandLine[], role: number): CvCommandLine[] {
   return lines.filter((line) => line.kind === "bullet" && line.role === role);
 }
 
+/** Pusty wynik mówi, dlaczego i co wpisać (jak `cv_command_ai.MSG_EMPTY`). */
+const MSG_EMPTY =
+  "Nic nie zmieniłem — z tej wiadomości nie wiem, co zmienić w CV. Napisz, co i gdzie, np. „dopisz do podsumowania punkt o Kafce” albo „w ostatnim stanowisku skróć obowiązki do 3 punktów”.";
+/** Zdanie modelu przy pustej liście (`question`), gdy wszystkie role pasują. */
+const MSG_ALL_ROLES_FIT = "Oba stanowiska są z Javy i pasują do profilu tej rekrutacji — nic nie usunąłem.";
+
 function plan(body: CvCommandRequest): Draft[] {
   const { lines } = body;
   const text = (body.command ?? "").toLowerCase();
   const roles = [...new Set(lines.map((line) => line.role).filter((role): role is number => role != null))];
   const operations: Draft[] = [];
+
+  // „+ Punkt do podsumowania”: jeden punkt z cytatem, za ostatnim punktem sekcji.
+  if (body.preset === "summary_point") {
+    const summary = lines.filter((line) => line.kind === "bullet" && line.section === "why_points");
+    const last = summary[summary.length - 1];
+    if (last) {
+      operations.push({
+        type: "add",
+        lines: [last.id],
+        text: "Na co dzień pracuje po angielsku z zespołem klienta w Kopenhadze.",
+        why: "Język i praca z klientem zagranicznym — podsumowanie jeszcze tego nie mówi.",
+        loses: [],
+        new_words: [],
+        quote: "na co dzień pracuję po angielsku z zespołem w Kopenhadze",
+        source: "rozmowa",
+      });
+    }
+    return operations;
+  }
+
+  // „Wymagania do obowiązków”: wymaganie z listy technologii roli nazwane w punkcie.
+  if (body.preset === "more_requirements") {
+    const target = lines.find((line) => line.kind === "bullet" && line.text.startsWith("Optymalizacja zapytań w PostgreSQL"));
+    if (target) {
+      operations.push({
+        type: "replace",
+        lines: [target.id],
+        text: "Optymalizacja zapytań w **PostgreSQL** i konteneryzacja usług w **Docker**.",
+        why: "Docker z listy technologii tej roli widoczny w obowiązkach.",
+        loses: [],
+        new_words: ["konteneryzacja", "usług"],
+      });
+    }
+    return operations;
+  }
+
+  // „Usuń rolę spoza profilu”: tu obie role są z Javy — pusty wynik z powodem.
+  if (body.preset === "drop_offprofile_role") return operations;
+
+  return planWords(body, lines, text, roles, operations);
+}
+
+function planWords(
+  body: CvCommandRequest,
+  lines: CvCommandLine[],
+  text: string,
+  roles: number[],
+  operations: Draft[],
+): Draft[] {
+  // „dzięki”, „ok” — nie prośba o zmianę: pusty wynik z tym, co wpisać.
+  if (/^(dzięki|dziękuję|ok|super)\b/.test(text.trim())) return operations;
 
   // „Dopasuj pod rekrutację”: propozycje z cytatem, rekruter wybiera.
   if (body.preset === "tailor") {
@@ -82,7 +142,7 @@ function plan(body: CvCommandRequest): Draft[] {
   }
 
   // „pogrub …” — terminy, które stoją w CV.
-  if (text.includes("pogrub") || body.preset === "more_requirements") {
+  if (text.includes("pogrub")) {
     operations.push({
       type: "bold",
       lines: [],
@@ -224,7 +284,7 @@ export function memoryCommandApi(down: boolean): CvEditorCommandApi {
           status: "empty",
           operations: [],
           dropped: [],
-          message: "Asystent nie znalazł zmian, które odpowiadają temu poleceniu.",
+          message: body.preset === "drop_offprofile_role" ? MSG_ALL_ROLES_FIT : MSG_EMPTY,
         };
       }
       return {

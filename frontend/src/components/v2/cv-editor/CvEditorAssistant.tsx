@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { CV_PANEL_ATTR, Marked } from "@/components/v2/cv-editor/Marked";
 import { TextLimitCounter } from "@/components/v2/forms/TextLimitCounter";
 import type { AssistantMessage, CvAssistantController } from "@/components/v2/cv-editor/useCvAssistant";
-import { CV_COMMAND_PRESETS } from "@/lib/api/cvEditorCommand";
+import { CV_COMMAND_PRESETS, CV_COMMAND_SUGGESTIONS } from "@/lib/api/cvEditorCommand";
 import { CV_COMMAND_MAX } from "@/lib/cv-editor-command";
 import { useTextareaAutogrow } from "@/lib/use-textarea-autogrow";
 import { cn } from "@/lib/utils";
@@ -67,11 +67,6 @@ export function CvEditorAssistant({ controller, editor, expanded, onExpand }: Cv
     },
   });
   const disabled = !controller.enabled || controller.busy;
-  // Z „Napisz od nowa…” mieszczą się cztery podpowiedzi, jak na makiecie —
-  // „Usuń najstarsze role” wpisuje się wtedy słowami.
-  const chips = controller.canRewrite
-    ? CV_COMMAND_PRESETS.filter((item) => item.preset !== "drop_old_roles")
-    : CV_COMMAND_PRESETS;
   // Nowa odpowiedź albo pytanie ląduje na dole rozmowy — pokaż ją bez przewijania ręką.
   useEffect(() => {
     const node = log.current;
@@ -92,6 +87,27 @@ export function CvEditorAssistant({ controller, editor, expanded, onExpand }: Cv
         : "Napisz, co zmienić w CV…";
     return (
       <section aria-label="Asystent CV" className="flex-none space-y-1.5 border-t border-border p-2" {...{ [CV_PANEL_ATTR]: "" }}>
+        {controller.messages.length === 0 && !controller.locked ? (
+          // Pomiar 07.11.2026: trzy najczęstsze ręczne zmiany jednym kliknięciem.
+          <div className="flex flex-wrap gap-1" role="group" aria-label="Podpowiedzi asystenta">
+            {CV_COMMAND_SUGGESTIONS.map((item) => (
+              <Button
+                key={item.preset}
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                disabled={disabled}
+                onClick={() => {
+                  onExpand();
+                  controller.send(item);
+                }}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         {controller.messages.length === 0 && !controller.locked ? (
           <Button
             type="button"
@@ -168,7 +184,7 @@ export function CvEditorAssistant({ controller, editor, expanded, onExpand }: Cv
           >
             <Wand2 aria-hidden className="h-3 w-3" /> {TAILOR_REQUEST.label}
           </Button>
-          {chips.map((item) => (
+          {CV_COMMAND_PRESETS.map((item) => (
             <Button
               key={item.preset}
               type="button"

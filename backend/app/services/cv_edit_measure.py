@@ -1,9 +1,11 @@
 """Ile ludzie zmieniają w CV z generatora: linia bazowa i porównanie po sekcjach.
 
-Baza to pierwszy szkic etapu, odtwarzany z ``render_payload`` tym samym rendererem,
-który go zbudował (`apply_generated_to_stage_cv`). Szkicu nie trzeba przechowywać:
-przy podpięciu zapisuje się jego skrót (`generated_editor_html_sha256`), więc
-każdą bazę da się sprawdzić co do bajtu (`first_draft_is_reproduced`).
+Baza to pierwszy szkic etapu. Od E3 (07.11.2026) jego treść jest zapisana przy
+podpięciu (`generated_editor_html`, `services/cv_edit_summary.py`), bo odtwarzanie
+z ``render_payload`` zawodzi po zmianie renderera (07.11: 129 z 395 CV). Dla CV
+sprzed E3 baza jest odtwarzana tym samym rendererem, który ją zbudował
+(`apply_generated_to_stage_cv`), i sprawdzana zapisanym skrótem
+(`generated_editor_html_sha256`) co do bajtu (`first_draft_is_reproduced`).
 
 Renderer pogrubia według taksonomii umiejętności, dlatego proces spoza web musi
 najpierw wywołać ``refresh_alias_map()``. Inaczej skrót się nie zgadza, choć tekst

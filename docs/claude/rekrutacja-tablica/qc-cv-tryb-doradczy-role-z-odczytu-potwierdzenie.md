@@ -56,6 +56,17 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   doradczym i tylko dla niezużytego obejścia; odcisk zmienia się w sesji
   wołającego (bez osobnego commitu). Test na bazie:
   `test_advisory_override_follows_the_cv_until_a_new_blocker_appears`.
+- **„Inny powód” = wskazana blokada + co najmniej trzy słowa (R6, decyzja
+  Artura 07.11.2026).** W 30 dniach 15 z 91 obejść miało powód „x”, „.” albo
+  „dw”. `QcOverrideRequest` liczy słowa (`\w{2,}`,
+  `cv_qc.OVERRIDE_OTHER_MIN_WORDS`, lustro `QC_OVERRIDE_OTHER_MIN_WORDS`),
+  a `about_keys` sprawdza `cv_qc.override_about` na bieżącym przebiegu: przy
+  blokadach z kluczami pozycji bez pasującego klucza — 422. Przebieg obejścia
+  zapisuje `result.override_about`. Minimum znaków nie wraca (losowe litery).
+  Gotowe powody bez zmian. Automat „DL match” zapisuje obejście z kodem
+  `cv_qc.DL_MATCH_OVERRIDE` (`dl_match`), nie `other` — 11 z 91 obejść; tego
+  kodu nie ma w oknie i trasa obejścia go odrzuca. Licząc obejścia rekruterów
+  pod decyzję o `CV_QC_ADVISORY`, pomijaj `dl_match`.
 - **Trzy stany QC wszędzie (R1, decyzja Artura 07.11.2026).** Zdane QC
   z blokującym sprawdzeniem w stanie `manual` („sprawdź ręcznie”, np. odczyt CV
   bez opisów ról) było „QC ✓”, choć krytycznych nikt nie sprawdził (139 z 535

@@ -263,6 +263,13 @@ tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
   zmienia zaliczenia, zmienia zdanie uwagi i daje cytat. Java przy JavaScript, C# przy
   C++ i Go przy Google dalej nic nie znajdują. Przy lukach działa bez rdzeni, bo
   pierwsza wersja dawała tam 342 trafienia na 1195 prawdziwych luk.
+- **Adresy i e-maile to nie nazwa narzędzia** (07.11.2026): staging pytał „Git —
+  w oryginale pod inną nazwą?” cytatem nagłówka kontaktu, bo „github” stało tylko
+  w `github.com/…`. `similar_in_original` szuka w tekście bez adresów i e-maili
+  (`_without_contacts`; domena bez schematu tylko z końcówką com/pl/org/eu/dev/me/info
+  albo ze ścieżką, więc „Socket.io” i „ASP.NET” zostają), a cytat bierze z jednej
+  linii. `found_in(mode="support")` bez zmian: na 1181 parach żaden dowód nie stał
+  wyłącznie w adresie. Zaliczenie bez zmian (968 → 968), więc `QC_VERSION` też.
 - **„To ta sama rzecz”:** pominięcie z powodem `other_name` i cytatem z oryginału (serwer
   sprawdza, że cytat tam stoi). Liczy się do „Jakości QC”, a przy blokadzie Delivery Lead
   dostaje dzwonek jak przy każdym pominięciu.
@@ -278,3 +285,33 @@ tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
 Testy: sekcja „Pod inną nazwą” w `tests/test_cv_qc.py`, `CvQcDialog.test.tsx`
 („W oryginale pod inną nazwą”).
 
+
+## „Delivery Lead zwykle o to cofa” (R4, decyzja Artura 07.11.2026)
+
+Analiza zwrotów z „QC CV” (30 dni, kopia produkcji): 35 z 38 zwrotów od DL
+miało „QC zdane”, a 26 z 34 uwag dla rekrutera dotyczyło samego CV (6 „tylko
+w Dlaczego/Umiejętnościach”, 5 dat, 4 tytułu, 2 brak firmy).
+
+- **Dwie nowe uwagi (nie blokady):** `must_only_summary` — wymaganie (krytyczne
+  albo must), które CV ma tylko poza stanowiskami, a odczyt oryginału wiąże je
+  ze stanowiskiem (`orig_roles[].text`: opis, technologie, nazwa roli); pomija
+  wymagania zgłoszone już w `critical_skills` / `must_in_roles`.
+  `role_employer` — stanowisko CV ze znacznikiem generatora bez pracodawcy,
+  gdy oryginał podaje firmy; nie dotyczy szablonu bez pola firmy (żadna rola
+  go nie ma), wiersza bez roku, samych dat, urlopu, pracy na swoim i prywatnej
+  działalności (`_employer_expected`) ani roli, w której tekście stoi firma
+  z oryginału.
+- **Pomiar przed i po** (`qc_truth_audit.py` przez `qc_overlay.py` na kopii,
+  947 par z 23 dni): zaliczone 621 → 621, blokujące pozycje 400 → 400, uwagi na
+  CV 1,57 → 1,61; `must_only_summary` 20 pozycji w 14 parach, `role_employer` 16
+  w 14. Pierwsza wersja bez warunku „oryginał wiąże ze stanowiskiem” dawała
+  uwagę w 35% par, a `role_employer` bez wyjątków — 222 pozycje w 44 parach.
+- **Okno QC:** `cv_qc.DL_RETURN_KEYS` (lustro `QC_DL_RETURN_KEYS`) — część
+  „Delivery Lead zwykle o to cofa” nad „Warto poprawić” (`splitDlReturns`):
+  `must_only_summary`, `role_dates`, `role_employer`, `title_matches_role`.
+- `QC_VERSION` bez zmian: nowe uwagi nie zmieniają zaliczenia.
+- Blokada „CV firmowe nie powstało” przy 4 zwrotach z „CV się nie
+  wygenerowało” czeka na wynik osobnego sprawdzenia przyczyny.
+
+Testy: sekcja „R4” w `tests/test_cv_qc.py`, `CvQcDialog.test.tsx`
+(„Delivery Lead zwykle o to cofa”).

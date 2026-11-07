@@ -308,12 +308,12 @@ it("asystent: za długa lista poprawek nie ucina się — licznik mówi, o ile s
   expect(editor.getHTML()).toBe(before);
 });
 
-it("asystent: „Skróć do 2 stron” zmienia CV od razu, na zielono, jednym „Cofnij” — bez sieci", async () => {
+it("asystent: „skróć do 2 stron” zmienia CV od razu, na zielono, jednym „Cofnij” — bez sieci", async () => {
   const dialog = await openEditor();
   const editor = liveEditor(dialog);
   const before = editor.getHTML();
   const assistant = await openAssistant(dialog);
-  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  say(assistant, "skróć do 2 stron");
   // Do odpowiedzi kartka czeka — plan odnosi się do treści z chwili wysłania.
   expect(editor.isEditable).toBe(false);
   expect(within(assistant).getByText(/Asystent pracuje/)).toBeInTheDocument();
@@ -330,6 +330,56 @@ it("asystent: „Skróć do 2 stron” zmienia CV od razu, na zielono, jednym �
   expect(editor.getHTML()).toBe(before);
   expect(within(reply).getByText("Cofnięte.")).toBeInTheDocument();
   expect(editor.view.dom.querySelector(".cv-assistant-new")).toBeNull();
+  noNetwork();
+});
+
+it("trzy podpowiedzi nad zwiniętym asystentem: punkt do podsumowania czeka na „Zastosuj” (07.11.2026)", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  fireEvent.click(await within(dialog).findByRole("button", { name: /^Do poprawy/ }));
+  const collapsed = within(dialog).getByRole("region", { name: "Asystent CV" });
+  const group = within(collapsed).getByRole("group", { name: "Podpowiedzi asystenta" });
+  expect(within(group).getAllByRole("button").map((button) => button.textContent)).toEqual([
+    "+ Punkt do podsumowania",
+    "Wymagania do obowiązków",
+    "Usuń rolę spoza profilu",
+  ]);
+  fireEvent.click(within(group).getByRole("button", { name: "+ Punkt do podsumowania" }));
+  // Klik rozwija asystenta i od razu wysyła podpowiedź.
+  const assistant = within(dialog).getByRole("region", { name: "Asystent CV" });
+  const proposals = await within(assistant).findByTestId("cv-tailor-proposals", {}, SLOW);
+  expect(proposals).toHaveTextContent("Rozmowa: „na co dzień pracuję po angielsku z zespołem w Kopenhadze”");
+  expect(editor.getHTML()).toBe(before);
+  fireEvent.click(within(proposals).getByRole("button", { name: /Zastosuj zaznaczone \(1\)/ }));
+  await waitFor(() => expect(editor.getHTML()).toContain("zespołem klienta w Kopenhadze"));
+  noNetwork();
+});
+
+it("„Usuń rolę spoza profilu” bez takiej roli: powód zamiast „nie znalazł zmian”", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const before = editor.getHTML();
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Usuń rolę spoza profilu" }));
+  expect(await within(assistant).findByText(/Oba stanowiska są z Javy/, {}, SLOW)).toBeInTheDocument();
+  expect(within(assistant).queryByText(/nie znalazł zmian/)).toBeNull();
+  expect(editor.getHTML()).toBe(before);
+  // Wiadomość bez zmian: co wpisać.
+  say(assistant, "dzięki");
+  expect(await within(assistant).findByText(/Napisz, co i gdzie/, {}, SLOW)).toBeInTheDocument();
+  noNetwork();
+});
+
+it("„Wymagania do obowiązków” nazywa wymaganie z listy technologii w punkcie roli", async () => {
+  const dialog = await openEditor();
+  const editor = liveEditor(dialog);
+  const assistant = await openAssistant(dialog);
+  fireEvent.click(within(assistant).getByRole("button", { name: "Wymagania do obowiązków" }));
+  await within(assistant).findByTestId("cv-assistant-reply", {}, SLOW);
+  await waitFor(() =>
+    expect(editor.getHTML()).toContain("konteneryzacja usług w <strong>Docker</strong>"),
+  );
   noNetwork();
 });
 
@@ -416,7 +466,7 @@ it("asystent niedostępny: zdanie w kolumnie, kartka od razu do edycji", async (
   const dialog = await openEditor("aidown");
   const editor = liveEditor(dialog);
   const assistant = await openAssistant(dialog);
-  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  say(assistant, "skróć do 2 stron");
   expect(await within(assistant).findByText(/Asystent jest chwilowo niedostępny/, {}, SLOW)).toBeInTheDocument();
   expect(editor.isEditable).toBe(true);
   noNetwork();
@@ -425,7 +475,7 @@ it("asystent niedostępny: zdanie w kolumnie, kartka od razu do edycji", async (
 it("Escape, gdy asystent pracuje, nie zamyka edytora", async () => {
   const dialog = await openEditor();
   const assistant = await openAssistant(dialog);
-  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  say(assistant, "skróć do 2 stron");
   expect(within(assistant).getByText(/Asystent pracuje/)).toBeInTheDocument();
   fireEvent.keyDown(document.body, { key: "Escape" });
   expect(dialog.isConnected).toBe(true);
@@ -566,7 +616,7 @@ it("plik Word: uszkodzony to komunikat, poprawny — różnice i wstawienie z kl
 it("gdy asystent pracuje, „Historia wersji” czeka na jego odpowiedź", async () => {
   const dialog = await openEditor();
   const assistant = await openAssistant(dialog);
-  fireEvent.click(within(assistant).getByRole("button", { name: "Skróć do 2 stron" }));
+  say(assistant, "skróć do 2 stron");
   expect((await moreItems(dialog)).get("Historia wersji")).toBe(false);
   await within(assistant).findByTestId("cv-assistant-reply", {}, SLOW);
   expect((await moreItems(dialog)).get("Historia wersji")).toBe(true);

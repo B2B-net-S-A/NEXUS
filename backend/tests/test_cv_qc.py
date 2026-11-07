@@ -971,6 +971,13 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(public_profile, "_client_names", no_names)
+    # Reguła klienta bez numeru zapytania w nagłówku (0661); `db` to tu None.
+    import app.services.job_working_title as working_title
+
+    async def no_reference(_db, _client_id):
+        return False
+
+    monkeypatch.setattr(working_title, "header_reference_enabled", no_reference)
     src = SimpleNamespace(
         job=SimpleNamespace(
             title="PL_IT_Developer_expert_TP#40379 (43020)",
@@ -981,6 +988,29 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
     titles = await qc.expected_titles(None, src, {"presentation_position": "(43020)"})
     # 26.10.2026 (D4): kod stanowiska Nordei „_TP#…” i „PL_” też schodzą.
     assert titles == ("IT Developer expert",)
+
+
+async def test_expected_titles_put_the_numbered_header_first(monkeypatch) -> None:
+    """07.11.2026: reguła klienta z numerem zapytania — „Zmień tytuł” wpisuje
+    nagłówek z numerem, a sama rola dalej jest zgodna."""
+    import app.services.job_public_profile as public_profile
+    import app.services.job_working_title as working_title
+
+    async def no_names(_db, _client_id):
+        return []
+
+    async def with_reference(_db, _client_id):
+        return True
+
+    monkeypatch.setattr(public_profile, "_client_names", no_names)
+    monkeypatch.setattr(working_title, "header_reference_enabled", with_reference)
+    src = SimpleNamespace(
+        job=SimpleNamespace(
+            title="AML Analyst (43114)", client_reference="43114", client_id=11
+        )
+    )
+    titles = await qc.expected_titles(None, src, {})
+    assert titles == ("AML Analyst (43114)", "AML Analyst")
 
 
 async def test_service_title_header_does_not_confirm_itself() -> None:
@@ -2700,17 +2730,78 @@ def test_override_reason_is_a_ready_label_or_a_free_description() -> None:
     )
     assert qc.override_reason_text(None, "bo tak") == "bo tak"
 
-    # Gotowy powód nie wymaga opisu; bez minimum znaków.
+    # Gotowy powód nie wymaga opisu.
     assert QcOverrideRequest(reason_code="client_short_cv").reason == ""
-    assert QcOverrideRequest(reason="  bo   tak ").reason == "bo tak"
+    assert QcOverrideRequest(reason="  Klient zna   go z projektu ").reason == (
+        "Klient zna go z projektu"
+    )
     for body in (
         {},
         {"reason_code": "other"},
         {"reason_code": "other", "reason": "   "},
-        {"reason_code": "nieznany", "reason": "Klient prosił."},
+        {"reason_code": "nieznany", "reason": "Klient prosił o to."},
+        # R6 (07.11.2026): „Inny powód” to co najmniej trzy słowa — 15 z 91
+        # obejść miało „x”, „.” albo „dw”.
+        {"reason_code": "other", "reason": "x"},
+        {"reason_code": "other", "reason": "bo tak"},
+        {"reason": "dw ."},
+        # Kod automatu „DL match” nie jest powodem do wyboru w oknie.
+        {"reason_code": "dl_match", "reason": "Delivery Lead wysłał z przeglądu"},
     ):
         with pytest.raises(ValidationError):
             QcOverrideRequest(**body)
+
+
+def test_other_override_reason_must_name_a_current_blocker() -> None:
+    """R6 (07.11.2026): „Inny powód” wskazuje, której blokady dotyczy.
+
+    Serwer bierze tylko klucze blokad z bieżącego przebiegu; gdy żadna nie
+    pasuje, a blokady są, obejście odmawia. Gotowy powód nie wymaga wskazania.
+    """
+
+    checks = [
+        {
+            "key": "critical_skills",
+            "severity": "blocking",
+            "status": "fail",
+            "items": [{"key": "critical_skills|java|cv"}],
+        },
+        {
+            "key": "no_unsupported",
+            "severity": "blocking",
+            "status": "fail",
+            "items": [{"key": "no_unsupported|kafka|cv"}],
+        },
+        {
+            "key": "dates",
+            "severity": "warning",
+            "status": "fail",
+            "items": [{"key": "dates|x|cv"}],
+        },
+    ]
+    assert qc.override_about(
+        checks, ["no_unsupported|kafka|cv", "dates|x|cv", "obcy"], "other"
+    ) == ["no_unsupported|kafka|cv"]
+    assert qc.override_about(checks, [], "client_short_cv") == []
+    with pytest.raises(qc.OverrideAboutMissing):
+        qc.override_about(checks, [], "other")
+    with pytest.raises(qc.OverrideAboutMissing):
+        qc.override_about(checks, ["dates|x|cv"], None)
+    # Bez blokad z kluczami (np. samo `cv_present`) nie ma czego wskazać.
+    no_keys = [
+        {"key": "cv_present", "severity": "blocking", "status": "fail", "items": []}
+    ]
+    assert qc.override_about(no_keys, [], "other") == []
+    # Automat „DL match” ma własny kod i nie wskazuje blokad.
+    assert qc.override_about(checks, [], qc.DL_MATCH_OVERRIDE) == []
+
+
+def test_dl_match_override_uses_its_own_reason_code() -> None:
+    """R6: obejście z „DL match” liczyło się jako „Inny powód” (11 z 91)."""
+
+    source = (Path(__file__).resolve().parents[1] / "app/api/dl_match.py").read_text()
+    assert "reason_code=cv_qc.DL_MATCH_OVERRIDE" in source
+    assert qc.DL_MATCH_OVERRIDE not in qc.OVERRIDE_REASONS
 
 
 def test_qc_override_reasons_mirror() -> None:
@@ -2918,14 +3009,50 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         assert (
             status[(world["candidate_id"], world["job_id"])]["status"] == "overridden"
         )
-        # Front sprzed zmiany wysyła sam opis — działa jak „Inny powód”,
-        # bez minimum znaków.
+        # „Inny powód” (R6, 07.11.2026): co najmniej trzy słowa i wskazana
+        # blokada z bieżącego przebiegu.
         with hydrated_taxonomy():
-            legacy = await api_client.post(
+            too_short = await api_client.post(
                 override_url, headers=dl, json={"reason": "bo tak"}
             )
-        assert legacy.status_code == 200, legacy.text
-        assert legacy.json()["override"]["reason"] == "bo tak"
+            unnamed = await api_client.post(
+                override_url,
+                headers=dl,
+                json={"reason_code": "other", "reason": "Klient zna go z projektu"},
+            )
+            current = (
+                await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=dl)
+            ).json()
+        assert too_short.status_code == 422, too_short.text
+        assert unnamed.status_code == 422, unnamed.text
+        assert "której uwagi" in unnamed.json()["detail"]
+        blocker = next(
+            item["key"]
+            for check in current["checks"]
+            if check["severity"] == "blocking" and check["status"] == "fail"
+            for item in check["items"]
+            if item.get("key")
+        )
+        with hydrated_taxonomy():
+            other = await api_client.post(
+                override_url,
+                headers=dl,
+                json={
+                    "reason_code": "other",
+                    "reason": "Klient zna go z projektu",
+                    "about_keys": [blocker],
+                },
+            )
+        assert other.status_code == 200, other.text
+        assert other.json()["override"]["reason"] == "Klient zna go z projektu"
+        async with AsyncSessionLocal() as db:
+            about = await db.scalar(
+                select(CvQcRun.result["override_about"])
+                .where(CvQcRun.candidate_stage_id == stage_id)
+                .order_by(CvQcRun.id.desc())
+                .limit(1)
+            )
+        assert about == [blocker]
 
         with hydrated_taxonomy():
             moved = await api_client.post("/api/pipeline/move", headers=dl, json=send)
@@ -4923,6 +5050,47 @@ def test_similar_in_original_stays_quiet_without_evidence(term, original):
     assert qc.similar_in_original(term, original) is None
 
 
+@pytest.mark.parametrize(
+    "original",
+    [
+        # Staging 07.11.2026: „Git — w oryginale pod inną nazwą?” z cytatem
+        # linii kontaktu; „github” stało tylko w adresie profilu.
+        "Jan Nowak\n+48 600 000 000 jnowak.dev github.com/jnowak in/jan-nowak Lublin\n"
+        "Doświadczenie\nPython, Django, Docker",
+        "Kontakt: https://gitlab.com/jnowak\nPython, Docker",
+        "www.bitbucket.org/jnowak · Python",
+        "jan@github-fan.pl, Python, Docker",
+    ],
+)
+def test_similar_in_original_ignores_urls_and_emails(original):
+    assert qc.similar_in_original("Git", original) is None
+
+
+def test_contact_mask_keeps_technologies_with_dots():
+    text = "Socket.io, ASP.NET Core, Node.js, Vue.js"
+    assert qc._without_contacts(text) == text
+
+
+def test_similar_in_original_skips_url_and_finds_the_real_mention():
+    original = "jnowak.dev github.com/jnowak Lublin\nNarzędzia: GitHub, Jira"
+    similar = qc.similar_in_original("Git", original)
+    assert similar is not None and similar["term"] == "GitHub"
+    assert "github.com" not in similar["quote"]
+    assert similar["quote"] in original
+
+
+def test_no_unsupported_does_not_quote_contact_line_as_other_name():
+    html = "<h1>CV</h1><ul><li><p>Praca z Git.</p></li></ul>"
+    data = _qc_input(
+        html,
+        must=_reqs("Git"),
+        original_text="+48 600 000 000 github.com/jnowak Lublin\nPython, Docker.",
+    )
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert "similar" not in item
+    assert "nie ma tego w oryginale" in item["detail"]
+
+
 def test_similar_quote_starts_and_ends_on_whole_words():
     original = "raporty z danymi źródłowymi; tworzyłem testy i pipeline’y GitHub Actions, potem kolejne wdrożenia."
     quote = qc.similar_in_original("Data Pipelines", original)["quote"]
@@ -6141,3 +6309,109 @@ def test_languages_lines_goes_through_transform_and_bulk() -> None:
 def test_quick_fixes_are_linear(run) -> None:
     spent = _cpu(run)
     assert spent < TRANSFORM_CPU_LIMIT, f"{spent:.1f} s"
+
+
+# ── R4: to, za co Delivery Lead cofa kartę (07.11.2026) ──────────────────────
+
+SUMMARY_ONLY_HTML = (
+    '<h2 data-cv-section="summary">Dlaczego nasz kandydat?</h2>'
+    "<ul><li>Prowadził zespoły w <b>SAFe</b> i Scrum.</li></ul>"
+    '<h2 data-cv-section="skills">Umiejętności</h2><p>SAFe, Jira, Confluence</p>'
+    + ROLES_HTML
+)
+
+
+def test_must_only_in_summary_and_skills_is_a_warning() -> None:
+    """R4: 6 z 34 zwrotów od DL — „SAFe tylko w skillsach i WHY, w doświadczeniu
+    też musi być”. Wymaganie z oryginału, które w CV stoi tylko poza rolami,
+    to uwaga (nie blokada). Oryginał wiąże SAFe ze stanowiskiem (technologie
+    roli z odczytu)."""
+    read = [
+        {**ROLES_READ[0], "technologies": [*ROLES_READ[0]["technologies"], "SAFe"]},
+        ROLES_READ[1],
+    ]
+    checks = _by_key(
+        qc.compute_checks(
+            _qc_input(
+                SUMMARY_ONLY_HTML,
+                must=_reqs("SAFe"),
+                original_text=ROLES_EXPERIENCE_TEXT,
+                experience=read,
+            )
+        )
+    )
+    check = checks["must_only_summary"]
+    assert check["severity"] == "warning" and check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["requirement"] == "SAFe"
+    assert item["detail"] == (
+        "Jest tylko w „Dlaczego” albo „Umiejętnościach”, w żadnym stanowisku. "
+        "Delivery Lead zwykle cofa za to kartę — dopisz zdanie w roli, w której "
+        "kandydat tego używał."
+    )
+
+
+def test_must_in_a_role_or_missing_from_the_original_is_not_flagged() -> None:
+    """Wymaganie opisane w stanowisku — w porządku; oryginał nie wiąże go
+    z żadnym stanowiskiem (np. tylko sekcja umiejętności) — bez uwagi."""
+    in_role = _by_key(
+        qc.compute_checks(
+            _qc_input(ROLES_HTML, must=_reqs("Django"), experience=ROLES_READ)
+        )
+    )["must_only_summary"]
+    assert in_role["status"] == "pass"
+    not_in_original = _by_key(
+        qc.compute_checks(
+            _qc_input(
+                SUMMARY_ONLY_HTML,
+                must=_reqs("SAFe"),
+                original_text=ROLES_EXPERIENCE_TEXT + "UMIEJĘTNOŚCI\nSAFe, Jira\n",
+                experience=ROLES_READ,
+            )
+        )
+    )["must_only_summary"]
+    assert not_in_original["items"] == []
+    # CV bez rozpoznanych stanowisk — nie ma czego porównać.
+    no_roles = _by_key(
+        qc.compute_checks(
+            _qc_input("<p>SAFe</p>", must=_reqs("SAFe"), original_text="SAFe")
+        )
+    )["must_only_summary"]
+    assert no_roles["status"] == "skip"
+
+
+def test_role_without_employer_is_a_warning() -> None:
+    """R4: „W pierwszym doświadczeniu nie ma nazwy firmy” (2 zwroty)."""
+    html = ROLES_HTML.replace('<p data-cv-section="employer">Acme Soft</p>', "")
+    check = _by_key(qc.compute_checks(_qc_input(html, must=[], experience=ROLES_READ)))[
+        "role_employer"
+    ]
+    assert check["severity"] == "warning" and check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["detail"] == "„Backend Developer 2022–obecnie” nie ma nazwy firmy."
+    assert item["role_index"] == 0
+    ok = _by_key(
+        qc.compute_checks(_qc_input(ROLES_HTML, must=[], experience=ROLES_READ))
+    )["role_employer"]
+    assert ok["status"] == "pass"
+
+
+def test_dl_returns_group_lists_the_checks_dl_returns_cards_for() -> None:
+    """R4: okno QC zbiera je w „Delivery Lead zwykle o to cofa”; lustro
+    `QC_DL_RETURN_KEYS` we froncie."""
+    assert qc.DL_RETURN_KEYS == (
+        "must_only_summary",
+        "role_dates",
+        "role_employer",
+        "title_matches_role",
+    )
+    assert set(qc.DL_RETURN_KEYS) <= set(qc.WARNING_KEYS)
+    source = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/cv-qc.ts"
+    ).read_text()
+    block = (
+        source.split("export const QC_DL_RETURN_KEYS", 1)[1]
+        .split("= [", 1)[1]
+        .split("]", 1)[0]
+    )
+    assert re.findall(r'"([a-z_]+)"', block) == list(qc.DL_RETURN_KEYS)

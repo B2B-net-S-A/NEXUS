@@ -314,6 +314,23 @@ export function splitChecks(checks: QcCheck[]): QcSplit {
   return split;
 }
 
+/**
+ * Uwagi, za które Delivery Lead najczęściej cofa kartę (R4, 07.11.2026) —
+ * okno QC stawia je nad „Warto poprawić”. Lustro `cv_qc.DL_RETURN_KEYS`.
+ */
+export const QC_DL_RETURN_KEYS: readonly string[] = [
+  "must_only_summary",
+  "role_dates",
+  "role_employer",
+  "title_matches_role",
+];
+
+/** Dzieli uwagi na „DL zwykle o to cofa” i resztę, zachowując kolejność. */
+export function splitDlReturns(notes: readonly QcCheck[]): { dlReturns: QcCheck[]; rest: QcCheck[] } {
+  const dlReturns = notes.filter((check) => check.status === "fail" && QC_DL_RETURN_KEYS.includes(check.key));
+  return { dlReturns, rest: notes.filter((check) => !dlReturns.includes(check)) };
+}
+
 /** „Kontrola CV” w przeglądzie DL (R5, 07.11.2026). */
 export interface CvControl {
   /** Sprawdzenia, które automat zaliczył (bez „nie dotyczy”). */
@@ -612,14 +629,38 @@ export const QC_OVERRIDE_NOTE_MAX = 900;
 /** Lustro `cv_qc.CONFIRM_TEXT_MIN`: potwierdzenie musi mówić, co powiedział kandydat. */
 export const QC_CONFIRM_TEXT_MIN = 15;
 
-export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
+/** Lustro `cv_qc.OVERRIDE_OTHER_MIN_WORDS` (R6, 07.11.2026): „x”, „.” i „dw” to nie powód. */
+export const QC_OVERRIDE_OTHER_MIN_WORDS = 3;
+
+/** Słowa liczone jak na serwerze (`\w{2,}`): pojedyncze litery i znaki się nie liczą. */
+export function overrideWordCount(note: string): number {
+  return note.match(/[\p{L}\p{N}_]{2,}/gu)?.length ?? 0;
+}
+
+/** Czy przy „Inny powód” trzeba wskazać uwagę i ile wskazano (R6). */
+export interface QcOverrideAbout {
+  required: boolean;
+  picked: number;
+}
+
+export function qcOverrideError(
+  reason: QcOverrideReason | null,
+  note: string,
+  about?: QcOverrideAbout,
+): string | null {
   if (!reason) return "Wybierz powód.";
   const clean = note.trim();
   if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
   if (reason === "confirmed_in_call" && clean.length < QC_CONFIRM_TEXT_MIN) {
     return `Wpisz, co dokładnie powiedział kandydat (co najmniej ${QC_CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead.`;
   }
-  if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+  if (reason === "other") {
+    if (!clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+    if (overrideWordCount(clean) < QC_OVERRIDE_OTHER_MIN_WORDS) {
+      return "Napisz co najmniej trzy słowa — Delivery Lead ma zrozumieć, dlaczego CV idzie dalej.";
+    }
+    if (about?.required && about.picked === 0) return "Zaznacz, której uwagi dotyczy powód.";
+  }
   return null;
 }
 

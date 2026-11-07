@@ -46,7 +46,8 @@ export interface JarvisStatus {
   web_enabled?: boolean;
   web_used_today?: number;
   web_limit?: number;
-  capabilities?: JarvisCapabilities;
+  /** Przy `available: false` backend zwraca `{}` — każda lista może nie przyjść. */
+  capabilities?: Partial<JarvisCapabilities>;
 }
 
 export interface JarvisSource {

@@ -73,7 +73,7 @@
   },
   {
     "key": "profil-championa-wzor-nordea-docx",
-    "version": 3,
+    "version": 4,
     "content_mode": "tailored",
     "source_url": "https://b2bnetsa.sharepoint.com/:w:/s/B2B_ALL/IQAdW75s9FA6T4ZtUzvWLQGvAYYmpHA-Ls7yqEDaCJhFe0I?e=e1WeCi",
     "client_id": 11,
@@ -93,7 +93,8 @@
     "summary_last_point_terms": [
       "scrum",
       "agile"
-    ]
+    ],
+    "cv_title_with_reference": true
   },
   {
     "key": "profil-championa-wzor-pfron-docx",
