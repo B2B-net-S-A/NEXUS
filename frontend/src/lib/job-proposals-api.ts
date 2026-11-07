@@ -326,6 +326,8 @@ export interface ProposalFacts {
    * `services/role_family.py`). Okno oznacza ją i stawia na końcu listy.
    */
   role_mismatch?: ProposalRoleMismatch | null;
+  /** Inne rekrutacje, na które osoba sama aplikowała (07.11.2026), najmłodsze pierwsze. */
+  applied_to?: { job_id: number; title: string; applied_at: string | null }[];
 }
 
 export interface ProposalRoleMismatch {

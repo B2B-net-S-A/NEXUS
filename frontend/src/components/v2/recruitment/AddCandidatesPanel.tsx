@@ -555,6 +555,7 @@ function AddCandidatesPanelOpen({
       return {
         ...proposalRow(e, factsById.get(id) ?? null, budgetHourly, askLabels),
         roleMismatch: factsById.get(id)?.role_mismatch ?? null,
+        appliedTo: factsById.get(id)?.applied_to ?? null,
         mustCoverage: mustCoverage(e),
         addState: undoing.has(id)
           ? "undoing"

@@ -58,3 +58,13 @@ scraper na Macu (`rocketjobs-traffit-scraper`: `CURRENT_AD`,
   zwraca 409 `career_not_live`, a `build_content` nie wymaga zatwierdzonego
   opisu publicznego ani linku kariery (`_build_native_content`: zakładka
   JustJoin.IT, `apply_url` pusty). Bez zmiennej obowiązuje stara reguła.
+- **„Aplikacje” i „Aplikował na …” (07.11.2026).** Kafel „Aplikacje N”
+  w nagłówku rekrutacji otwiera listę wszystkich aplikujących na ogłoszenie
+  z 90 dni (`GET /api/jobs/{id}/applicants`, `services/job_applicants.py`):
+  kanał, data, etap w tej rekrutacji i propozycje w innych otwartych
+  rekrutacjach. Zgłoszenie = zdarzenie źródła z `job_id` na kanale
+  `career_link_job` (strona kariery, przekierowanie z portalu) albo `posting`
+  (formularz portalu). Okno „Kandydaci do dodania” pokazuje „Aplikował na: …”
+  z `proposal-facts.applied_to`. Pierwszy bieg scrapera 07.11.2026: 46
+  aplikacji, 9 do swojej rekrutacji, 37 `no_job` (ogłoszenia bez rekrutacji
+  w NEXUSIE, np. „Programista .NET”, „IT Recruiter”).
