@@ -109,3 +109,19 @@ domyślnie zwija (`orderNewColumn` → `appliedGapIds`, stan `appliedGapOpen`).
 - **Bez odpowiedzi z wynikami nikt nie jest odkładany** — brak mapy braków
   = wszyscy aplikujący w „Aplikowali na ogłoszenie”.
 - Licznik w nagłówku kolumny liczy wszystkich, także zwiniętych.
+
+### Plakietka kanału i „Sprawdź w CV” (07.11.2026)
+
+- **Plakietka kanału.** Karta z formularza portalu ma „Z JustJoin.IT” /
+  „Z RocketJobs” / „Z Pracuj.pl” (`entry_meta.kind = portal_application`,
+  pole `entry_portal` w odpowiedzi Tablicy) zamiast ogólnego „Z ogłoszenia” —
+  tak jak „Z Twojego linku” przy stronie kariery.
+- **„Sprawdź w CV (AI)”** w grupie zwiniętej: `POST /jobs/{id}/applicants/{cid}/ai-check`
+  (`api/application_screenings.py`) — ta sama ocena co przegląd zgłoszeń
+  (`screening.assess`, cytat z CV). Wynik ląduje w `entry_meta.ai_check`, nie
+  nadpisuje rodzaju wejścia. „AI: pasuje” zdejmuje osobę z grupy zwiniętej
+  (`orderNewColumn`), „nie pasuje” i „do sprawdzenia” zostawiają ją tam.
+  Front woła osoby po kolei, nie równolegle.
+- **„Zaznacz wszystkich”** rozwija grupę i zaznacza ją; odrzucenie z mailem
+  to istniejące „Odrzuć” w pasku zaznaczenia (`RejectionV2`). Nie dokładaj
+  drugiej ścieżki odrzucenia.

@@ -120,3 +120,70 @@ async def add_screened_out(
     candidate_id = row.candidate_id
     await db.commit()
     return {"job_id": job_id, "candidate_id": candidate_id, "added": True}
+
+
+@router.post("/jobs/{job_id}/applicants/{candidate_id}/ai-check")
+async def check_applicant_cv(
+    job_id: int,
+    candidate_id: int,
+    user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Sprawdź w CV” dla osoby, która sama się zgłosiła (07.11.2026).
+
+    Kolumna „Nowi” zwija zgłoszenia z brakiem umiejętności krytycznej, a ta
+    liczy się ze słów w CV — „Agentic AI” opisane innymi słowami wypada.
+    Ta sama ocena co przegląd zgłoszeń (``screening.assess``: kod liczy, model
+    uzasadnia cytatem). Wynik ląduje w ``entry_meta.ai_check`` procesu, więc
+    karta pokazuje „AI: pasuje” i wraca do „Aplikowali na ogłoszenie”.
+    """
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    from app.models.recruitment_process import RecruitmentProcess  # noqa: PLC0415
+    from app.services.process_entry_meta import (  # noqa: PLC0415
+        AI_CHECK_KEY,
+        application_screening_badge,
+    )
+
+    job = await _job(db, user, job_id)
+    await ensure_job_membership(db, user, job_id)
+    process = await db.scalar(
+        select(RecruitmentProcess).where(
+            RecruitmentProcess.candidate_id == candidate_id,
+            RecruitmentProcess.job_id == job_id,
+        )
+    )
+    if process is None or process.entry_source != "application":
+        raise HTTPException(
+            status_code=404,
+            detail="Ta osoba nie zgłosiła się sama do tej rekrutacji.",
+        )
+    candidate = await db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej osoby.")
+    result = await screening.assess(
+        db,
+        job=job,
+        candidate=candidate,
+        cv_text=candidate.raw_cv_text or "",
+        use_model=True,
+    )
+    process = await db.scalar(
+        select(RecruitmentProcess)
+        .where(RecruitmentProcess.id == process.id)
+        .with_for_update()
+    )
+    meta = dict(process.entry_meta or {})
+    meta[AI_CHECK_KEY] = screening.entry_meta(result)
+    process.entry_meta = meta
+    await db.commit()
+    return {
+        "candidate_id": candidate_id,
+        "badge": application_screening_badge(meta),
+        "reasons": [
+            {"text": str(r.get("text") or ""), "quote": r.get("quote") or None}
+            for r in (result.reasons or [])
+            if isinstance(r, dict)
+        ],
+        "error": result.error,
+    }
