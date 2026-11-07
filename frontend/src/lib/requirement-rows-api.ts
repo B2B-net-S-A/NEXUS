@@ -17,7 +17,11 @@ import {
   type RowCriticalState,
   type StoredRequirementRow,
 } from "@/lib/requirement-rows";
-import type { DictionaryHint, DictionaryHintsResponse } from "@/lib/dictionary-hints";
+import type {
+  DictionaryHint,
+  DictionaryHintsResponse,
+  RelationHint,
+} from "@/lib/dictionary-hints";
 import { keywordLongEnough } from "@/lib/keyword-requirements";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -73,6 +77,9 @@ export const dictionaryHintsKey = ["dictionary-hints"] as const;
 export interface DictionaryHintsState {
   /** Po słowie (małymi literami); pusto, dopóki zapytanie nie skończy się sukcesem. */
   byWord: Record<string, DictionaryHint>;
+  /** Mapa wiedzy IT: po słowie (małymi literami) — „wynika z”, „typowe”, zamienniki.
+   *  Opcjonalne: harnessy i starsze zaślepki go nie podają. */
+  relationsByWord?: Record<string, RelationHint[]>;
   canCurate: boolean;
 }
 
@@ -112,7 +119,20 @@ export function useDictionaryHints(
       if (typeof hint?.word === "string") byWord[hint.word.trim().toLowerCase()] = hint;
     }
   }
-  return { byWord, canCurate: Array.isArray(hints) && query.data?.can_curate === true };
+  const relationsByWord: Record<string, RelationHint[]> = {};
+  const relations = enabled && query.isSuccess ? query.data?.relations : undefined;
+  if (Array.isArray(relations)) {
+    for (const hint of relations) {
+      if (typeof hint?.word !== "string") continue;
+      const key = hint.word.trim().toLowerCase();
+      (relationsByWord[key] ??= []).push(hint);
+    }
+  }
+  return {
+    byWord,
+    relationsByWord,
+    canCurate: Array.isArray(hints) && query.data?.can_curate === true,
+  };
 }
 
 /** Najwięcej wierszy w jednym żądaniu `critical-suggestion` (limit serwera). */

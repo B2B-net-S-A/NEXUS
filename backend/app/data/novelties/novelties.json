@@ -1433,7 +1433,7 @@
   },
   {
     "id": "tablica-krytyczne-zamiennik",
-    "pr": null,
+    "pr": 3111,
     "title": "„FastAPI? zna Flask” zamiast ukrycia osoby",
     "why": "Gdy kandydatowi brakuje umiejętności krytycznej, ale zna jej zamiennik (np. Flask zamiast FastAPI), NEXUS już go nie ukrywa. Karta pokazuje, o co zapytać w rozmowie, a QC podaje gotowe pytanie.",
     "tier": "dot",
@@ -1446,7 +1446,7 @@
   },
   {
     "id": "slownik-powiazania",
-    "pr": null,
+    "pr": 3111,
     "title": "Słownik wie, co z czego wynika",
     "why": "Zakładka „Powiązania”: Spring Boot ⇒ Java, GitHub ⇒ Git, Flask ~ FastAPI. Wyszukiwanie, bramka krytycznych i QC liczą je tak samo. Powiązania zatwierdza nocny bieg; tu możesz wycofać błędne.",
     "tier": "dot",
@@ -1455,5 +1455,18 @@
     "where": "Ustawienia → Słownik umiejętności → Powiązania",
     "href": "/settings",
     "dot_anchor": "skills.relations"
+  },
+  {
+    "id": "wymagania-co-z-czego-wynika",
+    "pr": 3113,
+    "title": "Wymagania podpowiadają, co z czego wynika",
+    "why": "Pod wierszem zobaczysz, że np. „JavaScript” wynika z „React”, a przy krytycznym także zamienniki i ostrzeżenie, gdy coś rzadko stoi w CV (np. Git).",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.relation-hint"
   }
 ]

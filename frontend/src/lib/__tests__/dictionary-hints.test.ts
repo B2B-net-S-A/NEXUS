@@ -7,6 +7,7 @@ import {
   rowActionLabel,
   rowWithHint,
   type DictionaryHint,
+  relationHintText,
 } from "@/lib/dictionary-hints";
 
 function hint(over: Partial<DictionaryHint>): DictionaryHint {
@@ -76,5 +77,28 @@ describe("podpowiedź słownika w wierszu wymagań (06.11.2026)", () => {
   it("wiersz pełny: nic nie dopisuje ponad limit słów", () => {
     const full = Array.from({ length: 20 }, (_, i) => `słowo${i}`);
     expect(missingWords(full, hint({}))).toEqual([]);
+  });
+});
+
+describe("relationHintText — mapa wiedzy IT (07.11.2026)", () => {
+  it("„wynika z” zawsze, z nazwą źródła", () => {
+    const text = relationHintText(
+      { word: "JavaScript", kind: "implied", names: ["React"], share: null },
+      false,
+    );
+    expect(text).toBe("„JavaScript” wynika z: React. Osoby z samym React liczą się jako spełniające.");
+  });
+
+  it("„typowe” i zamienniki tylko przy wierszu krytycznym", () => {
+    const typical = { word: "Git", kind: "typical" as const, names: ["Java"], share: 0.546 };
+    expect(relationHintText(typical, false)).toBeNull();
+    expect(relationHintText(typical, true)).toMatch(/nawet przy Java wpisuje je 55% osób/);
+    const alt = { word: "FastAPI", kind: "alternative" as const, names: ["Flask"], share: null };
+    expect(relationHintText(alt, false)).toBeNull();
+    expect(relationHintText(alt, true)).toMatch(/^Zamienniki: Flask\./);
+  });
+
+  it("bez nazw nic nie pokazuje", () => {
+    expect(relationHintText({ word: "Git", kind: "implied", names: [], share: null }, true)).toBeNull();
   });
 });

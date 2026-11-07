@@ -192,3 +192,25 @@ def test_alternative_hits_from_skill_list() -> None:
     with relations():
         assert alternative_hits(candidate, ["FastAPI"]) == {"FastAPI": ["flask"]}
         assert alternative_hits(candidate, ["Kafka"]) == {}
+
+
+# ── Ściąga do rozmowy (etap D) ──────────────────────────────────────────────
+
+
+def test_call_sheet_payload_names_alternatives_in_cv() -> None:
+    from app.services.cv_call_questions import ABSENT, RequirementRow, prompt_payload
+
+    rows = [
+        RequirementRow(_req("FastAPI"), ABSENT, ()),
+        RequirementRow(_req("Maven"), ABSENT, ()),
+        RequirementRow(_req("Kafka"), ABSENT, ()),
+    ]
+    with relations():
+        payload = prompt_payload("Python Developer", rows, [], "Python, Flask, Java")
+    by_name = {item["nazwa"]: item for item in payload["wymagania"]}
+    assert by_name["FastAPI"]["zamienniki_w_cv"] == ["Flask"]
+    assert by_name["Maven"]["typowe_przy"] == ["Java"]
+    assert (
+        "zamienniki_w_cv" not in by_name["Kafka"]
+        and "typowe_przy" not in by_name["Kafka"]
+    )

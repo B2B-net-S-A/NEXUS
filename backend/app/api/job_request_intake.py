@@ -397,9 +397,14 @@ async def dictionary_hints(
     from app.models.user import UserRole
     from app.services.skill_proposals import dictionary_hints as build_hints
 
+    from app.services.skill_relations import relation_hints
+
     hints = await build_hints(db, body.words)
     return {
         "hints": hints,
+        # Mapa wiedzy IT (07.11.2026): słowa, które słownik zna — co z czego
+        # wynika, co jest typowe (ostrzeżenie przy krytycznym) i zamienniki.
+        "relations": await relation_hints(db, body.words),
         "can_curate": current_user.has_any_role(
             UserRole.admin, UserRole.head_of_recruitment
         ),

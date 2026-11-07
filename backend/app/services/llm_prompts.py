@@ -1682,7 +1682,7 @@ SALES_MEETING_SUMMARY = PromptTemplate(
 
 CV_CALL_QUESTIONS = PromptTemplate(
     name="cv_call_questions",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         "Przygotowujesz rekrutera do rozmowy screeningowej. Celem jest zebranie faktów, "
@@ -1697,6 +1697,12 @@ CV_CALL_QUESTIONS = PromptTemplate(
         '- "brak_w_rolach": zapytaj, w której pracy to było i do czego.\n'
         '- "brak": zapytaj, czy kandydat ma z tym styczność, i wskaż stanowisko, przy '
         "którym to najbardziej prawdopodobne.\n"
+        '- "brak" z polem "zamienniki_w_cv": nawiąż do zamiennika z CV, np. „W CV jest '
+        "Flask. Czy w którymś projekcie był u Ciebie też FastAPI? Jeśli nie, ile czasu "
+        "zajęłoby Ci wdrożenie?”.\n"
+        '- "brak" z polem "typowe_przy": to zwykle idzie w parze z tym, co jest w CV, '
+        "więc zapytaj wprost, np. „Jakiego narzędzia do budowania używał Twój zespół "
+        "przy Javie?”.\n"
         "Pytanie jest otwarte, do 25 słów, po polsku, do powiedzenia przez telefon, na "
         "„Ty”, bez form zależnych od płci. Nie pisz „miałeś/aś”, „używałeś”, „robiłaś”. "
         "Dobre formy: „Jak wyglądała Twoja praca z X w Y?”, „Do czego służył X w Twoim "
