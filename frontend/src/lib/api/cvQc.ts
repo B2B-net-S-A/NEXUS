@@ -293,6 +293,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
 }
 
 /**
+ * Wynik QC do podsumowania obok (R5, 07.11.2026: „Kontrola CV” w przeglądzie
+ * DL). Ten sam klucz co okno QC, ale bez przeliczania przy każdym montowaniu —
+ * przegląd „po kolei” nie liczy QC dwa razy na osobę, a harness z zasianym
+ * wynikiem nie wysyła zapytań.
+ */
+export function useCvQcSummary(stageId: number | null) {
+  return useQuery<QcResult>({
+    queryKey: cvQcQueryKey(stageId ?? 0),
+    queryFn: () => api.get<QcResult>(`/api/pipeline/stages/${stageId}/qc`).then((r) => r.data),
+    enabled: stageId != null,
+    staleTime: 60_000,
+  });
+}
+
+/**
  * Zrzut zgody RODO przy CV z QC (miniatura przy `consent_matches`, 27.10.2026).
  * Klucz pod `cvQcQueryKey`: „Wymień zrzut” odświeża QC, a z nim obraz.
  */

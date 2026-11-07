@@ -32,6 +32,8 @@ import api, { savedSearchesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { candidateListsApi } from "@/lib/api/candidateLists";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ReviewBatchBlockedNotice } from "@/components/v2/review-batch/ReviewBatchBlockedNotice";
+import { reviewBatchBlock } from "@/lib/api/reviewBatch";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
 import {
@@ -1493,6 +1495,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  isError,
  itemCount: items.length,
  });
+ // Porcja dnia (07.11.2026): 423 przed minimum to nie awaria listy — zamiast
+ // czerwonego błędu stoi sam komunikat porcji nad tabelą.
+ const batchBlocked = isError && reviewBatchBlock(candidatesError) != null;
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? candidatesPageSize;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -2495,7 +2500,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
             <span className="text-sm font-medium text-foreground">
               {isLoading
                 ? "Ładowanie…"
-                : isError && items.length === 0
+                : batchBlocked
+                  ? "Wyszukiwanie po porcji dnia"
+                  : isError && items.length === 0
                   ? "Nie udało się pobrać danych"
                   : (knownSplitLabel(total, data?.known_match_count) ??
                     candidatesCountLabel(total))}
@@ -2607,6 +2614,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
             }}
           />
 
+          {/* Porcja dnia (07.11.2026): 423 przed minimum decyzji. */}
+          {isError ? <ReviewBatchBlockedNotice error={candidatesError} /> : null}
           {listViewState === "refresh-error" && (
             <div
               role="alert"
@@ -2678,7 +2687,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
               {listViewState === "initial-loading" ? (
                 loadingRows
               ) : listViewState === "error" ? (
-                queryErrorPanel
+                batchBlocked ? null : queryErrorPanel
               ) : listViewState === "empty" ? (
                 emptyState
               ) : (

@@ -83,6 +83,7 @@ from app.services import candidate_recruitment_filter as recruitment_filter
 from app.services import candidate_last_rejection as last_rejection
 from app.services import candidate_stage_column as stage_column_filter
 from app.services import note_kinds
+from app.services import review_batch
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
@@ -2953,6 +2954,11 @@ async def list_candidates(
     ),
 ):
     _reject_retired_candidate_query(request)
+    # Porcja dnia (07.11.2026): filtry i opis to ręczne wyszukiwanie — 423,
+    # dopóki rekruter nie zrobi minimum. Nazwisko, mail i telefon przechodzą.
+    await review_batch.assert_list_search_allowed(
+        db, current_user, request.query_params
+    )
     _reject_reversed_ranges(
         min_rate=min_rate,
         max_rate=max_rate,
@@ -6028,6 +6034,10 @@ async def remove_candidate_from_recruitment(
     pozostają nietknięte.
     """
     await ensure_job_membership(db, current_user, job_id)
+    # Porcja dnia (07.11.2026): karta z porcji wymaga decyzji, nie usunięcia.
+    await review_batch.assert_removal_allowed(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
     locked_candidate = await db.scalar(
         select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
     )

@@ -39,6 +39,12 @@ export interface ReturnForFixDialogProps {
   busy?: boolean;
   /** Uwaga wpisana wcześniej w panelu — startowa treść pola. */
   initialRemark?: string;
+  /**
+   * R5 (07.11.2026): punkty QC do zaznaczenia pod „CV firmowe”. Wybrane idą
+   * do uwagi („W CV popraw: …”) — w 12 z 16 próśb o poprawki DL zaznaczał
+   * samo „CV firmowe”, a rekruter nie wiedział, co poprawić.
+   */
+  cvPoints?: string[];
   onConfirm: (input: { fields: string[]; remark: string }) => void;
 }
 
@@ -54,9 +60,11 @@ export function ReturnForFixDialog({
   optionsLoading = false,
   busy = false,
   initialRemark = "",
+  cvPoints = [],
   onConfirm,
 }: ReturnForFixDialogProps) {
   const [picked, setPicked] = useState<string[]>([]);
+  const [points, setPoints] = useState<string[]>([]);
   const [remark, setRemark] = useState(initialRemark);
   const remarkId = useId();
   const hintId = useId();
@@ -64,6 +72,7 @@ export function ReturnForFixDialog({
   useEffect(() => {
     if (open) {
       setPicked([]);
+      setPoints([]);
       setRemark(initialRemark);
     }
   }, [open, initialRemark]);
@@ -75,9 +84,11 @@ export function ReturnForFixDialog({
     if (!ready) return;
     // Kolejność formularza, nie kolejność klikania.
     const order = new Map(options.map((o, i) => [o.key, i]));
+    const chosen = picked.includes("cv") ? cvPoints.filter((p) => points.includes(p)) : [];
+    const cvText = chosen.length > 0 ? `W CV popraw:\n${chosen.map((p) => `• ${p}`).join("\n")}` : "";
     onConfirm({
       fields: [...picked].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0)),
-      remark: remark.trim(),
+      remark: [remark.trim(), cvText].filter(Boolean).join("\n\n"),
     });
   };
 
@@ -134,6 +145,23 @@ export function ReturnForFixDialog({
                       <span className="min-w-0 [overflow-wrap:anywhere]">{option.label}</span>
                     </label>
                   ))}
+                  {group === "cv" && picked.includes("cv") && cvPoints.length > 0 ? (
+                    <div role="group" aria-label="Co poprawić w CV" className="space-y-1 pl-6">
+                      {cvPoints.map((point) => (
+                        <label key={point} className="flex cursor-pointer items-start gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 size-3.5 shrink-0 accent-primary"
+                            checked={points.includes(point)}
+                            onChange={() =>
+                              setPoints((prev) => (prev.includes(point) ? prev.filter((p) => p !== point) : [...prev, point]))
+                            }
+                          />
+                          <span className="min-w-0 [overflow-wrap:anywhere]">{point}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
                 </fieldset>
               );
             })}
