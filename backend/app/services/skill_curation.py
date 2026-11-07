@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.skill import Skill, SkillAlias
+from app.services.skill_normalize import alias_counts_in_text
 from app.services.skill_taxonomy_loader import refresh_alias_map
 
 
@@ -402,3 +403,34 @@ async def update_skill(
         "category": skill.category,
         "jobs_rescored": count,
     }
+
+
+def alias_payload(skill: Skill, alias: SkillAlias) -> dict:
+    """Wariant na liście Słownika: zapisany znacznik i to, czy wariant liczy
+    się w tekście CV po regule domyślnej (etap 3a)."""
+    return {
+        "id": alias.id,
+        "alias": alias.alias,
+        "in_text": alias.in_text,
+        "counts_in_text": alias_counts_in_text(
+            alias.alias, skill.canonical_name, skill.category, alias.in_text
+        ),
+    }
+
+
+async def set_alias_in_text(
+    db: AsyncSession, alias_id: int, in_text: Optional[bool]
+) -> dict:
+    """Czy wariant liczy się, gdy QC i strażnik generatora szukają wymagania
+    w tekście CV. ``None`` przywraca regułę domyślną. Scoringu to nie zmienia
+    (mapa aliasów zostaje ta sama), więc wyników rekrutacji nie przeliczamy."""
+    alias = await db.get(SkillAlias, alias_id)
+    if alias is None:
+        raise CurationError(f"Alias {alias_id} nie istnieje")
+    skill = await _skill_by_id(db, alias.skill_id)
+    if is_role(skill.category):
+        raise CurationError("Rola nie ma wariantów w tekście CV.")
+    alias.in_text = in_text
+    await db.commit()
+    await refresh_alias_map()
+    return alias_payload(skill, alias)

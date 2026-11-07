@@ -90,7 +90,10 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # „qc-truth-4” (02.11.2026): „REST APIs” i słownik także w ostrym dopasowaniu, skan
 # idzie do sprawdzenia ręcznego. Pomiar na stagingu, 865 par: zaliczone 712 → 717,
 # `no_unsupported` 104 → 97 pozycji.
-QC_VERSION = "qc-truth-4"
+# „qc-truth-5” (07.11.2026, etap 3a słownika): wymaganie szukane też po
+# wariantach narzędzi, metodyk, AI, standardów i dziedzin, które liczą się
+# w tekście CV („AML” przy „Anti-Money Laundering”); pogrubianie bez zmian.
+QC_VERSION = "qc-truth-5"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -1401,7 +1404,9 @@ def _bold_patterns(req: Requirement) -> list[re.Pattern[str]]:
 def _has_unbolded(blocks: list[Block], req: Requirement) -> bool:
     """Czy wymaganie stoi gdzieś bez pogrubienia tam, gdzie pogrubiłaby je
     poprawka `bold_all` — treść bez nagłówków i szablonu, te same wzorce."""
-    patterns = [p for name in req.terms or req.alternatives for p in dz._patterns(name)]
+    patterns = [
+        p for name in req.terms or req.alternatives for p in dz._tech_patterns(name)
+    ]
     return any(
         p.search(run["t"])
         for block in blocks
@@ -5036,7 +5041,7 @@ def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
     patterns: list[re.Pattern[str]] = []
     for req in requirements:
         for name in req.terms or req.alternatives:
-            patterns.extend(dz._patterns(name))
+            patterns.extend(dz._tech_patterns(name))
     doc = EditableCv.parse(html)
     count = 0
     for i, tok, ctx in list(doc.data_tokens()):
@@ -5066,7 +5071,7 @@ def remove_term(html: str, term: str) -> tuple[str, int]:
     """Usuń termin z list technologii i wyliczeń (element listy albo słowo
     z przecinkiem). Zdań z tym terminem nie przerabiamy — to robi człowiek."""
 
-    patterns = dz._patterns(term)
+    patterns = dz._tech_patterns(term)
     if not patterns:
         return html, 0
     doc = EditableCv.parse(html)

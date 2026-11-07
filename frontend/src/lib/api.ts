@@ -2750,6 +2750,17 @@ export interface SkillDictionaryItem {
   /** Rola (`role_*`) to stanowisko, nie umiejętność: nie przyjmuje aliasów. */
   is_role?: boolean;
   aliases: string[];
+  /** Etap 3a (07.11.2026): czy wariant liczy się w tekście CV (QC, strażnik generatora). */
+  alias_details?: SkillAliasDetail[];
+}
+
+export interface SkillAliasDetail {
+  id: number;
+  alias: string;
+  /** Decyzja osoby prowadzącej słownik; `null` = reguła domyślna. */
+  in_text: boolean | null;
+  /** Czy wariant liczy się teraz (decyzja albo reguła domyślna). */
+  counts_in_text: boolean;
 }
 
 export interface SkillDictionaryPage {
@@ -2808,6 +2819,10 @@ export const skillsAdminApi = {
         `/api/skills-admin/skills/${skillId}/aliases`,
         { alias },
       )
+      .then((r) => r.data),
+  setAliasInText: (aliasId: number, inText: boolean | null) =>
+    api
+      .patch<SkillAliasDetail>(`/api/skills-admin/aliases/${aliasId}`, { in_text: inText })
       .then((r) => r.data),
   unmatchedTerms: (status: UnmatchedSkillTermStatus | "all" = "new", limit = 50) =>
     api

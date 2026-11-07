@@ -107,6 +107,11 @@ async def list_skills(
                 "category": skill.category,
                 "is_role": skill_curation.is_role(skill.category),
                 "aliases": sorted(a.alias for a in skill.aliases),
+                # Etap 3a: wariant i to, czy liczy się w tekście CV (QC, strażnik).
+                "alias_details": [
+                    skill_curation.alias_payload(skill, a)
+                    for a in sorted(skill.aliases, key=lambda a: a.alias)
+                ],
             }
             for skill in rows
         ],
@@ -173,6 +178,25 @@ async def add_alias(
         )
     except skill_curation.CurationError as exc:
         raise _curation_error(exc) from exc
+
+
+class AliasInTextRequest(BaseModel):
+    in_text: Optional[bool] = None
+
+
+@router.patch("/aliases/{alias_id}")
+async def set_alias_in_text(
+    alias_id: int,
+    payload: AliasInTextRequest,
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Czy wariant liczy się w tekście CV (QC i strażnik generatora);
+    ``null`` = reguła domyślna. Etap 3a słownika, 07.11.2026."""
+    try:
+        return await skill_curation.set_alias_in_text(db, alias_id, payload.in_text)
+    except skill_curation.CurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/unmatched-terms")

@@ -1005,16 +1005,26 @@ def _token_present(token: str, haystack_tokens: set[str]) -> bool:
 
 
 def _loosely_present(
-    term: str, haystack_tokens: set[str], *, exact: bool = False
+    term: str,
+    haystack_tokens: set[str],
+    *,
+    exact: bool = False,
+    dictionary: bool = False,
 ) -> bool:
     """Każde istotne słowo terminu (jego rdzeń) zaczyna jakieś słowo źródła
     („REST API" ↔ „RESTful APIs", „Grafana" ↔ „Grafany", „Node.js" ↔
     „NodeJS"). Alternatywa w nawiasie liczy się osobno („Kubernetes (K8s)").
-    ``exact`` wymaga całych słów: „Java” nie stoi wtedy w „JavaScript”."""
+    ``exact`` wymaga całych słów: „Java” nie stoi wtedy w „JavaScript”.
+    ``dictionary`` dokłada warianty ze słownika, które liczą się w tekście CV
+    (etap 3a, 07.11.2026: „Anti-Money Laundering” ↔ „AML”)."""
     variants = [term]
     paren = re.search(r"\(([^)]*)\)", term)
     if paren:
         variants = [term[: paren.start()], paren.group(1)]
+    if dictionary:
+        from app.services.skill_normalize import text_alias_forms
+
+        variants += [form for v in list(variants) for form in text_alias_forms(v)]
     variants += [_abbreviated(v) for v in variants]
     for variant in variants:
         tokens = _term_tokens(variant)
@@ -1097,7 +1107,7 @@ def strip_unsupported_terms(
 
     def from_ad(term: str) -> bool:
         tokens = _term_tokens(term)
-        if not tokens or _loosely_present(term, evidence):
+        if not tokens or _loosely_present(term, evidence, dictionary=True):
             return False
         if not all(tok in asked for tok in tokens):
             return False

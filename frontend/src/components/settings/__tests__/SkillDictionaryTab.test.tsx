@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   proposals: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
+  setAliasInText: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -126,5 +127,40 @@ describe("SkillDictionaryTab — trzy listy w zakładkach (20.10.2026)", () => {
       canonical_name: "Kubernetes (K8s)",
       category: "tools",
     });
+  });
+
+  it("wariant przekreślony nie liczy się w tekście CV, kliknięcie to zmienia (etap 3a)", async () => {
+    const user = userEvent.setup();
+    api.list.mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: 5,
+          name: "Microsoft Project",
+          category: "tools",
+          aliases: ["ms project", "project"],
+          alias_details: [
+            { id: 51, alias: "ms project", in_text: null, counts_in_text: true },
+            { id: 52, alias: "project", in_text: null, counts_in_text: false },
+          ],
+        },
+      ],
+      categories: ["tools"],
+    });
+    api.setAliasInText.mockResolvedValue({
+      id: 52,
+      alias: "project",
+      in_text: true,
+      counts_in_text: true,
+    });
+    renderTab();
+    const off = await screen.findByRole("button", { name: "project" });
+    expect(off).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "ms project" })).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText(/Przekreślone nie liczą się, gdy QC szuka wymagania w tekście CV/),
+    ).toBeInTheDocument();
+    await user.click(off);
+    expect(api.setAliasInText).toHaveBeenCalledWith(52, true);
   });
 });

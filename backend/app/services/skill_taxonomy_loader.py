@@ -20,7 +20,11 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.skill import Skill, SkillAlias
 from app.services.scoring_service import set_alias_map
-from app.services.skill_normalize import TECH_CATEGORIES, set_tech_taxonomy
+from app.services.skill_normalize import (
+    TECH_CATEGORIES,
+    alias_counts_in_text,
+    set_tech_taxonomy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +36,16 @@ async def refresh_alias_map() -> int:
             await db.execute(select(Skill.id, Skill.canonical_name, Skill.category))
         ).all()
         alias_rows = (
-            await db.execute(select(SkillAlias.skill_id, SkillAlias.alias))
+            await db.execute(
+                select(SkillAlias.skill_id, SkillAlias.alias, SkillAlias.in_text)
+            )
         ).all()
 
     from app.services import keyword_suggest
 
-    keyword_suggest.load_catalog(skills, alias_rows)
+    keyword_suggest.load_catalog(
+        skills, [(skill_id, alias) for skill_id, alias, _in_text in alias_rows]
+    )
 
     id_to_canon: dict[int, str] = {sid: cn for sid, cn, _cat in skills if cn}
     id_to_cat: dict[int, str] = {sid: (cat or "") for sid, _cn, cat in skills}
@@ -46,12 +54,15 @@ async def refresh_alias_map() -> int:
     # canonical name itself as a no-op hit — mirrors the previous behaviour.
     mapping: dict[str, str] = {}
     canonical_to_aliases: dict[str, list[str]] = {}
-    for skill_id, alias in alias_rows:
+    text_aliases: dict[str, list[str]] = {}
+    for skill_id, alias, in_text in alias_rows:
         canon = id_to_canon.get(skill_id)
         if not canon or not alias:
             continue
         mapping[alias] = canon
         canonical_to_aliases.setdefault(canon.lower(), []).append(alias.lower())
+        if alias_counts_in_text(alias, canon, id_to_cat.get(skill_id), in_text):
+            text_aliases.setdefault(canon.lower(), []).append(alias.lower())
     for canon in id_to_canon.values():
         mapping.setdefault(canon.lower(), canon.lower())
 
@@ -87,6 +98,7 @@ async def refresh_alias_map() -> int:
             canon: id_to_cat.get(skill_id, "")
             for skill_id, canon in id_to_canon.items()
         },
+        text_aliases=text_aliases,
     )
     # Reguła bramki must czyta kategorie — wyniki sprzed przeładowania są stare.
     from app.services import must_gate_terms
