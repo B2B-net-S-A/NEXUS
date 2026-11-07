@@ -13,7 +13,9 @@ export interface ResponsibilityGroup {
 
 const POINT = /^\s*(?:[-–—•*·▪●]|\d+[.)])\s*/;
 
-export function responsibilityGroups(text: string): ResponsibilityGroup[] {
+/** Tekst bywa pusty albo go brak (stare profile, szkic bez sekcji 4). */
+export function responsibilityGroups(raw: string | null | undefined): ResponsibilityGroup[] {
+  const text = raw ?? "";
   const lines = text
     .split("\n")
     .map((line) => line.trim())
@@ -44,7 +46,8 @@ export function responsibilityCount(groups: ResponsibilityGroup[]): number {
 }
 
 /** Wysokość pola „Obowiązki”: tyle wierszy, ile linii, od 2 do 14. */
-export function responsibilityRows(text: string): number {
+export function responsibilityRows(raw: string | null | undefined): number {
+  const text = raw ?? "";
   const lines = text.split("\n").length;
   return Math.min(14, Math.max(2, text.trim() ? lines : 2));
 }

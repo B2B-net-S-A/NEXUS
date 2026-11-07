@@ -38,14 +38,17 @@ describe("responsibilityGroups", () => {
     ]);
   });
 
-  it("pusty tekst nie daje grup", () => {
+  it("pusty tekst albo brak pola nie daje grup", () => {
     expect(responsibilityGroups("  ")).toEqual([]);
+    expect(responsibilityGroups(undefined)).toEqual([]);
+    expect(responsibilityGroups(null)).toEqual([]);
   });
 });
 
 describe("responsibilityRows", () => {
   it("pole rośnie z liczbą linii, od 2 do 14", () => {
     expect(responsibilityRows("")).toBe(2);
+    expect(responsibilityRows(undefined)).toBe(2);
     expect(responsibilityRows("- a\n- b\n- c\n- d\n- e")).toBe(5);
     expect(responsibilityRows(Array.from({ length: 40 }, (_, i) => `- ${i}`).join("\n"))).toBe(14);
   });
