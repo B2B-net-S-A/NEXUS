@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useToast } from "@/components/Toast";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { REVIEW_BATCH_QUERY_KEY } from "@/lib/api/reviewBatch";
@@ -26,7 +25,9 @@ const SETTINGS_KEY = [...REVIEW_BATCH_QUERY_KEY, "settings"] as const;
  */
 export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
   const queryClient = useQueryClient();
-  const { showError, showSuccess } = useToast();
+  // Komunikat w bloku, nie powiadomienie: panel bywa renderowany bez
+  // dostawcy powiadomień (harness, testy strony).
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const query = useQuery<BatchSettings>({
     queryKey: SETTINGS_KEY,
     queryFn: async () => (await api.get<BatchSettings>("/api/review-batch/settings")).data,
@@ -39,9 +40,10 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
     onSuccess: () => {
       setDraft(null);
       void queryClient.invalidateQueries({ queryKey: REVIEW_BATCH_QUERY_KEY });
-      showSuccess("Zapisano minimum porcji dnia.");
+      setNotice({ ok: true, text: "Zapisano minimum porcji dnia." });
     },
-    onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać minimum.")),
+    onError: (error) =>
+      setNotice({ ok: false, text: apiErrorMessage(error, "Nie udało się zapisać minimum.") }),
   });
 
   if (query.isError) {
@@ -87,6 +89,14 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
         ) : null}
       </div>
       {!valid ? <p className="text-xs text-destructive">Podaj liczbę od 1 do 300.</p> : null}
+      {notice ? (
+        <p
+          role={notice.ok ? "status" : "alert"}
+          className={notice.ok ? "text-xs text-success" : "text-xs text-destructive"}
+        >
+          {notice.text}
+        </p>
+      ) : null}
     </div>
   );
 }
