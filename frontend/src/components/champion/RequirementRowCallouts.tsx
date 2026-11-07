@@ -14,7 +14,7 @@
 import { Button } from "@/components/ui/button";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
 import { useWordCounts } from "@/lib/requirement-rows-api";
-import type { PhraseReading } from "@/lib/requirement-rows";
+import { broadVariant, broadVariantWords, type PhraseReading } from "@/lib/requirement-rows";
 import type { SentGapWord } from "@/lib/requirement-sent-gaps-api";
 
 const DECISION_TEXT: Partial<Record<PhraseReading["kind"], (text: string) => string>> = {
@@ -188,6 +188,51 @@ export function RareWordCallout({
       ) : null}
       <Button type="button" size="sm" onClick={onTalk}>
         Do rozmowy
+      </Button>
+      <Button type="button" size="sm" variant="ghost" onClick={onKeep}>
+        Zostaw
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Wariant z gwiazdką, który rozlewa wiersz („microsoft*” obok „Dynamics 365”
+ * w 789198: 21 314 osób zamiast 692). Liczy tylko wiersze z rdzeniem i drugim
+ * słowem, więc nie dokłada zapytań przy zwykłych wierszach.
+ */
+export function BroadVariantCallout({
+  words,
+  critical,
+  countEnabled,
+  onRemove,
+  onKeep,
+}: {
+  words: readonly string[];
+  critical: boolean;
+  countEnabled: boolean;
+  onRemove: (word: string) => void;
+  onKeep: () => void;
+}) {
+  const counted = broadVariantWords(words);
+  const counts = useWordCounts(counted, countEnabled && counted.length > 0);
+  const broad = broadVariant(counted, counts);
+  if (!broad) return null;
+  const stem = broad.word.trim().replace(/\*+$/, "");
+  return (
+    <div
+      role="note"
+      className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-muted px-3 py-1.5 text-xs text-warning-muted-foreground"
+      data-testid="requirement-row-broad-variant"
+    >
+      <span className="min-w-0 flex-[1_1_16rem]">
+        „{broad.word}” poszerza ten wiersz {broad.ratio}×: {peopleCountLabel(broad.wide)} zamiast ok.{" "}
+        {peopleCountLabel(broad.narrow)}.{" "}
+        {critical ? "Krytyczne przepuści" : "Wiersz spełni"} każdego, kto ma w CV słowo zaczynające się
+        od „{stem}”.
+      </span>
+      <Button type="button" size="sm" onClick={() => onRemove(broad.word)}>
+        Usuń „{broad.word}”
       </Button>
       <Button type="button" size="sm" variant="ghost" onClick={onKeep}>
         Zostaw

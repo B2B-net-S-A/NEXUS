@@ -61,6 +61,33 @@ def test_sentence_with_a_technology_suggests_the_technology_first():
     assert suggestions[0] == "REST API"
 
 
+VENDOR_SKILLS = {
+    **SKILLS,
+    "Microsoft Dynamics 365": ("tools", ("dynamics 365", "d365")),
+    "Microsoft Excel": ("tools", ()),
+    "Microsoft Teams": ("tools", ()),
+    "Microsoft SQL Server": ("database", ()),
+}
+
+
+def test_sentence_with_a_vendor_product_does_not_suggest_the_vendor_stem():
+    # 789198 (07.11.2026): podpowiedź „microsoft*” przy „Microsoft Dynamics
+    # 365 CE/CRM” znajdowała 21 314 osób zamiast 692 i jako wariant
+    # krytycznego wiersza wyłączała bramkę.
+    with hydrated_taxonomy(VENDOR_SKILLS):
+        suggestions = suggestions_for("Microsoft Dynamics 365 CE/CRM")
+    assert suggestions[0] == "Microsoft Dynamics 365"
+    assert "microsoft*" not in suggestions
+    assert "dynamics*" in suggestions
+
+
+def test_vendor_word_alone_in_a_sentence_is_still_a_stem():
+    # Nazwa firmy bez produktu w zdaniu nie ma lepszego słowa — zostaje.
+    with hydrated_taxonomy(VENDOR_SKILLS):
+        suggestions = suggestions_for("projekty dla Microsoftu")
+    assert "microsoft*" in suggestions
+
+
 @pytest.mark.parametrize(
     "text, kind, talk",
     [
