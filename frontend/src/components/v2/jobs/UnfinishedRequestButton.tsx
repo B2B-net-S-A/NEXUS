@@ -73,6 +73,7 @@ export function UnfinishedRequestButton({ enabled }: { enabled: boolean }) {
         href={`/jobs/new?form=${draft.id}`}
         title={title || undefined}
         data-testid="jobs-list-unfinished-request"
+        data-tour="jobs.list.unfinished-request"
       >
         {text}
         <ArrowRight className="h-4 w-4" aria-hidden="true" />

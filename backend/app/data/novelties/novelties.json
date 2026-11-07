@@ -1259,6 +1259,23 @@
     "dot_anchor": "insights.monthly-races"
   },
   {
+    "id": "lista-dokoncz-szkic-requestu",
+    "pr": 3144,
+    "title": "„Dokończ szkic requestu” na liście rekrutacji",
+    "why": "Request został w połowie? Na liście rekrutacji, obok „Nowa rekrutacja”, przycisk z datą otwiera ostatni niedokończony formularz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacje → Dokończ szkic requestu",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.list.unfinished-request"
+  },
+  {
     "id": "pytania-pod-cv-w-sciadze",
     "pr": 3078,
     "title": "Ściąga podpowiada pytania pod CV",
