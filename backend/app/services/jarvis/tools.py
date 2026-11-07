@@ -912,8 +912,11 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         name="global_search",
         label="Szukam w całym NEXUSIE",
         description=(
-            "Szybkie wyszukiwanie po nazwie w kandydatach, rekrutacjach, klientach i "
-            "kontaktach (po 5 wyników). Użyj, gdy znasz nazwę, a nie znasz ID."
+            "Szybkie wyszukiwanie po nazwie w kandydatach, rekrutacjach, klientach, "
+            "kontaktach i ludziach z kartoteką (`people`: pracownicy i kontraktorzy "
+            "z kontem NEXUSA, `id` = user_id), po 5 wyników. Polskie znaki nie mają "
+            "znaczenia; kandydata znajdziesz też po numerze telefonu. Użyj, gdy "
+            "znasz nazwę, a nie znasz ID."
         ),
         input_schema=_schema({"query": {**STR, "minLength": 2}}, ("query",)),
         tier="read",

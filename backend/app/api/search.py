@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
+from app.api.hr_gates import people_directory_open
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import business_today
@@ -22,8 +23,10 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
+from app.models.hr_profile import EmployeeProfile
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.user import User
 from app.schemas.candidate import EmploymentMarker
 from app.schemas.candidate_search import (
     CandidateSearchItem,
@@ -57,6 +60,8 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
+from app.services.hr.people import DIRECTORY_STATUSES
+from app.services.hr.program import program_enabled
 from app.services.polish_ilike import contains_pattern, polish_folded_ilike
 from app.services.section_permissions import (
     ProductSection,
@@ -1384,12 +1389,45 @@ async def global_search(
             for c in contacts_result.scalars().all()
         ]
 
+    # Ludzie — konta z kartoteką (pracownicy, kontraktorzy, współpracownicy).
+    # Finanse pytały Jarvisa o raport godzin osoby z kontem pracownika, a
+    # wyszukiwarka znała tylko kandydatów, więc odpowiedź brzmiała „nie ma”
+    # (produkcja, 06.11.2026). Bramka jak katalog `GET /api/hr/people`; pola
+    # z wizytówki, którą ten katalog pokazuje każdemu czytającemu.
+    people_list: list[dict[str, Any]] = []
+    if await people_directory_open(db, current_user):
+        people_result = await db.execute(
+            select(User, EmployeeProfile)
+            .join(EmployeeProfile, EmployeeProfile.user_id == User.id)
+            .where(
+                EmployeeProfile.employment_status.in_(DIRECTORY_STATUSES),
+                or_(
+                    polish_folded_ilike(User.name, q),
+                    polish_folded_ilike(User.email, q),
+                ),
+            )
+            .order_by(User.name, User.id)
+            .limit(LIMIT)
+        )
+        people_list = [
+            {
+                "id": user.id,
+                "name": user.name,
+                "subtitle": profile.job_title or profile.department or user.email,
+                "url": f"/people/{user.id}",
+            }
+            for user, profile in people_result.all()
+        ]
+    elif program_enabled():
+        skipped.append({"category": "people", "section": "Ludzie"})
+
     return {
         "query": q,
         "candidates": candidates,
         "jobs": jobs_list,
         "clients": clients_list,
         "contacts": contacts_list,
+        "people": people_list,
         "skipped": skipped,
     }
 
