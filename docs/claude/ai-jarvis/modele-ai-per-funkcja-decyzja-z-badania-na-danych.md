@@ -164,3 +164,20 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   Generator ma TTL 1 godzina, bo 96% wywołań dzieli mniej niż godzina, a 5 minut
   tylko 44%. Jarvis zostaje przy 5 minutach: narzędzia z 5-minutowym znacznikiem
   stoją przed systemem, a dłuższy TTL musi poprzedzać krótszy, inaczej API zwraca 400.
+
+## F10 `cv_backfill` na Haiku 5.5 od 07.11.2026 (odczyt masowy pełnym promptem)
+
+Decyzja Artura z 07.11.2026 przed ponownym odczytem ok. 55 tys. CV starej bazy
+(`scripts/reparse_cv_batch.py`, Batch API) i dla fazy nocnej `candidates_cv_fields`,
+która od tej zmiany czyta pełnym promptem `CV_ENRICHMENT`, a nie `CV_ENRICHMENT_BULK`.
+
+- Pomiar na stagingu, 50 losowych CV osób bez osi technologii, wzorzec = oś z odczytu
+  Sonnetem 5.5: Haiku 5.5 oś u 47 z 50 osób, 77–83% technologii osi Sonneta (drugi
+  odczyt Sonnetem 91%), miesiące w ±12 w 90% (Sonnet 97%), ta sama odpowiedź na
+  „3+ lata” w 96% (Sonnet 99%), 0,0017 USD za CV wobec 0,034. Luna 6 na tym samym
+  pomiarze: 64% jej technologii nie ma u Sonneta, 1 błąd na 50 — odrzucona.
+- Haiku daje ok. 2% odpowiedzi z niepoprawnym JSON-em (1 na 50); bieg masowy liczy je
+  jako nieudane i ponawia raz.
+- Wgranie CV, „Odśwież z CV”, `from-cv` i scraper zostają na F9 (`cv_parser`, Sonnet 5.5):
+  tam rekruter patrzy od razu.
+- Powrót bez deployu: `CV_BACKFILL_MODEL=claude-sonnet-5-5`.
