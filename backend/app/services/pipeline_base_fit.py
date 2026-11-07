@@ -106,6 +106,13 @@ async def pipeline_base_fit(db, job, profile):
             and item.exclusion_reasons
             and item.exclusion_reasons[0] != "eligibility_hidden"
         },
+        # Krytyczne bez śladu, ale z zamiennikiem (mapa wiedzy IT, 07.11.2026):
+        # osoba jest widoczna, karta pyta „FastAPI? zna Flask”.
+        "alternatives": {
+            str(item.candidate_id): item.evidence["critical_alternatives"]
+            for item in result.evaluated
+            if item.eligible and item.evidence.get("critical_alternatives")
+        },
         "counts": result.counts(),
         "metrics": metrics,
     }

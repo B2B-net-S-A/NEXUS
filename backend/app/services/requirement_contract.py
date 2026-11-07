@@ -124,7 +124,10 @@ def requirements_for_job(job) -> MatchingRequirements:
 # alternatywą jest tylko „(lub X)” albo lista samych technologii; wstęp wokół
 # jednej nazwy ze słownika („Bardzo dobra znajomość SQL”) daje tę nazwę;
 # „OWASP Top 10” nie traci „10” jako wersji.
-MUST_GATE_POLICY_VERSION = "critical-v12"
+# v13 (07.11.2026, mapa wiedzy IT, decyzja Artura): powiązania „wynika z”
+# i „część” spełniają krytyczne (Spring Boot ⇒ Java, GitHub ⇒ Git), a zamiennik
+# (Flask przy FastAPI) nie spełnia, ale nie ukrywa osoby (`_kept_by_alternatives`).
+MUST_GATE_POLICY_VERSION = "critical-v13"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

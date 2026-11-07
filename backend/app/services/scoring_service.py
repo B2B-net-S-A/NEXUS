@@ -1184,15 +1184,20 @@ def _canon_skill(s: str) -> str:
     return canon
 
 
-def skill_present(required: str, candidate_skills) -> bool:
+def skill_present(required: str, candidate_skills, *, relations: bool = True) -> bool:
     """True if a required skill is present among the candidate's skills, using
-    exact match plus tolerant canonicalization for common name variants."""
+    exact match plus tolerant canonicalization for common name variants.
+    ``relations=False`` skips IT-knowledge relations (direct evidence only)."""
     from app.services.requirement_contract import alternatives
 
     options = alternatives(required)
     if len(options) > 1:
         return any(
-            skill_present(ALIAS_MAP.get(option.lower(), option), candidate_skills)
+            skill_present(
+                ALIAS_MAP.get(option.lower(), option),
+                candidate_skills,
+                relations=relations,
+            )
             for option in options
         )
     if required in candidate_skills:
@@ -1200,7 +1205,9 @@ def skill_present(required: str, candidate_skills) -> bool:
     from app.services.skill_normalize import implied_forms
 
     wanted = {_canon_skill(required)}
-    wanted.update(_canon_skill(form) for form in implied_forms(required))
+    wanted.update(
+        _canon_skill(form) for form in implied_forms(required, relations=relations)
+    )
     return any(_canon_skill(c) in wanted for c in candidate_skills)
 
 

@@ -177,10 +177,12 @@ async def _jjit_api(db: AsyncSession, job_id: int) -> Optional[AdJjitApi]:
     # Wyłączenie flagi nie chowa ogłoszenia, które wisi: zamykanie działa dalej.
     if not ready and (posting is None or posting.status not in LIVE_STATUSES):
         return None
+    career_required = not native_apply_enabled()
     if posting is None:
-        return AdJjitApi(ready=ready)
+        return AdJjitApi(ready=ready, career_required=career_required)
     return AdJjitApi(
         ready=ready,
+        career_required=career_required,
         status=posting.status.value,
         pending_action=posting.pending_action,
         last_error=posting.last_error,

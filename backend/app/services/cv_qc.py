@@ -93,7 +93,9 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # „qc-truth-5” (07.11.2026, etap 3a słownika): wymaganie szukane też po
 # wariantach narzędzi, metodyk, AI, standardów i dziedzin, które liczą się
 # w tekście CV („AML” przy „Anti-Money Laundering”); pogrubianie bez zmian.
-QC_VERSION = "qc-truth-5"
+# „qc-truth-6” (07.11.2026, mapa wiedzy IT): powiązania „wynika z” i „część”
+# spełniają wymaganie (GitHub ⇒ Git), zamiennik i „typowe” dają gotowe pytanie.
+QC_VERSION = "qc-truth-6"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -1323,6 +1325,39 @@ def similar_in_original(
     return None
 
 
+def related_hint(term: str, text: str) -> Optional[dict]:
+    """Mapa wiedzy IT (07.11.2026): przy braku wymagania — czy źródło ma jego
+    zamiennik (Flask przy FastAPI) albo hasło, przy którym jest typowe (Java przy
+    Maven). Nie zmienia zaliczenia; zamienia „luka” w konkretne pytanie."""
+    from app.services import skill_normalize
+
+    for kind, forms in (
+        ("alternative", skill_normalize.alternative_forms(term)),
+        ("typical", skill_normalize.typical_sources(term)),
+    ):
+        found: list[str] = []
+        for form in forms:
+            hit = match_in(text, Requirement(label=form, alternatives=(form,)))
+            if hit and hit.casefold() not in {f.casefold() for f in found}:
+                found.append(hit)
+        if found:
+            return {"kind": kind, "names": found[:3]}
+    return None
+
+
+def related_detail(term: str, hint: dict) -> str:
+    names = ", ".join(hint["names"])
+    if hint["kind"] == "alternative":
+        return (
+            f"Nie ma „{term}”, ale kandydat zna zamienniki: {names}. Zapytaj, czy "
+            f"pracował z {term} i jak szybko się wdroży."
+        )
+    return (
+        f"Nie ma „{term}”, a przy {names} zwykle się go używa — wielu kandydatów "
+        "tego nie wpisuje. Potwierdź w rozmowie."
+    )
+
+
 def _searched(
     req: Requirement,
     *,
@@ -1640,6 +1675,9 @@ def compute_checks(data: QcInput) -> list[dict]:
                 continue
             in_sources = dz.found_in(sources, req) is not None
             similar = None if in_sources else similar_in_original(req.label, original)
+            related = (
+                None if in_sources or similar else related_hint(req.label, sources)
+            )
             critical_items.append(
                 {
                     **_item(
@@ -1651,6 +1689,8 @@ def compute_checks(data: QcInput) -> list[dict]:
                             else f"Brak tej nazwy w CV. W oryginale jest „{similar['term']}” "
                             "— sprawdź, czy to ta sama rzecz."
                             if similar
+                            else related_detail(req.label, related)
+                            if related
                             else "Brak w CV, w oryginale i w rozmowie — zapytaj "
                             "kandydata."
                         ),
@@ -1658,6 +1698,7 @@ def compute_checks(data: QcInput) -> list[dict]:
                     ),
                     "searched": searched(req),
                     **({"similar": similar} if similar else {}),
+                    **({"related": related} if related else {}),
                 }
             )
         # Pozycja roli krytycznej nieobecnej w całym CV — jej pominięcie
@@ -1712,20 +1753,30 @@ def compute_checks(data: QcInput) -> list[dict]:
                 if descriptive
                 else similar_in_original(req.label, original, stems=False)
             )
+            related = (
+                None
+                if descriptive or similar
+                else related_hint(req.label, "\n".join((original, notes, answers)))
+            )
             missing_info.append(
-                _item(
-                    requirement=req.label,
-                    detail=(
-                        "Wymaganie opisowe — sprawdź ręcznie, czy CV je pokazuje."
-                        if descriptive
-                        else f"Nie ma tej nazwy, ale oryginał ma „{similar['term']}” "
-                        "— sprawdź, czy to ta sama rzecz."
-                        if similar
-                        else "Luka kandydata — nie ma tego w CV, w oryginale ani "
-                        "w rozmowie. Do rozmowy, nie do poprawy w CV."
+                {
+                    **_item(
+                        requirement=req.label,
+                        detail=(
+                            "Wymaganie opisowe — sprawdź ręcznie, czy CV je pokazuje."
+                            if descriptive
+                            else f"Nie ma tej nazwy, ale oryginał ma „{similar['term']}” "
+                            "— sprawdź, czy to ta sama rzecz."
+                            if similar
+                            else related_detail(req.label, related)
+                            if related
+                            else "Luka kandydata — nie ma tego w CV, w oryginale ani "
+                            "w rozmowie. Do rozmowy, nie do poprawy w CV."
+                        ),
+                        fix=None if descriptive or similar else "ask_candidate",
                     ),
-                    fix=None if descriptive or similar else "ask_candidate",
-                )
+                    **({"related": related} if related else {}),
+                }
             )
             continue
         missing.append(

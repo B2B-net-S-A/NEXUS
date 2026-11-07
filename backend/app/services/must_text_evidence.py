@@ -113,9 +113,14 @@ def _prefilter_token(form: str) -> str:
     return best if len(best) >= 3 else ""
 
 
+def clear_cache() -> None:
+    """Po przeładowaniu słownika i powiązań: wzorce liczone starą mapą są stare."""
+    _patterns.cache_clear()
+
+
 @lru_cache(maxsize=4096)
 def _patterns(
-    requirement: GateRequirement,
+    requirement: GateRequirement, relations: bool = True
 ) -> tuple[tuple[re.Pattern[str], str, bool], ...]:
     """Wzorce całego słowa dla opcji wymagania i ich aliasów (+ słowo filtra).
 
@@ -133,7 +138,7 @@ def _patterns(
         forms = [
             option.lower(),
             *skill_name_variants([option]),
-            *implied_forms(option),
+            *implied_forms(option, relations=relations),
         ]
         for form in forms:
             form = form.strip()
@@ -195,8 +200,10 @@ def _inflected(form: str) -> Optional[tuple[re.Pattern[str], str, bool]]:
     return pattern, _prefilter_token(stem), False
 
 
-def _mentions_lowered(requirement: GateRequirement, text: str, lowered: str) -> bool:
-    for pattern, token, cased in _patterns(requirement):
+def _mentions_lowered(
+    requirement: GateRequirement, text: str, lowered: str, relations: bool = True
+) -> bool:
+    for pattern, token, cased in _patterns(requirement, relations):
         # Wzorce z wielkością liter (krótkie aliasy) idą po oryginale.
         haystack = text if cased else lowered
         start = 0
@@ -418,8 +425,10 @@ def text_met_labels(
     note_texts: Iterable[str] = (),
     *,
     options: GateOptions = None,
+    relations: bool = True,
 ) -> frozenset[str]:
-    """Etykiety must, które profil, CV albo notatki wymieniają."""
+    """Etykiety must, które profil, CV albo notatki wymieniają.
+    ``relations=False`` = bez powiązań z mapy wiedzy IT (dowód dosłowny)."""
     requirements = [
         (label, requirement)
         for label in must
@@ -434,7 +443,7 @@ def text_met_labels(
     ]
     met: set[str] = set()
     for label, requirement in requirements:
-        if any(_mentions_lowered(requirement, t, low) for t, low in sources):
+        if any(_mentions_lowered(requirement, t, low, relations) for t, low in sources):
             met.add(label)
     return frozenset(met)
 

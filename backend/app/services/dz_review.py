@@ -368,9 +368,12 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
     słownika, które liczą się w tekście CV — także narzędzia, metodyki, AI,
     standardy i dziedziny (etap 3a, 07.11.2026: „AML” przy „Anti-Money
     Laundering”). Pogrubianie i usuwanie terminu biorą ``_tech_patterns``."""
-    from app.services.skill_normalize import text_alias_forms
+    from app.services.skill_normalize import implied_forms, text_alias_forms
 
-    return _forms_patterns(name, text_alias_forms(name))
+    # Mapa wiedzy IT (07.11.2026, decyzja Artura „wszędzie”): powiązania
+    # „wynika z” i „część” spełniają wymaganie także w QC — „Git” przy GitHubie,
+    # „SQL” przy PostgreSQL — tak samo jak w wyszukiwaniu i przeglądzie DL.
+    return _forms_patterns(name, [*text_alias_forms(name), *implied_forms(name)])
 
 
 def _tech_patterns(name: str) -> list[re.Pattern[str]]:

@@ -1,9 +1,9 @@
-"""Alarm o masowym przeglądaniu CV (0508, 22.10.2026) — reguły bez bazy.
+"""Alarm o masowym pobieraniu CV (0508, 22.10.2026) — reguły bez bazy.
 
-Progi z ruchu produkcji (30 dni do 22.10.2026): 99. percentyl rekruterów
-33 kandydatów w godzinę, na dysk najwyżej 20 plików dziennie. Juniorzy
-z 12.10 (konta z tego dnia) pojedynczo mieli do 55 kandydatów dziennie —
-złapać ich muszą niższe progi nowych kont i alarm „nowe konta naraz”.
+Progi z ruchu produkcji (30 dni do 22.10.2026): na dysk najwyżej 20 plików
+dziennie. Samo przeglądanie (podgląd w NEXUSIE) alarmu nie wywołuje —
+decyzja Artura 07.11.2026. Juniorów z 12.10 łapią niższe progi nowych kont
+i alarm „nowe konta naraz” za zapis na dysk.
 """
 
 from __future__ import annotations
@@ -62,37 +62,43 @@ def _user(role: UserRole, *extra: UserRole) -> User:
 
 
 def test_busy_recruiter_day_from_production_is_not_an_alarm() -> None:
-    # 99. percentyl godziny i maksimum zapisów na dysk z 30 dni produkcji.
-    usage = _usage(
-        OLD, candidates_last_hour=33, candidates_today=119, disk_files_today=20
-    )
+    # Maksimum zapisów na dysk z 30 dni produkcji.
+    usage = _usage(OLD, candidates_today=119, disk_files_today=20)
     assert alerts.reasons(usage, new_account=False) == []
+
+
+def test_viewing_alone_is_never_an_alarm() -> None:
+    # 07.11.2026: podgląd setek kandydatów to praca, nie alarm bezpieczeństwa.
+    for created in (OLD, NEW):
+        usage = _usage(created, candidates_today=500)
+        assert (
+            alerts.reasons(usage, new_account=alerts.is_new_account(usage, NOW)) == []
+        )
+    assert not hasattr(alerts, "HOUR_CANDIDATES")
 
 
 def test_thresholds_are_exclusive() -> None:
     at_limit = _usage(
         OLD,
-        candidates_last_hour=alerts.HOUR_CANDIDATES,
         disk_files_today=alerts.DAY_DISK_FILES,
         export_rows_today=alerts.DAY_EXPORT_ROWS,
     )
     assert alerts.reasons(at_limit, new_account=False) == []
     over = _usage(
         OLD,
-        candidates_last_hour=alerts.HOUR_CANDIDATES + 1,
+        candidates_today=999,
         disk_files_today=alerts.DAY_DISK_FILES + 1,
         export_rows_today=alerts.DAY_EXPORT_ROWS + 1,
     )
     found = alerts.reasons(over, new_account=False)
-    assert len(found) == 3
-    assert any("w ostatniej godzinie" in r for r in found)
+    assert len(found) == 2
     assert any("na dysk" in r for r in found)
     assert any("eksport" in r for r in found)
 
 
 def test_new_account_has_half_thresholds() -> None:
-    # Junior z 12.10: 25 kandydatów w godzinę i 13 plików na dysk.
-    usage = _usage(NEW, candidates_last_hour=25, disk_files_today=13)
+    # Junior z 12.10: 13 plików na dysk i eksport 101 osób.
+    usage = _usage(NEW, disk_files_today=13, export_rows_today=101)
     assert alerts.is_new_account(usage, NOW)
     assert len(alerts.reasons(usage, new_account=True)) == 2
     assert alerts.reasons(usage, new_account=False) == []
@@ -111,7 +117,7 @@ def test_account_age_decides_new_account() -> None:
 @pytest.mark.asyncio
 async def test_alarm_does_not_reach_the_person_it_is_about(monkeypatch) -> None:
     """Podejrzany admin albo HoR nie dostaje uprzedzenia o własnym alarmie."""
-    subject = _usage(OLD, candidates_last_hour=alerts.HOUR_CANDIDATES + 1)
+    subject = _usage(OLD, disk_files_today=alerts.DAY_DISK_FILES + 1)
     notified: list[list[int]] = []
 
     async def collect(_db, _now):
@@ -137,12 +143,11 @@ async def test_alarm_does_not_reach_the_person_it_is_about(monkeypatch) -> None:
 
 
 def test_alert_text_says_nothing_was_blocked_and_how_to_react() -> None:
-    usage = _usage(
-        NEW, candidates_last_hour=25, candidates_today=55, disk_files_today=13
-    )
+    usage = _usage(NEW, candidates_today=55, disk_files_today=13)
     found = alerts.reasons(usage, new_account=True)
     title, message = alerts.alert_text(usage, found, new_account=True, now=NOW)
     assert title.startswith("Jan Próbny")
+    assert "pobieranie" in title and "przeglądanie" not in title
     assert "55 kandydatów" in message
     assert "09.10.2026" in message  # data założenia konta w kalendarzu firmy
     assert "niczego nie zablokował" in message
@@ -155,7 +160,7 @@ def test_burst_text_lists_new_accounts() -> None:
         for i in range(12)
     ]
     title, message = alerts.burst_text(accounts)
-    assert title.startswith("12 nowe konta")
+    assert title.startswith("12 nowe konta zapisują")
     assert "Osoba 0" in message and "i 2 innych" in message
 
 
@@ -257,7 +262,13 @@ async def test_scan_alerts_admin_once_per_person_and_burst_does_not_collide() ->
     old = DB_NOW - timedelta(days=400)
     async with AsyncSessionLocal() as db:
         admin = await _account(db, "admin", UserRole.admin, old)
-        heavy = await _account(db, "godzina", UserRole.recruiter, old)
+        viewer = await _account(db, "podglad", UserRole.recruiter, old)
+        new_viewers = [
+            await _account(
+                db, f"nowy-podglad{i}", UserRole.recruiter, DB_NOW - timedelta(days=1)
+            )
+            for i in range(3)
+        ]
         zipper = await _account(db, "zip", UserRole.recruiter, old)
         exporter = await _account(db, "eksport", UserRole.recruiter, old)
         quiet = await _account(db, "spokojny", UserRole.recruiter, old)
@@ -267,9 +278,14 @@ async def test_scan_alerts_admin_once_per_person_and_burst_does_not_collide() ->
             )
             for i in range(3)
         ]
+        # Same podglądy — dużo, także z nowych kont — nie budzą alarmu.
         events = [
-            _event(heavy, "document_downloaded", 900_000 + i, 10, disposition="inline")
-            for i in range(alerts.HOUR_CANDIDATES + 1)
+            _event(viewer, "document_downloaded", 900_000 + i, 10, disposition="inline")
+            for i in range(200)
+        ]
+        events += [
+            _event(v, "document_url_issued", 940_000 + n, 10, disposition="inline")
+            for n, v in enumerate(new_viewers)
         ]
         # Wczoraj (przed północą Warszawy) się nie liczy do „dziś”.
         events += [
@@ -308,12 +324,13 @@ async def test_scan_alerts_admin_once_per_person_and_burst_does_not_collide() ->
         ]
         db.add_all(events)
         await db.commit()
-        everyone = [admin, heavy, zipper, exporter, quiet, *juniors]
+        everyone = [admin, viewer, zipper, exporter, quiet, *juniors, *new_viewers]
 
     try:
         async with AsyncSessionLocal() as db:
             usages = {u.user_id: u for u in await alerts.collect(db, DB_NOW)}
-        assert usages[heavy.id].candidates_last_hour == alerts.HOUR_CANDIDATES + 1
+        assert usages[viewer.id].candidates_today == 200
+        assert usages[viewer.id].disk_files_today == 0
         assert usages[zipper.id].disk_files_today == alerts.DAY_DISK_FILES + 1
         assert usages[exporter.id].export_rows_today == alerts.DAY_EXPORT_ROWS + 1
         assert usages[quiet.id].disk_files_today == 1
@@ -332,8 +349,12 @@ async def test_scan_alerts_admin_once_per_person_and_burst_does_not_collide() ->
                 )
             ).all()
         about = {entity for entity, _ in rows}
-        assert {heavy.id, zipper.id, exporter.id, alerts.BURST_ENTITY_ID} <= about
+        assert {zipper.id, exporter.id, alerts.BURST_ENTITY_ID} <= about
         assert quiet.id not in about
+        assert viewer.id not in about
+        burst_titles = [t for e, t in rows if e == alerts.BURST_ENTITY_ID]
+        # Alarm „nowe konta naraz” liczy 3 juniorów z zapisem, nie 3 nowe podglądy.
+        assert burst_titles and burst_titles[0].startswith("3 nowe konta")
         assert len(rows) == len(about)
 
         # Drugi przebieg tego samego dnia nie dokłada wpisów.

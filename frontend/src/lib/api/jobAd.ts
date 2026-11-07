@@ -258,6 +258,8 @@ export interface AdJjitApi {
   pending_action: PendingAction;
   last_error: string | null;
   options: PortalListingOptions | null;
+  /** Strona kariery musi wisieć przed publikacją; `false` przy formularzu JJIT (06.11.2026). */
+  career_required?: boolean;
 }
 
 /** Mail z ogłoszeniem do opiekuna Pracuj.pl wysłany z NEXUSA. */

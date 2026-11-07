@@ -1448,6 +1448,15 @@ except Exception as _skill_alias_text_schema_err:  # noqa: BLE001
     print(f"skill alias text schema unavailable: {_skill_alias_text_schema_err!r}")
     _SKILL_ALIAS_TEXT_DDL = []
 
+# 0660: powiązania haseł słownika (`app/services/skill_relations_schema.py`).
+try:
+    from app.services import skill_relations_schema as _skill_relations_schema
+
+    _SKILL_RELATIONS_TABLE_DDL = list(_skill_relations_schema.TABLE_DDL)
+except Exception as _skill_relations_schema_err:  # noqa: BLE001
+    print(f"skill relations schema unavailable: {_skill_relations_schema_err!r}")
+    _SKILL_RELATIONS_TABLE_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
@@ -7114,6 +7123,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_CV_CALL_QUESTIONS_TABLE_DDL,
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,
+    *_SKILL_RELATIONS_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

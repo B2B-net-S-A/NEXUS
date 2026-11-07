@@ -345,6 +345,42 @@ def missing_must_skills(
     return missing
 
 
+def alternative_hits(candidate, labels: Sequence[str]) -> dict[str, list[str]]:
+    """Dla brakujących wymagań: zamienniki ze słownika, które kandydat ma
+    na liście umiejętności albo w tekście profilu i CV (Flask przy FastAPI)."""
+    from app.services.must_text_evidence import text_met_labels
+    from app.services.scoring_service import candidate_skill_names, skill_present
+    from app.services.skill_normalize import alternative_forms
+
+    cand_skills = None
+    hits: dict[str, list[str]] = {}
+    for label in labels:
+        forms = alternative_forms(label)
+        if not forms:
+            continue
+        if cand_skills is None:
+            cand_skills = candidate_skill_names(candidate)
+        found = [form for form in forms if skill_present(form, cand_skills)]
+        if not found:
+            found = sorted(text_met_labels(candidate, tuple(forms)))
+        if found:
+            hits[label] = found[:3]
+    return hits
+
+
+def _kept_by_alternatives(candidate, missing: Sequence[str]) -> bool:
+    """Osoba zostaje, gdy KAŻDE brakujące wymaganie ma zamiennik; wtedy
+    ``_critical_alternatives`` mówi karcie, o co zapytać."""
+    hits = alternative_hits(candidate, missing)
+    if not hits or set(hits) != set(missing):
+        return False
+    try:
+        candidate._critical_alternatives = hits
+    except AttributeError:  # obiekt bez atrybutów (testy) — decyzja zostaje
+        pass
+    return True
+
+
 def office_days_exceeded(candidate, required_days: Optional[int]) -> bool:
     """True TYLKO gdy wymagane dni > 0 i znana deklaracja kandydata jest niższa.
 
@@ -926,14 +962,23 @@ def apply_dealbreakers(
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "no_data"
             continue
-        if must_active and missing_must_skills(
-            candidate,
-            effective_inputs.must_skills,
-            include_unknown=effective_inputs.exclude_unknown_skill_evidence,
-            verification_job_id=effective_inputs.verification_job_id,
-            verification_fingerprint=effective_inputs.verification_fingerprint,
-            options=effective_inputs.gate_options,
-        ):
+        missing = (
+            missing_must_skills(
+                candidate,
+                effective_inputs.must_skills,
+                include_unknown=effective_inputs.exclude_unknown_skill_evidence,
+                verification_job_id=effective_inputs.verification_job_id,
+                verification_fingerprint=effective_inputs.verification_fingerprint,
+                options=effective_inputs.gate_options,
+            )
+            if must_active
+            else []
+        )
+        if missing and _kept_by_alternatives(candidate, missing):
+            # Mapa wiedzy IT (07.11.2026, decyzja Artura): zamiennik nie spełnia
+            # wymagania krytycznego, ale nie ukrywa osoby — zostaje z pytaniem.
+            missing = []
+        if missing:
             from app.services.must_text_evidence import evidence_for, has_any_data
 
             if not has_any_data(
