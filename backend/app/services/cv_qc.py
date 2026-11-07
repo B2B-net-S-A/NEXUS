@@ -195,6 +195,41 @@ OVERRIDE_REASONS: dict[str, str] = {
     "other": "Inny powód",
 }
 
+# Obejście zapisane przez automat „DL match” (Delivery Lead wysyła osobę
+# z przeglądu do innej rekrutacji). Do 07.11.2026 szło jako „other” i w 30 dniach
+# było 11 z 91 obejść, a decyzja o powrocie do blokady (`CV_QC_ADVISORY`) ma
+# liczyć obejścia rekruterów. Nie ma go w oknie obejścia (`OVERRIDE_REASONS`).
+DL_MATCH_OVERRIDE = "dl_match"
+
+# „Inny powód” (R6, 07.11.2026): co najmniej tyle słów i wskazana blokada.
+# Minimum znaków nie wraca — przy 10 znakach ludzie wpisywali losowe litery.
+OVERRIDE_OTHER_MIN_WORDS = 3
+
+
+class OverrideAboutMissing(ValueError):
+    """„Inny powód” bez wskazania blokady, choć blokady są."""
+
+
+def override_about(
+    checks: list[dict], about_keys: Sequence[str], reason_code: Optional[str]
+) -> list[str]:
+    """Blokady, których dotyczy „Inny powód” — tylko klucze z bieżącego przebiegu.
+
+    Gotowy powód i automat „DL match” nie wskazują blokad (pusta lista).
+    „Inny powód” (albo sam opis bez kodu) przy blokadach z kluczami bez
+    żadnego pasującego klucza → `OverrideAboutMissing`.
+    """
+
+    if reason_code not in (None, "other"):
+        return []
+    current = blocking_keys(checks)
+    keyed = {key for key in current if not key.split("|", 1)[-1].startswith("#")}
+    chosen = [key for key in dict.fromkeys(about_keys) if key in keyed]
+    if keyed and not chosen:
+        raise OverrideAboutMissing("Zaznacz, której uwagi dotyczy powód obejścia QC.")
+    return chosen
+
+
 # Sekcje generatora, które niosą szablon, a nie treść: nagłówek roli
 # (stanowisko + daty), pracodawca, etykiety („Obowiązki”), „Rozważany na…”
 # i klauzula zgody RODO.
@@ -3452,6 +3487,7 @@ async def record_override(
     notify_reviewers: bool = False,
     note: Optional[str] = None,
     wrong_keys: Sequence[str] = (),
+    about_keys: Sequence[str] = (),
 ) -> dict:
     """Obejście QC — wiersz przebiegu + Activity.
 
@@ -3471,6 +3507,9 @@ async def record_override(
     „QC się myli”: pominięcie z powodem ``qc_wrong_override`` (liczy się do
     trafności w „Jakość QC”). Reszta blokad to „prawda, ale przepuszczam” —
     obie listy zostają w przebiegu (`override_labels`).
+
+    ``about_keys`` (R6, 07.11.2026) — przy „Inny powód” blokady, których powód
+    dotyczy (`override_about`; brak pasującej = `OverrideAboutMissing`).
     """
 
     from app.models.activity import Activity
@@ -3479,6 +3518,7 @@ async def record_override(
 
     src, checks, _ = await evaluate(db, stage)
     passed, blocking_failed, warnings_count = summarize(checks)
+    about = override_about(checks, about_keys, reason_code)
     labels, wrong_items = override_labels(checks, wrong_keys)
     db.add(
         CvQcRun(
@@ -3502,6 +3542,7 @@ async def record_override(
                 # (`spend_advisory_overrides`).
                 "override_advisory": notify_reviewers,
                 "override_labels": labels,
+                "override_about": about,
             },
             override_reason=reason,
             override_by_user_id=user_id,

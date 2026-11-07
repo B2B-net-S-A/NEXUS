@@ -33,6 +33,8 @@ import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-que
 import { getCurrentTitle, type CandidateLite } from "@/components/v2/pages/candidate-list-helpers";
 import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { reviewBatchBlock } from "@/lib/api/reviewBatch";
+import { ReviewBatchBlockedNotice } from "@/components/v2/review-batch/ReviewBatchBlockedNotice";
 import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { candidateSearchApi, proposalsBulkApi } from "@/lib/candidate-search-api";
 import { jobProposalsKeys, talkCheckLabel, type TalkCheck } from "@/lib/job-proposals-api";
@@ -415,6 +417,11 @@ export function useSearchBaseTab(
         </div>
       ) : (
         <>
+          {/* Porcja dnia (07.11.2026): komunikat na górze — przy 1280 × 720
+              pod słowami z Championa nie było go widać. */}
+          {list.isError && reviewBatchBlock(list.error) ? (
+            <ReviewBatchBlockedNotice error={list.error} />
+          ) : null}
           <section
             aria-label="Słowa do wyszukiwania"
             className="space-y-2 rounded-md bg-muted/50 p-3"
@@ -504,7 +511,7 @@ export function useSearchBaseTab(
             </p>
           </section>
 
-          {list.isError ? (
+          {list.isError && reviewBatchBlock(list.error) ? null : list.isError ? (
             <p role="alert" className="text-sm text-destructive">
               {apiErrorMessage(list.error, "Nie udało się wyszukać w bazie.")}{" "}
               <button type="button" className="underline" onClick={() => void list.refetch()}>

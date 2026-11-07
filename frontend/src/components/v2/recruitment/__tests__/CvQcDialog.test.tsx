@@ -1805,4 +1805,12 @@ describe("CvQcDialog — QC CV", () => {
     expect(notes).toHaveTextContent("Pisownia technologii");
     expect(notes).not.toHaveTextContent("Daty stanowisk jak w oryginale");
   });
+
+  it("Delivery Lead z przeglądu dostaje objaśnienie dla siebie (R5, 07.11.2026)", async () => {
+    serve(passed({ advisory: true }));
+    renderDialog({ audience: "dl" });
+    const explainer = await screen.findByRole("region", { name: "Co sprawdza QC" });
+    expect(explainer).toHaveTextContent("Patrzysz jako Delivery Lead");
+    expect(explainer).not.toHaveTextContent("możesz przesunąć kartę mimo uwag");
+  });
 });

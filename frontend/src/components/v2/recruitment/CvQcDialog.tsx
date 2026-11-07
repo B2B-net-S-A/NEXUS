@@ -141,6 +141,11 @@ export interface CvQcDialogProps {
    * „Przesuń dalej” (ruch etapu ma jedną drogę). Bez niego przycisku nie ma.
    */
   onMoveNext?: (result: QcResult) => void;
+  /**
+   * R5 (07.11.2026): kto patrzy. Delivery Lead z przeglądu dostaje objaśnienie
+   * dla siebie, nie „możesz przesunąć kartę mimo uwag” pisane do rekrutera.
+   */
+  audience?: "recruiter" | "dl";
 }
 
 // ── CV po lewej ──────────────────────────────────────────────────────────────
@@ -284,7 +289,7 @@ function CvPaper({ data }: { data: QcResult }) {
 const championHref = (data: QcResult) => `/jobs/${data.job_id}?tab=champion`;
 
 /** Co QC sprawdza i które umiejętności są krytyczne w tej rekrutacji. */
-function Explainer({ data }: { data: QcResult }) {
+function Explainer({ data, audience = "recruiter" }: { data: QcResult; audience?: "recruiter" | "dl" }) {
   const critical = data.client_request.critical ?? [];
   const source = data.client_request.critical_source ?? "none";
   const champion = (
@@ -306,7 +311,12 @@ function Explainer({ data }: { data: QcResult }) {
         <strong className="font-semibold">Co sprawdza QC:</strong> czy CV firmowe opisuje umiejętności krytyczne tej
         rekrutacji i czy nie mówi nic ponad oryginalne CV kandydata. Reszta to podpowiedzi — nie zatrzymują wysyłki.
       </p>
-      {data.advisory ? (
+      {audience === "dl" ? (
+        <p>
+          Patrzysz jako Delivery Lead: to samo widział rekruter przed przekazaniem. „Sprawdź ręcznie” znaczy, że QC
+          tego nie umiało sprawdzić — zaznacz to w „Wróć do poprawy”, jeśli trzeba poprawić CV.
+        </p>
+      ) : data.advisory ? (
         <p>
           QC doradza: możesz przesunąć kartę mimo uwag — Delivery Lead zobaczy, co zostało niepoprawione, i może
           cofnąć ją do poprawy.
@@ -401,10 +411,12 @@ export function CvQcBody({
   stageId,
   onChanged,
   onOpenEditor,
+  audience = "recruiter",
 }: {
   data: QcResult;
   stageId: number;
   onChanged?: () => void;
+  audience?: "recruiter" | "dl";
   /** Otwiera edytor sprawdzanego CV — brak, gdy CV nie da się edytować w NEXUSIE. */
   onOpenEditor?: () => void;
 }) {
@@ -518,7 +530,7 @@ export function CvQcBody({
         <CvPaper data={data} />
       </div>
       <div className="space-y-3 p-4 lg:min-h-0 lg:overflow-y-auto">
-        <Explainer data={data} />
+        <Explainer data={data} audience={audience} />
         <Confirmations items={data.confirmations ?? []} />
         {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
@@ -649,6 +661,7 @@ export function CvQcDialogView({
   state,
   refreshFailed,
   onRecheck,
+  audience = "recruiter",
 }: CvQcDialogViewProps) {
   const me = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
@@ -722,6 +735,7 @@ export function CvQcDialogView({
             stageId={stageId}
             onChanged={onChanged}
             onOpenEditor={editorTarget ? () => setEditorOpen(true) : undefined}
+            audience={audience}
           />
         ) : loading ? (
           <p className="flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
@@ -809,7 +823,7 @@ export function CvQcDialogView({
   );
 }
 
-export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: CvQcDialogProps) {
+export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext, audience }: CvQcDialogProps) {
   const query = useCvQc(stageId, open);
   const queryClient = useQueryClient();
   // Otwarcie okna przelicza i zapisuje QC (CV mogło się zmienić poza oknem) —
@@ -840,6 +854,7 @@ export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: Cv
       state={resolveViewState({ isLoading: query.isLoading, error: query.error })}
       refreshFailed={query.isError && query.data != null}
       onRecheck={() => void query.refetch()}
+      audience={audience}
     />
   );
 }

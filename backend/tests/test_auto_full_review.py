@@ -25,6 +25,7 @@ a globalne sondy (`_search_busy`, `_started_since`) są podstawiane.
 
 import uuid
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
@@ -1965,3 +1966,140 @@ async def test_role_history_skips_cards_the_engine_placed_itself():
         titles = await history_titles(db, [candidate_id])
 
     assert titles == {candidate_id: ["Analityk Systemowy (ZOB-1)"]}
+
+
+# ── Pula spoza rekrutacji i pierwszy przegląd w dzień (07.11.2026) ───────────
+
+
+async def test_pool_skips_people_already_in_the_job(monkeypatch):
+    """R2: pula to 150 osób SPOZA rekrutacji — w AML 118 ze 150 było już w niej."""
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=5)
+    first, second, third, fourth, fifth = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=first,
+                job_id=world["job_id"],
+                stage=PipelineStage.new,
+                moved_by=owner_id,
+            )
+        )
+        db.add(
+            CandidateStageRemoval(
+                candidate_id=second,
+                job_id=world["job_id"],
+                removed_by=owner_id,
+                stages_snapshot=[],
+            )
+        )
+        await db.commit()
+    run_id = await _run_with(
+        world, owner_id, {first: 95, second: 90, third: 80, fourth: 70, fifth: 60}
+    )
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, run_id, eligible=5)
+        await db.commit()
+    assert [p.candidate_id for p in await _pool(world["job_id"])] == [third, fourth]
+
+
+async def test_pool_running_low_counts_only_people_outside_the_job():
+    from sqlalchemy import select as sa_select
+
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    owner_id, _ = await _user()
+    low = await _job(owner_id=owner_id, event=False, people=3)
+    async with AsyncSessionLocal() as db:
+        for cid in low["candidate_ids"]:
+            db.add(
+                JobAutofillPool(
+                    job_id=low["job_id"], candidate_id=cid, score=80, run_id="r2"
+                )
+            )
+        db.add(
+            CandidateStage(
+                candidate_id=low["candidate_ids"][0],
+                job_id=low["job_id"],
+                stage=PipelineStage.new,
+                moved_by=owner_id,
+            )
+        )
+        await db.commit()
+    empty = await _job(owner_id=owner_id, event=False)
+    async with AsyncSessionLocal() as db:
+        ids = set(
+            (
+                await db.scalars(
+                    sa_select(Job.id).where(
+                        Job.id.in_([low["job_id"], empty["job_id"]]),
+                        afr._pool_running_low(),
+                    )
+                )
+            ).all()
+        )
+    # 2 wolne osoby < 40 → pustosząca pula; bez puli → o kolejności decyduje wiek.
+    assert ids == {low["job_id"]}
+
+
+def _workday_at(hour: int) -> datetime:
+    # Poniedziałek 09.11.2026 w Warszawie.
+    return datetime(2026, 11, 9, hour, 0, tzinfo=ZoneInfo("Europe/Warsaw")).astimezone(
+        timezone.utc
+    )
+
+
+async def test_daytime_first_review_starts_a_new_job_once(monkeypatch):
+    """R6: rekrutacja bez przeglądu dostaje pełny przegląd jeszcze w dzień,
+    pojedynczo i z dziennym limitem."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False)
+
+    async def _only_mine(db, *, limit=10):
+        return [world["job_id"]]
+
+    async def _none(db, since):
+        return 0
+
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED", True)
+    monkeypatch.setattr(afr, "first_review_job_ids", _only_mine)
+    monkeypatch.setattr(afr, "_started_in_window_since", _none)
+    afr._skipped_today.clear()
+
+    _open_gates(monkeypatch, busy=True)
+    assert (await afr.tick(now=_workday_at(10)))["skipped"] == "search_active"
+
+    _open_gates(monkeypatch, started=10)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_DAYTIME_MAX", 10)
+    assert (await afr.tick(now=_workday_at(10)))["skipped"] == "day_cap"
+
+    _open_gates(monkeypatch)
+    try:
+        result = await afr.tick(now=_workday_at(10))
+        assert result.get("daytime") is True and result["job_id"] == world["job_id"]
+        assert len(await _auto_runs(world["job_id"])) == 1
+    finally:
+        await _finish_all(world["job_id"])
+
+    # Po 19:00 i w weekend nic nie startuje w dzień.
+    assert (await afr.tick(now=_workday_at(20)))["skipped"] == "outside_window"
+    saturday = datetime(2026, 11, 7, 10, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
+    assert (await afr.tick(now=saturday.astimezone(timezone.utc)))[
+        "skipped"
+    ] == "outside_window"
+
+
+async def test_first_review_list_skips_jobs_already_reviewed():
+    owner_id, _ = await _user()
+    reviewed = await _job(owner_id=owner_id, event=False, people=1)
+    fresh = await _job(owner_id=owner_id, event=False)
+    await _run_with(reviewed, owner_id, {reviewed["candidate_ids"][0]: 80})
+    async with AsyncSessionLocal() as db:
+        ids = await afr.first_review_job_ids(db, limit=100_000)
+    assert fresh["job_id"] in ids and reviewed["job_id"] not in ids

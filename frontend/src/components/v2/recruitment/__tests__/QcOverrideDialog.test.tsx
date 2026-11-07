@@ -124,15 +124,43 @@ describe("QcOverrideDialog — „Przepuść mimo QC”", () => {
     );
   });
 
-  it("„Inny powód” wymaga opisu — choćby jednego słowa", async () => {
+  it("„Inny powód” wymaga trzech słów (R6)", async () => {
     renderDialog();
     await userEvent.click(screen.getByRole("radio", { name: "Inny powód — napiszę niżej" }));
     await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Przy „Inny powód” napisz, dlaczego przepuszczasz.");
-    expect(post).not.toHaveBeenCalled();
     await userEvent.type(screen.getByLabelText("Szczegóły (wymagane)"), "pilne");
+    expect(screen.getByRole("alert")).toHaveTextContent("co najmniej trzy słowa");
+    expect(post).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText("Szczegóły (wymagane)"), " bo klient czeka");
     await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
-    await waitFor(() => expect(post).toHaveBeenCalledWith(OVERRIDE_URL, { reason_code: "other", reason: "pilne" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(OVERRIDE_URL, { reason_code: "other", reason: "pilne bo klient czeka" }),
+    );
+  });
+
+  it("„Inny powód” przy blokadach z kluczami: zaznacz, której uwagi dotyczy (R6) — jedzie jako `about_keys`", async () => {
+    renderDialog(["Jenkins — jest w CV, a nie ma tego w oryginale", "Kafka — brak opisu w roli"], {
+      pendingItems: [
+        { title: "Jenkins — jest w CV, a nie ma tego w oryginale", keys: ["no_unsupported|jenkins|cv"], labelable: true },
+        { title: "Kafka — brak opisu w roli", keys: ["critical_skills|kafka|acme", "critical_skills|kafka|beta"], labelable: true },
+      ],
+    });
+    await userEvent.click(screen.getByRole("radio", { name: "Inny powód — napiszę niżej" }));
+    const about = screen.getByRole("group", { name: "Której uwagi dotyczy powód?" });
+    await userEvent.type(screen.getByLabelText("Szczegóły (wymagane)"), "Klient zna go z projektu");
+    await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Zaznacz, której uwagi dotyczy powód.");
+    expect(post).not.toHaveBeenCalled();
+    await userEvent.click(within(about).getByRole("checkbox", { name: "Kafka — brak opisu w roli" }));
+    await userEvent.click(screen.getByRole("button", { name: "Przepuść CV" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(OVERRIDE_URL, {
+        reason_code: "other",
+        reason: "Klient zna go z projektu",
+        about_keys: ["critical_skills|kafka|acme", "critical_skills|kafka|beta"],
+      }),
+    );
   });
 
   it("odmowa serwera zostawia okno otwarte z komunikatem", async () => {

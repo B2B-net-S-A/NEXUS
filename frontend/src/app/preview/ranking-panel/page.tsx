@@ -77,6 +77,12 @@ function Harness() {
     qc.setQueryData(["scoring-panel"], scenario.state);
     qc.setQueryData(["scoring-panel-preview-jobs"], PREVIEW_JOBS);
     qc.setQueryData(["scoring-panel-preview", PREVIEW.job_id], PREVIEW);
+    qc.setQueryData(["review-batch", "settings"], {
+      minimum: 50,
+      batch_size: 20,
+      min_score: 65,
+      enabled: true,
+    });
     return qc;
   }, [scenario]);
 
