@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { JobTwinChip } from "@/components/v2/jobs/twins/JobTwinChip";
+import { JobApplicantsTile } from "@/components/v2/jobs/JobApplicantsTile";
 import { OpenSimilarTile } from "@/components/v2/jobs/twins/OpenSimilarTile";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import type { CandidateSourceTab } from "@/components/v2/recruitment/types";
@@ -64,6 +65,8 @@ export interface CandidateSourcesStripViewProps {
    * (bliźniaki, 0614). Własne zapytanie i okno, więc poza listą źródeł.
    */
   afterSimilar?: ReactNode;
+  /** Kafel po źródłach — „Aplikacje” (wszyscy aplikujący, 07.11.2026). */
+  afterTiles?: ReactNode;
 }
 
 /** Pozycja menu otwiera okno — po zamknięciu menu, nie w trakcie (fokus). */
@@ -78,6 +81,7 @@ export function CandidateSourcesStripView({
   onAddByName,
   onAddFromCv,
   afterSimilar,
+  afterTiles,
 }: CandidateSourcesStripViewProps) {
   return (
     <section
@@ -118,6 +122,7 @@ export function CandidateSourcesStripView({
         {tile.tab === "similar" ? afterSimilar : null}
         </Fragment>
       ))}
+      {afterTiles}
       {onAddByName || onAddFromCv ? (
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
@@ -292,6 +297,7 @@ export function CandidateSourcesStrip({
       onOpen={onOpen}
       onAddByName={onAddByName}
       onAddFromCv={onAddFromCv}
+      afterTiles={<JobApplicantsTile jobId={jobId} />}
       afterSimilar={
         <>
           <OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />

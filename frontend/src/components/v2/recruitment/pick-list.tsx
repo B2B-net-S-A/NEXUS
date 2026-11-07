@@ -70,6 +70,11 @@ export interface PickRow {
    */
   roleMismatch?: { label: string; detail: string } | null;
   /**
+   * Osoba sama aplikowała na inną rekrutację (07.11.2026) — „Aplikował na: …”.
+   * Kontakt jest ciepły, więc wiersz to mówi wprost.
+   */
+  appliedTo?: { job_id: number; title: string }[] | null;
+  /**
    * „musi mieć 4/10” pod procentem — procent to głównie podobieństwo tekstu
    * CV, a ta liczba odróżnia 9/10 od 4/10 (27.10.2026).
    */
@@ -371,6 +376,14 @@ function PickListItem({
                 Inna rola: {row.roleMismatch.label}
               </span>{" "}
               <span className="text-muted-foreground">{row.roleMismatch.detail}</span>
+            </p>
+          ) : null}
+          {row.appliedTo && row.appliedTo.length > 0 ? (
+            <p className="mt-0.5 text-xs" data-testid="pick-row-applied-to">
+              <span className="rounded bg-primary/10 px-1.5 py-px text-[10.5px] font-semibold text-primary">
+                Aplikował na: {row.appliedTo[0].title}
+                {row.appliedTo.length > 1 ? ` +${row.appliedTo.length - 1}` : ""}
+              </span>
             </p>
           ) : null}
           {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
