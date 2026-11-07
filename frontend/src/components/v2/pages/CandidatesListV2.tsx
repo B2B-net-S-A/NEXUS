@@ -2338,6 +2338,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                     href="/candidates/generated-cvs"
                     title="Moje wygenerowane CV"
                     data-testid="candidates-my-generated-cvs"
+                    data-tour="candidates.my-generated-cvs"
                   >
                     <FileText className="h-4 w-4" /> Moje CV
                   </Link>
