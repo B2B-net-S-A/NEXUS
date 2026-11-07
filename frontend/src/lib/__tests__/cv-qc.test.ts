@@ -383,11 +383,20 @@ describe("powody obejścia QC", () => {
     ]);
   });
 
-  it("opis wymagany tylko przy „Inny powód”, bez minimum znaków", () => {
+  it("opis wymagany tylko przy „Inny powód”: trzy słowa i wskazana uwaga (R6, 07.11.2026)", () => {
     expect(qcOverrideError(null, "")).toBe("Wybierz powód.");
     expect(qcOverrideError("client_short_cv", "")).toBeNull();
     expect(qcOverrideError("other", "  ")).toBe("Przy „Inny powód” napisz, dlaczego przepuszczasz.");
-    expect(qcOverrideError("other", "ok")).toBeNull();
+    // Lustro `cv_qc.OVERRIDE_OTHER_MIN_WORDS`: „x”, „.”, „dw” to nie powód.
+    expect(qcOverrideError("other", "x")).toMatch(/co najmniej trzy słowa/);
+    expect(qcOverrideError("other", "bo tak")).toMatch(/co najmniej trzy słowa/);
+    expect(qcOverrideError("other", "Klient zna go z projektu")).toBeNull();
+    expect(qcOverrideError("other", "Klient zna go z projektu", { required: true, picked: 0 })).toBe(
+      "Zaznacz, której uwagi dotyczy powód.",
+    );
+    expect(qcOverrideError("other", "Klient zna go z projektu", { required: true, picked: 1 })).toBeNull();
+    // Gotowy powód nie wskazuje uwagi.
+    expect(qcOverrideError("client_short_cv", "", { required: true, picked: 0 })).toBeNull();
     expect(qcOverrideError("other", "x".repeat(901))).toMatch(/najwyżej 900 znaków/);
   });
 });

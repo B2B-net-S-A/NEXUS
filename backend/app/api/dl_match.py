@@ -413,7 +413,7 @@ async def _send_one(
                 db,
                 stage,
                 user_id=user.id,
-                reason_code="other",
+                reason_code=cv_qc.DL_MATCH_OVERRIDE,
                 reason=f"Match z {_job_label(source)}: Delivery Lead wysłał z przeglądu",
             )
             await db.commit()
