@@ -57,7 +57,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
-from app.services.polish_ilike import contains_pattern
+from app.services.polish_ilike import contains_pattern, polish_folded_ilike
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -116,11 +116,24 @@ def _candidate_full_name_match(q: str) -> list[Any]:
     """„Imię Nazwisko” i „Nazwisko Imię” — pojedyncze kolumny nigdy nie
     zawierają całej frazy ze spacją, więc samo ``name``/``lastname`` nie
     znajdowało nikogo wpisanego razem z imieniem (Jarvis, 10.2026: 7 osób
-    „nie było w bazie”, choć były)."""
-    pattern = _contains_pattern(q)
+    „nie było w bazie”, choć były). Bez polskich znaków po obu stronach."""
     return [
-        func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
-        func.concat(Candidate.lastname, " ", Candidate.name).ilike(pattern),
+        polish_folded_ilike(func.concat(Candidate.name, " ", Candidate.lastname), q),
+        polish_folded_ilike(func.concat(Candidate.lastname, " ", Candidate.name), q),
+    ]
+
+
+def _candidate_name_match(q: str) -> list[Any]:
+    """Imię, nazwisko, e-mail i pełne imię z nazwiskiem bez polskich znaków.
+
+    „Jerzy Leśniawski” nie znajdował osoby zapisanej jako „Lesniawski”, a Jarvis
+    odpowiadał „nie ma takiej osoby” (produkcja, 04.11.2026). Lista rekrutacji
+    i paleta ⌘K składały znaki już wcześniej (``polish_folded_ilike``)."""
+    return [
+        polish_folded_ilike(Candidate.name, q),
+        polish_folded_ilike(Candidate.lastname, q),
+        polish_folded_ilike(Candidate.email, q),
+        *_candidate_full_name_match(q),
     ]
 
 
@@ -1155,11 +1168,8 @@ async def unified_search(
             select(Candidate)
             .where(
                 or_(
-                    Candidate.name.ilike(_contains_pattern(q)),
-                    Candidate.lastname.ilike(_contains_pattern(q)),
-                    Candidate.email.ilike(_contains_pattern(q)),
+                    *_candidate_name_match(q),
                     Candidate.location.ilike(_contains_pattern(q)),
-                    *_candidate_full_name_match(q),
                 )
             )
             .limit(10)
@@ -1248,10 +1258,7 @@ async def global_search(
             select(Candidate)
             .where(
                 or_(
-                    Candidate.name.ilike(_contains_pattern(q)),
-                    Candidate.lastname.ilike(_contains_pattern(q)),
-                    Candidate.email.ilike(_contains_pattern(q)),
-                    *_candidate_full_name_match(q),
+                    *_candidate_name_match(q),
                 )
             )
             .limit(LIMIT)
