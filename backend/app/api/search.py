@@ -123,17 +123,24 @@ def _candidate_full_name_match(q: str) -> list[Any]:
     ]
 
 
-def _candidate_name_match(q: str) -> list[Any]:
-    """Imię, nazwisko, e-mail i pełne imię z nazwiskiem bez polskich znaków.
+def _candidate_quick_match(q: str) -> list[Any]:
+    """Imię, nazwisko, e-mail, pełne imię z nazwiskiem (bez polskich znaków)
+    i telefon.
 
     „Jerzy Leśniawski” nie znajdował osoby zapisanej jako „Lesniawski”, a Jarvis
     odpowiadał „nie ma takiej osoby” (produkcja, 04.11.2026). Lista rekrutacji
     i paleta ⌘K składały znaki już wcześniej (``polish_folded_ilike``)."""
+    phone = predicates.phone_digits_clause(q)
     return [
         polish_folded_ilike(Candidate.name, q),
         polish_folded_ilike(Candidate.lastname, q),
         polish_folded_ilike(Candidate.email, q),
         *_candidate_full_name_match(q),
+        # Numer telefonu po samych cyfrach („600 123 456”, „+48600123456”),
+        # jak lista kandydatów. Gałąź kandydatów ma tę samą bramkę co profil
+        # (`CandidatePIIAccess`), który telefon i tak pokazuje; odpowiedź
+        # wyszukiwarki numeru nie zwraca.
+        *([phone] if phone is not None else []),
     ]
 
 
@@ -1168,7 +1175,7 @@ async def unified_search(
             select(Candidate)
             .where(
                 or_(
-                    *_candidate_name_match(q),
+                    *_candidate_quick_match(q),
                     Candidate.location.ilike(_contains_pattern(q)),
                 )
             )
@@ -1258,7 +1265,7 @@ async def global_search(
             select(Candidate)
             .where(
                 or_(
-                    *_candidate_name_match(q),
+                    *_candidate_quick_match(q),
                 )
             )
             .limit(LIMIT)

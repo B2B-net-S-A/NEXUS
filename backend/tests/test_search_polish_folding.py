@@ -77,3 +77,58 @@ async def test_search_fold_keeps_like_wildcards_literal(app_client, app_auth_hea
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["candidates"] == []
+
+
+async def _seed_with_phone(phone: str) -> int:
+    nonce = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name=f"Tel{nonce}",
+            lastname=f"Numer{nonce}",
+            email=f"phone-{nonce}@example.com",
+            phone=phone,
+            status=CandidateStatus.active,
+        )
+        db.add(cand)
+        await db.commit()
+        await db.refresh(cand)
+        return cand.id
+
+
+def _random_nine_digits() -> str:
+    return f"{uuid.uuid4().int % 10**9:09d}"
+
+
+@pytest.mark.asyncio
+async def test_global_search_finds_candidate_by_phone_digits(
+    app_client, app_auth_headers
+):
+    """Numer w dowolnym zapisie (spacje, +48) trafia w numer zapisany inaczej."""
+    d = _random_nine_digits()
+    cand_id = await _seed_with_phone(f"+48 {d[:3]} {d[3:6]} {d[6:]}")
+    for q in (d, f"{d[:3]} {d[3:6]} {d[6:]}", f"+48{d}", f"0048 {d}"):
+        resp = await app_client.get(
+            "/api/search/global", params={"q": q}, headers=app_auth_headers
+        )
+        assert resp.status_code == 200, resp.text
+        found = resp.json()["candidates"]
+        assert cand_id in {c["id"] for c in found}, q
+        # Wyszukiwarka nie oddaje numeru — tylko imię, nazwisko i e-mail.
+        assert all(d not in str(c) for c in found), q
+
+
+@pytest.mark.asyncio
+async def test_global_search_phone_hidden_from_role_without_candidates(app_client):
+    """Rola bez odczytu kandydatów (klient/QC) nie znajdzie nikogo po numerze."""
+    from tests.test_search_full_name import _headers_for
+
+    from app.models.user import UserRole
+
+    d = _random_nine_digits()
+    await _seed_with_phone(d)
+    headers = await _headers_for(app_client, UserRole.user)
+    resp = await app_client.get("/api/search/global", params={"q": d}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["candidates"] == []
+    assert "candidates" in {s["category"] for s in body["skipped"]}
