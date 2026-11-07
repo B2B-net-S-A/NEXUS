@@ -192,6 +192,26 @@ it("panel „Do poprawy” bierze QC, uwagi i poprawki z pamięci — pełny obi
   noNetwork();
 });
 
+it("„Szybkie poprawki” (E1): języki w osobnych liniach — jedno kliknięcie, jedno Cofnij, bez sieci", async () => {
+  const dialog = await openEditor();
+  // Szybkie poprawki nie są uwagami QC — licznik w pasku bez zmian.
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));
+  const quick = await within(dialog).findByRole("region", { name: "Szybkie poprawki" });
+  expect(quick).toHaveTextContent("Szybkie poprawki · 1");
+  expect(quick).toHaveTextContent("polski – ojczysty · angielski – B2");
+  const paper = dialog.querySelector(".cv-paper .ProseMirror") as HTMLElement;
+  fireEvent.click(within(quick).getByRole("button", { name: "Zmień" }));
+  await waitFor(() => expect([...paper.querySelectorAll("p")].map((p) => p.textContent)).toContain("angielski – B2"));
+  expect([...paper.querySelectorAll("p")].map((p) => p.textContent)).toContain("polski – ojczysty");
+  fireEvent.click(within(dialog).getByRole("button", { name: /^Do poprawy \(/ }));
+  await waitFor(() => expect(within(dialog).queryByRole("region", { name: "Szybkie poprawki" })).toBeNull());
+  const done = within(dialog).getByRole("region", { name: "Poprawione" });
+  expect(done).toHaveTextContent("Języki w osobnych liniach");
+  fireEvent.click(within(done).getByRole("button", { name: "Cofnij" }));
+  expect(paper).toHaveTextContent("polski – ojczysty · angielski – B2");
+  noNetwork();
+});
+
 it("„Usuń zdanie” przy kontroli AI zdejmuje linię bez pokrycia z kartki (PR 2, 17.10.2026)", async () => {
   const dialog = await openEditor();
   fireEvent.click(await within(dialog).findByRole("button", { name: "Do poprawy (6)" }));

@@ -472,6 +472,53 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   słowa o pieniądzach, węzły bloków liczone raz (`_nodes_by_block` — wołanie
   `_block_nodes` dla każdego bloku było kwadratowe: 54 s przy 20 tys. punktów).
 
+## „Szybkie poprawki” w panelu (E1, 07.11.2026)
+
+Pomiar na kopii produkcji (266 CV z odtworzonym punktem startowym edytora,
+07.11.2026): języki porządkuje ręcznie 15% CV, w tym 14 CV rozbija
+„English - B2 · Polish - native” na osobne linie. Decyzja Artura: E1
+w edytorze obok G1–G4 w generatorze, bo 21% zatwierdzonych CV nie pochodzi
+z generatora (Word, kopia), a CV już wygenerowanych reguła generatora nie
+poprawi. Raport i makieta: https://claude.ai/artifact/5Qd2t5rbuM6kpv12txwruc
+(prywatny).
+
+- **Grupa na górze listy, przed blokadami:** „Szybkie poprawki · N”,
+  „Zastosuj wszystkie (N)” od dwóch wierszy (przy jednym byłby to ten sam
+  przycisk drugi raz). Wiersz = nazwa, podgląd zmiany (`<del>` → `<ins>` jak
+  w pozostałych wierszach) i jeden przycisk; tytuł pokazuje miejsce na
+  kartce. Bez „To nieprawda” i szczegółów — zmienia się układ, nie treść.
+  Komponent `QuickFixRow` w `CvEditorIssueRows.tsx`, wykrycie i podgląd
+  w `lib/cv-editor-quick-fixes.ts`.
+- **`languages_lines` liczy serwer kodem, bez AI** (`cv_qc.languages_lines_html`)
+  — ta sama droga co „Pogrub wymagania”: treść z edytora, wynik jednym cofalnym
+  krokiem, utrwala autozapis, nie `qc/apply`. Jest w `BULK_ACTIONS` (formalna).
+  Akapit w sekcji języków z kilkoma językami rozdzielonymi „·” → akapit na
+  język, zapis „Język – poziom” (łącznik, pauza, „(B2)”, „: B2” → „ – ”).
+  Nic nie dopisuje: bez poziomu zostaje sam język, CEFR tylko ten, który stoi
+  w tekście. Akapit z formatowaniem (pogrubione nazwy w CV z Worda) dzieli się
+  w węzłach tekstu z domknięciem i ponownym otwarciem znaczników; tam
+  poprawiany jest tylko łącznik.
+- **Sekcja po znaczniku nagłówka albo po jego tytule** (`_section_blocks` =
+  lustro `cvOutline`, tytuły z `cv_approved_docx._SECTION_TITLES`) — CV
+  z Worda nie ma znaczników. Klauzula zgody, linie szablonu i inne sekcje
+  („Java · Kotlin” w umiejętnościach) są nietknięte.
+- **Wykrycie na froncie, prawda na serwerze.** Panel liczy wiersze z bieżącego
+  dokumentu (reguły są lustrem serwera), żeby nie pytać serwera przy każdej
+  zmianie (`qc/transform` ma limit 20/min). Gdy się rozminą, serwer odpowiada
+  „nic do zrobienia” i panel to mówi, a szkic nie powstaje. Wiersze liczą się
+  po tożsamości dokumentu, nie po `docTick`: okno wczytuje treść tuż po
+  zamontowaniu panelu i wynik z pustego dokumentu zostawał do pierwszej zmiany.
+- **Nie wchodzą do licznika „Do poprawy (N)”** ani karty „CV do klienta” —
+  to podpowiedzi układu, nie uwagi QC. Wymagają etapu (trasa jest per etap).
+- **Liniowo:** `test_quick_fixes_are_linear` (20 tys. języków w akapicie,
+  200 tys. odstępów bez łącznika); separator z `(?<!\s)` i kwantyfikatorami
+  zaborczymi.
+- **Odłożone:** pogrubianie początku punktów podsumowania (Artur, 07.11.2026 —
+  standard 5 punktów z #3074 i zdania od czasownika już działają, a 251 z 266
+  zmierzonych CV powstało przed nimi; najpierw pomiar za ok. 2 tygodnie).
+  Wiersz „Tytuł z numerem zapytania” dochodzi po PR-ze G3 (#3134, pole reguły
+  klienta `cv_title_with_reference`), na istniejącej akcji `title`.
+
 ## AI na zaznaczeniu (PR 3, 13.10.2026)
 
 > Interfejs (dymek, menu „AI”, karta „było / będzie”) zastąpił 14.10.2026
