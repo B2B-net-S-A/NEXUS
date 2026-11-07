@@ -6,7 +6,16 @@
  */
 
 // `dock` — „Pobierz Word / PDF” w sekcji „CV” panelu osoby (14.10.2026, D1).
-export type CvDownloadSurface = "editor" | "card" | "dock" | "preview" | "cpro" | "result" | "files";
+// `mine` — lista „Moje wygenerowane CV” (`/candidates/generated-cvs`, 07.11.2026).
+export type CvDownloadSurface =
+  | "editor"
+  | "card"
+  | "dock"
+  | "preview"
+  | "cpro"
+  | "result"
+  | "files"
+  | "mine";
 
 export function withDownloadIntent(path: string, surface: CvDownloadSurface): string {
   const separator = path.includes("?") ? "&" : "?";

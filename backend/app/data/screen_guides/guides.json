@@ -279,7 +279,7 @@
       "recruiter",
       "delivery_lead"
     ],
-    "what": "Tu szukasz ludzi w bazie: słowa kluczowe jak w Traffit, stawka, lokalizacja (kilka miast, każde z własnym promieniem, i województwa), tryb pracy, rekrutacje i historia współpracy — albo wyszukiwanie z treści requestu.",
+    "what": "Tu szukasz ludzi w bazie: słowa kluczowe jak w Traffit, stawka, lokalizacja (kilka miast z promieniem, województwa), tryb pracy, rekrutacje i historia współpracy — albo z treści requestu. Twoje CV z generatora są pod „Moje CV”.",
     "tasks": [
       {
         "q": "Jak szukać po słowach kluczowych?",

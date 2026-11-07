@@ -877,6 +877,26 @@
     "dot_anchor": "payroll.bonus-decisions"
   },
   {
+    "id": "moje-wygenerowane-cv",
+    "pr": 3146,
+    "title": "Moje wygenerowane CV w jednym miejscu",
+    "why": "Wszystkie Twoje CV z generatora: data, kandydat, rekrutacja, podgląd i pobranie. Szukasz po nazwisku, kliencie albo stanowisku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Kandydaci → Moje CV",
+    "href": "/candidates/generated-cvs",
+    "section": "sourcing",
+    "dot_anchor": "candidates.my-generated-cvs"
+  },
+  {
     "id": "sprzedaz-oferty-spotkania-filtry",
     "title": "Sprzedaż: Oferty, Spotkania i nowe filtry",
     "why": "Doszły zakładki Oferty i Spotkania. W Szansach przegrane są na tablicy, szukasz też po NIP i filtrujesz po modelu i dacie utworzenia. Kontakt dodasz prosto z zakładki Kontakty.",
