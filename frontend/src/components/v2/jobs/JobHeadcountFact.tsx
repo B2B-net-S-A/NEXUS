@@ -79,6 +79,7 @@ export function JobHeadcountFact({
           missing ? "font-normal text-muted-foreground" : "text-foreground",
         )}
         data-testid="job-header-headcount"
+        data-tour="job.headcount"
         title={text}
         aria-label={text}
         role="note"
@@ -117,6 +118,7 @@ export function JobHeadcountFact({
           aria-label={`${text} — zmień liczbę osób`}
           title={`${text} — kliknij, żeby zmienić`}
           data-testid="job-header-headcount"
+          data-tour="job.headcount"
           className={cn(
             CHIP_CLASS,
             "border-primary/20 bg-primary/5 transition-colors hover:border-primary/50",
