@@ -81,7 +81,11 @@ CV_ENRICHMENT = PromptTemplate(
     # (`skill_timeline`) liczy Python z tych dat — model jej nie pisze.
     # v8 (02.11.2026): JSON bez wcięć. 81% kosztu parsera to wyjście, a próba na
     # 5 CV dała 19% tokenów mniej przy tej samej liczbie umiejętności i stanowisk.
-    version=8,
+    # v9 (07.11.2026, „każde CV czytamy raz”): branża, wielkość zespołu
+    # i regulacje przy stanowisku, poziom seniority i obywatelstwo kandydata,
+    # do 8 sektorów. Pola wybrał Artur przed ponownym odczytem ~55 tys. CV,
+    # żeby nie czytać ich drugi raz, gdy ekrany zaczną z nich korzystać.
+    version=9,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
@@ -107,6 +111,13 @@ CV_ENRICHMENT = PromptTemplate(
         '  "current_position_started_at": start of the current role, only when explicitly '
         'present in the CV; use "YYYY-MM-DD", "YYYY-MM" or "YYYY", otherwise null\n'
         '  "current_position_started_at_precision": "date"|"month"|"year"|"unknown"\n'
+        '  "seniority_level": "junior"|"mid"|"senior"|"lead"|"architect"|null — the '
+        "candidate's current level, from job titles and responsibilities stated in the CV; "
+        "null when the CV does not show it\n"
+        '  "nationality": the candidate\'s citizenship or nationality only when the CV '
+        'states it explicitly (e.g. "Obywatelstwo: polskie", "Nationality: Ukrainian"), '
+        "copied as written; null otherwise. Never infer it from the name, language or "
+        "employers.\n"
         '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", '
         '"years": int|null, "first_used": "YYYY-MM"|"YYYY"|null, '
         '"last_used": "YYYY-MM"|"YYYY"|"present"|null}}. Include every technology, tool, '
@@ -116,8 +127,8 @@ CV_ENRICHMENT = PromptTemplate(
         '  "technologies": unique list of the most important canonical technologies '
         "and tools (max 8), ordered by relevance\n"
         '  "sectors": unique list of industries explicitly evidenced by projects or '
-        "employers (max 4), e.g. banking, public administration, finance, "
-        "telecommunications, e-commerce. Do not infer a sector from a technology.\n"
+        "employers (max 8), e.g. banking, insurance, public administration, finance, "
+        "telecommunications, e-commerce, healthcare. Do not infer a sector from a technology.\n"
         '  "education": list of {{"degree": str, "field": str|null, "school": str, '
         '"start_year": int|null, "end_year": int|null, "year": int|null, '
         '"level": "secondary"|"bachelor"|"engineer"|"master"|"phd"|"other"|null}}; '
@@ -133,7 +144,14 @@ CV_ENRICHMENT = PromptTemplate(
         'and scope of THIS job, from the CV only"|null, '
         '"employment_type": "b2b"|"employment"|"contract"|"internship"|"freelance"|null, '
         '"location": "city or remote"|null, "client": "end client when the CV says the '
-        'job was for a client of the employer (body leasing, outsourcing)"|null}}. '
+        'job was for a client of the employer (body leasing, outsourcing)"|null, '
+        '"sector": "industry of THIS job (of the end client when there is one), e.g. '
+        "banking, insurance, public administration, only when the CV or the employer "
+        'shows it"|null, '
+        '"team_size": int|null (number of people the candidate led or managed in THIS '
+        "job; null unless the CV states it), "
+        '"regulations": [regulations and standards the CV names for THIS job, e.g. '
+        "PSD2, GDPR/RODO, KNF, DORA, PCI DSS, ISO 27001, max 8]}}. "
         "Copy dates only from the CV. "
         'Use "present" only when the CV says the job is ongoing (e.g. "obecnie", '
         '"present", "do teraz"); for a finished job give its end date (the year alone '

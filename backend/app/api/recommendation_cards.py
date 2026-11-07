@@ -143,7 +143,11 @@ async def _pair(
 async def _nationality_suggestion(
     db: AsyncSession, candidate: Candidate, job_id: int
 ) -> Optional[str]:
-    """Narodowość z poprzedniej karty tej osoby albo z importu Traffita."""
+    """Narodowość z poprzedniej karty tej osoby, z importu Traffita albo z CV.
+
+    CV jest ostatnie: odczyt v9 zapisuje obywatelstwo tylko wtedy, gdy plik je
+    nazywa, ale karta i Traffit to wpisy ludzi.
+    """
     rows = await db.execute(
         select(RecommendationCard.fields_manual, RecommendationCard.fields_notes)
         .where(
@@ -161,10 +165,13 @@ async def _nationality_suggestion(
             if value:
                 return value
     extracted = candidate.cv_extracted_data
-    value = (
-        extracted.get("traffit_nationality") if isinstance(extracted, dict) else None
-    )
-    return value.strip() if isinstance(value, str) and value.strip() else None
+    if not isinstance(extracted, dict):
+        return None
+    for key in ("traffit_nationality", "nationality"):
+        value = extracted.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 async def _author_names(db: AsyncSession, fields: dict[str, dict[str, Any]]) -> None:
