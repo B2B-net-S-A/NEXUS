@@ -5956,34 +5956,56 @@ def languages_lines_html(html: str) -> tuple[str, int]:
             )
         else:
             # Pogrubione nazwy języków (CV z Worda): dzielimy w węzłach tekstu,
-            # zamykając i otwierając na nowo znaczniki, które są w tym miejscu otwarte.
-            out: list[str] = [open_raw]
+            # zamykając i otwierając na nowo znaczniki, które są w tym miejscu
+            # otwarte. Język bez tekstu (puste „··”, „·” na końcu) nie dostaje
+            # akapitu, a złamanie linii przy „·” znika — inaczej klient dostawał
+            # pusty wiersz, którego podgląd w panelu nie pokazuje.
             stack: list[tuple[str, str]] = []
+            lines: list[str] = []
+            body: list[str] = []
+            has_text = False
+            breaks: list[str] = []
+
+            def close_line() -> None:
+                if has_text:
+                    closing = "".join(f"</{name}>" for name, _ in reversed(stack))
+                    lines.append(open_raw + "".join(body) + closing + close_raw)
+
             for tok in inner:
                 if tok["k"] == "tag":
                     raw = tok["raw"]
                     name = _tag_name(raw)
+                    if name == "br":
+                        # Do pierwszego tekstu za nim — przy „·” przepada.
+                        if has_text:
+                            breaks.append(raw)
+                        continue
                     if raw.startswith("</"):
                         if stack and stack[-1][0] == name:
                             stack.pop()
                     elif name not in _VOID_TAGS and not raw.endswith("/>"):
                         stack.append((name, raw))
-                    out.append(raw)
+                    body.append(raw)
                     continue
                 pieces = tok["text"].split("·")
                 for n, piece in enumerate(pieces):
                     if n:
-                        out.extend(f"</{name}>" for name, _ in reversed(stack))
-                        out.append(close_raw + open_raw)
-                        out.extend(raw for _, raw in stack)
+                        close_line()
+                        body = [raw for _, raw in stack]
+                        has_text = False
+                        breaks = []
                         piece = piece.lstrip()
                     if n < len(pieces) - 1:
                         piece = piece.rstrip()
-                    out.append(
+                    if piece.strip():
+                        body.extend(breaks)
+                        breaks = []
+                        has_text = True
+                    body.append(
                         html_lib.escape(_LANG_DASH.sub(" – ", piece), quote=False)
                     )
-            out.append(close_raw)
-            rebuilt = "".join(out)
+            close_line()
+            rebuilt = "".join(lines)
         doc.tokens[start] = {"k": "tag", "raw": rebuilt}
         for j in range(start + 1, end + 1):
             doc.tokens[j] = None

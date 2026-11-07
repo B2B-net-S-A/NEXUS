@@ -6077,6 +6077,18 @@ def test_languages_lines_splits_one_paragraph_per_language() -> None:
             "<p><b>English</b> – B2</p><p><b>Polish</b> – native</p>",
         ),
         ("English – C1 ·  · Polish", "<p>English – C1</p><p>Polish</p>"),
+        # Akapit z formatowaniem: bez pustych akapitów i bez złamania linii na
+        # początku albo końcu języka (przegląd kodu, 07.11.2026).
+        (
+            "<strong>English</strong> – C1 · <strong>Polish</strong> – native ·",
+            "<p><strong>English</strong> – C1</p><p><strong>Polish</strong> – native</p>",
+        ),
+        (
+            "<strong>English</strong> - C1 ·· <strong>Polish</strong>",
+            "<p><strong>English</strong> – C1</p><p><strong>Polish</strong></p>",
+        ),
+        ("English - B2 ·<br>Polish - C1", "<p>English – B2</p><p>Polish – C1</p>"),
+        ("English - B2<br> · Polish - C1", "<p>English – B2</p><p>Polish – C1</p>"),
     ],
 )
 def test_languages_lines_writes_language_dash_level(paragraph, expected) -> None:

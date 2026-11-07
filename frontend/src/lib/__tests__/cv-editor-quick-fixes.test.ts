@@ -50,6 +50,17 @@ describe("quickFixes", () => {
     expect(quickFixes(editor.state.doc)).toMatchObject([{ after: ["Polski", "Angielski – C1"] }]);
   });
 
+  it("preview matches the server for a formatted paragraph: no empty line, no leading break", () => {
+    const editor = open(
+      '<h2 data-cv-section="languages">LANGUAGES</h2>' +
+        "<p><strong>English</strong> - C1 · <strong>Polish</strong> (native) ·</p>" +
+        "<p>German - B1 ·<br>French - A2</p>",
+    );
+    const [fix] = quickFixes(editor.state.doc);
+    // Formatowanie = serwer poprawia tylko łącznik; „(native)” zostaje.
+    expect(fix).toMatchObject({ count: 2, after: ["English – C1", "Polish (native)"] });
+  });
+
   it("has nothing to do when every language already has its own line", () => {
     const editor = open('<h2 data-cv-section="languages">LANGUAGES</h2><p>English – C1</p><p>Polish – native</p>');
     expect(quickFixes(editor.state.doc)).toEqual([]);
