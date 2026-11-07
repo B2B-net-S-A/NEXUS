@@ -28,6 +28,7 @@ import type { SentGapRow, SentGapWord } from "@/lib/requirement-sent-gaps-api";
 import { DictionaryHintCallout } from "@/components/champion/DictionaryHintCallout";
 import { relationHintText } from "@/lib/dictionary-hints";
 import {
+  BroadVariantCallout,
   CityCallout,
   CommentCallout,
   DecisionCallout,
@@ -573,6 +574,15 @@ export function RequirementRowsEditor({
                   onKeep={() => setDismissed((prev) => new Set(prev).add(sentGapKey))}
                 />
               ) : null}
+              {row.level !== "nice" && !decision && !city && !dismissed.has(`broad:${head}`) ? (
+                <BroadVariantCallout
+                  words={row.words}
+                  critical={row.level === "critical"}
+                  countEnabled={countEnabled && !disabled}
+                  onRemove={(word) => setWords(row.key, row.words.filter((w) => w !== word))}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(`broad:${head}`))}
+                />
+              ) : null}
               {rareCount != null ? (
                 <RareWordCallout
                   word={row.words.join(" lub ")}
@@ -616,6 +626,9 @@ export function RequirementRowsEditor({
                 }),
               )}
               {row.words.map((word) => {
+                // Rdzeń z gwiazdką to składnia wyszukiwania, nie hasło: przy
+                // „microsoft*” podpowiedź dopisywała „Microsoft 365” (789198).
+                if (word.trim().endsWith("*")) return null;
                 const hint = dictionaryHints.byWord[word.trim().toLowerCase()];
                 const key = `dict:${word.trim().toLowerCase()}`;
                 if (!hint || dismissed.has(key)) return null;

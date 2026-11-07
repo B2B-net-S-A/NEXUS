@@ -856,6 +856,81 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
   });
 });
 
+describe("RequirementRowsEditor — rdzeń, który rozlewa wiersz (789198, 07.11.2026)", () => {
+  const PEOPLE: Record<string, number> = { "microsoft*": 21_314, "Dynamics 365": 692 };
+
+  function countByWord() {
+    mocks.get.mockImplementation((url: string, config?: { params?: { q_any_group?: string[] } }) => {
+      if (url !== "/api/candidates") return Promise.resolve({ data: {} });
+      const groups = config?.params?.q_any_group ?? [];
+      const total = groups.length === 1 && groups[0] in PEOPLE ? PEOPLE[groups[0]] : 21_400;
+      return Promise.resolve({ data: { total } });
+    });
+  }
+
+  it("krytyczny wiersz z „microsoft*” ostrzega i „Usuń” zostawia resztę wariantów", async () => {
+    countByWord();
+    const { onRowsChange } = renderEditor({
+      countEnabled: true,
+      rows: [{ key: "d365", words: ["microsoft*", "Dynamics 365"], level: "critical" }],
+    });
+    const note = await screen.findByTestId("requirement-row-broad-variant", {}, { timeout: 3000 });
+    expect(note).toHaveTextContent("„microsoft*” poszerza ten wiersz 31×");
+    expect(note).toHaveTextContent("Krytyczne przepuści");
+    fireEvent.click(within(note).getByRole("button", { name: "Usuń „microsoft*”" }));
+    expect((onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[])[0].words).toEqual([
+      "Dynamics 365",
+    ]);
+  });
+
+  it("rdzeń z gwiazdką nie dostaje podpowiedzi słownika („Dodaj Microsoft 365”)", async () => {
+    countByWord();
+    mocks.post.mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/job-intake/dictionary-hints"
+            ? {
+                can_curate: false,
+                relations: [],
+                hints: ["microsoft*", "Dynamics CRM"].map((word) => ({
+                  word,
+                  kind: "suggest",
+                  proposal_id: null,
+                  word_count: 10,
+                  target: { name: "Microsoft 365", count: 900 },
+                  add_words: [{ name: "Microsoft 365", count: 900 }],
+                  canonical: null,
+                  category: "tools",
+                })),
+              }
+            : {},
+      }),
+    );
+    renderEditor({
+      countEnabled: true,
+      rows: [{ key: "d365", words: ["microsoft*", "Dynamics CRM"], level: "must" }],
+    });
+    const hints = await screen.findAllByTestId("dictionary-hint", {}, { timeout: 3000 });
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).not.toHaveTextContent("microsoft*");
+  });
+
+  it("wiersz bez rdzenia nie pyta o liczby słów osobno", async () => {
+    countByWord();
+    renderEditor({
+      countEnabled: true,
+      rows: [{ key: "mq", words: ["Kafka", "RabbitMQ"], level: "must" }],
+    });
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled(), { timeout: 3000 });
+    const single = mocks.get.mock.calls
+      .filter(([url]) => url === "/api/candidates")
+      .map(([, config]) => (config as { params: { q_any_group?: string[] } }).params.q_any_group ?? [])
+      .filter((groups) => groups.length === 1 && (groups[0] === "Kafka" || groups[0] === "RabbitMQ"));
+    expect(single).toEqual([]);
+    expect(screen.queryByTestId("requirement-row-broad-variant")).toBeNull();
+  });
+});
+
 describe("wariant A (13.10.2026): słowo do szukania czy rozmowa", () => {
   const TENDER: RequirementRowForm[] = [
     { key: "azure", words: ["Azure"], level: "must" },

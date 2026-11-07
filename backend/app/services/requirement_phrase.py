@@ -112,6 +112,8 @@ _ENDINGS = (
     "ę",
 )
 _MIN_STEM = 4
+# Ile haseł słownika musi zaczynać to samo słowo, żeby było nazwą firmy.
+_VENDOR_MIN_PRODUCTS = 3
 _WORD = re.compile(r"[0-9a-ząćęłńóśźż#+.\-/]+", re.IGNORECASE)
 
 
@@ -180,6 +182,29 @@ def _dictionary_names_in(text: str) -> list[str]:
     return found
 
 
+def _vendor_words(names: list[str]) -> set[str]:
+    """Pierwsze słowo nazwy produktu ze zdania, gdy to nazwa firmy.
+
+    „Microsoft” w „Microsoft Dynamics 365” zaczyna co najmniej
+    ``_VENDOR_MIN_PRODUCTS`` haseł słownika (Excel, Teams, SQL Server…), więc
+    jego rdzeń znajduje wszystkich od Microsoftu: 21 314 osób zamiast 692
+    w 789198 (07.11.2026), a jako wariant krytycznego wiersza wyłączał bramkę.
+    Produkt ze zdania jest już pierwszą podpowiedzią."""
+    from app.services.scoring_service import ALIAS_MAP
+
+    firsts: dict[str, int] = {}
+    for canon in set(ALIAS_MAP.values()):
+        tokens = canon.split()
+        if len(tokens) > 1:
+            firsts[tokens[0]] = firsts.get(tokens[0], 0) + 1
+    out: set[str] = set()
+    for name in names:
+        tokens = name.casefold().split()
+        if len(tokens) > 1 and firsts.get(tokens[0], 0) >= _VENDOR_MIN_PRODUCTS:
+            out.add(tokens[0])
+    return out
+
+
 def suggestions_for(text: str) -> tuple[str, ...]:
     """Słowa, po których da się szukać zamiast zdania.
 
@@ -199,8 +224,10 @@ def suggestions_for(text: str) -> tuple[str, ...]:
             seen.add(key)
             out.append(word)
 
-    for name in _dictionary_names_in(text):
+    names = _dictionary_names_in(text)
+    for name in names:
         add(name)
+    vendors = _vendor_words(names)
     for raw in _WORD.findall(text):
         word = raw.strip(".,-/")
         lower = word.casefold()
@@ -208,6 +235,7 @@ def suggestions_for(text: str) -> tuple[str, ...]:
             len(lower) < _MIN_STEM
             or lower in _HEAD_FILLER_WORDS
             or lower in _STOP_WORDS
+            or lower in vendors
             or lower.isdigit()
         ):
             continue
