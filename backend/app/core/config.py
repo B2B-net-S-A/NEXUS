@@ -609,6 +609,12 @@ class Settings(BaseSettings):
     # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
     # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
     NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
+    # Porcja dnia (decyzje Artura z 07.11.2026, `services/review_batch.py`):
+    # silnik „Nowych” raz dziennie daje każdej rekrutacji z rekruterem do 20
+    # osób od 65%, dzieli je między rekruterów, a rekruter bez minimum decyzji
+    # (domyślnie 50, ustawia HoR) nie szuka ręcznie (423). Wymaga też
+    # NEW_COLUMN_AUTOFILL_ENABLED. False = silnik jak przed 07.11.
+    REVIEW_BATCH_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
