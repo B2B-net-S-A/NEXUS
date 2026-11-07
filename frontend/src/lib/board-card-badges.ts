@@ -324,6 +324,15 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
     const blocking = qc.blocking_failed;
     const warnings = qc.warnings_count ?? 0;
     const manual = qc.status === "passed" ? (qc.manual_checks?.length ?? 0) : 0;
+    const gaps = qc.status === "passed" ? (qc.candidate_gaps?.length ?? 0) : 0;
+    if (gaps > 0) {
+      return {
+        key: "cv_state",
+        label: `CV gotowe · QC: luka kandydata (${gaps})${warnings > 0 ? ` · ${qcCountsText(0, warnings)}` : ""}`,
+        tone: "info",
+        title: `Kandydat nie ma: ${qc.candidate_gaps?.join(", ")}. W CV nie ma czego poprawić — o wysyłce zdecyduje Delivery Lead.`,
+      };
+    }
     if (manual > 0) {
       // R1 (07.11.2026): zdane z blokującym „sprawdź ręcznie” to nie „bez uwag”.
       return {
@@ -1026,6 +1035,14 @@ export function qcChip(item: KanbanItem): QcChip {
       label: "QC nie sprawdzone",
       tone: "neutral",
       title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić.",
+    };
+  }
+  if (qc.status === "passed" && (qc.candidate_gaps?.length ?? 0) > 0) {
+    // R2 (07.11.2026): kandydat nie ma krytycznej — nie blokuje, decyduje DL.
+    return {
+      label: qcStateText(qc),
+      tone: "wait",
+      title: `Kandydat nie ma: ${qc.candidate_gaps?.join(", ")}. W CV nie ma czego poprawić — o wysyłce decyduje Delivery Lead.`,
     };
   }
   if (qc.status === "passed" && (qc.manual_checks?.length ?? 0) > 0) {

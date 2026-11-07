@@ -17,6 +17,7 @@ import type {
   QcTransformApplied,
   QcTransformSkipped,
 } from "@/lib/api/cvQc";
+import { languagePart } from "@/lib/cv-editor-quick-fixes";
 import { QC_DISMISS_REASONS } from "@/lib/cv-qc";
 
 /** `redakcja` — CV, które z założenia nie pogrubia: QC „nie dotyczy” + informacja (16.10.2026). */
@@ -387,6 +388,18 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
             continue;
           }
           next = html.replace(`<li><p>${action.text}</p></li>`, "");
+        } else if (action.action === "languages_lines") {
+          // Lustro `cv_qc.languages_lines_html` na kształcie z harnessu.
+          next = html.replace(
+            /(<h2 data-cv-section="languages">[^<]*<\/h2>)<p>([^<]*·[^<]*)<\/p>/,
+            (_match, heading: string, text: string) =>
+              heading +
+              text
+                .split("·")
+                .filter((part) => part.trim())
+                .map((part) => `<p>${languagePart(part)}</p>`)
+                .join(""),
+          );
         } else if (action.action === "years" || action.action === "title" || action.action === "strip_client_rules") {
           // Harness nie ma tych uwag w QC — serwer odpowiedziałby „nie ma czego poprawić”.
           next = html;

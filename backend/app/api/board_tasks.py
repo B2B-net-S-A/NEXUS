@@ -111,6 +111,8 @@ class BoardTaskRow(BaseModel):
     qc_blocking_failed: int = 0
     # R1 (07.11.2026): zdane QC z blokującymi sprawdzeniami „sprawdź ręcznie”.
     qc_manual: list[str] = Field(default_factory=list)
+    # R2 (07.11.2026): luki kandydata w krytycznych — decyzja Delivery Leada.
+    qc_gaps: list[str] = Field(default_factory=list)
     # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
     card_status: Optional[Literal["complete", "partial", "empty"]] = None
     card_missing: int = 0

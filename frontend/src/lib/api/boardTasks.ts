@@ -58,6 +58,8 @@ export interface BoardTaskRow {
   qc_blocking_failed?: number | null;
   /** R1 (07.11.2026): blokujące „sprawdź ręcznie” przy zdanym QC. */
   qc_manual?: string[] | null;
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma. */
+  qc_gaps?: string[] | null;
   /** Przegląd DL: etap z CV firmowym pary (po QC) — z niego podgląd i DOCX. */
   cv_stage_id?: number | null;
   /** Etap powrotu do poprawy: przegląd DL — „Zweryfikowany” („Wróć do

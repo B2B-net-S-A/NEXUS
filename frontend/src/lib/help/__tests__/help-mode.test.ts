@@ -21,10 +21,7 @@ import { permissionLabel } from "@/lib/permissions";
 import {
   DAILY_UNSOLICITED_BUBBLES,
   canShowUnsolicited,
-  markScreenSeen,
   recordUnsolicited,
-  resetScreenSeen,
-  screenSeen,
 } from "@/lib/jarvis/bubble-budget";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -234,14 +231,5 @@ describe("budżet dymków", () => {
     expect(canShowUnsolicited(1, "2026-09-23")).toBe(false);
     expect(canShowUnsolicited(2, "2026-09-23")).toBe(true);
     expect(canShowUnsolicited(1, "2026-09-24")).toBe(true);
-  });
-
-  it("dymek ekranu pokazuje się raz, reset przywraca wszystkie", () => {
-    expect(screenSeen(1, "jobs.board")).toBe(false);
-    markScreenSeen(1, "jobs.board");
-    expect(screenSeen(1, "jobs.board")).toBe(true);
-    expect(screenSeen(1, "calendar")).toBe(false);
-    resetScreenSeen(1);
-    expect(screenSeen(1, "jobs.board")).toBe(false);
   });
 });

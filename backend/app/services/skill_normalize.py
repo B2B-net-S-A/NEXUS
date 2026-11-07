@@ -233,6 +233,51 @@ def tech_alias_forms(name: str) -> list[str]:
     return sorted(f for f in forms if f)
 
 
+def bold_alias_forms(name: str) -> list[str]:
+    """Formy, którymi generator CV pogrubia wymaganie (G2, 07.11.2026).
+
+    Technologia jak w :func:`tech_alias_forms`. Narzędzie, standard i AI
+    (``GATE_TECH_CATEGORIES`` — te same, które bramkują krytyczne) dają hasło
+    i warianty liczące się w tekście CV (``TEXT_ALIASES``, bez jednego słowa
+    z wielowyrazowej nazwy), bo „SailPoint IIQ” z wymagań to „SailPoint
+    IdentityIQ” w CV. Pomiar na 326 zatwierdzonych CV: rekruterzy dopisywali
+    ręcznie pogrubienia narzędzi z must/nice (Pega, Bamboo, Appium, VMware),
+    których generator nie uznawał za technologie. Metodyka, praktyka, dziedzina
+    i rola zostają bez pogrubienia. Pusta lista spoza tych kategorii."""
+    forms = tech_alias_forms(name)
+    if forms:
+        return forms
+    canon = canonical_of(name)
+    if CANONICAL_CATEGORY.get(canon) not in GATE_TECH_CATEGORIES:
+        return []
+    out = {canon, (name or "").strip().lower(), *TEXT_ALIASES.get(canon, [])}
+    return sorted(f for f in out if f)
+
+
+# Jedno słowo, które jest wariantem hasła, a w zdaniu zwykle znaczy coś innego:
+# „Access Management” to nie MS Access, „Apache Iceberg” to nie serwer Apache
+# (pomiar G2 na 326 CV: „access” pogrubiało się 42 razy bez sensu).
+_AMBIGUOUS_MENTIONS = frozenset(
+    {"access", "project", "word", "teams", "office", "apache", "outlook", "visio"}
+)
+
+
+def is_bold_technology_mention(text: str) -> bool:
+    """Czy fraza ze zdania wymagania to nazwa, którą generator pogrubia: hasło
+    albo wariant liczący się w tekście (``TEXT_ALIASES``) technologii,
+    narzędzia, standardu lub AI. Sam alias nie wystarczy — „Project” to
+    w słowniku „Microsoft Project”, ale w zdaniu znaczy „projekt”."""
+    low = (text or "").strip().lower()
+    if low in _AMBIGUOUS_MENTIONS:
+        return False
+    canon = canonical_of(low)
+    if canon not in TECH_CANONICALS and CANONICAL_CATEGORY.get(canon) not in (
+        GATE_TECH_CATEGORIES
+    ):
+        return False
+    return low == canon or low in TEXT_ALIASES.get(canon, ())
+
+
 _NAME_WORD = re.compile(r"[0-9a-ząćęłńóśźż+#.]+")
 
 

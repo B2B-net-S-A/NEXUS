@@ -1151,6 +1151,7 @@ async def build_context(
         "qc_status": qc_status,
         "qc_blocking_failed": int(qc.get("blocking_failed") or 0),
         "qc_manual": list(qc.get("manual_checks") or []),
+        "qc_gaps": list(qc.get("candidate_gaps") or []),
         "qc_override": qc_override,
         "can_see_amounts": access.amounts,
         "can_see_client_rates": access.client_rates,
@@ -1224,6 +1225,10 @@ async def build_queue(
                 "qc_status": task.qc_status,
                 "qc_manual": list(
                     (qc.get((task.candidate_id, job.id)) or {}).get("manual_checks")
+                    or []
+                ),
+                "qc_gaps": list(
+                    (qc.get((task.candidate_id, job.id)) or {}).get("candidate_gaps")
                     or []
                 ),
                 "overall_fit": assessment["overall_fit"],

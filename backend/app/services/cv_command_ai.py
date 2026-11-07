@@ -44,6 +44,13 @@ sam tekst co generator, bez stawek), a kontrola faktów liczy odpowiedzi jako
 kandydat robił, model zwraca ``question`` — asystent pyta rekrutera zamiast
 „nie znalazłem zmian”.
 
+07.11.2026 (pomiar 266 CV z generatora i 276 poleceń asystenta): trzy
+podpowiedzi z najczęstszych ręcznych zmian — ``summary_point`` (jeden punkt
+podsumowania z cytatem ze źródła, czeka na „Zastosuj” jak „Dopasuj”),
+``more_requirements`` („Wymagania do obowiązków”) i ``drop_offprofile_role``
+(samo ``remove_role``). Pusty wynik mówi, dlaczego nic się nie zmieniło i co
+wpisać: zdanie modelu (``question``), powód odrzuceń albo zdanie podpowiedzi.
+
 16.10.2026 (zgłoszenie rekruterki: „ułóż miejsca pracy chronologicznie” →
 „żadna zmiana nie przeszła kontroli”): ``reorder_roles`` przestawia całe
 stanowiska. Kolejność od najnowszego / od najstarszego liczy kod z dat w linii
@@ -57,6 +64,8 @@ import json
 import logging
 import re
 import unicodedata
+from functools import partial
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -181,6 +190,12 @@ def _amounts(text: str) -> set[str]:
 _REMOVING = frozenset({"remove", "remove_role", "remove_section"})
 
 TAILOR_PRESET = "tailor"
+# „+ Punkt do podsumowania” (07.11.2026): jeden punkt `add` w sekcji „Dlaczego…”,
+# z cytatem ze źródła — te same kontrole co „Dopasuj”.
+SUMMARY_POINT_PRESET = "summary_point"
+SUMMARY_SECTION = "why_points"
+# Propozycje z cytatem: materiał to oryginał i rozmowa, rekruter wybiera „Zastosuj”.
+PROPOSAL_PRESETS = frozenset({TAILOR_PRESET, SUMMARY_POINT_PRESET})
 # Materiał dla „Dopasuj”: oryginalne CV i rozmowa, dłuższy niż dla zwykłego polecenia.
 TAILOR_MATERIAL_MAX = 24_000
 QUOTE_MAX = 300
@@ -218,11 +233,43 @@ PRESETS = {
         "pierwszej osoby). Nie zmieniaj faktów."
     ),
     # Edytor CV 3, PR 4 — podpowiedzi pod polem asystenta.
+    # „Wymagania do obowiązków” (07.11.2026, wcześniej „Więcej o wymaganiach
+    # klienta”): obowiązki zmienia ręcznie 27% CV, najczęściej dopisując
+    # technologię z wymagań do roli, w której kandydat jej używał.
     "more_requirements": (
-        "Wyeksponuj to, co w CV odpowiada wymaganiom klienta: pogrub nazwy "
-        "wymagań, które nie są jeszcze pogrubione (**x**), ustaw pasujące punkty "
-        "wyżej i przeredaguj punkty tak, żeby nazwy wymagań były widoczne. Nie "
-        "dopisuj faktów."
+        "Pokaż wymagania klienta w obowiązkach stanowisk. Dla każdego wymagania, "
+        "którego kandydat używał w danym stanowisku (stoi w liście technologii "
+        "tego stanowiska, w innym jego wierszu albo materiał z rozmowy mówi, że "
+        "dotyczy tej firmy), a którego nie nazywa żaden punkt obowiązków tego "
+        "stanowiska: przeredaguj pasujący punkt tego stanowiska (replace), żeby "
+        "nazwa wymagania była widoczna, albo dopisz krótki punkt (add) za punktem "
+        "tego stanowiska. Pogrub nazwy wymagań, które nie są jeszcze pogrubione "
+        "(**x**). Nie przypisuj wymagania stanowisku, w którym kandydat go nie "
+        "używał, i nie dopisuj faktów spoza CV i materiału. Gdy nie ma czego "
+        "dopisać, zwróć pustą listę i w question napisz, których wymagań nie ma "
+        "w CV ani w materiale."
+    ),
+    # „+ Punkt do podsumowania” (07.11.2026): punkt dopisuje ręcznie 30% CV.
+    SUMMARY_POINT_PRESET: (
+        "Dopisz JEDEN nowy punkt do sekcji „Dlaczego nasz kandydat” (why_points): "
+        "operacja add za ostatnim punktem tej sekcji, jedno pełne zdanie do 30 słów "
+        "w stylu i języku pozostałych punktów, pod wymaganie klienta albo domenę, "
+        "których podsumowanie jeszcze nie pokazuje. Fakt weź z candidate_material "
+        "(oryginalne CV albo rozmowa tej rekrutacji), nie powtarzaj punktów, które "
+        "już są. Dodaj pole cytat: fragment przepisany znak po znaku z "
+        "candidate_material, który potwierdza ten punkt. Bez cytatu nie proponuj — "
+        "zwróć pustą listę i w question napisz, czego brakuje. Pytanie rekrutera "
+        "i wpis „Potwierdzone z kandydatem: X” bez opisu nie są dowodem. Nie pisz "
+        "o brakach kandydata."
+    ),
+    # „Usuń rolę spoza profilu” (07.11.2026): całe stanowisko usuwa ręcznie 4% CV.
+    "drop_offprofile_role": (
+        "Usuń stanowiska spoza profilu tej rekrutacji: takie, które nie mają związku "
+        "z wymaganiami klienta ani z zawodem, na który przedstawiamy kandydata "
+        "(np. praca w gastronomii albo sprzedaży u programisty). Użyj wyłącznie "
+        "remove_role. Nie usuwaj stanowisk z tej samej dziedziny, nawet starych. "
+        "Gdy wszystkie stanowiska pasują do profilu, zwróć pustą listę i w question "
+        "napisz to jednym zdaniem."
     ),
     # „Dopasuj pod rekrutację” (02.11.2026): to, co rekruterzy robili w czacie poza
     # NEXUSEM. Operacji nie nakłada się od razu; rekruter wybiera je z listy.
@@ -248,11 +295,69 @@ PRESETS = {
 MSG_UNAVAILABLE = (
     "Asystent jest chwilowo niedostępny. Popraw CV ręcznie albo spróbuj za chwilę."
 )
-MSG_EMPTY = "Asystent nie znalazł zmian, które odpowiadają temu poleceniu."
-MSG_ALL_DROPPED = (
-    "Asystent zaproponował zmiany, ale żadna nie przeszła kontroli (dopisywały "
-    "fakty albo ruszały układ szablonu). Spróbuj opisać polecenie inaczej."
+# Pusty wynik mówi, dlaczego nic się nie zmieniło i co wpisać (07.11.2026). Dawne
+# „Asystent nie znalazł zmian…” kończyło 25% poleceń i nie mówiło, co dalej.
+MSG_EMPTY = (
+    "Nic nie zmieniłem — z tej wiadomości nie wiem, co zmienić w CV. Napisz, co "
+    "i gdzie, np. „dopisz do podsumowania punkt o Kafce” albo „w ostatnim "
+    "stanowisku skróć obowiązki do 3 punktów”."
 )
+MSG_ALL_DROPPED = (
+    "Nic nie zmieniłem: propozycji nie da się bezpiecznie nałożyć na układ tego "
+    "CV. Napisz krócej, co i gdzie zmienić, np. „w ostatnim stanowisku skróć "
+    "obowiązki do 3 punktów”."
+)
+MSG_DROPPED_AMOUNT = (
+    "Nic nie zmieniłem: propozycja niosła kwotę albo stawkę, a tych asystent do CV "
+    "nie wpisuje. Napisz polecenie bez kwot."
+)
+MSG_DROPPED_TEMPLATE = (
+    "Nic nie zmieniłem: propozycja ruszała tytuł, nagłówek, stanowisko, firmę albo "
+    "listę technologii. Te wiersze popraw ręcznie na kartce."
+)
+MSG_DROPPED_EMPTY_ROLE = (
+    "Nic nie zmieniłem: propozycja usuwała wszystkie punkty stanowiska albo sekcji. "
+    "Jeśli ma zniknąć całe, napisz „usuń stanowisko w …” albo „usuń sekcję …”."
+)
+MSG_DROPPED_LAST = (
+    "Nic nie zmieniłem: ostatniego stanowiska ani ostatniej sekcji CV nie usuwam."
+)
+MSG_DROPPED_NO_QUOTE = (
+    "Nic nie zmieniłem: żadna propozycja nie miała potwierdzenia w oryginale CV ani "
+    "w rozmowie tej rekrutacji. Napisz fakt sam, np. „dopisz do podsumowania: …”."
+)
+MSG_DROPPED_NEW_FACT = (
+    "Nic nie zmieniłem: propozycje dopisywały fakty, których nie ma w oryginale CV "
+    "ani w rozmowie. Napisz ten fakt w wiadomości — dopiszę go, gdy potwierdzisz, "
+    "że kandydat o nim mówił."
+)
+MSG_DROPPED_TYPE = (
+    "Nic nie zmieniłem: asystent zaproponował inną zmianę niż ta podpowiedź. "
+    "Napisz własnymi słowami, co zmienić."
+)
+# Pusty wynik podpowiedzi, gdy model nie napisał dlaczego.
+PRESET_EMPTY = {
+    TAILOR_PRESET: (
+        "Nie mam propozycji z potwierdzeniem w oryginale ani w rozmowie. To CV "
+        "zostaje bez zmian."
+    ),
+    SUMMARY_POINT_PRESET: (
+        "Nie znalazłem w oryginale CV ani w rozmowie tej rekrutacji faktu na nowy "
+        "punkt podsumowania. Napisz go sam, np. „dopisz do podsumowania: 4 lata "
+        "w projektach AML dla banków”."
+    ),
+    "more_requirements": (
+        "Nic nie zmieniłem: wymagania, które kandydat ma w stanowiskach, już są "
+        "w obowiązkach. Brakujące dopiszesz wiadomością, np. „w ostatnim "
+        "stanowisku dopisz Kubernetes — wdrożenia przez Helm”."
+    ),
+    "drop_offprofile_role": (
+        "Nie widzę stanowiska spoza profilu tej rekrutacji — nic nie usunąłem. Jeśli "
+        "któreś ma zniknąć, napisz „usuń stanowisko w …”."
+    ),
+}
+# Podpowiedź „Usuń rolę spoza profilu” usuwa tylko całe stanowiska.
+PRESET_TYPES = {"drop_offprofile_role": frozenset({"remove_role"})}
 # Odmowy kolejności stanowisk mówią, o co poszło — ogólne zdanie wyżej
 # („dopisywały fakty”) było przy nich nieprawdą.
 MSG_ROLES_IN_ORDER = "Stanowiska już są ułożone w tej kolejności — nic nie zmieniłem."
@@ -271,6 +376,24 @@ _DROPPED_MESSAGES = {
     "no_dates": MSG_NO_DATES,
     "no_roles": MSG_NO_ROLES,
 }
+# Pozostałe odmowy: zdanie najczęstszego powodu (07.11.2026).
+_REASON_MESSAGES = {
+    "amount": MSG_DROPPED_AMOUNT,
+    "not_editable": MSG_DROPPED_TEMPLATE,
+    "protected_section": MSG_DROPPED_TEMPLATE,
+    "not_a_section": MSG_DROPPED_TEMPLATE,
+    "would_empty_role": MSG_DROPPED_EMPTY_ROLE,
+    "would_empty_section": MSG_DROPPED_EMPTY_ROLE,
+    "last_role": MSG_DROPPED_LAST,
+    "last_section": MSG_DROPPED_LAST,
+    "no_quote": MSG_DROPPED_NO_QUOTE,
+    "needs_question": MSG_DROPPED_NEW_FACT,
+    "other_role": MSG_DROPPED_NO_QUOTE,
+    "about_a_gap": MSG_DROPPED_NO_QUOTE,
+    "bad_type": MSG_DROPPED_TYPE,
+    "not_summary": MSG_DROPPED_TYPE,
+    "one_point": MSG_DROPPED_TYPE,
+}
 
 
 def dropped_message(dropped: list[dict]) -> str:
@@ -285,6 +408,11 @@ def dropped_message(dropped: list[dict]) -> str:
         message = _DROPPED_MESSAGES.get(item.get("reason") or "")
         if message:
             return message
+    counts = Counter(
+        item.get("reason") for item in dropped if item.get("reason") in _REASON_MESSAGES
+    )
+    if counts:
+        return _REASON_MESSAGES[counts.most_common(1)[0][0]]
     return MSG_ALL_DROPPED
 
 
@@ -734,10 +862,12 @@ class _Plan:
                 lost.append(requirement.label)
         return lost
 
-    def accept(self, raw: Any) -> dict:
+    def accept(self, raw: Any, allowed: Optional[frozenset[str]] = None) -> dict:
         if not isinstance(raw, dict) or raw.get("type") not in OPERATION_TYPES:
             raise _Dropped("unknown_type")
         kind = raw["type"]
+        if allowed is not None and kind not in allowed:
+            raise _Dropped("bad_type")
         change: _Change = getattr(self, kind)(raw)
         ids, text = change.ids, change.text
         if kind == "add":
@@ -803,12 +933,15 @@ def verify_plan(
     lines: list[Line],
     requirements: tuple[Requirement, ...],
     sources: str = "",
+    *,
+    allowed: Optional[frozenset[str]] = None,
 ) -> dict:
     """Odpowiedź modelu → operacje, które przeszły kontrolę, i odrzucone z powodem.
 
     ``raw`` to JSON ``{"operations": [...]}``. ``ValueError`` znaczy „model nie
     odpowiedział w umówionym kształcie” — wołający zgłasza to jako chwilową
-    niedostępność. Pusta albo zła lista operacji to pusty plan.
+    niedostępność. Pusta albo zła lista operacji to pusty plan. ``allowed``
+    zawęża rodzaje operacji (podpowiedź „Usuń rolę spoza profilu”).
     """
     data = _json_object(raw)
     proposed = data.get("operations")
@@ -818,7 +951,7 @@ def verify_plan(
     proposed = proposed if isinstance(proposed, list) else []
     for item in proposed[:OPERATIONS_MAX]:
         try:
-            accepted = plan.accept(item)
+            accepted = plan.accept(item, allowed)
         except _Dropped as refusal:
             kind = item.get("type") if isinstance(item, dict) else None
             dropped.append(
@@ -874,6 +1007,10 @@ def verify_tailor(
     requirements: tuple[Requirement, ...],
     original: str,
     conversation: str = "",
+    *,
+    types: frozenset[str] = TAILOR_TYPES,
+    section: Optional[str] = None,
+    limit: Optional[int] = None,
 ) -> dict:
     """„Dopasuj”: te same kontrole co plan, a do tego cytat ze źródła.
 
@@ -882,6 +1019,9 @@ def verify_tailor(
     cytatu, ani kontroli faktów. Cytat ma stać w źródłach, a powód i cytat nie
     mogą nieść pieniędzy, bo rekruter nie widzi części tych kwot. Model tylko
     proponuje: rekruter wybiera, a edytor nakłada wybrane operacje.
+
+    ``types``, ``section`` i ``limit`` zawężają propozycje dla „+ Punkt do
+    podsumowania”: sam ``add`` za wierszem tej sekcji, najwyżej jeden.
     """
     data = _json_object(raw)
     proposed = data.get("operations")
@@ -905,8 +1045,11 @@ def verify_tailor(
         )
 
     for item in proposed[:OPERATIONS_MAX]:
-        if not isinstance(item, dict) or item.get("type") not in TAILOR_TYPES:
+        if not isinstance(item, dict) or item.get("type") not in types:
             refuse(item, "bad_type")
+            continue
+        if limit is not None and len(operations) >= limit:
+            refuse(item, "one_point")
             continue
         quote = " ".join(str(item.get("cytat") or "").split())[:QUOTE_MAX]
         key = _quote_key(quote)
@@ -929,6 +1072,9 @@ def verify_tailor(
             refuse(item, "needs_question")
             continue
         target = by_id.get((accepted.get("lines") or [None])[0])
+        if section is not None and (target is None or target.section != section):
+            refuse(item, "not_summary")
+            continue
         if _other_role_quote(key, target.role if target else None, lines):
             refuse(item, "other_role")
             continue
@@ -941,6 +1087,26 @@ def verify_tailor(
             }
         )
     return {"operations": operations, "dropped": dropped, "truncated": False}
+
+
+def verify_summary_point(
+    raw: str,
+    lines: list[Line],
+    requirements: tuple[Requirement, ...],
+    original: str,
+    conversation: str = "",
+) -> dict:
+    """„+ Punkt do podsumowania”: jeden ``add`` w „Dlaczego…”, z cytatem ze źródła."""
+    return verify_tailor(
+        raw,
+        lines,
+        requirements,
+        original,
+        conversation,
+        types=frozenset({"add"}),
+        section=SUMMARY_SECTION,
+        limit=1,
+    )
 
 
 def _unavailable(message: str = MSG_UNAVAILABLE, status: str = "unavailable") -> dict:
@@ -1085,6 +1251,12 @@ async def _log(
                         "asks": sum(1 for op in result["operations"] if op.get("ask")),
                         "history": len(_history(payload)),
                         "focus": bool(payload.get("focus")),
+                        # Pusty wynik: czy model powiedział dlaczego, i nazwy
+                        # powodów odrzuceń — bez treści (07.11.2026).
+                        "question": bool(result.get("question_shown")),
+                        "reasons": dict(
+                            Counter(item.get("reason") for item in result["dropped"])
+                        ),
                     },
                 )
             )
@@ -1193,7 +1365,8 @@ async def propose_plan(
             )
             if part
         )
-        tailor = payload.get("preset") == TAILOR_PRESET
+        preset = payload.get("preset")
+        tailor = preset in PROPOSAL_PRESETS
         heard = screening_text_without_questions(material)
         original = await _original_text(db, stage) if tailor else ""
         prompt = build_prompt(
@@ -1211,7 +1384,9 @@ async def propose_plan(
             raw = await run_in_threadpool(_call_model, system, prompt, chain)
         if tailor:
             checked = await run_in_threadpool(
-                verify_tailor,
+                verify_summary_point
+                if preset == SUMMARY_POINT_PRESET
+                else verify_tailor,
                 raw,
                 lines,
                 requirements,
@@ -1220,7 +1395,11 @@ async def propose_plan(
             )
         else:
             checked = await run_in_threadpool(
-                verify_plan, raw, lines, requirements, sources
+                partial(verify_plan, allowed=PRESET_TYPES.get(preset)),
+                raw,
+                lines,
+                requirements,
+                sources,
             )
     except Exception as exc:  # noqa: BLE001 — AI to podpowiedź, nigdy bramka
         logger.warning(
@@ -1231,16 +1410,24 @@ async def propose_plan(
         except Exception:  # noqa: BLE001
             logger.warning("[cv_command_ai] rollback failed")
         return _unavailable()
+    question: Optional[str] = None
     if checked["operations"]:
         result = {"status": "ok", "message": None, **checked}
+    elif checked["dropped"]:
+        result = {
+            "status": "empty",
+            "message": dropped_message(checked["dropped"]),
+            **checked,
+        }
     else:
-        message = (
-            dropped_message(checked["dropped"]) if checked["dropped"] else MSG_EMPTY
-        )
-        if not checked["dropped"]:
-            message = _question(raw) or message
+        # Model mówi, dlaczego nic nie zmienia i co wpisać; bez tego — zdanie
+        # podpowiedzi albo ogólne „napisz, co i gdzie”.
+        question = _question(raw)
+        message = question or PRESET_EMPTY.get(str(preset), MSG_EMPTY)
         result = {"status": "empty", "message": message, **checked}
-    await _log(db, stage, user_id, payload, result)
+    await _log(
+        db, stage, user_id, payload, {**result, "question_shown": bool(question)}
+    )
     return result
 
 

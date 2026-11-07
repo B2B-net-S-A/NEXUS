@@ -472,6 +472,53 @@ Komponenty: `cv-editor/CvEditorIssues.tsx` (grupy, „Poprawione”, pasek),
   słowa o pieniądzach, węzły bloków liczone raz (`_nodes_by_block` — wołanie
   `_block_nodes` dla każdego bloku było kwadratowe: 54 s przy 20 tys. punktów).
 
+## „Szybkie poprawki” w panelu (E1, 07.11.2026)
+
+Pomiar na kopii produkcji (266 CV z odtworzonym punktem startowym edytora,
+07.11.2026): języki porządkuje ręcznie 15% CV, w tym 14 CV rozbija
+„English - B2 · Polish - native” na osobne linie. Decyzja Artura: E1
+w edytorze obok G1–G4 w generatorze, bo 21% zatwierdzonych CV nie pochodzi
+z generatora (Word, kopia), a CV już wygenerowanych reguła generatora nie
+poprawi. Raport i makieta: https://claude.ai/artifact/5Qd2t5rbuM6kpv12txwruc
+(prywatny).
+
+- **Grupa na górze listy, przed blokadami:** „Szybkie poprawki · N”,
+  „Zastosuj wszystkie (N)” od dwóch wierszy (przy jednym byłby to ten sam
+  przycisk drugi raz). Wiersz = nazwa, podgląd zmiany (`<del>` → `<ins>` jak
+  w pozostałych wierszach) i jeden przycisk; tytuł pokazuje miejsce na
+  kartce. Bez „To nieprawda” i szczegółów — zmienia się układ, nie treść.
+  Komponent `QuickFixRow` w `CvEditorIssueRows.tsx`, wykrycie i podgląd
+  w `lib/cv-editor-quick-fixes.ts`.
+- **`languages_lines` liczy serwer kodem, bez AI** (`cv_qc.languages_lines_html`)
+  — ta sama droga co „Pogrub wymagania”: treść z edytora, wynik jednym cofalnym
+  krokiem, utrwala autozapis, nie `qc/apply`. Jest w `BULK_ACTIONS` (formalna).
+  Akapit w sekcji języków z kilkoma językami rozdzielonymi „·” → akapit na
+  język, zapis „Język – poziom” (łącznik, pauza, „(B2)”, „: B2” → „ – ”).
+  Nic nie dopisuje: bez poziomu zostaje sam język, CEFR tylko ten, który stoi
+  w tekście. Akapit z formatowaniem (pogrubione nazwy w CV z Worda) dzieli się
+  w węzłach tekstu z domknięciem i ponownym otwarciem znaczników; tam
+  poprawiany jest tylko łącznik.
+- **Sekcja po znaczniku nagłówka albo po jego tytule** (`_section_blocks` =
+  lustro `cvOutline`, tytuły z `cv_approved_docx._SECTION_TITLES`) — CV
+  z Worda nie ma znaczników. Klauzula zgody, linie szablonu i inne sekcje
+  („Java · Kotlin” w umiejętnościach) są nietknięte.
+- **Wykrycie na froncie, prawda na serwerze.** Panel liczy wiersze z bieżącego
+  dokumentu (reguły są lustrem serwera), żeby nie pytać serwera przy każdej
+  zmianie (`qc/transform` ma limit 20/min). Gdy się rozminą, serwer odpowiada
+  „nic do zrobienia” i panel to mówi, a szkic nie powstaje. Wiersze liczą się
+  po tożsamości dokumentu, nie po `docTick`: okno wczytuje treść tuż po
+  zamontowaniu panelu i wynik z pustego dokumentu zostawał do pierwszej zmiany.
+- **Nie wchodzą do licznika „Do poprawy (N)”** ani karty „CV do klienta” —
+  to podpowiedzi układu, nie uwagi QC. Wymagają etapu (trasa jest per etap).
+- **Liniowo:** `test_quick_fixes_are_linear` (20 tys. języków w akapicie,
+  200 tys. odstępów bez łącznika); separator z `(?<!\s)` i kwantyfikatorami
+  zaborczymi.
+- **Odłożone:** pogrubianie początku punktów podsumowania (Artur, 07.11.2026 —
+  standard 5 punktów z #3074 i zdania od czasownika już działają, a 251 z 266
+  zmierzonych CV powstało przed nimi; najpierw pomiar za ok. 2 tygodnie).
+  Wiersz „Tytuł z numerem zapytania” dochodzi po PR-ze G3 (#3134, pole reguły
+  klienta `cv_title_with_reference`), na istniejącej akcji `title`.
+
 ## AI na zaznaczeniu (PR 3, 13.10.2026)
 
 > Interfejs (dymek, menu „AI”, karta „było / będzie”) zastąpił 14.10.2026
@@ -1272,6 +1319,64 @@ https://claude.ai/artifact/8GYHqERnTEipVcEVBwdPym, prywatny).
   (`new_words`) nie jest zaznaczona z góry.
 - **Poza zakresem:** wskazanie roli przy propozycji z makiety. Fakt bez znanej roli
   obsługuje krok „Z rozmowy do opisu roli” przed generacją i potwierdzenie w QC.
+
+## Podpowiedzi z ręcznych zmian i pusty wynik z powodem (E2, 07.11.2026)
+
+Pomiar na kopii produkcji z 06.11 (266 CV z generatora, 276 poleceń asystenta
+w 106 CV): najczęściej ręcznie dopisuje się punkt do podsumowania (30% CV),
+wymagania do obowiązków (obowiązki zmienia 27%) i usuwa rolę spoza profilu (4%).
+Gotowe podpowiedzi prawie nieużywane („Skróć do 2 stron” i „Usuń najstarsze
+role” po 0), a 70 poleceń (25%) kończyło się `status: "empty"`. Decyzja Artura:
+wdrożyć rekomendację E2 z raportu https://claude.ai/artifact/5Qd2t5rbuM6kpv12txwruc.
+
+- **Trzy przyciski nad linią asystenta** (`CV_COMMAND_SUGGESTIONS`), także
+  w zwiniętym stanie nad „Dopasuj pod rekrutację”, jak na makiecie. Klik rozwija
+  asystenta i od razu wysyła podpowiedź. Do paska edytora nic nie doszło.
+  Rozwinięty asystent ma: „Dopasuj”, trzy nowe, „Popraw język i styl”, „Napisz
+  od nowa…”. „Skróć do 2 stron” zniknęło z przycisków, bo siódmy przycisk przy
+  1280 × 720 dokładał piąty rząd i zabierał miejsce rozmowie; słowami działa
+  (presety `shorten` i `drop_old_roles` zostają na serwerze).
+- **„+ Punkt do podsumowania”** (`summary_point`): `verify_summary_point` =
+  `verify_tailor` zawężone do jednego `add` za wierszem sekcji `why_points`
+  (`not_summary`, `one_point`, inny rodzaj → `bad_type`). Reszta jak w „Dopasuj”:
+  cytat ≥ 3 słowa ze źródeł, źródła to oryginał i rozmowa tej rekrutacji bez
+  stawek, bez tekstu o brakach, fakt spoza źródeł odpada (`needs_question`),
+  a propozycja czeka na „Zastosuj zaznaczone” (`CV_PROPOSAL_PRESETS` na froncie,
+  `PROPOSAL_PRESETS` na serwerze).
+- **„Wymagania do obowiązków”** to dawne „Więcej o wymaganiach klienta” (klucz
+  `more_requirements` bez zmian, żeby ślad użycia dało się porównać). Nowa treść:
+  wymaganie, którego kandydat używał w danym stanowisku (lista technologii tego
+  stanowiska, inny jego wiersz albo materiał z rozmowy o tej firmie), ma stanąć
+  w punkcie obowiązków tego stanowiska: `replace` albo `add`, plus pogrubienie.
+  Fakty sprawdza zwykły `verify_plan` z pytaniem „source”.
+- **„Usuń rolę spoza profilu”** (`drop_offprofile_role`): serwer przepuszcza tylko
+  `remove_role` (`PRESET_TYPES`, `verify_plan(..., allowed=...)`). Rola z jedynym
+  wymaganiem wraca z `ask: "loses"` jak dotąd.
+- **Dlaczego 25% kończyło się pustką.** Ślad (`_log`) nie miał treści ani tego, czy
+  padło pytanie, więc liczby wzięliśmy z `ai_provider_calls`: 32 z 37 pustych
+  wyników bez odrzuceń (od v4) miały ponad 150 tokenów odpowiedzi, czyli model
+  pisał, a nie zwracał pustą listę. Puste wyniki chodzą seriami (pusty → pusty
+  14 razy, mediana 16 s między nimi; jedno CV 16 z 21 poleceń). Sonda na modelu
+  produkcji (Sonnet 5, rejestr F31) pokazała przyczynę: rekruter odpowiada na
+  pytanie asystenta hasłami („w Fikcyjnej Płatności, S3 i Lambda”), a v4 pyta
+  drugi raz o to samo — 0 z 4 przebiegów dało zmianę.
+- **Prompt `cv_editor_command` v5:** odpowiedź rekrutera na pytanie asystenta jest
+  materiałem, bez drugiego pytania (ta sama sonda: 4 z 4 przebiegów z punktem,
+  dopisany fakt idzie przez zwykłe „Kandydat mówił o tym na rozmowie?”). Przy
+  pustej liście `question` zawsze mówi, dlaczego nic się nie zmienia i co wpisać
+  (także na „dzięki” albo pytanie o CV).
+- **Kolejność zdania przy pustym wyniku** (`propose_plan`): są odrzucenia →
+  `dropped_message` ze zdaniem najczęstszego powodu (`_REASON_MESSAGES`: kwota,
+  wiersz szablonu, wszystkie punkty roli, ostatnia rola, brak cytatu, fakt spoza
+  źródeł, inna zmiana niż podpowiedź); bez odrzuceń → `question` modelu, potem
+  `PRESET_EMPTY[preset]`, na końcu `MSG_EMPTY` („Nic nie zmieniłem — … Napisz, co
+  i gdzie, np. …”). Ogólne „nie znalazł zmian” nie wraca.
+- **Ślad użycia** ma dwa nowe pola bez treści: `question` (czy model powiedział
+  dlaczego) i `reasons` (liczby powodów odrzuceń). Następny pomiar odróżni pytanie
+  od ślepej pustki bez zgadywania z tokenów.
+- Harness `/preview/cv-editor`: `command-fixture.ts` odpowiada na trzy podpowiedzi
+  (propozycja z cytatem, Docker w punkcie roli, pusty wynik „Oba stanowiska są
+  z Javy…”) i na „dzięki” (`MSG_EMPTY`).
 
 ## Oryginał obok CV firmowego (wariant A, 03.11.2026)
 

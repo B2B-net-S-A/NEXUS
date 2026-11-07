@@ -25,11 +25,12 @@ dosłownie, więc QC pytało analityków AML o „Anti-Money Laundering”.
   (`PATCH /api/skills-admin/aliases/{id}`). Znacznik nie zmienia
   wyszukiwania ani dopasowania (mapa aliasów scoringu zostaje ta sama), więc
   wyniki rekrutacji się nie przeliczają.
-- **Pogrubianie i „Usuń termin” zostają przy technologiach**
-  (`dz._tech_patterns`, `docx_renderer` przez `tech_alias_forms`). Pomiar
-  pokazał, że warianty narzędzi w sprawdzeniu pogrubienia dawały nowe uwagi
-  „pogrub” (np. IAM, SoapUI). Nie przenoś `_has_unbolded`, `bold_all` ani
-  `remove_term` na `_patterns`.
+- **„Usuń termin” zostaje przy technologiach** (`dz._tech_patterns`).
+  Pogrubianie od G2 (07.11.2026) bierze technologie, narzędzia, standardy
+  i AI ze słownika razem w generatorze i w QC (`cv_qc._bold_patterns`) —
+  patrz `generator-cv/pogrubianie-wymagan-przez-slownik.md`. Nie przenoś
+  `_has_unbolded`, `bold_all` ani `remove_term` na `_patterns`: dziedziny
+  i metodyki się nie pogrubiają.
 - `QC_VERSION = "qc-truth-5"`, więc pętla `cv_qc_recompute` przelicza
   nieudane przebiegi sprzed wysłania.
 - Testy: `tests/test_skill_alias_in_text.py`. W testach bez bazy słownik

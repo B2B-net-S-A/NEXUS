@@ -39,6 +39,7 @@ from app.services.cv_generator_b2b.champion_builder import (
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
     apply_date_format,
+    apply_header_reference,
     build_filename as build_client_filename,
     rule_reminders,
 )
@@ -200,6 +201,7 @@ def run_legacy_generation(
     prepared_source_facts: PreparedSourceFacts | None = None,
     position_fallback: str | None = None,
     instruction: str = "",
+    title_reference: str | None = None,
 ) -> GenerationResult:
     """Same signature and result as ``_run_generation_pipeline``."""
     # ── 1. Extract CV text ───────────────────────────────────────────────
@@ -426,6 +428,7 @@ def run_legacy_generation(
             # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
             # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
             candidate_data["presentation_position"] = explicit_position
+    apply_header_reference(candidate_data, client_rule, title_reference)
 
     # ── 4. Anti-fabrication seatbelt + date sanity (warnings only) ───────
     # Linie pytań rekrutera nie są dowodem (13.10.2026).

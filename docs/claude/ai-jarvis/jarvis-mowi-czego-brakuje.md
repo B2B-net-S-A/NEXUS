@@ -1,5 +1,5 @@
 # Jarvis mówi, czego brakuje (27.10.2026)
-<!-- indeks: report_gap i tabela jarvis_gaps, `skipped` w /api/search/global, imię+nazwisko w wyszukiwarce, lista możliwości roli w /status -->
+<!-- indeks: report_gap i tabela jarvis_gaps, `skipped` w /api/search/global, imię+nazwisko w wyszukiwarce, polskie znaki, telefon, kategoria people, lista możliwości roli w /status -->
 
 Decyzja Artura z 27.10.2026 po przeglądzie 32 rozmów z produkcji (30 dni):
 ludzie mówili, że Jarvis „nic nie wie”. W 8 rozmowach odpowiedział „nie ma”,
@@ -30,3 +30,32 @@ jak „nie istnieje”. Makiety: prywatny artefakt `Sh6MLtWt4jLm9UNLn1GedS`.
   roli co dla modelu (`_allowed_tools`, `services/jarvis/capabilities.py`).
   Nowa pozycja = wpis w `READ`/`WRITE` z nazwą istniejącego narzędzia
   (test `test_every_listed_tool_exists`).
+
+## Polskie znaki, telefon i „Ludzie” w wyszukiwarce (07.11.2026)
+
+Przegląd 146 pytań do Jarvisa (23.09–06.11.2026): po poprawce z 27.10 zostały
+trzy „nie ma”, choć rekord był w bazie. Makiety: prywatny artefakt
+`SM5Q8dK2temXWcc6GxUCZf`, sekcja 3.
+
+- **Polskie znaki.** Imię, nazwisko, e-mail i pełne imię z nazwiskiem (obie
+  kolejności) idą przez `polish_folded_ilike` w `GET /api/search/global`
+  i `GET /api/search/` (`_candidate_quick_match` w `api/search.py`), jak lista
+  rekrutacji i ⌘K. „Jerzy Leśniawski” znajduje „Lesniawski” i odwrotnie.
+- **Telefon.** Ta sama gałąź kandydatów dopasowuje numer po samych cyfrach
+  (`predicates.phone_digits_clause`: spacje, `+48`, ostatnie 9 cyfr). Bramka
+  gałęzi = bramka profilu (`CandidatePIIAccess`: sekcja Kandydaci albo
+  Rekrutacje ≥ odczyt i rola z `CANDIDATE_READ_ROLES`), który telefon i tak
+  pokazuje. Odpowiedź wyszukiwarki numeru nie zwraca.
+- **Kategoria `people`.** Konta z kartoteką w statusie z katalogu
+  (`DIRECTORY_STATUSES`, bez `exited`), po `User.name`/`User.email` bez
+  polskich znaków; `id` to `user_id`, `url` = `/people/{id}`, `subtitle` =
+  stanowisko, dział albo e-mail (pola wizytówki z `card_payload`). Bramka
+  `hr_gates.people_directory_open` — ta sama reguła co
+  `require_hr_people_reader()` (`GET /api/hr/people`): moduł `people` otwarty
+  i kartoteka albo uprawnienie z grupy „Ludzie” (Finanse mają „Płace”).
+  Wyłączony program HR = brak kategorii i brak wpisu w `skipped`; program
+  włączony, a konto bez dostępu = `skipped: people` („nie masz dostępu”).
+- **Czego to nie daje.** Jarvis nie ma narzędzia do raportu godzin innej osoby
+  (jest tylko `my_month`). Po znalezieniu osoby w `people` mówi to przez
+  `report_gap` (`not_supported`) z ekranem `/people/{id}`, zamiast „nie ma”.
+

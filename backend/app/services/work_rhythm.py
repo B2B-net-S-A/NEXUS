@@ -591,6 +591,8 @@ _SKIPPED_ACTIONS = (
     "screening_synced_from_note",
     "auto_match_proposed",
     "auto_full_review_finished",
+    # Pomiar poprawek CV (E3) — dubluje `branded_cv_finalized` tego samego kliknięcia.
+    "cv_approved_edit_summary",
 )
 # Ten sam rodzaj zapisu u ≥ 5 osób w tej samej minucie to import, nie praca
 # (staging 20.10.2026 20:24: 66 rozmów u klienta i 66 feedbacków naraz).
