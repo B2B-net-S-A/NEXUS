@@ -59,7 +59,9 @@ import type {
   QcFixAction,
   QcFixesResponse,
   QcItem,
+  QcManualRolesBody,
   QcResult,
+  QcRoleState,
   QcSearch,
 } from "@/lib/api/cvQc";
 import { cvQcQueryKey } from "@/lib/api/cvQc";
@@ -145,6 +147,93 @@ export interface ActionContext {
   /** „Przywróć” przy pominiętej pozycji (id pominięcia). */
   restore: (dismissalId: number) => void;
   restoring: boolean;
+  /**
+   * R3 (07.11.2026): przy „sprawdź ręcznie” krytycznych — wskazanie ról
+   * oryginału. Brak = ten widok nie zapisuje wskazań (np. podgląd).
+   */
+  manualRoles?: (body: QcManualRolesBody, onSaved?: () => void) => void;
+  manualRolesPending?: boolean;
+}
+
+/** Krytyczne z rolami „sprawdź ręcznie” (odczyt bez opisów ról), po kolei. */
+export function manualRoleGroups(check: QcCheck): { requirement: string; roles: string[] }[] {
+  if (check.key !== "critical_skills" || check.status !== "manual") return [];
+  const out = new Map<string, string[]>();
+  for (const role of check.roles ?? []) {
+    if (role.state !== "unverified") continue;
+    out.set(role.requirement, [...(out.get(role.requirement) ?? []), role.role]);
+  }
+  return [...out].map(([requirement, roles]) => ({ requirement, roles }));
+}
+
+/**
+ * „Gdzie oryginał opisuje X?” (R3, 07.11.2026): stanowiska z CV jako
+ * przyciski, „Nigdzie — tylko na liście” jednym kliknięciem. QC tego nie
+ * zgaduje (odczyt bez opisów ról), więc decyduje człowiek, a Delivery Lead
+ * widzi, kto wskazał.
+ */
+function ManualRolePicker({ requirement, roles, ctx }: { requirement: string; roles: string[]; ctx: ActionContext }) {
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const save = ctx.manualRoles;
+  if (!save) return null;
+  const toggle = (role: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  return (
+    <div
+      role="group"
+      aria-label={`Gdzie oryginał opisuje: ${requirement}`}
+      className="space-y-1.5 rounded-md border border-info/30 bg-info-muted/40 px-2.5 py-2 text-sm"
+    >
+      <p className="text-xs text-muted-foreground">
+        Gdzie oryginał opisuje <span className="font-medium text-foreground">{requirement}</span>? Kliknij stanowisko.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {roles.map((role) => (
+          <button
+            key={role}
+            type="button"
+            aria-pressed={picked.has(role)}
+            onClick={() => toggle(role)}
+            className={cn(
+              "rounded-md border px-2 py-0.5 text-xs",
+              picked.has(role)
+                ? "border-primary bg-primary/10 font-semibold text-primary"
+                : "border-border bg-background text-foreground",
+            )}
+          >
+            {role}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          disabled={picked.size === 0 || ctx.manualRolesPending}
+          onClick={() => save({ requirement, roles: roles.filter((r) => picked.has(r)) })}
+        >
+          Zapisz
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={ctx.manualRolesPending}
+          onClick={() => save({ requirement, roles: [] })}
+        >
+          Nigdzie — tylko na liście
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function roleStateText(role: QcRoleState): string {
+  const base = QC_ROLE_STATE_LABEL[role.state];
+  return role.manual?.by ? `${base} · wskazał(a) ${role.manual.by}` : base;
 }
 
 const newTab = (ctx: ActionContext) => (ctx.linksInNewTab ? { target: "_blank", rel: "noreferrer" } : {});
@@ -904,6 +993,7 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
   // `useId`: okno QC i panel w edytorze CV bywają otwarte naraz.
   const bodyId = useId();
   const preview = check.status === "fail" || check.status === "manual" ? notePreview(check) ?? check.summary : null;
+  const manualGroups = ctx.manualRoles ? manualRoleGroups(check) : [];
   return (
     <li className="overflow-hidden rounded-lg border border-border">
       <button
@@ -932,6 +1022,13 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
           ) : null}
         </span>
       </button>
+      {manualGroups.length > 0 ? (
+        <div className="space-y-2 border-t border-border px-3 py-2.5">
+          {manualGroups.map((group) => (
+            <ManualRolePicker key={group.requirement} requirement={group.requirement} roles={group.roles} ctx={ctx} />
+          ))}
+        </div>
+      ) : null}
       {open && hasBody ? (
         <div id={bodyId} className="space-y-2 px-3 py-2.5">
           {check.items.map((item, i) => {
@@ -991,7 +1088,7 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
                   <ul className="space-y-0.5 pl-3 text-muted-foreground">
                     {group.roles.map((role, i) => (
                       <li key={i}>
-                        <span className="text-foreground">{role.role}</span> — {QC_ROLE_STATE_LABEL[role.state]}
+                        <span className="text-foreground">{role.role}</span> — {roleStateText(role)}
                       </li>
                     ))}
                   </ul>

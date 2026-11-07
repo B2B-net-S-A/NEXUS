@@ -39,6 +39,7 @@
   "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/manual-roles": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"

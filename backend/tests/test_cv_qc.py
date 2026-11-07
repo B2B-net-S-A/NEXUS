@@ -499,6 +499,65 @@ def test_read_without_role_descriptions_is_manual_not_a_block() -> None:
     assert passed and blocking == 0
 
 
+ACME_ROLE = "Backend Developer · Acme Soft"
+MANUAL_BY = {"by": "Zofia C.", "at": "2026-11-07T18:00:00+00:00"}
+
+
+def test_recruiter_points_the_role_where_the_original_describes_a_critical() -> None:
+    """R3 (07.11.2026): przy „sprawdź ręcznie” rekruter wskazuje rolę oryginału.
+
+    Wskazana rola, w której CV ma zdanie o umiejętności = opisane; rola
+    niewskazana = oryginał tam tego nie opisuje. Sprawdzenie przestaje być
+    „sprawdź ręcznie”, a stan roli niesie, kto wskazał.
+    """
+    bare = [{k: e[k] for k in ("company", "role")} for e in ROLES_READ]
+    check = _roles_check(
+        ROLES_EXPERIENCE_TEXT + ROLES_SKILLS_TEXT,
+        experience=bare,
+        manual_roles={"python lub java": {"roles": [ACME_ROLE], **MANUAL_BY}},
+    )
+    assert check["status"] == "pass" and check["items"] == []
+    assert check["summary"] == "1/1"
+    states = {r["role"]: r for r in check["roles"]}
+    assert states[ACME_ROLE]["state"] == "described"
+    assert states[ACME_ROLE]["manual"] == MANUAL_BY
+    assert states[SUPPORT_ROLE]["state"] == "not_in_original"
+    assert states[SUPPORT_ROLE]["manual"] == MANUAL_BY
+
+
+def test_pointed_role_without_a_sentence_in_the_cv_is_a_block() -> None:
+    """R3: rekruter wskazał rolę, a CV tej roli nie ma o tym zdania — to brak
+    jak przy odczycie z opisem (blokada krytycznej), bez propozycji AI, bo
+    odczyt nie ma zdania, z którego AI mogłoby cytować."""
+    bare = [{k: e[k] for k in ("company", "role")} for e in ROLES_READ]
+    check = _roles_check(
+        ROLES_EXPERIENCE_TEXT + ROLES_SKILLS_TEXT,
+        experience=bare,
+        manual_roles={"python lub java": {"roles": [SUPPORT_ROLE], **MANUAL_BY}},
+    )
+    assert check["status"] == "fail"
+    (item,) = check["items"]
+    assert item["role"] == SUPPORT_ROLE and item["fix"] is None
+    assert item["detail"] == (
+        "Zofia C. wskazał(a), że oryginał opisuje to w tej roli — w CV tej roli "
+        "nie ma o tym zdania. Dopisz je w edytorze CV."
+    )
+    assert item["manual"] == MANUAL_BY
+
+
+def test_nowhere_means_the_original_only_lists_the_critical() -> None:
+    """R3: „nigdzie” = oryginał nie opisuje tego w żadnej roli; zdanie w roli
+    nie jest wtedy wymagane (reguła z 13.10.2026), więc nic nie blokuje."""
+    bare = [{k: e[k] for k in ("company", "role")} for e in ROLES_READ]
+    check = _roles_check(
+        ROLES_EXPERIENCE_TEXT + ROLES_SKILLS_TEXT,
+        experience=bare,
+        manual_roles={"python lub java": {"roles": [], **MANUAL_BY}},
+    )
+    assert check["status"] == "pass" and check["items"] == []
+    assert {r["state"] for r in check["roles"]} == {"not_in_original"}
+
+
 def test_role_entries_prefer_the_cv_read_over_a_bare_profile_history() -> None:
     """Historia z importu Traffita nie ma opisów; pełny odczyt CV zostaje
     w `cv_extracted_data` i to on mówi, co kandydat robił w której roli."""
@@ -4190,6 +4249,93 @@ async def test_advisory_override_lets_the_delivery_lead_accept_to_cpro(
 
 
 @pytest.mark.asyncio
+async def test_manual_roles_route_resolves_the_check_and_refuses_strangers(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3 (07.11.2026): przy odczycie bez opisów ról rekruter wskazuje rolę
+    oryginału. Trasa przyjmuje tylko krytyczną z „sprawdź ręcznie” i role
+    z jej listy; po wskazaniu sprawdzenie nie jest już „sprawdź ręcznie”."""
+    from app.models.candidate import Candidate
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java")
+    async with AsyncSessionLocal() as db:
+        cand = await db.get(Candidate, world["candidate_id"])
+        cand.experience = [
+            {"company": "Acme Bank", "role": "Senior Developer"},
+            {"company": "Globex", "role": "Developer"},
+            {"company": "Initech", "role": "Junior"},
+        ]
+        cand.cv_extracted_data = None
+        await db.commit()
+    url = f"/api/pipeline/stages/{stage_id}/qc"
+
+    def critical(body: dict) -> dict:
+        return next(c for c in body["checks"] if c["key"] == "critical_skills")
+
+    try:
+        with hydrated_taxonomy():
+            before = critical((await api_client.get(url, headers=rec)).json())
+        assert before["status"] == "manual"
+        roles = [r["role"] for r in before["roles"] if r["state"] == "unverified"]
+        assert roles
+        with hydrated_taxonomy():
+            stranger = await api_client.post(
+                f"{url}/manual-roles",
+                headers=rec,
+                json={"requirement": "Kafka", "roles": []},
+            )
+            wrong_role = await api_client.post(
+                f"{url}/manual-roles",
+                headers=rec,
+                json={"requirement": "Java", "roles": ["Nieznana firma"]},
+            )
+        assert stranger.status_code == 422
+        assert stranger.json()["detail"]["code"] == "CV_QC_MANUAL_ROLES_FAILED"
+        assert wrong_role.status_code == 422
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                f"{url}/manual-roles",
+                headers=rec,
+                json={"requirement": "java", "roles": []},
+            )
+        assert ok.status_code == 200, ok.text
+        after = critical(ok.json())
+        assert after["status"] != "manual"
+        assert {r["state"] for r in after["roles"]} == {"not_in_original"}
+        assert all(r["manual"]["by"] for r in after["roles"])
+        async with AsyncSessionLocal() as db:
+            logged = await db.scalar(
+                select(func.count(Activity.id)).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == world["candidate_id"],
+                    Activity.action == qc.MANUAL_ROLES_ACTION,
+                )
+            )
+        assert logged == 1
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == world["candidate_id"],
+                    Activity.action == qc.MANUAL_ROLES_ACTION,
+                )
+            )
+            await db.execute(
+                delete(CvQcRun).where(CvQcRun.candidate_id == world["candidate_id"])
+            )
+            await db.commit()
+        await _cleanup(world, [hor_id, rec_id])
+
+
+@pytest.mark.asyncio
 async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5849,7 +5995,12 @@ def test_role_dates_warns_when_cv_says_ongoing_and_original_has_an_end():
 
 
 def test_role_dates_passes_and_skips():
-    assert _role_dates(ROLE_DATES_HTML, "Senior Developer, Acme Bank 03.2021 – obecnie")["status"] == "pass"
+    assert (
+        _role_dates(ROLE_DATES_HTML, "Senior Developer, Acme Bank 03.2021 – obecnie")[
+            "status"
+        ]
+        == "pass"
+    )
     assert _role_dates(ROLE_DATES_HTML, "")["status"] == "skip"
     # Bez znaczników stanowisk role są zgadywane: nie zgłaszamy nic.
     pasted = "<p>Senior Developer 03.2021 – obecnie</p><p>Acme Bank</p>"
@@ -5857,7 +6008,9 @@ def test_role_dates_passes_and_skips():
 
 
 def test_role_dates_warning_does_not_block_sending():
-    data = _qc_input(ROLE_DATES_HTML, must=_reqs("Java"), original_text=ROLE_DATES_ORIGINAL)
+    data = _qc_input(
+        ROLE_DATES_HTML, must=_reqs("Java"), original_text=ROLE_DATES_ORIGINAL
+    )
     assert "role_dates" not in qc.BLOCKING_KEYS
     assert "role_dates" in {c["key"] for c in qc.compute_checks(data)}
 
@@ -5878,5 +6031,6 @@ def test_restore_dates_action_is_applied_alone_and_not_in_bulk():
     out, applied, skipped = run(bulk=False)
     assert "03.2021 - 05.2026" in out and applied and not skipped
     out, applied, skipped = run(bulk=True)
-    assert out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
-
+    assert (
+        out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
+    )

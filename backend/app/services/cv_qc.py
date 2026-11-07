@@ -956,6 +956,10 @@ class QcInput:
     # Notatki bez pól handlowych karty — WYŁĄCZNIE do cytatów w „Szukałem w”
     # (okno QC widzi rekruter). ``None`` = notatki bez cytatu.
     notes_quote_text: Optional[str] = None
+    # R3 (07.11.2026): role oryginału wskazane ręcznie przy „sprawdź ręcznie”
+    # — klucz `manual_role_key(wymaganie)`, wartość {roles, by, at}; pusta
+    # lista ról = „nigdzie” (`manual_role_checks`).
+    manual_roles: dict[str, dict] = field(default_factory=dict)
 
 
 def critical_requirements(
@@ -1178,6 +1182,73 @@ def _role_items(
                 )
             )
     return items, checked, states, info
+
+
+def manual_role_key(requirement: str) -> str:
+    """Klucz wskazania ręcznego (R3): etykieta wymagania bez wielkości liter."""
+
+    return " ".join(requirement.lower().split())
+
+
+def _apply_manual_roles(
+    manual: dict[str, dict],
+    reqs: list[Requirement],
+    blocks: list[Block],
+    orig_roles: list,
+    roles: list[CvRole],
+    pairs: list[Optional[int]],
+    states: list[dict],
+    items: list[dict],
+) -> None:
+    """Wskazania rekrutera zamiast „sprawdź ręcznie” (R3, 07.11.2026).
+
+    Odczyt CV bez opisów ról daje parom wymaganie × rola stan ``unverified``.
+    Rekruter wskazuje role oryginału, które opisują umiejętność (albo
+    „nigdzie”). Wskazana rola liczy się jak rola z opisem: zdanie w CV tej
+    roli = ``described``, brak = pozycja do poprawy (bez propozycji AI —
+    odczyt nie ma zdania do cytatu). Rola niewskazana = ``not_in_original``.
+    Stan i pozycja niosą ``manual`` (kto, kiedy) — widzi to Delivery Lead.
+    """
+
+    if not manual:
+        return
+    by_label = {req.label: req for req in reqs}
+    idx_of = {orig.label: idx for orig, idx in zip(orig_roles, pairs)}
+    for state in states:
+        if state.get("state") != "unverified":
+            continue
+        entry = manual.get(manual_role_key(state["requirement"]))
+        req = by_label.get(state["requirement"])
+        if entry is None or req is None:
+            continue
+        who = {"by": entry.get("by"), "at": entry.get("at")}
+        idx = idx_of.get(state["role"])
+        if state["role"] not in (entry.get("roles") or []) or idx is None:
+            state.update(state="not_in_original", manual=who)
+            continue
+        role_blocks = [blocks[i] for i in roles[idx].blocks]
+        role_text = "\n".join(b.text for b in role_blocks)
+        if dz.found_in(role_text, req) is not None and described_in_blocks(
+            req, role_blocks
+        ):
+            state.update(state="described", manual=who)
+            continue
+        state.update(state="missing", manual=who)
+        items.append(
+            {
+                **_item(
+                    requirement=req.label,
+                    role=state["role"],
+                    detail=(
+                        f"{who['by'] or 'Rekruter'} wskazał(a), że oryginał opisuje "
+                        "to w tej roli — w CV tej roli nie ma o tym zdania. Dopisz "
+                        "je w edytorze CV."
+                    ),
+                    role_index=idx,
+                ),
+                "manual": who,
+            }
+        )
 
 
 def _versioned_claim(text: str, req: Requirement) -> Optional[Requirement]:
@@ -1665,6 +1736,16 @@ def compute_checks(data: QcInput) -> list[dict]:
     else:
         critical_items, _, critical_roles, critical_info = _role_items(
             data.critical, blocks, orig_roles, roles, pairs
+        )
+        _apply_manual_roles(
+            data.manual_roles,
+            data.critical,
+            blocks,
+            orig_roles,
+            roles,
+            pairs,
+            critical_roles,
+            critical_items,
         )
         # Brak w całym CV, gdy żadna rola go nie zgłasza (pozycja roli mówi już,
         # gdzie dopisać). PR 3: pominięcie pozycji roli nie może ukryć braku
@@ -2936,6 +3017,106 @@ async def _load_sources(db: AsyncSession, stage: CandidateStage) -> dz.ReviewSou
     return src
 
 
+# R3 (07.11.2026): wskazanie ról oryginału przy „sprawdź ręcznie” — wpis
+# historii kandydata, ostatni dla wymagania wygrywa. Bez nowej tabeli: to fakt
+# o oryginale osoby w tej rekrutacji, czytany przy każdym liczeniu QC.
+MANUAL_ROLES_ACTION = "cv_qc_manual_roles"
+
+
+async def manual_role_checks(
+    db: AsyncSession, candidate_id: int, job_id: int
+) -> dict[str, dict]:
+    """Wskazania ról pary: ``{manual_role_key: {roles, by, at}}``."""
+
+    from app.models.activity import Activity
+    from app.models.user import User
+
+    rows = (
+        await db.execute(
+            select(Activity.details, Activity.created_at, User.name)
+            .outerjoin(User, User.id == Activity.user_id)
+            .where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == candidate_id,
+                Activity.action == MANUAL_ROLES_ACTION,
+                Activity.details["job_id"].astext == str(job_id),
+            )
+            .order_by(Activity.created_at, Activity.id)
+        )
+    ).all()
+    out: dict[str, dict] = {}
+    for details, created_at, name in rows:
+        requirement = str((details or {}).get("requirement") or "")
+        if not requirement:
+            continue
+        out[manual_role_key(requirement)] = {
+            "roles": [str(r) for r in (details or {}).get("roles") or []],
+            "by": _short_name(name),
+            "at": created_at.isoformat() if created_at else None,
+        }
+    return out
+
+
+def _short_name(name: Optional[str]) -> Optional[str]:
+    """„Zofia C.” — imię i inicjał, jak w przeglądzie DL."""
+
+    parts = (name or "").split()
+    if not parts:
+        return None
+    return f"{parts[0]} {parts[-1][0]}." if len(parts) > 1 else parts[0]
+
+
+async def record_manual_roles(
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    requirement: str,
+    roles: Sequence[str],
+    user_id: int,
+) -> dict:
+    """Zapisz wskazanie ról (R3) i policz QC od nowa.
+
+    Wolno wskazać tylko umiejętność krytyczną, którą QC zgłasza jako
+    „sprawdź ręcznie” (albo którą już ktoś wskazał), i tylko role oryginału
+    z tej pozycji. Inaczej `ApplyError` (422).
+    """
+
+    from app.models.activity import Activity
+
+    src, checks, _ = await evaluate(db, stage)
+    check = next((c for c in checks if c["key"] == "critical_skills"), None)
+    states = [
+        r
+        for r in (check or {}).get("roles") or []
+        if manual_role_key(r.get("requirement") or "") == manual_role_key(requirement)
+        and (r.get("state") == "unverified" or r.get("manual"))
+    ]
+    if not states:
+        raise ApplyError(
+            "QC nie prosi już o sprawdzenie tej umiejętności — odśwież okno."
+        )
+    allowed = {r["role"] for r in states}
+    chosen = list(dict.fromkeys(r for r in roles if r))
+    if any(r not in allowed for r in chosen):
+        raise ApplyError("Wybierz stanowisko z listy tej umiejętności.")
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=src.candidate.id,
+            action=MANUAL_ROLES_ACTION,
+            user_id=user_id,
+            details={
+                "job_id": src.job.id,
+                "stage_id": stage.id,
+                "requirement": states[0]["requirement"],
+                "roles": chosen,
+            },
+        )
+    )
+    await db.flush()
+    return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
 async def evaluate(
     db: AsyncSession, stage: CandidateStage
 ) -> tuple[dz.ReviewSources, list[dict], str]:
@@ -2957,6 +3138,7 @@ async def evaluate(
         bold=bold_expected(src, payload),
         notes_quote=notes_text(rows, CV_HIDDEN_FIELDS),
     )
+    data.manual_roles = await manual_role_checks(db, src.candidate.id, src.job.id)
     checks = compute_checks(data)
     # Jedyne miejsce, w którym stan sprawdzeń (D6) i pominięcia „To
     # nieprawda” (D5) wchodzą do wyniku: okno, zapisany przebieg, bramka ruchu,
