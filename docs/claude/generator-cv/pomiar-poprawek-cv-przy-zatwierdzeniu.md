@@ -38,6 +38,10 @@ widać efekt zmian generatora bez kolejnego odtwarzania.
   `languages`, `education`, `certifications`, `role`, `employer`, `duties`,
   `technologies`, `headings` (tytuły sekcji i etykiety), `other`. Klauzula zgody
   się nie liczy (jest stała).
+- Blok to element bez bloków w środku (`cv_approved_docx.BLOCKS` + komórki
+  tabeli), nie tylko `h1–h3 / p / li`: wklejka z Worda (cytat, tabela, `h4`, goły
+  `div`) i tekst punktu nad zagnieżdżoną listą (wcięcie) też się liczą. Inaczej
+  takie poprawki dawały fałszywe „bez zmian” — a ta liczba jest celem pomiaru.
 - Koszt liniowy: jeden przebieg drzewa i porównanie wielozbiorów tekstów
   w części. Zniknięty i nowy blok w tej samej części to razem „zmieniony”,
   nadwyżka to „dodany” / „usunięty”. Same przestawienia = `changed`

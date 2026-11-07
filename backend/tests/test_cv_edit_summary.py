@@ -298,3 +298,62 @@ def test_entry_is_not_counted_as_work_in_the_work_rhythm():
     from app.services.work_rhythm import _SKIPPED_ACTIONS
 
     assert ACTION in _SKIPPED_ACTIONS
+
+
+_SHORT = '<h1>Kandydat</h1><h2 data-cv-section="skills">S</h2><ul><li>Python</li></ul>'
+
+
+@pytest.mark.parametrize(
+    "added",
+    [
+        "<blockquote>Dodane</blockquote>",
+        "<h4>Dodane</h4>",
+        "<div>Dodane</div>",
+        "<section>Dodane</section>",
+        "<pre>Dodane</pre>",
+        "<table><tr><td>Dodane</td></tr></table>",
+        "<div><p>Akapit</p>Luźny tekst</div>",
+    ],
+)
+def test_text_outside_the_editor_blocks_still_counts(added):
+    # Wklejka z Worda albo strony: sanitizer to przepuszcza, Word to składa.
+    summary = summarize_edits(_SHORT, _SHORT + added)
+    assert summary["status"] == STATUS_CHANGED
+    assert summary["parts"]["skills"]["added"] >= 1
+
+
+def test_own_text_of_a_list_item_with_a_nested_list_counts():
+    # Wcięcie w edytorze robi zagnieżdżoną listę; tekst punktu nad nią to obowiązek.
+    start = (
+        '<h2 data-cv-section="experience">E</h2>'
+        "<ul><li><p>Tekst</p><ul><li><p>pod</p></li></ul></li></ul>"
+    )
+    raw = '<h2 data-cv-section="experience">E</h2><ul><li>Tekst<ul><li>pod</li></ul></li></ul>'
+    for html in (start, raw):
+        assert [part for part, _t, _b in cv_blocks(html)] == [
+            "headings",
+            "duties",
+            "duties",
+        ]
+        summary = summarize_edits(html, html.replace("Tekst", "Zmieniony"))
+        assert summary["parts"] == {
+            "duties": {"added": 0, "removed": 0, "changed": 1, "bold": 0}
+        }
+
+
+def test_cost_is_linear_with_thousands_of_loose_lines_in_one_wrapper():
+    lines = "".join(f"Wiersz {i}<br>" for i in range(20000))
+    start = f'<h2 data-cv-section="skills">S</h2><div><p>Akapit</p>{lines}</div>'
+    began = time.perf_counter()
+    summary = summarize_edits(start, start.replace("Wiersz 7<br>", "Wiersz siedem<br>"))
+    assert time.perf_counter() - began < 5
+    assert summary["parts"]["skills"]["changed"] == 1
+
+
+def test_pasted_consent_clause_as_loose_text_is_not_counted():
+    start = '<h2 data-cv-section="skills">S</h2><div><p>Python</p></div>'
+    approved = start.replace(
+        "</p></div>",
+        "</p>Wyrażam zgodę na przetwarzanie moich danych osobowych</div>",
+    )
+    assert summarize_edits(start, approved)["status"] == STATUS_UNCHANGED

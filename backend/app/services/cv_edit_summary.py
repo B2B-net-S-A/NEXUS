@@ -31,6 +31,7 @@ from lxml import html as lxml_html
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.services.cv_approved_docx import BLOCKS
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ STATUS_CHANGED = "changed"
 _SECTIONS = frozenset(
     {"why_points", "skills", "languages", "education", "certifications"}
 )
-_LEAF = frozenset({"h1", "h2", "h3", "p", "li"})
+_BLOCK_TAGS = frozenset({*BLOCKS, "thead", "tbody", "tfoot", "tr", "td", "th"})
 _TECH = re.compile(r"^(technologie|technologies|tech stack)\s*:", re.I)
 _CONSIDERED = re.compile(r"^(rozważany na stanowisko|considered for)", re.I)
 _WS = re.compile(r"\s+")
@@ -64,10 +65,11 @@ def _bold_words(el) -> frozenset:
     return frozenset(words)
 
 
-def _part(el, text: str, section: str) -> Optional[str]:
-    """Nazwa części CV dla bloku; ``None`` = klauzula RODO (stała, nie liczymy)."""
-    from app.services.cv_rodo_clause import is_rodo_node
+def _part(el, text: str, section: str, in_item: bool, rodo: bool) -> Optional[str]:
+    """Nazwa części CV dla bloku; ``None`` = klauzula RODO (stała, nie liczymy).
 
+    ``in_item`` — blok w punkcie listy (edytor pisze ``<li><p>…</p></li>``).
+    """
     tag = el.tag
     classes = (el.get("class") or "").split()
     mark = el.get("data-cv-section")
@@ -75,7 +77,7 @@ def _part(el, text: str, section: str) -> Optional[str]:
         return "title"
     if tag in ("h2", "h3"):
         return "headings"
-    if is_rodo_node(el):
+    if rodo:
         return None
     if mark == "considered_for" or "considered" in classes or _CONSIDERED.match(text):
         return "considered_for"
@@ -88,40 +90,67 @@ def _part(el, text: str, section: str) -> Optional[str]:
     if mark == "duties_label" or "lbl" in classes:
         return "headings"
     if section == "experience":
-        return "duties" if tag == "li" else "other"
+        return "duties" if tag == "li" or in_item else "other"
     if section in _SECTIONS:
         return section
     return "other"
 
 
+def _is_leaf(el) -> bool:
+    return not any(
+        isinstance(child.tag, str) and child.tag in _BLOCK_TAGS for child in el
+    )
+
+
 def cv_blocks(html: str) -> list[tuple[str, str, frozenset]]:
-    """Bloki treści w kolejności dokumentu: ``(część, tekst, pogrubione słowa)``."""
+    """Bloki treści w kolejności dokumentu: ``(część, tekst, pogrubione słowa)``.
+
+    Blok to element bez bloków w środku (jak w generatorze Worda), więc liczy
+    się też wklejka z Worda: cytat, tabela, ``h4``, goły ``div``. Tekst luźny
+    obok bloków — np. punkt listy nad zagnieżdżoną listą po wcięciu — jest
+    osobnym blokiem rodzica.
+    """
+    from app.services.cv_rodo_clause import is_rodo_node, is_rodo_text
+
     if not (html or "").strip():
         return []
+    seen: dict = {}
     root = lxml_html.fragment_fromstring(html, create_parent="div")
     out: list[tuple[str, str, frozenset]] = []
     section = "header"
-    # Stos zamiast rekurencji; dzieci odkładane od końca = kolejność dokumentu.
-    stack = list(reversed([child for child in root if isinstance(child.tag, str)]))
+
+    def emit(el, text: str, bold: frozenset, in_item: bool, loose: bool) -> None:
+        text = _norm(text)
+        if text:
+            # Luźny tekst sprawdzamy po nim samym, nie po rodzicu.
+            rodo = is_rodo_text(text) if loose else is_rodo_node(el, seen)
+            part = _part(el, text, section, in_item, rodo)
+            if part is not None:
+                out.append((part, text, bold))
+
+    def expand(el, in_item: bool) -> list[tuple]:
+        """Zawartość elementu z blokami w środku, w kolejności dokumentu."""
+        items: list[tuple] = [("text", el, el.text, in_item)]
+        child_in_item = in_item or el.tag == "li"
+        for child in el:
+            if isinstance(child.tag, str):
+                items.append(("node", child, None, child_in_item))
+            items.append(("text", el, child.tail, in_item))
+        return items
+
+    # Stos zamiast rekurencji; zawartość odkładana od końca = kolejność dokumentu.
+    stack = list(reversed(expand(root, False)))
     while stack:
-        el = stack.pop()
-        tag = el.tag
-        if tag in ("h2", "h3"):
-            section = el.get("data-cv-section") or "other"
-        nested_list = tag == "li" and any(
-            isinstance(child.tag, str) and child.tag in ("ul", "ol") for child in el
-        )
-        leaf = (tag in _LEAF and not nested_list) or (
-            tag == "div" and "edu" in (el.get("class") or "").split()
-        )
-        if leaf:
-            text = _norm(el.text_content())
-            if text:
-                part = _part(el, text, section)
-                if part is not None:
-                    out.append((part, text, _bold_words(el)))
+        kind, el, text, in_item = stack.pop()
+        if kind == "text":
+            emit(el, text or "", frozenset(), in_item, loose=True)
             continue
-        stack.extend(reversed([child for child in el if isinstance(child.tag, str)]))
+        if el.tag in ("h2", "h3"):
+            section = el.get("data-cv-section") or "other"
+        if _is_leaf(el):
+            emit(el, el.text_content(), _bold_words(el), in_item, loose=False)
+            continue
+        stack.extend(reversed(expand(el, in_item)))
     return out
 
 
