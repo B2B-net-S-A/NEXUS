@@ -26,6 +26,7 @@ export function MyPeopleTileView({ onOpen }: { onOpen: () => void }) {
       type="button"
       onClick={onOpen}
       data-testid="source-tile-my-people"
+      data-tour="jobs.sources.my-people"
       title={MY_PEOPLE_TILE_DESCRIPTION}
       className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
     >
