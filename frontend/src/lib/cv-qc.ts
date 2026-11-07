@@ -728,8 +728,28 @@ export const QC_CV_SOURCE_LABEL: Record<string, string> = {
 export type QcCardStatus = "passed" | "failed" | "overridden" | "unchecked";
 
 export const QC_STATUS_LABEL: Record<QcCardStatus, string> = {
-  passed: "QC ✓",
+  passed: "QC: sprawdzone",
   failed: "QC do poprawy",
   overridden: "Przepuszczone mimo QC",
   unchecked: "QC nie sprawdzone",
 };
+
+/** Stan QC pary tak, jak liczy go serwer (`cv_qc.pair_statuses`). */
+export interface QcPairState {
+  status: QcCardStatus;
+  blocking_failed: number;
+  /** R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” zdanego przebiegu. */
+  manual_checks?: readonly string[] | null;
+}
+
+/**
+ * Jeden napis stanu QC dla karty, pulpitu i przeglądu DL (R1, 07.11.2026):
+ * „QC: sprawdzone”, „QC: sprawdź ręcznie · N”, „QC: N do poprawy”. Do tej
+ * zmiany zdane QC z niesprawdzonymi krytycznymi było „QC ✓” (139 z 535 par).
+ */
+export function qcStateText(state: QcPairState): string {
+  const manual = state.manual_checks?.length ?? 0;
+  if (state.status === "passed" && manual > 0) return `QC: sprawdź ręcznie · ${manual}`;
+  if (state.status === "failed" && state.blocking_failed > 0) return `QC: ${state.blocking_failed} do poprawy`;
+  return QC_STATUS_LABEL[state.status];
+}

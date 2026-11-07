@@ -141,7 +141,7 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     expect(rows[0]).toHaveAttribute("aria-current", "step");
     expect(rows[0]).toHaveTextContent("stawka do Cpro: 158 zł/h");
     expect(rows[0]).toHaveTextContent("dostępność: 01.11.2026");
-    expect(rows[0]).toHaveTextContent("QC ✓");
+    expect(rows[0]).toHaveTextContent("QC: sprawdzone");
     expect(rows[1]).toHaveTextContent("dostępność: od zaraz");
   });
 
