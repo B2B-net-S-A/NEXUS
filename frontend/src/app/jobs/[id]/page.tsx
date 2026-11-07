@@ -73,6 +73,7 @@ import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStri
 import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
 import { JobP0Strip } from "@/components/v2/jobs/p0/JobP0Strip";
+import { JobHeadcountFact } from "@/components/v2/jobs/JobHeadcountFact";
 import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
 import { useJobTeamPermissions } from "@/components/v2/jobs/useJobTeamPermissions";
 import { useRailCollapsed } from "@/components/v2/shell/OpenTabsRail";
@@ -998,6 +999,15 @@ export default function JobDetailPage() {
         }
         recruiter={recruiterFact(false)}
         recruiterCompact={recruiterFact(true)}
+        // Liczba osób (07.11.2026) — edycja jak w Profilu Championa › Zespół.
+        headcount={
+          <JobHeadcountFact
+            jobId={jobId}
+            headcount={typeof job.headcount === "number" ? job.headcount : null}
+            canEdit={teamEditScope === "full"}
+            closed={job.status === "closed"}
+          />
+        }
         // Źródła kandydatów i „Kto dodał” — trzecia linia nagłówka, tylko na
         // Tablicy i dopiero z wczytaną Tablicą (jak dawny pasek nad nią).
         sources={
