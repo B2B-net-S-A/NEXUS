@@ -124,8 +124,25 @@ def requirement_map(
     return rows
 
 
+def _related(row: RequirementRow, cv_text: str) -> dict[str, list[str]]:
+    """Mapa wiedzy IT (07.11.2026): przy braku — zamienniki albo hasła, przy których
+    wymaganie jest typowe, wymienione w CV („zna Flask” przy FastAPI)."""
+    if row.state != ABSENT or not cv_text:
+        return {}
+    from app.services.cv_qc import related_hint
+
+    hint = related_hint(row.requirement.label, cv_text)
+    if hint is None:
+        return {}
+    key = "zamienniki_w_cv" if hint["kind"] == "alternative" else "typowe_przy"
+    return {key: list(hint["names"])}
+
+
 def prompt_payload(
-    job_title: Optional[str], rows: list[RequirementRow], roles: list[dz.Role]
+    job_title: Optional[str],
+    rows: list[RequirementRow],
+    roles: list[dz.Role],
+    cv_text: str = "",
 ) -> dict[str, Any]:
     """To, co czyta model: luki i role, bez danych kontaktowych i całego pliku CV."""
 
@@ -140,6 +157,7 @@ def prompt_payload(
                     for role, cell in zip(roles, row.roles)
                     if cell == LISTED
                 ],
+                **_related(row, cv_text),
             }
             for row in rows
             if row.state != DESCRIBED
@@ -469,7 +487,7 @@ async def refresh(
             questions=[],
         )
         return
-    payload = prompt_payload(job.title, rows, roles)
+    payload = prompt_payload(job.title, rows, roles, text)
     request_id = f"cvcallq_{uuid.uuid4().hex[:12]}"
     try:
         async with ai_feature(db, FEATURE, user_id=user_id):

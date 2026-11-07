@@ -26,9 +26,46 @@ export interface DictionaryHint {
   category: string | null;
 }
 
+/** Mapa wiedzy IT (07.11.2026): co słownik wie o słowie, które ZNA. */
+export type RelationHintKind = "implied" | "typical" | "alternative";
+
+export interface RelationHint {
+  word: string;
+  kind: RelationHintKind;
+  names: string[];
+  /** Przy „typowe”: odsetek osób z `names[0]`, które wpisują to słowo. */
+  share: number | null;
+}
+
 export interface DictionaryHintsResponse {
   hints: DictionaryHint[];
+  relations?: RelationHint[];
   can_curate: boolean;
+}
+
+/**
+ * Tekst notatki przy słowie wiersza. „Wynika z” zawsze, „typowe” i zamienniki
+ * tylko przy wierszu krytycznym (tam decydują, kogo bramka ukrywa); `null` =
+ * nic do pokazania.
+ */
+export function relationHintText(hint: RelationHint, critical: boolean): string | null {
+  const names = hint.names.join(", ");
+  if (!names) return null;
+  if (hint.kind === "implied") {
+    return `„${hint.word}” wynika z: ${names}. Osoby z samym ${hint.names[0]} liczą się jako spełniające.`;
+  }
+  if (!critical) return null;
+  if (hint.kind === "typical" && hint.share !== null) {
+    const pct = Math.round(hint.share * 100);
+    return (
+      `„${hint.word}” często nie stoi w CV — nawet przy ${names} wpisuje je ${pct}% osób. ` +
+      "Jako krytyczne ukryje część dobrych kandydatów; rozważ „musi mieć” albo pytanie w rozmowie."
+    );
+  }
+  if (hint.kind === "alternative") {
+    return `Zamienniki: ${names}. Osoby, które je znają, zostaną na liście z pytaniem, czy znają „${hint.word}”.`;
+  }
+  return null;
 }
 
 function fold(word: string): string {

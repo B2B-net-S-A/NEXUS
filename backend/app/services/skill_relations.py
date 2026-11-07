@@ -57,6 +57,11 @@ BATCH_SIZE = 60
 BATCH_CONCURRENCY = 3
 CATEGORY_MIN_SKILLS = 4
 REASON_MAX = 200
+# Ostrzeżenie „często nie stoi w CV” tylko przy narzędziach i praktykach (Git,
+# Jira, Maven) — przy React czy Javie odciągałoby od słusznie krytycznego wiersza.
+TYPICAL_WARNING_CATEGORIES = frozenset(
+    {"tools", "practice", "methodology", "standards"}
+)
 
 _GLOSSARY = (
     Path(__file__).resolve().parent.parent / "data" / "plain_knowledge" / "terms.json"
@@ -750,3 +755,110 @@ async def withdraw(
     await db.commit()
     await skill_curation.after_dictionary_change(db, [row.to_skill_id])
     return {"id": row.id, "status": "rejected"}
+
+
+# ── Podpowiedzi w edytorze wymagań (etap C, 07.11.2026) ─────────────────────
+
+
+async def relation_hints(db: AsyncSession, words: list[str]) -> list[dict]:
+    """Co mapa wiedzy mówi o słowach wierszy, które słownik ZNA.
+
+    * ``implied`` — słowo wynika z innego słowa tych wymagań (JavaScript przy
+      React): osoby z samym React już się liczą;
+    * ``typical`` — słowo często nie stoi w CV, bo jest typowe przy innym
+      (Git przy Javie) — jako krytyczne ukryje część dobrych osób;
+    * ``alternative`` — zamienniki, z którymi osoba nie zniknie z listy.
+    Edytor pokazuje dwa ostatnie tylko przy wierszu krytycznym."""
+    from app.services.skill_normalize import (
+        RELATION_ALTERNATIVES,
+        RELATION_IMPLIED_BY,
+        RELATION_TYPICAL_BY,
+        canonical_of,
+    )
+
+    dictionary = await load_dictionary(db)
+    canon_words: dict[str, str] = {}
+    for raw in words:
+        word = (raw or "").strip()
+        skill_id = dictionary.resolve(word) if word else None
+        if skill_id is not None:
+            canon_words.setdefault(canonical_of(dictionary.names[skill_id]), word)
+    if not canon_words:
+        return []
+    by_canon = {name.lower(): name for name in dictionary.names.values()}
+    typical_share = await _typical_shares(db, canon_words, dictionary)
+
+    def display(canons) -> list[str]:
+        return sorted(by_canon[c] for c in canons if c in by_canon)
+
+    out: list[dict] = []
+    for canon, word in canon_words.items():
+        sources = RELATION_IMPLIED_BY.get(canon, set()) & set(canon_words)
+        if sources:
+            out.append(
+                {
+                    "word": word,
+                    "kind": "implied",
+                    "names": display(sources),
+                    "share": None,
+                }
+            )
+        typical = RELATION_TYPICAL_BY.get(canon)
+        skill_id = dictionary.resolve(canon)
+        tool_like = (
+            dictionary.categories.get(skill_id) or ""
+        ) in TYPICAL_WARNING_CATEGORIES
+        if typical and tool_like and canon in typical_share:
+            source, share = typical_share[canon]
+            out.append(
+                {"word": word, "kind": "typical", "names": [source], "share": share}
+            )
+        alternatives = RELATION_ALTERNATIVES.get(canon)
+        if alternatives:
+            out.append(
+                {
+                    "word": word,
+                    "kind": "alternative",
+                    "names": display(alternatives)[:4],
+                    "share": None,
+                }
+            )
+    return out
+
+
+async def _typical_shares(
+    db: AsyncSession, canon_words: dict[str, str], dictionary: SkillDictionary
+) -> dict[str, tuple[str, float]]:
+    """Dla słowa „typowego”: hasło z największą liczbą profili, przy którym je
+    wiąże, i odsetek tych, którzy je wpisują (Git przy Javie: 55%)."""
+    ids = {
+        sid: name.lower()
+        for sid, name in dictionary.names.items()
+        if name.lower() in canon_words
+    }
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                SkillRelation.from_skill_id,
+                SkillRelation.to_skill_id,
+                SkillRelation.share,
+            )
+            .where(
+                SkillRelation.status == "accepted",
+                SkillRelation.kind == "typical",
+                SkillRelation.to_skill_id.in_(ids),
+                SkillRelation.share.is_not(None),
+            )
+            # Najniższy odsetek wpisujących: tak często ludzie to pomijają.
+            .order_by(SkillRelation.share.asc(), SkillRelation.support.desc())
+        )
+    ).all()
+    out: dict[str, tuple[str, float]] = {}
+    for from_id, to_id, share in rows:
+        canon = ids[to_id]
+        source = dictionary.names.get(from_id)
+        if canon not in out and source:
+            out[canon] = (source, float(share))
+    return out

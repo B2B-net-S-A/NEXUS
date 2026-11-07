@@ -1442,5 +1442,18 @@
     "where": "Ustawienia → Słownik umiejętności → Powiązania",
     "href": "/settings",
     "dot_anchor": "skills.relations"
+  },
+  {
+    "id": "wymagania-co-z-czego-wynika",
+    "pr": null,
+    "title": "Wymagania podpowiadają, co z czego wynika",
+    "why": "Pod wierszem wymagań zobaczysz, że np. „JavaScript” wynika z „React”, a przy wierszu krytycznym także zamienniki i ostrzeżenie, gdy coś często nie stoi w CV (np. Git) i bramka ukryłaby dobrych kandydatów.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.relation-hint"
   }
 ]

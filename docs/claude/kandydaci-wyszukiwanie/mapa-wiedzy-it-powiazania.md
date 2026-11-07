@@ -63,3 +63,17 @@ PostgreSQL (`IMPLIED_BY`), a QC tę samą osobę blokowało.
 
 Sprawdzone i odrzucone: połowa punktów za trafienie tylko przez powiązanie
 obniżała MRR (0,278 → 0,272). Dlatego powiązanie liczy się w punktacji w całości.
+
+## Edytor wymagań i ściąga (etapy C i D, 07.11.2026)
+
+- `POST /api/job-intake/dictionary-hints` zwraca też `relations` (`skill_relations.relation_hints`)
+  dla słów, które słownik zna. Edytor wymagań pokazuje pod wierszem trzy rodzaje notatek:
+  - „„JavaScript” wynika z: React” — zawsze;
+  - „często nie stoi w CV — nawet przy X wpisuje je N%” — tylko przy wierszu
+    krytycznym i tylko dla narzędzi, praktyk, metodyk i standardów (`TYPICAL_WARNING_CATEGORIES`).
+    Przy React czy Javie odciągałoby od słusznie krytycznego wiersza;
+  - zamienniki — tylko przy wierszu krytycznym.
+- Ściąga do rozmowy (`cv_call_questions`, prompt v2): przy wymaganiu „brak” model
+  dostaje `zamienniki_w_cv` albo `typowe_przy` i pyta do rzeczy („W CV jest Flask.
+  Czy był u Ciebie też FastAPI?”). Rola ze Spring Boot liczy się jako opisana
+  Java (etap B), więc zbędne pytania znikają same.
