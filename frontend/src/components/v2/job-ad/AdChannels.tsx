@@ -295,8 +295,12 @@ export function AdChannels({
   const pracujLive = state.publications.some((p) => p.portal === "pracuj" && !p.removed_at);
   const canSendPracuj = canManage && !jobClosed && !pracujLive;
   const jjitReady = state.jjit_api?.ready === true;
+  // Formularz JJIT (06.11.2026): kandydat aplikuje na portalu, strona kariery
+  // nie jest warunkiem. Starszy serwer bez pola = jak dotąd.
   const jjitCareerReason =
-    state.career.status === "none"
+    state.jjit_api?.career_required === false
+      ? null
+      : state.career.status === "none"
       ? "Najpierw opublikuj na stronie kariery — kandydaci z JustJoin.IT aplikują przez nią."
       : state.career.status === "outdated"
         ? "Najpierw zaktualizuj stronę kariery — kandydaci z JustJoin.IT aplikują przez nią."

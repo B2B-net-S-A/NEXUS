@@ -285,6 +285,9 @@ class AdJjitApi(BaseModel):
     pending_action: Optional[str] = None
     last_error: Optional[str] = None
     options: Optional[dict[str, Any]] = None
+    # 06.11.2026: przy formularzu portalu (``JJIT_APPLY_EMAIL``) kandydat nie
+    # przechodzi przez stronę kariery, więc okno nie każe jej najpierw publikować.
+    career_required: bool = True
 
 
 class JobAdResponse(BaseModel):
