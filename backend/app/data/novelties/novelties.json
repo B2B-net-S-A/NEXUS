@@ -1,5 +1,42 @@
 [
   {
+    "id": "sprzedaz-kpi-tygodniowe",
+    "pr": 2811,
+    "title": "Sprzedaż: KPI tygodniowe i krzywa WON MRR",
+    "why": "Spotkania, leady i oferty każdego handlowca za 8 tygodni, ze światłami względem celu, i WON netto MRR względem celu firmy. Cele ustawia administrator przyciskiem „Cele”.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Podsumowanie → KPI tygodniowe",
+    "href": "/sales/summary",
+    "dot_anchor": "sales.kpi-weekly"
+  },
+  {
+    "id": "podpis-przejmij-obsluge",
+    "pr": 2741,
+    "title": "„Przejmij obsługę” wysyłki umowy do podpisu",
+    "why": "Gdy osoba, która wysłała umowę do podpisu, jest na urlopie, przejmiesz obsługę jednym kliknięciem. Przypomnienia i kopia umowy pójdą z Twojej skrzynki, a dzwonki do Ciebie.",
+    "tier": "dot",
+    "shipped_on": "2026-10-28",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Przejmij obsługę (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.take-over"
+  },
+  {
     "id": "biore-przy-prowadzi",
     "pr": 3004,
     "title": "„Biorę” przy „Prowadzi” w panelu z formularzem",

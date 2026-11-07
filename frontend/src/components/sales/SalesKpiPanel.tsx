@@ -70,7 +70,7 @@ function KpiValue({ cell, noData = false }: { cell: KpiCell; noData?: boolean })
 function WeeklyTable({ data }: { data: SalesKpi }) {
   const current = data.weeks.length - 1;
   return (
-    <Card className="min-w-0 p-4">
+    <Card className="min-w-0 p-4" data-tour="sales.kpi-weekly">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-semibold text-foreground">KPI tygodniowe</h2>
         <p className="text-xs text-muted-foreground">
