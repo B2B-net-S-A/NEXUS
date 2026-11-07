@@ -679,12 +679,15 @@ export default function JobDetailPage() {
     enabled: showBoard && !!id,
     staleTime: 5 * 60_000,
   });
+  // `undefined`, dopóki wyniki nie przyjdą: karta odróżnia wtedy „osoba
+  // niepoliczona” (mapa jest, osoby w niej nie ma) od „wyników nie ma wcale”
+  // (zapytanie padło albo trwa) — awaria nie może wyglądać jak „nikt
+  // niepoliczony” (07.11.2026).
   const scoreMap = useMemo(() => {
-    const m = new Map<number, number>();
     const s = pipelineScores?.scores;
-    if (s) {
-      for (const [cid, score] of Object.entries(s)) m.set(Number(cid), score);
-    }
+    if (!s) return undefined;
+    const m = new Map<number, number>();
+    for (const [cid, score] of Object.entries(s)) m.set(Number(cid), score);
     return m;
   }, [pipelineScores]);
   // Krytyczne bez śladu u osoby — plakietka „brak: …” obok pierścienia.
