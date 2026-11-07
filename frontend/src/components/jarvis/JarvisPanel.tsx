@@ -33,7 +33,7 @@ import type {
   ScreenGuideTask,
 } from "@/lib/jarvis/types";
 import { JarvisCharacter } from "./characters/JarvisCharacter";
-import { JarvisCapabilities } from "./JarvisCapabilities";
+import { JarvisCapabilities, hasAnyCapability } from "./JarvisCapabilities";
 import { JarvisMessageList } from "./JarvisMessageList";
 import { JarvisScreenQuestions } from "./JarvisScreenQuestions";
 
@@ -53,7 +53,7 @@ export interface JarvisPanelProps {
   /** „Na tym ekranie ludzie pytali” — `asked` z przewodnika bieżącego ekranu. */
   screenQuestions?: string[];
   /** Z `GET /api/jarvis/status`; brak = starszy backend, pusty panel bez listy. */
-  capabilities?: JarvisCapabilitiesData;
+  capabilities?: Partial<JarvisCapabilitiesData>;
   conversations?: JarvisConversationSummary[];
   conversationsLoading?: boolean;
   activeConversationId?: string | null;
@@ -130,6 +130,8 @@ export function JarvisPanel(props: JarvisPanelProps) {
   }, [view]);
 
   const trimmed = draft.trim();
+  const showCapabilities = hasAnyCapability(props.capabilities);
+  const emptyState = items.length === 0 && !thinking;
   const screenQuestions = unavailableNote ? [] : (props.screenQuestions ?? []);
   // Pytanie z sekcji nie powtarza się w podpowiedziach pod polem wiadomości.
   const chips = suggestions.filter((s) => !screenQuestions.includes(s));
@@ -227,23 +229,34 @@ export function JarvisPanel(props: JarvisPanelProps) {
       ) : (
         <>
           <div className="flex-1 overflow-y-auto px-3 py-3">
-            {items.length === 0 && !thinking ? (
+            {emptyState ? (
               <div className="flex h-full flex-col gap-3">
                 <div className="flex items-center gap-3">
                   <JarvisCharacter id={character} accent={accent} mood="listening" size={56} />
                   <div>
                     <p className="text-sm font-semibold">Cześć, tu {name}!</p>
                     <p className="text-xs text-muted-foreground">
-                      {screenQuestions.length > 0
-                        ? "Kliknij pytanie albo napisz własne."
-                        : props.capabilities
-                          ? "Tyle mogę zrobić za Ciebie w Twojej roli:"
-                          : "Zapytaj o kandydatów, rekrutacje czy klientów — albo zleć zadanie."}
+                      {unavailableNote
+                        ? "Teraz nie mogę odpowiadać."
+                        : screenQuestions.length > 0
+                          ? "Kliknij pytanie albo napisz własne."
+                          : showCapabilities
+                            ? "Tyle mogę zrobić za Ciebie w Twojej roli:"
+                            : "Zapytaj o kandydatów, rekrutacje czy klientów — albo zleć zadanie."}
                     </p>
                   </div>
                 </div>
                 <JarvisScreenQuestions questions={screenQuestions} disabled={streaming} onAsk={props.onSend} />
-                {props.capabilities && <JarvisCapabilities capabilities={props.capabilities} />}
+                {unavailableNote ? (
+                  <p
+                    className="rounded-lg border border-border bg-muted px-3 py-2 text-left text-xs text-muted-foreground"
+                    data-testid="jarvis-unavailable"
+                  >
+                    {unavailableNote}
+                  </p>
+                ) : (
+                  showCapabilities && props.capabilities && <JarvisCapabilities capabilities={props.capabilities} />
+                )}
               </div>
             ) : (
               <JarvisMessageList
@@ -264,7 +277,7 @@ export function JarvisPanel(props: JarvisPanelProps) {
           </div>
 
           <div className="border-t border-border p-3">
-            {unavailableNote && (
+            {unavailableNote && !emptyState && (
               <p className="mb-2 rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">{unavailableNote}</p>
             )}
             {!unavailableNote && softLimitNote && (

@@ -509,7 +509,7 @@ async def detached_copy_settings(
         snapshot_rule,
     )
     from app.services.cv_packages import pko_job_reference
-    from app.services.job_working_title import cv_role_title_for_job
+    from app.services.job_working_title import cv_header_title, cv_role_title_for_job
 
     job = await db.get(Job, csv.job_id)
     candidate = await db.get(Candidate, csv.candidate_id)
@@ -533,10 +533,17 @@ async def detached_copy_settings(
         if candidate is not None
         else ""
     )
+    # Nagłówek kopii z numerem zapytania, gdy reguła klienta tak chce
+    # (07.11.2026); nazwa pliku zostaje z samej roli.
+    header = cv_header_title(
+        title,
+        getattr(job, "client_reference", None) if job is not None else None,
+        bool(getattr(rule, "title_with_reference", False)),
+    )
     return DetachedCopySettings(
         filename=copy_filename(rule, title, name, pko_job_reference(job)),
         client_id=client_id,
-        job_title=(title or "").strip() or None,
+        job_title=(header or "").strip() or None,
         # Sam wymóg, bez wyłącznika blokady: ten czyta się przy pobraniu.
         requires_consent=requires_consent,
     )
@@ -669,4 +676,19 @@ async def finalize_stage_cv(
             },
         )
     )
+    if review_override is None:
+        # Ponowne zatwierdzenie po dołączeniu zgody ma tę samą treść — liczylibyśmy
+        # te same poprawki drugi raz.
+        from app.services.cv_edit_summary import log_approved_edits
+
+        await db.flush()
+        await log_approved_edits(
+            db,
+            csv=csv,
+            approved_html=csv.branded_draft_html,
+            metadata=metadata,
+            user_id=user_id,
+            document_version_id=version.id,
+            version=version.version,
+        )
     return version, filename, size

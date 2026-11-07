@@ -180,6 +180,41 @@ OVERRIDE_REASONS: dict[str, str] = {
     "other": "Inny powód",
 }
 
+# Obejście zapisane przez automat „DL match” (Delivery Lead wysyła osobę
+# z przeglądu do innej rekrutacji). Do 07.11.2026 szło jako „other” i w 30 dniach
+# było 11 z 91 obejść, a decyzja o powrocie do blokady (`CV_QC_ADVISORY`) ma
+# liczyć obejścia rekruterów. Nie ma go w oknie obejścia (`OVERRIDE_REASONS`).
+DL_MATCH_OVERRIDE = "dl_match"
+
+# „Inny powód” (R6, 07.11.2026): co najmniej tyle słów i wskazana blokada.
+# Minimum znaków nie wraca — przy 10 znakach ludzie wpisywali losowe litery.
+OVERRIDE_OTHER_MIN_WORDS = 3
+
+
+class OverrideAboutMissing(ValueError):
+    """„Inny powód” bez wskazania blokady, choć blokady są."""
+
+
+def override_about(
+    checks: list[dict], about_keys: Sequence[str], reason_code: Optional[str]
+) -> list[str]:
+    """Blokady, których dotyczy „Inny powód” — tylko klucze z bieżącego przebiegu.
+
+    Gotowy powód i automat „DL match” nie wskazują blokad (pusta lista).
+    „Inny powód” (albo sam opis bez kodu) przy blokadach z kluczami bez
+    żadnego pasującego klucza → `OverrideAboutMissing`.
+    """
+
+    if reason_code not in (None, "other"):
+        return []
+    current = blocking_keys(checks)
+    keyed = {key for key in current if not key.split("|", 1)[-1].startswith("#")}
+    chosen = [key for key in dict.fromkeys(about_keys) if key in keyed]
+    if keyed and not chosen:
+        raise OverrideAboutMissing("Zaznacz, której uwagi dotyczy powód obejścia QC.")
+    return chosen
+
+
 # Sekcje generatora, które niosą szablon, a nie treść: nagłówek roli
 # (stanowisko + daty), pracodawca, etykiety („Obowiązki”), „Rozważany na…”
 # i klauzula zgody RODO.
@@ -1337,6 +1372,22 @@ _TERM_FAMILIES = {
 }
 _SIMILAR_WORD_MIN = 5
 _SIMILAR_CONTEXT = 50
+# Adresy i e-maile z linii kontaktu („github.com/jnowak”, „jan@gitlab.pl”) to
+# nie nazwa narzędzia: staging 07.11.2026 pytał „Git pod inną nazwą?” cytatem
+# nagłówka CV. Domena bez schematu tylko z popularną końcówką albo ścieżką,
+# żeby „Socket.io” i „ASP.NET” zostały technologiami.
+_CONTACT_TOKEN = re.compile(
+    r"(?:https?://|www\.)\S+"
+    r"|[\w.+-]+@[\w-]+(?:\.[\w-]+)+"
+    r"|[\w-]+(?:\.[\w-]+)*\.(?:com|pl|org|eu|dev|me|info)(?![\w-])\S*"
+    r"|[\w-]+(?:\.[\w-]+)*\.[a-z]{2,6}/\S*",
+    re.IGNORECASE,
+)
+
+
+def _without_contacts(text: str) -> str:
+    """Tekst z adresami i e-mailami zamienionymi na spacje (ta sama długość)."""
+    return _CONTACT_TOKEN.sub(lambda m: " " * len(m.group()), text)
 
 
 def similar_in_original(
@@ -1352,7 +1403,8 @@ def similar_in_original(
     dawał 342 trafienia na 1195 prawdziwych luk.
     Cytat stoi w oryginale dosłownie, bez wielokropka, bo sprawdza go pominięcie.
     """
-    folded = dz._fold(original or "")
+    original = original or ""
+    folded = dz._fold(_without_contacts(original))
     name = dz._fold(term or "").strip()
     if not folded or not name:
         return None
@@ -1376,8 +1428,12 @@ def similar_in_original(
         match = re.search(pattern, folded)
         if match is None:
             continue
-        start = max(0, match.start() - _SIMILAR_CONTEXT)
-        end = min(len(original), match.end() + _SIMILAR_CONTEXT)
+        # Cytat z jednej linii: linia nad trafieniem bywa nagłówkiem kontaktu.
+        line_start = original.rfind("\n", 0, match.start()) + 1
+        line_end = original.find("\n", match.end())
+        line_end = len(original) if line_end < 0 else line_end
+        start = max(line_start, match.start() - _SIMILAR_CONTEXT)
+        end = min(line_end, match.end() + _SIMILAR_CONTEXT)
         # Cytat od pełnego słowa do pełnego słowa.
         while start > 0 and not original[start - 1].isspace():
             start += 1
@@ -1500,8 +1556,10 @@ def _title_matches(head: str, expected: str) -> bool:
 
 
 def _bold_patterns(req: Requirement) -> list[re.Pattern[str]]:
-    """Wzorce, którymi generator pogrubia wymaganie — tylko technologie,
-    nie domeny i pojęcia („bankowość”, „hurtownia danych”)."""
+    """Wzorce, którymi generator pogrubia wymaganie — technologie, narzędzia,
+    standardy i AI ze słownika z ich innym zapisem, nie domeny i pojęcia
+    („bankowość”, „hurtownia danych”). Na nich stoją licznik QC, sprawdzenie
+    „pogrubione nie wszędzie” i poprawka „Pogrub wymagania”."""
     from app.services.cv_generator_b2b.docx_renderer import compile_keyword_patterns
 
     return compile_keyword_patterns(list(req.alternatives or (req.label,)))
@@ -1510,9 +1568,7 @@ def _bold_patterns(req: Requirement) -> list[re.Pattern[str]]:
 def _has_unbolded(blocks: list[Block], req: Requirement) -> bool:
     """Czy wymaganie stoi gdzieś bez pogrubienia tam, gdzie pogrubiłaby je
     poprawka `bold_all` — treść bez nagłówków i szablonu, te same wzorce."""
-    patterns = [
-        p for name in req.terms or req.alternatives for p in dz._tech_patterns(name)
-    ]
+    patterns = _bold_patterns(req)
     return any(
         p.search(run["t"])
         for block in blocks
@@ -2661,11 +2717,25 @@ async def expected_titles(
     """Nagłówki, które QC uznaje: rola od klienta bez kodów i dopisków (ta sama
     funkcja, z której pisze generator) oraz nagłówek wpisany przez generator
     albo rekrutera."""
-    from app.services.job_working_title import cv_role_title_for_job, is_service_title
+    from app.services.job_working_title import (
+        cv_header_title,
+        cv_role_title_for_job,
+        header_reference_enabled,
+        is_service_title,
+    )
 
     out: list[str] = []
     role = await cv_role_title_for_job(db, src.job)
     if role:
+        # 07.11.2026: reguła klienta z numerem zapytania w nagłówku — ten
+        # nagłówek idzie pierwszy (poprawka „Zmień tytuł” go wpisuje), sama
+        # rola dalej się liczy.
+        if await header_reference_enabled(db, getattr(src.job, "client_id", None)):
+            header_title = cv_header_title(
+                role, getattr(src.job, "client_reference", None), True
+            )
+            if header_title != role:
+                out.append(header_title)
         out.append(role)
     header = str((payload or {}).get("presentation_position") or "").strip()
     # 21.10.2026: nagłówek „(43020)” nie jest rolą — nie potwierdza sam siebie.
@@ -3314,6 +3384,7 @@ async def record_override(
     notify_reviewers: bool = False,
     note: Optional[str] = None,
     wrong_keys: Sequence[str] = (),
+    about_keys: Sequence[str] = (),
 ) -> dict:
     """Obejście QC — wiersz przebiegu + Activity.
 
@@ -3333,6 +3404,9 @@ async def record_override(
     „QC się myli”: pominięcie z powodem ``qc_wrong_override`` (liczy się do
     trafności w „Jakość QC”). Reszta blokad to „prawda, ale przepuszczam” —
     obie listy zostają w przebiegu (`override_labels`).
+
+    ``about_keys`` (R6, 07.11.2026) — przy „Inny powód” blokady, których powód
+    dotyczy (`override_about`; brak pasującej = `OverrideAboutMissing`).
     """
 
     from app.models.activity import Activity
@@ -3341,6 +3415,7 @@ async def record_override(
 
     src, checks, _ = await evaluate(db, stage)
     passed, blocking_failed, warnings_count = summarize(checks)
+    about = override_about(checks, about_keys, reason_code)
     labels, wrong_items = override_labels(checks, wrong_keys)
     db.add(
         CvQcRun(
@@ -3364,6 +3439,7 @@ async def record_override(
                 # (`spend_advisory_overrides`).
                 "override_advisory": notify_reviewers,
                 "override_labels": labels,
+                "override_about": about,
             },
             override_reason=reason,
             override_by_user_id=user_id,
@@ -5275,8 +5351,10 @@ def _wrap_matches(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, int]
             if at > 0 and spans[at - 1][1] > a:
                 continue
             spans.insert(at, (a, b))
-    if not spans:
-        return html_lib.escape(text, quote=False), 0
+    return _wrap_spans(text, spans)
+
+
+def _wrap_spans(text: str, spans: list[tuple[int, int]]) -> tuple[str, int]:
     out, pos = [], 0
     for a, b in spans:
         out.append(html_lib.escape(text[pos:a], quote=False))
@@ -5287,12 +5365,15 @@ def _wrap_matches(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, int]
 
 
 def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
-    """Pogrub wystąpienia wymagań w treści (poza nagłówkami i szablonem)."""
+    """Pogrub wystąpienia wymagań w treści (poza nagłówkami i szablonem)
+    dokładnie tak, jak pogrubia generator (G2, 07.11.2026): te same wzorce
+    i to samo scalanie zakresów. Wcześniej poprawka brała nazwę każdego
+    wymagania, więc pogrubiała też „Scrum” i „bankowość”, których generator
+    i licznik QC nie pogrubiają, a narzędzi ze słownika nie łączyła z ich
+    innym zapisem."""
+    from app.services.cv_generator_b2b.docx_renderer import highlight_spans
 
-    patterns: list[re.Pattern[str]] = []
-    for req in requirements:
-        for name in req.terms or req.alternatives:
-            patterns.extend(dz._tech_patterns(name))
+    patterns = [p for req in requirements for p in _bold_patterns(req)]
     doc = EditableCv.parse(html)
     count = 0
     for i, tok, ctx in list(doc.data_tokens()):
@@ -5301,7 +5382,10 @@ def bold_all(html: str, requirements: list[Requirement]) -> tuple[str, int]:
             continue
         if block.kind == "h" or block.section in _NON_CONTENT_SECTIONS:
             continue
-        wrapped, n = _wrap_matches(tok["text"], patterns)
+        spans = highlight_spans(tok["text"], patterns) if patterns else []
+        if not spans:
+            continue
+        wrapped, n = _wrap_spans(tok["text"], spans)
         if n:
             doc.tokens[i] = {"k": "tag", "raw": wrapped}
             count += n

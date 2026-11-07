@@ -13,6 +13,10 @@
  *
  * „Kandydat potwierdził to w rozmowie” (D3, 17.10.2026) zapisuje po stronie
  * serwera „Potwierdzone z kandydatem” przy rzeczach bez źródła — okno to mówi.
+ *
+ * „Inny powód” (R6, 07.11.2026): co najmniej trzy słowa i zaznaczenie, której
+ * uwagi dotyczy (`about_keys`), gdy rzeczy mają klucze pozycji. 15 z 91 obejść
+ * w 30 dniach miało powód „x”, „.” albo „dw”.
  */
 
 import { useId, useState } from "react";
@@ -77,19 +81,25 @@ export function QcOverrideDialog({
   const [note, setNote] = useState("");
   /** Indeksy rzeczy oznaczonych „QC się myli”. */
   const [wrong, setWrong] = useState<ReadonlySet<number>>(new Set());
+  /** Indeksy rzeczy, których dotyczy „Inny powód” (R6). */
+  const [about, setAbout] = useState<ReadonlySet<number>>(new Set());
   const [touched, setTouched] = useState(false);
   const { showSuccess, showError } = useToast();
   const override = useQcOverride(stageId, onChanged);
   const noteId = useId();
   const errorId = useId();
 
-  const error = qcOverrideError(reason, note);
+  const items: readonly QcPendingItem[] =
+    pendingItems ?? pending.map((title) => ({ title, keys: [], labelable: false }));
+  const aboutChoices = items.map((item, index) => ({ item, index })).filter(({ item }) => item.keys.length > 0);
+  const error = qcOverrideError(reason, note, { required: aboutChoices.length > 0, picked: about.size });
   const close = (next: boolean) => {
     if (!next) {
       setReason(null);
       setNote("");
       setTouched(false);
       setWrong(new Set());
+      setAbout(new Set());
     }
     onOpenChange(next);
   };
@@ -98,11 +108,13 @@ export function QcOverrideDialog({
     if (error || !reason || override.isPending) return;
     const clean = note.trim();
     const wrongKeys = (pendingItems ?? []).flatMap((item, index) => (wrong.has(index) ? item.keys : []));
+    const aboutKeys = reason === "other" ? items.flatMap((item, index) => (about.has(index) ? item.keys : [])) : [];
     override.mutate(
       {
         reason_code: reason,
         ...(clean ? { reason: clean } : {}),
         ...(wrongKeys.length > 0 ? { wrong_keys: wrongKeys } : {}),
+        ...(aboutKeys.length > 0 ? { about_keys: aboutKeys } : {}),
       },
       {
       onSuccess: (result) => {
@@ -114,10 +126,15 @@ export function QcOverrideDialog({
       },
     );
   };
-  const items: readonly QcPendingItem[] =
-    pendingItems ?? pending.map((title) => ({ title, keys: [], labelable: false }));
   const rest = items.length - PENDING_SHOWN;
   const labelable = items.slice(0, PENDING_SHOWN).some((item) => item.labelable);
+  const toggleAbout = (index: number) =>
+    setAbout((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   const toggle = (index: number, isWrong: boolean) =>
     setWrong((current) => {
       const next = new Set(current);
@@ -227,6 +244,28 @@ export function QcOverrideDialog({
             onChange={(event) => setNote(event.target.value)}
           />
         </div>
+        {reason === "other" && aboutChoices.length > 0 ? (
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-medium text-muted-foreground">Której uwagi dotyczy powód?</legend>
+            <div className="space-y-1">
+              {aboutChoices.map(({ item, index }) => {
+                const id = `${noteId}-about-${index}`;
+                return (
+                  <label key={index} htmlFor={id} className="flex cursor-pointer items-start gap-2 text-sm">
+                    <input
+                      id={id}
+                      type="checkbox"
+                      className="mt-0.5 size-4 accent-primary"
+                      checked={about.has(index)}
+                      onChange={() => toggleAbout(index)}
+                    />
+                    <span className="min-w-0">{item.title}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        ) : null}
         {reason === "confirmed_in_call" ? (
           // D3 (17.10.2026): notatki pary czytają QC, generator CV i AI — rekruter ma wiedzieć, że powstaną.
           <p className="text-xs text-muted-foreground">

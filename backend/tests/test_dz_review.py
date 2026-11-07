@@ -771,6 +771,95 @@ async def test_client_cv_made_outside_the_generator_comes_from_the_b2b_file(
         await _cleanup(world, [hor_id])
 
 
+def test_b2b_file_older_than_the_recruitment_is_not_its_cv() -> None:
+    """28–29.10.2026 (Nordea 789177): plik z sierpnia, dwa miesiące przed
+    rekrutacją, zaliczał „CV firmowe jest przygotowane”."""
+    from datetime import datetime, timezone
+
+    job_created = datetime(2026, 10, 27, 11, 46, tzinfo=timezone.utc)
+    old = datetime(2026, 8, 21, 23, 31, tzinfo=timezone.utc)
+    fresh = datetime(2026, 10, 28, 9, 0, tzinfo=timezone.utc)
+    rows = [
+        (1, "B2B_Nordea_LIQ_Devops_Ewa.docx", None, old),
+        (2, "B2B_Nordea_Ewa.docx", fresh, old),  # uploaded_at wygrywa z created_at
+        (3, "B2B_Nordea_Inne.docx", None, fresh),
+        (4, "B2B_Nordea_Bez_Daty.docx", None, None),
+    ]
+    kept = [row[0] for row in svc.rows_from_job(rows, job_created)]
+    assert kept == [2, 3, 4]
+    assert svc.rows_from_job(rows[:1], job_created) == []
+    assert (
+        svc.pick_document_cv(svc.rows_from_job(rows[:1], job_created), "Nordea") is None
+    )
+    # brak daty rekrutacji = bez filtra
+    assert svc.rows_from_job(rows, None) == rows
+
+
+@pytest.mark.asyncio
+async def test_b2b_file_from_before_the_recruitment_does_not_count_as_company_cv(
+    api_client: AsyncClient,
+) -> None:
+    """Zwrot DL „CV się nie wygenerowało” po QC zdanym na starym pliku B2B:
+    QC i wymagania ruchu mówią „brak CV firmowego”, dopóki plik nie powstanie
+    po rekrutacji."""
+    from datetime import timedelta
+
+    from app.models.candidate_document import CandidateDocument
+    from app.services.move_requirements import company_cv_refs
+
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateStageCV).where(
+                    CandidateStageCV.candidate_id == world["candidate_id"]
+                )
+            )
+            job_created = (await db.get(Job, world["job_id"])).created_at
+            data = _client_docx()
+            db.add(
+                CandidateDocument(
+                    candidate_id=world["candidate_id"],
+                    filename="Ewa_B2B_Nordea.docx",
+                    file_content=data,
+                    created_at=job_created - timedelta(days=60),
+                )
+            )
+            await db.commit()
+        pair = (world["candidate_id"], world["job_id"])
+        body = await _review(stage_id)
+        assert body["generated_cv"] is None, body["generated_cv"]
+        async with AsyncSessionLocal() as db:
+            assert pair not in await company_cv_refs(db, [pair])
+            # Ten sam plik po utworzeniu rekrutacji jest jej CV.
+            doc = (
+                await db.execute(
+                    select(CandidateDocument).where(
+                        CandidateDocument.candidate_id == world["candidate_id"]
+                    )
+                )
+            ).scalar_one()
+            doc.created_at = job_created + timedelta(hours=1)
+            await db.commit()
+        body = await _review(stage_id)
+        assert body["generated_cv"]["source"] == "document"
+        async with AsyncSessionLocal() as db:
+            assert pair in await company_cv_refs(db, [pair])
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateDocument).where(
+                    CandidateDocument.candidate_id == world["candidate_id"]
+                )
+            )
+            await db.commit()
+        await _cleanup_review(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
 @pytest.mark.asyncio
 async def test_hints_are_generated_once_then_read_from_memory(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch

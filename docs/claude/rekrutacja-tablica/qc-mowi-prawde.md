@@ -263,6 +263,13 @@ tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
   zmienia zaliczenia, zmienia zdanie uwagi i daje cytat. Java przy JavaScript, C# przy
   C++ i Go przy Google dalej nic nie znajdują. Przy lukach działa bez rdzeni, bo
   pierwsza wersja dawała tam 342 trafienia na 1195 prawdziwych luk.
+- **Adresy i e-maile to nie nazwa narzędzia** (07.11.2026): staging pytał „Git —
+  w oryginale pod inną nazwą?” cytatem nagłówka kontaktu, bo „github” stało tylko
+  w `github.com/…`. `similar_in_original` szuka w tekście bez adresów i e-maili
+  (`_without_contacts`; domena bez schematu tylko z końcówką com/pl/org/eu/dev/me/info
+  albo ze ścieżką, więc „Socket.io” i „ASP.NET” zostają), a cytat bierze z jednej
+  linii. `found_in(mode="support")` bez zmian: na 1181 parach żaden dowód nie stał
+  wyłącznie w adresie. Zaliczenie bez zmian (968 → 968), więc `QC_VERSION` też.
 - **„To ta sama rzecz”:** pominięcie z powodem `other_name` i cytatem z oryginału (serwer
   sprawdza, że cytat tam stoi). Liczy się do „Jakości QC”, a przy blokadzie Delivery Lead
   dostaje dzwonek jak przy każdym pominięciu.
