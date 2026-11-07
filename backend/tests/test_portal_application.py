@@ -61,6 +61,23 @@ def test_normalize_slug_accepts_slug_or_link_and_rejects_garbage():
     assert portal_application.normalize_slug(None) is None
 
 
+def test_portal_entry_meta_round_trip():
+    from app.services.process_entry_meta import (
+        portal_application_entry_meta,
+        portal_application_portal,
+    )
+
+    assert (
+        portal_application_portal(portal_application_entry_meta("justjoinit"))
+        == "justjoinit"
+    )
+    assert (
+        portal_application_portal({"kind": "portal_application", "portal": "x"}) is None
+    )
+    assert portal_application_portal({"kind": "application_link"}) is None
+    assert portal_application_portal(None) is None
+
+
 def test_apply_method_defaults_to_career_page(monkeypatch):
     monkeypatch.setattr(jjit_payload.settings, "JJIT_APPLY_EMAIL", "")
     assert jjit_payload.apply_method("https://nexus/r/x") == {
@@ -155,6 +172,20 @@ async def test_api_ad_id_lands_card_in_new_with_application_evidence(app_client)
     stage = await _stage(cand, job_id)
     assert stage is not None
     assert stage.stage.value == "new"
+    from app.models.recruitment_process import RecruitmentProcess
+
+    async with AsyncSessionLocal() as db:
+        process = await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.candidate_id == cand,
+                RecruitmentProcess.job_id == job_id,
+            )
+        )
+        assert process is not None and process.entry_source == "application"
+        assert process.entry_meta == {
+            "kind": "portal_application",
+            "portal": "justjoinit",
+        }
     async with AsyncSessionLocal() as db:
         events = (
             (

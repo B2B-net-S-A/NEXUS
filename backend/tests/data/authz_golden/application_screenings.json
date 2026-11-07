@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/jobs/{job_id}/screened-out": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/jobs/{job_id}/applicants/{candidate_id}/ai-check": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

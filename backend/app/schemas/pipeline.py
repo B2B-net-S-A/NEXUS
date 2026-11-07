@@ -452,6 +452,9 @@ class CandidateStageResponse(BaseModel):
     # osoba się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty N.”.
     entry_link_owner_id: Optional[int] = None
     entry_link_owner_name: Optional[str] = None
+    # 07.11.2026: aplikacja z formularza portalu — „justjoinit”, „rocketjobs”,
+    # „pracuj” (plakietka „Z JustJoin.IT”); ``None`` = inne wejście.
+    entry_portal: Optional[str] = None
     # …i właściciele innych linków, z których osoba zgłosiła się PONOWNIE, gdy
     # już była w rekrutacji — „Zgłosił się też z Twojego linku”. Karta i
     # blokada prowadzącego bez zmian.

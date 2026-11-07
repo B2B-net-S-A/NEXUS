@@ -91,6 +91,21 @@ describe("plakietka linku rekrutacji (etap 2 linków, 19.10.2026)", () => {
     expect(badges.map((b) => b.key)).not.toContain("source");
   });
 
+  it("aplikacja z JustJoin.IT mówi „Z JustJoin.IT” zamiast „Z ogłoszenia” (07.11.2026)", () => {
+    const labels = cardBadges(item({ entry_source: "application", entry_portal: "justjoinit" }), ctx()).map(
+      (b) => b.label,
+    );
+    expect(labels).toContain("Z JustJoin.IT");
+    expect(labels).not.toContain("Z ogłoszenia");
+  });
+
+  it("portal bez zgłoszenia nie daje plakietki", () => {
+    const keys = cardBadges(item({ entry_source: "added_manual", entry_portal: "justjoinit" }), ctx()).map(
+      (b) => b.key,
+    );
+    expect(keys).not.toContain("portal");
+  });
+
   it("karta spoza zgłoszenia nie ma plakietki linku", () => {
     const badges = cardBadges(
       item({ entry_source: "added_manual", entry_link_owner_id: 7 }),

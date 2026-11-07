@@ -161,6 +161,9 @@ async def place_application(
     """Źródło z ``job_id`` i karta w „Nowi” rekrutacji ogłoszenia. Bez commita."""
     from app.api.proposals_bulk import add_candidates_to_job  # noqa: PLC0415
     from app.services import candidate_claim  # noqa: PLC0415
+    from app.services.process_entry_meta import (  # noqa: PLC0415
+        portal_application_entry_meta,
+    )
 
     job_id = await resolve_job_id(db, portal=portal, ad_id=ad_id, ad_slug=ad_slug)
     if job_id is None:
@@ -186,6 +189,7 @@ async def place_application(
         actor_user_id=job.recruiter_id,
         note=f"Aplikacja przez {_PORTAL_LABEL[portal]}",
         entry_source=candidate_claim.ENTRY_APPLICATION,
+        entry_meta=portal_application_entry_meta(portal),
         claim=False,
         mark_proposals=False,
     )

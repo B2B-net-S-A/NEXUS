@@ -225,3 +225,19 @@ describe("newColumnSection", () => {
     expect(newColumnSection(6)).toBe("rest");
   });
 });
+
+describe("orderNewColumn — „Sprawdź w CV” (07.11.2026)", () => {
+  it("„AI: pasuje” wyciąga zgłoszenie z grupy z brakiem", () => {
+    const gaps = new Map([[10, ["Agentic AI"]]]);
+    const checked = { id: 1, candidate_id: 10, entry_source: "application", entry_ai_screening: { verdict: "fits" } };
+    const { sections, appliedGapIds } = orderNewColumn([checked], gaps);
+    expect(sections.get(1)).toBe("applied");
+    expect(appliedGapIds.size).toBe(0);
+  });
+
+  it("„AI: nie pasuje” zostaje zwinięte", () => {
+    const gaps = new Map([[10, ["Agentic AI"]]]);
+    const checked = { id: 1, candidate_id: 10, entry_source: "application", entry_ai_screening: { verdict: "not_fit" } };
+    expect(orderNewColumn([checked], gaps).sections.get(1)).toBe("applied_gap");
+  });
+});

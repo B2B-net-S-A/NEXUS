@@ -139,6 +139,7 @@ import {
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
+import { checkApplicantCv } from "@/lib/api/applicationScreenings";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -1708,7 +1709,16 @@ interface ColProps {
  appliedGapIds: Set<number>;
  } | null;
  /** Zwinięta grupa „Aplikowali, brak »musi mieć«” (06.11.2026). */
- appliedGap?: { count: number; collapsed: boolean; onToggle: () => void } | null;
+ appliedGap?: {
+ count: number;
+ collapsed: boolean;
+ onToggle: () => void;
+ /** Zaznacza całą grupę — dalej istniejące „Odrzuć” z mailem w pasku (07.11.2026). */
+ onSelectAll?: () => void;
+ /** „Sprawdź w CV (AI)” dla całej grupy; `checking` = trwa. */
+ onAiCheck?: () => void;
+ checking?: boolean;
+ } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1802,6 +1812,36 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  <div className="mt-0.5 text-[10.5px] text-muted-foreground">
  {freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy"}
  </div>
+ ) : null}
+ </div>
+ );
+}
+
+/** Akcje grupy aplikujących bez kompletu „musi mieć” (07.11.2026). */
+function AppliedGapActions({ onSelectAll, onAiCheck, checking }: { onSelectAll?: () => void; onAiCheck?: () => void; checking?: boolean }) {
+ if (!onSelectAll && !onAiCheck) return null;
+ return (
+ <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10.5px]">
+ {onAiCheck ? (
+ <button
+ type="button"
+ data-testid="new-column-applied-gap-ai-check"
+ onClick={onAiCheck}
+ disabled={checking}
+ className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ {checking ? "Sprawdzam CV…" : "Sprawdź w CV (AI)"}
+ </button>
+ ) : null}
+ {onSelectAll ? (
+ <button
+ type="button"
+ data-testid="new-column-applied-gap-select"
+ onClick={onSelectAll}
+ className="font-medium text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Zaznacz wszystkich
+ </button>
  ) : null}
  </div>
  );
@@ -2034,7 +2074,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
  ) : null}
  {startsSection && section === "applied_gap" && appliedGap ? (
+ <>
  <AppliedGapToggle count={appliedGap.count} collapsed={false} onToggle={appliedGap.onToggle} />
+ <AppliedGapActions onSelectAll={appliedGap.onSelectAll} onAiCheck={appliedGap.onAiCheck} checking={appliedGap.checking} />
+ </>
  ) : null}
  <Draggable
  draggableId={String(item.id)}
@@ -2092,6 +2135,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <div className="px-0.5 pt-1">
  <div className="text-[11px] font-semibold leading-tight text-muted-foreground">Aplikowali, brak „musi mieć”</div>
  <AppliedGapToggle count={appliedGap.count} collapsed onToggle={appliedGap.onToggle} />
+ <AppliedGapActions onAiCheck={appliedGap.onAiCheck} checking={appliedGap.checking} />
  </div>
  ) : null}
  {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
@@ -2189,6 +2233,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // kart były indeksami widocznej listy.
  const [appliedGapOpen, setAppliedGapOpen] = useState(false);
  const appliedGapCount = newColumnQueue.appliedGapIds.size;
+ const [appliedGapChecking, setAppliedGapChecking] = useState(false);
+ const appliedGapCandidateIds = useMemo(
+ () =>
+ newColumnQueue.items
+ .filter((item) => newColumnQueue.appliedGapIds.has(item.id))
+ .map((item) => item.candidate_id),
+ [newColumnQueue]
+ );
  const allDisplayCols = useMemo(
  () =>
  boardFold.columns.map((f) => {
@@ -3144,6 +3196,36 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return n;
  });
  }, []);
+
+ // „Sprawdź w CV (AI)” dla grupy zgłoszeń z brakiem „musi mieć” (07.11.2026):
+ // po kolei, żeby nie zalać modelu; „AI: pasuje” wraca do „Aplikowali”.
+ const checkAppliedGap = async () => {
+ if (appliedGapChecking || appliedGapCandidateIds.length === 0) return;
+ setAppliedGapChecking(true);
+ let fits = 0;
+ let failed = 0;
+ for (const candidateId of appliedGapCandidateIds) {
+ try {
+ const res = await checkApplicantCv(jobId, candidateId);
+ if (res.badge?.verdict === "fits") fits += 1;
+ } catch {
+ failed += 1;
+ }
+ }
+ setAppliedGapChecking(false);
+ void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ const checked = appliedGapCandidateIds.length - failed;
+ if (failed > 0) {
+ showError(`Sprawdzono ${checked} z ${appliedGapCandidateIds.length} CV. Pozostałych nie udało się ocenić — spróbuj ponownie.`);
+ } else {
+ showSuccess(
+ fits > 0
+ ? `Sprawdzono ${checked} CV. ${fits} wraca do „Aplikowali na ogłoszenie”.`
+ : `Sprawdzono ${checked} CV. AI nie znalazło brakujących umiejętności.`
+ );
+ }
+ };
 
  // Karta i dok podają wiersz etapu — osobę szukamy na Tablicy (ref, żeby
  // kolumny nie dostawały nowej funkcji przy każdym odświeżeniu tablicy).
@@ -4535,6 +4617,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  count: appliedGapCount,
  collapsed: !appliedGapOpen,
  onToggle: () => setAppliedGapOpen((open) => !open),
+ onSelectAll: readOnly
+ ? undefined
+ : () => {
+ setAppliedGapOpen(true);
+ setSelected((prev) => new Set([...prev, ...appliedGapCandidateIds]));
+ },
+ onAiCheck: readOnly ? undefined : () => void checkAppliedGap(),
+ checking: appliedGapChecking,
  }
  : null
  }

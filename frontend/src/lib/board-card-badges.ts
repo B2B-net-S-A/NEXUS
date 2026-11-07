@@ -422,6 +422,24 @@ function linkOwnerBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | nu
   };
 }
 
+const PORTAL_NAMES = { justjoinit: "JustJoin.IT", rocketjobs: "RocketJobs", pracuj: "Pracuj.pl" } as const;
+
+/**
+ * Aplikacja z formularza portalu (07.11.2026): karta mówi, skąd osoba przyszła,
+ * tak jak „Z Twojego linku” przy stronie kariery.
+ */
+function portalBadge(item: KanbanItem): CardBadge | null {
+  if (item.entry_source !== "application" || !item.entry_portal) return null;
+  const name = PORTAL_NAMES[item.entry_portal];
+  if (!name) return null;
+  return {
+    key: "portal",
+    label: `Z ${name}`,
+    tone: "neutral",
+    title: `Osoba sama aplikowała na ogłoszenie tej rekrutacji na ${name}.`,
+  };
+}
+
 /**
  * Osoba była już w rekrutacji i zgłosiła się ponownie z czyjegoś linku —
  * karta i blokada prowadzącego bez zmian, ślad zostaje na karcie (makieta 2a,
@@ -558,8 +576,9 @@ function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null 
     case "application": {
       const ai = aiScreeningBadge(item.entry_ai_screening);
       if (ai) return { key: "source", label: ai.label, tone: ai.tone, title: ai.title };
-      // Zgłoszenie z linku bez przeglądu AI: źródło mówi plakietka linku.
-      return item.entry_link_owner_id != null
+      // Zgłoszenie z linku albo z portalu bez przeglądu AI: źródło mówi
+      // plakietka linku / portalu.
+      return item.entry_link_owner_id != null || item.entry_portal
         ? null
         : { key: "source", label: "Z ogłoszenia", tone: "neutral" };
     }
@@ -718,6 +737,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     if (call) out.push(call);
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);
+    const portal = portalBadge(item);
+    if (portal) out.push(portal);
     const reapplied = reappliedViaLinkBadge(item, ctx);
     if (reapplied) out.push(reapplied);
     const source = sourceBadge(item, ctx);

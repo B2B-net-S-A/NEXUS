@@ -164,6 +164,25 @@ def test_success_goes_through_ingest_without_auto_match(wired):
     )
 
 
+def test_collecting_a_batch_again_skips_rows_already_written(wired):
+    """Wdrożenie zabija bieg w połowie paczki; po restarcie zbieramy ją jeszcze raz.
+
+    Wiersz już zapisany z tego samego tekstu nie przechodzi drugi raz przez
+    ingest (wektor, oś, zapis), a próby nieudane dalej wracają do zakresu.
+    """
+    candidate = _candidate()
+    _apply(candidate, _ok())
+    stats = _apply(candidate, _ok())
+    assert len(wired["ingest"]) == 1
+    assert (stats.applied, stats.already) == (0, 1)
+    assert candidate.cv_extracted_data["_cv_reparse"]["attempts"] == 1
+
+    failed = _candidate(id=8)
+    _apply(failed, SimpleNamespace(type="errored"))
+    stats = _apply(failed, _ok())
+    assert stats.applied == 1 and stats.already == 0
+
+
 def test_cv_changed_after_submit_writes_nothing(wired):
     candidate = _candidate()
     stats = _apply(candidate, _ok(), digest="0" * 32)
