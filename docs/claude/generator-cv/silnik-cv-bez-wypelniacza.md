@@ -87,6 +87,20 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   rekrutera → `cv_role_title(job)` → dopiero potem wynik modelu.
   `presentation_title.instructions` każe modelowi przepisać rolę bez zmian.
   QC CV ma porównywać nagłówek z tą samą funkcją (PR 2).
+- **Wyjątek: numer zapytania w nagłówku z reguły klienta (07.11.2026).**
+  Pomiar na kopii produkcji: w rekrutacji „AML Analyst (43114)” 12 CV miało
+  numer dopisany ręcznie. Decyzja Artura: pole reguły CV klienta
+  `cv_title_with_reference` (migracja 0661 + lustro w `entrypoint.sh`,
+  przełącznik „Numer zapytania w nagłówku CV” w `/settings/cv-rules`), dla
+  Nordei włączone w katalogu polityk (`cv_policies.json`, wersja 4).
+  Nagłówek = `cv_header_title(rola, client_reference, True)`: „AML Analyst
+  (43114)”, numer, który już stoi w nazwie, nie wraca drugi raz. Dokłada go
+  `client_rules.apply_header_reference` w obu pipeline'ach PRZED migawką
+  `render_payload`; **nazwa pliku liczy się dalej z samej roli**. Ten sam
+  nagłówek dostaje kopia CV etapu (`detached_copy_settings.job_title`),
+  a QC (`expected_titles`) stawia go pierwszy, więc „Zmień tytuł” wpisuje
+  wersję z numerem, a sama rola dalej jest zgodna. Bez włączonego pola
+  wszystko jak w D2/D4. Testy: `tests/test_cv_title_with_reference.py`.
 - **Lata** (`_helpers._fix_experience_years`, `_fix_scoped_years`):
   - liczba z ułamkiem jest dopasowywana w całości (`4,5 roku` nie daje już
     `4.4 lata`), liczby > 99 to daty i zostają („od 2023 roku”);
@@ -385,6 +399,16 @@ Makiety: https://claude.ai/artifact/E3xpCnq7o7PqG8TRHJdMzW
   u Scrum Mastera, więc `keep_source_methodologies` dopisuje metodykę, którą oryginał wymienia
   z nazwy (Scrum, Kanban, SAFe, Agile, PRINCE2, ITIL). Może przez to powstać 9. kategoria.
 - Kod nie przypisuje kategorii sam: słownik NEXUSA obejmuje dziś 35% pozycji z CV.
+
+## Języki w osobnych akapitach (07.11.2026)
+
+Pomiar na kopii produkcji (266 CV zatwierdzonych od 12.10): 14 CV miało
+sekcję języków rozbitą ręcznie z jednej linii „English - B2 · Polish - native”.
+Word (oba renderery) od dawna drukuje każdy język jako osobny punkt, a kartka
+edytora pokazywała jedną linię. `html_export.render_interactive_html` składa
+teraz jeden `<p>` na język; `cv_approved_docx.render_languages` dalej dzieli
+po „ · ” starsze CV. Poziomów (CEFR) kod nie dopisuje. Szkice sprzed zmiany
+zostają, jak były.
 
 ## Daty stanowisk jak w oryginale (02.11.2026)
 

@@ -2717,11 +2717,25 @@ async def expected_titles(
     """Nagłówki, które QC uznaje: rola od klienta bez kodów i dopisków (ta sama
     funkcja, z której pisze generator) oraz nagłówek wpisany przez generator
     albo rekrutera."""
-    from app.services.job_working_title import cv_role_title_for_job, is_service_title
+    from app.services.job_working_title import (
+        cv_header_title,
+        cv_role_title_for_job,
+        header_reference_enabled,
+        is_service_title,
+    )
 
     out: list[str] = []
     role = await cv_role_title_for_job(db, src.job)
     if role:
+        # 07.11.2026: reguła klienta z numerem zapytania w nagłówku — ten
+        # nagłówek idzie pierwszy (poprawka „Zmień tytuł” go wpisuje), sama
+        # rola dalej się liczy.
+        if await header_reference_enabled(db, getattr(src.job, "client_id", None)):
+            header_title = cv_header_title(
+                role, getattr(src.job, "client_reference", None), True
+            )
+            if header_title != role:
+                out.append(header_title)
         out.append(role)
     header = str((payload or {}).get("presentation_position") or "").strip()
     # 21.10.2026: nagłówek „(43020)” nie jest rolą — nie potwierdza sam siebie.
