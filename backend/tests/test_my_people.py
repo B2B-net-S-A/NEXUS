@@ -454,6 +454,39 @@ async def test_summary_counts_unseen_matches_and_seen_clears_them(app_client):
     assert body["new_matches"] == 0
 
 
+@needs_db
+@pytest.mark.asyncio
+async def test_for_job_returns_hourly_budget(app_client):
+    """Panel porównuje stawkę osoby z budżetem rekrutacji (07.11.2026)."""
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+
+    async with AsyncSessionLocal() as db:
+        me = await _user(db)
+        job = await _job(db)
+        job.rate_budget_hourly = Decimal("70.00")
+        await db.commit()
+        uid, job_id = me.id, job.id
+
+    headers = {
+        "Authorization": f"Bearer {create_access_token(subject=uid, role='recruiter')}"
+    }
+    body = (
+        await app_client.get(f"/api/my-people/for-job/{job_id}", headers=headers)
+    ).json()
+    assert body["rate_budget_hourly"] == 70.0
+
+
+def test_for_job_response_has_budget_field():
+    from app.api.my_people import ForJobResponse
+
+    assert "rate_budget_hourly" in ForJobResponse.model_fields
+    empty = ForJobResponse(job_id=1, job_title="X", rows=[], in_job_count=0)
+    assert empty.rate_budget_hourly is None
+
+
 def test_router_is_mounted():
     from app.main import app
 

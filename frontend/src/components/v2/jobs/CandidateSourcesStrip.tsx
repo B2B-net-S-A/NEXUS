@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { JobTwinChip } from "@/components/v2/jobs/twins/JobTwinChip";
 import { JobApplicantsTile } from "@/components/v2/jobs/JobApplicantsTile";
+import { MyPeopleTile } from "@/components/v2/jobs/MyPeopleTile";
 import { OpenSimilarTile } from "@/components/v2/jobs/twins/OpenSimilarTile";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import type { CandidateSourceTab } from "@/components/v2/recruitment/types";
@@ -297,7 +298,12 @@ export function CandidateSourcesStrip({
       onOpen={onOpen}
       onAddByName={onAddByName}
       onAddFromCv={onAddFromCv}
-      afterTiles={<JobApplicantsTile jobId={jobId} />}
+      afterTiles={
+        <>
+          <MyPeopleTile />
+          <JobApplicantsTile jobId={jobId} />
+        </>
+      }
       afterSimilar={
         <>
           <OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />

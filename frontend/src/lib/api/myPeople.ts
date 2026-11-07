@@ -102,6 +102,8 @@ export interface ForJobResponse {
   in_job_count: number;
   /** Wektory/dostawca niedostępne — wyniki niepoliczone, to NIE „nikt nie pasuje". */
   degraded: boolean;
+  /** Budżet PLN/h rekrutacji; `null` = rekrutacja go nie ma. */
+  rate_budget_hourly?: number | null;
 }
 
 /** „Zespół” (25.10.2026): czyja lista leży — tylko Head of Recruitment i admin. */

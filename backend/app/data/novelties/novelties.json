@@ -1559,5 +1559,25 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "cv-editor.quick-fixes"
+  },
+  {
+    "id": "moi-ludzie-na-tablicy",
+    "pr": 3143,
+    "title": "„Moi ludzie” na Tablicy rekrutacji",
+    "why": "Twoi ludzie pasujący do rekrutacji, z odznaką „ponad budżet”. Otwiera ich też dzwonek. „?” na karcie znaczy: wynik jeszcze nie policzony, nie zero.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → pasek źródeł → Moi ludzie",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.my-people"
   }
 ]
