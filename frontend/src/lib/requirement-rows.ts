@@ -241,6 +241,58 @@ export function setRowLevel(
   return rows.map((row) => (row.key === key ? { ...row, level } : row));
 }
 
+/** Propozycja krytycznego z odczytu maila (M1, 07.11.2026): etykieta wiersza i zdanie z maila. */
+export interface CriticalProposal {
+  label: string;
+  reason: string;
+}
+
+/** Wiersze, których dotyczy propozycja — po pierwszym słowie. */
+export function proposalRowKeys(
+  rows: readonly RequirementRowForm[],
+  proposal: readonly CriticalProposal[],
+): string[] {
+  const labels = new Set(proposal.map((item) => fold(item.label)));
+  return filledRows(rows)
+    .filter((row) => row.level !== "nice" && labels.has(fold(row.words[0] ?? "")))
+    .map((row) => row.key);
+}
+
+/** „Zatwierdź krytyczne”: zaproponowane wiersze dostają poziom krytyczny (limit 3 zostaje). */
+export function applyCriticalProposal(
+  rows: readonly RequirementRowForm[],
+  proposal: readonly CriticalProposal[],
+): RequirementRowForm[] {
+  return proposalRowKeys(rows, proposal).reduce<RequirementRowForm[]>(
+    (acc, key) => setRowLevel(acc, key, "critical"),
+    [...rows],
+  );
+}
+
+/** Technologie z maila (M2), których nie ma jeszcze w żadnym wierszu. */
+export function missingTechnologies(
+  rows: readonly RequirementRowForm[],
+  names: readonly string[],
+): string[] {
+  const have = new Set(filledRows(rows).flatMap((row) => row.words.map(fold)));
+  return names.filter((name, index) => {
+    const key = fold(name);
+    return key && !have.has(key) && names.findIndex((other) => fold(other) === key) === index;
+  });
+}
+
+/** „+ Technologia”: osobne wiersze „mile widziane”, w limicie listy. */
+export function addNiceRows(
+  rows: readonly RequirementRowForm[],
+  names: readonly string[],
+): RequirementRowForm[] {
+  const room = Math.max(0, REQUIRED_ROWS_MAX + NICE_ROWS_MAX - filledRows(rows).length);
+  const added = missingTechnologies(rows, names)
+    .slice(0, room)
+    .map((name) => ({ key: newRowKey(), words: [name], level: "nice" as RequirementLevel }));
+  return [...filledRows(rows), ...added];
+}
+
 /** Poziom nowego wiersza: obowiązkowy, a przy pełnym limicie — „mile widziane”. */
 function nextRowLevel(rows: readonly RequirementRowForm[]): RequirementLevel {
   return requiredRows(rows).length >= REQUIRED_ROWS_MAX ? "nice" : "must";
