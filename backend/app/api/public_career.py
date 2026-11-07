@@ -366,6 +366,22 @@ async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
     return link
 
 
+def _valid_cv_email(value: Optional[str]) -> Optional[str]:
+    """E-mail z odczytu CV przechodzi tę samą walidację co wpisany (07.11.2026).
+
+    Przegląd bezpieczeństwa: `parse_cv` sprawdza tylko, że adres jest w tekście
+    CV (po zdjęciu spacji), więc „a@b.pl, c@d.pl” albo nowa linia z nagłówkiem
+    trafiłyby do adresata maila z potwierdzeniem i do profilu. Zły = brak.
+    """
+    raw = (value or "").strip()
+    if not raw or len(raw) > 255:
+        return None
+    try:
+        return str(TypeAdapter(EmailStr).validate_python(raw))
+    except ValidationError:
+        return None
+
+
 @router.post("/apply", status_code=status.HTTP_201_CREATED, response_model=None)
 @limiter.limit("5/minute; 30/hour")
 async def submit_career_apply(
@@ -422,18 +438,18 @@ async def submit_career_apply(
     found: dict[str, Optional[str]] = {}
     if not (form_email and (first_name or "").strip() and (last_name or "").strip()):
         found = await public_apply.identity_from_cv(db, content, cv.filename)
-    final_email = form_email or found.get("email")
+    final_email = form_email or _valid_cv_email(found.get("email"))
     if not final_email:
         raise public_apply.field_error("email", public_apply.MSG_EMAIL_NOT_IN_CV)
     applicant = public_apply.ApplicantInput(
         first_name=(first_name or "").strip()
-        or found.get("first_name")
+        or (found.get("first_name") or "")[:100]
         or public_apply.PLACEHOLDER_NAME,
         last_name=(last_name or "").strip()
-        or found.get("last_name")
+        or (found.get("last_name") or "")[:100]
         or public_apply.PLACEHOLDER_NAME,
         email=final_email,
-        phone=found.get("phone"),
+        phone=(found.get("phone") or "")[:50] or None,
         utm={
             "source": utm_source,
             "medium": utm_medium,

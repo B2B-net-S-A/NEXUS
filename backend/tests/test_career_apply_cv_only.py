@@ -125,3 +125,48 @@ async def test_bad_typed_email_is_refused(api):
 
     assert resp.status_code == 422
     assert resp.json()["detail"][0]["loc"] == ["body", "email"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "garbage",
+    [
+        "ola@x.pl, victim@y.pl",
+        "ola@x.pl\nBcc: victim@y.pl",
+        "a b@c.pl",
+        "x" * 250 + "@a.pl",
+    ],
+)
+async def test_garbage_email_from_cv_is_treated_as_missing(api, monkeypatch, garbage):
+    """Przegląd bezpieczeństwa 07.11.2026: e-mail z CV przechodzi tę samą
+    walidację co wpisany — inaczej trafiłby do adresata maila i profilu."""
+
+    async def _garbage(db, content, filename):
+        return {"first_name": "Ola", "last_name": "X", "email": garbage, "phone": None}
+
+    monkeypatch.setattr(public_apply, "identity_from_cv", _garbage)
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+
+    resp = await api.post(
+        "/api/public/career/apply", data=_cv_only(link["slug"]), files=_cv()
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == ["body", "email"]
+
+
+def test_clean_cv_email_rejects_garbage_and_keeps_valid():
+    from app.api.public_career import _valid_cv_email
+
+    assert _valid_cv_email("Ola@X.pl ") == "Ola@x.pl"
+    for bad in (
+        "ola@x.pl, v@y.pl",
+        "a b@c.pl",
+        "ola@x.pl\nBcc: v@y.pl",
+        "",
+        None,
+        "x" * 250 + "@a.pl",
+    ):
+        assert _valid_cv_email(bad) is None
