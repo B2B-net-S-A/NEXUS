@@ -154,6 +154,7 @@ class ReparseStats:
     failed: int = 0
     stale: int = 0
     missing: int = 0
+    already: int = 0
     errors: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -201,6 +202,21 @@ async def apply_result(
         stats.stale += 1
         return
     digest = full_digest
+    previous = (
+        candidate.cv_extracted_data.get(REPARSE_KEY)
+        if isinstance(candidate.cv_extracted_data, dict)
+        else None
+    )
+    if (
+        isinstance(previous, dict)
+        and previous.get("md5") == digest
+        and previous.get("outcome") == "ok"
+    ):
+        # Paczka zebrana drugi raz po restarcie kontenera (wdrożenie w trakcie
+        # zapisu): ten tekst jest już zapisany, drugi ingest liczyłby wektor
+        # i oś od nowa bez zmiany wyniku.
+        stats.already += 1
+        return
     if getattr(result, "type", None) != "succeeded":
         stats.failed += 1
         _mark(candidate, digest, "failed")
