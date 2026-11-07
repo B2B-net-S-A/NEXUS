@@ -364,10 +364,26 @@ def polish_base_forms(word: str) -> list[str]:
 
 
 def _patterns(name: str) -> list[re.Pattern[str]]:
+    """Wzorce do szukania wymagania w tekście: nazwa i jej warianty ze
+    słownika, które liczą się w tekście CV — także narzędzia, metodyki, AI,
+    standardy i dziedziny (etap 3a, 07.11.2026: „AML” przy „Anti-Money
+    Laundering”). Pogrubianie i usuwanie terminu biorą ``_tech_patterns``."""
+    from app.services.skill_normalize import text_alias_forms
+
+    return _forms_patterns(name, text_alias_forms(name))
+
+
+def _tech_patterns(name: str) -> list[re.Pattern[str]]:
+    """Wzorce pogrubiania i usuwania terminu: nazwa i warianty wyłącznie
+    technologii — pogrubiamy technologie, nie narzędzia ani dziedziny."""
     from app.services.skill_normalize import tech_alias_forms
 
+    return _forms_patterns(name, tech_alias_forms(name))
+
+
+def _forms_patterns(name: str, aliases: list[str]) -> list[re.Pattern[str]]:
     forms = {name.strip()}
-    forms.update(tech_alias_forms(name))
+    forms.update(aliases)
     out: list[re.Pattern[str]] = []
     for form in sorted(forms, key=len, reverse=True):
         term = parse_keyword(form)

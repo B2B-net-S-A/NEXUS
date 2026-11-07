@@ -117,6 +117,9 @@ TECH_CANONICALS: set[str] = set()  # canonical names whose category ∈ TECH_CAT
 CANONICAL_CATEGORY: dict[str, str] = {}  # canonical -> category (ALL skills)
 ALIAS_TO_CANONICAL: dict[str, str] = {}  # alias -> canonical (ALL skills)
 CANONICAL_TO_ALIASES: dict[str, list[str]] = {}  # tech canonical -> [alias, ...]
+# Etap 3a (0659): warianty, które liczą się w tekście CV (canonical -> [alias]),
+# dla wszystkich kategorii poza rolami — QC i strażnik generatora.
+TEXT_ALIASES: dict[str, list[str]] = {}
 
 
 def set_tech_taxonomy(
@@ -125,6 +128,7 @@ def set_tech_taxonomy(
     alias_to_canonical: dict[str, str],
     canonical_to_aliases: dict[str, list[str]] | None = None,
     categories: dict[str, str] | None = None,
+    text_aliases: dict[str, list[str]] | None = None,
 ) -> None:
     """Replace the in-memory tech taxonomy atomically (called at startup)."""
     CANONICAL_CATEGORY.clear()
@@ -150,6 +154,9 @@ def set_tech_taxonomy(
         CANONICAL_TO_ALIASES[canon.strip().lower()] = [
             a.strip().lower() for a in aliases if a
         ]
+    TEXT_ALIASES.clear()
+    for canon, aliases in (text_aliases or {}).items():
+        TEXT_ALIASES[canon.strip().lower()] = [a.strip().lower() for a in aliases if a]
 
 
 def canonical_of(name: str) -> str:
@@ -223,6 +230,48 @@ def tech_alias_forms(name: str) -> list[str]:
         return []
     forms = {canon, (name or "").strip().lower()}
     forms.update(CANONICAL_TO_ALIASES.get(canon, []))
+    return sorted(f for f in forms if f)
+
+
+_NAME_WORD = re.compile(r"[0-9a-ząćęłńóśźż+#.]+")
+
+
+def alias_counts_in_text(
+    alias: str, canonical: str, category: str | None, flag: bool | None
+) -> bool:
+    """Czy wariant liczy się, gdy QC i strażnik generatora szukają wymagania
+    w tekście CV (etap 3a słownika, decyzja Artura 07.11.2026).
+
+    ``flag`` to decyzja osoby prowadzącej słownik (``skill_aliases.in_text``)
+    i wygrywa zawsze. Bez niej: wariant technologii liczy się jak dotąd,
+    a przy narzędziach, metodykach, AI, standardach i dziedzinach nie liczy
+    się jedno słowo, które jest częścią wielowyrazowej nazwy („project” przy
+    „Microsoft Project”, „word”, „teams”) — samo uznałoby brak za trafienie.
+    Role nie mają wariantów w tekście.
+    """
+    cat = (category or "").strip().lower()
+    if cat.startswith("role_"):
+        return False
+    if flag is not None:
+        return flag
+    if cat in TECH_CATEGORIES:
+        return True
+    text = (alias or "").strip().lower()
+    words = _NAME_WORD.findall((canonical or "").lower())
+    return not (len(words) > 1 and " " not in text and text in words)
+
+
+def text_alias_forms(name: str) -> list[str]:
+    """Formy nazwy do szukania w tekście CV: nazwa, hasło słownika i warianty,
+    które się w tekście liczą (``alias_counts_in_text``). Pusta lista dla
+    roli, nazwy spoza słownika albo niewczytanego słownika — wtedy szukamy
+    samej nazwy, jak dotąd."""
+    canon = canonical_of(name)
+    category = CANONICAL_CATEGORY.get(canon)
+    if category is None or category.startswith("role_"):
+        return []
+    forms = {canon, (name or "").strip().lower()}
+    forms.update(TEXT_ALIASES.get(canon, []))
     return sorted(f for f in forms if f)
 
 

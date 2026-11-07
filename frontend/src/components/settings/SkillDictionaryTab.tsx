@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   skillsAdminApi,
+  type SkillAliasDetail,
   type SkillDictionaryItem,
   type UnmatchedSkillTerm,
 } from "@/lib/api";
@@ -39,6 +40,7 @@ import { useHrConfig } from "@/lib/api/hr";
 import { pluralPl } from "@/lib/plural-pl";
 import { skillCategoryLabel } from "@/lib/skill-categories";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 const PAGE_SIZE = 50;
@@ -143,6 +145,70 @@ function EditSkillForm({ skill, onDone }: { skill: SkillDictionaryItem; onDone: 
   );
 }
 
+/**
+ * Etap 3a (07.11.2026): wariant liczy się albo nie, gdy QC i strażnik
+ * generatora szukają wymagania w tekście CV. Przekreślony = nie liczy się
+ * („project” przy „Microsoft Project” to zwykłe słowo). Kliknięcie zapisuje
+ * decyzję; wyszukiwania i dopasowania to nie zmienia.
+ */
+function AliasChips({
+  skill,
+  details,
+}: {
+  skill: SkillDictionaryItem;
+  details: readonly SkillAliasDetail[];
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (detail: SkillAliasDetail) =>
+      skillsAdminApi.setAliasInText(detail.id, !detail.counts_in_text),
+    onSuccess: (result) => {
+      toast.showSuccess(
+        result.counts_in_text
+          ? `„${result.alias}” liczy się w tekście CV`
+          : `„${result.alias}” nie liczy się w tekście CV`,
+      );
+      void queryClient.invalidateQueries({ queryKey: skillDictionaryQueryKey });
+    },
+    onError: (e) => toast.showError(apiErrorMessage(e, "Nie udało się zapisać wariantu")),
+  });
+  const skipped = details.some((detail) => !detail.counts_in_text);
+  return (
+    <>
+      <ul className="mt-1 flex flex-wrap gap-1" aria-label={`Aliasy: ${skill.name}`}>
+        {details.map((detail) => (
+          <li key={detail.id}>
+            <button
+              type="button"
+              aria-pressed={detail.counts_in_text}
+              disabled={mutation.isPending}
+              title={
+                detail.counts_in_text
+                  ? "Liczy się, gdy QC szuka wymagania w tekście CV. Kliknij, żeby wyłączyć."
+                  : "Nie liczy się w tekście CV. Kliknij, żeby włączyć."
+              }
+              onClick={() => mutation.mutate(detail)}
+              className={cn(
+                "inline-flex h-6 items-center rounded-full bg-muted px-2 text-xs text-muted-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                !detail.counts_in_text && "line-through opacity-70",
+              )}
+            >
+              {detail.alias}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {skipped ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Przekreślone nie liczą się, gdy QC szuka wymagania w tekście CV. Kliknij wariant, żeby to
+          zmienić.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function SkillRow({ skill }: { skill: SkillDictionaryItem }) {
   const [mode, setMode] = useState<"view" | "alias" | "edit">("view");
   return (
@@ -155,7 +221,9 @@ function SkillRow({ skill }: { skill: SkillDictionaryItem }) {
               {skill.category ? skillCategoryLabel(skill.category) : "bez kategorii"}
             </span>
           </p>
-          {skill.aliases.length > 0 ? (
+          {skill.alias_details && skill.alias_details.length > 0 && !skill.is_role ? (
+            <AliasChips skill={skill} details={skill.alias_details} />
+          ) : skill.aliases.length > 0 ? (
             <ul className="mt-1 flex flex-wrap gap-1" aria-label={`Aliasy: ${skill.name}`}>
               {skill.aliases.map((alias) => (
                 <li

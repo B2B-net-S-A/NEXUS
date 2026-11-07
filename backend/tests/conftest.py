@@ -572,6 +572,8 @@ def _isolate_skill_taxonomy():
     tech_canonicals = set(_sn.TECH_CANONICALS)
     alias_to_canonical = dict(_sn.ALIAS_TO_CANONICAL)
     canonical_to_aliases = {k: list(v) for k, v in _sn.CANONICAL_TO_ALIASES.items()}
+    categories = dict(_sn.CANONICAL_CATEGORY)
+    text_aliases = {k: list(v) for k, v in _sn.TEXT_ALIASES.items()}
     try:
         yield
     finally:
@@ -583,11 +585,15 @@ def _isolate_skill_taxonomy():
             _sn.TECH_CANONICALS != tech_canonicals
             or _sn.ALIAS_TO_CANONICAL != alias_to_canonical
             or _sn.CANONICAL_TO_ALIASES != canonical_to_aliases
+            or _sn.CANONICAL_CATEGORY != categories
+            or _sn.TEXT_ALIASES != text_aliases
         ):
             _sn.set_tech_taxonomy(
                 tech_canonicals=tech_canonicals,
                 alias_to_canonical=alias_to_canonical,
                 canonical_to_aliases=canonical_to_aliases,
+                categories=categories,
+                text_aliases=text_aliases,
             )
 
 
