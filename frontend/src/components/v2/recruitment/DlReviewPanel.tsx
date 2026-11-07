@@ -836,7 +836,8 @@ export function DlReviewBody({
       <div className={cn("relative grid min-h-0 flex-1 bg-inherit", GRID_CLASS[mode])} data-layout={mode}>
         <CvToolbar
           className={TOOLBAR_CLASS[mode]}
-          task={task}
+          // R1 (07.11.2026): wiersz z Tablicy może nie znać „sprawdź ręcznie” — kontekst przeglądu zna.
+          task={task.qc_manual ? task : { ...task, qc_manual: context.data?.qc_manual ?? null }}
           view={shownCvView}
           coverSheet={coverSheet != null}
           onViewChange={(view) => {

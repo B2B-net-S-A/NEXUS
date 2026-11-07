@@ -1697,6 +1697,80 @@ describe("CvQcDialog — QC CV", () => {
     });
   });
 
+  describe("„Sprawdź ręcznie”: gdzie oryginał opisuje krytyczną (R3, 07.11.2026)", () => {
+    const manualCritical = (): QcResult =>
+      withCheck(
+        "critical_skills",
+        {
+          status: "manual",
+          summary: "Odczyt CV nie ma opisów ról — sprawdź role ręcznie",
+          items: [],
+          roles: [
+            { requirement: "Java", role: "Java Developer · Firma Alfa", state: "unverified" },
+            { requirement: "Java", role: "Tester · Firma Beta", state: "unverified" },
+          ],
+        },
+        passed(),
+      );
+
+    it("pokazuje stanowiska jako przyciski i zapisuje wskazanie", async () => {
+      serve(manualCritical());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const picker = await screen.findByRole("group", { name: "Gdzie oryginał opisuje: Java" });
+      await userEvent.click(within(picker).getByRole("button", { name: "Java Developer · Firma Alfa" }));
+      expect(within(picker).getByRole("button", { name: "Java Developer · Firma Alfa" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await userEvent.click(within(picker).getByRole("button", { name: "Zapisz" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/manual-roles`, {
+          requirement: "Java",
+          roles: ["Java Developer · Firma Alfa"],
+        }),
+      );
+    });
+
+    it("„Nigdzie” wysyła pustą listę ról", async () => {
+      serve(manualCritical());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const picker = await screen.findByRole("group", { name: "Gdzie oryginał opisuje: Java" });
+      await userEvent.click(within(picker).getByRole("button", { name: "Nigdzie — tylko na liście" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/manual-roles`, { requirement: "Java", roles: [] }),
+      );
+    });
+
+    it("po wskazaniu „Rola po roli” mówi, kto wskazał", async () => {
+      serve(
+        withCheck(
+          "critical_skills",
+          {
+            status: "pass",
+            summary: "1/1",
+            items: [],
+            roles: [
+              {
+                requirement: "Java",
+                role: "Java Developer · Firma Alfa",
+                state: "described",
+                manual: { by: "Zofia C.", at: "2026-11-07T18:00:00Z" },
+              },
+            ],
+          },
+          passed(),
+        ),
+      );
+      renderDialog();
+      await userEvent.click(await screen.findByRole("button", { name: /W porządku/ }));
+      const passedList = await screen.findByRole("region", { name: "W porządku" });
+      await userEvent.click(within(passedList).getAllByRole("button", { name: /Umiejętności krytyczne są w CV/ }).at(-1)!);
+      expect(await screen.findByText(/wskazał\(a\) Zofia C\./)).toBeTruthy();
+    });
+  });
+
   it("Delivery Lead z przeglądu dostaje objaśnienie dla siebie (R5, 07.11.2026)", async () => {
     serve(passed({ advisory: true }));
     renderDialog({ audience: "dl" });
