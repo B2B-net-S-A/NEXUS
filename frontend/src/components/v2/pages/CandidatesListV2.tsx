@@ -2331,7 +2331,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 </Button>
               )}
               {!embed && (
-              <div className="flex items-center gap-2 min-[1800px]:order-2">
+              <div className="flex flex-wrap items-center gap-2 min-[1800px]:order-2">
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" variant="outline">
