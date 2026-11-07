@@ -2332,6 +2332,17 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
               )}
               {!embed && (
               <div className="flex flex-wrap items-center gap-2 min-[1800px]:order-2">
+                {/* „Moje wygenerowane CV” (07.11.2026) — pełna nazwa w dymku i w menu „Więcej”. */}
+                <Button size="sm" variant="outline" asChild>
+                  <Link
+                    href="/candidates/generated-cvs"
+                    title="Moje wygenerowane CV"
+                    data-testid="candidates-my-generated-cvs"
+                    data-tour="candidates.my-generated-cvs"
+                  >
+                    <FileText className="h-4 w-4" /> Moje CV
+                  </Link>
+                </Button>
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" variant="outline">

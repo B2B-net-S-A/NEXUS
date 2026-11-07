@@ -213,7 +213,8 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
       // Akademia zdjęta z „Więcej” 17.10.2026.
       ["Codzienna praca", ["Do przedzwonienia"]],
-      ["Dokumenty", ["Generator Umów B2B"]],
+      // „Moje wygenerowane CV” od 07.11.2026.
+      ["Dokumenty", ["Moje wygenerowane CV", "Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
@@ -390,6 +391,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   const SOURCING_OPERATIONAL = [
     "/dashboard",
     "/candidates",
+    // „Moje wygenerowane CV” (07.11.2026) — „Więcej” → „Dokumenty”.
+    "/candidates/generated-cvs",
     "/contracts/b2b-generator",
     // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026,
     // „/cv-generator" 13.10.2026.

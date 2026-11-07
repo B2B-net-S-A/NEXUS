@@ -25,7 +25,10 @@ ACTION = "cv_file_downloaded"
 # Wartość ``intent`` żądania, które jest pobraniem pliku, a nie podglądem.
 DOWNLOAD_INTENT = "download"
 # Lustro `CvDownloadSurface` z frontendu; wszystko inne zapisujemy jako „other”.
-SURFACES = frozenset({"editor", "card", "dock", "preview", "cpro", "result", "files"})
+# `mine` — lista „Moje wygenerowane CV” (07.11.2026).
+SURFACES = frozenset(
+    {"editor", "card", "dock", "preview", "cpro", "result", "files", "mine"}
+)
 
 
 async def log_cv_download(
