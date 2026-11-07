@@ -214,7 +214,12 @@ export function ReviewBatchCard({
 
       {!rejecting ? (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void toScreening()} disabled={busy} data-testid="review-to-screening">
+          <Button
+            onClick={() => void toScreening()}
+            disabled={busy}
+            data-testid="review-to-screening"
+            data-tour="review-batch.to-screening"
+          >
             <Check className="h-4 w-4" aria-hidden="true" /> Do screeningu <kbd className="ml-1 text-xs opacity-70">S</kbd>
           </Button>
           <Button

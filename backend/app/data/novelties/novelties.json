@@ -1468,5 +1468,37 @@
     "href": "/jobs/new",
     "section": "pipeline",
     "dot_anchor": "requirements.relation-hint"
+  },
+  {
+    "id": "porcja-dnia-od-nexusa",
+    "pr": 3125,
+    "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",
+    "why": "Co rano dostajesz osoby od Nexusa ze swoich rekrutacji. Zanim zaczniesz szukać ręcznie, zdecyduj o minimum z nich: screening albo odrzucenie z powodem. Nazwisko, telefon i mail działają zawsze.",
+    "tier": "process",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "path_prefix": "/jobs",
+    "dot_anchor": "review-batch.topbar",
+    "used_anchor": "review-batch.to-screening",
+    "steps": [
+      {
+        "anchor": "review-batch.topbar",
+        "text": "Tu widzisz, ile decyzji z porcji zostało do minimum.",
+        "hint": "Kliknij licznik — otworzy się Porcja dnia. Po minimum licznik znika, a wyszukiwanie wraca do jutra, 7:00."
+      },
+      {
+        "anchor": "review-batch.to-screening",
+        "text": "Jedna osoba, jedna decyzja: S — do screeningu, O — odrzuć z powodem (1–8).",
+        "hint": "Wszystko do decyzji jest na karcie: wynik, „musi mieć”, stawka wobec budżetu, dostępność. Pominąć osoby nie można.",
+        "ack": true
+      }
+    ]
   }
 ]

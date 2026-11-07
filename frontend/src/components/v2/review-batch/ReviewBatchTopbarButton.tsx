@@ -21,6 +21,7 @@ export function ReviewBatchTopbarButton() {
       aria-label={label}
       title={label}
       data-testid="review-batch-topbar"
+      data-tour="review-batch.topbar"
     >
       <ListChecks className="h-3.5 w-3.5" aria-hidden="true" />
       <span className="tabular-nums">
