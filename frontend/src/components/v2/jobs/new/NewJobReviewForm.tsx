@@ -67,6 +67,11 @@ import {
   splitCities,
 } from "@/lib/job-request-intake";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
+import {
+  responsibilityCount,
+  responsibilityGroups,
+  responsibilityRows,
+} from "@/lib/champion-responsibilities";
 
 const WORK_MODES: { value: RemotePolicyValue; label: string }[] = [
   { value: "remote", label: "Zdalnie" },
@@ -194,6 +199,14 @@ function FieldOffer({ unit }: { unit?: IntakeUnit }) {
       }}
     />
   );
+}
+
+/** Podpowiedź przy „Obowiązkach”: od 07.11.2026 odczyt daje punkt na obowiązek. */
+function responsibilitiesHint(text: string): string {
+  const count = responsibilityCount(responsibilityGroups(text));
+  if (count < 2) return "opcjonalnie";
+  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) return `${count} punkty`;
+  return `${count} punktów`;
 }
 
 function FieldLabel({
@@ -1185,15 +1198,19 @@ function ReviewSections({
           <MissingNote show={isMissing("context")} />
         </div>
         <div className="flex flex-col gap-2">
-          <FieldLabel htmlFor={ids.resp} hint="opcjonalnie" offerUnit="responsibilities">
+          <FieldLabel
+            htmlFor={ids.resp}
+            hint={responsibilitiesHint(form.responsibilities)}
+            offerUnit="responsibilities"
+          >
             Obowiązki
           </FieldLabel>
           <Textarea
             id={ids.resp}
-            rows={2}
+            rows={responsibilityRows(form.responsibilities)}
             value={form.responsibilities}
             onChange={(e) => set("responsibilities", e.target.value)}
-            placeholder="np. analiza wymagań, makiety, udział w testach"
+            placeholder={"np.\n- Analiza wymagań z biznesem\n- Udział w testach"}
           />
         </div>
         <div className="flex flex-col gap-2">

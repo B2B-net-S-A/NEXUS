@@ -276,6 +276,7 @@ async def test_needs_a_current_career_page(api, monkeypatch, jjit_ready):
     monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "")
     recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
     await _edit(api, recruiter, job_id)
+    assert (await _state(api, recruiter, job_id))["jjit_api"]["career_required"] is True
     resp = await _publish(api, lead, job_id)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "career_not_live"
@@ -293,6 +294,9 @@ async def test_portal_form_needs_no_career_page(api, monkeypatch, jjit_ready):
     monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "justjoin.it@example.com")
     recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
     await _edit(api, recruiter, job_id)
+
+    window = await _state(api, recruiter, job_id)
+    assert window["jjit_api"]["career_required"] is False
 
     resp = await _publish(api, lead, job_id)
 

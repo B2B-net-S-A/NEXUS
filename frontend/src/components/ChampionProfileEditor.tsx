@@ -139,6 +139,7 @@ import {
 } from "@/lib/requirement-rows-api";
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
+import { responsibilityRows } from "@/lib/champion-responsibilities";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
@@ -1148,7 +1149,7 @@ export function ChampionProfileEditor({
               disabled={disabled}
               value={draft.project.responsibilities}
               onChange={(e) => patchProject({ responsibilities: e.target.value })}
-              rows={3}
+              rows={Math.max(3, responsibilityRows(draft.project.responsibilities))}
               className={textareaClass}
             />
           </Labeled>

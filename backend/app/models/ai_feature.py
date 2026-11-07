@@ -462,6 +462,7 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.skill_dictionary_proposals: [
         "Nazwy umiejętności spoza słownika z profili, CV i wymagań rekrutacji",
         "Hasła słownika umiejętności i ich kategorie",
+        "Pary haseł z odsetkiem profili, które wpisują oba (mapa wiedzy IT)",
         "(bez danych osób: imion, nazwisk, kontaktów, stawek i treści CV)",
     ],
 }

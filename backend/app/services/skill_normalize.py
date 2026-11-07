@@ -300,10 +300,71 @@ IMPLIED_BY: dict[str, tuple[str, ...]] = {
 }
 
 
-def implied_forms(name: str) -> tuple[str, ...]:
-    """Formy, które spełniają wymaganie `name` (puste, gdy nie ma implikacji)."""
+# Mapa wiedzy IT (0660, decyzja Artura z 07.11.2026): zatwierdzone powiązania
+# ze `skill_relations`, wczytywane razem ze słownikiem (`skill_taxonomy_loader`).
+# Klucz i wartości to hasła słownika małymi literami.
+RELATION_IMPLIED_BY: dict[str, set[str]] = {}  # „wynika z” i „część”: do -> {od}
+RELATION_ALTERNATIVES: dict[str, set[str]] = {}  # zamienniki, w obie strony
+RELATION_TYPICAL_BY: dict[str, set[str]] = {}  # „typowe”: do -> {od}
+
+
+def set_relations(
+    *,
+    implied_by: dict[str, set[str]] | None = None,
+    alternatives: dict[str, set[str]] | None = None,
+    typical_by: dict[str, set[str]] | None = None,
+) -> None:
+    """Podmień powiązania w pamięci (start aplikacji i każda zmiana słownika)."""
+    for target, source in (
+        (RELATION_IMPLIED_BY, implied_by),
+        (RELATION_ALTERNATIVES, alternatives),
+        (RELATION_TYPICAL_BY, typical_by),
+    ):
+        target.clear()
+        for key, values in (source or {}).items():
+            target[key.strip().lower()] = {v.strip().lower() for v in values if v}
+
+
+def _forms_of(canonicals: set[str]) -> list[str]:
+    """Hasła razem z ich wariantami, bez duplikatów, w stałej kolejności."""
+    forms: set[str] = set()
+    for canon in canonicals:
+        forms.add(canon)
+        forms.update(CANONICAL_TO_ALIASES.get(canon, []))
+    return sorted(f for f in forms if f)
+
+
+def implied_forms(name: str, *, relations: bool = True) -> tuple[str, ...]:
+    """Formy, które spełniają wymaganie `name` (puste, gdy nie ma implikacji):
+    stała rodzina SQL/UML i zatwierdzone powiązania „wynika z” i „część”
+    (Spring Boot ⇒ Java, GitHub ⇒ Git) razem z wariantami tych haseł.
+    ``relations=False`` = sama stała rodzina (dowód dosłowny w punktacji)."""
     low = (name or "").strip().lower()
-    return IMPLIED_BY.get(low) or IMPLIED_BY.get(canonical_of(low)) or ()
+    canon = canonical_of(low)
+    static = IMPLIED_BY.get(low) or IMPLIED_BY.get(canon) or ()
+    related = RELATION_IMPLIED_BY.get(canon) if relations else None
+    if not related:
+        return static
+    return tuple(dict.fromkeys([*static, *_forms_of(related)]))
+
+
+def has_relation_implication(name: str) -> bool:
+    """Czy wymaganie ma zatwierdzone powiązanie „wynika z” albo „część”."""
+    return bool(RELATION_IMPLIED_BY.get(canonical_of(name)))
+
+
+def alternative_forms(name: str) -> tuple[str, ...]:
+    """Zamienniki wymagania (Flask przy FastAPI) z wariantami. Nie spełniają
+    wymagania — zamieniają „brak” w pytanie do rozmowy."""
+    related = RELATION_ALTERNATIVES.get(canonical_of(name))
+    return tuple(_forms_of(related)) if related else ()
+
+
+def typical_sources(name: str) -> tuple[str, ...]:
+    """Hasła, przy których wymaganie jest typowe (Java przy Maven), z wariantami.
+    Nie spełniają wymagania — dają pytanie do rozmowy."""
+    related = RELATION_TYPICAL_BY.get(canonical_of(name))
+    return tuple(_forms_of(related)) if related else ()
 
 
 # ── Wersja przy nazwie technologii (bramka must, formularz rekrutacji) ──────

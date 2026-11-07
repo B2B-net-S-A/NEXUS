@@ -330,6 +330,29 @@ describe("ChampionBriefView — „O projekcie”: cały opis bez wchodzenia w e
     expect(about).toHaveClass("line-clamp-3");
   });
 
+  it("obowiązki z odczytu requestu: liczba punktów i nazwy obszarów", async () => {
+    fakeOverflow(false);
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: {
+          ...PROFILE,
+          project: {
+            about: "Krótki opis.",
+            responsibilities:
+              "Wymiana informacji:\n- Koordynacja interesariuszy; compliance i prawo\n- Uzgadnianie Single Customer View\nJakość danych:\n- Analizowanie wymagań RTS",
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderBrief();
+    await user.click(await screen.findByText("Obowiązki (3)"));
+    expect(screen.getByText("Wymiana informacji")).toBeInTheDocument();
+    expect(screen.getByText("Jakość danych")).toBeInTheDocument();
+    expect(screen.getByText("Koordynacja interesariuszy; compliance i prawo")).toBeInTheDocument();
+  });
+
   it("bez obowiązków ucięty opis rozwija „Cały opis”", async () => {
     fakeOverflow(true);
     getMock.mockResolvedValue({

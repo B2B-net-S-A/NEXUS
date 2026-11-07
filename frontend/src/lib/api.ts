@@ -1416,6 +1416,8 @@ export const matchingApi = {
       scores: Record<string, number>;
       pipeline_candidate_ids: number[];
       exclusions?: Record<string, { reason: string; missing_critical: string[] }>;
+      /** Krytyczne bez śladu, ale z zamiennikiem (mapa wiedzy IT, 07.11.2026). */
+      alternatives?: Record<string, Record<string, string[]>>;
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
@@ -2788,6 +2790,28 @@ export interface CreatedSkill {
   mapped_term: string | null;
 }
 
+export type SkillRelationKind = "implies" | "part_of" | "alternative" | "typical";
+
+export interface SkillRelation {
+  id: number;
+  from: { id: number; name: string; category: string | null };
+  to: { id: number; name: string; category: string | null };
+  kind: SkillRelationKind;
+  status: "proposed" | "accepted" | "rejected";
+  source: "data" | "glossary" | "model" | "manual";
+  support: number;
+  share: number | null;
+  reason: string | null;
+  sure: boolean;
+  curated_by: string | null;
+}
+
+export interface SkillRelationPage {
+  items: SkillRelation[];
+  total: number;
+  totals: { proposed: number; accepted: number; rejected: number; sure: number };
+}
+
 export const skillsAdminApi = {
   list: (
     params: {
@@ -2819,6 +2843,21 @@ export const skillsAdminApi = {
         `/api/skills-admin/skills/${skillId}/aliases`,
         { alias },
       )
+      .then((r) => r.data),
+  relations: (
+    params: {
+      status?: "proposed" | "accepted" | "rejected";
+      kind?: SkillRelationKind;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) =>
+    api
+      .get<SkillRelationPage>("/api/skills-admin/relations", { params })
+      .then((r) => r.data),
+  withdrawRelation: (relationId: number) =>
+    api
+      .post<{ id: number; status: string }>(`/api/skills-admin/relations/${relationId}/withdraw`)
       .then((r) => r.data),
   setAliasInText: (aliasId: number, inText: boolean | null) =>
     api

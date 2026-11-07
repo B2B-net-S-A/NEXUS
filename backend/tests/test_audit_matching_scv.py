@@ -148,7 +148,7 @@ def test_scoring_cache_version_changed_for_canon():
     # Stale cached scores (C++ credited as C#) must recompute.
     from app.services.requirement_contract import MUST_GATE_POLICY_VERSION
 
-    assert MUST_GATE_POLICY_VERSION == "critical-v12"
+    assert MUST_GATE_POLICY_VERSION == "critical-v13"
     assert ss.scoring_algorithm_version()  # digest includes the new contracts
 
 

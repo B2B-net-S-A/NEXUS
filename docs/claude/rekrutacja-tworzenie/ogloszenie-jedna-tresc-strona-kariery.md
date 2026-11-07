@@ -111,3 +111,16 @@ Harness `/preview/job-ad?state=ready|published`.
   admin i Head of Recruitment, rekruter tylko stronę kariery („Poproś DL”);
   Pracuj.pl = mail z całym ogłoszeniem do opiekuna Pracuj.pl ze skrzynki M365
   DL; JustJoin.IT przez API (adapter jest, brak klucza na produkcji).
+
+## Jeden przycisk „Opublikuj ogłoszenie” (07.11.2026)
+
+Decyzja Artura z 07.11.2026 (makiety https://claude.ai/artifact/GwSsT8TrApn9Zp6VCyYHdU).
+Nad kartami kanałów stoi panel `PublishAllPanel`: kanały, które da się teraz
+opublikować (strona kariery w stanie `none`, JustJoin.IT przez API bez żywego
+ogłoszenia, Pracuj.pl bez wiszącego i bez maila w toku), z zaznaczeniem.
+Przy formularzu JJIT (`career_required = false`) strona kariery jest
+opcjonalna i niezaznaczona. Przycisk publikuje stronę kariery od razu, potem
+otwiera po kolei okno JustJoin.IT (kategoria) i mail do opiekuna Pracuj.pl
+(stawka) — `planPublish`. Zamknięcie okna przechodzi do następnego kanału.
+Panel nie ma własnej ścieżki zapisu: woła te same akcje co karty. Mniej niż
+dwa kanały do wyboru = panelu nie ma.

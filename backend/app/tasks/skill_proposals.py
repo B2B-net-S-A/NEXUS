@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today, local_now
 from app.models.app_setting import AppSetting
-from app.services import loop_heartbeat, skill_proposals
+from app.services import loop_heartbeat, skill_proposals, skill_relations
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,12 @@ async def run_once() -> bool:
         if await _ran_today(db):
             return False
         summary = await skill_proposals.run(db)
+        # Decyzja Artura z 07.11.2026: „pewne” propozycje i powiązania
+        # zatwierdza nocny bieg, bez klikania (HoR+ może wycofać).
+        summary["auto_accepted"] = await skill_proposals.accept_sure(
+            db, curated_by=skill_relations.AUTO_CURATOR
+        )
+        summary["relations"] = await skill_relations.run(db)
         await _stamp(db, summary)
     return True
 
