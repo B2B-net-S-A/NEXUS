@@ -669,4 +669,19 @@ async def finalize_stage_cv(
             },
         )
     )
+    if review_override is None:
+        # Ponowne zatwierdzenie po dołączeniu zgody ma tę samą treść — liczylibyśmy
+        # te same poprawki drugi raz.
+        from app.services.cv_edit_summary import log_approved_edits
+
+        await db.flush()
+        await log_approved_edits(
+            db,
+            csv=csv,
+            approved_html=csv.branded_draft_html,
+            metadata=metadata,
+            user_id=user_id,
+            document_version_id=version.id,
+            version=version.version,
+        )
     return version, filename, size
