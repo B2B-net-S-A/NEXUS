@@ -37,9 +37,6 @@ vi.mock("@/components/settings/NotificationsSettings", () => ({
 vi.mock("@/components/settings/NotificationPreferencesPanel", () => ({
   NotificationPreferencesPanel: () => <div>Panel moich powiadomień</div>,
 }));
-vi.mock("@/lib/jarvis/bubble-budget", () => ({
-  resetScreenSeen: vi.fn(),
-}));
 
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector?: (state: unknown) => unknown) => {

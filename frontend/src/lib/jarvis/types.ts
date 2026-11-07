@@ -155,6 +155,8 @@ export interface ScreenGuide {
   what: string;
   tasks: ScreenGuideTask[];
   pitfalls: string[];
+  /** Pytania, które ludzie naprawdę zadali na tym ekranie — pusty panel Jarvisa. */
+  asked?: string[];
   anchors: ScreenGuideAnchor[];
   help_slug?: string | null;
 }

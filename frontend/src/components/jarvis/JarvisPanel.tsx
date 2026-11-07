@@ -35,6 +35,7 @@ import type {
 import { JarvisCharacter } from "./characters/JarvisCharacter";
 import { JarvisCapabilities } from "./JarvisCapabilities";
 import { JarvisMessageList } from "./JarvisMessageList";
+import { JarvisScreenQuestions } from "./JarvisScreenQuestions";
 
 export const JARVIS_MAX_MESSAGE = 4000;
 
@@ -49,6 +50,8 @@ export interface JarvisPanelProps {
   streaming: boolean;
   draft: string;
   suggestions: string[];
+  /** „Na tym ekranie ludzie pytali” — `asked` z przewodnika bieżącego ekranu. */
+  screenQuestions?: string[];
   /** Z `GET /api/jarvis/status`; brak = starszy backend, pusty panel bez listy. */
   capabilities?: JarvisCapabilitiesData;
   conversations?: JarvisConversationSummary[];
@@ -127,6 +130,9 @@ export function JarvisPanel(props: JarvisPanelProps) {
   }, [view]);
 
   const trimmed = draft.trim();
+  const screenQuestions = unavailableNote ? [] : (props.screenQuestions ?? []);
+  // Pytanie z sekcji nie powtarza się w podpowiedziach pod polem wiadomości.
+  const chips = suggestions.filter((s) => !screenQuestions.includes(s));
   const canSend = !streaming && !unavailableNote && trimmed.length > 0 && trimmed.length <= JARVIS_MAX_MESSAGE;
 
   function submit() {
@@ -228,12 +234,15 @@ export function JarvisPanel(props: JarvisPanelProps) {
                   <div>
                     <p className="text-sm font-semibold">Cześć, tu {name}!</p>
                     <p className="text-xs text-muted-foreground">
-                      {props.capabilities
-                        ? "Tyle mogę zrobić za Ciebie w Twojej roli:"
-                        : "Zapytaj o kandydatów, rekrutacje czy klientów — albo zleć zadanie."}
+                      {screenQuestions.length > 0
+                        ? "Kliknij pytanie albo napisz własne."
+                        : props.capabilities
+                          ? "Tyle mogę zrobić za Ciebie w Twojej roli:"
+                          : "Zapytaj o kandydatów, rekrutacje czy klientów — albo zleć zadanie."}
                     </p>
                   </div>
                 </div>
+                <JarvisScreenQuestions questions={screenQuestions} disabled={streaming} onAsk={props.onSend} />
                 {props.capabilities && <JarvisCapabilities capabilities={props.capabilities} />}
               </div>
             ) : (
@@ -261,9 +270,9 @@ export function JarvisPanel(props: JarvisPanelProps) {
             {!unavailableNote && softLimitNote && (
               <p className="mb-2 rounded-md bg-warning-muted px-2 py-1.5 text-xs text-warning-muted-foreground">{softLimitNote}</p>
             )}
-            {items.length === 0 && suggestions.length > 0 && !unavailableNote && (
+            {items.length === 0 && chips.length > 0 && !unavailableNote && (
               <div className="mb-2 flex flex-wrap gap-1.5">
-                {suggestions.map((s) => (
+                {chips.map((s) => (
                   <button
                     key={s}
                     type="button"
