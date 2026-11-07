@@ -13,6 +13,13 @@ describe("qcStateText: trzy stany QC wszędzie tak samo (R1, 07.11.2026)", () =>
     expect(qcStateText({ status: "failed", blocking_failed: 0 })).toBe("QC do poprawy");
     expect(qcStateText({ status: "overridden", blocking_failed: 1 })).toBe("Przepuszczone mimo QC");
     expect(qcStateText({ status: "unchecked", blocking_failed: 0 })).toBe("QC nie sprawdzone");
+    // R2 (07.11.2026): luka kandydata nie blokuje, ale nie jest „sprawdzone”.
+    expect(qcStateText({ status: "passed", blocking_failed: 0, candidate_gaps: ["FastAPI"] })).toBe(
+      "QC: luka kandydata · 1",
+    );
+    expect(
+      qcStateText({ status: "passed", blocking_failed: 0, candidate_gaps: ["FastAPI"], manual_checks: ["A"] }),
+    ).toBe("QC: luka kandydata · 1");
   });
 });
 
@@ -399,11 +406,20 @@ describe("powody obejścia QC", () => {
     ]);
   });
 
-  it("opis wymagany tylko przy „Inny powód”, bez minimum znaków", () => {
+  it("opis wymagany tylko przy „Inny powód”: trzy słowa i wskazana uwaga (R6, 07.11.2026)", () => {
     expect(qcOverrideError(null, "")).toBe("Wybierz powód.");
     expect(qcOverrideError("client_short_cv", "")).toBeNull();
     expect(qcOverrideError("other", "  ")).toBe("Przy „Inny powód” napisz, dlaczego przepuszczasz.");
-    expect(qcOverrideError("other", "ok")).toBeNull();
+    // Lustro `cv_qc.OVERRIDE_OTHER_MIN_WORDS`: „x”, „.”, „dw” to nie powód.
+    expect(qcOverrideError("other", "x")).toMatch(/co najmniej trzy słowa/);
+    expect(qcOverrideError("other", "bo tak")).toMatch(/co najmniej trzy słowa/);
+    expect(qcOverrideError("other", "Klient zna go z projektu")).toBeNull();
+    expect(qcOverrideError("other", "Klient zna go z projektu", { required: true, picked: 0 })).toBe(
+      "Zaznacz, której uwagi dotyczy powód.",
+    );
+    expect(qcOverrideError("other", "Klient zna go z projektu", { required: true, picked: 1 })).toBeNull();
+    // Gotowy powód nie wskazuje uwagi.
+    expect(qcOverrideError("client_short_cv", "", { required: true, picked: 0 })).toBeNull();
     expect(qcOverrideError("other", "x".repeat(901))).toMatch(/najwyżej 900 znaków/);
   });
 });

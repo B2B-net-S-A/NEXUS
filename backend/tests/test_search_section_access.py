@@ -20,6 +20,15 @@ class _EmptyResult:
         return []
 
 
+@pytest.fixture(autouse=True)
+def _people_bucket_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kategoria „Ludzie” ma bramkę z bazy (przełącznik modułu, kartoteka) —
+    pokrywa ją `test_search_global_people.py`; tu liczą się sekcje produktu."""
+
+    monkeypatch.setattr(search, "people_directory_open", AsyncMock(return_value=False))
+    monkeypatch.setattr(search, "program_enabled", lambda: True)
+
+
 def _user(*, role: UserRole, access: dict[str, str]) -> User:
     user = User(
         id=987654,
@@ -50,11 +59,13 @@ async def test_global_search_skips_every_denied_bucket_without_querying_db() -> 
         "jobs": [],
         "clients": [],
         "contacts": [],
+        "people": [],
         # Jarvis (27.10.2026): pusta kategoria bez dostępu to „nie widzisz”, nie „nie ma”.
         "skipped": [
             {"category": "candidates", "section": "Kandydaci"},
             {"category": "jobs", "section": "Rekrutacje"},
             {"category": "clients", "section": "Klienci"},
+            {"category": "people", "section": "Ludzie"},
         ],
     }
     db.execute.assert_not_awaited()

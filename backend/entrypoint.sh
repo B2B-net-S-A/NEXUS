@@ -4276,6 +4276,8 @@ END $$""",
         ALTER TABLE client_cv_rules ADD CONSTRAINT ck_client_cv_rules_text_align
             CHECK (cv_text_align IN ('justify', 'left'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0661: numer zapytania w nagłówku CV z reguły klienta (07.11.2026) — lustro migracji.
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS cv_title_with_reference BOOLEAN NOT NULL DEFAULT FALSE",
     # 0283: immutable publications and isolated drafts (Alembic safety net).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_rule_edit_revision INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS draft_payload JSONB",

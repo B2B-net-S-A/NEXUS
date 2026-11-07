@@ -50,6 +50,8 @@ export interface QcItem {
   key?: string | null;
   /** R3: pozycja z ręcznego wskazania roli. */
   manual?: QcManualBy | null;
+  /** R2 (07.11.2026): krytyczna, której kandydat nie ma — decyzja Delivery Leada. */
+  candidate_gap?: boolean;
   requirement?: string | null;
   role?: string | null;
   detail?: string | null;
@@ -235,7 +237,9 @@ export type QcFixAction =
   | { action: "years" }
   | { action: "title" }
   | { action: "strip_client_rules" }
-  | { action: "remove_line"; text: string };
+  | { action: "remove_line"; text: string }
+  // „Szybkie poprawki” edytora (E1, 07.11.2026) — tylko `qc/transform`.
+  | { action: "languages_lines" };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 
@@ -390,6 +394,8 @@ export interface QcOverrideBody {
   reason?: string;
   /** Blokady oznaczone „QC się myli” (D4) — klucze pozycji z bieżącego przebiegu. */
   wrong_keys?: string[];
+  /** „Inny powód” (R6, 07.11.2026): blokady, których dotyczy — klucze pozycji. */
+  about_keys?: string[];
 }
 
 /**

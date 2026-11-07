@@ -156,6 +156,8 @@ class PairFacts:
     # R1 (07.11.2026): blokujące sprawdzenia, których QC nie umiało sprawdzić
     # („sprawdź ręcznie”) — przebieg „przechodzi”, ale nikt tego nie sprawdził.
     qc_manual: tuple[str, ...] = ()
+    # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
+    qc_gaps: tuple[str, ...] = ()
     client_rate: bool = False
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
@@ -698,6 +700,16 @@ def _qc_result_item(column: str, f: PairFacts) -> _Item:
             False,
             "przepuszczone mimo uwag (z powodem)",
         )
+    if f.qc_status == "passed" and f.qc_gaps:
+        return _Item(
+            column,
+            "cv_qc_result",
+            "QC CV",
+            WAITING,
+            False,
+            "luka kandydata: " + ", ".join(f.qc_gaps) + " — zdecyduje Delivery Lead",
+            open_qc,
+        )
     if f.qc_status == "passed" and f.qc_manual:
         return _Item(
             column,
@@ -1201,6 +1213,7 @@ async def company_cv_refs(
             document_cv_ambiguous,
             document_cv_conditions,
             pick_document_cv,
+            rows_from_job,
         )
 
         candidate_ids = sorted({c for c, _ in missing})
@@ -1224,6 +1237,7 @@ async def company_cv_refs(
                 (doc_id, filename, uploaded_at, created_at)
             )
         client_names: dict[int, Optional[str]] = {}
+        job_created: dict[int, Any] = {}
         job_ids = sorted({j for c, j in missing if c in by_candidate})
         if job_ids:
             for job_id, display_name, name in (
@@ -1234,8 +1248,16 @@ async def company_cv_refs(
                 )
             ).all():
                 client_names[job_id] = display_name or name
+            job_created = dict(
+                (
+                    await db.execute(
+                        select(Job.id, Job.created_at).where(Job.id.in_(job_ids))
+                    )
+                ).all()
+            )
         for cand, job in missing:
-            rows = by_candidate.get(cand, [])
+            # Plik starszy niż rekrutacja nie jest jej CV (`rows_from_job`).
+            rows = rows_from_job(by_candidate.get(cand, []), job_created.get(job))
             doc_id = pick_document_cv(rows, client_names.get(job))
             if doc_id is not None:
                 out[(cand, job)] = {
@@ -1572,6 +1594,7 @@ async def load_pair_facts(
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         qc_manual=tuple(qc.get("manual_checks") or ()),
+        qc_gaps=tuple(qc.get("candidate_gaps") or ()),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         skips_fill_gates=skips_fill_gates(user),

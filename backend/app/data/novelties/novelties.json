@@ -940,6 +940,19 @@
     "dot_anchor": "cv-editor.tailor"
   },
   {
+    "id": "asystent-cv-trzy-podpowiedzi",
+    "title": "Asystent CV: punkt do podsumowania, wymagania do obowiązków, rola spoza profilu",
+    "why": "Nad asystentem w edytorze są trzy przyciski do najczęstszych ręcznych poprawek. Punkt do podsumowania dostaje cytat ze źródła, a gdy asystent nic nie zmieni, powie dlaczego.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "pr": 3137,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "section": "pipeline",
+    "where": "Panel osoby → CV → Edytuj CV → Asystent",
+    "href": "/jobs",
+    "dot_anchor": "person.cv.edit"
+  },
+  {
     "id": "nowi-kolejka-zadzwon-najpierw",
     "title": "Nowi: „Zadzwoń najpierw” na górze kolejki od systemu",
     "why": "Najlepsze osoby od systemu stały dotąd na dole kolumny. Teraz pod osobami dodanymi przez zespół widzisz kolejkę od najwyższego wyniku, a pierwszych pięć ma numer.",
@@ -1526,5 +1539,25 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "szybkie-poprawki-jezyki-w-liniach",
+    "pr": 3139,
+    "title": "Języki w osobnych liniach jednym kliknięciem",
+    "why": "„Szybkie poprawki” na górze „Do poprawy” rozbijają „English - B2 · Polish - native” na osobne linie „Język – poziom”. Zmianę widzisz przed kliknięciem, nic nie jest dopisywane.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.quick-fixes"
   }
 ]

@@ -401,6 +401,8 @@ async def test_plan_is_returned_and_the_draft_is_left_alone(
                     "asks": 1,
                     "history": 0,
                     "focus": False,
+                    "question": False,
+                    "reasons": {},
                 }
             ]
             await db.execute(

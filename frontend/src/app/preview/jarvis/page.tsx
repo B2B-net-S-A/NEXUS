@@ -8,7 +8,8 @@
  *
  * Pokazuje: galerię postaci we wszystkich nastrojach, maskotkę z dymkiem,
  * panel z rozmową (kroki, karta akcji do zatwierdzenia, karta po wykonaniu,
- * link do ekranu, błąd), pusty panel z podpowiedziami, historię rozmów oraz
+ * link do ekranu, błąd), pusty panel z podpowiedziami i pytaniami ludzi
+ * z ekranu („Na tym ekranie ludzie pytali”), historię rozmów oraz
  * formularz wyglądu z zablokowanymi postaciami.
  */
 
@@ -20,7 +21,14 @@ import { JarvisAppearanceForm } from "@/components/jarvis/JarvisAppearanceForm";
 import { JarvisMascot } from "@/components/jarvis/JarvisMascot";
 import { JarvisMessageList } from "@/components/jarvis/JarvisMessageList";
 import { JarvisPanel } from "@/components/jarvis/JarvisPanel";
-import type { JarvisAccent, JarvisItem, JarvisMood, JarvisPrefsResponse, ScreenGuide } from "@/lib/jarvis/types";
+import type {
+  JarvisAccent,
+  JarvisCapabilities,
+  JarvisItem,
+  JarvisMood,
+  JarvisPrefsResponse,
+  ScreenGuide,
+} from "@/lib/jarvis/types";
 
 const noop = () => undefined;
 
@@ -90,6 +98,21 @@ const CONVERSATION: JarvisItem[] = [
 ];
 
 // Przewodnik ekranu i rozmowa pomocy — fikcyjne dane, zero zapytań.
+// Lustro `asked` dla „jobs.board” w `backend/app/data/screen_guides/guides.json`.
+const SCREEN_QUESTIONS = [
+  "Jak zmienić liczbę wakatów?",
+  "Dlaczego przy części kart nie ma wyniku dopasowania?",
+  "Kto może przenieść kandydata na „Zatrudniony”?",
+  "Gdzie jest briefing dla rekrutera?",
+];
+
+const CAPABILITIES: JarvisCapabilities = {
+  read: ["rekrutacje i tablice", "kandydaci i notatki", "kalendarz"],
+  now: ["notatka do kandydata", "przypomnienie"],
+  write: ["ruch karty na tablicy", "mail do kandydata"],
+  never: ["usuwanie", "umowy i stawki"],
+};
+
 const GUIDE: ScreenGuide = {
   key: "jobs.board",
   title: "Tablica rekrutacji",
@@ -217,18 +240,34 @@ export default function JarvisPreviewPage() {
             onConfirm={noop}
             onReject={noop}
           />
-          <JarvisMascot
+          {/* Pusty panel na Tablicy: pytania, które ludzie tu zadawali (zamiast dymka ekranu od 07.11.2026). */}
+          <JarvisPanel
             inline
             name="Jarvis"
             character="robot"
             accent={accent}
             mood="idle"
-            minimized={false}
-            open={false}
-            bubble={`${GUIDE.what} Kliknij, pokażę, jak tu działać.`}
-            onToggle={noop}
-            onBubbleClick={noop}
-            onDismissBubble={noop}
+            view="chat"
+            items={[]}
+            thinking={false}
+            streaming={false}
+            draft=""
+            suggestions={GUIDE.tasks.slice(0, 3).map((t) => t.q)}
+            screenQuestions={SCREEN_QUESTIONS}
+            capabilities={CAPABILITIES}
+            guideTitle={GUIDE.title}
+            onOpenGuide={noop}
+            onDraftChange={noop}
+            onSend={noop}
+            onNewChat={noop}
+            onShowHistory={noop}
+            onBackToChat={noop}
+            onSelectConversation={noop}
+            onDeleteConversation={noop}
+            onOpenAppearance={noop}
+            onClose={noop}
+            onConfirm={noop}
+            onReject={noop}
           />
         </div>
       </section>

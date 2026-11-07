@@ -28,8 +28,6 @@ interface Props {
   hideActions?: boolean;
   /** Informuje wołającego, czy imię jest poprawne (blokada „Zapisz” w stopce). */
   onValidityChange?: (valid: boolean) => void;
-  /** „Pokaż wskazówki od nowa” — czyści listę obejrzanych ekranów. */
-  onResetTips?: () => void;
 }
 
 const MAX_NOTES = 10;
@@ -47,10 +45,8 @@ export function JarvisAppearanceForm({
   formId,
   hideActions = false,
   onValidityChange,
-  onResetTips,
 }: Props) {
   const [noteDraft, setNoteDraft] = useState("");
-  const [tipsReset, setTipsReset] = useState(false);
   const [draft, setDraft] = useState<JarvisPrefs>({
     character: prefs.character,
     name: prefs.name,
@@ -185,30 +181,6 @@ export function JarvisAppearanceForm({
           checked={draft.daily_brief}
           onChange={(v) => setDraft((d) => ({ ...d, daily_brief: v }))}
         />
-        <ToggleRow
-          label="Wskazówki na nowych ekranach"
-          hint="Przy pierwszej wizycie na ekranie dymek podpowie, co się tu robi (najwyżej 3 dziennie)."
-          checked={draft.screen_tips}
-          onChange={(v) => setDraft((d) => ({ ...d, screen_tips: v }))}
-        />
-        {onResetTips && (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              {tipsReset ? "Wskazówki pokażą się znowu na każdym ekranie." : "Chcesz zobaczyć wskazówki jeszcze raz?"}
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                onResetTips();
-                setTipsReset(true);
-              }}
-            >
-              Pokaż wskazówki od nowa
-            </Button>
-          </div>
-        )}
         <ToggleRow
           label="Dźwięk"
           hint="Krótki sygnał, gdy asystent skończy odpowiadać."

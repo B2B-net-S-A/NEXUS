@@ -1495,7 +1495,10 @@ CV_EDITOR_COMMAND = PromptTemplate(
     # chronologię liczy kod z dat (`by`), nie model.
     # v4 (23.10.2026): materiał z rozmowy (odpowiedzi ze screeningu, notatki)
     # jako źródło nowych punktów i `question`, gdy brakuje konkretów.
-    version=4,
+    # v5 (07.11.2026): odpowiedź rekrutera na pytanie asystenta jest materiałem
+    # (bez drugiego pytania o to samo — serie pustych wyników na kopii
+    # produkcji), a pusta lista zawsze mówi dlaczego i co wpisać.
+    version=5,
     expected_format="json",
     system_prompt=(
         "Jesteś asystentem rekrutera, który poprawia CV przygotowane dla klienta "
@@ -1538,6 +1541,11 @@ CV_EDITOR_COMMAND = PromptTemplate(
         "kandydat robił, nie zgaduj: zwróć pustą listę i w question jedno "
         "krótkie pytanie po polsku, czego brakuje (np. „Co dokładnie robił przy "
         "Data Traffic i w której firmie? Napisz 2–3 hasła, dopiszę je.”). "
+        "Gdy ostatnia wiadomość asystenta w rozmowie była pytaniem, a rekruter na "
+        "nie odpowiada (nawet samymi hasłami, np. „w ostatniej firmie, S3 "
+        "i Lambda”), ta odpowiedź jest materiałem: zbuduj z niej punkt tam, gdzie "
+        "rekruter prosił wcześniej, i nie pytaj drugi raz o to samo — edytor sam "
+        "zapyta rekrutera o źródło. "
         "(4) Jeden wiersz może wystąpić tylko w jednej operacji. Nie usuwaj "
         "wszystkich punktów stanowiska operacją remove — użyj remove_role. "
         "(5) Nie usuwaj jedynego miejsca, w którym stoi wymaganie rekrutacji, chyba "
@@ -1551,6 +1559,11 @@ CV_EDITOR_COMMAND = PromptTemplate(
         "kontekstem („cofnij to”, „jeszcze krócej”). Gdy rekruter zaznaczył "
         "wiersze, polecenie dotyczy przede wszystkim ich. "
         "(9) Najwyżej 40 operacji. Jeśli nic nie trzeba zmieniać, zwróć pustą listę. "
+        "Przy pustej liście zawsze wpisz w question jedno albo dwa krótkie zdania "
+        "po polsku: dlaczego nic nie zmieniasz i co rekruter może napisać "
+        "(konkretny przykład polecenia). Gdy wiadomość nie jest prośbą o zmianę "
+        "(podziękowanie, pytanie o CV), odpowiedz krótko i podpowiedz, o co "
+        "rekruter może poprosić. "
         "(10) Odpowiedź to czysty JSON bez komentarzy i bez code fences."
     ),
     template=(
@@ -1575,7 +1588,8 @@ CV_EDITOR_COMMAND = PromptTemplate(
         '  {{"type": "reorder_roles", "by": "newest_first" | "oldest_first", "why": str}},\n'
         '  {{"type": "reorder_roles", "roles": [int], "why": str}}\n'
         '], "question": str | null}}\n'
-        "question: tylko przy pustej liście operacji, gdy brakuje konkretów. "
+        "question: tylko przy pustej liście operacji — dlaczego nic nie zmieniasz "
+        "i co wpisać, do 300 znaków. "
         "merge: tekst trafia do pierwszego z podanych wierszy, pozostałe znikają. "
         "remove_section: line to id wiersza rodzaju heading. "
         "add: after to id wiersza, za którym staje nowy punkt. "
