@@ -34,6 +34,7 @@ import re
 import tempfile
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from html.parser import HTMLParser
@@ -1246,6 +1247,26 @@ def document_cv_conditions() -> list[Any]:
     ]
 
 
+def rows_from_job(rows: Any, job_created_at: Optional[datetime]) -> list:
+    """Pliki „…B2B…" powstałe po utworzeniu rekrutacji (07.11.2026).
+
+    Plik starszy niż rekrutacja nie może być CV przygotowanym dla niej: to CV
+    z innego zlecenia tej osoby. Dawniej QC zaliczał na nim „CV firmowe jest
+    przygotowane” i para wchodziła do kolejki Delivery Leada bez CV (5 uwag
+    „CV się nie wygenerowało” z 28–29.10). Plik, który rekruter wybrał dla pary
+    jawnie (`select-document`), jest szkicem etapu i tego filtra nie dotyczy.
+    Wiersze: ``(id, filename, uploaded_at, created_at)``.
+    """
+
+    if job_created_at is None:
+        return list(rows)
+    return [
+        row
+        for row in rows
+        if (row[2] or row[3]) is None or (row[2] or row[3]) >= job_created_at
+    ]
+
+
 def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
     """Id pliku „…B2B…" dla klienta z wierszy ``(id, filename, uploaded_at,
     created_at)`` jednego kandydata: najpierw plik z wyróżniającym słowem
@@ -1283,7 +1304,10 @@ def document_cv_ambiguous(rows: Any, client_name: Optional[str]) -> bool:
 
 
 async def _document_cv(
-    db: AsyncSession, candidate_id: int, client_name: Optional[str]
+    db: AsyncSession,
+    candidate_id: int,
+    client_name: Optional[str],
+    job_created_at: Optional[datetime] = None,
 ) -> Optional[dict]:
     """CV dla klienta przygotowane POZA generatorem: plik „…B2B…" kandydata.
 
@@ -1306,6 +1330,7 @@ async def _document_cv(
             )
         )
     ).all()
+    rows = rows_from_job(rows, job_created_at)
     doc_id = pick_document_cv(rows, client_name)
     ambiguous = document_cv_ambiguous(rows, client_name)
     doc = await db.get(CandidateDocument, doc_id) if doc_id is not None else None
@@ -1466,7 +1491,7 @@ async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources
         client_name = (client.display_name or client.name) if client else None
     generated = await _generated_cv(db, candidate.id, job.id)
     if generated is None:
-        generated = await _document_cv(db, candidate.id, client_name)
+        generated = await _document_cv(db, candidate.id, client_name, job.created_at)
     original = await _original_cv(db, candidate, stage.id, job.id)
     if generated is None:
         blocks: list[Block] = []
