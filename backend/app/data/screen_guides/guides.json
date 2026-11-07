@@ -62,7 +62,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze: priorytet, numer u klienta, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy i „Rekruter” — klik pokazuje zespół. „Kto dodał” → „Ty” to karty z Twoim imieniem, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze: priorytet, numer u klienta, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy, „Rekruter” (klik: zespół) i liczba osób z ✎ (klik ją zmienia). „Kto dodał” → „Ty” to Twoje karty, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -211,7 +211,7 @@
       },
       {
         "q": "Co jeszcze trzeba dopiąć w zleceniu?",
-        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji, a hiring managera, termin, kategorię i liczbę osób ustawisz w zakładce „Zespół i ogłoszenie”. Gdy wszystko jest dopięte, paska nie ma.",
+        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji, a hiring managera, termin, kategorię i liczbę osób ustawisz w zakładce „Zespół i ogłoszenie” (liczbę osób też w nagłówku, ✎). Gdy wszystko jest dopięte, paska nie ma.",
         "anchor": "job.champion.todo"
       },
       {

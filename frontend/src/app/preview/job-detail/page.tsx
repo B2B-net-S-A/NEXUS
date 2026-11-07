@@ -58,6 +58,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
+import { JobHeadcountFact } from "@/components/v2/jobs/JobHeadcountFact";
 import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
 import type { JobRecruiter } from "@/lib/job-team";
 import { isPriorityLevel } from "@/lib/request-priority";
@@ -2032,6 +2033,14 @@ function JobDetailHarness() {
                             canEdit={!readOnlyRole}
                             onOpenTeam={noop}
                             compact
+                          />
+                        }
+                        headcount={
+                          <JobHeadcountFact
+                            jobId={JOB_ID}
+                            headcount={headerJob.headcount}
+                            canEdit={!readOnlyRole}
+                            closed={closed}
                           />
                         }
                         sources={
