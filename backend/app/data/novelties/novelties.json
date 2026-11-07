@@ -1483,6 +1483,19 @@
     "dot_anchor": "requirements.intake-proposals"
   },
   {
+    "id": "qc-sprawdz-recznie-wskaz-role",
+    "pr": 3128,
+    "title": "„Sprawdź ręcznie” w QC: wskaż stanowisko jednym kliknięciem",
+    "why": "Gdy QC nie umie sprawdzić krytycznej, okno QC pokazuje stanowiska z CV: kliknij to, w którym oryginał ją opisuje, albo „Nigdzie”. Delivery Lead widzi, kto sprawdził.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "recruiter"] },
+    "where": "Tablica → karta osoby → Otwórz QC",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "qc.manual-roles"
+  },
+  {
     "id": "porcja-dnia-od-nexusa",
     "pr": 3125,
     "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",

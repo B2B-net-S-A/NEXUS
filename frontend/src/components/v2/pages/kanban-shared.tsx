@@ -366,6 +366,8 @@ export interface KanbanItem {
   ok_at?: string | null;
   /** Uwagi nieblokujące najnowszego przebiegu (14.10.2026) — „CV gotowe · QC: N do poprawy”. */
   warnings_count?: number;
+  /** R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” zdanego przebiegu. */
+  manual_checks?: string[];
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.

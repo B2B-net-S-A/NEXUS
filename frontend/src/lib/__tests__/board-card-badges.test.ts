@@ -213,7 +213,11 @@ describe("odznaki karty — Pipeline v4", () => {
 describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
   it("chip QC mówi wynik ostatniej kontroli; brak pola = „nie sprawdzone”", () => {
     expect(qcChip(item({})).label).toBe("QC nie sprawdzone");
-    expect(qcChip(item({ qc: { status: "passed", blocking_failed: 0 } })).label).toBe("QC ✓");
+    expect(qcChip(item({ qc: { status: "passed", blocking_failed: 0 } })).label).toBe("QC: sprawdzone");
+    // R1 (07.11.2026): zdane, ale blokującego sprawdzenia nikt nie sprawdził.
+    expect(
+      qcChip(item({ qc: { status: "passed", blocking_failed: 0, manual_checks: ["Umiejętności krytyczne"] } })),
+    ).toMatchObject({ label: "QC: sprawdź ręcznie · 1", tone: "wait" });
     expect(qcChip(item({ qc: { status: "failed", blocking_failed: 3 } }))).toMatchObject({
       label: "QC: 3 do poprawy",
       tone: "urgent",
@@ -727,6 +731,13 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
     expect(cvStateBadge(withCv({ status: "passed", blocking_failed: 0, warnings_count: 2 }), "verified")?.tone).toBe(
       "info",
     );
+    // R1 (07.11.2026): blokujące „sprawdź ręcznie” przy zdanym QC — nie „bez uwag”.
+    expect(
+      label(withCv({ status: "passed", blocking_failed: 0, warnings_count: 0, manual_checks: ["Umiejętności krytyczne"] })),
+    ).toBe("CV gotowe · QC: sprawdź ręcznie (1)");
+    expect(
+      label(withCv({ status: "passed", blocking_failed: 0, warnings_count: 2, manual_checks: ["A", "B"] })),
+    ).toBe("CV gotowe · QC: sprawdź ręcznie (2) · 2 uwagi");
     // Starszy serwer bez `warnings_count` — liczą się same blokujące.
     expect(label(withCv({ status: "passed", blocking_failed: 0 }))).toBe("CV gotowe · QC bez uwag");
     expect(cvStateBadge(withCv({ status: "passed", blocking_failed: 0 }), "verified")?.tone).toBe("ok");

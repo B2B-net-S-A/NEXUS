@@ -69,6 +69,7 @@ import {
   useQcApply,
   useQcConfirm,
   useQcDismiss,
+  useQcManualRoles,
   useQcRestore,
   cvQcFixesQueryKey,
   type QcApplyBody,
@@ -409,6 +410,7 @@ export function CvQcBody({
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
   const confirm = useQcConfirm(stageId, onChanged);
+  const manualRoles = useQcManualRoles(stageId, onChanged);
   const dismiss = useQcDismiss(stageId, onChanged);
   const restore = useQcRestore(stageId, onChanged);
   // Jak „Przepuść mimo QC”: w podglądzie jako inny użytkownik — nikomu.
@@ -446,6 +448,15 @@ export function CvQcBody({
       }),
     confirming: confirm.isPending,
     confirmRoles: data?.confirm_roles ?? [],
+    manualRoles: (body, onSaved) =>
+      manualRoles.mutate(body, {
+        onSuccess: () => {
+          showSuccess("Wskazanie zapisane — QC przeliczone.");
+          onSaved?.();
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać wskazania. Spróbuj ponownie.")),
+      }),
+    manualRolesPending: manualRoles.isPending,
     requestAiFixes: () => {
       if (typeof document !== "undefined") {
         document.getElementById(`qc-ai-${stageId}`)?.scrollIntoView?.({ block: "nearest" });

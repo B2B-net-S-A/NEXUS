@@ -19,7 +19,7 @@ import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
 import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
-import { qcCountsText } from "@/lib/cv-qc";
+import { qcCountsText, qcStateText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
@@ -323,6 +323,16 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
     }
     const blocking = qc.blocking_failed;
     const warnings = qc.warnings_count ?? 0;
+    const manual = qc.status === "passed" ? (qc.manual_checks?.length ?? 0) : 0;
+    if (manual > 0) {
+      // R1 (07.11.2026): zdane z blokującym „sprawdź ręcznie” to nie „bez uwag”.
+      return {
+        key: "cv_state",
+        label: `CV gotowe · QC: sprawdź ręcznie (${manual})${warnings > 0 ? ` · ${qcCountsText(0, warnings)}` : ""}`,
+        tone: "info",
+        title: `QC nie umiało sprawdzić: ${qc.manual_checks?.join(", ")}. Otwórz QC i sprawdź to ręcznie, zanim przekażesz CV Delivery Leadowi.`,
+      };
+    }
     return blocking + warnings > 0
       ? {
           key: "cv_state",
@@ -1018,8 +1028,16 @@ export function qcChip(item: KanbanItem): QcChip {
       title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić.",
     };
   }
+  if (qc.status === "passed" && (qc.manual_checks?.length ?? 0) > 0) {
+    // R1 (07.11.2026): nic nie blokuje, ale części nikt nie sprawdził.
+    return {
+      label: qcStateText(qc),
+      tone: "wait",
+      title: `QC przechodzi, ale tego nie umiało sprawdzić: ${qc.manual_checks?.join(", ")}. Sprawdź ręcznie przed wysłaniem.`,
+    };
+  }
   if (qc.status === "passed") {
-    return { label: "QC ✓", tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
+    return { label: qcStateText(qc), tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
   }
   if (qc.status === "overridden") {
     return {

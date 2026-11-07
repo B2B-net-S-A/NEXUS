@@ -39,9 +39,17 @@ export interface QcSearch {
   quote?: string | null;
 }
 
+/** Kto i kiedy wskazał rolę ręcznie przy „sprawdź ręcznie” (R3, 07.11.2026). */
+export interface QcManualBy {
+  by?: string | null;
+  at?: string | null;
+}
+
 export interface QcItem {
   /** Stały klucz pozycji (sprawdzenie | wymaganie | rola) — od 13.10.2026. */
   key?: string | null;
+  /** R3: pozycja z ręcznego wskazania roli. */
+  manual?: QcManualBy | null;
   requirement?: string | null;
   role?: string | null;
   detail?: string | null;
@@ -84,6 +92,8 @@ export interface QcRoleState {
   requirement: string;
   role: string;
   state: QcRoleStateKind;
+  /** R3 (07.11.2026): stan z ręcznego wskazania roli — kto i kiedy. */
+  manual?: QcManualBy | null;
 }
 
 export interface QcCheck {
@@ -386,6 +396,17 @@ export interface QcConfirmBody {
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
 export function useQcConfirm(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcConfirmBody>(stageId, "confirm", onChanged);
+}
+
+/** R3: role oryginału opisujące umiejętność krytyczną; pusta lista = „nigdzie”. */
+export interface QcManualRolesBody {
+  requirement: string;
+  roles: string[];
+}
+
+/** „Sprawdź ręcznie” (R3, 07.11.2026) — serwer zapisuje wskazanie i zwraca świeży wynik QC. */
+export function useQcManualRoles(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<QcManualRolesBody>(stageId, "manual-roles", onChanged);
 }
 
 /** „To nieprawda”: która pozycja (klucz z wyniku QC) i dlaczego. */
