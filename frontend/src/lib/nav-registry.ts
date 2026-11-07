@@ -275,6 +275,23 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     moreGroup: "daily",
     inPalette: true,
   },
+  // „Moje wygenerowane CV” (07.11.2026, pytania do Jarvisa z 20.10): lista CV
+  // z generatora wygenerowanych przez zalogowaną osobę. Ten sam moduł i te
+  // same role co „Kandydaci”; wejście też z nagłówka listy kandydatów.
+  {
+    id: "my-generated-cvs",
+    moreHint: "Twoje CV z generatora",
+    href: "/candidates/generated-cvs",
+    label: "Moje wygenerowane CV",
+    icon: FileText,
+    section: "sourcing",
+    roles: CANDIDATES_NAV_ROLES,
+    capability: "nav.candidates",
+    placement: "more",
+    moreGroup: "documents",
+    paletteKeywords: ["cv", "wygenerowane", "moje cv", "generator"],
+    inPalette: true,
+  },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
   // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
   {

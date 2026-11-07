@@ -37,6 +37,7 @@ import {
   type PeopleGroup,
 } from "@/lib/my-people-summary";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
+import { overBudgetLabel } from "@/lib/fit-badges";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -299,10 +300,25 @@ function formatDate(iso: string | null): string | null {
   return d.toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function ForJobRowView({ row, actions }: { row: ForJobRow; actions: RowActions }) {
+function ForJobRowView({
+  row,
+  actions,
+  budgetHourly,
+}: {
+  row: ForJobRow;
+  actions: RowActions;
+  budgetHourly: number | null;
+}) {
   const busy = actions.busyIds?.has(row.candidate_id) ?? false;
   const sentHere = formatDate(row.sent_to_client_at);
   const incomplete = row.score == null;
+  // Odznaka, nie blokada — jak w oknie „Kandydaci do dodania”.
+  const overBudget =
+    budgetHourly != null &&
+    row.expected_rate_hourly != null &&
+    row.expected_rate_hourly > budgetHourly
+      ? overBudgetLabel(row.expected_rate_hourly, budgetHourly)
+      : null;
   return (
     <li className="flex items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
       <MatchScoreBadge
@@ -326,6 +342,11 @@ function ForJobRowView({ row, actions }: { row: ForJobRow; actions: RowActions }
             .filter(Boolean)
             .join(" · ") || (incomplete ? "Brak wektora albo spoza najbliższych — wynik niepoliczony." : "")}
         </p>
+        {overBudget ? (
+          <span className="mt-1 mr-1 inline-flex items-center rounded bg-warning-muted px-1.5 py-0.5 text-[11px] font-medium text-warning-muted-foreground">
+            {overBudget}
+          </span>
+        ) : null}
         {row.eligibility ? (
           <span
             className={cn(
@@ -357,11 +378,13 @@ function ForJobRowView({ row, actions }: { row: ForJobRow; actions: RowActions }
 export function ForJobView({ data, actions }: { data: ForJobResponse; actions: RowActions }) {
   const scored = data.rows.filter((r) => r.score != null);
   const rest = data.rows.filter((r) => r.score == null);
+  const budget = data.rate_budget_hourly ?? null;
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
         <BriefcaseBusiness className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
         „{data.job_title}”
+        {budget != null ? ` · budżet ${Math.round(budget)} zł/h` : ""}
         {data.in_job_count > 0
           ? ` · ${data.in_job_count} ${plural(data.in_job_count, "osoba", "osoby", "osób")} z Twojej listy już tu jest`
           : ""}
@@ -378,7 +401,7 @@ export function ForJobView({ data, actions }: { data: ForJobResponse; actions: R
       {scored.length ? (
         <ul className="space-y-0.5">
           {scored.map((row) => (
-            <ForJobRowView key={row.candidate_id} row={row} actions={actions} />
+            <ForJobRowView key={row.candidate_id} row={row} actions={actions} budgetHourly={budget} />
           ))}
         </ul>
       ) : null}
@@ -389,7 +412,7 @@ export function ForJobView({ data, actions }: { data: ForJobResponse; actions: R
           </summary>
           <ul className="mt-1 space-y-0.5">
             {rest.map((row) => (
-              <ForJobRowView key={row.candidate_id} row={row} actions={actions} />
+              <ForJobRowView key={row.candidate_id} row={row} actions={actions} budgetHourly={budget} />
             ))}
           </ul>
         </details>
