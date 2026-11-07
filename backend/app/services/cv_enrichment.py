@@ -44,6 +44,10 @@ _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
 # ``notes_insights_sync``) i pochodzenie rekordu z importu Traffita. Odczyt CV
 # i kwarantanna tożsamości CV ich nie ruszają.
 NON_CV_EXTRACTED_KEYS = ("_notes_insights", "legacy_source")
+# Znaczniki biegów masowych: „ten tekst CV już przeczytano / wyciągnięto”.
+# Do 07.11.2026 każdy odczyt je gubił (pomiar na 50 CV: `_cv_text_extraction`
+# u 3, `_cv_fields_read_md5` u 1), więc kolejny bieg płacił za ten sam tekst.
+CV_RUN_MARKER_KEYS = ("_cv_text_extraction", "_cv_fields_read_md5", "_cv_reparse")
 
 # Fields an AI parse may author. Everything here is subject to `CvWritePolicy`
 # and to a `_manual_override_<field>` lock.
@@ -616,7 +620,7 @@ def _apply_cv_enrichment(
     # Runda 9 (R9-N8-3): fakty z notatek rekruterów i pochodzenie importu nie
     # pochodzą z CV — nowy odczyt CV nie może ich skasować (do tej pory każde
     # wgranie CV zerowało kartę „Z notatek rekruterów” do nocnego biegu).
-    for key in NON_CV_EXTRACTED_KEYS:
+    for key in (*NON_CV_EXTRACTED_KEYS, *CV_RUN_MARKER_KEYS):
         if key in existing_extracted:
             next_extracted[key] = existing_extracted[key]
     # Merge, never replace: fields this run left alone keep whatever provenance

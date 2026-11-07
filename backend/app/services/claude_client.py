@@ -264,6 +264,16 @@ def _record_health(
         pass
 
 
+def record_batch_message_usage(message: Any, *, model: str) -> None:
+    """Dolicz tokeny odpowiedzi z Message Batches API do aktywnej operacji AI.
+
+    Paczka nie przechodzi przez `call_claude`, więc ta sama telemetria
+    (licznik operacji, `ai_provider_calls` z wyceną −50%) idzie tędy.
+    Wołać wewnątrz `ai_feature(...)`.
+    """
+    _record_tokens(message, model=model, batch=True)
+
+
 def _record_tokens(
     message: Any,
     *,
@@ -271,6 +281,7 @@ def _record_tokens(
     latency_ms: int = 0,
     inference_geo: str = "global",
     standard_pricing: bool = True,
+    batch: bool = False,
 ) -> None:
     """Dolicz tokeny udanego wywołania do zadeklarowanej operacji (nigdy nie rzuca).
 
@@ -297,6 +308,7 @@ def _record_tokens(
                 latency_ms=latency_ms,
                 inference_geo=inference_geo,
                 standard_pricing=standard_pricing,
+                batch=batch,
             )
             if not persist_response(event):
                 context.pending_responses.append(event)

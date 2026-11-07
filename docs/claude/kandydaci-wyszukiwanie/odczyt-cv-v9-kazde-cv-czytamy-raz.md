@@ -8,8 +8,12 @@ których ekrany jeszcze nie czytają.
 
 - **Przy stanowisku** (`experience[]`): `sector` (branża, przy kliencie końcowym
   jego branża), `team_size` (ile osób prowadził, 1–500, tylko gdy CV to podaje),
-  `regulations` (PSD2, RODO/GDPR, KNF, DORA, PCI DSS, ISO 27001…). Klucze idą do
-  `candidates.experience` przez `_RICH_EXPERIENCE_KEYS`.
+  `regulations` (PSD2, RODO/GDPR, KNF, DORA, PCI DSS, ISO 27001…). Zawsze są
+  w `cv_extracted_data.experience`; do `candidates.experience` (`_RICH_EXPERIENCE_KEYS`)
+  trafiają tylko wtedy, gdy historia z CV zastępuje zapisaną. FILL_EMPTY nie nadpisuje
+  historii z rolami (np. z importu Traffita): w próbie 20 CV ze stagingu 07.11 żadna
+  osoba nie dostała ich w `candidates.experience`, 14 ma branżę w odczycie. Konsument
+  czyta więc `cv_extracted_data.experience`.
 - **Przy kandydacie** (`cv_extracted_data`): `seniority_level` w kanonie
   `Job.seniority` (junior, mid, senior, lead, architect) i `nationality`.
   Słabszy odczyt przy FILL_EMPTY ich nie kasuje (`rich_keys`).
@@ -27,3 +31,10 @@ których ekrany jeszcze nie czytają.
   z powodem i z wersją promptu, bo każda zmiana treści unieważnia cache odczytów.
 - Scraper portali nie czyta CV modelem: wysyła plik do `from-cv` albo
   `POST /api/candidates/{id}/cv`, więc v9 obejmuje go sam.
+- **Bieg po starej bazie**: `scripts/reparse_cv_batch.py` (`count`, `run`, `collect`),
+  Message Batches API (−50%), model `cv_backfill`, zapis przez `finish_cv_ingest`
+  z FILL_EMPTY i `enqueue_auto_match=False`. Odczytany tekst dostaje znacznik
+  `_cv_reparse` (skrót, wynik, próby), więc bieg sam się wznawia. Znaczniki biegów
+  `_cv_*` (`CV_RUN_MARKER_KEYS`) nie giną przy kolejnych odczytach CV.
+- **Faza nocna** `candidates_cv_fields` czyta pełnym promptem i odświeża
+  `candidate_skill_usage`, więc nowe osoby z tej ścieżki nie potrzebują drugiego odczytu.

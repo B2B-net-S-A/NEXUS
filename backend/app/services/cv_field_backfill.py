@@ -17,7 +17,12 @@ Zasady, które nie są kosmetyką:
 * **Keyset pagination, wznawialny kursor** — Coolify restartuje kontener przy
   każdym pushu, a pełny bieg to godziny. `after_id` w statusie mówi, od czego
   wznowić.
-* **Sam krok Claude** (`_parse_with_claude`, model+prompt masowe), bez Ollamy:
+* **Pełny prompt `CV_ENRICHMENT` od 07.11.2026** (decyzja Artura „każde CV
+  czytamy raz”): szablon masowy `CV_ENRICHMENT_BULK` zapisywał tylko nazwy firm
+  i jedną liczbę lat na umiejętność, więc oś technologii wymagała drugiego
+  odczytu. Model `cv_backfill` (Haiku 5.5) jest tańszy od dawnego Sonneta na
+  szablonie masowym, a oś trafia też do `candidate_skill_usage`.
+* **Sam krok Claude** (`_parse_with_claude`, model masowy), bez Ollamy:
   fallback na lokalny model dawałby niespójną jakość w obrębie jednego biegu,
   a regex nie wypełnia pól celu. Wiersz bez wyniku = pominięty, nie blokujący.
 * **`message.usage` jest zbierane** — bieg kalibracyjny ma zmierzyć realny
@@ -52,9 +57,10 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cv_enrichment import CvWritePolicy, _apply_cv_enrichment
-from app.services.cv_parser import parse_cv_with_claude
-from app.services.llm_prompts import CV_ENRICHMENT_BULK
+from app.services.cv_parser import normalize_cv_output, parse_cv_with_claude
+from app.services.llm_prompts import CV_ENRICHMENT
 from app.services.ai_models import model_for
+from app.services.profile_projection import replace_skill_usage
 
 logger = logging.getLogger(__name__)
 
@@ -341,7 +347,7 @@ async def backfill_cv_fields(
                         parsed = await parse_cv_with_claude(
                             candidate.raw_cv_text,
                             model=bulk_model,
-                            template=CV_ENRICHMENT_BULK,
+                            template=CV_ENRICHMENT,
                         )
                 except AIQuotaExceeded as quota_exc:
                     # Hamulec organizacyjny — zatrzymuje BIEG, nie wiersz.
@@ -355,6 +361,8 @@ async def backfill_cv_fields(
                 if parsed is None:
                     stats["skipped_no_result"] += 1
                     continue
+                # Ta sama walidacja dat i list co `parse_cv` na ścieżce rekrutera.
+                parsed = normalize_cv_output(parsed)
 
                 usage = parsed.get("_usage") or {}
                 stats["usage"]["input_tokens"] += int(usage.get("input_tokens") or 0)
@@ -453,6 +461,16 @@ async def backfill_cv_fields(
                         exc,
                     )
                     continue
+
+                try:
+                    async with db.begin_nested():
+                        await replace_skill_usage(db, candidate)
+                except Exception as exc:  # noqa: BLE001 — indeks dogoni kolejny odczyt
+                    logger.warning(
+                        "[cv-backfill] indeks osi padł dla id=%s: %s",
+                        candidate.id,
+                        type(exc).__name__,
+                    )
 
                 filled = empty_before - _empty_now(candidate)
                 if filled:

@@ -680,6 +680,24 @@ def _normalize_skill_dates(value: Any) -> Any:
     return output
 
 
+def normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Publiczne wejście `_normalize_cv_output` dla biegów z surowym wynikiem
+    `parse_cv_with_claude` / Batch API (faza nocna, ponowny odczyt bazy)."""
+    return _normalize_cv_output(parsed)
+
+
+def finalize_claude_cv_output(parsed: dict[str, Any], cv_text: str) -> dict[str, Any]:
+    """Wynik Claude'a → ten sam kształt, który `parse_cv` oddaje rekruterowi.
+
+    Kolejność jak w `parse_cv`: LinkedIn i kontakt z regexu tam, gdzie model
+    nic nie dał, potem normalizacja. Bieg przez Batch API woła to po odebraniu
+    odpowiedzi, bo `parse_cv` sam nie wysyła paczek.
+    """
+    return _normalize_cv_output(
+        _apply_contact_fallbacks(_with_linkedin_fallback(parsed, cv_text), cv_text)
+    )
+
+
 def normalize_experience_entries(value: Any) -> list[dict[str, Optional[str]]]:
     """Publiczne wejście dla biegów, które dostają SUROWY wynik `parse_cv_with_claude`.
 
@@ -919,6 +937,92 @@ def _salvage_truncated_json(raw: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def claude_cv_request_params(
+    cv_text: str, *, model: str, template: PromptTemplate = CV_ENRICHMENT
+) -> dict[str, Any]:
+    """Treść żądania odczytu CV — wspólna dla wywołania na żywo i Batch API.
+
+    Bieg masowy przez Batch API (`cv_reparse_batch`) musi wysłać dokładnie to
+    samo co ścieżka rekrutera, inaczej pomiar na żywo nie mówi nic o biegu.
+    """
+    return {
+        "model": model,
+        # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
+        # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
+        # per stanowisko, projekty, certyfikaty) potrzebuje ~2× więcej.
+        "max_tokens": _max_tokens_for(template),
+        # Claude 5 does adaptive thinking by default; thinking tokens count
+        # toward max_tokens and would truncate this JSON output. On models
+        # where thinking is off by default (Haiku 4.5) `disabled` is a no-op
+        # — the pin only matters when a Claude 5 model is configured.
+        "thinking": {"type": "disabled"},
+        "system": template.system_prompt or "",
+        "messages": [
+            {
+                "role": "user",
+                "content": _user_content(template, _cv_input_for(template, cv_text)),
+            }
+        ],
+    }
+
+
+def parsed_from_claude_message(
+    message: Any, cv_text: str, *, model: str, template: PromptTemplate = CV_ENRICHMENT
+) -> Optional[dict[str, Any]]:
+    """Odpowiedź modelu → surowy wynik odczytu (bez `_normalize_cv_output`).
+
+    Rzuca `json.JSONDecodeError`, gdy odpowiedź nie jest JSON-em i nie da się
+    jej uratować; wołający decyduje, co dalej (fallback albo ponowienie).
+    """
+    # Claude 5 models can lead with a non-text block (e.g. a thinking
+    # block), so content[0].text may be absent/empty — collect every text
+    # block instead of blindly reading content[0].
+    raw = "".join(
+        getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+    )
+    unwrapped = _strip_json_fences(raw)
+    truncated = getattr(message, "stop_reason", None) == "max_tokens"
+    try:
+        data = json.loads(unwrapped)
+    except json.JSONDecodeError:
+        salvaged = _salvage_truncated_json(unwrapped) if truncated else None
+        if salvaged is None:
+            raise
+        data = salvaged
+        data["_truncated"] = True
+        logger.warning(
+            "[cv_parser] truncated JSON salvaged (template=%s v%d, keys=%d)",
+            template.name,
+            template.version,
+            len(data),
+        )
+    if not isinstance(data, dict):
+        return None
+    drop_untraced_technologies(data, cv_text)
+    drop_untraced_profile_facts(data, cv_text)
+    data["_source"] = f"claude:{template.name}:v{template.version}"
+    # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
+    # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w
+    # cv_extracted_data) + log, żeby bieg kalibracyjny mierzył realny
+    # koszt jednostkowy zamiast szacunku.
+    usage = getattr(message, "usage", None)
+    if usage is not None:
+        data["_usage"] = {
+            "model": model,
+            "input_tokens": getattr(usage, "input_tokens", None),
+            "output_tokens": getattr(usage, "output_tokens", None),
+        }
+        logger.info(
+            "[cv_parser] model=%s in=%s out=%s template=%s v%d",
+            model,
+            getattr(usage, "input_tokens", "?"),
+            getattr(usage, "output_tokens", "?"),
+            template.name,
+            template.version,
+        )
+    return data
+
+
 async def _parse_with_claude(
     cv_text: str,
     *,
@@ -952,79 +1056,23 @@ async def _parse_with_claude(
     if not api_key_configured(chosen_model) or not settings.CV_ENRICHMENT_ENABLED:
         return None
     try:
-        user_content = _user_content(template, _cv_input_for(template, cv_text))
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
         # żeby wielosekundowy round-trip nie blokował jednowątkowego event loopu.
         message = await run_in_threadpool(
             call_claude,
-            model=chosen_model,
             # Bieg masowy na tańszym modelu (F10 = GPT-6 Luna od 22.09.2026) przy
             # przeciążeniu dostawcy schodzi na model parsera CV, a nie od razu
             # do Ollamy/regexu.
             fallback_models=[
                 m for m in model_chain_for(AIFeatureKey.cv_parser) if m != chosen_model
             ],
-            # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
-            # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
-            # per stanowisko, projekty, certyfikaty) potrzebuje ~2× więcej.
-            max_tokens=_max_tokens_for(template),
             **_timeouts_for(template),
-            # Claude 5 does adaptive thinking by default; thinking tokens count
-            # toward max_tokens and would truncate this JSON output. On models
-            # where thinking is off by default (Haiku 4.5) `disabled` is a no-op
-            # — the pin only matters when a Claude 5 model is configured.
-            thinking={"type": "disabled"},
-            system=template.system_prompt or "",
-            messages=[{"role": "user", "content": user_content}],
             api_key=settings.ANTHROPIC_API_KEY or None,
+            **claude_cv_request_params(cv_text, model=chosen_model, template=template),
         )
-        # Claude 5 models can lead with a non-text block (e.g. a thinking
-        # block), so content[0].text may be absent/empty — collect every text
-        # block instead of blindly reading content[0].
-        raw = "".join(
-            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+        return parsed_from_claude_message(
+            message, cv_text, model=chosen_model, template=template
         )
-        unwrapped = _strip_json_fences(raw)
-        truncated = getattr(message, "stop_reason", None) == "max_tokens"
-        try:
-            data = json.loads(unwrapped)
-        except json.JSONDecodeError:
-            salvaged = _salvage_truncated_json(unwrapped) if truncated else None
-            if salvaged is None:
-                raise
-            data = salvaged
-            data["_truncated"] = True
-            logger.warning(
-                "[cv_parser] truncated JSON salvaged (template=%s v%d, keys=%d)",
-                template.name,
-                template.version,
-                len(data),
-            )
-        if not isinstance(data, dict):
-            return None
-        drop_untraced_technologies(data, cv_text)
-        drop_untraced_profile_facts(data, cv_text)
-        data["_source"] = f"claude:{template.name}:v{template.version}"
-        # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
-        # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w
-        # cv_extracted_data) + log, żeby bieg kalibracyjny mierzył realny
-        # koszt jednostkowy zamiast szacunku.
-        usage = getattr(message, "usage", None)
-        if usage is not None:
-            data["_usage"] = {
-                "model": chosen_model,
-                "input_tokens": getattr(usage, "input_tokens", None),
-                "output_tokens": getattr(usage, "output_tokens", None),
-            }
-            logger.info(
-                "[cv_parser] model=%s in=%s out=%s template=%s v%d",
-                chosen_model,
-                getattr(usage, "input_tokens", "?"),
-                getattr(usage, "output_tokens", "?"),
-                template.name,
-                template.version,
-            )
-        return data
     except Exception as e:
         logger.warning(
             "[cv_parser] Claude call failed (template=%s v%d): %s",

@@ -32,7 +32,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
 | F8  | uop_check                        | gpt-6.1-sol (z Sonnet 5) |
 | F9  | cv_parser                        | claude-sonnet-5-5 (z 5)  |
-| F10 | cv_backfill                      | claude-sonnet-5-5 (z 5)  |
+| F10 | cv_backfill                      | claude-haiku-5-5 (z 5)   |
 |     | cv_name_backfill                 | gpt-6-luna (z Sonnet 5)  |
 | F11 | notes_extraction                 | gpt-6-luna (z Sonnet 5)  |
 | F12 | candidate_summary                | gpt-6-luna (z Sonnet 5)  |
@@ -223,15 +223,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "cena i umowa powierzenia (OpenAI).",
     ),
     AIFeatureKey.cv_backfill: ModelChoice(
-        default=SONNET_55,
+        default=HAIKU_55,
         env_vars=("CV_BACKFILL_MODEL",),
         # Bez legacy CLAUDE_MODEL_CV_BULK od 22.09.2026: ta zmienna nadal steruje
         # lintem reguł i datami doświadczenia (Sonnet 5), a `settings_attr`
         # wygrywa z `default` — zostawiona zabrałaby tej funkcji jej model.
         fallbacks=(SONNET_5,),
-        rationale="F10. Masowy backfill pól: Sonnet 5.5 od 03.11.2026 (audyt 02.11): 14,5 "
-        "technologii na CV wobec 9,9 Luny, zmyślenia bez istotnej różnicy, zła osoba bez zmian, "
-        "ok. +21 USD miesięcznie. Wcześniej GPT-6 Luna (22.09.2026).",
+        rationale="F10. Masowy odczyt CV pełnym promptem (bieg starej bazy przez Batch API, "
+        "faza nocna): Haiku 5.5 od 07.11.2026 (decyzja Artura po pomiarze na 50 CV, prompt v8/v9): "
+        "oś technologii u 47 z 50 osób, 77–83% technologii osi Sonneta, miesiące w ±12 w 90%, "
+        "ta sama odpowiedź na „3+ lata” w 96%, 0,0017 USD za CV wobec 0,034 Sonneta. "
+        "Wcześniej Sonnet 5.5 (03.11.2026) i GPT-6 Luna (22.09.2026).",
     ),
     AIFeatureKey.experience_dates_on_demand: ModelChoice(
         default=SONNET_5,
