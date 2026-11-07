@@ -77,8 +77,9 @@ export const dictionaryHintsKey = ["dictionary-hints"] as const;
 export interface DictionaryHintsState {
   /** Po słowie (małymi literami); pusto, dopóki zapytanie nie skończy się sukcesem. */
   byWord: Record<string, DictionaryHint>;
-  /** Mapa wiedzy IT: po słowie (małymi literami) — „wynika z”, „typowe”, zamienniki. */
-  relationsByWord: Record<string, RelationHint[]>;
+  /** Mapa wiedzy IT: po słowie (małymi literami) — „wynika z”, „typowe”, zamienniki.
+   *  Opcjonalne: harnessy i starsze zaślepki go nie podają. */
+  relationsByWord?: Record<string, RelationHint[]>;
   canCurate: boolean;
 }
 

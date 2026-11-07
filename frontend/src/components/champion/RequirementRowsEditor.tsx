@@ -588,7 +588,7 @@ export function RequirementRowsEditor({
                 />
               ) : null}
               {row.words.flatMap((word) =>
-                (dictionaryHints.relationsByWord[word.trim().toLowerCase()] ?? []).map((hint) => {
+                (dictionaryHints.relationsByWord?.[word.trim().toLowerCase()] ?? []).map((hint) => {
                   const text = relationHintText(hint, row.level === "critical");
                   const key = `rel:${hint.kind}:${word.trim().toLowerCase()}`;
                   if (!text || dismissed.has(key)) return null;
