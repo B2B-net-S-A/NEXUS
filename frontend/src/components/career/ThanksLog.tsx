@@ -77,9 +77,11 @@ export function ThanksLog({
             </li>
           </ol>
           <ul className={s.messageNotes}>
-            <li>
-              Odpowiedź przyjdzie na <b>{email}</b>
-            </li>
+            {email ? (
+              <li>
+                Odpowiedź przyjdzie na <b>{email}</b>
+              </li>
+            ) : null}
             <li>Twoje CV zostaje w bazie — dostaniesz też propozycje innych projektów.</li>
           </ul>
           <div className={`${s.actions} ${s.messageActions}`}>

@@ -126,6 +126,47 @@ def cv_display_filename(cv: UploadFile) -> str:
     return public_share._fit_filename(name or "cv.pdf")
 
 
+# 07.11.2026 (decyzja Artura): na stronie kariery kandydat dołącza samo CV —
+# imię, nazwisko, e-mail i telefon czyta ten sam odczyt co `/from-cv`.
+PLACEHOLDER_NAME = "Nieznane"
+MSG_EMAIL_NOT_IN_CV = (
+    "W CV nie znaleźliśmy adresu e-mail. Wpisz go, żebyśmy mogli odpowiedzieć."
+)
+
+
+async def identity_from_cv(
+    db: Any, content: bytes, filename: Optional[str]
+) -> dict[str, Optional[str]]:
+    """Imię, nazwisko, e-mail i telefon z CV; puste pola = ``None``. Nie rzuca.
+
+    `parse_cv` sam sprawdza, że e-mail naprawdę jest w tekście CV, i ma darmowe
+    wyrażenie regularne, gdy model nie odpowie. Pusty tekst (skan) = ``{}``.
+    """
+    from app.api.candidates import _extract_uploaded_cv_text
+    from app.services.cv_parser import parse_cv
+
+    safe_name = pathlib.PurePath(filename or "cv.pdf").name or "cv.pdf"
+    try:
+        text = await _extract_uploaded_cv_text(
+            content, safe_name=safe_name, client_filename=filename
+        )
+    except Exception as exc:  # noqa: BLE001 — brak tekstu = prośba o e-mail
+        logger.warning("[apply] CV text extraction failed: %s", type(exc).__name__)
+        return {}
+    if not (text or "").strip():
+        return {}
+    try:
+        parsed = await parse_cv(text, db=db)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[apply] CV parse failed: %s", type(exc).__name__)
+        return {}
+    out: dict[str, Optional[str]] = {}
+    for key in ("first_name", "last_name", "email", "phone"):
+        value = parsed.get(key)
+        out[key] = str(value).strip() if value else None
+    return out
+
+
 def field_error(field_name: str, message: str, value: Any = None) -> HTTPException:
     """422 w kształcie walidacji FastAPI (``detail`` = lista z ``loc``).
 
