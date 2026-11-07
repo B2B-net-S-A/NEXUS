@@ -77,6 +77,14 @@
    "v3_home": "panel osoby → obok „Nie odebrał”"
   },
   {
+   "id": "list.unfinished-request",
+   "area": "lista",
+   "opis": "„Dokończ szkic requestu z DD.MM →” w nagłówku listy: najświeższy niedokończony formularz „Nowa rekrutacja” zalogowanej osoby, tylko z uprawnieniem do zakładania rekrutacji (07.11.2026)",
+   "file": "components/v2/jobs/UnfinishedRequestButton.tsx",
+   "marker": "jobs-list-unfinished-request",
+   "v3_home": "lista rekrutacji → nagłówek, obok „Nowa rekrutacja”"
+  },
+  {
    "id": "list.dock",
    "area": "lista",
    "opis": "Dock podglądu rekrutacji",
