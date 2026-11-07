@@ -1772,6 +1772,33 @@ describe("CvQcDialog — QC CV", () => {
     });
   });
 
+  it("luka kandydata stoi w „Do decyzji Delivery Leada”, nie w poprawkach (R2, 07.11.2026)", async () => {
+    serve(
+      withCheck(
+        "critical_skills",
+        {
+          status: "pass",
+          summary: "Luka kandydata: FastAPI",
+          items: [],
+          info: [
+            {
+              requirement: "FastAPI",
+              detail: "Kandydat tego nie ma: brak w CV, w oryginale i w rozmowie. W CV nie ma czego poprawić — o wysyłce zdecyduje Delivery Lead.",
+              fix: "ask_candidate",
+              candidate_gap: true,
+            },
+          ],
+        },
+        passed(),
+      ),
+    );
+    renderDialog();
+    const section = await screen.findByRole("region", { name: "Do decyzji Delivery Leada" });
+    expect(section).toHaveTextContent("FastAPI");
+    expect(section).toHaveTextContent("o wysyłce zdecyduje Delivery Lead");
+    expect(within(section).getByRole("button", { name: "Skopiuj pytanie do kandydata" })).toBeTruthy();
+  });
+
   it("„Delivery Lead zwykle o to cofa” stoi nad „Warto poprawić” (R4, 07.11.2026)", async () => {
     serve(
       withCheck("must_bolded", { status: "pass", items: [] }, {

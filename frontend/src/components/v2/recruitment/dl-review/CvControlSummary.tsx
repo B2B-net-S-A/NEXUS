@@ -63,6 +63,11 @@ export function CvControlSummary({ checks, override, hideOverrideLine = false, o
               {countForm(control.blocking, ["rzecz", "rzeczy", "rzeczy"])} do poprawy przed wysłaniem
             </Line>
           ) : null}
+          {control.gaps.map((requirement) => (
+            <Line key={`gap-${requirement}`} icon={<AlertTriangle className="size-4 text-warning" aria-hidden />}>
+              {requirement} — kandydat tego nie ma, decyzja o wysyłce należy do Ciebie
+            </Line>
+          ))}
           {control.manual.map((entry) => (
             <Line key={entry.requirement} icon={<Hand className="size-4 text-info" aria-hidden />}>
               {entry.roles.length > 0

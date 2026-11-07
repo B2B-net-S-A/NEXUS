@@ -41,6 +41,7 @@ describe("„Kontrola CV” w przeglądzie DL (R5, 07.11.2026)", () => {
       manual: [{ requirement: "Oracle DB", roles: ["CCC group"], by: "Zofia C." }],
       unverified: ["ETL"],
       blocking: 0,
+      gaps: [],
     });
   });
 
@@ -66,6 +67,25 @@ describe("„Kontrola CV” w przeglądzie DL (R5, 07.11.2026)", () => {
     );
     expect(screen.getByRole("region", { name: "Kontrola CV" })).toHaveTextContent(
       "Przepuszczone mimo uwag — Julia S.: Klient zna go z projektu",
+    );
+  });
+
+  it("luka kandydata (R2) stoi jako decyzja Delivery Leada", () => {
+    const checks: QcCheck[] = [
+      {
+        key: "critical_skills",
+        label: "Umiejętności krytyczne są w CV i opisane w rolach",
+        severity: "blocking",
+        status: "pass",
+        summary: "Luka kandydata: FastAPI",
+        items: [],
+        info: [{ requirement: "FastAPI", fix: "ask_candidate", candidate_gap: true }],
+      },
+    ];
+    expect(cvControlSummary(checks).gaps).toEqual(["FastAPI"]);
+    render(<CvControlSummary checks={checks} override={null} onOpenQc={() => undefined} />);
+    expect(screen.getByRole("region", { name: "Kontrola CV" })).toHaveTextContent(
+      "FastAPI — kandydat tego nie ma, decyzja o wysyłce należy do Ciebie",
     );
   });
 

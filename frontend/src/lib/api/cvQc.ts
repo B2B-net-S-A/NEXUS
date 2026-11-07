@@ -50,6 +50,8 @@ export interface QcItem {
   key?: string | null;
   /** R3: pozycja z ręcznego wskazania roli. */
   manual?: QcManualBy | null;
+  /** R2 (07.11.2026): krytyczna, której kandydat nie ma — decyzja Delivery Leada. */
+  candidate_gap?: boolean;
   requirement?: string | null;
   role?: string | null;
   detail?: string | null;

@@ -108,6 +108,7 @@ def _run(**kw) -> SimpleNamespace:
         has_override=False,
         override_at=None,
         manual=None,
+        gaps=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -131,6 +132,7 @@ async def test_pass_through_dismissals_is_overridden_while_they_last() -> None:
         "dismissed_blocking": 2,
         "warnings_count": 0,
         "manual_checks": [],
+        "candidate_gaps": [],
     }
 
 
@@ -146,6 +148,7 @@ async def test_returned_card_without_a_new_run_is_no_longer_passed_through() -> 
         "dismissed_blocking": 0,
         "warnings_count": 0,
         "manual_checks": [],
+        "candidate_gaps": [],
     }
     out = await _status([_run(dismissed="1")], [])
     assert out["status"] == "failed" and out["blocking_failed"] == 1
@@ -170,6 +173,13 @@ async def test_passed_run_carries_blocking_checks_nobody_verified() -> None:
 
 
 @pytest.mark.asyncio
+async def test_passed_run_carries_candidate_gaps_for_the_dl() -> None:
+    """R2 (07.11.2026): luka kandydata nie blokuje, ale stan pary ją niesie."""
+    out = await _status([_run(gaps=["FastAPI", None])], [])
+    assert out["status"] == "passed" and out["candidate_gaps"] == ["FastAPI"]
+
+
+@pytest.mark.asyncio
 async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
     assert (await _status([_run()], []))["status"] == "passed"
     failed = await _status([_run(passed=False, blocking_failed=3)], [])
@@ -180,6 +190,7 @@ async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
         "dismissed_blocking": 0,
         "warnings_count": 0,
         "manual_checks": [],
+        "candidate_gaps": [],
     }
 
 
