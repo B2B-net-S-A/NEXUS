@@ -1349,6 +1349,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {criticalGap && (
  <span
  data-testid="card-critical-gap"
+ data-tour={!criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
  className={cn(
  "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
  desktopOverview && "xl:pointer-fine:hidden"

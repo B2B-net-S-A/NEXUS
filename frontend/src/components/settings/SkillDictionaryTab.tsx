@@ -532,7 +532,7 @@ export function SkillDictionaryTab() {
         </span>
       ),
     },
-    { value: "relations", label: "Powiązania" },
+    { value: "relations", label: <span data-tour="skills.relations">Powiązania</span> },
     { value: "unmatched", label: "Nieznane terminy" },
     { value: "plain", label: "Po ludzku" },
     ...(careOpen ? [{ value: "conversations", label: "Nazwy z rozmów" }] : []),
