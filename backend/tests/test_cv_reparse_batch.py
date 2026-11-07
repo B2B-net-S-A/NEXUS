@@ -323,3 +323,64 @@ def test_ingest_skips_auto_match_only_when_asked(monkeypatch, flag, expected):
     )
     assert len(queued) == expected
     assert outcome.auto_match_queued is bool(expected)
+
+
+class _CommittingDb(_FakeDb):
+    def __init__(self, candidate):
+        super().__init__(candidate)
+        self.commits = 0
+
+    async def commit(self):
+        self.commits += 1
+
+
+def _entry(candidate, result):
+    return SimpleNamespace(
+        custom_id=reparse.custom_id(
+            candidate.id, reparse.text_digest(candidate.raw_cv_text)
+        ),
+        result=result,
+    )
+
+
+def test_write_error_marks_the_cv_so_the_next_run_does_not_pay_again(
+    wired, monkeypatch
+):
+    import app.services.cv_ingest_service as ingest
+
+    async def broken_ingest(db, **kwargs):
+        raise ValueError("np. constraint")
+
+    monkeypatch.setattr(ingest, "finish_cv_ingest", broken_ingest)
+    candidate = _candidate()
+    stats = reparse.ReparseStats()
+    asyncio.run(
+        reparse.apply_batch_results(
+            _CommittingDb(candidate),
+            [_entry(candidate, _ok())],
+            model="claude-haiku-5-5",
+            stats=stats,
+        )
+    )
+    assert stats.errors == 1
+    marker = candidate.cv_extracted_data["_cv_reparse"]
+    assert (marker["outcome"], marker["attempts"]) == ("failed", 1)
+
+
+def test_broken_result_stream_still_commits_written_rows(wired):
+    candidate = _candidate()
+    db = _CommittingDb(candidate)
+
+    def stream():
+        yield _entry(candidate, _ok())
+        raise ConnectionError("strumień wyników zerwany")
+
+    with pytest.raises(ConnectionError):
+        asyncio.run(
+            reparse.apply_batch_results(
+                db, stream(), model="claude-haiku-5-5", stats=reparse.ReparseStats()
+            )
+        )
+    assert db.commits == 1, (
+        "wiersze zapisane przed zerwaniem muszą zostać zacommitowane"
+    )

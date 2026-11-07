@@ -65,7 +65,11 @@ async def _count(args: argparse.Namespace) -> None:
 async def _collect(
     client, batch_id: str, model: str, stats: reparse.ReparseStats
 ) -> None:
-    results = await asyncio.to_thread(client.messages.batches.results, batch_id)
+    # Całość w wątku, przed zapisem: `results()` to leniwy strumień JSONL, a
+    # zapis 2000 wierszy trwa dziesiątki minut — zerwany strumień zabijałby bieg.
+    results = await asyncio.to_thread(
+        lambda: list(client.messages.batches.results(batch_id))
+    )
     async with AsyncSessionLocal() as db:
         await reparse.apply_batch_results(db, results, model=model, stats=stats)
 

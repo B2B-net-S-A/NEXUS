@@ -260,38 +260,69 @@ async def apply_batch_results(
     stats: ReparseStats,
     commit_every: int = 25,
 ) -> None:
-    """Wyniki paczki (`client.messages.batches.results`) → profile."""
+    """Wyniki paczki (`client.messages.batches.results`) → profile.
+
+    Commit w `finally`: wyjątek spoza wiersza (np. zerwany strumień wyników)
+    nie może zgubić zapisanych już wierszy, bo za ich odczyt zapłacono.
+    """
     since_commit = 0
-    for entry in results:
-        parsed_id = parse_custom_id(getattr(entry, "custom_id", "") or "")
-        if parsed_id is None:
-            continue
-        candidate_id, digest = parsed_id
-        try:
-            # SAVEPOINT per wiersz: błąd cofa tylko ten wiersz, a nie
-            # niezacommitowane udane wiersze z tej samej porcji.
-            async with db.begin_nested():
-                await apply_result(
-                    db,
-                    candidate_id=candidate_id,
-                    digest=digest,
-                    result=entry.result,
-                    model=model,
-                    stats=stats,
+    try:
+        for entry in results:
+            parsed_id = parse_custom_id(getattr(entry, "custom_id", "") or "")
+            if parsed_id is None:
+                continue
+            candidate_id, digest = parsed_id
+            try:
+                # SAVEPOINT per wiersz: błąd cofa tylko ten wiersz, a nie
+                # niezacommitowane udane wiersze z tej samej porcji.
+                async with db.begin_nested():
+                    await apply_result(
+                        db,
+                        candidate_id=candidate_id,
+                        digest=digest,
+                        result=entry.result,
+                        model=model,
+                        stats=stats,
+                    )
+            except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
+                stats.errors += 1
+                logger.warning(
+                    "[cv-reparse] zapis padł dla id=%s: %s",
+                    candidate_id,
+                    type(exc).__name__,
                 )
-        except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
-            stats.errors += 1
-            logger.warning(
-                "[cv-reparse] zapis padł dla id=%s: %s",
-                candidate_id,
-                type(exc).__name__,
-            )
-            continue
-        since_commit += 1
-        if since_commit >= commit_every:
-            await db.commit()
-            since_commit = 0
-    await db.commit()
+                await _mark_write_failure(db, candidate_id, digest)
+                continue
+            since_commit += 1
+            if since_commit >= commit_every:
+                await db.commit()
+                since_commit = 0
+    finally:
+        await db.commit()
+
+
+async def _mark_write_failure(db: AsyncSession, candidate_id: int, digest: str) -> None:
+    """Znacznik `failed` po błędzie zapisu, osobnym savepointem.
+
+    Odpowiedź jest już zapłacona, a savepoint wiersza cofnął też znacznik —
+    bez tego deterministyczny błąd zapisu płaciłby przy każdym biegu, bo limit
+    prób liczy tylko znaczniki.
+    """
+    try:
+        async with db.begin_nested():
+            candidate = await db.get(Candidate, candidate_id)
+            if candidate is None:
+                return
+            full_digest = text_digest(candidate.raw_cv_text or "")
+            if full_digest.startswith(digest):
+                _mark(candidate, full_digest, "failed")
+                await db.flush()
+    except Exception as exc:  # noqa: BLE001 — znacznik to ratunek, nie warunek
+        logger.warning(
+            "[cv-reparse] znacznik po błędzie padł dla id=%s: %s",
+            candidate_id,
+            type(exc).__name__,
+        )
 
 
 def bulk_model() -> str:
