@@ -17,6 +17,7 @@ import {
   type CardBadgeContext,
   compactCardBadge,
   cardShortName,
+  criticalAlternativeBadge,
   criticalGapBadge,
   cvStateBadge,
   dlWaitingStatus,
@@ -881,3 +882,25 @@ describe("0521: plakietka formularza CV klienta", () => {
     ).toBe("Formularz: 2 do uzupełnienia");
   });
 });
+
+describe("„FastAPI? zna Flask” — krytyczne z zamiennikiem (mapa wiedzy IT, 07.11.2026)", () => {
+  it("bez zamienników nie ma plakietki", () => {
+    expect(criticalAlternativeBadge(undefined)).toBeNull();
+    expect(criticalAlternativeBadge({})).toBeNull();
+    expect(criticalAlternativeBadge({ fastapi: [] })).toBeNull();
+  });
+
+  it("pyta o wymaganie i podaje pierwszy zamiennik, w opisie wszystkie", () => {
+    const badge = criticalAlternativeBadge({ fastapi: ["flask", "django"] });
+    expect(badge?.label).toBe("fastapi? zna flask");
+    expect(badge?.title).toMatch(/fastapi: brak, ale zna zamienniki: flask, django/);
+    expect(badge?.title).toMatch(/nie spełnia wymagania krytycznego/);
+  });
+
+  it("kilka wymagań — licznik reszty", () => {
+    expect(criticalAlternativeBadge({ fastapi: ["flask"], kafka: ["rabbitmq"] })?.label).toBe(
+      "fastapi? zna flask +1",
+    );
+  });
+});
+

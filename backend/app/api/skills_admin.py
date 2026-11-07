@@ -199,6 +199,77 @@ async def set_alias_in_text(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+# ── Mapa wiedzy IT: powiązania haseł (0660, 07.11.2026) ─────────────────────
+# Nocny bieg zatwierdza powiązania sam (decyzja Artura z 07.11.2026); HoR+
+# widzi je tutaj, może wycofać albo dodać ręcznie.
+
+
+class RelationCreateRequest(BaseModel):
+    from_skill_id: int
+    to_skill_id: int
+    kind: str = Field(pattern="^(implies|part_of|alternative|typical)$")
+
+
+def _relation_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/relations")
+async def list_relations(
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+    relation_status: str = Query(
+        "accepted", alias="status", pattern="^(proposed|accepted|rejected)$"
+    ),
+    kind: Optional[str] = Query(
+        None, pattern="^(implies|part_of|alternative|typical)$"
+    ),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    from app.services import skill_relations
+
+    return await skill_relations.list_relations(
+        db, status=relation_status, kind=kind, limit=limit, offset=offset
+    )
+
+
+@router.post("/relations")
+async def create_relation(
+    payload: RelationCreateRequest,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services import skill_relations
+
+    try:
+        return await skill_relations.create_manual(
+            db,
+            from_skill_id=payload.from_skill_id,
+            to_skill_id=payload.to_skill_id,
+            kind=payload.kind,
+            curated_by=getattr(user, "email", None),
+        )
+    except skill_relations.RelationError as exc:
+        raise _relation_error(exc) from exc
+
+
+@router.post("/relations/{relation_id}/withdraw")
+async def withdraw_relation(
+    relation_id: int,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services import skill_relations
+
+    try:
+        return await skill_relations.withdraw(
+            db, relation_id, curated_by=getattr(user, "email", None)
+        )
+    except skill_relations.RelationError as exc:
+        raise _relation_error(exc) from exc
+
+
 @router.get("/unmatched-terms")
 async def unmatched_terms(
     _user: HeadOfRecruitmentPlus,

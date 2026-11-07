@@ -19,10 +19,12 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.skill import Skill, SkillAlias
+from app.models.skill_relation import SkillRelation
 from app.services.scoring_service import set_alias_map
 from app.services.skill_normalize import (
     TECH_CATEGORIES,
     alias_counts_in_text,
+    set_relations,
     set_tech_taxonomy,
 )
 
@@ -38,6 +40,15 @@ async def refresh_alias_map() -> int:
         alias_rows = (
             await db.execute(
                 select(SkillAlias.skill_id, SkillAlias.alias, SkillAlias.in_text)
+            )
+        ).all()
+        relation_rows = (
+            await db.execute(
+                select(
+                    SkillRelation.from_skill_id,
+                    SkillRelation.to_skill_id,
+                    SkillRelation.kind,
+                ).where(SkillRelation.status == "accepted")
             )
         ).all()
 
@@ -100,13 +111,41 @@ async def refresh_alias_map() -> int:
         },
         text_aliases=text_aliases,
     )
+    _load_relations(relation_rows, id_to_canon)
     # Reguła bramki must czyta kategorie — wyniki sprzed przeładowania są stare.
     from app.services import must_gate_terms
 
     must_gate_terms.clear_cache()
+    from app.services import must_text_evidence
+
+    must_text_evidence.clear_cache()
     logger.debug(
         "Tech taxonomy loaded: %d tech canonicals of %d skills",
         len(tech_canonicals),
         len(id_to_canon),
     )
     return len(scoring_mapping)
+
+
+def _load_relations(rows, id_to_canon: dict[int, str]) -> None:
+    """Mapa wiedzy IT (0660): zatwierdzone powiązania do ``skill_normalize``.
+    „Wynika z” i „część” spełniają wymaganie, zamiennik działa w obie strony,
+    „typowe” zapisujemy od strony wymagania (Maven ← Java)."""
+    implied_by: dict[str, set[str]] = {}
+    alternatives: dict[str, set[str]] = {}
+    typical_by: dict[str, set[str]] = {}
+    for from_id, to_id, kind in rows:
+        src = (id_to_canon.get(from_id) or "").lower()
+        dst = (id_to_canon.get(to_id) or "").lower()
+        if not src or not dst or src == dst:
+            continue
+        if kind in ("implies", "part_of"):
+            implied_by.setdefault(dst, set()).add(src)
+        elif kind == "alternative":
+            alternatives.setdefault(dst, set()).add(src)
+            alternatives.setdefault(src, set()).add(dst)
+        elif kind == "typical":
+            typical_by.setdefault(dst, set()).add(src)
+    set_relations(
+        implied_by=implied_by, alternatives=alternatives, typical_by=typical_by
+    )

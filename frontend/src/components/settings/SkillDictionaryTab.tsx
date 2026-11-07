@@ -20,6 +20,7 @@ import {
   SkillCategorySelect,
   useSkillCategories,
 } from "@/components/settings/SkillCategorySelect";
+import { SkillRelationsSection } from "@/components/settings/SkillRelationsSection";
 import {
   SkillProposalsSection,
   useOpenProposalCount,
@@ -494,7 +495,7 @@ function UnmatchedTermsSection() {
   );
 }
 
-type SkillTab = "skills" | "proposals" | "unmatched" | "plain" | "conversations";
+type SkillTab = "skills" | "proposals" | "relations" | "unmatched" | "plain" | "conversations";
 
 /**
  * „Nazwy z rozmów do przejrzenia” (22.10.2026, dawna zakładka Opieki
@@ -531,6 +532,7 @@ export function SkillDictionaryTab() {
         </span>
       ),
     },
+    { value: "relations", label: <span data-tour="skills.relations">Powiązania</span> },
     { value: "unmatched", label: "Nieznane terminy" },
     { value: "plain", label: "Po ludzku" },
     ...(careOpen ? [{ value: "conversations", label: "Nazwy z rozmów" }] : []),
@@ -665,6 +667,8 @@ export function SkillDictionaryTab() {
       ) : null}
 
       {tab === "proposals" ? <SkillProposalsSection /> : null}
+
+      {tab === "relations" ? <SkillRelationsSection /> : null}
 
       {tab === "unmatched" ? <UnmatchedTermsSection /> : null}
 

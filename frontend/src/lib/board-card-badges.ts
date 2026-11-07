@@ -945,6 +945,27 @@ export function criticalGapBadge(
   };
 }
 
+/**
+ * Mapa wiedzy IT (07.11.2026): krytycznego brakuje, ale osoba zna zamiennik
+ * (Flask przy FastAPI). Bramka jej nie ukrywa — karta mówi, o co zapytać.
+ */
+export function criticalAlternativeBadge(
+  alternatives: Readonly<Record<string, readonly string[]>> | null | undefined,
+): { label: string; title: string } | null {
+  const entries = Object.entries(alternatives ?? {}).filter(([, names]) => names.length > 0);
+  if (entries.length === 0) return null;
+  const [requirement, names] = entries[0];
+  const more = entries.length > 1 ? ` +${entries.length - 1}` : "";
+  return {
+    label: `${requirement}? zna ${names[0]}${more}`,
+    title:
+      entries
+        .map(([req, alts]) => `${req}: brak, ale zna zamienniki: ${alts.join(", ")}`)
+        .join("\n") +
+      "\nZamiennik nie spełnia wymagania krytycznego — zapytaj w rozmowie, czy pracował z nim i jak szybko się wdroży.",
+  };
+}
+
 /** Przycisk na karcie w „Nowych"/„Screeningu": „Biorę" (wolna) / „Przejmij" (cudza, DL). */
 export function claimAction(
   item: KanbanItem,

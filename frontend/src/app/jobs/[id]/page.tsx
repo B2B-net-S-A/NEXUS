@@ -695,6 +695,14 @@ export default function JobDetailPage() {
     }
     return m;
   }, [pipelineScores]);
+  // Krytyczne z zamiennikiem — plakietka „FastAPI? zna Flask” (07.11.2026).
+  const criticalAltMap = useMemo(() => {
+    const m = new Map<number, Record<string, string[]>>();
+    for (const [cid, alts] of Object.entries(pipelineScores?.alternatives ?? {})) {
+      m.set(Number(cid), alts);
+    }
+    return m;
+  }, [pipelineScores]);
 
   // Liczniki zakładek ekranu „Do przejrzenia".
   const openProposalsQuery = useQuery({
@@ -1386,6 +1394,7 @@ export default function JobDetailPage() {
               jobTitle={job?.title}
               scoreMap={scoreMap}
               criticalGapMap={criticalGapMap}
+              criticalAltMap={criticalAltMap}
               scoresLoading={scoresLoading}
               // „Zwiń” nagłówka (K-D5) przesuwa Tablicę — zmiana to sygnał do
               // ponownego pomiaru wysokości kolumn (także po wczytaniu

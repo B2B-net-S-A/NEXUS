@@ -1397,7 +1397,7 @@
     "id": "slownik-propozycje",
     "pr": 3104,
     "title": "Propozycje do słownika umiejętności",
-    "why": "Co noc NEXUS proponuje nowe hasła i warianty z nazw, których słownik nie zna. Do słownika wchodzi tylko to, co zatwierdzisz; „Zatwierdź pewne” bierze propozycje bez wątpliwości.",
+    "why": "Co noc NEXUS proponuje nowe hasła i warianty z nazw, których słownik nie zna, i sam zatwierdza te bez wątpliwości. Resztę zatwierdzasz albo pomijasz tutaj.",
     "tier": "dot",
     "shipped_on": "2026-11-06",
     "audience": { "roles": ["admin", "head_of_recruitment"] },
@@ -1417,5 +1417,30 @@
     "href": "/jobs/new",
     "section": "pipeline",
     "dot_anchor": "requirements.dictionary-hint"
+  },
+  {
+    "id": "tablica-krytyczne-zamiennik",
+    "pr": null,
+    "title": "„FastAPI? zna Flask” zamiast ukrycia osoby",
+    "why": "Gdy kandydatowi brakuje umiejętności krytycznej, ale zna jej zamiennik (np. Flask zamiast FastAPI), NEXUS już go nie ukrywa. Karta pokazuje, o co zapytać w rozmowie, a QC podaje gotowe pytanie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "recruiter"] },
+    "where": "Rekrutacja → Tablica",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.critical-alternative"
+  },
+  {
+    "id": "slownik-powiazania",
+    "pr": null,
+    "title": "Słownik wie, co z czego wynika",
+    "why": "Zakładka „Powiązania”: Spring Boot ⇒ Java, GitHub ⇒ Git, Flask ~ FastAPI. Wyszukiwanie, bramka krytycznych i QC liczą je tak samo. Powiązania zatwierdza nocny bieg; tu możesz wycofać błędne.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Ustawienia → Słownik umiejętności → Powiązania",
+    "href": "/settings",
+    "dot_anchor": "skills.relations"
   }
 ]

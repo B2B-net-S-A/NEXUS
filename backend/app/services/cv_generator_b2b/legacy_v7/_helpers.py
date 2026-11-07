@@ -1022,9 +1022,16 @@ def _loosely_present(
     if paren:
         variants = [term[: paren.start()], paren.group(1)]
     if dictionary:
-        from app.services.skill_normalize import text_alias_forms
+        from app.services.skill_normalize import implied_forms, text_alias_forms
 
-        variants += [form for v in list(variants) for form in text_alias_forms(v)]
+        # „Java” zostaje u osoby z samym Spring Boot w źródle: powiązanie
+        # „wynika z” (mapa wiedzy IT, 07.11.2026). Generator nie dopisuje nowej
+        # technologii — tylko jej nie usuwa (decyzja Artura).
+        variants += [
+            form
+            for v in list(variants)
+            for form in (*text_alias_forms(v), *implied_forms(v))
+        ]
     variants += [_abbreviated(v) for v in variants]
     for variant in variants:
         tokens = _term_tokens(variant)
