@@ -612,14 +612,38 @@ export const QC_OVERRIDE_NOTE_MAX = 900;
 /** Lustro `cv_qc.CONFIRM_TEXT_MIN`: potwierdzenie musi mówić, co powiedział kandydat. */
 export const QC_CONFIRM_TEXT_MIN = 15;
 
-export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
+/** Lustro `cv_qc.OVERRIDE_OTHER_MIN_WORDS` (R6, 07.11.2026): „x”, „.” i „dw” to nie powód. */
+export const QC_OVERRIDE_OTHER_MIN_WORDS = 3;
+
+/** Słowa liczone jak na serwerze (`\w{2,}`): pojedyncze litery i znaki się nie liczą. */
+export function overrideWordCount(note: string): number {
+  return note.match(/[\p{L}\p{N}_]{2,}/gu)?.length ?? 0;
+}
+
+/** Czy przy „Inny powód” trzeba wskazać uwagę i ile wskazano (R6). */
+export interface QcOverrideAbout {
+  required: boolean;
+  picked: number;
+}
+
+export function qcOverrideError(
+  reason: QcOverrideReason | null,
+  note: string,
+  about?: QcOverrideAbout,
+): string | null {
   if (!reason) return "Wybierz powód.";
   const clean = note.trim();
   if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
   if (reason === "confirmed_in_call" && clean.length < QC_CONFIRM_TEXT_MIN) {
     return `Wpisz, co dokładnie powiedział kandydat (co najmniej ${QC_CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead.`;
   }
-  if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+  if (reason === "other") {
+    if (!clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+    if (overrideWordCount(clean) < QC_OVERRIDE_OTHER_MIN_WORDS) {
+      return "Napisz co najmniej trzy słowa — Delivery Lead ma zrozumieć, dlaczego CV idzie dalej.";
+    }
+    if (about?.required && about.picked === 0) return "Zaznacz, której uwagi dotyczy powód.";
+  }
   return null;
 }
 

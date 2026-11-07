@@ -390,6 +390,8 @@ export interface QcOverrideBody {
   reason?: string;
   /** Blokady oznaczone „QC się myli” (D4) — klucze pozycji z bieżącego przebiegu. */
   wrong_keys?: string[];
+  /** „Inny powód” (R6, 07.11.2026): blokady, których dotyczy — klucze pozycji. */
+  about_keys?: string[];
 }
 
 /**
