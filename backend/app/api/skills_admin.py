@@ -29,9 +29,16 @@ router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 class CreateSkillRequest(BaseModel):
     canonical_name: str = Field(min_length=1, max_length=255)
-    category: Optional[str] = Field(default=None, max_length=64)
+    # Etap 2 słownika (06.11.2026): bez kategorii hasło nie działa w pogrubianiu
+    # CV, QC ani bramce must, więc jest obowiązkowa (lista: `category_choices`).
+    category: str = Field(min_length=1, max_length=64)
     aliases: Optional[list[str]] = None
     from_term_id: Optional[int] = None
+
+
+class UpdateSkillRequest(BaseModel):
+    canonical_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class AddAliasRequest(BaseModel):
@@ -52,11 +59,22 @@ async def list_skills(
     _user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
     q: str = Query("", max_length=100, description="Szukaj po nazwie albo aliasie."),
+    kind: str = Query("all", pattern="^(all|skills|roles)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """Umiejętności z aliasami — przeszukiwalne, stronicowane."""
+    """Umiejętności z aliasami — przeszukiwalne, stronicowane.
+
+    ``kind`` (etap 2): role (`role_*`) to stanowiska, nie umiejętności, więc
+    lista pokazuje je osobno, a wybór hasła do „Zmapuj” szuka bez nich."""
     ids = select(Skill.id)
+    role_clause = func.coalesce(Skill.category, "").like(
+        f"{skill_curation.ROLE_PREFIX}%"
+    )
+    if kind == "roles":
+        ids = ids.where(role_clause)
+    elif kind == "skills":
+        ids = ids.where(~role_clause)
     needle = q.strip().lower()
     if needle:
         pattern = f"%{needle}%"
@@ -87,11 +105,13 @@ async def list_skills(
                 "id": skill.id,
                 "name": skill.canonical_name,
                 "category": skill.category,
+                "is_role": skill_curation.is_role(skill.category),
                 "aliases": sorted(a.alias for a in skill.aliases),
             }
             for skill in rows
         ],
         "total": int(total),
+        "categories": await skill_curation.category_choices(db),
     }
 
 
@@ -102,6 +122,10 @@ async def create_skill(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Nowa umiejętność (+ opcjonalne aliasy / z nieznanego terminu)."""
+    if payload.category not in await skill_curation.category_choices(db):
+        raise HTTPException(
+            status_code=422, detail=f"Nieznana kategoria „{payload.category}”."
+        )
     try:
         return await skill_curation.create_skill(
             db,
@@ -113,6 +137,26 @@ async def create_skill(
         )
     except skill_curation.CurationError as exc:
         raise _curation_error(exc) from exc
+
+
+@router.patch("/skills/{skill_id}")
+async def update_skill(
+    skill_id: int,
+    payload: UpdateSkillRequest,
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Popraw nazwę albo kategorię hasła; stara nazwa zostaje aliasem."""
+    try:
+        return await skill_curation.update_skill(
+            db,
+            skill_id,
+            canonical_name=payload.canonical_name,
+            category=payload.category,
+        )
+    except skill_curation.CurationError as exc:
+        status_code = 409 if isinstance(exc, skill_curation.CurationConflict) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/skills/{skill_id}/aliases")

@@ -5,7 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SkillDictionaryTab } from "../SkillDictionaryTab";
 
-const api = vi.hoisted(() => ({ list: vi.fn(), unmatchedTerms: vi.fn(), proposals: vi.fn() }));
+const api = vi.hoisted(() => ({
+  list: vi.fn(),
+  unmatchedTerms: vi.fn(),
+  proposals: vi.fn(),
+  create: vi.fn(),
+  update: vi.fn(),
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -29,10 +35,23 @@ function renderTab() {
 
 describe("SkillDictionaryTab — trzy listy w zakładkach (20.10.2026)", () => {
   beforeEach(() => {
-    api.list.mockResolvedValue({
-      total: 1,
-      items: [{ id: 1, name: "Kubernetes", category: null, aliases: ["k8s"] }],
-    });
+    api.list.mockImplementation((params: { kind?: string } = {}) =>
+      Promise.resolve(
+        params.kind === "roles"
+          ? {
+              total: 1,
+              items: [
+                { id: 2, name: "Team Lead", category: "role_management", is_role: true, aliases: [] },
+              ],
+              categories: ["practice", "tools"],
+            }
+          : {
+              total: 1,
+              items: [{ id: 1, name: "Kubernetes", category: null, aliases: ["k8s"] }],
+              categories: ["practice", "tools"],
+            },
+      ),
+    );
     api.unmatchedTerms.mockResolvedValue([]);
     api.proposals.mockResolvedValue({
       items: [],
@@ -61,5 +80,51 @@ describe("SkillDictionaryTab — trzy listy w zakładkach (20.10.2026)", () => {
   it("zakładka „Propozycje” pokazuje liczbę otwartych propozycji (06.11.2026)", async () => {
     renderTab();
     expect(await screen.findByRole("tab", { name: "Propozycje · 7" })).toBeInTheDocument();
+  });
+
+  it("nowe hasło wymaga kategorii (etap 2)", async () => {
+    const user = userEvent.setup();
+    api.create.mockResolvedValue({ id: 9, canonical_name: "Apache Kafka", mapped_term: null });
+    renderTab();
+    await screen.findByText("Kubernetes");
+    await user.type(screen.getByLabelText("Nazwa umiejętności"), "Apache Kafka");
+    const add = screen.getByRole("button", { name: /Dodaj umiejętność/ });
+    expect(add).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Kategoria nowej umiejętności"), "tools");
+    await user.click(add);
+    expect(api.create).toHaveBeenCalledWith({
+      canonical_name: "Apache Kafka",
+      category: "tools",
+      aliases: [],
+    });
+  });
+
+  it("role są w osobnej grupie i nie mają „Dodaj alias”", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText("Kubernetes");
+    await user.click(screen.getByRole("radio", { name: "Role" }));
+    expect(await screen.findByText("Team Lead")).toBeInTheDocument();
+    expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "roles" }));
+    expect(screen.queryByRole("button", { name: "Dodaj alias" })).not.toBeInTheDocument();
+    expect(screen.getByText(/nie przyjmuje nowych aliasów/)).toBeInTheDocument();
+  });
+
+  it("„Popraw” zmienia nazwę i kategorię hasła", async () => {
+    const user = userEvent.setup();
+    api.update.mockResolvedValue({ id: 1, canonical_name: "Kubernetes (K8s)", category: "tools" });
+    renderTab();
+    await screen.findByText("Kubernetes");
+    await user.click(screen.getByRole("button", { name: "Popraw" }));
+    const nameField = screen.getByLabelText("Nazwa hasła Kubernetes");
+    await user.clear(nameField);
+    await user.type(nameField, "Kubernetes (K8s)");
+    await user.selectOptions(screen.getByLabelText("Kategoria"), "tools");
+    expect(screen.getByText(/zostanie aliasem/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(api.update).toHaveBeenCalledWith(1, {
+      canonical_name: "Kubernetes (K8s)",
+      category: "tools",
+    });
   });
 });

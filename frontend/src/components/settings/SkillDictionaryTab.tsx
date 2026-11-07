@@ -17,6 +17,10 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { SkillReviewPanel } from "@/components/care/SkillReviewPanel";
 import { PlainTermsSection } from "@/components/settings/PlainTermsSection";
 import {
+  SkillCategorySelect,
+  useSkillCategories,
+} from "@/components/settings/SkillCategorySelect";
+import {
   SkillProposalsSection,
   useOpenProposalCount,
 } from "@/components/settings/SkillProposalsSection";
@@ -24,6 +28,7 @@ import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   skillsAdminApi,
   type SkillDictionaryItem,
@@ -32,6 +37,7 @@ import {
 import { apiErrorMessage } from "@/lib/api-error";
 import { useHrConfig } from "@/lib/api/hr";
 import { pluralPl } from "@/lib/plural-pl";
+import { skillCategoryLabel } from "@/lib/skill-categories";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -88,17 +94,66 @@ function AliasForm({ skill, onDone }: { skill: SkillDictionaryItem; onDone: () =
   );
 }
 
+function EditSkillForm({ skill, onDone }: { skill: SkillDictionaryItem; onDone: () => void }) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const categories = useSkillCategories();
+  const [name, setName] = useState(skill.name);
+  const [category, setCategory] = useState(skill.category ?? "");
+  const changed = name.trim() !== skill.name || category !== (skill.category ?? "");
+  const mutation = useMutation({
+    mutationFn: () =>
+      skillsAdminApi.update(skill.id, {
+        ...(name.trim() !== skill.name ? { canonical_name: name.trim() } : {}),
+        ...(category !== (skill.category ?? "") && category ? { category } : {}),
+      }),
+    onSuccess: (result) => {
+      toast.showSuccess(`Zapisano „${result.canonical_name}”`);
+      void queryClient.invalidateQueries({ queryKey: ["skills-admin"] });
+      onDone();
+    },
+    onError: (e) => toast.showError(apiErrorMessage(e, "Nie udało się zapisać hasła")),
+  });
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (changed && name.trim()) mutation.mutate();
+  };
+  return (
+    <form onSubmit={submit} className="mt-2 flex flex-wrap items-center gap-2" aria-label={`Popraw ${skill.name}`}>
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label={`Nazwa hasła ${skill.name}`}
+        className="h-8 max-w-xs"
+        autoFocus
+      />
+      <SkillCategorySelect value={category} onChange={setCategory} categories={categories} className="h-8" />
+      <Button type="submit" size="sm" disabled={!changed || !name.trim() || mutation.isPending}>
+        Zapisz
+      </Button>
+      <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+        Anuluj
+      </Button>
+      {name.trim().toLowerCase() !== skill.name.toLowerCase() && !skill.is_role ? (
+        <p className="basis-full text-xs text-muted-foreground">
+          Stara nazwa „{skill.name}” zostanie aliasem, więc profile i wymagania z tym zapisem dalej trafią w hasło.
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
 function SkillRow({ skill }: { skill: SkillDictionaryItem }) {
-  const [adding, setAdding] = useState(false);
+  const [mode, setMode] = useState<"view" | "alias" | "edit">("view");
   return (
     <li className="px-3 py-2.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-medium text-foreground">
             {skill.name}
-            {skill.category ? (
-              <span className="ml-2 text-xs font-normal text-muted-foreground">{skill.category}</span>
-            ) : null}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {skill.category ? skillCategoryLabel(skill.category) : "bez kategorii"}
+            </span>
           </p>
           {skill.aliases.length > 0 ? (
             <ul className="mt-1 flex flex-wrap gap-1" aria-label={`Aliasy: ${skill.name}`}>
@@ -114,14 +169,27 @@ function SkillRow({ skill }: { skill: SkillDictionaryItem }) {
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">Bez aliasów</p>
           )}
+          {skill.is_role ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Rola, nie umiejętność: nie przyjmuje nowych aliasów.
+            </p>
+          ) : null}
         </div>
-        {!adding ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
-            Dodaj alias
-          </Button>
+        {mode === "view" ? (
+          <div className="flex shrink-0 flex-wrap gap-1.5">
+            {!skill.is_role ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => setMode("alias")}>
+                Dodaj alias
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" variant="ghost" onClick={() => setMode("edit")}>
+              Popraw
+            </Button>
+          </div>
         ) : null}
       </div>
-      {adding ? <AliasForm skill={skill} onDone={() => setAdding(false)} /> : null}
+      {mode === "alias" ? <AliasForm skill={skill} onDone={() => setMode("view")} /> : null}
+      {mode === "edit" ? <EditSkillForm skill={skill} onDone={() => setMode("view")} /> : null}
     </li>
   );
 }
@@ -129,27 +197,34 @@ function SkillRow({ skill }: { skill: SkillDictionaryItem }) {
 function CreateSkillForm() {
   const toast = useToast();
   const queryClient = useQueryClient();
+  const categories = useSkillCategories();
   const [name, setName] = useState("");
   const [aliases, setAliases] = useState("");
+  const [category, setCategory] = useState("");
   const mutation = useMutation({
     mutationFn: () =>
-      skillsAdminApi.create({ canonical_name: name.trim(), aliases: parseAliases(aliases) }),
+      skillsAdminApi.create({
+        canonical_name: name.trim(),
+        category,
+        aliases: parseAliases(aliases),
+      }),
     onSuccess: (created) => {
       toast.showSuccess(`Dodano umiejętność „${created.canonical_name}”`);
       setName("");
       setAliases("");
+      setCategory("");
       void queryClient.invalidateQueries({ queryKey: skillDictionaryQueryKey });
     },
     onError: (e) => toast.showError(apiErrorMessage(e, "Nie udało się dodać umiejętności")),
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (name.trim()) mutation.mutate();
+    if (name.trim() && category) mutation.mutate();
   };
   return (
     <form
       onSubmit={submit}
-      className="grid gap-2 rounded-xl border border-border p-4 sm:grid-cols-[1fr_1fr_auto]"
+      className="grid gap-2 rounded-xl border border-border p-4 sm:grid-cols-2"
       aria-label="Nowa umiejętność"
     >
       <Input
@@ -164,7 +239,13 @@ function CreateSkillForm() {
         placeholder="Aliasy po przecinku (opcjonalnie)"
         aria-label="Aliasy nowej umiejętności"
       />
-      <Button type="submit" disabled={!name.trim() || mutation.isPending}>
+      <SkillCategorySelect
+        value={category}
+        onChange={setCategory}
+        categories={categories}
+        label="Kategoria nowej umiejętności"
+      />
+      <Button type="submit" disabled={!name.trim() || !category || mutation.isPending}>
         <Plus className="mr-1 h-4 w-4" aria-hidden />
         Dodaj umiejętność
       </Button>
@@ -179,7 +260,7 @@ function MapTermPicker({ term, onDone }: { term: UnmatchedSkillTerm; onDone: () 
   const debounced = useDebouncedValue(q.trim(), 300);
   const matches = useQuery({
     queryKey: [...skillDictionaryQueryKey, "picker", debounced],
-    queryFn: () => skillsAdminApi.list({ q: debounced, limit: 8 }),
+    queryFn: () => skillsAdminApi.list({ q: debounced, kind: "skills", limit: 8 }),
     enabled: debounced.length > 0,
   });
   const mutation = useMutation({
@@ -234,10 +315,14 @@ function MapTermPicker({ term, onDone }: { term: UnmatchedSkillTerm; onDone: () 
 function UnmatchedTermRow({ term }: { term: UnmatchedSkillTerm }) {
   const toast = useToast();
   const queryClient = useQueryClient();
+  const categories = useSkillCategories();
   const [mapping, setMapping] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [category, setCategory] = useState("");
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["skills-admin"] });
   const createMutation = useMutation({
-    mutationFn: () => skillsAdminApi.create({ canonical_name: term.term, from_term_id: term.id }),
+    mutationFn: () =>
+      skillsAdminApi.create({ canonical_name: term.term, category, from_term_id: term.id }),
     onSuccess: () => {
       toast.showSuccess(`Dodano umiejętność „${term.term}”`);
       refresh();
@@ -262,12 +347,12 @@ function UnmatchedTermRow({ term }: { term: UnmatchedSkillTerm }) {
             {term.occurrences} {pluralPl(term.occurrences, "wystąpienie", "wystąpienia", "wystąpień")}
           </span>
         </p>
-        {!mapping ? (
+        {!mapping && !creating ? (
           <div className="flex flex-wrap gap-1.5">
             <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setMapping(true)}>
               Zmapuj na umiejętność
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => createMutation.mutate()}>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setCreating(true)}>
               Nowa umiejętność
             </Button>
             <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => ignoreMutation.mutate()}>
@@ -277,6 +362,23 @@ function UnmatchedTermRow({ term }: { term: UnmatchedSkillTerm }) {
         ) : null}
       </div>
       {mapping ? <MapTermPicker term={term} onDone={() => setMapping(false)} /> : null}
+      {creating ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <SkillCategorySelect
+            value={category}
+            onChange={setCategory}
+            categories={categories}
+            label={`Kategoria dla ${term.term}`}
+            className="h-8"
+          />
+          <Button type="button" size="sm" disabled={!category || busy} onClick={() => createMutation.mutate()}>
+            Dodaj „{term.term}”
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setCreating(false)}>
+            Anuluj
+          </Button>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -367,11 +469,13 @@ export function SkillDictionaryTab() {
   ];
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  // Etap 2 (06.11.2026): role to stanowiska, nie umiejętności — osobna grupa.
+  const [kind, setKind] = useState<"skills" | "roles">("skills");
   const debounced = useDebouncedValue(search.trim(), 300);
   const query = useQuery({
-    queryKey: [...skillDictionaryQueryKey, debounced, page],
+    queryKey: [...skillDictionaryQueryKey, kind, debounced, page],
     queryFn: () =>
-      skillsAdminApi.list({ q: debounced, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
+      skillsAdminApi.list({ q: debounced, kind, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
     placeholderData: keepPreviousData,
   });
   const data = query.data;
@@ -406,6 +510,18 @@ export function SkillDictionaryTab() {
           <CreateSkillForm />
 
           <section aria-label="Umiejętności" className="space-y-3">
+            <SegmentedRadio
+              label="Rodzaj haseł"
+              value={kind}
+              onChange={(value) => {
+                setKind(value);
+                setPage(0);
+              }}
+              options={[
+                { value: "skills", label: "Umiejętności" },
+                { value: "roles", label: "Role" },
+              ]}
+            />
             <Input
               value={search}
               onChange={(e) => {
@@ -440,7 +556,9 @@ export function SkillDictionaryTab() {
             {viewState === "ready" && data ? (
               <>
                 <p className="text-sm text-muted-foreground">
-                  {total} {pluralPl(total, "umiejętność", "umiejętności", "umiejętności")}
+                  {kind === "roles"
+                    ? `${total} ${pluralPl(total, "rola", "role", "ról")} — stanowiska, nie umiejętności`
+                    : `${total} ${pluralPl(total, "umiejętność", "umiejętności", "umiejętności")}`}
                 </p>
                 <ul className="divide-y divide-border rounded-xl border border-border text-sm">
                   {data.items.map((skill) => (
