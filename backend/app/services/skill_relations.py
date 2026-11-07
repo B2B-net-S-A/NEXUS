@@ -52,7 +52,8 @@ SURE_SHARE = 0.9
 # Decyzja Artura z 07.11.2026: „wszystko zatwierdź sam, nie pytaj” — powiązanie,
 # które przejdzie bezpieczniki, zatwierdza nocny bieg; HoR+ może je wycofać.
 AUTO_CURATOR = "auto: model + dane"
-PAIRS_MAX = 600
+# 600 ucinało słabsze, ale ważne pary (Java → Git 54,6%, pomiar 07.11.2026).
+PAIRS_MAX = 1500
 BATCH_SIZE = 60
 BATCH_CONCURRENCY = 3
 CATEGORY_MIN_SKILLS = 4
@@ -851,8 +852,8 @@ async def _typical_shares(
                 SkillRelation.to_skill_id.in_(ids),
                 SkillRelation.share.is_not(None),
             )
-            # Najniższy odsetek wpisujących: tak często ludzie to pomijają.
-            .order_by(SkillRelation.share.asc(), SkillRelation.support.desc())
+            # Najliczniejsza grupa (Java przy Gicie), nie egzotyczne narzędzie.
+            .order_by(SkillRelation.support.desc(), SkillRelation.share.asc())
         )
     ).all()
     out: dict[str, tuple[str, float]] = {}
