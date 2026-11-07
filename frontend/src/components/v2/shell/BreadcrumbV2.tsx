@@ -91,6 +91,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   sourcing: "Sourcing",
   marketplace: "Targ / Dostępni",
   "bulk-import": "Masowy import CV",
+  "generated-cvs": "Moje wygenerowane CV",
   search: "Wyszukiwanie",
   "contact-queue": "Do przedzwonienia",
   prep: "Przygotowanie do rozmowy",

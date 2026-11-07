@@ -76,7 +76,7 @@ async def test_unknown_surface_is_stored_as_other(surface):
     assert db.add.call_args.args[0].details["surface"] == "other"
 
 
-@pytest.mark.parametrize("surface", ["card", "dock", "files"])
+@pytest.mark.parametrize("surface", ["card", "dock", "files", "mine"])
 async def test_known_surface_is_stored_as_is(surface):
     # `dock` — „Pobierz Word / PDF” w sekcji „CV” panelu osoby (14.10.2026).
     db = _session()
