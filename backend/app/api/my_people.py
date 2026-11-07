@@ -127,6 +127,9 @@ class ForJobResponse(BaseModel):
     # Wektor/dostawca niedostępny — wyniki niepoliczone. Ekran MUSI to
     # powiedzieć zamiast pokazać listę bez liczb jak „nikt nie pasuje".
     degraded: bool = False
+    # Budżet PLN/h rekrutacji (`Job.rate_budget_hourly`) — panel oznacza
+    # osoby ze stawką ponad budżet (07.11.2026: ludzie prosili o to Jarvisa).
+    rate_budget_hourly: float | None = None
 
 
 def _row(r: svc.PersonRow) -> MyPeopleRow:
@@ -464,4 +467,9 @@ async def my_people_for_job(
         rows=rows,
         in_job_count=len(in_job),
         degraded=degraded,
+        rate_budget_hourly=(
+            float(job.rate_budget_hourly)
+            if job.rate_budget_hourly is not None
+            else None
+        ),
     )

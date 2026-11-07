@@ -17,7 +17,7 @@
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, triggerSessionExpiredRedirect } from "@/lib/api";
 import { countPl } from "@/lib/plural-pl";
@@ -68,10 +68,11 @@ import {
   MY_PEOPLE_MATCH_EVENT,
   briefFragments,
   jobIdFromMatchLink,
-  reassignPrompt,
+  myPeopleMatchHref,
   type MyPeopleMatchEventDetail,
 } from "@/lib/my-people-summary";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useMyPeoplePanel } from "@/store/my-people";
 import { useThemeStore } from "@/store/theme";
 import { useOptionalToast } from "@/components/Toast";
 import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
@@ -160,9 +161,11 @@ export function JarvisRoot() {
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
-  // Przypomnienie „Moi ludzie": dymek z gotowym pytaniem o przepięcie. Ma
+  // Przypomnienie „Moi ludzie": dymek prowadzi do listy tej rekrutacji. Ma
   // pierwszeństwo przed porannym skrótem — dotyczy rekrutacji z tej chwili.
-  const [nudge, setNudge] = useState<{ text: string; prompt: string } | null>(null);
+  const [nudge, setNudge] = useState<{ text: string; href: string | null } | null>(null);
+  const router = useRouter();
+  const openMyPeople = useMyPeoplePanel((st) => st.openPanel);
   const [webMode, setWebMode] = useState(false);
   const [search, setSearch] = useState("");
   // Dymek „co tu robisz” przy pierwszej wizycie na ekranie.
@@ -429,9 +432,9 @@ export function JarvisRoot() {
   }, [active, send]);
 
   // Dzwonek `my_people_match` (useNotifications → zdarzenie okna): Jarvis mówi
-  // o nowej rekrutacji i po kliknięciu pyta sam siebie, kogo przepiąć. Tylko
-  // gdy działa (bez modelu kliknięcie nie miałoby czego zrobić) i na żywo —
-  // przegapione dopasowania zbiera poranny skrót.
+  // o nowej rekrutacji, a kliknięcie otwiera listę „Moi ludzie” tej rekrutacji
+  // (07.11.2026; wcześniej pytał sam siebie w czacie i karta „Zrób to”
+  // wygasała). Na żywo — przegapione dopasowania zbiera poranny skrót.
   useEffect(() => {
     if (!active || !available || !prefs.enabled) return;
     const onMatch = (e: Event) => {
@@ -439,8 +442,8 @@ export function JarvisRoot() {
       if (!detail) return;
       const jobId = jobIdFromMatchLink(detail.link);
       setNudge({
-        text: `${detail.title}. Kliknij, podpowiem, kogo przepiąć.`,
-        prompt: reassignPrompt(jobId),
+        text: `${detail.title}. Kliknij, pokażę Twoich ludzi do tej rekrutacji.`,
+        href: myPeopleMatchHref(jobId),
       });
     };
     window.addEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
@@ -656,9 +659,13 @@ export function JarvisRoot() {
             setStuck(null);
             setScreenTip(null);
             kids.dismiss();
+            if (pending) {
+              if (pending.href) router.push(pending.href);
+              else openMyPeople();
+              return;
+            }
             setOpen(true);
-            if (pending && available) void send(pending.prompt);
-            else if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
+            if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
             else if (pendingStuck) openStuck(pendingStuck.code);
             else if (tip) {
               const guide = guides.get(tip.key);

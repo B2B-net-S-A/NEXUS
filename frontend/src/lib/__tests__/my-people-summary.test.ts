@@ -144,10 +144,10 @@ describe("Jarvis — przypomnienia o przepinaniu", () => {
     expect(jobIdFromMatchLink(null)).toBeNull();
   });
 
-  it("reassignPrompt names the job when known", async () => {
-    const { reassignPrompt } = await import("@/lib/my-people-summary");
-    expect(reassignPrompt(42)).toContain("#42");
-    expect(reassignPrompt(null)).toContain("otwarte rekrutacje");
+  it("myPeopleMatchHref opens the My People list for the job, not the chat", async () => {
+    const { myPeopleMatchHref } = await import("@/lib/my-people-summary");
+    expect(myPeopleMatchHref(42)).toBe("/jobs/42?people=1");
+    expect(myPeopleMatchHref(null)).toBeNull();
   });
 
   it("briefFragments says only concrete things, with Polish plurals", async () => {

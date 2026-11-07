@@ -200,6 +200,8 @@ import {
  colId,
  columnLabel,
  ScoreRing,
+ UnscoredRing,
+ cardScoreState,
  type KanbanColumn,
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
@@ -730,6 +732,8 @@ interface CardProps {
  freshSlot?: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
+ /** Wyniki tablicy przyszły (mapa jest) — brak wyniku osoby = „niepoliczone”. */
+ scoresReady?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
  /** Tryb przeglądowy: karta degraduje się do kafelka (patrz
@@ -954,6 +958,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  freshSlot,
  matchScore,
  scoresLoading,
+ scoresReady = false,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
  desktopOverview,
@@ -988,6 +993,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
  : null;
+ const scoreState = cardScoreState(normalizedMatchScore, Boolean(scoresLoading), scoresReady);
  const detailsId = `kanban-candidate-details-${item.id}`;
  const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
  const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
@@ -1062,6 +1068,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `Dopasowanie AI: ${normalizedMatchScore} na 100.`
  : scoresLoading
  ? "Trwa obliczanie dopasowania AI."
+ : scoreState === "unscored"
+ ? "Dopasowanie AI jeszcze niepoliczone."
  : desktopOverview
  ? "Brak wyliczonego dopasowania AI."
  : null,
@@ -1240,11 +1248,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {fullName}
  </Link>
  </div>
- {(normalizedMatchScore != null || scoresLoading) && (
+ {scoreState !== "none" && (
  <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
  (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
+ {scoreState === "unscored" ? (
+ <UnscoredRing />
+ ) : (
  <ScoreRing score={normalizedMatchScore} density="compact" />
+ )}
  </div>
  )}
  </div>
@@ -2117,6 +2129,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  freshSlot={newQueue?.freshSlots.has(item.id) ?? false}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
+ scoresReady={scoreMap != null && !scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
  contactFeatureEnabled={contactFeatureEnabled}
  desktopOverview={desktopOverview}

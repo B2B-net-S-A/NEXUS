@@ -154,11 +154,14 @@ export function jobIdFromMatchLink(link: string | null | undefined): number | nu
   return m ? Number(m[1]) : null;
 }
 
-/** Pytanie, które Jarvis wysyła po kliknięciu dymka o nowej rekrutacji. */
-export function reassignPrompt(jobId: number | null): string {
-  return jobId != null
-    ? `Kogo z moich ludzi warto przepiąć na rekrutację #${jobId}? Pokaż najlepiej pasujących i przygotuj dodanie.`
-    : "Kogo z moich ludzi warto teraz przepiąć na otwarte rekrutacje?";
+/**
+ * Dokąd prowadzi dymek Jarvisa o nowej rekrutacji: lista „Moi ludzie” dla tej
+ * rekrutacji (`?people=1` otwiera panel), z „Dodaj” przy każdej osobie.
+ * Do 07.11.2026 dymek wysyłał pytanie do czatu; z 12 kart „Zrób to”, które
+ * Jarvis tak przygotował, 10 wygasło po 15 minutach bez kliknięcia.
+ */
+export function myPeopleMatchHref(jobId: number | null): string | null {
+  return jobId != null ? `/jobs/${jobId}?people=1` : null;
 }
 
 /**
