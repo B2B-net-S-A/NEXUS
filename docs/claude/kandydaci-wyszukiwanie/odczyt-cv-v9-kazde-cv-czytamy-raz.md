@@ -34,7 +34,11 @@ których ekrany jeszcze nie czytają.
 - **Bieg po starej bazie**: `scripts/reparse_cv_batch.py` (`count`, `run`, `collect`),
   Message Batches API (−50%), model `cv_backfill`, zapis przez `finish_cv_ingest`
   z FILL_EMPTY i `enqueue_auto_match=False`. Odczytany tekst dostaje znacznik
-  `_cv_reparse` (skrót, wynik, próby), więc bieg sam się wznawia. Znaczniki biegów
+  `_cv_reparse` (skrót, wynik, próby), więc bieg sam się wznawia. Wdrożenie
+  restartuje kontener i zabija bieg w połowie zapisu paczki: po restarcie zbierz
+  paczki jeszcze raz (`collect`), wiersze ze znacznikiem `ok` dla tego samego
+  tekstu są pomijane (`already`), a dopiero potem puść `run`, bo inaczej CV z
+  niezebranej paczki pójdą do modelu drugi raz. Znaczniki biegów
   `_cv_*` (`CV_RUN_MARKER_KEYS`) nie giną przy kolejnych odczytach CV.
 - **Faza nocna** `candidates_cv_fields` czyta pełnym promptem i odświeża
   `candidate_skill_usage`, więc nowe osoby z tej ścieżki nie potrzebują drugiego odczytu.
