@@ -756,6 +756,9 @@ async def fill_job(
     chosen: list[Pick] = []
     if fresh_room > 0:
         fresh = await new_in_base_picks(db, job, now=now)
+        if min_score is not None:
+            # Porcja: próg panelu HoR może być niższy niż 65% porcji.
+            fresh = [pick for pick in fresh if pick.score >= min_score]
         fresh = fresh[: fresh_room * _PICK_HEADROOM + 10]
         chosen = (await _allowed(db, job, fresh, now))[:fresh_room]
     missing -= len(chosen)

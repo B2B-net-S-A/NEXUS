@@ -599,7 +599,9 @@ class Settings(BaseSettings):
     # Pierwszy przegląd nowej rekrutacji jeszcze tego samego dnia (07.11.2026,
     # R6): w dni robocze 7–19 pojedynczo, rekrutacje bez żadnego przeglądu,
     # najwyżej tyle dziennie. False = pierwszy przegląd dopiero w nocy.
-    AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED: bool = True
+    # Domyślnie wyłączone: przegląd (4–5 min) idzie w procesie web, który
+    # w dzień ma już wolne trasy; włącza się razem z porcją dnia.
+    AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED: bool = False
     AUTO_FULL_REVIEW_DAYTIME_MAX: int = 10
     # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
     # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę

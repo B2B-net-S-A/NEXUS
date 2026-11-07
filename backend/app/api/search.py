@@ -845,7 +845,8 @@ async def advanced_candidate_search(
     """
     from app.services import review_batch
 
-    await review_batch.assert_search_allowed(db, current_user)
+    # Okno „+ Dodaj”: nazwisko, mail, telefon przechodzą (porcja dnia, 07.11.2026).
+    await review_batch.assert_body_search_allowed(db, current_user, body)
     started_at = time.monotonic()
 
     clauses: list[Any] = []

@@ -59,6 +59,23 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
   trafiają do klikającego.
 - **Licznik w pasku** tylko przed minimum (przy 1280 px pasek jest ciasny).
 
+## Szczelność blokady (przegląd kodu 07.11.2026)
+
+- **Wyszukanie osoby w trakcie pisania przechodzi** (`is_person_lookup`): 1–3 słowa
+  jak imię i nazwisko (także pojedyncze słowo spoza słownika umiejętności i miast,
+  np. „Kowal”), początek maila („jan.kow”, „jan@”), cyfry telefonu. ⌘K, okno
+  „+ Dodaj” (`POST /api/search/candidates`, `is_broad_body_query`) i wybieraki
+  osób działają przy blokadzie. Słowo ze słownika („java”) i opis — 423.
+- **Karty z porcji nie da się usunąć z rekrutacji zamiast decyzji**
+  (`assert_removal_allowed`, 409 `REVIEW_CARD_NEEDS_DECISION` w
+  `DELETE /api/candidates/{id}/recruitments/{job_id}`). Usunięcie zmniejszało
+  wymagane minimum bez żadnej decyzji.
+- **Karta liczy się tylko jako najnowsze podejście pary**: osoba dodana potem
+  ręcznie (nowy proces) nie jest już porcją dawnego właściciela.
+- **Karty z rekrutacji zamkniętej albo wstrzymanej nie blokują** (`_own_cards`).
+- **Pełne przeszukanie bazy pod rekrutację** (`candidate-search/runs` z `job_id`,
+  zakładka „Propozycje z bazy”) zostaje otwarte: to praca z propozycjami systemu.
+
 ## Wyjątek od „Kanban bez bramek”
 
 To bramka wyszukiwania, nie ruchu karty: przepływ w pipeline zostaje bez
@@ -89,7 +106,8 @@ Testy: `backend/tests/test_review_batch.py`, `test_review_batch_unit.py`,
   robocze 7–19, rekrutacje w pracy bez żadnego przeglądu automatycznego
   (`first_review_job_ids`), pojedynczo (ustępuje każdemu aktywnemu przeglądowi),
   najwyżej `AUTO_FULL_REVIEW_DAYTIME_MAX` (10) dziennie poza nocnym oknem.
-  Wyłącznik `AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED`. Szybkie dopasowanie przy
+  Wyłącznik `AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED`, domyślnie wyłączony (przegląd
+  idzie w procesie web, który w dzień ma już wolne trasy) — włącza się razem z porcją. Szybkie dopasowanie przy
   zapisie (`new_cv`, 11–19 osób) zostaje.
 - **Porcja dla nowej rekrutacji jeszcze tego dnia** (`_jobs_without_batch`):
   po dziennym przebiegu silnik co tick dokłada porcję rekrutacjom z ostatnich

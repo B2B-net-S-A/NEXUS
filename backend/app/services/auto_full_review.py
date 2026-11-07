@@ -705,7 +705,7 @@ _skipped_today: dict[int, datetime] = {}
 
 
 def daytime_enabled() -> bool:
-    return bool(getattr(settings, "AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED", True))
+    return bool(getattr(settings, "AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED", False))
 
 
 def _in_day_hours(now: datetime) -> bool:

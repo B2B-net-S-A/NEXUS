@@ -23,7 +23,6 @@ from starlette.datastructures import QueryParams
 from app.models.job import JobPriority, JobStatus
 from app.models.user import UserRole
 from app.services import review_batch as rb
-from app.services.candidate_search_predicates import TextInterpretation
 
 NOW = datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc)
 
@@ -180,39 +179,60 @@ async def test_switched_off_never_blocks(monkeypatch):
 # ── Lista kandydatów: wyszukiwanie czy osoba ────────────────────────────────
 
 
-def _interp(kind: str):
-    async def _fake(_db, _q):
-        return TextInterpretation(kind=kind, mode="x", rule="test")
-
-    return _fake
-
-
 @pytest.mark.parametrize(
-    "query, kind, broad",
+    "query, broad",
     [
-        ("q=Jan+Kowalski", "name", False),
-        ("q=jan%40example.com", "email", False),
-        ("q=600100200", "phone", False),
-        ("q=java+developer+warszawa", "text", True),
-        ("page=2&page_size=20&sort=updated", "empty", False),
-        ("include_match_stats=true&q=Kowalski", "name", False),
-        ("skills=Java", "empty", True),
-        ("q=Kowalski&location=Warszawa", "name", True),
-        ("q=Kowalski&text_mode=semantic", "name", True),
-        ("recruitment_id=12", "empty", True),
+        ("q=Jan+Kowalski", False),
+        ("q=jan%40example.com", False),
+        ("q=600100200", False),
+        ("q=java+developer+warszawa", True),
+        ("page=2&page_size=20&sort=updated", False),
+        ("include_match_stats=true&q=Kowalski", False),
+        ("skills=Java", True),
+        ("q=Kowalski&location=Warszawa", True),
+        ("q=Kowalski&text_mode=semantic", True),
+        ("recruitment_id=12", True),
     ],
 )
-async def test_broad_list_query(monkeypatch, query, kind, broad):
-    import app.services.candidate_search_predicates as preds
-
-    monkeypatch.setattr(preds, "interpret_text", _interp(kind))
+async def test_broad_list_query(query, broad):
     assert await rb.is_broad_list_query(None, QueryParams(query)) is broad
 
 
-async def test_person_lookup_passes_even_when_blocked(batch_on):
-    import app.services.candidate_search_predicates as preds
+@pytest.mark.parametrize(
+    "q, person",
+    [
+        ("Kowal", True),  # w trakcie pisania „Kowalski”
+        ("Jan Kowalski", True),
+        ("jan.kow", True),  # początek maila
+        ("jan@", True),
+        ("600 100", True),  # cyfry telefonu
+        ("", True),
+        ("java", False),
+        ("java developer", False),
+        ("Warszawa", False),
+    ],
+)
+def test_person_lookup_while_typing(q, person):
+    assert rb.is_person_lookup(q) is person
 
-    batch_on.setattr(preds, "interpret_text", _interp("name"))
+
+def test_broad_body_query():
+    from app.schemas.candidate_search import CandidateSearchRequest
+
+    assert not rb.is_broad_body_query(CandidateSearchRequest(q="Jan Kowalski"))
+    assert not rb.is_broad_body_query(
+        CandidateSearchRequest(sort="recent", text_mode="auto")
+    )
+    assert rb.is_broad_body_query(CandidateSearchRequest(q="java developer"))
+    assert rb.is_broad_body_query(
+        CandidateSearchRequest(q="Kowalski", skills_must=["Java"])
+    )
+    assert rb.is_broad_body_query(
+        CandidateSearchRequest(q="Kowalski", text_mode="semantic")
+    )
+
+
+async def test_person_lookup_passes_even_when_blocked(batch_on):
     _fake_state(batch_on, pending=100, done=0)
     await rb.assert_list_search_allowed(None, _user(), QueryParams("q=Kowalski"))
 

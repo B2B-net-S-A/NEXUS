@@ -277,3 +277,76 @@ async def test_closed_job_cards_do_not_block(small_batch):
         await db.commit()
     async with AsyncSessionLocal() as db:
         assert await rb._own_cards(db, a) == []
+
+
+async def test_batch_card_cannot_be_removed_instead_of_decided(small_batch):
+    from fastapi import HTTPException
+
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    [first, *_] = await _fill(world["job_id"])
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, a)
+        with pytest.raises(HTTPException) as exc:
+            await rb.assert_removal_allowed(
+                db, user, candidate_id=first, job_id=world["job_id"]
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == rb.REMOVAL_CODE
+
+
+async def test_card_readded_by_hand_is_not_the_old_owners(small_batch):
+    a = await _user()
+    world = await _world(1, recruiters=[a])
+    await _pool(world["job_id"], {world["ids"][0]: 90})
+    [cid] = await _fill(world["job_id"])
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=cid,
+                job_id=world["job_id"],
+                stage=PipelineStage.rejected,
+                moved_by=a,
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        old = (
+            await db.scalars(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.job_id == world["job_id"],
+                    RecruitmentProcess.candidate_id == cid,
+                )
+            )
+        ).one()
+        # Odrzucenie zamyka proces — dopiero wtedy wolno otworzyć nowe podejście.
+        from app.models.recruitment_process import ProcessStatus
+
+        old.status = ProcessStatus.closed
+        old.closed_at = datetime.now(timezone.utc)
+        await db.flush()
+        db.add(
+            RecruitmentProcess(
+                candidate_id=cid,
+                job_id=world["job_id"],
+                client_id=old.client_id,
+                attempt_no=(old.attempt_no or 1) + 1,
+                previous_process_id=old.id,
+                entry_source="added_manual",
+                opened_at=datetime.now(timezone.utc),
+                status=ProcessStatus.open,
+                origin_kind=old.origin_kind,
+            )
+        )
+        db.add(
+            CandidateStage(
+                candidate_id=cid,
+                job_id=world["job_id"],
+                stage=PipelineStage.new,
+                moved_by=a,
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert await rb.pending_cards(db, owner_id=a) == []

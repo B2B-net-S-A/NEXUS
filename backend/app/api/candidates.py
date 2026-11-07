@@ -6034,6 +6034,10 @@ async def remove_candidate_from_recruitment(
     pozostają nietknięte.
     """
     await ensure_job_membership(db, current_user, job_id)
+    # Porcja dnia (07.11.2026): karta z porcji wymaga decyzji, nie usunięcia.
+    await review_batch.assert_removal_allowed(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
     locked_candidate = await db.scalar(
         select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
     )

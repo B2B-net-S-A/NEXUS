@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, time, timezone
 from typing import Iterable, Optional
@@ -169,6 +170,7 @@ async def pending_cards(
     owner_id: Optional[int] = None,
 ) -> list[PendingCard]:
     """Karty od systemu, które czekają w „Nowych” na decyzję."""
+    newer = RecruitmentProcess.__table__.alias("newer")
     stmt = select(
         RecruitmentProcess.id,
         RecruitmentProcess.job_id,
@@ -179,6 +181,16 @@ async def pending_cards(
         RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
         RecruitmentProcess.voided_at.is_(None),
         _latest_stage_is_new(),
+        # Karta od systemu jest najnowszym podejściem pary — osoba dodana potem
+        # ręcznie (nowy proces) nie jest już porcją starego właściciela.
+        ~exists(
+            select(newer.c.id).where(
+                newer.c.job_id == RecruitmentProcess.job_id,
+                newer.c.candidate_id == RecruitmentProcess.candidate_id,
+                newer.c.voided_at.is_(None),
+                newer.c.opened_at > RecruitmentProcess.opened_at,
+            )
+        ),
     )
     if job_ids is not None:
         ids = sorted({int(j) for j in job_ids})
@@ -586,13 +598,30 @@ _NEUTRAL_LIST_PARAMS = frozenset(
     }
 )
 _PERSON_KINDS = frozenset({"name", "email", "phone", "empty"})
+_PHONE_PART = re.compile(r"^[+\d\s()\-]{3,}$")
+_SKILL_RULES = frozenset({"known_skill", "known_city"})
+
+
+def is_person_lookup(q: Optional[str]) -> bool:
+    """Wyszukanie konkretnej osoby, także w trakcie pisania: 1–3 słowa jak
+    imię i nazwisko (pojedyncze słowo spoza słownika umiejętności i miast,
+    np. „Kowal” w drodze do „Kowalski”), mail albo jego początek („jan.kow”,
+    „jan@”), telefon albo jego cyfry. Słowo ze słownika („java”, „node.js”)
+    i opis to wyszukiwanie."""
+    from app.services.candidate_search_predicates import detect_text_mode
+
+    raw = (q or "").strip()
+    found = detect_text_mode(raw)
+    if found.kind in _PERSON_KINDS:
+        return True
+    if found.rule in _SKILL_RULES or " " in raw:
+        return False
+    return "@" in raw or "." in raw or bool(_PHONE_PART.match(raw))
 
 
 async def is_broad_list_query(db: AsyncSession, params) -> bool:
     """Filtry albo opis w ``q`` = ręczne wyszukiwanie; samo nazwisko, mail
     albo telefon (wybór osoby, ⌘K, telefon od kandydata) — nie."""
-    from app.services.candidate_search_predicates import interpret_text
-
     items = params.multi_items() if hasattr(params, "multi_items") else params.items()
     for key, value in items:
         if value in (None, ""):
@@ -604,11 +633,44 @@ async def is_broad_list_query(db: AsyncSession, params) -> bool:
         if key in _NEUTRAL_LIST_PARAMS or key.startswith("include_"):
             continue
         return True
-    q = (params.get("q") or "").strip()
-    if not q:
-        return False
-    found = await interpret_text(db, q)
-    return found.kind not in _PERSON_KINDS
+    return not is_person_lookup(params.get("q"))
+
+
+# Pola ``POST /api/search/candidates`` (okno „+ Dodaj” na Tablicy), które nie
+# zawężają bazy.
+_NEUTRAL_BODY_FIELDS = frozenset(
+    {
+        "q",
+        "sort",
+        "page",
+        "page_size",
+        "search_mode",
+        "text_mode",
+        "semantics_version",
+        "exclude_in_job_id",
+        "exclude_blacklisted",
+        "status",
+    }
+)
+
+
+def is_broad_body_query(body) -> bool:
+    """Ciało wyszukiwania zaawansowanego: same pola neutralne i ``q`` jak osoba
+    = wyszukanie osoby, nie ręczne wyszukiwanie."""
+    data = body.model_dump(exclude_defaults=True) if hasattr(body, "model_dump") else {}
+    if str(data.get("text_mode") or "").lower() == "semantic":
+        return True
+    if any(key not in _NEUTRAL_BODY_FIELDS for key, value in data.items() if value):
+        return True
+    return not is_person_lookup(data.get("q"))
+
+
+async def assert_body_search_allowed(db: AsyncSession, user: User, body) -> None:
+    if not enabled() or not applies_to(user):
+        return
+    if not is_broad_body_query(body):
+        return
+    await assert_search_allowed(db, user)
 
 
 async def assert_list_search_allowed(db: AsyncSession, user: User, params) -> None:
@@ -617,3 +679,30 @@ async def assert_list_search_allowed(db: AsyncSession, user: User, params) -> No
     if not await is_broad_list_query(db, params):
         return
     await assert_search_allowed(db, user)
+
+
+REMOVAL_CODE = "REVIEW_CARD_NEEDS_DECISION"
+
+
+async def assert_removal_allowed(
+    db: AsyncSession, user: User, *, candidate_id: int, job_id: int
+) -> None:
+    """Karty z porcji nie da się zdjąć z rekrutacji zamiast decyzji (409).
+
+    Usunięcie z rekrutacji kasuje kartę, więc znikała z porcji bez decyzji
+    i bez powodu, a wymagane minimum malało — tak dało się przejść do
+    wyszukiwania bez przeglądu (przegląd kodu 07.11.2026)."""
+    if not enabled() or not applies_to(user):
+        return
+    cards = await pending_cards(db, job_ids=[job_id])
+    if any(card.candidate_id == candidate_id for card in cards):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": REMOVAL_CODE,
+                "message": (
+                    "To osoba z porcji dnia od Nexusa. Zdecyduj: screening albo "
+                    "odrzucenie z powodem — usunięcie z rekrutacji nie jest decyzją."
+                ),
+            },
+        )
