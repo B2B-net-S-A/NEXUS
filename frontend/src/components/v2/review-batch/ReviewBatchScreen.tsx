@@ -69,7 +69,9 @@ export function ReviewBatchScreen() {
     invalidateReviewBatch(queryClient);
   }, [queryClient]);
 
-  if (status.isLoading) {
+  // `isPending`, nie `isLoading`: na serwerze zapytanie jest wyłączone (konto
+  // nieznane), więc oba renderowania muszą pokazać to samo — ładowanie.
+  if (status.isPending) {
     return <div className="p-6 text-sm text-muted-foreground">Ładowanie porcji…</div>;
   }
   if (status.isError || !status.data) {

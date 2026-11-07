@@ -300,9 +300,25 @@ async def assign_owners(
 async def _own_cards(db: AsyncSession, user_id: int) -> list[PendingCard]:
     """Karty osoby, tylko z rekrutacji, w których nadal jest rekruterem —
     osoba zdjęta z zespołu w ciągu dnia nie jest blokowana cudzą porcją."""
+    from app.models.job import JobStatus
+    from app.services.request_work_state import IN_WORK_STATES
+
     cards = await pending_cards(db, owner_id=user_id)
     if not cards:
         return []
+    # Karty z rekrutacji zamkniętej albo wstrzymanej nie blokują nikogo.
+    working = set(
+        (
+            await db.scalars(
+                select(Job.id).where(
+                    Job.id.in_({c.job_id for c in cards}),
+                    Job.status == JobStatus.published,
+                    Job.work_state.in_(IN_WORK_STATES),
+                )
+            )
+        ).all()
+    )
+    cards = [c for c in cards if c.job_id in working]
     teams = await recruiter_ids_for_jobs(db, {c.job_id for c in cards})
     return [c for c in cards if user_id in teams.get(c.job_id, [])]
 

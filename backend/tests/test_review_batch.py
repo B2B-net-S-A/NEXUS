@@ -263,3 +263,17 @@ async def test_new_job_gets_its_batch_the_same_day(small_batch):
     await _fill(world["job_id"])
     async with AsyncSessionLocal() as db:
         assert world["job_id"] not in await autofill._jobs_without_batch(db)
+
+
+async def test_closed_job_cards_do_not_block(small_batch):
+    a = await _user()
+    world = await _world(3, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    await _fill(world["job_id"])
+    async with AsyncSessionLocal() as db:
+        assert len(await rb._own_cards(db, a)) == 3
+        job = await db.get(Job, world["job_id"])
+        job.status = JobStatus.closed
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert await rb._own_cards(db, a) == []

@@ -417,6 +417,11 @@ export function useSearchBaseTab(
         </div>
       ) : (
         <>
+          {/* Porcja dnia (07.11.2026): komunikat na górze — przy 1280 × 720
+              pod słowami z Championa nie było go widać. */}
+          {list.isError && reviewBatchBlock(list.error) ? (
+            <ReviewBatchBlockedNotice error={list.error} />
+          ) : null}
           <section
             aria-label="Słowa do wyszukiwania"
             className="space-y-2 rounded-md bg-muted/50 p-3"
@@ -506,9 +511,7 @@ export function useSearchBaseTab(
             </p>
           </section>
 
-          {list.isError && reviewBatchBlock(list.error) ? (
-            <ReviewBatchBlockedNotice error={list.error} />
-          ) : list.isError ? (
+          {list.isError && reviewBatchBlock(list.error) ? null : list.isError ? (
             <p role="alert" className="text-sm text-destructive">
               {apiErrorMessage(list.error, "Nie udało się wyszukać w bazie.")}{" "}
               <button type="button" className="underline" onClick={() => void list.refetch()}>
