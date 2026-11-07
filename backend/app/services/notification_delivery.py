@@ -272,12 +272,12 @@ CATALOG = (
     # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
     dict(
         id="data_access_alert",
-        label="Masowe przeglądanie CV",
+        label="Masowe pobieranie CV",
         module="System",
-        trigger="Ktoś otworzył pliki ponad 40 kandydatów w godzinę, zapisał na dysk "
-        "ponad 25 plików albo wyeksportował ponad 200 osób w ciągu dnia (konto "
-        "młodsze niż 14 dni — progi o połowę niższe); 3 nowe konta otwierają CV "
-        "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
+        trigger="Ktoś zapisał na dysk ponad 25 plików kandydatów albo wyeksportował "
+        "ponad 200 osób w ciągu dnia (konto młodsze niż 14 dni — progi o połowę "
+        "niższe); 3 nowe konta zapisują CV na dysk tego samego dnia. Samo "
+        "przeglądanie nie daje alarmu. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
     # Mail obowiązkowy (28.10.2026) — `services/announcements.py`.
