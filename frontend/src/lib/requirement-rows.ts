@@ -205,6 +205,46 @@ export function rowCountHint(count: number | null | undefined): string | null {
 }
 
 /**
+ * Wariant z gwiazdką, który rozlewa wiersz: w 789198 (07.11.2026) „microsoft*”
+ * obok „Dynamics 365” dawał 21 314 osób zamiast 692, a krytyczny wiersz
+ * przepuszczał każdego z „Microsoft” w CV. Ostrzegamy, gdy jeden rdzeń ma
+ * `BROAD_VARIANT_RATIO` razy więcej osób niż najszersze z pozostałych słów.
+ */
+export const BROAD_VARIANT_RATIO = 5;
+export const BROAD_VARIANT_MIN_PEOPLE = 500;
+
+export interface BroadVariant {
+  word: string;
+  wide: number;
+  narrow: number;
+  ratio: number;
+}
+
+/** Słowa wiersza do policzenia osobno: tylko wiersz z rdzeniem i innym słowem. */
+export function broadVariantWords(words: readonly string[]): string[] {
+  return words.length > 1 && words.some((word) => word.trim().endsWith("*")) ? [...words] : [];
+}
+
+export function broadVariant(
+  words: readonly string[],
+  counts: Readonly<Record<string, number | null | undefined>>,
+): BroadVariant | null {
+  let found: BroadVariant | null = null;
+  for (const word of words) {
+    if (!word.trim().endsWith("*")) continue;
+    const wide = counts[word];
+    const others = words.filter((other) => other !== word).map((other) => counts[other]);
+    if (typeof wide !== "number" || others.length === 0) continue;
+    if (others.some((n) => typeof n !== "number")) continue;
+    const narrow = Math.max(...(others as number[]));
+    if (wide < BROAD_VARIANT_MIN_PEOPLE || wide < BROAD_VARIANT_RATIO * Math.max(narrow, 1)) continue;
+    const ratio = Math.round(wide / Math.max(narrow, 1));
+    if (!found || ratio > found.ratio) found = { word, wide, narrow, ratio };
+  }
+  return found;
+}
+
+/**
  * Poniżej tylu osób w bazie słowo „musi mieć” opisuje wymaganie inaczej, niż
  * ludzie piszą o nim w CV. Pomiar 27.10.2026 na 129 profilach z wierszami:
  * 49 wierszy „musi mieć” miało mniej niż 10 osób („Crisis plans” 0,
