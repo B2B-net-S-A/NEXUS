@@ -45,10 +45,8 @@ function type(container: HTMLElement, name: string, value: string) {
   fireEvent.change(field(container, name), { target: { value } });
 }
 
+// 07.11.2026: do wysłania wystarczy CV i zgoda — imię i e-mail czyta serwer z CV.
 function fillValid(container: HTMLElement) {
-  type(container, "first_name", "Jan");
-  type(container, "last_name", "Kowalski");
-  type(container, "email", "jan@example.com");
   pickCv(container, pdf());
   fireEvent.click(field(container, "consent"));
 }
@@ -94,18 +92,18 @@ describe("CareerApplyForm — stawka", () => {
 });
 
 describe("CareerApplyForm — walidacja", () => {
-  it("wymaga imienia, nazwiska, e-maila, CV i zgody — podsumowanie z liczbą pól", () => {
+  it("wymaga tylko CV i zgody — imienia i e-maila nie ma w formularzu (07.11.2026)", () => {
     const { container } = renderForm();
+    expect(container.querySelector('[name="first_name"]')).toBeNull();
+    expect(container.querySelector('[name="last_name"]')).toBeNull();
+    expect(container.querySelector('[name="email"]')).toBeNull();
     submit();
 
     const summary = screen.getByRole("alert");
-    expect(summary).toHaveTextContent("nie udało się wysłać — popraw 5 pól:");
-    expect(summary).toHaveTextContent("imię · nazwisko · e-mail · cv · zgoda");
+    expect(summary).toHaveTextContent("nie udało się wysłać — popraw 2 pola:");
+    expect(summary).toHaveTextContent("cv · zgoda");
     expect(document.activeElement).toBe(summary);
-    expect(screen.getByText(/wpisz imię/)).toBeInTheDocument();
     expect(screen.getByText(/dodaj CV — pdf, doc lub docx do 10 MB/)).toBeInTheDocument();
-    expect(screen.getByText(/bez zgody nie możemy przyjąć zgłoszenia/)).toBeInTheDocument();
-    expect(field(container, "email")).toHaveAttribute("aria-invalid", "true");
     expect(field(container, "consent")).toHaveAttribute("aria-invalid", "true");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -120,13 +118,46 @@ describe("CareerApplyForm — walidacja", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("łapie myślnik na końcu domeny, który zod przepuszcza", () => {
+  it("bez e-maila w CV formularz pokazuje pole e-mail i łapie myślnik po @", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, {
+        detail: [{ loc: ["body", "email"], msg: "W CV nie znaleźliśmy adresu e-mail. Wpisz go, żebyśmy mogli odpowiedzieć." }],
+      }),
+    );
     const { container } = renderForm();
     fillValid(container);
+    submit();
+    expect(await screen.findByText(/W CV nie znaleźliśmy adresu e-mail/)).toBeInTheDocument();
+
     type(container, "email", "jan@firma-.pl");
     submit();
     expect(screen.getByText(/po @ nie może być myślnika/)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { ok: true, first_name: "Jan", email: "jan@firma.pl" }));
+    type(container, "email", "jan@firma.pl");
+    submit();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(lastBody().get("email")).toBe("jan@firma.pl");
+  });
+
+  it("pola opcjonalne są zwinięte, a błąd w nich rozwija sekcję (07.11.2026)", () => {
+    const { container } = renderForm();
+    const optional = container.querySelector(".kr-opt-fields") as HTMLElement;
+    expect(optional).toHaveAttribute("data-collapsed", "true");
+    expect(screen.getByRole("button", { name: /dodaj więcej/i })).toHaveAttribute("aria-expanded", "false");
+
+    fillValid(container);
+    type(container, "expected_rate_hourly", "0");
+    submit();
+
+    expect(optional).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("CV jest pierwszym polem formularza", () => {
+    const { container } = renderForm();
+    const names = [...container.querySelectorAll("input[name]")].map((el) => el.getAttribute("name"));
+    expect(names[0]).toBe("cv");
   });
 
   it("waliduje stawkę opcjonalną i złe CV", () => {
@@ -170,7 +201,9 @@ describe("CareerApplyForm — wysyłka", () => {
       "",
       `/r/senior-java-ab12?utm_source=linkedin&utm_campaign=${"c".repeat(130)}`,
     );
-    fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, status: "received" }));
+    fetchMock.mockResolvedValue(
+      jsonResponse(201, { ok: true, status: "received", first_name: "Jan", email: "jan@example.com" }),
+    );
     const onSuccess = vi.fn();
     const { container } = renderForm({ onSuccess });
     fillValid(container);
@@ -187,9 +220,9 @@ describe("CareerApplyForm — wysyłka", () => {
     expect(init.headers).toBeUndefined();
     const body = lastBody();
     expect(body.get("link_slug")).toBe("senior-java-ab12");
-    expect(body.get("first_name")).toBe("Jan");
-    expect(body.get("last_name")).toBe("Kowalski");
-    expect(body.get("email")).toBe("jan@example.com");
+    expect(body.get("first_name")).toBeNull();
+    expect(body.get("last_name")).toBeNull();
+    expect(body.get("email")).toBeNull();
     expect((body.get("cv") as File).name).toBe("cv.pdf");
     expect(body.get("consent")).toBe("true");
     expect(body.get("expected_rate_hourly")).toBe("170.5");
@@ -278,11 +311,12 @@ describe("CareerApplyForm — wysyłka", () => {
     expect(await screen.findByText(/literówki/)).toBeInTheDocument();
     expect(screen.getByText(/Podaj stawkę godzinową netto od 1 do 10 000 zł/)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("popraw 2 pola:");
-    expect(field(container, "first_name").value).toBe("Jan");
-    expect(field(container, "email").value).toBe("jan@example.com");
+    expect(field(container, "email").value).toBe("");
     expect(field(container, "consent").checked).toBe(true);
     expect(screen.getByText(/wpisane dane i plik zostają/)).toBeInTheDocument();
 
+    type(container, "email", "jan@example.com");
+    type(container, "expected_rate_hourly", "150");
     fetchMock.mockResolvedValueOnce(jsonResponse(201));
     fireEvent.click(screen.getByRole("button", { name: /wyślij ponownie/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -345,7 +379,8 @@ describe("CareerApplyForm — wysyłka", () => {
   });
 
   it("po sukcesie bramka podmienia stronę na podziękowanie z imieniem i e-mailem", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201));
+    // Imię i e-mail przychodzą z odpowiedzi serwera — odczytane z CV.
+    fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, first_name: "Jan", email: "jan@example.com" }));
     const { container } = render(
       <CareerSubmitGate
         thanks={{

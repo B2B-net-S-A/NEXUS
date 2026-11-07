@@ -133,7 +133,7 @@ describe("/preview/kariera", () => {
     const errors = screen.getByRole("region", { name: "formularz z błędami" });
     const alert = within(errors).getByRole("alert");
     expect(alert).toHaveTextContent("popraw 3 pola:");
-    expect(alert).toHaveTextContent("e-mail · cv · zgoda");
+    expect(alert).toHaveTextContent("cv · e-mail · zgoda");
     expect(within(errors).getByDisplayValue("jan@firma-.pl")).toHaveAttribute("aria-invalid", "true");
   });
 

@@ -242,7 +242,7 @@ export function GrafitJob({ data, base, host, formPreview }: CareerJobLayoutProp
                 Aplikuj — 2 minuty
               </h2>
               <p className={styles.para}>
-                Podaj imię, nazwisko i e-mail, dołącz CV. Nie musisz spełniać wszystkich wymagań — jeśli
+                Dołącz CV — imię i kontakt przeczytamy z pliku. Nie musisz spełniać wszystkich wymagań — jeśli
                 projekt Cię ciekawi, wyślij zgłoszenie.
               </p>
               <p className={styles.applyWho}>Zgłoszenie czyta {job.recruiterFirstName} z B2B Network.</p>
