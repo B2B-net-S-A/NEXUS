@@ -27,7 +27,7 @@
       },
       {
         "q": "Jak założyć nową rekrutację?",
-        "a": "Kliknij „Nowa rekrutacja”, wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Rekrutacja powstaje dopiero kompletna: „Utwórz i opublikuj” od razu przekazuje ją do searchu. Niedokończony formularz czeka na Twoim koncie. Przycisk widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i Delivery Lead).",
+        "a": "Kliknij „Nowa rekrutacja”, wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Rekrutacja powstaje dopiero kompletna: „Utwórz i opublikuj” od razu przekazuje ją do searchu. Niedokończony formularz wraca przyciskiem „Dokończ szkic requestu z …” obok. Oba widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i DL).",
         "anchor": "jobs.list.new"
       }
     ],
