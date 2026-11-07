@@ -1,5 +1,22 @@
 [
   {
+    "id": "naglowek-liczba-osob",
+    "pr": 3141,
+    "title": "Liczba osób w nagłówku rekrutacji",
+    "why": "Ilu osób szuka klient, widać teraz w nagłówku rekrutacji obok rekrutera. Klik w liczbę z ołówkiem zmienia ją od razu, bez wchodzenia w Profil Championa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek → liczba osób",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.headcount"
+  },
+  {
     "id": "sprzedaz-kpi-tygodniowe",
     "pr": 2811,
     "title": "Sprzedaż: KPI tygodniowe i krzywa WON MRR",

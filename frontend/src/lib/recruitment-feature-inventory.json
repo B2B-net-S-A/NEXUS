@@ -1560,6 +1560,14 @@
    "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy"
   },
   {
+   "id": "header.headcount",
+   "area": "naglowek",
+   "opis": "„Szukamy N osób ✎” za faktem „Rekruter”: liczba osób do zatrudnienia, zmiana w miejscu (to samo pole co Profil Championa › Zespół), bez pełnej edycji rekrutacji sam odczyt (07.11.2026)",
+   "file": "components/v2/jobs/JobHeadcountFact.tsx",
+   "marker": "job-header-headcount",
+   "v3_home": "nagłówek rekrutacji → linia faktów, po „Rekruter” (też Profil Championa › Zespół)"
+  },
+  {
    "id": "header.collapse",
    "area": "naglowek",
    "opis": "„Zwiń nagłówek”: zostaje linia tytułu z priorytetem, statusem i awatarami rekruterów; pamiętane per osoba, domyślnie rozwinięty (14.10.2026)",

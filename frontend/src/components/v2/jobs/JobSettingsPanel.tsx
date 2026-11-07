@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useId, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
 
 import api, { clientTeamApi } from "@/lib/api";
@@ -93,6 +93,24 @@ const CONTROL_CLASS =
   "w-0 min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-xs dark:bg-muted";
 
 /**
+ * Zapis pól rekrutacji z karty „Zespół” i z nagłówka rekrutacji
+ * (`JobHeadcountFact`): `PATCH /api/jobs/{id}` z samymi zmienianymi polami.
+ */
+export async function patchJobFields(
+  queryClient: QueryClient,
+  jobId: number,
+  body: Record<string, unknown>,
+): Promise<void> {
+  await api.patch(`/api/jobs/${jobId}`, body);
+  // Ten sam komplet unieważnień co zapis Profilu Championa (M04-B02)…
+  invalidateChampionDependents(queryClient, jobId);
+  // …oraz lista, jej liczniki i pulpit „Requesty i obłożenie”: Delivery
+  // Lead i termin są tam kolumnami i filtrami.
+  invalidateJobTeam(queryClient, jobId);
+  void queryClient.invalidateQueries({ queryKey: ["dashboard", "my-jobs"] });
+}
+
+/**
  * Karta zakładki „Zespół” doku gotowości: kto jest przy rekrutacji, do kiedy
  * i jak pilnie.
  *
@@ -151,13 +169,7 @@ export function JobSettingsPanel({
     setSavingField(field);
     setErrorByField((prev) => ({ ...prev, [field]: undefined }));
     try {
-      await api.patch(`/api/jobs/${jobId}`, body);
-      // Ten sam komplet unieważnień co zapis Profilu Championa (M04-B02)…
-      invalidateChampionDependents(queryClient, jobId);
-      // …oraz lista, jej liczniki i pulpit „Requesty i obłożenie”: Delivery
-      // Lead i termin są tam kolumnami i filtrami.
-      invalidateJobTeam(queryClient, jobId);
-      void queryClient.invalidateQueries({ queryKey: ["dashboard", "my-jobs"] });
+      await patchJobFields(queryClient, jobId, body);
       setEditingField(null);
     } catch (err) {
       // `handoff_regression`: zmiana zdjęłaby wymaganą informację z
@@ -456,8 +468,11 @@ export function DeadlineEditor({
   );
 }
 
-/** Liczba osób do zatrudnienia — co najmniej 1 (bramka przekazania). */
-function HeadcountEditor({
+/**
+ * Liczba osób do zatrudnienia — co najmniej 1 (bramka przekazania).
+ * Eksportowany: ten sam edytor stoi w nagłówku rekrutacji (`JobHeadcountFact`).
+ */
+export function HeadcountEditor({
   headcount,
   saving,
   onSave,
