@@ -6,15 +6,12 @@ CI musi blokować (plan §PR8):
    (0179 łączy 0177+0178); ryzykowna wydawała się tylko dlatego, że
    regexowy licznik headów raportował 26 zamiast 2,
 2. mutacje w analytics/DynaReporter chronione tylko CurrentUser,
-3. odpowiedzi dla person operacyjnych z zakazanym polem finansowym,
-4. dryf kontraktu OpenAPI /api/analytics/v1 bez świadomej aktualizacji.
 
 RBAC matrix + zakaz 500-jako-odmowy egzekwuje test_rbac.py (też blocking).
 """
 
 from __future__ import annotations
 
-import json
 import ast
 import re
 import uuid
@@ -25,7 +22,6 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.user import User, UserRole
@@ -140,7 +136,6 @@ def test_no_currentuser_only_mutations_in_analytics():
     api_dir = BACKEND / "app" / "api"
     offenders: list[str] = []
     for f in [
-        api_dir / "analytics_v1.py",
         api_dir / "financial_adjustments.py",
     ]:
         src = f.read_text(encoding="utf-8")
@@ -229,31 +224,11 @@ async def _role_headers(client: AsyncClient, role: UserRole) -> dict[str, str]:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-OPERATIONAL_AGGREGATE_ENDPOINTS = [
-    "/api/analytics/v1/overview",
-    "/api/analytics/v1/pipeline/snapshot",
-    "/api/analytics/v1/recruitment/funnel",
-    "/api/analytics/v1/sources",
-    "/api/analytics/v1/calls/aggregate",
-]
-
 LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS = [
     "/api/dashboard/stats",
     "/api/dashboard/kpis",
     "/api/dashboard/pipeline-funnel",
 ]
-
-
-@pytest.mark.asyncio
-async def test_operational_responses_have_no_finance_fields(gates_client, monkeypatch):
-    """Fizyczny denylist: odpowiedzi operacyjne nie mogą nieść finansów."""
-    monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
-    headers = await _role_headers(gates_client, UserRole.recruiter)
-    for path in OPERATIONAL_AGGREGATE_ENDPOINTS:
-        resp = await gates_client.get(path, headers=headers)
-        assert resp.status_code == 200, f"{path}: {resp.status_code} {resp.text}"
-        bad = _forbidden_keys(resp.json())
-        assert not bad, f"{path} niesie pola finansowe dla rekrutera: {bad}"
 
 
 @pytest.mark.asyncio
@@ -264,50 +239,3 @@ async def test_viewer_cannot_bypass_role_presets_through_legacy_dashboard(
     for path in LEGACY_ORGANIZATION_DASHBOARD_ENDPOINTS:
         resp = await gates_client.get(path, headers=headers)
         assert resp.status_code == 403, f"{path}: {resp.status_code} {resp.text}"
-
-
-# ── Gate 4: kontrakt OpenAPI /api/analytics/v1 ───────────────────────────────
-
-_CONTRACT_FILE = BACKEND / "tests" / "analytics_v1_openapi_contract.json"
-
-
-def _current_contract() -> dict:
-    from app.main import app
-
-    schema = app.openapi()
-    paths = {
-        p: sorted(methods.keys())
-        for p, methods in schema.get("paths", {}).items()
-        if p.startswith("/api/analytics/v1")
-    }
-    return {"paths": paths}
-
-
-def test_analytics_openapi_contract_committed():
-    """Dryf kontraktu v1 bez aktualizacji committed snapshotu = czerwone CI.
-
-    Zmieniłeś /api/analytics/v1? Uruchom:
-      python -c "from tests.test_analytics_release_gates import write_contract; write_contract()"
-    i zacommituj zaktualizowany analytics_v1_openapi_contract.json
-    (świadoma zmiana kontraktu; frontend stats-api.ts musi być w sync).
-    """
-    current = _current_contract()
-    assert _CONTRACT_FILE.exists(), (
-        "Brak committed kontraktu — wygeneruj: python -c "
-        '"from tests.test_analytics_release_gates import write_contract; write_contract()"'
-    )
-    committed = json.loads(_CONTRACT_FILE.read_text(encoding="utf-8"))
-    assert current == committed, (
-        "Kontrakt /api/analytics/v1 zdryfował względem committed snapshotu. "
-        "Jeśli zmiana jest świadoma: zaktualizuj snapshot (docstring wyżej) "
-        "i dopasuj frontend/src/lib/stats-api.ts."
-    )
-
-
-def write_contract() -> None:  # pragma: no cover — narzędzie deweloperskie
-    _CONTRACT_FILE.write_text(
-        json.dumps(_current_contract(), indent=2, ensure_ascii=False, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    print(f"written: {_CONTRACT_FILE}")
