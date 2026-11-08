@@ -24,7 +24,10 @@ function ResponseStat({ response }: { response: ClientResponseSummary }) {
   const below =
     response.response_7d_pct !== null && response.response_7d_pct < response.target_pct
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card p-3">
+    <div
+      data-tour="dashboard.client-response"
+      className="min-w-0 rounded-lg border border-border bg-card p-3"
+    >
       <p className="text-xs text-muted-foreground">
         Odpowiedź klienta w {response.workdays} dni rob.
       </p>

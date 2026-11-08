@@ -1582,6 +1582,23 @@
     "dot_anchor": "requirements.intake-proposals"
   },
   {
+    "id": "odpowiedz-klienta-na-pulpicie",
+    "pr": 3171,
+    "title": "Ile CV dostaje odpowiedź klienta",
+    "why": "Procent CV z odpowiedzią klienta w 7 dni roboczych i klienci, którzy milczą najdłużej. Liczy się odpowiedź zapisana w NEXUSIE, więc rozmowę lub odrzucenie odnotuj od razu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    "where": "Pulpit → kafelek „Odpowiedź klienta”",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.client-response"
+  },
+  {
     "id": "qc-sprawdz-recznie-wskaz-role",
     "pr": 3128,
     "title": "„Sprawdź ręcznie” w QC: wskaż stanowisko jednym kliknięciem",
