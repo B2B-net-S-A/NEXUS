@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
-from app.schemas.candidate import EmploymentMarker
+from app.schemas.candidate import CandidateSkillYears, EmploymentMarker
 from app.services.candidate_monthly_rate_retirement import (
     reject_retired_candidate_rate,
 )
@@ -118,6 +118,11 @@ class CandidateSearchRequest(BaseModel):
     # ukrywa, brak = jak bez przełącznika) — te same pola co na liście.
     hide_unknown_rate: Optional[bool] = None
     hide_unknown_location: Optional[bool] = None
+    # „Lata z technologią” (08.11.2026) — te same pola co na liście:
+    # `["Java:3"]` = Java co najmniej 3 lata z dat stanowisk w CV
+    # (`candidate_search_predicates.skill_years_clauses`).
+    skill_years: list[str] = Field(default_factory=list, max_length=5)
+    hide_unknown_skill_years: Optional[bool] = None
     # Wersja semantyki filtrów. Brak pola (v1) = DOKŁADNIE dotychczasowe wyniki
     # tego endpointu — zapisane wyszukiwania nie zmieniają się bez zgody
     # właściciela. `2` = jedna semantyka wspólna z `GET /api/candidates`
@@ -176,6 +181,12 @@ class CandidateSearchRequest(BaseModel):
         raise_if_range_reversed(
             self.rate_hourly_min, self.rate_hourly_max, RATE_RANGE_REVERSED_MSG
         )
+        from app.services import candidate_search_predicates as predicates
+
+        try:
+            predicates.parse_skill_years(self.skill_years)
+        except predicates.InvalidSkillYears as exc:
+            raise PydanticCustomError("skill_years", str(exc)) from exc
         return self
 
 
@@ -273,6 +284,8 @@ class CandidateSearchItem(BaseModel):
     # v2: które AKTYWNE filtry („location", „experience", „rate") ta osoba
     # przeszła wyłącznie dlatego, że nie mamy o niej danych — do plakietki w UI.
     unknown_fields: list[str] = Field(default_factory=list)
+    # Tylko przy filtrze ``skill_years`` — lata z dat stanowisk w CV.
+    skill_years: Optional[list[CandidateSkillYears]] = None
     # Tylko przy ``exclude_in_job_id``: ostatnia rekrutacja osoby gdzie indziej
     # — po niej rekruter odróżnia imienników. ``None`` = bez historii u nas.
     last_recruitment: Optional[LastRecruitment] = None

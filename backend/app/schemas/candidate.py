@@ -699,6 +699,21 @@ class CandidateLocationDistance(BaseModel):
     center: str
 
 
+class CandidateSkillYears(BaseModel):
+    """Lata z technologią przy wierszu filtru „Java · co najmniej 3 lata”.
+
+    `months` = suma miesięcy stanowisk i projektów z tą technologią z dat
+    w CV (`candidate_skill_usage`); `None` = osoba ma technologię, ale CV nie
+    podaje przy niej okresu (grupa „bez danych o latach”). `source`:
+    `cv_roles` (daty stanowisk z CV) albo `manual`.
+    """
+
+    skill: str
+    years_min: int
+    months: Optional[int] = None
+    source: Optional[Literal["cv_roles", "manual"]] = None
+
+
 class CandidateResponse(BaseModel):
     # Lista, `semantics_version=2`: które AKTYWNE filtry („location",
     # „experience", „rate") ta osoba przeszła wyłącznie dlatego, że nie mamy
@@ -708,6 +723,9 @@ class CandidateResponse(BaseModel):
     # najbliższy środek, w którego promieniu leży miejscowość osoby. `None`
     # poza promieniem, w samym środku albo gdy miejscowości nie ma w spisie.
     location_distance: Optional[CandidateLocationDistance] = None
+    # „Lata z technologią” — tylko przy filtrze `skill_years`, po jednym
+    # wpisie na wiersz filtru (`CandidateSkillYears`).
+    skill_years: Optional[list[CandidateSkillYears]] = None
     id: int
     name: str
     lastname: str
