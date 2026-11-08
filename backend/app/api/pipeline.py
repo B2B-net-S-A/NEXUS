@@ -4009,6 +4009,13 @@ async def build_kanban_view(
     # Kolumna Tablicy każdego etapu — wypełnione niżej, gdy znane są definicje.
     column_by_def_id: dict[int, str] = {}
     board_today = business_today()
+    from app.services import client_wait as client_wait_service
+
+    client_silence = (
+        await client_wait_service.silent_workdays_safely(db, job)
+        if job.status != JobStatus.closed
+        else {}
+    )
 
     # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
     rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
@@ -4154,6 +4161,7 @@ async def build_kanban_view(
             )
 
         payload["waiting_workdays"] = _waiting()
+        payload["client_silent_workdays"] = client_silence.get(e.candidate_id)
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {

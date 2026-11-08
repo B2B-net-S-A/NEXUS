@@ -31,11 +31,13 @@ export interface ClientWaitCardActionsProps {
   workdays: number;
   /** Etap „Odrzucony” szablonu tej rekrutacji. */
   rejectedStageDefId?: number;
-  reasons: RejectionReasonOption[];
+  reasons: Pick<RejectionReasonOption, "id" | "name">[];
   /** Ruch na „Rozmowę u klienta”: Tablica otwiera swoje okno. */
   onInterview: () => void;
   /** Odrzucenie przez klienta: Tablica otwiera okno odrzucenia. */
   onRejected: () => void;
+  /** Po zapisie: Tablica odświeża karty. */
+  onChanged?: () => void;
   readOnly?: boolean;
 }
 
@@ -54,6 +56,7 @@ export function ClientWaitCardActions({
   reasons,
   onInterview,
   onRejected,
+  onChanged,
   readOnly = false,
 }: ClientWaitCardActionsProps) {
   const queryClient = useQueryClient();
@@ -61,7 +64,10 @@ export function ClientWaitCardActions({
   const [reminderOpen, setReminderOpen] = useState(false);
   const { askConfirm, confirmDialog } = useConfirmV2();
   const core = usePipelineMoveCore({ jobId });
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: clientWaitKey(jobId) });
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: clientWaitKey(jobId) });
+    onChanged?.();
+  };
 
   const responded = useMutation({
     mutationFn: () => markClientResponded(jobId, candidateId),
@@ -99,8 +105,10 @@ export function ClientWaitCardActions({
   };
 
   if (readOnly) return null;
+  // Menu i okna są w portalu, ale ich zdarzenia i tak bąbelkują przez drzewo
+  // Reacta do karty, a klik w kartę otwiera panel osoby.
   return (
-    <>
+    <span className="contents" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -108,7 +116,7 @@ export function ClientWaitCardActions({
             size="sm"
             variant="outline"
             data-testid="client-wait-card-actions"
-            className="h-6 px-2 text-xs"
+            className="h-5 min-w-0 px-1.5 text-[10px] font-semibold pointer-coarse:min-h-8"
           >
             Co z klientem?
           </Button>
@@ -133,6 +141,6 @@ export function ClientWaitCardActions({
       />
       {confirmDialog}
       {core.dialogs}
-    </>
+    </span>
   );
 }

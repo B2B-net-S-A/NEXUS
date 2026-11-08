@@ -319,6 +319,9 @@ class CandidateStageResponse(BaseModel):
     # jak pas „Do wysłania do klienta” (`dl_send_queue.board_waiting_workdays`,
     # audyt U5 08.11.2026). `None` = endpoint nie liczy albo proces się skończył.
     waiting_workdays: Optional[int] = None
+    # Cisza klienta ponad 5 dni roboczych, ta sama reguła co pas „Czeka na
+    # odpowiedź klienta” (`client_wait.silent_workdays`). `None` = jeszcze nie.
+    client_silent_workdays: Optional[int] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —

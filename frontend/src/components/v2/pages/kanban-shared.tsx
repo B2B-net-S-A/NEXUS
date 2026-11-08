@@ -188,6 +188,8 @@ export interface KanbanItem {
  dl_send_counts?: boolean | null;
  /** Dni robocze czekania, liczone na serwerze jak pas „Do wysłania” (U5). */
  waiting_workdays?: number | null;
+ /** Cisza klienta ponad 5 dni roboczych (serwer); `null` = jeszcze nie. */
+ client_silent_workdays?: number | null;
  // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
  // kody polityki dopuszczalności — konflikt z klientem itd.).
  warnings?: string[];

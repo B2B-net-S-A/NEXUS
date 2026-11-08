@@ -277,6 +277,64 @@ async def test_responded_resets_the_clock_and_rejects_strangers(
     assert stranger.status_code == 404
 
 
+def _board_card(view: dict[str, Any], candidate_id: int) -> dict[str, Any]:
+    return next(
+        item
+        for column in view["columns"]
+        for item in column["items"]
+        if item["candidate_id"] == candidate_id
+    )
+
+
+@pytest.mark.asyncio
+async def test_board_card_carries_silence_until_client_responded(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    job_id, candidate_id = await _job_with_waiting(app_client, app_auth_headers)
+    board = await app_client.get(
+        f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
+    )
+    assert board.status_code == 200, board.text
+    assert _board_card(board.json(), candidate_id)["client_silent_workdays"] > 5
+
+    await app_client.post(
+        f"/api/client-wait/jobs/{job_id}/candidates/{candidate_id}/responded",
+        headers=app_auth_headers,
+    )
+    after = await app_client.get(
+        f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
+    )
+    assert _board_card(after.json(), candidate_id)["client_silent_workdays"] is None
+
+
+@pytest.mark.asyncio
+async def test_board_card_has_no_silence_within_five_workdays(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    job_id, candidate_id = await _job_with_waiting(
+        app_client, app_auth_headers, days=1
+    )
+    board = await app_client.get(
+        f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
+    )
+    assert _board_card(board.json(), candidate_id)["client_silent_workdays"] is None
+
+
+@pytest.mark.asyncio
+async def test_broken_silence_query_does_not_take_the_board_down(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    job_id, candidate_id = await _job_with_waiting(app_client, app_auth_headers)
+    with patch.object(
+        client_wait, "silent_workdays", side_effect=RuntimeError("awaria")
+    ):
+        board = await app_client.get(
+            f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
+        )
+    assert board.status_code == 200, board.text
+    assert _board_card(board.json(), candidate_id)["client_silent_workdays"] is None
+
+
 @pytest.mark.asyncio
 async def test_recruiter_without_manage_is_refused(
     app_client: AsyncClient,

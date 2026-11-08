@@ -331,6 +331,50 @@ class JobWait:
     settings: WaitSettings
 
 
+def _silent_since(
+    moved_at: datetime, signal: Optional[datetime], responded: Optional[datetime]
+) -> datetime:
+    """Zegar ciszy: późniejsze z wejścia na etap, sygnału klienta i „odpowiedział”."""
+    return max(at for at in (moved_at, signal, responded) if at is not None)
+
+
+async def silent_workdays(
+    db: AsyncSession,
+    job: Job,
+    *,
+    now: Optional[datetime] = None,
+    today: Optional[date] = None,
+) -> dict[int, int]:
+    """{kandydat: dni robocze ciszy} par ponad progiem, ta sama reguła co pas."""
+    now = now or datetime.now(timezone.utc)
+    today = today or business_today()
+    rows = await client_side_rows(db, job)
+    if not rows:
+        return {}
+    paused, signals = await _interview_signals(db, job.id, sorted(rows), now)
+    _, responded = await _marks(db, job.id)
+    out: dict[int, int] = {}
+    for cid, (_, moved_at) in rows.items():
+        if cid in paused:
+            continue
+        days = waiting_workdays(
+            _silent_since(moved_at, signals.get(cid), responded.get(cid)), today
+        )
+        if days > WAIT_AFTER_WORKDAYS:
+            out[cid] = days
+    return out
+
+
+async def silent_workdays_safely(db: AsyncSession, job: Job) -> dict[int, int]:
+    """Dla Tablicy: awaria = brak plakietki + log, nigdy 500 całej Tablicy."""
+    try:
+        async with db.begin_nested():
+            return await silent_workdays(db, job)
+    except Exception:  # noqa: BLE001
+        logger.exception("client_wait: cisza klienta job_id=%s", job.id)
+        return {}
+
+
 async def load_wait(
     db: AsyncSession,
     job: Job,
@@ -394,11 +438,7 @@ async def load_wait(
     for cid, (column, moved_at) in rows.items():
         if cid in paused or cid not in names:
             continue
-        silent_since = max(
-            at
-            for at in (moved_at, signals.get(cid), responded.get(cid))
-            if at is not None
-        )
+        silent_since = _silent_since(moved_at, signals.get(cid), responded.get(cid))
         people.append(
             WaitingPerson(
                 candidate_id=cid,
@@ -486,8 +526,6 @@ async def run_auto_close(
     db: AsyncSession, *, today: Optional[date] = None
 ) -> dict[str, int]:
     """Przebieg automatu; bez wyłącznika nic nie robi. Każda para osobno."""
-    from app.services.priority_work_policy import PriorityWorkLocked  # noqa: PLC0415
-
     today = today or business_today()
     if not (await read_settings(db)).auto_close:
         return {"closed": 0, "skipped": 0}
@@ -515,11 +553,6 @@ async def run_auto_close(
                     ended_by=ENDED_BY_SILENT,
                 )
                 await db.commit()
-            except PriorityWorkLocked:
-                await db.rollback()
-                job = await db.get(Job, job_id)
-                skipped += 1
-                continue
             except Exception:  # noqa: BLE001 — jedna para nie zatrzymuje reszty
                 logger.exception(
                     "client_wait: para job_id=%s candidate_id=%s",
