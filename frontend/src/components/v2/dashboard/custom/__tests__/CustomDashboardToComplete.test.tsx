@@ -45,11 +45,13 @@ vi.mock("@/components/v2/dashboard/DlSendQueueBand", () => ({
 vi.mock("@/components/v2/dashboard/BoardTasksPanel", () => ({
   BoardTasksPanel: (p: {
     toCompleteOnGrid?: boolean
+    orderMailOnGrid?: boolean
     onMoveToComplete?: () => void
     onKeepToComplete?: () => void
   }) => (
     <div role="region" aria-label="Czeka na Ciebie">
       <p>kafelek na pulpicie: {p.toCompleteOnGrid ? "tak" : "nie"}</p>
+      <p>zamówienia z maila w kafelku: {p.orderMailOnGrid ? "tak" : "nie"}</p>
       {p.onMoveToComplete ? (
         <>
           <button type="button" onClick={p.onMoveToComplete}>
@@ -152,5 +154,35 @@ describe("pulpit — „Do uzupełnienia”", () => {
     expect(await screen.findByText("kafelek na pulpicie: nie")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Przenieś na pulpit" })).toBeNull()
     expect(saveMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("pulpit — „Zamówienia z maila” raz, w „Moich klientach”", () => {
+  const myClients: DashboardTile = { id: "c", type: "my_clients_alerts", x: 0, y: 0, w: 8, h: 5, config: {} }
+  const deliveryLead = {
+    ...recruiter,
+    role: "delivery_lead",
+    roles: ["delivery_lead"],
+    section_access: { delivery: "read" },
+  } as unknown as User
+
+  it("DL z kafelkiem: panel dostaje znacznik", async () => {
+    useAuthStore.setState({ user: deliveryLead, hydrated: true })
+    getMock.mockResolvedValue({ tiles: [myClients], version: 1, dropped_tiles: [] })
+    renderDashboard()
+    expect(await screen.findByText("zamówienia z maila w kafelku: tak")).toBeInTheDocument()
+  })
+
+  it("DL bez kafelka: lista zostaje w panelu", async () => {
+    useAuthStore.setState({ user: deliveryLead, hydrated: true })
+    getMock.mockResolvedValue({ tiles: [myWeek], version: 1, dropped_tiles: [] })
+    renderDashboard()
+    expect(await screen.findByText("zamówienia z maila w kafelku: nie")).toBeInTheDocument()
+  })
+
+  it("kafelek w układzie, ale bez dostępu → lista zostaje w panelu", async () => {
+    getMock.mockResolvedValue({ tiles: [myClients], version: 1, dropped_tiles: [] })
+    renderDashboard()
+    expect(await screen.findByText("zamówienia z maila w kafelku: nie")).toBeInTheDocument()
   })
 })
