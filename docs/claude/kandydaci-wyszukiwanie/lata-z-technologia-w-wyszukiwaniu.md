@@ -64,10 +64,10 @@ obok „Umiejętności”) i lata wyłącznie z dat stanowisk, bez szacunku pars
 ## Wydajność — znany koszt
 
 Gałąź „bez danych o latach” używa `skill_match`, czyli tego samego co „Musi
-mieć”: na stagingu „Musi mieć: Java” trwa ok. 10,5 s, „Java ≥ 3 lata” ok. 11 s,
-a „Java ≥ 3 lata” z ukrytymi brakami 0,5 s. Koszt to rodzina aliasów
-rozwijana na osobne `strpos` po całym zrzucie profilu (Java: 10 pisowni = 20
-przejść). Poprawka należy do `skill_match` (oba silniki naraz), nie do tego filtru.
+mieć”. Do 08.11.2026 każda pisownia z rodziny aliasów była osobnym `strpos`
+po całym zrzucie profilu (Java: 18 przejść) i „Java ≥ 3 lata” trwało ok. 10 s
+na liście i 28 s w wyszukiwarce. Teraz rodzina to jedno wyrażenie regularne
+(`_json_token_match`): 1,4 s i 2,4 s na tych samych danych, te same osoby.
 
 ## Testy
 
