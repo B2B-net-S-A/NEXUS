@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, ChevronDown } from "lucide-react";
 
+import { CHANNEL_LABELS } from "@/lib/job-channels";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import {
   pinRecruiters,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { JobOwnershipPanel, type JobOwnershipJob } from "./JobOwnershipPanel";
+import { ChannelBadge } from "./ChannelBadge";
 import { RecruiterAvatar } from "./RecruiterChips";
 
 export interface JobRecruiterFactJob extends JobOwnershipJob {
@@ -107,6 +109,10 @@ export function JobRecruiterFact({
   const people = recruitersOf(job);
   const view = recruiterFactView(people, viewerId);
   const staffed = recruitersSummary(people).tooltip || "Bez rekrutera";
+  // Koszyk zalogowanej osoby (0655): rekruter widzi na Tablicy, czy szuka
+  // w bazie, czy na LinkedInie.
+  const myChannel =
+    people.find((p) => p.user_id === viewerId && !p.proposed)?.channel ?? null;
   const deliveryLead = job.delivery_lead_user?.name?.trim() || null;
   const keepOpen = (event: { target: EventTarget | null; preventDefault: () => void }) => {
     if (insideLayer(event.target)) event.preventDefault();
@@ -117,9 +123,12 @@ export function JobRecruiterFact({
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Rekruter: ${staffed} — zespół rekrutacji`}
+          aria-label={`Rekruter: ${staffed}${
+            myChannel ? ` — pracujesz w koszyku ${CHANNEL_LABELS[myChannel]}` : ""
+          } — zespół rekrutacji`}
           title={staffed}
           data-testid="job-header-recruiter"
+          data-tour="job.recruiter-team"
           data-state-kind={view.kind}
           className={cn(
             "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border text-[13px] font-semibold transition-colors",
@@ -155,6 +164,13 @@ export function JobRecruiterFact({
           {compact && view.kind === "working" ? null : (
             <span aria-hidden="true">{view.text}</span>
           )}
+          {myChannel ? (
+            <ChannelBadge
+              channel={myChannel}
+              iconOnly={compact}
+              className="ml-0.5"
+            />
+          ) : null}
           {view.more > 0 && !compact ? (
             <span aria-hidden="true" className="font-medium text-muted-foreground">
               +{view.more}

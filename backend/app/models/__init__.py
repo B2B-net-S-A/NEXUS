@@ -140,6 +140,9 @@ from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
+from app.models.cv_call_question import CvCallQuestions  # noqa: F401
+from app.models.skill_proposal import SkillProposal  # noqa: F401
+from app.models.skill_relation import SkillRelation  # noqa: F401
 from app.models.plain_knowledge import (  # noqa: F401
     JobPlainBrief,
     PlainKnowledgeEvent,
@@ -473,6 +476,7 @@ __all__ = [
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
+    "CvCallQuestions",
     "JobPlainBrief",
     "PlainKnowledgeEvent",
     "PlainTerm",
@@ -816,6 +820,7 @@ from app.models.competition_period_closure import (  # noqa: F401
 # 0371: kto pracuje nad requestem (automat przydziału + ręczne dodanie).
 from app.models.job_work_assignment import JobWorkAssignment  # noqa: F401
 from app.models.job_previous_recruiter import JobPreviousRecruiter  # noqa: F401
+from app.models.job_recruiter_channel import JobRecruiterChannel  # noqa: F401
 
 # 0450: championi rekrutacji — osoby, które klient chce (D1–D9, 15.10.2026).
 from app.models.job_champion import JobChampion  # noqa: F401

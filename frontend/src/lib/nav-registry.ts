@@ -14,11 +14,9 @@ import {
   CalendarClock,
   FileSignature,
   FileText,
-  GraduationCap,
   GitBranch,
   Handshake,
   Heart,
-  Headset,
   HelpCircle,
   Inbox,
   LayoutDashboard,
@@ -275,6 +273,23 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     moreGroup: "daily",
     inPalette: true,
   },
+  // „Moje wygenerowane CV” (07.11.2026, pytania do Jarvisa z 20.10): lista CV
+  // z generatora wygenerowanych przez zalogowaną osobę. Ten sam moduł i te
+  // same role co „Kandydaci”; wejście też z nagłówka listy kandydatów.
+  {
+    id: "my-generated-cvs",
+    moreHint: "Twoje CV z generatora",
+    href: "/candidates/generated-cvs",
+    label: "Moje wygenerowane CV",
+    icon: FileText,
+    section: "sourcing",
+    roles: CANDIDATES_NAV_ROLES,
+    capability: "nav.candidates",
+    placement: "more",
+    moreGroup: "documents",
+    paletteKeywords: ["cv", "wygenerowane", "moje cv", "generator"],
+    inPalette: true,
+  },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
   // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
   {
@@ -466,43 +481,6 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     roles: [...CAPABILITY_ROLES["nav.candidates"]],
     placement: "primary",
     inPalette: true,
-  },
-  {
-    // Akademia (0369): nabór do programów szkoleniowych. Backend:
-    // sekcja Pipeline + RecruiterPlus (role operacyjne) — viewer `user` poza.
-    id: "academy",
-    moreHint: "Nabór z ogłoszeń: telefon, spotkanie, zadanie, umowa",
-    href: "/academy",
-    label: "Akademia",
-    icon: GraduationCap,
-    section: "pipeline",
-    roles: [...CAPABILITY_ROLES["nav.candidates"]],
-    placement: "more",
-    moreGroup: "daily",
-    paletteKeywords: ["akademia rekrutera", "nabór", "szkolenie"],
-    // Ukryte z menu i palety 17.10.2026 (decyzja Artura): na razie
-    // z programu nie korzystamy. Strona i API działają dalej — to tylko
-    // zdjęcie wejścia z nawigacji.
-    inSidebar: false,
-    inPalette: false,
-  },
-  {
-    // Praktykanci (0374): postęp programu, próbka jakości, decyzja po
-    // 40 dniach. Backend: `/api/trainee/overview` itd. = admin + HoR.
-    id: "trainees",
-    moreHint: "Listy telefonów, wyniki praktykantów i decyzja po programie",
-    href: "/trainees",
-    label: "Praktykanci",
-    icon: Headset,
-    section: "pipeline",
-    roles: [...CAPABILITY_ROLES["nav.trainees"]],
-    capability: "nav.trainees",
-    placement: "more",
-    moreGroup: "daily",
-    paletteKeywords: ["praktykant", "telefony", "lista telefonów", "program"],
-    // Ukryte z menu i palety 17.10.2026 razem z Akademią (decyzja Artura).
-    inSidebar: false,
-    inPalette: false,
   },
   // Pozycje Delivery i Finansów nie mają listy ról: wejście daje uprawnienie
   // z ekranu Osoby i role — to samo, którego wymaga ich capability (jedna

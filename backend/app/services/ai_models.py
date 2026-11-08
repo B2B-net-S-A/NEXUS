@@ -32,7 +32,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
 | F8  | uop_check                        | gpt-6.1-sol (z Sonnet 5) |
 | F9  | cv_parser                        | claude-sonnet-5-5 (z 5)  |
-| F10 | cv_backfill                      | claude-sonnet-5-5 (z 5)  |
+| F10 | cv_backfill                      | claude-haiku-5-5 (z 5)   |
 |     | cv_name_backfill                 | gpt-6-luna (z Sonnet 5)  |
 | F11 | notes_extraction                 | gpt-6-luna (z Sonnet 5)  |
 | F12 | candidate_summary                | gpt-6-luna (z Sonnet 5)  |
@@ -65,6 +65,8 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F41 | requirement_word_hints           | claude-sonnet-5 (z Haiku)|
 | F42 | case_triage                      | claude-sonnet-5 (z Haiku)|
 | F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
+| F44 | cv_call_questions                | claude-sonnet-5-5 (z 5)  |
+| F45 | skill_dictionary_proposals       | gpt-6.1-sol (z Sonnet 5.5)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -221,15 +223,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "cena i umowa powierzenia (OpenAI).",
     ),
     AIFeatureKey.cv_backfill: ModelChoice(
-        default=SONNET_55,
+        default=HAIKU_55,
         env_vars=("CV_BACKFILL_MODEL",),
         # Bez legacy CLAUDE_MODEL_CV_BULK od 22.09.2026: ta zmienna nadal steruje
         # lintem reguł i datami doświadczenia (Sonnet 5), a `settings_attr`
         # wygrywa z `default` — zostawiona zabrałaby tej funkcji jej model.
         fallbacks=(SONNET_5,),
-        rationale="F10. Masowy backfill pól: Sonnet 5.5 od 03.11.2026 (audyt 02.11): 14,5 "
-        "technologii na CV wobec 9,9 Luny, zmyślenia bez istotnej różnicy, zła osoba bez zmian, "
-        "ok. +21 USD miesięcznie. Wcześniej GPT-6 Luna (22.09.2026).",
+        rationale="F10. Masowy odczyt CV pełnym promptem (bieg starej bazy przez Batch API, "
+        "faza nocna): Haiku 5.5 od 07.11.2026 (decyzja Artura po pomiarze na 50 CV, prompt v8/v9): "
+        "oś technologii u 47 z 50 osób, 77–83% technologii osi Sonneta, miesiące w ±12 w 90%, "
+        "ta sama odpowiedź na „3+ lata” w 96%, 0,0017 USD za CV wobec 0,034 Sonneta. "
+        "Wcześniej Sonnet 5.5 (03.11.2026) i GPT-6 Luna (22.09.2026).",
     ),
     AIFeatureKey.experience_dates_on_demand: ModelChoice(
         default=SONNET_5,
@@ -542,6 +546,23 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "transkryptu spotkania handlowca dla listy Spotkania: krótkie streszczenie jak "
         "podsumowanie aktywności (F12). Dodatek do transkryptu: handlowiec zawsze ma "
         "pełny tekst, awaria modelu zostawia spotkanie bez podsumowania.",
+    ),
+    AIFeatureKey.cv_call_questions: ModelChoice(
+        default=SONNET_55,
+        env_vars=("CV_CALL_QUESTIONS_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F44 (decyzja Artura 05.11.2026, POZA badaniem 16.09). Pytania pod CV "
+        "w ściądze do rozmowy: ten sam model co mapa wymagań (F3). Próba na 5 osobach ze "
+        "stagingu: 3-14 s na osobę. Dodatek do rozmowy: awaria modelu nie zatrzymuje screeningu.",
+    ),
+    AIFeatureKey.skill_dictionary_proposals: ModelChoice(
+        default=GPT_SOL,
+        env_vars=("SKILL_DICTIONARY_PROPOSALS_MODEL",),
+        fallbacks=(SONNET_55,),
+        rationale="F45 (decyzja Artura 06.11.2026, audyt słownika, POZA badaniem 16.09). Nocna "
+        "klasyfikacja nazw spoza słownika: próba na 400 rodzinach na Solu podniosła pokrycie "
+        "must-have z 46% do 56% i P@5 z 0,103 do 0,117. Dodatek: nic nie wchodzi do słownika "
+        "bez zatwierdzenia HoR+, awaria modelu zostawia wczorajsze propozycje.",
     ),
 }
 

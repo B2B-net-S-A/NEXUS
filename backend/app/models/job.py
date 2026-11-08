@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     Time,
@@ -345,6 +346,20 @@ class Job(Base, TimestampMixin):
     # „założona przez pomyłkę” nie ma drugiej rekrutacji).
     duplicate_of_job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0652: początek bieżącego otwarcia — ustawia „Otwórz ponownie”
+    # (`services/job_opening.py`). NULL = rekrutacja nigdy nie otwarta
+    # ponownie, liczy się cała jej historia.
+    cycle_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 0655: plan koszyków zespołu — ile osób ma szukać w bazie NEXUSA, a ile
+    # na LinkedInie (`services/job_channels.py`). NULL = bez planu.
+    channel_plan_base: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    channel_plan_linkedin: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
     )
 
     # Foreign keys

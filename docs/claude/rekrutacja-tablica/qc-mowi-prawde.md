@@ -108,6 +108,19 @@ w żadnym źródle.
   (`__file__` nakładki) i pomiar kończy się samymi `FileNotFoundError`. Przed
   skryptem pomiaru ustaw `_QC_TRANSLATIONS_FILE` na plik z obrazu i wyczyść
   `_translation_groups`.
+- **Luka kandydata w krytycznej też nie blokuje (R2, decyzja Artura
+  07.11.2026, `qc-truth-7`).** Krytyczna, której nie ma w CV, w oryginale ani
+  w rozmowie (i bez „pod inną nazwą” / podpowiedzi pokrewnej), idzie do
+  `critical_skills.info` z `fix: "ask_candidate"` i `candidate_gap: true`, nie
+  do `items`. Rekruter nie ma czego poprawić w CV; o wysyłce decyduje Delivery
+  Lead. Brak w CV przy krytycznej z oryginału albo rozmowy zostaje blokadą.
+  `pair_statuses` niesie `candidate_gaps` (jsonpath w bazie) → `qc_gaps`
+  w zadaniach pulpitu, kolejce DL i przeglądzie DL; napis „QC: luka kandydata ·
+  N” (bursztyn) wygrywa z „sprawdź ręcznie”, a okno QC ma część „Do decyzji
+  Delivery Leada”. Pomiar (947 par z 23 dni, kopia): zaliczone 621 → 713,
+  pozycje blokujące 400 → 285, `critical_skills` fail 178 → 75. Do tej zmiany
+  DL odrzucał w „QC CV” osoby za wymagania (33 z 57 odrzuceń w 30 dniach) po
+  tym, jak rekruter próbował „poprawić” CV.
 - **Luka kandydata to informacja, nie uwaga** (D2, decyzja Artura
   17.10.2026). `must_in_cv`: wymaganie, którego nie ma w CV, w oryginale ani
   w rozmowie, idzie do `check["info"]` z `fix: "ask_candidate"` i detalem
@@ -143,11 +156,15 @@ w żadnym źródle.
     „Java 8, 11 i 17” zawiera 17);
   - prompt mówi, w jakim języku jest CV (`cv_language`), odpowiedzi idą
     w znaczniku `<candidate_answers>`.
-- **Zmiana reguł przelicza nieudane pary sprzed wysłania**
-  (`recompute_outdated`), zaliczonych nie. Nowy przebieg zaliczonej pary
-  dostałby dzisiejszą datę, a od niej kolejka Delivery Leada liczy czas
-  oczekiwania (`dl_send_queue.readiness_of`) — przegląd PR 2. Bramka ruchu
-  liczy QC na żywo. `limit` liczy przeliczone pary, nie pominięte.
+- **Zmiana reguł przelicza pary sprzed wysłania, także zaliczone**
+  (`recompute_outdated`, audyt 08.11.2026 QC-1). Zdany przebieg niesie
+  `result.ok_since`: `_store_run` przenosi go z poprzedniego zdanego przebiegu
+  tego samego CV, a `pair_statuses` podaje go jako `ok_at`. Dzięki temu kolejka
+  Delivery Leada (`dl_send_queue.readiness_of`) dalej mówi „czeka 3 dni” po
+  nowym przebiegu, także po otwarciu przeglądu DL. Nowe CV albo przebieg
+  niezaliczony pomiędzy zaczynają liczyć od nowa. Wiersze sprzed pola mają datę
+  w `created_at`. Bramka ruchu liczy QC na żywo. `limit` liczy przeliczone
+  pary, nie pominięte.
 - **Pomiar przed podbiciem `QC_VERSION`:** `backend/scripts/qc_truth_audit.py`
   w kontenerze backendu (sesja tylko do odczytu, same liczby). Nowy kod
   można zmierzyć przed merge'em, podając go jako nakładkę w tym samym
@@ -263,6 +280,13 @@ tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
   zmienia zaliczenia, zmienia zdanie uwagi i daje cytat. Java przy JavaScript, C# przy
   C++ i Go przy Google dalej nic nie znajdują. Przy lukach działa bez rdzeni, bo
   pierwsza wersja dawała tam 342 trafienia na 1195 prawdziwych luk.
+- **Adresy i e-maile to nie nazwa narzędzia** (07.11.2026): staging pytał „Git —
+  w oryginale pod inną nazwą?” cytatem nagłówka kontaktu, bo „github” stało tylko
+  w `github.com/…`. `similar_in_original` szuka w tekście bez adresów i e-maili
+  (`_without_contacts`; domena bez schematu tylko z końcówką com/pl/org/eu/dev/me/info
+  albo ze ścieżką, więc „Socket.io” i „ASP.NET” zostają), a cytat bierze z jednej
+  linii. `found_in(mode="support")` bez zmian: na 1181 parach żaden dowód nie stał
+  wyłącznie w adresie. Zaliczenie bez zmian (968 → 968), więc `QC_VERSION` też.
 - **„To ta sama rzecz”:** pominięcie z powodem `other_name` i cytatem z oryginału (serwer
   sprawdza, że cytat tam stoi). Liczy się do „Jakości QC”, a przy blokadzie Delivery Lead
   dostaje dzwonek jak przy każdym pominięciu.
@@ -278,3 +302,33 @@ tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
 Testy: sekcja „Pod inną nazwą” w `tests/test_cv_qc.py`, `CvQcDialog.test.tsx`
 („W oryginale pod inną nazwą”).
 
+
+## „Delivery Lead zwykle o to cofa” (R4, decyzja Artura 07.11.2026)
+
+Analiza zwrotów z „QC CV” (30 dni, kopia produkcji): 35 z 38 zwrotów od DL
+miało „QC zdane”, a 26 z 34 uwag dla rekrutera dotyczyło samego CV (6 „tylko
+w Dlaczego/Umiejętnościach”, 5 dat, 4 tytułu, 2 brak firmy).
+
+- **Dwie nowe uwagi (nie blokady):** `must_only_summary` — wymaganie (krytyczne
+  albo must), które CV ma tylko poza stanowiskami, a odczyt oryginału wiąże je
+  ze stanowiskiem (`orig_roles[].text`: opis, technologie, nazwa roli); pomija
+  wymagania zgłoszone już w `critical_skills` / `must_in_roles`.
+  `role_employer` — stanowisko CV ze znacznikiem generatora bez pracodawcy,
+  gdy oryginał podaje firmy; nie dotyczy szablonu bez pola firmy (żadna rola
+  go nie ma), wiersza bez roku, samych dat, urlopu, pracy na swoim i prywatnej
+  działalności (`_employer_expected`) ani roli, w której tekście stoi firma
+  z oryginału.
+- **Pomiar przed i po** (`qc_truth_audit.py` przez `qc_overlay.py` na kopii,
+  947 par z 23 dni): zaliczone 621 → 621, blokujące pozycje 400 → 400, uwagi na
+  CV 1,57 → 1,61; `must_only_summary` 20 pozycji w 14 parach, `role_employer` 16
+  w 14. Pierwsza wersja bez warunku „oryginał wiąże ze stanowiskiem” dawała
+  uwagę w 35% par, a `role_employer` bez wyjątków — 222 pozycje w 44 parach.
+- **Okno QC:** `cv_qc.DL_RETURN_KEYS` (lustro `QC_DL_RETURN_KEYS`) — część
+  „Delivery Lead zwykle o to cofa” nad „Warto poprawić” (`splitDlReturns`):
+  `must_only_summary`, `role_dates`, `role_employer`, `title_matches_role`.
+- `QC_VERSION` bez zmian: nowe uwagi nie zmieniają zaliczenia.
+- Blokada „CV firmowe nie powstało” przy 4 zwrotach z „CV się nie
+  wygenerowało” czeka na wynik osobnego sprawdzenia przyczyny.
+
+Testy: sekcja „R4” w `tests/test_cv_qc.py`, `CvQcDialog.test.tsx`
+(„Delivery Lead zwykle o to cofa”).

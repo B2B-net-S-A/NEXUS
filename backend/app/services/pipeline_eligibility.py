@@ -94,6 +94,7 @@ async def evaluate_candidates_for_job(
     candidate_ids: Sequence[int],
     now: datetime,
     enforce_manager_verdict: bool = True,
+    candidates: Optional[Mapping[int, Candidate]] = None,
 ) -> dict[int, EligibilityDecision]:
     """Batch-load eligibility inputs and evaluate each candidate for ``job``.
 
@@ -106,6 +107,7 @@ async def evaluate_candidates_for_job(
         candidate_ids=candidate_ids,
         now=now,
         enforce_manager_verdict=enforce_manager_verdict,
+        candidates=candidates,
     )
     return decisions
 

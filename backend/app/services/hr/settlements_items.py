@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_payroll import HrBonus, PayrollLine
 from app.models.hr_time import Timesheet, TimesheetEntry
 from app.models.user import User
-from app.services.hr import payroll_rates
+from app.services.hr import bonus_guarantee, payroll_rates
 from app.services.hr.employment_terms import capitalize, terms
 from app.services.hr.payroll_bonuses import CATEGORY_LABELS
 from app.services.hr.payroll_periods import MONTHS_PL, month_start
@@ -47,7 +47,7 @@ LEAVE_PAID_SOURCE = "leave_paid"
 
 @dataclass(frozen=True)
 class SettlementItem:
-    kind: str  # hours | paid_days | bonus
+    kind: str  # hours | paid_days | bonus | clawback
     label: str
     amount: Decimal
     hours: Optional[Decimal] = None
@@ -186,8 +186,10 @@ def build_items(
     paid_break_hours: Decimal,
     paid_break_days: int,
     bonuses: list[HrBonus],
+    clawback: Decimal = ZERO,
 ) -> tuple[SettlementItem, ...]:
-    """Pozycje dokumentu; suma pozycji = ``hours_amount`` + premie (co do grosza)."""
+    """Pozycje dokumentu; suma pozycji = ``hours_amount`` + premie − potrącenie
+    z gwarancji premii DL (co do grosza)."""
 
     items: list[SettlementItem] = []
     if hourly_rate is not None and hours_amount is not None and hours > 0:
@@ -239,6 +241,15 @@ def build_items(
                 bonus_id=bonus.id,
             )
         )
+    if clawback > 0:
+        # Gwarancja premii DL (05.11.2026): dług potrąca się z premii miesiąca.
+        items.append(
+            SettlementItem(
+                kind="clawback",
+                label="Potrącenie z gwarancji premii DL (konsultant przed 12 mies.)",
+                amount=-money(clawback),
+            )
+        )
     return tuple(items)
 
 
@@ -275,6 +286,7 @@ async def frozen_amounts(
             paid_break_hours=facts.paid_break_hours if hours > 0 else ZERO,
             paid_break_days=facts.paid_break_days,
             bonuses=bonuses,
+            clawback=Decimal(line.clawback_total),
         ),
     )
 
@@ -311,6 +323,11 @@ async def estimate_amounts(
             .order_by(HrBonus.assigned_at, HrBonus.id)
         )
     )
+    clawed = bonus_guarantee.deducted_by_currency(
+        (
+            await bonus_guarantee.month_deductions(db, year, month, user_ids={user_id})
+        ).get(user_id, ())
+    )
     currencies = {bonus.currency for bonus in bonus_rows}
     if rate is not None and hours > 0:
         currencies.add(rate.currency)
@@ -332,8 +349,13 @@ async def estimate_amounts(
             paid_break_hours=facts.paid_break_hours if approved else ZERO,
             paid_break_days=facts.paid_break_days if approved else 0,
             bonuses=bonuses,
+            clawback=clawed.get(currency, ZERO),
         )
-        total = money((hours_amount or ZERO) + sum((b.amount for b in bonuses), ZERO))
+        total = money(
+            (hours_amount or ZERO)
+            + sum((b.amount for b in bonuses), ZERO)
+            - clawed.get(currency, ZERO)
+        )
         out.append(
             MonthAmounts(
                 year=year,

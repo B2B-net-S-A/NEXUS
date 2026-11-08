@@ -470,28 +470,6 @@ def test_terminal_verdict_does_not_stick_to_a_replaced_file():
     assert "storage_key" in _sql(svc._pending_candidates_stmt(10))
 
 
-def test_cv_text_phase_stats_survive_the_watermark_summary():
-    """`_CvTextPhaseResult.as_dict` miało klucze, których `_summarize` nie
-    przepuszczał — faza wyglądała w `/sync/status` jak pusta."""
-    from datetime import datetime, timezone
-
-    from app.tasks.traffit_sync import _CvTextPhaseResult, _summarize
-
-    stats = BackfillStats()
-    stats.scanned = 10
-    stats.extracted = 4
-    stats.download_failed = 2
-    summary = stats.as_dict()
-    summary["glued"] = BackfillStats().as_dict()
-    now = datetime.now(timezone.utc)
-    out = _summarize(_CvTextPhaseResult(summary, now, now).as_dict())
-    assert out["scanned"] == 10
-    assert out["extracted"] == 4
-    assert out["download_failed"] == 2
-    assert out["written"] == 0
-    assert "glued" in out
-
-
 def test_pending_scope_skips_a_cv_quarantined_as_another_person() -> None:
     """Odzyskanie tekstu z tego samego pliku przywracałoby cudze dane po kwarantannie."""
 

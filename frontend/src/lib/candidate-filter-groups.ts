@@ -2,6 +2,7 @@ import type { CandidateFilters, RemoteMode } from "@/lib/url-filters";
 import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
 import type { SkillBucketsValue } from "@/lib/candidate-search-semantics";
 import { describeLocationPlaces, shownLocationPlaces } from "@/lib/location-places";
+import { rejectionFilterCount } from "@/lib/candidate-last-rejection";
 
 /**
  * Pasek filtrów listy kandydatów (wariant A, decyzja Artura 23.09.2026):
@@ -15,7 +16,11 @@ export interface FilterGroupCounts {
   location: number;
   remote: number;
   history: number;
+  /** „Powód odrzucenia” (06.11.2026). */
+  rejection: number;
   skills: number;
+  /** „Lata z technologią” (08.11.2026): liczba wierszy. */
+  skillYears: number;
   availability: number;
   /** „Więcej filtrów": profil, firma, źródło i „Inne". */
   more: number;
@@ -61,7 +66,9 @@ export function filterGroupCounts(
       (filters.sentToClientFrom || filters.sentToClientTo ? 1 : 0) +
       filters.workedAtClientIds.length +
       contactCount,
+    rejection: rejectionFilterCount(filters),
     skills: skills.required.length + skills.preferred.length + skills.excluded.length,
+    skillYears: filters.skillYears.length,
     availability: filters.availability.length + filters.employment.length,
     more: about + company + source + other,
   };

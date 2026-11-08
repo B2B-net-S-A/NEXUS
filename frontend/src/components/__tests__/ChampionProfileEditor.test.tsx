@@ -55,6 +55,9 @@ vi.mock("@/components/v2/pages/candidate-list-query", () => ({
 // i o liczbę osób — w teście odpowiada atrapa (ma osobne testy).
 const legacyRowsMock = vi.fn();
 vi.mock("@/lib/requirement-rows-api", () => ({
+  // Podpowiedź słownika (06.11.2026) ma własny test (DictionaryHintCallout).
+  useDictionaryHints: () => ({ byWord: {}, canCurate: false }),
+  dictionaryHintsKey: ["dictionary-hints"],
   // Podpowiedź „To słowo do szukania?” ma własny test (TalkSearchWordHints).
   useTalkItemReadings: () => null,
   useWordCounts: () => ({}),

@@ -8,6 +8,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { adoptPasswordChangeSession } from "@/lib/password-change-session";
+import { MyWinsCard } from "@/components/profile/MyWinsCard";
 import {
   User,
   Mail,
@@ -392,6 +393,8 @@ export default function ProfilePage() {
           </div>
         )}
       </div>
+
+      <MyWinsCard />
 
       {/* Change password */}
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-4 sm:p-6">

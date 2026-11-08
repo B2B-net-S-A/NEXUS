@@ -305,6 +305,41 @@ async def propose_plan_for_command(
     return CommandResponse(**result)
 
 
+class AppliedRequest(BaseModel):
+    preset: Optional[str] = Field(default=None, max_length=40)
+    operations: int = Field(ge=1, le=cv_command_ai.OPERATIONS_MAX)
+
+
+@router.post("/stages/{stage_id}/cv-ai/applied", status_code=204)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def record_applied_plan(
+    request: Request,
+    stage_id: int,
+    payload: AppliedRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """„Zastosuj” w asystencie (CV-3): sam ślad użycia, bez treści CV."""
+
+    if is_integration_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Podpowiedzi AI w edytorze CV zamawia osoba, nie integracja.",
+        )
+    stage = await db.get(CandidateStage, stage_id)
+    if stage is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego etapu kandydata.")
+    await ensure_job_membership(db, current_user, stage.job_id)
+    await cv_command_ai.log_applied(
+        db,
+        stage,
+        user_id=current_user.id,
+        preset=payload.preset,
+        operations=payload.operations,
+    )
+    await db.commit()
+
+
 class ConfirmFactRequest(BaseModel):
     # Fakt, o który pytał asystent („Terraform”), i zmiana, którą rekruter przyjmuje.
     term: str = Field(min_length=1, max_length=cv_command_ai.CONFIRM_TERM_MAX)

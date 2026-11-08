@@ -91,6 +91,7 @@ from app.services.job_ad import (
 )
 from app.services.job_ad_publication_schema import PORTAL_JJIT
 from app.services.job_ad_reminder_schema import CHANNEL_PRACUJ
+from app.services.job_portals.jjit_payload import native_apply_enabled
 from app.services.job_portals.service import (
     LIVE_STATUSES,
     PortalRequestError,
@@ -124,6 +125,23 @@ async def _material(db: AsyncSession, job: Job) -> material.AdMaterial:
     return await portal_content.ad_material(db, job)
 
 
+async def _can_mark(db: AsyncSession, job: Job, user_id: int) -> bool:
+    user = await db.get(User, user_id)
+    return user is not None and publications.can_mark(user, job)
+
+
+def _require_can_mark(user: User, job: Job) -> None:
+    """Rekruter nie wstawia ogłoszeń na portale (decyzja Artura 08.11.2026)."""
+    if not publications.can_mark(user, job):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ogłoszenia na portalach prowadzi Delivery Lead tej rekrutacji, "
+                "Head of Recruitment albo admin."
+            ),
+        )
+
+
 async def _response(
     db: AsyncSession,
     job: Job,
@@ -139,6 +157,7 @@ async def _response(
         "reminders": await _reminders_panel(db, job.id, user_id),
         "pracuj_request": await _pracuj_request(db, job.id),
         "jjit_api": await _jjit_api(db, job.id),
+        "can_mark_publications": await _can_mark(db, job, user_id),
     }
     if ad is None:
         return JobAdResponse(**base)
@@ -176,10 +195,12 @@ async def _jjit_api(db: AsyncSession, job_id: int) -> Optional[AdJjitApi]:
     # Wyłączenie flagi nie chowa ogłoszenia, które wisi: zamykanie działa dalej.
     if not ready and (posting is None or posting.status not in LIVE_STATUSES):
         return None
+    career_required = not native_apply_enabled()
     if posting is None:
-        return AdJjitApi(ready=ready)
+        return AdJjitApi(ready=ready, career_required=career_required)
     return AdJjitApi(
         ready=ready,
+        career_required=career_required,
         status=posting.status.value,
         pending_action=posting.pending_action,
         last_error=posting.last_error,
@@ -414,6 +435,7 @@ async def mark_ad_published(
     Sama zmiana linku przy aktywnym oznaczeniu niczego nie potwierdza.
     """
     job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
     ad = await db.get(JobAd, job_id)
     if ad is None:
         raise HTTPException(
@@ -478,6 +500,7 @@ async def mark_ad_removed(
     zapisuje zdjęcie; decyduje DL rekrutacji, Head of Recruitment albo admin.
     """
     job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
     if portal == PORTAL_JJIT and await live_on_jjit(db, job_id) is not None:
         await _managed_status(db, current_user, job)
         await request_unpublish(db, job=job, portal=Portal.justjoinit)
@@ -916,8 +939,9 @@ async def publish_ad_on_jjit(
     """Ogłoszenie na JustJoin.IT przez API: publikacja albo aktualizacja żywego.
 
     Publikuje DL rekrutacji, Head of Recruitment albo admin; tylko otwarta
-    rekrutacja, wersja z ekranu, treść bez znalezisk blokujących. Kandydat
-    aplikuje przez stronę kariery, więc ta musi wisieć w tej samej wersji.
+    rekrutacja, wersja z ekranu, treść bez znalezisk blokujących. Przy
+    linku do strony kariery (``apply.url``) ta musi wisieć w tej samej wersji;
+    przy formularzu portalu (``JJIT_APPLY_EMAIL``) nie jest potrzebna.
     Samo zlecenie idzie do kolejki, portal woła worker.
     """
     job = await _load_job(db, current_user, job_id)
@@ -946,7 +970,9 @@ async def publish_ad_on_jjit(
                 ),
             },
         )
-    if reply.career.status != career.STATUS_LIVE:
+    # 06.11.2026: przy formularzu portalu kandydat nie przechodzi przez
+    # stronę kariery, więc nie musi ona wisieć (``JJIT_APPLY_EMAIL``).
+    if reply.career.status != career.STATUS_LIVE and not native_apply_enabled():
         raise HTTPException(
             status_code=409,
             detail={

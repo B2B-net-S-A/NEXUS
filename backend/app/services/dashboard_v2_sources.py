@@ -20,6 +20,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.client_identity import job_client_listed_clause
+from app.services.job_fill import filled_by_job
 from app.analytics import metrics
 from app.analytics.periods import Period
 from app.services.traffit_status import read_traffit_status
@@ -33,7 +34,7 @@ from app.api import (
     invoices,
     priority_work,
 )
-from app.core.config import settings
+from app.services import kpi_catalog
 from app.models.client import Client
 from app.models.invoice import InvoiceDirection
 from app.models.job import Job, JobStatus
@@ -260,19 +261,9 @@ async def load_delivery_metrics(
             )
         ).all()
         first_recommendations = {int(row.job_id): row.reached_at for row in rec_rows}
-        filled_rows = (
-            await db.execute(
-                text(
-                    "SELECT job_id, COUNT(*) AS placements "
-                    "FROM analytics_first_milestones "
-                    "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
-                    "AND stage = 'hired' "
-                    "GROUP BY job_id"
-                ),
-                params,
-            )
-        ).all()
-        filled_vacancies = {int(row.job_id): int(row.placements) for row in filled_rows}
+        # Wakaty: obsada bieżącego otwarcia (`job_fill`, 05.11.2026), nie
+        # placementy z całej historii rekrutacji.
+        filled_vacancies = await filled_by_job(db, job_ids)
         placements = int(
             (
                 await db.execute(
@@ -378,7 +369,7 @@ async def load_team_kpis(
 
 
 def cloudtalk_calls_available() -> bool:
-    return settings.CLOUDTALK_ENABLED
+    return kpi_catalog.TELEPHONY_AVAILABLE
 
 
 # ── My Work sources ──────────────────────────────────────────────────────────
@@ -484,7 +475,7 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
         "period": period,
         "days_remaining": comp.days_left_in_quarter(business_today()),
         "points_formula": league_points_formula(_config),
-        "prizes_pln": {str(k): v for k, v in comp.QUARTERLY_PRIZES_PLN.items()},
+        "prizes_pln": {str(k): v for k, v in comp.quarterly_prizes(period).items()},
         # Ten sam tekst co /api/competitions/current?type=quarterly_champions_recruiter.
         # Prog jest PROGRESYWNY (1/2/3 wg miesiaca kwartalu) — napis musi mowic
         # to samo, co kwalifikacja. Plaskie „3" oswiadczalo w styczniu wymog,

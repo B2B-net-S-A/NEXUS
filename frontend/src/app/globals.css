@@ -910,8 +910,11 @@ body:has(aside[data-person-panel]:not([hidden])) [data-jarvis-mascot] {
    Kontraktorzy). Przy 1280 × 720 dymek leżał na stopce panelu i nie dało
    się kliknąć „Zakończ współpracę…” (29.10.2026). Podbicie `z-index` panelu
    nic nie da — żyje w kontekście warstw treści strony (`animate-fadeIn`).
-   Licznik „Moich ludzi” zostaje w topbarze. */
-body:has([data-list-detail-panel]) :is([data-floating-corner], [data-jarvis-mascot]) {
+   Licznik „Moich ludzi” zostaje w topbarze.
+   To samo przy przyklejonej stopce z przyciskami (`data-sticky-actions`,
+   stopka `/jobs/new`): przy jednym braku „Utwórz i opublikuj” siedział pod
+   dymkiem (06.11.2026). */
+body:has([data-list-detail-panel], [data-sticky-actions]) :is([data-floating-corner], [data-jarvis-mascot]) {
   display: none;
 }
 

@@ -621,10 +621,10 @@ describe("CvQcDialog — QC CV", () => {
     await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
     await userEvent.click(within(form).getByRole("button", { name: "Przepuść CV" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/override`, { reason_code: "client_short_cv" }));
-    expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+    expect(await screen.findByText("QC: przepuszczone")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przepuść mimo QC" })).toBeNull());
     expect(screen.queryByRole("button", { name: "Przepuść mimo QC…" })).toBeNull();
-    expect(screen.getByText(/przez Piotr Zając/)).toHaveTextContent("Klient prosił o krótsze CV");
+    expect(screen.getByText(/· Piotr Zając/)).toHaveTextContent("Klient prosił o krótsze CV");
   });
 
   it("zaliczone QC wygrywa z dawnym obejściem — jak chip na Tablicy", async () => {
@@ -632,7 +632,7 @@ describe("CvQcDialog — QC CV", () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("QC przechodzi")).toBeTruthy();
-    expect(within(dialog).queryByText(/Przepuszczone mimo QC/)).toBeNull();
+    expect(within(dialog).queryByText(/QC: przepuszczone/)).toBeNull();
   });
 
   it("„Przesuń dalej” jest w oknie tylko, gdy wołający umie przesunąć kartę", async () => {
@@ -667,8 +667,8 @@ describe("CvQcDialog — QC CV", () => {
     const onMoveNext = vi.fn();
     renderDialog({ onMoveNext });
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Przepuszczone mimo QC");
-    expect(within(dialog).getByRole("status")).toHaveTextContent("przez Piotr Zając");
+    await within(dialog).findByText("QC: przepuszczone");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("· Piotr Zając");
     await userEvent.click(within(dialog).getByRole("button", { name: /Przesuń dalej/ }));
     expect(onMoveNext).toHaveBeenCalledTimes(1);
   });
@@ -693,7 +693,7 @@ describe("CvQcDialog — QC CV", () => {
     const form = await screen.findByRole("dialog", { name: "Przepuść mimo QC" });
     await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
     await userEvent.click(within(form).getByRole("button", { name: "Przepuść CV" }));
-    expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+    expect(await screen.findByText("QC: przepuszczone")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przepuść mimo QC" })).toBeNull());
     expect(onMoveNext).not.toHaveBeenCalled();
     expect(within(dialog).getByRole("button", { name: /Przesuń dalej/ })).toBeEnabled();
@@ -822,7 +822,7 @@ describe("CvQcDialog — QC CV", () => {
       const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
       await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
       await userEvent.click(within(form).getByRole("button", { name: "Przesuń mimo uwag" }));
-      expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+      expect(await screen.findByText("QC: przepuszczone")).toBeTruthy();
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przesuń mimo uwag QC" })).toBeNull());
       expect(screen.queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
     });
@@ -1565,7 +1565,8 @@ describe("CvQcDialog — QC CV", () => {
       post.mockResolvedValue({ data: passed() });
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      // R4 (07.11.2026): daty stanowisk stoją w „Delivery Lead zwykle o to cofa”.
+      const notes = await within(dialog).findByRole("region", { name: "Delivery Lead zwykle o to cofa" });
       await userEvent.click(within(notes).getByRole("button", { name: /Daty stanowisk jak w oryginale/ }));
       expect(within(notes).getByText(DATE_ITEM.detail)).toBeTruthy();
       expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
@@ -1695,5 +1696,148 @@ describe("CvQcDialog — QC CV", () => {
       expect(await within(notes).findByText(/Nie udało się wczytać zrzutu/)).toBeTruthy();
       expect(within(notes).queryByRole("button", { name: "Pokaż zrzut zgody" })).toBeNull();
     });
+  });
+
+  describe("„Sprawdź ręcznie”: gdzie oryginał opisuje krytyczną (R3, 07.11.2026)", () => {
+    const manualCritical = (): QcResult =>
+      withCheck(
+        "critical_skills",
+        {
+          status: "manual",
+          summary: "Odczyt CV nie ma opisów ról — sprawdź role ręcznie",
+          items: [],
+          roles: [
+            { requirement: "Java", role: "Java Developer · Firma Alfa", state: "unverified" },
+            { requirement: "Java", role: "Tester · Firma Beta", state: "unverified" },
+          ],
+        },
+        passed(),
+      );
+
+    it("pokazuje stanowiska jako przyciski i zapisuje wskazanie", async () => {
+      serve(manualCritical());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const picker = await screen.findByRole("group", { name: "Gdzie oryginał opisuje: Java" });
+      await userEvent.click(within(picker).getByRole("button", { name: "Java Developer · Firma Alfa" }));
+      expect(within(picker).getByRole("button", { name: "Java Developer · Firma Alfa" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await userEvent.click(within(picker).getByRole("button", { name: "Zapisz" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/manual-roles`, {
+          requirement: "Java",
+          roles: ["Java Developer · Firma Alfa"],
+        }),
+      );
+    });
+
+    it("„Nigdzie” wysyła pustą listę ról", async () => {
+      serve(manualCritical());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const picker = await screen.findByRole("group", { name: "Gdzie oryginał opisuje: Java" });
+      await userEvent.click(within(picker).getByRole("button", { name: "Nigdzie — tylko na liście" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/manual-roles`, { requirement: "Java", roles: [] }),
+      );
+    });
+
+    it("po wskazaniu „Rola po roli” mówi, kto wskazał", async () => {
+      serve(
+        withCheck(
+          "critical_skills",
+          {
+            status: "pass",
+            summary: "1/1",
+            items: [],
+            roles: [
+              {
+                requirement: "Java",
+                role: "Java Developer · Firma Alfa",
+                state: "described",
+                manual: { by: "Zofia C.", at: "2026-11-07T18:00:00Z" },
+              },
+            ],
+          },
+          passed(),
+        ),
+      );
+      renderDialog();
+      await userEvent.click(await screen.findByRole("button", { name: /W porządku/ }));
+      const passedList = await screen.findByRole("region", { name: "W porządku" });
+      await userEvent.click(within(passedList).getAllByRole("button", { name: /Umiejętności krytyczne są w CV/ }).at(-1)!);
+      expect(await screen.findByText(/wskazał\(a\) Zofia C\./)).toBeTruthy();
+    });
+  });
+
+  it("luka kandydata stoi w „Do decyzji Delivery Leada”, nie w poprawkach (R2, 07.11.2026)", async () => {
+    serve(
+      withCheck(
+        "critical_skills",
+        {
+          status: "pass",
+          summary: "Luka kandydata: FastAPI",
+          items: [],
+          info: [
+            {
+              requirement: "FastAPI",
+              detail: "Kandydat tego nie ma: brak w CV, w oryginale i w rozmowie. W CV nie ma czego poprawić — o wysyłce zdecyduje Delivery Lead.",
+              fix: "ask_candidate",
+              candidate_gap: true,
+            },
+          ],
+        },
+        passed(),
+      ),
+    );
+    renderDialog();
+    const section = await screen.findByRole("region", { name: "Do decyzji Delivery Leada" });
+    expect(section).toHaveTextContent("FastAPI");
+    expect(section).toHaveTextContent("o wysyłce zdecyduje Delivery Lead");
+    expect(within(section).getByRole("button", { name: "Skopiuj pytanie do kandydata" })).toBeTruthy();
+  });
+
+  it("„Delivery Lead zwykle o to cofa” stoi nad „Warto poprawić” (R4, 07.11.2026)", async () => {
+    serve(
+      withCheck("must_bolded", { status: "pass", items: [] }, {
+        ...passed(),
+        checks: [
+          ...passed().checks.filter((c) => c.key !== "spelling"),
+          {
+            key: "role_dates",
+            label: "Daty stanowisk jak w oryginale",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ detail: "W CV: „07.2022 – 02.2024”. W oryginale: „07.2022 – 02.2023”." }],
+          },
+          {
+            key: "spelling",
+            label: "Pisownia technologii",
+            severity: "warning",
+            status: "fail",
+            summary: "1 do poprawy",
+            items: [{ term: "Postgres", detail: "„Postgres” → „PostgreSQL”", fix: "spelling" }],
+          },
+        ],
+      }),
+    );
+    renderDialog();
+    const dlReturns = await screen.findByRole("region", { name: "Delivery Lead zwykle o to cofa" });
+    expect(dlReturns).toHaveTextContent("Daty stanowisk jak w oryginale");
+    expect(dlReturns).not.toHaveTextContent("Pisownia technologii");
+    const notes = screen.getByRole("region", { name: "Warto poprawić — nie blokuje" });
+    expect(notes).toHaveTextContent("Pisownia technologii");
+    expect(notes).not.toHaveTextContent("Daty stanowisk jak w oryginale");
+  });
+
+  it("Delivery Lead z przeglądu dostaje objaśnienie dla siebie (R5, 07.11.2026)", async () => {
+    serve(passed({ advisory: true }));
+    renderDialog({ audience: "dl" });
+    const explainer = await screen.findByRole("region", { name: "Co sprawdza QC" });
+    expect(explainer).toHaveTextContent("Patrzysz jako Delivery Lead");
+    expect(explainer).not.toHaveTextContent("możesz przesunąć kartę mimo uwag");
   });
 });

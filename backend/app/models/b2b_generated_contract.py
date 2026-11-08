@@ -83,6 +83,11 @@ class B2BGeneratedContract(Base, TimestampMixin):
             name="ck_b2b_generated_contracts_signature_source",
         ),
         CheckConstraint(
+            "signed_on_source IS NULL OR "
+            "signed_on_source IN ('pdf', 'manual', 'esign')",
+            name="ck_b2b_generated_contracts_signed_on_source",
+        ),
+        CheckConstraint(
             "contract_status IN "
             "('active', 'in_progress', 'cancelled', 'suspended', 'closed')",
             name="ck_b2b_generated_contracts_contract_status",
@@ -255,6 +260,19 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # `signed_at` to chwila oznaczenia, zwykle 1–5 dni później. NULL = wiersz
     # oznaczony przed 0514.
     signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # 0654 (06.11.2026): skąd jest `signed_on` — `pdf` (podpis kwalifikowany
+    # konsultanta w podpisanym pliku), `manual` (podpis odręczny albo poprawka
+    # Płac: data wpisana ręcznie z powodem), `esign` (podpis kontraktora
+    # w NEXUSIE). NULL = wiersz sprzed 0654 (data z kliknięcia).
+    signed_on_source: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    signed_on_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    signed_on_set_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Chwila podpisu konsultanta z pliku albo z e-podpisu (data i godzina).
+    consultant_signed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     signed_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -377,6 +395,8 @@ class B2BGeneratedContract(Base, TimestampMixin):
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
     )
     fte: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
+    # Kandydat wskazany przez klienta (0656): podpis kopiuje do kontraktu.
+    is_client_referral: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     def __repr__(self) -> str:
         return f"<B2BGeneratedContract id={self.id} number={self.contract_number!r}>"

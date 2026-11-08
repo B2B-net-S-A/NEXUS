@@ -48,6 +48,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
 - **E. Nowi w bazie wchodzą pierwsi, także ponad 20 (decyzja Artura 03.11.2026).**
   Do 5 kart ponad `TARGET`, wyłącznie osobami do 14 dni w bazie, od progu i bez uwag:
   `rekrutacja-tablica/nowi-w-bazie-najpierw.md`.
+- **E. Cel kart wg tempa i miejsce dla świeżych (decyzja Artura 08.11.2026, flaga
+  `NEW_COLUMN_TEMPO_TARGET_ENABLED`, domyślnie OFF).** 5, 10 albo 20 czekających kart, przebieg
+  rano, w dzień tylko gorące: `rekrutacja-tablica/cel-kart-wg-tempa-i-miejsce-dla-swiezych.md`.
 - **E. Reguły z odrzuceń (decyzje Artura 25.10.2026).** Analiza pierwszego
   dnia: 34 odrzucenia z powodem na 1 557 osób od systemu, z czego 16 to „za
   droga” przy stawce, którą system znał; 31% osób od systemu miało znaną
@@ -181,6 +184,11 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   zapisuje w `entry_meta` `decided_at`/`decided_by`/`decision="call"` na
   stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
   albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
+  Panel osoby trzyma się tej samej reguły (08.11.2026, bo karta z „CV wysłane”
+  pokazywała „5 dni bez decyzji”): poza „Nowymi”, także w „Screeningu”,
+  `autofill_badge` daje `awaiting_decision=false`, `waiting_days=null` i
+  `decision_due=false`. „Od systemu” i powód dodania zostają, a „Zdecyduj” wisi
+  na `awaiting_decision`, nie na `decided`.
   Harness: `/preview/job-detail?autofill=1`.
 - **E. Odrzucenie z powodem (PR 4, 0516, decyzja Artura 23.10.2026).** Ruch na
   „Odrzucony” osoby od systemu, która stoi w „Nowych” albo „Screeningu”
@@ -366,6 +374,19 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `NotificationType.auto_match_proposals` — JEDEN dzienny digest na
   (rekrutacja, odbiorca), link `/jobs/{id}?tab=similar`; kolejne propozycje
   tego dnia PODBIJAJĄ licznik w tym samym wpisie i odznaczają „przeczytane".
+- **B. Świeże CV czeka na wektor, a wynik zasila pulę (08.11.2026, raport
+  https://claude.ai/artifact/HgCGsxN7Nk7ENGpb6iNg2B).** W 14 dni 1 056 z 3 140
+  zdarzeń `cv_upload` nie dostało żadnej oceny, a 469 tylko część, bo ocena
+  ruszała przed wektorem i kończyła się `done`. Zdarzenie młodsze niż
+  `AUTO_MATCH_VECTOR_WAIT_MINUTES` (15, `0` = bez czekania) sprawdza wektor
+  (`full_search_measurement.vector_ready`) i wraca do kolejki za minutę bez
+  zużycia próby (`AutoMatchVectorPending`, `last_error=vector_pending`). Po tym
+  czasie zostaje dawna ścieżka z `result.unmeasured`. Wyniki idą też do
+  `job_autofill_pool` rekrutacji, które już mają pulę, bez sufitu 3 rekrutacji
+  (`_write_pool`, wyłącznik `AUTO_MATCH_WRITE_POOL_ENABLED`): pełna pula
+  przyjmuje tylko osobę lepszą od ostatniej. Sufit zostaje przy propozycjach
+  i dzwonku, bo tam liczy się szum. Scraper dalej woła stare `/recommendations`
+  i zmiana skali czeka na etap jednej listy.
 - **B. Wynik pary = „Dop.” (21.10.2026).** `run_candidate_event` i
   `run_job_event` liczą przez `auto_match_service._canonical_scored`:
   `canonical_fit.score_candidates` z profilem `resolve_active_profile(user_id=None,

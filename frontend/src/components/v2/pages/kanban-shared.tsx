@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { QcStateView } from "@/lib/cv-qc";
 import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
 import type { CardStartDocs } from "@/lib/api/start-documents";
@@ -186,6 +187,10 @@ export interface KanbanItem {
  // opublikowana, etap nie z importu Traffita — `dl_send_queue`). `false` =
  // poza licznikami; brak pola (starszy serwer) = jak dotąd.
  dl_send_counts?: boolean | null;
+ /** Dni robocze czekania, liczone na serwerze jak pas „Do wysłania” (U5). */
+ waiting_workdays?: number | null;
+ /** Cisza klienta ponad 5 dni roboczych (serwer); `null` = jeszcze nie. */
+ client_silent_workdays?: number | null;
  // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
  // kody polityki dopuszczalności — konflikt z klientem itd.).
  warnings?: string[];
@@ -200,7 +205,7 @@ export interface KanbanItem {
  next_action_owner?: "recruiter" | "client" | "candidate" | "delivery" | "none";
  // ── Pipeline v4 (0352, 23.09.2026) — odznaki karty (`lib/board-card-badges.ts`) ─
  // Kto zakończył proces (wiersz terminalny).
- ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | null;
+ ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | "client_silent" | null;
  // Stawka, za którą osobę wysłano do klienta.
  client_rate_value?: string | number | null;
  client_rate_unit?: RateUnit | null;
@@ -219,8 +224,9 @@ export interface KanbanItem {
  /**
   * Osoba od systemu (23.10.2026) — plakietka „Od systemu · 81%”, powód
   * w panelu osoby i termin decyzji (`services/autofill_decisions.py`).
-  * `waiting_days` = dni robocze bez decyzji; `null` = zdecydowano albo
-  * rekrutacja bez rekrutera (termin startuje od przypisania).
+  * `waiting_days` = dni robocze bez decyzji; `null` = zdecydowano, karta poza
+  * „Nowymi” albo rekrutacja bez rekrutera (termin startuje od przypisania).
+  * `awaiting_decision` = stoi w „Nowych” bez decyzji; wyjście z nich to decyzja.
   */
  entry_autofill?: {
   score: number;
@@ -229,6 +235,7 @@ export interface KanbanItem {
   rate_known: boolean;
   availability_known: boolean;
   decided: boolean;
+  awaiting_decision: boolean;
   waiting_days: number | null;
   decision_due: boolean;
   /**
@@ -242,6 +249,8 @@ export interface KanbanItem {
   fresh_first?: boolean;
   /** 03.11.2026: bez procesu w innej rekrutacji — co 5. miejsce w kolejce. */
   fresh?: boolean;
+  /** 07.11.2026: porcja dnia — czyja to karta do przejrzenia („Dla: …”). */
+  review_owner?: { id: number; name: string | null } | null;
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
@@ -275,6 +284,8 @@ export interface KanbanItem {
   */
  entry_link_owner_id?: number | null;
  entry_link_owner_name?: string | null;
+ /** Aplikacja z formularza portalu (07.11.2026) — plakietka „Z JustJoin.IT”. */
+ entry_portal?: "justjoinit" | "rocketjobs" | "pracuj" | null;
  /**
   * …i właściciele innych linków, z których osoba zgłosiła się ponownie, gdy
   * już była w rekrutacji — „Zgłosił się też z Twojego linku”.
@@ -362,6 +373,12 @@ export interface KanbanItem {
   ok_at?: string | null;
   /** Uwagi nieblokujące najnowszego przebiegu (14.10.2026) — „CV gotowe · QC: N do poprawy”. */
   warnings_count?: number;
+  /** R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” zdanego przebiegu. */
+  manual_checks?: string[];
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL. */
+  candidate_gaps?: string[];
+  /** QC-11 (08.11.2026): gotowy stan QC z serwera. */
+  qc_state?: QcStateView | null;
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.
@@ -430,6 +447,48 @@ function scoreRingColor(score: number): string {
  if (score >= 25) return "text-amber-500";
  return "text-rose-400";
 }
+
+/**
+ * Co karta pokazuje w miejscu pierścienia dopasowania (07.11.2026).
+ * `unscored` = wyniki tablicy już przyszły, a tej osoby w nich nie ma: karta
+ * mówi „niepoliczone” zamiast pustki, bo pustka wyglądała jak zero („Dlaczego
+ * nie zawsze przy nazwisku jest scoring AI?” — pytanie rekrutera do Jarvisa).
+ * `none` = wyników nie ma wcale (brak dostępu albo zapytanie padło) — wtedy
+ * nic, żeby awaria nie udawała, że nikt nie jest policzony.
+ */
+export type CardScoreState = "score" | "loading" | "unscored" | "none";
+
+export function cardScoreState(
+ score: number | null,
+ loading: boolean,
+ scoresReady: boolean,
+): CardScoreState {
+ if (score != null) return "score";
+ if (loading) return "loading";
+ return scoresReady ? "unscored" : "none";
+}
+
+export const UNSCORED_TOOLTIP =
+ "Dopasowanie jeszcze niepoliczone: system nie porównał tej osoby z wymaganiami rekrutacji (np. dodana ręcznie albo bez CV w bazie). To nie znaczy, że nie pasuje — ocenę z uzasadnieniem zobaczysz w panelu osoby, zakładka „Dopasowanie”.";
+
+export const UnscoredRing = memo(function UnscoredRing() {
+ return (
+ <Tooltip>
+ <TooltipTrigger asChild>
+ <div
+ className="relative flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-full border-2 border-dashed border-muted-foreground/40 text-[11px] font-semibold text-muted-foreground"
+ aria-label="Dopasowanie AI jeszcze niepoliczone"
+ tabIndex={0}
+ >
+ ?
+ </div>
+ </TooltipTrigger>
+ <TooltipContent side="top" className="max-w-[260px]">
+ {UNSCORED_TOOLTIP}
+ </TooltipContent>
+ </Tooltip>
+ );
+});
 
 // `score == null` → loading placeholder (muted, pulsing, no number); shown
 // while the scores query is still resolving so cold pipelines don't look broken.

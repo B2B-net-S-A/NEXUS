@@ -92,8 +92,10 @@ export function FilterPill({
   const dense = DENSITY_CLASSES[density];
   return (
     <div
+      // `relative`: pełna etykieta `sr-only` jest absolutna; bez tego wychodzi
+      // z przewijanego paska i poszerza stronę na telefonie.
       className={cn(
-        "inline-flex h-9 shrink-0 items-center rounded-full border text-xs font-medium transition-colors md:h-8",
+        "relative inline-flex h-9 shrink-0 items-center rounded-full border text-xs font-medium transition-colors md:h-8",
         active
           ? "border-primary/30 bg-primary/10 text-primary"
           : "border-border bg-card text-foreground hover:bg-accent",

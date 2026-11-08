@@ -2,7 +2,8 @@
 
 Pomiar 21–23.09: 3 realne osoby, 18 tur, 0 akcji zapisu, 0 kliknięć podpowiedzi,
 żaden DL. Diagnoza: Jarvisowi nie brakowało narzędzi, tylko obecności w pracy.
-Decyzje Artura 23.09: dymek domyślnie ON (raz na ekran), 12 ekranów, treść
+Decyzje Artura 23.09: dymek domyślnie ON (raz na ekran; wyłączony 07.11.2026,
+patrz niżej), 12 ekranów, treść
 przewodników bez przeglądu człowieka (pilnuje test świeżości), bez głosu (RODO).
 
 - **Przewodniki ekranów: `backend/app/data/screen_guides/guides.json`**
@@ -26,8 +27,18 @@ przewodników bez przeglądu człowieka (pilnuje test świeżości), bez głosu 
   (kotwica bez `data-help` i `data-help` bez kotwicy = czerwień). Nowa kotwica =
   wpis w JSON-ie + atrybut + przestemplowanie. Dok osoby nie stoi w adresie —
   `jobs.person` rozpoznaje `context.ts` po otwartym `[data-help="jobs.person.dock"]`.
+- **Dymek ekranu („… Kliknij, pokażę, jak tu działać”) jest wyłączony od
+  07.11.2026** (decyzja Artura po analizie 146 pytań do Jarvisa): 23.09–06.11
+  pokazał się 714 razy u 55 osób, przewodnik otwarto 2 razy (0,3%). Zamiast
+  niego pusty panel Jarvisa pokazuje sekcję „Na tym ekranie ludzie pytali”:
+  pole `asked` przewodnika (≤ 4 pytania, tylko prawdziwe pytania z rozmów, nie
+  wymyślone), klik wysyła pytanie. Ekran bez `asked` ma zwykły pusty stan.
+  Nowe pytania dopisuj z rozmów (`jarvis_messages`), nie z głowy; zmiana `asked`
+  = przestemplowanie przewodnika. Nie przywracaj dymka ekranu ani przełącznika
+  „Wskazówki na nowych ekranach” bez nowego pomiaru — `screen_tips`
+  w preferencjach zostaje tylko dla zgodności.
 - **Dymki nieproszone mają JEDEN budżet: 3 dziennie** (`lib/jarvis/bubble-budget.ts`),
-  wspólny dla dymka ekranu i „utknięcia”; nigdy przy otwartym oknie Radix ani
+  dziś tylko dla „utknięcia”; nigdy przy otwartym oknie Radix ani
   panelu. Poranny skrót i „Moi ludzie” mają własne reguły. Nie dokładaj źródła
   dymków obok budżetu.
 - **„Utknięcie”**: interceptor w `lib/api.ts` tylko obserwuje odmowy

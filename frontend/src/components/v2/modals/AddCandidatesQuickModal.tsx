@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { reviewBatchBlock } from "@/lib/api/reviewBatch";
+import { ReviewBatchBlockedNotice } from "@/components/v2/review-batch/ReviewBatchBlockedNotice";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
@@ -182,7 +184,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
     }
   }, [open]);
 
-  const { data, isFetching, isError, isSuccess } = useQuery({
+  const { data, isFetching, isError, isSuccess, error: searchError } = useQuery({
     queryKey: ["add-candidates-quick", jobId, debouncedQuery],
     queryFn: () =>
       candidateSearchApi.search({
@@ -451,7 +453,13 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             </div>
           )}
 
-          {isError && (
+          {/* Porcja dnia (07.11.2026): 423 przy wyszukiwaniu z filtrami. */}
+          {isError && reviewBatchBlock(searchError) ? (
+            <div className="m-3">
+              <ReviewBatchBlockedNotice error={searchError} />
+            </div>
+          ) : null}
+          {isError && !reviewBatchBlock(searchError) && (
             <div className="flex items-center gap-2 px-4 py-3 m-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
               <AlertCircle className="w-4 h-4 shrink-0" />
               Błąd wyszukiwania. Spróbuj ponownie.

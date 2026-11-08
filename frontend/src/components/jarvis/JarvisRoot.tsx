@@ -47,13 +47,7 @@ import type {
   ScreenGuide,
   ScreenGuideTask,
 } from "@/lib/jarvis/types";
-import {
-  canShowUnsolicited,
-  markScreenSeen,
-  recordUnsolicited,
-  resetScreenSeen,
-  screenSeen,
-} from "@/lib/jarvis/bubble-budget";
+import { canShowUnsolicited, recordUnsolicited } from "@/lib/jarvis/bubble-budget";
 import { readStorage, storageKey, todayKey, writeStorage } from "@/lib/jarvis/storage";
 import { trackJarvisUi } from "@/lib/jarvis/telemetry";
 import { explainerFor } from "@/lib/help/error-explainers";
@@ -65,11 +59,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { countsForDlSend, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { MyPeopleSummary } from "@/lib/api/myPeople";
 import {
-  MY_PEOPLE_MATCH_EVENT,
   briefFragments,
-  jobIdFromMatchLink,
-  reassignPrompt,
-  type MyPeopleMatchEventDetail,
 } from "@/lib/my-people-summary";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
@@ -160,13 +150,8 @@ export function JarvisRoot() {
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
-  // Przypomnienie „Moi ludzie": dymek z gotowym pytaniem o przepięcie. Ma
-  // pierwszeństwo przed porannym skrótem — dotyczy rekrutacji z tej chwili.
-  const [nudge, setNudge] = useState<{ text: string; prompt: string } | null>(null);
   const [webMode, setWebMode] = useState(false);
   const [search, setSearch] = useState("");
-  // Dymek „co tu robisz” przy pierwszej wizycie na ekranie.
-  const [screenTip, setScreenTip] = useState<{ key: string; text: string } | null>(null);
   // Dymek po trzeciej takiej samej odmowie serwera.
   const [stuck, setStuck] = useState<{ code: string; text: string } | null>(null);
   const loadedConversation = useRef<string | null>(null);
@@ -428,25 +413,6 @@ export function JarvisRoot() {
     return () => window.removeEventListener(JARVIS_OPEN_EVENT, onOpen);
   }, [active, send]);
 
-  // Dzwonek `my_people_match` (useNotifications → zdarzenie okna): Jarvis mówi
-  // o nowej rekrutacji i po kliknięciu pyta sam siebie, kogo przepiąć. Tylko
-  // gdy działa (bez modelu kliknięcie nie miałoby czego zrobić) i na żywo —
-  // przegapione dopasowania zbiera poranny skrót.
-  useEffect(() => {
-    if (!active || !available || !prefs.enabled) return;
-    const onMatch = (e: Event) => {
-      const detail = (e as CustomEvent<MyPeopleMatchEventDetail>).detail;
-      if (!detail) return;
-      const jobId = jobIdFromMatchLink(detail.link);
-      setNudge({
-        text: `${detail.title}. Kliknij, podpowiem, kogo przepiąć.`,
-        prompt: reassignPrompt(jobId),
-      });
-    };
-    window.addEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
-    return () => window.removeEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
-  }, [active, available, prefs.enabled]);
-
   // Poranny skrót dnia — BEZ modelu: liczby z istniejących tras, raz dziennie.
   const briefKey = storageKey(user?.id, "brief");
   useEffect(() => {
@@ -541,25 +507,10 @@ export function JarvisRoot() {
 
   const suggestions = useMemo(() => suggestionsFor(screen, currentGuide), [screen, currentGuide]);
 
-  // Dymek „co tu robisz” — raz na ekran na osobę, 2 s po wejściu, gdy nic
-  // innego nie mówi i nie ma otwartego okna. Wspólny budżet 3 dziennie.
+  // Dymka „co tu robisz” przy pierwszej wizycie na ekranie już nie ma
+  // (07.11.2026: 714 pokazań, 2 otwarcia przewodnika). Zamiast niego pusty
+  // panel pokazuje pytania, które ludzie zadawali na tym ekranie (`asked`).
   const screenKey = screen.key ?? null;
-  const openRef = useRef(open);
-  openRef.current = open;
-  useEffect(() => {
-    setScreenTip(null);
-    if (!active || !available || !prefs.enabled || !prefs.screen_tips || !user || !screenKey) return;
-    const guide = guides.get(screenKey);
-    if (!guide || screenSeen(user.id, screenKey)) return;
-    const timer = window.setTimeout(() => {
-      if (openRef.current || modalOpen() || !canShowUnsolicited(user.id)) return;
-      markScreenSeen(user.id, screenKey);
-      recordUnsolicited(user.id);
-      setScreenTip({ key: screenKey, text: `${guide.what} Kliknij, pokażę, jak tu działać.` });
-      trackJarvisUi("bubble_shown", screenKey, "screen_tip");
-    }, 2000);
-    return () => window.clearTimeout(timer);
-  }, [active, available, prefs.enabled, prefs.screen_tips, user, screenKey, guides]);
 
   // Trzecia taka sama odmowa serwera w 2 min → wyjaśnienie po ludzku.
   useEffect(() => {
@@ -630,7 +581,7 @@ export function JarvisRoot() {
       ? "Dzisiejszy limit wyszukiwań w internecie jest wyczerpany"
       : null;
   const mood = kids.mood ?? turn.mood;
-  const bubble = nudge?.text ?? brief ?? stuck?.text ?? screenTip?.text ?? kids.bubble;
+  const bubble = brief ?? stuck?.text ?? kids.bubble;
 
   return (
     <>
@@ -643,35 +594,22 @@ export function JarvisRoot() {
           minimized={prefs.minimized}
           open={open}
           bubble={bubble}
-          attention={Boolean(brief || nudge || stuck)}
+          attention={Boolean(brief || stuck)}
           onToggle={() => setOpen((v) => !v)}
           onHide={hideMascot}
           onBubbleClick={() => {
             const wasBrief = Boolean(brief);
-            const pending = nudge;
-            const pendingStuck = !pending && !wasBrief ? stuck : null;
-            const tip = !pending && !wasBrief && !stuck ? screenTip : null;
-            setNudge(null);
+            const pendingStuck = !wasBrief ? stuck : null;
             setBrief(null);
             setStuck(null);
-            setScreenTip(null);
             kids.dismiss();
             setOpen(true);
-            if (pending && available) void send(pending.prompt);
-            else if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
+            if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
             else if (pendingStuck) openStuck(pendingStuck.code);
-            else if (tip) {
-              const guide = guides.get(tip.key);
-              trackJarvisUi("bubble_clicked", tip.key, "screen_tip");
-              if (guide) openGuide(guide);
-            }
           }}
           onDismissBubble={() => {
-            if (screenTip && !nudge && !brief && !stuck) trackJarvisUi("bubble_dismissed", screenTip.key, "screen_tip");
-            setNudge(null);
             setBrief(null);
             setStuck(null);
-            setScreenTip(null);
             kids.dismiss();
           }}
         />
@@ -688,6 +626,7 @@ export function JarvisRoot() {
           streaming={streaming}
           draft={draft}
           suggestions={suggestions}
+          screenQuestions={currentGuide?.asked}
           capabilities={status?.capabilities}
           conversations={conversationsQuery.data}
           conversationsLoading={conversationsQuery.isLoading}
@@ -728,7 +667,6 @@ export function JarvisRoot() {
         saving={savePrefs.isPending}
         error={savePrefs.isError ? apiErrorMessage(savePrefs.error, "Nie udało się zapisać wyglądu.") : null}
         onSave={(next) => savePrefs.mutate(next)}
-        onResetTips={() => resetScreenSeen(user?.id)}
       />
       <HelpSpotlight
         onShown={(anchorId) => trackJarvisUi("highlight_shown", screenKey, anchorId)}

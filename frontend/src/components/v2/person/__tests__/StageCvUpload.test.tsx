@@ -5,8 +5,12 @@ import { createPortal } from "react-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const upload = vi.fn();
+const replaceReason = vi.fn(async () => undefined);
 vi.mock("@/lib/api", () => ({
-  candidateStageCvApi: { original: { upload: (...a: unknown[]) => upload(...a) } },
+  candidateStageCvApi: {
+    original: { upload: (...a: unknown[]) => upload(...a) },
+    branded: { replaceReason: (...a: unknown[]) => replaceReason(...(a as [])) },
+  },
 }));
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
@@ -190,7 +194,7 @@ describe("Wgraj nowe CV — plik „B2B_…” jako CV do klienta", () => {
     };
   }
 
-  function replaceConfirm() {
+  function replaceConfirm(extra: Record<string, unknown> = {}) {
     return {
       response: {
         status: 409,
@@ -200,6 +204,7 @@ describe("Wgraj nowe CV — plik „B2B_…” jako CV do klienta", () => {
             message: "CV do klienta poprawiała Anna Przykładowa 14.10.2026. Zastąpić je tym plikiem?",
             status: "draft",
             updated_at: "2026-10-14T12:00:00Z",
+            ...extra,
           },
         },
       },
@@ -212,6 +217,68 @@ describe("Wgraj nowe CV — plik „B2B_…” jako CV do klienta", () => {
     toastError.mockReset();
     toastInfo.mockReset();
     toastAction.mockReset();
+    replaceReason.mockClear();
+  });
+
+  it("szkic z generatora: pigułka powodu idzie po udanej podmianie, „Zastąp” działa też bez niej", async () => {
+    upload
+      .mockRejectedValueOnce(replaceConfirm({ ask_replace_reason: true }))
+      .mockResolvedValueOnce(clientCvResult({ replaced: "confirmed", undo_available: false, ask_replace_reason: true }));
+    renderHarness();
+
+    fireEvent.change(screen.getByLabelText(/Wgraj nowe CV/), { target: { files: [clientCvFile()] } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Dlaczego nie CV z generatora?");
+
+    fireEvent.click(screen.getByRole("button", { name: "Mam nowsze CV od kandydata" }));
+    expect(screen.getByRole("button", { name: "Mam nowsze CV od kandydata" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Zastąp" }));
+
+    await waitFor(() => expect(replaceReason).toHaveBeenCalledWith(900, "newer_cv"));
+    expect(upload).toHaveBeenLastCalledWith(900, expect.any(File), { replaceClientCv: true });
+  });
+
+  it("„Zastąp” bez pigułki: podmiana przechodzi i powodu nie wysyłamy", async () => {
+    upload
+      .mockRejectedValueOnce(replaceConfirm({ ask_replace_reason: true }))
+      .mockResolvedValueOnce(clientCvResult({ replaced: "confirmed", undo_available: false, ask_replace_reason: true }));
+    renderHarness();
+
+    fireEvent.change(screen.getByLabelText(/Wgraj nowe CV/), { target: { files: [clientCvFile()] } });
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Zastąp" }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(replaceReason).not.toHaveBeenCalled();
+  });
+
+  it("szkic spoza generatora: bez pytania o powód", async () => {
+    upload.mockRejectedValueOnce(replaceConfirm());
+    renderHarness();
+
+    fireEvent.change(screen.getByLabelText(/Wgraj nowe CV/), { target: { files: [clientCvFile()] } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).not.toHaveTextContent("Dlaczego nie CV z generatora?");
+  });
+
+  it("cicha podmiana auto-CV: pigułki w tostcie zapisują powód na wierszu CV", async () => {
+    upload.mockResolvedValueOnce(clientCvResult({ replaced: "auto_cv", ask_replace_reason: true }));
+    renderHarness();
+
+    fireEvent.change(screen.getByLabelText(/Wgraj nowe CV/), { target: { files: [clientCvFile()] } });
+    await waitFor(() => expect(toastAction).toHaveBeenCalled());
+
+    const { chips } = toastAction.mock.calls[0][1] as {
+      chips: { options: readonly { value: string }[]; onPick: (value: string) => void };
+    };
+    expect(chips.options.map((option) => option.value)).toEqual([
+      "client_format",
+      "missing_experience",
+      "newer_cv",
+      "other",
+    ]);
+    chips.onPick("client_format");
+    expect(replaceReason).toHaveBeenCalledWith(900, "client_format");
   });
 
   it("CV do klienta bez odczytu AI: stan CV etapu z odpowiedzi i „Cofnij” w komunikacie", async () => {

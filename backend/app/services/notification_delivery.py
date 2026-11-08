@@ -143,9 +143,12 @@ CATALOG = (
         label="P0 na rekrutacji",
         module="Rekrutacje",
         trigger="Head of Recruitment albo administrator ustawił rekrutacji P0 — "
-        "ultrapilne przez 24 h (48 h albo do piątku), z powodem.",
+        "ultrapilne przez 24 h (48 h albo do piątku), z powodem. Też: Delivery "
+        "Lead prosi o P0 i termin P0 minął (P0 trwa do decyzji).",
         recipient_rule="Rekruterzy pracujący nad rekrutacją i jej Delivery Lead, "
-        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin.",
+        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin. "
+        "Prośba DL i termin po upływie — Head of Recruitment (termin też osoba, "
+        "która ustawiła P0).",
     ),
     # Mail obowiązkowy (28.10.2026) — `services/job_closed_notices.py`.
     dict(
@@ -269,12 +272,12 @@ CATALOG = (
     # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
     dict(
         id="data_access_alert",
-        label="Masowe przeglądanie CV",
+        label="Masowe pobieranie CV",
         module="System",
-        trigger="Ktoś otworzył pliki ponad 40 kandydatów w godzinę, zapisał na dysk "
-        "ponad 25 plików albo wyeksportował ponad 200 osób w ciągu dnia (konto "
-        "młodsze niż 14 dni — progi o połowę niższe); 3 nowe konta otwierają CV "
-        "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
+        trigger="Ktoś zapisał na dysk ponad 25 plików kandydatów albo wyeksportował "
+        "ponad 200 osób w ciągu dnia (konto młodsze niż 14 dni — progi o połowę "
+        "niższe); 3 nowe konta zapisują CV na dysk tego samego dnia. Samo "
+        "przeglądanie nie daje alarmu. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
     # Mail obowiązkowy (28.10.2026) — `services/announcements.py`.
@@ -603,7 +606,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     ),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
-    JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
+    JOB_P0_KIND: ("job_p0_set", "job_p0_requested", "job_p0_overdue"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
     DEPARTED_CARE_KIND: ("departed_pairs_care",),
     ANNOUNCEMENT_KIND: ("announcement_important",),

@@ -153,7 +153,7 @@ def _pko():
 
 
 def test_repair_swaps_only_the_role_and_keeps_the_person_as_stored():
-    from app.services.stage_cv_copy_filename_repair import renamed_copy_filename
+    from scripts.repairs.stage_cv_copy_filename_repair import renamed_copy_filename
 
     assert renamed_copy_filename(OLD_NAME, _pko(), TITLE, ROLE, "4321") == NEW_NAME
     # Osoba zostaje w zapisanej pisowni (imię mogło się od tego czasu zmienić).
@@ -180,7 +180,7 @@ def test_repair_swaps_only_the_role_and_keeps_the_person_as_stored():
 
 
 def test_repair_leaves_names_it_did_not_build():
-    from app.services.stage_cv_copy_filename_repair import renamed_copy_filename
+    from scripts.repairs.stage_cv_copy_filename_repair import renamed_copy_filename
 
     # Już poprawna, zmieniona ręcznie, pusta, tytuł bez kodów.
     assert renamed_copy_filename(NEW_NAME, _pko(), TITLE, ROLE, "4321") is None
@@ -213,7 +213,7 @@ async def test_repair_renames_copy_and_its_approved_versions_once(monkeypatch):
 
     from app.core.database import AsyncSessionLocal
     from app.models.cv_document_version import CvDocumentVersion
-    from app.services.stage_cv_copy_filename_repair import rename_copy_filenames
+    from scripts.repairs.stage_cv_copy_filename_repair import rename_copy_filenames
     from tests.test_stage_cv_pick_from_profile import _seed
 
     _rule(monkeypatch, PKO_PATTERN)
@@ -281,7 +281,7 @@ async def test_repair_waits_for_a_client_policy_that_is_not_synchronised(monkeyp
     """503 polityki klienta: wiersz pominięty, krok nie stawia markera."""
     from fastapi import HTTPException
 
-    from app.services import stage_cv_copy_filename_repair as repair
+    from scripts.repairs import stage_cv_copy_filename_repair as repair
     from app.services.cv_generator_b2b import client_rules
 
     async def _pending(db, client_id):
@@ -293,15 +293,11 @@ async def test_repair_waits_for_a_client_policy_that_is_not_synchronised(monkeyp
     assert await repair._job_names(db, 11) == "pending"
 
 
-def test_entrypoint_runs_the_repair_after_client_references_are_filled():
-    """Numer projektu i nazwa roli czytają ``client_reference``, które krok
-    „client-reference-from-title” dopiero uzupełnia z nazwy."""
+def test_repair_script_runs_the_rename_and_commits():
     from pathlib import Path
 
-    entrypoint = (Path(__file__).parents[1] / "entrypoint.sh").read_text()
-    fill = entrypoint.index('startup_phase "client-reference-from-title"')
-    repair = entrypoint.index('startup_phase "stage-cv-copy-filenames"')
-    assert fill < repair
-    phase = entrypoint[repair : entrypoint.index("\nPY\n", repair)]
-    assert "rename_copy_filenames" in phase
-    assert "await db.commit()" in phase
+    script = (
+        Path(__file__).parents[1] / "scripts/repairs/run_stage_cv_copy_filenames.py"
+    ).read_text(encoding="utf-8")
+    assert "rename_copy_filenames" in script
+    assert "await db.commit()" in script

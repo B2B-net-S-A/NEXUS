@@ -91,7 +91,8 @@ AREA_BY_SCREEN: dict[str, str] = {
         "talent-radar",
         "talents",
     ),
-    **_screens(TABLICA, "calendar", "departed-care", "jobs", "manager"),
+    # „porcja” — porcja dnia od Nexusa (07.11.2026), karty z Tablicy.
+    **_screens(TABLICA, "calendar", "departed-care", "jobs", "manager", "porcja"),
     **_screens(
         KONTRAKTY,
         "back-office",
@@ -147,7 +148,7 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "extension",
         "preview",
         "wtyczka",
-        # Programy ukryte z interfejsu od 17.10.2026 (`docs/claude/programy/`).
+        # Programy usunięte 08.11.2026 (`docs/claude/programy/`).
         "academy",
         "trainee",
         "trainees",

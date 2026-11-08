@@ -227,7 +227,9 @@ def render_interactive_html(
     if p.get("languages"):
         sections.append(
             f'<h2 data-cv-section="languages">{_esc(t["languages"])}</h2>'
-            f"<p>{_esc(' · '.join(p.get('languages', [])))}</p>"
+            # 07.11.2026: jeden akapit na język, jak punkty w Wordzie. Jedna
+            # linia z „ · ” na kartce edytora ludzie rozbijali ręcznie.
+            + "".join(f"<p>{_esc(item)}</p>" for item in p.get("languages", []))
         )
 
     if p.get("experience"):

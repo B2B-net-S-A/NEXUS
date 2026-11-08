@@ -11,13 +11,7 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SkillCategorySelect } from "@/components/settings/SkillCategorySelect";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -30,27 +24,6 @@ import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { formatIsoDatePl } from "@/lib/date-pl";
-
-// Kategorie słownika, w których żyją technologie (jak w „Słowniku umiejętności”).
-const CATEGORIES = [
-  "language",
-  "framework",
-  "frontend",
-  "backend",
-  "database",
-  "cloud",
-  "devops",
-  "data",
-  "messaging",
-  "api",
-  "qa",
-  "mobile",
-  "security",
-  "tools",
-  "standards",
-  "ai",
-];
-const NO_CATEGORY = "none";
 
 const STATUS_LABELS: Record<SkillReviewRow["status"], string> = {
   open: "Do przejrzenia",
@@ -155,11 +128,22 @@ function MapDialog({ row, onClose }: { row: SkillReviewRow; onClose: () => void 
   );
 }
 
-function CreateDialog({ row, onClose }: { row: SkillReviewRow; onClose: () => void }) {
+// Kategoria jest obowiązkowa jak w „Słowniku umiejętności” (etap 2, 06.11.2026):
+// hasło bez niej nie działa w pogrubianiu CV, QC ani bramce must. Listę podaje
+// kolejka (`categories`), bo TCM nie czyta `/api/skills-admin`.
+function CreateDialog({
+  row,
+  categories,
+  onClose,
+}: {
+  row: SkillReviewRow;
+  categories: readonly string[];
+  onClose: () => void;
+}) {
   const { showToast } = useToast();
   const resolve = useResolveSkillReview();
   const [name, setName] = useState(row.name);
-  const [category, setCategory] = useState(NO_CATEGORY);
+  const [category, setCategory] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
     <AppModal
@@ -175,14 +159,14 @@ function CreateDialog({ row, onClose }: { row: SkillReviewRow; onClose: () => vo
             Anuluj
           </Button>
           <Button
-            disabled={!name.trim() || resolve.isPending}
+            disabled={!name.trim() || !category || resolve.isPending}
             onClick={() =>
               resolve.mutate(
                 {
                   kind: "create",
                   itemId: row.id,
                   canonicalName: name.trim(),
-                  category: category === NO_CATEGORY ? null : category,
+                  category,
                 },
                 {
                   onSuccess: () => {
@@ -199,7 +183,7 @@ function CreateDialog({ row, onClose }: { row: SkillReviewRow; onClose: () => vo
         </>
       }
     >
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
         <FormField label="Nazwa" htmlFor="care-review-name">
           <Input
             id="care-review-name"
@@ -208,20 +192,13 @@ function CreateDialog({ row, onClose }: { row: SkillReviewRow; onClose: () => vo
             onChange={(event) => setName(event.target.value)}
           />
         </FormField>
-        <FormField label="Kategoria" htmlFor="care-review-category">
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger id="care-review-category">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_CATEGORY}>Bez kategorii</SelectItem>
-              {CATEGORIES.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {value}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <FormField label="Kategoria" required>
+          <SkillCategorySelect
+            value={category}
+            onChange={setCategory}
+            categories={categories}
+            className="w-full"
+          />
         </FormField>
       </div>
       {error ? (
@@ -243,6 +220,7 @@ export function SkillReviewPanel() {
   const [dialog, setDialog] = useState<{ kind: "map" | "create"; row: SkillReviewRow } | null>(null);
   const rows = query.data?.items ?? [];
   const canCurate = query.data?.can_curate ?? false;
+  const categories = query.data?.categories ?? [];
   const view = resolveViewState({
     isLoading: query.isLoading,
     isError: query.isError,
@@ -373,7 +351,9 @@ export function SkillReviewPanel() {
         </div>
       )}
       {dialog?.kind === "map" ? <MapDialog row={dialog.row} onClose={() => setDialog(null)} /> : null}
-      {dialog?.kind === "create" ? <CreateDialog row={dialog.row} onClose={() => setDialog(null)} /> : null}
+      {dialog?.kind === "create" ? (
+        <CreateDialog row={dialog.row} categories={categories} onClose={() => setDialog(null)} />
+      ) : null}
       {confirmDialog}
     </div>
   );

@@ -39,9 +39,19 @@ export interface QcSearch {
   quote?: string | null;
 }
 
+/** Kto i kiedy wskazał rolę ręcznie przy „sprawdź ręcznie” (R3, 07.11.2026). */
+export interface QcManualBy {
+  by?: string | null;
+  at?: string | null;
+}
+
 export interface QcItem {
   /** Stały klucz pozycji (sprawdzenie | wymaganie | rola) — od 13.10.2026. */
   key?: string | null;
+  /** R3: pozycja z ręcznego wskazania roli. */
+  manual?: QcManualBy | null;
+  /** R2 (07.11.2026): krytyczna, której kandydat nie ma — decyzja Delivery Leada. */
+  candidate_gap?: boolean;
   requirement?: string | null;
   role?: string | null;
   detail?: string | null;
@@ -84,6 +94,8 @@ export interface QcRoleState {
   requirement: string;
   role: string;
   state: QcRoleStateKind;
+  /** R3 (07.11.2026): stan z ręcznego wskazania roli — kto i kiedy. */
+  manual?: QcManualBy | null;
 }
 
 export interface QcCheck {
@@ -225,7 +237,9 @@ export type QcFixAction =
   | { action: "years" }
   | { action: "title" }
   | { action: "strip_client_rules" }
-  | { action: "remove_line"; text: string };
+  | { action: "remove_line"; text: string }
+  // „Szybkie poprawki” edytora (E1, 07.11.2026) — tylko `qc/transform`.
+  | { action: "languages_lines" };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 
@@ -279,6 +293,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
     // liczy QC od nowa.
     staleTime: 0,
     refetchOnMount: "always",
+  });
+}
+
+/**
+ * Wynik QC do podsumowania obok (R5, 07.11.2026: „Kontrola CV” w przeglądzie
+ * DL). Ten sam klucz co okno QC, ale bez przeliczania przy każdym montowaniu —
+ * przegląd „po kolei” nie liczy QC dwa razy na osobę, a harness z zasianym
+ * wynikiem nie wysyła zapytań.
+ */
+export function useCvQcSummary(stageId: number | null) {
+  return useQuery<QcResult>({
+    queryKey: cvQcQueryKey(stageId ?? 0),
+    queryFn: () => api.get<QcResult>(`/api/pipeline/stages/${stageId}/qc`).then((r) => r.data),
+    enabled: stageId != null,
+    staleTime: 60_000,
   });
 }
 
@@ -365,6 +394,8 @@ export interface QcOverrideBody {
   reason?: string;
   /** Blokady oznaczone „QC się myli” (D4) — klucze pozycji z bieżącego przebiegu. */
   wrong_keys?: string[];
+  /** „Inny powód” (R6, 07.11.2026): blokady, których dotyczy — klucze pozycji. */
+  about_keys?: string[];
 }
 
 /**
@@ -386,6 +417,17 @@ export interface QcConfirmBody {
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
 export function useQcConfirm(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcConfirmBody>(stageId, "confirm", onChanged);
+}
+
+/** R3: role oryginału opisujące umiejętność krytyczną; pusta lista = „nigdzie”. */
+export interface QcManualRolesBody {
+  requirement: string;
+  roles: string[];
+}
+
+/** „Sprawdź ręcznie” (R3, 07.11.2026) — serwer zapisuje wskazanie i zwraca świeży wynik QC. */
+export function useQcManualRoles(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<QcManualRolesBody>(stageId, "manual-roles", onChanged);
 }
 
 /** „To nieprawda”: która pozycja (klucz z wyniku QC) i dlaczego. */

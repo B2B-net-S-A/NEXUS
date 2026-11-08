@@ -72,7 +72,7 @@ describe("DockNextStage", () => {
   it("osoba w „QC CV” z gotowym QC: „Czeka u Delivery Leada od …”, bez przycisku i bez „Czeka na Ciebie”", async () => {
     respond({});
     const now = new Date().toISOString();
-    renderFrame({ moved_at: now, qc: { status: "passed", blocking_failed: 0, ok_at: now } });
+    renderFrame({ moved_at: now, waiting_workdays: 0, qc: { status: "passed", blocking_failed: 0, ok_at: now } });
     const status = await screen.findByTestId("dock-next-stage-waiting");
     expect(status).toHaveTextContent("Czeka u Delivery Leada od dziś.");
     expect(screen.queryByRole("button", { name: /Przekaż Delivery Leadowi/ })).toBeNull();

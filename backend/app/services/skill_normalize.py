@@ -117,6 +117,9 @@ TECH_CANONICALS: set[str] = set()  # canonical names whose category ∈ TECH_CAT
 CANONICAL_CATEGORY: dict[str, str] = {}  # canonical -> category (ALL skills)
 ALIAS_TO_CANONICAL: dict[str, str] = {}  # alias -> canonical (ALL skills)
 CANONICAL_TO_ALIASES: dict[str, list[str]] = {}  # tech canonical -> [alias, ...]
+# Etap 3a (0659): warianty, które liczą się w tekście CV (canonical -> [alias]),
+# dla wszystkich kategorii poza rolami — QC i strażnik generatora.
+TEXT_ALIASES: dict[str, list[str]] = {}
 
 
 def set_tech_taxonomy(
@@ -125,6 +128,7 @@ def set_tech_taxonomy(
     alias_to_canonical: dict[str, str],
     canonical_to_aliases: dict[str, list[str]] | None = None,
     categories: dict[str, str] | None = None,
+    text_aliases: dict[str, list[str]] | None = None,
 ) -> None:
     """Replace the in-memory tech taxonomy atomically (called at startup)."""
     CANONICAL_CATEGORY.clear()
@@ -150,6 +154,9 @@ def set_tech_taxonomy(
         CANONICAL_TO_ALIASES[canon.strip().lower()] = [
             a.strip().lower() for a in aliases if a
         ]
+    TEXT_ALIASES.clear()
+    for canon, aliases in (text_aliases or {}).items():
+        TEXT_ALIASES[canon.strip().lower()] = [a.strip().lower() for a in aliases if a]
 
 
 def canonical_of(name: str) -> str:
@@ -226,6 +233,93 @@ def tech_alias_forms(name: str) -> list[str]:
     return sorted(f for f in forms if f)
 
 
+def bold_alias_forms(name: str) -> list[str]:
+    """Formy, którymi generator CV pogrubia wymaganie (G2, 07.11.2026).
+
+    Technologia jak w :func:`tech_alias_forms`. Narzędzie, standard i AI
+    (``GATE_TECH_CATEGORIES`` — te same, które bramkują krytyczne) dają hasło
+    i warianty liczące się w tekście CV (``TEXT_ALIASES``, bez jednego słowa
+    z wielowyrazowej nazwy), bo „SailPoint IIQ” z wymagań to „SailPoint
+    IdentityIQ” w CV. Pomiar na 326 zatwierdzonych CV: rekruterzy dopisywali
+    ręcznie pogrubienia narzędzi z must/nice (Pega, Bamboo, Appium, VMware),
+    których generator nie uznawał za technologie. Metodyka, praktyka, dziedzina
+    i rola zostają bez pogrubienia. Pusta lista spoza tych kategorii."""
+    forms = tech_alias_forms(name)
+    if forms:
+        return forms
+    canon = canonical_of(name)
+    if CANONICAL_CATEGORY.get(canon) not in GATE_TECH_CATEGORIES:
+        return []
+    out = {canon, (name or "").strip().lower(), *TEXT_ALIASES.get(canon, [])}
+    return sorted(f for f in out if f)
+
+
+# Jedno słowo, które jest wariantem hasła, a w zdaniu zwykle znaczy coś innego:
+# „Access Management” to nie MS Access, „Apache Iceberg” to nie serwer Apache
+# (pomiar G2 na 326 CV: „access” pogrubiało się 42 razy bez sensu).
+_AMBIGUOUS_MENTIONS = frozenset(
+    {"access", "project", "word", "teams", "office", "apache", "outlook", "visio"}
+)
+
+
+def is_bold_technology_mention(text: str) -> bool:
+    """Czy fraza ze zdania wymagania to nazwa, którą generator pogrubia: hasło
+    albo wariant liczący się w tekście (``TEXT_ALIASES``) technologii,
+    narzędzia, standardu lub AI. Sam alias nie wystarczy — „Project” to
+    w słowniku „Microsoft Project”, ale w zdaniu znaczy „projekt”."""
+    low = (text or "").strip().lower()
+    if low in _AMBIGUOUS_MENTIONS:
+        return False
+    canon = canonical_of(low)
+    if canon not in TECH_CANONICALS and CANONICAL_CATEGORY.get(canon) not in (
+        GATE_TECH_CATEGORIES
+    ):
+        return False
+    return low == canon or low in TEXT_ALIASES.get(canon, ())
+
+
+_NAME_WORD = re.compile(r"[0-9a-ząćęłńóśźż+#.]+")
+
+
+def alias_counts_in_text(
+    alias: str, canonical: str, category: str | None, flag: bool | None
+) -> bool:
+    """Czy wariant liczy się, gdy QC i strażnik generatora szukają wymagania
+    w tekście CV (etap 3a słownika, decyzja Artura 07.11.2026).
+
+    ``flag`` to decyzja osoby prowadzącej słownik (``skill_aliases.in_text``)
+    i wygrywa zawsze. Bez niej: wariant technologii liczy się jak dotąd,
+    a przy narzędziach, metodykach, AI, standardach i dziedzinach nie liczy
+    się jedno słowo, które jest częścią wielowyrazowej nazwy („project” przy
+    „Microsoft Project”, „word”, „teams”) — samo uznałoby brak za trafienie.
+    Role nie mają wariantów w tekście.
+    """
+    cat = (category or "").strip().lower()
+    if cat.startswith("role_"):
+        return False
+    if flag is not None:
+        return flag
+    if cat in TECH_CATEGORIES:
+        return True
+    text = (alias or "").strip().lower()
+    words = _NAME_WORD.findall((canonical or "").lower())
+    return not (len(words) > 1 and " " not in text and text in words)
+
+
+def text_alias_forms(name: str) -> list[str]:
+    """Formy nazwy do szukania w tekście CV: nazwa, hasło słownika i warianty,
+    które się w tekście liczą (``alias_counts_in_text``). Pusta lista dla
+    roli, nazwy spoza słownika albo niewczytanego słownika — wtedy szukamy
+    samej nazwy, jak dotąd."""
+    canon = canonical_of(name)
+    category = CANONICAL_CATEGORY.get(canon)
+    if category is None or category.startswith("role_"):
+        return []
+    forms = {canon, (name or "").strip().lower()}
+    forms.update(TEXT_ALIASES.get(canon, []))
+    return sorted(f for f in forms if f)
+
+
 # ── Technologie, które spełniają wymaganie ogólniejsze ─────────────────────
 
 # „SQL” w wymaganiach spełnia każdy, kto pracuje z bazą SQL-ową — w CV pisze
@@ -251,10 +345,71 @@ IMPLIED_BY: dict[str, tuple[str, ...]] = {
 }
 
 
-def implied_forms(name: str) -> tuple[str, ...]:
-    """Formy, które spełniają wymaganie `name` (puste, gdy nie ma implikacji)."""
+# Mapa wiedzy IT (0660, decyzja Artura z 07.11.2026): zatwierdzone powiązania
+# ze `skill_relations`, wczytywane razem ze słownikiem (`skill_taxonomy_loader`).
+# Klucz i wartości to hasła słownika małymi literami.
+RELATION_IMPLIED_BY: dict[str, set[str]] = {}  # „wynika z” i „część”: do -> {od}
+RELATION_ALTERNATIVES: dict[str, set[str]] = {}  # zamienniki, w obie strony
+RELATION_TYPICAL_BY: dict[str, set[str]] = {}  # „typowe”: do -> {od}
+
+
+def set_relations(
+    *,
+    implied_by: dict[str, set[str]] | None = None,
+    alternatives: dict[str, set[str]] | None = None,
+    typical_by: dict[str, set[str]] | None = None,
+) -> None:
+    """Podmień powiązania w pamięci (start aplikacji i każda zmiana słownika)."""
+    for target, source in (
+        (RELATION_IMPLIED_BY, implied_by),
+        (RELATION_ALTERNATIVES, alternatives),
+        (RELATION_TYPICAL_BY, typical_by),
+    ):
+        target.clear()
+        for key, values in (source or {}).items():
+            target[key.strip().lower()] = {v.strip().lower() for v in values if v}
+
+
+def _forms_of(canonicals: set[str]) -> list[str]:
+    """Hasła razem z ich wariantami, bez duplikatów, w stałej kolejności."""
+    forms: set[str] = set()
+    for canon in canonicals:
+        forms.add(canon)
+        forms.update(CANONICAL_TO_ALIASES.get(canon, []))
+    return sorted(f for f in forms if f)
+
+
+def implied_forms(name: str, *, relations: bool = True) -> tuple[str, ...]:
+    """Formy, które spełniają wymaganie `name` (puste, gdy nie ma implikacji):
+    stała rodzina SQL/UML i zatwierdzone powiązania „wynika z” i „część”
+    (Spring Boot ⇒ Java, GitHub ⇒ Git) razem z wariantami tych haseł.
+    ``relations=False`` = sama stała rodzina (dowód dosłowny w punktacji)."""
     low = (name or "").strip().lower()
-    return IMPLIED_BY.get(low) or IMPLIED_BY.get(canonical_of(low)) or ()
+    canon = canonical_of(low)
+    static = IMPLIED_BY.get(low) or IMPLIED_BY.get(canon) or ()
+    related = RELATION_IMPLIED_BY.get(canon) if relations else None
+    if not related:
+        return static
+    return tuple(dict.fromkeys([*static, *_forms_of(related)]))
+
+
+def has_relation_implication(name: str) -> bool:
+    """Czy wymaganie ma zatwierdzone powiązanie „wynika z” albo „część”."""
+    return bool(RELATION_IMPLIED_BY.get(canonical_of(name)))
+
+
+def alternative_forms(name: str) -> tuple[str, ...]:
+    """Zamienniki wymagania (Flask przy FastAPI) z wariantami. Nie spełniają
+    wymagania — zamieniają „brak” w pytanie do rozmowy."""
+    related = RELATION_ALTERNATIVES.get(canonical_of(name))
+    return tuple(_forms_of(related)) if related else ()
+
+
+def typical_sources(name: str) -> tuple[str, ...]:
+    """Hasła, przy których wymaganie jest typowe (Java przy Maven), z wariantami.
+    Nie spełniają wymagania — dają pytanie do rozmowy."""
+    related = RELATION_TYPICAL_BY.get(canonical_of(name))
+    return tuple(_forms_of(related)) if related else ()
 
 
 # ── Wersja przy nazwie technologii (bramka must, formularz rekrutacji) ──────

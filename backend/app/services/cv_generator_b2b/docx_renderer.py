@@ -28,7 +28,14 @@ from lxml import etree
 
 from app.core.docx_metadata import clear_author_metadata
 from app.services.cv_text_align import cv_text_align
-from app.services.skill_normalize import is_taxonomy_technology, tech_alias_forms
+from app.services.skill_normalize import (
+    canonical_of,
+    bold_alias_forms,
+    is_bold_technology_mention,
+    is_gate_technology,
+    is_non_technology_concept,
+    is_taxonomy_technology,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +340,8 @@ def _paren_is_subterm(content: str) -> bool:
 # "Material Design oraz Human Interface Guidelines" bolds BOTH halves and a
 # comma-list of sub-skills bolds each item.
 _TERM_SEPARATORS = re.compile(r"[;,]|\b(?:i|oraz|lub|and|or)\b", re.IGNORECASE)
+# „Cloud Composer / Apache Airflow” to dwie nazwy; „CI / CD” i „TCP / IP” to jedna.
+_SPACED_SLASH = re.compile(r"\s+/\s+")
 
 
 def _extract_keyword_terms(keyword: str) -> list[str]:
@@ -362,7 +371,12 @@ def _extract_keyword_terms(keyword: str) -> list[str]:
     for chunk in raw:
         for part in _TERM_SEPARATORS.split(chunk):
             t = (part or "").strip()
-            if t:
+            if not t:
+                continue
+            sides = [x.strip() for x in _SPACED_SLASH.split(t)]
+            if len(sides) > 1 and all(len(x) >= 4 for x in sides):
+                terms.extend(sides)
+            else:
                 terms.append(t)
     return terms
 
@@ -754,6 +768,7 @@ def _is_tech_word(token: str) -> bool:
     (:func:`_is_strong_tech_token`), or the curated ``_KNOWN_TECH`` allowlist."""
     return (
         is_taxonomy_technology(token)
+        or is_gate_technology(token)
         or _is_strong_tech_token(token)
         or _norm_tech(token) in _KNOWN_TECH
     )
@@ -785,7 +800,9 @@ def _is_technology(term: str) -> bool:
     t = term.strip()
     if not t:
         return False
-    if is_taxonomy_technology(t):
+    # Narzędzia, standardy i AI ze słownika (G2, 07.11.2026): „Pega”, „Bamboo”,
+    # „Appium”, „VMware” w must/nice rekruterzy pogrubiali potem ręcznie.
+    if is_taxonomy_technology(t) or is_gate_technology(t):
         return True
     if _norm_tech(t) in _KNOWN_TECH:
         return True
@@ -795,6 +812,97 @@ def _is_technology(term: str) -> bool:
     if len(tokens) == 1:
         return _is_tech_word(t)
     return all(_is_tech_word(tok) for tok in tokens)
+
+
+_GRAM_PUNCT = ".,;:()[]\"'„”"
+
+
+def _dictionary_tech_grams(text: str) -> list[str]:
+    """Nazwy ze słownika w wymaganiu-zdaniu, od najdłuższej, bez nakładania
+    („Doświadczenie w testowaniu z wykorzystaniem Espresso, JUnit oraz MockK”
+    → „JUnit”). Tylko zapis z wielką literą albo znakiem spoza liter („C#”),
+    bo małą literą w polskim zdaniu stoją zwykłe słowa („go”, „spring”)."""
+    words = [w.strip(_GRAM_PUNCT) for w in text.split()]
+    out: list[str] = []
+    i = 0
+    while i < len(words):
+        for n in (3, 2, 1):
+            gram = " ".join(words[i : i + n])
+            if (
+                len(words[i : i + n]) == n
+                and len(gram) >= 2
+                and any(ch.isupper() for ch in gram)
+                and is_bold_technology_mention(gram)
+            ):
+                out.append(gram)
+                i += n
+                break
+        else:
+            i += 1
+    return out
+
+
+def _tech_product_name(term: str) -> bool:
+    """„Kafka Streams”, „Kafka Connect”: technologia i nazwa produktu z wielkiej
+    litery, której słownik nie zna. Bez tego pogrubiało się samo „Kafka”,
+    a rekruter dopisywał pogrubienie „Streams” (pomiar G2, 07.11.2026). Słowo
+    ze słownika spoza technologii („Developer”, „Scrum”) albo zwykłe słowo
+    („Senior”, „Java 17+”) to nie nazwa produktu."""
+    tokens = term.split()
+    if not 2 <= len(tokens) <= 3 or not is_bold_technology_mention(tokens[0]):
+        return False
+    return all(
+        t[:1].isupper()
+        and t.isalpha()
+        and t.lower() not in _STOP_WORDS
+        and t.lower() not in _GENERIC_WORDS
+        and t.lower() not in _PRODUCT_NAME_STOP
+        and not is_non_technology_concept(t)
+        for t in tokens[1:]
+    )
+
+
+# Słowa roli i stopnia, które stoją za nazwą technologii, a nie są produktem.
+_PRODUCT_NAME_STOP = frozenset(
+    {
+        "developer",
+        "developers",
+        "engineer",
+        "engineering",
+        "programmer",
+        "programista",
+        "architect",
+        "architektura",
+        "architecture",
+        "analyst",
+        "analityk",
+        "tester",
+        "testing",
+        "lead",
+        "leader",
+        "senior",
+        "junior",
+        "mid",
+        "regular",
+        "expert",
+        "specialist",
+        "consultant",
+        "administrator",
+        "admin",
+        "team",
+        "experience",
+        "skills",
+        "knowledge",
+        "development",
+    }
+)
+
+
+def _short_term_display(term: str) -> str:
+    """Zapis nazwy do 2 znaków, w którym się pogrubia: „go” → „Go”, „c#” → „C#”."""
+    if term.casefold() == "go":
+        return "Go"
+    return term if term != term.lower() else term.upper()
 
 
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
@@ -814,6 +922,7 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
     design", "tworzenie i rozwój") must NOT bold. When such a phrase still
     hides a hard-tech token ("Zasady WCAG 2.1/2.2" → "WCAG", "bazami danych
     SQL" → "SQL"), only that token bolds — never the surrounding concept.
+    Names of at most 2 characters match case-sensitively (CV-5).
     """
     patterns: list[re.Pattern[str]] = []
     seen: set[str] = set()
@@ -823,6 +932,7 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
         if key in seen:
             return
         single_letter = len(term) == 1
+        short_term = len(term) <= 2
         stopword_hit = key in _STOP_WORDS
         confirmed_tech = _is_tech_word(term)
         # Single-letter and stopword-colliding terms bold ONLY when they are a
@@ -843,6 +953,11 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
             display, case_sensitive = term.upper(), True
         elif stopword_hit:
             display, case_sensitive = term[:1].upper() + term[1:], True
+        elif short_term and term.isalpha():
+            # „Go” to nie polskie „go”, a „PG” to nie zawsze PostgreSQL (CV-5).
+            # Nazwa z cyfrą albo znakiem („k6”, „S3”, „C#”) nie jest słowem:
+            # zostaje bez rozróżniania, bo CV pisze ją raz tak, raz tak.
+            display, case_sensitive = _short_term_display(term), True
         # Build from tokens so "auto-layout" also matches "auto layout"
         # (hyphen ↔ space spelling drift between champion list and CV).
         parts = [p for p in re.split(r"[\s\-]+", display) if p]
@@ -869,8 +984,11 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
         # chip "ReactJS"/"K8s"/"Postgres"/"Microsoft Azure" also bolds
         # "React"/"Kubernetes"/"PostgreSQL"/"Azure" (and vice-versa).
         _add(t)
-        for form in tech_alias_forms(t):
-            _add(form)
+        for form in bold_alias_forms(t):
+            # „pg” / „es” / „sh” / „tf” / „ws” w tekście to zwykle coś innego
+            # (CV-5). „s3” / „c#” zostają: z cyfrą albo znakiem nie są słowem.
+            if len(form) > 2 or form == canonical_of(t) or not form.isalpha():
+                _add(form)
         # Recover a buried brand token ONLY when a multi-word compound is ONE
         # real tech plus version junk ("Java 17+" → "Java"). A genuine
         # multi-word product ("Apache Airflow", "Selenium WebDriver") whose
@@ -906,6 +1024,8 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
             if _is_technology(v):
                 _add_technology(v)
             else:
+                if _tech_product_name(v):
+                    _add(v)
                 # Not a technology in itself ("visual design", "User-Centered
                 # Design", "bazami danych SQL") — never bold the concept/prose;
                 # only surface a hard-tech token buried inside it ("SQL",
@@ -914,6 +1034,10 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
                 for w in v.split():
                     if _is_strong_tech_token(w) and any(ch.isalpha() for ch in w):
                         _add(w)
+                # Nazwa ze słownika w zdaniu wymagania (G2, 07.11.2026):
+                # „…z wykorzystaniem Espresso, JUnit oraz MockK” → „JUnit”.
+                for gram in _dictionary_tech_grams(v):
+                    _add_technology(gram)
     return patterns
 
 

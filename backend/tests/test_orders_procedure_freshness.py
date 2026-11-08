@@ -37,6 +37,8 @@ from app.data.review_stamps import (
     stamped_orders_sources,
 )
 
+pytestmark = pytest.mark.static
+
 
 def _frontend_available() -> bool:
     return (REPO_ROOT / "frontend").is_dir()

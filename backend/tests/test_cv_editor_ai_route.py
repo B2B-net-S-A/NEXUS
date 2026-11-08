@@ -16,6 +16,7 @@ from sqlalchemy import delete, select
 
 from app.api.cv_editor_ai import (
     COMMAND_TEXT_TOTAL_MAX,
+    AppliedRequest,
     CommandRequest,
     ConfirmFactRequest,
     SelectionRequest,
@@ -39,6 +40,14 @@ BASE = {
     "fragment": "Rozwój usług w **Java 17**",
     "block_text": "Rozwój usług w **Java 17** i Spring Boot.",
 }
+
+
+def test_applied_request_takes_counts_only() -> None:
+    assert AppliedRequest(operations=3, preset="req_duties").operations == 3
+    with pytest.raises(ValidationError):
+        AppliedRequest(operations=0)
+    with pytest.raises(ValidationError):
+        AppliedRequest(operations=command_ai.OPERATIONS_MAX + 1)
 
 
 def test_request_accepts_the_shape_the_editor_sends() -> None:
@@ -401,6 +410,8 @@ async def test_plan_is_returned_and_the_draft_is_left_alone(
                     "asks": 1,
                     "history": 0,
                     "focus": False,
+                    "question": False,
+                    "reasons": {},
                 }
             ]
             await db.execute(

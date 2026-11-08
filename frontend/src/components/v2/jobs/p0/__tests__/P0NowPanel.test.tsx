@@ -29,8 +29,16 @@ vi.mock("@/lib/api/jobP0", () => ({
 }));
 vi.mock("@/lib/api/requestAllocation", () => ({ useRequestBoard: () => state.board }));
 vi.mock("@/components/v2/request-board/RequestBoard", () => ({
-  RequestBoard: ({ onlyJobIds }: { onlyJobIds: ReadonlySet<number> }) => (
-    <div data-testid="p0-board">{[...onlyJobIds].join(",")}</div>
+  RequestBoard: ({
+    onlyJobIds,
+    recruitersAsCount,
+  }: {
+    onlyJobIds: ReadonlySet<number>;
+    recruitersAsCount?: boolean;
+  }) => (
+    <div data-testid="p0-board" data-recruiters={recruitersAsCount ? "licznik" : "chipy"}>
+      {[...onlyJobIds].join(",")}
+    </div>
   ),
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
@@ -66,6 +74,10 @@ function boardWith(...ids: number[]) {
   return { isSuccess: true, data: { requests: ids.map((job_id) => ({ job_id })) } };
 }
 
+function boardRow(job_id: number, client_reference: string | null, title: string, sent: number) {
+  return { job_id, client_reference, title, sent };
+}
+
 describe("P0NowPanel", () => {
   beforeEach(() => {
     state.value = {};
@@ -86,10 +98,10 @@ describe("P0NowPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("bez tablicy requestów: zapasowe wiersze z powodem; wygasłe P0 pomija", () => {
+  it("bez tablicy requestów: zapasowe wiersze z powodem", () => {
     state.value = {
       isSuccess: true,
-      data: { items: [item(1, 23), { ...item(2, 1), p0_until: inHours(-2) }], can_set: false },
+      data: { items: [item(1, 23)], can_set: false },
     };
     state.board = { isSuccess: false, isError: true };
     render(<P0NowPanel />);
@@ -99,6 +111,25 @@ describe("P0NowPanel", () => {
     expect(rows[0]).toHaveTextContent("„Klient czeka na CV”");
     expect(screen.getByRole("link", { name: "Otwórz tablicę" })).toHaveAttribute("href", "/jobs/1");
     expect(screen.queryByTestId("p0-board")).toBeNull();
+  });
+
+  it("P0 po terminie zostaje (06.11.2026): HoR ma „Przedłuż” i „Zakończ”, reszta widzi, że czeka", () => {
+    const overdue = { ...item(2, 1), p0_until: inHours(-3) };
+    state.value = { isSuccess: true, data: { items: [item(1, 23), overdue], can_set: true } };
+    state.board = { isSuccess: false, isError: true };
+    const { unmount } = render(<P0NowPanel />);
+    expect(screen.getByRole("heading")).toHaveTextContent("Pilne u klientów · 2");
+    const rows = screen.getAllByTestId("p0-now-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toHaveTextContent("P0 · minęło 2 h");
+    expect(screen.getByRole("button", { name: "Przedłuż o 24 h" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zakończ P0" })).toBeInTheDocument();
+    unmount();
+
+    state.value = { isSuccess: true, data: { items: [overdue], can_set: false } };
+    render(<P0NowPanel />);
+    expect(screen.queryByRole("button", { name: "Zakończ P0" })).toBeNull();
+    expect(screen.getByTestId("p0-overdue-waiting")).toHaveTextContent("dopóki Head of Recruitment");
   });
 
   it("P0 z tablicy requestów idą wierszami Daily, reszta zapasowym wierszem", () => {
@@ -146,5 +177,114 @@ describe("P0NowPanel", () => {
     expect(within(row).queryByRole("button", { name: "Zatwierdź P0" })).toBeNull();
     await userEvent.click(within(row).getByRole("button", { name: "Wycofaj" }));
     expect(api.reject).toHaveBeenCalledWith(9);
+  });
+});
+
+// Audyt 2 (08.11.2026, wariant A Artura): na pulpicie P0 zostaje nad wszystkim,
+// ale jako pasek jednej linii — pod nim od razu kolejka roli.
+describe("P0NowPanel — pasek na pulpicie (compact)", () => {
+  beforeEach(() => {
+    state.value = {};
+    state.board = {};
+    api.approve.mockClear();
+    api.reject.mockClear();
+  });
+
+  const overdue = (job_id: number, hours: number) => ({ ...item(job_id, 1), p0_until: inHours(-hours) });
+
+  it("jedna linia: numer, tytuł, czas i wysłani — bez tabeli do kliknięcia", () => {
+    state.value = { isSuccess: true, data: { items: [overdue(1, 35), item(2, 5)], can_set: false } };
+    state.board = {
+      isSuccess: true,
+      data: { requests: [boardRow(1, "42511", "PL_KYC_3", 2), boardRow(2, null, "Senior PM", 8)] },
+    };
+    render(<P0NowPanel compact />);
+    const line = screen.getByTestId("p0-now-line");
+    expect(within(line).getByRole("heading")).toHaveTextContent("Pilne u klientów · 2");
+    const first = within(line).getByRole("link", { name: /42511 PL_KYC_3/ });
+    expect(first).toHaveAttribute("href", "/jobs/1");
+    expect(first).toHaveTextContent("(minęło 34 h · wysłani 2)");
+    expect(within(line).getByRole("link", { name: /Senior PM/ })).toHaveTextContent("(zostało 5 h · wysłani 8)");
+    expect(screen.queryByTestId("p0-board")).toBeNull();
+    expect(screen.queryByTestId("p0-now-row")).toBeNull();
+  });
+
+  it("bez tablicy requestów linia bierze tytuł rekrutacji i nie zmyśla „wysłani”", () => {
+    state.value = { isSuccess: true, data: { items: [overdue(1, 35)], can_set: false } };
+    state.board = { isSuccess: false, isError: true };
+    render(<P0NowPanel compact />);
+    const link = within(screen.getByTestId("p0-now-line")).getByRole("link", { name: /Rekrutacja testowa 1/ });
+    expect(link).toHaveTextContent("(minęło 34 h)");
+    expect(link).not.toHaveTextContent("wysłani");
+  });
+
+  it("w linii najwyżej 3 P0 i licznik reszty", () => {
+    state.value = {
+      isSuccess: true,
+      data: { items: [1, 2, 3, 4, 5].map((id) => item(id, 10 + id)), can_set: true },
+    };
+    state.board = boardWith(1, 2, 3, 4, 5);
+    render(<P0NowPanel compact />);
+    const line = screen.getByTestId("p0-now-line");
+    expect(within(line).getAllByRole("link")).toHaveLength(3);
+    expect(line).toHaveTextContent("+2");
+  });
+
+  it("„Pokaż tabelę” rozwija wszystkie P0 z licznikiem osób, „Zwiń tabelę” wraca do linii", async () => {
+    state.value = {
+      isSuccess: true,
+      data: { items: [1, 2, 3, 4, 5].map((id) => item(id, 10 + id)), can_set: true },
+    };
+    state.board = boardWith(1, 2, 3, 4, 5);
+    render(<P0NowPanel compact />);
+    await userEvent.click(screen.getByRole("button", { name: /Pokaż tabelę/ }));
+    const board = screen.getByTestId("p0-board");
+    expect(board).toHaveTextContent("1,2,3,4,5");
+    expect(board).toHaveAttribute("data-recruiters", "licznik");
+    expect(screen.queryByTestId("p0-now-toggle")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Zwiń tabelę/ }));
+    expect(screen.queryByTestId("p0-board")).toBeNull();
+  });
+
+  it("P0 poza tablicą requestów też jest w rozwinięciu, z przyciskami HoR po terminie", async () => {
+    state.value = { isSuccess: true, data: { items: [overdue(1, 3)], can_set: true } };
+    state.board = { isSuccess: false, isError: true };
+    render(<P0NowPanel compact />);
+    expect(screen.queryByRole("button", { name: "Zakończ P0" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Pokaż tabelę/ }));
+    expect(screen.getByTestId("p0-now-row")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zakończ P0" })).toBeInTheDocument();
+  });
+
+  it("brak P0 i próśb = brak linii i pustego pasa", () => {
+    state.value = { isSuccess: true, data: { items: [], can_set: true, requests: [] } };
+    const { container } = render(<P0NowPanel compact />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("HoR: prośby DL zostają rozwinięte pod zwiniętą linią", () => {
+    state.value = { isSuccess: true, data: { items: [item(1, 5)], can_set: true, requests: [request] } };
+    state.board = boardWith(1);
+    render(<P0NowPanel compact />);
+    expect(screen.getByTestId("p0-now-line")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("p0-request-row")).getByRole("button", { name: "Zatwierdź P0" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("p0-board")).toBeNull();
+  });
+
+  it("sama prośba bez trwającego P0: bez linii, sama prośba", () => {
+    state.value = { isSuccess: true, data: { items: [], can_set: true, requests: [request] } };
+    render(<P0NowPanel compact />);
+    expect(screen.queryByTestId("p0-now-line")).toBeNull();
+    expect(screen.getByTestId("p0-request-row")).toBeInTheDocument();
+  });
+
+  it("bez `compact` (Daily) tabela jak dotąd, bez paska", () => {
+    state.value = { isSuccess: true, data: { items: [item(1, 5)], can_set: false } };
+    state.board = boardWith(1);
+    render(<P0NowPanel />);
+    expect(screen.queryByTestId("p0-now-line")).toBeNull();
+    expect(screen.getByTestId("p0-board")).toHaveAttribute("data-recruiters", "chipy");
   });
 });

@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from app.services import must_gate_terms, skill_normalize
+from app.services import dz_review, must_gate_terms, skill_normalize
 from app.services.scoring_service import ALIAS_MAP, set_alias_map
 
 # kanon -> (kategoria, aliasy) — kategorie jak w tabeli `skills` na produkcji.
@@ -55,6 +55,7 @@ def hydrated_taxonomy(
         dict(skill_normalize.ALIAS_TO_CANONICAL),
         {k: list(v) for k, v in skill_normalize.CANONICAL_TO_ALIASES.items()},
         dict(skill_normalize.CANONICAL_CATEGORY),
+        {k: list(v) for k, v in skill_normalize.TEXT_ALIASES.items()},
     )
     mapping: dict[str, str] = {}
     for canon, (_cat, aliases) in skills.items():
@@ -74,8 +75,18 @@ def hydrated_taxonomy(
             for c, (_cat, aliases) in skills.items()
         },
         categories={c: cat for c, (cat, _a) in skills.items()},
+        # Jak `skill_taxonomy_loader`: warianty liczące się w tekście CV.
+        text_aliases={
+            c.lower(): [
+                a.lower()
+                for a in aliases
+                if skill_normalize.alias_counts_in_text(a, c, cat, None)
+            ]
+            for c, (cat, aliases) in skills.items()
+        },
     )
     must_gate_terms.clear_cache()
+    dz_review.clear_pattern_cache()
     try:
         yield
     finally:
@@ -85,5 +96,7 @@ def hydrated_taxonomy(
             alias_to_canonical=saved[1],
             canonical_to_aliases=saved[2],
             categories=saved[3],
+            text_aliases=saved[4],
         )
         must_gate_terms.clear_cache()
+        dz_review.clear_pattern_cache()

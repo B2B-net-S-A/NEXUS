@@ -11,6 +11,7 @@ Bez ``from __future__ import annotations`` — slowapi #579 (PEP 563 zamienia
 guardy `Annotated` w parametry QUERY).
 """
 
+import re
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -59,9 +60,18 @@ class QcSimilar(BaseModel):
     quote: str
 
 
+class QcManualBy(BaseModel):
+    """Kto i kiedy wskazał rolę ręcznie (R3, 07.11.2026)."""
+
+    by: Optional[str] = None
+    at: Optional[str] = None
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
+    # R3: pozycja z ręcznego wskazania roli — kto i kiedy.
+    manual: Optional[QcManualBy] = None
     requirement: Optional[str] = None
     role: Optional[str] = None
     detail: Optional[str] = None
@@ -83,6 +93,7 @@ class QcRoleState(BaseModel):
     state: Literal[
         "described", "missing", "listed_only", "not_in_original", "unverified"
     ]
+    manual: Optional[QcManualBy] = None
 
 
 class QcCheck(BaseModel):
@@ -229,6 +240,7 @@ class QcApplyRequest(BaseModel):
 class QcTransformAction(BaseModel):
     # `years`, `title`, `strip_client_rules`, `remove_line` — tylko edytor CV
     # (panel „Do poprawy”, wariant A, PR 2); okno QC dalej `QcApplyRequest`.
+    # `languages_lines` — „Szybkie poprawki” edytora (E1, 07.11.2026).
     action: Literal[
         "ai_fix",
         "bold_all",
@@ -240,6 +252,7 @@ class QcTransformAction(BaseModel):
         "title",
         "strip_client_rules",
         "remove_line",
+        "languages_lines",
     ]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
@@ -292,6 +305,13 @@ class QcConfirmRequest(BaseModel):
     role: Optional[str] = Field(default=None, max_length=200)
 
 
+class QcManualRolesRequest(BaseModel):
+    """R3: role oryginału, które opisują umiejętność krytyczną; pusta = „nigdzie”."""
+
+    requirement: str = Field(min_length=1, max_length=200)
+    roles: list[str] = Field(default_factory=list, max_length=30)
+
+
 class QcRoleFact(BaseModel):
     term: str
     quote: str
@@ -326,7 +346,10 @@ class QcOverrideRequest(BaseModel):
 
     Bez minimum znaków (02.10.2026) — wymuszone 10 znaków dawało wpisy
     w rodzaju „keksekqekndxjndxkqw”. Samo `reason` (front sprzed zmiany)
-    działa jak „Inny powód”.
+    działa jak „Inny powód”. „Inny powód” (R6, 07.11.2026) to co najmniej
+    trzy słowa i `about_keys` — blokady, których dotyczy (sprawdza
+    `cv_qc.override_about` na bieżącym przebiegu): 15 z 91 obejść miało
+    powód „x”, „.” albo „dw”.
     """
 
     reason_code: Optional[str] = Field(default=None, max_length=40)
@@ -336,12 +359,18 @@ class QcOverrideRequest(BaseModel):
     wrong_keys: list[str] = Field(
         default_factory=list, max_length=cv_qc.OVERRIDE_WRONG_MAX
     )
+    about_keys: list[str] = Field(
+        default_factory=list, max_length=cv_qc.OVERRIDE_WRONG_MAX
+    )
 
     @model_validator(mode="after")
     def _reason_given(self) -> "QcOverrideRequest":
         self.reason = " ".join(self.reason.split())
         self.wrong_keys = list(
             dict.fromkeys(key.strip()[:400] for key in self.wrong_keys if key.strip())
+        )
+        self.about_keys = list(
+            dict.fromkeys(key.strip()[:400] for key in self.about_keys if key.strip())
         )
         if (
             self.reason_code is not None
@@ -350,6 +379,14 @@ class QcOverrideRequest(BaseModel):
             raise ValueError("Nieznany powód obejścia QC.")
         if self.reason_code in (None, "other") and not self.reason:
             raise ValueError("Opisz powód obejścia QC.")
+        if (
+            self.reason_code in (None, "other")
+            and len(re.findall(r"\w{2,}", self.reason)) < cv_qc.OVERRIDE_OTHER_MIN_WORDS
+        ):
+            raise ValueError(
+                "Przy „Inny powód” napisz co najmniej trzy słowa — "
+                "Delivery Lead ma zrozumieć, dlaczego CV idzie dalej."
+            )
         return self
 
 
@@ -577,16 +614,20 @@ async def override_stage_qc(
         await ensure_job_read_access(db, current_user, stage.job_id)
     else:
         await ensure_job_membership(db, current_user, stage.job_id)
-    result = await cv_qc.record_override(
-        db,
-        stage,
-        user_id=current_user.id,
-        reason=cv_qc.override_reason_text(payload.reason_code, payload.reason),
-        reason_code=payload.reason_code,
-        notify_reviewers=not reviewer,
-        note=payload.reason,
-        wrong_keys=payload.wrong_keys,
-    )
+    try:
+        result = await cv_qc.record_override(
+            db,
+            stage,
+            user_id=current_user.id,
+            reason=cv_qc.override_reason_text(payload.reason_code, payload.reason),
+            reason_code=payload.reason_code,
+            notify_reviewers=not reviewer,
+            note=payload.reason,
+            wrong_keys=payload.wrong_keys,
+            about_keys=payload.about_keys,
+        )
+    except cv_qc.OverrideAboutMissing as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     await db.commit()
     return await _response(db, request, current_user, result)
 
@@ -667,6 +708,41 @@ async def confirm_stage_qc_item(
         raise HTTPException(
             status_code=422,
             detail={"code": "CV_QC_CONFIRM_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return await _response(db, request, current_user, result)
+
+
+@router.post("/stages/{stage_id}/qc/manual-roles", response_model=QcResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def manual_roles_stage_qc(
+    request: Request,
+    stage_id: int,
+    payload: QcManualRolesRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcResponse:
+    """„Sprawdź ręcznie” (R3, 07.11.2026): wskaż role oryginału, które opisują
+    umiejętność krytyczną (albo „nigdzie”), i zwróć świeże QC.
+
+    422, gdy QC już o to nie prosi albo rola jest spoza listy tej pozycji.
+    """
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.record_manual_roles(
+            db,
+            stage,
+            requirement=payload.requirement,
+            roles=[r.strip()[:200] for r in payload.roles],
+            user_id=current_user.id,
+        )
+    except cv_qc.ApplyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_MANUAL_ROLES_FAILED", "message": str(exc)},
         ) from exc
     await db.commit()
     return await _response(db, request, current_user, result)

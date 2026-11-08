@@ -24,7 +24,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.contract_client_rate import ContractClientRate
 from app.models.critical_event import CriticalEvent
-from app.services.alior_reversed_order_repair import (
+from scripts.repairs.alior_reversed_order_repair import (
     REPAIR_MARKER,
     TICKET_TARGETS,
     ReversedOrderTarget,

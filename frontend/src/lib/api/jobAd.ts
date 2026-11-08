@@ -249,6 +249,8 @@ export interface JobAdState {
   pracuj_request: PracujRequest | null;
   /** JustJoin.IT przez API; `null` = portal wyłączony (kopiuj-wklej, 03.11.2026). */
   jjit_api: AdJjitApi | null;
+  /** Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026). */
+  can_mark_publications: boolean;
 }
 
 /** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */
@@ -258,6 +260,8 @@ export interface AdJjitApi {
   pending_action: PendingAction;
   last_error: string | null;
   options: PortalListingOptions | null;
+  /** Strona kariery musi wisieć przed publikacją; `false` przy formularzu JJIT (06.11.2026). */
+  career_required?: boolean;
 }
 
 /** Mail z ogłoszeniem do opiekuna Pracuj.pl wysłany z NEXUSA. */
@@ -364,6 +368,7 @@ function normalize(data: unknown): JobAdState {
         : null,
     pracuj_request: d.pracuj_request ?? null,
     jjit_api: d.jjit_api ?? null,
+    can_mark_publications: d.can_mark_publications === true,
   };
 }
 

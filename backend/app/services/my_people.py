@@ -28,13 +28,14 @@ już co innego (konsultant bez projektu).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_category import CandidateCompetenceCategory
@@ -594,10 +595,23 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     return MyPeople(rows=rows[:MAX_ROWS], truncated=truncated)
 
 
+# Licznik „Moi ludzie” (audyt 08.11.2026, U6): liczba nowych rekrutacji z ostatniej
+# doby. Dawna suma wszystkich nieobejrzanych dopasowań (872) nigdy nie gasła.
+RECENT_MATCH_HOURS = 24
+
+
+def _recent_match_params(user_id: int) -> dict:
+    return {
+        "uid": user_id,
+        "since": datetime.now(timezone.utc) - timedelta(hours=RECENT_MATCH_HOURS),
+        "min_score": settings.MY_PEOPLE_MATCH_MIN_SCORE,
+    }
+
+
 async def unseen_matches(
     db: AsyncSession, user_id: int, *, limit: int = 5
 ) -> list[dict]:
-    """Najnowsze nieobejrzane dopasowania — treść dymka awatara."""
+    """Najnowsze nieobejrzane dopasowania z ostatniej doby, od progu."""
     rows = await db.execute(
         text(
             """
@@ -607,11 +621,12 @@ async def unseen_matches(
             JOIN jobs j ON j.id = m.job_id AND j.status = 'published'
             JOIN candidates c ON c.id = m.candidate_id
             WHERE m.user_id = :uid AND m.seen_at IS NULL
+              AND m.created_at >= :since AND m.score >= :min_score
             ORDER BY m.created_at DESC, m.score DESC NULLS LAST
             LIMIT :limit
             """
         ),
-        {"uid": user_id, "limit": limit},
+        {**_recent_match_params(user_id), "limit": limit},
     )
     return [
         {
@@ -626,22 +641,23 @@ async def unseen_matches(
     ]
 
 
-async def unseen_totals(db: AsyncSession, user_id: int) -> tuple[int, int]:
-    """``(liczba dopasowań, liczba rekrutacji)`` — tylko opublikowane rekrutacje."""
-    row = (
-        await db.execute(
+async def recent_match_jobs(db: AsyncSession, user_id: int) -> int:
+    """Rekrutacje z ostatniej doby z co najmniej 1 osobą od progu dopasowania."""
+    return int(
+        await db.scalar(
             text(
                 """
-                SELECT COUNT(*), COUNT(DISTINCT m.job_id)
+                SELECT COUNT(DISTINCT m.job_id)
                 FROM my_people_job_matches m
                 JOIN jobs j ON j.id = m.job_id AND j.status = 'published'
                 WHERE m.user_id = :uid AND m.seen_at IS NULL
+                  AND m.created_at >= :since AND m.score >= :min_score
                 """
             ),
-            {"uid": user_id},
+            _recent_match_params(user_id),
         )
-    ).one()
-    return int(row[0]), int(row[1])
+        or 0
+    )
 
 
 async def mark_matches_seen(

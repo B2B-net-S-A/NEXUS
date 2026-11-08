@@ -20,8 +20,8 @@ import { calendarApi, type CalendarEventResponse } from "@/lib/api"
 import { useMyPeopleSummary } from "@/lib/api/myPeople"
 import { safeExternalHref, safeInternalPath } from "@/lib/safe-href"
 import type { TileConfig } from "@/lib/api/userDashboard"
-import { pluralPl } from "@/lib/plural-pl"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
+import { recentJobsLabel } from "@/lib/my-people-summary"
 import { useMyPeoplePanel } from "@/store/my-people"
 
 const timeFormat = new Intl.DateTimeFormat("pl-PL", {
@@ -95,16 +95,13 @@ export function MyPeopleBody() {
   }
   // 04.10.2026: kafelek pokazuje nowe dopasowania do rekrutacji (to, co da się
   // od razu dodać), a nie liczbę czekających — tę liczy panel „Moi ludzie”.
-  const { new_matches: newMatches, jobs_with_matches: jobsWithMatches } = query.data
+  const { new_matches: newMatches } = query.data
   const matches = (query.data.latest_matches ?? []).slice(0, 5)
   return (
     <div className="flex h-full flex-col gap-2 text-sm">
       {newMatches > 0 && matches.length > 0 ? (
         <>
-          <p className="font-medium text-foreground">
-            {newMatches} {pluralPl(newMatches, "nowe dopasowanie", "nowe dopasowania", "nowych dopasowań")}{" "}
-            w {jobsWithMatches} {pluralPl(jobsWithMatches, "rekrutacji", "rekrutacjach", "rekrutacjach")}
-          </p>
+          <p className="font-medium text-foreground">{recentJobsLabel(newMatches)}</p>
           <ul className="flex flex-col gap-1.5">
             {matches.map((match) => (
               <li

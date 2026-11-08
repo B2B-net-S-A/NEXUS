@@ -23,7 +23,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import CallButton from "@/components/calls/CallButton";
 import {
   AtOurClientBanner,
   type EmploymentInfo,
@@ -49,7 +48,6 @@ import {
   type CandidateContactSummary,
 } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
-import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import { canMutateSection } from "@/lib/section-access";
 import { contactAttemptsLabel } from "@/lib/recommendation-card";
 import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
@@ -272,9 +270,6 @@ export function CandidateQuickView({
   );
   const contactFeature = useCandidateContactFeature({
     queryEnabled: Boolean(currentUser),
-  });
-  const cloudTalkEnabled = useCloudTalkEnabled({
-    enabled: Boolean(currentUser) && canWriteSourcing,
   });
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [contactOutcomeOpen, setContactOutcomeOpen] = React.useState(false);
@@ -609,16 +604,7 @@ export function CandidateQuickView({
               <div className="flex min-w-0 items-center gap-2">
                 <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                 {candidate.phone ? (
-                  canWriteSourcing && cloudTalkEnabled ? (
-                    <CallButton
-                      candidateId={candidateId}
-                      phone={candidate.phone}
-                      compact
-                      className="whitespace-nowrap"
-                    />
-                  ) : (
-                    <span className="text-foreground">{formatPhone(candidate.phone)}</span>
-                  )
+                  <span className="text-foreground">{formatPhone(candidate.phone)}</span>
                 ) : (
                   <span className="text-muted-foreground">brak telefonu</span>
                 )}

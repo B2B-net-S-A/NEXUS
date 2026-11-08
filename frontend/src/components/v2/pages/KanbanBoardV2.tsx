@@ -20,7 +20,6 @@ import {
  ClipboardList,
  ChevronLeft,
  ChevronRight,
- CircleCheck,
  Clock,
  FileArchive,
  FileSignature,
@@ -119,6 +118,7 @@ import {
 import { cardCareLabel } from "@/lib/departed-care";
 import { myWaitingItems } from "@/lib/job-closed-waiting";
 import { ClosedJobWaitingBanner } from "@/components/v2/jobs/ClosedJobWaitingBanner";
+import { ClientWaitCardActions } from "@/components/v2/jobs/ClientWaitCardActions";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -140,14 +140,19 @@ import {
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
+import { checkApplicantCv } from "@/lib/api/applicationScreenings";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { isRecruiterOnly } from "@/lib/cv-download-access";
 import {
  CARD_BADGE_TONE_CLASS,
- cardBadges,
+ cardPrimaryBadges,
  cardStageBadge,
+ stageSinceText,
+ waitingWorkdaysText,
+ type CardBadge,
+ type CardBadgeTone,
  cardNextStep,
  claimAction,
  fillGapsText,
@@ -156,17 +161,22 @@ import {
  requirementsSkippedBadge,
  qcChip,
  type CardNextStep,
- type QcChipTone,
  compactCardBadge,
  cardOwner,
  cardShortName,
+ criticalAlternativeBadge,
  criticalGapBadge,
  cvStateBadge,
+ fromPreviousOpening,
  dlSendQueue,
  isReadyForDlSend,
  shortStepLabel,
+ closedRejectBy,
+ type ClosedRejectBy,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
+import { NewColumnTempo } from "@/components/v2/recruitment/NewColumnTempo";
+import { useNewColumnTempo } from "@/lib/api/reviewBatch";
 import {
  PersonWorkbenchTabs,
  usePersonRow,
@@ -198,10 +208,14 @@ import {
  colId,
  columnLabel,
  ScoreRing,
+ UnscoredRing,
+ cardScoreState,
  type KanbanColumn,
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
-import { OtherJobsChip, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
+import { OtherJobsChip, otherJobsChipLabel, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AddedByColumnFilter } from "@/components/v2/jobs/AddedByFilter";
 import { useJointScreeningIntent } from "@/store/joint-screening";
 import {
  CV_SENT_STAGE,
@@ -256,6 +270,9 @@ interface KanbanBoardV2Props {
  /** Krytyczne bez śladu u osoby (`/pipeline-scores` → `exclusions`) —
   *  plakietka „brak: …” na karcie (16.10.2026). */
  criticalGapMap?: Map<number, string[]>;
+ /** Krytyczne bez śladu, ale z zamiennikiem (`exclusions` → `alternatives`,
+  *  mapa wiedzy IT 07.11.2026) — plakietka „FastAPI? zna Flask”. */
+ criticalAltMap?: Map<number, Record<string, string[]>>;
  // True while the scores query is first resolving → cards show a placeholder
  // ring instead of nothing (cold pipelines don't look broken).
  scoresLoading?: boolean;
@@ -302,6 +319,9 @@ interface KanbanBoardV2Props {
   *  portfel klienta). Nie mylić z prawem wysyłki (`recruitment_manage`), które
   *  ma admin i każdy DL: ono daje przycisk, to — „Czeka na Ciebie”. */
  viewerOwnsDlReview?: boolean;
+ /** Początek bieżącego otwarcia rekrutacji (`opening_started_at`, 05.11.2026):
+  *  karty ruszone wcześniej są wyszarzone, z etykietą „Sprzed otwarcia”. */
+ openingStartedAt?: string | null;
  /**
   * Pasek nad tablicą (02.10.2026: kafle „Kandydaci do dodania”). Dostaje
   * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
@@ -402,7 +422,7 @@ export const withPendingMoves = (
  }
  if (colId(c) !== target) return c;
  // Świeże wejście na etap = góra kolumny, jak po odświeżeniu (`compareNewestFirst`).
- const entered = { ...moved, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const entered = { ...moved, stage: c.stage, days_in_stage: 0, waiting_workdays: 0, moved_at: new Date().toISOString() };
  const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  });
@@ -629,8 +649,10 @@ function NextActionRow({
  step,
  hidden,
  advance,
- days,
- hideWho = false,
+ waitingDays,
+ stageSince,
+ button,
+ stackDays = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -638,15 +660,35 @@ function NextActionRow({
  hidden?: boolean;
  /** Strzałka „→" na końcu wiersza. */
  advance?: React.ReactNode;
- /** Dni na etapie — „piłka” mówi, od kiedy leży (PR 4, 04.10.2026). */
- days?: number | null;
- /** Imię osoby z ruchem stoi już wiersz wyżej (dodał ją ta sama osoba). */
- hideWho?: boolean;
+ /** Jedyna liczba dni na karcie (`waiting_workdays`, U5): dni robocze z serwera. */
+ waitingDays?: number | null;
+ /** „na etapie od 03.11” — dni kalendarzowe tylko w dymku. */
+ stageSince?: string | null;
+ /** Główny przycisk ruchu: mówi to samo co nazwa kroku, więc ją zastępuje. */
+ button?: React.ReactNode;
+ /** Szeroki przycisk: liczba dni pod nim, jak przy nazwie kroku. */
+ stackDays?: boolean;
 }) {
- if (action.kind === "none" && !step && !advance && !(days != null && days >= 1)) return null;
- const daysTone = days == null ? null : days >= 7 ? "danger" : days >= 3 ? "warning" : "neutral";
+ if (action.kind === "none" && !step && !advance && !button && !(waitingDays != null && waitingDays >= 1)) return null;
+ const showDays = waitingDays != null && waitingDays >= 1;
+ const daysTone = !showDays ? null : waitingDays >= 5 ? "danger" : waitingDays >= 3 ? "warning" : "neutral";
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
  const label = step?.label ?? action.label;
+ // „0 d” nic nie mówi — liczba od pierwszego pełnego dnia roboczego.
+ const days = showDays ? (
+  <span
+   data-testid="card-days"
+   className={cn(
+    "shrink-0 tabular-nums text-muted-foreground",
+    daysTone === "danger" && "font-semibold text-destructive",
+    daysTone === "warning" && "font-semibold text-warning"
+   )}
+   title={[`Dni robocze czekania: ${waitingDays}`, stageSince].filter(Boolean).join(" · ")}
+  >
+   {/* Obok przycisku nie ma miejsca na „czeka”, przy nazwie kroku jest. */}
+   {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+  </span>
+ ) : null;
  return (
  <div
  data-next-action={action.tone}
@@ -656,47 +698,54 @@ function NextActionRow({
  hidden && "xl:pointer-fine:hidden"
  )}
  >
- {step && !hideWho ? (
-  <span
-   data-testid="card-next-who"
-   className={cn(
-    "shrink-0 rounded px-1 text-[9.5px] font-semibold",
-    step.mine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-   )}
+ {button ? (
+  <div
+   className={cn("flex min-w-0 flex-1 gap-1.5", stackDays ? "flex-col items-start gap-0.5" : "items-center")}
+   title={step ? `${step.who}: ${label}` : label}
   >
-   {step.who}
-  </span>
- ) : label ? (
-  <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- ) : null}
- {/* Krótka nazwa kroku (`shortStepLabel`) — pełna w `title`; dwie linie
- zostają jako zapas dla własnych etapów szablonu. */}
- <span className="min-w-0 flex-1 line-clamp-2" title={label}>{shortStepLabel(label)}</span>
- {/* „0 d” nic nie mówi — dni od pierwszego pełnego dnia na etapie. */}
- {days != null && days >= 1 && (
-  <span
-   data-testid="card-days"
-   className={cn(
-    "shrink-0 tabular-nums text-muted-foreground",
-    daysTone === "danger" && "font-semibold text-destructive",
-    daysTone === "warning" && "font-semibold text-warning"
-   )}
-   title={`Na tym etapie od ${days} dni`}
-  >
-   {days} d
-  </span>
+   {button}
+   {days}
+  </div>
+ ) : step ? (
+  // Kto ma ruch i krok w jednej linii, liczba dni pod nimi: obok „Twój ruch”
+  // i strzałki nie mieści się cały napis „czeka 26 dni rob.”.
+  <div className="min-w-0 flex-1">
+   <div className="flex min-w-0 items-center gap-1.5">
+    <span
+     data-testid="card-next-who"
+     className={cn(
+      "shrink-0 rounded px-1 text-[9.5px] font-semibold",
+      step.mine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+     )}
+    >
+     {step.who}
+    </span>
+    <span className="min-w-0 truncate" title={label}>{shortStepLabel(label)}</span>
+   </div>
+   {days ? <div className="mt-0.5">{days}</div> : null}
+  </div>
+ ) : (
+  <>
+   {label ? <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
+   <span className="min-w-0 flex-1 truncate" title={label}>{shortStepLabel(label)}</span>
+   {days}
+  </>
  )}
  {advance}
  </div>
  );
 }
 
-/** Ton chipu QC — tokeny, jak odznaki karty. */
-const QC_CHIP_TONE: Record<QcChipTone, string> = {
- ok: "bg-success/15 text-success",
- urgent: "bg-destructive/10 text-destructive",
- wait: "bg-warning/15 text-warning",
- neutral: "bg-muted text-muted-foreground",
+/** Ton etapu złożonego w kolumnę — te same tokeny co plakietki karty. */
+const STAGE_BADGE_CARD_TONE: Record<StageBadgeKey, CardBadgeTone> = {
+ posting: "neutral",
+ acceptance: "info",
+ cpro: "info",
+ prep: "info",
+ after_interview: "neutral",
+ contract_sent: "wait",
+ contract_signed: "ok",
+ onboarding: "info",
 };
 
 interface CardProps {
@@ -715,12 +764,15 @@ interface CardProps {
  overBudget: boolean;
  /** Krytyczne bez śladu w profilu, CV i notatkach — odznaka, nie blokada. */
  criticalGaps?: string[];
+ criticalAlternatives?: Record<string, string[]>;
  /** Miejsce w „Zadzwoń najpierw” kolumny „Nowi” (`lib/new-column-queue.ts`). */
  callFirstRank?: number;
  /** Przeskoczył na co 5. miejsce jako osoba bez procesu (`freshSlots`). */
  freshSlot?: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
+ /** Wyniki tablicy przyszły (mapa jest) — brak wyniku osoby = „niepoliczone”. */
+ scoresReady?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
  /** Tryb przeglądowy: karta degraduje się do kafelka (patrz
@@ -744,22 +796,10 @@ const SETTABLE_BADGE_TOGGLE_LABEL: Partial<Record<StageBadgeKey, string>> = {
  contract_signed: "Umowa podpisana",
 };
 
-const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
- posting: "bg-muted text-muted-foreground",
- acceptance: "bg-info/15 text-info",
- cpro: "bg-info/15 text-info",
- prep: "bg-info/15 text-info",
- after_interview: "bg-muted text-muted-foreground",
- contract_sent: "bg-warning/15 text-warning",
- contract_signed: "bg-success/15 text-success",
- onboarding: "bg-info/15 text-info",
-};
-
 // ── Pasek zamkniętych (Pipeline v4) ─────────────────────────────────────────
 // Odrzuceni dzielą się na trzy grupy po `ended_by`; wiersz bez tej informacji
 // (sprzed 0352, import) liczy się jako „przez nas", jak w statystykach.
 const CLOSED_BY_SEP = "::";
-type ClosedRejectBy = "recruiter" | "delivery_lead" | "client";
 // `short` stoi na chipie po „Zamknięci:" w pasku filtrów (24.09.2026),
 // `label` — w nazwie dostępnej i dymku.
 const CLOSED_REJECT_GROUPS: { by: ClosedRejectBy; label: string; short: string }[] = [
@@ -780,7 +820,7 @@ function closedChips(closed: KanbanColumn[]) {
  droppableId: `${colId(c)}${CLOSED_BY_SEP}${by}`,
  label,
  short,
- count: c.items.filter((i) => (i.ended_by ?? "recruiter") === by).length,
+ count: c.items.filter((i) => closedRejectBy(i.ended_by) === by).length,
  }));
  }
  return [{ col: c, droppableId: colId(c), label: columnLabel(c), short: columnLabel(c), count: c.count }];
@@ -811,6 +851,8 @@ interface BoardV4Ctx {
  skipsFillGates: boolean;
  /** Przegląd tej rekrutacji NALEŻY do patrzącego (serwer). */
  viewerOwnsDlReview: boolean;
+ /** Początek bieżącego otwarcia rekrutacji (serwer: `opening_started_at`). */
+ openingStartedAt: string | null;
  /** „Przejrzyj i wyślij” — przegląd przed wysłaniem do klienta. */
  onReviewSend: (item: KanbanItem) => void;
  /** Otwórz panel osoby jak klik w kartę („Screening razem” z okienka karty). */
@@ -820,6 +862,17 @@ interface BoardV4Ctx {
  onClientAccept: ((item: KanbanItem) => void) | null;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
+
+/** Menu „Co z klientem?” karty: ruchy idą oknami Tablicy (osobny kontekst, bo
+ *  powstają niżej niż `BoardV4Ctx`). */
+interface ClientWaitBoardCtx {
+ rejectedStageDefId?: number;
+ reasons: React.ComponentProps<typeof ClientWaitCardActions>["reasons"];
+ onInterview: (item: KanbanItem) => void;
+ onRejected: (item: KanbanItem) => void;
+ onChanged: () => void;
+}
+const ClientWaitBoardContext = React.createContext<ClientWaitBoardCtx | null>(null);
 
 /** Klucz osoby w kolejce przeglądu „po kolei” (stała funkcja — zależność haka). */
 const candidateIdOf = (item: KanbanItem): number => item.candidate_id;
@@ -836,93 +889,11 @@ const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
  booked_call: PhoneCall,
 };
 
-function CardV4Badges({
- item,
- fullName,
- stageBadge,
-}: {
- item: KanbanItem;
- fullName: string;
- stageBadge: StageBadgeKey | null;
-}) {
- const v4 = React.useContext(BoardV4Context);
- if (!v4) return null;
- const ctx = {
-  column: v4.columnByItemId.get(item.id) ?? null,
-  cproEnabled: v4.cproEnabled,
-  viewerId: v4.viewerId,
-  now: new Date(),
-  stageBadge,
-  viewerOwnsDlReview: v4.viewerOwnsDlReview,
- };
- const badges = cardBadges(item, ctx);
- const action = v4.readOnly ? null : claimAction(item, ctx);
- if (badges.length === 0 && !action) return null;
- return (
-  <>
-   {badges.map((b) => {
-    const compact = compactCardBadge(b);
-    if (compact) {
-     // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
-     // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
-     const Icon =
-      b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
-     return (
-      <span
-       key={b.key}
-       data-testid={`card-badge-${b.key}`}
-       className={cn(
-        "inline-flex max-w-full items-center gap-0.5 truncate rounded px-1 text-[10px] font-semibold",
-        CARD_BADGE_TONE_CLASS[b.tone]
-       )}
-       title={compact.full}
-      >
-       <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-       {compact.short ? <span aria-hidden="true">{compact.short}</span> : null}
-       <span className="sr-only">{b.label}</span>
-      </span>
-     );
-    }
-    return (
-     <span
-      key={b.key}
-      data-testid={`card-badge-${b.key}`}
-      className={cn(
-       "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
-       CARD_BADGE_TONE_CLASS[b.tone]
-      )}
-      title={b.title}
-     >
-      {b.label}
-     </span>
-    );
-   })}
-   {action && (() => {
-    // Osoba od systemu (23.10.2026): „Biorę” to decyzja „Dzwonię”.
-    const takeLabel =
-     action === "takeover"
-      ? "Przejmij"
-      : item.entry_source === "system" && !item.entry_autofill?.decided
-       ? "Dzwonię"
-       : "Biorę";
-    return (
-     <button
-      type="button"
-      onClick={(e) => {
-       e.stopPropagation();
-       e.preventDefault();
-       v4.onTake(item);
-      }}
-      disabled={v4.takingIds.has(item.id)}
-      className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
-      aria-label={`${takeLabel} ${fullName} — na 12 h`}
-     >
-      {takeLabel}
-     </button>
-    );
-   })()}
-  </>
- );
+/** Ikona plakietki, która ma mówić „uwaga” także bez czytania napisu. */
+function signalIcon(key: string): typeof Lock | null {
+ if (key === "hm_veto" || key === "care") return UserX;
+ if (key === "over_budget" || key === "critical_gap" || key.startsWith("warning_")) return AlertTriangle;
+ return null;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -937,10 +908,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScorecard,
  overBudget,
  criticalGaps,
+ criticalAlternatives,
  callFirstRank,
  freshSlot,
  matchScore,
  scoresLoading,
+ scoresReady = false,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
  desktopOverview,
@@ -952,6 +925,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  // Rekrutacja v5: kolumna Tablicy karty, „kto ma ruch", strzałka „→" i chip QC.
  const v5 = React.useContext(BoardV4Context);
+ const clientWaitBoard = React.useContext(ClientWaitBoardContext);
+ const previousOpening = fromPreviousOpening(item, v5?.openingStartedAt);
  const boardKey = v5?.columnByItemId.get(item.id) ?? null;
  const nextStep = v5
  ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId, viewerOwnsDlReview: v5.viewerOwnsDlReview })
@@ -974,6 +949,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
  : null;
+ const scoreState = cardScoreState(normalizedMatchScore, Boolean(scoresLoading), scoresReady);
  const detailsId = `kanban-candidate-details-${item.id}`;
  const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
  const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
@@ -1009,6 +985,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }\n${addedLine}`
  : owner.role === "taken"
  ? `Wziął(-ęła) „Biorę”: ${owner.name}\n${addedLine}`
+ : owner.role === "review"
+ ? `Dla: ${owner.name} (porcja dnia od Nexusa)\n${addedLine}`
  : owner.role === "verified"
  ? `Zweryfikował(a): ${owner.name}${
  item.verified_at ? ` · ${formatDate(item.verified_at)}` : ""
@@ -1017,7 +995,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Konflikty z klientem i czarna lista: serwer niesie je w `warnings`,
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
- const criticalGap = criticalGapBadge(criticalGaps);
+ const criticalGap =
+ criticalGapBadge(criticalGaps) ?? criticalAlternativeBadge(criticalAlternatives);
  // Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem, którą
  // domyka Delivery Lead — „Prowadzi” zostaje przy osobie, która odeszła.
  const care =
@@ -1038,6 +1017,242 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  .filter(Boolean)
  .join("\n")
  : undefined;
+ const stageSince = stageSinceText(item);
+ const vetoTitle = item.hm_veto
+ ? [
+ `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
+ `Powód: ${item.hm_veto.rejection_reason_name}`,
+ item.hm_veto.source_job_title ? `Rekrutacja: ${item.hm_veto.source_job_title}` : null,
+ "Ostrzeżenie — ruch jest możliwy po potwierdzeniu.",
+ ]
+ .filter(Boolean)
+ .join("\n")
+ : null;
+ const knownFacts = callFirstRank != null ? knownFactLabels(item.entry_autofill?.known) : [];
+ // Wszystko, co karta liczy poza `cardBadges`. Układa to `cardPrimaryBadges`:
+ // dwie plakietki w wierszu, reszta w „+N” (U1, audyt 08.11.2026).
+ const signals: CardBadge[] = [
+ ...(vetoTitle ? [{ key: "hm_veto", label: "Weto HM", tone: "urgent" as const, title: vetoTitle }] : []),
+ ...warningBadges.map((w) => ({
+ key: `warning_${w.code}`,
+ label: w.label,
+ tone: (w.tone === "danger" ? "urgent" : "wait") as CardBadgeTone,
+ title: w.title,
+ testId: `card-warning-${w.code}`,
+ })),
+ ...(overBudget
+ ? [{
+ key: "over_budget",
+ label: "ponad budżet",
+ tone: "wait" as const,
+ title: `Stawka ${formatExpectedRate(item) ?? ""} przekracza budżet godzinowy rekrutacji. Ruch nie jest blokowany.`,
+ }]
+ : []),
+ ...(criticalGap
+ ? [{ key: "critical_gap", label: criticalGap.label, tone: "wait" as const, title: criticalGap.title, testId: "card-critical-gap" }]
+ : []),
+ ...(care
+ ? [{
+ key: "care",
+ label: care.caretaker,
+ tone: "neutral" as const,
+ title: `${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`,
+ testId: "card-departed-care",
+ }]
+ : []),
+ ...impliedBadges(cardStageBadge(item, stageBadge))
+ .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
+ .map((badge) => ({
+ key: `stage_${badge}`,
+ label: STAGE_BADGE_LABEL[badge],
+ tone: STAGE_BADGE_CARD_TONE[badge],
+ title: STAGE_BADGE_TITLE[badge],
+ })),
+ ...(boardKey === "contract" && item.client_acceptance
+ ? [{
+ key: "client_acceptance",
+ label: acceptanceLine(item.client_acceptance) ?? "Klient zaakceptował",
+ tone: "ok" as const,
+ title: acceptanceTitle(item.client_acceptance) ?? undefined,
+ testId: "card-client-acceptance",
+ }]
+ : []),
+ ...(qc && v5 ? [{ key: "qc", label: qc.label, tone: qc.tone, title: qc.title, testId: "card-qc-chip" }] : []),
+ ...(skippedBadge ? [{ ...skippedBadge, testId: "card-requirements-skipped" }] : []),
+ ...(cvBadge ? [{ ...cvBadge, testId: "card-cv-state" }] : []),
+ ...(item.employment_marker
+ ? [{ key: "employment", label: markerLabel(item.employment_marker), tone: "neutral" as const, testId: "card-employment" }]
+ : []),
+ ...(!readOnly && scorecardDue
+ ? [{ key: "scorecard", label: "Scorecard", tone: "wait" as const, title: "Scorecard tego etapu — do uzupełnienia" }]
+ : []),
+ ...(showsOtherJobsChip(item, boardKey)
+ ? [{ key: "other_jobs", label: otherJobsChipLabel(item.other_open_jobs?.length ?? 0), tone: "info" as const, testId: "card-other-jobs-chip" }]
+ : []),
+ ...knownFacts.map((label, i) => ({ key: `known_${i}`, label, tone: "info" as const, title: "Znamy tę osobę: szczegóły w panelu." })),
+ ...(callFirstRank != null && freshSlot
+ ? [{
+ key: "fresh_slot",
+ label: "Jeszcze bez procesu",
+ tone: "info" as const,
+ title: "Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji.",
+ testId: "card-fresh-slot",
+ }]
+ : []),
+ ...(item.rating != null && item.rating > 0
+ ? [{ key: "rating", label: `Ocena ${item.rating.toFixed(1)}`, tone: "neutral" as const }]
+ : []),
+ ...(contactFeatureEnabled && item.contact_case !== undefined
+ ? [{ key: "contact", label: "Status kontaktu", tone: "neutral" as const }]
+ : []),
+ ];
+ const badgeCtx = v5
+ ? {
+ column: boardKey,
+ cproEnabled: v5.cproEnabled,
+ viewerId: v5.viewerId,
+ now: new Date(),
+ stageBadge,
+ viewerOwnsDlReview: v5.viewerOwnsDlReview,
+ openingStartedAt: v5.openingStartedAt,
+ }
+ : null;
+ const takeAction = badgeCtx && !readOnly ? claimAction(item, badgeCtx) : null;
+ const takeLabel =
+ takeAction === "takeover"
+ ? "Przejmij"
+ : item.entry_source === "system" && !item.entry_autofill?.decided
+ ? "Dzwonię"
+ : "Biorę";
+ // Jeden przycisk w wierszu ruchu; screening, gdy miejsce zajęte, idzie do „+N”.
+ const clientAccept = boardKey === "client_interview" && v5?.onClientAccept && !readOnly ? v5.onClientAccept : null;
+ // Cisza klienta od 6. dnia roboczego: jedno menu w wierszu ruchu (S-C2).
+ const clientSilentDays =
+  boardKey === "cv_sent" && !readOnly && v5?.canReviewAsDl && clientWaitBoard ? (item.client_silent_workdays ?? null) : null;
+ const screeningInRow =
+  !readOnly && canScreen && screeningDue && !reviewSend && !takeAction && !clientAccept && clientSilentDays == null;
+ if (!readOnly && canScreen && !screeningInRow) {
+ signals.push({
+ key: "screening",
+ label: screeningDue ? "Uzupełnij screening" : "Screening",
+ tone: screeningDue ? "wait" : "neutral",
+ title: screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa",
+ });
+ }
+ const { primary: primaryBadges, more: moreBadges } = cardPrimaryBadges(item, badgeCtx, signals);
+ const chipBase = "inline-flex min-w-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold";
+ const stopThen = (fn: () => void) => (e: React.MouseEvent) => {
+ e.stopPropagation();
+ e.preventDefault();
+ fn();
+ };
+ const renderBadge = (b: CardBadge, full = false) => {
+ const testId = b.testId ?? `card-badge-${b.key}`;
+ if (b.key === "qc" && v5) {
+ return (
+ <button
+ key={b.key}
+ type="button"
+ data-testid={testId}
+ onClick={stopThen(() => v5.onOpenQc(item))}
+ className={cn(chipBase, "hover:ring-1 hover:ring-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", CARD_BADGE_TONE_CLASS[b.tone])}
+ title={b.title}
+ aria-label={`${b.label} — otwórz QC CV dla ${fullName}`}
+ >
+ <span className="truncate">{b.label}</span>
+ </button>
+ );
+ }
+ if (b.key === "scorecard") {
+ return (
+ <button
+ key={b.key}
+ type="button"
+ onClick={stopThen(() => onOpenScorecard(item))}
+ className={cn(chipBase, "bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors")}
+ title={b.title}
+ aria-label={`Uzupełnij scorecard dla ${fullName}`}
+ >
+ <Flag className="h-2.5 w-2.5 shrink-0" />
+ {b.label}
+ </button>
+ );
+ }
+ if (b.key === "screening") {
+ return (
+ <button
+ key={b.key}
+ type="button"
+ onClick={stopThen(() => onOpenScreening(item.id, fullName))}
+ className={cn(chipBase, "hover:ring-1 hover:ring-current", CARD_BADGE_TONE_CLASS[b.tone])}
+ title={b.title}
+ aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
+ >
+ <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ {b.label}
+ </button>
+ );
+ }
+ if (b.key === "other_jobs") {
+ return (
+ <OtherJobsChip
+ key={b.key}
+ item={item}
+ fullName={fullName}
+ onScreenTogether={
+ v5 && !readOnly
+ ? (jobIds) => {
+ useJointScreeningIntent.getState().setIntent(item.candidate_id, jobIds);
+ v5.onOpenPerson(item);
+ }
+ : undefined
+ }
+ />
+ );
+ }
+ if (b.key === "employment" && item.employment_marker) {
+ return (
+ <EmploymentPill
+ key={b.key}
+ marker={item.employment_marker}
+ appearance="text"
+ label={{ clients: "count", date: "short" }}
+ aria-hidden="true"
+ data-testid={testId}
+ className="min-w-0 text-[10.5px]"
+ />
+ );
+ }
+ if (b.key === "contact") {
+ return <ContactStatusBadge key={b.key} contactCase={item.contact_case} />;
+ }
+ const compact = full ? null : compactCardBadge(b);
+ if (compact) {
+ // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
+ // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
+ const Icon = b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
+ return (
+ <span key={b.key} data-testid={testId} className={cn(chipBase, "truncate", CARD_BADGE_TONE_CLASS[b.tone])} title={compact.full}>
+ <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ {compact.short ? <span aria-hidden="true">{compact.short}</span> : null}
+ <span className="sr-only">{b.label}</span>
+ </span>
+ );
+ }
+ const Icon = signalIcon(b.key);
+ return (
+ <span
+ key={b.key}
+ data-testid={testId}
+ data-tour={b.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ className={cn(chipBase, CARD_BADGE_TONE_CLASS[b.tone])}
+ title={b.title}
+ >
+ {Icon ? <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
+ <span className="truncate">{b.label}</span>
+ </span>
+ );
+ };
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
  criticalGap ? criticalGap.title : null,
@@ -1047,15 +1262,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `Dopasowanie AI: ${normalizedMatchScore} na 100.`
  : scoresLoading
  ? "Trwa obliczanie dopasowania AI."
+ : scoreState === "unscored"
+ ? "Dopasowanie AI jeszcze niepoliczone."
  : desktopOverview
  ? "Brak wyliczonego dopasowania AI."
  : null,
  item.rating != null && item.rating > 0
  ? `Ocena: ${item.rating.toFixed(1)}.`
  : null,
- item.days_in_stage != null
- ? `W etapie od ${item.days_in_stage} dni.`
+ item.waiting_workdays != null && item.waiting_workdays >= 1
+ ? `Czeka dni roboczych: ${item.waiting_workdays}.`
  : null,
+ stageSince ? `${stageSince[0].toUpperCase()}${stageSince.slice(1)}.` : null,
  `${addedAttribution.replace("\n", ". ")}.`,
  closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
@@ -1106,8 +1324,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
  // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
- item.hm_veto &&"border-destructive/50"
+ item.hm_veto &&"border-destructive/50",
+ // Karta z poprzedniego otwarcia (05.11.2026): wyszarzona z etykietą
+ // „Sprzed otwarcia …” — nie liczy się, dopóki ktoś jej nie ruszy.
+ previousOpening &&"opacity-60"
  )}
+ data-previous-opening={previousOpening ? "true" : undefined}
  title={
  [
  fullName,
@@ -1117,9 +1339,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.rating != null && item.rating > 0
  ? `Ocena: ${item.rating.toFixed(1)}`
  : null,
- item.days_in_stage != null
- ? `W etapie: ${item.days_in_stage} dni`
- : null,
+ stageSince ? `${stageSince[0].toUpperCase()}${stageSince.slice(1)}` : null,
  addedAttribution,
  ]
  .filter(Boolean)
@@ -1180,10 +1400,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  zwykły klik w nazwisko otwiera dok (wcześniej wyrzucał na profil,
  czyli z rekrutacji); profil w nowej karcie daje Ctrl/⌘-klik na
  nazwisku i „Pełny profil" w doku. */}
- {/* Wiersz 1 makiety: nazwisko (do dwóch linii, bez ucinania w połowie)
- + pierścień wyniku po prawej. Wielki awatar kandydata odpadł razem
- z jednolinijkowym nazwiskiem — przy ~176 px szerokości kolumny to on
- zabierał miejsce, przez które nazwisko trzeba było uciąć. */}
+ {/* Wiersz 1: nazwisko w jednej linii (pełne w dymku, U1 08.11.2026),
+ inicjały właściciela i pierścień wyniku po prawej. */}
  {/* Wcięcie DOKŁADNIE pod checkbox: jego pole wizualne (`before:inset-1`)
  kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
  Stare `pl-5` zostawiało nazwisku 64 z 158 px
@@ -1205,10 +1423,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenDock(item);
  }
  }}
- // `break-words`, NIE `overflow-wrap:anywhere` — to drugie łamie nazwisko
- // w środku wyrazu przy ~176 px kolumny („Wojcie/ch Wyleżoł"), czyli robi
- // dokładnie to, czego ta karta miała się pozbyć.
- className={cn("block font-semibold text-foreground hover:underline break-words line-clamp-2",
+ title={fullName}
+ className={cn("block truncate font-semibold text-foreground hover:underline",
  "text-[13px] leading-snug",
  desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3",
  // W kafelku nazwisko zajmuje CAŁĄ kartę (39x87 px), więc link do profilu
@@ -1221,270 +1437,77 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {fullName}
  </Link>
  </div>
- {(normalizedMatchScore != null || scoresLoading) && (
- <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
- {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
- (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
- <ScoreRing score={normalizedMatchScore} density="compact" />
- </div>
- )}
- </div>
-
- {/* D2 (16.10.2026): akceptacja klienta — kiedy i kto zaznaczył. Tylko
- w kolumnie „Akceptacja i umowa”; karta cofnięta do rozmowy jej nie ma. */}
- {boardKey === "contract" && item.client_acceptance && (
- <p
- data-testid="card-client-acceptance"
- title={acceptanceTitle(item.client_acceptance) ?? undefined}
+ {/* Czyja karta (20.10.2026): inicjały, imię i data w dymku — kto ma ruch
+ mówi trzeci wiersz. */}
+ <span
+ data-testid="card-owner"
  className={cn(
- // Dwie linie zamiast ucinania: przy 1280 px „· Olga W.” spadało za brzeg.
- "mt-1 line-clamp-2 break-words rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-snug bg-success-muted text-success-muted-foreground",
+ "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
+ hasOwnerName ? "bg-primary/10 text-primary" : "bg-warning/15 text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
- )}
- >
- {acceptanceLine(item.client_acceptance)}
- </p>
- )}
-
- {/* Wiersz 2 makiety: właściciel karty po lewej, wiek na etapie po prawej. */}
- <div
- className={cn(
- // Bez `pl-5`: checkbox jest absolutny i zajmuje tylko górne 24 px, więc
- // wcięcie w dolnych wierszach kradłoby 20 px z i tak wąskiej kolumny.
- "mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] text-muted-foreground",
- desktopOverview && "xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:text-[10px] xl:pointer-fine:leading-none"
  )}
  title={addedAttribution}
- >
- <span
- className={cn(
- "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
- hasOwnerName
- ? "bg-primary/10 text-primary"
- : "bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
  aria-hidden="true"
  >
  {ownerInitials}
  </span>
- <span
- className={cn(
- "min-w-0 truncate",
- !hasOwnerName && "text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
+ {scoreState !== "none" && (
+ <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
+ {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
+ (40 px) zabierał ćwierć tej szerokości nazwisku obok. */}
+ {scoreState === "unscored" ? (
+ <UnscoredRing />
+ ) : (
+ <ScoreRing score={normalizedMatchScore} density="compact" />
  )}
- aria-hidden="true"
- >
- {ownerShortName}
- </span>
- {desktopOverview && (
- <span className="hidden truncate xl:pointer-fine:inline" aria-hidden="true">
- R: {ownerShortName}
- </span>
- )}
- {item.rating != null && item.rating > 0 && (
- <span
- className={cn(
- "inline-flex items-center gap-0.5",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- aria-hidden="true"
- >
- <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
- {item.rating.toFixed(1)}
- </span>
- )}
- {item.hm_veto && (
- <span
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={[
- `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
- `Powód: ${item.hm_veto.rejection_reason_name}`,
- item.hm_veto.source_job_title
- ? `Rekrutacja: ${item.hm_veto.source_job_title}`
- : null,
- "Ostrzeżenie — ruch jest możliwy po potwierdzeniu.",
- ]
- .filter(Boolean)
- .join("\n")}
- >
- <UserX className="h-2.5 w-2.5" />
- Weto HM
- </span>
- )}
- {overBudget && (
- <span
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={`Stawka ${formatExpectedRate(item) ?? ""} przekracza budżet godzinowy rekrutacji. Ruch nie jest blokowany.`}
- >
- <AlertTriangle className="h-2.5 w-2.5" />
- ponad budżet
- </span>
- )}
- {criticalGap && (
- <span
- data-testid="card-critical-gap"
- className={cn(
- "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={criticalGap.title}
- >
- <AlertTriangle className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- <span className="truncate" aria-hidden="true">{criticalGap.label}</span>
- </span>
- )}
- {warningBadges.map((w) => (
- <span
- key={w.code}
- data-testid={`card-warning-${w.code}`}
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide",
- w.tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={w.title}
- >
- <AlertTriangle className="h-2.5 w-2.5" aria-hidden="true" />
- <span aria-hidden="true">{w.label}</span>
- </span>
- ))}
- {care && (
- <span
- data-testid="card-departed-care"
- className={cn(
- "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-muted text-foreground",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={`${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`}
- >
- <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- <span className="truncate" aria-hidden="true">{care.caretaker}</span>
- </span>
- )}
- {impliedBadges(cardStageBadge(item, stageBadge))
- .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
- .map((badge) => (
- <span
- key={badge}
- className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold",
- STAGE_BADGE_TONE[badge],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={STAGE_BADGE_TITLE[badge]}
- >
- {STAGE_BADGE_LABEL[badge]}
- </span>
- ))}
- {qc && v5 && (
- <button
- type="button"
- data-testid="card-qc-chip"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onOpenQc(item);
- }}
- className={cn(
- "inline-flex items-center rounded px-1 text-[9px] font-semibold hover:ring-1 hover:ring-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
- QC_CHIP_TONE[qc.tone],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={qc.title}
- aria-label={`${qc.label} — otwórz QC CV dla ${fullName}`}
- >
- {qc.label}
- </button>
- )}
- {showsOtherJobsChip(item, boardKey) && (
- <OtherJobsChip
- item={item}
- fullName={fullName}
- className={cn(desktopOverview && "xl:pointer-fine:hidden")}
- onScreenTogether={
- v5 && !readOnly
- ? (jobIds) => {
- useJointScreeningIntent.getState().setIntent(item.candidate_id, jobIds);
- v5.onOpenPerson(item);
- }
- : undefined
- }
- />
- )}
- <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
- {/* Osobny wiersz na końcu: u kogo osoba u nas pracuje i do kiedy.
- Treść dla czytnika jest w opisie karty (`accessibleDetails`). */}
- {item.employment_marker && (
- <EmploymentPill
- marker={item.employment_marker}
- appearance="text"
- label={{ clients: "count", date: "short" }}
- aria-hidden="true"
- data-testid="card-employment"
- className={cn("basis-full text-[10.5px]", desktopOverview && "xl:pointer-fine:hidden")}
- />
- )}
- {/* Stan CV firmowego (14.10.2026, `cvStateBadge` — ta sama reguła
- co wiersz tabeli): automat pisze CV, „CV gotowe · QC: N do poprawy” /
- „bez uwag” po QC na „Zweryfikowanym”, „CV gotowe w tle” przed QC. */}
- {skippedBadge && (
- <span
- data-testid="card-requirements-skipped"
- className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold",
- CARD_BADGE_TONE_CLASS[skippedBadge.tone],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={skippedBadge.title}
- >
- {skippedBadge.label}
- </span>
- )}
- {cvBadge && (
- <span
- data-testid="card-cv-state"
- className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold",
- CARD_BADGE_TONE_CLASS[cvBadge.tone],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={cvBadge.title}
- >
- {cvBadge.label}
- </span>
- )}
- {!readOnly && scorecardDue && (
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- onOpenScorecard(item);
- }}
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title="Scorecard tego etapu — do uzupełnienia"
- aria-label={`Uzupełnij scorecard dla ${fullName}`}
- >
- <Flag className="h-2.5 w-2.5" />
- Scorecard
- </button>
+ </div>
  )}
  </div>
 
- {contactFeatureEnabled ? (
- <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
- <ContactStatusBadge contactCase={item.contact_case} className="mt-1" />
+ {/* Wiersz 2: najwyżej dwie plakietki, reszta w „+N” (`cardPrimaryBadges`). */}
+ {desktopOverview ? (
+ <p className="hidden truncate text-center text-[10px] leading-none text-muted-foreground xl:pointer-fine:block" title={addedAttribution} aria-hidden="true">
+ R: {ownerShortName}
+ </p>
+ ) : null}
+ {primaryBadges.length > 0 || moreBadges.length > 0 ? (
+ <div
+ data-testid="card-badges-row"
+ className={cn("mt-1 flex min-w-0 items-center gap-1", desktopOverview && "xl:pointer-fine:hidden")}
+ >
+ {primaryBadges.map((b) => renderBadge(b))}
+ {moreBadges.length > 0 ? (
+ <Popover>
+ <PopoverTrigger asChild>
+ <button
+ type="button"
+ data-testid="card-badges-more"
+ onClick={(e) => e.stopPropagation()}
+ title={moreBadges.map((b) => b.label).join(" · ")}
+ aria-label={`Jeszcze ${moreBadges.length}: ${moreBadges.map((b) => b.label).join(", ")}`}
+ className="ml-auto inline-flex h-4 shrink-0 items-center rounded bg-muted px-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ +{moreBadges.length}
+ </button>
+ </PopoverTrigger>
+ <PopoverContent
+ align="end"
+ className="w-72 p-2"
+ data-testid="card-badges-more-content"
+ // Okienko jest w portalu, ale zdarzenia Reacta idą do karty.
+ onClick={(e) => e.stopPropagation()}
+ >
+ <ul className="space-y-1.5">
+ {moreBadges.map((b) => (
+ <li key={b.key} className="text-xs">
+ <div className="flex flex-wrap items-center gap-1">{renderBadge(b, true)}</div>
+ {b.title ? <p className="mt-0.5 whitespace-pre-line text-muted-foreground">{b.title}</p> : null}
+ </li>
+ ))}
+ </ul>
+ </PopoverContent>
+ </Popover>
+ ) : null}
  </div>
  ) : null}
 
@@ -1508,44 +1531,85 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </p>
  ) : null}
 
- {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
- {callFirstRank != null && (freshSlot || knownFactLabels(item.entry_autofill?.known).length > 0) ? (
- <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
- {knownFactLabels(item.entry_autofill?.known).map((label) => (
- <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
- {label}
- </span>
- ))}
- {freshSlot ? (
- <span
- data-testid="card-fresh-slot"
- title="Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji."
- className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary"
- >
- Jeszcze bez procesu
- </span>
- ) : null}
- </div>
- ) : null}
+ {/* Wiersz 3: kto ma ruch, jedna liczba dni, przycisk i strzałka „→". */}
  <NextActionRow
  action={nextAction}
  step={nextStep}
- days={item.days_in_stage ?? null}
+ waitingDays={item.waiting_workdays ?? null}
+ stageSince={stageSince}
  hidden={desktopOverview}
- // Osoba z karty (dodała albo zweryfikowała) ma ruch — jej imię stoi wiersz wyżej
- // (dawniej „Integracje:” dwa razy na jednej karcie, 04.10.2026).
- hideWho={Boolean(nextStep && !nextStep.mine && hasOwnerName && nextStep.who === ownerShortName)}
+ stackDays={clientSilentDays != null}
+ button={
+ reviewSend && v5 ? (
+ <button
+ type="button"
+ data-testid="card-review-send"
+ data-owner={v5.viewerOwnsDlReview ? "true" : "false"}
+ onClick={stopThen(() => v5.onReviewSend(item))}
+ aria-label={`${v5.cproEnabled ? "Przejrzyj i zaakceptuj do Cpro" : "Przejrzyj i wyślij"}: ${fullName}`}
+ className={cn(
+ "inline-flex min-w-0 items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ v5.viewerOwnsDlReview
+ ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+ : "border-primary/40 text-primary hover:bg-primary/10"
+ )}
+ >
+ {/* Nordea (14.10.2026): nic nie idzie do klienta — przegląd kończy
+ akceptacja do kolejki Cpro. */}
+ <span className="truncate">{v5.cproEnabled ? CPRO_REVIEW_LABEL : "Przejrzyj i wyślij"}</span>
+ </button>
+ ) : takeAction && v5 ? (
+ <button
+ type="button"
+ onClick={stopThen(() => v5.onTake(item))}
+ disabled={v5.takingIds.has(item.id)}
+ className="inline-flex shrink-0 items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+ aria-label={`${takeLabel} ${fullName} — na 12 h`}
+ >
+ {takeLabel}
+ </button>
+ ) : clientAccept ? (
+ <button
+ type="button"
+ data-testid="card-client-accept"
+ onClick={stopThen(() => clientAccept(item))}
+ aria-label={`Zaznacz akceptację klienta: ${fullName}`}
+ className="inline-flex min-w-0 items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
+ >
+ <span className="truncate">Zaznacz akceptację</span>
+ </button>
+ ) : clientSilentDays != null && clientWaitBoard ? (
+ <ClientWaitCardActions
+ jobId={jobId}
+ candidateId={item.candidate_id}
+ candidateName={fullName}
+ workdays={clientSilentDays}
+ rejectedStageDefId={clientWaitBoard.rejectedStageDefId}
+ reasons={clientWaitBoard.reasons}
+ onInterview={() => clientWaitBoard.onInterview(item)}
+ onRejected={() => clientWaitBoard.onRejected(item)}
+ onChanged={clientWaitBoard.onChanged}
+ />
+ ) : screeningInRow ? (
+ <button
+ type="button"
+ onClick={stopThen(() => onOpenScreening(item.id, fullName))}
+ className="inline-flex min-w-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 text-[10px] font-semibold text-warning ring-1 ring-warning/40 hover:bg-primary hover:text-white transition-colors pointer-coarse:min-h-8"
+ title="Screening Championa — do uzupełnienia"
+ aria-label={`Uzupełnij screening dla ${fullName}`}
+ >
+ <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate">Uzupełnij screening</span>
+ </button>
+ ) : undefined
+ }
  advance={
  nextColumnLabel && v5 && !reviewSend ? (
  <button
  type="button"
  data-testid="card-advance"
  data-gap={forwardGap ? "true" : "false"}
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onAdvance(item);
- }}
+ onClick={stopThen(() => v5.onAdvance(item))}
  aria-label={`Przesuń ${fullName} na następny etap`}
  title={
  forwardGap
@@ -1565,56 +1629,23 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  />
 
- {/* D1 (16.10.2026): „Klient zaakceptował” na karcie po rozmowie u klienta —
- okno akceptacji (data, debrief, kto dostanie dzwonek), potem ruch. */}
- {boardKey === "client_interview" && v5?.onClientAccept && !readOnly && (
+ {/* Kafelek w widoku przeglądowym: bez wiersza ruchu, screening zostaje ikoną. */}
+ {desktopOverview && !readOnly && canScreen ? (
+ <div className="hidden justify-end xl:pointer-fine:flex">
  <button
  type="button"
- data-testid="card-client-accept"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onClientAccept?.(item);
- }}
- aria-label={`Klient zaakceptował: ${fullName}`}
+ onClick={stopThen(() => onOpenScreening(item.id, fullName))}
  className={cn(
- "mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-success/40 bg-success-muted text-[11px] font-semibold text-success-muted-foreground transition-colors hover:bg-success/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9",
- desktopOverview && "xl:pointer-fine:hidden"
+ "inline-flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-white",
+ screeningDue ? "bg-warning/15 text-warning ring-1 ring-warning/40" : "bg-primary/10 text-primary"
  )}
+ title={screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa"}
+ aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
  >
- <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />
- Klient zaakceptował
- </button>
- )}
-
- {/* „Przejrzyj i wyślij” — własny wiersz pod „kto ma ruch” (jak pigułka
- Screeningu niżej, nigdy `absolute`). Wypełniony u Delivery Leada tej
- rekrutacji, obrysowany u pozostałych z prawem wysyłki. */}
- {reviewSend && v5 && (
- <div className={cn("mt-1 flex justify-end", desktopOverview && "xl:pointer-fine:hidden")}>
- <button
- type="button"
- data-testid="card-review-send"
- data-owner={v5.viewerOwnsDlReview ? "true" : "false"}
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onReviewSend(item);
- }}
- aria-label={`${v5.cproEnabled ? "Przejrzyj i zaakceptuj do Cpro" : "Przejrzyj i wyślij"}: ${fullName}`}
- className={cn(
- "inline-flex max-w-full items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
- v5.viewerOwnsDlReview
- ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
- : "border-primary/40 text-primary hover:bg-primary/10"
- )}
- >
- {/* Nordea (14.10.2026): nic nie idzie do klienta — przegląd kończy
- akceptacja do kolejki Cpro. */}
- <span className="truncate">{v5.cproEnabled ? CPRO_REVIEW_LABEL : "Przejrzyj i wyślij"}</span>
+ <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
  </button>
  </div>
- )}
+ ) : null}
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty. */}
@@ -1637,34 +1668,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <Trash2 className="h-3.5 w-3.5" />
  </button>}
 
- {/* Screening jest WIERSZEM karty, nie elementem na `absolute bottom-1
- right-1`: tamta pozycja to dokładnie wiersz „co dalej z tą kartą"
- (`NextActionRow`), więc na „Zweryfikowany" pigułka „Uzupełnij screening"
- przykrywała „Wyślij CV do klienta" (#1604). */}
- {!readOnly && canScreen && (
- <div className={cn("mt-1 flex justify-end", desktopOverview &&"xl:pointer-fine:mt-0")}>
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- onOpenScreening(item.id, fullName);
- }}
- className={cn("inline-flex max-w-full items-center gap-1 text-[10px] px-1.5 py-0.5 pointer-coarse:min-h-8 pointer-coarse:px-2.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
- screeningDue
- ? "bg-warning/15 text-warning ring-1 ring-warning/40"
- : "bg-primary/10 text-primary",
- desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:p-0")}
- title={screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa"}
- aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
- >
- <Sparkles className="h-2.5 w-2.5 shrink-0" />
- <span className={cn("truncate", desktopOverview &&"xl:pointer-fine:sr-only")}>
- {screeningDue ? "Uzupełnij screening" : "Screening"}
- </span>
- </button>
- </div>
- )}
  </div>
  );
 });
@@ -1679,8 +1682,27 @@ interface ColProps {
  onOpenScreening: (stageId: number, name: string) => void;
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
+ criticalAltMap?: Map<number, Record<string, string[]>>;
  /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
- newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } | null;
+ newQueue?: {
+ ranks: Map<number, number>;
+ total: number;
+ freshFirst: boolean;
+ freshSlots: Set<number>;
+ sections: Map<number, NewColumnSection>;
+ appliedGapIds: Set<number>;
+ } | null;
+ /** Zwinięta grupa „Aplikowali, brak »musi mieć«” (06.11.2026). */
+ appliedGap?: {
+ count: number;
+ collapsed: boolean;
+ onToggle: () => void;
+ /** Zaznacza całą grupę — dalej istniejące „Odrzuć” z mailem w pasku (07.11.2026). */
+ onSelectAll?: () => void;
+ /** „Sprawdź w CV (AI)” dla całej grupy; `checking` = trwa. */
+ onAiCheck?: () => void;
+ checking?: boolean;
+ } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1752,7 +1774,11 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
 function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
  const callFirst = Math.min(total, CALL_FIRST_COUNT);
  const label =
- section === "team"
+ section === "applied"
+ ? "Aplikowali na ogłoszenie"
+ : section === "applied_gap"
+ ? "Aplikowali, brak „musi mieć”"
+ : section === "team"
  ? "Dodani przez zespół"
  : section === "call_first"
  ? `Zadzwoń najpierw · ${callFirst} z ${total}`
@@ -1760,7 +1786,7 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  return (
  <div
  data-testid={`new-column-section-${section}`}
- data-tour={section === "call_first" ? "board.new-queue" : undefined}
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
  className="px-0.5 pt-1 text-[11px] leading-tight"
  >
  <div className={cn("font-semibold", section === "call_first" ? "text-primary" : "text-muted-foreground")}>
@@ -1775,6 +1801,51 @@ function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewCo
  );
 }
 
+/** Akcje grupy aplikujących bez kompletu „musi mieć” (07.11.2026). */
+function AppliedGapActions({ onSelectAll, onAiCheck, checking }: { onSelectAll?: () => void; onAiCheck?: () => void; checking?: boolean }) {
+ if (!onSelectAll && !onAiCheck) return null;
+ return (
+ <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10.5px]">
+ {onAiCheck ? (
+ <button
+ type="button"
+ data-testid="new-column-applied-gap-ai-check"
+ onClick={onAiCheck}
+ disabled={checking}
+ className="font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ {checking ? "Sprawdzam CV…" : "Sprawdź w CV (AI)"}
+ </button>
+ ) : null}
+ {onSelectAll ? (
+ <button
+ type="button"
+ data-testid="new-column-applied-gap-select"
+ onClick={onSelectAll}
+ className="font-medium text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ Zaznacz wszystkich
+ </button>
+ ) : null}
+ </div>
+ );
+}
+
+/** Przełącznik grupy aplikujących bez kompletu „musi mieć” (06.11.2026). */
+function AppliedGapToggle({ count, collapsed, onToggle }: { count: number; collapsed: boolean; onToggle: () => void }) {
+ return (
+ <button
+ type="button"
+ data-testid="new-column-applied-gap-toggle"
+ aria-expanded={!collapsed}
+ onClick={onToggle}
+ className="mt-0.5 text-[10.5px] font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+ >
+ {collapsed ? `Pokaż ${count} — sami się zgłosili, ale brakuje krytycznej` : "Zwiń"}
+ </button>
+ );
+}
+
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
  jobId,
@@ -1783,7 +1854,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScreening,
  scoreMap,
  criticalGapMap,
+ criticalAltMap,
  newQueue = null,
+ appliedGap = null,
  scoresLoading,
  stagesWithScorecard,
  onOpenScorecard,
@@ -1808,6 +1881,11 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  filterEmpty = null,
 }: ColProps) {
  const headerCount = col.count;
+ // Nagłówki sekcji „Nowi”: kolejka od systemu albo zgłoszenia (06.11.2026).
+ const showNewSections =
+ newQueue != null &&
+ (newQueue.total > 0 ||
+ [...newQueue.sections.values()].some((s) => s === "applied" || s === "applied_gap"));
  // Kolumna pusta przez filtr „Kto dodał” nie jest wąska — mieści napis
  // „Brak osób dodanych przez…” i „Pokaż wszystkich”.
  const peopleCount = totalCount ?? headerCount;
@@ -1968,16 +2046,22 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  >
  {col.items.map((item, index) => {
- const section = newQueue && newQueue.total > 0 ? newColumnSection(newQueue.ranks.get(item.id)) : null;
+ const sectionOf = (it: KanbanItem): NewColumnSection | null =>
+ newQueue && showNewSections ? newQueue.sections.get(it.id) ?? newColumnSection(newQueue.ranks.get(it.id)) : null;
+ const section = sectionOf(item);
  const previous = index > 0 ? col.items[index - 1] : null;
- const startsSection =
- section != null &&
- (previous == null || newColumnSection(newQueue?.ranks.get(previous.id)) !== section);
+ const startsSection = section != null && (previous == null || sectionOf(previous) !== section);
  const rank = newQueue?.ranks.get(item.id);
  return (
  <Fragment key={String(item.id)}>
  {startsSection && newQueue ? (
  <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ ) : null}
+ {startsSection && section === "applied_gap" && appliedGap ? (
+ <>
+ <AppliedGapToggle count={appliedGap.count} collapsed={false} onToggle={appliedGap.onToggle} />
+ <AppliedGapActions onSelectAll={appliedGap.onSelectAll} onAiCheck={appliedGap.onAiCheck} checking={appliedGap.checking} />
+ </>
  ) : null}
  <Draggable
  draggableId={String(item.id)}
@@ -2012,10 +2096,12 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScorecard={(it) => onOpenScorecard(it, col)}
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
  criticalGaps={criticalGapMap?.get(item.candidate_id)}
+ criticalAlternatives={criticalAltMap?.get(item.candidate_id)}
  callFirstRank={rank != null && rank <= CALL_FIRST_COUNT ? rank : undefined}
  freshSlot={newQueue?.freshSlots.has(item.id) ?? false}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
+ scoresReady={scoreMap != null && !scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
  contactFeatureEnabled={contactFeatureEnabled}
  desktopOverview={desktopOverview}
@@ -2030,6 +2116,13 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </Fragment>
  );
  })}
+ {appliedGap && appliedGap.collapsed && appliedGap.count > 0 ? (
+ <div className="px-0.5 pt-1">
+ <div className="text-[11px] font-semibold leading-tight text-muted-foreground">Aplikowali, brak „musi mieć”</div>
+ <AppliedGapToggle count={appliedGap.count} collapsed onToggle={appliedGap.onToggle} />
+ <AppliedGapActions onAiCheck={appliedGap.onAiCheck} checking={appliedGap.checking} />
+ </div>
+ ) : null}
  {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
  karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
  kolumna jest po prostu pusta (04.10.2026). */}
@@ -2089,7 +2182,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, criticalAltMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, openingStartedAt = null, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -2120,14 +2213,29 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  ),
  [boardFold, criticalGapMap]
  );
+ // Grupa „Aplikowali, brak »musi mieć«” jest domyślnie zwinięta (06.11.2026):
+ // chowamy ją tak jak filtr „Kto dodał” — przed przeciąganiem, żeby indeksy
+ // kart były indeksami widocznej listy.
+ const [appliedGapOpen, setAppliedGapOpen] = useState(false);
+ const appliedGapCount = newColumnQueue.appliedGapIds.size;
+ const [appliedGapChecking, setAppliedGapChecking] = useState(false);
+ const appliedGapCandidateIds = useMemo(
+ () =>
+ newColumnQueue.items
+ .filter((item) => newColumnQueue.appliedGapIds.has(item.id))
+ .map((item) => item.candidate_id),
+ [newColumnQueue]
+ );
  const allDisplayCols = useMemo(
  () =>
- boardFold.columns.map((f) => ({
- ...f.host,
- items: f.key === "new" ? newColumnQueue.items : f.items,
- count: f.count,
- })),
- [boardFold, newColumnQueue]
+ boardFold.columns.map((f) => {
+ if (f.key !== "new") return { ...f.host, items: f.items, count: f.count };
+ const items = appliedGapOpen
+ ? newColumnQueue.items
+ : newColumnQueue.items.filter((item) => !newColumnQueue.appliedGapIds.has(item.id));
+ return { ...f.host, items, count: f.count };
+ }),
+ [boardFold, newColumnQueue, appliedGapOpen]
  );
  // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
@@ -2409,11 +2517,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  canReviewAsDl,
  skipsFillGates,
  viewerOwnsDlReview,
+ openingStartedAt,
  onReviewSend,
  onOpenPerson: openPersonViaRef,
  onClientAccept,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, skipsFillGates, viewerOwnsDlReview, onReviewSend, openPersonViaRef, onClientAccept]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onArrowAdvance, onOpenQc, canReviewAsDl, skipsFillGates, viewerOwnsDlReview, openingStartedAt, onReviewSend, openPersonViaRef, onClientAccept]
  );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
@@ -2699,7 +2808,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return { ...c, items, count: items.length };
  }
  if (colId(c) === colId(dst)) {
- const entered = { ...item, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const entered = { ...item, stage: c.stage, days_in_stage: 0, waiting_workdays: 0, moved_at: new Date().toISOString() };
  const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  }
@@ -3073,6 +3182,36 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  });
  }, []);
 
+ // „Sprawdź w CV (AI)” dla grupy zgłoszeń z brakiem „musi mieć” (07.11.2026):
+ // po kolei, żeby nie zalać modelu; „AI: pasuje” wraca do „Aplikowali”.
+ const checkAppliedGap = async () => {
+ if (appliedGapChecking || appliedGapCandidateIds.length === 0) return;
+ setAppliedGapChecking(true);
+ let fits = 0;
+ let failed = 0;
+ for (const candidateId of appliedGapCandidateIds) {
+ try {
+ const res = await checkApplicantCv(jobId, candidateId);
+ if (res.badge?.verdict === "fits") fits += 1;
+ } catch {
+ failed += 1;
+ }
+ }
+ setAppliedGapChecking(false);
+ void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ const checked = appliedGapCandidateIds.length - failed;
+ if (failed > 0) {
+ showError(`Sprawdzono ${checked} z ${appliedGapCandidateIds.length} CV. Pozostałych nie udało się ocenić — spróbuj ponownie.`);
+ } else {
+ showSuccess(
+ fits > 0
+ ? `Sprawdzono ${checked} CV. ${fits} wraca do „Aplikowali na ogłoszenie”.`
+ : `Sprawdzono ${checked} CV. AI nie znalazło brakujących umiejętności.`
+ );
+ }
+ };
+
  // Karta i dok podają wiersz etapu — osobę szukamy na Tablicy (ref, żeby
  // kolumny nie dostawały nowej funkcji przy każdym odświeżeniu tablicy).
  const colsRef = useRef(cols);
@@ -3239,11 +3378,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  () => stageCols.find((c) => terminalOf(c) === "rejected"),
  [stageCols]
  );
+ const clientWaitBoard = useMemo<ClientWaitBoardCtx>(
+  () => ({
+   rejectedStageDefId: rejectedTemplateCol?.stage_def_id ?? undefined,
+   reasons: rejectionReasons,
+   onInterview: (item) => {
+    const source = cols.find((c) => c.items.some((i) => i.id === item.id));
+    if (source && clientInterviewHost) routeMove(item, colId(source), clientInterviewHost);
+    else openPersonViaRef(item);
+   },
+   onRejected: (item) => requestReject(item, rejectedTemplateCol, { endedBy: "client" }),
+   onChanged: () => void refreshBoardFromServer(),
+  }),
+  [rejectedTemplateCol, rejectionReasons, cols, clientInterviewHost, routeMove, openPersonViaRef, requestReject, refreshBoardFromServer]
+ );
  // Zamknięta rekrutacja (28.10.2026): osoby patrzącego od „CV wysłane”, którym
  // trzeba dać znać — ta sama osoba karty co dzwonek z serwera.
  const myWaiting = useMemo(
- () => (closedJob ? myWaitingItems(stageCols, authUser?.id) : []),
- [closedJob, stageCols, authUser?.id]
+ () => (closedJob ? myWaitingItems(stageCols, authUser?.id, openingStartedAt) : []),
+ [closedJob, stageCols, authUser?.id, openingStartedAt]
  );
  const dockItemColumn = dockItemColId
  ? (cols.find((c) => colId(c) === dockItemColId) ?? null)
@@ -3895,6 +4048,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const queueColumnName = queueCol
  ? boardLabelByColId.get(colId(queueCol)) ?? columnLabel(queueCol)
  : null;
+ // `useMemo`: `headerAction` idzie przez `memo` kolumny „Nowi”, zwykle największej.
+ const addedByColumnFilter = useMemo(
+ () =>
+ onAddedByChange ? (
+ <AddedByColumnFilter options={addedByMenuOptions} value={addedBy} onChange={onAddedByChange} />
+ ) : null,
+ [addedByMenuOptions, addedBy, onAddedByChange]
+ );
+ // Bez flagi `tempo.enabled` nagłówek nie dostaje drugiego rzędu; `useMemo` jak wyżej.
+ const tempo = useNewColumnTempo(jobId).data;
+ const newColumnTempo = useMemo(
+ () => (tempo?.enabled ? <NewColumnTempo jobId={jobId} readOnly={readOnly} tempo={tempo} /> : null),
+ [jobId, readOnly, tempo]
+ );
  const queueSuffix = addedByQueueSuffix(addedBy, addedByMenuOptions);
  const queueLabel = queueColumnName
  ? queueSuffix
@@ -4245,6 +4412,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
 
  return (
  <BoardV4Context.Provider value={boardV4}>
+ <ClientWaitBoardContext.Provider value={clientWaitBoard}>
  <div ref={boardRootRef} className="group/board relative space-y-3">
  {/* DragDropContext obejmuje też kolumnę „Zamknięci" obok tablicy — jej
  strefy są celami upuszczenia. */}
@@ -4455,7 +4623,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onOpenScreening={handleOpenScreening}
  scoreMap={scoreMap}
  criticalGapMap={criticalGapMap}
+ criticalAltMap={criticalAltMap}
  newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
+ appliedGap={
+ boardKeyByColId.get(entry.key) === "new" && appliedGapCount > 0
+ ? {
+ count: appliedGapCount,
+ collapsed: !appliedGapOpen,
+ onToggle: () => setAppliedGapOpen((open) => !open),
+ onSelectAll: readOnly
+ ? undefined
+ : () => {
+ setAppliedGapOpen(true);
+ setSelected((prev) => new Set([...prev, ...appliedGapCandidateIds]));
+ },
+ onAiCheck: readOnly ? undefined : () => void checkAppliedGap(),
+ checking: appliedGapChecking,
+ }
+ : null
+ }
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
  onOpenScorecard={handleOpenScorecard}
@@ -4481,7 +4667,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  : null
  }
 headerAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
+ boardKeyByColId.get(entry.key) === "new" ? (
+ addedByColumnFilter
+ ) : boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
  <Button
  type="button"
  size="sm"
@@ -4514,6 +4702,8 @@ headerAction={
  }
  headerExtra={contractCountsByColId.has(entry.key) ? (
  <ContractStepChips counts={contractCountsByColId.get(entry.key)!} />
+ ) : boardKeyByColId.get(entry.key) === "new" ? (
+ newColumnTempo
  ) : null}
  purpose={cproQueueColIds.has(entry.key) ? "Wrzuca osoba od Cpro" : boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
@@ -4907,6 +5097,7 @@ headerAction={
  </Dialog>
  )}
  </div>
+ </ClientWaitBoardContext.Provider>
  </BoardV4Context.Provider>
  );
 }

@@ -8,6 +8,8 @@
 // zwykły ruch w pipeline — bez własnej ścieżki zapisu etapu. Przegląd DZ
 // (0353) zastąpiło QC CV (`lib/api/cvQc.ts`).
 
+import type { QcStateView } from "@/lib/cv-qc";
+
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
@@ -56,6 +58,12 @@ export interface BoardTaskRow {
   /** v5: wynik QC CV (przegląd DL = osoby w kolumnie „QC CV"). */
   qc_status?: QcStatus | null;
   qc_blocking_failed?: number | null;
+  /** R1 (07.11.2026): blokujące „sprawdź ręcznie” przy zdanym QC. */
+  qc_manual?: string[] | null;
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma. */
+  qc_gaps?: string[] | null;
+  /** QC-11 (08.11.2026): gotowy stan QC z serwera. */
+  qc_state?: QcStateView | null;
   /** Przegląd DL: etap z CV firmowym pary (po QC) — z niego podgląd i DOCX. */
   cv_stage_id?: number | null;
   /** Etap powrotu do poprawy: przegląd DL — „Zweryfikowany” („Wróć do
@@ -797,6 +805,8 @@ export interface CproQueueItem {
   client_rate_currency: string | null;
   availability: string | null;
   qc_status: QcStatus | null;
+  qc_blocking_failed?: number;
+  qc_state?: QcStateView | null;
   /** `stage_id` = CV firmowe etapu (po QC) — ma pierwszeństwo przed generatorem. */
   cv: {
     stage_id?: number | null;

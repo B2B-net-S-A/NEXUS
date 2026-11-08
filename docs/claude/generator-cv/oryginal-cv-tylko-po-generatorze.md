@@ -39,5 +39,6 @@ wrócił do karty jako wgrane CV.
 - **Załączniki z własnej skrzynki** (`/emails/…/attachments/…/download`) zostają:
   to poczta tej osoby, nie baza kandydatów.
 - **Czego to nie zatrzyma:** podgląd wysyła plik do przeglądarki, więc da się go
-  wyciągnąć narzędziami deweloperskimi albo sfotografować. Alarm masowego
-  przeglądania zostaje i liczy podglądy (`candidate_data_access_alerts`).
+  wyciągnąć narzędziami deweloperskimi albo sfotografować. Alarm
+  (`candidate_data_access_alerts`) od 07.11.2026 liczy tylko zapis na dysk
+  i eksport, nie podglądy (decyzja Artura).

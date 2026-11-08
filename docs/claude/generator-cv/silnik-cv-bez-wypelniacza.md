@@ -87,6 +87,20 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   rekrutera → `cv_role_title(job)` → dopiero potem wynik modelu.
   `presentation_title.instructions` każe modelowi przepisać rolę bez zmian.
   QC CV ma porównywać nagłówek z tą samą funkcją (PR 2).
+- **Wyjątek: numer zapytania w nagłówku z reguły klienta (07.11.2026).**
+  Pomiar na kopii produkcji: w rekrutacji „AML Analyst (43114)” 12 CV miało
+  numer dopisany ręcznie. Decyzja Artura: pole reguły CV klienta
+  `cv_title_with_reference` (migracja 0661 + lustro w `entrypoint.sh`,
+  przełącznik „Numer zapytania w nagłówku CV” w `/settings/cv-rules`), dla
+  Nordei włączone w katalogu polityk (`cv_policies.json`, wersja 4).
+  Nagłówek = `cv_header_title(rola, client_reference, True)`: „AML Analyst
+  (43114)”, numer, który już stoi w nazwie, nie wraca drugi raz. Dokłada go
+  `client_rules.apply_header_reference` w obu pipeline'ach PRZED migawką
+  `render_payload`; **nazwa pliku liczy się dalej z samej roli**. Ten sam
+  nagłówek dostaje kopia CV etapu (`detached_copy_settings.job_title`),
+  a QC (`expected_titles`) stawia go pierwszy, więc „Zmień tytuł” wpisuje
+  wersję z numerem, a sama rola dalej jest zgodna. Bez włączonego pola
+  wszystko jak w D2/D4. Testy: `tests/test_cv_title_with_reference.py`.
 - **Lata** (`_helpers._fix_experience_years`, `_fix_scoped_years`):
   - liczba z ułamkiem jest dopasowywana w całości (`4,5 roku` nie daje już
     `4.4 lata`), liczby > 99 to daty i zostają („od 2023 roku”);
@@ -352,6 +366,49 @@ z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, 
   „Less than 1 year” z uwagą. Nordea ze Scrumem w źródłach 24 z 24, bez źródeł Scrum nie
   pojawia się (8 z 8). Model zgłaszał pominięcie tylko w 2 z 8, więc uwagę daje kod
   (`summary_last_point_terms` w katalogu). CV wygenerowane wcześniej nie zmieniają się same.
+- **Niższe lata na stanowisku albo w obszarze to nie fabrykacja** (`_helpers._position_or_area_years_within_dates`,
+  tylko `legacy_v7`, tylko `why_points`). Standard każe pisać staż na stanowisku, a test na Solu
+  dawał „BRAK POKRYCIA” przy „4 lata doświadczenia jako SQL Developer” (11,9 roku z dat) i „Over 14
+  years of experience as an SDET” (23,2 roku), w każdym biegu. Bez uwagi: liczba nie większa niż suma
+  dat ról, stojąca przy „jako”, „as”, „na stanowisku”, „w roli” albo przy obszarze ze zwykłych słów
+  („w analizie danych”, „in test automation”, „w IT”). Uwaga zostaje przy liczbie ponad sumę dat, przy
+  samej liczbie, przy roli bez czytelnych dat, w obowiązkach ról i przy wszystkim z wielką literą po
+  „w” („w Oracle Database”, „w Bank Millennium”), a także przy „z”, „with”, „at” i „of” („4 lata
+  z Kafką”, „4 years of Go”), bo daty ról nie potwierdzają stażu w technologii ani firmie.
+  Bezpiecznik nie sprawdza, czy kandydat naprawdę był na tym stanowisku; to czyta kontrola AI.
+  Pomiar na 3150 CV z kopii produkcji (120 dni): uwag o latach w `why_points` 739 → 295.
+
+## Umiejętności i zdania w punktach 3–5 (06.11.2026)
+
+Zgłoszenie z zespołu: „praca zdalna” wśród metodyk, „Pozostałe: KSeF”, języki obce w umiejętnościach
+przy osobnej sekcji, punkty 3–5 zaczynające się od technologii. Na 1080 CV od 06.10: kategoria
+„Pozostałe/Other” w 147, tryb pracy, cechy osobiste albo prawo jazdy w 87, kategoria miękka w 59.
+Makiety: https://claude.ai/artifact/E3xpCnq7o7PqG8TRHJdMzW
+
+- **Punkty 3–5 to zdania od czasownika** (prompt), a etykietę „X: …” do 5 słów zdejmuje
+  `_drop_why_labels`. Na Solu etykiety miało 44 z 54 punktów, po zmianie 0. Przykład w schemacie
+  z 05.11 („[must-have]: co robił”) sam ją podsuwał. Punkt 2 „Specjalizacja: …” zostaje.
+- **Umiejętności to umiejętności** (prompt reguły 4a i 4b): bez trybu pracy, cech osobistych,
+  prawa jazdy i języków obcych; metodyka to sposób pracy zespołu, wzorce projektowe to praktyka.
+  `clean_skill_sections` usuwa pozycje z zamkniętej listy i kategorie miękkie, a język obcy
+  przenosi do sekcji „Języki”, gdy go tam nie ma. Rekruter dostaje uwagę z listą usuniętych pozycji.
+- **Stała lista nazw kategorii** (4b, PL i EN), najwyżej 8, bez „Pozostałych”. Kategorie
+  z posiadanymi must-have idą pierwsze. Na Solu (9 CV, po 2 biegi): różnych nazw 63 → 24,
+  wszystkie 95 kategorii z listy, pozycji 631 → 642.
+- **Metodyki trafiają do „Metodyk”**, nie są już „tylko kontekstem”. Model i tak gubił Scruma
+  u Scrum Mastera, więc `keep_source_methodologies` dopisuje metodykę, którą oryginał wymienia
+  z nazwy (Scrum, Kanban, SAFe, Agile, PRINCE2, ITIL). Może przez to powstać 9. kategoria.
+- Kod nie przypisuje kategorii sam: słownik NEXUSA obejmuje dziś 35% pozycji z CV.
+
+## Języki w osobnych akapitach (07.11.2026)
+
+Pomiar na kopii produkcji (266 CV zatwierdzonych od 12.10): 14 CV miało
+sekcję języków rozbitą ręcznie z jednej linii „English - B2 · Polish - native”.
+Word (oba renderery) od dawna drukuje każdy język jako osobny punkt, a kartka
+edytora pokazywała jedną linię. `html_export.render_interactive_html` składa
+teraz jeden `<p>` na język; `cv_approved_docx.render_languages` dalej dzieli
+po „ · ” starsze CV. Poziomów (CEFR) kod nie dopisuje. Szkice sprzed zmiany
+zostają, jak były.
 
 ## Daty stanowisk jak w oryginale (02.11.2026)
 

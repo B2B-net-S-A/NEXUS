@@ -56,6 +56,7 @@
   "POST /api/candidates/stages/{stage_id}/cv/branded/new-draft": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/preview-docx": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/regenerate-from-original": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/candidates/stages/{stage_id}/cv/branded/replace-reason": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/restore-previous": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/review": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-document": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",

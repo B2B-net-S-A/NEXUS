@@ -902,6 +902,19 @@ describe("NewJobPage — jeden ekran: klient i „Wypełnij z…”", () => {
   });
 });
 
+describe("NewJobPage — pole „Obowiązki”", () => {
+  // 06.11.2026: pole stało za warunkiem „niepuste”, więc skasowanie treści
+  // odmontowywało je i nie dało się wpisać jej z powrotem.
+  it("stoi na pustym formularzu i nie znika po skasowaniu treści", () => {
+    renderPage();
+    const field = screen.getByLabelText("Obowiązki");
+    fireEvent.change(field, { target: { value: "Analiza wymagań." } });
+    fireEvent.change(screen.getByLabelText("Obowiązki"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Obowiązki"), { target: { value: "Testy." } });
+    expect(screen.getByLabelText("Obowiązki")).toHaveValue("Testy.");
+  });
+});
+
 describe("NewJobPage — odczyt wypełnia tylko puste pola", () => {
   /** Delivery Lead zaczął pisać ręcznie, a potem wkleił maila. */
   async function readIntoDirtyForm() {

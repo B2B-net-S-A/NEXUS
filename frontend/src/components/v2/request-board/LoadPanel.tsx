@@ -2,10 +2,11 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronRight, Flame } from "lucide-react"
 
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip"
-import type { BoardChange, LoadPerson } from "@/lib/api/requestAllocation"
+import type { BoardChange, BoardRequest, LoadPerson } from "@/lib/api/requestAllocation"
+import { isP0Active } from "@/lib/job-p0"
 import { pluralPl } from "@/lib/plural-pl"
 import {
   changesSinceLabel,
@@ -48,19 +49,40 @@ function barShare(value: number, scale: number, used = 0): string {
   return `${(share / scale) * 100}%`
 }
 
+/**
+ * Ile P0 ma osoba (prośba Olafa, 06.11.2026): rekrutacje z P0 — także po
+ * terminie, do decyzji — w których pracuje, bez propozycji automatu. Te same
+ * dane tablicy co obłożenie, więc bez osobnego zapytania.
+ */
+export function p0ByPerson(requests: BoardRequest[] | undefined): Map<number, number[]> {
+  const out = new Map<number, number[]>()
+  for (const r of requests ?? []) {
+    if (!isP0Active(r)) continue
+    for (const person of r.people) {
+      if (person.proposed) continue
+      out.set(person.user_id, [...(out.get(person.user_id) ?? []), r.job_id])
+    }
+  }
+  return out
+}
+
 /** Wiersz osoby: nazwisko (z urlopem), pasek i liczba; kliknięcie rozwija requesty. */
 function PersonRow({
   person,
   scale,
   expanded,
   onToggle,
+  p0 = 0,
 }: {
   person: LoadPerson
   scale: number
   expanded: boolean
   onToggle: () => void
+  p0?: number
 }) {
   const proposed = person.proposed ?? 0
+  const base = person.base ?? 0
+  const linkedin = person.linkedin ?? 0
   const summary = loadSummary(person)
   return (
     <button
@@ -72,7 +94,7 @@ function PersonRow({
       // Ostatnia kolumna ma stałą szerokość: każdy wiersz jest osobną
       // siatką, więc przy `auto` paski zaczynałyby się w innym
       // miejscu zależnie od tego, czy liczba to „1”, czy „2 + 1”.
-      className="relative grid min-h-9 w-full grid-cols-[16px_minmax(0,2fr)_minmax(56px,1fr)_44px] items-center gap-2 rounded-md px-1 py-0.5 text-left text-sm hover:bg-accent"
+      className="relative grid min-h-9 w-full grid-cols-[16px_minmax(0,2fr)_34px_minmax(48px,1fr)_44px] items-center gap-2 rounded-md px-1 py-0.5 text-left text-sm hover:bg-accent"
     >
       {expanded ? (
         <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -95,8 +117,35 @@ function PersonRow({
           </span>
         )}
       </span>
+      {p0 > 0 ? (
+        <span
+          className="inline-flex h-5 items-center justify-center gap-0.5 rounded-md bg-destructive px-1 text-[11px] font-bold tabular-nums text-destructive-foreground"
+          title={`P0: ${p0}`}
+          data-testid="load-p0"
+          data-tour="daily.load-p0"
+        >
+          <Flame className="h-3 w-3" aria-hidden />
+          {p0}
+        </span>
+      ) : (
+        <span aria-hidden />
+      )}
       <span className="flex h-2.5 overflow-hidden rounded" aria-hidden>
-        <span className="h-full bg-primary" style={{ width: barShare(person.count, scale) }} />
+        {/* 0655: odcinki koszyków — Baza, LinkedIn, potem bez koszyka. */}
+        <span
+          data-load-base
+          className="h-full bg-primary"
+          style={{ width: barShare(base, scale) }}
+        />
+        <span
+          data-load-linkedin
+          className="h-full bg-info"
+          style={{ width: barShare(linkedin, scale, base) }}
+        />
+        <span
+          className="h-full bg-primary/40"
+          style={{ width: barShare(person.count - base - linkedin, scale, base + linkedin) }}
+        />
         {/* Propozycja: jaśniejszy odcinek z przerywaną krawędzią —
             ten sam język co przerywana ramka przy osobie. */}
         {proposed > 0 && (
@@ -113,7 +162,7 @@ function PersonRow({
             bez niego nazwisko, urlop i „2 + 1” zlewają się w ciąg
             bez odstępów. */}
         <span className="sr-only">
-          {`, ${person.leave_until ? `urlop do ${formatDate(person.leave_until)}, ` : ""}${summary.spoken}`}
+          {`, ${person.leave_until ? `urlop do ${formatDate(person.leave_until)}, ` : ""}${p0 > 0 ? `P0: ${p0}, ` : ""}${summary.spoken}`}
         </span>
       </span>
     </button>
@@ -124,14 +173,24 @@ function PersonRequests({
   person,
   today,
   className,
+  p0Jobs = [],
 }: {
   person: LoadPerson
   today: string
   className: string
+  p0Jobs?: number[]
 }) {
   const outside = person.outside_p1 ?? 0
+  const base = person.base ?? 0
+  const linkedin = person.linkedin ?? 0
   return (
     <ul className={className}>
+      {person.count > 0 && (
+        <li className="text-xs text-muted-foreground" data-testid="load-channels">
+          Baza: {base} · LinkedIn: {linkedin}
+          {person.count - base - linkedin > 0 ? ` · bez koszyka: ${person.count - base - linkedin}` : ""}
+        </li>
+      )}
       {person.requests.length === 0 ? (
         <li className="text-xs text-muted-foreground">
           Brak rekrutacji P1 — ma miejsce na kolejną.
@@ -143,6 +202,9 @@ function PersonRequests({
             className="flex justify-between gap-2 text-xs text-foreground"
           >
             <Link href={`/jobs/${r.job_id}`} className="truncate hover:underline">
+              {p0Jobs.includes(r.job_id) ? (
+                <span className="mr-1 rounded bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">P0</span>
+              ) : null}
               {r.title}
               {r.client_name ? ` · ${r.client_name}` : ""}
               {r.proposed ? " (propozycja)" : ""}
@@ -177,13 +239,24 @@ export function LoadPeople({
   load,
   today,
   columns = false,
+  requests,
 }: {
   load: LoadPerson[]
   today: string
   columns?: boolean
+  requests?: BoardRequest[]
 }) {
   const [open, setOpen] = useState<number | null>(null)
-  const people = useMemo(() => orderLoad(load), [load])
+  const p0 = useMemo(() => p0ByPerson(requests), [requests])
+  // Najwięcej P0 na górze (decyzja Artura 06.11.2026); przy równej liczbie
+  // zostaje dotychczasowa kolejność obłożenia (sort jest stabilny).
+  const people = useMemo(
+    () =>
+      [...orderLoad(load)].sort(
+        (a, b) => (p0.get(b.user_id)?.length ?? 0) - (p0.get(a.user_id)?.length ?? 0),
+      ),
+    [load, p0],
+  )
   const scale = useMemo(() => loadBarScale(load), [load])
   if (people.length === 0) {
     return (
@@ -204,9 +277,10 @@ export function LoadPeople({
               scale={scale}
               expanded={open === person.user_id}
               onToggle={() => toggle(person.user_id)}
+              p0={p0.get(person.user_id)?.length ?? 0}
             />
             {open === person.user_id && (
-              <PersonRequests person={person} today={today} className="mb-2 ml-6 flex flex-col gap-1" />
+              <PersonRequests person={person} today={today} p0Jobs={p0.get(person.user_id)} className="mb-2 ml-6 flex flex-col gap-1" />
             )}
           </li>
         ))}
@@ -224,6 +298,7 @@ export function LoadPeople({
               scale={scale}
               expanded={open === person.user_id}
               onToggle={() => toggle(person.user_id)}
+              p0={p0.get(person.user_id)?.length ?? 0}
             />
           </li>
         ))}
@@ -240,6 +315,7 @@ export function LoadPeople({
           <PersonRequests
             person={opened}
             today={today}
+            p0Jobs={p0.get(opened.user_id)}
             className="flex flex-col divide-y divide-border [&>li]:py-1"
           />
         </div>
@@ -268,7 +344,15 @@ export const LOAD_SUBTITLE = "Ile rekrutacji P1 w stanie „Szukamy” ma każda
  * akceptacją stoją osobno („2 + 1”): to jeszcze nie praca. Kliknięcie osoby
  * rozwija jej rekrutacje P1 i liczbę tych spoza P1 (makieta C6).
  */
-export function LoadPanel({ load, today }: { load: LoadPerson[]; today: string }) {
+export function LoadPanel({
+  load,
+  today,
+  requests,
+}: {
+  load: LoadPerson[]
+  today: string
+  requests?: BoardRequest[]
+}) {
   return (
     <section className="rounded-lg border border-border bg-card p-4" aria-label="Obłożenie">
       <div className="mb-1 flex items-baseline justify-between">
@@ -279,7 +363,7 @@ export function LoadPanel({ load, today }: { load: LoadPerson[]; today: string }
         <span className="text-xs text-muted-foreground">kliknij osobę</span>
       </div>
       <p className="mb-2 text-xs text-muted-foreground">{LOAD_SUBTITLE}</p>
-      <LoadPeople load={load} today={today} />
+      <LoadPeople load={load} today={today} requests={requests} />
       <LoadFootnote load={load} />
     </section>
   )

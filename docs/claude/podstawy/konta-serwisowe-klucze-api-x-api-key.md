@@ -164,8 +164,7 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   `is_service_account`, budżet wymaga `amounts:write`), CV dla klienta (`cv:generate`,
   plik także z `candidates:cv`), rozmowy u klienta (`calendar:read`), zgłoszenia
   z linku (`applications:read|write`, `resolve_application_submission` bez commita),
-  Insights (`insights:read` — tylko to, co ekran pokazuje wszystkim), Akademia
-  (`academy:read`), zdarzenia i webhooki (`events:read`, `webhooks:manage`, 0448).
+  Insights (`insights:read` — tylko to, co ekran pokazuje wszystkim), zdarzenia i webhooki (`events:read`, `webhooks:manage`, 0448).
 - **Zdarzenia v1 powstają same:** listener `after_flush` w
   `services/integration_events.py` dopisuje do poczekalni (SAVEPOINT — błąd nie psuje
   zapisu biznesowego), pętla `integration_webhooks` publikuje do kanału w kolejności

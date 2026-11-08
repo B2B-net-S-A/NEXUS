@@ -381,8 +381,8 @@ def _online_user_ids() -> frozenset[int]:
 
     ``last_seen_at`` stemplujemy przy połączeniu, rozłączeniu i co kilka
     minut podtrzymania, ale osoba z otwartą kartą jest online niezależnie od
-    stempla. Backend to jeden proces uvicorna, więc menedżer gniazd zna
-    wszystkich podłączonych.
+    stempla. Ta pętla biegnie w procesie web (`core/process_role.py`), więc
+    menedżer gniazd zna wszystkich podłączonych.
     """
     try:
         from app.api.ws import manager

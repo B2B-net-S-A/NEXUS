@@ -273,8 +273,10 @@ async def test_portal_url_outside_its_domain_is_not_shown_as_a_link(
 
 
 async def test_needs_a_current_career_page(api, monkeypatch, jjit_ready):
+    monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "")
     recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
     await _edit(api, recruiter, job_id)
+    assert (await _state(api, recruiter, job_id))["jjit_api"]["career_required"] is True
     resp = await _publish(api, lead, job_id)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "career_not_live"
@@ -285,6 +287,27 @@ async def test_needs_a_current_career_page(api, monkeypatch, jjit_ready):
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "career_not_live"
     assert await _posting(job_id) is None
+
+
+async def test_portal_form_needs_no_career_page(api, monkeypatch, jjit_ready):
+    """06.11.2026: przy formularzu JJIT kandydat nie widzi strony kariery."""
+    monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "justjoin.it@example.com")
+    recruiter, lead, _lead_id, job_id = await _job_with_lead(api, monkeypatch)
+    await _edit(api, recruiter, job_id)
+
+    window = await _state(api, recruiter, job_id)
+    assert window["jjit_api"]["career_required"] is False
+
+    resp = await _publish(api, lead, job_id)
+
+    assert resp.status_code == 200, resp.text
+    assert await _posting(job_id) is not None
+    await _process(job_id)
+    published = [c for kind, c in FakeJjit.calls if kind == "publish"]
+    assert len(published) == 1
+    assert published[0].apply_url == ""
+    row = await _publication(job_id)
+    assert row is not None and row.url == AD_URL and row.removed_at is None
 
 
 async def test_refuses_stale_version_and_blocked_text(api, monkeypatch, jjit_ready):
@@ -325,7 +348,7 @@ async def test_hand_marked_ad_does_not_buy_a_second_credit(
     api, monkeypatch, jjit_ready
 ):
     recruiter, lead, _lead_id, job_id = await _ready_job(api, monkeypatch)
-    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=recruiter)
+    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=lead)
     assert marked.status_code == 200, marked.text
     resp = await _publish(api, lead, job_id)
     assert resp.status_code == 409
@@ -333,7 +356,7 @@ async def test_hand_marked_ad_does_not_buy_a_second_credit(
     assert await _posting(job_id) is None
 
     # Po „Zdjęte z portalu” publikacja jest znów możliwa.
-    assert (await api.delete(_mark_url(job_id), headers=recruiter)).status_code == 200
+    assert (await api.delete(_mark_url(job_id), headers=lead)).status_code == 200
     assert (await _publish(api, lead, job_id)).status_code == 200
 
 
@@ -342,7 +365,7 @@ async def test_hand_marking_is_refused_while_the_api_holds_the_ad(
 ):
     recruiter, lead, _lead_id, job_id = await _ready_job(api, monkeypatch)
     assert (await _publish(api, lead, job_id)).status_code == 200
-    resp = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=recruiter)
+    resp = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=lead)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "jjit_api_live"
 
@@ -365,7 +388,7 @@ async def test_late_cleanup_does_not_erase_a_hand_mark(api, monkeypatch, jjit_re
             )
         )
         await db.commit()
-    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=recruiter)
+    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=lead)
     assert marked.status_code == 200, marked.text
 
     await _process(job_id)

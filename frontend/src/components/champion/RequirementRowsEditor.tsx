@@ -25,7 +25,10 @@ import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { ChipField, type ChipCommitSource } from "@/components/v2/filters/AdvancedSearchPopover";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
 import type { SentGapRow, SentGapWord } from "@/lib/requirement-sent-gaps-api";
+import { DictionaryHintCallout } from "@/components/champion/DictionaryHintCallout";
+import { relationHintText } from "@/lib/dictionary-hints";
 import {
+  BroadVariantCallout,
   CityCallout,
   CommentCallout,
   DecisionCallout,
@@ -75,7 +78,7 @@ import {
   type RowCriticalState,
   type TalkItem,
 } from "@/lib/requirement-rows";
-import { useRowCounts } from "@/lib/requirement-rows-api";
+import { useDictionaryHints, useRowCounts } from "@/lib/requirement-rows-api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -201,6 +204,8 @@ export function RequirementRowsEditor({
   const [entryNote, setEntryNote] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const counts = useRowCounts(shown, exclude, countEnabled && !disabled);
+  // Słowa spoza słownika (06.11.2026): podpowiedź z nocnych propozycji.
+  const dictionaryHints = useDictionaryHints(shown, { enabled: countEnabled && !disabled });
   const criticalCount = criticalRows(shown).length > 0 ? counts.critical : null;
   useEffect(() => {
     onCriticalCountChange?.(criticalCount);
@@ -569,6 +574,15 @@ export function RequirementRowsEditor({
                   onKeep={() => setDismissed((prev) => new Set(prev).add(sentGapKey))}
                 />
               ) : null}
+              {row.level !== "nice" && !decision && !city && !dismissed.has(`broad:${head}`) ? (
+                <BroadVariantCallout
+                  words={row.words}
+                  critical={row.level === "critical"}
+                  countEnabled={countEnabled && !disabled}
+                  onRemove={(word) => setWords(row.key, row.words.filter((w) => w !== word))}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(`broad:${head}`))}
+                />
+              ) : null}
               {rareCount != null ? (
                 <RareWordCallout
                   word={row.words.join(" lub ")}
@@ -583,6 +597,52 @@ export function RequirementRowsEditor({
                   onKeep={() => setDismissed((prev) => new Set(prev).add(rareKey))}
                 />
               ) : null}
+              {row.words.flatMap((word) =>
+                (dictionaryHints.relationsByWord?.[word.trim().toLowerCase()] ?? []).map((hint) => {
+                  const text = relationHintText(hint, row.level === "critical");
+                  const key = `rel:${hint.kind}:${word.trim().toLowerCase()}`;
+                  if (!text || dismissed.has(key)) return null;
+                  return (
+                    <p
+                      key={key}
+                      role="note"
+                      data-testid="requirement-relation-hint"
+                      data-tour="requirements.relation-hint"
+                      className={cn(
+                        "flex flex-wrap items-center gap-2 px-1 text-xs",
+                        hint.kind === "implied" ? "text-muted-foreground" : "text-warning-muted-foreground",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">{text}</span>
+                      <button
+                        type="button"
+                        className="text-xs underline-offset-2 hover:underline"
+                        onClick={() => setDismissed((prev) => new Set(prev).add(key))}
+                      >
+                        Zostaw
+                      </button>
+                    </p>
+                  );
+                }),
+              )}
+              {row.words.map((word) => {
+                // Rdzeń z gwiazdką to składnia wyszukiwania, nie hasło: przy
+                // „microsoft*” podpowiedź dopisywała „Microsoft 365” (789198).
+                if (word.trim().endsWith("*")) return null;
+                const hint = dictionaryHints.byWord[word.trim().toLowerCase()];
+                const key = `dict:${word.trim().toLowerCase()}`;
+                if (!hint || dismissed.has(key)) return null;
+                return (
+                  <DictionaryHintCallout
+                    key={key}
+                    hint={hint}
+                    rowWords={row.words}
+                    canCurate={dictionaryHints.canCurate}
+                    onAddWords={(words) => setWords(row.key, [...row.words, ...words])}
+                    onKeep={() => setDismissed((prev) => new Set(prev).add(key))}
+                  />
+                );
+              })}
               {countHint ? (
                 <p
                   className="px-1 text-xs text-warning-muted-foreground"

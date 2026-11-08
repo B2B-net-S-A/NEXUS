@@ -44,7 +44,7 @@ export function TeamLoadSection({ standalone = false }: TeamLoadSectionProps) {
       </p>
       {load ? (
         <>
-          <LoadPeople load={load} today={warsawToday()} columns />
+          <LoadPeople load={load} today={warsawToday()} columns requests={board.data?.requests} />
           <LoadFootnote load={load} />
         </>
       ) : board.isError ? (

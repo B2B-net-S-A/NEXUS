@@ -29,6 +29,7 @@ import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
 import type { QcCheck, QcFix, QcFixAction, QcItem, QcResult, QcTransformApplied } from "@/lib/api/cvQc";
 import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
 import { classifyCvWarnings, isSoftAiReviewWarning, type ClassifiedCvWarning } from "@/lib/cv-generator";
+import { quickFixLabel } from "@/lib/cv-editor-quick-fixes";
 import {
   countForm,
   itemTarget,
@@ -706,6 +707,8 @@ export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fi
       return "Usunięto stawkę i kontakt kandydata z CV";
     case "remove_line":
       return `Usunięto: „${action.text}”`;
+    case "languages_lines":
+      return quickFixLabel(action.action);
     case "remove_term":
       return `Usunięto „${action.term}” z CV`;
     case "ai_fix": {

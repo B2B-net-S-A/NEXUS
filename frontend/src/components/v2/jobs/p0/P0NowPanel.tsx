@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Flame } from "lucide-react";
+import { ChevronDown, Flame } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -17,14 +17,21 @@ import {
   type P0Job,
   type P0Request,
 } from "@/lib/api/jobP0";
-import { useRequestBoard } from "@/lib/api/requestAllocation";
+import { useRequestBoard, type BoardRequest } from "@/lib/api/requestAllocation";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
-import { isP0Active, P0_DURATION_OPTIONS } from "@/lib/job-p0";
+import {
+  isP0Active,
+  isP0Overdue,
+  p0OverdueLabel,
+  p0Remaining,
+  P0_DURATION_OPTIONS,
+} from "@/lib/job-p0";
 
 import { P0Chip } from "./P0Chip";
-import { useNow } from "./useNow";
+import { P0OverdueActions } from "./P0OverdueActions";
 
-/** Ile P0 panel pokazuje od razu — 5 wierszy tabeli zajmuje cały ekran 1280 × 720. */
+/** Ile P0 panel pokazuje od razu — 5 wierszy tabeli zajmuje cały ekran 1280 × 720.
+ *  W pasku na pulpicie to liczba P0 w linii. */
 export const P0_PANEL_VISIBLE = 3;
 
 function people(item: P0Job): string {
@@ -37,8 +44,85 @@ function durationLabel(duration: P0Request["duration"]): string {
   return P0_DURATION_OPTIONS.find((option) => option.value === duration)?.label ?? duration;
 }
 
+const NO_BOARD: ReadonlyMap<number, BoardRequest> = new Map();
+
+function lineMeta(item: P0Job, request: BoardRequest | undefined): string {
+  const time = isP0Overdue(item)
+    ? p0OverdueLabel(item.p0_until)
+    : `zostało ${p0Remaining(item.p0_until) ?? "chwilę"}`;
+  return typeof request?.sent === "number" ? `${time} · wysłani ${request.sent}` : time;
+}
+
+function lineTitle(item: P0Job, request: BoardRequest | undefined): string {
+  if (!request?.title) return item.title;
+  return [request.client_reference, request.title].filter(Boolean).join(" ");
+}
+
+/** Pasek jednej linii (audyt 2, 08.11.2026): na ekranie 1280 × 720 pod nim zaczyna się kolejka roli. */
+function P0Line({
+  items,
+  boardById,
+  open,
+  onToggle,
+}: {
+  items: P0Job[];
+  boardById: ReadonlyMap<number, BoardRequest>;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const inLine = items.slice(0, P0_PANEL_VISIBLE);
+  const rest = items.length - inLine.length;
+  return (
+    <div
+      className="flex min-w-0 items-center gap-3 text-destructive-muted-foreground"
+      data-testid="p0-now-line"
+    >
+      <h2 className="flex shrink-0 items-center gap-1.5 text-sm font-bold">
+        <Flame className="h-4 w-4" aria-hidden="true" />
+        Pilne u klientów · {items.length}
+      </h2>
+      {open ? null : (
+        <>
+          {/* Równe szerokości: krótki tytuł obok długich nie może skurczyć się do
+              zera i wjechać czasem na sąsiada. Na telefonie linia mieści sam
+              nagłówek — P0 są pod „Pokaż tabelę”. */}
+          <ul className="hidden min-w-0 flex-1 items-center gap-4 sm:flex">
+            {inLine.map((item) => {
+              const request = boardById.get(item.job_id);
+              const title = lineTitle(item, request);
+              return (
+                <li key={item.job_id} className="min-w-0 flex-1">
+                  <Link
+                    href={`/jobs/${item.job_id}`}
+                    title={item.p0_reason ? `${title} — „${item.p0_reason}”` : title}
+                    className="flex min-w-0 items-baseline gap-1 text-xs hover:underline"
+                  >
+                    <span className="truncate font-semibold">{title}</span>
+                    <span className="shrink-0 whitespace-nowrap">({lineMeta(item, request)})</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          {rest > 0 ? <span className="hidden shrink-0 text-xs font-semibold sm:inline">+{rest}</span> : null}
+        </>
+      )}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        data-tour="dashboard.p0-line"
+        className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs font-medium underline-offset-2 hover:underline"
+      >
+        {open ? "Zwiń tabelę" : "Pokaż tabelę"}
+        <ChevronDown className={"h-3.5 w-3.5 " + (open ? "rotate-180" : "")} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 /** Wiersz P0 spoza tablicy requestów (np. rekrutacja z championem, nie „Szukamy”). */
-function FallbackRow({ item }: { item: P0Job }) {
+function FallbackRow({ item, canDecide }: { item: P0Job; canDecide: boolean }) {
   return (
     <li
       className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-lg border border-destructive/25 bg-card px-3 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
@@ -63,6 +147,10 @@ function FallbackRow({ item }: { item: P0Job }) {
             ? ` · DL: ${shortenPersonName(item.delivery_lead_name) ?? item.delivery_lead_name}`
             : null}
         </p>
+        {/* 06.11.2026: P0 po terminie trwa do decyzji Head of Recruitment. */}
+        {isP0Overdue(item) ? (
+          <P0OverdueActions jobId={item.job_id} canDecide={canDecide} className="mt-1" />
+        ) : null}
       </div>
       <Button asChild size="sm" variant="outline" className="col-span-2 justify-self-start bg-card sm:col-span-1">
         <Link href={`/jobs/${item.job_id}`}>Otwórz tablicę</Link>
@@ -162,62 +250,81 @@ function P0Requests({ requests, canDecide }: { requests: P0Request[]; canDecide:
  * (Head of Recruitment i admin — wszystkie), wiersze są te same co tabela
  * requestów z Daily (Zweryf., QC CV, Wysłani, rekruterzy), a nad nimi stoją
  * prośby Delivery Leadów o P0.
+ *
+ * `compact` (audyt 2, wariant A Artura, 08.11.2026) — pulpit: P0 dalej nad
+ * wszystkim, ale jako pasek jednej linii, żeby na 1280 × 720 kolejka roli
+ * stała na pierwszym ekranie. Tabela wszystkich P0 po „Pokaż tabelę”,
+ * rekruterzy w niej jako licznik. Prośby o P0 zostają rozwinięte: to decyzja
+ * do podjęcia, a nie informacja. Daily zostaje przy pełnej tabeli.
  */
-export function P0NowPanel({ className }: { className?: string }) {
-  const now = useNow();
+export function P0NowPanel({ className, compact = false }: { className?: string; compact?: boolean }) {
   const query = useP0Jobs();
   const board = useRequestBoard({ enabled: query.isSuccess });
   const [expanded, setExpanded] = useState(false);
+  const [tableOpen, setTableOpen] = useState(false);
   const items = (query.data?.items ?? []).filter((item) =>
-    isP0Active({ is_p0: true, p0_until: item.p0_until }, now),
+    isP0Active({ is_p0: true, p0_until: item.p0_until }),
   );
   const requests = query.data?.requests ?? [];
-  const boardIds = useMemo(
-    () => new Set((board.data?.requests ?? []).map((request) => request.job_id)),
+  const boardById = useMemo(
+    () => new Map((board.data?.requests ?? []).map((request) => [request.job_id, request])),
     [board.data?.requests],
   );
   if (!query.isSuccess || (items.length === 0 && requests.length === 0)) return null;
-  const shown = expanded ? items : items.slice(0, P0_PANEL_VISIBLE);
+  const tableHidden = compact && !tableOpen;
+  const shown = tableHidden ? [] : expanded || compact ? items : items.slice(0, P0_PANEL_VISIBLE);
   const hidden = items.length - shown.length;
   // Zanim tablica requestów przyjdzie (albo gdy jej zapytanie padnie), wiersze
   // P0 rysują się po staremu — panel nie może zniknąć przez cudzą awarię.
   const inBoard = board.isSuccess
-    ? new Set(shown.filter((item) => boardIds.has(item.job_id)).map((item) => item.job_id))
+    ? new Set(shown.filter((item) => boardById.has(item.job_id)).map((item) => item.job_id))
     : new Set<number>();
   const outside = shown.filter((item) => !inBoard.has(item.job_id));
   return (
     <section
       aria-label="P0 — ultrapilne teraz"
       className={
-        "grid gap-2 rounded-xl border border-destructive/35 bg-destructive-muted p-3 " +
+        "grid gap-2 rounded-xl border border-destructive/35 bg-destructive-muted " +
+        (compact ? "px-3 py-2.5 " : "p-3 ") +
         (className ?? "")
       }
       data-testid="p0-now-panel"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-destructive-muted-foreground">
-        <h2 className="flex items-center gap-1.5 text-base font-bold">
-          <Flame className="h-4 w-4" aria-hidden="true" />
-          Pilne u klientów · {items.length}
-        </h2>
-        <p className="text-xs">Termin klienta jest najbliżej.</p>
-        <p className="text-xs sm:ml-auto">
-          {query.data.can_set
-            ? "Widzisz wszystkie P0 · zespół widzi swoje"
-            : "Twoje rekrutacje"}
-        </p>
-      </div>
+      {compact ? (
+        items.length > 0 ? (
+          <P0Line
+            items={items}
+            boardById={board.isSuccess ? boardById : NO_BOARD}
+            open={tableOpen}
+            onToggle={() => setTableOpen((value) => !value)}
+          />
+        ) : null
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-destructive-muted-foreground">
+          <h2 className="flex items-center gap-1.5 text-base font-bold">
+            <Flame className="h-4 w-4" aria-hidden="true" />
+            Pilne u klientów · {items.length}
+          </h2>
+          <p className="text-xs">Termin klienta jest najbliżej.</p>
+          <p className="text-xs sm:ml-auto">
+            {query.data.can_set
+              ? "Widzisz wszystkie P0 · zespół widzi swoje"
+              : "Twoje rekrutacje"}
+          </p>
+        </div>
+      )}
       {requests.length > 0 ? (
         <P0Requests requests={requests} canDecide={query.data.can_set} />
       ) : null}
-      {inBoard.size > 0 ? <RequestBoard onlyJobIds={inBoard} /> : null}
+      {inBoard.size > 0 ? <RequestBoard onlyJobIds={inBoard} recruitersAsCount={compact} /> : null}
       {outside.length > 0 ? (
         <ul className="grid gap-2">
           {outside.map((item) => (
-            <FallbackRow key={item.job_id} item={item} />
+            <FallbackRow key={item.job_id} item={item} canDecide={query.data.can_set} />
           ))}
         </ul>
       ) : null}
-      {items.length > P0_PANEL_VISIBLE ? (
+      {!compact && items.length > P0_PANEL_VISIBLE ? (
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}

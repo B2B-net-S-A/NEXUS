@@ -49,12 +49,12 @@ import {
   candidatesListApiParams,
   candidatesListFiltersForQuery,
   candidatesListQueryKey,
+  rejectionFacetsApiParams,
 } from "@/components/v2/pages/CandidatesListV2";
 import { jobListFilters } from "@/components/v2/recruitment/ManualSearchPanel";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
-import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
 import { DEFAULT_FILTERS, decodeFilters } from "@/lib/url-filters";
 import { hasStageFilter } from "@/lib/stage-filter";
 import {
@@ -471,6 +471,23 @@ const EMBED_CHAMPION_FILTERS = jobListFilters(
   null,
 );
 
+const DEMO_REJECTION_FACETS = {
+  total: 248,
+  without_rejection: 191,
+  items: [
+    { key: "t:Po CV", label: "Traffit · Po CV", count: 31 },
+    { key: "r:Inne", label: "Inne", count: 9 },
+    { key: "r:Brak doświadczenia", label: "Brak doświadczenia", count: 7 },
+    { key: "t:Odrzucenie oferty przez Kandydata", label: "Traffit · Odrzucenie oferty przez Kandydata", count: 6 },
+    { key: "r:Za wysokie oczekiwania finansowe", label: "Za wysokie oczekiwania finansowe", count: 4 },
+  ],
+  who: [
+    { key: "client", count: 5 },
+    { key: "us", count: 46 },
+    { key: "candidate", count: 6 },
+  ],
+};
+
 function searchParamsNow(): URLSearchParams {
   return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
 }
@@ -565,6 +582,19 @@ function seededClient(): QueryClient {
       text_mode_applied: "literal",
     },
   );
+  // Pasek „Ostatnie odrzucenie” — osobne zapytanie; harness nic nie wysyła,
+  // więc każdy zestaw filtrów z zasiewu dostaje rozkład (dane fikcyjne).
+  for (const filters of [
+    DEFAULT_FILTERS,
+    fromUrl,
+    candidatesListFiltersForQuery(EMBED_FILTERS, { jobId: EMBED_JOB.id }),
+    candidatesListFiltersForQuery(EMBED_CHAMPION_FILTERS, { jobId: EMBED_JOB.id }),
+  ]) {
+    qc.setQueryData(
+      candidatesListQueryKey(rejectionFacetsApiParams(candidatesListApiParams(filters, 1, 50))),
+      { items: [], total: 248, page: 1, page_size: 1, rejection_facets: DEMO_REJECTION_FACETS },
+    );
+  }
   qc.setQueryData(CANDIDATES_BASE_TOTAL_QUERY_KEY, {
     items: [],
     total: 12481,
@@ -577,7 +607,6 @@ function seededClient(): QueryClient {
     { id: 2, slug: "software_development", name_pl: "Wytwarzanie oprogramowania", is_active: true },
   ]);
   qc.setQueryData(candidateContactQueryKeys.status(), { enabled: false });
-  qc.setQueryData(cloudTalkStatusQueryKey, { enabled: false });
   qc.setQueryData(candidateQueryKeys.quickView(501), QUICK_VIEW);
   qc.setQueryData(candidateQueryKeys.risk(501), { level: "low" });
   qc.setQueryData(["clients-lookup-talent-radar"], [

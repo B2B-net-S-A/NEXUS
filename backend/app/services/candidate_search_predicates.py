@@ -59,6 +59,7 @@ from sqlalchemy import (
     cast,
     func,
     literal,
+    literal_column,
     not_,
     or_,
     select,
@@ -116,6 +117,9 @@ class Semantics:
     # i dotychczasowe ``hide_unknown`` dają dokładnie to co przed nimi.
     hide_unknown_rate: Optional[bool] = None
     hide_unknown_location: Optional[bool] = None
+    # „Lata z technologią” (08.11.2026): ukryj osoby, które mają technologię,
+    # ale bez dat stanowisk w CV. Ta sama zasada: nigdy nie poszerza wyniku.
+    hide_unknown_skill_years: Optional[bool] = None
 
     @property
     def unified(self) -> bool:
@@ -150,6 +154,18 @@ class Semantics:
             return "include"
         return "exclude"
 
+    @property
+    def skill_years_unknown(self) -> UnknownValues:
+        """Los osoby, która ma technologię, ale nie ma lat z dat stanowisk.
+
+        Filtr jest nowy, więc nie ma wariantu v1: w obu wersjach i obu
+        silnikach taka osoba ZOSTAJE (grupa „bez danych o latach”), chyba że
+        żądanie ukrywa braki — globalnie albo samym przełącznikiem filtru.
+        """
+        if self.hide_unknown_skill_years or self.hide_unknown:
+            return "exclude"
+        return "include"
+
 
 def semantics_for(
     engine: Engine,
@@ -158,6 +174,7 @@ def semantics_for(
     *,
     hide_unknown_rate: Optional[bool] = None,
     hide_unknown_location: Optional[bool] = None,
+    hide_unknown_skill_years: Optional[bool] = None,
 ) -> Semantics:
     return Semantics(
         version=SEMANTICS_UNIFIED if (version or 1) >= 2 else SEMANTICS_LEGACY,
@@ -165,6 +182,7 @@ def semantics_for(
         hide_unknown=hide_unknown,
         hide_unknown_rate=hide_unknown_rate,
         hide_unknown_location=hide_unknown_location,
+        hide_unknown_skill_years=hide_unknown_skill_years,
     )
 
 
@@ -173,6 +191,11 @@ def semantics_for(
 # ═══════════════════════════════════════════════════════════════════════════
 
 _MAX_SKILLS_PER_BUCKET = 40
+# Znaki specjalne wyrażeń ARE Postgresa; reszta nazwy idzie dosłownie.
+_ARE_META = re.compile(r"[\\^$.|?*+()\[\]{}]")
+# Zapas względem progu „regular expression is too complex” (ok. 16 tys. znaków
+# igły działało, 64 tys. już nie; zmierzone na Postgresie 16, 08.11.2026).
+_JSON_TOKEN_REGEX_MAX_CHARS = 4000
 
 
 def skills_text() -> ColumnElement:
@@ -200,15 +223,25 @@ def _json_token_match(blob: ColumnElement, needles: Sequence[str]) -> ColumnElem
     zamienia test podłańcuchowy na test całego tokenu (``"go"`` nie trafia
     w ``"django"``). DWA kodowania: część wierszy trzyma JSON podwójnie
     zakodowany (string JSON wewnątrz JSONB), gdzie granicą tokenu jest ``\\"``.
-    ``strpos`` zamiast ``ILIKE`` świadomie — LIKE traktuje ``\\`` jako znak
-    ucieczki i wzorzec na podwójne kodowanie degeneruje się po cichu; ``strpos``
-    nie ma ani znaków ucieczki, ani wieloznaczników.
+    Nigdy ``ILIKE`` — LIKE traktuje ``\\`` jako znak ucieczki i wzorzec na
+    podwójne kodowanie degeneruje się po cichu.
+
+    Jedno wyrażenie regularne zamiast ``strpos`` na pisownię (08.11.2026): każdy
+    ``strpos`` rzutował JSONB na tekst i robił ``lower()`` od nowa, więc rodzina
+    Javy (9 pisowni, 18 przejść) kosztowała 3,4 s na 68 tys. osób, a jedno
+    przejście 0,5 s. Obie granice tokenu są osobnymi gałęziami, bo ``\\\\?"`` po
+    obu stronach dopuszczałoby kodowanie mieszane, którego ``strpos`` nie łapał.
+    Bardzo długie nazwy zostają przy ``strpos``: Postgres odrzuca zbyt złożone
+    wyrażenie błędem, a filtr ma nie kończyć się 500.
     """  # noqa: D301
-    conditions: list[ColumnElement] = []
-    for needle in needles:
-        conditions.append(func.strpos(blob, f'"{needle}"') > 0)
-        conditions.append(func.strpos(blob, f'\\"{needle}\\"') > 0)
-    return or_(*conditions)
+    if sum(len(needle) for needle in needles) > _JSON_TOKEN_REGEX_MAX_CHARS:
+        conditions: list[ColumnElement] = []
+        for needle in needles:
+            conditions.append(func.strpos(blob, f'"{needle}"') > 0)
+            conditions.append(func.strpos(blob, f'\\"{needle}\\"') > 0)
+        return or_(*conditions)
+    alternatives = "|".join(_ARE_META.sub(r"\\\g<0>", needle) for needle in needles)
+    return blob.op("~")(f'"(?:{alternatives})"|\\\\"(?:{alternatives})\\\\"')
 
 
 def skill_match(skill: str, sem: Optional[Semantics] = None) -> ColumnElement:
@@ -602,6 +635,12 @@ _KNOWN_CITIES = frozenset(
 )
 
 
+# Wyrażenia pod indeksy GIN z migracji 0662 (lustro w ``entrypoint.sh``). Stoją
+# jako gotowy SQL, nie ``func.*``: indeks pasuje tylko do identycznego drzewa,
+# a parametry wiązane w miejscu stałych rozjeżdżają się z nim w planie ogólnym.
+PHONE_DIGITS_SQL = "regexp_replace(coalesce(candidates.phone, ''), '[^0-9]', '', 'g')"
+
+
 def phone_digits_clause(q: str) -> Optional[ColumnElement]:
     """Dopasowanie numeru telefonu niezależne od zapisu (spacje, myślniki, +48).
 
@@ -618,9 +657,7 @@ def phone_digits_clause(q: str) -> Optional[ColumnElement]:
         return None
     if len(digits) >= 9:
         digits = digits[-9:]
-    return func.regexp_replace(
-        func.coalesce(Candidate.phone, ""), r"[^0-9]", "", "g"
-    ).like(f"%{digits}%")
+    return literal_column(PHONE_DIGITS_SQL).like(f"%{digits}%")
 
 
 @dataclass(frozen=True)
@@ -1535,6 +1572,200 @@ def experience_stated_rank(
     return case((_experience_overlap(years_min, years_max), 1), else_=0)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Lata z technologią („Java · co najmniej 3 lata”, 08.11.2026)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Jedyne źródło lat to oś technologii z odczytu CV (`skill_timeline` →
+# tabela `candidate_skill_usage`): suma miesięcy stanowisk i projektów, przy
+# których CV wymienia technologię, bez podwójnego liczenia nakładek. Fakty
+# z Traffita (`cortex_skill_facts`) nie mają lat (332 150 wierszy, każdy
+# z `years` NULL), a `candidates.skills[].years` to szacunek parsera, który
+# w 16–19% par rozjeżdżał się z datami stanowisk o ponad 2 lata
+# (`docs/claude/kandydaci-wyszukiwanie/lata-z-technologia-w-wyszukiwaniu.md`).
+#
+# Trzy losy osoby przy wierszu „X · co najmniej N lat”:
+# * lata z dat stanowisk ≥ N → spełnia (także bez X w profilu — CV je podaje),
+# * lata z dat stanowisk < N → odpada (wiemy, że za mało),
+# * X w profilu, ale bez lat → „bez danych o latach”: zostaje na końcu listy
+#   z `unknown_fields: ["skill_years"]`, chyba że braki są ukryte.
+
+SKILL_YEARS_SOURCE_CV_ROLES = "cv_roles"
+SKILL_YEARS_SOURCE_MANUAL = "manual"
+_MAX_SKILL_YEARS_ROWS = 5
+_SKILL_YEARS_MAX = 30
+
+
+class InvalidSkillYears(ValueError):
+    """Zły wiersz „technologia:lata” — 422 z polskim komunikatem."""
+
+
+@dataclass(frozen=True)
+class SkillYears:
+    skill: str
+    years: int
+
+    @property
+    def months(self) -> int:
+        return self.years * 12
+
+
+def parse_skill_years(values: Optional[Iterable[str]]) -> list[SkillYears]:
+    """``["Java:3", "Kafka:2"]`` → wiersze filtru. Ta sama technologia dwa
+    razy (bez wielkości liter) = jeden wiersz z wyższym progiem."""
+    out: dict[str, SkillYears] = {}
+    for raw in values or []:
+        if raw is None or not str(raw).strip():
+            continue
+        skill, sep, years_text = str(raw).rpartition(":")
+        skill = " ".join(skill.split())
+        if not sep or not skill:
+            raise InvalidSkillYears(
+                f"Lata z technologią: „{raw}” — oczekiwano „technologia:lata”."
+            )
+        if len(skill) > 120:
+            raise InvalidSkillYears("Lata z technologią: nazwa dłuższa niż 120 znaków.")
+        try:
+            years = int(years_text.strip())
+        except ValueError as exc:
+            raise InvalidSkillYears(
+                f"Lata z technologią: „{years_text}” to nie liczba lat."
+            ) from exc
+        if not 1 <= years <= _SKILL_YEARS_MAX:
+            raise InvalidSkillYears(
+                f"Lata z technologią: od 1 do {_SKILL_YEARS_MAX} lat."
+            )
+        key = skill.casefold()
+        if key in out:
+            years = max(years, out[key].years)
+        out[key] = SkillYears(out.get(key, SkillYears(skill, years)).skill, years)
+    if len(out) > _MAX_SKILL_YEARS_ROWS:
+        raise InvalidSkillYears(
+            f"Lata z technologią: najwyżej {_MAX_SKILL_YEARS_ROWS} technologii naraz."
+        )
+    return list(out.values())
+
+
+def _skill_usage_keys(skill: str) -> list[str]:
+    """Nazwy w `candidate_skill_usage.skill_canonical` dla tej technologii.
+
+    Klucz osi to `canonical_of(nazwa)` z chwili odczytu CV, więc szukamy całej
+    rodziny aliasów (``mssql`` / ``sql server`` / ``microsoft sql server``) —
+    ta sama rodzina co `skill_match`, małymi literami."""
+    from app.services.scoring_service import skill_name_variants
+
+    keys = [w for w in skill_name_variants([skill]) if w]
+    return keys or [skill.casefold()]
+
+
+def _usage_exists(item: SkillYears, *, enough: bool) -> ColumnElement:
+    from app.models.candidate_skill_usage import CandidateSkillUsage as U
+
+    months = U.months >= item.months if enough else U.months.is_not(None)
+    return (
+        select(1)
+        .where(
+            U.candidate_id == Candidate.id,
+            U.skill_canonical.in_(_skill_usage_keys(item.skill)),
+            months,
+        )
+        .exists()
+    )
+
+
+def skill_years_unknown_clause(item: SkillYears, sem: Semantics) -> ColumnElement:
+    """Osoba MA technologię (to samo dopasowanie co „Musi mieć”), ale oś nie
+    podaje przy niej ani jednego okresu z długością."""
+    return and_(not_(_usage_exists(item, enough=False)), skill_match(item.skill, sem))
+
+
+def skill_years_clauses(
+    items: Sequence[SkillYears], sem: Semantics
+) -> list[ColumnElement]:
+    """Jeden warunek na wiersz; wiersze łączy I (jak „Musi mieć”)."""
+    out: list[ColumnElement] = []
+    for item in items:
+        known = _usage_exists(item, enough=True)
+        if sem.skill_years_unknown == "exclude":
+            out.append(known)
+        else:
+            out.append(or_(known, skill_years_unknown_clause(item, sem)))
+    return out
+
+
+def skill_years_unknown_rank(
+    items: Sequence[SkillYears], sem: Semantics
+) -> Optional[ColumnElement[int]]:
+    """1, gdy wiersz przeszedł któryś warunek lat wyłącznie na brak danych."""
+    if not items or sem.skill_years_unknown == "exclude":
+        return None
+    return case((or_(*(skill_years_unknown_clause(i, sem) for i in items)), 1), else_=0)
+
+
+async def skill_years_for_page(
+    db: Any, candidate_ids: Sequence[int], items: Sequence[SkillYears]
+) -> dict[int, list[dict[str, Any]]]:
+    """Lata przy każdym wierszu filtru dla osób jednej strony — jedno zapytanie.
+
+    ``{candidate_id: [{"skill", "years_min", "months", "source"}]}``; ``months``
+    ``None`` = brak lat (grupa „bez danych o latach”). Kilka wierszy osi dla
+    jednej rodziny aliasów → najdłuższy (sumy nie wolno brać: te same
+    stanowiska stoją pod każdą pisownią)."""
+    if not items or not candidate_ids:
+        return {}
+    from app.models.candidate_skill_usage import CandidateSkillUsage as U
+
+    by_key: dict[str, list[SkillYears]] = {}
+    for item in items:
+        for key in _skill_usage_keys(item.skill):
+            by_key.setdefault(key, []).append(item)
+    rows = (
+        await db.execute(
+            select(U.candidate_id, U.skill_canonical, U.months, U.provenance).where(
+                U.candidate_id.in_(list(candidate_ids)),
+                U.skill_canonical.in_(list(by_key)),
+                U.months.is_not(None),
+            )
+        )
+    ).all()
+    best: dict[tuple[int, str], tuple[int, str]] = {}
+    for candidate_id, key, months, provenance in rows:
+        for item in by_key.get(key, []):
+            slot = (candidate_id, item.skill)
+            if slot not in best or months > best[slot][0]:
+                best[slot] = (months, provenance)
+    out: dict[int, list[dict[str, Any]]] = {}
+    for candidate_id in candidate_ids:
+        entries = []
+        for item in items:
+            found = best.get((candidate_id, item.skill))
+            entries.append(
+                {
+                    "skill": item.skill,
+                    "years_min": item.years,
+                    "months": found[0] if found else None,
+                    "source": (
+                        (
+                            SKILL_YEARS_SOURCE_MANUAL
+                            if found[1] == "manual"
+                            else SKILL_YEARS_SOURCE_CV_ROLES
+                        )
+                        if found
+                        else None
+                    ),
+                }
+            )
+        out[candidate_id] = entries
+    return out
+
+
+def skill_years_unknown_for(entries: Optional[Sequence[dict[str, Any]]]) -> bool:
+    """Lustro `skill_years_unknown_rank` dla wiersza strony: któryś warunek
+    bez lat. Osoba bez lat i bez technologii nie przeszłaby filtru, więc na
+    stronie brak lat zawsze znaczy „bez danych o latach”."""
+    return any(e.get("months") is None for e in entries or [])
+
+
 def tag_match(tag: str) -> ColumnElement:
     """Kandydat MA tag — CAŁY tag, bez względu na wielkość liter.
 
@@ -1651,6 +1882,7 @@ def unknown_count_rank(
     country_active: bool,
     experience_active: bool,
     rate_active: bool,
+    skill_years_rank: Optional[ColumnElement[int]] = None,
 ) -> ColumnElement[int] | None:
     """Ile AKTYWNYCH filtrów wiersz przeszedł wyłącznie na brak danych — lustro
     SQL ``unknown_fields_for``. Lista sortuje po nim rosnąco, żeby osoby
@@ -1705,6 +1937,8 @@ def unknown_count_rank(
                 else_=0,
             )
         )
+    if skill_years_rank is not None:
+        parts.append(skill_years_rank)
     if not parts:
         return None
     return reduce(lambda a, b: a + b, parts)
@@ -1717,10 +1951,12 @@ def unknown_fields_for(
     country_active: bool,
     experience_active: bool,
     rate_active: bool,
+    skill_years_unknown: bool = False,
 ) -> list[str]:
     """Które AKTYWNE filtry kandydat przeszedł wyłącznie dlatego, że nie mamy
     o nim danych. Lustro reguł SQL powyżej, liczone w Pythonie dla wierszy
-    jednej strony. Kolejność stała: ``location``, ``experience``, ``rate``.
+    jednej strony. Kolejność stała: ``location``, ``experience``, ``rate``,
+    ``skill_years`` (to ostatnie liczy wołający z `skill_years_for_page`).
     """
     from app.services.candidate_profile_rate import (
         is_canonical_profile_rate_currency,
@@ -1748,6 +1984,8 @@ def unknown_fields_for(
         amount, currency = effective_rate(candidate)
         if amount is None or not is_canonical_profile_rate_currency(currency):
             out.append("rate")
+    if skill_years_unknown:
+        out.append("skill_years")
     return out
 
 

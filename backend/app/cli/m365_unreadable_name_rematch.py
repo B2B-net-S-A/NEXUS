@@ -52,9 +52,10 @@ Zasady:
   i id; drugie ``--apply`` przy paragonie jest odrzucane. Raport bez nazwisk,
   adresów i tematów (logi Actions są publiczne).
 
-Bieg z 20–21.10.2026 poszedł przed audytem 22.10 (F113, F114), a paragon
-blokuje ponowne ``--apply``. Kogo dotyczą obie luki, mówi raport tylko do
-odczytu ``backend/scripts/m365_cv_repair_followup_report.sql``.
+Stan 08.11.2026: ``--apply`` nigdy nie biegł na produkcji (brak paragonu i wpisu
+`m365_unreadable_name_rematch` w historii). Wcześniejszy opis mówił o biegu
+20–21.10.2026. Raport tylko do odczytu po naprawach:
+``backend/scripts/m365_cv_repair_followup_report.sql``.
 """
 
 from __future__ import annotations

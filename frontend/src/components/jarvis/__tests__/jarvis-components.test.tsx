@@ -324,3 +324,32 @@ describe("podświetlenie elementu", () => {
     target.remove();
   });
 });
+
+describe("Jarvis wyłączony — `capabilities: {}` ze statusu (07.11: panel wywracał aplikację)", () => {
+  it("pusty słownik możliwości nie wywraca panelu", () => {
+    render(<JarvisPanel {...panelProps({ capabilities: {} })} />);
+    expect(screen.queryByTestId("jarvis-capabilities")).toBeNull();
+    expect(screen.getByText(/Zapytaj o kandydatów/)).toBeInTheDocument();
+  });
+
+  it("brakująca lista to pusta lista, reszta grup zostaje", () => {
+    render(<JarvisPanel {...panelProps({ capabilities: { read: ["kandydaci"] } })} />);
+    expect(screen.getByText("Sprawdzę od razu")).toBeInTheDocument();
+    expect(screen.queryByText(/Tego nie zrobię/)).toBeNull();
+  });
+
+  it("przy niedostępnym asystencie pusty panel mówi dlaczego zamiast listy możliwości", () => {
+    render(
+      <JarvisPanel
+        {...panelProps({
+          capabilities: { read: ["kandydaci"], now: [], write: [], never: [] },
+          unavailableNote: "Asystent jest chwilowo wyłączony.",
+        })}
+      />,
+    );
+    expect(screen.getByText("Asystent jest chwilowo wyłączony.")).toBeInTheDocument();
+    expect(screen.queryByTestId("jarvis-capabilities")).toBeNull();
+    expect(screen.queryByText(/Tyle mogę zrobić/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Co mam dziś do zrobienia?" })).toBeNull();
+  });
+});

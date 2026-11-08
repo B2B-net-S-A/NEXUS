@@ -4,44 +4,33 @@ Kafle dashboardu podawały `akceptacja → placement = 3257,1%` przy
 `data_quality.status = "complete"`, bo etap `acceptance` nie ma mapowania
 z Traffita (7 wystąpień rocznie wobec 228 placementów, pomiar 2026-09-02).
 
-Te testy pilnują trzech rzeczy: że zbiór etapów bez pokrycia jest WYPROWADZONY
-z tabeli mapera (a nie przepisany, więc po domknięciu mapowania skurczy się
-sam), że każda konwersja deklaruje swoje operandy, i że te operandy są realnymi
-etapami, a nie literówkami.
+Te testy pilnują trzech rzeczy: zbioru etapów bez pokrycia (po usunięciu
+importera 08.11.2026 to stała historyczna), tego, że każda konwersja deklaruje
+swoje operandy, i że te operandy są realnymi etapami, a nie literówkami.
 """
 
 from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from app.models.recruitment_pipeline import PipelineStage
 from app.services.funnel_coverage import (
     CONVERSION_OPERAND_STAGES,
     COVERAGE_STARTED_AT,
     STAGES_WITHOUT_TRAFFIT_COVERAGE,
+    TRAFFIT_MAPPED_LEGACY_STAGES,
     coverage_note,
     uncovered_conversions,
     uncovered_stages_for_window,
 )
 from app.services.recruitment_trend import FunnelConversions
-from app.services.traffit.mappers import (
-    _DEFAULT_STATE_MAPPING,
-    _TRAFFIT_STATE_NAME_MAP,
-    _TRAFFIT_STATE_TYPE_MAP,
-    TRAFFIT_MAPPED_LEGACY_STAGES,
-)
+
+pytestmark = pytest.mark.static
 
 
-def test_uncovered_stages_are_derived_from_the_mapper_not_copied():
-    """Literał OBOK derywacji — derywacja porównana sama ze sobą nie dowodzi niczego.
-
-    Sam test „wyprowadzone == wyprowadzone" przechodzi niezależnie od tego, czy
-    wynik jest prawdziwy. Literał przypina, CO dziś z tego wychodzi; derywacja
-    przypina, że nikt nie utrzymuje drugiej kopii listy.
-    """
-    # Po domknięciu mapowania po NAZWIE stanu („Zaakceptowany",
-    # „Interview u klienta") zbiór skurczył się SAM — to jest dowód, że
-    # derywacja działa, a nie że ktoś utrzymuje drugą kopię listy.
+def test_uncovered_stages_are_the_pipeline_minus_the_historic_import():
     assert STAGES_WITHOUT_TRAFFIT_COVERAGE == {
         "negotiation",
         "onboarding",
@@ -50,10 +39,10 @@ def test_uncovered_stages_are_derived_from_the_mapper_not_copied():
     # …ale etapy ze ŚWIEŻYM mapowaniem nadal nie mają danych historycznych,
     # więc bez podanego okna traktujemy je jak niepokryte.
     assert set(COVERAGE_STARTED_AT) == {"acceptance", "client_interview"}
-    assert TRAFFIT_MAPPED_LEGACY_STAGES == (
-        {mapping["legacy"] for mapping in _TRAFFIT_STATE_TYPE_MAP.values()}
-        | {mapping["legacy"] for mapping in _TRAFFIT_STATE_NAME_MAP.values()}
-        | {_DEFAULT_STATE_MAPPING["legacy"]}
+    assert STAGES_WITHOUT_TRAFFIT_COVERAGE == (
+        {stage.value for stage in PipelineStage}
+        - TRAFFIT_MAPPED_LEGACY_STAGES
+        - {PipelineStage.posting.value}
     )
 
 
@@ -63,9 +52,7 @@ def test_every_conversion_field_declares_its_operand_stages():
     …a nie po cichu ominąć strażnik pokrycia i wrócić na kafel jako pewna.
     """
     fields = {
-        f.name
-        for f in dataclasses.fields(FunnelConversions)
-        if f.name.endswith("_pct")
+        f.name for f in dataclasses.fields(FunnelConversions) if f.name.endswith("_pct")
     }
     assert set(CONVERSION_OPERAND_STAGES) == fields
 
@@ -156,7 +143,7 @@ def test_definition_codes_are_not_duplicated_as_literals():
         and f'"{FIRST_HIRED_PER_CANDIDATE_JOB}"' in path.read_text(encoding="utf-8")
     ]
     assert offenders == [], (
-        "Literał kodu definicji poza `metric_definitions`: " f"{offenders}"
+        f"Literał kodu definicji poza `metric_definitions`: {offenders}"
     )
 
 

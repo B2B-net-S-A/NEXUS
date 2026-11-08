@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Pola karty, które klient może dołożyć do minimum (karta klienta, D3) — jedno
 # wejście dla modułów spoza listy czytelników kart rekomendacji.
+from app.services import qc_state
 from app.services.recommendation_card_rules import CLIENT_EXTRA_FIELDS
 
 from app.services.board_stage_badges import (
@@ -153,6 +154,13 @@ class PairFacts:
     client_form_missing: Optional[int] = None
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): blokujące sprawdzenia, których QC nie umiało sprawdzić
+    # („sprawdź ręcznie”) — przebieg „przechodzi”, ale nikt tego nie sprawdził.
+    qc_manual: tuple[str, ...] = ()
+    # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
+    qc_gaps: tuple[str, ...] = ()
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania (`services/qc_state.py`).
+    qc_state: Optional[dict] = None
     client_rate: bool = False
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
@@ -667,6 +675,35 @@ def _client_form_item(column: str, f: PairFacts) -> _Item:
     )
 
 
+def _qc_result_item(column: str, f: PairFacts) -> _Item:
+    """Wynik QC CV przed przekazaniem Delivery Leadowi (R1, 07.11.2026).
+
+    Przypomnienie, nie bramka: do „QC CV” przekazuje się także z uwagami
+    (tryb doradczy), a bramka QC stoi przed wysyłką. Ramka „Następny etap”
+    mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”. Tekst to ten sam
+    słownik co na karcie (`qc_state`, QC-11).
+    """
+
+    state = f.qc_state or qc_state.describe(
+        status=f.qc_status,
+        blocking_failed=f.qc_blocking_failed,
+        manual_items=f.qc_manual,
+        candidate_gaps=f.qc_gaps,
+    )
+    detail = state["text"].removeprefix("QC: ")
+    kind = state["kind"]
+    open_qc = _action("open_qc", "Otwórz QC", f.stage_id)
+    if kind == qc_state.TO_FIX:
+        return _Item(column, "cv_qc_result", "QC CV", MISSING, False, detail, open_qc)
+    if kind in (qc_state.CHECKED, qc_state.CHECKED_MANUALLY, qc_state.OVERRIDDEN):
+        return _Item(column, "cv_qc_result", "QC CV", OK, False, detail)
+    if kind == qc_state.CANDIDATE_GAP:
+        detail = f"{detail} — zdecyduje Delivery Lead"
+    if kind == qc_state.UNCHECKED:
+        detail = "QC jeszcze nie policzone"
+    return _Item(column, "cv_qc_result", "QC CV", WAITING, False, detail, open_qc)
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if f.client_form and column == "cv_qc":
@@ -709,7 +746,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             ),
         ]
     if column == "cv_qc":
-        return [
+        items = [
             _Item(
                 column,
                 "company_cv",
@@ -722,6 +759,9 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 else _action("generate_cv", "Wygeneruj teraz", sid),
             )
         ]
+        if f.company_cv:
+            items.append(_qc_result_item(column, f))
+        return items
     if column == "cv_sent":
         qc_ok = f.qc_status in QC_OK_STATUSES
         # Osoba już w kolejce Cpro przeszła QC przy wejściu do niej — serwer
@@ -1144,6 +1184,7 @@ async def company_cv_refs(
             document_cv_ambiguous,
             document_cv_conditions,
             pick_document_cv,
+            rows_from_job,
         )
 
         candidate_ids = sorted({c for c, _ in missing})
@@ -1167,6 +1208,7 @@ async def company_cv_refs(
                 (doc_id, filename, uploaded_at, created_at)
             )
         client_names: dict[int, Optional[str]] = {}
+        job_created: dict[int, Any] = {}
         job_ids = sorted({j for c, j in missing if c in by_candidate})
         if job_ids:
             for job_id, display_name, name in (
@@ -1177,8 +1219,16 @@ async def company_cv_refs(
                 )
             ).all():
                 client_names[job_id] = display_name or name
+            job_created = dict(
+                (
+                    await db.execute(
+                        select(Job.id, Job.created_at).where(Job.id.in_(job_ids))
+                    )
+                ).all()
+            )
         for cand, job in missing:
-            rows = by_candidate.get(cand, [])
+            # Plik starszy niż rekrutacja nie jest jej CV (`rows_from_job`).
+            rows = rows_from_job(by_candidate.get(cand, []), job_created.get(job))
             doc_id = pick_document_cv(rows, client_names.get(job))
             if doc_id is not None:
                 out[(cand, job)] = {
@@ -1514,6 +1564,9 @@ async def load_pair_facts(
         client_form_missing=form_state.missing if form_state else None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
+        qc_manual=tuple(qc.get("manual_checks") or ()),
+        qc_gaps=tuple(qc.get("candidate_gaps") or ()),
+        qc_state=qc.get("qc_state"),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         skips_fill_gates=skips_fill_gates(user),

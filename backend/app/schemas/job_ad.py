@@ -285,6 +285,9 @@ class AdJjitApi(BaseModel):
     pending_action: Optional[str] = None
     last_error: Optional[str] = None
     options: Optional[dict[str, Any]] = None
+    # 06.11.2026: przy formularzu portalu (``JJIT_APPLY_EMAIL``) kandydat nie
+    # przechodzi przez stronę kariery, więc okno nie każe jej najpierw publikować.
+    career_required: bool = True
 
 
 class JobAdResponse(BaseModel):
@@ -303,6 +306,8 @@ class JobAdResponse(BaseModel):
     # Ostatni mail do opiekuna Pracuj.pl (27.10.2026).
     pracuj_request: Optional[PracujRequestRead] = None
     jjit_api: Optional[AdJjitApi] = None
+    # Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026).
+    can_mark_publications: bool = False
 
 
 class CareerQueueItem(BaseModel):

@@ -148,64 +148,6 @@ async def api_client():
         yield c
 
 
-async def test_cutover_requires_first_of_month(api_client, monkeypatch):
-    monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
-    # Audyt M7 PR-05 (P1.7): cutover jest zamrożony za break-glass — ten test
-    # weryfikuje walidację + persist, więc odblokowujemy. Sam freeze testuje
-    # test_cutover_frozen_without_breakglass poniżej.
-    monkeypatch.setattr(settings, "ANALYTICS_CUTOVER_BREAKGLASS", True)
-    email, password = await _seed_admin()
-    resp = await api_client.post(
-        "/api/auth/login", json={"email": email, "password": password}
-    )
-    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-    bad = await api_client.post(
-        "/api/analytics/v1/admin/cutover",
-        json={"module": "finance", "cutover_date": "2026-07-15"},
-        headers=headers,
-    )
-    assert bad.status_code == 422
-
-    ok = await api_client.post(
-        "/api/analytics/v1/admin/cutover",
-        json={"module": "finance", "cutover_date": "2026-07-01"},
-        headers=headers,
-    )
-    assert ok.status_code == 200, ok.text
-    # sprzątanie — cutover globalnie wpływa na finance_trend w innych testach
-    async with AsyncSessionLocal() as db:
-        await db.execute(delete(AnalyticsCutover))
-        await db.commit()
-
-
-async def test_cutover_frozen_without_breakglass(api_client, monkeypatch):
-    """Audyt M7 PR-05 (P1.7): bez ANALYTICS_CUTOVER_BREAKGLASS cutover = 412
-    i NIC nie zapisuje — nawet dla admina z poprawnym payloadem."""
-    monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
-    monkeypatch.setattr(settings, "ANALYTICS_CUTOVER_BREAKGLASS", False)
-    email, password = await _seed_admin()
-    resp = await api_client.post(
-        "/api/auth/login", json={"email": email, "password": password}
-    )
-    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-    frozen = await api_client.post(
-        "/api/analytics/v1/admin/cutover",
-        json={"module": "finance", "cutover_date": "2026-07-01"},
-        headers=headers,
-    )
-    assert frozen.status_code == 412, frozen.text
-    assert "zamrożony" in frozen.json()["detail"].lower()
-
-    async with AsyncSessionLocal() as db:
-        rows = (await db.execute(select(AnalyticsCutover))).scalars().all()
-        assert rows == [], "freeze nie może zapisać cutoveru"
-
-
-# ── Audyt M7 PR-05 (P1.15): debug-fire-nudge containment ─────────────────────
-
-
 async def test_debug_fire_nudge_hidden_without_breakglass(api_client, monkeypatch):
     """W prod (DEBUG=False) bez KPI_COACH_DEBUG_BREAKGLASS endpoint = 404,
     nawet dla admina — smoke-test nie może istnieć jako stała powierzchnia."""

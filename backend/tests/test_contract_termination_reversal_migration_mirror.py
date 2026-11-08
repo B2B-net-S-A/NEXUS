@@ -48,6 +48,6 @@ def test_migration_chains_after_0367():
     assert 'down_revision = "0367_contract_agreement_termination"' in MIGRATION
 
 
-def test_one_shot_repair_runs_at_startup_without_names_in_the_log():
-    assert 'startup_phase "repair-termination-reversal"' in ENTRYPOINT
-    assert "run_termination_reversal_repair" in ENTRYPOINT
+def test_one_shot_repair_has_a_manual_script():
+    script = Path(__file__).resolve().parents[1] / "scripts/repairs/run_repair_termination_reversal.py"
+    assert "run_termination_reversal_repair" in script.read_text(encoding="utf-8")

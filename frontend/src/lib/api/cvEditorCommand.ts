@@ -32,15 +32,40 @@ export type CvCommandPreset =
   | "unify_sentences"
   | "more_requirements"
   | "proofread"
-  | "tailor";
+  | "tailor"
+  | "summary_point"
+  | "drop_offprofile_role";
 
-/** Gotowe polecenia — treść trzyma serwer, tu są nazwy dla rekrutera. */
-export const CV_COMMAND_PRESETS: ReadonlyArray<{ preset: CvCommandPreset; label: string }> = [
-  { preset: "shorten", label: "Skróć do 2 stron" },
-  { preset: "more_requirements", label: "Więcej o wymaganiach klienta" },
-  { preset: "proofread", label: "Popraw język i styl" },
-  { preset: "drop_old_roles", label: "Usuń najstarsze role" },
+export interface CvCommandSuggestion {
+  preset: CvCommandPreset;
+  label: string;
+}
+
+/**
+ * Trzy podpowiedzi z najczęstszych ręcznych zmian w CV z generatora (pomiar
+ * 266 CV, 07.11.2026): punkt dopisany do podsumowania (30% CV), wymagania
+ * dopisane do obowiązków (27%), usunięta rola spoza profilu (4%). Stoją nad
+ * linią asystenta, także zwiniętego. Treść trzyma serwer (`cv_command_ai.PRESETS`).
+ */
+export const CV_COMMAND_SUGGESTIONS: ReadonlyArray<CvCommandSuggestion> = [
+  { preset: "summary_point", label: "+ Punkt do podsumowania" },
+  { preset: "more_requirements", label: "Wymagania do obowiązków" },
+  { preset: "drop_offprofile_role", label: "Usuń rolę spoza profilu" },
 ];
+
+/**
+ * Podpowiedzi rozwiniętego asystenta. „Skróć do 2 stron” i „Usuń najstarsze
+ * role” (po 0 użyć od 12.10 do 05.11) ustąpiły trzem podpowiedziom wyżej —
+ * przy 1280 × 720 siódmy przycisk dokładał rząd i zabierał miejsce rozmowie.
+ * Słowami („skróć do 2 stron”) działają dalej.
+ */
+export const CV_COMMAND_PRESETS: ReadonlyArray<CvCommandSuggestion> = [
+  ...CV_COMMAND_SUGGESTIONS,
+  { preset: "proofread", label: "Popraw język i styl" },
+];
+
+/** Podpowiedzi z cytatem ze źródła: propozycje czekają na „Zastosuj zaznaczone”. */
+export const CV_PROPOSAL_PRESETS: ReadonlySet<CvCommandPreset> = new Set(["tailor", "summary_point"]);
 
 /** Wiadomość rozmowy z asystentem wysyłana jako kontekst (najwyżej 6). */
 export interface CvCommandMessage {
@@ -102,7 +127,7 @@ export interface CvPlanOperation {
   problem?: string | null;
   /** `bold` / `unbold`: terminy, które stoją w CV. */
   terms?: string[];
-  /** „Dopasuj pod rekrutację”: fragment źródła, który kod znalazł dosłownie. */
+  /** „Dopasuj” i „+ Punkt do podsumowania”: fragment źródła, który kod znalazł dosłownie. */
   quote?: string | null;
   source?: "oryginal" | "rozmowa" | null;
 }
@@ -127,6 +152,8 @@ export interface CvEditorCommandApi {
   plan: (stageId: number, body: CvCommandRequest) => Promise<CvCommandResponse>;
   /** „Tak, dopisz”: fakt z rozmowy z kandydatem jako notatka pary (autor, data). */
   confirmFact: (stageId: number, body: { term: string; text: string }) => Promise<void>;
+  /** Plan nałożony na CV: rodzaj prośby i liczba operacji, bez treści (pomiar E3). */
+  applied?: (stageId: number, body: { preset: string | null; operations: number }) => Promise<void>;
 }
 
 export const networkCommandApi: CvEditorCommandApi = {
@@ -140,4 +167,6 @@ export const networkCommandApi: CvEditorCommandApi = {
       .then((response) => response.data),
   confirmFact: (stageId, body) =>
     api.post(`/api/pipeline/stages/${stageId}/cv-ai/confirm-fact`, body).then(() => undefined),
+  applied: (stageId, body) =>
+    api.post(`/api/pipeline/stages/${stageId}/cv-ai/applied`, body).then(() => undefined),
 };

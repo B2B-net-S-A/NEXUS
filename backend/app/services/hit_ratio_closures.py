@@ -24,12 +24,12 @@ from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
 from app.services.hit_ratio_scope import close_reason_group
-from app.services.job_fill import placements_by_job
+from app.services.job_fill import filled_by_job
 
 _CLOSE_ACTIONS = ("closed", "close_reason_changed")
 
 
-def _row_group(reason, hired: bool) -> str:
+def closure_group(reason, hired: bool) -> str:
     group = close_reason_group(reason)
     if group == "neutral":
         return "neutral"
@@ -65,7 +65,7 @@ async def hit_ratio_closures(
         q = q.where(Job.closed_at < end)
     rows = (await db.execute(q)).all()
     job_ids = [r.id for r in rows]
-    hired = await placements_by_job(db, job_ids)
+    hired = await filled_by_job(db, job_ids)
 
     # Kto zamknął albo ostatni zmienił powód — z historii rekrutacji.
     closed_by: dict[int, tuple[Optional[int], datetime]] = {}
@@ -99,7 +99,7 @@ async def hit_ratio_closures(
     counts = {"won": 0, "lost": 0, "neutral": 0, "unreviewed": 0}
     listed: dict[str, list[dict]] = {"neutral": [], "unreviewed": []}
     for r in rows:
-        group = _row_group(r.close_reason, bool(hired.get(r.id)))
+        group = closure_group(r.close_reason, bool(hired.get(r.id)))
         counts[group] += 1
         if group not in listed:
             continue

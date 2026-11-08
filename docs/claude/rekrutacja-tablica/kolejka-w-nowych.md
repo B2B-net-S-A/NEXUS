@@ -13,6 +13,8 @@ z wynikiem −0,80, ujemna w 151 ze 166 rekrutacji). Z 3 231 kart od systemu rus
 
 - **Kolejność liczy front** (`orderNewColumn`), przed filtrem „Kto dodał”, więc
   miejsce karty nie zależy od filtra, a strzałki panelu chodzą tą samą listą.
+  Serwerowe lustro dla ekranu porcji: `services/review_batch_order.order_cards`.
+  Zmiana kolejności tu wymaga zmiany tam.
   `_newest_first` na serwerze zostaje: inne kolumny i inni czytelnicy z niego
   korzystają.
 - **Na górze od najmłodszego:** osoby dodane przez zespół i karty od systemu,
@@ -90,3 +92,38 @@ z 23.10–02.11: ze 201 osób system pokazał 41%, 17% było spoza bazy, 42% zna
 - Karty otwarte przed `MEASURED_SINCE` (03.11.2026) i osoby bez migawki to „Sprzed
   pomiaru”, także od systemu: są na pasku, ale procenty ich nie liczą. Inaczej do
   mianownika wchodziłyby dawne karty od systemu, a dawne ręczne nie.
+
+## Zgłoszenia na górze, z brakiem krytycznej zwinięte (06.11.2026)
+
+Decyzja Artura z 06.11.2026 (makiety https://claude.ai/artifact/JMTL5qwBym7Twd2dU1uYsb).
+Osoba, która sama się zgłosiła (`entry_source = application`: strona kariery,
+formularz JustJoin.IT przez `portal-application`), stoi w „Nowych” na samej
+górze, w sekcji „Aplikowali na ogłoszenie”, jeśli ma wszystkie umiejętności
+krytyczne. Z brakiem krytycznej (`criticalGapMap`, to samo co plakietka „BRAK”)
+idzie na koniec kolumny, do grupy „Aplikowali, brak »musi mieć«”, którą tablica
+domyślnie zwija (`orderNewColumn` → `appliedGapIds`, stan `appliedGapOpen`).
+
+- **Odkładamy, nie odrzucamy.** Pomiar 06.11: 32 z 81 aplikujących z JJIT bez
+  którejś krytycznej, 12 z nich z wynikiem ≥ 65 — zwykle brak jednego słowa w CV.
+  Karta istnieje (etap „Nowi”), więc ponowne zgłoszenie nie robi duplikatu.
+- **Zwinięcie chowa karty przed przeciąganiem**, jak filtr „Kto dodał”:
+  indeksy `Draggable` to indeksy widocznej listy. Nie chowaj ich samym CSS-em.
+- **Bez odpowiedzi z wynikami nikt nie jest odkładany** — brak mapy braków
+  = wszyscy aplikujący w „Aplikowali na ogłoszenie”.
+- Licznik w nagłówku kolumny liczy wszystkich, także zwiniętych.
+
+### Plakietka kanału i „Sprawdź w CV” (07.11.2026)
+
+- **Plakietka kanału.** Karta z formularza portalu ma „Z JustJoin.IT” /
+  „Z RocketJobs” / „Z Pracuj.pl” (`entry_meta.kind = portal_application`,
+  pole `entry_portal` w odpowiedzi Tablicy) zamiast ogólnego „Z ogłoszenia” —
+  tak jak „Z Twojego linku” przy stronie kariery.
+- **„Sprawdź w CV (AI)”** w grupie zwiniętej: `POST /jobs/{id}/applicants/{cid}/ai-check`
+  (`api/application_screenings.py`) — ta sama ocena co przegląd zgłoszeń
+  (`screening.assess`, cytat z CV). Wynik ląduje w `entry_meta.ai_check`, nie
+  nadpisuje rodzaju wejścia. „AI: pasuje” zdejmuje osobę z grupy zwiniętej
+  (`orderNewColumn`), „nie pasuje” i „do sprawdzenia” zostawiają ją tam.
+  Front woła osoby po kolei, nie równolegle.
+- **„Zaznacz wszystkich”** rozwija grupę i zaznacza ją; odrzucenie z mailem
+  to istniejące „Odrzuć” w pasku zaznaczenia (`RejectionV2`). Nie dokładaj
+  drugiej ścieżki odrzucenia.

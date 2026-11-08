@@ -217,6 +217,9 @@ _KNOWN_CONTRACT_FKS = {
     # (``placement_bonus_assigned_twice``), resztę rozstrzyga
     # ``_resolve_child_duplicates``. Premie ręczne przechodzą bez zmian.
     ("hr_bonuses", "contract_id"),
+    # Gwarancja premii DL (0653): dług wisi na premii (``bonus_id``), kontrakt to
+    # tylko odnośnik — bez unikatu, idzie za kontraktem zachowanym.
+    ("hr_bonus_clawbacks", "contract_id"),
     ("invoices", "contract_id"),
     ("notes", "contract_id"),
     # „Do przepięcia”: jeden aktywny wpis na kontrakt i powód (indeks
@@ -279,6 +282,8 @@ _MERGEABLE_FIELDS = (
     "notice_period_months",
     # Wymiar etatu z umowy (0524) — puste ← wypełnione, różnica to decyzja.
     "fte",
+    # Kandydat wskazany przez klienta (0656) — puste ← wypełnione.
+    "is_client_referral",
     "target_rate_min",
     "target_rate_max",
     "project_code",

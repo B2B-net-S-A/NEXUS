@@ -12,7 +12,10 @@ Kolejność, od najpewniejszego:
    prefiksu. Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
    jest do sprawdzenia przez Finanse. Faktura na jedną osobę z zamówienia MD
    (kwota równa pozycji tej osoby) wiąże się z tą osobą,
-4. **kwota** bez numeru — wyłącznie jednoznaczna: dokładnie jedno zamówienie
+4. **numer, którego NEXUS nie zna** (``named_order_numbers``) — faktura czeka na
+   Finanse: kwota albo osoba przypięłyby ją do innego zamówienia i podwójne
+   rozliczenie byłoby niewidoczne,
+5. **kwota** bez numeru — wyłącznie jednoznaczna: dokładnie jedno zamówienie
    (albo jedna osoba z zamówienia MD) z kwotą „do faktury” równą netto
    faktury co do grosza. Zamówienie kosztowe nie ma kwoty „do faktury”
    (ustalają ją Finanse) — wiąże je wyłącznie numer.
@@ -27,6 +30,7 @@ pozostałe faktury tego nabywcy dopasowują się od razu.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,6 +50,20 @@ from app.services.client_invoicing.billing import BillingLine, BillingRow, Order
 
 MIN_NUMBER_LENGTH = 3
 _DIGITS = re.compile(r"\d+")
+#: Etykieta numeru zamówienia i wartość po niej. Samo „PO” tylko wielkimi literami,
+#: bo małe „po” to polski przyimek („po 30 dniach”).
+_LABELLED_ORDER_NUMBER = re.compile(
+    r"(?<![0-9A-Za-zÀ-ž])"
+    r"(?:PO|(?i:po(?=\s+(?:number|no|nr)\b))|(?i:purchase\s+order)|(?i:zam[oó]wieni[aeu]))"
+    r"(?![0-9A-Za-zÀ-ž])"
+    r"(?i:\s*(?:number|numer|nr|no|o\s+numerze)\b\.?)?"
+    r"\s*[:#]?\s*"
+    r"(?i:(?:sap|zlecenie)\s+)?"
+    r"([0-9A-Za-z][0-9A-Za-z/_.\-]*)"
+)
+_DATE = re.compile(r"\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}|\d{4}-\d{2}-\d{2}")
+#: Cały wpis jako liczba to numer dopiero od 5 cyfr: krótsza bywa rokiem albo liczbą porządkową.
+_BARE_NUMBER = re.compile(r"\d{5,}")
 
 REASON_LABELS: dict[str, str] = {
     "unknown_buyer": "NIP nabywcy nie należy do żadnego klienta w NEXUSIE.",
@@ -55,6 +73,7 @@ REASON_LABELS: dict[str, str] = {
     "order_outside_period": "Numer zamówienia z faktury nie obejmuje tego miesiąca.",
     "currency_differs": "Waluta faktury inna niż waluta zamówienia.",
     "several_orders": "Faktura wymienia kilka zamówień, a kwota nie wskazuje jednego.",
+    "unknown_order_number": "Faktura podaje numer zamówienia, którego nie ma w NEXUSIE.",
     "amount_ambiguous": "Kwota pasuje do kilku zamówień — wybierz właściwe.",
     "amount_differs": "Bez numeru zamówienia, a kwota nie pasuje do żadnego zamówienia.",
     "expected_unknown": "Bez numeru zamówienia, a kwoty „do faktury” nie da się jeszcze policzyć.",
@@ -64,14 +83,17 @@ REASON_LABELS: dict[str, str] = {
     "reopened": "Przypisanie cofnięte — wskaż zamówienie.",
 }
 #: Powody, przy których kolejny przebieg próbuje dopasować jeszcze raz
-#: (nowe zamówienie, import MD, dopisany NIP klienta).
+#: (nowe zamówienie, import MD, dopisany NIP klienta, poprawiona waluta).
 RETRY_REASONS: frozenset[str] = frozenset(
     {
         "unknown_buyer",
         "no_orders",
         "order_outside_period",
+        "currency_differs",
         "amount_differs",
         "expected_unknown",
+        "unknown_order_number",
+        "several_orders",
         "original_unmatched",
         "original_missing",
     }
@@ -136,6 +158,31 @@ def numbers_found(texts: Iterable[str], refs: Sequence[OrderRef]) -> set[str]:
     return hits
 
 
+def named_order_numbers(texts: Iterable[str]) -> list[str]:
+    """Numery zamówień, które faktura podaje wprost w polach zamówienia, opisie i pozycjach.
+
+    To wolny tekst (osoby, adresy e-mail, nazwy projektów z cyframi), więc
+    numerem jest tylko wartość po etykiecie albo cały wpis złożony z cyfr. Inaczej
+    ciąg cyfr z nazwy projektu zatrzymałby fakturę, którą wiąże kwota.
+    """
+
+    found: list[str] = []
+    for text_ in texts:
+        value = str(text_ or "").strip()
+        if _BARE_NUMBER.fullmatch(value):
+            found.append(value)
+            continue
+        for match in _LABELLED_ORDER_NUMBER.finditer(value):
+            number = match.group(1).rstrip("./_-")
+            if (
+                len(number) >= MIN_NUMBER_LENGTH
+                and any(ch.isdigit() for ch in number)
+                and not _DATE.fullmatch(number)
+            ):
+                found.append(number)
+    return found
+
+
 def _item_price(item: dict[str, Any]) -> Optional[Decimal]:
     try:
         return Decimal(str(item.get("unit_price")))
@@ -143,9 +190,24 @@ def _item_price(item: dict[str, Any]) -> Optional[Decimal]:
         return None
 
 
+def _fold(text: str) -> str:
+    """Bez polskich znaków: faktury dla klientów z zagranicy piszą „Lukasz”."""
+
+    text = text.replace("ł", "l").replace("Ł", "L")
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def person_named_in(person: str, text: str) -> bool:
+    """Pełne imię i nazwisko osoby w tekście, całymi słowami, bez polskich znaków."""
+
+    parts = _fold(person).split()
+    name = _fold(text)
+    return len(parts) >= 2 and all(_pattern(part).search(name) for part in parts)
+
+
 def _named_in(line: BillingLine, item_name: str) -> bool:
-    parts = line.consultant.split()
-    return len(parts) >= 2 and all(_pattern(part).search(item_name) for part in parts)
+    return person_named_in(line.consultant, item_name)
 
 
 def _person_and_price(
@@ -181,6 +243,18 @@ def _person_and_price(
     return Target(order_id=line.order_id)
 
 
+def _people_with_amount(rows: Sequence[BillingRow], net: Decimal) -> list[BillingLine]:
+    """Pozycje osób z zamówień MD z kwotą równą netto faktury co do grosza."""
+
+    return [
+        line
+        for row in rows
+        if row.group_id is not None
+        for line in row.lines
+        if line.order_id and line.net == net
+    ]
+
+
 def decide(
     *,
     net: Decimal,
@@ -193,6 +267,7 @@ def decide(
     """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja)."""
 
     by_key = {row.key: row for row in rows}
+    texts = list(texts)
     hits = numbers_found(texts, refs)
     if hits:
         in_period = [by_key[key] for key in sorted(hits) if key in by_key]
@@ -221,7 +296,14 @@ def decide(
         equal = [row for row in same if row.expected_net == net]
         if len(equal) == 1:
             return Decision((_row_target(equal[0]),), "order_number")
+        if not equal:
+            people = _people_with_amount(same, net)
+            if len(people) == 1:
+                return Decision((Target(order_id=people[0].order_id),), "order_number")
         return Decision(reason="several_orders")
+
+    if named_order_numbers(texts):
+        return Decision(reason="unknown_order_number")
 
     candidates = [row for row in rows if row.currency == currency]
     if not candidates:
@@ -231,13 +313,7 @@ def decide(
         return Decision((_row_target(equal_rows[0]),), "amount")
     if len(equal_rows) > 1:
         return Decision(reason="amount_ambiguous")
-    equal_people = [
-        line
-        for row in candidates
-        if row.group_id is not None
-        for line in row.lines
-        if line.order_id and line.net == net
-    ]
+    equal_people = _people_with_amount(candidates, net)
     if len(equal_people) == 1:
         return Decision((Target(order_id=equal_people[0].order_id),), "amount")
     if len(equal_people) > 1:
@@ -596,7 +672,7 @@ def buyer_number(invoice: ClientSalesInvoice) -> Optional[str]:
     return invoice.buyer_nip or invoice.buyer_foreign_id
 
 
-def _waiting_for_number(number: str) -> list[Any]:
+def waiting_for_number_filters(number: str) -> list[Any]:
     return [
         ClientSalesInvoice.match_status == "unmatched",
         ClientSalesInvoice.match_reason == "unknown_buyer",
@@ -607,6 +683,27 @@ def _waiting_for_number(number: str) -> list[Any]:
     ]
 
 
+async def invoices_waiting_for_number(
+    db: AsyncSession, number: str
+) -> list[ClientSalesInvoice]:
+    """Faktury czekające na numer, zablokowane pod przypisanie albo pominięcie."""
+
+    return list(
+        await db.scalars(
+            select(ClientSalesInvoice)
+            .where(*waiting_for_number_filters(number))
+            .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
+            .with_for_update()
+        )
+    )
+
+
+async def retry_waiting_for_number(db: AsyncSession, number: str) -> dict[str, int]:
+    """Numer właśnie trafił do klienta: od razu dopasuj faktury tego nabywcy."""
+
+    return await _retry(db, await invoices_waiting_for_number(db, number))
+
+
 async def waiting_for_number(db: AsyncSession, number: str) -> int:
     """Ile faktur czeka na ten numer u klienta."""
 
@@ -614,7 +711,7 @@ async def waiting_for_number(db: AsyncSession, number: str) -> int:
         await db.scalar(
             select(func.count())
             .select_from(ClientSalesInvoice)
-            .where(*_waiting_for_number(number))
+            .where(*waiting_for_number_filters(number))
         )
         or 0
     )
@@ -641,15 +738,7 @@ async def save_buyer_number(
         "matched": 0,
     }
     if check.state == "add":
-        pending = list(
-            await db.scalars(
-                select(ClientSalesInvoice)
-                .where(*_waiting_for_number(check.number))
-                .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
-                .with_for_update()
-            )
-        )
-        result.update(await _retry(db, pending))
+        result.update(await retry_waiting_for_number(db, check.number))
     return result
 
 
@@ -665,10 +754,15 @@ __all__ = [
     "decide",
     "ignore",
     "invoice_texts",
+    "invoices_waiting_for_number",
+    "named_order_numbers",
     "numbers_found",
+    "person_named_in",
     "propagate_to_corrections",
     "rematch_pending",
     "reopen",
+    "retry_waiting_for_number",
     "save_buyer_number",
     "waiting_for_number",
+    "waiting_for_number_filters",
 ]

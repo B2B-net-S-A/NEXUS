@@ -791,7 +791,7 @@ async def test_one_shot_repair_reverses_the_reported_contract_once(
 
     from app.core.database import AsyncSessionLocal
     from app.models.contract_termination_snapshot import ContractTerminationSnapshot
-    from app.services.contract_termination_reversal_repair import (
+    from scripts.repairs.contract_termination_reversal_repair import (
         TARGETS,
         run_termination_reversal_repair,
     )

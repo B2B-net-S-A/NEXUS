@@ -15,6 +15,39 @@ const system = (id: number, score: number, extra: object = {}) => ({
   ...extra,
 });
 const team = (id: number) => ({ id, candidate_id: id * 10, entry_source: "added_manual" });
+const applied = (id: number) => ({ id, candidate_id: id * 10, entry_source: "application" });
+
+describe("premia porcji w kolejności", () => {
+  it("osoba z premią stoi nad wyższym wynikiem, procent zostaje", () => {
+    const withBonus = system(1, 74, { entry_autofill: { score: 74, decided: false, cautions: [], queue_bonus: 8 } });
+    const { items } = orderNewColumn([system(2, 79), withBonus]);
+    expect(items.map((item) => item.id)).toEqual([1, 2]);
+    expect(items[0].entry_autofill?.score).toBe(74);
+  });
+});
+
+describe("orderNewColumn — zgłoszenia (06.11.2026)", () => {
+  it("aplikujący z kompletem „musi mieć” na górze, z brakiem na samym końcu", () => {
+    const gaps = new Map([[30, ["BigQuery"]]]);
+    const { items, sections, appliedGapIds, total } = orderNewColumn(
+      [team(1), applied(2), applied(3), system(4, 80)],
+      gaps,
+    );
+    expect(items.map((i) => i.id)).toEqual([2, 1, 4, 3]);
+    expect(sections.get(2)).toBe("applied");
+    expect(sections.get(1)).toBe("team");
+    expect(sections.get(4)).toBe("call_first");
+    expect(sections.get(3)).toBe("applied_gap");
+    expect([...appliedGapIds]).toEqual([3]);
+    expect(total).toBe(1);
+  });
+
+  it("bez wyniku braków (zapytanie jeszcze leci) nikogo nie odkłada", () => {
+    const { appliedGapIds, sections } = orderNewColumn([applied(1), applied(2)]);
+    expect(appliedGapIds.size).toBe(0);
+    expect(sections.get(1)).toBe("applied");
+  });
+});
 
 describe("orderNewColumn", () => {
   it("odwraca paczkę od systemu: najwyższy wynik pierwszy, zespół na górze", () => {
@@ -199,5 +232,21 @@ describe("newColumnSection", () => {
     expect(newColumnSection(1)).toBe("call_first");
     expect(newColumnSection(5)).toBe("call_first");
     expect(newColumnSection(6)).toBe("rest");
+  });
+});
+
+describe("orderNewColumn — „Sprawdź w CV” (07.11.2026)", () => {
+  it("„AI: pasuje” wyciąga zgłoszenie z grupy z brakiem", () => {
+    const gaps = new Map([[10, ["Agentic AI"]]]);
+    const checked = { id: 1, candidate_id: 10, entry_source: "application", entry_ai_screening: { verdict: "fits" } };
+    const { sections, appliedGapIds } = orderNewColumn([checked], gaps);
+    expect(sections.get(1)).toBe("applied");
+    expect(appliedGapIds.size).toBe(0);
+  });
+
+  it("„AI: nie pasuje” zostaje zwinięte", () => {
+    const gaps = new Map([[10, ["Agentic AI"]]]);
+    const checked = { id: 1, candidate_id: 10, entry_source: "application", entry_ai_screening: { verdict: "not_fit" } };
+    expect(orderNewColumn([checked], gaps).sections.get(1)).toBe("applied_gap");
   });
 });

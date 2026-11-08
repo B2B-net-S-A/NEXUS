@@ -69,6 +69,7 @@ import {
   useQcApply,
   useQcConfirm,
   useQcDismiss,
+  useQcManualRoles,
   useQcRestore,
   cvQcFixesQueryKey,
   type QcApplyBody,
@@ -90,6 +91,8 @@ import {
   roleGaps,
   segmentCv,
   splitChecks,
+  candidateGapItems,
+  splitDlReturns,
   taskPendingItem,
   taskTitle,
   thingsLabel,
@@ -139,6 +142,11 @@ export interface CvQcDialogProps {
    * „Przesuń dalej” (ruch etapu ma jedną drogę). Bez niego przycisku nie ma.
    */
   onMoveNext?: (result: QcResult) => void;
+  /**
+   * R5 (07.11.2026): kto patrzy. Delivery Lead z przeglądu dostaje objaśnienie
+   * dla siebie, nie „możesz przesunąć kartę mimo uwag” pisane do rekrutera.
+   */
+  audience?: "recruiter" | "dl";
 }
 
 // ── CV po lewej ──────────────────────────────────────────────────────────────
@@ -282,7 +290,7 @@ function CvPaper({ data }: { data: QcResult }) {
 const championHref = (data: QcResult) => `/jobs/${data.job_id}?tab=champion`;
 
 /** Co QC sprawdza i które umiejętności są krytyczne w tej rekrutacji. */
-function Explainer({ data }: { data: QcResult }) {
+function Explainer({ data, audience = "recruiter" }: { data: QcResult; audience?: "recruiter" | "dl" }) {
   const critical = data.client_request.critical ?? [];
   const source = data.client_request.critical_source ?? "none";
   const champion = (
@@ -304,7 +312,12 @@ function Explainer({ data }: { data: QcResult }) {
         <strong className="font-semibold">Co sprawdza QC:</strong> czy CV firmowe opisuje umiejętności krytyczne tej
         rekrutacji i czy nie mówi nic ponad oryginalne CV kandydata. Reszta to podpowiedzi — nie zatrzymują wysyłki.
       </p>
-      {data.advisory ? (
+      {audience === "dl" ? (
+        <p>
+          Patrzysz jako Delivery Lead: to samo widział rekruter przed przekazaniem. „Sprawdź ręcznie” znaczy, że QC
+          tego nie umiało sprawdzić — zaznacz to w „Wróć do poprawy”, jeśli trzeba poprawić CV.
+        </p>
+      ) : data.advisory ? (
         <p>
           QC doradza: możesz przesunąć kartę mimo uwag — Delivery Lead zobaczy, co zostało niepoprawione, i może
           cofnąć ją do poprawy.
@@ -383,7 +396,7 @@ function Verdict({ data }: { data: QcResult }) {
   if (data.override) {
     return (
       <Badge variant="warning" size="lg">
-        Przepuszczone mimo QC
+        QC: przepuszczone
       </Badge>
     );
   }
@@ -399,16 +412,19 @@ export function CvQcBody({
   stageId,
   onChanged,
   onOpenEditor,
+  audience = "recruiter",
 }: {
   data: QcResult;
   stageId: number;
   onChanged?: () => void;
+  audience?: "recruiter" | "dl";
   /** Otwiera edytor sprawdzanego CV — brak, gdy CV nie da się edytować w NEXUSIE. */
   onOpenEditor?: () => void;
 }) {
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
   const confirm = useQcConfirm(stageId, onChanged);
+  const manualRoles = useQcManualRoles(stageId, onChanged);
   const dismiss = useQcDismiss(stageId, onChanged);
   const restore = useQcRestore(stageId, onChanged);
   // Jak „Przepuść mimo QC”: w podglądzie jako inny użytkownik — nikomu.
@@ -446,6 +462,15 @@ export function CvQcBody({
       }),
     confirming: confirm.isPending,
     confirmRoles: data?.confirm_roles ?? [],
+    manualRoles: (body, onSaved) =>
+      manualRoles.mutate(body, {
+        onSuccess: () => {
+          showSuccess("Wskazanie zapisane — QC przeliczone.");
+          onSaved?.();
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać wskazania. Spróbuj ponownie.")),
+      }),
+    manualRolesPending: manualRoles.isPending,
     requestAiFixes: () => {
       if (typeof document !== "undefined") {
         document.getElementById(`qc-ai-${stageId}`)?.scrollIntoView?.({ block: "nearest" });
@@ -479,7 +504,11 @@ export function CvQcBody({
     restoring: restore.isPending,
   };
 
-  const { tasks, notes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  const { tasks, notes: allNotes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  // R4 (07.11.2026): uwagi, za które DL najczęściej cofa kartę, idą wyżej.
+  const { dlReturns, rest: notes } = useMemo(() => splitDlReturns(allNotes), [allNotes]);
+  // R2 (07.11.2026): luka kandydata — nie poprawka CV, decyzja DL.
+  const gaps = useMemo(() => candidateGapItems(data.checks), [data.checks]);
   // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
@@ -504,11 +533,11 @@ export function CvQcBody({
         <CvPaper data={data} />
       </div>
       <div className="space-y-3 p-4 lg:min-h-0 lg:overflow-y-auto">
-        <Explainer data={data} />
+        <Explainer data={data} audience={audience} />
         <Confirmations items={data.confirmations ?? []} />
         {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
-            Przepuszczone mimo QC{data.override.by_name ? ` przez ${data.override.by_name}` : ""}
+            QC: przepuszczone{data.override.by_name ? ` · ${data.override.by_name}` : ""}
             {data.override.at ? ` (${formatDate(data.override.at)})` : ""}: {data.override.reason}
           </p>
         ) : null}
@@ -529,8 +558,37 @@ export function CvQcBody({
             Nic nie blokuje wysyłki tego CV.
           </p>
         )}
+        {gaps.length > 0 ? (
+          <section aria-label="Do decyzji Delivery Leada" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Do decyzji Delivery Leada ({gaps.length})</h3>
+            <ul className="space-y-2">
+              {gaps.map((item, i) => (
+                <li
+                  key={item.key ?? i}
+                  className="space-y-1.5 rounded-lg border border-warning/40 bg-warning-muted/40 px-3 py-2 text-sm"
+                >
+                  <p className="font-medium">{item.requirement} — kandydat tego nie ma</p>
+                  {item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : null}
+                  <Button size="sm" variant="outline" onClick={() => ctx.copyQuestion(item)}>
+                    Skopiuj pytanie do kandydata
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {data.cv && hasAiGaps ? (
           <AiFixes stageId={stageId} ctx={ctx} />
+        ) : null}
+        {dlReturns.length > 0 ? (
+          <section aria-label="Delivery Lead zwykle o to cofa" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Delivery Lead zwykle o to cofa ({dlReturns.length})</h3>
+            <ul className="space-y-2">
+              {dlReturns.map((check) => (
+                <CheckRow key={check.key} check={check} ctx={ctx} />
+              ))}
+            </ul>
+          </section>
         ) : null}
         {notes.length > 0 ? (
           <section aria-label="Warto poprawić — nie blokuje" className="space-y-2">
@@ -625,6 +683,7 @@ export function CvQcDialogView({
   state,
   refreshFailed,
   onRecheck,
+  audience = "recruiter",
 }: CvQcDialogViewProps) {
   const me = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
@@ -698,6 +757,7 @@ export function CvQcDialogView({
             stageId={stageId}
             onChanged={onChanged}
             onOpenEditor={editorTarget ? () => setEditorOpen(true) : undefined}
+            audience={audience}
           />
         ) : loading ? (
           <p className="flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
@@ -785,7 +845,7 @@ export function CvQcDialogView({
   );
 }
 
-export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: CvQcDialogProps) {
+export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext, audience }: CvQcDialogProps) {
   const query = useCvQc(stageId, open);
   const queryClient = useQueryClient();
   // Otwarcie okna przelicza i zapisuje QC (CV mogło się zmienić poza oknem) —
@@ -816,6 +876,7 @@ export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: Cv
       state={resolveViewState({ isLoading: query.isLoading, error: query.error })}
       refreshFailed={query.isError && query.data != null}
       onRecheck={() => void query.refetch()}
+      audience={audience}
     />
   );
 }

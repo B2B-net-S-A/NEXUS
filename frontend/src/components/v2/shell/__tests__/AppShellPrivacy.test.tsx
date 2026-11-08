@@ -40,7 +40,6 @@ vi.mock("../KidsBackdrop", () => ({ KidsBackdrop: () => null }));
 vi.mock("@/components/jarvis/JarvisRoot", () => ({ JarvisRoot: () => null }));
 vi.mock("@/components/v2/my-people/MyPeopleLauncher", () => ({ MyPeopleRoot: () => null }));
 vi.mock("@/components/ui/sheet", () => ({ Sheet: () => null, SheetContent: () => null, SheetTitle: () => null }));
-vi.mock("@/components/trainee/TraineeShell", () => ({ TraineeShell: () => null }));
 
 import { AppShellV2 } from "../AppShellV2";
 

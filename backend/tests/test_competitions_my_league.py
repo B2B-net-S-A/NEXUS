@@ -123,7 +123,8 @@ async def test_recruiter_gets_place_points_and_rules(league) -> None:
     assert data["period"] == PERIOD
     assert data["days_remaining"] == 80
     assert data["total"] == 6
-    assert data["prizes_pln"] == {1: 5000, 2: 3000, 3: 2000}
+    # Q4 2026: nagrody Ligi podwojone (decyzja Artura 06.11.2026).
+    assert data["prizes_pln"] == {1: 10_000, 2: 6000, 3: 4000}
     assert data["points_formula"] == {
         "placement": 150,
         "interview": 15,

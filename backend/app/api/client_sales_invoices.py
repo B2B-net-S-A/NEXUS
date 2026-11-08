@@ -249,6 +249,24 @@ async def client_invoicing(
     return payload
 
 
+@router.get("/{client_id}/invoicing/waiting-for-number")
+async def client_invoices_waiting_for_number(
+    client_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    number: str = Query(..., min_length=1, max_length=32),
+) -> dict[str, Any]:
+    """Ramka w formularzu klienta: „N faktur z KSeF czeka na ten NIP”.
+
+    Tylko Finanse. Wpisany numer nie jest związany z klientem z adresu, więc
+    Delivery Lead odczytałby nim nazwę i kwoty faktur firmy spoza portfela.
+    """
+
+    await _module_open(db, current_user)
+    await _client_or_404(db, client_id)
+    return await views.waiting_for_number_view(db, normalize_buyer_number(number))
+
+
 @router.get("/{client_id}/invoicing/export")
 async def client_invoicing_export(
     client_id: int,
@@ -302,6 +320,16 @@ class BuyerNumberIn(BaseModel):
 
 
 class ReasonIn(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=REASON_MAX_LENGTH)
+
+
+class BuyerAssignIn(BaseModel):
+    number: str = Field(..., min_length=1, max_length=32)
+    client_id: int = Field(..., gt=0)
+
+
+class BuyerSkipIn(BaseModel):
+    number: str = Field(..., min_length=1, max_length=32)
     reason: str = Field(..., min_length=1, max_length=REASON_MAX_LENGTH)
 
 
@@ -412,6 +440,73 @@ async def finance_credits(
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
     return {"credits": await views.credits_view(db, today=business_today())}
+
+
+@finance_router.get("/unknown-buyers")
+async def finance_unknown_buyers(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Faktury bez klienta ze wszystkich miesięcy, zgrupowane po numerze nabywcy."""
+
+    await _module_open(db, current_user)
+    payload = await views.unknown_buyers(db)
+    # Tak jak suma miesiąca: kwota całej kolejki to dane o przychodzie firmy.
+    if not has_permission(current_user, ProductAction.company_results):
+        payload["summary"] = {
+            **payload["summary"],
+            "totals": [],
+            "totals_hidden": True,
+        }
+    return payload
+
+
+async def _waiting_invoices(db: AsyncSession, number: str) -> list[ClientSalesInvoice]:
+    invoices = await matching.invoices_waiting_for_number(db, number)
+    if not invoices:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Żadna faktura nie czeka już na ten numer."
+        )
+    return invoices
+
+
+@finance_router.post("/unknown-buyers/assign")
+async def finance_unknown_buyer_assign(
+    body: BuyerAssignIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dopisuje numer nabywcy do klienta i od razu wiąże wszystkie jego faktury."""
+
+    await _module_open(db, current_user)
+    await _client_or_404(db, body.client_id)
+    invoice = (await _waiting_invoices(db, body.number))[0]
+    saved = await _save_buyer_number(
+        db, invoice, current_user, client_id=body.client_id
+    )
+    if not saved["saved"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            BUYER_NUMBER_REFUSED.get(saved["state"], "Tego numeru nie można dopisać."),
+        )
+    return {"buyer_number": saved}
+
+
+@finance_router.post("/unknown-buyers/skip")
+async def finance_unknown_buyer_skip(
+    body: BuyerSkipIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Pomija wszystkie czekające faktury nabywcy (np. spoza zamówień), z powodem."""
+
+    await _module_open(db, current_user)
+    invoices = await _waiting_invoices(db, body.number)
+    with _http_errors():
+        for invoice in invoices:
+            await matching.ignore(
+                db, invoice, reason=body.reason, actor_id=current_user.id
+            )
+    return {"skipped": len(invoices)}
 
 
 @finance_router.get("/status")

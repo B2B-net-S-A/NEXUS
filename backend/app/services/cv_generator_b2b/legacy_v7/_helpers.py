@@ -474,6 +474,25 @@ _FIT_VERDICT_RE = re.compile(
 )
 
 
+# Punkty 3–5 to zdania, nie „ETL: …” (zgłoszenie 06.11.2026, na Solu większość
+# punktów zaczynała się od etykiety). Etykieta to do 5 słów przed dwukropkiem.
+_WHY_LABEL_RE = re.compile(r"^\s*([^:.;\d][^:.;]{0,48}?)\s*:\s+(?=\S)")
+
+
+def _drop_why_labels(points: list[Any]) -> list[Any]:
+    """Zdejmij etykietę z dwukropkiem z punktów 3–5; punkt 2 to „Specjalizacja: …”."""
+    out = list(points)
+    for i in range(2, len(out)):
+        point = out[i]
+        if not isinstance(point, str):
+            continue
+        match = _WHY_LABEL_RE.match(point)
+        if match and len(match.group(1).split()) <= 5:
+            rest = point[match.end() :]
+            out[i] = rest[:1].upper() + rest[1:]
+    return out
+
+
 def _apply_summary_standard(
     candidate_data: dict[str, Any], language: str, client_rule: Any = None
 ) -> list[str]:
@@ -495,6 +514,8 @@ def _apply_summary_standard(
         notes.append(
             f"WERYFIKUJ: usunięto z podsumowania ocenę dopasowania: „{verdicts[0]}”."
         )
+    points = _drop_why_labels(points)
+    candidate_data["why_points"] = points
     if len(points) > WHY_POINTS_STANDARD:
         points = points[: WHY_POINTS_STANDARD - 1] + points[-1:]
         candidate_data["why_points"] = points
@@ -749,11 +770,16 @@ def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> lis
     return issues
 
 
-def _norm_for_guard(text: str) -> str:
+def _fold_for_guard(text: str) -> str:
+    """Tekst bez ogonków, z wielkością liter; długość jak w `_norm_for_guard`."""
     text = text.translate(_TRANSLIT)
     nkfd = unicodedata.normalize("NFKD", text)
     text = "".join(ch for ch in nkfd if not unicodedata.combining(ch))
-    return re.sub(r"\s+", " ", text.lower())
+    return re.sub(r"\s+", " ", text)
+
+
+def _norm_for_guard(text: str) -> str:
+    return _fold_for_guard(text).lower()
 
 
 _GUARD_TOKEN_RE = re.compile(r"[^a-z0-9+#]+")
@@ -979,16 +1005,33 @@ def _token_present(token: str, haystack_tokens: set[str]) -> bool:
 
 
 def _loosely_present(
-    term: str, haystack_tokens: set[str], *, exact: bool = False
+    term: str,
+    haystack_tokens: set[str],
+    *,
+    exact: bool = False,
+    dictionary: bool = False,
 ) -> bool:
     """Każde istotne słowo terminu (jego rdzeń) zaczyna jakieś słowo źródła
     („REST API" ↔ „RESTful APIs", „Grafana" ↔ „Grafany", „Node.js" ↔
     „NodeJS"). Alternatywa w nawiasie liczy się osobno („Kubernetes (K8s)").
-    ``exact`` wymaga całych słów: „Java” nie stoi wtedy w „JavaScript”."""
+    ``exact`` wymaga całych słów: „Java” nie stoi wtedy w „JavaScript”.
+    ``dictionary`` dokłada warianty ze słownika, które liczą się w tekście CV
+    (etap 3a, 07.11.2026: „Anti-Money Laundering” ↔ „AML”)."""
     variants = [term]
     paren = re.search(r"\(([^)]*)\)", term)
     if paren:
         variants = [term[: paren.start()], paren.group(1)]
+    if dictionary:
+        from app.services.skill_normalize import implied_forms, text_alias_forms
+
+        # „Java” zostaje u osoby z samym Spring Boot w źródle: powiązanie
+        # „wynika z” (mapa wiedzy IT, 07.11.2026). Generator nie dopisuje nowej
+        # technologii — tylko jej nie usuwa (decyzja Artura).
+        variants += [
+            form
+            for v in list(variants)
+            for form in (*text_alias_forms(v), *implied_forms(v))
+        ]
     variants += [_abbreviated(v) for v in variants]
     for variant in variants:
         tokens = _term_tokens(variant)
@@ -1071,7 +1114,7 @@ def strip_unsupported_terms(
 
     def from_ad(term: str) -> bool:
         tokens = _term_tokens(term)
-        if not tokens or _loosely_present(term, evidence):
+        if not tokens or _loosely_present(term, evidence, dictionary=True):
             return False
         if not all(tok in asked for tok in tokens):
             return False
@@ -1164,6 +1207,123 @@ def _requirement_label_rest(label: str) -> str | None:
     if rest == whole:
         return None
     return "" if _EMPTY_LABEL_REST_RE.fullmatch(rest) else rest
+
+
+# Umiejętności to umiejętności (zgłoszenie 06.11.2026): na 1080 CV od 06.10 w 87 stały
+# tryb pracy, cechy osobiste albo prawo jazdy, w 59 kategoria umiejętności miękkich.
+_NOT_A_SKILL_RE = re.compile(
+    r"^\s*(?:praca\s+zdalna|praca\s+hybrydowa|praca\s+w\s+zespole|zdalna\s+praca|"
+    r"remote\s+work(?:ing)?|hybrid\s+work|remote\s+team\s+collaboration|teamwork|team\s+work|"
+    r"team\s+player|komunikatywność|komunikacja|communication(?:\s+skills)?|"
+    r"zarządzanie\s+czasem|time\s+management|adaptability|adaptacyjność|elastyczność|"
+    r"samodzielność|odpowiedzialność|kreatywność|creativity|multitasking|punktualność|"
+    r"prawo\s+jazdy(?:\s+kat\.?\s*b)?|(?:category\s+b\s+)?driving\s+licen[cs]e(?:\s*\(?category\s+b\)?)?)"
+    r"\s*$",
+    re.IGNORECASE,
+)
+_SOFT_CATEGORY_RE = re.compile(
+    r"miękkie|soft\s+skills|interpersonal|personal\s+skills|kompetencje\s+osobiste|"
+    r"professional\s+competencies|working\s+competencies|work\s+skills",
+    re.IGNORECASE,
+)
+_SPOKEN_LANGUAGE_RE = re.compile(
+    r"^\s*(?:język\s+)?(polski|angielski|niemiecki|francuski|hiszpański|włoski|rosyjski|"
+    r"ukraiński|czeski|węgierski|niderlandzki|polish|english|german|french|spanish|italian|"
+    r"russian|ukrainian|czech|hungarian|dutch)\b\s*(?:[-–:(]\s*)?"
+    r"(?:ojczysty|native|biegły|fluent|komunikatywny|zaawansowany|advanced|podstawowy|basic|"
+    r"[abc][12]\+?)?\s*\)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def clean_skill_sections(candidate_data: dict[str, Any]) -> list[str]:
+    """Usuń z umiejętności to, co nie jest umiejętnością; zwróć usunięte pozycje.
+
+    Język obcy zostaje w osobnej sekcji: gdy kandydat jej nie ma, język tam
+    przechodzi, więc kod niczego nie gubi. Pusta kategoria znika.
+    """
+    skills = candidate_data.get("skills")
+    if not isinstance(skills, list):
+        return []
+    languages = candidate_data.get("languages")
+    if not isinstance(languages, list):
+        languages = []
+    known = {str(item).casefold() for item in languages}
+    removed: list[str] = []
+    kept_categories: list[Any] = []
+    for category in skills:
+        if not isinstance(category, dict):
+            kept_categories.append(category)
+            continue
+        label = str(category.get("label") or "")
+        items = _split_skills(str(category.get("content") or ""))
+        if _SOFT_CATEGORY_RE.search(label):
+            removed.extend(items)
+            continue
+        kept: list[str] = []
+        for item in items:
+            spoken = _SPOKEN_LANGUAGE_RE.match(item)
+            if spoken:
+                if not any(spoken.group(1).casefold() in k for k in known):
+                    languages.append(item)
+                    known.add(item.casefold())
+                removed.append(item)
+            elif _NOT_A_SKILL_RE.match(item):
+                removed.append(item)
+            else:
+                kept.append(item)
+        if kept:
+            kept_categories.append({**category, "content": ", ".join(kept)})
+        elif not items:
+            kept_categories.append(category)
+    if removed:
+        candidate_data["skills"] = kept_categories
+        candidate_data["languages"] = languages
+    return removed
+
+
+# Metodyki pisane w CV z nazwy. Model gubił je, gdy reguła mówiła, że metodyka to
+# „kontekst” (06.11.2026: Scrum Mastera bez Scruma w umiejętnościach w 2 z 2 biegów).
+_SOURCE_METHODOLOGIES = (
+    ("Scrum", re.compile(r"\bscrum\b", re.IGNORECASE)),
+    ("Kanban", re.compile(r"\bkanban\b", re.IGNORECASE)),
+    ("SAFe", re.compile(r"\bSAFe\b")),
+    ("Agile", re.compile(r"\bagile\b", re.IGNORECASE)),
+    ("PRINCE2", re.compile(r"\bprince\s?2\b", re.IGNORECASE)),
+    ("ITIL", re.compile(r"\bITIL\b")),
+)
+
+
+def keep_source_methodologies(
+    candidate_data: dict[str, Any], cv_text: str, language: str
+) -> list[str]:
+    """Dopisz do „Metodyk” metodykę, którą oryginał wymienia, a umiejętności zgubiły."""
+    skills = candidate_data.get("skills")
+    if not isinstance(skills, list):
+        return []
+    have = " ".join(
+        f"{c.get('label', '')} {c.get('content', '')}"
+        for c in skills
+        if isinstance(c, dict)
+    )
+    missing = [
+        name
+        for name, pattern in _SOURCE_METHODOLOGIES
+        if pattern.search(cv_text or "") and not pattern.search(have)
+    ]
+    if not missing:
+        return []
+    label = "Methodologies:" if language == "en" else "Metodyki:"
+    for category in skills:
+        if (
+            isinstance(category, dict)
+            and str(category.get("label") or "").strip() == label
+        ):
+            content = str(category.get("content") or "").strip()
+            category["content"] = ", ".join([content, *missing] if content else missing)
+            return missing
+    skills.append({"label": label, "content": ", ".join(missing)})
+    return missing
 
 
 def clean_requirement_skill_labels(
@@ -1324,6 +1484,55 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
     return allowed
 
 
+# Standard „Dlaczego nasz kandydat” każe w punkcie 1 podać lata na stanowisku, więc
+# liczba bywa uczciwie niższa niż suma dat kariery. Wzorce czytają `_fold_for_guard`.
+_TENURE_ADJECTIVE = r"(?:(?:zawodowego|komercyjnego|praktycznego)\s+)?"
+_TENURE_QUALIFIER_RE = re.compile(
+    rf"s?\s*{_TENURE_ADJECTIVE}"
+    rf"(?:doswiadczenia\s+{_TENURE_ADJECTIVE}|(?:of\s+)?(?:[\w-]+\s+){{0,3}}?experience\s+)?",
+    re.IGNORECASE,
+)
+_TENURE_POSITION_RE = re.compile(
+    r"(?:jako|as|na\s+stanowisk\w*|w\s+rol\w+|in\s+(?:the\s+)?roles?)\s", re.IGNORECASE
+)
+_TENURE_AREA_RE = re.compile(
+    r"(?:w|we|in)\s+(.+?)(?=[,;:()]|\s(?:w tym|including|incl)\b|$)", re.IGNORECASE
+)
+# Wielka litera w nazwie obszaru to zwykle technologia albo firma; te skróty to obszary.
+_AREA_ABBREVIATIONS = {"IT", "QA", "UX", "UI", "BI"}
+
+
+def _position_or_area_years_within_dates(
+    text: str, match: re.Match[str], total_months: int | None
+) -> bool:
+    """Czy liczba lat z `_YEARS_CLAIM_RE` to staż na stanowisku albo w obszarze.
+
+    Nie przekracza sumy dat i stoi przy „jako X”, „na stanowisku X” albo przy
+    obszarze ze zwykłych słów („w analizie danych”). „4 lata w Kafce”, „z Oracle”,
+    „w Bank Millennium” i sama liczba bez zakresu przechodzą to sprawdzenie dalej,
+    bo daty ról ich nie potwierdzają.
+    """
+    if total_months is None:
+        return False
+    folded = _fold_for_guard(text)
+    # `_YEARS_CLAIM_RE` z „3.5 years” bierze samo „5”.
+    whole = re.search(r"(\d+)[.,]$", folded[: match.start(1)])
+    figure = float(f"{whole.group(1)}.{match.group(1)}" if whole else match.group(1))
+    if figure * 12 > total_months:
+        return False
+    tail = folded[match.end() :]
+    qualifier = _TENURE_QUALIFIER_RE.match(tail)
+    tail = tail[qualifier.end() :] if qualifier else tail
+    if _TENURE_POSITION_RE.match(tail):
+        return True
+    area = _TENURE_AREA_RE.match(tail)
+    return bool(area) and all(
+        word[0].islower() or word in _AREA_ABBREVIATIONS
+        for word in re.split(r"[\s/-]+", area.group(1))
+        if word
+    )
+
+
 def _free_text_fields(candidate_data: dict[str, Any]) -> list[tuple[str, str]]:
     """(label, text) pairs of every prose field the model writes freely."""
     out: list[tuple[str, str]] = []
@@ -1353,6 +1562,7 @@ def _free_text_warnings(
     med = _MED_PREFIX["en" if language == "en" else "pl"]
     source_numbers = _numbers_in_source(source_norm)
     allowed_years = _derivable_years(candidate_data)
+    total_months = _total_experience_months(candidate_data.get("experience") or [])
     issues: list[str] = []
     seen: set[str] = set()
 
@@ -1379,6 +1589,10 @@ def _free_text_warnings(
         for match in _YEARS_CLAIM_RE.finditer(norm):
             years = match.group(1)
             if years in source_numbers or years in allowed_years:
+                continue
+            if label == "why_points" and _position_or_area_years_within_dates(
+                text, match, total_months
+            ):
                 continue
             key = f"yrs:{label}:{years}"
             if key in seen:

@@ -7,6 +7,7 @@
 // z propozycji AI i kody błędów. Wszystko zwraca TEKST — nic nie trafia na
 // stronę jako HTML.
 
+import { shortPersonName } from "@/lib/client-acceptance";
 import type {
   QcCheck,
   QcCvBlock,
@@ -314,6 +315,77 @@ export function splitChecks(checks: QcCheck[]): QcSplit {
   return split;
 }
 
+/**
+ * Uwagi, za które Delivery Lead najczęściej cofa kartę (R4, 07.11.2026) —
+ * okno QC stawia je nad „Warto poprawić”. Lustro `cv_qc.DL_RETURN_KEYS`.
+ */
+export const QC_DL_RETURN_KEYS: readonly string[] = [
+  "must_only_summary",
+  "role_dates",
+  "role_employer",
+  "title_matches_role",
+];
+
+/** Dzieli uwagi na „DL zwykle o to cofa” i resztę, zachowując kolejność. */
+export function splitDlReturns(notes: readonly QcCheck[]): { dlReturns: QcCheck[]; rest: QcCheck[] } {
+  const dlReturns = notes.filter((check) => check.status === "fail" && QC_DL_RETURN_KEYS.includes(check.key));
+  return { dlReturns, rest: notes.filter((check) => !dlReturns.includes(check)) };
+}
+
+/** „Kontrola CV” w przeglądzie DL (R5, 07.11.2026). */
+export interface CvControl {
+  /** Sprawdzenia, które automat zaliczył (bez „nie dotyczy”). */
+  autoOk: number;
+  /** Krytyczne, przy których rekruter wskazał role (R3). */
+  manual: { requirement: string; roles: string[]; by: string | null }[];
+  /** Krytyczne „sprawdź ręcznie”, których nikt nie wskazał. */
+  unverified: string[];
+  /** Rzeczy do poprawy, które blokują (jak „Do poprawy” w oknie QC). */
+  blocking: number;
+  /** R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL. */
+  gaps: string[];
+  /** QC-2 (08.11.2026): blokady pominięte przez „To nieprawda”. */
+  dismissed: { what: string; reason: string; by: string | null }[];
+  /** QC-3 (08.11.2026): zgoda RODO z pliku kandydata, którą trzeba obejrzeć. */
+  consentManual: boolean;
+}
+
+function hasDismissedBlocking(check: QcCheck): boolean {
+  return check.severity === "blocking" && (check.dismissed_items?.length ?? 0) > 0;
+}
+
+export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
+  const manual = new Map<string, { roles: string[]; by: string | null }>();
+  const unverified = new Set<string>();
+  for (const check of checks) {
+    if (check.key !== "critical_skills") continue;
+    for (const role of check.roles ?? []) {
+      if (role.state === "unverified") unverified.add(role.requirement);
+      else if (role.manual) {
+        const entry = manual.get(role.requirement) ?? { roles: [], by: role.manual.by ?? null };
+        if (role.state === "described" || role.state === "missing") entry.roles.push(role.role);
+        manual.set(role.requirement, entry);
+      }
+    }
+  }
+  return {
+    // Pominięta blokada nie jest zaliczona przez automat.
+    autoOk: checks.filter((check) => check.status === "pass" && !hasDismissedBlocking(check)).length,
+    manual: [...manual].map(([requirement, entry]) => ({ requirement, ...entry })),
+    unverified: [...unverified],
+    blocking: blockingTasks([...checks]).length,
+    gaps: candidateGapItems(checks).map((item) => item.requirement ?? "").filter(Boolean),
+    dismissed: checks.filter(hasDismissedBlocking).flatMap((check) =>
+      (check.dismissed_items ?? []).map((item) => ({
+        what: [item.requirement, item.term, item.detail].find(Boolean) ?? check.label,
+        reason: item.dismissal?.note || item.dismissal?.reason_label || "",
+        by: shortPersonName(item.dismissal?.by_name),
+      })),
+    ),
+    consentManual: checks.some((check) => check.key === "client_rules" && check.status === "manual"),
+  };
+}
+
 export function blockingTasks(checks: QcCheck[]): QcTask[] {
   return splitChecks(checks).tasks;
 }
@@ -578,14 +650,38 @@ export const QC_OVERRIDE_NOTE_MAX = 900;
 /** Lustro `cv_qc.CONFIRM_TEXT_MIN`: potwierdzenie musi mówić, co powiedział kandydat. */
 export const QC_CONFIRM_TEXT_MIN = 15;
 
-export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
+/** Lustro `cv_qc.OVERRIDE_OTHER_MIN_WORDS` (R6, 07.11.2026): „x”, „.” i „dw” to nie powód. */
+export const QC_OVERRIDE_OTHER_MIN_WORDS = 3;
+
+/** Słowa liczone jak na serwerze (`\w{2,}`): pojedyncze litery i znaki się nie liczą. */
+export function overrideWordCount(note: string): number {
+  return note.match(/[\p{L}\p{N}_]{2,}/gu)?.length ?? 0;
+}
+
+/** Czy przy „Inny powód” trzeba wskazać uwagę i ile wskazano (R6). */
+export interface QcOverrideAbout {
+  required: boolean;
+  picked: number;
+}
+
+export function qcOverrideError(
+  reason: QcOverrideReason | null,
+  note: string,
+  about?: QcOverrideAbout,
+): string | null {
   if (!reason) return "Wybierz powód.";
   const clean = note.trim();
   if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
   if (reason === "confirmed_in_call" && clean.length < QC_CONFIRM_TEXT_MIN) {
     return `Wpisz, co dokładnie powiedział kandydat (co najmniej ${QC_CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead.`;
   }
-  if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+  if (reason === "other") {
+    if (!clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
+    if (overrideWordCount(clean) < QC_OVERRIDE_OTHER_MIN_WORDS) {
+      return "Napisz co najmniej trzy słowa — Delivery Lead ma zrozumieć, dlaczego CV idzie dalej.";
+    }
+    if (about?.required && about.picked === 0) return "Zaznacz, której uwagi dotyczy powód.";
+  }
   return null;
 }
 
@@ -711,8 +807,53 @@ export const QC_CV_SOURCE_LABEL: Record<string, string> = {
 export type QcCardStatus = "passed" | "failed" | "overridden" | "unchecked";
 
 export const QC_STATUS_LABEL: Record<QcCardStatus, string> = {
-  passed: "QC ✓",
-  failed: "QC do poprawy",
-  overridden: "Przepuszczone mimo QC",
-  unchecked: "QC nie sprawdzone",
+  passed: "QC: sprawdzone",
+  failed: "QC: do poprawy",
+  overridden: "QC: przepuszczone",
+  unchecked: "QC: jeszcze nie sprawdzone",
 };
+
+export type QcStateKind =
+  | "checked"
+  | "checked_manually"
+  | "verify_roles"
+  | "candidate_gap"
+  | "to_fix"
+  | "overridden"
+  | "unchecked";
+export type QcStateTone = "ok" | "info" | "wait" | "urgent" | "neutral";
+
+/** Gotowy stan QC z serwera (`services/qc_state.py`, QC-11): front tylko renderuje. */
+export interface QcStateView {
+  kind: QcStateKind;
+  n: number;
+  items: string[];
+  text: string;
+  tone: QcStateTone;
+  who: string | null;
+  hint: string | null;
+}
+
+/** Stan QC pary tak, jak liczy go serwer (`cv_qc.pair_statuses`). */
+export interface QcPairState {
+  status: QcCardStatus;
+  blocking_failed: number;
+  qc_state?: QcStateView | null;
+}
+
+/** Luki kandydata z wyniku QC (R2) — pozycje informacyjne krytycznych. */
+export function candidateGapItems(checks: readonly QcCheck[]): QcItem[] {
+  return checks
+    .filter((check) => check.key === "critical_skills")
+    .flatMap((check) => (check.info ?? []).filter((item) => item.candidate_gap === true));
+}
+
+/**
+ * Jeden napis stanu QC dla karty, pulpitu i przeglądu DL. Słownik jest na
+ * serwerze (`qc_state`); bez niego (odpowiedź starszego wdrożenia) sama nazwa statusu.
+ */
+export function qcStateText(state: QcPairState): string {
+  if (state.qc_state) return state.qc_state.text;
+  if (state.status === "failed") return `QC: ${Math.max(1, state.blocking_failed)} do poprawy`;
+  return QC_STATUS_LABEL[state.status];
+}

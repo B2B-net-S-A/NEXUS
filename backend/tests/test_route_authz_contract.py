@@ -17,11 +17,14 @@ This test inverts that. It walks every registered route, resolves the real
 dependency chain, and classifies each one:
 
 - **public** — no authentication at all in the chain (login, health, webhooks)
+- **own_credential** — no user session, but its own credential: an API key, an
+  OAuth client, the LinkedIn extension or a consultant portal session
 - **gated** — some resource or role dependency beyond bare authentication
 - **bare** — authenticated, and nothing more
 
-Bare routes must appear in ``_BARE_BASELINE``. Anything new that is merely
-authenticated fails the build. The hole becomes *a missing registry entry*,
+Bare routes must appear in ``_BARE_BASELINE`` and public ones in
+``_PUBLIC_BASELINE``. Anything new that is merely authenticated, or not
+authenticated at all, fails the build. The hole becomes *a missing registry entry*,
 which CI can see, instead of *a missing memory*, which it cannot.
 
 The baseline is deliberately a frozen list rather than a target of zero: 779
@@ -84,6 +87,16 @@ _GATE_QUALNAME_MARKERS = (
 
 # The bare authentication dependency: proves identity, decides nothing.
 _AUTHN_QUALNAMES = ("get_current_user", "get_authenticated_user")
+
+# Własne poświadczenie zamiast sesji użytkownika. Bez tej klasy każdy nowy
+# endpoint API integracji trafiałby na listę tras „publicznych” i lista
+# przestałaby mówić, co naprawdę jest otwarte na internet.
+_OWN_CREDENTIAL_QUALNAME_MARKERS = (
+    "require_service_scope",
+    "require_scope",
+    "get_extension_principal",
+    "portal_context",
+)
 
 # Many handlers carry no gate in their signature but check imperatively as the
 # first statement of the body — e.g. a handler takes `current_user: CurrentUser`
@@ -167,6 +180,8 @@ def _classify(route: Any) -> str:
         return "gated"
     if any(any(a in q for a in _AUTHN_QUALNAMES) for q in qualnames):
         return "bare_in_body" if _has_in_body_check(route) else "bare_unchecked"
+    if any(any(o in q for o in _OWN_CREDENTIAL_QUALNAME_MARKERS) for q in qualnames):
+        return "own_credential"
     return "public"
 
 
@@ -303,6 +318,96 @@ _BARE_BASELINE: set[tuple[str, str]] = {
 }
 
 
+# Trasy bez żadnego poświadczenia, zamrożone 08.11.2026 (pomiar `_classify` na mainie).
+# Wpis tutaj to decyzja „to ma być otwarte na internet”, a nie brak bramki.
+_PUBLIC_BASELINE: set[tuple[str, str]] = {
+    # Logowanie, rejestracja i zwrotki OAuth — z definicji przed sesją.
+    ("POST", "/api/auth/forgot-password"),
+    ("POST", "/api/auth/login"),
+    ("GET", "/api/auth/methods"),
+    ("GET", "/api/auth/microsoft/authorize"),
+    ("GET", "/api/auth/microsoft/callback"),
+    ("POST", "/api/auth/microsoft/exchange"),
+    ("POST", "/api/auth/refresh"),
+    ("POST", "/api/auth/register"),
+    ("POST", "/api/auth/resend-verification"),
+    ("POST", "/api/auth/reset-password"),
+    ("POST", "/api/auth/verify-email"),
+    ("GET", "/api/job-boards/jjit/callback"),
+    ("GET", "/api/microsoft365/callback"),
+    ("POST", "/api/oauth/token"),
+    # Sondy wdrożenia i monitoringu.
+    ("GET", "/api/health"),
+    ("GET", "/api/health/alembic"),
+    ("GET", "/api/health/background"),
+    ("GET", "/api/health/deep"),
+    ("GET", "/api/health/live"),
+    # Webhooki — podpis albo token dostawcy sprawdza handler.
+    ("POST", "/api/autenti/webhook"),
+    ("POST", "/api/microsoft365/webhooks"),
+    # Strony dla osób z zewnątrz: dostęp niesie nieodgadywalny token z linku.
+    ("GET", "/api/public/apply/{token}"),
+    ("POST", "/api/public/apply/{token}"),
+    ("GET", "/api/public/b2b-sign/{token}"),
+    ("POST", "/api/public/b2b-sign/{token}"),
+    ("GET", "/api/public/b2b-sign/{token}/pdf"),
+    ("POST", "/api/public/b2b-sign/{token}/renewal"),
+    ("GET", "/api/public/b2b-sign/{token}/signed-pdf"),
+    ("POST", "/api/public/career/apply"),
+    ("GET", "/api/public/career/jobs"),
+    ("GET", "/api/public/career/p/{slug}"),
+    ("GET", "/api/public/career/r/{slug}"),
+    ("GET", "/api/public/champion-card/{token}"),
+    ("GET", "/api/public/consultant-mail/unsubscribe/{token}"),
+    ("POST", "/api/public/consultant-mail/unsubscribe/{token}"),
+    ("POST", "/api/public/consultant-portal/link"),
+    ("POST", "/api/public/consultant-portal/rating"),
+    ("POST", "/api/public/consultant-portal/rating-form"),
+    ("POST", "/api/public/consultant-portal/session"),
+    ("GET", "/api/public/consultant-portal/status"),
+    ("GET", "/api/public/cv-i/{token}"),
+    ("POST", "/api/public/cv-i/{token}/chat"),
+    ("GET", "/api/public/cv/{token}"),
+    ("GET", "/api/public/engagement-declaration/{token}"),
+    ("POST", "/api/public/engagement-declaration/{token}"),
+    ("GET", "/api/public/equipment-protocols/{token}"),
+    ("GET", "/api/public/equipment-protocols/{token}/document.pdf"),
+    ("POST", "/api/public/equipment-protocols/{token}/sign"),
+    ("GET", "/api/public/panel/{token}"),
+    ("GET", "/api/public/panel/{token}/candidates/{public_id}"),
+    ("GET", "/api/public/panel/{token}/candidates/{public_id}/cv.pdf"),
+    ("GET", "/api/public/panel/{token}/candidates/{public_id}/files/{document_id}"),
+    ("POST", "/api/public/panel/{token}/candidates/{public_id}/interview"),
+    ("POST", "/api/public/panel/{token}/candidates/{public_id}/not-fit"),
+    ("POST", "/api/public/panel/{token}/candidates/{public_id}/questions"),
+    ("POST", "/api/public/panel/{token}/events"),
+    ("POST", "/api/public/panel/{token}/requirements-change"),
+}
+
+# Publiczne bez `@limiter.limit`: sondy i webhooki wołają automaty, nie ludzie.
+_PUBLIC_WITHOUT_RATE_LIMIT: set[tuple[str, str]] = {
+    ("GET", "/api/health"),
+    ("GET", "/api/health/alembic"),
+    ("GET", "/api/health/background"),
+    ("GET", "/api/health/deep"),
+    ("GET", "/api/health/live"),
+    ("POST", "/api/autenti/webhook"),
+    ("POST", "/api/microsoft365/webhooks"),
+}
+
+
+def _new_public(routes: list[tuple[str, str, str]]) -> set[tuple[str, str]]:
+    return {(m, p) for m, p, c in routes if c == "public"} - _PUBLIC_BASELINE
+
+
+def _is_rate_limited(route: Any) -> bool:
+    from app.core.rate_limit import limiter
+
+    endpoint = route.endpoint
+    name = f"{endpoint.__module__}.{endpoint.__name__}"
+    return name in limiter._route_limits or name in limiter._dynamic_route_limits
+
+
 def test_no_new_bare_authenticated_routes() -> None:
     """A new route may not rely on authentication alone.
 
@@ -356,6 +461,93 @@ def test_baseline_has_no_stale_entries() -> None:
     )
 
 
+def _route(path: str, *deps: Any) -> Any:
+    """Trasa spoza aplikacji — sprawdza sam klasyfikator, bez startu całości."""
+    from fastapi import APIRouter, Depends
+
+    async def endpoint() -> dict[str, bool]:
+        return {"ok": True}
+
+    router = APIRouter()
+    router.add_api_route(
+        path, endpoint, methods=["GET"], dependencies=[Depends(d) for d in deps]
+    )
+    return router.routes[0]
+
+
+def test_route_with_no_credential_is_public() -> None:
+    assert _classify(_route("/api/x")) == "public"
+
+
+def test_own_credential_is_not_public() -> None:
+    from app.api.deps import require_service_scope
+    from app.models.service_account import ServiceScope
+
+    route = _route("/api/x", require_service_scope(ServiceScope.traffit_sync))
+    assert _classify(route) == "own_credential"
+
+
+def test_user_session_is_not_public() -> None:
+    from app.api.deps import get_current_user
+
+    assert _classify(_route("/api/x", get_current_user)) != "public"
+
+
+def test_public_guard_reports_a_route_missing_from_the_baseline() -> None:
+    routes = [("GET", "/api/x", "public"), ("GET", "/api/y", "own_credential")]
+    assert _new_public(routes) == {("GET", "/api/x")}
+    assert _new_public([("POST", "/api/auth/login", "public")]) == set()
+
+
+def test_no_new_public_routes() -> None:
+    """A route with no credential at all is a deliberate decision, not a default.
+
+    Until 2026-11-08 only *bare* routes were held to a baseline, so a handler
+    that forgot ``Depends(get_current_user)`` scored better than one that
+    remembered it: it was classified ``public`` and passed unseen. The golden
+    matrix does not catch it either (new routes only warn).
+    """
+    new = _new_public(_routes())
+    assert not new, (
+        f"{len(new)} route(s) have no authentication at all and are not in "
+        "_PUBLIC_BASELINE. Add a section gate or `CurrentUser`; if the route "
+        "really is open to the internet, add it to _PUBLIC_BASELINE with a reason "
+        "and give it @limiter.limit:\n"
+        + "\n".join(f"    {m} {p}" for m, p in sorted(new))
+    )
+
+
+def test_public_baseline_has_no_stale_entries() -> None:
+    public = {(m, p) for m, p, c in _routes() if c == "public"}
+    stale = _PUBLIC_BASELINE - public
+    assert not stale, (
+        "These routes are no longer public. Delete them from _PUBLIC_BASELINE:\n"
+        + "\n".join(f'    ("{m}", "{p}"),' for m, p in sorted(stale))
+    )
+
+
+def test_public_routes_are_rate_limited() -> None:
+    """Otwarta trasa bez limitu to darmowe zgadywanie tokenów i kosztów AI."""
+    from app.main import app
+
+    from tests._route_introspection import iter_api_routes
+
+    missing: set[tuple[str, str]] = set()
+    for path, route in iter_api_routes(app):
+        methods = getattr(route, "methods", None)
+        if not path.startswith("/api/") or not methods:
+            continue
+        if _classify(route) != "public" or _is_rate_limited(route):
+            continue
+        missing |= {(m, path) for m in methods if m not in {"HEAD", "OPTIONS"}}
+    unexpected = missing - _PUBLIC_WITHOUT_RATE_LIMIT
+    assert not unexpected, "Public routes without @limiter.limit:\n" + "\n".join(
+        f"    {m} {p}" for m, p in sorted(unexpected)
+    )
+    stale = _PUBLIC_WITHOUT_RATE_LIMIT - missing
+    assert not stale, f"Delete from _PUBLIC_WITHOUT_RATE_LIMIT: {sorted(stale)}"
+
+
 def test_report_route_authz_inventory() -> None:
     """Always-passing census — its output is how the baseline gets captured.
 
@@ -370,7 +562,7 @@ def test_report_route_authz_inventory() -> None:
 
     bare = sorted({(m, p) for m, p, c in routes if c.startswith("bare")})
     print(f"\n=== route authz inventory: {len(routes)} routes ===")
-    for name in ("gated", "bare_unchecked", "bare_in_body", "public"):
+    for name in ("gated", "bare_unchecked", "bare_in_body", "own_credential", "public"):
         print(f"  {name:15s}: {counts.get(name, 0)}")
     print("\n_BARE_BASELINE = {")
     for method, path in bare:

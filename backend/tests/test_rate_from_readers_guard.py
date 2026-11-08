@@ -25,7 +25,6 @@ ALLOWED = {
     "api/candidate_profile_facts.py",
     "services/candidate_notes_facts.py",
     "services/notes_insights_extractor.py",
-    "services/trainee_program.py",
     "services/candidate_merge.py",
     "services/public_apply.py",
     # cofnięcie stawki scrapera porównuje DOKŁADNIE zapisaną kwotę profilu

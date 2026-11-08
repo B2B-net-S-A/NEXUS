@@ -64,6 +64,7 @@ import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import type { PhraseController, PhraseSuggestionState } from "@/components/v2/screening/PhraseSuggestion";
 import { Button } from "@/components/ui/button";
 import { api, type ChampionProfileResponse, type CVBrandedState, type CVOriginalSnapshot } from "@/lib/api";
+import { cvCallQuestionsKey, type CvCallQuestionsView } from "@/lib/api/cvCallQuestions";
 import { plainBriefQueryKey, type PlainBrief } from "@/lib/api/plainKnowledge";
 import {
   recommendationCardQueryKey,
@@ -985,6 +986,24 @@ function seededClient(state: HarnessState): QueryClient {
               ? NOTE_BASE_STATE
               : FILLED_STATE;
   qc.setQueryData(screeningFormQueryKey(JOB_ID, CANDIDATE_ID), formState, SEED_FRESH);
+  qc.setQueryData<CvCallQuestionsView>(
+    cvCallQuestionsKey(CANDIDATE_ID, JOB_ID),
+    {
+      status: "ready",
+      can_refresh: false,
+      stale: false,
+      generated_at: null,
+      questions: [
+        {
+          requirement: "Kafka",
+          company: "Firma Przykładowa",
+          state: "tylko_lista",
+          question: "Jak wyglądała Twoja praca z Kafką w Firmie Przykładowej?",
+        },
+      ],
+    },
+    SEED_FRESH,
+  );
   qc.setQueryData(screeningFormVersionsQueryKey(JOB_ID, CANDIDATE_ID), { items: VERSIONS, total: VERSIONS.length }, SEED_FRESH);
   qc.setQueryData(["job-questions", JOB_ID], [], SEED_FRESH);
   qc.setQueryData(["job-rejection-reasons", JOB_ID], [], SEED_FRESH);

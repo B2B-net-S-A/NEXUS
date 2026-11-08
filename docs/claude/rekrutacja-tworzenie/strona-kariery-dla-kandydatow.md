@@ -496,3 +496,23 @@ Reguły, które łatwo cofnąć:
   w Google kilka kopii tej samej oferty. JobPosting bez miasta i bez pracy
   zdalnej nie powstaje (Google odrzuca ofertę bez lokalizacji), a
   `TELECOMMUTE` stoi tylko przy `remote`.
+
+## Samo CV (decyzja Artura z 07.11.2026)
+
+Formularz strony kariery ma pole CV, zgody i zwinięte „Dodaj więcej
+(nieobowiązkowe)”. Imienia, nazwiska i e-maila nie ma: `submit_career_apply`
+przyjmuje je jako nieobowiązkowe, a brakujące czyta
+`public_apply.identity_from_cv` — ten sam `parse_cv` co `/from-cv` (model,
+w razie awarii darmowe wyrażenie regularne; e-mail tylko taki, który jest
+w tekście CV). Telefon z CV trafia do profilu.
+
+- **Bez e-maila w CV = 422 na polu `email`** („W CV nie znaleźliśmy adresu
+  e-mail…”), bez zapisu. Formularz pokazuje wtedy pole e-mail. E-mail jest
+  potrzebny do odpowiedzi kandydatowi i do rozpoznania tej samej osoby.
+- **Brak imienia w odczycie = „Nieznane”** (jak `/from-cv`); nie zgadujemy
+  z nagłówka CV — 05.11.2026 naprawialiśmy 21 profili z nazwą ze słów CV.
+- **Pełny formularz z polami nie płaci za odczyt** — odczyt idzie tylko, gdy
+  brakuje imienia, nazwiska albo e-maila.
+- Odpowiedź 201 niesie `first_name` i `email` z CV dla ekranu „Dziękujemy”.
+- **Zgoda na tę rekrutację zostaje obowiązkowa** (decyzja D z 19.10.2026);
+  zmiana tylko po decyzji IOD.

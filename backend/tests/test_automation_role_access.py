@@ -59,6 +59,8 @@ READ_LIKE_WRITES = frozenset(
         "POST /api/job-intake/critical-suggestion",
         "POST /api/job-intake/requirement-rows",
         "POST /api/jobs/{job_id}/plain-brief/refresh",
+        # 0651: pytania pod CV — pamięć podręczna, jak „Po ludzku”.
+        "POST /api/candidates/{candidate_id}/jobs/{job_id}/call-questions/refresh",
         "POST /api/emails/preview",
         "POST /api/microsoft365/free-busy",
         "POST /api/prep-kit/generate",
@@ -85,7 +87,7 @@ HANDLER_DENIED_WRITES = frozenset(
 
 # Odczyt ponad rekrutera z podglądem Delivery: przetargi bez wartości
 # (capability analityki bez finansów; wartości tylko z ``VIEW_FINANCE``).
-EXTRA_READS = frozenset({"GET /api/analytics/v1/commercial/tenders"})
+EXTRA_READS: frozenset[str] = frozenset()
 
 # Moduły, w których rola nie przechodzi żadnej trasy: pieniądze i umowy.
 CLOSED_MODULES = (

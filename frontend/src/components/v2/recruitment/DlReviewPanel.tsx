@@ -85,6 +85,8 @@ import {
 } from "@/components/v2/recruitment/dl-review/DlMatchSection";
 import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
+import { CvControlSummary, cvReturnPoints } from "@/components/v2/recruitment/dl-review/CvControlSummary";
+import { useCvQcSummary } from "@/lib/api/cvQc";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api from "@/lib/api";
@@ -505,6 +507,9 @@ export function DlReviewBody({
   const remarkRaw = context.data?.recruiter_handoff_remark ?? null;
   const handoffRemark = remarkRaw && remarkRaw.text?.trim() ? remarkRaw : null;
   // Karta przesunięta mimo uwag QC — DL widzi to, zanim wyśle CV do klienta.
+  // R5 (07.11.2026): „Kontrola CV” i punkty CV do „Wróć do poprawy” czytają
+  // ten sam wynik QC, który otwiera „Otwórz QC” (wspólny klucz zapytania).
+  const qcResult = useCvQcSummary(task.stage_id ?? null);
   const qcOverride =
     context.data?.qc_status === "overridden" ? (context.data.qc_override ?? null) : null;
 
@@ -831,7 +836,6 @@ export function DlReviewBody({
       <div className={cn("relative grid min-h-0 flex-1 bg-inherit", GRID_CLASS[mode])} data-layout={mode}>
         <CvToolbar
           className={TOOLBAR_CLASS[mode]}
-          task={task}
           view={shownCvView}
           coverSheet={coverSheet != null}
           onViewChange={(view) => {
@@ -847,7 +851,6 @@ export function DlReviewBody({
                 }
               : null
           }
-          onOpenQc={() => setQcStageId(task.stage_id)}
         />
 
         <CvColumn
@@ -929,6 +932,13 @@ export function DlReviewBody({
                   {handoffRemark.text}
                 </p>
               ) : null}
+              <CvControlSummary
+                checks={qcResult.data?.checks}
+                state={context.data?.qc_state ?? task.qc_state ?? null}
+                override={qcResult.data?.override ?? null}
+                hideOverrideLine={qcOverride != null}
+                onOpenQc={() => setQcStageId(task.stage_id)}
+              />
               <PersonFacts
                 testId="dl-review-person-facts"
                 rows={[
@@ -1219,6 +1229,7 @@ export function DlReviewBody({
         optionsLoading={context.isLoading}
         busy={busy === "return"}
         initialRemark={note}
+        cvPoints={cvReturnPoints(qcResult.data?.checks)}
         onConfirm={(input) => {
           setReturnInput(input);
           void move("return", false, input);
@@ -1229,6 +1240,7 @@ export function DlReviewBody({
         open={qcStageId !== null}
         onClose={() => setQcStageId(null)}
         onChanged={refresh}
+        audience="dl"
       />
     </div>
   );

@@ -53,6 +53,17 @@
   równa: w próbie 20 faktur Nordei nazwisko wskazywało jedną osobę 20/20, cena była równa 20/20, godziny
   różne 18/20. Warunek: pełne imię i nazwisko prowadzi do jednej pozycji zamówień miesiąca i cena równa
   co do grosza; inaczej faktura czeka na Finanse. Numer zamówienia i równa kwota mają pierwszeństwo.
+  Nazwisko porównujemy bez polskich znaków (`Łukasz` = `Lukasz`): pomiar 06.11.2026 na nocnej kopii
+  produkcji dał 736 z 821 faktur Nordei przez `person`, a 5 z 75 `amount_differs` miało tylko tę różnicę.
+  Pozostałe 70 to dane, nie reguła: 50 osób bez pozycji zamówienia w miesiącu usługi z faktury (24 mają ją
+  w kolejnym miesiącu, 5 o miesiąc wcześniej albo dwa później, 21 nie mają w ±2 miesiącach), 11 osób
+  z dwiema pozycjami w miesiącu (celowo czeka) i 9 z inną ceną.
+- **Faktura z numerem zamówienia, którego NEXUS nie zna, czeka na Finanse** (`unknown_order_number`, decyzja Artura z 08.11.2026): nie wiąże
+  jej kwota ani osoba, bo przy dwóch fakturach na tę samą kwotę druga rozliczałaby to samo zamówienie i ekran pokazałby obie jako zgodne. Numer
+  rozpoznajemy tylko po etykiecie (`PO`, `PO number`, `purchase order`, `zamówienie`, także `numer zamówienia: SAP …`) albo gdy cały wpis to co
+  najmniej 5 cyfr (`named_order_numbers`). Pole to wolny tekst, więc cyfry z nazw projektów, adresów i numery umów nie blokują. Patrzymy tylko w `order_refs`, nie w nazwy
+  pozycji. Powód jest w `RETRY_REASONS` (numer może dojść do zamówienia) i w `GAP_REASONS` (alert DL). Pomiar z nocnej kopii 08.11.2026: zmienia
+  wynik 60 z 1450 faktur z klientem, w tym 10 wiązań (6 kwotą, 4 osobą); pozostałe 50 i tak czekało, zmienia się im powód.
 - **Numer nabywcy idzie do klienta przy ręcznym przypisaniu.** Pomiar z 02.11.2026 na fakturach z października:
   173 ze 188 NIP-ów nabywców nie ma klienta w NEXUSIE, ok. 197 faktur miesięcznie; numer w profilu ma 18 ze 169
   klientów. Okno „Przypisz” pozwala wskazać klienta, a przycisk „Przypisz i dopisz NIP” (`save_buyer_number`) zapisuje
@@ -78,3 +89,43 @@
   Przebieg jest co godzinę, więc faktura wraca najpóźniej po `kolejka / 200` godzinach. Limitu nie zwiększamy, bo
   `billing_rows` liczy się na każdą fakturę z klientem. Kursor zapisujemy przed próbami: wycofany przebieg nie wraca na
   tę samą paczkę, więc jedna wadliwa faktura nie zatrzymuje reszty.
+- **Numer trafia w kilka zamówień: faktura na jedną osobę wiąże się z tą osobą** (08.11.2026), jak przy jednym trafionym zamówieniu.
+  Kolejność przy kilku trafionych: suma wszystkich równa netto (wiąże wszystkie), potem jeden cały wiersz równy netto, a dopiero gdy
+  takiego wiersza nie ma, pozycja osoby w zamówieniu MD z kwotą równą co do grosza. Jedna taka pozycja wiąże z metodą `order_number`,
+  dwie lub więcej (dwie osoby z tą samą stawką) zostają `several_orders`, bo kwota nie mówi, o kogo chodzi. Wspólna pula bez podziału
+  na osoby nie ma pozycji z `order_id`, więc nie wiąże. `several_orders` jest w `RETRY_REASONS`: faktura wraca po poprawce reguły albo
+  po imporcie zużycia MD, który wypełni pozycje. Pomiar na nocnej kopii: jeden numer klienta na dwóch grupach, 9 faktur, 6 wiąże się
+  z osobą, 3 za miesiąc z samą pulą zostają u Finansów.
+
+## Nieznani nabywcy i NIP w formularzu (audyt C5, 08.11.2026)
+
+- **Finanse → Faktury do klientów → „Nieznani nabywcy”** to kolejka faktur `unmatched/unknown_buyer` ze wszystkich miesięcy, po numerze
+  nabywcy (`views.unknown_buyers`). „Przypisz” dopisuje numer do klienta tym samym `save_buyer_number` co okno pojedynczej faktury, więc
+  odmowy (`differs`, `taken`) i wpis w Historii zdarzeń działają tak samo; „Pomiń” pomija wszystkie czekające faktury nabywcy, z powodem.
+  Wiersz bez numeru i z numerem uciętym (`FR1`) nie ma akcji: tych faktur nie da się skleić po numerze.
+- **Podpowiedź klienta jest tylko jednoznaczna**: nazwa z faktury równa `legal_name`, `display_name` albo `name` dokładnie jednego
+  klienta (bez nieaktywnych), bez wielkości liter. Dwóch klientów o tej samej nazwie to brak podpowiedzi, a klient z innym numerem nie
+  dostaje „Przypisz” jednym kliknięciem. Pomiar z 06.11: 13 nabywców z podpowiedzią.
+- Suma kolejki znika bez uprawnienia „Wyniki firmy”, tak jak suma miesiąca (decyzja z 02.11).
+- **Formularz klienta ma NIP i „Nazwa prawna”** tam, gdzie konto widzi dane prawne. NIP przechodzi sumę kontrolną
+  (`client_registry_number`); zagraniczny numer idzie z prefiksem kraju. Zapisujemy postać rejestru (bez kresek i `PL`). Numer innego
+  klienta to 409, bo dwa takie wiersze zatrzymałyby faktury obu. Zapis wysyła pole tylko po zmianie: stary tekst w polu NIP nie blokuje
+  edycji reszty formularza. Zmiana numeru od razu dopasowuje czekające faktury, także przy zakładaniu klienta.
+  Ramka „N faktur z KSeF czeka na ten NIP” jest **tylko dla Finansów**: wpisany numer nie jest związany z klientem z adresu, więc Delivery
+  Lead odczytałby nim nazwę i kwoty faktur firm spoza portfela.
+- **Alert DL o fakturze bez pozycji** (`invoice_without_order_line`, `services/client_invoicing/line_gaps.py`): faktura czeka na Finanse
+  z powodem `no_orders`, `amount_differs` albo `expected_unknown`, a pozycja nazywa pełnym imieniem i nazwiskiem osobę z kontraktem
+  u tego klienta, która w miesiącu usługi nie ma pozycji zamówienia. Pozycję sprawdzamy po zamówieniach (`member_ids`), nie po tekście linii:
+  kosztowe mają nazwiska po przecinku, a wspólna pula „N os.”. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
+  6 miesięcy nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.
+
+## Zamówienia MD w obcej walucie (08.11.2026)
+
+- **„Do faktury” idzie w walucie stawki z zamówienia, bez kursu.** `md_rate_revenue` linii jest zawsze w PLN/MD (materializator
+  przelicza kursem z dnia startu), a stawkę z zamówienia niesie `rate_client` (`_client_md_rate`). Wiersz MD miał na stałe PLN,
+  więc każda faktura w EUR kończyła z `currency_differs`, choć numer zamówienia i kwota się zgadzały.
+- Brak `rate_client` w obcej walucie to brak kwoty, nie kwota w złotych. Linie w różnych walutach w jednym zamówieniu zostają
+  na PLN/MD (`_group_currency`), bo suma EUR + PLN nie ma sensu. Linia w PLN liczy się jak dotąd z `md_rate_revenue`.
+- Faktura w PLN do zamówienia w EUR dalej czeka z `currency_differs`: równowartości w złotych nie porównujemy.
+- `currency_differs` jest w `RETRY_REASONS`: po poprawce waluty zamówienia faktura wraca do automatu bez ręcznego przypisania.
+- Zamówienie kosztowe zostaje w PLN: kwotę faktury ustalają Finanse, a budżet nie ma pola waluty.

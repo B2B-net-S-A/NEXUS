@@ -44,7 +44,11 @@ from app.models.job import Job, JobStatus
 from app.models.pipeline_template import PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
-from app.services.board_stage_badges import cpro_enabled_for_client
+from app.services.board_stage_badges import (
+    CV_QC_COLUMN,
+    NEW_COLUMN,
+    cpro_enabled_for_client,
+)
 from app.services.board_tasks import KIND_DL_REVIEW, BoardTask, _catalog, _Catalog
 from app.services.move_requirements import QC_OK_STATUSES, qc_statuses
 from app.services.order_burn_rate import workdays_between
@@ -64,6 +68,10 @@ _URGENCY_RANK = {URGENCY_FRESH: 0, URGENCY_DUE: 1, URGENCY_LATE: 2}
 DUE_WORKDAYS = 1
 LATE_WORKDAYS = 2
 STALE_WORKDAYS = 3
+
+# Kolumny Tablicy po końcu procesu — lustro `_COLUMN_BY_ENUM`.
+HIRED_COLUMN = "hired"
+CLOSED_COLUMN = "closed"
 
 
 @dataclass(frozen=True)
@@ -138,6 +146,37 @@ def readiness_of(
         waiting_workdays=workdays,
         urgency=urgency_for(workdays),
     )
+
+
+def board_waiting_workdays(
+    *,
+    moved_at: datetime,
+    column: Optional[str],
+    qc_status: Optional[str],
+    ok_at: Optional[datetime],
+    today: date,
+    autofill_days: Optional[int] = None,
+) -> Optional[int]:
+    """Liczba dni na karcie Tablicy (`waiting_workdays`, audyt U5 08.11.2026).
+
+    Karta gotowa w „QC CV” liczy od ``ready_since``, tak jak pas „Do wysłania
+    do klienta” i „Twoje CV w drodze”, więc dla tej samej osoby wszędzie stoi
+    ta sama liczba. Osoba od systemu w „Nowych” ma liczbę terminu decyzji
+    (``autofill_days``). Pozostałe karty liczą od wejścia na etap, a po końcu
+    procesu nikt już nie czeka (``None``).
+    """
+
+    if column in (HIRED_COLUMN, CLOSED_COLUMN):
+        return None
+    if column == NEW_COLUMN and autofill_days is not None:
+        return autofill_days
+    if column == CV_QC_COLUMN:
+        state = readiness_of(
+            since=moved_at, qc_status=qc_status, ok_at=ok_at, today=today
+        )
+        if state.ready:
+            return state.waiting_workdays
+    return waiting_workdays(moved_at, today)
 
 
 def apply_readiness(task: BoardTask, *, ok_at: Optional[datetime], today: date) -> None:
@@ -318,6 +357,9 @@ async def attach_readiness(
         status = statuses.get((t.candidate_id, t.job_id)) or {}
         t.qc_status = status.get("status") or "unchecked"
         t.qc_blocking_failed = int(status.get("blocking_failed") or 0)
+        t.qc_manual = list(status.get("manual_checks") or [])
+        t.qc_gaps = list(status.get("candidate_gaps") or [])
+        t.qc_state = status.get("qc_state")
         apply_readiness(t, ok_at=status.get("ok_at"), today=today)
 
 

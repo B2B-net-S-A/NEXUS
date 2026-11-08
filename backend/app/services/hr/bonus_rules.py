@@ -12,7 +12,12 @@ Wartości domyślne to reguły Compassa (``lib/types/bonus.ts:242-253``,
   z adresami e-mail dwóch osób. Tu to USTAWIENIE: lista par
   ``{dl_user_id → recipient_user_id}`` z opcjonalną listą klientów
   (``client_ids``, decyzja Artura 02.11.2026), domyślnie pusta (repo jest
-  publiczne, w kodzie nie ma nikogo).
+  publiczne, w kodzie nie ma nikogo),
+* **stała premia rekrutera dla roli** (``fixed_role_amounts``, decyzja Artura
+  05.11.2026): Talent Community Manager dostaje 1000 zł bez progów marży,
+* **premia 200%** (``double_bonus``, decyzja Artura 05.11.2026): w wybranych
+  miesiącach placement podpisany w miesiącu, w którym osoba zrobiła cel, daje
+  premię ×2 wypłacaną w tym miesiącu (``services/hr/double_bonus.py``).
 
 Funkcje liczące są czyste (bez bazy), żeby testy granic nie potrzebowały
 Postgresa; kalendarz firmy z dniami wolnymi podaje wołający
@@ -35,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.app_setting import AppSetting
 from app.models.competition_winner import CompetitionType
+from app.models.user import UserRole
 from app.services.hr.calendar import WorkCalendar, load_calendar
 
 logger = logging.getLogger(__name__)
@@ -45,11 +51,14 @@ CENT = Decimal("0.01")
 #: zakłada nic nowego (lepiej brak propozycji niż premie zdublowane z Compassem).
 AUTOMATION_STOPPED = date.max
 
-#: Rywalizacje z nagrodą pieniężną wypłacaną przez płace (kwartalna Liga).
-#: Wyścig miesięczny daje voucher, nie przelew — domyślnie poza płacami.
+#: Rywalizacje z nagrodą pieniężną wypłacaną przez płace: kwartalna Liga i od
+#: października 2026 oba wyścigi miesięczne (decyzja Artura 06.11.2026, wcześniej
+#: voucher). Ustawienie w Płacach może to zawęzić.
 DEFAULT_LEAGUE_TYPES: tuple[str, ...] = (
     CompetitionType.quarterly_champions_dl.value,
     CompetitionType.quarterly_champions_recruiter.value,
+    CompetitionType.monthly_recommendations.value,
+    CompetitionType.monthly_placements.value,
 )
 KNOWN_LEAGUE_TYPES: frozenset[str] = frozenset(
     {
@@ -104,6 +113,33 @@ class IndividualRecruiterRule:
 
 
 @dataclass(frozen=True)
+class FixedRoleAmount:
+    """Rola główna rekrutera ze stałą premią zamiast progów marży (np. TCM)."""
+
+    role: str
+    amount: Decimal
+
+
+@dataclass(frozen=True)
+class DoubleBonusRule:
+    """Premia 200% za placementy podpisane w miesiącu z ``months``.
+
+    Rekruter: placementy podpisane ≥ cel KPI osoby, weryfikacje na dzień pracy
+    ≥ ``verifications_per_day``, precision ≥ ``precision_pct``. DL: średnia marża
+    zł/h placementów podpisanych w miesiącu > ``dl_min_margin`` (50,00 nie wystarcza).
+    """
+
+    months: tuple[tuple[int, int], ...]
+    verifications_per_day: Decimal = Decimal("4")
+    precision_pct: Decimal = Decimal("75")
+    dl_min_margin: Decimal = Decimal("50")
+    multiplier: Decimal = Decimal("2")
+
+    def covers(self, year: int, month: int) -> bool:
+        return (year, month) in self.months
+
+
+@dataclass(frozen=True)
 class BonusRules:
     #: Dwie granice marży PLN/h: ≤ pierwsza → próg I, < druga → próg II, reszta → III.
     recruiter_tier_bounds: tuple[Decimal, Decimal] = (Decimal("40"), Decimal("50"))
@@ -123,6 +159,8 @@ class BonusRules:
     automation_since: Optional[date] = None
     league_types: tuple[str, ...] = DEFAULT_LEAGUE_TYPES
     lookback_days: int = field(default=DEFAULT_LOOKBACK_DAYS)
+    fixed_role_amounts: tuple[FixedRoleAmount, ...] = ()
+    double_bonus: Optional[DoubleBonusRule] = None
 
 
 DEFAULT_RULES = BonusRules()
@@ -157,6 +195,16 @@ def recruiter_bonus(
     if tier is None:
         return None
     return rules.recruiter_tier_amounts[tier - 1]
+
+
+def fixed_amount_for(role: object, rules: BonusRules) -> Optional[Decimal]:
+    """Stała premia rekrutera dla roli głównej osoby; ``None`` = progi marży."""
+
+    value = getattr(role, "value", role)
+    for rule in rules.fixed_role_amounts:
+        if rule.role == value:
+            return rule.amount
+    return None
 
 
 def dl_hours_for(dl_user_id: Optional[int], rules: BonusRules) -> int:
@@ -333,6 +381,8 @@ def rule_amount(snapshot: Mapping[str, Any], role: str) -> Optional[Decimal]:
             return money(margin * dl_hours * percent / Decimal(100))
         if margin < 0:
             return None
+        if snapshot.get("fixed_amount") is not None:
+            return money(Decimal(str(snapshot["fixed_amount"])))
         if snapshot.get("individual_percent") is not None:
             percent = Decimal(str(snapshot["individual_percent"]))
             return money(margin * hours * percent / Decimal(100))
@@ -507,6 +557,59 @@ def parse_rules(raw: object) -> BonusRules:
             raise BonusRulesError("Liga: nieznany rodzaj rywalizacji.")
         league_types = tuple(dict.fromkeys(str(v) for v in values))
 
+    fixed: list[FixedRoleAmount] = []
+    for item in source.get("fixed_role_amounts") or ():
+        if not isinstance(item, Mapping):
+            raise BonusRulesError("Stała premia dla roli: niepoprawny wpis.")
+        role = str(item.get("role") or "")
+        if role not in {r.value for r in UserRole}:
+            raise BonusRulesError("Stała premia dla roli: nieznana rola.")
+        if any(rule.role == role for rule in fixed):
+            raise BonusRulesError("Stała premia dla roli: jedna rola, jeden wpis.")
+        amount = _decimal(item.get("amount"), "Stała premia dla roli")
+        if not Decimal(0) < amount <= Decimal(1_000_000):
+            raise BonusRulesError("Stała premia dla roli: od 0,01 do 1 000 000.")
+        fixed.append(FixedRoleAmount(role=role, amount=money(amount)))
+
+    double: Optional[DoubleBonusRule] = None
+    raw_double = source.get("double_bonus")
+    if raw_double:
+        if not isinstance(raw_double, Mapping):
+            raise BonusRulesError("Premia 200%: niepoprawny wpis.")
+        months: list[tuple[int, int]] = []
+        for value in raw_double.get("months") or ():
+            try:
+                year_text, month_text = str(value).split("-")
+                month_key = (int(year_text), int(month_text))
+            except ValueError as exc:
+                raise BonusRulesError(
+                    "Premia 200%: miesiące w formacie RRRR-MM."
+                ) from exc
+            if not (2020 <= month_key[0] <= 2100 and 1 <= month_key[1] <= 12):
+                raise BonusRulesError("Premia 200%: miesiące w formacie RRRR-MM.")
+            months.append(month_key)
+        if not months:
+            raise BonusRulesError("Premia 200%: podaj co najmniej jeden miesiąc.")
+        per_day = _decimal(
+            raw_double.get("verifications_per_day", "4"), "Premia 200%: weryfikacje"
+        )
+        precision = _decimal(
+            raw_double.get("precision_pct", "75"), "Premia 200%: precision"
+        )
+        dl_margin = _decimal(
+            raw_double.get("dl_min_margin", "50"), "Premia 200%: marża DL"
+        )
+        if per_day < 0 or not Decimal(0) <= precision <= Decimal(100) or dl_margin < 0:
+            raise BonusRulesError(
+                "Premia 200%: weryfikacje i marża nieujemne, precision od 0 do 100."
+            )
+        double = DoubleBonusRule(
+            months=tuple(sorted(set(months))),
+            verifications_per_day=per_day,
+            precision_pct=precision,
+            dl_min_margin=dl_margin,
+        )
+
     return BonusRules(
         recruiter_tier_bounds=bounds,
         recruiter_tier_amounts=amounts,
@@ -520,6 +623,8 @@ def parse_rules(raw: object) -> BonusRules:
         automation_since=since,
         league_types=league_types,
         lookback_days=defaults.lookback_days,
+        fixed_role_amounts=tuple(fixed),
+        double_bonus=double,
     )
 
 
@@ -555,6 +660,19 @@ def rules_payload(rules: BonusRules) -> dict[str, Any]:
         if rules.automation_since
         else None,
         "league_types": list(rules.league_types),
+        "fixed_role_amounts": [
+            {"role": r.role, "amount": str(r.amount)} for r in rules.fixed_role_amounts
+        ],
+        "double_bonus": (
+            {
+                "months": [f"{y}-{m:02d}" for y, m in rules.double_bonus.months],
+                "verifications_per_day": str(rules.double_bonus.verifications_per_day),
+                "precision_pct": str(rules.double_bonus.precision_pct),
+                "dl_min_margin": str(rules.double_bonus.dl_min_margin),
+            }
+            if rules.double_bonus
+            else None
+        ),
     }
 
 
@@ -608,6 +726,8 @@ __all__ = [
     "AUTOMATION_STOPPED",
     "BonusRulesError",
     "DlHoursRule",
+    "DoubleBonusRule",
+    "FixedRoleAmount",
     "ExtraDlRule",
     "IndividualRecruiterRule",
     "automation_floor_for",
@@ -621,6 +741,7 @@ __all__ = [
     "individual_rule_for",
     "eligible_date",
     "extra_dl_recipient",
+    "fixed_amount_for",
     "load_bonus_calendar",
     "load_rules",
     "money",

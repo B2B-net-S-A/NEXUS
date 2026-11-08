@@ -184,9 +184,9 @@ class StageMove(BaseModel):
     client_rate_unit: Optional[RateUnit] = None
     client_rate_currency: Optional[str] = Field(None, max_length=3)
     # Kto zakończył proces (ruch terminalny): kandydat | my | DL | klient.
-    ended_by: Optional[Literal["candidate", "recruiter", "delivery_lead", "client"]] = (
-        None
-    )
+    ended_by: Optional[
+        Literal["candidate", "recruiter", "delivery_lead", "client", "client_silent"]
+    ] = None
 
     @field_validator("rejection_email_subject")
     @classmethod
@@ -313,6 +313,13 @@ class CandidateStageResponse(BaseModel):
     # rekrutacja, etap nie z importu Traffita) — ta sama definicja co pas
     # „Do wysłania do klienta” (audyt 13.10.2026). `None` = endpoint nie liczy.
     dl_send_counts: Optional[bool] = None
+    # Jedna liczba dni na karcie Tablicy: dni robocze czekania, liczone tak samo
+    # jak pas „Do wysłania do klienta” (`dl_send_queue.board_waiting_workdays`,
+    # audyt U5 08.11.2026). `None` = endpoint nie liczy albo proces się skończył.
+    waiting_workdays: Optional[int] = None
+    # Cisza klienta ponad 5 dni roboczych, ta sama reguła co pas „Czeka na
+    # odpowiedź klienta” (`client_wait.silent_workdays`). `None` = jeszcze nie.
+    client_silent_workdays: Optional[int] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —
@@ -452,6 +459,9 @@ class CandidateStageResponse(BaseModel):
     # osoba się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty N.”.
     entry_link_owner_id: Optional[int] = None
     entry_link_owner_name: Optional[str] = None
+    # 07.11.2026: aplikacja z formularza portalu — „justjoinit”, „rocketjobs”,
+    # „pracuj” (plakietka „Z JustJoin.IT”); ``None`` = inne wejście.
+    entry_portal: Optional[str] = None
     # …i właściciele innych linków, z których osoba zgłosiła się PONOWNIE, gdy
     # już była w rekrutacji — „Zgłosił się też z Twojego linku”. Karta i
     # blokada prowadzącego bez zmian.
@@ -589,6 +599,10 @@ class KanbanView(BaseModel):
     # (`board_tasks.reviews_as_dl`) — karta w „QC CV” mówi mu „Czeka na Ciebie”.
     # To nie jest prawo wysyłki: to ma każdy z `recruitment_manage`.
     viewer_owns_dl_review: bool = False
+    # Początek bieżącego otwarcia (`job_opening`, 05.11.2026): karta, której
+    # ostatni ruch był wcześniej, jest z poprzedniego otwarcia i nosi etykietę.
+    # `None` — rekrutacja nigdy nie otwarta ponownie.
+    opening_started_at: Optional[datetime] = None
 
 
 class MyNextStepsJob(BaseModel):

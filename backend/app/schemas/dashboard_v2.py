@@ -12,7 +12,7 @@ must therefore never be serialized as a numeric zero.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -62,7 +62,7 @@ class DashboardDataQuality(DashboardModel):
 
 class DashboardKpi(DashboardModel):
     value: DashboardKpiValue = None
-    unit: Literal["count", "percent", "hours", "PLN", "fraction", "status"]
+    unit: Literal["count", "percent", "hours", "workdays", "PLN", "fraction", "status"]
     quality: DashboardQualityStatus = "complete"
     target: DashboardKpiValue = None
     comparison: DashboardKpiValue = None
@@ -145,14 +145,71 @@ class AdminOpsDashboardResponse(DashboardResponseBase):
     data: AdminOpsDashboardData
 
 
+# ── Odpowiedź klienta i pierwsze CV (audyt 2, 08.11.2026) ───────────────────
+
+
+class ClientResponseClientRow(DashboardModel):
+    client_id: int
+    client_name: str
+    cv_in_progress: int
+    cohort_cv: int
+    responded_7d: int
+    response_7d_pct: float | None = None
+    oldest_waiting_workdays: int | None = None
+
+
+class ClientResponseSummary(DashboardModel):
+    window_from: date
+    window_to: date
+    cohort_cv: int
+    responded_7d: int
+    response_7d_pct: float | None = None
+    target_pct: int
+    workdays: int
+    excluded_mass_jobs: int
+    excluded_mass_cv: int
+    cv_in_progress: int
+    clients: list[ClientResponseClientRow] = Field(default_factory=list)
+
+
+class FirstCvWeek(DashboardModel):
+    week_start: date
+    opened_jobs: int
+    sla_eligible_jobs: int
+    sla_within_jobs: int
+    sla_pct: float | None = None
+    median_first_cv_workdays: float | None = None
+
+
+class FirstCvSummary(DashboardModel):
+    window_from: date
+    window_to: date
+    opened_jobs: int
+    jobs_with_cv: int
+    jobs_without_cv: int
+    median_first_moved_workdays: float | None = None
+    median_first_verified_workdays: float | None = None
+    median_first_cv_workdays: float | None = None
+    sla_workdays: int
+    sla_eligible_jobs: int
+    sla_within_jobs: int
+    sla_pct: float | None = None
+    weeks: list[FirstCvWeek] = Field(default_factory=list)
+
+
+class ClientResponseBoard(DashboardModel):
+    response: ClientResponseSummary
+    first_cv: FirstCvSummary
+
+
 # ── Delivery Lead — intentionally no finance fields ─────────────────────────
 
 
 class DeliveryLeadKpis(DashboardModel):
     open_requests: DashboardKpi
     open_vacancies: DashboardKpi
-    first_recommendation_sla_pct: DashboardKpi
-    median_time_to_first_recommendation_hours: DashboardKpi
+    client_response_7d_pct: DashboardKpi
+    first_cv_median_workdays: DashboardKpi
     fill_rate_pct: DashboardKpi
     placements: DashboardKpi
 
@@ -191,8 +248,8 @@ class HeadOfRecruitmentKpis(DashboardModel):
     priority_vacancies: DashboardKpi
     unassigned_work: DashboardKpi
     capacity_utilization_pct: DashboardKpi
-    first_recommendation_sla_pct: DashboardKpi
-    recommendation_to_interview_pct: DashboardKpi
+    client_response_7d_pct: DashboardKpi
+    first_cv_median_workdays: DashboardKpi
     placements: DashboardKpi
 
 

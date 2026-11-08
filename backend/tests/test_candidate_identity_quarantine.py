@@ -1671,3 +1671,21 @@ async def test_unreadable_file_does_not_block_the_human_mark(
 
     assert row.decision == "confirmed_mismatch"
     assert candidate.raw_cv_text == "tekst CV właściwej osoby"
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        ("Treść CV " * 20, "Treść  CV " * 20, True),
+        # Ten sam plik przed i po doczytaniu nagłówka z grafiki (`extract_cv_text`).
+        ("Treść CV " * 20, "Anna Testowa\n" + "Treść CV " * 20, True),
+        ("Anna Testowa\n" + "Treść CV " * 20, "Treść CV " * 20, True),
+        # Krótki tekst bywa przypadkiem końcem innego CV.
+        ("Python", "Programista Python", False),
+        ("", "Treść CV", False),
+        (None, None, False),
+        ("Treść CV " * 20, "Inna treść " * 20, False),
+    ],
+)
+def test_same_cv_text_allows_ocr_header_on_top(first, second, same):
+    assert quarantine._same_cv_text(first, second) is same

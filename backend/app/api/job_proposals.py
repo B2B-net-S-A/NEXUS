@@ -703,6 +703,10 @@ async def job_proposal_facts(
 
     # Tester przy programiście (27.10.2026) — okno oznacza i stawia na końcu.
     role_mismatches = await mismatches_for_job(db, job, list(by_id.values()))
+    # „Aplikował na …” (07.11.2026): osoba sama zgłosiła się do innej rekrutacji.
+    from app.services.job_applicants import applied_elsewhere  # noqa: PLC0415
+
+    applied = await applied_elsewhere(db, list(by_id), exclude_job_id=job_id)
     return {
         "job_id": job_id,
         "items": [
@@ -716,11 +720,39 @@ async def job_proposal_facts(
                 "role_mismatch": (
                     role_mismatches[cid].as_dict() if cid in role_mismatches else None
                 ),
+                "applied_to": [
+                    {
+                        "job_id": a.job_id,
+                        "title": a.title,
+                        "applied_at": a.applied_at.isoformat()
+                        if a.applied_at
+                        else None,
+                    }
+                    for a in applied.get(cid, [])[:3]
+                ],
             }
             for cid in ids
             if cid in by_id
         ],
     }
+
+
+@router.get("/jobs/{job_id}/applicants")
+async def job_applicants(
+    job_id: int,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Wszyscy aplikujący na ogłoszenie tej rekrutacji (07.11.2026).
+
+    Strona kariery, przekierowanie z portalu i formularz portalu, ostatnie 90 dni.
+    Dostęp jak skrzynka propozycji (``_authorized_job``), bez kontaktu.
+    """
+    from app.services.job_applicants import list_applicants  # noqa: PLC0415
+
+    job = await _job(db, user, job_id)
+    items = await list_applicants(db, job)
+    return {"job_id": job_id, "total": len(items), "items": items}
 
 
 # Lustro `job_proposal_feedback_schema.DISMISS_REASONS` (CHECK z 0405) —
@@ -976,6 +1008,7 @@ _DETAIL_KEYS = (
     "reason",
     "message",
     "why",
+    "target",
 )
 
 

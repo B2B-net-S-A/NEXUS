@@ -472,6 +472,20 @@ async def mark_stale_for_job(db: AsyncSession, job_id: int) -> int:
     return res.rowcount or 0
 
 
+async def mark_stale_for_jobs(db: AsyncSession, job_ids: list[int]) -> int:
+    """Hurtowa wersja :func:`mark_stale_for_job` (zmiana słownika umiejętności)."""
+    ids = sorted({int(jid) for jid in job_ids})
+    if not ids:
+        return 0
+    res = await db.execute(
+        update(CandidateJobMatchScore)
+        .where(CandidateJobMatchScore.job_id.in_(ids))
+        .values(stale=True, invalidated_at=func.now())
+    )
+    await _touch_invalidation_ledger(db, "job", ids)
+    return res.rowcount or 0
+
+
 async def mark_stale_for_profile(db: AsyncSession, profile_id: int) -> int:
     """Mark all (*, *, profile) cached rows stale — call when a weight profile's
     weights change or the profile is deleted (AI-P0-06 part a).

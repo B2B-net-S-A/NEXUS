@@ -275,14 +275,17 @@ def test_ai_alarm_runs_without_slack_and_stopped_loop_is_unhealthy():
 
 
 def test_probe_source_uses_the_shared_classifier():
-    """Guard the guard: sonda `ai_features` i `background_tasks` w main.py MUSZĄ
+    """Guard the guard: sonda `ai_features` i `background_tasks` w background_task_health.py MUSZĄ
     czytać wspólny klasyfikator, a nie wrócić do własnej, inline'owej logiki
     (dwie kopie rozjeżdżają się po cichu — to była przyczyna C12)."""
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(
-        encoding="utf-8"
-    )
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "services"
+        / "background_task_health.py"
+    ).read_text(encoding="utf-8")
     assert "spend_alarm_status" in src, (
         "ai_features przestał raportować stan alarmu — wróci wieczny uncapped"
     )

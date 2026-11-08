@@ -57,7 +57,6 @@ export type SettingsItemId =
   | "skills-review"
   | "job-ad-blocks"
   | "roles"
-  | "trainee-rules"
   | "contracts"
   | "rates"
   | "register-import"
@@ -335,16 +334,6 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // `/api/role-profiles` (zapis): admin + Head of Recruitment — ta sama
     // bramka co Słownik umiejętności, obok którego żyje słowniczek „Po ludzku”.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
-  },
-  {
-    id: "trainee-rules", area: "rec", title: "Lista telefonów praktykantów", group: "Proces",
-    description: "Kto trafia na codzienną listę telefonów praktykantów.",
-    keywords: "praktykant praktykanci telefony lista reguly pula stawka dostepnosc",
-    route: "/settings/trainee-rules",
-    // `/api/trainee/rules` = admin + Head of Recruitment (0374).
-    // Ukryte 17.10.2026 razem z panelem „Praktykanci” (decyzja Artura).
-    hidden: true,
-    gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
     id: "contracts", area: "deals", title: "Wzory umów", group: "Wzory i wycena",

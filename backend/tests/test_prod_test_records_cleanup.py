@@ -24,7 +24,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services.followup_meetings import ERASED_EVENT_TITLE
 from app.services.m365.calendar import M365_SOURCE
-from app.services.prod_test_records_cleanup import (
+from scripts.repairs.prod_test_records_cleanup import (
     CleanupPlan,
     PinnedContract,
     PinnedDraftOrder,

@@ -59,6 +59,7 @@ import {
 import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { ClientWaitStrip } from "@/components/v2/jobs/ClientWaitStrip";
 import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
 import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
 import { fetchJobCproEvents } from "@/lib/cpro-events-api";
@@ -73,6 +74,7 @@ import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStri
 import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
 import { JobP0Strip } from "@/components/v2/jobs/p0/JobP0Strip";
+import { JobHeadcountFact } from "@/components/v2/jobs/JobHeadcountFact";
 import { JobRecruiterFact } from "@/components/v2/jobs/JobRecruiterFact";
 import { useJobTeamPermissions } from "@/components/v2/jobs/useJobTeamPermissions";
 import { useRailCollapsed } from "@/components/v2/shell/OpenTabsRail";
@@ -679,12 +681,15 @@ export default function JobDetailPage() {
     enabled: showBoard && !!id,
     staleTime: 5 * 60_000,
   });
+  // `undefined`, dopóki wyniki nie przyjdą: karta odróżnia wtedy „osoba
+  // niepoliczona” (mapa jest, osoby w niej nie ma) od „wyników nie ma wcale”
+  // (zapytanie padło albo trwa) — awaria nie może wyglądać jak „nikt
+  // niepoliczony” (07.11.2026).
   const scoreMap = useMemo(() => {
-    const m = new Map<number, number>();
     const s = pipelineScores?.scores;
-    if (s) {
-      for (const [cid, score] of Object.entries(s)) m.set(Number(cid), score);
-    }
+    if (!s) return undefined;
+    const m = new Map<number, number>();
+    for (const [cid, score] of Object.entries(s)) m.set(Number(cid), score);
     return m;
   }, [pipelineScores]);
   // Krytyczne bez śladu u osoby — plakietka „brak: …” obok pierścienia.
@@ -692,6 +697,14 @@ export default function JobDetailPage() {
     const m = new Map<number, string[]>();
     for (const [cid, exclusion] of Object.entries(pipelineScores?.exclusions ?? {})) {
       if (exclusion.missing_critical.length) m.set(Number(cid), exclusion.missing_critical);
+    }
+    return m;
+  }, [pipelineScores]);
+  // Krytyczne z zamiennikiem — plakietka „FastAPI? zna Flask” (07.11.2026).
+  const criticalAltMap = useMemo(() => {
+    const m = new Map<number, Record<string, string[]>>();
+    for (const [cid, alts] of Object.entries(pipelineScores?.alternatives ?? {})) {
+      m.set(Number(cid), alts);
     }
     return m;
   }, [pipelineScores]);
@@ -871,8 +884,8 @@ export default function JobDetailPage() {
       .then(() => showSuccess("Skopiowano link do rekrutacji."))
       .catch(() => showError("Nie udało się skopiować linku."));
   };
-  // Filtr „Kto dodał” — w linii źródeł nagłówka, a w zwiniętym nagłówku
-  // (gdy włączony) w linii tytułu.
+  // Filtr „Kto dodał”: wybiera się go ikoną w nagłówku kolumny „Nowi”; włączony
+  // stoi w linii źródeł, a w zwiniętym nagłówku w linii tytułu (audyt U3).
   const addedByButton =
     showBoard && addedByMenuOptions ? (
       <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
@@ -987,6 +1000,15 @@ export default function JobDetailPage() {
         }
         recruiter={recruiterFact(false)}
         recruiterCompact={recruiterFact(true)}
+        // Liczba osób (07.11.2026) — edycja jak w Profilu Championa › Zespół.
+        headcount={
+          <JobHeadcountFact
+            jobId={jobId}
+            headcount={typeof job.headcount === "number" ? job.headcount : null}
+            canEdit={teamEditScope === "full"}
+            closed={job.status === "closed"}
+          />
+        }
         // Źródła kandydatów i „Kto dodał” — trzecia linia nagłówka, tylko na
         // Tablicy i dopiero z wczytaną Tablicą (jak dawny pasek nad nią).
         sources={
@@ -1001,7 +1023,7 @@ export default function JobDetailPage() {
             />
           ) : undefined
         }
-        sourcesTrailing={addedByButton}
+        sourcesTrailing={addedBy.kind !== "all" ? addedByButton : undefined}
         collapsed={headerCollapsed}
         onToggleCollapsed={toggleHeaderCollapsed}
         // Zwinięty nagłówek nie chowa WŁĄCZONEGO filtra Tablicy.
@@ -1374,6 +1396,7 @@ export default function JobDetailPage() {
               snoozing={idleSnoozing}
             />
           ) : null}
+          {canCloseJob && job.status === "published" ? <ClientWaitStrip jobId={jobId} /> : null}
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}
@@ -1386,6 +1409,7 @@ export default function JobDetailPage() {
               jobTitle={job?.title}
               scoreMap={scoreMap}
               criticalGapMap={criticalGapMap}
+              criticalAltMap={criticalAltMap}
               scoresLoading={scoresLoading}
               // „Zwiń” nagłówka (K-D5) przesuwa Tablicę — zmiana to sygnał do
               // ponownego pomiaru wysokości kolumn (także po wczytaniu
@@ -1421,6 +1445,8 @@ export default function JobDetailPage() {
               // Przegląd przed wysłaniem do klienta należy do patrzącego
               // (Delivery Lead rekrutacji albo portfel klienta) — liczy serwer.
               viewerOwnsDlReview={kanban?.viewer_owns_dl_review === true}
+              // Ponowne otwarcie (05.11.2026): karty sprzed niego mają etykietę.
+              openingStartedAt={kanban?.opening_started_at ?? null}
               // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
               addedBy={addedBy}
               onAddedByChange={setAddedBy}

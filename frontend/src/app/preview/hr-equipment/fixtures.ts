@@ -18,7 +18,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import { CATEGORY_LABELS } from "@/components/equipment/equipment-format";
 import { FREE_ITEMS_FILTERS } from "@/components/equipment/IssueWizard";
 import { itemFilters, type StockChip } from "@/components/equipment/ItemsTab";
-import { editionKeys } from "@/lib/api/academy-edition";
 import {
   equipmentKeys,
   type AssignmentRow,
@@ -1136,7 +1135,4 @@ export function seedEquipment(client: QueryClient, data: EquipmentHarnessData): 
   };
   client.setQueryData(intuneKeys.status, intuneStatus);
   client.setQueryData(intuneKeys.discrepancies, intuneReport);
-
-  // Zakładka „Akademia” (`EditionLogistics`): brak uczestników po zadaniu.
-  client.setQueryData(editionKeys.list(null), []);
 }

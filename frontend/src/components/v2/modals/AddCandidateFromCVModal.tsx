@@ -134,8 +134,13 @@ function canBeStageCv(file: File): boolean {
  return /\.(pdf|docx?)$/i.test(file.name);
 }
 
-async function addToJob(jobId: number, candidateId: number): Promise<JobAdd> {
- const response = await proposalsBulkApi.add(jobId, { candidate_ids: [candidateId], source: "quick_add" });
+async function addToJob(jobId: number, candidateId: number, outsideBase = false): Promise<JobAdd> {
+ const response = await proposalsBulkApi.add(jobId, {
+  candidate_ids: [candidateId],
+  source: "quick_add",
+  // Pomiar porcji dnia (P4): osoba dopisana do bazy tym plikiem.
+  ...(outsideBase ? { found_via: "outside_base" as const } : {}),
+ });
  if (response.total_added > 0) return { kind: "added" };
  const row = response.skipped.find((r) => r.candidate_id === candidateId) ?? response.skipped[0];
  if (row?.reason === "closed_in_job" && row.closed) return { kind: "closed", row: row as ClosedRow };
@@ -264,7 +269,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  celebrate({ small: true, message: "Kandydat dodany! ✨" });
  // Nowy kandydat z CV od razu trafia do „Nowych” tej rekrutacji.
  setNewCandidateAdd("pending");
- addToJob(job.id, data.candidate.id)
+ addToJob(job.id, data.candidate.id, true)
  .then((add) => setNewCandidateAdd(add))
  .catch(() => setNewCandidateAdd("failed"))
  .finally(() => onChanged?.());

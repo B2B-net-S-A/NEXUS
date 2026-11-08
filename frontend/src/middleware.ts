@@ -148,13 +148,6 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     section: "pipeline",
     enforceRoles: true,
   },
-  // Akademia (0369) = sekcja Pipeline + RecruiterPlus w backendzie.
-  {
-    prefix: "/academy",
-    roles: WITHOUT_READ_ONLY(PIPELINE_OPERATIONAL_ROLES),
-    section: "pipeline",
-    enforceRoles: true,
-  },
   // Moduł „Finanse" — podpisany claim sekcji pozwala także na indywidualny
   // wyjątek, a lista ról zachowuje bezpieczny fallback dla starszych tokenów.
   // Zakładki o zamówieniach otwiera też podpisany znacznik `fo`: uprawnienie
@@ -363,6 +356,8 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // ten dostęp w polityce startowej, ale jawny override użytkownika musi móc
   // go odebrać bez pozostawiania bocznego wejścia przez URL.
   { prefix: "/talent-radar", roles: null, section: "sourcing" },
+  // Porcja dnia od Nexusa (07.11.2026) — karty z rekrutacji, sekcja Rekrutacje.
+  { prefix: "/porcja", roles: null, section: "pipeline" },
   {
     prefix: "/sourcing",
     roles: SOURCING_OPERATIONAL_ROLES,
@@ -384,20 +379,6 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
   // Podgląd liczb na telefonie: te same bramki co Insights, reszta na trasach API.
   { prefix: "/podglad", roles: INSIGHTS_ROLES, section: "insights" },
-  // Praktykanci (0374). `/trainee` = lista telefonów TEGO praktykanta — nawet
-  // admin jej nie otwiera (patrzy w panel `/trainees`). Resolver bierze
-  // najdłuższy prefiks, więc `/trainees` nie wpada w regułę `/trainee`.
-  { prefix: "/trainee", roles: ["trainee"], enforceRoles: true },
-  {
-    prefix: "/trainees",
-    roles: ["admin", "head_of_recruitment"],
-    enforceRoles: true,
-  },
-  {
-    prefix: "/settings/trainee-rules",
-    roles: ["admin", "head_of_recruitment"],
-    enforceRoles: true,
-  },
   // `/profile`, `/settings` (i każda inna trasa bez wpisu) nie
   // potrzebują osobnej bramki rolowej — deny-by-default już wymaga logowania.
 ];
@@ -569,7 +550,6 @@ const PUBLIC_PATHS = [
   "/preview/pre-contracts",
   "/preview/job-portals",
   "/preview/consultant-panel",
-  "/preview/academy",
   "/preview/request-allocation",
   // Strona „Daily — requesty i obłożenie” (`/jobs/daily`), wariant daily pulpitu.
   "/preview/daily",
@@ -589,8 +569,6 @@ const PUBLIC_PATHS = [
   "/preview/rejection-email",
   // Ustawienia → „Klucze API”: konta serwisowe, klucze, ostatnie zapisy (14.10.2026).
   "/preview/api-keys",
-  // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
-  "/preview/trainee",
   // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet — fikcja, zero zapytań
   // (strażnik `app/preview/__tests__/hr-harnesses.test.ts`).
   "/preview/hr-dashboard",
@@ -639,9 +617,10 @@ const PUBLIC_EXACT_PATHS = ["/kariera", "/konsultant", "/wtyczka/prywatnosc"];
  * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza
  * buildem produkcyjnym (`next dev`, vitest) albo przy jawnej fladze builda
  * `NEXT_PUBLIC_PREVIEW_PUBLIC=1` (stack E2E w `docker-compose.e2e.yml`, na nim
- * chodzi nocny `preview-chromium`). Na produkcji wpuszczają tylko po
- * zalogowaniu — do 27.09.2026 każdy bez sesji oglądał nazwiska, klientów
- * i stawki z danych harnessów. Czytane przy wywołaniu (nie stała modułu), żeby
+ * chodzi nocny `preview-chromium`). Do 27.09.2026 każdy bez sesji oglądał
+ * nazwiska, klientów i stawki z danych harnessów. Od 08.11.2026 obraz
+ * produkcyjny w ogóle nie ma tych stron (`frontend/Dockerfile`), a to sprawdzenie
+ * zostaje jako druga warstwa. Czytane przy wywołaniu (nie stała modułu), żeby
  * testy mogły przełączać środowisko; Next wstawia obie wartości przy buildzie.
  */
 function previewHarnessesArePublic(): boolean {
@@ -679,20 +658,6 @@ function careerHostResponse(request: NextRequest): NextResponse {
   url.search = "";
   // Trasa-łapacz pod /kariera wywołuje notFound() → status 404 + terminalowe 404.
   return NextResponse.rewrite(url);
-}
-
-/**
- * Trasy dostępne dla praktykanta (0374). Wszystko inne przekierowuje na jego
- * jedyny ekran — nie na /403, bo praktykant nie ma „reszty aplikacji”, do
- * której mógłby trafić przez pomyłkę. `/profile` zostaje (zmiana hasła).
- */
-function isTraineeAllowedPath(pathname: string): boolean {
-  return (
-    pathname === "/trainee" ||
-    pathname.startsWith("/trainee/") ||
-    pathname === "/profile" ||
-    pathname.startsWith("/profile/")
-  );
 }
 
 function resolveAccessRule(pathname: string): RouteAccessRule | undefined {
@@ -802,16 +767,6 @@ export function middleware(request: NextRequest) {
     normalizeRoles([payload.role as string, ...(payload.roles ?? [])]),
   );
 
-  // Praktykant (rola wyłączna) widzi WYŁĄCZNIE „Telefony na dziś”. Bramka
-  // stoi przed regułami tras: `/jobs` ma go zaprowadzić na jego listę, a nie
-  // na /403. Wymuszona zmiana hasła i tak działa niżej (`/profile` przepuszczamy).
-  if (
-    userRoles.size === 1 &&
-    userRoles.has("trainee") &&
-    !isTraineeAllowedPath(pathname)
-  ) {
-    return NextResponse.redirect(new URL("/trainee", request.url));
-  }
   // „Pracownik” (0456) nie ma pulpitu — strona startowa to „Mój czas”.
   // Pozostałe trasy z sekcjami kończą się jak dotąd na /403.
   if (

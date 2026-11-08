@@ -60,3 +60,12 @@ def test_p0_request_columns_and_notification_type_are_mirrored() -> None:
         "p0_requested_by",
     } <= columns
     assert NotificationType.job_p0_requested.value == "job_p0_requested"
+
+
+def test_p0_overdue_notification_type_is_mirrored():
+    """0657: dzwonek „Termin P0 minął” — typ w entrypoincie i w modelu."""
+    module = _migration_module(
+        BACKEND / "alembic" / "versions" / "0657_job_p0_overdue.py"
+    )
+    assert _squash(module.ADD_NOTIFICATION_TYPE) in _entrypoint()
+    assert NotificationType.job_p0_overdue.value == "job_p0_overdue"

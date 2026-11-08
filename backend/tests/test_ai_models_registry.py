@@ -111,7 +111,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.uop_check: ("F8", "gpt-6.1-sol"),
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5-5"),
     # F10 — pomiar gpt-6-luna 22.09.2026 na 96 CV: nie gorsza od Sonneta.
-    AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5-5"),
+    # 07.11.2026 — Haiku 5.5 dla odczytu masowego pełnym promptem (pomiar na 50 CV).
+    AIFeatureKey.cv_backfill: ("F10", "claude-haiku-5-5"),
     AIFeatureKey.cv_name_backfill: ("F10", "gpt-6-luna"),
     # Ta sama robota co F10 (odczyt CV), więc ten sam model. Osobny klucz jest
     # po to, żeby dało się zgasić ścieżkę użytkownika bez nocnego syncu.
@@ -171,6 +172,10 @@ DECISION_2026_09_16 = {
     AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
     # F43 — 02.11.2026: podsumowanie rozmowy z portalu konsultanta.
     AIFeatureKey.portal_meeting_summary: ("F43", "gpt-6-luna"),
+    # F44 — 05.11.2026: pytania pod CV w ściądze do rozmowy.
+    AIFeatureKey.cv_call_questions: ("F44", "claude-sonnet-5-5"),
+    # F45 — 06.11.2026: nocne propozycje do słownika umiejętności.
+    AIFeatureKey.skill_dictionary_proposals: ("F45", "gpt-6.1-sol"),
 }
 
 

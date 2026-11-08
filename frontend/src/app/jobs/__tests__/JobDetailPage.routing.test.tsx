@@ -140,6 +140,7 @@ vi.mock("@/components/ChampionProfileEditor", () => ({
 }));
 vi.mock("@/components/v2/jobs/ChampionSectionNav", () => ({ ChampionSectionNav: () => null }));
 vi.mock("@/components/v2/jobs/JobSummaryCard", () => ({ JobSummaryCard: () => null }));
+vi.mock("@/components/v2/jobs/ClientWaitStrip", () => ({ ClientWaitStrip: () => null }));
 vi.mock("@/components/champion/ChampionWorkspace", () => ({
   ChampionWorkspace: stub("workspace", "champion-workspace"),
 }));
@@ -794,10 +795,10 @@ describe("strona rekrutacji — filtr „Kto dodał” (14.10.2026, D2–D3)", (
     expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it("bez parametru: „Kto dodał: wszyscy”, Tablica dostaje filtr „wszyscy”", async () => {
+  it("bez parametru: Tablica dostaje filtr „wszyscy”, a nagłówek nie ma przycisku (ikona w kolumnie „Nowi”, U3)", async () => {
     renderPage();
-    expect(await screen.findByTestId("added-by-trigger")).toHaveTextContent("Kto dodał:wszyscy");
-    expect(seen.kanban?.addedBy).toEqual({ kind: "all" });
+    await waitFor(() => expect(seen.kanban?.addedBy).toEqual({ kind: "all" }));
+    expect(screen.queryByTestId("added-by-trigger")).toBeNull();
   });
 });
 

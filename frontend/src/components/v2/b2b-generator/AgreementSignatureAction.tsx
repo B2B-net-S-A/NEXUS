@@ -81,7 +81,7 @@ export function AgreementSignatureAction({
   if (row.can_confirm_signed) {
     return (
       <>
-        <Button size={size} onClick={() => setOpen(true)}>
+        <Button size={size} data-tour="b2b.confirm-signed" onClick={() => setOpen(true)}>
           Oznacz jako podpisaną…
         </Button>
         {open ? (

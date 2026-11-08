@@ -89,14 +89,12 @@ from app.api import admin
 from app.api import admin_section_permissions
 from app.api import client_cv_rules as client_cv_rules_api
 from app.api import client_playbooks as client_playbooks_api
-from app.api import analytics_v1 as analytics_v1_api
 from app.api import dashboard_v2 as dashboard_v2_api
 from app.api import finance as finance_api
 from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import calls
-from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
@@ -144,10 +142,9 @@ from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
 from app.api import dl_match as dl_match_api
 from app.api import candidate_similar as candidate_similar_api
-from app.api import academy as academy_api
-from app.api import academy_edition as academy_edition_api
-from app.api import trainee as trainee_api
+from app.api.retired_modules import install_retired_modules
 from app.api import board_tasks as board_tasks_api
+from app.api import review_batch as review_batch_api
 from app.api import candidate_followups as candidate_followups_api
 from app.api import screening_calls as screening_calls_api
 from app.api import interview_cycle as interview_cycle_api
@@ -239,6 +236,7 @@ from app.api import hr_m365 as hr_m365_api
 from app.api import hr_leave as hr_leave_api
 from app.api import hr_time as hr_time_api
 from app.api import hr_payroll as hr_payroll_api
+from app.api import hr_contract_admin_details as hr_contract_admin_details_api
 from app.api import hr_settlements as hr_settlements_api
 from app.api import hr_ksef as hr_ksef_api
 from app.api import hr_payments as hr_payments_api
@@ -292,10 +290,13 @@ from app.api import job_similar as job_similar_api
 from app.api import job_twins as job_twins_api
 from app.api import job_champions as job_champions_api
 from app.api import cpro_mail as cpro_mail_api
+from app.api import client_wait as client_wait_api
 from app.api import job_idle as job_idle_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
+from app.api import cv_call_questions as cv_call_questions_api
+from app.api import cv_call_questions_refresh as cv_call_questions_refresh_api
 from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
@@ -603,50 +604,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Legacy powierzchnie statystyk (plan analytics PR 3): nagłówki deprecation
-# na odpowiedziach — BEZ zmiany body (shadow mode nie dotyka legacy).
-# Sunset = data orientacyjna cutoveru; Link wskazuje następcę per RFC 8594.
-# 2026-08-07: `/api/competitions` wyjęte — to natywny, żywy moduł rywalizacji
-# (nie DynaReporter), a analytics_v1 nie ma trasy-następcy dla rankingów.
-_LEGACY_STATS_PREFIXES = (
-    "/api/dashboard",
-    "/api/reports",
-    "/api/kpis",
-)
-
-# Kanoniczne powierzchnie wyłączone spod nagłówków legacy mimo pasującego
-# prefiksu: `/api/dashboard/v2` to bieżący kontrakt RoleDashboard (PR #1031),
-# nie legacy — `startswith("/api/dashboard")` łapał go omyłkowo.
-_LEGACY_STATS_EXEMPT_PREFIXES = ("/api/dashboard/v2",)
-
-
-def _legacy_stats_exempt(path: str) -> bool:
-    """Czy ścieżka to kanoniczna powierzchnia zwolniona z nagłówków legacy.
-
-    Dopasowanie z granicą segmentu: `/api/dashboard/v2` i `/api/dashboard/v2/...`
-    są zwolnione, ale hipotetyczne `/api/dashboard/v2-beta` już nie — goły
-    `startswith` nie zna granic segmentów URL.
-    """
-    return any(
-        path == prefix or path.startswith(prefix + "/")
-        for prefix in _LEGACY_STATS_EXEMPT_PREFIXES
-    )
-
-
-class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-
-        response = await call_next(request)
-        if path.startswith(_LEGACY_STATS_PREFIXES) and not _legacy_stats_exempt(path):
-            response.headers.setdefault("Deprecation", "true")
-            response.headers.setdefault("Sunset", "Wed, 30 Sep 2026 00:00:00 GMT")
-            response.headers.setdefault(
-                "Link", '</api/analytics/v1>; rel="successor-version"'
-            )
-        return response
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Install JSON log formatter (no-op in DEBUG mode). Must happen early
@@ -770,10 +727,10 @@ async def lifespan(app: FastAPI):
 
     # Phase B1: preload skill alias map into scoring engine
     try:
-        from app.services.skill_taxonomy_loader import refresh_alias_map
+        from app.services.skill_taxonomy_loader import sync_dictionary_version
 
-        count = await refresh_alias_map()
-        logger.info("Skill alias map loaded: %d aliases", count)
+        count = await sync_dictionary_version()
+        logger.info("Skill alias map loaded: %s aliases", count)
     except Exception as e:
         logger.warning("Skill alias map preload skipped: %s", e)
 
@@ -858,16 +815,17 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cpro_mail import cpro_mail_loop
+    from app.tasks.client_wait import client_wait_loop
     from app.tasks.job_idle import job_idle_loop
+    from app.tasks.job_p0_overdue import job_p0_overdue_loop
+    from app.tasks.skill_proposals import skill_proposals_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
-    from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
-    from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
@@ -875,7 +833,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
-    from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
@@ -884,14 +841,15 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
-    from app.tasks.academy_intake import academy_intake_loop
     from app.tasks.application_screening import application_screening_loop
-    from app.tasks.trainee_call_lists import trainee_call_lists_loop
     from app.tasks.cc_participants_sync import cc_participants_sync_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
     from app.tasks.access_usage import access_usage_loop
+    from app.core.process_bus import process_bus_loop
+    from app.core.process_role import keep_tasks_for_role
+    from app.tasks.critical_stats_cache import critical_stats_cache_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -943,10 +901,8 @@ async def lifespan(app: FastAPI):
             ),
             # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
             "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
-            "academy_intake": asyncio.create_task(academy_intake_loop()),
             # 0404: zgłoszenia z linku rekrutacji — przegląd AI przed „Nowi”.
             "application_screening": asyncio.create_task(application_screening_loop()),
-            "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
             # Uczestnicy rekrutacji = osoby jej kategorii kompetencji; co godzinę
             # wyrównanie po zmianach ról, kont i importach.
             "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
@@ -954,6 +910,8 @@ async def lifespan(app: FastAPI):
             "queue_retention": asyncio.create_task(queue_retention_loop()),
             # 0632: zapis i retencja licznika użycia obszarów.
             "access_usage": asyncio.create_task(access_usage_loop()),
+            "critical_stats_cache": asyncio.create_task(critical_stats_cache_loop()),
+            "process_bus": asyncio.create_task(process_bus_loop()),
             "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
             "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
             "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -1031,6 +989,12 @@ async def lifespan(app: FastAPI):
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
+            # 08.11.2026: pary bez odpowiedzi klienta — zamknięcie po 30 dniach, za wyłącznikiem.
+            "client_wait": asyncio.create_task(client_wait_loop()),
+            # 06.11.2026: P0 po terminie trwa do decyzji — dzwonek do Head of Recruitment.
+            "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
+            # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
+            "skill_proposals": asyncio.create_task(skill_proposals_loop()),
             # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
             "cpro_mail": asyncio.create_task(cpro_mail_loop()),
             # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
@@ -1063,11 +1027,6 @@ async def lifespan(app: FastAPI):
             # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
             # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
             "jjit_import": asyncio.create_task(jjit_import_loop()),
-            "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-            # Traffit wyłączony na stałe (14.10.2026) — `traffit_sync`
-            # i `candidate_contact_traffit` kończą się przed pierwszym
-            # odczekaniem, bez względu na flagi (`services/traffit_retired.py`).
-            "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
             "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
             # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
             # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
@@ -1099,9 +1058,6 @@ async def lifespan(app: FastAPI):
             "match_digest": asyncio.create_task(match_digest_loop()),
             "candidate_contact_queue": asyncio.create_task(
                 candidate_contact_queue_loop()
-            ),
-            "candidate_contact_traffit": asyncio.create_task(
-                traffit_contact_intake_loop()
             ),
             "index_outbox": asyncio.create_task(index_outbox_loop()),
             "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
@@ -1163,6 +1119,12 @@ async def lifespan(app: FastAPI):
                 hr_loops.hr_approval_mail_replies_loop()
             ),
         }
+        _supervise_background_tasks()
+
+    def _supervise_background_tasks() -> None:
+        app.state.background_tasks = keep_tasks_for_role(
+            app.state.background_tasks, settings.NEXUS_PROCESS_ROLE
+        )
         # Staging (pełna kopia produkcji): przed pierwszym `await`, więc zatrzymana
         # pętla nie wykona ani jednej linii — lista w `app/core/staging.py`.
         if settings.NEXUS_ENV == "staging":
@@ -1214,9 +1176,15 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(*_lost, return_exceptions=True)
         app.state.background_tasks = {}
 
+    # Audyt 2, W5: mapa słownika musi być świeża także w procesie bez blokady
+    # lidera, dlatego ta pętla stoi poza rejestrem `background_tasks`.
+    from app.tasks.skill_dictionary_sync import skill_dictionary_sync_loop
+
+    app.state.skill_dictionary_sync = asyncio.create_task(skill_dictionary_sync_loop())
     app.state.background_tasks = {}
     app.state.background_leader = None
-    if settings.BACKGROUND_LEADER_LOCK_ENABLED:
+    # Web nie bierze blokady: jego pętle dotyczą pamięci tego procesu.
+    if settings.BACKGROUND_LEADER_LOCK_ENABLED and settings.NEXUS_PROCESS_ROLE != "web":
         from app.core.background_leader import BackgroundLeader
 
         app.state.background_leader = BackgroundLeader(
@@ -1233,7 +1201,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if app.state.background_leader is not None:
         await app.state.background_leader.stop_watching()
-    tasks = tuple(app.state.background_tasks.values())
+    tasks = (*app.state.background_tasks.values(), app.state.skill_dictionary_sync)
     for t in tasks:
         t.cancel()
     # `gather(..., return_exceptions=True)`, nie pętla `await t` łapiąca sam
@@ -1280,6 +1248,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # API integracyjne v1: błąd trasy v1 jest WYJĄTKIEM (rollback sesji żądania),
 # a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
 app.add_exception_handler(IntegrationApiError, integration_error_handler)
+# Usunięte moduły (D1 z audytu 07.11.2026): stare adresy odpowiadają 410.
+install_retired_modules(app)
 
 
 async def _off_limits_confirmation_handler(
@@ -1322,7 +1292,6 @@ app.add_middleware(
 app.add_middleware(AccessUsageMiddleware)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(LegacyStatsDeprecationMiddleware)
 
 # Kompresja odpowiedzi (25.09.2026). Przed nią nic po drodze nie kompresowało
 # (API nie stoi za Cloudflare, Traefik bez middleware `compress`): jedno
@@ -1593,26 +1562,12 @@ app.include_router(
     candidate_similar_api.router, prefix="/api", tags=["candidate-similar"]
 )
 app.include_router(
-    academy_api.router,
-    prefix="/api/academy",
-    tags=["academy"],
-)
-# Edycja Akademii od strony recepcji (0465): /editions, /programs/{id}/editions/{yyyy-mm}.
-app.include_router(
-    academy_edition_api.router,
-    prefix="/api/academy",
-    tags=["academy"],
-)
-app.include_router(
-    trainee_api.router,
-    prefix="/api/trainee",
-    tags=["trainee"],
-)
-app.include_router(
     board_tasks_api.router,
     prefix="/api/board-tasks",
     tags=["board-tasks"],
 )
+# Porcja dnia od Nexusa (07.11.2026): minimum decyzji przed wyszukiwaniem.
+app.include_router(review_batch_api.router)
 # 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon na osobę.
 app.include_router(
     candidate_followups_api.router,
@@ -1831,7 +1786,6 @@ app.include_router(
     tags=["user-email-templates"],
 )
 app.include_router(calls.router, prefix="/api", tags=["calls"])
-app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
 app.include_router(
     teams_channels_api.router,
     prefix="/api/teams-channels",
@@ -2153,6 +2107,12 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
+app.include_router(
+    hr_contract_admin_details_api.router,
+    prefix="/api/hr/payroll",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia zespołu (etap 4): rozliczenia miesiąca, faktury z KSeF, przelewy i Symfonia.
 app.include_router(
     hr_settlements_api.router,
@@ -2301,12 +2261,7 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
-# Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
-# Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
-app.include_router(
-    analytics_v1_api.router, prefix="/api/analytics/v1", tags=["analytics-v1"]
-)
-# Canonical role dashboards; v1/legacy routes remain available during rollout.
+# Canonical role dashboards.
 app.include_router(
     dashboard_v2_api.router, prefix="/api/dashboard/v2", tags=["dashboard-v2"]
 )
@@ -2363,9 +2318,18 @@ app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
+app.include_router(
+    client_wait_api.router, prefix="/api/client-wait", tags=["client-wait"]
+)
 app.include_router(cpro_mail_api.router, prefix="/api", tags=["cpro-mail"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
+app.include_router(
+    cv_call_questions_api.router, prefix="/api", tags=["cv-call-questions"]
+)
+app.include_router(
+    cv_call_questions_refresh_api.router, prefix="/api", tags=["cv-call-questions"]
+)
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
@@ -2734,7 +2698,7 @@ HEALTH_DB_PING_TIMEOUT_SECONDS = 8.0
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
 
-    Shape: {status, version, deployedAt, checks: {database, m365, cloudtalk, autenti}}.
+    Shape: {status, version, deployedAt, checks: {database, m365, autenti}}.
     HTTP 503 only when `database` is unhealthy (uptime-probe contract);
     `m365` is informational and does not affect the gate; it also degrades
     when a mailbox has been stuck in a sync error for more than 24 h.
@@ -2828,34 +2792,6 @@ async def api_health_check():
             checks["m365_encryption"] = "unhealthy"
         except Exception:
             checks["m365_encryption"] = "unhealthy"
-
-    # CloudTalk status — raportowany TYLKO gdy integracja jest włączona.
-    #
-    # Wcześniej klucz `cloudtalk: "unconfigured"` wisiał w odpowiedzi zawsze,
-    # także przy wyłączonym kill-switchu — czyli od wdrożenia integracji do
-    # dziś, bez jednego dnia przerwy. Stały wpis „czegoś tu nie ma" nie niesie
-    # informacji: nie da się po nim poznać, czy ktoś właśnie wyłączył działającą
-    # integrację, czy po prostu nigdy jej nie uruchomiono. Uczy natomiast
-    # ignorować niezdrowe pozycje w `checks` — a to jest kosztowne, bo obok
-    # stoją pozycje, które znaczą coś naprawdę (`database`, `traffit`).
-    #
-    # Decyzja produktowa 28.07: nie używamy CloudTalka. Kod zostaje (model
-    # `Call` i kolumny są niezależne od dostawcy i przydadzą się przy następnej
-    # telefonii), ale przestaje raportować swoją nieobecność.
-    if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
-        pass
-    else:
-        try:
-            from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
-
-            cfg = CloudTalkConfig.from_settings()
-            async with CloudTalkClient(cfg) as ct:
-                await asyncio.wait_for(ct.ping(), timeout=2.0)
-            checks["cloudtalk"] = "healthy"
-        except asyncio.TimeoutError:
-            checks["cloudtalk"] = "degraded"
-        except Exception:
-            checks["cloudtalk"] = "unhealthy"
 
     # Autenti status — informational only. Config-only probe (no network call
     # to keep uptime-probe latency low — full ping lives at /api/autenti/health
@@ -3283,24 +3219,18 @@ async def api_health_check():
     # biegnie. Wartość celowo NIE zaczyna się od prefiksu awaryjnego — patrz
     # `spend_alarm_status`. Realny błąd (webhook jest, pętla nie biegnie)
     # alarmuje przez `background_tasks`, nie tutaj.
-    try:
-        from app.services.background_task_health import (
-            classify_background_tasks,
-            spend_alarm_status,
-        )
+    #
+    # Pętle w tle. `crashed` (wyjątek) alarmuje jak dotąd. Ta sama klasyfikacja
+    # co w /api/admin/snapshot. Informacyjne — nie flipują `overall` na 503.
+    # Kontener web pętli nie ma: pyta workera.
+    if settings.NEXUS_PROCESS_ROLE == "web":
+        from app.services.worker_health import fetch_worker_state
 
-        _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
-        _cls = classify_background_tasks(getattr(app.state, "background_tasks", None))
-        _leader = getattr(app.state, "background_leader", None)
-        # Pętli nie ma tu z założenia, a długi `standby` alarmuje `background_tasks`.
-        checks["ai_features"] = (
-            "standby"
-            if _leader is not None and not _leader.is_leader
-            else spend_alarm_status(_cls, webhook_set=_webhook_set)
-        )
-    except Exception as exc:
-        logger.warning("[health] ai_features check failed: %s", exc)
-        checks["ai_features"] = "unknown"
+        checks.update((await fetch_worker_state())["checks"])
+    else:
+        from app.services.background_task_health import local_background_checks
+
+        checks.update(local_background_checks(app.state))
 
     # FX — wiek cache'u kursów NBP. To JEDYNE miejsce, w którym „NBP milczy od
     # dwóch miesięcy" jest w ogóle widoczne: `fetch_and_store_nbp_today` rzuca
@@ -3350,58 +3280,6 @@ async def api_health_check():
     except Exception as exc:
         logger.warning("[health] migrations check failed: %s", exc)
         checks["migrations"] = "unknown"
-
-    # Pętle w tle. `crashed` (wyjątek) alarmuje jak dotąd. Dodatkowo:
-    # krytyczne alarmy Slack (ochrona budżetu AI) bramkowane configiem — gdy
-    # SLACK_WEBHOOK_URL JEST ustawiony, a pętla i tak wyszła czysto, to realny
-    # błąd wart issue (`critical:`); gdy webhook nieustawiony — stan O-1, cisza.
-    # Ta sama klasyfikacja co w /api/admin/snapshot (jedna funkcja, zero
-    # rozjazdu). Informacyjny — nie flipuje `overall` na 503.
-    try:
-        from app.services.background_task_health import (
-            classify_background_tasks,
-            leader_check_value,
-            stopped_webhook_alarms,
-        )
-
-        _bg = getattr(app.state, "background_tasks", None)
-        _leader = getattr(app.state, "background_leader", None)
-        _standby = (
-            leader_check_value(
-                is_leader=_leader.is_leader, standby_seconds=_leader.standby_seconds
-            )
-            if _leader is not None
-            else None
-        )
-        if not isinstance(_bg, dict):
-            checks["background_tasks"] = "unknown"
-        elif _standby is not None:
-            checks["background_tasks"] = _standby
-        else:
-            _cls = classify_background_tasks(_bg)
-            _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
-            _stopped = stopped_webhook_alarms(_cls, webhook_set=_webhook_set)
-            if _cls["crashed"]:
-                checks["background_tasks"] = (
-                    f"crashed: {','.join(sorted(_cls['crashed_tasks']))}"
-                )
-            elif _stopped:
-                checks["background_tasks"] = (
-                    f"critical: {','.join(_stopped)} — pętla alarmu wyszła mimo "
-                    "ustawionego SLACK_WEBHOOK_URL"
-                )
-            else:
-                # MON-04: zadanie żyje, ale jego pętla nie zaczęła iteracji dłużej
-                # niż próg (zawieszony await). `unhealthy` = issue z uptime-probe
-                # (od 22.09.2026, po tygodniu `degraded` bez fałszywych alarmów).
-                from app.services.loop_heartbeat import health_value, heartbeats
-
-                checks["background_tasks"] = health_value(
-                    heartbeats.stalled(running=set(_cls["tasks"]))
-                )
-    except Exception as exc:
-        logger.warning("[health] background_tasks check failed: %s", exc)
-        checks["background_tasks"] = "unknown"
 
     # Disk usage — informational only (never flips `overall` → no false outages).
     # `shutil.disk_usage("/")` inside the container reflects the host's backing
@@ -3458,6 +3336,27 @@ async def api_health_check():
         if db_healthy
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+
+
+@app.get("/api/health/background")
+async def api_health_background():
+    """Stan pętli TEGO procesu; web czyta tu workera do `/api/health`.
+
+    Bez logowania jak reszta sond: same nazwy pętli, a kontener workera nie ma
+    trasy z zewnątrz.
+    """
+    from app.services.background_task_health import (
+        classify_background_tasks,
+        local_background_checks,
+    )
+
+    return {
+        "role": settings.NEXUS_PROCESS_ROLE,
+        "checks": local_background_checks(app.state),
+        "tasks": classify_background_tasks(
+            getattr(app.state, "background_tasks", None)
+        ),
+    }
 
 
 @app.get("/api/health/alembic")
@@ -3544,6 +3443,9 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.cv_call_question import CvCallQuestions
+    from app.models.skill_proposal import SkillProposal
+    from app.models.skill_relation import SkillRelation
     from app.models.plain_knowledge import (
         JobPlainBrief,
         PlainKnowledgeEvent,
@@ -3818,6 +3720,13 @@ async def api_health_deep_check():
         ("plain_terms", PlainTerm),
         ("role_profiles", RoleProfile),
         ("job_plain_briefs", JobPlainBrief),
+        # 0651: pytania pod CV. Brak tabeli = 500 w ściądze do rozmowy.
+        ("cv_call_questions", CvCallQuestions),
+        # 0658: propozycje do słownika — zakładka „Propozycje” i podpowiedź w wymaganiach.
+        ("skill_proposals", SkillProposal),
+        # 0660: mapa wiedzy IT — powiązania haseł. Brak tabeli = przeładowanie
+        # słownika (`refresh_alias_map`) pada przy starcie i przy każdej kuracji.
+        ("skill_relations", SkillRelation),
         ("plain_knowledge_events", PlainKnowledgeEvent),
         # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
         # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
@@ -4810,6 +4719,9 @@ async def api_health_deep_check():
 
     all_healthy = all(v == "healthy" for v in checks.values())
 
+    # B3, etap 1: informacja dla decyzji o lustrze DDL, poza `checks`, więc nie blokuje deployu.
+    from app.services.schema_compare import schema_compare_report
+
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
@@ -4817,6 +4729,7 @@ async def api_health_deep_check():
         "collation": collation_report,
         "client_portfolio_import": portfolio_import,
         "postgres_started_at": postgres_started_at,
+        "schema_compare": schema_compare_report(),
     }
     if errors:
         body["errors"] = errors

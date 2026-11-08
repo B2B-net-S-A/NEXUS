@@ -48,7 +48,9 @@ async def api_client():
 async def _status(world: dict) -> dict:
     pair = (world["candidate_id"], world["job_id"])
     async with AsyncSessionLocal() as db:
-        return (await qc.pair_statuses(db, [pair]))[pair]
+        out = (await qc.pair_statuses(db, [pair]))[pair]
+    out.pop("qc_state")
+    return out
 
 
 def _send(world: dict) -> dict:
@@ -252,6 +254,9 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": now,
             "dismissed_blocking": 4,
             "warnings_count": 0,
+            "manual_items": [],
+            "manual_checks": [],
+            "candidate_gaps": [],
         }
         async with AsyncSessionLocal() as db:
             spent = await dismissals.restore_on_card_return(db, cid, jid)
@@ -276,6 +281,9 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": None,
             "dismissed_blocking": 0,
             "warnings_count": 0,
+            "manual_items": [],
+            "manual_checks": [],
+            "candidate_gaps": [],
         }
     finally:
         async with AsyncSessionLocal() as db:

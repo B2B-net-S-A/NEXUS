@@ -130,8 +130,14 @@ async def finish_cv_ingest(
     policy: CvWritePolicy,
     trigger: str,
     language_source_ref: Optional[str] = None,
+    enqueue_auto_match: bool = True,
 ) -> IngestOutcome:
-    """Zapisz odczyt CV do profilu i uruchom wszystko, co z niego wynika."""
+    """Zapisz odczyt CV do profilu i uruchom wszystko, co z niego wynika.
+
+    ``enqueue_auto_match=False`` — ponowny odczyt starego CV (bieg masowy).
+    Profil się nie zmienia z punktu widzenia rekrutacji, a zgłoszenie dziesiątek
+    tysięcy starych CV wyglądałoby dla auto-dopasowania jak fala nowych.
+    """
     from app.services.auto_match_outbox import (
         auto_match_enabled,
         candidate_revision,
@@ -232,19 +238,22 @@ async def finish_cv_ingest(
             "[cv_ingest] cache invalidation failed candidate=%s: %s", candidate.id, exc
         )
 
-    queued = auto_match_enabled()
-    try:
-        await enqueue_candidate(
-            db,
-            candidate_id=candidate.id,
-            trigger=trigger,
-            profile_revision=candidate_revision(candidate),
-        )
-    except Exception as exc:  # noqa: BLE001
-        queued = False
-        logger.warning(
-            "[cv_ingest] auto-match enqueue failed candidate=%s: %s", candidate.id, exc
-        )
+    queued = auto_match_enabled() and enqueue_auto_match
+    if queued:
+        try:
+            await enqueue_candidate(
+                db,
+                candidate_id=candidate.id,
+                trigger=trigger,
+                profile_revision=candidate_revision(candidate),
+            )
+        except Exception as exc:  # noqa: BLE001
+            queued = False
+            logger.warning(
+                "[cv_ingest] auto-match enqueue failed candidate=%s: %s",
+                candidate.id,
+                exc,
+            )
 
     logger.info(
         "[cv_ingest] candidate=%s trigger=%s source=%s companies=%d skills_idx=%d "

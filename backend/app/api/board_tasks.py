@@ -31,7 +31,7 @@ from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,6 +109,12 @@ class BoardTaskRow(BaseModel):
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
     qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): zdane QC z blokującymi sprawdzeniami „sprawdź ręcznie”.
+    qc_manual: list[str] = Field(default_factory=list)
+    # R2 (07.11.2026): luki kandydata w krytycznych — decyzja Delivery Leada.
+    qc_gaps: list[str] = Field(default_factory=list)
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania.
+    qc_state: Optional[dict] = None
     # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
     card_status: Optional[Literal["complete", "partial", "empty"]] = None
     card_missing: int = 0
@@ -635,6 +641,9 @@ class CproQueueItem(BaseModel):
     client_rate_currency: Optional[str] = None
     availability: Optional[date] = None
     qc_status: Literal["passed", "failed", "overridden", "unchecked"] = "unchecked"
+    qc_blocking_failed: int = 0
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania.
+    qc_state: Optional[dict] = None
     cv: Optional[CproQueueCv] = None
     # Kto włożył osobę do kolejki i kiedy. Od 13.10.2026 robi to wyłącznie
     # Delivery Lead po akceptacji (``accepted``); wcześniej także rekruter —
@@ -1547,6 +1556,8 @@ async def get_cpro_queue(
             client_rate_currency=rate[2] if rate else None,
             availability=availability.get(t.candidate_id),
             qc_status=t.qc_status or "unchecked",
+            qc_blocking_failed=t.qc_blocking_failed,
+            qc_state=t.qc_state,
             cv=(
                 CproQueueCv(
                     stage_id=cv["stage_id"],

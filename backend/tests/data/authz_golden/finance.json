@@ -42,6 +42,7 @@
   "GET /api/finance/order-pdfs/zip": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
   "GET /api/finance/order-pdfs/{kind}/{entry_id}/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
   "GET /api/finance/periods": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/rate-divergences": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/results": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/finance/results/{row_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

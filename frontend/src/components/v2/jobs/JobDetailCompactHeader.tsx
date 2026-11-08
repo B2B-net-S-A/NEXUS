@@ -117,6 +117,8 @@ interface JobDetailCompactHeaderProps {
   recruiter?: ReactNode;
   /** Ten sam fakt w zwiniętym nagłówku — same awatary, w linii tytułu. */
   recruiterCompact?: ReactNode;
+  /** „Szukamy N osób ✎” za faktem „Rekruter” (`JobHeadcountFact`, 07.11.2026). */
+  headcount?: ReactNode;
   /**
    * Trzecia linia, tylko na Tablicy: „Kandydaci do dodania”
    * (`CandidateSourcesStrip`) — do 14.10.2026 osobny pasek nad Tablicą.
@@ -315,6 +317,7 @@ export function JobDetailCompactHeader({
   p0Strip,
   recruiter,
   recruiterCompact,
+  headcount,
   sources,
   sourcesTrailing,
   collapsed = false,
@@ -775,6 +778,7 @@ export function JobDetailCompactHeader({
               })}
             </dl>
             {recruiter}
+            {headcount}
           </div>
 
           {/* Kandydaci do dodania + filtr „Kto dodał” — tylko na Tablicy

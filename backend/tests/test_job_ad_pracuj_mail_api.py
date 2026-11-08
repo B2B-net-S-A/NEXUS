@@ -252,7 +252,7 @@ async def test_send_refuses_bad_rate_stale_ad_and_live_ad(
     marked = await api.put(
         f"/api/jobs/{job_id}/portal-ad/publications/pracuj",
         json={"url": None},
-        headers=recruiter,
+        headers=lead,
     )
     assert marked.status_code == 200, marked.text
     live = await api.post(

@@ -86,7 +86,6 @@ const ROWS: MyPeopleRow[] = [
 const SUMMARY: MyPeopleSummary = {
   total: 5,
   new_matches: 3,
-  jobs_with_matches: 2,
   latest_matches: [
     { job_id: 11, job_title: "Senior Java Developer", candidate_id: 1, full_name: "Anna Przykładowa", score: 84, created_at: "2026-09-21T08:00:00Z" },
   ],
@@ -250,15 +249,7 @@ export default function MyPeoplePreviewPage() {
           <ErrorView message="Nie udało się wczytać Twojej listy." onRetry={noop} />
         </Frame>
       </div>
-      <MyPeopleBuddyView
-        count={SUMMARY.new_matches}
-        sentences={summarySentences(SUMMARY)}
-        showBubble
-        onOpen={noop}
-        onDismissBubble={noop}
-        onHide={noop}
-        animate={false}
-      />
+      <MyPeopleBuddyView onOpen={noop} />
     </main>
   );
 }

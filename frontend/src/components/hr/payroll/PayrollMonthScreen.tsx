@@ -46,8 +46,11 @@ import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
 import { BonusDeleteDialog } from "./BonusDeleteDialog";
+import { ClawbackDialog } from "./ClawbackDialog";
+import { ClawbacksSection } from "./ClawbacksSection";
 import { SettlementImportDialog } from "./SettlementImportDialog";
 import { BonusTable } from "./BonusTable";
+import { DoubleBonusCard } from "./DoubleBonusCard";
 import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
 import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
@@ -90,6 +93,7 @@ export function PayrollMonthScreen({
   const [bonusOpen, setBonusOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [deleting, setDeleting] = useState<BonusRow | null>(null);
+  const [clawing, setClawing] = useState<BonusRow | null>(null);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
@@ -337,6 +341,7 @@ export function PayrollMonthScreen({
                   )}
                 </div>
               ) : null}
+              <DoubleBonusCard year={year} month={month} open={open} />
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                 <PayoutCard people={data.people} />
                 <DecisionPanel
@@ -447,9 +452,15 @@ export function PayrollMonthScreen({
                   rows={assigned}
                   renderActions={(row) => {
                     const actions = assignedBonusActions(row, { open, payroll, meId: me?.id });
-                    if (!actions.edit && !actions.cancel) return null;
+                    // Zwrot z gwarancji także w zamkniętym miesiącu: premia jest już wypłacona.
+                    if (!actions.edit && !actions.cancel && !row.can_clawback) return null;
                     return (
                       <div className="flex justify-end gap-1">
+                        {row.can_clawback ? (
+                          <Button size="sm" variant="ghost" onClick={() => setClawing(row)}>
+                            Zwrot z gwarancji
+                          </Button>
+                        ) : null}
                         {actions.edit ? (
                           <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
                             Zmień
@@ -467,6 +478,8 @@ export function PayrollMonthScreen({
               )}
             </section>
           ) : null}
+
+          {payroll ? <ClawbacksSection meId={me?.id} /> : null}
         </>
       )}
 
@@ -504,6 +517,9 @@ export function PayrollMonthScreen({
         />
       ) : null}
       {deleting ? <BonusDeleteDialog row={deleting} onClose={() => setDeleting(null)} /> : null}
+      {clawing ? (
+        <ClawbackDialog mode="register" bonus={clawing} onClose={() => setClawing(null)} />
+      ) : null}
       {reopenOpen ? (
         <ReopenMonthDialog
           open={reopenOpen}

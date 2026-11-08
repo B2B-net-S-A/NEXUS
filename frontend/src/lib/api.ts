@@ -1416,6 +1416,8 @@ export const matchingApi = {
       scores: Record<string, number>;
       pipeline_candidate_ids: number[];
       exclusions?: Record<string, { reason: string; missing_critical: string[] }>;
+      /** Krytyczne bez śladu, ale z zamiennikiem (mapa wiedzy IT, 07.11.2026). */
+      alternatives?: Record<string, Record<string, string[]>>;
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
@@ -1781,12 +1783,15 @@ export const jobsApi = {
     acknowledgeActiveCards = false,
     /** Przy „Duplikat”: rekrutacja, która zostaje (21.10.2026). */
     duplicateOfJobId: number | null = null,
+    /** Zakończ pary u klienta „przez klienta” (competitor, budget; 08.11.2026). */
+    endClientCards = false,
   ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
       ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
       ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
+      ...(endClientCards ? { end_client_cards: true } : {}),
     }),
   /**
    * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama
@@ -2747,12 +2752,27 @@ export interface SkillDictionaryItem {
   id: number;
   name: string;
   category: string | null;
+  /** Rola (`role_*`) to stanowisko, nie umiejętność: nie przyjmuje aliasów. */
+  is_role?: boolean;
   aliases: string[];
+  /** Etap 3a (07.11.2026): czy wariant liczy się w tekście CV (QC, strażnik generatora). */
+  alias_details?: SkillAliasDetail[];
+}
+
+export interface SkillAliasDetail {
+  id: number;
+  alias: string;
+  /** Decyzja osoby prowadzącej słownik; `null` = reguła domyślna. */
+  in_text: boolean | null;
+  /** Czy wariant liczy się teraz (decyzja albo reguła domyślna). */
+  counts_in_text: boolean;
 }
 
 export interface SkillDictionaryPage {
   items: SkillDictionaryItem[];
   total: number;
+  /** Kategorie do wyboru przy haśle (bez ról), etap 2 słownika. */
+  categories?: string[];
 }
 
 export type UnmatchedSkillTermStatus = "new" | "mapped" | "ignored";
@@ -2773,23 +2793,78 @@ export interface CreatedSkill {
   mapped_term: string | null;
 }
 
+export type SkillRelationKind = "implies" | "part_of" | "alternative" | "typical";
+
+export interface SkillRelation {
+  id: number;
+  from: { id: number; name: string; category: string | null };
+  to: { id: number; name: string; category: string | null };
+  kind: SkillRelationKind;
+  status: "proposed" | "accepted" | "rejected";
+  source: "data" | "glossary" | "model" | "manual";
+  support: number;
+  share: number | null;
+  reason: string | null;
+  sure: boolean;
+  curated_by: string | null;
+}
+
+export interface SkillRelationPage {
+  items: SkillRelation[];
+  total: number;
+  totals: { proposed: number; accepted: number; rejected: number; sure: number };
+}
+
 export const skillsAdminApi = {
-  list: (params: { q?: string; limit?: number; offset?: number } = {}) =>
+  list: (
+    params: {
+      q?: string;
+      kind?: "all" | "skills" | "roles";
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) =>
     api
       .get<SkillDictionaryPage>("/api/skills-admin/skills", { params })
       .then((r) => r.data),
   create: (payload: {
     canonical_name: string;
-    category?: string | null;
+    category: string;
     aliases?: string[];
     from_term_id?: number;
   }) => api.post<CreatedSkill>("/api/skills-admin/skills", payload).then((r) => r.data),
+  update: (skillId: number, payload: { canonical_name?: string; category?: string }) =>
+    api
+      .patch<{ id: number; canonical_name: string; category: string | null }>(
+        `/api/skills-admin/skills/${skillId}`,
+        payload,
+      )
+      .then((r) => r.data),
   addAlias: (skillId: number, alias: string) =>
     api
       .post<{ skill_id: number; alias: string; inserted: boolean }>(
         `/api/skills-admin/skills/${skillId}/aliases`,
         { alias },
       )
+      .then((r) => r.data),
+  relations: (
+    params: {
+      status?: "proposed" | "accepted" | "rejected";
+      kind?: SkillRelationKind;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) =>
+    api
+      .get<SkillRelationPage>("/api/skills-admin/relations", { params })
+      .then((r) => r.data),
+  withdrawRelation: (relationId: number) =>
+    api
+      .post<{ id: number; status: string }>(`/api/skills-admin/relations/${relationId}/withdraw`)
+      .then((r) => r.data),
+  setAliasInText: (aliasId: number, inText: boolean | null) =>
+    api
+      .patch<SkillAliasDetail>(`/api/skills-admin/aliases/${aliasId}`, { in_text: inText })
       .then((r) => r.data),
   unmatchedTerms: (status: UnmatchedSkillTermStatus | "all" = "new", limit = 50) =>
     api
@@ -2803,7 +2878,81 @@ export const skillsAdminApi = {
       .then((r) => r.data),
   ignoreTerm: (termId: number) =>
     api.post(`/api/skills-admin/unmatched-terms/${termId}/ignore`).then((r) => r.data),
+  proposals: (params: SkillProposalQuery = {}) =>
+    api
+      .get<SkillProposalPage>("/api/skills-admin/proposals", { params })
+      .then((r) => r.data),
+  acceptProposal: (id: number, fix: SkillProposalFix = {}) =>
+    api
+      .post<{ id: number; status: string; skill_id: number | null }>(
+        `/api/skills-admin/proposals/${id}/accept`,
+        fix,
+      )
+      .then((r) => r.data),
+  rejectProposal: (id: number) =>
+    api
+      .post<{ id: number; status: string }>(`/api/skills-admin/proposals/${id}/reject`)
+      .then((r) => r.data),
+  acceptSureProposals: () =>
+    api
+      .post<{ accepted: number; skipped: { id: number; name: string; reason: string }[] }>(
+        "/api/skills-admin/proposals/accept-sure",
+      )
+      .then((r) => r.data),
 };
+
+// Propozycje do słownika (0658): liczy je co noc model, zatwierdza HoR+.
+export type SkillProposalDecision = "new" | "alias" | "generic" | "soft" | "noise";
+
+export interface SkillProposalName {
+  name: string;
+  count: number;
+  cand?: number;
+}
+
+export interface SkillProposal {
+  id: number;
+  family_key: string;
+  display_name: string;
+  names: SkillProposalName[];
+  cand_count: number;
+  cv_count: number;
+  job_count: number;
+  weight: number;
+  decision: SkillProposalDecision | null;
+  canonical: string | null;
+  target_skill_id: number | null;
+  target_name: string | null;
+  category: string | null;
+  replacements: string[];
+  confidence: "high" | "low" | null;
+  review_note: string | null;
+  status: "open" | "accepted" | "rejected";
+  sure: boolean;
+}
+
+export interface SkillProposalPage {
+  items: SkillProposal[];
+  total: number;
+  totals: { open: number; names: number; sure: number; by_decision: Record<string, number> };
+  computed_at: string | null;
+  categories: string[];
+}
+
+export interface SkillProposalQuery {
+  status?: "open" | "accepted" | "rejected";
+  decision?: SkillProposalDecision;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SkillProposalFix {
+  decision?: "new" | "alias";
+  canonical?: string;
+  category?: string;
+  target_skill_id?: number;
+}
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────
 export interface PipelineTemplateSummary {
@@ -3498,6 +3647,8 @@ export interface AgreementAdminFields {
   is_replacement?: boolean | null;
   replaced_contract_id?: number | null;
   fte?: AgreementFte | null;
+  /** Kandydat wskazany przez klienta (0656): bez premii z placementu. */
+  is_client_referral?: boolean | null;
 }
 
 /** Kontraktor do „Replacement za kogo” — bez kwot. */
@@ -3815,16 +3966,38 @@ export const b2bGeneratorApi = {
     api.get(`/api/b2b-generator/generated/${id}/docx`, {
       responseType: "blob",
     }),
+  /**
+   * „Oznacz jako podpisaną” (06.11.2026): plik podpisanej umowy obowiązkowy,
+   * dzień podpisu serwer czyta z podpisu konsultanta w PDF-ie.
+   */
   confirmFullySigned: (
     id: number,
-    body: B2BConfirmFullySignedRequest = {},
-  ) =>
-    api
+    body: B2BConfirmFullySignedRequest,
+    file: File,
+  ) => {
+    const form = new FormData();
+    form.append("payload", JSON.stringify(body));
+    form.append("file", file);
+    return api
       .post<B2BConfirmFullySignedResult>(
         `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
-        body,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
       )
-      .then((r) => r.data),
+      .then((r) => r.data);
+  },
+  /** Podpisy z wgranego pliku (podgląd w oknie, bez zapisu). */
+  readSignatures: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<B2BSignatureRead>(
+        `/api/b2b-generator/generated/${id}/signatures`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      )
+      .then((r) => r.data);
+  },
   /** Podpisany egzemplarz umowy (PDF, JPG, PNG) → Dokumenty kontraktu (0496). */
   attachSignedFile: (id: number, file: File) => {
     const form = new FormData();
@@ -4120,6 +4293,11 @@ export interface B2BGeneratedContractRow {
   signed_at: string | null;
   /** 0514: dzień podpisu umowy (`YYYY-MM-DD`); `signed_at` to chwila oznaczenia. */
   signed_on?: string | null;
+  /** 0654: skąd jest `signed_on` (`null` = oznaczenie sprzed 06.11.2026). */
+  signed_on_source?: "pdf" | "manual" | "esign" | null;
+  signed_on_reason?: string | null;
+  signed_on_set_by_name?: string | null;
+  consultant_signed_at?: string | null;
   signed_by_name: string | null;
   can_confirm_signed: boolean;
   blocked_reason: string | null;
@@ -4318,8 +4496,34 @@ export interface B2BConfirmFullySignedRequest {
    * pozostałych odmów (duplikaty, inny klient, umowa podpisana) nie obchodzi.
    */
   keep_existing_contract_terms?: boolean;
-  /** 0514: dzień podpisu (`YYYY-MM-DD`); brak = dziś w kalendarzu firmy. */
+  /**
+   * 0514/0654: dzień podpisu (`YYYY-MM-DD`) — liczy się tylko przy skanie bez
+   * podpisu elektronicznego (podpis odręczny) i wtedy z `signed_on_reason`.
+   */
   signed_on?: string;
+  signed_on_reason?: string;
+}
+
+/** Podpis odczytany z pliku podpisanej umowy (0654). */
+export interface B2BSignatureReadItem {
+  signer: string;
+  signed_at: string | null;
+  time_source: "timestamp" | "declared" | null;
+  intact: boolean;
+  party: "consultant" | "company" | "other";
+}
+
+export interface B2BSignatureRead {
+  /**
+   * `pdf` — dzień z podpisu konsultanta; `manual` — brak podpisu
+   * elektronicznego (data i powód ręcznie); `blocked` — podpisy są, ale nie
+   * konsultanta; `unreadable` — pliku nie da się odczytać.
+   */
+  mode: "pdf" | "manual" | "blocked" | "unreadable";
+  signatures: B2BSignatureReadItem[];
+  consultant_signed_at: string | null;
+  consultant_signed_on: string | null;
+  message: string | null;
 }
 
 export interface B2BConfirmFullySignedResult {
@@ -6740,6 +6944,8 @@ export interface StageCvUploadResult extends CVOriginalSnapshot {
   replaced?: "none" | "auto_cv" | "confirmed" | null;
   /** „Cofnij” w komunikacie — tylko gdy nie zastąpiliśmy niczyjej pracy. */
   undo_available?: boolean;
+  /** Zastąpiony szkic zaczął się w generatorze — można podać powód podmiany. */
+  ask_replace_reason?: boolean;
   stored_in_profile?: boolean;
   uploaded_filename?: string | null;
   /** Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV. */
@@ -6863,6 +7069,9 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
+    /** Opcjonalny powód podmiany szkicu z generatora (pomiar, bez blokady). */
+    replaceReason: (stageId: number, reason: string) =>
+      api.post<void>(`/api/candidates/stages/${stageId}/cv/branded/replace-reason`, { reason }),
     selectGenerated: (
       stageId: number,
       generated_document_id: number,
@@ -7752,31 +7961,6 @@ export interface CallStats {
     avg_duration_seconds: number | null;
     avg_duration_formatted: string;
   };
-  cloudtalk_status: "live" | "disabled";
-}
-
-export interface CloudTalkAgent {
-  id: number;
-  firstname: string | null;
-  lastname: string | null;
-  email: string | null;
-  default_number: string | null;
-  linked_user_id: number | null;
-  linked_user_email: string | null;
-}
-
-export interface InitiateCallResponse {
-  call_id: number;
-  transcript_linkable: boolean;
-  candidate_id: number;
-  phone: string;
-  cloudtalk_response: Record<string, unknown>;
-}
-
-export interface SyncAgentsResponse {
-  linked: number;
-  already_linked: number;
-  unmatched: CloudTalkAgent[];
 }
 
 export const callsApi = {
@@ -7919,25 +8103,6 @@ export const teamsChannelsApi = {
   test: (id: number) =>
     api
       .post<TeamsChannelTestResponse>(`/api/teams-channels/${id}/test`)
-      .then((r) => r.data),
-};
-
-export const cloudtalkApi = {
-  listAgents: () =>
-    api.get<CloudTalkAgent[]>("/api/cloudtalk/agents").then((r) => r.data),
-  assignAgent: (agentId: number, userId: number) =>
-    api.post(`/api/cloudtalk/agents/${agentId}/assign`, { user_id: userId }),
-  unassignAgent: (agentId: number) =>
-    api.delete(`/api/cloudtalk/agents/${agentId}/assign`),
-  syncAgents: () =>
-    api
-      .post<SyncAgentsResponse>("/api/cloudtalk/sync-agents")
-      .then((r) => r.data),
-  initiateCall: (candidateId: number) =>
-    api
-      .post<InitiateCallResponse>("/api/cloudtalk/initiate-call", {
-        candidate_id: candidateId,
-      })
       .then((r) => r.data),
 };
 

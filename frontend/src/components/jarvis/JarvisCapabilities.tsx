@@ -6,12 +6,17 @@
 import { Check, Hand, MousePointerClick, Undo2 } from "lucide-react";
 import type { JarvisCapabilities as Capabilities } from "@/lib/jarvis/types";
 
-export function JarvisCapabilities({ capabilities }: { capabilities: Capabilities }) {
+/** Przy wyłączonym Jarvisie status przychodzi z `capabilities: {}` — brakująca lista to pusta lista. */
+export function hasAnyCapability(capabilities: Partial<Capabilities> | undefined): boolean {
+  return Boolean(capabilities) && Object.values(capabilities ?? {}).some((items) => (items?.length ?? 0) > 0);
+}
+
+export function JarvisCapabilities({ capabilities }: { capabilities: Partial<Capabilities> }) {
   const groups = [
-    { Icon: Check, title: "Sprawdzę od razu", items: capabilities.read },
-    { Icon: Undo2, title: "Zrobię od razu, gdy poprosisz — cofniesz przez 15 minut", items: capabilities.now },
-    { Icon: MousePointerClick, title: "Przygotuję — Ty klikasz „Zrób to”", items: capabilities.write },
-    { Icon: Hand, title: "Tego nie zrobię — pokażę, gdzie kliknąć", items: capabilities.never },
+    { Icon: Check, title: "Sprawdzę od razu", items: capabilities.read ?? [] },
+    { Icon: Undo2, title: "Zrobię od razu, gdy poprosisz — cofniesz przez 15 minut", items: capabilities.now ?? [] },
+    { Icon: MousePointerClick, title: "Przygotuję — Ty klikasz „Zrób to”", items: capabilities.write ?? [] },
+    { Icon: Hand, title: "Tego nie zrobię — pokażę, gdzie kliknąć", items: capabilities.never ?? [] },
   ].filter((g) => g.items.length > 0);
 
   return (

@@ -167,6 +167,17 @@ describe("karta JustJoin.IT przy włączonym portalu", () => {
     expect(row.queryByRole("button", { name: "Zaktualizowane na portalu" })).toBeNull();
   });
 
+  it("przy formularzu portalu podpowiedź nie odsyła do strony kariery", () => {
+    const row = card(
+      adState({
+        publications: [jjit({ outdated: true })],
+        jjit_api: { ...READY, status: "published", career_required: false },
+      }),
+    );
+    expect(row.getByText(/Kliknij „Zaktualizuj na JustJoin.IT”/)).toBeTruthy();
+    expect(row.queryByText(/Zaktualizuj stronę kariery/)).toBeNull();
+  });
+
   it("ogłoszenie oznaczone ręcznie zostaje ręczne, bez publikacji przez API", () => {
     const row = card(adState({ publications: [jjit()], jjit_api: READY }));
     expect(row.queryByTestId("jjit-publish")).toBeNull();
@@ -198,6 +209,21 @@ describe("AdChannels", () => {
     channels(adState({ jjit_api: READY, reminders }));
     expect((screen.getByTestId("jjit-publish") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/Najpierw opublikuj na stronie kariery/)).toBeTruthy();
+  });
+
+  it("przy formularzu JJIT strona kariery nie blokuje publikacji (06.11.2026)", () => {
+    channels(adState({ jjit_api: { ...READY, career_required: false }, reminders }));
+    expect((screen.getByTestId("jjit-publish") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/Najpierw opublikuj na stronie kariery/)).toBeNull();
+  });
+
+  it("„Opublikuj ogłoszenie” otwiera najpierw okno JustJoin.IT (07.11.2026)", async () => {
+    channels(adState({ jjit_api: { ...READY, career_required: false }, reminders }));
+    expect(screen.getByTestId("publish-all")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("publish-all-start"));
+
+    expect(await screen.findByRole("dialog", { name: /Opublikuj na JustJoin.IT/ })).toBeTruthy();
   });
 
   it("osoba bez prawa decyzji nie dostaje przycisku", () => {

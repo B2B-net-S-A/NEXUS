@@ -72,8 +72,8 @@ export interface UnseenMatch {
 
 export interface MyPeopleSummary {
   total: number;
+  /** Rekrutacje z ostatniej doby z Twoją osobą od progu dopasowania. */
   new_matches: number;
-  jobs_with_matches: number;
   latest_matches: UnseenMatch[];
   idle_count: number;
   idle_top: { candidate_id: number; full_name: string; days_since_last_send: number }[];
@@ -102,6 +102,8 @@ export interface ForJobResponse {
   in_job_count: number;
   /** Wektory/dostawca niedostępne — wyniki niepoliczone, to NIE „nikt nie pasuje". */
   degraded: boolean;
+  /** Budżet PLN/h rekrutacji; `null` = rekrutacja go nie ma. */
+  rate_budget_hourly?: number | null;
 }
 
 /** „Zespół” (25.10.2026): czyja lista leży — tylko Head of Recruitment i admin. */

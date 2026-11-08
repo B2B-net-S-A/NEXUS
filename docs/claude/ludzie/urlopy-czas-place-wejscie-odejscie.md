@@ -524,8 +524,13 @@ z odnośnikiem `hr_documents.leave_request_id`.
   `individual_recruiters` (procent marży zamiast progów, od 3. startu w miesiącu
   rośnie dla całego miesiąca). W kodzie nie ma osób, listy są w ustawieniach.
 - **Ikona premii w pasku** (`GET /decisions`): z podpisanych umów, Liga i wyścigi, do
-  sprawdzenia. Wyścig miesięczny zostaje voucherem: „Potwierdź” zapisuje ślad
-  w `app_settings['hr_voucher_confirmations']`, bez przelewu i bez Płac. Etapy
+  sprawdzenia. Od października 2026 wyścig miesięczny to premia w Płacach
+  (decyzja Artura 06.11.2026): automat Ligi zakłada propozycję, gdy wyścig jest
+  w `league_types`, i wtedy nie ma vouchera. Wyścig spoza `league_types` zostaje
+  voucherem: „Potwierdź” zapisuje ślad w `app_settings['hr_voucher_confirmations']`.
+  Q4 2026 ma nagrody podwojone: wyścigi po 3000 zł, Liga 10 000 / 6000 / 4000 zł
+  (`PRIZE_MULTIPLIER_BY_QUARTER` w `services/competitions.py`). Wygrane osoba
+  widzi w profilu („Twoje wygrane”). Etapy
   (podpis, kontrakt, zamówienie, start, dni) są w „Moim czasie”, dzwonek tylko
   „może zostać naliczona” (`notify_ready`, raz, bez kwoty) i przy zatwierdzeniu.
   Nie pisz „przepracował 160 h”: NEXUS zna dni robocze od startu, nie godziny.
@@ -562,9 +567,10 @@ z odnośnikiem `hr_documents.leave_request_id`.
     Kwota inna niż z reguły i niż podwójna z reguły daje oznaczenie `amount_rule`
     i przycisk „Ustaw kwotę z reguły”. Uwaga z arkusza (`settlement_note`) jest
     w migawce, którą widzą tylko Płace.
-  - DL z rolą rekrutera, który domyka po rekruterze z wyłączonym kontem, dostaje
-    tylko premię DL: osobę zweryfikowała u tego klienta osoba, która odeszła
-    (`PlacementContext.closed_after_departure`). Wyjątek od decyzji z 25.10.2026.
+  - Domknięcie po rekruterze z wyłączonym kontem nie daje premii rekrutera nikomu:
+    osobę zweryfikowała u tego klienta osoba, która odeszła
+    (`PlacementContext.closed_after_departure`). DL dostaje swoją premię DL
+    (02.11.2026), rekruter, który domknął, nic (decyzja Artura 06.11.2026).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
   potwierdzenia, linie zamrożone w `payroll_lines`, timesheety zablokowane.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
@@ -579,6 +585,8 @@ z odnośnikiem `hr_documents.leave_request_id`.
   wsteczną po zatwierdzeniu; decyzja Artura 19.10.2026): automat jej nie anuluje, ale widok
   miesiąca Płac i zamknięcie dają ostrzeżenie `bonus_contract_ended_early` (do
   potwierdzenia), a premia na liście ma znacznik „premia przepada” (`contract_ended_early`).
+  Od 05.11.2026 przyznana premia DL dostaje też dług z gwarancji 12 miesięcy, który
+  potrąca się z kolejnych premii — `gwarancja-premii-dl.md`.
 - Urlop zatwierdzony albo anulowany w zamkniętym miesiącu płac: odpowiedź API niesie
   `payroll_locked_months` i `payroll_warning` (front pokazuje je w komunikacie), Płace
   dostają powiadomienie i mail bez rodzaju nieobecności, ślad z `sensitivity="payroll"`.

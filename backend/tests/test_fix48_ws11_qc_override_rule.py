@@ -86,7 +86,8 @@ class _Db:
 
     async def execute(self, stmt):
         self.statements.append(stmt)
-        return _Rows(self._answers[len(self.statements) - 1])
+        n = len(self.statements) - 1
+        return _Rows(self._answers[n] if n < len(self._answers) else [])
 
 
 class _Rows(list):
@@ -107,6 +108,14 @@ def _run(**kw) -> SimpleNamespace:
         dismissed=None,
         has_override=False,
         override_at=None,
+        manual=None,
+        manual_keys=None,
+        unverified=None,
+        manual_requirements=None,
+        manual_by=None,
+        to_fix=None,
+        gaps=None,
+        ok_since=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -117,7 +126,9 @@ def _active(count: int) -> SimpleNamespace:
 
 
 async def _status(runs: list, active: list) -> dict:
-    return (await qc.pair_statuses(_Db(runs, active), [(1, 2)]))[(1, 2)]
+    out = (await qc.pair_statuses(_Db(runs, active), [(1, 2)]))[(1, 2)]
+    out.pop("qc_state")
+    return out
 
 
 @pytest.mark.asyncio
@@ -129,6 +140,9 @@ async def test_pass_through_dismissals_is_overridden_while_they_last() -> None:
         "ok_at": AT,
         "dismissed_blocking": 2,
         "warnings_count": 0,
+        "manual_items": [],
+        "manual_checks": [],
+        "candidate_gaps": [],
     }
 
 
@@ -143,6 +157,9 @@ async def test_returned_card_without_a_new_run_is_no_longer_passed_through() -> 
         "ok_at": None,
         "dismissed_blocking": 0,
         "warnings_count": 0,
+        "manual_items": [],
+        "manual_checks": [],
+        "candidate_gaps": [],
     }
     out = await _status([_run(dismissed="1")], [])
     assert out["status"] == "failed" and out["blocking_failed"] == 1
@@ -155,6 +172,39 @@ async def test_returned_dismissals_still_leave_a_senders_override() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_requirement_in_a_failed_run_does_not_break_the_board() -> None:
+    """Pozycja bez `requirement` daje w jsonpath null; staging padał tu na 500."""
+    out = await _status(
+        [_run(passed=False, blocking_failed=2, to_fix=["Kafka", None])], []
+    )
+    assert out["status"] == "failed" and out["blocking_failed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_passed_run_carries_blocking_checks_nobody_verified() -> None:
+    """R1 (07.11.2026): zdane QC z „sprawdź ręcznie” przy blokującym sprawdzeniu
+    niesie jego etykietę — karta, panel i przegląd DL mówią to samo."""
+    out = await _status(
+        [
+            _run(
+                manual=["Umiejętności krytyczne są w CV i opisane w rolach", None],
+                manual_keys=["critical_skills", None],
+            )
+        ],
+        [],
+    )
+    assert out["status"] == "passed"
+    assert out["manual_checks"] == ["Umiejętności krytyczne są w CV i opisane w rolach"]
+
+
+@pytest.mark.asyncio
+async def test_passed_run_carries_candidate_gaps_for_the_dl() -> None:
+    """R2 (07.11.2026): luka kandydata nie blokuje, ale stan pary ją niesie."""
+    out = await _status([_run(gaps=["FastAPI", None])], [])
+    assert out["status"] == "passed" and out["candidate_gaps"] == ["FastAPI"]
+
+
+@pytest.mark.asyncio
 async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
     assert (await _status([_run()], []))["status"] == "passed"
     failed = await _status([_run(passed=False, blocking_failed=3)], [])
@@ -164,6 +214,9 @@ async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
         "ok_at": None,
         "dismissed_blocking": 0,
         "warnings_count": 0,
+        "manual_items": [],
+        "manual_checks": [],
+        "candidate_gaps": [],
     }
 
 

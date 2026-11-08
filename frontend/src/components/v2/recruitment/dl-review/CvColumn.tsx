@@ -6,7 +6,7 @@
  * klienta, po QC) albo oryginał i inne pliki kandydata.
  *
  * Dwa elementy, bo w siatce przeglądu to dwie osobne komórki:
- * - `CvToolbar` — pigułki „CV firmowe / CV oryginalne”, wynik QC i „Otwórz QC”;
+ * - `CvToolbar` — pigułki „CV firmowe / CV oryginalne” (wynik QC jest w „Kontroli CV”);
  *   w układzie z zakładkami trzecia pigułka „Wymagania i ocena” zamienia CV na
  *   wymagania (z liczbą braków),
  * - `CvColumn` — samo CV. Który widok pokazać, trzyma rodzic (`view`).
@@ -22,11 +22,9 @@
 
 import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
-import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
@@ -87,7 +85,6 @@ function pillClass(active: boolean): string {
 }
 
 export interface CvToolbarProps {
-  task: BoardTaskRow;
   view: CvView;
   onViewChange: (view: CvView) => void;
   /**
@@ -96,18 +93,15 @@ export interface CvToolbarProps {
    * „brak”. Bez tego pola pigułki nie ma.
    */
   requirements?: { active: boolean; missing: number; onSelect: () => void } | null;
-  onOpenQc: () => void;
   className?: string;
   /** Pigułka „Karta do klienta” — tylko gdy klient ma wzór karty (serwer: `enabled`). */
   coverSheet?: boolean;
 }
 
 export function CvToolbar({
-  task,
   view,
   onViewChange,
   requirements = null,
-  onOpenQc,
   className,
   coverSheet = false,
 }: CvToolbarProps) {
@@ -148,11 +142,6 @@ export function CvToolbar({
           </button>
         ) : null}
       </div>
-      <QcStatusBadge row={task} />
-      <Button size="sm" variant="outline" onClick={onOpenQc}>
-        <ShieldCheck className="size-3.5" aria-hidden />
-        Otwórz QC
-      </Button>
     </div>
   );
 }

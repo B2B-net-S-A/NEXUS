@@ -702,6 +702,29 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(within(developer).getByTestId("pick-row-must-coverage")).toHaveTextContent("musi mieć 9/10");
   });
 
+  it("osoba, która sama aplikowała na inną rekrutację, ma „Aplikował na: …” (07.11.2026)", async () => {
+    proposalsState.entries = [entry(1, "Ciepła Osoba", ["inbox"], { fitScore: 74 })];
+    factsApi.mockResolvedValue({
+      job_id: 5,
+      items: [
+        {
+          candidate_id: 1, title: "Data Engineer", company: null, years_experience: 5, city: null,
+          max_onsite_days_per_week: null, remote_modes: [], availability_status: null, availability_date: null,
+          expected_rate_hourly: null, expected_rate_currency: null, expected_rate_redacted: false, client_history: null,
+          role_mismatch: null,
+          applied_to: [
+            { job_id: 789186, title: "Data Engineer (ZOB-3155)", applied_at: "2026-11-05T12:00:00Z" },
+            { job_id: 789196, title: "AI Engineer (ZOB-3154)", applied_at: "2026-11-01T12:00:00Z" },
+          ],
+        },
+      ],
+    });
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    const chip = await within(list).findByTestId("pick-row-applied-to");
+    expect(chip).toHaveTextContent("Aplikował na: Data Engineer (ZOB-3155) +1");
+  });
+
   it("osoba tylko z portalu ogłoszeń: procent NEXUSA z `/scores`, wynik scrapera w dymku; kolejność po procencie NEXUSA (27.10.2026)", async () => {
     proposalsState.entries = [
       // Scraper dał 77%, NEXUS po przeliczeniu 64% — na liście ma być 64%.

@@ -121,7 +121,7 @@ async def test_client_deletion_expires_proposals_of_the_jobs_it_closes():
 
 async def test_one_time_repair_expires_proposals_of_closed_jobs_once():
     from app.models.app_setting import AppSetting
-    from app.services.job_proposal_closed_expiry import (
+    from scripts.repairs.job_proposal_closed_expiry import (
         REPAIR_MARKER,
         run_closed_job_proposal_expiry,
     )

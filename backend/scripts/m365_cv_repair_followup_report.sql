@@ -2,11 +2,12 @@
 -- TYLKO ODCZYT: same id, flagi i liczby — bez nazwisk, adresów i nazw plików
 -- (wynik bywa wklejany do logów i notatek).
 --
--- Skrypty `app.cli.m365_document_repair` (paragon m365_document_repair_2026_10)
--- i `app.cli.m365_unreadable_name_rematch` (m365_unreadable_name_rematch_2026_10)
--- poszły na produkcji 20–21.10.2026, zanim czyściły fakty z cudzego CV (F114)
--- i zdejmowały ukrycie ze zwracanego dokumentu (F113). Ich paragony blokują
--- ponowne `--apply`, więc ten raport mówi, czy cokolwiek zostało do poprawy.
+-- Skrypt `app.cli.m365_document_repair` (paragon m365_document_repair_2026_10)
+-- poszedł na produkcji 20.10.2026, zanim czyścił fakty z cudzego CV (F114)
+-- i zdejmował ukrycie ze zwracanego dokumentu (F113). Paragon blokuje ponowne
+-- `--apply`, więc ten raport mówi, czy cokolwiek zostało do poprawy.
+-- `app.cli.m365_unreadable_name_rematch` na 08.11.2026 nie miał biegu (brak
+-- paragonu i wpisów w historii), więc jego wiersze pojawią się dopiero po nim.
 -- Zapis (czyszczenie, przywrócenie) dopiero po zgodzie Artura.
 --
 -- Uruchomienie (klucz i kontener: pamięć nexus-prod-readonly-audit-access):

@@ -32,10 +32,9 @@ interface Props {
   saving?: boolean;
   error?: string | null;
   onSave: (next: Partial<JarvisPrefs>) => void;
-  onResetTips?: () => void;
 }
 
-export function JarvisAppearanceDialog({ open, onOpenChange, prefs, saving = false, error, onSave, onResetTips }: Props) {
+export function JarvisAppearanceDialog({ open, onOpenChange, prefs, saving = false, error, onSave }: Props) {
   const [valid, setValid] = useState(true);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,7 +53,6 @@ export function JarvisAppearanceDialog({ open, onOpenChange, prefs, saving = fal
               onSave={onSave}
               onCancel={() => onOpenChange(false)}
               onValidityChange={setValid}
-              onResetTips={onResetTips}
             />
           )}
         </DialogBody>

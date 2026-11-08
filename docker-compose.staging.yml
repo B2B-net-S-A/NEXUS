@@ -113,7 +113,7 @@ services:
     mem_limit: 4g
     env_file:
       - .env.staging.local
-    environment:
+    environment: &backend-environment
       NEXUS_ENV: staging
       # SSH clone uses a new nexus_staging_* DB. The bootstrap/offsite default
       # remains nexus; select the successfully restored DB before starting app.
@@ -148,6 +148,9 @@ services:
       CLOUDTALK_ENABLED: "false"
       AUTENTI_ENABLED: "false"
       JJIT_ENABLED: "false"
+      # JustJoin.IT w oknie „Ogłoszenie” jak na produkcji. Publikacji nie będzie:
+      # `job_portal_worker` stoi, a host portalu jest poza listą wyjścia.
+      PORTAL_JJIT_ENABLED: "true"
       PROXYCURL_ENABLED: "false"
       # Moduł „Ludzie” widoczny jak na produkcji, pętle zatrzymane wierszem niżej.
       HR_PROGRAM_ENABLED: "true"
@@ -158,6 +161,7 @@ services:
       SENTRY_DSN: ""
       SENTRY_ENVIRONMENT: staging
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      NEXUS_PROCESS_ROLE: ${NEXUS_BACKEND_PROCESS_ROLE:-web}
       # Ranking jak na produkcji, bo wnioski ze stagingu idą do decyzji Artura.
       # Trzy pierwsze wchodzą do stempla `ranker_version`; bez nich wyniki różniły
       # się do 22 pkt. Reszta zmienia pulę i kolejność, a stempla nie, więc ich
@@ -206,6 +210,37 @@ services:
       retries: 3
       start_interval: 2s
       start_period: 600s
+    logging: *default-logging
+
+  # Pętle w tle osobno, jak na produkcji (`docs/claude/podstawy/web-i-worker-osobno.md`).
+  # Na stagingu i tak biegną tylko te z `STAGING_ALLOWED_TASKS`.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-staging}
+        BUILT_AT: ${BUILT_AT:-staging}
+    restart: unless-stopped
+    mem_limit: 4g
+    env_file:
+      - .env.staging.local
+    environment:
+      <<: *backend-environment
+      NEXUS_PROCESS_ROLE: worker
+      WEB_CONCURRENCY: "1"
+    volumes:
+      - uploads_data:/tmp/nexus/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      start_period: 720s
     logging: *default-logging
 
   frontend:

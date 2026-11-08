@@ -2,8 +2,8 @@
 
 Jedno źródło treści (``guides.json``) dla dwóch odbiorców:
 
-- **front** pobiera je trasą ``GET /api/help/screens`` i pokazuje dymek przy
-  pierwszej wizycie na ekranie oraz kartę przewodnika w panelu Jarvisa — bez
+- **front** pobiera je trasą ``GET /api/help/screens`` i pokazuje kartę
+  przewodnika w panelu Jarvisa oraz pytania ``asked`` w pustym panelu — bez
   wywołania modelu;
 - **Jarvis** czyta je narzędziem ``get_screen_guide``, gdy ktoś pyta
   „jak…/gdzie…/co tu…”, i podświetla elementy z listy ``anchors``.
@@ -29,7 +29,7 @@ import json
 from collections.abc import Collection
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -41,7 +41,8 @@ GUIDES_PATH = _THIS_DIR / "guides.json"
 REPO_ROOT = _THIS_DIR.parents[3]
 
 #: Ekrany z przewodnikiem (decyzja 23.09.2026: 12 najważniejszych; 18.10.2026
-#: trzy ekrany „Ludzi” przed przejściem urlopów i godzin z Compassa). Lustro
+#: trzy ekrany „Ludzi” przed przejściem urlopów i godzin z Compassa; 07.11.2026
+#: miesiąc płac w Rozliczeniach, bo Jarvis nie umiał odpowiedzieć o premie). Lustro
 #: unii ``ScreenKey`` we froncie (``lib/help/screen-key.ts``) — pilnuje test.
 SCREEN_KEYS: tuple[str, ...] = (
     "jobs.list",
@@ -62,6 +63,7 @@ SCREEN_KEYS: tuple[str, ...] = (
     "hr.team_calendar",
     "hr.consents",
     "hr.care",
+    "hr.payroll",
 )
 
 _ANCHOR_ID = r"^[a-z0-9][a-z0-9_.-]{1,59}$"
@@ -120,6 +122,12 @@ class ScreenGuide(BaseModel):
     what: str = Field(min_length=1, max_length=240)
     tasks: list[GuideTask] = Field(min_length=3, max_length=5)
     pitfalls: list[str] = Field(default_factory=list, max_length=4)
+    #: Pytania, które ludzie naprawdę zadali Jarvisowi na tym ekranie (rozmowy
+    #: z produkcji 23.09–06.11.2026). Pusty panel Jarvisa pokazuje je jako
+    #: „Na tym ekranie ludzie pytali” — zamiast dymka ekranu, wyłączonego 07.11.
+    asked: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(
+        default_factory=list, max_length=4
+    )
     anchors: list[GuideAnchor] = Field(min_length=2, max_length=6)
     help_slug: Optional[str] = None
     sources: list[str] = Field(min_length=1, max_length=3)

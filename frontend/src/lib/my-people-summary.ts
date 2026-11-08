@@ -100,20 +100,20 @@ export function matchesQuery(row: MyPeopleRow, query: string): boolean {
     .some((v) => (v as string).toLocaleLowerCase("pl").includes(q));
 }
 
+/** „3 rekrutacje z ostatniej doby mają Twoich ludzi” — podpowiedź licznika. */
+export function recentJobsLabel(n: number): string {
+  return `${n} ${plural(n, "rekrutacja", "rekrutacje", "rekrutacji")} z ostatniej doby ${plural(n, "ma", "mają", "ma")} Twoich ludzi`;
+}
+
 /**
- * Zdania dymka awatara i nagłówka panelu. Kolejność = pilność:
+ * Zdania nagłówka panelu. Kolejność = pilność:
  * nowe dopasowania, potem ludzie czekający najdłużej bez wysyłki.
  */
 export function summarySentences(summary: MyPeopleSummary | undefined | null): string[] {
   if (!summary) return [];
   const out: string[] = [];
   if (summary.new_matches > 0) {
-    const jobs = summary.jobs_with_matches;
-    const people = summary.new_matches;
-    out.push(
-      `${jobs} ${plural(jobs, "nowa rekrutacja pasuje", "nowe rekrutacje pasują", "nowych rekrutacji pasuje")} ` +
-        `do ${people} ${plural(people, "osoby", "osób", "osób")} z Twojej listy.`,
-    );
+    out.push(`${recentJobsLabel(summary.new_matches)}.`);
     const top = summary.latest_matches[0];
     if (top) {
       out.push(`Na przykład ${top.full_name} → „${top.job_title}”.`);
@@ -133,34 +133,6 @@ export function summarySentences(summary: MyPeopleSummary | undefined | null): s
   return out;
 }
 
-/** Klucz treści dymka — dymek pokazuje się raz na sesję dla tej samej treści. */
-export function sentencesKey(sentences: string[]): string {
-  return sentences.join("|");
-}
-
-// ── Jarvis ──────────────────────────────────────────────────────────────────
-
-/** Zdarzenie okna: przyszedł dzwonek `my_people_match` (z `useNotifications`). */
-export const MY_PEOPLE_MATCH_EVENT = "nexus:my-people-match";
-
-export interface MyPeopleMatchEventDetail {
-  title: string;
-  link?: string | null;
-}
-
-/** `/jobs/42?people=1` → 42. Link pochodzi z serwera, ale bywa pusty. */
-export function jobIdFromMatchLink(link: string | null | undefined): number | null {
-  const m = link?.match(/^\/jobs\/(\d+)/);
-  return m ? Number(m[1]) : null;
-}
-
-/** Pytanie, które Jarvis wysyła po kliknięciu dymka o nowej rekrutacji. */
-export function reassignPrompt(jobId: number | null): string {
-  return jobId != null
-    ? `Kogo z moich ludzi warto przepiąć na rekrutację #${jobId}? Pokaż najlepiej pasujących i przygotuj dodanie.`
-    : "Kogo z moich ludzi warto teraz przepiąć na otwarte rekrutacje?";
-}
-
 /**
  * Fragmenty porannego skrótu Jarvisa („Na dziś: …"). Bez modelu, ta sama
  * reguła co zdania postaci „Moi ludzie" — tylko konkret, pusta lista = cisza.
@@ -168,8 +140,8 @@ export function reassignPrompt(jobId: number | null): string {
 export function briefFragments(summary: MyPeopleSummary | undefined | null): string[] {
   if (!summary) return [];
   const out: string[] = [];
-  if (summary.jobs_with_matches > 0) {
-    const n = summary.jobs_with_matches;
+  if (summary.new_matches > 0) {
+    const n = summary.new_matches;
     out.push(
       `${n} ${plural(n, "nowa rekrutacja pasuje", "nowe rekrutacje pasują", "nowych rekrutacji pasuje")} do Twoich ludzi`,
     );

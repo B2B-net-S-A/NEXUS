@@ -38,7 +38,6 @@ function row(o: Partial<MyPeopleRow>): MyPeopleRow {
 const summary = (o: Partial<MyPeopleSummary>): MyPeopleSummary => ({
   total: 0,
   new_matches: 0,
-  jobs_with_matches: 0,
   latest_matches: [],
   idle_count: 0,
   idle_top: [],
@@ -90,20 +89,19 @@ describe("summarySentences", () => {
     expect(summarySentences(undefined)).toEqual([]);
   });
 
-  it("names new matches with correct Polish plurals", () => {
+  it("names recent recruitments with correct Polish plurals", () => {
     const [first, second] = summarySentences(
       summary({
-        new_matches: 5,
-        jobs_with_matches: 2,
+        new_matches: 3,
         latest_matches: [
           { job_id: 1, job_title: "Java", candidate_id: 1, full_name: "Anna Test", score: 80, created_at: "" },
         ],
       }),
     );
-    expect(first).toBe("2 nowe rekrutacje pasują do 5 osób z Twojej listy.");
+    expect(first).toBe("3 rekrutacje z ostatniej doby mają Twoich ludzi.");
     expect(second).toBe("Na przykład Anna Test → „Java”.");
-    expect(summarySentences(summary({ new_matches: 1, jobs_with_matches: 1 }))[0]).toBe(
-      "1 nowa rekrutacja pasuje do 1 osoby z Twojej listy.",
+    expect(summarySentences(summary({ new_matches: 1 }))[0]).toBe(
+      "1 rekrutacja z ostatniej doby ma Twoich ludzi.",
     );
   });
 
@@ -137,27 +135,14 @@ describe("helpers", () => {
 });
 
 describe("Jarvis — przypomnienia o przepinaniu", () => {
-  it("jobIdFromMatchLink reads the job from the bell link", async () => {
-    const { jobIdFromMatchLink } = await import("@/lib/my-people-summary");
-    expect(jobIdFromMatchLink("/jobs/42?people=1")).toBe(42);
-    expect(jobIdFromMatchLink("/candidates/3")).toBeNull();
-    expect(jobIdFromMatchLink(null)).toBeNull();
-  });
-
-  it("reassignPrompt names the job when known", async () => {
-    const { reassignPrompt } = await import("@/lib/my-people-summary");
-    expect(reassignPrompt(42)).toContain("#42");
-    expect(reassignPrompt(null)).toContain("otwarte rekrutacje");
-  });
-
   it("briefFragments says only concrete things, with Polish plurals", async () => {
     const { briefFragments } = await import("@/lib/my-people-summary");
     expect(briefFragments(summary({}))).toEqual([]);
-    expect(briefFragments(summary({ jobs_with_matches: 2, idle_count: 5 }))).toEqual([
+    expect(briefFragments(summary({ new_matches: 2, idle_count: 5 }))).toEqual([
       "2 nowe rekrutacje pasują do Twoich ludzi",
       "5 osób czeka ponad 30 dni bez wysyłki",
     ]);
-    expect(briefFragments(summary({ jobs_with_matches: 1, idle_count: 1 }))).toEqual([
+    expect(briefFragments(summary({ new_matches: 1, idle_count: 1 }))).toEqual([
       "1 nowa rekrutacja pasuje do Twoich ludzi",
       "1 osoba czeka ponad 30 dni bez wysyłki",
     ]);

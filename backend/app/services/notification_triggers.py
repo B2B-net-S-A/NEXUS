@@ -53,7 +53,13 @@ from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
 from app.services.job_previous_recruiters import working_owner_id
+from app.services.job_priority import level_of
+from app.services.job_team import recruiters_for_jobs, working
 from app.services.notification_access import notification_recipient_has_access
+from app.services.notification_topics import (
+    STAGE_STUCK_DIGEST_ENTITY,
+    STAGE_STUCK_UNSTAFFED_ENTITY,
+)
 from app.services.notification_ws_after_commit import queue_ws_notification
 from app.services.job_working_title import display_title
 
@@ -283,6 +289,12 @@ async def _latest_stage_per_pair(
     }
 
 
+# Karty, które filtr „Stoją > 7 dni” pokazuje na Tablicy (kolumny w toku).
+_BOARD_IN_PROGRESS_STAGES: frozenset[PipelineStage] = frozenset(
+    {*_NON_TERMINAL_STAGES, PipelineStage.posting} - {PipelineStage.onboarding}
+)
+
+
 def _set_in_nexus(stage: LatestStage) -> bool:
     """Czy bieżący etap pary ustawił ktoś w NEXUSIE (a nie import Traffita).
 
@@ -343,13 +355,7 @@ async def _delivery_lead_targets(db: AsyncSession, job: Job) -> list[int]:
         )
         if active:
             return [job.delivery_lead_id]
-    rows = await db.execute(
-        select(User.id).where(
-            User.roles.contains([UserRole.head_of_recruitment.value]),
-            User.is_active.is_(True),
-        )
-    )
-    return list(rows.scalars().all())
+    return await _head_of_recruitment_ids(db)
 
 
 async def _user_is_active(db: AsyncSession, user_id: int) -> bool:
@@ -669,88 +675,212 @@ async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
 async def check_stage_stuck_7d(
     db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
 ) -> int:
-    """Kandydat na nieterminalnym etapie od 7–30 dni w OTWARTEJ rekrutacji → alert.
+    """Karty stojące od tygodnia: jeden wpis na rekrutację na tydzień.
 
-    Do 09.2026 trigger nie miał ani dolnej granicy wieku, ani filtra otwartych
-    rekrutacji, a dedup był dobowy: każdy kandydat zaległy od miesięcy
-    (historyczny import, zamknięte rekrutacje) dostawał nowy wiersz każdego
-    dnia — stąd „ponad tysiąc nieprzeczytanych" u rekruterów. Teraz:
-    okno ``[now - STAGE_STUCK_MAX_DAYS, now - STAGE_STUCK_DAYS]``, tylko
-    rekrutacje niezamknięte i najwyżej jedno przypomnienie na etap w tygodniu
-    ISO (Europe/Warsaw).
+    Audyt 08.11.2026 (U4): dzwonek na parę to było 44% dzwonków DL-a (1932
+    z 4436 w dwa tygodnie), a karta ruszała po 3,1% z nich. Teraz:
+
+    * prowadzący dostaje skrót „43084 Senior PM: 23 osoby stoją ponad 7 dni
+      (najdłużej 21 dni)” z linkiem do Tablicy z tym filtrem;
+    * rekrutacja bez pracującego rekrutera daje jeden wpis do DL-a i HoR
+      („przypisz rekrutera”), bo tam nie ma komu dzwonić;
+    * pojedynczy dzwonek zostaje tylko dla „CV wysłane”, gdzie ruch jest po
+      stronie osoby (follow-up), i tylko do pracującego rekrutera.
+
+    Co budzi, zostaje jak było (okno ``[now - STAGE_STUCK_MAX_DAYS, now -
+    STAGE_STUCK_DAYS]``, tylko etapy ustawione w NEXUSIE, rekrutacje otwarte,
+    najwyżej raz w tygodniu ISO, Europe/Warsaw). Liczba w treści to karty,
+    które pokaże filtr na Tablicy: wszystkie w toku ponad 7 dni, bez górnej
+    granicy i razem z importem, inaczej wpis i ekran mówiłyby co innego.
     """
     latest = await _latest_stage_per_pair(db, latest)
     now_utc = now.astimezone(timezone.utc)
     cutoff = now_utc - timedelta(days=settings.STAGE_STUCK_DAYS)
     floor = now_utc - timedelta(days=settings.STAGE_STUCK_MAX_DAYS)
-    stale = [
+    fresh = [
         s
         for s in latest.values()
         if s.stage in _NON_TERMINAL_STAGES
         and _set_in_nexus(s)
         and floor <= _moved_at_utc(s) <= cutoff
     ]
-    if not stale:
+    if not fresh:
         return 0
 
-    jobs = await _open_jobs_by_id(db, (s.job_id for s in stale))
-    stale = [
-        s for s in stale if (job := jobs.get(s.job_id)) is not None and job.recruiter_id
+    jobs = await _open_jobs_by_id(db, (s.job_id for s in fresh))
+    fresh_by_job: dict[int, list[LatestStage]] = {}
+    for stage in fresh:
+        if stage.job_id in jobs:
+            fresh_by_job.setdefault(stage.job_id, []).append(stage)
+    if not fresh_by_job:
+        return 0
+
+    # Dzień w etapie jak `days_in_stage` na Tablicy; filtr „Stoją > 7 dni” to
+    # `> 7` w kolumnach w toku, także „Ogłoszenia” (kolumna Nowi).
+    waiting_days: dict[int, list[int]] = {}
+    for stage in latest.values():
+        if stage.job_id in fresh_by_job and stage.stage in _BOARD_IN_PROGRESS_STAGES:
+            days = _days_in_stage(stage, now_utc)
+            if days > settings.STAGE_STUCK_DAYS:
+                waiting_days.setdefault(stage.job_id, []).append(days)
+
+    follow_ups = [
+        s for stages in fresh_by_job.values() for s in stages if _is_follow_up(s)
     ]
-    if not stale:
-        return 0
-
     # Dedup tygodniowy: indeks `ix_notif_dedup_daily` blokuje tylko ten sam
-    # dzień, więc bez tego sprawdzenia etap wisiałby w dzwonku codziennie.
-    week_start = _warsaw_week_start_utc(now)
+    # dzień, więc bez tego sprawdzenia wpis wracałby codziennie.
     already = await db.execute(
-        select(Notification.user_id, Notification.related_entity_id).where(
+        select(
+            Notification.user_id,
+            Notification.related_entity_type,
+            Notification.related_entity_id,
+        ).where(
             Notification.notification_type == NotificationType.stage_stuck_7d,
-            Notification.related_entity_id.in_([s.id for s in stale]),
-            Notification.created_at >= week_start,
+            Notification.related_entity_id.in_(
+                [*fresh_by_job, *(s.id for s in follow_ups)]
+            ),
+            Notification.created_at >= _warsaw_week_start_utc(now),
         )
     )
-    reminded_this_week = {(row[0], row[1]) for row in already}
+    reminded_this_week = {(row[0], row[1], row[2]) for row in already}
 
-    names = await _candidate_names(db, (s.candidate_id for s in stale))
+    names = await _candidate_names(db, (s.candidate_id for s in follow_ups))
+    teams = await recruiters_for_jobs(db, fresh_by_job)
+    head_of_recruitment: Optional[list[int]] = None
     emitted = 0
-    recipients_by_job: dict[int, list[int]] = {}
-    for stage in stale:
-        job = jobs[stage.job_id]
-        # Rekruter (albo jego zastępca z COMPASS-a); konto nieaktywne = brak
-        # osoby → zapas jak przy alertach DL-owych (runda 6 audytu). Do tej
-        # pory 65% tych przypomnień szło na konta nieaktywne i przepadało.
-        if job.id not in recipients_by_job:
-            # „Poprzedni rekruter” (14.10.2026) = brak osoby → zapas na DL-a.
-            recruiter = await _operational_recipient(
-                db, [await working_owner_id(db, job)]
+
+    async def send(user_id: int, entity: str, entity_id: int, **fields) -> None:
+        nonlocal emitted
+        if (user_id, entity, entity_id) in reminded_this_week:
+            return
+        result = await emit(
+            db,
+            user_id=user_id,
+            ntype=NotificationType.stage_stuck_7d,
+            related_entity_type=entity,
+            related_entity_id=entity_id,
+            **fields,
+        )
+        if result is not None:
+            emitted += 1
+
+    for job_id, stages in fresh_by_job.items():
+        job = jobs[job_id]
+        # Rekruter (albo jego zastępca z COMPASS-a); konto nieaktywne,
+        # „Poprzedni rekruter” i sama propozycja automatu to brak osoby.
+        recruiter = await _operational_recipient(
+            db, [person.user_id for person in working(teams.get(job_id, []))]
+        )
+        waiting = waiting_days.get(job_id, [])
+        label = _stuck_job_label(job)
+        if waiting and recruiter is None and _needs_recruiter(job):
+            if head_of_recruitment is None:
+                head_of_recruitment = await _head_of_recruitment_ids(db)
+            lead = job.delivery_lead_id
+            leads = [lead] if lead and await _user_is_active(db, lead) else []
+            for user_id in dict.fromkeys([*leads, *head_of_recruitment]):
+                await send(
+                    user_id,
+                    STAGE_STUCK_UNSTAFFED_ENTITY,
+                    job_id,
+                    title=f"{_people_waiting(len(waiting))}, przypisz rekrutera",
+                    message=(
+                        f"{label}. Rekrutacja bez pracującego rekrutera: "
+                        f"{_people_waiting(len(waiting))}, przypisz rekrutera."
+                    ),
+                    link=f"/jobs/{job_id}",
+                )
+        elif waiting and recruiter and any(not _is_follow_up(s) for s in stages):
+            await send(
+                recruiter,
+                STAGE_STUCK_DIGEST_ENTITY,
+                job_id,
+                # Okienko „Rekrutacje” ucina treść do linii, więc liczba jest w tytule.
+                title=(
+                    f"{_people_standing(len(waiting))} ponad "
+                    f"{settings.STAGE_STUCK_DAYS} dni"
+                ),
+                message=(
+                    f"{label}: {_people_standing(len(waiting))} ponad "
+                    f"{settings.STAGE_STUCK_DAYS} dni (najdłużej {max(waiting)} dni)."
+                ),
+                link=f"/jobs/{job_id}?added_by=stuck",
             )
-            recipients_by_job[job.id] = (
-                [recruiter] if recruiter else await _delivery_lead_targets(db, job)
-            )
-        days = int((now_utc - _moved_at_utc(stage)).total_seconds() // 86400)
-        who = names.get(stage.candidate_id) or "Kandydat"
-        label = STAGE_LABELS.get(stage.stage, stage.stage.value)
-        for user_id in recipients_by_job[job.id]:
-            if (user_id, stage.id) in reminded_this_week:
+        if recruiter is None:
+            continue
+        for stage in stages:
+            if not _is_follow_up(stage):
                 continue
-            result = await emit(
-                db,
-                user_id=user_id,
+            days = _days_in_stage(stage, now_utc)
+            who = names.get(stage.candidate_id) or "Kandydat"
+            stage_label = STAGE_LABELS.get(stage.stage, stage.stage.value)
+            await send(
+                recruiter,
+                "candidate_stage",
+                stage.id,
                 title="Kandydat utknął na etapie",
                 message=(
-                    f"{who} od {days} dni na etapie „{label}” w rekrutacji "
+                    f"{who} od {days} dni na etapie „{stage_label}” w rekrutacji "
                     f"„{display_title(job)}” — zadzwoń i sprawdź, czy dalej jest "
                     "zainteresowany."
                 ),
-                link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
-                ntype=NotificationType.stage_stuck_7d,
-                related_entity_type="candidate_stage",
-                related_entity_id=stage.id,
+                link=f"/jobs/{job_id}?candidate={stage.candidate_id}",
             )
-            if result is not None:
-                emitted += 1
     return emitted
+
+
+def _needs_recruiter(job: Job) -> bool:
+    """Ktoś przy niej był (odpięty, wyłączony) albo to P1, gdzie rekruter musi być.
+
+    Bez prowadzącego poza P1 to stan normalny: na kopii z 08.11.2026 takich
+    rekrutacji było 83 i co tydzień dawałyby HoR wpis „przypisz rekrutera”
+    (130 wpisów zamiast 47) o rekrutacjach, których nikt nie miał prowadzić.
+    """
+    return bool(job.recruiter_id) or level_of(job.priority) == "p1"
+
+
+def _is_follow_up(stage: LatestStage) -> bool:
+    """„CV wysłane”: ruch po stronie osoby, więc para ma własny dzwonek."""
+    return stage.stage == PipelineStage.cv_sent
+
+
+def _days_in_stage(stage: LatestStage, now_utc: datetime) -> int:
+    return int((now_utc - _moved_at_utc(stage)).total_seconds() // 86400)
+
+
+def _stuck_job_label(job: Job) -> str:
+    """„43084 Senior PM”: numer klienta, chyba że jest już w tytule."""
+    title = display_title(job)
+    reference = (getattr(job, "client_reference", None) or "").strip()
+    return f"{reference} {title}" if reference and reference not in title else title
+
+
+def _people_form(count: int, one: str, few: str, many: str) -> str:
+    last_two = count % 100
+    last_one = count % 10
+    if count == 1:
+        return f"1 {one}"
+    if 2 <= last_one <= 4 and not 12 <= last_two <= 14:
+        return f"{count} {few}"
+    return f"{count} {many}"
+
+
+def _people_standing(count: int) -> str:
+    return _people_form(count, "osoba stoi", "osoby stoją", "osób stoi")
+
+
+def _people_waiting(count: int) -> str:
+    return _people_form(count, "osoba czeka", "osoby czekają", "osób czeka")
+
+
+async def _head_of_recruitment_ids(db: AsyncSession) -> list[int]:
+    rows = await db.execute(
+        select(User.id).where(
+            User.roles.contains([UserRole.head_of_recruitment.value]),
+            User.is_active.is_(True),
+        )
+    )
+    return list(rows.scalars().all())
 
 
 async def _candidate_names(

@@ -19,9 +19,10 @@ import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
 import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
-import { qcCountsText } from "@/lib/cv-qc";
+import { QC_STATUS_LABEL, qcCountsText, qcStateText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf } from "@/lib/warsaw-date";
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
 import type { PreContractTone } from "@/lib/api/preContracts";
 import { offLimitsConfirmedDay } from "@/lib/off-limits";
@@ -45,6 +46,8 @@ export interface CardBadge {
   label: string;
   tone: CardBadgeTone;
   title?: string;
+  /** `data-testid` plakietki; domyślnie `card-badge-<key>`. */
+  testId?: string;
 }
 
 /** 0370: podpowiedź do odznak prepów — ruch karty nie jest blokowany. */
@@ -71,6 +74,9 @@ export interface CardBadgeContext {
   /** Przegląd przed wysłaniem do klienta w tej rekrutacji należy do patrzącego
    *  (serwer: `viewer_owns_dl_review`) — „Czeka na Ciebie” zamiast „Czeka na DL”. */
   viewerOwnsDlReview?: boolean;
+  /** Początek bieżącego otwarcia rekrutacji (serwer: `opening_started_at`,
+   *  05.11.2026). Karta ruszona wcześniej jest z poprzedniego otwarcia. */
+  openingStartedAt?: string | null;
 }
 
 export const CARD_BADGE_TONE_CLASS: Record<CardBadgeTone, string> = {
@@ -105,13 +111,6 @@ export function hoursLeft(until: string, now: Date): string {
   const ms = new Date(until).getTime() - now.getTime();
   if (ms <= 3_600_000) return "<1 h";
   return `${Math.floor(ms / 3_600_000)} h`;
-}
-
-/** „dziś”, „1 dzień”, „3 dni” — ile osoba czeka (plakietki karty). */
-export function daysLabel(days: number): string {
-  if (days <= 0) return "dziś";
-  if (days === 1) return "1 dzień";
-  return `${days} dni`;
 }
 
 // ── „Do wysłania do klienta” (13.10.2026) ───────────────────────────────────
@@ -165,13 +164,16 @@ export function dlReadySince(item: KanbanItem): number | null {
   return moved == null || ok == null ? null : Math.max(moved, ok);
 }
 
-/** Dni KALENDARZOWE w Europe/Warsaw od gotowości — ta sama arytmetyka co
- *  `waitingFor` (`lib/api/boardTasks.ts`); bez dat zostają dni na etapie. */
-export function dlWaitingDays(item: KanbanItem, now: Date): number {
-  const since = dlReadySince(item);
-  if (since == null) return item.days_in_stage ?? 0;
-  const dayNumber = (d: Date) => Date.parse(`${warsawToday(d)}T00:00:00Z`) / DAY_MS;
-  return Math.max(0, Math.round(dayNumber(now) - dayNumber(new Date(since))));
+/** „czeka 2 dni rob.” — jedyna liczba dni na karcie (U5, audyt 08.11.2026).
+ *  Liczy ją serwer (`waiting_workdays`, ta sama funkcja co pas DL). */
+export function waitingWorkdaysText(days: number): string {
+  return days === 1 ? "czeka 1 dzień rob." : `czeka ${days} dni rob.`;
+}
+
+/** „na etapie od 03.11” — dni kalendarzowe zostają tylko w dymku karty. */
+export function stageSinceText(item: Pick<KanbanItem, "moved_at">): string | null {
+  const day = item.moved_at ? formatDayMonthPl(warsawDateOf(item.moved_at)) : "—";
+  return day === "—" ? null : `na etapie od ${day}`;
 }
 
 /**
@@ -193,11 +195,11 @@ export function dlSendQueue(
     .sort((a, b) => since(a) - since(b));
 }
 
-/** „od dziś”, „od 1 dnia”, „od 3 dni”. */
+/** „od dziś.”, „od 1 dnia rob.”, „od 3 dni rob.” — razem z kropką zdania. */
 function sinceLabel(days: number): string {
-  if (days <= 0) return "od dziś";
-  if (days === 1) return "od 1 dnia";
-  return `od ${days} dni`;
+  if (days <= 0) return "od dziś.";
+  if (days === 1) return "od 1 dnia rob.";
+  return `od ${days} dni rob.`;
 }
 
 export interface DlWaitingStatus {
@@ -214,12 +216,18 @@ export interface DlWaitingStatus {
  * Ciebie”, której rekruter nie ma. Bez karty (starszy wołający) — zdanie,
  * które jest prawdą zawsze.
  */
-export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date): DlWaitingStatus {
+export function dlWaitingStatus(item: KanbanItem | null | undefined): DlWaitingStatus {
   if (!item) {
     return { ready: false, text: "Osoba jest w „QC CV” — trafi do Delivery Leada, gdy QC przejdzie." };
   }
   if (isReadyForDlSend(item, "cv_qc", false)) {
-    return { ready: true, text: `Czeka u Delivery Leada ${sinceLabel(dlWaitingDays(item, now))}.` };
+    return {
+      ready: true,
+      text:
+        item.waiting_workdays == null
+          ? "Czeka u Delivery Leada."
+          : `Czeka u Delivery Leada ${sinceLabel(item.waiting_workdays)}`,
+    };
   }
   if (item.qc?.status === "failed") {
     return {
@@ -320,6 +328,25 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
     }
     const blocking = qc.blocking_failed;
     const warnings = qc.warnings_count ?? 0;
+    const manual = qc.status === "passed" ? (qc.manual_checks?.length ?? 0) : 0;
+    const gaps = qc.status === "passed" ? (qc.candidate_gaps?.length ?? 0) : 0;
+    if (gaps > 0) {
+      return {
+        key: "cv_state",
+        label: `CV gotowe · QC: luka kandydata (${gaps})${warnings > 0 ? ` · ${qcCountsText(0, warnings)}` : ""}`,
+        tone: "info",
+        title: `Kandydat nie ma: ${qc.candidate_gaps?.join(", ")}. W CV nie ma czego poprawić — o wysyłce zdecyduje Delivery Lead.`,
+      };
+    }
+    if (manual > 0) {
+      // R1 (07.11.2026): zdane z blokującym „sprawdź ręcznie” to nie „bez uwag”.
+      return {
+        key: "cv_state",
+        label: `CV gotowe · QC: sprawdź ręcznie (${manual})${warnings > 0 ? ` · ${qcCountsText(0, warnings)}` : ""}`,
+        tone: "info",
+        title: `QC nie umiało sprawdzić: ${qc.manual_checks?.join(", ")}. Otwórz QC i sprawdź to ręcznie, zanim przekażesz CV Delivery Leadowi.`,
+      };
+    }
     return blocking + warnings > 0
       ? {
           key: "cv_state",
@@ -416,6 +443,24 @@ function linkOwnerBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | nu
     title: own
       ? "Osoba zgłosiła się z Twojego linku do tej rekrutacji."
       : `Osoba zgłosiła się z linku, który udostępnił(a) ${item.entry_link_owner_name ?? "ktoś z zespołu"}.`,
+  };
+}
+
+const PORTAL_NAMES = { justjoinit: "JustJoin.IT", rocketjobs: "RocketJobs", pracuj: "Pracuj.pl" } as const;
+
+/**
+ * Aplikacja z formularza portalu (07.11.2026): karta mówi, skąd osoba przyszła,
+ * tak jak „Z Twojego linku” przy stronie kariery.
+ */
+function portalBadge(item: KanbanItem): CardBadge | null {
+  if (item.entry_source !== "application" || !item.entry_portal) return null;
+  const name = PORTAL_NAMES[item.entry_portal];
+  if (!name) return null;
+  return {
+    key: "portal",
+    label: `Z ${name}`,
+    tone: "neutral",
+    title: `Osoba sama aplikowała na ogłoszenie tej rekrutacji na ${name}.`,
   };
 }
 
@@ -555,8 +600,9 @@ function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null 
     case "application": {
       const ai = aiScreeningBadge(item.entry_ai_screening);
       if (ai) return { key: "source", label: ai.label, tone: ai.tone, title: ai.title };
-      // Zgłoszenie z linku bez przeglądu AI: źródło mówi plakietka linku.
-      return item.entry_link_owner_id != null
+      // Zgłoszenie z linku albo z portalu bez przeglądu AI: źródło mówi
+      // plakietka linku / portalu.
+      return item.entry_link_owner_id != null || item.entry_portal
         ? null
         : { key: "source", label: "Z ogłoszenia", tone: "neutral" };
     }
@@ -654,9 +700,32 @@ function bookedCallBadge(item: KanbanItem, now: Date): CardBadge | null {
   };
 }
 
+/** Karta z poprzedniego otwarcia: jej ostatni ruch był przed „Otwórz ponownie”
+ *  (05.11.2026). Nie liczy się w „W drodze” ani w obsadzie, dopóki ktoś jej
+ *  nie ruszy — serwer liczy tak samo (`job_opening`). */
+export function fromPreviousOpening(item: KanbanItem, openingStartedAt: string | null | undefined): boolean {
+  if (!openingStartedAt || !item.moved_at) return false;
+  return new Date(item.moved_at).getTime() < new Date(openingStartedAt).getTime();
+}
+
+function previousOpeningBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
+  if (!fromPreviousOpening(item, ctx.openingStartedAt)) return null;
+  const day = warsawDateOf(ctx.openingStartedAt);
+  const label = day ? `Sprzed otwarcia ${day.split("-").reverse().join(".")}` : "Sprzed otwarcia";
+  return {
+    key: "previous_opening",
+    label,
+    tone: "neutral",
+    title:
+      "Karta z poprzedniego otwarcia rekrutacji. Nie liczy się w „W drodze” ani w obsadzie, dopóki jej nie ruszysz.",
+  };
+}
+
 export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[] {
   const out: CardBadge[] = [];
   const column = ctx.column;
+  const previous = previousOpeningBadge(item, ctx);
+  if (previous) out.push(previous);
   // Champion pierwszy (D3, 15.10.2026) — oznacza go Delivery Lead w nagłówku
   // rekrutacji, karta tylko to pokazuje.
   if (item.is_champion) {
@@ -692,6 +761,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     if (call) out.push(call);
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);
+    const portal = portalBadge(item);
+    if (portal) out.push(portal);
     const reapplied = reappliedViaLinkBadge(item, ctx);
     if (reapplied) out.push(reapplied);
     const source = sourceBadge(item, ctx);
@@ -711,14 +782,13 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   // DL czeka dopiero na CV, które przeszło QC (albo przepuszczone) — przy
   // niesprawdzonym lub niezaliczonym QC ruch ma rekruter. Dni liczą się od
   // gotowości, nie od wejścia do kolumny; Delivery Lead tej rekrutacji czyta
-  // „Czeka na Ciebie” (13.10.2026).
+  // „Czeka na Ciebie” (13.10.2026). Liczba dni stoi w wierszu ruchu (U5).
   if (countsForDlReview(item, column, ctx.stageBadge === "cpro")) {
-    const waited = daysLabel(dlWaitingDays(item, ctx.now));
     out.push(
       ctx.viewerOwnsDlReview
         ? {
             key: "dl_review",
-            label: `Czeka na Ciebie · ${waited}`,
+            label: "Czeka na Ciebie",
             tone: "wait",
             title: ctx.cproEnabled
               ? "Przejrzyj CV, wpisz stawkę do Cpro i zaakceptuj do kolejki Cpro."
@@ -726,7 +796,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
           }
         : {
             key: "dl_review",
-            label: `Czeka na DL · ${waited}`,
+            label: "Czeka na DL",
             tone: "wait",
             title: ctx.cproEnabled
               ? "Delivery Lead przegląda CV, wpisuje stawkę do Cpro i akceptuje osobę do kolejki Cpro."
@@ -762,11 +832,16 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
         "Kandydat zmienił stawkę w trakcie procesu. Szczegóły i historia w panelu osoby.",
     });
   }
-  if (column === "cv_sent" && (item.days_in_stage ?? 0) >= 5) {
+  // Serwer liczy to samo co pas „Czeka na odpowiedź klienta”: dni robocze, od 6.
+  // dnia, bez rozmowy przed nami; „Klient odpowiedział” zeruje zegar.
+  if ((column === "cv_sent" || column === "client_interview") && item.client_silent_workdays != null) {
+    const since = stageSinceText(item);
+    const silent = `Klient nie odpowiada od ${item.client_silent_workdays} dni rob.`;
     out.push({
       key: "client_silence",
-      label: `${item.days_in_stage} dni bez odpowiedzi`,
+      label: "Klient milczy",
       tone: "wait",
+      title: since ? `${silent}, ${since}.` : `${silent}.`,
     });
   }
   // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni (jeden
@@ -778,14 +853,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     item.followup.state !== "scheduled"
   ) {
     const f = item.followup;
+    const full = cardBadgeLabel(f, ctx.viewerId);
     out.push({
       key: "followup",
-      label: cardBadgeLabel(f, ctx.viewerId),
+      // Bez liczby na karcie (U5): „zaległy 31 dni” stało obok liczby z wiersza ruchu.
+      label: f.state === "overdue" ? full.replace(/ \d+ .*$/, "") : full,
       tone: f.state === "overdue" ? "urgent" : f.state === "today" ? "wait" : "neutral",
-      title:
+      title: `${full}. ${
         f.process_count > 1
           ? `Kandydat czeka na klienta w ${f.process_count} procesach — dzwoni jedna osoba i mówi o wszystkich.`
-          : "Klient milczy od 14 dni — telefon do kandydata, że dalej jest w procesie.",
+          : "Klient milczy od 14 dni — telefon do kandydata, że dalej jest w procesie."
+      }`,
     });
   }
   // Odznaka rozmowy stoi w KAŻDEJ kolumnie: do 24.09.2026 tylko w „Rozmowie
@@ -857,6 +935,130 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   return out;
 }
 
+// ── Dwie plakietki i „+N” (U1, audyt 08.11.2026) ────────────────────────────
+
+/** Tyle plakietek stoi w drugim wierszu karty, reszta idzie do dymku „+N”. */
+export const CARD_PRIMARY_LIMIT = 2;
+
+/** Mówi to przycisk w wierszu ruchu — nie dokłada ani plakietki, ani „+N”. */
+const SAID_BY_MOVE_ROW: ReadonlySet<string> = new Set(["dl_review"]);
+
+/** Fakty tylko do dymku: „Nowy · N dni”, „3 dni bez decyzji”, „U klienta 3×”… */
+const ONLY_IN_MORE = (key: string): boolean =>
+  key === "autofill_due" ||
+  key === "new_in_base" ||
+  key === "other_jobs" ||
+  key === "fresh_slot" ||
+  key === "rating" ||
+  key === "contact" ||
+  key === "screening" ||
+  key.startsWith("known_");
+
+/** Kolejność w obrębie grupy; prefiksy dynamicznych kluczy po `startsWith`. */
+const WITHIN_GROUP: readonly string[] = [
+  "hm_veto",
+  "warning_",
+  "off_limits",
+  "champion",
+  "booked_call",
+  "followup",
+  "interview",
+  "qc",
+  "scorecard",
+  "start_docs",
+  "rate_change",
+  "pre_contract",
+  "agreement",
+  "employment",
+  "over_budget",
+  "critical_gap",
+  "autofill_caution_",
+  "requirements_skipped",
+  "care",
+  "cv_state",
+  "client_silence",
+  "contract",
+  "previous_opening",
+  "client_acceptance",
+  "order",
+  "client_rate",
+  "stage_",
+  "recommendation_card",
+  "reassign",
+  "source",
+  "link",
+  "portal",
+  "claim",
+];
+
+function withinGroup(key: string): number {
+  const exact = WITHIN_GROUP.indexOf(key);
+  if (exact >= 0) return exact;
+  const prefix = WITHIN_GROUP.findIndex((p) => p.endsWith("_") && key.startsWith(p));
+  return prefix >= 0 ? prefix : WITHIN_GROUP.length;
+}
+
+const ACTIVE_TONES: ReadonlySet<CardBadgeTone> = new Set(["urgent", "wait", "call_today", "own", "lock"]);
+
+/**
+ * Stały priorytet: 0 blokery (weto, czarna lista, off-limits), 1 ruch z terminem,
+ * 2 ostrzeżenia, 3 stan. Ten sam klucz może zmienić grupę przez ton: „QC: 2 do
+ * poprawy” to ruch, „QC przepuszczone” to ostrzeżenie, a zdane QC to tylko stan.
+ */
+function badgeGroup(b: CardBadge): 0 | 1 | 2 | 3 {
+  if (b.key === "hm_veto" || b.key === "off_limits") return 0;
+  if (b.key.startsWith("warning_")) return b.tone === "urgent" ? 0 : 2;
+  if (b.key === "champion" || b.key === "booked_call" || b.key === "followup" || b.key === "scorecard") return 1;
+  if (b.key === "claim") return b.tone === "own" || b.tone === "lock" ? 1 : 3;
+  if (b.key === "qc") return b.tone === "urgent" ? 1 : b.tone === "wait" ? 2 : 3;
+  if (b.key === "interview" || b.key === "start_docs" || b.key === "rate_change" || b.key === "pre_contract" || b.key === "agreement") {
+    return ACTIVE_TONES.has(b.tone) ? 1 : 3;
+  }
+  if (b.key === "cv_state") return b.tone === "wait" ? 2 : 3;
+  if (
+    b.key === "employment" ||
+    b.key === "over_budget" ||
+    b.key === "critical_gap" ||
+    b.key.startsWith("autofill_caution_") ||
+    b.key === "requirements_skipped" ||
+    b.key === "care" ||
+    b.key === "client_silence" ||
+    b.key === "contract" ||
+    b.key === "previous_opening"
+  ) {
+    return 2;
+  }
+  return 3;
+}
+
+export interface CardPrimaryBadges {
+  /** Drugi wiersz karty: najwyżej `CARD_PRIMARY_LIMIT`. */
+  primary: CardBadge[];
+  /** Dymek „+N”: pełna treść tego, co nie weszło do wiersza. */
+  more: CardBadge[];
+}
+
+/**
+ * Karta w trzech wierszach (U1, zgoda Artura 08.11.2026): najwyżej dwie
+ * plakietki według stałego priorytetu, reszta bez utraty treści w „+N”.
+ * `signals` to to, co karta liczy sama (weto, budżet, chip QC, etap…), bo
+ * zależy od całej Tablicy, a nie od samego wiersza.
+ */
+export function cardPrimaryBadges(
+  item: KanbanItem,
+  ctx: CardBadgeContext | null,
+  signals: readonly CardBadge[] = [],
+): CardPrimaryBadges {
+  const all = [...(ctx ? cardBadges(item, ctx) : []), ...signals].filter((b) => !SAID_BY_MOVE_ROW.has(b.key));
+  const ranked = all
+    .map((badge, index) => ({ badge, index, group: badgeGroup(badge), order: withinGroup(badge.key) }))
+    .sort((a, b) => a.group - b.group || a.order - b.order || a.index - b.index)
+    .map((r) => r.badge);
+  const eligible = ranked.filter((b) => !ONLY_IN_MORE(b.key));
+  const primary = eligible.slice(0, CARD_PRIMARY_LIMIT);
+  return { primary, more: ranked.filter((b) => !primary.includes(b)) };
+}
+
 /**
  * PR 4 ścieżki kandydata (04.10.2026): źródło, blokada 12 h i stan karty
  * rekomendacji to ikony z krótkim dopiskiem — pełna treść w podpowiedzi
@@ -919,6 +1121,27 @@ export function criticalGapBadge(
   };
 }
 
+/**
+ * Mapa wiedzy IT (07.11.2026): krytycznego brakuje, ale osoba zna zamiennik
+ * (Flask przy FastAPI). Bramka jej nie ukrywa — karta mówi, o co zapytać.
+ */
+export function criticalAlternativeBadge(
+  alternatives: Readonly<Record<string, readonly string[]>> | null | undefined,
+): { label: string; title: string } | null {
+  const entries = Object.entries(alternatives ?? {}).filter(([, names]) => names.length > 0);
+  if (entries.length === 0) return null;
+  const [requirement, names] = entries[0];
+  const more = entries.length > 1 ? ` +${entries.length - 1}` : "";
+  return {
+    label: `${requirement}? zna ${names[0]}${more}`,
+    title:
+      entries
+        .map(([req, alts]) => `${req}: brak, ale zna zamienniki: ${alts.join(", ")}`)
+        .join("\n") +
+      "\nZamiennik nie spełnia wymagania krytycznego — zapytaj w rozmowie, czy pracował z nim i jak szybko się wdroży.",
+  };
+}
+
 /** Przycisk na karcie w „Nowych"/„Screeningu": „Biorę" (wolna) / „Przejmij" (cudza, DL). */
 export function claimAction(
   item: KanbanItem,
@@ -932,7 +1155,7 @@ export function claimAction(
 
 // ── Rekrutacja v5: chip QC, strzałka „→" i „kto ma ruch" na karcie ─────────
 
-export type QcChipTone = "ok" | "urgent" | "wait" | "neutral";
+export type QcChipTone = "ok" | "urgent" | "wait" | "info" | "neutral";
 
 export interface QcChip {
   label: string;
@@ -943,29 +1166,15 @@ export interface QcChip {
 /** Chip QC na karcie w kolumnie „QC CV" (`item.qc` z tablicy). */
 export function qcChip(item: KanbanItem): QcChip {
   const qc = item.qc ?? null;
+  const state = qc?.qc_state ?? null;
+  if (state) return { label: state.text, tone: state.tone, title: state.hint ?? state.text };
+  // Odpowiedź starszego wdrożenia — sama nazwa statusu.
   if (!qc || qc.status === "unchecked") {
-    return {
-      label: "QC nie sprawdzone",
-      tone: "neutral",
-      title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić.",
-    };
+    return { label: QC_STATUS_LABEL.unchecked, tone: "neutral", title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić." };
   }
-  if (qc.status === "passed") {
-    return { label: "QC ✓", tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
-  }
-  if (qc.status === "overridden") {
-    return {
-      label: "QC przepuszczone",
-      tone: "wait",
-      title: "Delivery Lead albo admin przepuścił CV mimo uwag QC (z powodem).",
-    };
-  }
-  const n = qc.blocking_failed;
-  return {
-    label: `QC: ${n} do poprawy`,
-    tone: "urgent",
-    title: "CV ma braki, które blokują wysłanie — kliknij, żeby zobaczyć poprawki.",
-  };
+  if (qc.status === "passed") return { label: qcStateText(qc), tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
+  if (qc.status === "overridden") return { label: qcStateText(qc), tone: "wait", title: "Przepuszczone mimo uwag QC." };
+  return { label: qcStateText(qc), tone: "urgent", title: "CV ma braki, które blokują wysłanie — kliknij, żeby zobaczyć poprawki." };
 }
 
 /**
@@ -1116,7 +1325,7 @@ const BEFORE_VERIFIED_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "sc
 export interface CardOwner {
   /** Pełne imię i nazwisko; `null` = brak zapisanej osoby. */
   name: string | null;
-  role: "verified" | "added" | "assigned" | "taken";
+  role: "verified" | "added" | "assigned" | "taken" | "review";
 }
 
 /**
@@ -1132,7 +1341,12 @@ export interface CardOwner {
 export function cardOwner(
   item: Pick<
     KanbanItem,
-    "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name" | "taken_by_name"
+    | "added_to_job_by_name"
+    | "verified_by_name"
+    | "entry_source"
+    | "owner_name"
+    | "taken_by_name"
+    | "entry_autofill"
   >,
   column: BoardColumnKey | null
 ): CardOwner {
@@ -1147,7 +1361,14 @@ export function cardOwner(
     return { name: verifier, role: "verified" };
   }
   // Osoba od silnika „Nowi na 20” (23.10.2026) nie ma osoby dodającej.
-  if (item.entry_source === "system") return { name: "System", role: "added" };
+  // Porcja dnia (07.11.2026): karta ma osobę, która ją przegląda — „Dla: …”.
+  if (item.entry_source === "system") {
+    const reviewer = item.entry_autofill?.review_owner?.name?.trim();
+    if (reviewer && (column == null || BEFORE_VERIFIED_COLUMNS.has(column))) {
+      return { name: reviewer, role: "review" };
+    }
+    return { name: "System", role: "added" };
+  }
   return { name: item.added_to_job_by_name?.trim() || null, role: "added" };
 }
 
@@ -1280,4 +1501,15 @@ export function cardNextStep(
     ...recruiterSideWho(item, action.owner, ctx.viewerId, ctx.column),
     label: action.label,
   };
+}
+
+export type ClosedRejectBy = "recruiter" | "delivery_lead" | "client";
+
+/**
+ * Grupa odrzuconych w „Zamkniętych”. Brak odpowiedzi klienta (`client_silent`)
+ * liczy się „przez klienta”; wiersz bez `ended_by` (sprzed 0352, import) „przez nas”.
+ */
+export function closedRejectBy(endedBy: string | null | undefined): string {
+  if (endedBy === "client_silent") return "client";
+  return endedBy ?? "recruiter";
 }

@@ -220,6 +220,31 @@ describe("useCvAssistant — odpowiedź na pytanie po innych zmianach", () => {
   });
 });
 
+describe("useCvAssistant — ślad zastosowania (CV-3)", () => {
+  it("nałożony plan wysyła tylko rodzaj prośby i liczbę, awaria śladu nie psuje zmiany", async () => {
+    const editor = open();
+    const applied = vi.fn(async () => {
+      throw new Error("sieć");
+    });
+    const commandApi: CvEditorCommandApi = {
+      plan: vi.fn(async () => ({
+        status: "ok" as const,
+        operations: [{ id: 0, type: "remove" as const, lines: [6], text: null, why: "", loses: [], new_words: [] }],
+        dropped: [],
+        message: null,
+      })),
+      confirmFact: vi.fn(async () => undefined),
+      applied,
+    };
+    const hook = renderHook(() =>
+      useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft: async () => true, api: commandApi }),
+    );
+    act(() => hook.result.current.send({ command: "skróć rolę w banku" }));
+    await waitFor(() => expect(applied).toHaveBeenCalledWith(7, { preset: null, operations: 1 }));
+    await waitFor(() => expect(hook.result.current.messages.at(-1)?.text).toContain("Zrobione"));
+  });
+});
+
 describe("useCvAssistant — długa lista poprawek (15.10.2026)", () => {
   it("plan ucięty przez serwer: odpowiedź mówi, że zrobiona jest tylko część listy", async () => {
     const editor = open();
@@ -478,5 +503,76 @@ describe("useCvAssistant — „Dopasuj pod rekrutację” (02.11.2026)", () => 
     const after = hook.result.current.messages.find((message) => message.id === reply.id)!;
     expect(after.proposals?.state).toBe("open");
     expect(hook.result.current.messages.at(-1)?.text).toContain("Nie udało się założyć nowej wersji CV");
+  });
+});
+
+describe("useCvAssistant — podpowiedzi z pomiaru 07.11.2026", () => {
+  const SUMMARY_CV =
+    "<h1>Dev – Anna Przykładowa</h1>" + // 0
+    '<h2 data-cv-section="why_points">DLACZEGO NASZ KANDYDAT?</h2>' + // 1
+    "<ul><li><p>Ponad 7 lat doświadczenia w Javie.</p></li></ul>" + // 2
+    '<h2 data-cv-section="experience">DOŚWIADCZENIE</h2>' + // 3
+    '<p data-cv-section="role"><strong>Senior Developer</strong> 2021 – 2024</p>' + // 4
+    '<p data-cv-section="employer">Bank Przykładowy · Bankowość</p>' + // 5
+    '<p data-cv-section="duties_label">Zakres zadań:</p>' + // 6
+    "<ul><li><p>Rozwój usług w <strong>Java 17</strong>.</p></li></ul>" + // 7
+    `<p data-cv-section="rodo">${CLAUSE}</p>`;
+
+  function hookFor(editor: Editor, plan: CvCommandResponse) {
+    const commandApi = { plan: vi.fn(async () => plan), confirmFact: vi.fn(async () => undefined) };
+    return {
+      commandApi,
+      hook: renderHook(() =>
+        useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft: async () => true, api: commandApi }),
+      ),
+    };
+  }
+
+  async function send(hook: ReturnType<typeof hookFor>["hook"], preset: "summary_point" | "drop_offprofile_role") {
+    act(() => hook.result.current.send({ preset, label: preset }));
+    await waitFor(() => expect(hook.result.current.messages.at(-1)?.role).toBe("assistant"));
+    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    return hook.result.current.messages.at(-1)!;
+  }
+
+  it("„+ Punkt do podsumowania”: propozycja z cytatem czeka na „Zastosuj”", async () => {
+    const editor = open(SUMMARY_CV);
+    const before = editor.getHTML();
+    const { hook, commandApi } = hookFor(editor, {
+      status: "ok",
+      operations: [
+        {
+          id: 0,
+          type: "add",
+          lines: [2],
+          text: "Na co dzień pracuje po angielsku z zespołem w Kopenhadze.",
+          why: "Język i klient zagraniczny",
+          loses: [],
+          new_words: [],
+          quote: "pracuję po angielsku z zespołem w Kopenhadze",
+          source: "rozmowa",
+        },
+      ],
+      dropped: [],
+      message: null,
+    });
+    const reply = await send(hook, "summary_point");
+    expect((commandApi.plan.mock.calls as unknown[][])[0][1]).toMatchObject({ preset: "summary_point" });
+    expect(reply.text).toContain("Propozycja punktu do podsumowania");
+    expect(reply.proposals?.selected).toEqual([0]);
+    expect(editor.getHTML()).toBe(before);
+    await act(async () => {
+      await hook.result.current.applyProposals(reply.id);
+    });
+    expect(editor.getHTML()).toContain("Kopenhadze");
+  });
+
+  it("pusty wynik podpowiedzi to zdanie serwera: dlaczego i co wpisać", async () => {
+    const editor = open(SUMMARY_CV);
+    const reason = "Oba stanowiska są z Javy i pasują do profilu — nic nie usunąłem.";
+    const { hook } = hookFor(editor, { status: "empty", operations: [], dropped: [], message: reason });
+    const reply = await send(hook, "drop_offprofile_role");
+    expect(reply.text).toBe(reason);
+    expect(reply.proposals).toBeUndefined();
   });
 });

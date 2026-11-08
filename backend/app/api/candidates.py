@@ -80,8 +80,10 @@ from app.models.candidate_source_event import CandidateSourceEvent, SourceChanne
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
+from app.services import candidate_last_rejection as last_rejection
 from app.services import candidate_stage_column as stage_column_filter
 from app.services import note_kinds
+from app.services import review_batch
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
@@ -103,6 +105,8 @@ from app.schemas.candidate import (
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
     StageMatchBrief,
+    LastRejectionBrief,
+    RejectionFacets,
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
@@ -110,6 +114,7 @@ from app.schemas.candidate import (
     CandidateList,
     CandidateLocationDistance,
     CandidateLocationUpdate,
+    CandidateSkillYears,
     CandidateQuickViewAvailability,
     CandidateQuickViewCandidate,
     CandidateQuickViewCapabilities,
@@ -411,6 +416,12 @@ class CandidateFilterSpec(BaseModel):
     # poszerzają wyniku (`candidate_search_predicates.Semantics`).
     hide_unknown_rate: Optional[bool] = None
     hide_unknown_location: Optional[bool] = None
+    # „Lata z technologią” (08.11.2026): `"Java:3"` = Java co najmniej 3 lata
+    # z dat stanowisk w CV (`candidate_search_predicates.skill_years_clauses`).
+    # Osoby z technologią bez lat zostają na końcu, chyba że
+    # `hide_unknown_skill_years` (albo globalne `hide_unknown`).
+    skill_years: Optional[list[str]] = None
+    hide_unknown_skill_years: Optional[bool] = None
     # Brak (v1) = DOKŁADNIE dotychczasowe wyniki listy (na tym stoją alerty
     # zapisanych wyszukiwań). 2 = semantyka wspólna z wyszukiwarką.
     semantics_version: Optional[int] = Field(None, ge=1, le=2)
@@ -438,6 +449,12 @@ class CandidateFilterSpec(BaseModel):
     # zakresu — był / nie był w jakiejkolwiek rekrutacji, nie ma procesu w toku.
     recruitment_client_id: Optional[list[int]] = None
     recruitment_presence: Optional[Literal["never", "ever", "not_in_process"]] = None
+    # „Ostatnie odrzucenie” (06.11.2026, `candidate_last_rejection`): klucze
+    # powodów (`r:…`, `t:…`, `none`), kto zakończył, okres i „Ukryj”.
+    rejection_key: Optional[list[str]] = None
+    rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = None
+    rejection_within_months: Optional[Literal[3, 12]] = None
+    rejection_exclude: Optional[bool] = None
     recently_changed_jobs: Optional[int] = Field(None, ge=1, le=3)
     open_to: Optional[list[str]] = None
     q_all: Optional[list[str]] = None
@@ -1439,7 +1456,20 @@ def _list_semantics(f: CandidateFilterSpec):
         f.hide_unknown,
         hide_unknown_rate=f.hide_unknown_rate,
         hide_unknown_location=f.hide_unknown_location,
+        hide_unknown_skill_years=f.hide_unknown_skill_years,
     )
+
+
+def _list_skill_years(f: CandidateFilterSpec):
+    """Wiersze „technologia:lata” albo 422 po polsku (GET i eksport)."""
+    from app.services import candidate_search_predicates as predicates
+
+    try:
+        return predicates.parse_skill_years(f.skill_years)
+    except predicates.InvalidSkillYears as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def _list_location_places(f: CandidateFilterSpec):
@@ -1490,7 +1520,27 @@ def _unknown_rank_expr(f: CandidateFilterSpec):
         ),
         rate_active=(f.min_rate is not None or f.max_rate is not None)
         and not f.hide_unknown_rate,
+        skill_years_rank=predicates.skill_years_unknown_rank(
+            _list_skill_years(f), _list_semantics(f)
+        ),
     )
+
+
+def _rejection_spec(f: "CandidateFilterSpec") -> last_rejection.RejectionFilter:
+    return last_rejection.RejectionFilter(
+        keys=tuple(k for k in (f.rejection_key or []) if k),
+        who=tuple(f.rejection_by or []),
+        within_months=f.rejection_within_months,
+        exclude=bool(f.rejection_exclude),
+    )
+
+
+_NO_REJECTION_FILTER = {
+    "rejection_key": None,
+    "rejection_by": None,
+    "rejection_within_months": None,
+    "rejection_exclude": None,
+}
 
 
 async def _build_candidate_filtered_query(
@@ -1707,6 +1757,8 @@ async def _build_candidate_filtered_query(
     )
     if experience_clause is not None:
         query = query.where(experience_clause)
+    for skill_years_clause in predicates.skill_years_clauses(_list_skill_years(f), sem):
+        query = query.where(skill_years_clause)
 
     if f.added_by_user_id:
         real_ids = [uid for uid in f.added_by_user_id if uid != 0]
@@ -1748,6 +1800,9 @@ async def _build_candidate_filtered_query(
     recruitment_presence = recruitment_filter.presence_clause(f.recruitment_presence)
     if recruitment_presence is not None:
         query = query.where(recruitment_presence)
+    rejection_clause = await last_rejection.filter_clause(db, _rejection_spec(f))
+    if rejection_clause is not None:
+        query = query.where(rejection_clause)
     if f.recently_changed_jobs in (1, 2, 3):
         cutoff = datetime.now(timezone.utc) - timedelta(
             days=30 * f.recently_changed_jobs
@@ -2370,6 +2425,24 @@ async def list_candidates(
             "active location filters only. Never widens the result."
         ),
     ),
+    skill_years: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Years with a technology, repeated `skill:years` (e.g. `Java:3`, at "
+            "most 5, years 1-30). Years come from the CV role/project dates "
+            "(`candidate_skill_usage.months`). People who have the skill but no "
+            "dated role with it stay (`unknown_fields` gets `skill_years`) "
+            "unless `hide_unknown_skill_years` / `hide_unknown`. Rows carry "
+            "`skill_years` with the months and their source."
+        ),
+    ),
+    hide_unknown_skill_years: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides people with the skill but no years from CV role "
+            "dates, for the `skill_years` filter only. Never widens the result."
+        ),
+    ),
     semantics_version: Optional[int] = Query(
         None,
         ge=1,
@@ -2462,6 +2535,23 @@ async def list_candidates(
             "`last_talk_preview` (newest note from the „Rozmowy” tab) and "
             "`contact_attempts` (number of „nie odebrał” notes). Two queries "
             "per page; no N+1."
+        ),
+    ),
+    include_last_rejection: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `last_rejection` — the newest "
+            "rejection/withdrawal that is still the state of its (person, "
+            "recruitment) pair: reason key and label, who ended it, note, date, "
+            "recruitment and client. One query per page."
+        ),
+    ),
+    include_rejection_facets: bool = Query(
+        False,
+        description=(
+            "When true, the response carries `rejection_facets`: the last-"
+            "rejection distribution over the WHOLE result, computed without the "
+            "rejection filter itself (keys, who ended it, people without one)."
         ),
     ),
     match_threshold: float = Query(
@@ -2584,6 +2674,29 @@ async def list_candidates(
             "`not_in_process` (no pair whose latest stage is non-terminal on a "
             "non-closed recruitment — the rule of the list's process column). "
             "Combines with the scope filter by AND."
+        ),
+    ),
+    rejection_key: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Last-rejection filter: reason keys — `r:<label>` (NEXUS reason), "
+            "`t:<category>` (Traffit category without a reason) or `none`. OR "
+            "within the list; AND with `rejection_by` and the period."
+        ),
+    ),
+    rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = Query(
+        None, description="Who ended the last rejected process (OR)."
+    ),
+    # `int`, nie `Literal[3, 12]`: parametr zapytania przychodzi jako tekst,
+    # a `Literal` z liczbami go nie zamienia (422 na „3” z adresu).
+    rejection_within_months: Optional[int] = Query(
+        None, description="Last rejection no older than 3 or 12 months (3 | 12)."
+    ),
+    rejection_exclude: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` = hide people whose last rejection matches; people without "
+            "any rejection stay."
         ),
     ),
     recently_changed_jobs: Optional[int] = Query(
@@ -2884,6 +2997,11 @@ async def list_candidates(
     ),
 ):
     _reject_retired_candidate_query(request)
+    # Porcja dnia (07.11.2026): filtry i opis to ręczne wyszukiwanie — 423,
+    # dopóki rekruter nie zrobi minimum. Nazwisko, mail i telefon przechodzą.
+    await review_batch.assert_list_search_allowed(
+        db, current_user, request.query_params
+    )
     _reject_reversed_ranges(
         min_rate=min_rate,
         max_rate=max_rate,
@@ -2891,6 +3009,12 @@ async def list_candidates(
         max_experience=max_experience,
     )
     _reject_invalid_location_places(location_places)
+    _list_skill_years(CandidateFilterSpec(skill_years=skill_years))
+    if rejection_within_months not in (None, *last_rejection.WITHIN_MONTHS):
+        raise HTTPException(
+            status_code=422,
+            detail="rejection_within_months: dozwolone 3 albo 12.",
+        )
     filters = CandidateFilterSpec(
         status=status,
         location=location,
@@ -2915,6 +3039,8 @@ async def list_candidates(
         hide_unknown=hide_unknown,
         hide_unknown_rate=hide_unknown_rate,
         hide_unknown_location=hide_unknown_location,
+        skill_years=skill_years,
+        hide_unknown_skill_years=hide_unknown_skill_years,
         semantics_version=semantics_version,
         remote_policy=remote_policy,
         min_rate=min_rate,
@@ -2938,6 +3064,10 @@ async def list_candidates(
         recruitment_match=recruitment_match,
         recruitment_client_id=recruitment_client_id,
         recruitment_presence=recruitment_presence,
+        rejection_key=rejection_key,
+        rejection_by=rejection_by,
+        rejection_within_months=rejection_within_months,
+        rejection_exclude=rejection_exclude,
         recently_changed_jobs=recently_changed_jobs,
         open_to=open_to,
         q_all=q_all,
@@ -3439,6 +3569,25 @@ async def list_candidates(
     stage_match_by_candidate = await _stage_matches(
         db, await _resolve_stage_filter(db, filters), [c.id for c in items]
     )
+    last_rejection_by_id: dict[int, dict] = {}
+    if include_last_rejection and items:
+        last_rejection_by_id = await last_rejection.page_rows(db, [c.id for c in items])
+    rejection_facets = None
+    if include_rejection_facets:
+        facets_query, _ = await _build_candidate_filtered_query(
+            db,
+            filters.model_copy(update=_NO_REJECTION_FILTER),
+            semantic_pool_ids=pool_ids,
+        )
+        rejection_facets = RejectionFacets(
+            **await last_rejection.facets(
+                db, facets_query.with_only_columns(Candidate.id)
+            )
+        )
+    skill_years_items = _list_skill_years(filters)
+    skill_years_by_id = await search_predicates.skill_years_for_page(
+        db, [c.id for c in items], skill_years_items
+    )
     response_items: list[CandidateResponse] = []
     distance_places = _radius_places(filters)
     for cand in items:
@@ -3484,6 +3633,11 @@ async def list_candidates(
                     "contact_attempts": contact_attempts_by_candidate.get(cand.id, 0),
                 }
             )
+        if include_last_rejection:
+            row = last_rejection_by_id.get(cand.id)
+            payload = payload.model_copy(
+                update={"last_rejection": LastRejectionBrief(**row) if row else None}
+            )
         if include_last_activity:
             payload = payload.model_copy(
                 update={
@@ -3519,7 +3673,22 @@ async def list_candidates(
                             min_experience is not None or max_experience is not None
                         ),
                         rate_active=min_rate is not None or max_rate is not None,
+                        skill_years_unknown=(
+                            list_semantics.skill_years_unknown == "include"
+                            and search_predicates.skill_years_unknown_for(
+                                skill_years_by_id.get(cand.id)
+                            )
+                        ),
                     )
+                }
+            )
+        if skill_years_items:
+            payload = payload.model_copy(
+                update={
+                    "skill_years": [
+                        CandidateSkillYears(**e)
+                        for e in skill_years_by_id.get(cand.id, [])
+                    ]
                 }
             )
         if distance_places:
@@ -3564,6 +3733,7 @@ async def list_candidates(
         ),
         sort_applied=sort_applied,
         known_match_count=known_count,
+        rejection_facets=rejection_facets,
     )
 
 
@@ -4463,6 +4633,7 @@ async def _assign_candidate_to_job(
         work_channel=PriorityChannel.linkedin,
         entry_source="added_manual",
         claim_for_user_id=user_id,
+        entry_meta={"found_via": "outside_base"},
     )
     db.add(
         Activity(
@@ -5929,6 +6100,10 @@ async def remove_candidate_from_recruitment(
     pozostają nietknięte.
     """
     await ensure_job_membership(db, current_user, job_id)
+    # Porcja dnia (07.11.2026): karta z porcji wymaga decyzji, nie usunięcia.
+    await review_batch.assert_removal_allowed(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
     locked_candidate = await db.scalar(
         select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
     )
@@ -7368,7 +7543,7 @@ async def _enrich_candidate_from_document_task(
                 handle.write(content)
                 temp_path = handle.name
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text,
+                cv_text_extractor.extract_cv_text,
                 temp_path,
                 document.filename,
             )
@@ -7672,7 +7847,7 @@ async def _extract_uploaded_cv_text(
     try:
         try:
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text, tmp_path, client_filename or ""
+                cv_text_extractor.extract_cv_text, tmp_path, client_filename or ""
             )
         except cv_text_extractor.UnsupportedCvFormat as e:
             raise HTTPException(

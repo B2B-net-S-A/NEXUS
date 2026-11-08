@@ -22,6 +22,8 @@ nieistniejący, więc rozjazd był z ekranu niewidoczny.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.services.scoring_service import (
@@ -143,6 +145,8 @@ def test_predykat_rozwija_rodzine_wiec_obie_powierzchnie_ja_dostaja() -> None:
     from app.services.structured_candidate_search import _skill_match
 
     sql = str(_skill_match("MSSQL").compile(compile_kwargs={"literal_binds": True}))
+    alternatywy = re.search(r'"\(\?:([^)]*)\)"', sql)
+    assert alternatywy is not None, "predykat nie jest wyrażeniem z rodziną pisowni"
     for wariant in (
         "mssql",
         "ms sql",
@@ -150,10 +154,11 @@ def test_predykat_rozwija_rodzine_wiec_obie_powierzchnie_ja_dostaja() -> None:
         "microsoft sql server",
         "microsoft sql",
     ):
-        assert f'"{wariant}"' in sql, (
+        assert wariant in alternatywy.group(1).split("|"), (
             f"predykat nie szuka wariantu {wariant!r} — rodzina nie jest rozwijana"
         )
-    assert "strpos" in sql, "predykat przestał używać strpos (patrz #983)"
+    assert sql.count(" ~ ") == 1, "rodzina ma być jednym wyrażeniem, nie osobnymi"
+    assert "strpos" not in sql
 
 
 def test_predykat_bez_mapy_szuka_dokladnie_tego_co_wpisano() -> None:
@@ -162,10 +167,8 @@ def test_predykat_bez_mapy_szuka_dokladnie_tego_co_wpisano() -> None:
 
     set_alias_map({})
     sql = str(_skill_match("Rust").compile(compile_kwargs={"literal_binds": True}))
-    assert '"rust"' in sql
-    assert sql.count("strpos") == 2, (
-        "bez mapy predykat powinien mieć dokładnie dwa sprawdzenia "
-        "(oba kodowania JSON jednej igły)"
+    assert sql.count('"(?:rust)"') == 1 and sql.count('\\\\"(?:rust)\\\\"') == 1, (
+        "bez mapy predykat powinien szukać dokładnie jednej igły w obu kodowaniach JSON"
     )
 
 

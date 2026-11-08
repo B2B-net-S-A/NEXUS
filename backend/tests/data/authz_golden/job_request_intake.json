@@ -35,6 +35,7 @@
   "GET /api/job-intake/handoff-options": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "POST /api/job-intake/category-suggestion": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "POST /api/job-intake/critical-suggestion": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/job-intake/dictionary-hints": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/job-intake/public-draft": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "POST /api/job-intake/read": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "POST /api/job-intake/read-file": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",

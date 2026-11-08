@@ -1256,6 +1256,7 @@ const MERGE_PREVIEW_9100 = {
   conflicts: 1,
   blockers: [],
   primary_cv: { before: null, after: null, changes: false },
+  cards: [],
   can_apply: true,
   fingerprint: "0".repeat(64),
 };

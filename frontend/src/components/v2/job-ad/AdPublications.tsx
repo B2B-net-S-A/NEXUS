@@ -105,6 +105,8 @@ export function AdPublications({
   const [jjitCopiedAt, setJjitCopiedAt] = useState<string | null>(null);
 
   const jjitApi = state.jjit_api;
+  // Rekruter widzi, gdzie ogłoszenie wisi, ale oznacza je DL (08.11.2026).
+  const canMark = state.can_mark_publications;
   const jjitLive = jjitApi?.status === "publishing" || jjitApi?.status === "published";
   const jjitWorking =
     jjitApi?.status === "publishing" ||
@@ -193,7 +195,7 @@ export function AdPublications({
           const last = lastPublication(state.publications, key);
           const active = last && !last.removed_at ? last : null;
           const href = active ? portalAdHref(key, active.url) : null;
-          const editingLink = linkFor === key;
+          const editingLink = canMark && linkFor === key;
           // Mail do opiekuna wyszedł, a ogłoszenia jeszcze nie oznaczono.
           const request: PracujRequest | null =
             key === "pracuj" && !active ? state.pracuj_request : null;
@@ -283,7 +285,7 @@ export function AdPublications({
                         </Button>
                       </>
                     ) : null
-                  ) : active ? (
+                  ) : !canMark ? null : active ? (
                     <>
                       {active.outdated ? (
                         <Button
@@ -389,13 +391,17 @@ export function AdPublications({
               ) : null}
               {active?.outdated && viaApi ? (
                 <p className="text-xs text-warning-muted-foreground">
-                  Treść zmieniła się po publikacji. Zaktualizuj stronę kariery — JustJoin.IT dostanie
-                  nową wersję razem z nią.
+                  {!jjitActions
+                    ? "Treść zmieniła się po publikacji. Na JustJoin.IT zaktualizuje ją Delivery Lead."
+                    : jjitApi?.career_required === false
+                      ? "Treść zmieniła się po publikacji. Kliknij „Zaktualizuj na JustJoin.IT”."
+                      : "Treść zmieniła się po publikacji. Zaktualizuj stronę kariery — JustJoin.IT dostanie nową wersję razem z nią."}
                 </p>
               ) : active?.outdated ? (
                 <p className="text-xs text-warning-muted-foreground">
-                  Treść zmieniła się po publikacji. Popraw ogłoszenie na portalu i kliknij
-                  „Zaktualizowane na portalu”.
+                  {canMark
+                    ? "Treść zmieniła się po publikacji. Popraw ogłoszenie na portalu i kliknij „Zaktualizowane na portalu”."
+                    : "Treść zmieniła się po publikacji. Na portalu zaktualizuje ją Delivery Lead."}
                 </p>
               ) : null}
               {request ? (
@@ -407,8 +413,9 @@ export function AdPublications({
               ) : null}
               {active && jobClosed && !viaApi ? (
                 <p className="text-xs text-warning-muted-foreground">
-                  Rekrutacja jest zamknięta, a ogłoszenie nadal wisi. Zdejmij je na portalu i oznacz
-                  to tutaj.
+                  {canMark
+                    ? "Rekrutacja jest zamknięta, a ogłoszenie nadal wisi. Zdejmij je na portalu i oznacz to tutaj."
+                    : "Rekrutacja jest zamknięta, a ogłoszenie nadal wisi. Zdejmie je Delivery Lead."}
                 </p>
               ) : null}
 
@@ -420,6 +427,10 @@ export function AdPublications({
                     Na JustJoin.IT publikuje Delivery Lead — jednym kliknięciem z tego okna.
                   </p>
                 )
+              ) : key === "jjit" && !active && !jobClosed && !viaApi && !canMark ? (
+                <p className="text-xs text-muted-foreground">
+                  Na JustJoin.IT ogłoszenie wstawia Delivery Lead.
+                </p>
               ) : key === "jjit" && !active && !jobClosed && !viaApi ? (
                 // Portal wyłączony: ogłoszenie wstawia się ręcznie — rekruterka
                 // szukała przycisku „dodaj” (28.10.2026).

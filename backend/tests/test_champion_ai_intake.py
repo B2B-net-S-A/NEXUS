@@ -347,62 +347,6 @@ async def test_apply_rejects_when_not_pending(
 
 
 @pytest.mark.asyncio
-async def test_cloudtalk_webhook_dry_run_returns_ok(app_client, monkeypatch):
-    """With `settings.CLOUDTALK_ENABLED` off (the kill-switch), the webhook
-    runs in dry-run mode and returns 200 without touching the DB."""
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", False)
-    resp = await app_client.post(
-        "/api/calls/webhook",
-        json={"call": {"id": "ct-1", "phone": "+48123456789"}},
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["status"] == "dry-run"
-    assert body["enabled"] is False
-
-
-@pytest.mark.asyncio
-async def test_cloudtalk_webhook_rejects_invalid_hmac(app_client, monkeypatch):
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
-    monkeypatch.setattr(settings, "CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
-    resp = await app_client.post(
-        "/api/calls/webhook",
-        headers={"X-CloudTalk-Signature": "totally-wrong"},
-        json={"call": {"id": "ct-2"}},
-    )
-    assert resp.status_code == 401, resp.text
-
-
-@pytest.mark.asyncio
-async def test_cloudtalk_webhook_accepts_valid_hmac(app_client, monkeypatch):
-    import hashlib
-    import hmac
-    import json
-
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
-    monkeypatch.setattr(settings, "CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
-    body = json.dumps({"call": {"id": "ct-3", "phone": "+48000000000"}}).encode()
-    sig = hmac.new(b"s3cr3t", body, hashlib.sha256).hexdigest()
-    resp = await app_client.post(
-        "/api/calls/webhook",
-        headers={
-            "X-CloudTalk-Signature": sig,
-            "Content-Type": "application/json",
-        },
-        content=body,
-    )
-    assert resp.status_code == 200, resp.text
-    # No candidate with that phone → no Call row created, but status ok.
-    assert resp.json()["status"] == "ok"
-
-
-@pytest.mark.asyncio
 async def test_regenerate_supersedes_previous_pending(
     app_client, app_auth_headers, _patch_anthropic
 ):

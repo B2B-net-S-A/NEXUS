@@ -95,3 +95,18 @@ export function sourceLabel(source: string | null): string | null {
   if (!source) return null;
   return SOURCE_LABEL[source.toLowerCase()] ?? source;
 }
+
+/**
+ * „Sprawdź w CV” (07.11.2026): ocena zgłoszenia z brakiem „musi mieć” tą samą
+ * regułą co przegląd AI. Wynik ląduje przy karcie (`entry_ai_screening`);
+ * „AI: pasuje” zdejmuje osobę z grupy zwiniętej.
+ */
+export async function checkApplicantCv(jobId: number, candidateId: number) {
+  const { data } = await api.post(`/api/jobs/${jobId}/applicants/${candidateId}/ai-check`);
+  return data as {
+    candidate_id: number;
+    badge: { verdict: "fits" | "unclear" | "not_fit" } | null;
+    reasons: ScreenedOutReason[];
+    error: string | null;
+  };
+}

@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 04.11.2026
+> **Zgodność z systemem sprawdzona:** 08.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1507,6 +1507,7 @@ nie samą zakładkę. Karty są pogrupowane:
 | Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje to samo, czego wymaga aktywacja zamówienia: numer zamówienia, data startu, stawka przychodowa i kosztowa, a przy zamówieniu MD liczba MD, przy kosztowym — kwota. Data końca nie jest wymagana (zamówienie bezterminowe jest w porządku) | co 7 dni, dopóki czegoś brakuje |
 | | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie. Nie dotyczy osoby dopisanej do zamówienia zaplanowanego albo szkicu zamówienia MD/kosztowego ani zaplanowanego „Wejdź za konsultanta” — te czekają na swój dzień | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
+| | **[Klient] — faktura bez pozycji zamówienia** | faktura z KSeF czeka na Finanse, a jej pozycja wymienia osobę z kontraktem u tego klienta, która **w miesiącu usługi** nie ma pozycji zamówienia (faktury do 6 miesięcy wstecz). Dopisz pozycję albo sprawdź okres z Finansami | co 7 dni; karta znika sama po przypisaniu faktury albo dopisaniu pozycji |
 | Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach pracy, licząc tylko 8:00–18:00). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
 | | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia. Zakończenie współpracy zamyka kartę sama (to nie jest Twoje „zrobione”); cofnięte zakończenie przywraca ją |

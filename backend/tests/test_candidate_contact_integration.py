@@ -36,8 +36,6 @@ from app.models.candidate_contact import (
     CandidateContactEvent,
     CandidateContactOpportunity,
     CandidateContactState,
-    CandidateContactTraffitCursor,
-    CandidateContactTraffitLedger,
 )
 from app.models.client import Client, ClientStatus
 from app.models.job import Job, JobPriority, JobStatus
@@ -61,8 +59,6 @@ from app.services.candidate_contact_hooks import (
     maybe_ensure_contact_opportunity,
 )
 from app.tasks.candidate_contact_queue import run_candidate_contact_queue_once
-from app.tasks import candidate_contact_traffit as contact_traffit_task
-from app.tasks.candidate_contact_traffit import run_traffit_contact_intake_once
 
 pytestmark = pytest.mark.asyncio
 
@@ -1627,7 +1623,9 @@ async def test_manual_relationship_owner_transfer_ignores_slot_capacity(
     first_owner = await contact_db.add_user(
         UserRole.recruiter, label=f"{state}-transfer-a"
     )
-    full_target = await contact_db.add_user(UserRole.recruiter, label=f"{state}-transfer-b")
+    full_target = await contact_db.add_user(
+        UserRole.recruiter, label=f"{state}-transfer-b"
+    )
     job = await contact_db.add_job(
         label=f"{state}-transfer",
         recruiter=first_owner,
@@ -1807,7 +1805,9 @@ async def test_worker_blocks_cleared_phone_before_due_without_reassignment(
     contact_db: ContactDb,
 ) -> None:
     owner = await contact_db.add_user(UserRole.recruiter, label="phone-cleared")
-    fallback = await contact_db.add_user(UserRole.recruiter, label="phone-cleared-fallback")
+    fallback = await contact_db.add_user(
+        UserRole.recruiter, label="phone-cleared-fallback"
+    )
     candidate = await contact_db.add_candidate(label="phone-cleared")
     job = await contact_db.add_job(
         label="phone-cleared",
@@ -2619,7 +2619,9 @@ async def test_full_sticky_handoff_owner_waits_without_fallback_reassignment(
     contact_db: ContactDb,
 ) -> None:
     owner = await contact_db.add_user(UserRole.recruiter, label="sticky-full-owner")
-    fallback = await contact_db.add_user(UserRole.recruiter, label="sticky-full-fallback")
+    fallback = await contact_db.add_user(
+        UserRole.recruiter, label="sticky-full-fallback"
+    )
     candidate = await contact_db.add_candidate(label="sticky-full")
     first_job = await contact_db.add_job(
         label="sticky-full-a",
@@ -3491,156 +3493,6 @@ async def test_feature_and_assignment_flags_are_fail_closed(
     assert assigned.owner_user_id == owner.id
     assert assigned.queue_slot is not None
     assert assigned.state == CandidateContactState.queued.value
-
-
-async def test_traffit_intake_off_makes_zero_remote_requests(
-    contact_db: ContactDb,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class CountingTraffitClient:
-        def __init__(self) -> None:
-            self.requests = 0
-
-        async def get_paginated(self, *_args: Any, **_kwargs: Any):
-            self.requests += 1
-            if False:
-                yield {}
-
-    client = CountingTraffitClient()
-    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
-    monkeypatch.setattr(
-        settings,
-        "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED",
-        False,
-    )
-    stats = await run_traffit_contact_intake_once(
-        contact_db.db,
-        client,  # type: ignore[arg-type]
-        now=BASE_TIME,
-    )
-    assert stats.fetched == 0
-    assert stats.processed == 0
-    assert client.requests == 0
-
-
-async def test_strict_terminal_watermark_blocks_stale_daily_start_then_newer_reopens(
-    contact_db: ContactDb,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    stream = f"pytest-contact-watermark-{contact_db.prefix}"
-    candidate_external_id = f"candidate-watermark-{contact_db.prefix}"
-    job_external_id = f"job-watermark-{contact_db.prefix}"
-    id_base = 1_000_000_000_000 + (uuid.uuid4().int % 1_000_000_000)
-    stale_id = str(id_base)
-    terminal_id = str(id_base + 1)
-    newer_id = str(id_base + 2)
-    owner = await contact_db.add_user(UserRole.recruiter, label="watermark-owner")
-    candidate = await contact_db.add_candidate(label="watermark")
-    candidate.external_source = "traffit"
-    candidate.external_id = candidate_external_id
-    job = await contact_db.add_job(label="watermark", recruiter=owner)
-    job.external_source = "traffit"
-    job.external_id = job_external_id
-    await contact_db.commit()
-
-    class StaticTraffitClient:
-        async def get_paginated(self, *_args: Any, **_kwargs: Any):
-            yield {
-                "id": terminal_id,
-                "created_at": BASE_TIME.isoformat(),
-                "employee": {"id": candidate_external_id},
-                "recruitment": {"id": job_external_id},
-                "workflow_state": {"type": "end-bad"},
-            }
-
-    monkeypatch.setattr(contact_traffit_task, "_STREAM", stream)
-    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
-    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ASSIGNMENT_ENABLED", False)
-    monkeypatch.setattr(
-        settings,
-        "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED",
-        True,
-    )
-    monkeypatch.setattr(
-        settings,
-        "CANDIDATE_CONTACT_ACTIVATION_AT",
-        BASE_TIME - timedelta(days=1),
-    )
-
-    try:
-        strict_stats = await contact_traffit_task.run_traffit_contact_intake_once(
-            contact_db.db,
-            StaticTraffitClient(),  # type: ignore[arg-type]
-            now=BASE_TIME + timedelta(minutes=1),
-        )
-        await contact_db.commit()
-        assert strict_stats.processed == 1
-        assert strict_stats.closed == 0
-        assert (
-            await contact_db.db.scalar(
-                select(CandidateContactCase).where(
-                    CandidateContactCase.candidate_id == candidate.id
-                )
-            )
-            is None
-        )
-
-        stale_daily = await maybe_ensure_contact_opportunity(
-            contact_db.db,
-            candidate_id=candidate.id,
-            job_id=job.id,
-            source="traffit",
-            source_external_ref=stale_id,
-            occurred_at=BASE_TIME,
-        )
-        await contact_db.commit()
-        assert stale_daily is None
-        assert (
-            await contact_db.db.scalar(
-                select(CandidateContactCase).where(
-                    CandidateContactCase.candidate_id == candidate.id
-                )
-            )
-            is None
-        )
-
-        newer_daily = await maybe_ensure_contact_opportunity(
-            contact_db.db,
-            candidate_id=candidate.id,
-            job_id=job.id,
-            source="traffit",
-            source_external_ref=newer_id,
-            occurred_at=BASE_TIME,
-        )
-        await contact_db.commit()
-        assert newer_daily is not None
-        assert newer_daily.state == CandidateContactState.unassigned.value
-        assert newer_daily.owner_user_id is None
-        assert newer_daily.queue_slot is None
-        opportunity = await contact_db.db.scalar(
-            select(CandidateContactOpportunity).where(
-                CandidateContactOpportunity.candidate_id == candidate.id,
-                CandidateContactOpportunity.job_id == job.id,
-            )
-        )
-        assert opportunity is not None
-        assert opportunity.closed_at is None
-        assert opportunity.source_cursor_external_id == newer_id
-    finally:
-        async with AsyncSessionLocal() as cleanup_db:
-            await cleanup_db.execute(
-                delete(CandidateContactTraffitLedger).where(
-                    CandidateContactTraffitLedger.external_event_id == terminal_id,
-                    CandidateContactTraffitLedger.candidate_id == candidate.id,
-                    CandidateContactTraffitLedger.job_id == job.id,
-                )
-            )
-            await cleanup_db.execute(
-                delete(CandidateContactTraffitCursor).where(
-                    CandidateContactTraffitCursor.stream == stream
-                )
-            )
-            await cleanup_db.commit()
 
 
 async def test_api_scope_roles_and_pii_projection(

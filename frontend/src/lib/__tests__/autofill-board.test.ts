@@ -29,6 +29,7 @@ const meta = {
   rate_known: false,
   availability_known: true,
   decided: false,
+  awaiting_decision: true,
   waiting_days: 3,
   decision_due: true,
 };

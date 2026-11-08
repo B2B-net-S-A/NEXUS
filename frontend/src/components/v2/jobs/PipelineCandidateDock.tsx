@@ -2026,9 +2026,9 @@ export function PipelineCandidateDock({
                 variant="outline"
                 data-testid="dock-client-accept"
                 onClick={onClientAccept}
-                className="w-full border-success/40 bg-success-muted text-success-muted-foreground hover:bg-success/15 hover:text-success-muted-foreground"
+                className="w-full border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
               >
-                <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" /> Klient zaakceptował
+                Zaznacz akceptację klienta
               </Button>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2323,7 +2323,7 @@ export function PipelineCandidateDock({
             {/* „Ściąga do rozmowy” (29.09.2026): tekst na start, odpowiedzi na
                 pytania kandydata i trzy pytania z profilu — z wyjaśnienia
                 „Po ludzku”. Pusta ściąga się nie renderuje. */}
-            <DockCallCheatsheet jobId={jobId} />
+            <DockCallCheatsheet jobId={jobId} candidateId={item.candidate_id} />
             {screeningQuery.isSuccess ? (
               // Sekcje 4 i 8 Championa — co sprawdzić i na co uważać, zanim
               // rekruter zadzwoni. Zwinięte: dok ma być krótki.

@@ -51,7 +51,7 @@ describe("„Czeka na Ciebie” na Tablicy jak pas „Do wysłania”", () => {
   it("karta w kolejce i starszy serwer bez pola — jak dotąd", () => {
     for (const counted of [item({ dl_send_counts: true }), item()]) {
       expect(countsForDlReview(counted, "cv_qc", false)).toBe(true);
-      expect(cardBadges(counted, ctx()).map((b) => b.label)).toEqual(["Czeka na Ciebie · 1 dzień"]);
+      expect(cardBadges(counted, ctx()).map((b) => b.label)).toEqual(["Czeka na Ciebie"]);
       expect(cardNextStep(action, counted, ctx())).toMatchObject({ who: MY_MOVE_LABEL, mine: true });
       expect(dlSendQueue([counted], () => false, NOW)).toHaveLength(1);
     }

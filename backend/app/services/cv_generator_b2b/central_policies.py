@@ -89,6 +89,8 @@ def recipe_for(policy: dict) -> dict:
         "highlight_policy": "technologies",
         "highlight_terms": None,
         "cv_text_align": "justify",
+        # Numer zapytania w nagłówku CV (07.11.2026, Nordea).
+        "cv_title_with_reference": bool(policy.get("cv_title_with_reference")),
     }
 
 
