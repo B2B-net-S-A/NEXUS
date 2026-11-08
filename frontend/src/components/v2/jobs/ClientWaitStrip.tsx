@@ -70,7 +70,6 @@ export function ClientWaitStrip({ jobId }: { jobId: number }) {
     queryKey: clientWaitKey(jobId),
     queryFn: () => fetchClientWait(jobId),
     staleTime: 60_000,
-    retry: 1,
   });
 
   if (query.isError) {
