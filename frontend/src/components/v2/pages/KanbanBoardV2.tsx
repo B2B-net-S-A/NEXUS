@@ -146,8 +146,12 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import { isRecruiterOnly } from "@/lib/cv-download-access";
 import {
  CARD_BADGE_TONE_CLASS,
- cardBadges,
+ cardPrimaryBadges,
  cardStageBadge,
+ stageSinceText,
+ waitingWorkdaysText,
+ type CardBadge,
+ type CardBadgeTone,
  cardNextStep,
  claimAction,
  fillGapsText,
@@ -156,7 +160,6 @@ import {
  requirementsSkippedBadge,
  qcChip,
  type CardNextStep,
- type QcChipTone,
  compactCardBadge,
  cardOwner,
  cardShortName,
@@ -205,7 +208,9 @@ import {
  type KanbanColumn,
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
-import { OtherJobsChip, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
+import { OtherJobsChip, otherJobsChipLabel, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AddedByColumnFilter } from "@/components/v2/jobs/AddedByFilter";
 import { useJointScreeningIntent } from "@/store/joint-screening";
 import {
  CV_SENT_STAGE,
@@ -412,7 +417,7 @@ export const withPendingMoves = (
  }
  if (colId(c) !== target) return c;
  // Świeże wejście na etap = góra kolumny, jak po odświeżeniu (`compareNewestFirst`).
- const entered = { ...moved, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const entered = { ...moved, stage: c.stage, days_in_stage: 0, waiting_workdays: 0, moved_at: new Date().toISOString() };
  const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  });
@@ -639,8 +644,9 @@ function NextActionRow({
  step,
  hidden,
  advance,
- days,
- hideWho = false,
+ waitingDays,
+ stageSince,
+ button,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -648,15 +654,33 @@ function NextActionRow({
  hidden?: boolean;
  /** Strzałka „→" na końcu wiersza. */
  advance?: React.ReactNode;
- /** Dni na etapie — „piłka” mówi, od kiedy leży (PR 4, 04.10.2026). */
- days?: number | null;
- /** Imię osoby z ruchem stoi już wiersz wyżej (dodał ją ta sama osoba). */
- hideWho?: boolean;
+ /** Jedyna liczba dni na karcie (`waiting_workdays`, U5): dni robocze z serwera. */
+ waitingDays?: number | null;
+ /** „na etapie od 03.11” — dni kalendarzowe tylko w dymku. */
+ stageSince?: string | null;
+ /** Główny przycisk ruchu: mówi to samo co nazwa kroku, więc ją zastępuje. */
+ button?: React.ReactNode;
 }) {
- if (action.kind === "none" && !step && !advance && !(days != null && days >= 1)) return null;
- const daysTone = days == null ? null : days >= 7 ? "danger" : days >= 3 ? "warning" : "neutral";
+ if (action.kind === "none" && !step && !advance && !button && !(waitingDays != null && waitingDays >= 1)) return null;
+ const showDays = waitingDays != null && waitingDays >= 1;
+ const daysTone = !showDays ? null : waitingDays >= 5 ? "danger" : waitingDays >= 3 ? "warning" : "neutral";
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
  const label = step?.label ?? action.label;
+ // „0 d” nic nie mówi — liczba od pierwszego pełnego dnia roboczego.
+ const days = showDays ? (
+  <span
+   data-testid="card-days"
+   className={cn(
+    "shrink-0 tabular-nums text-muted-foreground",
+    daysTone === "danger" && "font-semibold text-destructive",
+    daysTone === "warning" && "font-semibold text-warning"
+   )}
+   title={[`Dni robocze czekania: ${waitingDays}`, stageSince].filter(Boolean).join(" · ")}
+  >
+   {/* Obok przycisku nie ma miejsca na „czeka”, przy nazwie kroku jest. */}
+   {button ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+  </span>
+ ) : null;
  return (
  <div
  data-next-action={action.tone}
@@ -666,47 +690,51 @@ function NextActionRow({
  hidden && "xl:pointer-fine:hidden"
  )}
  >
- {step && !hideWho ? (
-  <span
-   data-testid="card-next-who"
-   className={cn(
-    "shrink-0 rounded px-1 text-[9.5px] font-semibold",
-    step.mine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-   )}
-  >
-   {step.who}
-  </span>
- ) : label ? (
-  <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- ) : null}
- {/* Krótka nazwa kroku (`shortStepLabel`) — pełna w `title`; dwie linie
- zostają jako zapas dla własnych etapów szablonu. */}
- <span className="min-w-0 flex-1 line-clamp-2" title={label}>{shortStepLabel(label)}</span>
- {/* „0 d” nic nie mówi — dni od pierwszego pełnego dnia na etapie. */}
- {days != null && days >= 1 && (
-  <span
-   data-testid="card-days"
-   className={cn(
-    "shrink-0 tabular-nums text-muted-foreground",
-    daysTone === "danger" && "font-semibold text-destructive",
-    daysTone === "warning" && "font-semibold text-warning"
-   )}
-   title={`Na tym etapie od ${days} dni`}
-  >
-   {days} d
-  </span>
+ {button ? (
+  <div className="flex min-w-0 flex-1 items-center gap-1.5" title={step ? `${step.who}: ${label}` : label}>
+   {button}
+   {days}
+  </div>
+ ) : step ? (
+  // Kto ma ruch i krok w jednej linii, liczba dni pod nimi: obok „Twój ruch”
+  // i strzałki nie mieści się cały napis „czeka 26 dni rob.”.
+  <div className="min-w-0 flex-1">
+   <div className="flex min-w-0 items-center gap-1.5">
+    <span
+     data-testid="card-next-who"
+     className={cn(
+      "shrink-0 rounded px-1 text-[9.5px] font-semibold",
+      step.mine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+     )}
+    >
+     {step.who}
+    </span>
+    <span className="min-w-0 truncate" title={label}>{shortStepLabel(label)}</span>
+   </div>
+   {days ? <div className="mt-0.5">{days}</div> : null}
+  </div>
+ ) : (
+  <>
+   {label ? <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
+   <span className="min-w-0 flex-1 truncate" title={label}>{shortStepLabel(label)}</span>
+   {days}
+  </>
  )}
  {advance}
  </div>
  );
 }
 
-/** Ton chipu QC — tokeny, jak odznaki karty. */
-const QC_CHIP_TONE: Record<QcChipTone, string> = {
- ok: "bg-success/15 text-success",
- urgent: "bg-destructive/10 text-destructive",
- wait: "bg-warning/15 text-warning",
- neutral: "bg-muted text-muted-foreground",
+/** Ton etapu złożonego w kolumnę — te same tokeny co plakietki karty. */
+const STAGE_BADGE_CARD_TONE: Record<StageBadgeKey, CardBadgeTone> = {
+ posting: "neutral",
+ acceptance: "info",
+ cpro: "info",
+ prep: "info",
+ after_interview: "neutral",
+ contract_sent: "wait",
+ contract_signed: "ok",
+ onboarding: "info",
 };
 
 interface CardProps {
@@ -755,17 +783,6 @@ interface CardProps {
 const SETTABLE_BADGE_TOGGLE_LABEL: Partial<Record<StageBadgeKey, string>> = {
  contract_sent: "Umowa wysłana",
  contract_signed: "Umowa podpisana",
-};
-
-const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
- posting: "bg-muted text-muted-foreground",
- acceptance: "bg-info/15 text-info",
- cpro: "bg-info/15 text-info",
- prep: "bg-info/15 text-info",
- after_interview: "bg-muted text-muted-foreground",
- contract_sent: "bg-warning/15 text-warning",
- contract_signed: "bg-success/15 text-success",
- onboarding: "bg-info/15 text-info",
 };
 
 // ── Pasek zamkniętych (Pipeline v4) ─────────────────────────────────────────
@@ -851,94 +868,11 @@ const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
  booked_call: PhoneCall,
 };
 
-function CardV4Badges({
- item,
- fullName,
- stageBadge,
-}: {
- item: KanbanItem;
- fullName: string;
- stageBadge: StageBadgeKey | null;
-}) {
- const v4 = React.useContext(BoardV4Context);
- if (!v4) return null;
- const ctx = {
-  column: v4.columnByItemId.get(item.id) ?? null,
-  cproEnabled: v4.cproEnabled,
-  viewerId: v4.viewerId,
-  now: new Date(),
-  stageBadge,
-  viewerOwnsDlReview: v4.viewerOwnsDlReview,
-  openingStartedAt: v4.openingStartedAt,
- };
- const badges = cardBadges(item, ctx);
- const action = v4.readOnly ? null : claimAction(item, ctx);
- if (badges.length === 0 && !action) return null;
- return (
-  <>
-   {badges.map((b) => {
-    const compact = compactCardBadge(b);
-    if (compact) {
-     // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
-     // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
-     const Icon =
-      b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
-     return (
-      <span
-       key={b.key}
-       data-testid={`card-badge-${b.key}`}
-       className={cn(
-        "inline-flex max-w-full items-center gap-0.5 truncate rounded px-1 text-[10px] font-semibold",
-        CARD_BADGE_TONE_CLASS[b.tone]
-       )}
-       title={compact.full}
-      >
-       <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-       {compact.short ? <span aria-hidden="true">{compact.short}</span> : null}
-       <span className="sr-only">{b.label}</span>
-      </span>
-     );
-    }
-    return (
-     <span
-      key={b.key}
-      data-testid={`card-badge-${b.key}`}
-      className={cn(
-       "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
-       CARD_BADGE_TONE_CLASS[b.tone]
-      )}
-      title={b.title}
-     >
-      {b.label}
-     </span>
-    );
-   })}
-   {action && (() => {
-    // Osoba od systemu (23.10.2026): „Biorę” to decyzja „Dzwonię”.
-    const takeLabel =
-     action === "takeover"
-      ? "Przejmij"
-      : item.entry_source === "system" && !item.entry_autofill?.decided
-       ? "Dzwonię"
-       : "Biorę";
-    return (
-     <button
-      type="button"
-      onClick={(e) => {
-       e.stopPropagation();
-       e.preventDefault();
-       v4.onTake(item);
-      }}
-      disabled={v4.takingIds.has(item.id)}
-      className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
-      aria-label={`${takeLabel} ${fullName} — na 12 h`}
-     >
-      {takeLabel}
-     </button>
-    );
-   })()}
-  </>
- );
+/** Ikona plakietki, która ma mówić „uwaga” także bez czytania napisu. */
+function signalIcon(key: string): typeof Lock | null {
+ if (key === "hm_veto" || key === "care") return UserX;
+ if (key === "over_budget" || key === "critical_gap" || key.startsWith("warning_")) return AlertTriangle;
+ return null;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -1061,6 +995,238 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  .filter(Boolean)
  .join("\n")
  : undefined;
+ const stageSince = stageSinceText(item);
+ const vetoTitle = item.hm_veto
+ ? [
+ `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
+ `Powód: ${item.hm_veto.rejection_reason_name}`,
+ item.hm_veto.source_job_title ? `Rekrutacja: ${item.hm_veto.source_job_title}` : null,
+ "Ostrzeżenie — ruch jest możliwy po potwierdzeniu.",
+ ]
+ .filter(Boolean)
+ .join("\n")
+ : null;
+ const knownFacts = callFirstRank != null ? knownFactLabels(item.entry_autofill?.known) : [];
+ // Wszystko, co karta liczy poza `cardBadges`. Układa to `cardPrimaryBadges`:
+ // dwie plakietki w wierszu, reszta w „+N” (U1, audyt 08.11.2026).
+ const signals: CardBadge[] = [
+ ...(vetoTitle ? [{ key: "hm_veto", label: "Weto HM", tone: "urgent" as const, title: vetoTitle }] : []),
+ ...warningBadges.map((w) => ({
+ key: `warning_${w.code}`,
+ label: w.label,
+ tone: (w.tone === "danger" ? "urgent" : "wait") as CardBadgeTone,
+ title: w.title,
+ testId: `card-warning-${w.code}`,
+ })),
+ ...(overBudget
+ ? [{
+ key: "over_budget",
+ label: "ponad budżet",
+ tone: "wait" as const,
+ title: `Stawka ${formatExpectedRate(item) ?? ""} przekracza budżet godzinowy rekrutacji. Ruch nie jest blokowany.`,
+ }]
+ : []),
+ ...(criticalGap
+ ? [{ key: "critical_gap", label: criticalGap.label, tone: "wait" as const, title: criticalGap.title, testId: "card-critical-gap" }]
+ : []),
+ ...(care
+ ? [{
+ key: "care",
+ label: care.caretaker,
+ tone: "neutral" as const,
+ title: `${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`,
+ testId: "card-departed-care",
+ }]
+ : []),
+ ...impliedBadges(cardStageBadge(item, stageBadge))
+ .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
+ .map((badge) => ({
+ key: `stage_${badge}`,
+ label: STAGE_BADGE_LABEL[badge],
+ tone: STAGE_BADGE_CARD_TONE[badge],
+ title: STAGE_BADGE_TITLE[badge],
+ })),
+ ...(boardKey === "contract" && item.client_acceptance
+ ? [{
+ key: "client_acceptance",
+ label: acceptanceLine(item.client_acceptance) ?? "Klient zaakceptował",
+ tone: "ok" as const,
+ title: acceptanceTitle(item.client_acceptance) ?? undefined,
+ testId: "card-client-acceptance",
+ }]
+ : []),
+ ...(qc && v5 ? [{ key: "qc", label: qc.label, tone: qc.tone, title: qc.title, testId: "card-qc-chip" }] : []),
+ ...(skippedBadge ? [{ ...skippedBadge, testId: "card-requirements-skipped" }] : []),
+ ...(cvBadge ? [{ ...cvBadge, testId: "card-cv-state" }] : []),
+ ...(item.employment_marker
+ ? [{ key: "employment", label: markerLabel(item.employment_marker), tone: "neutral" as const, testId: "card-employment" }]
+ : []),
+ ...(!readOnly && scorecardDue
+ ? [{ key: "scorecard", label: "Scorecard", tone: "wait" as const, title: "Scorecard tego etapu — do uzupełnienia" }]
+ : []),
+ ...(showsOtherJobsChip(item, boardKey)
+ ? [{ key: "other_jobs", label: otherJobsChipLabel(item.other_open_jobs?.length ?? 0), tone: "info" as const, testId: "card-other-jobs-chip" }]
+ : []),
+ ...knownFacts.map((label, i) => ({ key: `known_${i}`, label, tone: "info" as const, title: "Znamy tę osobę: szczegóły w panelu." })),
+ ...(callFirstRank != null && freshSlot
+ ? [{
+ key: "fresh_slot",
+ label: "Jeszcze bez procesu",
+ tone: "info" as const,
+ title: "Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji.",
+ testId: "card-fresh-slot",
+ }]
+ : []),
+ ...(item.rating != null && item.rating > 0
+ ? [{ key: "rating", label: `Ocena ${item.rating.toFixed(1)}`, tone: "neutral" as const }]
+ : []),
+ ...(contactFeatureEnabled && item.contact_case !== undefined
+ ? [{ key: "contact", label: "Status kontaktu", tone: "neutral" as const }]
+ : []),
+ ];
+ const badgeCtx = v5
+ ? {
+ column: boardKey,
+ cproEnabled: v5.cproEnabled,
+ viewerId: v5.viewerId,
+ now: new Date(),
+ stageBadge,
+ viewerOwnsDlReview: v5.viewerOwnsDlReview,
+ openingStartedAt: v5.openingStartedAt,
+ }
+ : null;
+ const takeAction = badgeCtx && !readOnly ? claimAction(item, badgeCtx) : null;
+ const takeLabel =
+ takeAction === "takeover"
+ ? "Przejmij"
+ : item.entry_source === "system" && !item.entry_autofill?.decided
+ ? "Dzwonię"
+ : "Biorę";
+ // Jeden przycisk w wierszu ruchu; screening, gdy miejsce zajęte, idzie do „+N”.
+ const clientAccept = boardKey === "client_interview" && v5?.onClientAccept && !readOnly ? v5.onClientAccept : null;
+ const screeningInRow = !readOnly && canScreen && screeningDue && !reviewSend && !takeAction && !clientAccept;
+ if (!readOnly && canScreen && !screeningInRow) {
+ signals.push({
+ key: "screening",
+ label: screeningDue ? "Uzupełnij screening" : "Screening",
+ tone: screeningDue ? "wait" : "neutral",
+ title: screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa",
+ });
+ }
+ const { primary: primaryBadges, more: moreBadges } = cardPrimaryBadges(item, badgeCtx, signals);
+ const chipBase = "inline-flex min-w-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold";
+ const stopThen = (fn: () => void) => (e: React.MouseEvent) => {
+ e.stopPropagation();
+ e.preventDefault();
+ fn();
+ };
+ const renderBadge = (b: CardBadge, full = false) => {
+ const testId = b.testId ?? `card-badge-${b.key}`;
+ if (b.key === "qc" && v5) {
+ return (
+ <button
+ key={b.key}
+ type="button"
+ data-testid={testId}
+ onClick={stopThen(() => v5.onOpenQc(item))}
+ className={cn(chipBase, "hover:ring-1 hover:ring-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", CARD_BADGE_TONE_CLASS[b.tone])}
+ title={b.title}
+ aria-label={`${b.label} — otwórz QC CV dla ${fullName}`}
+ >
+ <span className="truncate">{b.label}</span>
+ </button>
+ );
+ }
+ if (b.key === "scorecard") {
+ return (
+ <button
+ key={b.key}
+ type="button"
+ onClick={stopThen(() => onOpenScorecard(item))}
+ className={cn(chipBase, "bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors")}
+ title={b.title}
+ aria-label={`Uzupełnij scorecard dla ${fullName}`}
+ >
+ <Flag className="h-2.5 w-2.5 shrink-0" />
+ {b.label}
+ </button>
+ );
+ }
+ if (b.key === "screening") {
+ return (
+ <button
+ key={b.key}
+ type="button"
+ onClick={stopThen(() => onOpenScreening(item.id, fullName))}
+ className={cn(chipBase, "hover:ring-1 hover:ring-current", CARD_BADGE_TONE_CLASS[b.tone])}
+ title={b.title}
+ aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
+ >
+ <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ {b.label}
+ </button>
+ );
+ }
+ if (b.key === "other_jobs") {
+ return (
+ <OtherJobsChip
+ key={b.key}
+ item={item}
+ fullName={fullName}
+ onScreenTogether={
+ v5 && !readOnly
+ ? (jobIds) => {
+ useJointScreeningIntent.getState().setIntent(item.candidate_id, jobIds);
+ v5.onOpenPerson(item);
+ }
+ : undefined
+ }
+ />
+ );
+ }
+ if (b.key === "employment" && item.employment_marker) {
+ return (
+ <EmploymentPill
+ key={b.key}
+ marker={item.employment_marker}
+ appearance="text"
+ label={{ clients: "count", date: "short" }}
+ aria-hidden="true"
+ data-testid={testId}
+ className="min-w-0 text-[10.5px]"
+ />
+ );
+ }
+ if (b.key === "contact") {
+ return <ContactStatusBadge key={b.key} contactCase={item.contact_case} />;
+ }
+ const compact = full ? null : compactCardBadge(b);
+ if (compact) {
+ // Źródło, blokada 12 h i karta rekomendacji: ikona + krótki dopisek,
+ // pełna treść w podpowiedzi i dla czytnika ekranu (PR 4, 04.10.2026).
+ const Icon = b.key === "claim" && b.tone === "free" ? Unlock : (COMPACT_BADGE_ICON[b.key] ?? HelpCircle);
+ return (
+ <span key={b.key} data-testid={testId} className={cn(chipBase, "truncate", CARD_BADGE_TONE_CLASS[b.tone])} title={compact.full}>
+ <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ {compact.short ? <span aria-hidden="true">{compact.short}</span> : null}
+ <span className="sr-only">{b.label}</span>
+ </span>
+ );
+ }
+ const Icon = signalIcon(b.key);
+ return (
+ <span
+ key={b.key}
+ data-testid={testId}
+ data-tour={b.key === "critical_gap" && !criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
+ className={cn(chipBase, CARD_BADGE_TONE_CLASS[b.tone])}
+ title={b.title}
+ >
+ {Icon ? <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" /> : null}
+ <span className="truncate">{b.label}</span>
+ </span>
+ );
+ };
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
  criticalGap ? criticalGap.title : null,
@@ -1078,9 +1244,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.rating != null && item.rating > 0
  ? `Ocena: ${item.rating.toFixed(1)}.`
  : null,
- item.days_in_stage != null
- ? `W etapie od ${item.days_in_stage} dni.`
+ item.waiting_workdays != null && item.waiting_workdays >= 1
+ ? `Czeka dni roboczych: ${item.waiting_workdays}.`
  : null,
+ stageSince ? `${stageSince[0].toUpperCase()}${stageSince.slice(1)}.` : null,
  `${addedAttribution.replace("\n", ". ")}.`,
  closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
@@ -1146,9 +1313,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.rating != null && item.rating > 0
  ? `Ocena: ${item.rating.toFixed(1)}`
  : null,
- item.days_in_stage != null
- ? `W etapie: ${item.days_in_stage} dni`
- : null,
+ stageSince ? `${stageSince[0].toUpperCase()}${stageSince.slice(1)}` : null,
  addedAttribution,
  ]
  .filter(Boolean)
@@ -1209,10 +1374,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  zwykły klik w nazwisko otwiera dok (wcześniej wyrzucał na profil,
  czyli z rekrutacji); profil w nowej karcie daje Ctrl/⌘-klik na
  nazwisku i „Pełny profil" w doku. */}
- {/* Wiersz 1 makiety: nazwisko (do dwóch linii, bez ucinania w połowie)
- + pierścień wyniku po prawej. Wielki awatar kandydata odpadł razem
- z jednolinijkowym nazwiskiem — przy ~176 px szerokości kolumny to on
- zabierał miejsce, przez które nazwisko trzeba było uciąć. */}
+ {/* Wiersz 1: nazwisko w jednej linii (pełne w dymku, U1 08.11.2026),
+ inicjały właściciela i pierścień wyniku po prawej. */}
  {/* Wcięcie DOKŁADNIE pod checkbox: jego pole wizualne (`before:inset-1`)
  kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
  Stare `pl-5` zostawiało nazwisku 64 z 158 px
@@ -1234,10 +1397,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenDock(item);
  }
  }}
- // `break-words`, NIE `overflow-wrap:anywhere` — to drugie łamie nazwisko
- // w środku wyrazu przy ~176 px kolumny („Wojcie/ch Wyleżoł"), czyli robi
- // dokładnie to, czego ta karta miała się pozbyć.
- className={cn("block font-semibold text-foreground hover:underline break-words line-clamp-2",
+ title={fullName}
+ className={cn("block truncate font-semibold text-foreground hover:underline",
  "text-[13px] leading-snug",
  desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3",
  // W kafelku nazwisko zajmuje CAŁĄ kartę (39x87 px), więc link do profilu
@@ -1250,6 +1411,20 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {fullName}
  </Link>
  </div>
+ {/* Czyja karta (20.10.2026): inicjały, imię i data w dymku — kto ma ruch
+ mówi trzeci wiersz. */}
+ <span
+ data-testid="card-owner"
+ className={cn(
+ "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
+ hasOwnerName ? "bg-primary/10 text-primary" : "bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={addedAttribution}
+ aria-hidden="true"
+ >
+ {ownerInitials}
+ </span>
  {scoreState !== "none" && (
  <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
@@ -1263,262 +1438,50 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
  </div>
 
- {/* D2 (16.10.2026): akceptacja klienta — kiedy i kto zaznaczył. Tylko
- w kolumnie „Akceptacja i umowa”; karta cofnięta do rozmowy jej nie ma. */}
- {boardKey === "contract" && item.client_acceptance && (
- <p
- data-testid="card-client-acceptance"
- title={acceptanceTitle(item.client_acceptance) ?? undefined}
- className={cn(
- // Dwie linie zamiast ucinania: przy 1280 px „· Olga W.” spadało za brzeg.
- "mt-1 line-clamp-2 break-words rounded px-1.5 py-0.5 text-[10.5px] font-semibold leading-snug bg-success-muted text-success-muted-foreground",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- >
- {acceptanceLine(item.client_acceptance)}
- </p>
- )}
-
- {/* Wiersz 2 makiety: właściciel karty po lewej, wiek na etapie po prawej. */}
- <div
- className={cn(
- // Bez `pl-5`: checkbox jest absolutny i zajmuje tylko górne 24 px, więc
- // wcięcie w dolnych wierszach kradłoby 20 px z i tak wąskiej kolumny.
- "mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] text-muted-foreground",
- desktopOverview && "xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:text-[10px] xl:pointer-fine:leading-none"
- )}
- title={addedAttribution}
- >
- <span
- className={cn(
- "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
- hasOwnerName
- ? "bg-primary/10 text-primary"
- : "bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- aria-hidden="true"
- >
- {ownerInitials}
- </span>
- <span
- className={cn(
- "min-w-0 truncate",
- !hasOwnerName && "text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- aria-hidden="true"
- >
- {ownerShortName}
- </span>
- {desktopOverview && (
- <span className="hidden truncate xl:pointer-fine:inline" aria-hidden="true">
+ {/* Wiersz 2: najwyżej dwie plakietki, reszta w „+N” (`cardPrimaryBadges`). */}
+ {desktopOverview ? (
+ <p className="hidden truncate text-center text-[10px] leading-none text-muted-foreground xl:pointer-fine:block" title={addedAttribution} aria-hidden="true">
  R: {ownerShortName}
- </span>
- )}
- {item.rating != null && item.rating > 0 && (
- <span
- className={cn(
- "inline-flex items-center gap-0.5",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- aria-hidden="true"
+ </p>
+ ) : null}
+ {primaryBadges.length > 0 || moreBadges.length > 0 ? (
+ <div
+ data-testid="card-badges-row"
+ className={cn("mt-1 flex min-w-0 items-center gap-1", desktopOverview && "xl:pointer-fine:hidden")}
  >
- <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
- {item.rating.toFixed(1)}
- </span>
- )}
- {item.hm_veto && (
- <span
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={[
- `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
- `Powód: ${item.hm_veto.rejection_reason_name}`,
- item.hm_veto.source_job_title
- ? `Rekrutacja: ${item.hm_veto.source_job_title}`
- : null,
- "Ostrzeżenie — ruch jest możliwy po potwierdzeniu.",
- ]
- .filter(Boolean)
- .join("\n")}
- >
- <UserX className="h-2.5 w-2.5" />
- Weto HM
- </span>
- )}
- {overBudget && (
- <span
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={`Stawka ${formatExpectedRate(item) ?? ""} przekracza budżet godzinowy rekrutacji. Ruch nie jest blokowany.`}
- >
- <AlertTriangle className="h-2.5 w-2.5" />
- ponad budżet
- </span>
- )}
- {criticalGap && (
- <span
- data-testid="card-critical-gap"
- data-tour={!criticalGaps?.length && criticalAlternatives ? "board.critical-alternative" : undefined}
- className={cn(
- "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={criticalGap.title}
- >
- <AlertTriangle className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- <span className="truncate" aria-hidden="true">{criticalGap.label}</span>
- </span>
- )}
- {warningBadges.map((w) => (
- <span
- key={w.code}
- data-testid={`card-warning-${w.code}`}
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide",
- w.tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-warning/15 text-warning",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={w.title}
- >
- <AlertTriangle className="h-2.5 w-2.5" aria-hidden="true" />
- <span aria-hidden="true">{w.label}</span>
- </span>
- ))}
- {care && (
- <span
- data-testid="card-departed-care"
- className={cn(
- "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-muted text-foreground",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={`${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`}
- >
- <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- <span className="truncate" aria-hidden="true">{care.caretaker}</span>
- </span>
- )}
- {impliedBadges(cardStageBadge(item, stageBadge))
- .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
- .map((badge) => (
- <span
- key={badge}
- className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold",
- STAGE_BADGE_TONE[badge],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={STAGE_BADGE_TITLE[badge]}
- >
- {STAGE_BADGE_LABEL[badge]}
- </span>
- ))}
- {qc && v5 && (
+ {primaryBadges.map((b) => renderBadge(b))}
+ {moreBadges.length > 0 ? (
+ <Popover>
+ <PopoverTrigger asChild>
  <button
  type="button"
- data-testid="card-qc-chip"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onOpenQc(item);
- }}
- className={cn(
- "inline-flex items-center rounded px-1 text-[9px] font-semibold hover:ring-1 hover:ring-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
- QC_CHIP_TONE[qc.tone],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={qc.title}
- aria-label={`${qc.label} — otwórz QC CV dla ${fullName}`}
+ data-testid="card-badges-more"
+ onClick={(e) => e.stopPropagation()}
+ title={moreBadges.map((b) => b.label).join(" · ")}
+ aria-label={`Jeszcze ${moreBadges.length}: ${moreBadges.map((b) => b.label).join(", ")}`}
+ className="ml-auto inline-flex h-4 shrink-0 items-center rounded bg-muted px-1 text-[10px] font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
  >
- {qc.label}
+ +{moreBadges.length}
  </button>
- )}
- {showsOtherJobsChip(item, boardKey) && (
- <OtherJobsChip
- item={item}
- fullName={fullName}
- className={cn(desktopOverview && "xl:pointer-fine:hidden")}
- onScreenTogether={
- v5 && !readOnly
- ? (jobIds) => {
- useJointScreeningIntent.getState().setIntent(item.candidate_id, jobIds);
- v5.onOpenPerson(item);
- }
- : undefined
- }
- />
- )}
- <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
- {/* Osobny wiersz na końcu: u kogo osoba u nas pracuje i do kiedy.
- Treść dla czytnika jest w opisie karty (`accessibleDetails`). */}
- {item.employment_marker && (
- <EmploymentPill
- marker={item.employment_marker}
- appearance="text"
- label={{ clients: "count", date: "short" }}
- aria-hidden="true"
- data-testid="card-employment"
- className={cn("basis-full text-[10.5px]", desktopOverview && "xl:pointer-fine:hidden")}
- />
- )}
- {/* Stan CV firmowego (14.10.2026, `cvStateBadge` — ta sama reguła
- co wiersz tabeli): automat pisze CV, „CV gotowe · QC: N do poprawy” /
- „bez uwag” po QC na „Zweryfikowanym”, „CV gotowe w tle” przed QC. */}
- {skippedBadge && (
- <span
- data-testid="card-requirements-skipped"
- className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold",
- CARD_BADGE_TONE_CLASS[skippedBadge.tone],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={skippedBadge.title}
+ </PopoverTrigger>
+ <PopoverContent
+ align="end"
+ className="w-72 p-2"
+ data-testid="card-badges-more-content"
+ // Okienko jest w portalu, ale zdarzenia Reacta idą do karty.
+ onClick={(e) => e.stopPropagation()}
  >
- {skippedBadge.label}
- </span>
- )}
- {cvBadge && (
- <span
- data-testid="card-cv-state"
- className={cn(
- "inline-flex items-center rounded px-1 text-[10px] font-semibold",
- CARD_BADGE_TONE_CLASS[cvBadge.tone],
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title={cvBadge.title}
- >
- {cvBadge.label}
- </span>
- )}
- {!readOnly && scorecardDue && (
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- onOpenScorecard(item);
- }}
- className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title="Scorecard tego etapu — do uzupełnienia"
- aria-label={`Uzupełnij scorecard dla ${fullName}`}
- >
- <Flag className="h-2.5 w-2.5" />
- Scorecard
- </button>
- )}
- </div>
-
- {contactFeatureEnabled ? (
- <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
- <ContactStatusBadge contactCase={item.contact_case} className="mt-1" />
+ <ul className="space-y-1.5">
+ {moreBadges.map((b) => (
+ <li key={b.key} className="text-xs">
+ <div className="flex flex-wrap items-center gap-1">{renderBadge(b, true)}</div>
+ {b.title ? <p className="mt-0.5 whitespace-pre-line text-muted-foreground">{b.title}</p> : null}
+ </li>
+ ))}
+ </ul>
+ </PopoverContent>
+ </Popover>
+ ) : null}
  </div>
  ) : null}
 
@@ -1542,44 +1505,72 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </p>
  ) : null}
 
- {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
- {callFirstRank != null && (freshSlot || knownFactLabels(item.entry_autofill?.known).length > 0) ? (
- <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
- {knownFactLabels(item.entry_autofill?.known).map((label) => (
- <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
- {label}
- </span>
- ))}
- {freshSlot ? (
- <span
- data-testid="card-fresh-slot"
- title="Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji."
- className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary"
- >
- Jeszcze bez procesu
- </span>
- ) : null}
- </div>
- ) : null}
+ {/* Wiersz 3: kto ma ruch, jedna liczba dni, przycisk i strzałka „→". */}
  <NextActionRow
  action={nextAction}
  step={nextStep}
- days={item.days_in_stage ?? null}
+ waitingDays={item.waiting_workdays ?? null}
+ stageSince={stageSince}
  hidden={desktopOverview}
- // Osoba z karty (dodała albo zweryfikowała) ma ruch — jej imię stoi wiersz wyżej
- // (dawniej „Integracje:” dwa razy na jednej karcie, 04.10.2026).
- hideWho={Boolean(nextStep && !nextStep.mine && hasOwnerName && nextStep.who === ownerShortName)}
+ button={
+ reviewSend && v5 ? (
+ <button
+ type="button"
+ data-testid="card-review-send"
+ data-owner={v5.viewerOwnsDlReview ? "true" : "false"}
+ onClick={stopThen(() => v5.onReviewSend(item))}
+ aria-label={`${v5.cproEnabled ? "Przejrzyj i zaakceptuj do Cpro" : "Przejrzyj i wyślij"}: ${fullName}`}
+ className={cn(
+ "inline-flex min-w-0 items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ v5.viewerOwnsDlReview
+ ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+ : "border-primary/40 text-primary hover:bg-primary/10"
+ )}
+ >
+ {/* Nordea (14.10.2026): nic nie idzie do klienta — przegląd kończy
+ akceptacja do kolejki Cpro. */}
+ <span className="truncate">{v5.cproEnabled ? CPRO_REVIEW_LABEL : "Przejrzyj i wyślij"}</span>
+ </button>
+ ) : takeAction && v5 ? (
+ <button
+ type="button"
+ onClick={stopThen(() => v5.onTake(item))}
+ disabled={v5.takingIds.has(item.id)}
+ className="inline-flex shrink-0 items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+ aria-label={`${takeLabel} ${fullName} — na 12 h`}
+ >
+ {takeLabel}
+ </button>
+ ) : clientAccept ? (
+ <button
+ type="button"
+ data-testid="card-client-accept"
+ onClick={stopThen(() => clientAccept(item))}
+ aria-label={`Zaznacz akceptację klienta: ${fullName}`}
+ className="inline-flex min-w-0 items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
+ >
+ <span className="truncate">Zaznacz akceptację</span>
+ </button>
+ ) : screeningInRow ? (
+ <button
+ type="button"
+ onClick={stopThen(() => onOpenScreening(item.id, fullName))}
+ className="inline-flex min-w-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 text-[10px] font-semibold text-warning ring-1 ring-warning/40 hover:bg-primary hover:text-white transition-colors pointer-coarse:min-h-8"
+ title="Screening Championa — do uzupełnienia"
+ aria-label={`Uzupełnij screening dla ${fullName}`}
+ >
+ <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate">Uzupełnij screening</span>
+ </button>
+ ) : undefined
+ }
  advance={
  nextColumnLabel && v5 && !reviewSend ? (
  <button
  type="button"
  data-testid="card-advance"
  data-gap={forwardGap ? "true" : "false"}
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onAdvance(item);
- }}
+ onClick={stopThen(() => v5.onAdvance(item))}
  aria-label={`Przesuń ${fullName} na następny etap`}
  title={
  forwardGap
@@ -1599,55 +1590,23 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }
  />
 
- {/* D1 (16.10.2026): akceptacja klienta na karcie po rozmowie u klienta —
- okno akceptacji (data, debrief, kto dostanie dzwonek), potem ruch. */}
- {boardKey === "client_interview" && v5?.onClientAccept && !readOnly && (
+ {/* Kafelek w widoku przeglądowym: bez wiersza ruchu, screening zostaje ikoną. */}
+ {desktopOverview && !readOnly && canScreen ? (
+ <div className="hidden justify-end xl:pointer-fine:flex">
  <button
  type="button"
- data-testid="card-client-accept"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onClientAccept?.(item);
- }}
- aria-label={`Zaznacz akceptację klienta: ${fullName}`}
+ onClick={stopThen(() => onOpenScreening(item.id, fullName))}
  className={cn(
- "mt-1.5 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-primary/40 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9",
- desktopOverview && "xl:pointer-fine:hidden"
+ "inline-flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-white",
+ screeningDue ? "bg-warning/15 text-warning ring-1 ring-warning/40" : "bg-primary/10 text-primary"
  )}
+ title={screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa"}
+ aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
  >
- Zaznacz akceptację
- </button>
- )}
-
- {/* „Przejrzyj i wyślij” — własny wiersz pod „kto ma ruch” (jak pigułka
- Screeningu niżej, nigdy `absolute`). Wypełniony u Delivery Leada tej
- rekrutacji, obrysowany u pozostałych z prawem wysyłki. */}
- {reviewSend && v5 && (
- <div className={cn("mt-1 flex justify-end", desktopOverview && "xl:pointer-fine:hidden")}>
- <button
- type="button"
- data-testid="card-review-send"
- data-owner={v5.viewerOwnsDlReview ? "true" : "false"}
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- v5.onReviewSend(item);
- }}
- aria-label={`${v5.cproEnabled ? "Przejrzyj i zaakceptuj do Cpro" : "Przejrzyj i wyślij"}: ${fullName}`}
- className={cn(
- "inline-flex max-w-full items-center rounded border px-1.5 text-[10px] font-semibold transition-colors pointer-coarse:min-h-8 pointer-coarse:px-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
- v5.viewerOwnsDlReview
- ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
- : "border-primary/40 text-primary hover:bg-primary/10"
- )}
- >
- {/* Nordea (14.10.2026): nic nie idzie do klienta — przegląd kończy
- akceptacja do kolejki Cpro. */}
- <span className="truncate">{v5.cproEnabled ? CPRO_REVIEW_LABEL : "Przejrzyj i wyślij"}</span>
+ <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
  </button>
  </div>
- )}
+ ) : null}
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty. */}
@@ -1670,34 +1629,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <Trash2 className="h-3.5 w-3.5" />
  </button>}
 
- {/* Screening jest WIERSZEM karty, nie elementem na `absolute bottom-1
- right-1`: tamta pozycja to dokładnie wiersz „co dalej z tą kartą"
- (`NextActionRow`), więc na „Zweryfikowany" pigułka „Uzupełnij screening"
- przykrywała „Wyślij CV do klienta" (#1604). */}
- {!readOnly && canScreen && (
- <div className={cn("mt-1 flex justify-end", desktopOverview &&"xl:pointer-fine:mt-0")}>
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- onOpenScreening(item.id, fullName);
- }}
- className={cn("inline-flex max-w-full items-center gap-1 text-[10px] px-1.5 py-0.5 pointer-coarse:min-h-8 pointer-coarse:px-2.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
- screeningDue
- ? "bg-warning/15 text-warning ring-1 ring-warning/40"
- : "bg-primary/10 text-primary",
- desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:p-0")}
- title={screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa"}
- aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
- >
- <Sparkles className="h-2.5 w-2.5 shrink-0" />
- <span className={cn("truncate", desktopOverview &&"xl:pointer-fine:sr-only")}>
- {screeningDue ? "Uzupełnij screening" : "Screening"}
- </span>
- </button>
- </div>
- )}
  </div>
  );
 });
@@ -2838,7 +2769,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return { ...c, items, count: items.length };
  }
  if (colId(c) === colId(dst)) {
- const entered = { ...item, stage: c.stage, days_in_stage: 0, moved_at: new Date().toISOString() };
+ const entered = { ...item, stage: c.stage, days_in_stage: 0, waiting_workdays: 0, moved_at: new Date().toISOString() };
  const items = [entered, ...c.items];
  return { ...c, items, count: items.length };
  }
@@ -4064,6 +3995,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const queueColumnName = queueCol
  ? boardLabelByColId.get(colId(queueCol)) ?? columnLabel(queueCol)
  : null;
+ // `useMemo`: `headerAction` idzie przez `memo` kolumny „Nowi”, zwykle największej.
+ const addedByColumnFilter = useMemo(
+ () =>
+ onAddedByChange ? (
+ <AddedByColumnFilter options={addedByMenuOptions} value={addedBy} onChange={onAddedByChange} />
+ ) : null,
+ [addedByMenuOptions, addedBy, onAddedByChange]
+ );
  const queueSuffix = addedByQueueSuffix(addedBy, addedByMenuOptions);
  const queueLabel = queueColumnName
  ? queueSuffix
@@ -4668,7 +4607,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  : null
  }
 headerAction={
- boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
+ boardKeyByColId.get(entry.key) === "new" ? (
+ addedByColumnFilter
+ ) : boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
  <Button
  type="button"
  size="sm"

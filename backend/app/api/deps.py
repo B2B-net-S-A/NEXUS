@@ -1019,9 +1019,6 @@ def require_service_scope_any():
 # Gotowe zależności dla powierzchni operacyjnych. Każda nazywa dokładnie jeden
 # scope — endpoint nie ma jak dostać szerszego uprawnienia niż to, którego
 # faktycznie potrzebuje.
-TraffitSyncCaller = Annotated[
-    Caller, Depends(require_service_scope(ServiceScope.traffit_sync))
-]
 TraffitReadCaller = Annotated[
     Caller, Depends(require_service_scope(ServiceScope.traffit_read))
 ]

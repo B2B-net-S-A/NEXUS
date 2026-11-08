@@ -87,8 +87,8 @@ class IdlePerson(BaseModel):
 
 class MyPeopleSummary(BaseModel):
     total: int
+    # Rekrutacje z ostatniej doby z Twoją osobą od progu (licznik w pasku).
     new_matches: int
-    jobs_with_matches: int
     latest_matches: list[UnseenMatch]
     idle_count: int
     idle_top: list[IdlePerson]
@@ -221,12 +221,10 @@ async def my_people_summary(
     people = await svc.load_my_people(db, user.id)
     active = people.active
     idle = people.idle
-    new_matches, jobs = await svc.unseen_totals(db, user.id)
     latest = await svc.unseen_matches(db, user.id)
     return MyPeopleSummary(
         total=len(active),
-        new_matches=new_matches,
-        jobs_with_matches=jobs,
+        new_matches=await svc.recent_match_jobs(db, user.id),
         latest_matches=[UnseenMatch(**m) for m in latest],
         idle_count=len(idle),
         # Najkrócej czekający najpierw (`MyPeople.idle`): tych jeszcze da się

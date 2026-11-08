@@ -46,6 +46,10 @@ from app.models.pipeline_template import (
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services import cpro_mail_parse as parsing
 from app.services.board_stage_badges import board_column_for, cpro_enabled_for_client
+from app.services.job_close_client_cards import (
+    end_client_cards_after_close,
+    reason_key_for,
+)
 from app.services.cpro_mail_parse import CproEvent
 
 logger = logging.getLogger(__name__)
@@ -316,15 +320,23 @@ async def _apply_closed(
                 link=f"/jobs/{job.id}",
             )
             continue
+        cpro_close_reason = close_reason_for(event.reason)
         await close_job_core(
             db,
             job,
-            reason=close_reason_for(event.reason),
+            reason=cpro_close_reason,
             notes=close_note(event.reason),
             actor_id=None,
             effects=effects,
         )
         closed += 1
+        # B5 (08.11.2026): „Konsultant zakontraktowany” i „Demand change” kończą
+        # pary u klienta także z maila CPro; nikt tego nie potwierdza w oknie.
+        if reason_key_for(cpro_close_reason) is not None:
+            effects.add(
+                f"cpro_end_client_cards_{job.id}",
+                _end_client_cards_step(job.id, cpro_close_reason),
+            )
         notified += len(
             await notify_closed_from_cpro(
                 db, job, request=event.request, cpro_reason=event.reason
@@ -563,6 +575,15 @@ async def _reject_card(
 
     effects.add(f"cpro_card_{stage_id}", _after_commit)
     return stage, target.value
+
+
+def _end_client_cards_step(job_id: int, reason: Any) -> Callable[[], Awaitable[Any]]:
+    async def _step() -> Any:
+        return await end_client_cards_after_close(
+            job_id, reason=reason, actor_id=None, source="cpro_mail"
+        )
+
+    return _step
 
 
 async def _apply_rejected(

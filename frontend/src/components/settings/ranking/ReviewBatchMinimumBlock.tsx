@@ -11,6 +11,8 @@ import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { REVIEW_BATCH_QUERY_KEY } from "@/lib/api/reviewBatch";
 
+import { ReviewBatchTeamPanel } from "./ReviewBatchTeamPanel";
+
 interface BatchRecruiter {
   id: number;
   name: string;
@@ -28,7 +30,7 @@ interface BatchSettings {
   recruiters?: BatchRecruiter[];
 }
 
-type SettingsPayload = Pick<BatchSettings, "minimum" | "block_enabled" | "pilot_user_ids">;
+type SettingsPayload = Pick<BatchSettings, "minimum" | "block_enabled" | "pilot_user_ids" | "min_score">;
 
 const SETTINGS_KEY = [...REVIEW_BATCH_QUERY_KEY, "settings"] as const;
 
@@ -48,11 +50,13 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
     retry: false,
   });
   const [draft, setDraft] = useState<string | null>(null);
+  const [scoreDraft, setScoreDraft] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: async ({ payload }: { payload: SettingsPayload; done: string }) =>
       (await api.put("/api/review-batch/settings", payload)).data,
     onSuccess: (_data, { done }) => {
       setDraft(null);
+      setScoreDraft(null);
       void queryClient.invalidateQueries({ queryKey: REVIEW_BATCH_QUERY_KEY });
       setNotice({ ok: true, text: done });
     },
@@ -73,10 +77,14 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
     minimum: data.minimum,
     block_enabled: data.block_enabled ?? true,
     pilot_user_ids: data.pilot_user_ids ?? [],
+    min_score: data.min_score,
   };
   const value = draft ?? String(current.minimum);
   const parsed = Number(value);
   const valid = Number.isInteger(parsed) && parsed >= 1 && parsed <= 300;
+  const scoreValue = scoreDraft ?? String(current.min_score);
+  const parsedScore = Number(scoreValue);
+  const scoreValid = Number.isFinite(parsedScore) && parsedScore >= 50 && parsedScore <= 95;
   const pilot = new Set(current.pilot_user_ids);
   const togglePilot = (id: number, on: boolean) => {
     const next = new Set(pilot);
@@ -126,6 +134,33 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
         ) : null}
       </div>
       {!valid ? <p className="text-xs text-destructive">Podaj liczbę od 1 do 300.</p> : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <label htmlFor="review-batch-min-score" className="text-sm font-semibold text-foreground">
+          Próg wyniku porcji (%)
+        </label>
+        <Input
+          id="review-batch-min-score"
+          type="number"
+          min={50}
+          max={95}
+          className="w-24"
+          value={scoreValue}
+          disabled={!canEdit || save.isPending}
+          onChange={(e) => setScoreDraft(e.target.value)}
+        />
+        {canEdit && scoreDraft !== null && scoreDraft !== String(current.min_score) ? (
+          <Button
+            size="sm"
+            disabled={!scoreValid || save.isPending}
+            onClick={() =>
+              save.mutate({ payload: { ...current, min_score: parsedScore }, done: "Zapisano próg wyniku porcji." })
+            }
+          >
+            Zapisz próg
+          </Button>
+        ) : null}
+      </div>
+      {!scoreValid ? <p className="text-xs text-destructive">Podaj liczbę od 50 do 95.</p> : null}
       <div className="flex items-center gap-2">
         <Switch
           id="review-batch-block"
@@ -165,6 +200,7 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
           </div>
         </fieldset>
       ) : null}
+      {canEdit ? <ReviewBatchTeamPanel /> : null}
       {notice ? (
         <p
           role={notice.ok ? "status" : "alert"}

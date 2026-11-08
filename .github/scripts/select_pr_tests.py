@@ -23,20 +23,16 @@ Reguły (każda dokłada pliki, żadna nie odejmuje):
   go importują; ``conftest.py`` → nic ponad resztę (dotyka wszystkiego, tego
   PR nie sprawdzi, sprawdzi kolejka);
 * każdy inny plik (workflow, skrypt, dokument, plik frontendu czytany przez
-  testy-lustra) → testy, które wymieniają jego ścieżkę;
-* strażnicy całego repo (``_ALWAYS``) → zawsze, niezależnie od zmian.
-* testy skanujące drzewo (``rglob(``/``os.walk(``, bez bazy) → zawsze, wykrywane
-  same (``tree_scanner_nodes``), bez dopisywania do listy.
+  testy-lustra) → testy, które wymieniają jego ścieżkę.
+
+Strażnicy całego repo nie są tu wybierani: job „Strażnicy repo” uruchamia
+``pytest -m static`` na każdym PR-ze (marker nadaje ``tests/_static_marker.py``).
 
 Sito biegnie w ``SIEVE_SHARDS`` jobach (``--shards``/``--shard``): każdy liczy ten
 sam wybór i bierze swoją część (podział LPT po czasie, jak shardy kolejki).
 Macierz bramek tras (~150 s w sicie, jeden plik) dzieli się po trasach między
 wszystkie aktywne części (``AUTHZ_MATRIX_SLICE``, ``--env-out``). Mały wybór
 zajmuje tylko jedną część; pozostałe kończą się bez instalacji zależności.
-
-``--guards`` wypisuje strażników ``_ALWAYS``, kontrakty tras
-``_ROUTE_CONTRACTS`` i skanery drzewa — dla szybkiego kroku kolejki merge'ów w ``ci-gate.yml``
-(bez bazy).
 
 Wejście: lista zmienionych plików (ścieżki od korzenia repo) na stdin.
 Wyjście: ścieżki testów od katalogu ``backend/``, po jednej w linii.
@@ -45,7 +41,6 @@ Wyjście: ścieżki testów od katalogu ``backend/``, po jednej w linii.
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import math
 import re
@@ -69,43 +64,6 @@ _HUB_MODULES = {
     "app/core/security.py",
 }
 
-# Strażnicy całego repo: sprawdzają stan drzewa (stemple przewodników
-# i procedury zamówień, jedna głowa Alembica), a nie konkretny moduł, więc
-# żadna reguła wyżej ich nie wybiera. Wyrzucały PR-y z kolejki merge'ów
-# najczęściej — 40 wyrzuceń 23–24.09.2026: stempel przewodników 34×,
-# procedury zamówień 20×, dwie głowy Alembica 13×. PR był na tym zielony,
-# więc `auto-enqueue` po każdym pushu wrzucał go z powrotem na ten sam pad.
-#
-# 21.10.2026 dołączyły trzy, które tak samo wyrzucały PR-y (#2522, #2540,
-# #2542): daty liczone przy imporcie testu, `asyncio.create_task` poza
-# `core.tasks.spawn` (app/services/ranking_publish.py:160) i snapshot API v1
-# (nazwa schematu `EventOut`). Każdy ~10–14 s lokalnie (ast całego drzewa,
-# `app.openapi()`), ~25 s na runnerze — wyjątek od reguły „poniżej 2 s”, bo
-# wyrzucenie z kolejki kosztuje ~25 min i wszystkie PR-y za nim. Reszta to
-# skanery drzewa z przeglądu `rglob(`/`os.walk(` (38 plików): bez bazy,
-# poniżej 0,5 s każdy (pomiar lokalny, py3.12). Poza listą zostały skanery
-# z testami na bazie albo dłuższe niż ~2 s (np. `test_no_utc_calendar_date`
-# 15 s, `test_retired_roles_guard` 24 s, `test_jarvis_tool_registry_contract`
-# 8 s) — łapie je kolejka. Ten sam zestaw biegnie w kolejce merge'ów
-# w ``ci-gate.yml`` („Backend (lint + migrations)”), więc zły PR wypada po
-# ~3 min, a nie po ~25. Razem ~90 s na runnerze; tylko bez bazy.
-_ALWAYS = (
-    "tests/test_screen_guides_freshness.py",
-    "tests/test_orders_procedure_freshness.py",
-    "tests/test_contract_order_workflows_migration.py",
-    "tests/test_claude_md_index.py",
-    "tests/test_no_import_time_dates.py",
-    "tests/test_core_tasks_spawn.py",
-    "tests/test_integrations_v1_contract.py",
-    "tests/test_ci_coverage_contract.py",
-    "tests/test_client_tab_links.py",
-    "tests/test_funnel_coverage.py",
-    "tests/test_insights_team_activity_sources.py",
-    "tests/test_loop_heartbeat.py",
-    "tests/test_no_recruitment_types.py",
-    "tests/test_recommendation_card_ai_privacy.py",
-)
-
 # Macierz bramek tras (werdykt trasa × persona, wzorzec w
 # ``tests/data/authz_golden``). Bramki siedzą w zależnościach rozsianych po
 # całym ``app/``, więc zmiana dowolnego pliku aplikacji może zmienić werdykt
@@ -116,38 +74,6 @@ _ALWAYS = (
 _AUTHZ_MATRIX = "tests/test_authz_guard_matrix.py"
 _AUTHZ_GOLDEN_DIR = "tests/data/authz_golden/"
 _AUTHZ_SLICE_ENV = "AUTHZ_MATRIX_SLICE"
-
-# Kontrakty tras: każda trasa ma bramkę sekcji (albo wpis z powodem) i bramkę
-# roli. Z tego samego powodu co macierz nie wymieniają routera z nazwy, więc
-# biegną przy każdej zmianie ``app/``. 23.10.2026 #2611 zastąpił bramkę routera
-# w ``api/pre_contracts.py`` własną zależnością: sito zielone, w kolejce
-# czerwony strażnik sekcji i 7 PR-ów za nim wypadło. Bez bazy, < 1 s każdy.
-_ROUTE_CONTRACTS = (
-    "tests/test_section_ceiling_contract.py",
-    "tests/test_route_authz_contract.py",
-)
-
-# Skanery drzewa wykrywane same: funkcja testowa, która (wprost albo przez
-# pomocnika z tego samego pliku) woła ``rglob(``/``os.walk(``. 25.10.2026 #2649
-# przeszedł sito z odczytem stawki poza listą strażnika
-# (``test_rate_from_readers_guard``), a w kolejce padał w każdej grupie — 31 z 41
-# plików skanujących nie było w ``_ALWAYS``. Bierzemy pojedyncze testy, nie
-# pliki (w plikach siedzą też testy na bazie), i tylko te bez fixture'ów bazy,
-# bo te same biegną w ``ci-gate.yml`` przed migracjami. 60 testów lokalnie
-# 136 s (py3.12), z tego jeden 30 s — ten zostaje kolejce.
-_SCAN_CALLS = ("rglob(", "os.walk(")
-_NO_DB_FIXTURES = frozenset(
-    {"monkeypatch", "tmp_path", "tmp_path_factory", "capsys", "caplog", "request"}
-)
-_QUEUE_ONLY_SCANNERS = frozenset(
-    {
-        # 30 s lokalnie (reszta ≤ 6 s).
-        "tests/test_priority_work_writer_architecture.py"
-        "::test_candidate_stage_update_delete_and_critical_fields_use_command_writer",
-    }
-)
-# Wagi pojedynczego testu w szacunku sita (mapa czasów zna tylko pliki).
-_SCANNER_NODE_SECONDS = 3.0
 
 # Szacunek czasu sita = suma czasów plików z ``ci_test_durations.json`` (z
 # fixture'ami bazy — mapa liczy odstępy między testami w logu) + narzut
@@ -179,73 +105,6 @@ def _test_files() -> dict[str, str]:
     return found
 
 
-def _parametrized(func: ast.FunctionDef) -> set[str]:
-    names: set[str] = set()
-    for deco in func.decorator_list:
-        if (
-            isinstance(deco, ast.Call)
-            and "parametrize" in ast.unparse(deco.func)
-            and deco.args
-            and isinstance(deco.args[0], ast.Constant)
-        ):
-            names |= {n.strip() for n in str(deco.args[0].value).split(",")}
-    return names
-
-
-def _scanner_nodes_in(rel: str, text: str) -> list[str]:
-    if not any(call in text for call in _SCAN_CALLS):
-        return []
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return []
-    lines = text.splitlines()
-
-    def scans(node: ast.AST) -> bool:
-        body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
-        return any(call in body for call in _SCAN_CALLS)
-
-    def calls(node: ast.AST) -> set[str]:
-        return {
-            c.func.id
-            for c in ast.walk(node)
-            if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
-        }
-
-    funcs = {
-        n.name: n
-        for n in tree.body
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    scanning = {name for name, f in funcs.items() if scans(f)}
-    grew = True
-    while grew:
-        grew = False
-        for name, f in funcs.items():
-            if name not in scanning and calls(f) & scanning:
-                scanning.add(name)
-                grew = True
-    nodes = []
-    for name in sorted(scanning):
-        func = funcs[name]
-        if not name.startswith("test_") or not isinstance(func, ast.FunctionDef):
-            continue
-        params = {a.arg for a in func.args.args}
-        if params <= _NO_DB_FIXTURES | _parametrized(func):
-            nodes.append(f"{rel}::{name}")
-    return nodes
-
-
-def tree_scanner_nodes(tests: dict[str, str]) -> list[str]:
-    """Testy skanujące drzewo, bez bazy i bez ``_QUEUE_ONLY_SCANNERS``."""
-    return [
-        node
-        for rel, text in sorted(tests.items())
-        for node in _scanner_nodes_in(rel, text)
-        if node not in _QUEUE_ONLY_SCANNERS
-    ]
-
-
 def _module_patterns(rel_from_backend: str) -> list[re.Pattern[str]]:
     """``app/services/foo.py`` → wzorce na ``app.services.foo`` i ``import foo``."""
     parts = list(Path(rel_from_backend).with_suffix("").parts)
@@ -268,7 +127,7 @@ def _module_patterns(rel_from_backend: str) -> list[re.Pattern[str]]:
 def select(changed: list[str]) -> tuple[set[str], set[str]]:
     """Zwraca (wybrane wprost, wybrane pośrednio)."""
     tests = _test_files()
-    direct: set[str] = {t for t in _ALWAYS if t in tests}
+    direct: set[str] = set()
     indirect: set[str] = set()
     for raw in changed:
         path = raw.strip()
@@ -282,8 +141,6 @@ def select(changed: list[str]) -> tuple[set[str], set[str]]:
                 or (rel.startswith("app/") and rel.endswith(".py"))
             ):
                 direct.add(_AUTHZ_MATRIX)
-            if rel.startswith("app/") and rel.endswith(".py"):
-                direct.update(t for t in _ROUTE_CONTRACTS if t in tests)
             if (
                 rel.startswith("tests/")
                 and name.startswith("test_")
@@ -322,8 +179,6 @@ def select(changed: list[str]) -> tuple[set[str], set[str]]:
         indirect.update(
             t for t, text in tests.items() if any(n in text for n in needles)
         )
-    files = direct | indirect
-    direct.update(n for n in tree_scanner_nodes(tests) if n.split("::")[0] not in files)
     return direct, indirect - direct
 
 
@@ -401,11 +256,7 @@ def _load_durations() -> dict[str, float]:
         raw = json.loads(_DURATIONS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raw = {}
-    durations = {name: seconds * _NO_COVERAGE_FACTOR for name, seconds in raw.items()}
-    durations.update(
-        (node, _SCANNER_NODE_SECONDS) for node in tree_scanner_nodes(_test_files())
-    )
-    return durations
+    return {name: seconds * _NO_COVERAGE_FACTOR for name, seconds in raw.items()}
 
 
 def main() -> None:
@@ -418,20 +269,7 @@ def main() -> None:
         type=Path,
         help="plik (np. $GITHUB_ENV), do którego trafia AUTHZ_MATRIX_SLICE tej części",
     )
-    parser.add_argument(
-        "--guards",
-        action="store_true",
-        help="tylko strażnicy całego repo (_ALWAYS, _ROUTE_CONTRACTS, skanery drzewa)",
-    )
     args = parser.parse_args()
-    if args.guards:
-        guards = _ALWAYS + _ROUTE_CONTRACTS
-        for test in guards:
-            print(test)
-        for node in tree_scanner_nodes(_test_files()):
-            if node.split("::")[0] not in guards:
-                print(node)
-        return
     if not 0 <= args.shard < args.shards:
         parser.error(f"--shard {args.shard} poza zakresem 0..{args.shards - 1}")
     durations = _load_durations()

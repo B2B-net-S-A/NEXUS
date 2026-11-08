@@ -4633,6 +4633,7 @@ async def _assign_candidate_to_job(
         work_channel=PriorityChannel.linkedin,
         entry_source="added_manual",
         claim_for_user_id=user_id,
+        entry_meta={"found_via": "outside_base"},
     )
     db.add(
         Activity(

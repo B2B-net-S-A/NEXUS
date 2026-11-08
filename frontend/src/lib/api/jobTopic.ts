@@ -21,6 +21,8 @@ export interface JobThread {
   last_message: string;
   last_at: string | null;
   link: string;
+  /** Wątek to sam wpis zbiorczy: „stoją > 7 dni” albo „bez pracującego rekrutera”. */
+  digest?: "stuck" | "unstaffed" | null;
 }
 
 export interface JobThreadList {

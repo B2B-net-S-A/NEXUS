@@ -777,6 +777,68 @@ async def test_untouched_auto_cv_is_replaced_without_asking_and_undo_restores_it
     assert [d.filename for d in docs if d.is_primary] == [CLIENT_CV_NAME]
 
 
+async def _replaced_entries(world: dict) -> list[Activity]:
+    from app.services.cv_edit_summary import ACTION
+
+    csv = await _stage_cv(world["stage_id"])
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Activity)
+                    .where(Activity.action == ACTION, Activity.entity_id == csv.id)
+                    .order_by(Activity.id)
+                )
+            ).all()
+        )
+
+
+async def test_replacing_auto_cv_logs_replaced_and_takes_a_reason_afterwards(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    world = await _client_world(stage="verified")
+    await _auto_cv(world)
+
+    res = await _upload_docx(
+        app_client,
+        app_auth_headers,
+        world["stage_id"],
+        _client_docx(marker=uuid.uuid4().hex),
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.json()["ask_replace_reason"] is True
+    (entry,) = await _replaced_entries(world)
+    assert entry.details["status"] == "replaced"
+    assert entry.details["replace_kind"] == "upload"
+    assert "reason" not in entry.details
+
+    url = f"/api/candidates/stages/{world['stage_id']}/cv/branded/replace-reason"
+    saved = await app_client.post(
+        url, headers=app_auth_headers, json={"reason": "newer_cv"}
+    )
+    assert saved.status_code == 204, saved.text
+    (entry,) = await _replaced_entries(world)
+    assert entry.details["reason"] == "newer_cv"
+
+    refused = await app_client.post(
+        url, headers=app_auth_headers, json={"reason": "cokolwiek"}
+    )
+    assert refused.status_code == 422
+
+
+async def test_reason_without_a_replaced_start_is_not_found(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    world = await _client_world()
+    response = await app_client.post(
+        f"/api/candidates/stages/{world['stage_id']}/cv/branded/replace-reason",
+        headers=app_auth_headers,
+        json={"reason": "other"},
+    )
+    assert response.status_code == 404
+
+
 async def test_undo_on_a_card_without_client_cv_empties_it_again(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
@@ -822,6 +884,8 @@ async def test_edited_client_cv_is_replaced_only_after_confirmation(
     detail = asked.json()["detail"]
     assert (detail["code"], detail["status"]) == ("client_cv_replace_confirm", "draft")
     assert "Ta rekrutacja ma już CV do klienta" in detail["message"]
+    # Szkic bez startu generatora: nie ma o co pytać „dlaczego nie generator”.
+    assert detail["ask_replace_reason"] is False
     assert [d.filename for d in await _documents(world["candidate_id"])] == [
         "ewa-cv.pdf"
     ]

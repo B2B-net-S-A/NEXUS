@@ -22,14 +22,11 @@ Trzy rzeczy, których ten mechanizm CELOWO nie robi i które pilnują tu testy:
 
 from __future__ import annotations
 
-import uuid
 
-import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
 from app.core.database import AsyncSessionLocal
-from app.services.traffit.importer import TraffitImporter
 
 UTC_NOW = "NOW()"
 
@@ -117,159 +114,6 @@ class _ContentGone:
             headers: dict[str, str] = {}
 
         return _R()
-
-
-def _imp(traffit, db) -> TraffitImporter:
-    return TraffitImporter(traffit, db, dry_run=False, batch_size=100)
-
-
-@pytest.mark.asyncio
-async def test_gone_candidate_gets_a_tombstone_but_keeps_the_row(
-    db, monkeypatch
-) -> None:
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 5000)
-    ext = f"t{uuid.uuid4().hex[:10]}"
-    cid = await _mk_candidate(db, ext)
-    await db.commit()
-
-    progress = await _imp(_FilesStatus({ext: 404}), db).import_candidate_files(
-        since=None
-    )
-
-    assert progress.gone_upstream >= 1
-    assert progress.tombstoned >= 1
-    assert await _tombstone(db, cid) is not None
-
-    # Wiersz ZOSTAJE — to jest cała różnica między nagrobkiem a kasowaniem.
-    row = await db.execute(
-        text("SELECT name, lastname FROM candidates WHERE id = :i"), {"i": cid}
-    )
-    assert row.fetchone() == ("Jan", "Kowalski")
-
-
-@pytest.mark.asyncio
-async def test_410_tombstones_the_same_way(db, monkeypatch) -> None:
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 5000)
-    ext = f"t{uuid.uuid4().hex[:10]}"
-    cid = await _mk_candidate(db, ext)
-    await db.commit()
-
-    await _imp(_FilesStatus({ext: 410}), db).import_candidate_files(since=None)
-
-    assert await _tombstone(db, cid) is not None
-
-
-@pytest.mark.asyncio
-async def test_a_missing_FILE_does_not_tombstone_the_person(db, monkeypatch) -> None:
-    """Najważniejszy strażnik: nieudane pobranie załącznika NIE jest dowodem,
-    że osoba zniknęła."""
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 5000)
-    ext = f"t{uuid.uuid4().hex[:10]}"
-    cid = await _mk_candidate(db, ext)
-    await db.commit()
-
-    progress = await _imp(_ContentGone(), db).import_candidate_files(since=None)
-
-    assert progress.gone_upstream >= 1, "brak pliku ma być nadal policzony"
-    assert progress.tombstoned == 0, "ale NIE jako zniknięcie osoby"
-    assert await _tombstone(db, cid) is None
-
-
-@pytest.mark.asyncio
-async def test_tombstone_is_cleared_when_the_candidate_comes_back(db) -> None:
-    """Samoleczenie. Bez tego pojedyncze 404 zostawiałoby trwałe „usunięty u
-    źródła" na profilu, który znów jest w żywym feedzie."""
-    from unittest.mock import AsyncMock
-
-    import app.services.traffit.importer as importer_mod
-
-    ext = f"t{uuid.uuid4().hex[:10]}"
-    cid = await _mk_candidate(db, ext, deleted=True)
-    await db.commit()
-    assert await _tombstone(db, cid) is not None
-
-    class _OneEmployee:
-        async def total_count(self, path):
-            return 1
-
-        async def get_paginated(self, path, *, page_size=100, **kw):
-            return
-            yield  # pragma: no cover — czyni z tego generator
-
-        async def get_pages(self, path, *, page_size=100, start_page=1, **kw):
-            yield 1, [{"id": ext}]
-
-    imp = TraffitImporter(_OneEmployee(), db, dry_run=False, batch_size=10)
-    imp.build_user_id_map = AsyncMock(return_value={})
-    imp._record_new_candidate_index_intent = AsyncMock(return_value=None)
-    orig = importer_mod.traffit_employee_to_candidate
-    importer_mod.traffit_employee_to_candidate = lambda raw, m: {
-        "external_id": str(raw["id"]),
-        "external_source": "traffit",
-        "name": "Jan",
-        "lastname": "Kowalski",
-        "traffit_raw_name": "Jan",
-        "traffit_raw_lastname": "Kowalski",
-        "traffit_source_updated_at": None,
-        "email": None,
-        "phone": None,
-        "linkedin": None,
-        "city": None,
-        "country": None,
-        "location": None,
-        "status": "active",
-        "profile_about": None,
-        "languages": [],
-        "cv_filename": None,
-        "cv_extracted_data": {},
-        "source": "traffit",
-        "created_by": None,
-    }
-    try:
-        progress = await imp.import_candidates(since=None)
-    finally:
-        importer_mod.traffit_employee_to_candidate = orig
-
-    assert progress.errors == 0, progress.error_samples
-    assert await _tombstone(db, cid) is None, "nagrobek przetrwał powrót kandydata"
-
-
-@pytest.mark.asyncio
-async def test_second_run_does_not_move_the_date(db, monkeypatch) -> None:
-    """Znacznik zapamiętuje PIERWSZĄ obserwację zniknięcia. Gdyby przesuwał się
-    przy każdym biegu, mówiłby „kiedy ostatnio sprawdzaliśmy", a nie „od kiedy
-    nie ma" — a licznik `tombstoned` rósłby w nieskończoność i przestał
-    odpowiadać na pytanie, czy zniknęło coś NOWEGO."""
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "TRAFFIT_SYNC_FULL_FILES_LIMIT", 5000)
-    ext = f"t{uuid.uuid4().hex[:10]}"
-    cid = await _mk_candidate(db, ext)
-    await db.commit()
-
-    traffit = _FilesStatus({ext: 404})
-    await _imp(traffit, db).import_candidate_files(since=None)
-    first = await _tombstone(db, cid)
-
-    second = await _imp(traffit, db).import_candidate_files(since=None)
-
-    assert await _tombstone(db, cid) == first
-    assert second.tombstoned == 0
-
-
-def test_tombstoned_reaches_sync_status() -> None:
-    from app.services.traffit.importer import PhaseProgress
-    from app.tasks.traffit_sync import _summarize
-
-    p = PhaseProgress(phase="candidate_files")
-    p.tombstoned = 3
-    assert _summarize(p.as_dict())["tombstoned"] == 3
 
 
 def test_the_index_is_partial_in_all_three_places() -> None:

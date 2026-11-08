@@ -4,16 +4,17 @@ Port ``scraper.py`` (RocketJobs) na job w tle NEXUS-a. Przepływ per aplikacja:
 
 1. stan w bazie (``integration_external_items``): widziana → pomiń,
 2. CV z panelu,
-3. Traffit: szukaj po e-mailu z panelu → duplikat = nowe CV do istniejącego
-   (gdy SHA inny) / nowy = ``parse_cv`` → payload → ``POST /employees/`` → CV,
+3. ``parse_cv`` → e-mail z CV (zapasowo z panelu); bez prawidłowego = błąd,
 4. NEXUS przez loopback: kandydat z CV → auto-match do opublikowanych
    rekrutacji (próg ``JJIT_MATCH_MIN_SCORE`` + must-have),
 5. zdarzenie w ``integration_run_events`` + wiersz stanu.
 
-``dry_run=True`` (domyślnie przez tydzień równoległej obserwacji): kroki 3–4
-tylko CZYTAJĄ (wyszukanie w Traffit, parse CV), nic nie zapisują w Traffit ani
-w NEXUS-ie poza raportem runu — liczby „nowi / duplikaty / błędy" są
-porównywalne z runem scrapera na Macu.
+``dry_run=True`` (domyślnie przez tydzień równoległej obserwacji): krok 3 tylko
+CZYTA, krok 4 jest pominięty, w NEXUS-ie zapisuje się wyłącznie raport runu.
+
+Traffit wyłączony na stałe od 14.10.2026 (``app/services/traffit_retired.py``):
+kandydat idzie tylko do NEXUSA, a stare wiersze stanu (``duplicate``,
+``cv_refreshed``, ``traffit_id``) zostają historią.
 
 Współbieżność: jeden worker uvicorna + ``_RUN_LOCK`` (asyncio) + odmowa, gdy
 w bazie jest run JJIT ``running`` młodszy niż 6 h (proces zabity bez
@@ -41,8 +42,8 @@ from app.models.integration_run import IntegrationRun, IntegrationRunEvent
 from app.services.cv_parser import parse_cv
 from app.services.cv_text_extractor import extract_text
 from app.services.integrations.jjit.cv_payload import (
-    build_traffit_payload,
     is_valid_email,
+    preferred_email,
 )
 from app.services.integrations.jjit.nexus_client import NexusLoopbackClient
 from app.services.integrations.jjit.panel_client import (
@@ -52,7 +53,6 @@ from app.services.integrations.jjit.panel_client import (
     application_skip_reason,
     split_name,
 )
-from app.services.integrations.jjit.traffit_writer import TraffitWriter
 
 logger = logging.getLogger(__name__)
 
@@ -155,8 +155,8 @@ class JjitRun:
     async def _parse_cv(self, text: str) -> dict:
         """Odczyt CV z panelu JJIT (audyt 22.09 r2, AI-05).
 
-        ``dry_run`` NIE woła modelu: wynik i tak jest wyrzucany (nic nie
-        trafia do Traffita), a płatne wywołanie szło poza licznikiem kosztów.
+        ``dry_run`` NIE woła modelu: wynik i tak jest wyrzucany, a płatne
+        wywołanie szło poza licznikiem kosztów.
         Tryb importu idzie przez bramkę ``ai_feature(cv_parser)`` z własną
         sesją, więc koszt jest widoczny w Ustawieniach → AI.
         """
@@ -211,7 +211,6 @@ class JjitRun:
         app: dict,
         offer_title: str,
         panel: PanelClient,
-        traffit: TraffitWriter,
         nexus: NexusLoopbackClient,
     ) -> None:
         aid = str(app.get("id"))
@@ -245,106 +244,26 @@ class JjitRun:
             return
         sha = hashlib.sha256(cv.data).hexdigest()
 
-        # ── Traffit ────────────────────────────────────────────────────
-        traffit_id: Optional[int] = None
-        action = "created"
-        existing = (
-            await traffit.search_by_email(email)
-            if traffit.configured and email
-            else None
-        )
-        if existing:
-            traffit_id = int(existing.get("id")) if existing.get("id") else None
-            action = "duplicate"
-            if (
-                not self.dry_run
-                and traffit_id
-                and (seen is None or seen.cv_sha256 != sha)
-            ):
-                try:
-                    await traffit.upload_cv(traffit_id, cv.data, cv.filename, cv.mime)
-                    action = "cv_refreshed"
-                    self.stats["cv_refreshed"] += 1
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("jjit: cv refresh failed for %s: %s", traffit_id, e)
-            self.stats["duplicates"] += 1
-        else:
-            try:
-                text = await asyncio.to_thread(_cv_text, cv)
-                parsed = (
-                    await self._parse_cv(text)
-                    if text and len(text.strip()) >= 50
-                    else {}
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("jjit: parse_cv failed for %s: %s", aid, e)
-                parsed = {}
-            payload = build_traffit_payload(
-                parsed,
-                fallback={"first_name": first, "last_name": last, "email": email},
-                offer_title=offer_title,
+        try:
+            text = await asyncio.to_thread(_cv_text, cv)
+            parsed = (
+                await self._parse_cv(text) if text and len(text.strip()) >= 50 else {}
             )
-            if not is_valid_email(payload["email"]):
-                self.stats["errors"] += 1
-                await self._event(
-                    action="error",
-                    external_id=aid,
-                    candidate_name=name,
-                    offer_title=offer_title,
-                    error="brak prawidłowego e-maila (CV/panel)",
-                )
-                return
-            if payload["email"] != email:
-                existing2 = (
-                    await traffit.search_by_email(payload["email"])
-                    if traffit.configured
-                    else None
-                )
-                if existing2:
-                    traffit_id = (
-                        int(existing2.get("id")) if existing2.get("id") else None
-                    )
-                    action = "duplicate"
-                    self.stats["duplicates"] += 1
-            if action == "created":
-                if self.dry_run or not traffit.configured:
-                    self.stats["created"] += 1
-                else:
-                    result = await traffit.create_candidate(payload)
-                    data = result["data"] if isinstance(result["data"], dict) else {}
-                    traffit_id = data.get("id")
-                    if not traffit_id:
-                        msg = str(
-                            data.get("message") or data.get("error") or result["data"]
-                        )
-                        if (
-                            result["status"] == 409
-                            or "already exists" in msg
-                            or "409" in msg
-                        ):
-                            action = "duplicate"
-                            self.stats["duplicates"] += 1
-                        else:
-                            self.stats["errors"] += 1
-                            await self._event(
-                                action="error",
-                                external_id=aid,
-                                candidate_name=name,
-                                offer_title=offer_title,
-                                error=f"Traffit: {msg[:300]}",
-                            )
-                            return
-                    else:
-                        traffit_id = int(traffit_id)
-                        self.stats["created"] += 1
-                        try:
-                            await traffit.upload_cv(
-                                traffit_id, cv.data, cv.filename, cv.mime
-                            )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning(
-                                "jjit: cv upload failed for %s: %s", traffit_id, e
-                            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("jjit: parse_cv failed for %s: %s", aid, e)
+            parsed = {}
+        if not is_valid_email(preferred_email(parsed, panel_email=email)):
+            self.stats["errors"] += 1
+            await self._event(
+                action="error",
+                external_id=aid,
+                candidate_name=name,
+                offer_title=offer_title,
+                error="brak prawidłowego e-maila (CV/panel)",
+            )
+            return
+        action = "created"
+        self.stats["created"] += 1
 
         # ── NEXUS (auto-match) — tylko w prawdziwym runie ───────────────
         matched: list[dict] = []
@@ -375,7 +294,6 @@ class JjitRun:
             action=action,
             external_id=aid,
             candidate_id=candidate_id,
-            traffit_id=traffit_id,
             candidate_name=name,
             offer_title=offer_title,
             matched_jobs=matched,
@@ -383,7 +301,6 @@ class JjitRun:
         await self._remember(
             aid,
             candidate_id=candidate_id,
-            traffit_id=traffit_id,
             cv_sha256=sha,
             offer_title=offer_title[:255],
             last_action=action,
@@ -412,7 +329,6 @@ class JjitRun:
                         timeout=httpx.Timeout(60.0, connect=10.0)
                     ) as http,
                 ):
-                    traffit = TraffitWriter(http)
                     nexus = NexusLoopbackClient(http)
                     await panel.login()
                     offers: list[dict] = []
@@ -444,7 +360,7 @@ class JjitRun:
                             if self.limit and total >= self.limit:
                                 break
                             try:
-                                await self._process(app, title, panel, traffit, nexus)
+                                await self._process(app, title, panel, nexus)
                             except PanelAuthError:
                                 raise
                             except Exception as e:  # noqa: BLE001

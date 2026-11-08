@@ -29,6 +29,7 @@ from lxml import etree
 from app.core.docx_metadata import clear_author_metadata
 from app.services.cv_text_align import cv_text_align
 from app.services.skill_normalize import (
+    canonical_of,
     bold_alias_forms,
     is_bold_technology_mention,
     is_gate_technology,
@@ -897,6 +898,13 @@ _PRODUCT_NAME_STOP = frozenset(
 )
 
 
+def _short_term_display(term: str) -> str:
+    """Zapis nazwy do 2 znaków, w którym się pogrubia: „go” → „Go”, „c#” → „C#”."""
+    if term.casefold() == "go":
+        return "Go"
+    return term if term != term.lower() else term.upper()
+
+
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
     """Compile whole-phrase, word-boundary regexes for champion TECHNOLOGIES.
 
@@ -914,6 +922,7 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
     design", "tworzenie i rozwój") must NOT bold. When such a phrase still
     hides a hard-tech token ("Zasady WCAG 2.1/2.2" → "WCAG", "bazami danych
     SQL" → "SQL"), only that token bolds — never the surrounding concept.
+    Names of at most 2 characters match case-sensitively (CV-5).
     """
     patterns: list[re.Pattern[str]] = []
     seen: set[str] = set()
@@ -923,6 +932,7 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
         if key in seen:
             return
         single_letter = len(term) == 1
+        short_term = len(term) <= 2
         stopword_hit = key in _STOP_WORDS
         confirmed_tech = _is_tech_word(term)
         # Single-letter and stopword-colliding terms bold ONLY when they are a
@@ -943,6 +953,11 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
             display, case_sensitive = term.upper(), True
         elif stopword_hit:
             display, case_sensitive = term[:1].upper() + term[1:], True
+        elif short_term and term.isalpha():
+            # „Go” to nie polskie „go”, a „PG” to nie zawsze PostgreSQL (CV-5).
+            # Nazwa z cyfrą albo znakiem („k6”, „S3”, „C#”) nie jest słowem:
+            # zostaje bez rozróżniania, bo CV pisze ją raz tak, raz tak.
+            display, case_sensitive = _short_term_display(term), True
         # Build from tokens so "auto-layout" also matches "auto layout"
         # (hyphen ↔ space spelling drift between champion list and CV).
         parts = [p for p in re.split(r"[\s\-]+", display) if p]
@@ -970,7 +985,10 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
         # "React"/"Kubernetes"/"PostgreSQL"/"Azure" (and vice-versa).
         _add(t)
         for form in bold_alias_forms(t):
-            _add(form)
+            # „pg” / „es” / „sh” / „tf” / „ws” w tekście to zwykle coś innego
+            # (CV-5). „s3” / „c#” zostają: z cyfrą albo znakiem nie są słowem.
+            if len(form) > 2 or form == canonical_of(t) or not form.isalpha():
+                _add(form)
         # Recover a buried brand token ONLY when a multi-word compound is ONE
         # real tech plus version junk ("Java 17+" → "Java"). A genuine
         # multi-word product ("Apache Airflow", "Selenium WebDriver") whose

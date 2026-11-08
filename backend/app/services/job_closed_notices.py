@@ -271,10 +271,23 @@ def recipients_payload(recipients: Sequence[Recipient]) -> list[dict[str, Any]]:
 
 
 async def active_cards_warning(
-    db: AsyncSession, job_id: int, *, actor_id: Optional[int]
+    db: AsyncSession,
+    job_id: int,
+    *,
+    actor_id: Optional[int],
+    close_reason: Any = None,
+    job: Optional[Job] = None,
 ) -> Optional[dict[str, Any]]:
-    """Treść 409 ``active_cards_warning`` z listą odbiorców albo ``None``."""
+    """Treść 409 ``active_cards_warning`` z listą odbiorców albo ``None``.
+
+    Przy powodzie, który kończy pary u klienta, dochodzi ``client_end``
+    (``job_close_client_cards``): okno pyta, czy je zakończyć.
+    """
     from app.services.job_active_cards import load_active_cards  # noqa: PLC0415
+    from app.services.job_close_client_cards import (  # noqa: PLC0415
+        client_side_cards,
+        preview_payload,
+    )
 
     active = await load_active_cards(db, job_id)
     if not active.total:
@@ -283,6 +296,12 @@ async def active_cards_warning(
     detail["recipients"] = recipients_payload(
         await load_recipients(db, job_id, exclude_user_id=actor_id)
     )
+    if job is not None and close_reason is not None:
+        detail["client_end"] = preview_payload(
+            await client_side_cards(db, job), close_reason
+        )
+        if detail["client_end"] is not None:
+            detail["message"] = active.message(cards_may_end=True)
     return detail
 
 
@@ -298,8 +317,12 @@ def notice_text(
     client_name: Optional[str],
     actor_name: Optional[str],
     reason: Optional[str],
+    ended_ids: frozenset[int] = frozenset(),
 ) -> tuple[str, str]:
-    """Tytuł i treść dzwonka (a więc i maila) dla jednego rekrutera."""
+    """Tytuł i treść dzwonka (a więc i maila) dla jednego rekrutera.
+
+    ``ended_ids`` = pary, które zamknięcie kończy „przez klienta” (08.11.2026).
+    """
     title = f"Rekrutacja zamknięta — daj znać {_people_dative(len(recipient.people))}"
     head = f"{job_title} · {client_name}" if client_name else job_title
     closed = "Zamknięcie"
@@ -312,15 +335,33 @@ def notice_text(
     rest = len(recipient.people) - len(shown)
     if rest:
         names += f" i {rest} innych"
-    message = (
-        f"{head}. {closed}. Twoje osoby nadal są w procesie: {names}. "
-        "Daj im znać — okno „Odrzuć” na Tablicy może wysłać im mail z Twojej skrzynki."
-    )
+    ended = sum(1 for p in recipient.people if p.candidate_id in ended_ids)
+    if ended == len(recipient.people):
+        tail = (
+            f"Twoje osoby: {names}. Ich procesy NEXUS zakończył jako „przez klienta”, "
+            "bez maila do kandydatów. Daj im znać."
+        )
+    elif ended:
+        tail = (
+            f"Twoje osoby: {names}. Część procesów ({ended}) NEXUS zakończył jako "
+            "„przez klienta”, bez maila. Reszta jest dalej w toku. Daj im znać: okno "
+            "„Odrzuć” na Tablicy może wysłać mail z Twojej skrzynki."
+        )
+    else:
+        tail = (
+            f"Twoje osoby nadal są w procesie: {names}. Daj im znać — okno „Odrzuć” "
+            "na Tablicy może wysłać im mail z Twojej skrzynki."
+        )
+    message = f"{head}. {closed}. {tail}"
     return title, message
 
 
 async def notify_closed(
-    db: AsyncSession, job: Job, *, actor_id: Optional[int]
+    db: AsyncSession,
+    job: Job,
+    *,
+    actor_id: Optional[int],
+    ended_ids: frozenset[int] = frozenset(),
 ) -> list[int]:
     """Dzwonek (i mail obowiązkowy z kolejki) do rekruterów osób w toku.
 
@@ -352,6 +393,7 @@ async def notify_closed(
             client_name=client_name,
             actor_name=actor_name,
             reason=reason,
+            ended_ids=ended_ids,
         )
         try:
             async with db.begin_nested():

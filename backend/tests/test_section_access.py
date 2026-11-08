@@ -453,7 +453,6 @@ def test_core_sourcing_pipeline_insights_and_finance_routers_have_section_guard(
     None
 ):
     from app.api import (
-        analytics_v1,
         candidates,
         finance,
         hiring_managers_analytics,
@@ -476,7 +475,6 @@ def test_core_sourcing_pipeline_insights_and_finance_routers_have_section_guard(
         ),
         ProductSection.pipeline: (jobs.router, pipeline.router),
         ProductSection.insights: (
-            analytics_v1.router,
             hiring_managers_analytics.router,
             insights_board.router,
             insights_recruitment.router,

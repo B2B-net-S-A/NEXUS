@@ -38,6 +38,13 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
 | `q_all`/`q_any`/`q_none` | jeden parser (`parse_q_groups`; grupa jako lista albo `a\|b`); CAŁE słowa, gwiazdka `java*`/`*script` (`keyword_terms`) — v1 podłańcuch |
 | status / dostępność | zgodne w obu wersjach — przypięte testem |
 
+- **Dopasowanie umiejętności i tagów to jedno wyrażenie regularne na rodzinę
+  aliasów** (`_json_token_match`, 08.11.2026; do tego dnia `strpos` na pisownię,
+  8–28 s dla Javy). Dwie gałęzie granic tokenu, `"x"` i `\"x\"`, zostają osobno,
+  bo mieszane kodowanie nie może trafiać. Nazwy dostają ucieczkę znaków ARE;
+  bardzo długie (suma ponad 4000 znaków) idą przez `strpos`, bo Postgres
+  odrzuca zbyt złożone wyrażenie. Nie wracaj do `LIKE` i nie dokładaj osobnych
+  przejść na pisownię. Wyrocznia: `tests/test_skill_token_regex.py`.
 - **Pola legacy umiejętności znaczą w L i S co innego — w OBU wersjach.** L:
   `skills` (+`skill_combine`), `skills_any`, `skills_none` są TWARDE. S:
   `skills_must` + `skills_any` to „Mile widziane" (SEARCH-P0-03), twarde jest

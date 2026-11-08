@@ -29,6 +29,20 @@ from app.services import review_batch as rb
 NOW = datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _no_database_side_effects(monkeypatch):
+    """Nieobecności i ślad blokady pisze/czyta baza; tu liczymy samą logikę."""
+
+    async def _nobody(_db, _ids):
+        return set()
+
+    async def _skip(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(rb, "absent_today", _nobody)
+    monkeypatch.setattr(rb, "_record_block", _skip)
+
+
 def _card(pid: int, job: int, score: float, owner: int | None = None) -> rb.PendingCard:
     return rb.PendingCard(
         process_id=pid,
@@ -112,10 +126,10 @@ def _fake_state(monkeypatch, *, pending: int, done: int):
         return [_card(i, 1, 80) for i in range(pending)]
 
     async def _done(_db, _uid, *, now):
-        return done
+        return rb.DayCounts(done=done)
 
     monkeypatch.setattr(rb, "_own_cards", _own)
-    monkeypatch.setattr(rb, "decided_today", _done)
+    monkeypatch.setattr(rb, "day_counts", _done)
 
 
 class _Db:
@@ -266,7 +280,15 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
     async def _own(_db, _uid, *, now=None):
         return cards
 
+    async def _column(_db, *, job_ids=None, owner_id=None):
+        return [c for c in cards if c.job_id in set(job_ids or [])]
+
+    async def _order(_db, _job_id, column, *, now):
+        return sorted(column, key=lambda c: (-c.score, c.candidate_id))
+
     monkeypatch.setattr(rb, "_own_cards", _own)
+    monkeypatch.setattr(rb, "pending_cards", _column)
+    monkeypatch.setattr(rb, "_board_order", _order)
     jobs = [
         SimpleNamespace(
             id=10,

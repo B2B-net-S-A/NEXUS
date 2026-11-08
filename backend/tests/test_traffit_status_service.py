@@ -8,8 +8,7 @@ from app.services import dashboard_v2_sources
 
 
 @pytest.mark.asyncio
-async def test_shared_status_preserves_quarantine_and_cursor(monkeypatch):
-    monkeypatch.setattr(traffit_status, "sync_is_running", lambda: False)
+async def test_shared_status_preserves_quarantine_and_cursor():
     row = SimpleNamespace(
         phase="candidates",
         last_synced_at=None,

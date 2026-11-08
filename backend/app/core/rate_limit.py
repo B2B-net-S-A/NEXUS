@@ -96,7 +96,7 @@ def user_or_ip_key(request: Request) -> str:
 # ``SlowAPIMiddleware`` — ``Limiter._check_request_limit`` wchodzi w nie tylko
 # przy ``in_middleware=True``. Ścieżka dekoratora (``@limiter.limit``) czyta
 # ``_route_limits`` i globalne pomija. ``app/main.py`` montuje wyłącznie
-# ``SecurityHeadersMiddleware``, ``LegacyStatsDeprecationMiddleware`` i CORS —
+# ``SecurityHeadersMiddleware`` i CORS —
 # ``SlowAPIMiddleware`` NIE jest tam dodany.
 #
 # Skutek: wpisanie tutaj np. ``["60/minute"]`` daje konfigurację, która wygląda

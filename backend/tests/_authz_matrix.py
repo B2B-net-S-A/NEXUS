@@ -312,9 +312,6 @@ def guards_only(app, monkeypatch) -> Iterator[dict[str, User]]:
 
     monkeypatch.setattr(fastapi.routing, "run_endpoint_function", _handler_not_executed)
     monkeypatch.setattr(limiter, "enabled", False)
-    # Wyłącznik rolloutu stoi PRZED bramkami capability — przy „off” każda
-    # trasa analityki kończyłaby się 503 i nie mówiła nic o dostępie.
-    monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "live")
     previous = dict(app.dependency_overrides)
     app.dependency_overrides[deps.get_current_user] = _current_user
     app.dependency_overrides[deps.get_authenticated_user] = _authenticated_user

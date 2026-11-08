@@ -71,6 +71,8 @@ RELEASE_REASONS = {
     # Ręczne zdjęcie, po którym człowiek przypisał tę samą osobę ponownie.
     "reassigned": "Zdjęte ręcznie, potem przypisane ponownie",
     "inactive": "Konto nieaktywne",
+    # 08.11.2026 (audyt 2, B8): zwolnienie przy wyłączeniu konta.
+    "deactivated": "Konto wyłączone",
     "mode_off": "Automat wyłączony",
     # 02.10.2026: propozycje do akceptacji przez Head of Recruitment.
     "superseded": "Przydzielono kogoś innego",

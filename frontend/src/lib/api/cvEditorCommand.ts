@@ -152,6 +152,8 @@ export interface CvEditorCommandApi {
   plan: (stageId: number, body: CvCommandRequest) => Promise<CvCommandResponse>;
   /** „Tak, dopisz”: fakt z rozmowy z kandydatem jako notatka pary (autor, data). */
   confirmFact: (stageId: number, body: { term: string; text: string }) => Promise<void>;
+  /** Plan nałożony na CV: rodzaj prośby i liczba operacji, bez treści (pomiar E3). */
+  applied?: (stageId: number, body: { preset: string | null; operations: number }) => Promise<void>;
 }
 
 export const networkCommandApi: CvEditorCommandApi = {
@@ -165,4 +167,6 @@ export const networkCommandApi: CvEditorCommandApi = {
       .then((response) => response.data),
   confirmFact: (stageId, body) =>
     api.post(`/api/pipeline/stages/${stageId}/cv-ai/confirm-fact`, body).then(() => undefined),
+  applied: (stageId, body) =>
+    api.post(`/api/pipeline/stages/${stageId}/cv-ai/applied`, body).then(() => undefined),
 };
