@@ -228,12 +228,19 @@ def accept_live(
     poll_seconds: float = 20.0,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    rebuild_skipped: bool = False,
 ) -> Acceptance:
     if live == release:
         return Acceptance(0, GREEN, "identical")
     if not SHA_RE.fullmatch(live):
         return Acceptance(2, "n/a", "unreadable")
     rel = relation_of(release, live)
+    # Rebuild pominięty (deploy_needed.py: od produkcji zmieniły się tylko
+    # ścieżki bez wpływu na obraz, np. docs/): produkcja słusznie zostaje na
+    # przodku wydania. Bez tego wydanie z samymi docs dawało fałszywie
+    # czerwony Deploy (08.11.2026, #3152).
+    if rebuild_skipped and rel == "behind":
+        return Acceptance(0, GREEN, rel)
     if rel != "ahead":
         return Acceptance(2, "n/a", rel)
     deadline = clock() + wait_seconds
@@ -332,6 +339,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     accept.add_argument("--release", required=True)
     accept.add_argument("--live", required=True)
     accept.add_argument("--wait-seconds", type=float, default=600.0)
+    accept.add_argument(
+        "--rebuild-skipped",
+        default="false",
+        help="'true' = krok precheck pominął rebuild; przodek wydania jest wtedy przyjęty",
+    )
     return parser.parse_args(argv)
 
 
@@ -460,11 +472,17 @@ def _run_accept(args: argparse.Namespace, fetch: Fetch) -> int:
         lambda base, head: relation(fetch, args.repo, base, head),
         lambda sha: gate_status(fetch, args.repo, sha, args.branch),
         wait_seconds=args.wait_seconds,
+        rebuild_skipped=args.rebuild_skipped == "true",
     )
     if result.code == 0:
         _append(os.environ.get("GITHUB_ENV"), [f"ACCEPTED_SHA={args.live}"])
         if args.live == args.release:
             print(f"Produkcja serwuje wydanie {args.live[:7]}")
+        elif result.relation == "behind":
+            print(
+                f"Produkcja serwuje {args.live[:7]} — przodek wydania {args.release[:7]}; "
+                "rebuild pominięty, bo zmiana nie trafia do obrazu."
+            )
         else:
             print(
                 f"Produkcja serwuje {args.live[:7]} — potomek wydania {args.release[:7]} "
