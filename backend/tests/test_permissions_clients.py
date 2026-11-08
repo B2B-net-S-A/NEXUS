@@ -238,13 +238,14 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
 
     # Z podglądem danych prawnych to samo konto zmienia je i czyści jak dotąd.
     await grant_permissions(user_id, "amounts_view")
+    new_nip = _unique_valid_nip()
     legal = await app_client.patch(
         f"/api/clients/{client_id}",
         headers=headers,
-        json={"nip": "1111111111", "notes": None},
+        json={"nip": new_nip, "notes": None},
     )
     assert legal.status_code == 200, legal.text
-    assert legal.json()["nip"] == "1111111111"
+    assert legal.json()["nip"] == new_nip
     assert legal.json()["notes"] is None
 
 

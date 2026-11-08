@@ -3,7 +3,7 @@
     "id": "finanse-rozjazdy-nieznani-nabywcy",
     "pr": 3182,
     "title": "Rozjazdy stawek i Nieznani nabywcy",
-    "why": "Nowa zakładka pokazuje, gdzie stawka z kontraktu różni się od zamówienia MD i ile to daje w miesiącu. W „Faktury do klientów” jest też lista „Nieznani nabywcy”: jednym przypisaniem dopiszesz NIP i dowiążesz wszystkie faktury nabywcy.",
+    "why": "Widać tu, gdzie stawka z kontraktu różni się od zamówienia MD. W „Faktury do klientów” jest też lista „Nieznani nabywcy”: jedno przypisanie dowiązuje wszystkie faktury nabywcy.",
     "tier": "dot",
     "shipped_on": "2026-11-08",
     "audience": {
