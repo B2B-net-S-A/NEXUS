@@ -43,7 +43,9 @@ from app.core.scheduling import (
     local_now,
 )
 from app.models.user import UserRole
+from app.schemas.dashboard_v2 import FirstCvSummary
 from app.services import competition_history
+from app.services.client_response_metrics import compute_first_cv
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
 from app.services.insights_in_flight import compute_in_flight
@@ -485,6 +487,29 @@ async def insights_recruitment_in_flight(
             with_acceptances=with_acceptances,
         )
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
+
+
+@router.get("/first-cv", response_model=FirstCvSummary)
+async def insights_recruitment_first_cv(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> FirstCvSummary:
+    """Pas „Od otwarcia rekrutacji do pierwszego CV u klienta” w Zespole.
+
+    Dni robocze, ostatnie 8 tygodni, cała firma. Bez nazwisk i bez kwot, więc
+    widzi go każdy z dostępem do Insights, tak jak lejek.
+    """
+    today = business_today()
+    cache_key = f"insights:recruitment:first-cv:v1:{today.isoformat()}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return FirstCvSummary.model_validate(cached)
+        result = await compute_first_cv(db, today)
+        await cache_set(
+            cache_key, result.model_dump(mode="json"), ttl_seconds=CACHE_TTL_SECONDS
+        )
         return result
 
 

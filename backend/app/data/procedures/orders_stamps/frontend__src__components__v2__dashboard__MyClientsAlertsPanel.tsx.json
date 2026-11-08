@@ -1,4 +1,4 @@
 {
-  "sha256": "304235273f41695c6e6fd6bc413ec05441f80c003cbd0ce06643841e44d5422c",
+  "sha256": "0bce77ea4310cf258447d913db9f393f099d07406b8799eb015157d6130e957b",
   "source": "frontend/src/components/v2/dashboard/MyClientsAlertsPanel.tsx"
 }

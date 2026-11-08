@@ -134,7 +134,7 @@ kodu sprzed 10.10.2026 odnoszą się do plików z tych katalogów.
 - **Integracje** — `integracje/`: Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań.
 - **Sprzedaż (dawny Atlas)** — `sprzedaz/`: Uprawnienia Sprzedaży, kartoteka firm sprzedaży, szanse, „Kogo znamy”, daty per firma, powiązanie z klientem, leady, import z Atlasa.
 - **Ludzie w NEXUSIE** — `ludzie/`: Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.
-- **Programy** — `programy/`: Akademia i program praktykanta — oba ukryte z UI od 17.10.2026.
+- **Programy** — `programy/`: Akademia i program praktykanta — usunięte z kodu 08.11.2026, tabele zostały.
 - **Audyty przekrojowe** — `audyty/`: Reguły po audytach 22–25.09.2026 — przeczytaj przed zmianą w poczcie zamówień, MD, kontraktach, bezpieczeństwie albo integracjach.
 
 <!-- INDEKS:END -->

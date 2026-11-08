@@ -7,6 +7,7 @@ import { jobsApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   activeCardsWarningFrom,
+  clientEndCount,
   closeAnywayLabel,
   type ActiveCardsWarning,
 } from "@/lib/job-close";
@@ -41,6 +42,8 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
   });
   // Osoby w toku: pierwsze zamknięcie serwer zatrzymuje ostrzeżeniem.
   const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
+  const [endClient, setEndClient] = useState(true);
+  const endPeople = clientEndCount(activeCards, value.reason, endClient);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
@@ -52,6 +55,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
         value.notes,
         activeCards != null,
         value.duplicateOfJobId,
+        endPeople > 0,
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
@@ -75,7 +79,14 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
         Rekrutacja: <span className="font-medium text-foreground">{jobTitle}</span>
       </p>
 
-      {activeCards ? <ActiveCardsNotice warning={activeCards} /> : null}
+      {activeCards ? (
+        <ActiveCardsNotice
+          warning={activeCards}
+          reason={value.reason}
+          endClient={endClient}
+          onEndClientChange={setEndClient}
+        />
+      ) : null}
 
       <CloseReasonFields value={value} onChange={setValue} jobId={jobId} clientId={clientId} />
 
@@ -93,7 +104,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
           disabled={mutation.isPending || !closeReasonReady(value)}
           className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
-          {mutation.isPending ? "Zamykam..." : activeCards ? closeAnywayLabel(activeCards) : "Zamknij rekrutację"}
+          {mutation.isPending ? "Zamykam..." : activeCards ? closeAnywayLabel(activeCards, "Zamknij", endPeople) : "Zamknij rekrutację"}
         </button>
       </div>
     </ModalShell>

@@ -434,6 +434,7 @@ async def promote_shortlist_entry(
         work_channel=PriorityChannel.database,
         entry_source="added_manual",
         claim_for_user_id=current_user.id,
+        entry_meta={"found_via": "search"},
     )
     # M3-ACT-01: snapshot the CV current at promotion + emit the audit, the
     # same invariant the single-assign path holds — shortlist promotion was

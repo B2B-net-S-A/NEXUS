@@ -163,6 +163,7 @@ describe("MoveNextDialog", () => {
         ...item,
         stage: "interview",
         moved_at: today,
+        waiting_workdays: 0,
         qc: { status: "passed", blocking_failed: 0, ok_at: today },
       } as never,
     });

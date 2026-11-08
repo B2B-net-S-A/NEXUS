@@ -25,6 +25,7 @@ from app.schemas.dashboard_v2 import (
     AdminOpsDashboardData,
     AdminOpsDashboardResponse,
     AdminOpsKpis,
+    ClientResponseBoard,
     CompetitionRankingEntry,
     DashboardAlert,
     DashboardDataQuality,
@@ -66,6 +67,7 @@ from app.schemas.dashboard_v2 import (
     RecruitmentTrendMonth,
 )
 from app.services import dashboard_v2_sources as sources
+from app.services.client_response_metrics import cached_client_response_board
 from app.services.metric_definitions import VERIFIER_ANCHORED_MILESTONES
 
 logger = logging.getLogger(__name__)
@@ -280,6 +282,31 @@ def _kpi(
 
 def _unavailable_kpi(unit: str, definition: str) -> DashboardKpi:
     return _kpi(None, unit, definition, quality="unavailable")
+
+
+def _client_response_kpi(board: ClientResponseBoard | None) -> DashboardKpi:
+    definition = (
+        "CV z rozmową, akceptacją, zatrudnieniem albo odrzuceniem przez klienta "
+        "w 7 dniach roboczych od pierwszej wysyłki, bez rekrutacji masowych."
+    )
+    if board is None:
+        return _unavailable_kpi("percent", definition)
+    return _kpi(
+        board.response.response_7d_pct,
+        "percent",
+        definition,
+        target=board.response.target_pct,
+    )
+
+
+def _first_cv_kpi(board: ClientResponseBoard | None) -> DashboardKpi:
+    definition = (
+        "Mediana dni roboczych od otwarcia rekrutacji do pierwszego CV u klienta, "
+        "bez rekrutacji z importu Traffita i bez wysyłek sprzed otwarcia."
+    )
+    if board is None:
+        return _unavailable_kpi("workdays", definition)
+    return _kpi(board.first_cv.median_first_cv_workdays, "workdays", definition)
 
 
 def _queue_from_alerts(alerts: list[DashboardAlert]) -> list[DashboardQueueItem]:
@@ -605,13 +632,13 @@ async def build_delivery_lead_dashboard(
             warnings=["Admin organization scope has no single DL demand owner."],
         )
 
-    quality.set(
-        "delivery_sla",
-        "unavailable",
-        warnings=[
-            "Kanoniczny scoped SLA/TTFR resolver nie jest jeszcze dostępny; "
-            "wartości nie są zgadywane."
-        ],
+    client_board = await _capture(
+        quality,
+        "client_response",
+        lambda: cached_client_response_board(
+            db,
+            None if scope.payload.kind == "organization" else scope.payload.client_ids,
+        ),
     )
 
     jobs = metrics_snapshot.jobs if metrics_snapshot else []
@@ -724,12 +751,8 @@ async def build_delivery_lead_dashboard(
                 "Suma headcount opublikowanych jobów wszystkich klientów.",
                 quality="complete" if metrics_snapshot is not None else "unavailable",
             ),
-            first_recommendation_sla_pct=_unavailable_kpi(
-                "percent", "Joby z pierwszą rekomendacją w uzgodnionym SLA."
-            ),
-            median_time_to_first_recommendation_hours=_unavailable_kpi(
-                "hours", "Mediana od utworzenia joba do pierwszego cv_sent."
-            ),
+            client_response_7d_pct=_client_response_kpi(client_board),
+            first_cv_median_workdays=_first_cv_kpi(client_board),
             fill_rate_pct=_unavailable_kpi(
                 "percent", "Pierwsze placementy / historyczne vacancies w okresie."
             ),
@@ -836,13 +859,10 @@ async def build_head_of_recruitment_dashboard(
                     "operatorów z rosteru",
                 )
                 team_kpis = None
-    quality.set(
-        "recruitment_sla",
-        "unavailable",
-        warnings=[
-            "Scoped first-recommendation SLA and interview conversion are not "
-            "yet exposed by the canonical analytics service."
-        ],
+    client_board = await _capture(
+        quality,
+        "client_response",
+        lambda: cached_client_response_board(db),
     )
 
     total_capacity = sum(int(row.get("verification_capacity") or 0) for row in members)
@@ -999,12 +1019,8 @@ async def build_head_of_recruitment_dashboard(
                 if team_shape_complete and capacity_pct is not None
                 else "unavailable",
             ),
-            first_recommendation_sla_pct=_unavailable_kpi(
-                "percent", "Procent jobów z pierwszą rekomendacją w SLA."
-            ),
-            recommendation_to_interview_pct=_unavailable_kpi(
-                "percent", "Pierwsze interview / pierwsze rekomendacje w okresie."
-            ),
+            client_response_7d_pct=_client_response_kpi(client_board),
+            first_cv_median_workdays=_first_cv_kpi(client_board),
             placements=_kpi(
                 placements,
                 "count",

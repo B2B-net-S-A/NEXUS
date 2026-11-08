@@ -16,7 +16,6 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -331,7 +330,6 @@ async def test_monthly_race_thresholds_come_from_kpi_and_config():
 
 @pytest.mark.asyncio
 async def test_calls_kpi_absent_when_cloudtalk_disabled(monkeypatch):
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", False)
     uid = await _seed_user(UserRole.recruiter, label="calls")
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)

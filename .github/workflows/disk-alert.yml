@@ -28,7 +28,7 @@ jobs:
         id: disk
         run: |
           set -euo pipefail
-          body=$(curl -sS --max-time 20 https://api.nexus.dynaminds.pl/api/health)
+          body=$(curl -sS --max-time 20 https://api.nexus.b2bnetwork.pl/api/health)
           pct=$(echo "$body" | jq -r '.diskPercent // empty')
           echo "diskPercent=$pct"
           if [ -z "$pct" ] || [ "$pct" = "null" ]; then
@@ -112,7 +112,7 @@ jobs:
         id: vol
         run: |
           set -euo pipefail
-          body=$(curl -sS --max-time 20 https://api.nexus.dynaminds.pl/api/health)
+          body=$(curl -sS --max-time 20 https://api.nexus.b2bnetwork.pl/api/health)
           pct=$(echo "$body" | jq -r '.backupVolumePercent // empty')
           echo "backupVolumePercent=$pct"
           if [ -z "$pct" ] || [ "$pct" = "null" ]; then

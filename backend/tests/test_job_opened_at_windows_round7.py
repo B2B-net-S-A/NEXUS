@@ -7,12 +7,11 @@ z lat 2019–2024 liczyło się jak świeży popyt.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.models.job import JobStatus
 from app.services import job_similarity
-from app.services.trainee_call_list import _demand_index
 
 NOW = datetime(2026, 9, 26, 12, tzinfo=timezone.utc)
 
@@ -26,21 +25,6 @@ def _job(job_id: int, *, opened_at, created_at) -> SimpleNamespace:
         opened_at=opened_at,
         created_at=created_at,
     )
-
-
-def test_demand_window_uses_opened_at_over_import_date() -> None:
-    imported = NOW - timedelta(days=120)
-    jobs = [
-        _job(
-            1, opened_at=datetime(2020, 1, 1, tzinfo=timezone.utc), created_at=imported
-        ),
-        _job(2, opened_at=NOW - timedelta(days=30), created_at=imported),
-        _job(3, opened_at=None, created_at=NOW - timedelta(days=10)),
-    ]
-
-    index = _demand_index(jobs, {"window_months": 18}, NOW)
-
-    assert sorted(job.id for job in index["java"]) == [2, 3]
 
 
 def test_similarity_pool_carries_opened_at() -> None:

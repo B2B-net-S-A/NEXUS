@@ -257,3 +257,29 @@ describe("od „Zweryfikowanego” liczy się osoba, która zweryfikowała (29.1
     expect(matchesAddedBy(assigned, me, "cv_sent")).toBe(false);
   });
 });
+
+describe("filtr „Stoją > 7 dni”", () => {
+  it("adres ?added_by=stuck przechodzi w obie strony", () => {
+    expect(parseAddedBy("stuck")).toEqual({ kind: "stuck" });
+    expect(addedByParam({ kind: "stuck" })).toBe("stuck");
+  });
+
+  it("zostają karty ponad 7 dni, brak danych to nie zaległość", () => {
+    const stuck = { kind: "stuck" } as const;
+    const card = (days: number | null) => ({ candidate_id: 1, days_in_stage: days });
+    expect(matchesAddedBy(card(8), stuck)).toBe(true);
+    expect(matchesAddedBy(card(7), stuck)).toBe(false);
+    expect(matchesAddedBy(card(null), stuck)).toBe(false);
+    // „Ogłoszenia” leżą w kolumnie Nowi i się liczą, zatrudnieni nie.
+    expect(matchesAddedBy(card(30), stuck, "new")).toBe(true);
+    expect(matchesAddedBy(card(30), stuck, "hired")).toBe(false);
+  });
+
+  it("menu ma pozycję z liczbą tylko, gdy ktoś stoi", () => {
+    const viewer = { id: 1, name: "Ty" };
+    const withStuck = addedByOptions([{ candidate_id: 1, days_in_stage: 9 }], viewer);
+    expect(withStuck.find((o) => o.key === "stuck")?.count).toBe(1);
+    const without = addedByOptions([{ candidate_id: 1, days_in_stage: 2 }], viewer);
+    expect(without.find((o) => o.key === "stuck")).toBeUndefined();
+  });
+});

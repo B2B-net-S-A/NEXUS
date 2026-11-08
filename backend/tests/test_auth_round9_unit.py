@@ -39,17 +39,10 @@ def test_secrets_equal_handles_non_ascii_without_type_error():
     assert secrets_equal("\ud800", "x") is False
 
 
-def test_cloudtalk_signature_with_non_ascii_header_is_rejected_not_raised():
-    from app.services.cloudtalk.webhook_verify import verify_signature
-
-    assert verify_signature(b"{}", "sha256=złe", "sekret") is False
-
-
 def test_compare_digest_on_str_is_gone_from_auth_surfaces():
     for rel in (
         "api/admin_snapshot.py",
         "api/microsoft365.py",
-        "services/cloudtalk/webhook_verify.py",
     ):
         tree = ast.parse((APP / rel).read_text())
         for node in ast.walk(tree):

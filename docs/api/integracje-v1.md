@@ -4,7 +4,7 @@ API dla automatyzacji procesów firmy: **rozliczanie klientów** (klienci,
 kontrakty, zamówienia, zużycie MD, Finanse, faktury), **rekrutacja
 i kandydaci** (rekrutacje, Tablica, kandydaci, CV, notatki) oraz zakładanie
 rekrutacji z requestu, CV dla klienta, rozmowy u klienta, zgłoszenia z linku,
-Insights, Akademia, nieobecności, wydania sprzętu i zdarzenia z webhookami.
+Insights, nieobecności, wydania sprzętu i zdarzenia z webhookami.
 
 - Adres bazowy: `https://api.nexus.dynaminds.pl/api/integrations/v1`
 - Specyfikacja OpenAPI (do importu w Postmanie, n8n, Power Automate):
@@ -74,7 +74,6 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
 | `applications:read` | Zgłoszenia z linku rekrutacji: lista, szczegóły, ocena AI |
 | `applications:write` | Rozpatrzenie zgłoszenia (dołącz, scal, utwórz, odrzuć) — obejmuje `applications:read` |
 | `insights:read` | Raporty: lejek rekrutacji, placementy, aktywność zespołu i Ligi, cele |
-| `academy:read` | Akademia: programy, nabór, uczestnicy (kontakt z `candidates:contact`) |
 | `absences:read` | Nieobecności: kto i kiedy (zatwierdzone wnioski, dni robocze) — **bez rodzaju nieobecności** |
 | `equipment:read` | Sprzęt: wydanie i zwrot egzemplarza (kategoria, model, numer ewidencyjny, posiadacz, daty) |
 | `events:read` | Kanał zdarzeń: co się zmieniło (same identyfikatory) |
@@ -570,21 +569,6 @@ założenie z polami, które zatwierdziła automatyzacja albo człowiek.
   zostają na ekranie.
 - `/goals` — katalog celów KPI z celem roli i postęp zespołu rekrutacji.
 - Pierwsze zapytanie o długi okres może trwać kilka sekund.
-
-### Akademia
-
-| Metoda | Ścieżka | Scope |
-|---|---|---|
-| GET | `/academy/programs?is_active=` | `academy:read` |
-| GET | `/academy/programs/{id}` | `academy:read` |
-| GET | `/academy/programs/{id}/participants?status=` | `academy:read` (+ `candidates:contact` dla kontaktu) |
-
-- Programy: kryteria, terminy, liczby zgłoszeń per etap, najbliższa edycja;
-  szczegóły dodają źródła naboru, sesje w biurze i edycje.
-- Uczestnicy (stronicowane): imię i nazwisko, etap (`new`, `to_call`,
-  `scheduled`, `task_given`, `task_passed`, `contract_sent`, `signed`,
-  `rejected`, `withdrew`), daty. E-mail i telefon tylko z `candidates:contact`;
-  notatki z naboru i powody odrzucenia nie wychodzą.
 
 ### Nieobecności
 

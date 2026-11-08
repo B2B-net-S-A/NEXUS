@@ -95,7 +95,6 @@ from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import calls
-from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
@@ -143,9 +142,7 @@ from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
 from app.api import dl_match as dl_match_api
 from app.api import candidate_similar as candidate_similar_api
-from app.api import academy as academy_api
-from app.api import academy_edition as academy_edition_api
-from app.api import trainee as trainee_api
+from app.api.retired_modules import install_retired_modules
 from app.api import board_tasks as board_tasks_api
 from app.api import review_batch as review_batch_api
 from app.api import candidate_followups as candidate_followups_api
@@ -729,10 +726,10 @@ async def lifespan(app: FastAPI):
 
     # Phase B1: preload skill alias map into scoring engine
     try:
-        from app.services.skill_taxonomy_loader import refresh_alias_map
+        from app.services.skill_taxonomy_loader import sync_dictionary_version
 
-        count = await refresh_alias_map()
-        logger.info("Skill alias map loaded: %d aliases", count)
+        count = await sync_dictionary_version()
+        logger.info("Skill alias map loaded: %s aliases", count)
     except Exception as e:
         logger.warning("Skill alias map preload skipped: %s", e)
 
@@ -823,12 +820,10 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
-    from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
-    from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
@@ -836,7 +831,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
-    from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
@@ -845,9 +839,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
-    from app.tasks.academy_intake import academy_intake_loop
     from app.tasks.application_screening import application_screening_loop
-    from app.tasks.trainee_call_lists import trainee_call_lists_loop
     from app.tasks.cc_participants_sync import cc_participants_sync_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
@@ -907,10 +899,8 @@ async def lifespan(app: FastAPI):
             ),
             # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
             "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
-            "academy_intake": asyncio.create_task(academy_intake_loop()),
             # 0404: zgłoszenia z linku rekrutacji — przegląd AI przed „Nowi”.
             "application_screening": asyncio.create_task(application_screening_loop()),
-            "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
             # Uczestnicy rekrutacji = osoby jej kategorii kompetencji; co godzinę
             # wyrównanie po zmianach ról, kont i importach.
             "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
@@ -1033,11 +1023,6 @@ async def lifespan(app: FastAPI):
             # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
             # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
             "jjit_import": asyncio.create_task(jjit_import_loop()),
-            "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-            # Traffit wyłączony na stałe (14.10.2026) — `traffit_sync`
-            # i `candidate_contact_traffit` kończą się przed pierwszym
-            # odczekaniem, bez względu na flagi (`services/traffit_retired.py`).
-            "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
             "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
             # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
             # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
@@ -1069,9 +1054,6 @@ async def lifespan(app: FastAPI):
             "match_digest": asyncio.create_task(match_digest_loop()),
             "candidate_contact_queue": asyncio.create_task(
                 candidate_contact_queue_loop()
-            ),
-            "candidate_contact_traffit": asyncio.create_task(
-                traffit_contact_intake_loop()
             ),
             "index_outbox": asyncio.create_task(index_outbox_loop()),
             "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
@@ -1190,6 +1172,11 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(*_lost, return_exceptions=True)
         app.state.background_tasks = {}
 
+    # Audyt 2, W5: mapa słownika musi być świeża także w procesie bez blokady
+    # lidera, dlatego ta pętla stoi poza rejestrem `background_tasks`.
+    from app.tasks.skill_dictionary_sync import skill_dictionary_sync_loop
+
+    app.state.skill_dictionary_sync = asyncio.create_task(skill_dictionary_sync_loop())
     app.state.background_tasks = {}
     app.state.background_leader = None
     # Web nie bierze blokady: jego pętle dotyczą pamięci tego procesu.
@@ -1210,7 +1197,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if app.state.background_leader is not None:
         await app.state.background_leader.stop_watching()
-    tasks = tuple(app.state.background_tasks.values())
+    tasks = (*app.state.background_tasks.values(), app.state.skill_dictionary_sync)
     for t in tasks:
         t.cancel()
     # `gather(..., return_exceptions=True)`, nie pętla `await t` łapiąca sam
@@ -1257,6 +1244,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # API integracyjne v1: błąd trasy v1 jest WYJĄTKIEM (rollback sesji żądania),
 # a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
 app.add_exception_handler(IntegrationApiError, integration_error_handler)
+# Usunięte moduły (D1 z audytu 07.11.2026): stare adresy odpowiadają 410.
+install_retired_modules(app)
 
 
 async def _off_limits_confirmation_handler(
@@ -1569,22 +1558,6 @@ app.include_router(
     candidate_similar_api.router, prefix="/api", tags=["candidate-similar"]
 )
 app.include_router(
-    academy_api.router,
-    prefix="/api/academy",
-    tags=["academy"],
-)
-# Edycja Akademii od strony recepcji (0465): /editions, /programs/{id}/editions/{yyyy-mm}.
-app.include_router(
-    academy_edition_api.router,
-    prefix="/api/academy",
-    tags=["academy"],
-)
-app.include_router(
-    trainee_api.router,
-    prefix="/api/trainee",
-    tags=["trainee"],
-)
-app.include_router(
     board_tasks_api.router,
     prefix="/api/board-tasks",
     tags=["board-tasks"],
@@ -1809,7 +1782,6 @@ app.include_router(
     tags=["user-email-templates"],
 )
 app.include_router(calls.router, prefix="/api", tags=["calls"])
-app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
 app.include_router(
     teams_channels_api.router,
     prefix="/api/teams-channels",
@@ -2719,7 +2691,7 @@ HEALTH_DB_PING_TIMEOUT_SECONDS = 8.0
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
 
-    Shape: {status, version, deployedAt, checks: {database, m365, cloudtalk, autenti}}.
+    Shape: {status, version, deployedAt, checks: {database, m365, autenti}}.
     HTTP 503 only when `database` is unhealthy (uptime-probe contract);
     `m365` is informational and does not affect the gate; it also degrades
     when a mailbox has been stuck in a sync error for more than 24 h.
@@ -2813,34 +2785,6 @@ async def api_health_check():
             checks["m365_encryption"] = "unhealthy"
         except Exception:
             checks["m365_encryption"] = "unhealthy"
-
-    # CloudTalk status — raportowany TYLKO gdy integracja jest włączona.
-    #
-    # Wcześniej klucz `cloudtalk: "unconfigured"` wisiał w odpowiedzi zawsze,
-    # także przy wyłączonym kill-switchu — czyli od wdrożenia integracji do
-    # dziś, bez jednego dnia przerwy. Stały wpis „czegoś tu nie ma" nie niesie
-    # informacji: nie da się po nim poznać, czy ktoś właśnie wyłączył działającą
-    # integrację, czy po prostu nigdy jej nie uruchomiono. Uczy natomiast
-    # ignorować niezdrowe pozycje w `checks` — a to jest kosztowne, bo obok
-    # stoją pozycje, które znaczą coś naprawdę (`database`, `traffit`).
-    #
-    # Decyzja produktowa 28.07: nie używamy CloudTalka. Kod zostaje (model
-    # `Call` i kolumny są niezależne od dostawcy i przydadzą się przy następnej
-    # telefonii), ale przestaje raportować swoją nieobecność.
-    if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
-        pass
-    else:
-        try:
-            from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
-
-            cfg = CloudTalkConfig.from_settings()
-            async with CloudTalkClient(cfg) as ct:
-                await asyncio.wait_for(ct.ping(), timeout=2.0)
-            checks["cloudtalk"] = "healthy"
-        except asyncio.TimeoutError:
-            checks["cloudtalk"] = "degraded"
-        except Exception:
-            checks["cloudtalk"] = "unhealthy"
 
     # Autenti status — informational only. Config-only probe (no network call
     # to keep uptime-probe latency low — full ping lives at /api/autenti/health

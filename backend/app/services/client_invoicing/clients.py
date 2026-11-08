@@ -16,7 +16,6 @@ Zamówienia i faktury klienta czytamy razem z jego scalonymi duplikatami
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal, Optional
@@ -26,13 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
 from app.services.client_identity import client_display_name
-from app.services.order_client_identity import normalize_buyer_number
+from app.services.order_client_identity import REGISTRY_KEY, normalize_buyer_number
 
 #: Bezpiecznik łańcucha scaleń (API nie pozwala scalić do scalonego).
 _MERGE_CHAIN_LIMIT = 5
-# Co najmniej 5 cyfr: faktury zapisane przed pełnym numerem mają VAT z literą ucięty
-# do jednej cyfry („FR1”, „IE9”), a taki klucz mają różne firmy.
-_REGISTRY_KEY = re.compile(r"\d{10}|[A-Z]{2}(?=(?:[A-Z+*]*\d){5})[A-Z0-9+*]+")
 
 BuyerNumberState = Literal["add", "same", "differs", "taken", "none"]
 
@@ -79,7 +75,7 @@ async def nip_registry(db: AsyncSession) -> NipRegistry:
     targets: dict[str, set[int]] = {}
     for client_id, raw_nip, _merged, _deleted in rows:
         nip = normalize_buyer_number(raw_nip or "")
-        if not _REGISTRY_KEY.fullmatch(nip):
+        if not REGISTRY_KEY.fullmatch(nip):
             continue
         target = canonical(int(client_id))
         if target is None or target in deleted:
@@ -147,7 +143,7 @@ async def check_buyer_number(
 
     key = normalize_buyer_number(number or "")
     client = await _canonical(db, client_id) if client_id is not None else None
-    if client is None or not _REGISTRY_KEY.fullmatch(key):
+    if client is None or not REGISTRY_KEY.fullmatch(key):
         return BuyerNumber("none", number=key or None)
     members = await family(db, [client.id])
     existing = [
@@ -194,6 +190,33 @@ async def add_buyer_number(
     return check
 
 
+def is_registry_key(number: Optional[str]) -> bool:
+    """Czy numer z faktury nadaje się do zapisania u klienta (patrz ``REGISTRY_KEY``)."""
+
+    return bool(number) and REGISTRY_KEY.fullmatch(number or "") is not None
+
+
+async def number_taken_by(
+    db: AsyncSession, client_id: Optional[int], number: str
+) -> Optional[str]:
+    """Kto INNY ma ten numer: nazwa klienta albo opis, ``None`` gdy nikt.
+
+    Ten sam numer u dwóch klientów zatrzymuje faktury obu (``ambiguous_buyer``),
+    więc formularz klienta odmawia tak samo jak „Przypisz i dopisz NIP”.
+    """
+
+    key = normalize_buyer_number(number)
+    registry = await nip_registry(db)
+    if key in registry.ambiguous:
+        return "kilku innych klientów"
+    owner = registry.by_nip.get(key)
+    if owner is None:
+        return None
+    if client_id is not None and owner in await family(db, [client_id]):
+        return None
+    return (await names(db, [owner])).get(owner)
+
+
 async def names(db: AsyncSession, client_ids: Iterable[int]) -> dict[int, str]:
     ids = sorted({int(cid) for cid in client_ids})
     if not ids:
@@ -208,6 +231,8 @@ __all__ = [
     "add_buyer_number",
     "check_buyer_number",
     "family",
+    "is_registry_key",
     "names",
     "nip_registry",
+    "number_taken_by",
 ]

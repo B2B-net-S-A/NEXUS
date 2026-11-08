@@ -9,6 +9,7 @@ const meta = {
   rate_known: false,
   availability_known: false,
   decided: false,
+  awaiting_decision: true,
   waiting_days: 2,
   decision_due: true,
 };
@@ -70,12 +71,28 @@ describe("DockAutofillReason", () => {
     expect(screen.queryByTestId("dock-autofill-cautions")).toBeNull();
   });
 
+  it("poza „Nowymi” nie prosi o decyzję, a „Od systemu” i powód zostają", () => {
+    const { container } = render(
+      <DockAutofillReason
+        item={{
+          entry_source: "system",
+          entry_autofill: { ...meta, awaiting_decision: false, decision_due: false, waiting_days: null },
+        }}
+      />,
+    );
+    expect(container).toHaveTextContent("Od systemu · 81%");
+    expect(container).toHaveTextContent("✓ Java");
+    expect(container).toHaveTextContent("System nie znał stawki");
+    expect(container).not.toHaveTextContent("bez decyzji");
+    expect(container).not.toHaveTextContent("Zdecyduj");
+  });
+
   it("po decyzji nie prosi o nią, a osoby od ludzi nie dotyczy", () => {
     const { rerender, container } = render(
       <DockAutofillReason
         item={{
           entry_source: "system",
-          entry_autofill: { ...meta, decided: true, decision_due: false, waiting_days: null, rate_known: true, availability_known: true },
+          entry_autofill: { ...meta, decided: true, awaiting_decision: false, decision_due: false, waiting_days: null, rate_known: true, availability_known: true },
         }}
       />,
     );

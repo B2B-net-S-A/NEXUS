@@ -1,6 +1,6 @@
 # Pomiar poprawek CV z generatora przy zatwierdzeniu (E3, 07.11.2026)
 
-<!-- indeks: `generated_editor_html`, `cv_approved_edit_summary`, `cv_edit_report --weekly` -->
+<!-- indeks: `generated_editor_html`, `cv_approved_edit_summary`, `cv_edit_report --weekly`, mianownik od startów, `replaced`, powód podmiany, `assisted`, `cv_command_applied` -->
 
 Pomiar 07.11.2026 (266 CV, raport: https://claude.ai/artifact/5Qd2t5rbuM6kpv12txwruc,
 prywatny) musiał odtwarzać punkt startowy edytora kodem renderera. Dla 129 z 395
@@ -49,12 +49,51 @@ widać efekt zmian generatora bez kolejnego odtwarzania.
 - Zapis w SAVEPOINT-cie, każdy błąd (także odczytu treści) to ostrzeżenie w logu
   `[cv_edit_summary]` — zatwierdzenie przechodzi.
 
+## Podmiana szkicu i powód (CV-1, CV-2, 08.11.2026)
+
+Audyt 08.11.2026: miara od zatwierdzeń widziała 52% startów, bo CV wyrzucone
+i zastąpione własnym plikiem nie zostawiało śladu. **Mianownikiem jest start
+generatora, a nie zatwierdzenie.**
+
+- `_write_stage_draft` i odrzucenie szkicu wołają `log_replaced_edits` przed
+  nadpisaniem: ten sam `ACTION`, `status: "replaced"`, `edits_status` (co człowiek
+  zdążył zmienić), `replace_kind` (`upload`, `import`, `copy`, `discard`). Nowa
+  droga podmiany = wpis w `REPLACE_KINDS` (`services/cv_edit_summary.py`).
+- Bez zapisanego startu (CV sprzed E3) wpisu nie ma; raport odtwarza takie podmiany
+  z wpisów szkicu (`branded_cv_uploaded_in_recruitment` itd.), więc działa wstecz.
+- „Cofnij” po cichej podmianie auto-CV: wpis `branded_cv_upload_undone` po podmianie
+  znosi ją w raporcie, kolejny wpis też (ostatni wynik wygrywa).
+- Powód podmiany: pigułki „Klient chce swój format” / „Generator pominął
+  doświadczenie” / „Mam nowsze CV od kandydata” / „Inny” w potwierdzeniu
+  „Zastąpić CV do klienta?” (`StageCvUpload`) i w tostcie po cichej podmianie
+  auto-CV, tylko gdy szkic miał start. Można pominąć, bez pola tekstowego.
+  `POST …/cv/branded/replace-reason` dopisuje `reason` do ostatniego wpisu
+  `replaced` tej osoby. Inne drogi podmiany (okno „Użyj innego CV”, odrzucenie)
+  powodu nie pytają.
+
+## Poprawki maszyną (CV-3, 08.11.2026)
+
+- `log_approved_edits` dopisuje `assisted: {qc_fixes, assistant_commands,
+  assistant_applied}`: wpisy `cv_qc_fix_applied`, `cv_command_ai`
+  i `cv_command_applied` od ostatniego startu.
+- Każde nałożenie planu asystenta (`applyNow`: od razu po poleceniu, „Tak”,
+  „Zastosuj zaznaczone”) wysyła `POST …/cv-ai/applied` z presetem i liczbą
+  operacji, bez treści CV (`cv_command_applied`).
+- Raport dzieli `changed` na „kod/asystent” (było zastosowanie) i „ręczne” (żadnego).
+  „Kod/asystent” to **górna granica**: serwer nie widzi, czy człowiek dopisał coś
+  jeszcze. Samo zapytanie asystenta (`assistant_commands`) niczego nie zmienia,
+  więc nie liczy się do tej kolumny.
+
 ## Odczyt
 
 - Tygodniowo per klient (odsetek CV bez poprawek, „tylko pogrubienia”, zmiany,
   trzy najczęściej zmieniane części), w kontenerze backendu:
   `python -m scripts.cv_edit_report --weekly --days 56`. Ostatni wpis CV
-  w tygodniu liczy się raz; tydzień to kalendarz firmy.
+  w tygodniu liczy się raz; tydzień to kalendarz firmy. Podmiany nie wchodzą.
+- Ten sam wydruk, drugi blok: **od startów** (ręczne i auto osobno, tydzień startu
+  i cały okres): bez zmian, pogrubienia, zmiany, podmienione, szkic > 7 dni, w toku,
+  zatwierdzone bez wpisu (sprzed E3), plus rodzaje i powody podmian. Liczony jest
+  ostatni start CV w okresie. Porównanie „co zmienił generator” bierz stąd.
 - Pełny raport po sekcjach (`python -m scripts.cv_edit_report --days 28`) bierze
   zapisany start jako bazę wprost; odtwarza renderer tylko dla CV sprzed E3.
 - Wprost SQL: `SELECT details->>'status', count(*) FROM activities

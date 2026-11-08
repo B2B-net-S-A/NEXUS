@@ -5,6 +5,8 @@
  * Only the request form and actor-scoped run ID survive profile navigation.
  */
 
+import { ReviewBatchBlockedNotice } from "@/components/v2/review-batch/ReviewBatchBlockedNotice";
+import { reviewBatchBlock } from "@/lib/api/reviewBatch";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Radar } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
@@ -134,6 +136,8 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText, initial }: T
   const errorToastShown = useRef(false);
   useEffect(() => {
     if (!fullSearch.error) { errorToastShown.current = false; return; }
+    // Blokada porcji to nie awaria: ramka z „Przejrzyj teraz” zamiast toastu.
+    if (reviewBatchBlock(fullSearch.error)) return;
     setIntakeValidation(championErrorValidation(fullSearch.error));
     if (errorToastShown.current) return;
     errorToastShown.current = true;
@@ -773,13 +777,15 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText, initial }: T
         </p>
       )}
 
+      <ReviewBatchBlockedNotice error={fullSearch.error} />
+
       <FullCandidateSearchResults
         data={fullSearch.data}
         offset={fullSearch.offset}
         onPage={fullSearch.setOffset}
         loading={fullSearch.loading}
         fetching={fullSearch.fetching}
-        error={fullSearch.error}
+        error={reviewBatchBlock(fullSearch.error) ? null : fullSearch.error}
         onRetry={() => { if (fullSearch.runId) void fullSearch.refresh(); else void startSearch(); }}
         // A stale (409), expired (404) or failed run cannot be re-read into a
         // current ranking — offer a new run with the current, checked form

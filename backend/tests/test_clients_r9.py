@@ -42,7 +42,7 @@ def test_client_and_contact_schemas_mirror_column_lengths() -> None:
     with pytest.raises(ValidationError):
         ClientKnowledgeCreate(category="general", content="x", source="s" * 256)
     # Wartości na granicy przechodzą.
-    ClientCreate(name="x" * 255, nip="1" * 32)
+    ClientCreate(name="x" * 255, nip="FI" + "1" * 30)
     ContactCreate(client_id=1, name="Jan Test", phone="1" * 50)
 
 

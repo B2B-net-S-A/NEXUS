@@ -4,15 +4,97 @@ Od 14.10.2026 Traffit jest wyłączony na stałe (``traffit_retired.py``): statu
 pokazuje historię ostatnich biegów z bazy i mówi wprost, od kiedy import stoi.
 """
 
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.services.traffit_retired import TRAFFIT_RETIRED_MESSAGE, TRAFFIT_RETIRED_ON
-from app.tasks.traffit_sync import annotate_freshness, sync_is_running
+
+# Świeżość wiersza `traffit_sync_state` — próg po typie fazy, nie po nazwie
+# (INT-09). Importer usunięty 08.11.2026, a tabela jest też dziennikiem biegów
+# `notes_insights` i `weekly_eval`, więc werdykt zostaje przy odczycie statusu:
+# - fazy budżetowane i stronicowane (z kursorem wznawiania) — 72 h;
+# - znacznik `__full__` i `weekly_eval` (rytm tygodniowy) — 8 dni;
+# - fazy DORADCZE nie blokowały watermarku, więc werdykt `advisory`, nie
+#   `stale`, i nie liczą się do `phases_stale`.
+FULL_MARKER = "__full__"
+WEEKLY_EVAL_STATE_PHASE = "weekly_eval"
+ADVISORY_PHASES = frozenset({"candidates_enrich_names", "candidates_cv_fields"})
+
+_DAILY_PHASE_STALE_HOURS = 36
+_CURSORED_PHASE_STALE_HOURS = 72
+_FULL_CADENCE_STALE_HOURS = 8 * 24
+
+_CURSORED_PHASES = frozenset(
+    {
+        "candidate_files",
+        "candidates_cv",
+        "candidates_enrich_names",
+        "candidates",
+        "candidate_activities",
+        "pipelines",
+    }
+)
+_FULL_CADENCE_PHASES = frozenset({FULL_MARKER, WEEKLY_EVAL_STATE_PHASE})
+
+FRESHNESS_FRESH = "fresh"
+FRESHNESS_STALE = "stale"
+FRESHNESS_NEVER = "never"
+FRESHNESS_ADVISORY = "advisory"
+
+
+def phase_stale_after(phase: str) -> timedelta:
+    """Próg świeżości dla fazy (albo znacznika) — po typie, nie po nazwie."""
+    if phase in _FULL_CADENCE_PHASES:
+        return timedelta(hours=_FULL_CADENCE_STALE_HOURS)
+    if phase in _CURSORED_PHASES:
+        return timedelta(hours=_CURSORED_PHASE_STALE_HOURS)
+    return timedelta(hours=_DAILY_PHASE_STALE_HOURS)
+
+
+def phase_freshness(
+    phase: str, *, finished_at: Optional[datetime], now: datetime
+) -> str:
+    """``fresh`` | ``stale`` | ``never`` | ``advisory`` dla jednego wiersza stanu.
+
+    Czysta funkcja — o świeżości, nie o wyniku: `last_status` jedzie obok
+    w tej samej odpowiedzi i mówi o błędach, ten werdykt mówi o CZASIE.
+    `never` = wiersz bez końca biegu (faza nigdy nie doszła do końca).
+    """
+    if finished_at is None:
+        return FRESHNESS_NEVER
+    overdue = (now - finished_at) > phase_stale_after(phase)
+    if phase in ADVISORY_PHASES:
+        return FRESHNESS_ADVISORY if overdue else FRESHNESS_FRESH
+    return FRESHNESS_STALE if overdue else FRESHNESS_FRESH
+
+
+def annotate_freshness(states: list[dict[str, Any]], now: datetime) -> list[str]:
+    """Dopisz `freshness` i `stale_after_hours` do wierszy `/sync/status`;
+    zwróć posortowane nazwy faz z werdyktem `stale` (zbiorcze `phases_stale`).
+
+    Wiersze bez końca biegu (`never`) NIE trafiają do `phases_stale`: faza,
+    która nigdy nie pobiegła, to stan świeżo włączonej instalacji, nie regres —
+    a lista ma być tym, na co operator reaguje.
+    """
+    stale: list[str] = []
+    for state in states:
+        phase = str(state.get("phase") or "")
+        raw = state.get("last_run_finished_at")
+        finished_at = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+        if finished_at is not None and finished_at.tzinfo is None:
+            finished_at = finished_at.replace(tzinfo=timezone.utc)
+        verdict = phase_freshness(phase, finished_at=finished_at, now=now)
+        state["freshness"] = verdict
+        state["stale_after_hours"] = int(
+            phase_stale_after(phase).total_seconds() // 3600
+        )
+        if verdict == FRESHNESS_STALE:
+            stale.append(phase)
+    return sorted(stale)
 
 
 async def read_traffit_status(db: AsyncSession) -> dict[str, Any]:
@@ -110,7 +192,8 @@ async def read_traffit_status(db: AsyncSession) -> dict[str, Any]:
         "enabled": False,
         "retired_on": TRAFFIT_RETIRED_ON.isoformat(),
         "retired_message": TRAFFIT_RETIRED_MESSAGE,
-        "running": sync_is_running(),
+        # Importera nie ma w kodzie od 08.11.2026; pole zostaje dla kafelka.
+        "running": False,
         "max_row_attempts": settings.TRAFFIT_MAX_ROW_ATTEMPTS,
         "managed_in_nexus_jobs": managed_in_nexus_jobs,
         "quarantined": quarantined,

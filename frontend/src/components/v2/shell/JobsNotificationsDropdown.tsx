@@ -23,6 +23,26 @@ function threadKey(thread: JobThread): string {
   return thread.job_id !== null ? `job:${thread.job_id}` : `link:${thread.link}`;
 }
 
+/**
+ * Kolejność okienka: najpierw nowości, potem tygodniowe wpisy zbiorcze
+ * („Stoją > 7 dni” nie zasłaniają CV do przeglądu ani akceptacji klienta),
+ * na końcu przeczytane. Wpisy z nieprzeczytanym skrótem mają własne sekcje.
+ */
+export function splitJobThreads(threads: JobThread[]): {
+  news: JobThread[];
+  unstaffed: JobThread[];
+  stuck: JobThread[];
+  read: JobThread[];
+} {
+  const unread = threads.filter((t) => t.unread_count > 0);
+  return {
+    news: unread.filter((t) => !t.digest),
+    unstaffed: unread.filter((t) => t.digest === "unstaffed"),
+    stuck: unread.filter((t) => t.digest === "stuck"),
+    read: threads.filter((t) => t.unread_count === 0),
+  };
+}
+
 export type JobThreadsPanelState = "loading" | "error" | "ready";
 
 export interface JobThreadsPanelProps {
@@ -47,6 +67,7 @@ export function JobThreadsPanel({
   onRetry,
   onOpenSettings,
 }: JobThreadsPanelProps) {
+  const sections = splitJobThreads(threads);
   return (
     <div className="@container flex max-h-[min(520px,calc(100dvh-6rem))] flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
@@ -97,13 +118,20 @@ export function JobThreadsPanel({
           W Twoich rekrutacjach nic nowego od tygodnia.
         </p>
       ) : (
-        <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
-          {threads.map((thread) => (
-            <li key={threadKey(thread)}>
-              <JobThreadRow thread={thread} onOpen={onOpenThread} />
-            </li>
-          ))}
-        </ul>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ThreadList threads={sections.news} onOpen={onOpenThread} />
+          <ThreadSection
+            label="Bez pracującego rekrutera"
+            threads={sections.unstaffed}
+            onOpen={onOpenThread}
+          />
+          <ThreadSection
+            label="Stoją > 7 dni"
+            threads={sections.stuck}
+            onOpen={onOpenThread}
+          />
+          <ThreadList threads={sections.read} onOpen={onOpenThread} />
+        </div>
       )}
 
       {state === "ready" && threads.length > 0 ? (
@@ -112,6 +140,45 @@ export function JobThreadsPanel({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function ThreadList({
+  threads,
+  onOpen,
+}: {
+  threads: JobThread[];
+  onOpen: (thread: JobThread) => void;
+}) {
+  if (threads.length === 0) return null;
+  return (
+    <ul className="divide-y divide-border border-b border-border last:border-b-0">
+      {threads.map((thread) => (
+        <li key={threadKey(thread)}>
+          <JobThreadRow thread={thread} onOpen={onOpen} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ThreadSection({
+  label,
+  threads,
+  onOpen,
+}: {
+  label: string;
+  threads: JobThread[];
+  onOpen: (thread: JobThread) => void;
+}) {
+  if (threads.length === 0) return null;
+  return (
+    <section>
+      <h3 className="bg-muted/50 px-4 py-1.5 text-xs font-medium text-muted-foreground">
+        {label} · {threads.length}
+      </h3>
+      <ThreadList threads={threads} onOpen={onOpen} />
+    </section>
   );
 }
 

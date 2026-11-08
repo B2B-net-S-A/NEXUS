@@ -449,6 +449,16 @@ async def get_candidate_cv_text(
             cv_parsed_at=None,
             source_document_id=None,
         )
+    # Tekst CV wychodzi z NEXUSA tak samo jak plik, więc liczy się do alarmu
+    # o masowym pobieraniu (``candidate_data_access_alerts``).
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.CV_DOWNLOADED,
+        user_id=None,
+        entity_id=candidate_id,
+        details={"endpoint": "integration_cv_text", "format": "text"},
+    )
+    await db.commit()
     return CandidateCvTextOut(
         candidate_id=candidate_id,
         quarantined=False,

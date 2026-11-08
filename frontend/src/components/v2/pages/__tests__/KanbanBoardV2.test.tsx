@@ -462,6 +462,7 @@ function newColumnWithQueue() {
         rate_known: true,
         availability_known: true,
         decided: false,
+        awaiting_decision: true,
         waiting_days: 1,
         decision_due: false,
         cautions: [],
@@ -845,7 +846,9 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
         name: "Uzupełnij screening dla Celina Arkusz",
       }),
     ).toHaveTextContent("Uzupełnij screening");
-    const done = screen.getByRole("button", {
+    // Bez zaległego arkusza screening jest w dymku „+N”, wiersz ruchu zostaje wolny.
+    await userEvent.click(within(screen.getByRole("link", { name: "Dawid Gotowy" }).closest("[data-kanban-card]") as HTMLElement).getByTestId("card-badges-more"));
+    const done = await screen.findByRole("button", {
       name: "Screening Championa dla Dawid Gotowy",
     });
     expect(done).toHaveTextContent("Screening");
@@ -859,9 +862,10 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
 
     renderBoard();
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
-    // Fala 3: wiersz właściciela to awatar + imię, a brak danych mówi o sobie
-    // wprost zamiast udawać nazwisko.
-    expect(screen.getByText("Brak danych")).toBeTruthy();
+    // Awatar właściciela: brak danych mówi o sobie w dymku.
+    expect(candidate.closest("[data-kanban-card]")?.querySelector('[data-testid="card-owner"]')?.getAttribute("title")).toContain(
+      "Brak danych o osobie dodającej",
+    );
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
     expect(document.querySelector(`#${descriptionId}`)).toHaveTextContent(
@@ -1598,7 +1602,7 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
     expect(container.querySelector(`#${descriptionId}`)).toHaveTextContent(
-      "Dopasowanie AI: 82 na 100. Ocena: 4.5. W etapie od 5 dni. Dodano do rekrutacji przez: Ewa Nowak",
+      /Dopasowanie AI: 82 na 100\. Ocena: 4\.5\. .*Dodano do rekrutacji przez: Ewa Nowak/,
     );
     const checkbox = screen.getByRole("checkbox", {
       name: "Zaznacz Aleksandra Nowakowska",
@@ -2023,11 +2027,10 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const verifiedRow = screen.getByTitle(/^Zweryfikował\(a\): Olga Weryfikująca/);
     expect(verifiedRow.title).toContain("Dodano do rekrutacji przez: Piotr Szkicowy");
     expect(within(verifiedRow).getByText("OW")).toBeInTheDocument();
-    expect(within(verifiedRow).getByText("Olga")).toBeInTheDocument();
 
     const screeningCard = screen.getByText("Jan Wrócił").closest("[data-kanban-card]") as HTMLElement;
-    expect(within(screeningCard).getByText("Piotr")).toBeInTheDocument();
-    expect(within(screeningCard).queryByText("Olga")).toBeNull();
+    expect(within(screeningCard).getByTestId("card-owner")).toHaveTextContent("PS");
+    expect(within(screeningCard).queryByText("OW")).toBeNull();
   });
 
   it("nawigator doku idzie po kolumnie otwartej osoby, karty od góry — także z etapów złożonych w kolumnę", async () => {
@@ -2725,8 +2728,10 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     expect(button).toHaveAttribute("data-owner", "true");
     // Przycisk zastępuje strzałkę; karta mówi, że ruch jest po stronie patrzącego.
     expect(within(card).queryByTestId("card-advance")).toBeNull();
-    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
-    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na Ciebie · 1 dzień");
+    expect(button.parentElement).toHaveAttribute("title", expect.stringContaining("Twój ruch"));
+    // U5: jedna liczba dni, w wierszu ruchu; plakietka „Czeka na Ciebie” znika.
+    expect(within(card).queryByTestId("card-badge-dl_review")).toBeNull();
+    expect(within(card).queryByText(/1 dzień/)).toBeNull();
     // Karta z poprawkami po QC to dalej ruch rekrutera — strzałka, bez przycisku.
     expect(within(cardOf(8303)).queryByTestId("card-review-send")).toBeNull();
     expect(within(cardOf(8303)).getByTestId("card-advance")).toBeInTheDocument();
@@ -2847,7 +2852,7 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     const card = cardOf(8301);
     expect(within(card).getByTestId("card-advance")).toBeInTheDocument();
     expect(within(card).getByTestId("card-next-who")).toHaveTextContent("DL");
-    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na DL · 1 dzień");
+    expect(within(card).queryByTestId("card-badge-dl_review")).toBeNull();
   });
 
   it("Delivery Lead, który może wysłać, ale przegląd nie jest jego: przycisk obrysowany, bez „Przejrzyj po kolei”", async () => {
@@ -2858,8 +2863,8 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     for (const button of buttons) expect(button).toHaveAttribute("data-owner", "false");
     expect(screen.queryByTestId("dl-review-sequence-start")).toBeNull();
     const card = cardOf(8301);
-    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("DL");
-    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na DL · 1 dzień");
+    expect(within(card).getByTestId("card-review-send").parentElement).toHaveAttribute("title", expect.stringContaining("DL"));
+    expect(within(card).queryByTestId("card-badge-dl_review")).toBeNull();
     expect(within(card).queryByTestId("card-advance")).toBeNull();
 
     await userEvent.click(within(card).getByTestId("card-review-send"));
@@ -2878,8 +2883,8 @@ describe("KanbanBoardV2 — „Do wysłania do klienta” (13.10.2026)", () => {
     renderBoard(readyColumns(2), undefined, false, true, true);
     await screen.findByTestId("pipeline-board");
     const card = cardOf(8301);
-    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
-    expect(within(card).getByTestId("card-badge-dl_review")).toHaveTextContent("Czeka na Ciebie · 1 dzień");
+    expect(within(card).getByTestId("card-review-send").parentElement).toHaveAttribute("title", expect.stringContaining("Twój ruch"));
+    expect(within(card).queryByTestId("card-badge-dl_review")).toBeNull();
     expect(screen.getByTestId("dl-review-sequence-start")).toHaveTextContent("Przejrzyj po kolei (2)");
     expect(screen.getByTestId("dl-review-compare")).toBeInTheDocument();
     // 14.10.2026: u Nordei nic nie idzie do klienta — przycisk mówi o akceptacji.

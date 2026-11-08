@@ -72,6 +72,28 @@ function renderDialog(props: Partial<JobCloseWithReasonDialogProps> = {}) {
   return { onOpenChange };
 }
 
+const WARNING_CLIENT_END = Object.assign(new Error("HTTP 409"), {
+  response: {
+    status: 409,
+    data: {
+      detail: {
+        code: "active_cards_warning",
+        message: "W tej rekrutacji są 3 osoby w toku.",
+        active_cards: 3,
+        columns: { cv_sent: 2, client_interview: 1 },
+        recipients: [],
+        client_end: {
+          reason: "competitor",
+          reason_label: "Klient wybrał kogoś innego",
+          people: 3,
+          columns: { cv_sent: 2, client_interview: 1 },
+          message: "3 osoby są u klienta. Możesz zakończyć ich procesy.",
+        },
+      },
+    },
+  },
+});
+
 describe("JobCloseWithReasonDialog — osoby w toku", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,13 +108,52 @@ describe("JobCloseWithReasonDialog — osoby w toku", () => {
     expect(alert).toHaveTextContent("W tej rekrutacji jest 5 osób w toku");
     // Kolejność kolumn Tablicy, nie kolejność z odpowiedzi.
     expect(alert).toHaveTextContent("Nowi 3 · Screening 2");
-    expect(mocks.close).toHaveBeenCalledWith(7, "competitor", "", false, null);
+    expect(mocks.close).toHaveBeenCalledWith(7, "competitor", "", false, null, false);
     expect(mocks.showError).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Zamknij mimo to" }));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null);
+    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null, false);
+  });
+
+  it("przy konkurencji pyta o pary u klienta i wysyła wybór (08.11.2026)", async () => {
+    mocks.close.mockRejectedValueOnce(WARNING_CLIENT_END).mockResolvedValueOnce({ data: {} });
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
+    const choice = await screen.findByTestId("client-end-choice");
+    expect(choice).toHaveTextContent("3 osoby są u klienta");
+    expect(choice).toHaveTextContent("bez maila do kandydatów");
+    expect(choice).toHaveTextContent("CV wysłane 2 · Rozmowa u klienta 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij i zakończ 3 osoby u klienta" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null, true);
+  });
+
+  it("„Nie, zostaw w toku” nie kończy par i wraca do zwykłego przycisku", async () => {
+    mocks.close.mockRejectedValueOnce(WARNING_CLIENT_END).mockResolvedValueOnce({ data: {} });
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
+    await screen.findByTestId("client-end-choice");
+    fireEvent.click(screen.getByRole("radio", { name: "Nie, zostaw w toku" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij mimo to" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null, false);
+  });
+
+  it("po zmianie powodu pytanie znika, a pary nie są kończone", async () => {
+    mocks.close.mockRejectedValueOnce(WARNING_CLIENT_END);
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
+    await screen.findByTestId("client-end-choice");
+    fireEvent.click(screen.getByTestId("close-group-neutral"));
+
+    expect(screen.queryByTestId("client-end-choice")).not.toBeInTheDocument();
   });
 
   it("mówi, którzy rekruterzy dostaną wiadomość, i przycisk to zapowiada (28.10.2026)", async () => {
@@ -123,7 +184,7 @@ describe("JobCloseWithReasonDialog — osoby w toku", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Zamknij i powiadom 2 osoby" }));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null);
+    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null, false);
   });
 
   it("bez osób w toku zamyka od razu", async () => {
@@ -196,6 +257,7 @@ describe("JobCloseWithReasonDialog — trzy grupy powodów (21.10.2026)", () => 
       "Ten sam request z maila klienta",
       false,
       8,
+      false,
     );
   });
 

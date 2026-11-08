@@ -71,10 +71,7 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
 
   it.each([
     ["/jobs/review-states", "Porządek w requestach"],
-    ["/academy", "Akademia"],
     ["/settings/competence-team", "Kategorie kompetencji"],
-    ["/trainees", "Praktykanci"],
-    ["/settings/trainee-rules", "Lista telefonów praktykantów"],
   ])("trasy z 23–24.09: %s → %s (nie surowy slug)", (pathname, label) => {
     renderAt(pathname);
     expect(screen.getByText(label)).toBeInTheDocument();

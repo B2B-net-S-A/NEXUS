@@ -15,7 +15,11 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 from app.services import loop_heartbeat
+
+pytestmark = pytest.mark.static
 
 _APP = Path(__file__).parents[1] / "app"
 

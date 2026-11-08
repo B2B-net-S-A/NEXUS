@@ -616,21 +616,3 @@ describe("Talenty i Targ zdjęte z nawigacji (21.09.2026)", () => {
     }
   });
 });
-
-describe("Akademia i Praktykanci zdjęci z nawigacji (17.10.2026)", () => {
-  const opts = { contactQueueEnabled: true };
-  it("nie ma ich w menu ani w palecie dla żadnej roli, strony dalej istnieją", () => {
-    for (const role of ALL_ROLES) {
-      const user = userOf(role);
-      const hrefs = [
-        ...visibleNavHrefs(user, opts),
-        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
-      ];
-      expect(hrefs).not.toContain("/academy");
-      expect(hrefs).not.toContain("/trainees");
-    }
-    expect(NAV_REGISTRY.map((entry) => entry.href)).toEqual(
-      expect.arrayContaining(["/academy", "/trainees"]),
-    );
-  });
-});

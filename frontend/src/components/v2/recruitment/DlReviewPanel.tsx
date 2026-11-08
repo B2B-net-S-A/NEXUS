@@ -941,7 +941,7 @@ export function DlReviewBody({
               ) : null}
               <CvControlSummary
                 checks={qcResult.data?.checks}
-                override={null}
+                override={qcResult.data?.override ?? null}
                 hideOverrideLine={qcOverride != null}
                 onOpenQc={() => setQcStageId(task.stage_id)}
               />

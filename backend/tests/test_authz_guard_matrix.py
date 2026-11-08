@@ -34,6 +34,8 @@ from tests._authz_matrix import (
     write_golden,
 )
 
+pytestmark = pytest.mark.not_static
+
 _PERSONA_INDEX = {persona.key: index for index, persona in enumerate(PERSONAS)}
 # Trasy, o które pyta ``test_matrix_tells_the_roles_apart`` — są w każdym
 # wycinku macierzy, gdy sito dzieli ją między części (AUTHZ_MATRIX_SLICE).
