@@ -1197,7 +1197,7 @@ except Exception as _autofill_pool_err:  # noqa: BLE001
     print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
     _AUTOFILL_POOL_DDL = []
 
-# Rejestr faktów z rozmów (migracja 0665) — JEDNO źródło z migracją
+# Rejestr faktów z rozmów (migracja 0668) — JEDNO źródło z migracją
 # (`app/services/conversation_facts_schema.py`).
 try:
     from app.services import conversation_facts_schema as _conversation_facts_schema
