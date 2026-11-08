@@ -76,27 +76,6 @@ const EXTRA_ENTRIES = new Set([
  * w przekonaniu, że dotyka żywej powierzchni.
  */
 const BASELINE = new Set([
-  // Cortex ukryty w UI (decyzja 21.09.2026): `/cortex` przekierowuje na
-  // Insights, widok zostaje na powrót. Przy przywróceniu strony zdejmij te wpisy.
-  "components/cortex/ClientStackPanel.tsx",
-  "components/cortex/CortexView.tsx",
-  "components/cortex/CoveragePanel.tsx",
-  "components/cortex/CurationPanel.tsx",
-  "components/cortex/SkillCandidatesDrawer.tsx",
-  "components/cortex/SkillSearchPanel.tsx",
-  "components/cortex/SuccessorsPanel.tsx",
-  "components/cortex/SupplyDemandPanel.tsx",
-  "components/cortex/TechMapPanel.tsx",
-  "components/cortex/shared.tsx",
-  // Moduł poczty (4 pliki): kompletna powierzchnia bez trasy. Do włączenia albo
-  // do usunięcia razem z decyzją, czy NEXUS ma własnego klienta mailowego.
-  // DynaReporter jest wygaszany — nie sprzątamy tu nic, dopóki nie zapadnie
-  // decyzja o `DYNAREPORTER_MODE=off` i usunięciu modułu.
-  "app/dynareporter/admin-dashboard/_modules/DataHistoryView.tsx",
-  // CloudTalk: integracja świadomie zneutralizowana (decyzja 28.07 — koszt),
-  // karta zdjęta z Ustawień, komponent zachowany jako punkt zaczepienia pod
-  // następną telefonię. Patrz CLAUDE.md → sekcja CloudTalk.
-  "components/settings/CloudTalkSettingsCard.tsx",
   // Legacy miesięcznych statystyk i gamifikacji jest świadomie zdjęte z
   // uproszczonego dashboardu KPI/Procesy. Komponenty czekają na osobną decyzję:
   // przenieść je do Raportów albo usunąć razem z endpointem recruitment-stats.
@@ -105,7 +84,6 @@ const BASELINE = new Set([
   // Wspólne zależności powyższej, zachowanej sekcji statystyk. Nie są
   // niezależnymi funkcjami do ponownego montowania na uproszczonym dashboardzie.
   "components/v2/dashboard/StatsBoundary.tsx",
-  "lib/stats-api.ts",
   // Zakładka powiadomień profilu klienta — odmontowana, nie zweryfikowano czy
   // świadomie; wymaga sprawdzenia z produktem przed usunięciem.
   "app/clients/[id]/NotificationsTab.tsx",

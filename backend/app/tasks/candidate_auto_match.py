@@ -126,6 +126,7 @@ async def _run_my_people(db, event: CandidateMatchOutbox) -> dict:
 async def _process(event_id: int) -> str:
     from app.services.auto_match_service import (
         AutoMatchUnavailable,
+        AutoMatchVectorPending,
         run_candidate_event,
         run_job_event,
     )
@@ -149,6 +150,21 @@ async def _process(event_id: int) -> str:
             else:
                 result = await run_job_event(db, event)
                 result = {**result, "my_people": await _run_my_people(db, event)}
+        except AutoMatchVectorPending:
+            # CV czeka na wektor: wraca za minutę i nie zużywa próby.
+            await db.rollback()
+            await db.execute(
+                update(CandidateMatchOutbox)
+                .where(CandidateMatchOutbox.id == event_id)
+                .values(
+                    status="failed",
+                    attempts=max(0, attempts - 1),
+                    last_error="vector_pending",
+                    heartbeat_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+            return "waiting"
         except Exception as exc:  # noqa: BLE001 — jedno zdarzenie nie zabija pętli
             await db.rollback()
             final = attempts >= max(1, settings.AUTO_MATCH_MAX_ATTEMPTS)

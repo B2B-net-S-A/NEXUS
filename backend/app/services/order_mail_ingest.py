@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.log_safety import safe_filename
+from app.core.process_lock import cross_process_lock
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
@@ -2297,7 +2298,10 @@ async def run_order_mail_ingest(
     if _ingest_lock.locked():
         stats.errors.append("already running")
         return stats
-    async with _ingest_lock:
+    async with _ingest_lock, cross_process_lock("order_mail_ingest") as owned:
+        if not owned:
+            stats.errors.append("already running")
+            return stats
         now = datetime.now(timezone.utc)
         async with AsyncSessionLocal() as db:
             state = await read_state(db)

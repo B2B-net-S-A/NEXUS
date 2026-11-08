@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 import pytest
 import yaml
@@ -697,3 +698,130 @@ def test_stale_lock_is_taken_over_and_live_one_blocks(tmp_path):
     assert not sync.acquire_lock(lock)
     lock.write_text("999999")
     assert sync.acquire_lock(lock)
+
+
+def test_watch_stops_a_restore_without_progress():
+    started = time.monotonic()
+    with pytest.raises(sync.SyncError, match="brak postępu"):
+        sync.run_cmd(
+            ["sleep", "30"],
+            timeout=30,
+            stalled=lambda: True,
+            poll=0.05,
+            what="Odtworzenie kopii",
+        )
+    assert time.monotonic() - started < 10
+
+
+def test_watch_does_not_lose_output_of_a_command_that_finishes():
+    result = sync.run_cmd(
+        [sys.executable, "-c", "import time; time.sleep(0.3); print('gotowe')"],
+        timeout=30,
+        stalled=lambda: False,
+        poll=0.05,
+    )
+    assert result.stdout.strip() == "gotowe"
+
+
+def test_hard_limit_still_applies_when_progress_goes_on():
+    with pytest.raises(sync.SyncError, match="przekroczony czas"):
+        sync.run_cmd(["sleep", "30"], timeout=0.3, stalled=lambda: False, poll=0.05)
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_restore_watch_counts_silence_from_the_last_change(monkeypatch):
+    marks = iter(["a", "a", "b", "b", "b"])
+    monkeypatch.setattr(sync, "restore_progress", lambda postgres, db: next(marks))
+    clock = _Clock()
+    watch = sync.RestoreWatch("pg", NEW_DB, clock=clock)
+    assert watch.stalled() is False
+    clock.now += sync.RESTORE_STALL_SECONDS - 1
+    assert watch.stalled() is False
+    clock.now += 2
+    # Zmiana odcisku tuż przed limitem zeruje licznik.
+    assert watch.stalled() is False
+    clock.now += sync.RESTORE_STALL_SECONDS - 1
+    assert watch.stalled() is False
+    clock.now += 1
+    assert watch.stalled() is True
+
+
+def test_restore_watch_treats_unanswered_probe_as_no_progress(monkeypatch):
+    monkeypatch.setattr(sync, "restore_progress", _fail)
+    clock = _Clock()
+    watch = sync.RestoreWatch("pg", NEW_DB, clock=clock)
+    assert watch.stalled() is False
+    clock.now += sync.RESTORE_STALL_SECONDS
+    assert watch.stalled() is True
+
+
+@pytest.fixture
+def restore_calls(monkeypatch):
+    calls = {"clone": [], "sql": []}
+
+    def psql(postgres, database, sql, **kwargs):
+        calls["sql"].append(sql)
+        return "5\n"
+
+    monkeypatch.setattr(sync, "psql", psql)
+    return calls
+
+
+def test_restore_retries_once_on_a_clean_database(monkeypatch, restore_calls):
+    outcomes = iter([sync.SyncError("brak postępu"), "receipt"])
+
+    def clone_step(arguments, *, timeout, what, stalled=None):
+        restore_calls["clone"].append((timeout, stalled))
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(sync, "clone_step", clone_step)
+    assert sync.restore_copy("pg", NEW_DB, Path("m.json")) == 2
+    assert len(restore_calls["clone"]) == 2
+    assert all(t <= 40 * 60 and s is not None for t, s in restore_calls["clone"])
+    drops = [s for s in restore_calls["sql"] if "DROP DATABASE" in s]
+    assert drops == [f'DROP DATABASE IF EXISTS "{NEW_DB}" WITH (FORCE)']
+
+
+def test_restore_gives_up_after_the_second_attempt(monkeypatch, restore_calls):
+    def clone_step(arguments, *, timeout, what, stalled=None):
+        restore_calls["clone"].append(1)
+        raise sync.SyncError("brak postępu")
+
+    monkeypatch.setattr(sync, "clone_step", clone_step)
+    with pytest.raises(sync.SyncError, match="brak postępu"):
+        sync.restore_copy("pg", NEW_DB, Path("m.json"))
+    assert len(restore_calls["clone"]) == sync.RESTORE_ATTEMPTS == 2
+    assert len([s for s in restore_calls["sql"] if "DROP DATABASE" in s]) == 1
+
+
+def test_first_attempt_success_does_not_touch_the_database(monkeypatch, restore_calls):
+    monkeypatch.setattr(
+        sync, "clone_step", lambda arguments, *, timeout, what, stalled=None: "r"
+    )
+    assert sync.restore_copy("pg", NEW_DB, Path("m.json")) == 1
+    assert not [s for s in restore_calls["sql"] if "DROP DATABASE" in s]
+
+
+@pytest.mark.parametrize(
+    "name", [OLD_DB + '"; DROP', "nexus_staging", "postgres", "nexus_staging_nightly_1"]
+)
+def test_only_a_nightly_copy_can_be_dropped(monkeypatch, restore_calls, name):
+    with pytest.raises(sync.SyncError):
+        sync.drop_failed_restore("pg", name)
+    assert restore_calls["sql"] == []
+
+
+def test_progress_probe_rejects_a_strange_database_name(restore_calls):
+    with pytest.raises(sync.SyncError):
+        sync.restore_progress("pg", "x'; SELECT 1")
+    assert restore_calls["sql"] == []

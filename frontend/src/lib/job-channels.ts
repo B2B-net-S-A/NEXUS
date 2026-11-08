@@ -92,6 +92,24 @@ export function unassignedWorkersKey(jobId: number) {
   return ["job-unassigned-workers", jobId] as const;
 }
 
+export interface JobNewProfiles {
+  added: number;
+  reached_cv: number;
+}
+
+export function jobNewProfilesKey(jobId: number) {
+  return ["job-new-profiles", jobId] as const;
+}
+
+export async function fetchJobNewProfiles(jobId: number): Promise<JobNewProfiles> {
+  return api.get(`/api/jobs/${jobId}/new-profiles`).then((r) => r.data);
+}
+
+/** „Nowe profile w 7 dni: 4, doszły do CV: 3” — okienko zespołu i wiersz Daily. */
+export function newProfilesText(added: number, reachedCv: number): string {
+  return `Nowe profile w 7 dni: ${added}, doszły do CV: ${reachedCv}`;
+}
+
 export async function setRecruiterChannel(
   jobId: number,
   userId: number,

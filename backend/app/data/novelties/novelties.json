@@ -1,5 +1,31 @@
 [
   {
+    "id": "daily-p1-bez-cv-nowe-profile",
+    "pr": 3200,
+    "title": "P1 bez CV i nowe profile na Daily",
+    "why": "Przy kategorii widać, ile P1 stoi bez CV od 5 dni roboczych i ile nowych profili doszło w tygodniu. Takie P1 stoją wyżej, a Delivery Lead dostaje dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacje → Daily",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "daily.p1-no-cv"
+  },
+  {
+    "id": "insights-raport-klienci",
+    "pr": 3200,
+    "title": "Raport „Klienci: od CV do zatrudnienia”",
+    "why": "W jednej tabeli widać dla każdego klienta wysłane CV, rozmowy, zatrudnienia, hit ratio i czas do pierwszego CV. Zamknięcia bez powodu stoją osobno i nie obniżają wyniku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Raporty → Klienci i trend",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.reports.klienci"
+  },
+  {
     "id": "finanse-rozjazdy-nieznani-nabywcy",
     "pr": 3182,
     "title": "Rozjazdy stawek i Nieznani nabywcy",
@@ -1672,7 +1698,7 @@
     "pr": 3125,
     "requires_setting": "REVIEW_BATCH_ENABLED",
     "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",
-    "why": "Co rano dostajesz osoby od Nexusa ze swoich rekrutacji. Zanim zaczniesz szukać ręcznie, zdecyduj o minimum z nich: screening albo odrzucenie z powodem. Nazwisko, telefon i mail działają zawsze.",
+    "why": "Co rano osoby od Nexusa z Twoich rekrutacji. Przed ręcznym szukaniem zdecyduj o minimum z nich. Start od 10, po zrobionym następnego dnia o 10 więcej, do 50. Nazwisko, telefon i mail działają zawsze.",
     "tier": "process",
     "shipped_on": "2026-11-07",
     "audience": {

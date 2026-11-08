@@ -19,6 +19,7 @@ Bez bazy: sesja i wszystko poza ścieżką wyniku jest podstawione.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -218,6 +219,16 @@ def world(monkeypatch):
     )
     monkeypatch.setattr(canonical_fit, "score_candidates", score)
     monkeypatch.setattr(full_search_measurement, "warm_request_vectors", warm)
+
+    async def vector_ready(candidate):
+        return seen.get("vector_ready", True)
+
+    monkeypatch.setattr(full_search_measurement, "vector_ready", vector_ready)
+
+    async def write_pool(db, **kw):
+        seen["pool"] = kw
+
+    monkeypatch.setattr(ams, "_write_pool", write_pool)
     monkeypatch.setattr(scoring_service, "build_job_scoring_context", scoring_context)
     monkeypatch.setattr(scoring_service, "_check_penalties_and_warnings", penalties)
     return seen
@@ -242,7 +253,14 @@ def _job_db():
 
 
 def _event(**kw):
-    fields = {"candidate_id": None, "job_id": None, "profile_revision": None, **kw}
+    fields = {
+        "candidate_id": None,
+        "job_id": None,
+        "profile_revision": None,
+        # Domyślnie po oknie czekania na wektor, jak zdarzenie sprzed godziny.
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        **kw,
+    }
     return SimpleNamespace(trigger="cv_upload", **fields)
 
 
@@ -422,3 +440,92 @@ async def test_job_event_with_one_failed_batch_goes_back_to_the_queue(
     with pytest.raises(ams.AutoMatchUnavailable):
         await ams.run_job_event(db, _event(job_id=JOB_ID))
     assert world["logged"] == []
+
+
+# ── Świeże CV czeka na wektor (08.11.2026) ──────────────────────────────────
+
+
+async def test_fresh_cv_without_a_vector_waits_instead_of_finishing(world):
+    """34% CV w 14 dni kończyło się bez oceny, bo zdarzenie biegło przed wektorem."""
+    world["vector_ready"] = False
+    event = _event(candidate_id=CANDIDATE_ID, created_at=datetime.now(timezone.utc))
+
+    with pytest.raises(ams.AutoMatchVectorPending):
+        await ams.run_candidate_event(_candidate_db(), event)
+
+    assert world["logged"] == []
+
+
+async def test_cv_past_the_wait_window_is_decided_as_before(world):
+    world["vector_ready"] = False
+    world["measurement"] = "stale"
+
+    result = await ams.run_candidate_event(
+        _candidate_db(), _event(candidate_id=CANDIDATE_ID)
+    )
+
+    assert result["unmeasured"] == {"stale": 1}
+
+
+async def test_ready_vector_is_scored_right_away(world):
+    event = _event(candidate_id=CANDIDATE_ID, created_at=datetime.now(timezone.utc))
+
+    await ams.run_candidate_event(_candidate_db(), event)
+
+    assert [d.decision for d in world["logged"]] == ["proposed"]
+
+
+# ── Wynik nowego CV zasila pulę (08.11.2026) ────────────────────────────────
+
+
+def _scored(job_id, score, *, penalties=(), warnings=()):
+    return ams.Scored(
+        candidate_id=CANDIDATE_ID,
+        job_id=job_id,
+        score=score,
+        matching_must=("python",),
+        gap_must=("sql",),
+        penalties=penalties,
+        warnings=warnings,
+    )
+
+
+def test_pool_row_needs_an_existing_pool_and_room_or_a_better_score():
+    stats = {1: (150, 60.0), 2: (150, 80.0), 3: (40, 90.0)}
+    rows = ams.pool_rows(
+        [_scored(1, 65.0), _scored(2, 70.0), _scored(3, 50.0), _scored(4, 99.0)],
+        stats,
+        revision="r",
+        run_id="u",
+    )
+
+    assert {r["job_id"] for r in rows} == {1, 3}  # 2: za słaby; 4: bez puli
+    assert rows[0]["evidence"] == {"matched_must": ["python"], "missing_must": ["sql"]}
+
+
+def test_pool_skips_blocked_pairs():
+    rows = ams.pool_rows(
+        [
+            _scored(1, 90.0, penalties=("blacklist",)),
+            _scored(1, 90.0, warnings=("client_excluded",)),
+        ],
+        {1: (10, 50.0)},
+        revision="r",
+        run_id="u",
+    )
+
+    assert rows == []
+
+
+async def test_new_cv_writes_every_scored_pair_to_the_pool(world):
+    await ams.run_candidate_event(_candidate_db(), _event(candidate_id=CANDIDATE_ID))
+
+    assert [s.score for s in world["pool"]["scored"]] == [CANONICAL_FIT]
+
+
+async def test_dry_run_leaves_the_pool_alone(world, monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_MATCH_MODE", "dry_run")
+
+    await ams.run_candidate_event(_candidate_db(), _event(candidate_id=CANDIDATE_ID))
+
+    assert "pool" not in world

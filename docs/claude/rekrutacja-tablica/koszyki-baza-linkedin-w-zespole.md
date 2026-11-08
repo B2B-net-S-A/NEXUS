@@ -15,6 +15,10 @@ Wiadomości z LinkedIna do NEXUSA nie trafiają, a pole `role` w
 `job_work_assignments` ma wszędzie `recruiter`. Kto pracuje na LinkedInie,
 wie więc tylko zespół: koszyk jest planem, nie pomiarem.
 
+Audyt 08.11.2026 (B6) dołożył pomiar obok planu: liczbę nowych profili z 7 dni
+i ile z nich doszło do CV (niżej, „Nowe profile”). Wiadomości z LinkedIna dalej
+do NEXUSA nie trafiają, więc pomiar nie rozróżnia kanału, a koszyk zostaje planem.
+
 ## Reguła
 
 - **Dane:** tabela `job_recruiter_channels` (rekrutacja, osoba, `base` |
@@ -47,6 +51,17 @@ wie więc tylko zespół: koszyk jest planem, nie pomiarem.
   nowej decyzji Artura.
 - **Obłożenie:** `load[].base` / `load[].linkedin` liczą te same rekrutacje P1
   co `count`. Osoby bez koszyka to różnica, więc liczby się sumują.
+
+## Nowe profile (`services/new_profiles.py`, audyt 08.11.2026, B6)
+
+Karta jest nowym profilem, gdy pierwszy wiersz pary dodał człowiek, kandydat
+powstał najwyżej dzień przed kartą i to nie zgłoszenie z ogłoszenia, portalu ani
+polecenie. „Doszło do CV” = para ma etap „CV wysłane”. Okno to dziś i sześć
+poprzednich dni (tydzień kalendarzowy w poniedziałek rano dawałby same zera).
+Rekruter zakłada profil zwykle po dobrej rozmowie, więc odsetek (62% na karcie
+od 12.10) to częściowo efekt doboru, a nie kanału. Liczby w wierszu Daily
+(`new_profiles_7d`, `new_profiles_7d_cv`), w `GET /api/jobs/{id}/new-profiles`
+dla okienka zespołu i w podsumowaniu nad kategorią.
 
 ## Ekrany
 

@@ -31,6 +31,7 @@ i zasila OBIE powierzchnie. Cztery reguły, które ten moduł utrzymuje:
 """
 
 import logging
+from dataclasses import asdict
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -49,6 +50,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.job import JobCloseReason
 from app.schemas.money import to_whole_pln
+from app.services import competition_history
 from app.services.insights_clients import (
     ClientHitRatioRow,
     ClientRankingRow,
@@ -58,7 +60,12 @@ from app.services.insights_clients import (
     fold_ranking_totals,
     ratio_pct,
 )
+from app.services.insights_client_funnel import (
+    compute_client_funnel,
+    fold_funnel_totals,
+)
 from app.services.insights_hiring_managers import compute_hiring_manager_kpis
+from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +321,39 @@ def _previous_window(
             end=resolved.start,
         )
     return _resolve(kind, offset - 1, anchor, None, None)
+
+
+@router.get("/funnel")
+async def insights_clients_funnel(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("quarter", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """CV, rozmowy, zatrudnienia, hit ratio i mediana pierwszego CV per klient.
+
+    Bez kwot, więc otwarte jak ``/hit-ratio`` (D7). Definicje i różnica wobec
+    raportu „Zamknięcia i hit ratio”: ``services/insights_client_funnel.py``.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+    cache_key = f"insights:clients:funnel:v1:{resolved.cache_suffix}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = await compute_client_funnel(db, start=resolved.start, end=resolved.end)
+    result = {
+        "period": resolved.as_payload(),
+        "hit_ratio_since": competition_history.cutover_utc().isoformat(),
+        "hit_ratio_target_pct": DL_HIT_RATIO_TARGET_PCT,
+        "clients": [asdict(row) for row in rows],
+        "totals": fold_funnel_totals(rows),
+    }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
 
 
 @router.get("/hit-ratio")

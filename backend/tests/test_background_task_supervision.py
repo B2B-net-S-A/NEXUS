@@ -49,7 +49,7 @@ async def test_crashed_is_separated_from_a_clean_kill_switch_exit() -> None:
     await asyncio.sleep(0)
     await asyncio.gather(quiet, dead, return_exceptions=True)
 
-    status = _background_tasks_status(
+    status = await _background_tasks_status(
         _request_with({"alive": alive, "quiet": quiet, "dead": dead})
     )
 
@@ -76,12 +76,12 @@ async def test_healthy_install_reports_zero_crashed() -> None:
 
     quiet = asyncio.create_task(_exits())
     await asyncio.gather(quiet, return_exceptions=True)
-    status = _background_tasks_status(_request_with({"quiet": quiet}))
+    status = await _background_tasks_status(_request_with({"quiet": quiet}))
     assert status["crashed"] == 0
 
 
 def test_missing_registry_does_not_explode() -> None:
-    status = _background_tasks_status(_request_with(None))
+    status = asyncio.run(_background_tasks_status(_request_with(None)))
     assert status["crashed"] == 0
     assert status["expected"] == 0
 
@@ -110,4 +110,5 @@ def test_health_exposes_crashed_loops() -> None:
     """`/api/admin/snapshot` stoi za autoryzacją admina i nikt go nie odpytuje;
     `/api/health` to jedyne miejsce, w którym automatyczny czytelnik to zobaczy."""
     src = (BACKEND / "app/main.py").read_text(encoding="utf-8")
-    assert 'checks["background_tasks"]' in src
+    assert "checks.update(local_background_checks(app.state))" in src
+    assert "checks.update((await fetch_worker_state())[\"checks\"])" in src

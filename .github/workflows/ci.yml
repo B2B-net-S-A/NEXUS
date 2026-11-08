@@ -824,7 +824,12 @@ jobs:
         if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
-        run: npm run build
+        # Jak w `frontend/Dockerfile`: harnessy `/preview/*` nie wchodzą do
+        # builda produkcyjnego. Dzięki temu krok wyłapie kod produkcyjny, który
+        # zacząłby od nich zależeć. Typy harnessów sprawdza „Type check” wyżej.
+        run: |
+          rm -rf src/app/preview
+          npm run build
 
   frontend-vitest:
     # Pełny Vitest z pokryciem, równolegle do lint/type-check/build — tylko
@@ -986,10 +991,27 @@ jobs:
       # Security, którego prywatne repo na koncie osobistym nie ma — krok padłby
       # na 403 i zamienił advisory w czerwień, czyli powtórzył ten sam błąd
       # z drugiej strony.
+      - name: Install Trivy
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          # Własna instalacja zamiast `setup-trivy` z wnętrza akcji, bo tu są
+          # ponowienia przy awarii GitHub Releases (08.11.2026: 504). Wersja to
+          # domyślna wersja trivy-action v0.36.0. Suma z
+          # `trivy_0.70.0_checksums.txt`, zgodna z sha256 pobranego archiwum.
+          # Przy podbiciu wersji trzeba podmienić OBIE wartości naraz.
+          curl -fsSL --retry 6 --retry-delay 15 --retry-all-errors --connect-timeout 20 --max-time 120 \
+            "https://github.com/aquasecurity/trivy/releases/download/v0.70.0/trivy_0.70.0_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+          echo "8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9  /tmp/trivy.tar.gz" \
+            | sha256sum -c -
+          tar -xzf /tmp/trivy.tar.gz -C /tmp trivy
+          sudo mv /tmp/trivy /usr/local/bin/trivy
+          trivy --version
       - name: Trivy filesystem scan (deps + Dockerfile misconfig)
         if: steps.scope.outputs.run == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          skip-setup-trivy: true
           scan-type: fs
           scan-ref: .
           scanners: vuln,misconfig
