@@ -87,6 +87,7 @@ from app.services.cv_qc import _json_object
 from app.services.cv_generator_b2b.legacy_v7._helpers import (
     screening_text_without_questions,
 )
+from app.services.cv_edit_summary import ASSISTED_APPLIED
 from app.services.cv_rodo_clause import is_rodo_text
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS
 from app.services.dz_review import Requirement
@@ -99,6 +100,7 @@ logger = logging.getLogger(__name__)
 
 FEATURE = AIFeatureKey.cv_editor_command
 ACTIVITY_ACTION = "cv_command_ai"
+APPLIED_ACTION = ASSISTED_APPLIED
 
 # Rodzaje wierszy, które przysyła edytor. Klauzuli zgody edytor nie wysyła wcale.
 LINE_KINDS = (
@@ -326,6 +328,11 @@ MSG_DROPPED_NO_QUOTE = (
     "Nic nie zmieniłem: żadna propozycja nie miała potwierdzenia w oryginale CV ani "
     "w rozmowie tej rekrutacji. Napisz fakt sam, np. „dopisz do podsumowania: …”."
 )
+MSG_DROPPED_OTHER_ROLE = (
+    "Nic nie zmieniłem: kandydat nie używał tego w tym stanowisku. "
+    "Napisz, w której firmie to robił."
+)
+MSG_DROPPED_ABOUT_GAP = "Nic nie zmieniłem: nie piszę w CV o brakach kandydata."
 MSG_DROPPED_NEW_FACT = (
     "Nic nie zmieniłem: propozycje dopisywały fakty, których nie ma w oryginale CV "
     "ani w rozmowie. Napisz ten fakt w wiadomości — dopiszę go, gdy potwierdzisz, "
@@ -388,8 +395,8 @@ _REASON_MESSAGES = {
     "last_section": MSG_DROPPED_LAST,
     "no_quote": MSG_DROPPED_NO_QUOTE,
     "needs_question": MSG_DROPPED_NEW_FACT,
-    "other_role": MSG_DROPPED_NO_QUOTE,
-    "about_a_gap": MSG_DROPPED_NO_QUOTE,
+    "other_role": MSG_DROPPED_OTHER_ROLE,
+    "about_a_gap": MSG_DROPPED_ABOUT_GAP,
     "bad_type": MSG_DROPPED_TYPE,
     "not_summary": MSG_DROPPED_TYPE,
     "one_point": MSG_DROPPED_TYPE,
@@ -1263,6 +1270,44 @@ async def _log(
     except Exception:  # noqa: BLE001 — pomiar, nie warunek działania
         logger.warning(
             "[cv_command_ai] nie zapisano wpisu użycia stage=%s",
+            stage.id,
+            exc_info=True,
+        )
+
+
+async def log_applied(
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    user_id: int,
+    preset: Optional[str],
+    operations: int,
+) -> None:
+    """Rekruter nałożył plan asystenta (CV-3): rodzaj prośby i liczba, bez treści."""
+    try:
+        async with db.begin_nested():
+            csv_id = await db.scalar(
+                select(CandidateStageCV.id).where(
+                    CandidateStageCV.candidate_stage_id == stage.id
+                )
+            )
+            if csv_id is None:
+                return
+            db.add(
+                Activity(
+                    entity_type="candidate_stage_cv",
+                    entity_id=csv_id,
+                    action=APPLIED_ACTION,
+                    user_id=user_id,
+                    details={
+                        "preset": preset if preset in PRESETS else None,
+                        "operations": operations,
+                    },
+                )
+            )
+    except Exception:  # noqa: BLE001 — pomiar, nie warunek działania
+        logger.warning(
+            "[cv_command_ai] nie zapisano zastosowania stage=%s",
             stage.id,
             exc_info=True,
         )

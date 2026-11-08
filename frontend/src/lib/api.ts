@@ -6941,6 +6941,8 @@ export interface StageCvUploadResult extends CVOriginalSnapshot {
   replaced?: "none" | "auto_cv" | "confirmed" | null;
   /** „Cofnij” w komunikacie — tylko gdy nie zastąpiliśmy niczyjej pracy. */
   undo_available?: boolean;
+  /** Zastąpiony szkic zaczął się w generatorze — można podać powód podmiany. */
+  ask_replace_reason?: boolean;
   stored_in_profile?: boolean;
   uploaded_filename?: string | null;
   /** Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV. */
@@ -7064,6 +7066,9 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
+    /** Opcjonalny powód podmiany szkicu z generatora (pomiar, bez blokady). */
+    replaceReason: (stageId: number, reason: string) =>
+      api.post<void>(`/api/candidates/stages/${stageId}/cv/branded/replace-reason`, { reason }),
     selectGenerated: (
       stageId: number,
       generated_document_id: number,
