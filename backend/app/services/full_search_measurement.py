@@ -228,6 +228,43 @@ def _exact_search(query_vector, ids):
         client.close()
 
 
+async def vector_ready(candidate) -> bool:
+    """Czy punkt CV w Qdrancie ma aktualną treść i model (bez wektora zapytania).
+
+    Awaria Qdranta = ``True``: dalsza ocena sama zgłosi ``unavailable`` i wróci
+    do kolejki, a tu nie ma czego rozstrzygać.
+    """
+
+    def retrieve():
+        client = embeddings._get_qdrant_client()
+        if client is None:
+            raise RuntimeError("Vector store unavailable")
+        try:
+            return client.retrieve(
+                collection_name=embeddings._collection(),
+                ids=[candidate.id],
+                with_vectors=False,
+                with_payload=True,
+            )
+        finally:
+            client.close()
+
+    try:
+        points = await embeddings._run_qdrant(retrieve)
+    except Exception:
+        return True
+    if not points:
+        return False
+    payload = points[0].payload or {}
+    expected = hashlib.sha256(
+        embeddings._build_candidate_text(candidate).encode()
+    ).hexdigest()
+    return (
+        payload.get("content_hash") == expected
+        and payload.get("embedding_model") == embeddings._voyage_model()
+    )
+
+
 async def measure_candidates(query_vector, candidates) -> dict[int, VectorMeasurement]:
     """Provenance-checked cosine for every candidate, scored inside Qdrant.
 

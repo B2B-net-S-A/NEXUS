@@ -562,6 +562,12 @@ class Settings(BaseSettings):
     AUTO_MATCH_MAX_CANDIDATES_PER_JOB: int = 10
     AUTO_MATCH_JOB_LOOKBACK_DAYS: int = 90
     AUTO_MATCH_INTERVAL_SECONDS: int = 15
+    # Ile minut zdarzenie nowego CV czeka na aktualny wektor (08.11.2026): w 14
+    # dni 34% CV kończyło się bez oceny, bo zdarzenie biegło przed wektorem.
+    # 0 = bez czekania.
+    AUTO_MATCH_VECTOR_WAIT_MINUTES: int = 15
+    # Wynik nowego CV dopisywany do puli dopełniania, bez sufitu rekrutacji.
+    AUTO_MATCH_WRITE_POOL_ENABLED: bool = True
 
     # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
     # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla

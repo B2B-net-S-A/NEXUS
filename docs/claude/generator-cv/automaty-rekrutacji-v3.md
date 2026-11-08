@@ -371,6 +371,19 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `NotificationType.auto_match_proposals` — JEDEN dzienny digest na
   (rekrutacja, odbiorca), link `/jobs/{id}?tab=similar`; kolejne propozycje
   tego dnia PODBIJAJĄ licznik w tym samym wpisie i odznaczają „przeczytane".
+- **B. Świeże CV czeka na wektor, a wynik zasila pulę (08.11.2026, raport
+  https://claude.ai/artifact/HgCGsxN7Nk7ENGpb6iNg2B).** W 14 dni 1 056 z 3 140
+  zdarzeń `cv_upload` nie dostało żadnej oceny, a 469 tylko część, bo ocena
+  ruszała przed wektorem i kończyła się `done`. Zdarzenie młodsze niż
+  `AUTO_MATCH_VECTOR_WAIT_MINUTES` (15, `0` = bez czekania) sprawdza wektor
+  (`full_search_measurement.vector_ready`) i wraca do kolejki za minutę bez
+  zużycia próby (`AutoMatchVectorPending`, `last_error=vector_pending`). Po tym
+  czasie zostaje dawna ścieżka z `result.unmeasured`. Wyniki idą też do
+  `job_autofill_pool` rekrutacji, które już mają pulę, bez sufitu 3 rekrutacji
+  (`_write_pool`, wyłącznik `AUTO_MATCH_WRITE_POOL_ENABLED`): pełna pula
+  przyjmuje tylko osobę lepszą od ostatniej. Sufit zostaje przy propozycjach
+  i dzwonku, bo tam liczy się szum. Scraper dalej woła stare `/recommendations`
+  i zmiana skali czeka na etap jednej listy.
 - **B. Wynik pary = „Dop.” (21.10.2026).** `run_candidate_event` i
   `run_job_event` liczą przez `auto_match_service._canonical_scored`:
   `canonical_fit.score_candidates` z profilem `resolve_active_profile(user_id=None,
