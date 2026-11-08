@@ -181,6 +181,11 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   zapisuje w `entry_meta` `decided_at`/`decided_by`/`decision="call"` na
   stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
   albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
+  Panel osoby trzyma się tej samej reguły (08.11.2026, bo karta z „CV wysłane”
+  pokazywała „5 dni bez decyzji”): poza „Nowymi”, także w „Screeningu”,
+  `autofill_badge` daje `awaiting_decision=false`, `waiting_days=null` i
+  `decision_due=false`. „Od systemu” i powód dodania zostają, a „Zdecyduj” wisi
+  na `awaiting_decision`, nie na `decided`.
   Harness: `/preview/job-detail?autofill=1`.
 - **E. Odrzucenie z powodem (PR 4, 0516, decyzja Artura 23.10.2026).** Ruch na
   „Odrzucony” osoby od systemu, która stoi w „Nowych” albo „Screeningu”

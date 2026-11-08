@@ -31,6 +31,7 @@ from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.job_autofill_pool import JobAutofillPool
 from app.models.job_work_assignment import JobWorkAssignment
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services import autofill_decisions as decisions
@@ -114,7 +115,7 @@ def test_badge_carries_only_known_fields():
         "availability_date": "2026-11-01",
         "run_id": "secret-run",
     }
-    badge = autofill_badge(meta, waiting_days=2)
+    badge = autofill_badge(meta, waiting_days=2, in_new_column=True)
     assert badge == {
         "score": 81,
         "matched_must": ["Java", "5"],
@@ -122,15 +123,33 @@ def test_badge_carries_only_known_fields():
         "rate_known": False,
         "availability_known": True,
         "decided": False,
+        "awaiting_decision": True,
         "waiting_days": 2,
         "decision_due": True,
         # Karta sprzed ostrzeżeń (27.10.2026) — pusta lista.
         "cautions": [],
     }
     assert (
-        autofill_badge({"kind": "auto_match", "score": 70}, waiting_days=None) is None
+        autofill_badge(
+            {"kind": "auto_match", "score": 70}, waiting_days=None, in_new_column=True
+        )
+        is None
     )
-    assert autofill_badge({"kind": "autofill"}, waiting_days=None) is None
+    assert (
+        autofill_badge({"kind": "autofill"}, waiting_days=None, in_new_column=True)
+        is None
+    )
+
+
+def test_badge_outside_new_column_has_no_deadline_but_keeps_the_reason():
+    """Wyjście z „Nowych” to decyzja: reguła jak w ``due_decisions``."""
+    meta = {"kind": "autofill", "score": 81, "matched_must": ["Java"]}
+    badge = autofill_badge(meta, waiting_days=5, in_new_column=False)
+    assert badge["score"] == 81 and badge["matched_must"] == ["Java"]
+    assert badge["decided"] is False
+    assert badge["awaiting_decision"] is False
+    assert badge["waiting_days"] is None
+    assert badge["decision_due"] is False
 
 
 # ── baza ────────────────────────────────────────────────────────────────────
@@ -274,3 +293,78 @@ async def test_board_shows_the_system_badge_and_claim_records_the_call(
         )
     assert process.entry_meta["decision"] == "call"
     assert process.entry_meta["decided_by"] == recruiter
+
+
+@pytest.mark.parametrize(
+    ("stage", "in_new"),
+    [
+        (PipelineStage.new, True),
+        (PipelineStage.screening, False),
+        (PipelineStage.cv_sent, False),
+    ],
+)
+async def test_board_deadline_only_in_the_new_column(
+    api_client, monkeypatch, stage, in_new
+):
+    """Panel osoby mówi to samo co listy zadań (``due_decisions``)."""
+    monkeypatch.setattr(autofill, "TARGET", 1)
+    recruiter, email, password = await _user()
+    job_id = await _job(recruiter)
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(name="Od", lastname=f"Systemu-{uuid.uuid4().hex[:6]}")
+        db.add(candidate)
+        await db.flush()
+        db.add(
+            JobAutofillPool(
+                job_id=job_id,
+                candidate_id=candidate.id,
+                score=Decimal("81"),
+                run_id="run-afd",
+                evidence={"matched_must": ["Java"], "missing_must": []},
+            )
+        )
+        await db.commit()
+        candidate_id = candidate.id
+    async with AsyncSessionLocal() as db:
+        await autofill.fill_job(db, job_id, now=datetime.now(timezone.utc))
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, job_id)).created_at = _at(1)
+        process = await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.candidate_id == candidate_id,
+                RecruitmentProcess.job_id == job_id,
+            )
+        )
+        process.opened_at = _at(1)
+        row = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+        )
+        row.stage = stage
+        row.stage_def_id = None
+        await db.commit()
+
+    login = await api_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert board.status_code == 200, board.text
+    card = next(
+        item
+        for column in board.json()["columns"]
+        for item in column["items"]
+        if item["candidate_id"] == candidate_id
+    )
+    badge = card["entry_autofill"]
+    assert badge["score"] == 81 and badge["matched_must"] == ["Java"]
+    assert badge["decided"] is False
+    assert badge["decision_due"] is in_new
+    assert (badge["waiting_days"] is not None) is in_new
+    assert badge["awaiting_decision"] is in_new
+    async with AsyncSessionLocal() as db:
+        due = await decisions.due_decisions(db, [job_id], datetime.now(timezone.utc))
+    assert bool(due) is in_new

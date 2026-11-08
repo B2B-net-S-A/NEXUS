@@ -221,8 +221,9 @@ export interface KanbanItem {
  /**
   * Osoba od systemu (23.10.2026) — plakietka „Od systemu · 81%”, powód
   * w panelu osoby i termin decyzji (`services/autofill_decisions.py`).
-  * `waiting_days` = dni robocze bez decyzji; `null` = zdecydowano albo
-  * rekrutacja bez rekrutera (termin startuje od przypisania).
+  * `waiting_days` = dni robocze bez decyzji; `null` = zdecydowano, karta poza
+  * „Nowymi” albo rekrutacja bez rekrutera (termin startuje od przypisania).
+  * `awaiting_decision` = stoi w „Nowych” bez decyzji; wyjście z nich to decyzja.
   */
  entry_autofill?: {
   score: number;
@@ -231,6 +232,7 @@ export interface KanbanItem {
   rate_known: boolean;
   availability_known: boolean;
   decided: boolean;
+  awaiting_decision: boolean;
   waiting_days: number | null;
   decision_due: boolean;
   /**

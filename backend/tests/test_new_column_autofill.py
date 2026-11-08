@@ -945,6 +945,7 @@ def test_badge_turns_cautions_into_labels():
             ]
         ),
         waiting_days=None,
+        in_new_column=True,
     )
     assert badge["cautions"] == [
         {
@@ -991,6 +992,7 @@ def test_badge_city_with_km():
             ]
         ),
         waiting_days=None,
+        in_new_column=True,
     )
     assert badge["cautions"] == [
         {
@@ -1010,10 +1012,13 @@ def test_badge_skips_unknown_or_broken_cautions():
     badge = process_entry_meta.autofill_badge(
         _meta([{"key": "nowy"}, "zle", {"key": "budget", "over_pct": "x"}]),
         waiting_days=None,
+        in_new_column=True,
     )
     assert badge["cautions"] == []
     assert (
-        process_entry_meta.autofill_badge(_meta(None), waiting_days=None)["cautions"]
+        process_entry_meta.autofill_badge(
+            _meta(None), waiting_days=None, in_new_column=True
+        )["cautions"]
         == []
     )
 
