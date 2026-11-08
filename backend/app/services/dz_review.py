@@ -1275,6 +1275,62 @@ def rows_from_job(rows: Any, job_created_at: Optional[datetime]) -> list:
     ]
 
 
+def older_b2b_row(
+    rows: Any, client_name: Optional[str], job_created_at: Optional[datetime]
+) -> Optional[dict]:
+    """Plik „…B2B…” sprzed rekrutacji, którego rekruter może użyć jednym
+    kliknięciem (QC-4, 08.11.2026).
+
+    Pomiar: 28 z 40 par z plikiem spoza generatora po #3133 dostawało cichy
+    „Brak CV firmowego”, a 22 z tych osób było już u tego klienta. Podajemy plik,
+    tylko gdy nie ma nowszego. ``same_client`` = nazwa pliku pasuje do klienta.
+    """
+
+    if job_created_at is None:
+        return None
+    rows = list(rows)
+    if rows_from_job(rows, job_created_at):
+        return None
+    doc_id = pick_document_cv(rows, client_name)
+    if doc_id is None:
+        return None
+    row = next(r for r in rows if r[0] == doc_id)
+    tokens = _client_tokens(client_name)
+    stamp = row[2] or row[3]
+    return {
+        "document_id": row[0],
+        "filename": row[1],
+        "at": stamp.isoformat() if stamp is not None else None,
+        "same_client": bool(tokens) and _matches_client(row[1], tokens),
+    }
+
+
+async def older_document_cv(
+    db: AsyncSession,
+    candidate_id: int,
+    client_name: Optional[str],
+    job_created_at: Optional[datetime],
+) -> Optional[dict]:
+    """`older_b2b_row` z plików kandydata, bez pobierania ich treści."""
+
+    from app.models.candidate_document import CandidateDocument
+
+    rows = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.filename,
+                CandidateDocument.uploaded_at,
+                CandidateDocument.created_at,
+            ).where(
+                CandidateDocument.candidate_id == candidate_id,
+                *document_cv_conditions(),
+            )
+        )
+    ).all()
+    return older_b2b_row(rows, client_name, job_created_at)
+
+
 def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
     """Id pliku „…B2B…" dla klienta z wierszy ``(id, filename, uploaded_at,
     created_at)`` jednego kandydata: najpierw plik z wyróżniającym słowem
@@ -1481,6 +1537,8 @@ class ReviewSources:
     original: dict
     blocks: list[Block]
     bold_known: bool
+    # QC-4: plik „…B2B…” sprzed rekrutacji, gdy pary nie ma żadnego innego CV.
+    older_document: Optional[dict] = None
 
 
 async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources:
@@ -1508,6 +1566,11 @@ async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources
     else:
         blocks = html_blocks(generated["html"])
     bold_known = bool(generated) and generated.get("bold_known", True)
+    older_document = (
+        await older_document_cv(db, candidate.id, client_name, job.created_at)
+        if generated is None
+        else None
+    )
     return ReviewSources(
         candidate=candidate,
         job=job,
@@ -1518,6 +1581,7 @@ async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources
         original=original,
         blocks=blocks,
         bold_known=bold_known,
+        older_document=older_document,
     )
 
 

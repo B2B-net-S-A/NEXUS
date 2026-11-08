@@ -4176,11 +4176,15 @@ async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead
             ok = await api_client.post(
                 f"{qc_url}/override",
                 headers=rec,
-                json={"reason_code": "confirmed_in_call"},
+                json={
+                    "reason_code": "confirmed_in_call",
+                    "reason": "Mówił, że używał Javy w banku",
+                    "about_keys": _blocker_keys(mine),
+                },
             )
         assert ok.status_code == 200, ok.text
-        assert (
-            ok.json()["override"]["reason"] == qc.OVERRIDE_REASONS["confirmed_in_call"]
+        assert ok.json()["override"]["reason"].startswith(
+            qc.OVERRIDE_REASONS["confirmed_in_call"]
         )
         assert [t.split(":")[0] for t in await bells(dl_id)] == [
             "Przesunięte mimo uwag QC"
@@ -4207,7 +4211,9 @@ async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead
         assert context.status_code == 200, context.text
         body = context.json()
         assert body["qc_status"] == "overridden"
-        assert body["qc_override"]["reason"] == qc.OVERRIDE_REASONS["confirmed_in_call"]
+        assert body["qc_override"]["reason"].startswith(
+            qc.OVERRIDE_REASONS["confirmed_in_call"]
+        )
         assert "qc_overridden" in {r["code"] for r in body["risks"]}
 
         # Obejście osoby od wysyłki nikogo nie powiadamia.
@@ -4374,10 +4380,16 @@ async def test_advisory_override_lets_the_delivery_lead_accept_to_cpro(
         assert refused.status_code == 409, refused.text
         assert refused.json()["detail"]["code"] == "CV_QC_FAILED"
         with hydrated_taxonomy():
+            current = await api_client.get(
+                f"/api/pipeline/stages/{stage_id}/qc", headers=rec
+            )
             passed = await api_client.post(
                 f"/api/pipeline/stages/{stage_id}/qc/override",
                 headers=rec,
-                json={"reason_code": "requirement_not_applicable"},
+                json={
+                    "reason_code": "requirement_not_applicable",
+                    "about_keys": _blocker_keys(current.json()),
+                },
             )
             assert passed.status_code == 200, passed.text
             # Rekruter sam do kolejki nie wkłada — przekazuje osobę DL-owi.
@@ -4629,6 +4641,7 @@ async def test_override_confirmed_in_call_saves_confirmations(
                 json={
                     "reason_code": "confirmed_in_call",
                     "reason": "Spring Boot w Acme",
+                    "about_keys": _blocker_keys(short.json()),
                 },
             )
         assert ok.status_code == 200, ok.text
@@ -4788,6 +4801,17 @@ def test_confirmable_terms_are_unsupported_terms_and_absent_critical_skills() ->
     assert qc.confirmable_terms(checks) == ["Spring", "Scala"]
     many = [chk("no_unsupported", "fail", [{"term": f"T{i}"} for i in range(40)])]
     assert len(qc.confirmable_terms(many)) == qc.CONFIRMATIONS_MAX
+
+
+def _blocker_keys(body: dict) -> list[str]:
+    """Klucze blokad z odpowiedzi QC — do `about_keys` przy obejściu (QC-5)."""
+    return [
+        item["key"]
+        for check in body["checks"]
+        if check["severity"] == "blocking" and check["status"] == "fail"
+        for item in check["items"]
+        if item.get("key")
+    ]
 
 
 @pytest.mark.asyncio

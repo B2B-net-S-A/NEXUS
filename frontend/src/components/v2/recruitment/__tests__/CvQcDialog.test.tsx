@@ -1739,6 +1739,9 @@ describe("CvQcDialog — QC CV", () => {
       renderDialog();
       const picker = await screen.findByRole("group", { name: "Gdzie oryginał opisuje: Java" });
       await userEvent.click(within(picker).getByRole("button", { name: "Nigdzie — tylko na liście" }));
+      // QC-6: „Nigdzie” pyta raz, zanim zapisze.
+      expect(post).not.toHaveBeenCalledWith(expect.stringContaining("manual-roles"), expect.anything());
+      await userEvent.click(screen.getByRole("button", { name: "Tak, tylko na liście" }));
       await waitFor(() =>
         expect(post).toHaveBeenCalledWith(`${QC_URL}/manual-roles`, { requirement: "Java", roles: [] }),
       );

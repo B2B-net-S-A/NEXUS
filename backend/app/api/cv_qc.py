@@ -377,6 +377,14 @@ class QcOverrideRequest(BaseModel):
             and self.reason_code not in cv_qc.OVERRIDE_REASONS
         ):
             raise ValueError("Nieznany powód obejścia QC.")
+        if (
+            self.reason_code == cv_qc.CONFIRMED_IN_CALL
+            and len(self.reason) < cv_qc.CONFIRM_TEXT_MIN
+        ):
+            raise ValueError(
+                "Wpisz, co dokładnie powiedział kandydat (co najmniej "
+                f"{cv_qc.CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead."
+            )
         if self.reason_code in (None, "other") and not self.reason:
             raise ValueError("Opisz powód obejścia QC.")
         if (
