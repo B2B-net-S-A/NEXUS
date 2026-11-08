@@ -79,6 +79,7 @@ from app.models.dl_alert import (
     ALERT_COST_BUDGET_LOW,
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_FRAMEWORK_CONTRACT_EXPIRING,
+    ALERT_INVOICE_WITHOUT_ORDER_LINE,
     ALERT_MD_BASE_USAGE_HIGH,
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
@@ -95,6 +96,8 @@ from app.models.md_consumption import (
 )
 from app.models.order_mail import OUTCOME_NEEDS_REVIEW, OrderMailDocument
 from app.services.client_identity import client_display_name_expression
+from app.services.client_invoicing import settings as client_invoicing_settings
+from app.services.client_invoicing.line_gaps import line_gaps
 from app.services.client_order_lines import (
     consultant_display_name,
     is_line_on_active_roster,
@@ -1352,6 +1355,63 @@ async def rule_missing_revenue_rate(
     return created
 
 
+async def rule_invoice_without_order_line(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Faktura z KSeF na osobę bez pozycji zamówienia w miesiącu usługi.
+
+    Finanse widzą taką fakturę jako „kwota nie pasuje”, a pozycję może dopisać
+    tylko Delivery Lead. Warunek ustaje, gdy Finanse przypiszą fakturę albo DL
+    uzupełni obsadę — wtedy karta zamyka się sama.
+    """
+    gaps = (
+        await line_gaps(db, business_today())
+        if await client_invoicing_settings.is_enabled(db)
+        else []
+    )
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    names = await _client_names(db, {gap.client_id for gap in gaps})
+    created = 0
+    live: set[str] = set()
+    for gap in gaps:
+        user_ids = await dl_user_ids_for_client(
+            db, gap.client_id, scope=recipient_scope
+        )
+        if not user_ids:
+            continue
+        live |= _live_keys(ALERT_INVOICE_WITHOUT_ORDER_LINE, gap.entity_key, user_ids)
+        client_name = names.get(gap.client_id, "Klient")
+        period = f"{gap.month:02d}.{gap.year}"
+        alerts = await emit(
+            db,
+            alert_type=ALERT_INVOICE_WITHOUT_ORDER_LINE,
+            user_ids=user_ids,
+            client_id=gap.client_id,
+            entity_key=gap.entity_key,
+            title=f"{client_name} — faktura bez pozycji zamówienia",
+            message=(
+                f"📄 {client_name} — faktura {gap.invoice_number} za {period} "
+                f"dotyczy {gap.person}, a ta osoba nie ma pozycji zamówienia "
+                "w tym miesiącu. Dopisz pozycję albo sprawdź okres z Finansami."
+            ),
+            link=_client_link(gap.client_id),
+            payload={
+                "invoice_number": gap.invoice_number,
+                "consultant": gap.person,
+                "candidate_name": gap.person,
+                "period": period,
+            },
+            repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
+        )
+        created += len(alerts)
+    await resolve_stale(
+        db, alert_type=ALERT_INVOICE_WITHOUT_ORDER_LINE, live_event_keys=live
+    )
+    return created
+
+
 async def rule_order_missing_successor(
     db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope | None = None
 ) -> int:
@@ -1379,6 +1439,7 @@ ALERT_RULES: dict[str, Rule] = {
     ALERT_NEW_CONTRACTOR_DRAFT: rule_new_contractor_draft,
     ALERT_ORDER_MAIL_REVIEW: rule_order_mail_review,
     ALERT_CANDIDATE_CONFLICT_EXPIRED: rule_candidate_conflict_expired,
+    ALERT_INVOICE_WITHOUT_ORDER_LINE: rule_invoice_without_order_line,
 }
 
 

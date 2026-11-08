@@ -174,7 +174,7 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
     created = await app_client.post(
         "/api/clients",
         headers=headers,
-        json={"name": name, "nip": "5252530321", "notes": "Notatka handlowa"},
+        json={"name": name, "nip": "5252530326", "notes": "Notatka handlowa"},
     )
     assert created.status_code == 201, created.text
     client_id = created.json()["id"]

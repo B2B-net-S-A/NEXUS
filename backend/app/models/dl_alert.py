@@ -64,6 +64,8 @@ ALERT_MD_BASE_USAGE_HIGH = "md_base_usage_high"
 # 0322: konflikt kandydat↔klient (NDA/blacklist/…) wygasł — kandydata znów
 # można proponować temu klientowi. Jednorazowa karta, wiersz konfliktu zostaje.
 ALERT_CANDIDATE_CONFLICT_EXPIRED = "candidate_conflict_expired"
+# Faktura z KSeF na osobę, która nie ma pozycji zamówienia w miesiącu usługi.
+ALERT_INVOICE_WITHOUT_ORDER_LINE = "invoice_without_order_line"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
@@ -80,6 +82,7 @@ DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_NEW_CONTRACTOR_DRAFT,
     ALERT_MD_BASE_USAGE_HIGH,
     ALERT_CANDIDATE_CONFLICT_EXPIRED,
+    ALERT_INVOICE_WITHOUT_ORDER_LINE,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -99,6 +102,7 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_NEW_CONTRACTOR_DRAFT: "Nowy kontraktor — draft zamówienia",
     ALERT_MD_BASE_USAGE_HIGH: "Wysokie zużycie podstawy MD",
     ALERT_CANDIDATE_CONFLICT_EXPIRED: "Konflikt z kandydatem wygasł",
+    ALERT_INVOICE_WITHOUT_ORDER_LINE: "Faktura bez pozycji zamówienia",
 }
 
 #: Sekcje panelu „Moi klienci". Wyznacza je SERWER z typu — front nie trzyma
@@ -125,6 +129,8 @@ DL_ALERT_SECTION_BY_TYPE: dict[str, str] = {
     # współpraca bez papieru, więc sekcja „kończące się".
     ALERT_ORDER_MISSING_SUCCESSOR: DL_ALERT_SECTION_ENDING,
     ALERT_CANDIDATE_CONFLICT_EXPIRED: DL_ALERT_SECTION_ENDING,
+    # Trzeba uzupełnić obsadę zamówienia — tak jak przy braku stawki przychodowej.
+    ALERT_INVOICE_WITHOUT_ORDER_LINE: DL_ALERT_SECTION_NEW_CONTRACTOR,
 }
 
 DL_ALERT_PRIORITY_STANDARD = "standard"
@@ -165,7 +171,8 @@ class DlAlert(Base):
             "'order_missing_successor', "
             "'periodic_order_ending', 'framework_contract_expiring', "
             "'contract_ending', 'cost_budget_low', 'new_contractor_draft', "
-            "'md_base_usage_high', 'candidate_conflict_expired')",
+            "'md_base_usage_high', 'candidate_conflict_expired', "
+            "'invoice_without_order_line')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint(
