@@ -98,7 +98,10 @@
   (`client_registry_number`); zagraniczny numer idzie z prefiksem kraju. Zapisujemy postać rejestru (bez kresek i `PL`). Numer innego
   klienta to 409, bo dwa takie wiersze zatrzymałyby faktury obu. Zapis wysyła pole tylko po zmianie: stary tekst w polu NIP nie blokuje
   edycji reszty formularza. Zmiana numeru od razu dopasowuje czekające faktury, także przy zakładaniu klienta.
+  Ramka „N faktur z KSeF czeka na ten NIP” jest **tylko dla Finansów**: wpisany numer nie jest związany z klientem z adresu, więc Delivery
+  Lead odczytałby nim nazwę i kwoty faktur firm spoza portfela.
 - **Alert DL o fakturze bez pozycji** (`invoice_without_order_line`, `services/client_invoicing/line_gaps.py`): faktura czeka na Finanse
   z powodem `no_orders`, `amount_differs` albo `expected_unknown`, a pozycja nazywa pełnym imieniem i nazwiskiem osobę z kontraktem
-  u tego klienta, która w miesiącu usługi nie ma pozycji zamówienia. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
-  3 miesiące nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.
+  u tego klienta, która w miesiącu usługi nie ma pozycji zamówienia. Pozycję sprawdzamy po zamówieniach (`member_ids`), nie po tekście linii:
+  kosztowe mają nazwiska po przecinku, a wspólna pula „N os.”. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
+  6 miesięcy nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.

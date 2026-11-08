@@ -252,15 +252,18 @@ async def client_invoicing(
 @router.get("/{client_id}/invoicing/waiting-for-number")
 async def client_invoices_waiting_for_number(
     client_id: int,
-    current_user: InvoicingReaderUser,
+    current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
     number: str = Query(..., min_length=1, max_length=32),
 ) -> dict[str, Any]:
-    """Ramka w formularzu klienta: „N faktur z KSeF czeka na ten NIP”."""
+    """Ramka w formularzu klienta: „N faktur z KSeF czeka na ten NIP”.
+
+    Tylko Finanse. Wpisany numer nie jest związany z klientem z adresu, więc
+    Delivery Lead odczytałby nim nazwę i kwoty faktur firmy spoza portfela.
+    """
 
     await _module_open(db, current_user)
     await _client_or_404(db, client_id)
-    await _assert_client_finance(db, current_user, client_id)
     return await views.waiting_for_number_view(db, normalize_buyer_number(number))
 
 

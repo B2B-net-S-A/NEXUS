@@ -10,9 +10,9 @@ za niego jest zużycie MD, a więc skutek w złotówkach. Każdy wiersz mówi, k
 ile dotyczy, bez identyfikatorów z bazy: Finanse szukają po osobie, kliencie,
 kwocie i miesiącu.
 
-Kontrakt bez stawki to brak danych, a nie rozjazd (szkice z obsady), a kontrakt
-z szablonu w innej walucie niż linia nie daje się porównać bez kursu — takie
-pozycje są tylko policzone.
+Kontrakt bez stawki to brak danych, a nie rozjazd (szkice z obsady). Stawkę
+porównujemy w walucie kontraktu; linia w innej walucie niż kontrakt
+zagraniczny nie daje się porównać bez kursu i jest tylko policzona.
 
 Pozycja „godzinowy kontrakt zaokrąglony” (945 zł/MD to 118,125 zł/h, a kontrakt
 ma 118 zł/h) to rozjazd pozorny, więc idzie na koniec listy z oznaczeniem.
@@ -36,7 +36,11 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.md_consumption import ClientOrderMdConsumption
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import consultant_display_name
-from app.services.order_rate_snapshots import contract_rate_in_unit
+from app.services.order_rate_snapshots import (
+    HOURS_PER_MONTH,
+    contract_rate_in_unit,
+    convert_order_rate,
+)
 
 SETTING_KEY = "contract_order_rate_divergences"
 #: Różnica poniżej grosza to reszta z przeliczenia jednostek.
@@ -156,22 +160,46 @@ async def _md_by_order(
 
 
 def _contract_leg(
-    contract: Contract, order: ClientOrder, leg: Leg, on_day: date
-) -> tuple[Optional[Decimal], str, str]:
-    """(stawka kontraktu za MD albo brak, waluta kontraktu, waluta linii)."""
+    contract: Contract, leg: Leg, on_day: date
+) -> tuple[Optional[Decimal], str]:
+    """(stawka kontraktu za MD albo brak, waluta kontraktu)."""
 
     if leg == "revenue":
         rate = contract.effective_client_rate(on_day)
         currency = contract.resolved_rate_client_currency
-        line_currency = order.rate_client_currency
     else:
         rate = contract.effective_candidate_rate(on_day)
         currency = contract.resolved_rate_candidate_currency
-        line_currency = order.rate_candidate_currency
-    return (
-        contract_rate_in_unit(rate, contract, RateUnit.daily),
-        currency,
-        (line_currency or order.currency or "PLN").upper(),
+    return contract_rate_in_unit(rate, contract, RateUnit.daily), currency
+
+
+def _line_rate(order: ClientOrder, leg: Leg, currency: str) -> Optional[Decimal]:
+    """Stawka linii za MD w walucie kontraktu; ``None``, gdy nie da się porównać.
+
+    ``md_rate_*`` są zawsze w PLN/MD (tak linię zapisuje materializator), a stawkę
+    w walucie linii niosą ``rate_client`` i ``rate_candidate``. Odjęcie złotówek
+    od euro dawało rozjazd rzędu ×4 z etykietą EUR i wiersz na górze listy.
+    """
+
+    if currency == "PLN":
+        pln = order.md_rate_revenue if leg == "revenue" else order.md_rate_cost
+        return Decimal(pln) if pln is not None else None
+    native, line_currency = (
+        (order.rate_client, order.rate_client_currency)
+        if leg == "revenue"
+        else (order.rate_candidate, order.rate_candidate_currency)
+    )
+    if (
+        native is None
+        or (line_currency or order.currency or "PLN").upper() != currency
+        or not order.rate_unit
+    ):
+        return None
+    return convert_order_rate(
+        native,
+        RateUnit(order.rate_unit),
+        RateUnit.daily,
+        order.billing_hours_per_month or HOURS_PER_MONTH,
     )
 
 
@@ -186,22 +214,21 @@ def _line_divergences(
     contract = order.contract
     on_day = min(order.end_date or last_day, last_day)
     out: list[Divergence] = []
-    for leg, line_rate in (
+    for leg, stored in (
         ("revenue", order.md_rate_revenue),
         ("cost", order.md_rate_cost),
     ):
-        if line_rate is None:
+        if stored is None:
             continue
-        contract_rate, currency, line_currency = _contract_leg(
-            contract, order, leg, on_day
-        )
+        contract_rate, currency = _contract_leg(contract, leg, on_day)
         if contract_rate is None or contract_rate <= 0:
             counters["no_contract_rate"] += 1
             continue
-        if currency != line_currency:
+        line_rate = _line_rate(order, leg, currency)
+        if line_rate is None:
             counters["other_currency"] += 1
             continue
-        difference = Decimal(line_rate) - contract_rate
+        difference = line_rate - contract_rate
         if abs(difference) < _TOLERANCE:
             continue
         out.append(
@@ -214,7 +241,7 @@ def _line_divergences(
                 month=period,
                 currency=currency,
                 contract_rate=_plain(contract_rate),
-                order_rate=_plain(Decimal(line_rate)),
+                order_rate=_plain(line_rate),
                 difference=_plain(difference),
                 md=_plain(md) if md is not None else None,
                 effect=_plain(difference * md) if md is not None else None,

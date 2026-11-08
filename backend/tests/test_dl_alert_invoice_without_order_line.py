@@ -11,6 +11,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.dl_alert import (
     ALERT_INVOICE_WITHOUT_ORDER_LINE as ALERT,
@@ -144,6 +145,47 @@ async def test_person_with_a_line_in_the_month_is_not_a_gap() -> None:
     assert [gap for gap in await _gaps() if gap.client_id == client_id] == []
 
 
+async def test_person_on_a_cost_order_with_two_people_is_not_a_gap() -> None:
+    """Pozycja kosztowa ma nazwiska po przecinku; osoba ma linię w zamówieniu."""
+
+    async with AsyncSessionLocal() as db:
+        client_id = await fx.client(db, "Klient Kosztowy", None)
+        await fx.md_group(
+            db,
+            client_id,
+            "K/1",
+            people=[
+                ("Hanna", "Kosztowa", "1200", None),
+                ("Olek", "Budzetowy", "1200", None),
+            ],
+            cost=True,
+        )
+        await db.commit()
+    await _invoice(client_id, "Hanna Kosztowa usługa")
+
+    assert [gap for gap in await _gaps() if gap.client_id == client_id] == []
+
+
+async def test_person_in_a_shared_md_pool_is_not_a_gap() -> None:
+    async with AsyncSessionLocal() as db:
+        client_id = await fx.client(db, "Klient Pula", None)
+        group_id, _lines = await fx.md_group(
+            db,
+            client_id,
+            "P/1",
+            people=[("Ala", "Pulowa", "1200", None), ("Ola", "Wspolna", "1300", None)],
+        )
+        group = await db.get(ClientOrderGroup, group_id)
+        group.md_budget_mode = "shared"
+        group.is_md_budget_based = True
+        group.md_budget_total = Decimal("100")
+        group.md_budget_remaining = Decimal("100")
+        await db.commit()
+    await _invoice(client_id, "Ala Pulowa usługa")
+
+    assert [gap for gap in await _gaps() if gap.client_id == client_id] == []
+
+
 async def test_name_without_a_contract_stays_with_finance() -> None:
     client_id, dl_id = await _client_with_dl()
     await _invoice(client_id, "Nieznana Osoba usługa")
@@ -152,10 +194,10 @@ async def test_name_without_a_contract_stays_with_finance() -> None:
     assert await _alerts(dl_id) == []
 
 
-async def test_invoice_older_than_three_months_does_not_alert() -> None:
+async def test_invoice_older_than_six_months_does_not_alert() -> None:
     client_id, dl_id = await _client_with_dl()
     await _person(client_id, "Maja", "Stara")
-    await _invoice(client_id, "Maja Stara", period=(2026, 7))
+    await _invoice(client_id, "Maja Stara", period=(2026, 4))
 
     assert await _scan() == 0
     assert await _alerts(dl_id) == []
@@ -214,4 +256,4 @@ async def test_module_off_emits_nothing_and_closes_open_cards() -> None:
 async def test_type_has_label_and_section() -> None:
     assert DL_ALERT_TYPE_LABELS[ALERT]
     assert DL_ALERT_SECTION_BY_TYPE[ALERT]
-    assert gaps_service.GAP_MONTHS_BACK == 3
+    assert gaps_service.GAP_MONTHS_BACK == 6

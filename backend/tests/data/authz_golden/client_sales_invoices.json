@@ -35,7 +35,7 @@
   "GET /api/clients/sales-invoices/overdue": "PPDPDDDDPPPDDDDDDPPDDDDDDDPDD",
   "GET /api/clients/{client_id}/invoicing": "PPDBDDDDBBBDDDDDDPPDDDDDDDPDD",
   "GET /api/clients/{client_id}/invoicing/export": "PPDBDDDDBBBDDDDDDPPDDDDDDDPDD",
-  "GET /api/clients/{client_id}/invoicing/waiting-for-number": "PPDBDDDDBBBDDDDDDPPDDDDDDDPDD",
+  "GET /api/clients/{client_id}/invoicing/waiting-for-number": "PPDBDDDDBBBDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/credits": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/sales-invoices/overdue": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

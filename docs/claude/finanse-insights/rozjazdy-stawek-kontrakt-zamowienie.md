@@ -9,6 +9,8 @@ linii prowadzi Delivery Lead. Marża i MRR liczą się jednak z kontraktu, więc
 - Dotyczy **ostatniego zamkniętego miesiąca**: dopiero za niego jest zużycie MD, a więc skutek w złotych.
 - Obejmuje linie aktywne albo zakończone w tym miesiącu, z kontraktem aktywnym, kończącym się albo zakończonym. Szkic i `void` są poza
   raportem. Kontrakt bez stawki i inna waluta są tylko policzone w nagłówku, bo nie da się ich porównać.
+- Porównujemy w walucie kontraktu: `md_rate_*` linii są zawsze w PLN/MD (materializator), a stawkę w walucie linii niosą
+  `rate_client` i `rate_candidate`. Kontrakt w EUR porównany z `md_rate_*` dawał fałszywy rozjazd ×4.
 - Wiersz mówi: osoba, klient i numer zamówienia, kontrakt i zamówienie w zł/MD, różnica, skutek w miesiącu. **Bez id z bazy**, bo
   Finanse szukają po osobie, kliencie, kwocie i miesiącu. Link do karty klienta jest tylko w adresie.
 - Różnica do 4 zł/MD przy kontrakcie godzinowym to zaokrąglenie (945 zł/MD to 118,125 zł/h, a kontrakt ma 118). Idzie na koniec

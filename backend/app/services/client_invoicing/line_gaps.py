@@ -7,12 +7,13 @@ obsadę może Delivery Lead, więc to on dostaje alert.
 Faktura wskazuje osobę pełnym imieniem i nazwiskiem w pozycji. Bierzemy tylko
 osoby z kontraktem u tego klienta: nazwisko spoza kontraktów nie mówi, kogo DL
 miałby dopisać, i taka faktura zostaje Finansom. Starsze niż
-``GAP_MONTHS_BACK`` miesiące nie alarmują — nikt nie uzupełnia obsady sprzed
-kwartału, a powtórka co tydzień byłaby tylko szumem.
+``GAP_MONTHS_BACK`` miesiące nie alarmują: obsady sprzed pół roku nikt już nie
+uzupełni, a powtórka co tydzień byłaby tylko szumem.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
@@ -20,11 +21,12 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
+from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.contract import Contract, ContractStatus
 from app.services.client_invoicing import billing, clients, matching
 
-GAP_MONTHS_BACK = 3
+GAP_MONTHS_BACK = 6
 #: Dopasowanie nie znalazło osoby ani kwoty; pozostałe powody mówią o czym innym.
 GAP_REASONS = ("no_orders", "amount_differs", "expected_unknown")
 
@@ -96,6 +98,30 @@ async def _contract_people(
     ]
 
 
+async def _order_people(
+    db: AsyncSession, rows: Iterable[billing.BillingRow]
+) -> list[str]:
+    """Osoby z pozycji zamówień miesiąca, po zamówieniach, nie po tekście pozycji.
+
+    Pozycja kosztowa ma nazwiska po przecinku, a wspólna pula „N os.”, więc tekst
+    pozycji fałszywie mówiłby, że ktoś pozycji nie ma, i kusił do dopisania duplikatu.
+    """
+
+    order_ids = {order_id for row in rows for order_id in row.member_ids}
+    order_ids |= {row.order_id for row in rows if row.order_id}
+    order_ids |= {line.order_id for row in rows for line in row.lines if line.order_id}
+    if not order_ids:
+        return []
+    rows_found = await db.execute(
+        select(Candidate.name, Candidate.lastname)
+        .join(Contract, Contract.candidate_id == Candidate.id)
+        .join(ClientOrder, ClientOrder.contract_id == Contract.id)
+        .where(ClientOrder.id.in_(order_ids))
+        .distinct()
+    )
+    return [f"{name or ''} {lastname or ''}".strip() for name, lastname in rows_found]
+
+
 async def line_gaps(db: AsyncSession, today: date) -> list[LineGap]:
     """Osoby z faktur czekających na Finanse, które nie mają pozycji w miesiącu faktury."""
 
@@ -112,7 +138,7 @@ async def line_gaps(db: AsyncSession, today: date) -> list[LineGap]:
             rows = await billing.billing_rows(
                 db, year=period[1], month=period[2], client_ids=members
             )
-            lines[period] = [line.consultant for row in rows for line in row.lines]
+            lines[period] = await _order_people(db, rows)
         for item_name in _item_names(invoice):
             if any(
                 matching.person_named_in(person, item_name) for person in lines[period]

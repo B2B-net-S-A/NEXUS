@@ -46,6 +46,14 @@ async def _set_contract(line_id: int, **values: object) -> None:
         await db.commit()
 
 
+async def _set_line(line_id: int, **values: object) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientOrder).where(ClientOrder.id == line_id).values(**values)
+        )
+        await db.commit()
+
+
 async def _group(number: str, people: list[tuple[str, str, str, str | None]]):
     async with AsyncSessionLocal() as db:
         client_id = await fx.client(db, "Bank Rozjazdów", None)
@@ -94,6 +102,70 @@ async def test_revenue_divergence_lists_person_client_amount_and_month() -> None
 async def test_matching_rates_are_not_a_divergence() -> None:
     number = _number()
     await _group(number, [("Ola", "Zgodna", "1200", "10")])
+    assert await _rows(number) == []
+
+
+async def test_foreign_currency_line_matching_contract_is_not_a_divergence() -> None:
+    """md_rate_* jest w PLN, stawka w EUR leży w rate_client: bez fałszywego ×4."""
+
+    number = _number()
+    _client, (line,) = await _group(number, [("Eva", "Euro", "860", None)])
+    await _set_contract(
+        line,
+        rate_unit=RateUnit.daily,
+        rate_client=Decimal("200"),
+        rate_client_currency="EUR",
+        rate_candidate=Decimal("800"),
+    )
+    await _set_line(
+        line,
+        rate_client=Decimal("200"),
+        rate_client_currency="EUR",
+        rate_unit=RateUnit.daily,
+    )
+
+    assert await _rows(number) == []
+
+
+async def test_foreign_currency_line_with_a_real_difference_is_reported() -> None:
+    number = _number()
+    _client, (line,) = await _group(number, [("Eva", "Rozjazd", "860", None)])
+    await _set_contract(
+        line,
+        rate_unit=RateUnit.daily,
+        rate_client=Decimal("220"),
+        rate_client_currency="EUR",
+        rate_candidate=Decimal("800"),
+    )
+    await _set_line(
+        line,
+        rate_client=Decimal("200"),
+        rate_client_currency="EUR",
+        rate_unit=RateUnit.daily,
+    )
+
+    [row] = await _rows(number)
+    assert (row["contract_rate"], row["order_rate"]) == ("220.00", "200.00")
+    assert row["currency"] == "EUR"
+
+
+async def test_line_in_other_currency_than_foreign_contract_is_only_counted() -> None:
+    number = _number()
+    _client, (line,) = await _group(number, [("Iza", "Waluta", "860", None)])
+    await _set_contract(
+        line,
+        rate_unit=RateUnit.daily,
+        rate_client=Decimal("220"),
+        rate_client_currency="EUR",
+        rate_candidate=Decimal("800"),
+    )
+    await _set_line(
+        line,
+        rate_client=Decimal("860"),
+        rate_client_currency="PLN",
+        rate_unit=RateUnit.daily,
+    )
+
     assert await _rows(number) == []
 
 

@@ -91,8 +91,18 @@ async def _new_client(legal_name: str | None = None, nip: str | None = None) -> 
     return client_id
 
 
-async def _buyer_name() -> str:
-    return (await fx.invoice(fx.KSEF_UNKNOWN)).buyer_name or ""
+async def _unique_buyer_name() -> str:
+    """Nazwa nabywcy jedyna w bazie: inaczej trafia w klientów z wcześniejszych biegów."""
+
+    name = f"Nabywca {uuid.uuid4().hex[:10]} S.A."
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.ksef_number == fx.KSEF_UNKNOWN)
+            .values(buyer_name=name)
+        )
+        await db.commit()
+    return name
 
 
 async def _buyers(client, seed, *, user: str = "finance") -> dict:
@@ -120,10 +130,11 @@ async def test_groups_all_months_by_number_with_totals(client, seed):
 
 
 async def test_suggestion_only_when_one_client_has_that_name(client, seed):
-    await _new_client(legal_name=await _buyer_name())
+    name = await _unique_buyer_name()
+    await _new_client(legal_name=name)
     assert _row(await _buyers(client, seed))["suggestion"]["state"] == "add"
 
-    await _new_client(legal_name=await _buyer_name())
+    await _new_client(legal_name=name)
     assert _row(await _buyers(client, seed))["suggestion"] is None
 
 
@@ -238,9 +249,11 @@ async def test_frame_counts_invoices_waiting_for_the_number(client, seed):
     assert response.json()["invoices"] == 2
 
 
-async def test_frame_refused_for_dl_outside_portfolio_and_recruiter(client, seed):
+async def test_frame_is_finance_only_even_for_dl_of_this_client(client, seed):
+    """Numer nie jest związany z klientem: DL czytałby nim faktury cudzych firm."""
+
     url = f"{CLIENTS}/{seed.client_id}/invoicing/waiting-for-number"
-    for user in ("other_dl", "recruiter"):
+    for user in ("dl", "other_dl", "recruiter"):
         response = await client.get(
             url, params={"number": NIP}, headers=fx.headers(seed.users[user])
         )

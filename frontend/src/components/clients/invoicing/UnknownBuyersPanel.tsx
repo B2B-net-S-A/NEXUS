@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/client-invoicing";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { formatMoney } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 
 import { totalsText } from "./invoicing-format";
@@ -105,12 +106,12 @@ export function UnknownBuyersPanel() {
         <Table density="compact" className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className={`${CALM_HEAD} w-[26%]`}>Nabywca</TableHead>
-              <TableHead className={`${CALM_HEAD} w-[8%] text-right`}>Faktur</TableHead>
-              <TableHead className={`${CALM_HEAD} w-[16%] text-right`}>Netto razem</TableHead>
-              <TableHead className={`${CALM_HEAD} w-[20%]`}>Podpowiedź klienta</TableHead>
-              <TableHead className={`${CALM_HEAD} w-[12%]`}>Daty</TableHead>
-              <TableHead className={`${CALM_HEAD} w-[18%] text-right`}>
+              <TableHead className={`${CALM_HEAD} w-[24%]`}>Nabywca</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[6%] text-right`}>Faktur</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[14%] text-right`}>Netto razem</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[17%]`}>Podpowiedź klienta</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[11%]`}>Daty</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[28%] text-right`}>
                 <span className="sr-only">Akcje</span>
               </TableHead>
             </TableRow>
@@ -129,7 +130,13 @@ export function UnknownBuyersPanel() {
                   <span className={CALM_SUBLINE}>{numberLabel(buyer)}</span>
                 </TableCell>
                 <TableCell className={CALM_AMOUNT}>{buyer.invoices}</TableCell>
-                <TableCell className={CALM_AMOUNT}>{totalsText(buyer.totals)}</TableCell>
+                <TableCell className={CALM_AMOUNT}>
+                  {buyer.totals.map((total) => (
+                    <span key={total.currency} className="block">
+                      {formatMoney(total.amount, total.currency)}
+                    </span>
+                  ))}
+                </TableCell>
                 <TableCell className="min-w-0 text-sm">
                   {buyer.suggestion ? (
                     <>
@@ -150,7 +157,7 @@ export function UnknownBuyersPanel() {
                 </TableCell>
                 <TableCell className="text-right">
                   {buyer.assignable ? (
-                    <div className="flex flex-wrap justify-end gap-1">
+                    <div className="flex flex-nowrap justify-end gap-1">
                       {buyer.suggestion?.state === "add" ? (
                         <Button
                           size="sm"
