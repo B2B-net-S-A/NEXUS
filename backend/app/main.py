@@ -144,6 +144,7 @@ from app.api import also_fits as also_fits_api
 from app.api import dl_match as dl_match_api
 from app.api import candidate_similar as candidate_similar_api
 from app.api import academy as academy_api
+from app.api.retired_modules import install_retired_modules
 from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
@@ -843,9 +844,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
-    from app.tasks.academy_intake import academy_intake_loop
     from app.tasks.application_screening import application_screening_loop
-    from app.tasks.trainee_call_lists import trainee_call_lists_loop
     from app.tasks.cc_participants_sync import cc_participants_sync_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
@@ -902,10 +901,8 @@ async def lifespan(app: FastAPI):
             ),
             # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
             "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
-            "academy_intake": asyncio.create_task(academy_intake_loop()),
             # 0404: zgłoszenia z linku rekrutacji — przegląd AI przed „Nowi”.
             "application_screening": asyncio.create_task(application_screening_loop()),
-            "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
             # Uczestnicy rekrutacji = osoby jej kategorii kompetencji; co godzinę
             # wyrównanie po zmianach ról, kont i importach.
             "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
@@ -1241,6 +1238,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # API integracyjne v1: błąd trasy v1 jest WYJĄTKIEM (rollback sesji żądania),
 # a kopertę `{"error": …}` oddaje ten handler (`integrations_v1.common`).
 app.add_exception_handler(IntegrationApiError, integration_error_handler)
+# Usunięte moduły (D1 z audytu 07.11.2026): stare adresy odpowiadają 410.
+install_retired_modules(app)
 
 
 async def _off_limits_confirmation_handler(
