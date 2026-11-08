@@ -76,7 +76,6 @@ import {
   candidatesListApiParams,
   candidatesListQueryKey,
 } from "@/components/v2/pages/CandidatesListV2";
-import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
 import { pairMovesQueryKey } from "@/components/v2/recruitment/JobMoveLog";
 import { pinnedNotesQueryKey } from "@/components/v2/recruitment/PinnedCandidateNotes";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
@@ -1415,7 +1414,6 @@ function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
   seedFresh(qc, ["saved-searches", "candidates"], []);
   seedFresh(qc, ["candidate-pins"], []);
   seedFresh(qc, ["competence-categories-active"], []);
-  seedFresh(qc, cloudTalkStatusQueryKey, { enabled: false });
   seedFresh(qc, ["clients-lookup"], []);
   seedFresh(qc, ["users-directory"], []);
 

@@ -34,7 +34,7 @@ from app.api import (
     invoices,
     priority_work,
 )
-from app.core.config import settings
+from app.services import kpi_catalog
 from app.models.client import Client
 from app.models.invoice import InvoiceDirection
 from app.models.job import Job, JobStatus
@@ -369,7 +369,7 @@ async def load_team_kpis(
 
 
 def cloudtalk_calls_available() -> bool:
-    return settings.CLOUDTALK_ENABLED
+    return kpi_catalog.TELEPHONY_AVAILABLE
 
 
 # ── My Work sources ──────────────────────────────────────────────────────────

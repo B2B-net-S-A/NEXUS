@@ -1524,45 +1524,6 @@ class Settings(BaseSettings):
     # company" — guards against rebrand false-positives.
     PROXYCURL_COMPANY_FUZZ_THRESHOLD: int = 90
 
-    # ── CloudTalk telephony (Phase CloudTalk.1) ──────────────────────────────
-    # Kill-switch: when False, /api/calls/webhook stays in DRY-RUN (returns 200
-    # with `{"status":"dry-run"}` and never writes to DB), /api/cloudtalk/*
-    # endpoints return 503, sync loop exits immediately. Default OFF until
-    # API_KEY_SECRET is provisioned in Coolify env vault.
-    CLOUDTALK_ENABLED: bool = False
-    # Public part of the API key pair from CloudTalk dashboard
-    # (Settings → API Keys). Used as the Basic Auth username.
-    CLOUDTALK_API_KEY_ID: str = ""
-    # Secret part of the API key pair — shown ONCE by CloudTalk at generation.
-    # Used as the Basic Auth password. Empty in dev — client.from_settings()
-    # raises RuntimeError before any HTTP call when blank.
-    CLOUDTALK_API_KEY_SECRET: str = ""
-    # REST base URL — production default. CloudTalk EU/US share this host.
-    CLOUDTALK_BASE_URL: str = "https://my.cloudtalk.io/api"
-    # Shared secret for HMAC-SHA256 verification of inbound webhooks. The same
-    # value must be configured in CloudTalk dashboard → Integrations → Webhooks
-    # → Signing secret. Generated locally via `openssl rand -hex 32`; not
-    # derived from the API key pair.
-    CLOUDTALK_WEBHOOK_SECRET: str = ""
-    # ── Webhook replay protection (M6-P0.12) ────────────────────────────────
-    # When an inbound webhook carries an ``X-CloudTalk-Timestamp`` header, the
-    # timestamp is folded into the HMAC-signed material and the request is
-    # rejected if the timestamp is outside ±TOLERANCE seconds of now — a
-    # captured request cannot be replayed once it ages past the window.
-    CLOUDTALK_WEBHOOK_TOLERANCE_SECONDS: int = 300
-    # When True the webhook REQUIRES a fresh ``X-CloudTalk-Timestamp`` header
-    # and rejects any request without one (401). Default False so the
-    # integration keeps accepting CloudTalk's legacy body-only signature; flip
-    # True once you confirm your CloudTalk plan sends signed timestamps (see
-    # the CloudTalk activation checklist in CLAUDE.md).
-    CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP: bool = False
-    # Background sync loop cadence (Phase 5 — historical backfill + catch-up
-    # after webhook downtime). Clamped to >=300s in the loop.
-    CLOUDTALK_SYNC_INTERVAL_SECONDS: int = 3600
-    # On first sync (or after long downtime) backfill calls from the last N
-    # days. Older calls are skipped — out of scope for the ATS workflow.
-    CLOUDTALK_HISTORICAL_BACKFILL_DAYS: int = 30
-
     # ── Traffit (archiwum) ───────────────────────────────────────────────
     # WYŁĄCZONY NA STAŁE od 14.10.2026 (decyzja Artura, moduł
     # `app/services/traffit_retired.py`), kod importu usunięty 08.11.2026.

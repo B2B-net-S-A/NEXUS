@@ -92,10 +92,14 @@ class KpiDef:
     aliases: tuple[str, ...] = ()
     # Czy KPI pokazuje widget KPI Coach i czy wysyła nudge'e.
     in_coach: bool = True
-    # Metryka wymaga telefonii (CloudTalk). Przy `CLOUDTALK_ENABLED=false`
-    # KPI nie istnieje — nie ma „0/15", nie ma nudge'a.
+    # Metryka wymaga telefonii. Bez niej (`TELEPHONY_AVAILABLE`) KPI nie
+    # istnieje — nie ma „0/15", nie ma nudge'a.
     requires_cloudtalk: bool = False
 
+
+# Telefonii nie ma od usunięcia CloudTalka (08.11.2026, D1 z audytu). Model
+# `Call` zostaje; KPI rozmów wróci, gdy pojawi się następny dostawca.
+TELEPHONY_AVAILABLE = False
 
 _OPERATORS = (UserRole.recruiter,)
 
@@ -210,8 +214,4 @@ def kpi_available(kpi: KpiDef) -> bool:
     """Czy KPI ma dziś źródło danych (telefonia dla rozmów)."""
     if not kpi.requires_cloudtalk:
         return True
-    # Import leniwy: katalog jest liściem grafu importów (czytają go migracyjne
-    # testy kontraktowe bez pełnej konfiguracji aplikacji).
-    from app.core.config import settings
-
-    return bool(settings.CLOUDTALK_ENABLED)
+    return TELEPHONY_AVAILABLE

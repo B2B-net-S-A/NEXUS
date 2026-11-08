@@ -69,7 +69,6 @@ EXEMPT: dict[str, str] = {
     "dl_portal_expiry": "dzienny skaner; zastępowany przez objęte dl_alerts",
     "job_deadline_alerts": "dzienny skaner terminów; do objęcia po tygodniu obserwacji",
     "insights_seniority_journal": "dziennik analityczny; opóźnienie nieszkodliwe",
-    "cloudtalk_sync": "integracja wyłączona decyzją 28.07",
     "notes_insights_sync": "wzbogacanie notatek; dodatek",
     "weekly_eval": "tygodniowy pomiar jakości; brak wpływu na produkcję",
     "match_digest": "digest dopasowań; nie ścieżka krytyczna",
