@@ -8,11 +8,12 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
-from app.services.client_invoicing import clients, fa_sales
+from app.services.client_invoicing import billing, clients, fa_sales
 from app.services.client_invoicing.billing import (
     COST_NOTE,
     BillingLine,
@@ -22,7 +23,15 @@ from app.services.client_invoicing.billing import (
     period_fraction,
 )
 from app.services.client_invoicing.ledger import Chain, check
-from app.services.client_invoicing.matching import Target, decide, numbers_found
+from app.services.client_invoicing.line_gaps import GAP_REASONS
+from app.services.client_invoicing.matching import (
+    REASON_LABELS,
+    RETRY_REASONS,
+    Target,
+    auto_match,
+    decide,
+    numbers_found,
+)
 from app.services.client_invoicing.views import row_status
 from app.services.client_invoicing.payments import (
     OpenInvoice,
@@ -587,3 +596,137 @@ def test_person_rule_does_not_override_order_number():
         items=[{"name": "PO-1, Jan Przykładowy", "unit_price": "150.00"}],
     )
     assert decision.method == "order_number"
+
+
+# ── Numer zamówienia, którego NEXUS nie zna ───────────────────────────────────
+
+
+def _named(net, *order_refs, items=()):
+    """Miesiąc klienta z jednym zamówieniem o numerze 87001111 i kwocie 1000."""
+
+    row = _periodic(5, "87001111", "1000.00")
+    return decide(
+        net=Decimal(net),
+        currency="PLN",
+        texts=list(order_refs),
+        rows=[row],
+        refs=_refs(row),
+        items=items,
+        order_refs=order_refs,
+    )
+
+
+@pytest.mark.parametrize(
+    "order_ref",
+    [
+        "PO number: 0087009999",
+        "PO number 87009999, SWE1 contact: Jan Przykładowy jan@example.com",
+        "PO 87009999",
+        "Purchase order 87009999",
+        "Zamówienie nr: OIT/9/2026/ITVM",
+        "numer zamówienia: SAP 4500009999",
+        "Numer zamówienia: zlecenie K/9/26/JP/9/26APP",
+        "Nr zamówienia: 87009999",
+        "Protokół odbioru nr 7 dla zamówienia o numerze: ORD99991",
+        "87009999",
+    ],
+)
+def test_unknown_order_number_is_not_bound_by_amount(order_ref):
+    decision = _named("1000.00", order_ref)
+    assert decision.reason == "unknown_order_number"
+    assert not decision.matched
+
+
+def test_unknown_order_number_is_not_bound_by_person():
+    row = _periodic(5, "87001111", "1000.00")
+    decision = decide(
+        net=Decimal("777.00"),
+        currency="PLN",
+        texts=["PO number: 87009999"],
+        rows=[row],
+        refs=_refs(row),
+        items=[{"name": "Jan Przykładowy", "unit_price": "1"}],
+        order_refs=["PO number: 87009999"],
+    )
+    assert decision.reason == "unknown_order_number"
+    assert not decision.matched
+
+
+def test_known_order_number_still_binds():
+    decision = _named("777.00", "PO number: 0087001111")
+    assert decision.method == "order_number"
+    assert decision.targets == (Target(order_id=5),)
+
+
+def test_known_number_wins_over_a_second_unknown_one():
+    decision = _named("777.00", "PO number: 87009999", "PO number: 87001111")
+    assert decision.method == "order_number"
+
+
+@pytest.mark.parametrize(
+    "order_ref",
+    [
+        "Reference: Jan Przykładowy - application code: L12345 project name: L12345",
+        "Project name ARD2026 security test",
+        "jan.przykladowy2026@example.com",
+        "Nr umowy 12/2026 osoba wystawiająca zamówienie: Anna Przykładowa",
+        "Zamówienie z dnia 12.10.2026 do umowy ramowej z dnia 3 lipca 2024",
+        "Discount, according to the frame agreement - 2,5%",
+        "lipiec 2026",
+        "2026",
+        "PO Box 12345",
+        "po 30 dniach od wystawienia",
+    ],
+)
+def test_digits_outside_an_order_number_do_not_block_the_amount(order_ref):
+    decision = _named("1000.00", order_ref)
+    assert decision.method == "amount"
+    assert decision.targets == (Target(order_id=5),)
+
+
+def test_invoice_without_any_number_binds_by_amount():
+    assert _named("1000.00").method == "amount"
+
+
+def test_unknown_order_number_is_retried_and_explained():
+    assert "unknown_order_number" in RETRY_REASONS
+    assert "unknown_order_number" in REASON_LABELS
+    # Faktura wskazująca osobę bez pozycji dalej alarmuje DL-a.
+    assert "unknown_order_number" in GAP_REASONS
+
+
+@pytest.mark.asyncio
+async def test_auto_match_blocks_by_the_number_written_on_the_invoice(monkeypatch):
+    row = _periodic(5, "87001111", "1000.00")
+
+    async def family(_db, _client_ids):
+        return {1}
+
+    async def billing_rows(_db, **_kwargs):
+        return [row]
+
+    async def order_refs(_db, _members):
+        return _refs(row)
+
+    monkeypatch.setattr(clients, "family", family)
+    monkeypatch.setattr(billing, "billing_rows", billing_rows)
+    monkeypatch.setattr(billing, "order_refs", order_refs)
+    invoice = ClientSalesInvoice(
+        client_id=1,
+        invoice_kind="original",
+        match_status="unmatched",
+        period_year=2026,
+        period_month=7,
+        net_amount=Decimal("1000.00"),
+        currency="PLN",
+        order_refs=["PO number: 87009999"],
+        items=[],
+    )
+
+    decision = await auto_match(AsyncMock(), invoice, registry=object())
+
+    assert decision.reason == "unknown_order_number"
+    assert (invoice.match_status, invoice.match_reason) == (
+        "unmatched",
+        "unknown_order_number",
+    )

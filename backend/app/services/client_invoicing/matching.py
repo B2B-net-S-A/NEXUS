@@ -12,7 +12,10 @@ Kolejność, od najpewniejszego:
    prefiksu. Numer wiąże: faktura idzie do tego zamówienia, a różnica kwoty
    jest do sprawdzenia przez Finanse. Faktura na jedną osobę z zamówienia MD
    (kwota równa pozycji tej osoby) wiąże się z tą osobą,
-4. **kwota** bez numeru — wyłącznie jednoznaczna: dokładnie jedno zamówienie
+4. **numer, którego NEXUS nie zna** (``named_order_numbers``) — faktura czeka na
+   Finanse: kwota albo osoba przypięłyby ją do innego zamówienia i podwójne
+   rozliczenie byłoby niewidoczne,
+5. **kwota** bez numeru — wyłącznie jednoznaczna: dokładnie jedno zamówienie
    (albo jedna osoba z zamówienia MD) z kwotą „do faktury” równą netto
    faktury co do grosza. Zamówienie kosztowe nie ma kwoty „do faktury”
    (ustalają ją Finanse) — wiąże je wyłącznie numer.
@@ -47,6 +50,20 @@ from app.services.client_invoicing.billing import BillingLine, BillingRow, Order
 
 MIN_NUMBER_LENGTH = 3
 _DIGITS = re.compile(r"\d+")
+#: Etykieta numeru zamówienia i wartość po niej. Samo „PO” tylko wielkimi literami,
+#: bo małe „po” to polski przyimek („po 30 dniach”).
+_LABELLED_ORDER_NUMBER = re.compile(
+    r"(?<![0-9A-Za-zÀ-ž])"
+    r"(?:PO|(?i:po(?=\s+(?:number|no|nr)\b))|(?i:purchase\s+order)|(?i:zam[oó]wieni[aeu]))"
+    r"(?![0-9A-Za-zÀ-ž])"
+    r"(?i:\s*(?:number|numer|nr|no|o\s+numerze)\b\.?)?"
+    r"\s*[:#]?\s*"
+    r"(?i:(?:sap|zlecenie)\s+)?"
+    r"([0-9A-Za-z][0-9A-Za-z/_.\-]*)"
+)
+_DATE = re.compile(r"\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}|\d{4}-\d{2}-\d{2}")
+#: Cały wpis jako liczba to numer dopiero od 5 cyfr: krótsza bywa rokiem albo liczbą porządkową.
+_BARE_NUMBER = re.compile(r"\d{5,}")
 
 REASON_LABELS: dict[str, str] = {
     "unknown_buyer": "NIP nabywcy nie należy do żadnego klienta w NEXUSIE.",
@@ -56,6 +73,7 @@ REASON_LABELS: dict[str, str] = {
     "order_outside_period": "Numer zamówienia z faktury nie obejmuje tego miesiąca.",
     "currency_differs": "Waluta faktury inna niż waluta zamówienia.",
     "several_orders": "Faktura wymienia kilka zamówień, a kwota nie wskazuje jednego.",
+    "unknown_order_number": "Faktura podaje numer zamówienia, którego nie ma w NEXUSIE.",
     "amount_ambiguous": "Kwota pasuje do kilku zamówień — wybierz właściwe.",
     "amount_differs": "Bez numeru zamówienia, a kwota nie pasuje do żadnego zamówienia.",
     "expected_unknown": "Bez numeru zamówienia, a kwoty „do faktury” nie da się jeszcze policzyć.",
@@ -73,6 +91,7 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "order_outside_period",
         "amount_differs",
         "expected_unknown",
+        "unknown_order_number",
         "original_unmatched",
         "original_missing",
     }
@@ -135,6 +154,31 @@ def numbers_found(texts: Iterable[str], refs: Sequence[OrderRef]) -> set[str]:
                 hits.add(ref.key)
                 break
     return hits
+
+
+def named_order_numbers(order_refs: Iterable[str]) -> list[str]:
+    """Numery zamówień, które faktura podaje wprost w polach zamówienia i opisu.
+
+    Pole to wolny tekst (osoby, adresy e-mail, nazwy projektów z cyframi), więc
+    numerem jest tylko wartość po etykiecie albo cały wpis złożony z cyfr. Inaczej
+    ciąg cyfr z nazwy projektu zatrzymałby fakturę, którą wiąże kwota.
+    """
+
+    found: list[str] = []
+    for text_ in order_refs:
+        value = str(text_ or "").strip()
+        if _BARE_NUMBER.fullmatch(value):
+            found.append(value)
+            continue
+        for match in _LABELLED_ORDER_NUMBER.finditer(value):
+            number = match.group(1).rstrip("./_-")
+            if (
+                len(number) >= MIN_NUMBER_LENGTH
+                and any(ch.isdigit() for ch in number)
+                and not _DATE.fullmatch(number)
+            ):
+                found.append(number)
+    return found
 
 
 def _item_price(item: dict[str, Any]) -> Optional[Decimal]:
@@ -205,6 +249,7 @@ def decide(
     rows: Sequence[BillingRow],
     refs: Sequence[OrderRef],
     items: Sequence[dict[str, Any]] = (),
+    order_refs: Iterable[str] = (),
 ) -> Decision:
     """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja)."""
 
@@ -238,6 +283,9 @@ def decide(
         if len(equal) == 1:
             return Decision((_row_target(equal[0]),), "order_number")
         return Decision(reason="several_orders")
+
+    if named_order_numbers(order_refs):
+        return Decision(reason="unknown_order_number")
 
     candidates = [row for row in rows if row.currency == currency]
     if not candidates:
@@ -407,6 +455,7 @@ async def auto_match(
         rows=rows,
         refs=refs,
         items=invoice.items or [],
+        order_refs=invoice.order_refs or [],
     )
     if decision.matched:
         await _replace_links(db, invoice, decision.targets, period, None)
@@ -695,6 +744,7 @@ __all__ = [
     "ignore",
     "invoice_texts",
     "invoices_waiting_for_number",
+    "named_order_numbers",
     "numbers_found",
     "person_named_in",
     "propagate_to_corrections",
