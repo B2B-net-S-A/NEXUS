@@ -325,6 +325,17 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
   const hasCompanyCv =
     item.company_cv === true || (item.company_cv == null && item.auto_cv_ready === true);
   if (column === "verified" && hasCompanyCv && qc && qcRan) {
+    // QC-11 (08.11.2026): ten sam tekst co chip, panel i przegląd DL. Tu nic
+    // nie blokuje, więc „do poprawy” nie jest czerwone.
+    if (qc.qc_state) {
+      const extra = qc.warnings_count ?? 0;
+      return {
+        key: "cv_state",
+        label: `CV gotowe · ${qc.qc_state.text}${extra > 0 ? ` · ${qcCountsText(0, extra)}` : ""}`,
+        tone: qc.qc_state.tone === "urgent" ? "wait" : qc.qc_state.tone,
+        title: qc.qc_state.hint ?? qc.qc_state.text,
+      };
+    }
     if (qc.status === "overridden") {
       return {
         key: "cv_state",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { QcStateView } from "@/lib/cv-qc";
 import {
   MY_MOVE_LABEL,
   cardBadges,
@@ -726,6 +727,17 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
     expect(
       label(item({ auto_cv_ready: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } })),
     ).toBe("CV gotowe · QC bez uwag");
+  });
+
+  it("QC-11: ten sam tekst co chip z serwera, a „do poprawy” bez czerwieni", () => {
+    const state = { kind: "verify_roles", n: 2, items: ["Kafka", "AWS"], text: "QC: wskaż stanowisko · 2", tone: "wait", who: null, hint: "Nikt nie sprawdził opisu w rolach: Kafka, AWS." } satisfies QcStateView;
+    const verify = cvStateBadge(item({ company_cv: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 1, qc_state: state } }), "verified");
+    expect(verify?.label).toBe("CV gotowe · QC: wskaż stanowisko · 2 · 1 uwaga");
+    expect(verify?.title).toBe(state.hint);
+    const toFix = cvStateBadge(item({ company_cv: true, qc: { status: "failed", blocking_failed: 2, qc_state: { ...state, kind: "to_fix", text: "QC: 2 do poprawy", tone: "urgent", hint: null } } }), "verified");
+    expect(toFix?.label).toBe("CV gotowe · QC: 2 do poprawy");
+    expect(toFix?.tone).toBe("wait");
+    expect(toFix?.title).toBe("QC: 2 do poprawy");
   });
 
   it("QC przepuszczone mimo uwag (D6) — „przepuszczone”, nie „do poprawy”", () => {
