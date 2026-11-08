@@ -22,6 +22,7 @@ from app.core.security import hash_password
 from app.models.activity import Activity
 
 from app.models.notification import Notification, NotificationType
+from app.models.service_account import ServiceAccount
 from app.models.user import User, UserRole
 from app.services import candidate_data_access_alerts as alerts
 from app.services.notification_access import (
@@ -134,7 +135,11 @@ async def test_alarm_does_not_reach_the_person_it_is_about(monkeypatch) -> None:
         async def commit(self) -> None:
             return None
 
+    async def no_service_usage(_db, _now):
+        return []
+
     monkeypatch.setattr(alerts, "collect", collect)
+    monkeypatch.setattr(alerts, "collect_service", no_service_usage)
     monkeypatch.setattr(alerts, "_recipients", recipients)
     monkeypatch.setattr(alerts, "_notify", notify)
 
@@ -370,4 +375,311 @@ async def test_scan_alerts_admin_once_per_person_and_burst_does_not_collide() ->
                 )
             )
             await db.execute(delete(Activity).where(Activity.user_id.in_(ids)))
+            await db.commit()
+
+
+# ── Konta serwisowe (klucze API): pobrania bez osoby ─────────────────────────
+
+
+def _service(**counts: int) -> alerts.ServiceUsage:
+    return alerts.ServiceUsage(account_id=7, name="Automat ATS", **counts)
+
+
+def test_service_key_viewing_alone_is_never_an_alarm() -> None:
+    # Ta sama reguła co dla osób (07.11.2026): liczy się tylko to, co wychodzi.
+    assert alerts.service_reasons(_service(candidates_today=5000)) == []
+
+
+def test_service_key_thresholds_are_exclusive() -> None:
+    at_limit = _service(
+        disk_files_today=alerts.SERVICE_DAY_FILES,
+        export_rows_today=alerts.SERVICE_DAY_EXPORT_ROWS,
+    )
+    assert alerts.service_reasons(at_limit) == []
+    found = alerts.service_reasons(
+        _service(
+            disk_files_today=alerts.SERVICE_DAY_FILES + 1,
+            export_rows_today=alerts.SERVICE_DAY_EXPORT_ROWS + 1,
+        )
+    )
+    assert len(found) == 2
+    assert any("pobranych" in r for r in found)
+    assert any("eksport" in r for r in found)
+
+
+def test_service_key_alert_says_how_to_cut_the_key_off() -> None:
+    usage = _service(candidates_today=30, disk_files_today=31)
+    title, message = alerts.service_alert_text(usage, alerts.service_reasons(usage))
+    assert title.startswith("Integracja Automat ATS")
+    assert "pobieranie" in title
+    assert message.startswith("31 CV pobranych przez API")
+    assert "30 kandydatów" in message
+    assert "niczego nie zablokował" in message
+    assert "Klucze API" in message
+    # To nie człowiek: ekran „Osoby i role” nie ma tego konta.
+    assert "Osoby i role" not in message
+
+
+def test_service_alarm_id_cannot_collide_with_a_person_or_the_burst() -> None:
+    # Dzienny dedup patrzy na related_entity_id BEZ related_entity_type, więc
+    # alarm o koncie serwisowym 7 nie może mieć id osoby 7.
+    entity = alerts.service_entity_id(7)
+    assert entity < alerts.BURST_ENTITY_ID
+    assert entity != 7
+
+
+@pytest.mark.asyncio
+async def test_service_alarm_reaches_every_recipient_with_its_own_id(
+    monkeypatch,
+) -> None:
+    flagged = _service(disk_files_today=alerts.SERVICE_DAY_FILES + 1)
+    calm = alerts.ServiceUsage(account_id=8, name="Spokojny", disk_files_today=1)
+    calls: list[dict] = []
+
+    async def collect(_db, _now):
+        return []
+
+    async def collect_service(_db, _now):
+        return [flagged, calm]
+
+    async def recipients(_db):
+        return [7, 9]
+
+    async def notify(_db, ids, **kwargs):
+        calls.append({"ids": ids, **kwargs})
+        return len(ids)
+
+    class _Db:
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(alerts, "collect", collect)
+    monkeypatch.setattr(alerts, "collect_service", collect_service)
+    monkeypatch.setattr(alerts, "_recipients", recipients)
+    monkeypatch.setattr(alerts, "_notify", notify)
+
+    assert await alerts.scan_once(_Db(), NOW) == 2
+    assert len(calls) == 1
+    # Konto serwisowe 7 to nie osoba 7: admin o tym id też dostaje alarm.
+    assert calls[0]["ids"] == [7, 9]
+    assert calls[0]["entity_type"] == alerts.SERVICE_ENTITY
+    assert calls[0]["entity_id"] == alerts.service_entity_id(7)
+    assert calls[0]["link"] == alerts.SERVICE_LINK
+
+
+@pytest.mark.asyncio
+async def test_quiet_service_accounts_send_nothing(monkeypatch) -> None:
+    async def empty(_db, _now):
+        return []
+
+    async def must_not_run(_db):
+        raise AssertionError("bez przekroczeń nie szukamy odbiorców")
+
+    monkeypatch.setattr(alerts, "collect", empty)
+    monkeypatch.setattr(alerts, "collect_service", empty)
+    monkeypatch.setattr(alerts, "_recipients", must_not_run)
+
+    assert await alerts.scan_once(object(), NOW) == 0
+
+
+SERVICE_NOW = datetime(2030, 2, 15, 10, 0, tzinfo=timezone.utc)
+
+
+def _service_account(label: str) -> ServiceAccount:
+    tag = uuid.uuid4().hex[:8]
+    return ServiceAccount(
+        slug=f"alarm-{label}-{tag}", name=f"Klucz {label}", scopes=["candidates:cv"]
+    )
+
+
+def _service_event(
+    via: str | None,
+    action: str,
+    entity_id: int,
+    minutes_ago: int,
+    user_id: int | None = None,
+    **details,
+) -> Activity:
+    payload = {**details, **({"via": via} if via else {})}
+    return Activity(
+        entity_type="candidate",
+        entity_id=entity_id,
+        action=action,
+        user_id=user_id,
+        details=payload,
+        external_source="audit",
+        created_at=SERVICE_NOW - timedelta(minutes=minutes_ago),
+    )
+
+
+@pytest.mark.asyncio
+async def test_scan_counts_each_service_account_separately() -> None:
+    limit = alerts.SERVICE_DAY_FILES
+    async with AsyncSessionLocal() as db:
+        admin = await _account(
+            db, "admin-klucz", UserRole.admin, SERVICE_NOW - timedelta(days=400)
+        )
+        keys = {
+            label: _service_account(label)
+            for label in (
+                "pobiera",
+                "tekst",
+                "eksport",
+                "na-progu",
+                "podglad",
+                "wczoraj",
+                "inny-klucz",
+            )
+        }
+        db.add_all(keys.values())
+        await db.flush()
+
+        def via(label: str) -> str:
+            return f"integration:{keys[label].slug}"
+
+        events = [
+            _service_event(
+                via("pobiera"),
+                "document_downloaded",
+                970_000 + i,
+                5,
+                disposition="attachment",
+            )
+            for i in range(limit + 1)
+        ]
+        # Tekst CV z API nie jest plikiem, ale wychodzi z NEXUSA tak samo.
+        events += [
+            _service_event(via("tekst"), "cv_downloaded", 971_000 + i, 5)
+            for i in range(limit + 1)
+        ]
+        events.append(
+            _service_event(
+                via("eksport"),
+                "export_requested",
+                0,
+                5,
+                row_count=alerts.SERVICE_DAY_EXPORT_ROWS + 1,
+            )
+        )
+        events += [
+            _service_event(
+                via("na-progu"),
+                "document_downloaded",
+                972_000 + i,
+                5,
+                disposition="attachment",
+            )
+            for i in range(limit)
+        ]
+        events += [
+            _service_event(
+                via("podglad"),
+                "document_downloaded",
+                973_000 + i,
+                5,
+                disposition="inline",
+            )
+            for i in range(limit * 3)
+        ]
+        # 12 h wcześniej to już poprzedni dzień w kalendarzu firmy.
+        events += [
+            _service_event(
+                via("wczoraj"),
+                "document_downloaded",
+                974_000 + i,
+                60 * 12,
+                disposition="attachment",
+            )
+            for i in range(limit + 1)
+        ]
+        # Dwa klucze po połowie: progi są na konto, nie na całą integrację.
+        events += [
+            _service_event(via("inny-klucz"), "cv_downloaded", 975_000 + i, 5)
+            for i in range(limit // 2)
+        ]
+        # Zdarzenia, które nie są ruchem klucza: Jarvis, bez `via`, z osobą.
+        events += [
+            _service_event("jarvis", "cv_downloaded", 976_000 + i, 5)
+            for i in range(limit + 1)
+        ]
+        events += [
+            _service_event(None, "cv_downloaded", 977_000 + i, 5)
+            for i in range(limit + 1)
+        ]
+        events += [
+            _service_event(
+                via("podglad"), "cv_downloaded", 978_000 + i, 5, user_id=admin.id
+            )
+            for i in range(limit + 1)
+        ]
+        db.add_all(events)
+        await db.commit()
+        entity = {label: alerts.service_entity_id(k.id) for label, k in keys.items()}
+        slugs = [k.slug for k in keys.values()]
+        names = {label: k.name for label, k in keys.items()}
+
+    try:
+        async with AsyncSessionLocal() as db:
+            usage = {u.name: u for u in await alerts.collect_service(db, SERVICE_NOW)}
+        assert usage[names["pobiera"]].disk_files_today == limit + 1
+        assert usage[names["pobiera"]].candidates_today == limit + 1
+        assert usage[names["tekst"]].disk_files_today == limit + 1
+        assert (
+            usage[names["eksport"]].export_rows_today
+            == alerts.SERVICE_DAY_EXPORT_ROWS + 1
+        )
+        assert usage[names["na-progu"]].disk_files_today == limit
+        assert usage[names["podglad"]].disk_files_today == 0
+        assert usage[names["podglad"]].candidates_today == limit * 3
+        assert usage[names["inny-klucz"]].disk_files_today == limit // 2
+        assert names["wczoraj"] not in usage
+
+        async with AsyncSessionLocal() as db:
+            assert await alerts.scan_once(db, SERVICE_NOW) >= 3
+        async with AsyncSessionLocal() as db:
+            rows = (
+                await db.execute(
+                    select(
+                        Notification.related_entity_id,
+                        Notification.related_entity_type,
+                        Notification.link,
+                    ).where(
+                        Notification.user_id == admin.id,
+                        Notification.notification_type
+                        == NotificationType.candidate_data_access_alert,
+                    )
+                )
+            ).all()
+        about = {row[0] for row in rows}
+        assert {entity["pobiera"], entity["tekst"], entity["eksport"]} <= about
+        for label in ("na-progu", "podglad", "wczoraj", "inny-klucz"):
+            assert entity[label] not in about
+        assert all(
+            row[1] == alerts.SERVICE_ENTITY and row[2] == alerts.SERVICE_LINK
+            for row in rows
+            if row[0] < 0
+        )
+
+        # Jeden alarm dziennie na klucz i odbiorcę.
+        async with AsyncSessionLocal() as db:
+            assert await alerts.scan_once(db, SERVICE_NOW) == 0
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Notification).where(
+                    Notification.notification_type
+                    == NotificationType.candidate_data_access_alert
+                )
+            )
+            await db.execute(
+                delete(Activity).where(
+                    Activity.created_at >= SERVICE_NOW - timedelta(days=2),
+                    Activity.created_at <= SERVICE_NOW,
+                    Activity.entity_type == "candidate",
+                )
+            )
+            await db.execute(
+                delete(ServiceAccount).where(ServiceAccount.slug.in_(slugs))
+            )
+            await db.execute(delete(User).where(User.id == admin.id))
             await db.commit()

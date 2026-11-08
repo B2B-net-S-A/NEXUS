@@ -67,6 +67,8 @@ export interface AssistantProposals {
   operations: CvPlanOperation[];
   /** Wiersze CV z chwili wysłania wiadomości. */
   lines: readonly CvLine[];
+  /** Rodzaj prośby, z której są propozycje — do pomiaru przy „Zastosuj”. */
+  preset?: string;
   selected: number[];
   state: "open" | "busy" | "done";
 }
@@ -322,6 +324,7 @@ export function useCvAssistant({
   const applyNow = async (
     lines: readonly CvLine[],
     operations: readonly CvPlanOperation[],
+    preset?: string,
   ): Promise<
     | { after: PMNode; applied: CvPlanOperation[]; idle: number; unsupported: number }
     | { failed: "changed" | "draft" }
@@ -341,6 +344,12 @@ export function useCvAssistant({
     if (!result) return { failed: "idle", idle: idle.length, unsupported: unsupported.length };
     editor.view.dispatch(result.transaction);
     setAssistantHighlight(editor, result.changed);
+    // Ślad do pomiaru poprawek; jego awaria nie dotyczy rekrutera ani zmiany w CV.
+    if (stageId != null) {
+      void api
+        .applied?.(stageId, { preset: preset ?? null, operations: applied.length })
+        ?.catch(() => undefined);
+    }
     return { after: editor.state.doc, applied, idle: idle.length, unsupported: unsupported.length };
   };
 
@@ -413,6 +422,7 @@ export function useCvAssistant({
             proposals: {
               operations: usable,
               lines: snapshot,
+              preset: input.preset,
               // Nowe słowa trzeba przeczytać, więc takie zmiany nie są zaznaczone z góry.
               selected: usable.filter((operation) => operation.new_words.length === 0).map((operation) => operation.id),
               state: "open",
@@ -444,7 +454,7 @@ export function useCvAssistant({
           if (asks.length === 0) nothing(skippedNotes(idleDropped, unsupportedAsks));
           else if (unsupportedAsks > 0) push({ role: "assistant", text: skippedNotes(0, unsupportedAsks), tone: "info" });
         } else {
-          const outcome = await applyNow(snapshot, now);
+          const outcome = await applyNow(snapshot, now, input.preset);
           if (ticket.current !== mine) return;
           if ("failed" in outcome && outcome.failed !== "idle") {
             push({ role: "assistant", text: outcome.failed === "draft" ? MSG_DRAFT : MSG_CHANGED, tone: "error" });
@@ -562,7 +572,7 @@ export function useCvAssistant({
     setAnswering(true);
     update(messageId, (current) => ({ ...current, proposals: { ...proposals, state: "busy" } }));
     try {
-      const outcome = await applyNow(proposals.lines, chosen);
+      const outcome = await applyNow(proposals.lines, chosen, proposals.preset);
       if (!("after" in outcome)) {
         update(messageId, (current) => ({ ...current, proposals: { ...proposals, state: "open" } }));
         const text = { changed: MSG_CHANGED, draft: MSG_DRAFT, idle: MSG_IDLE_ONE }[outcome.failed];

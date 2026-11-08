@@ -475,6 +475,7 @@ async def start_for_job(db, job_id: int) -> tuple[Optional[str], str]:
     from app.services.request_matching_context import build_request_context
     from app.services.scoring_service import resolve_active_profile
     from app.services.search_eligibility_freshness import eligibility_fingerprint
+    from app.services.skill_taxonomy_loader import loaded_dictionary_version
 
     job = await db.get(Job, job_id)
     if job is None or job.status != JobStatus.published:
@@ -509,6 +510,9 @@ async def start_for_job(db, job_id: int) -> tuple[Optional[str], str]:
         request_context=context.as_dict(),
         version_trace={
             **context.versions,
+            # Tylko ślad, poza odciskiem i kolejką (decyzja Artura z 08.11.2026):
+            # słownik zmienia się prawie co noc, a w odcisku dawałby co rano 409.
+            "skill_dictionary": loaded_dictionary_version(),
             "eligibility_fingerprint": await eligibility_fingerprint(db, job=job),
             store.ORIGIN_KEY: store.ORIGIN_AUTO,
         },

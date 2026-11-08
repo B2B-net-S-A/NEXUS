@@ -237,6 +237,12 @@ _JOB_PATH = "^/jobs/([0-9]{1,9})(?:[/?#]|$)"
 _JOB_PARAM = "[?&]job=([0-9]{1,9})(?:&|#|$)"
 
 
+# Wpisy zbiorcze `stage_stuck_7d` (audyt 08.11.2026, U4): rodzaj encji odróżnia
+# skrót rekrutacji i „bez pracującego rekrutera” od dzwonka o jednej parze.
+STAGE_STUCK_DIGEST_ENTITY = "job"
+STAGE_STUCK_UNSTAFFED_ENTITY = "job_unstaffed"
+
+
 def job_key_expression(model: Any) -> Any:
     return func.coalesce(
         cast(func.substring(model.link, literal_column(f"'{_JOB_PATH}'")), Integer),
@@ -250,6 +256,8 @@ def job_key_expression(model: Any) -> Any:
 
 __all__ = [
     "NOTE_NOTIFICATION_TYPES",
+    "STAGE_STUCK_DIGEST_ENTITY",
+    "STAGE_STUCK_UNSTAFFED_ENTITY",
     "TOAST_TYPES",
     "TOPIC_BY_TYPE",
     "NotificationTopic",

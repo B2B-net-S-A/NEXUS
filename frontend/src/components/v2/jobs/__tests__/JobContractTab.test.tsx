@@ -228,7 +228,7 @@ describe("JobContractTab", () => {
     await userEvent.click(screen.getByTestId("close-group-lost"));
     await userEvent.click(submit);
     await waitFor(() => expect(closeJob).toHaveBeenCalledTimes(1));
-    expect(closeJob).toHaveBeenCalledWith(10, "competitor", "", false, null);
+    expect(closeJob).toHaveBeenCalledWith(10, "competitor", "", false, null, false);
   });
 
   it("rola bez `job.update` nie dostaje przycisku, tylko powód", async () => {

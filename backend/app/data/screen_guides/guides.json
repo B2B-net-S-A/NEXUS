@@ -67,7 +67,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze: priorytet, numer u klienta, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy, „Rekruter” (klik: zespół) i liczba osób z ✎ (klik ją zmienia). „Kto dodał” → „Ty” to Twoje karty, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze: priorytet, numer u klienta, tytuł, klient, budżet, tryb pracy, „Rekruter” (klik: zespół) i liczba osób z ✎ (klik ją zmienia). Filtr przy „Nowi”: „Ty” to Twoje karty, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -76,7 +76,7 @@
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij źródło w nagłówku: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”; „+ Dodaj” daje osobę na górę Nowych na 12 h. „Otwarte podobne” to otwarte rekrutacje o tym samym profilu — tam DL łączy bliźniaka (chip „⇄” obok). „+1 rekrutacja” na karcie: „Screening razem” to jedna rozmowa pod obie.",
+        "a": "Kliknij „Nowi z ogłoszeń” albo menu „Szukaj ▾”: podobne rekrutacje, propozycje z bazy, szukaj w bazie; „+ Dodaj” daje osobę na górę Nowych na 12 h. „Otwarte podobne” (w menu) to otwarte rekrutacje o tym samym profilu — tam DL łączy bliźniaka. „+1 rekrutacja” w „+N” na karcie: „Screening razem” to jedna rozmowa pod obie.",
         "anchor": "jobs.board.sources"
       },
       {
@@ -103,7 +103,7 @@
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Kolumny etapów (u Nordei po „QC CV” stoi „Do Cpro”) — strzałka „→” albo przeciąganie. W „QC CV” gotowa karta ma „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”)."},
-      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Cztery źródła w nagłówku rekrutacji: podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie; „Dodaj” — po nazwisku albo z CV."},
+      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Źródła w nagłówku rekrutacji: nowi z ogłoszeń, moi ludzie i menu „Szukaj ▾” (podobne rekrutacje, propozycje z bazy, szukaj w bazie); „Dodaj” — po nazwisku albo z CV."},
       {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."},
       {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead; u Nordei przed akceptacją do Cpro): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."}
     ],
@@ -193,7 +193,7 @@
     ],
     "pitfalls": [
       "Kandydat prosi o kontakt później: „Umów telefon” obok „Nie odebrał” przypomni 15 minut przed i trzyma osobę przy Tobie do terminu, najdłużej 7 dni. Pierwszy zapis formularza screeningu bierze wolną osobę na 12 h; przed rozmową weźmiesz ją przyciskiem przy „Prowadzi” („Biorę” albo „Dzwonię” przy osobie od systemu). Osoby zarezerwowanej przez kogoś innego nie przesuniesz, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie. Pigułka „Pracuje u nas” pod danymi kontaktowymi znaczy trwającą umowę u nas — kliknij ją, żeby zobaczyć klienta, koniec zamówienia i Delivery Leada; przed wysłaniem CV uzgodnij to z nim. Liczy się wyłącznie umowa: na „Zatrudniony” bez umowy panel pokazuje „Brak umowy w Kontraktach”, a Delivery Lead dostaje przypomnienie. Umowa wysłana do podpisu w NEXUSIE: sekcja „Do „Zatrudnionego”” mówi, u kogo jest, a „Zatrudniony” ustawi się sam po podpisie obu stron — ręcznie przesuniesz dopiero po „Przejdź na zwykłą drogę”. Czarną listę (u nas albo u klienta) ustawisz w „Więcej akcji osoby” → „Czarna lista…”; pigułka „Czarna lista” po kliknięciu pokazuje powód. Niezapisane wpisy formularza screeningu zostają przy osobie do zapisu, najdłużej 12 h — także po odznaczeniu rekrutacji w „Screening dla” i zamknięciu panelu; zapis je czyści, „Odrzuć szkic” kasuje. Delivery Lead „Zapisz i przekaż dalej” może kliknąć bez kompletu odpowiedzi i minimum — stopka dalej mówi, czego brakuje. Formularz za ciasny na laptopie: „Tryb rozmowy” obok „Zwiń” zostawia z nagłówka samo nazwisko i zwija „Screening dla” do jednej linii („Zmień” rozwija listę), a krawędź między CV a formularzem przeciągniesz, żeby poszerzyć panel — dwuklik wraca do zwykłej szerokości.",
-      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”. Delivery Lead wyśle osobę po „CV wysłane” także do innych swoich rekrutacji: „⋯ → Wyślij też do…”; rekruter z tej rekrutacji dostanie prośbę, żeby dał znać kandydatowi. Przy osobie od systemu blok „Od systemu · %” mówi, czemu ją dodał i czego nie wiedział (stawka, dostępność). „Dzwonię — biorę na 12 h” zapisuje decyzję, a „Odrzuć z powodem” pyta jeszcze „Skąd to wiesz?” i „Dlaczego odpada?” — bez tego nie odrzucisz, bo z powodów system uczy się dobierać ludzi. „Przekaż Delivery Leadowi” w „Następnym etapie” przenosi osobę do „QC CV” — to nie etap, tylko przekazanie: CV do klienta wysyła Delivery Lead po przeglądzie.",
+      "Odznaka „Follow-up: Anna K. · zaległy” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”. Delivery Lead wyśle osobę po „CV wysłane” także do innych swoich rekrutacji: „⋯ → Wyślij też do…”; rekruter z tej rekrutacji dostanie prośbę, żeby dał znać kandydatowi. Przy osobie od systemu blok „Od systemu · %” mówi, czemu ją dodał i czego nie wiedział (stawka, dostępność). „Dzwonię — biorę na 12 h” zapisuje decyzję, a „Odrzuć z powodem” pyta jeszcze „Skąd to wiesz?” i „Dlaczego odpada?” — bez tego nie odrzucisz, bo z powodów system uczy się dobierać ludzi. „Przekaż Delivery Leadowi” w „Następnym etapie” przenosi osobę do „QC CV” — to nie etap, tylko przekazanie: CV do klienta wysyła Delivery Lead po przeglądzie.",
       "Stawkę kandydata wpisz w „Warunkach” formularza albo przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Po wysłaniu CV wyższa stawka czeka na Delivery Leada: w ramce pod faktami zleca on negocjację albo decyduje o stawce do klienta. Kwota z dopiskiem „Screening (z notatki)” przy „W tej rekrutacji” i „Notatka z wysyłki” pod „Do klienta” to podpowiedzi z notatek sprzed NEXUSA — stawką stają się dopiero po zapisaniu. Gdy stawka jest ponad budżetem, a znana jest niższa, która się w nim mieści, ramka ostrzeżenia to mówi, a „Użyj” ją wpisuje; u osoby pracującej u nas pole dostaje „Stawkę u nas” z umowy, a „Zadeklarowana od” pokazuje niższą deklarację. Pytania bez odpowiedzi zapiszesz jako pominięte („Pomiń brakujące”), gdy osoba jest przepięta, miała już screening w innej rekrutacji albo jest zatrudniona przez nas; w rekrutacji bez pytań do „Zweryfikowany” wystarcza stawka i „Dlaczego ten kandydat”. Gdy kandydat nie chce biura albo hybrydy, odrzuć z powodem „Nie akceptuje trybu pracy” zamiast „Inne”: okno zapyta, ile dni w biurze akceptuje, i zapisze to na profilu, więc wyszukiwanie pokaże „Tylko zdalnie”. Stawkę do klienta po wysłaniu CV zmienia Delivery Lead przyciskiem „Zmień” przy „Do klienta”: powód jest obowiązkowy, a okno pokazuje, za ile CV poszło i każdą zmianę. Gdy osoba ma już zamówienie, stawkę zmienia się w zamówieniu.",
       "Sekcja „Notatki” pokazuje notatki z tej rekrutacji i ostatnie rozmowy z wcześniejszych; podpis „0 tu · 14 wcześniej” znaczy, że osoba ma u nas historię. Całość jest po „Rozwiń” w „Notatki i historia”, w grupach „Wcześniej u nas” z wynikiem każdej rekrutacji. Przypięte notatki są na górze karty. Pigułka „Nowy w bazie · N dni” przy nazwisku znaczy, że osoba weszła do bazy w ostatnich 14 dniach; datę, skąd jest i kto ją dodał pokazuje „Osoba w bazie” na górze „Notatek i historii”. „Prowadzi” pod danymi kontaktowymi mówi, czyja to osoba w tej rekrutacji — od tego zależą „Moi ludzie”, Liga i premia rekrutera. Zmienia to admin albo Head of Recruitment przyciskiem „Przypisz”, z powodem. Podpowiedź „Pasuje też do” pokazuje najwyżej 3 inne rekrutacje — każdą inną dorzucisz sam: w formularzu screeningu „Screening dla” → „Dodaj inną rekrutację” (numer, nazwa albo klient; „+ Dodaj i dołącz” bierze ją też do tej rozmowy), a na dalszych etapach „Więcej akcji osoby” → „Dodaj też do rekrutacji…”."
     ],
@@ -709,7 +709,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "back_office", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą (rozliczenie, subskrypcje, faktury bez zgody).",
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -739,10 +739,12 @@
     ],
     "pitfalls": [
       "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
-      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
+      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie.",
+      "„Rozjazdy stawek” niczego nie poprawiają, tylko pokazują różnicę kontrakt ↔ zamówienie MD z nocnego raportu.",
+      "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},

@@ -1,32 +1,19 @@
-"""Traffit wyłączony na stałe (decyzja Artura 14.10.2026) — wejścia odmawiają.
+"""Traffit wyłączony na stałe (decyzja Artura 14.10.2026), kod usunięty 08.11.2026.
 
-Do 14.10 import zatrzymywała tylko zmienna `TRAFFIT_SYNC_ENABLED=false`, którą
-da się włączyć z powrotem, a część torów (przeniesienie fal, scalenie
-bliźniaków, naprawy dat i notatek, poller kontaktów, zapis JJIT do Traffita)
-jej nie czytała. Te testy pilnują, że żadne wejście nie dochodzi do Traffita,
-także z flagami ustawionymi na „włączone”.
-
-Bez bazy: trasy wołane wprost (ciało handlera, po bramce uprawnień), pętle
-z podmienionym snem, CLI w procesie. Pełna ścieżka HTTP z logowaniem admina
-jest w `test_fix48_ws08_admin_traffit_http.py` (wymaga Postgresa).
+Te testy pilnują strażnika i flag oraz tego, co zostało: jednej trasy odczytu
+statusu i sondy `checks.traffit`. Pełna ścieżka HTTP z logowaniem admina jest
+w `test_fix48_ws08_admin_traffit_http.py` (wymaga Postgresa).
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
-import httpx
 import pytest
-from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from app.api import admin_traffit
 from app.core.config import Settings, settings
-from app.core.rate_limit import limiter
 from app.services.traffit_retired import (
     TRAFFIT_RETIRED_MESSAGE,
     TRAFFIT_RETIRED_ON,
@@ -39,14 +26,6 @@ from tests.test_uptime_probe_health_checks import _run as _run_probe
 MESSAGE = (
     "Traffit jest wyłączony od 14.10.2026 — NEXUS nie importuje już danych z Traffita."
 )
-
-
-def _never(*_args, **_kwargs):
-    raise AssertionError("wejście Traffita doszło dalej niż strażnik")
-
-
-async def _never_async(*_args, **_kwargs):
-    raise AssertionError("wejście Traffita doszło dalej niż strażnik")
 
 
 # ── Strażnik i flagi ─────────────────────────────────────────────────────────
@@ -79,234 +58,14 @@ def test_traffit_flags_stay_off_even_when_env_turns_them_on(monkeypatch) -> None
     assert explicit.CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED is False
 
 
-# ── Pętle w tle ──────────────────────────────────────────────────────────────
+# ── Moduł tras: został tylko odczyt statusu ──────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_daily_sync_loop_does_not_start_even_with_flag_on(
-    monkeypatch, caplog
-) -> None:
-    from app.tasks import traffit_sync
-
-    # `setattr` omija walidator ustawień — symuluje kogoś, kto „włączył” flagę.
-    monkeypatch.setattr(settings, "TRAFFIT_SYNC_ENABLED", True)
-    monkeypatch.setattr(traffit_sync.asyncio, "sleep", _never_async)
-    monkeypatch.setattr(traffit_sync, "run_traffit_sync", _never_async)
-    monkeypatch.setattr(traffit_sync, "AsyncSessionLocal", _never)
-
-    with caplog.at_level(logging.INFO, logger=traffit_sync.logger.name):
-        result = await asyncio.wait_for(traffit_sync.traffit_daily_sync_loop(), 2)
-
-    assert result is None
-    lines = [r.getMessage() for r in caplog.records if MESSAGE in r.getMessage()]
-    assert len(lines) == 1, caplog.text
-
-
-@pytest.mark.asyncio
-async def test_contact_intake_loop_does_not_start_even_with_flags_on(
-    monkeypatch, caplog
-) -> None:
-    from app.tasks import candidate_contact_traffit as intake
-
-    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
-    monkeypatch.setattr(settings, "CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED", True)
-    monkeypatch.setattr(
-        settings,
-        "CANDIDATE_CONTACT_ACTIVATION_AT",
-        datetime(2026, 10, 1, tzinfo=timezone.utc),
+def test_only_the_status_route_survives() -> None:
+    routes = sorted(
+        (sorted(route.methods), route.path) for route in admin_traffit.router.routes
     )
-    monkeypatch.setattr(intake.asyncio, "sleep", _never_async)
-    monkeypatch.setattr(intake, "_poll_traffit_config", _never)
-    monkeypatch.setattr(intake, "TraffitClient", _never)
-
-    with caplog.at_level(logging.INFO, logger=intake.logger.name):
-        result = await asyncio.wait_for(intake.traffit_contact_intake_loop(), 2)
-
-    assert result is None
-    lines = [r.getMessage() for r in caplog.records if MESSAGE in r.getMessage()]
-    assert len(lines) == 1, caplog.text
-
-
-# ── CLI ──────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["import_traffit", "--phase", "reconcile"],
-        ["import_traffit", "--phase", "candidates", "--dry-run"],
-    ],
-)
-def test_cli_exits_nonzero_with_the_message(monkeypatch, capsys, argv) -> None:
-    from app.cli import import_traffit
-
-    monkeypatch.setattr(import_traffit.sys, "argv", argv)
-    monkeypatch.setattr(import_traffit, "_run", _never_async)
-    monkeypatch.setattr(import_traffit, "TraffitClient", _never)
-
-    with pytest.raises(SystemExit) as exc:
-        import_traffit.main()
-
-    assert exc.value.code not in (0, None)
-    assert MESSAGE in capsys.readouterr().err
-
-
-# ── JJIT: zapis kandydata do Traffita ────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_jjit_writer_never_calls_traffit(monkeypatch) -> None:
-    from app.services.integrations.jjit.traffit_writer import TraffitWriter
-
-    monkeypatch.setenv("TRAFFIT_TENANT", "fikcyjny")
-    monkeypatch.setenv("JJIT_TRAFFIT_CLIENT_ID", "id")
-    monkeypatch.setenv("JJIT_TRAFFIT_CLIENT_SECRET", "sekret")
-    calls: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
-        return httpx.Response(200, json={"access_token": "t", "id": 1})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        writer = TraffitWriter(http)
-        # Runner JJIT omija Traffita, gdy zapis nie jest skonfigurowany —
-        # kandydat idzie wtedy tylko do NEXUSA.
-        assert writer.configured is False
-        assert await writer.search_by_email("anna@example.com") is None
-        with pytest.raises(TraffitRetiredError):
-            await writer.create_candidate({"email": "anna@example.com"})
-        with pytest.raises(TraffitRetiredError):
-            await writer.upload_cv(1, b"%PDF", "cv.pdf", "application/pdf")
-
-    assert calls == []
-
-
-# ── Trasy admina: 410 zamiast importu (także próba) ──────────────────────────
-
-_CALLER = SimpleNamespace(user=SimpleNamespace(id=1), audit_label="admin:test")
-
-
-def _route_calls():
-    """Każda trasa POST admin_traffit z jawnymi parametrami (bez `Query(...)`)."""
-    return [
-        (
-            "sync delta",
-            lambda: admin_traffit.trigger_traffit_sync(
-                request=None, _caller=_CALLER, mode="delta", phases=None
-            ),
-        ),
-        (
-            "sync full",
-            lambda: admin_traffit.trigger_traffit_sync(
-                request=None, _caller=_CALLER, mode="full", phases="candidates"
-            ),
-        ),
-        (
-            "notes-repair próba",
-            lambda: admin_traffit.trigger_traffit_notes_repair(
-                request=None, _caller=_CALLER, dry_run=True, db=object()
-            ),
-        ),
-        (
-            "notes-repair zapis",
-            lambda: admin_traffit.trigger_traffit_notes_repair(
-                request=None, _caller=_CALLER, dry_run=False, db=object()
-            ),
-        ),
-        (
-            "notes-repair/recruitments",
-            lambda: admin_traffit.trigger_traffit_note_recruitments(
-                request=None, _caller=_CALLER, dry_run=True, limit=10, db=object()
-            ),
-        ),
-        (
-            "file-dates-repair",
-            lambda: admin_traffit.trigger_traffit_file_dates_repair(
-                request=None, _caller=_CALLER, dry_run=True, limit=10, db=object()
-            ),
-        ),
-        (
-            "added-dates-repair",
-            lambda: admin_traffit.trigger_traffit_added_dates_repair(
-                request=None, _caller=_CALLER, dry_run=True, pages=1, db=object()
-            ),
-        ),
-        (
-            "transfer próba",
-            lambda: admin_traffit.trigger_traffit_transfer(
-                request=None,
-                caller=_CALLER,
-                dry_run=True,
-                client_id=1,
-                job_ids=None,
-                active_days=30,
-                include_twins=False,
-                db=object(),
-            ),
-        ),
-        (
-            "transfer bez fali",
-            lambda: admin_traffit.trigger_traffit_transfer(
-                request=None,
-                caller=_CALLER,
-                dry_run=False,
-                client_id=None,
-                job_ids=None,
-                active_days=30,
-                include_twins=True,
-                db=object(),
-            ),
-        ),
-        (
-            "twins-merge próba",
-            lambda: admin_traffit.trigger_traffit_twins_merge(
-                request=None, caller=_CALLER, dry_run=True, job_ids="1", db=object()
-            ),
-        ),
-        (
-            "twins-merge zapis",
-            lambda: admin_traffit.trigger_traffit_twins_merge(
-                request=None, caller=_CALLER, dry_run=False, job_ids=None, db=object()
-            ),
-        ),
-    ]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "name,call", _route_calls(), ids=[n for n, _ in _route_calls()]
-)
-async def test_every_import_route_answers_410(monkeypatch, name, call) -> None:
-    monkeypatch.setattr(limiter, "enabled", False)
-    monkeypatch.setattr(settings, "TRAFFIT_SYNC_ENABLED", True)
-    monkeypatch.setattr(admin_traffit, "spawn", _never)
-    monkeypatch.setattr(
-        admin_traffit, "TraffitConfig", SimpleNamespace(from_env=_never)
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        await call()
-
-    assert exc.value.status_code == 410, name
-    assert exc.value.detail == MESSAGE
-
-
-def test_every_post_route_of_the_module_is_covered() -> None:
-    """Nowa trasa POST w admin_traffit musi dostać strażnika i wpis wyżej."""
-    posts = sorted(
-        route.endpoint.__name__
-        for route in admin_traffit.router.routes
-        if "POST" in getattr(route, "methods", set())
-    )
-    assert posts == [
-        "trigger_traffit_added_dates_repair",
-        "trigger_traffit_file_dates_repair",
-        "trigger_traffit_note_recruitments",
-        "trigger_traffit_notes_repair",
-        "trigger_traffit_sync",
-        "trigger_traffit_transfer",
-        "trigger_traffit_twins_merge",
-    ]
+    assert routes == [(["GET"], "/sync/status")]
 
 
 # ── Status i health: odczyt zostaje, bez łączenia się z Traffitem ────────────

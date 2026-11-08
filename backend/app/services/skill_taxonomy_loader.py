@@ -13,11 +13,16 @@ DB round-trip.
 from __future__ import annotations
 
 import logging
+from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.app_setting import AppSetting
 from app.models.skill import Skill, SkillAlias
 from app.models.skill_relation import SkillRelation
 from app.services.scoring_service import set_alias_map
@@ -29,6 +34,51 @@ from app.services.skill_normalize import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Audyt 2, W5 (08.11.2026): słownik żyje w pamięci procesu, a zmienia go też
+# nocny bieg i skrypty. Wersja w bazie mówi pozostałym procesom, że mapa jest
+# stara. Sam token losowy, bo porównujemy tylko równość.
+DICTIONARY_VERSION_KEY = "skill_dictionary_version"
+_NO_VERSION_YET = "0"
+_loaded_version: Optional[str] = None
+
+
+def loaded_dictionary_version() -> Optional[str]:
+    """Wersja słownika w pamięci tego procesu; ``None`` przed pierwszym wczytaniem."""
+    return _loaded_version
+
+
+async def bump_dictionary_version(db: AsyncSession) -> None:
+    """Zapisz nową wersję słownika. Nie commituje."""
+    value = {"version": uuid4().hex}
+    await db.execute(
+        insert(AppSetting)
+        .values(key=DICTIONARY_VERSION_KEY, value=value)
+        .on_conflict_do_update(index_elements=[AppSetting.key], set_={"value": value})
+    )
+
+
+async def _stored_dictionary_version() -> str:
+    async with AsyncSessionLocal() as db:
+        value = await db.scalar(
+            select(AppSetting.value).where(AppSetting.key == DICTIONARY_VERSION_KEY)
+        )
+    return (value or {}).get("version") or _NO_VERSION_YET
+
+
+async def sync_dictionary_version() -> Optional[int]:
+    """Przeładuj mapę, gdy baza ma inną wersję niż ten proces.
+
+    Zwraca liczbę aliasów albo ``None``, gdy nic się nie zmieniło. Wersję czytamy
+    przed przeładowaniem: zmiana zapisana w trakcie da przy następnym sprawdzeniu
+    inną wersję i jeszcze jedno przeładowanie, a nie przepadnie."""
+    global _loaded_version
+    version = await _stored_dictionary_version()
+    if version == _loaded_version:
+        return None
+    count = await refresh_alias_map()
+    _loaded_version = version
+    return count
 
 
 async def refresh_alias_map() -> int:

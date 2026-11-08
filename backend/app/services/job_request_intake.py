@@ -44,6 +44,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import date as date_type
 from typing import Any, Awaitable, Callable, Optional
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1415,7 +1416,10 @@ async def read_request(
         max_tokens=6000,
     )
     read = refine_rows(normalize_model_output(raw, text), text)
-    read = with_proposals(await apply_people_reach(db, read), text)
+    # Audyt 2, W7: ok. 150 ms czystego CPU (słownik × treść maila) poza pętlą zdarzeń.
+    read = await run_in_threadpool(
+        with_proposals, await apply_people_reach(db, read), text
+    )
     return await match_hiring_manager(db, client_id=client_id, intake=read)
 
 

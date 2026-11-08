@@ -24,15 +24,19 @@
  * docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md („Kolejka w kolumnie…”).
  */
 import { placeStage, type BoardColumnKey, type StageLike } from "@/lib/board-stages";
+import { STUCK_DAYS } from "@/lib/pipeline-next-action";
 
 export type AddedByFilter =
   | { kind: "all" }
   | { kind: "user"; userId: number }
   | { kind: "none" }
   | { kind: "system" }
-  | { kind: "departed" };
+  | { kind: "departed" }
+  /** Stoją ponad tydzień na etapie: tu prowadzi wpis „Stoją > 7 dni” (08.11.2026). */
+  | { kind: "stuck" };
 
 export const ADDED_BY_ALL: AddedByFilter = { kind: "all" };
+const STUCK_LABEL = `Stoją > ${STUCK_DAYS} dni`;
 /** Parametr adresu strony rekrutacji. */
 export const ADDED_BY_PARAM = "added_by";
 
@@ -52,6 +56,7 @@ export interface AddedByItem {
   /** Pierwsza osoba, która zweryfikowała parę (20.10.2026). */
   verified_by_id?: number | null;
   verified_by_name?: string | null;
+  days_in_stage?: number | null;
   /** Kolumna Tablicy karty — dokłada ją `peopleInProgress`. */
   board_column?: BoardColumnKey | null;
 }
@@ -103,6 +108,7 @@ export function parseAddedBy(raw: string | null | undefined): AddedByFilter {
   if (raw === "none") return { kind: "none" };
   if (raw === "system") return { kind: "system" };
   if (raw === "departed") return { kind: "departed" };
+  if (raw === "stuck") return { kind: "stuck" };
   if (raw && /^[1-9]\d{0,9}$/.test(raw)) return { kind: "user", userId: Number(raw) };
   return ADDED_BY_ALL;
 }
@@ -113,6 +119,7 @@ export function addedByParam(filter: AddedByFilter): string | null {
   if (filter.kind === "none") return "none";
   if (filter.kind === "system") return "system";
   if (filter.kind === "departed") return "departed";
+  if (filter.kind === "stuck") return "stuck";
   return null;
 }
 
@@ -137,6 +144,11 @@ export function isSystemAdded(
   );
 }
 
+/** Kolumny „Zatrudniony” i zamknięci to nie stanie: tam karta ma leżeć. */
+function isStuck(item: AddedByItem, column: BoardColumnKey | null): boolean {
+  return column !== "hired" && column !== "closed" && (item.days_in_stage ?? 0) > STUCK_DAYS;
+}
+
 /** `column` = kolumna Tablicy karty; bez niej ta z `peopleInProgress`,
  *  a bez niczego — reguła sprzed weryfikacji (jak karta bez kolumny). */
 export function matchesAddedBy(
@@ -147,6 +159,7 @@ export function matchesAddedBy(
   if (filter.kind === "all") return true;
   if (filter.kind === "system") return isSystemAdded(item, column);
   if (filter.kind === "departed") return item.care_user_id != null;
+  if (filter.kind === "stuck") return isStuck(item, column);
   if (isSystemAdded(item, column)) return false;
   const id = adderId(item, column);
   return filter.kind === "none" ? id == null : id === filter.userId;
@@ -201,8 +214,10 @@ export function addedByOptions(
   let withoutAdder = 0;
   let bySystem = 0;
   let departed = 0;
+  let stuck = 0;
   for (const person of people) {
     if (person.care_user_id != null) departed += 1;
+    if (isStuck(person, person.board_column ?? null)) stuck += 1;
     const column = person.board_column ?? null;
     if (isSystemAdded(person, column)) {
       bySystem += 1;
@@ -243,6 +258,10 @@ export function addedByOptions(
       isViewer: false,
     });
   }
+  if (stuck > 0) {
+    const filter: AddedByFilter = { kind: "stuck" };
+    options.push({ filter, key: "stuck", label: STUCK_LABEL, count: stuck, isViewer: false });
+  }
   const others = Array.from(byUser.entries())
     .filter(([id]) => id !== viewer.id)
     .map(([id, { count, name }]): AddedByOption => {
@@ -276,6 +295,7 @@ export function addedByChoiceLabel(filter: AddedByFilter, options: readonly Adde
   if (filter.kind === "none") return "brak danych";
   if (filter.kind === "system") return "System";
   if (filter.kind === "departed") return "po osobach, które odeszły";
+  if (filter.kind === "stuck") return STUCK_LABEL.toLocaleLowerCase("pl");
   const option = options.find((o) => o.key === addedByKey(filter));
   if (option?.isViewer) return "Ty";
   return selectedUserLabel(filter, options);
@@ -290,6 +310,7 @@ export function addedByQueueSuffix(
   if (filter.kind === "none") return "bez danych o dodającym";
   if (filter.kind === "system") return "od systemu";
   if (filter.kind === "departed") return "po osobach, które odeszły";
+  if (filter.kind === "stuck") return STUCK_LABEL.toLocaleLowerCase("pl");
   const option = options.find((o) => o.key === addedByKey(filter));
   if (option?.isViewer) return "dodani przez Ciebie";
   return `dodani przez ${selectedUserLabel(filter, options)}`;
@@ -303,6 +324,7 @@ export function addedByEmptyColumnText(
   if (filter.kind === "none") return "Brak osób bez zapisanej osoby dodającej.";
   if (filter.kind === "system") return "Brak osób od systemu.";
   if (filter.kind === "departed") return "Brak osób po osobach, które odeszły.";
+  if (filter.kind === "stuck") return `Nikt nie stoi tu ponad ${STUCK_DAYS} dni.`;
   if (filter.kind === "user") {
     const option = options.find((o) => o.key === addedByKey(filter));
     if (option?.isViewer) return "Brak osób dodanych przez Ciebie.";

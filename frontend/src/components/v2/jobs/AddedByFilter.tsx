@@ -6,7 +6,7 @@
  * menu otwiera etykieta kolejki w panelu osoby, bo w widoku „Rozwiń” Tablica
  * jest zasłonięta. Logika i napisy: `lib/board-added-by.ts`.
  */
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, ListFilter, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -85,12 +85,38 @@ export function AddedByMenuContent({
   );
 }
 
+/** Ikona filtra w nagłówku kolumny „Nowi” (audyt U3, 08.11.2026). */
+export function AddedByColumnFilter({ options, value, onChange }: AddedByMenuProps) {
+  const active = value.kind !== "all";
+  const label = `Kto dodał: ${addedByChoiceLabel(value, options)}`;
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          className={cn("h-6 w-6 shrink-0", active && "bg-primary/10 text-primary")}
+          aria-label={label}
+          title={label}
+          data-testid="added-by-column-filter"
+          data-tour="jobs.board.added-by"
+        >
+          <ListFilter className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <AddedByMenuContent options={options} value={value} onChange={onChange} />
+    </DropdownMenu>
+  );
+}
+
 /** Przycisk w nagłówku rekrutacji: „Kto dodał: wszyscy ▾” / „Kto dodał: Ty · 23 z 66” + „✕”. */
 export function AddedByFilterButton({ options, value, onChange }: AddedByMenuProps) {
   const active = value.kind !== "all";
   const choice = addedByChoiceLabel(value, options);
   const total = options.find((o) => o.key === "all")?.count ?? 0;
   const visible = options.find((o) => o.key === addedByKey(value))?.count ?? 0;
+  const prefix = value.kind === "stuck" ? "Filtr" : "Kto dodał";
   return (
     <div className="inline-flex items-center gap-1" data-testid="added-by-filter">
       <DropdownMenu modal={false}>
@@ -101,12 +127,13 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
             variant="outline"
             className={cn("gap-1.5", active && "border-primary/40 bg-primary/10")}
             aria-label={
-              active ? `Kto dodał: ${choice}. Widać ${visible} z ${total} osób.` : `Kto dodał: ${choice}`
+              active
+                ? `${prefix}: ${choice}. Widać ${visible} z ${total} osób.`
+                : `${prefix}: ${choice}`
             }
             data-testid="added-by-trigger"
-            data-tour="jobs.board.added-by"
           >
-            <span className="font-normal text-muted-foreground">Kto dodał:</span>
+            <span className="font-normal text-muted-foreground">{prefix}:</span>
             <span className="font-semibold">{choice}</span>
             {active ? (
               <span className="font-normal tabular-nums text-muted-foreground">

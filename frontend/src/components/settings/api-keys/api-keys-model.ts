@@ -91,7 +91,7 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
   {
     id: "reports-events",
     title: "Raporty i zdarzenia",
-    scopes: ["insights:read", "academy:read", "events:read", "webhooks:manage"],
+    scopes: ["insights:read", "events:read", "webhooks:manage"],
   },
   {
     id: "ops",

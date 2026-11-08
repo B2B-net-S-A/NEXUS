@@ -1,6 +1,6 @@
 """Źródło fazy `candidates_cv_fields` musi wypuścić ID padłych wierszy.
 
-Adapter w ``app/tasks/traffit_sync.py`` zamienia ``stats["error_ids"]`` na błędy
+Adapter w nocnym imporcie zamieniał ``stats["error_ids"]`` na błędy
 PRZYPISANE do wiersza (``PhaseProgress.add_error``), a dopiero przypisany błąd
 może trafić do kwarantanny. Dopóki źródła liczyły wyłącznie anonimowe
 ``errors``, każdy błąd tych faz był dla ``_blocking_errors`` nieprzypisany:

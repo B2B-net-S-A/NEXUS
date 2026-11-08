@@ -9,7 +9,7 @@ from typing import Any, List, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import and_, case, func, or_, select, text
+from sqlalchemy import and_, case, func, literal_column, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
@@ -62,7 +62,12 @@ from app.services.client_identity import (
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.hr.people import DIRECTORY_STATUSES
 from app.services.hr.program import program_enabled
-from app.services.polish_ilike import contains_pattern, polish_folded_ilike
+from app.services.advanced_candidate_search import _POLISH_FOLD_DST, _POLISH_FOLD_SRC
+from app.services.polish_ilike import (
+    contains_pattern,
+    folded_contains_pattern,
+    polish_folded_ilike,
+)
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -117,30 +122,33 @@ def _contains_pattern(q: str) -> str:
     return contains_pattern(q)
 
 
-def _candidate_full_name_match(q: str) -> list[Any]:
-    """„Imię Nazwisko” i „Nazwisko Imię” — pojedyncze kolumny nigdy nie
-    zawierają całej frazy ze spacją, więc samo ``name``/``lastname`` nie
-    znajdowało nikogo wpisanego razem z imieniem (Jarvis, 10.2026: 7 osób
-    „nie było w bazie”, choć były). Bez polskich znaków po obu stronach."""
-    return [
-        polish_folded_ilike(func.concat(Candidate.name, " ", Candidate.lastname), q),
-        polish_folded_ilike(func.concat(Candidate.lastname, " ", Candidate.name), q),
-    ]
+# Jedno wyrażenie zamiast pięciu ``ILIKE``, pod indeks GIN z migracji 0662
+# (audyt 08.11.2026: fraza bez trafienia to był seq scan 68 tys. wierszy, 336 ms).
+# ``name`` i ``lastname`` są dwa razy, żeby pasowało „Imię Nazwisko” i „Nazwisko
+# Imię”; trygramy to zbiór, więc powtórzenie prawie nie powiększa indeksu.
+# ``||`` i ``coalesce``, bo ``concat_ws`` jest STABLE i nie wejdzie do indeksu.
+_CANDIDATE_IDENTITY_FOLDED_SQL = (
+    "translate("
+    "coalesce(candidates.name, '') || ' ' || coalesce(candidates.lastname, '') "
+    "|| ' ' || coalesce(candidates.email, '') "
+    "|| ' ' || coalesce(candidates.lastname, '') "
+    "|| ' ' || coalesce(candidates.name, ''), "
+    f"'{_POLISH_FOLD_SRC}', '{_POLISH_FOLD_DST}')"
+)
 
 
 def _candidate_quick_match(q: str) -> list[Any]:
-    """Imię, nazwisko, e-mail, pełne imię z nazwiskiem (bez polskich znaków)
-    i telefon.
+    """Imię, nazwisko, e-mail, pełne imię z nazwiskiem (w obu kolejnościach,
+    bez polskich znaków) i telefon.
 
     „Jerzy Leśniawski” nie znajdował osoby zapisanej jako „Lesniawski”, a Jarvis
     odpowiadał „nie ma takiej osoby” (produkcja, 04.11.2026). Lista rekrutacji
     i paleta ⌘K składały znaki już wcześniej (``polish_folded_ilike``)."""
     phone = predicates.phone_digits_clause(q)
     return [
-        polish_folded_ilike(Candidate.name, q),
-        polish_folded_ilike(Candidate.lastname, q),
-        polish_folded_ilike(Candidate.email, q),
-        *_candidate_full_name_match(q),
+        literal_column(_CANDIDATE_IDENTITY_FOLDED_SQL).ilike(
+            folded_contains_pattern(q), escape="\\"
+        ),
         # Numer telefonu po samych cyfrach („600 123 456”, „+48600123456”),
         # jak lista kandydatów. Gałąź kandydatów ma tę samą bramkę co profil
         # (`CandidatePIIAccess`), który telefon i tak pokazuje; odpowiedź
@@ -1228,7 +1236,7 @@ async def unified_search(
             select(Job)
             .where(
                 or_(
-                    Job.title.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(Job.title, q),
                     Job.description.ilike(_contains_pattern(q)),
                 )
             )
@@ -1249,9 +1257,9 @@ async def unified_search(
             .where(
                 *visible_client_predicates(),
                 or_(
-                    client_name.ilike(_contains_pattern(q)),
-                    Client.name.ilike(_contains_pattern(q)),
-                    Client.industry.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(client_name, q),
+                    polish_folded_ilike(Client.name, q),
+                    polish_folded_ilike(Client.industry, q),
                 ),
             )
             .order_by(func.lower(client_name).asc(), Client.id.asc())
@@ -1318,7 +1326,7 @@ async def global_search(
         jobs_result = await db.execute(
             select(Job)
             .where(
-                Job.title.ilike(_contains_pattern(q)),
+                polish_folded_ilike(Job.title, q),
             )
             .limit(LIMIT)
         )
@@ -1358,9 +1366,9 @@ async def global_search(
             .where(
                 *visible_client_predicates(),
                 or_(
-                    client_name.ilike(_contains_pattern(q)),
-                    Client.name.ilike(_contains_pattern(q)),
-                    Client.industry.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(client_name, q),
+                    polish_folded_ilike(Client.name, q),
+                    polish_folded_ilike(Client.industry, q),
                 ),
             )
             .order_by(func.lower(client_name).asc(), Client.id.asc())
@@ -1394,8 +1402,8 @@ async def global_search(
             select(Contact)
             .where(
                 or_(
-                    Contact.name.ilike(_contains_pattern(q)),
-                    Contact.email.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(Contact.name, q),
+                    polish_folded_ilike(Contact.email, q),
                 )
             )
             .limit(LIMIT)

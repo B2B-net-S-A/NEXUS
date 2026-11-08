@@ -10,7 +10,7 @@ zapisuje.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -433,76 +433,6 @@ async def test_api_preview_execute_and_report(
         assert status_after.json()["report"]["deleted_count"] == 1
     finally:
         await _drop_clients([target])
-
-
-async def test_traffit_sync_does_not_resurrect_a_purged_client(clean_cleanup_state):
-    """Faza ``clients`` robi pełny skan co noc — nagrobek musi ją zatrzymać."""
-
-    from app.services.traffit.importer import TraffitImporter
-
-    class _FakePaginator:
-        def __init__(self, rows: list[dict]) -> None:
-            self._rows = rows
-
-        async def total_count(self, path: str) -> int:  # noqa: ARG002
-            return len(self._rows)
-
-        async def get_paginated(self, path, page_size=100, **kwargs):  # noqa: ARG002
-            for row in self._rows:
-                yield row
-
-    external_id = str(880_000 + int(uuid.uuid4().int % 10_000))
-    admin = await _make_admin()
-    async with AsyncSessionLocal() as db:
-        run = ClientCleanupRun(
-            kind=f"test-{uuid.uuid4().hex[:6]}",
-            executed_at=datetime.now(timezone.utc),
-            executed_by=admin.id,
-            candidates_count=1,
-            kept_count=0,
-            deleted_count=1,
-            held_count=0,
-        )
-        db.add(run)
-        await db.flush()
-        db.add(
-            PurgedClient(
-                run_id=run.id,
-                client_id=-int(external_id),
-                name="Usunięty",
-                external_source="traffit",
-                external_id=external_id,
-            )
-        )
-        await db.commit()
-    try:
-        async with AsyncSessionLocal() as db:
-            importer = TraffitImporter(
-                _FakePaginator([{"id": int(external_id), "name": "Usunięty"}]),
-                db,  # type: ignore[arg-type]
-            )
-            progress = await importer.import_clients()
-            resurrected = await db.scalar(
-                select(Client.id).where(
-                    Client.external_source == "traffit",
-                    Client.external_id == external_id,
-                )
-            )
-        assert resurrected is None
-        assert progress.skipped == 1
-        assert progress.inserted == 0
-    finally:
-        async with AsyncSessionLocal() as db:
-            # Gdyby nagrobek nie zadziałał, test nie może zostawić
-            # „wskrzeszonego" klienta we wspólnej bazie.
-            await db.execute(
-                delete(Client).where(
-                    Client.external_source == "traffit",
-                    Client.external_id == external_id,
-                )
-            )
-            await db.execute(delete(User).where(User.id == admin.id))
-            await db.commit()
 
 
 # ── Poprawki z przeglądu adwersarialnego ─────────────────────────────────────

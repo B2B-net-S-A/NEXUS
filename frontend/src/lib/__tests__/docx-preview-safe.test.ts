@@ -44,6 +44,21 @@ describe("renderDocxSafely", () => {
     expect(host.querySelector("iframe")).toBeNull();
     expect(host.textContent).toContain("CV");
   });
+
+  it("nie dzieli wyrazów na stronach, choć biblioteka wstawia .docx { hyphens: auto }", async () => {
+    const host = document.createElement("div");
+    renderAsync.mockImplementation(async (_blob, container: HTMLElement) => {
+      container.innerHTML =
+        '<style>.docx { hyphens: auto; }</style><div class="docx-wrapper">' +
+        '<section class="docx"><p>Tytuł</p></section><section class="docx"><p>Dalej</p></section></div>';
+    });
+    await renderDocxSafely(new Blob(["x"]), host, { className: "docx" });
+    const pages = Array.from(host.querySelectorAll("section"));
+    expect(pages).toHaveLength(2);
+    for (const page of pages) {
+      expect(page.style.getPropertyValue("hyphens")).toBe("manual");
+    }
+  });
 });
 
 describe("hardenDocxDom", () => {

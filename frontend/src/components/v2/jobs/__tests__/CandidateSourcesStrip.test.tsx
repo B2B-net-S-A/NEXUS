@@ -74,28 +74,40 @@ function renderStrip(props: Partial<React.ComponentProps<typeof CandidateSources
 const count = (tab: string) => screen.getByTestId(`source-tile-${tab}-count`);
 
 describe("CandidateSourcesStripView — pasek „Kandydaci do dodania”", () => {
-  it("cztery kafle w stałej kolejności; klik otwiera okno na zakładce kafla", async () => {
+  it("kafle „co nowe” w rzędzie, reszta źródeł w „Szukaj ▾”; klik otwiera zakładkę", async () => {
     const onOpen = vi.fn();
     render(<CandidateSourcesStripView tiles={TILES} onOpen={onOpen} />);
     const strip = screen.getByRole("region", { name: "Kandydaci do dodania" });
     expect(strip).toHaveAttribute("data-help", "jobs.board.sources");
-    expect(
-      screen.getAllByRole("button").map((b) => b.getAttribute("data-testid")),
-    ).toEqual(["source-tile-similar", "source-tile-postings", "source-tile-base", "source-tile-search"]);
+    expect(screen.getAllByRole("button").map((b) => b.getAttribute("data-testid"))).toEqual([
+      "source-tile-postings",
+      "sources-search-menu",
+    ]);
     await userEvent.click(screen.getByTestId("source-tile-postings"));
     expect(onOpen).toHaveBeenCalledWith("postings");
+    await userEvent.click(screen.getByTestId("sources-search-menu"));
+    expect((await screen.findByTestId("sources-search-menu-content")).querySelectorAll("button")).toHaveLength(3);
     await userEvent.click(screen.getByTestId("source-tile-search"));
-    expect(onOpen).toHaveBeenLastCalledWith("search");
+    await waitFor(() => expect(onOpen).toHaveBeenLastCalledWith("search"));
+  });
+
+  it("menu „Szukaj” bez wielkich liczb; opis źródła zostaje", async () => {
+    render(<CandidateSourcesStripView tiles={TILES} onOpen={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("sources-search-menu"));
+    const similar = await screen.findByTestId("source-tile-similar");
+    expect(similar).toHaveTextContent("19 wysłanych do klienta");
+    expect(similar).not.toHaveTextContent("25");
+    expect(screen.queryByTestId("source-tile-search-count")).toBeNull();
   });
 
   it("liczba, „liczę” i „nie policzono” to trzy różne stany — brak liczby nigdy nie jest zerem", () => {
-    render(<CandidateSourcesStripView tiles={TILES} onOpen={vi.fn()} />);
-    expect(count("similar")).toHaveTextContent("25");
+    const { rerender } = render(<CandidateSourcesStripView tiles={TILES} onOpen={vi.fn()} />);
     expect(count("postings")).toHaveTextContent("…");
-    expect(count("base")).toHaveTextContent("—");
-    expect(count("base")).not.toHaveTextContent("0");
-    // Prawdziwe zero zostaje zerem.
-    expect(count("search")).toHaveTextContent("0");
+    rerender(<CandidateSourcesStripView tiles={[{ ...TILES[1], count: null }]} onOpen={vi.fn()} />);
+    expect(count("postings")).toHaveTextContent("—");
+    expect(count("postings")).not.toHaveTextContent("0");
+    rerender(<CandidateSourcesStripView tiles={[{ ...TILES[1], count: 0 }]} onOpen={vi.fn()} />);
+    expect(count("postings")).toHaveTextContent("0");
   });
 
   it("„Dodaj ▾” — menu „po nazwisku” i „z pliku CV”, tylko dla roli z prawem dodawania", async () => {
@@ -121,10 +133,9 @@ describe("CandidateSourcesStripView — pasek „Kandydaci do dodania”", () =>
 
   it("jedna linia przycisków: opis źródła w dymku i dla czytnika ekranu, nie na widoku", () => {
     render(<CandidateSourcesStripView tiles={TILES} onOpen={vi.fn()} />);
-    const tile = screen.getByTestId("source-tile-similar");
-    expect(tile).toHaveAttribute("title", "19 wysłanych do klienta");
-    expect(within(tile).getByText("— 19 wysłanych do klienta")).toHaveClass("sr-only");
-    expect(tile).toHaveTextContent(/^Podobne rekrutacje25/);
+    const tile = screen.getByTestId("source-tile-postings");
+    expect(tile).toHaveAttribute("title", "Z ostatnich 7 dni");
+    expect(within(tile).getByText("— Z ostatnich 7 dni")).toHaveClass("sr-only");
   });
 });
 
@@ -164,21 +175,20 @@ describe("CandidateSourcesStrip — liczby kafli", () => {
     listPage.mockResolvedValue({ items: [], total: 86 });
   });
 
-  it("ogłoszenia i baza z jednego zapytania o liczniki; podobne = wysłani + pozostali", async () => {
+  it("ogłoszenia z jednego zapytania o liczniki; opisy źródeł w menu „Szukaj”", async () => {
     similarState.data = { reassignable_people: 19, other_people: 6 };
     similarState.isSuccess = true;
     renderStrip();
     await waitFor(() => expect(count("postings")).toHaveTextContent("4"));
-    expect(count("base")).toHaveTextContent("12");
-    expect(count("similar")).toHaveTextContent("25");
-    expect(screen.getByTestId("source-tile-similar")).toHaveTextContent(
-      "19 wysłanych do klienta, 6 pozostałych z tych rekrutacji",
-    );
     expect(screen.getByTestId("source-tile-postings")).toHaveTextContent("2 odłożonych przez AI");
     expect(countsApi).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByTestId("sources-search-menu"));
+    expect(await screen.findByTestId("source-tile-similar")).toHaveTextContent(
+      "19 wysłanych do klienta, 6 pozostałych z tych rekrutacji",
+    );
   });
 
-  it("po otwarciu okna kafle mówią to samo co zakładki (wszystkie źródła), nie samą skrzynkę", async () => {
+  it("po otwarciu okna kafel mówi to samo co zakładka, nie samą skrzynkę", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     qc.setQueryData(jobProposalsKeys.visibleSplit(5), { postings: 6, base: 31 });
     render(
@@ -187,52 +197,46 @@ describe("CandidateSourcesStrip — liczby kafli", () => {
       </QueryClientProvider>,
     );
     expect(count("postings")).toHaveTextContent("6");
-    expect(count("base")).toHaveTextContent("31");
-    // Odpowiedź serwera (4 / 12) nie cofa liczb z okna.
+    // Odpowiedź serwera (4) nie cofa liczby z okna.
     await waitFor(() => expect(countsApi).toHaveBeenCalled());
-    expect(count("base")).toHaveTextContent("31");
+    expect(count("postings")).toHaveTextContent("6");
   });
 
-  it("awaria liczników to „—”, nie zero; kafle dalej otwierają okno", async () => {
+  it("awaria liczników to „—”, nie zero; menu dalej otwiera okno", async () => {
     countsApi.mockRejectedValue({ response: { status: 500 } });
     similarState.isError = true;
     const { onOpen } = renderStrip();
     await waitFor(() => expect(count("postings")).toHaveTextContent("—"));
-    expect(count("base")).toHaveTextContent("—");
-    expect(count("similar")).toHaveTextContent("—");
-    await userEvent.click(screen.getByTestId("source-tile-base"));
-    expect(onOpen).toHaveBeenCalledWith("base");
+    await userEvent.click(screen.getByTestId("sources-search-menu"));
+    await userEvent.click(await screen.findByTestId("source-tile-base"));
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith("base"));
   });
 
   it("rola bez wglądu w podobne rekrutacje nie pyta o nie", async () => {
     renderStrip({ canSeeSimilar: false });
     await waitFor(() => expect(count("postings")).toHaveTextContent("4"));
     expect(similarEnabled).toHaveBeenCalledWith(false);
-    expect(count("similar")).toHaveTextContent("—");
   });
 
-  it("„Szukaj w bazie” liczy osoby po słowach z Championa i pokazuje te słowa", async () => {
+  it("„Szukaj w bazie” pokazuje słowa z Championa i nie liczy osób przy każdym wejściu", async () => {
     championGet.mockResolvedValue({
       data: { champion_profile: { search: { requirements: [["KYC", "AML"], ["bankow*"]], exclude: [] } } },
     });
     renderStrip();
-    await waitFor(() => expect(count("search")).toHaveTextContent("86"));
-    expect(screen.getByTestId("source-tile-search")).toHaveTextContent("Po słowach z Championa: KYC");
-    // Sam licznik: jedna osoba na stronie, bez pobierania listy.
-    expect(listPage.mock.calls[0][0]).toMatchObject({ page_size: 1, recruitment_match: "not_assigned" });
-    // Liczba nie zależy od kolejności — „Dopasowanie” układałoby całą listę
-    // przy każdym wejściu na rekrutację.
-    expect((listPage.mock.calls[0][0] as { sort?: string }).sort).not.toBe("match");
+    await userEvent.click(screen.getByTestId("sources-search-menu"));
+    await waitFor(async () =>
+      expect(await screen.findByTestId("source-tile-search")).toHaveTextContent("Po słowach z Championa: KYC"),
+    );
+    expect(listPage).not.toHaveBeenCalled();
   });
 
-  it("bez słów w Championie kafel nie szuka i mówi dlaczego", async () => {
+  it("bez słów w Championie pozycja mówi dlaczego", async () => {
     renderStrip();
-    await waitFor(() =>
-      expect(screen.getByTestId("source-tile-search")).toHaveTextContent(
+    await userEvent.click(screen.getByTestId("sources-search-menu"));
+    await waitFor(async () =>
+      expect(await screen.findByTestId("source-tile-search")).toHaveTextContent(
         "W Championie nie ma jeszcze słów do wyszukiwania",
       ),
     );
-    expect(count("search")).toHaveTextContent("—");
-    expect(listPage).not.toHaveBeenCalled();
   });
 });

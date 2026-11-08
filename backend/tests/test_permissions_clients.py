@@ -159,6 +159,17 @@ def _denied_permission(response: Response) -> str:
 # ── 1. „Klienci: dodawanie i edycja” ─────────────────────────────────────────
 
 
+def _unique_valid_nip() -> str:
+    """Fikcyjny NIP z poprawną sumą, inny w każdym biegu (numer zajęty = 409)."""
+    while True:
+        body = f"{uuid.uuid4().int % 1_000_000_000:09d}"
+        control = (
+            sum(int(d) * w for d, w in zip(body, (6, 5, 7, 2, 3, 4, 5, 6, 7))) % 11
+        )
+        if control != 10:
+            return f"{body}{control}"
+
+
 async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
     app_client: AsyncClient,
 ) -> None:
@@ -171,10 +182,11 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
 
     await grant_permissions(user_id, "clients_edit")
 
+    nip = _unique_valid_nip()
     created = await app_client.post(
         "/api/clients",
         headers=headers,
-        json={"name": name, "nip": "5252530321", "notes": "Notatka handlowa"},
+        json={"name": name, "nip": nip, "notes": "Notatka handlowa"},
     )
     assert created.status_code == 201, created.text
     client_id = created.json()["id"]
@@ -204,7 +216,7 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
     assert _denied_permission(blind) == "amounts_view"
     async with AsyncSessionLocal() as db:
         stored = await db.get(Client, client_id)
-        assert stored.nip == "5252530321"
+        assert stored.nip == nip
         assert stored.notes == "Notatka handlowa"
 
     # Posiadacz bez roli Delivery Leada działa u każdego klienta…
@@ -226,13 +238,14 @@ async def test_recruiter_with_granted_clients_edit_creates_and_edits_a_client(
 
     # Z podglądem danych prawnych to samo konto zmienia je i czyści jak dotąd.
     await grant_permissions(user_id, "amounts_view")
+    new_nip = _unique_valid_nip()
     legal = await app_client.patch(
         f"/api/clients/{client_id}",
         headers=headers,
-        json={"nip": "1111111111", "notes": None},
+        json={"nip": new_nip, "notes": None},
     )
     assert legal.status_code == 200, legal.text
-    assert legal.json()["nip"] == "1111111111"
+    assert legal.json()["nip"] == new_nip
     assert legal.json()["notes"] is None
 
 

@@ -152,10 +152,16 @@ def _fold(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
-def _named_in(line: BillingLine, item_name: str) -> bool:
-    parts = _fold(line.consultant).split()
-    name = _fold(item_name)
+def person_named_in(person: str, text: str) -> bool:
+    """Pełne imię i nazwisko osoby w tekście, całymi słowami, bez polskich znaków."""
+
+    parts = _fold(person).split()
+    name = _fold(text)
     return len(parts) >= 2 and all(_pattern(part).search(name) for part in parts)
+
+
+def _named_in(line: BillingLine, item_name: str) -> bool:
+    return person_named_in(line.consultant, item_name)
 
 
 def _person_and_price(
@@ -606,7 +612,7 @@ def buyer_number(invoice: ClientSalesInvoice) -> Optional[str]:
     return invoice.buyer_nip or invoice.buyer_foreign_id
 
 
-def _waiting_for_number(number: str) -> list[Any]:
+def waiting_for_number_filters(number: str) -> list[Any]:
     return [
         ClientSalesInvoice.match_status == "unmatched",
         ClientSalesInvoice.match_reason == "unknown_buyer",
@@ -617,6 +623,27 @@ def _waiting_for_number(number: str) -> list[Any]:
     ]
 
 
+async def invoices_waiting_for_number(
+    db: AsyncSession, number: str
+) -> list[ClientSalesInvoice]:
+    """Faktury czekające na numer, zablokowane pod przypisanie albo pominięcie."""
+
+    return list(
+        await db.scalars(
+            select(ClientSalesInvoice)
+            .where(*waiting_for_number_filters(number))
+            .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
+            .with_for_update()
+        )
+    )
+
+
+async def retry_waiting_for_number(db: AsyncSession, number: str) -> dict[str, int]:
+    """Numer właśnie trafił do klienta: od razu dopasuj faktury tego nabywcy."""
+
+    return await _retry(db, await invoices_waiting_for_number(db, number))
+
+
 async def waiting_for_number(db: AsyncSession, number: str) -> int:
     """Ile faktur czeka na ten numer u klienta."""
 
@@ -624,7 +651,7 @@ async def waiting_for_number(db: AsyncSession, number: str) -> int:
         await db.scalar(
             select(func.count())
             .select_from(ClientSalesInvoice)
-            .where(*_waiting_for_number(number))
+            .where(*waiting_for_number_filters(number))
         )
         or 0
     )
@@ -651,15 +678,7 @@ async def save_buyer_number(
         "matched": 0,
     }
     if check.state == "add":
-        pending = list(
-            await db.scalars(
-                select(ClientSalesInvoice)
-                .where(*_waiting_for_number(check.number))
-                .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
-                .with_for_update()
-            )
-        )
-        result.update(await _retry(db, pending))
+        result.update(await retry_waiting_for_number(db, check.number))
     return result
 
 
@@ -675,10 +694,14 @@ __all__ = [
     "decide",
     "ignore",
     "invoice_texts",
+    "invoices_waiting_for_number",
     "numbers_found",
+    "person_named_in",
     "propagate_to_corrections",
     "rematch_pending",
     "reopen",
+    "retry_waiting_for_number",
     "save_buyer_number",
     "waiting_for_number",
+    "waiting_for_number_filters",
 ]

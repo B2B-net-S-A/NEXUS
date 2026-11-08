@@ -955,7 +955,7 @@ class TestScope:
     async def test_other_scope_is_403(
         self, app_client: AsyncClient, app_auth_headers: dict, path: str
     ):
-        api_key = await _key(app_client, app_auth_headers, ["academy:read"])
+        api_key = await _key(app_client, app_auth_headers, ["calendar:read"])
         resp = await app_client.get(f"{V1}{path}", headers=_h(api_key))
         assert resp.status_code == 403, resp.text
         assert resp.json()["error"]["code"] == "insufficient_scope"

@@ -1063,6 +1063,7 @@ async def _upload_client_cv(
     )
     from app.services import integration_cv
     from app.services.candidate_claim import stage_column
+    from app.services.cv_edit_summary import has_editor_start
 
     imported = await word_to_editor_html(content)
     observed = other_person_name(
@@ -1173,6 +1174,7 @@ async def _upload_client_cv(
                 "code": "client_cv_replace_confirm",
                 "message": _replace_question(target),
                 "status": prior_status,
+                "ask_replace_reason": has_editor_start(target.branded_render_metadata),
                 "updated_at": changed.isoformat() if changed else None,
             },
         )
@@ -1180,6 +1182,7 @@ async def _upload_client_cv(
         replaced = "confirmed"
     if prior_status == "draft":
         snapshot_draft(db, target, user_id=user_id, reason="replaced")
+    ask_replace_reason = has_editor_start(target.branded_render_metadata)
 
     document = await store_in_profile() if has_primary else None
     sha256 = hashlib.sha256(content).hexdigest()
@@ -1213,6 +1216,7 @@ async def _upload_client_cv(
         client_cv_stage_id=target.candidate_stage_id,
         replaced=replaced,
         undo_available=replaced in ("none", "auto_cv"),
+        ask_replace_reason=ask_replace_reason,
         stored_in_profile=document is not None,
     )
 
@@ -1741,6 +1745,11 @@ async def _write_stage_draft(
     Zatwierdzona wersja jest najpierw zamrażana — jej linki i pobrania zostają
     przy starej treści. Bez commitu; wołający trzyma blokadę wiersza.
     """
+    from app.services.cv_edit_summary import REPLACE_KINDS, log_replaced_edits
+
+    kind = REPLACE_KINDS.get(activity_action)
+    if kind is not None:
+        await log_replaced_edits(db, csv=csv, kind=kind, user_id=user_id)
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
@@ -2061,6 +2070,29 @@ async def restore_previous_branded_draft(
 DISCARD_ACTION = "branded_cv_discarded"
 
 
+class CVBrandedReplaceReason(BaseModel):
+    reason: Literal["client_format", "missing_experience", "newer_cv", "other"]
+
+
+@router.post("/candidates/stages/{stage_id}/cv/branded/replace-reason", status_code=204)
+async def record_cv_replace_reason(
+    stage_id: int,
+    payload: CVBrandedReplaceReason,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Pigułka „dlaczego nie CV z generatora” (CV-2). Opcjonalna, tylko pomiar."""
+    from app.services.cv_edit_summary import record_replace_reason
+
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    saved = await record_replace_reason(
+        db, csv_id=csv.id, user_id=current_user.id, reason=payload.reason
+    )
+    if not saved:
+        raise HTTPException(404, "Nie ma podmiany CV, do której pasuje ten powód.")
+    await db.commit()
+
+
 @router.post(
     "/candidates/stages/{stage_id}/cv/branded/discard",
     response_model=CVBrandedResponse,
@@ -2085,6 +2117,11 @@ async def discard_branded_cv(
     if csv.branded_status == "none":
         raise HTTPException(409, "Ta rekrutacja nie ma CV do klienta do odrzucenia.")
     await _ensure_client_cv_replaceable(db, csv)
+    from app.services.cv_edit_summary import REPLACE_KINDS, log_replaced_edits
+
+    await log_replaced_edits(
+        db, csv=csv, kind=REPLACE_KINDS[DISCARD_ACTION], user_id=current_user.id
+    )
     snapshot_draft(db, csv, user_id=current_user.id, reason="replaced")
     await _mark_pair_generations_discarded(db, csv)
     _clear_stage_draft(db, csv, user_id=current_user.id, action=DISCARD_ACTION)

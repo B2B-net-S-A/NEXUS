@@ -16,7 +16,7 @@ from app.models.client import Client
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
 from app.services.cv_edit_summary import ACTION, START_HTML_KEY
-from scripts.cv_edit_report import _load_weekly, period_bounds
+from scripts.cv_edit_report import _load_starts, _load_weekly, period_bounds
 from tests.test_candidate_stage_cv_branded import _seed_full_stage
 
 
@@ -171,3 +171,111 @@ async def test_failed_entry_does_not_block_the_approval(
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "finalized"
     assert await _entries(sid) == []
+
+
+async def test_discard_logs_replaced_with_edits_until_then_and_report_counts_it(
+    app_client, app_auth_headers
+):
+    sid, cid, jid = await _seed_full_stage()
+    selected = await _select_generated(app_client, app_auth_headers, sid, cid, jid)
+    discarded = await app_client.post(
+        f"/api/candidates/stages/{sid}/cv/branded/discard",
+        headers=app_auth_headers,
+        json={"expected_revision": selected["edit_revision"]},
+    )
+    assert discarded.status_code == 200, discarded.text
+
+    (entry,) = await _entries(sid)
+    assert entry.details["status"] == "replaced"
+    assert entry.details["replace_kind"] == "discard"
+    assert entry.details["edits_status"] == "unchanged"
+    assert entry.details["prior_status"] == "draft"
+    assert "Synthetic" not in json.dumps(entry.details, ensure_ascii=False)
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        name = await db.scalar(
+            select(Client.name)
+            .join(Job, Job.client_id == Client.id)
+            .where(Job.id == jid)
+        )
+        weekly = await _load_weekly(
+            db, *period_bounds(today - timedelta(days=7), today)
+        )
+        starts = await _load_starts(
+            db, *period_bounds(today - timedelta(days=7), today)
+        )
+    assert [row for row in weekly if row.client == name] == []
+    mine = [row for row in starts if row.client == name]
+    assert [(row.outcome, row.channel, row.kind) for row in mine] == [
+        ("replaced", "ręczne", "discard")
+    ]
+
+
+async def test_approval_counts_machine_edits_since_the_last_start(
+    app_client, app_auth_headers
+):
+    sid, cid, jid = await _seed_full_stage()
+    selected = await _select_generated(app_client, app_auth_headers, sid, cid, jid)
+    async with AsyncSessionLocal() as db:
+        csv_id = await db.scalar(
+            select(CandidateStageCV.id).where(
+                CandidateStageCV.candidate_stage_id == sid
+            )
+        )
+        for action in ("cv_qc_fix_applied", "cv_command_ai", "cv_command_applied"):
+            db.add(
+                Activity(
+                    entity_type="candidate_stage_cv",
+                    entity_id=csv_id,
+                    action=action,
+                    details={},
+                )
+            )
+        await db.commit()
+    approved = await app_client.post(
+        f"/api/candidates/stages/{sid}/cv/branded/finalize",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": selected["edit_revision"],
+            "content_html": selected["content_html"].replace("Siedem", "Osiem"),
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    (entry,) = await _entries(sid)
+    assert entry.details["assisted"] == {
+        "qc_fixes": 1,
+        "assistant_commands": 1,
+        "assistant_applied": 1,
+    }
+
+
+async def test_database_error_while_counting_assisted_keeps_the_approval(
+    app_client, app_auth_headers, monkeypatch
+):
+    from sqlalchemy import text
+
+    from app.services import cv_edit_summary
+
+    async def broken(db, csv_id):
+        await db.execute(text("select 1/0"))
+
+    monkeypatch.setattr(cv_edit_summary, "_count_assisted", broken)
+    sid, cid, jid = await _seed_full_stage()
+    selected = await _select_generated(app_client, app_auth_headers, sid, cid, jid)
+    approved = await app_client.post(
+        f"/api/candidates/stages/{sid}/cv/branded/finalize",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": selected["edit_revision"],
+            "content_html": selected["content_html"],
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_status == "finalized"
+    (entry,) = await _entries(sid)
+    assert entry.details["assisted"] is None

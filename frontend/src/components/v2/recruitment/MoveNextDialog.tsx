@@ -199,7 +199,7 @@ export function MoveNextDialog({
   const step = planPrimaryStep(data, gaps.length);
   // Osoba już w „QC CV” — dalej prowadzi ją Delivery Lead (14.10.2026): stan
   // zamiast przycisku, który nic nie przesuwał.
-  const waiting = step.type === "waiting" ? dlWaitingStatus(item, new Date()) : null;
+  const waiting = step.type === "waiting" ? dlWaitingStatus(item) : null;
   const runPrimary = () => {
     if (!item || !target || !primary || readOnly) return;
     switch (step.type) {

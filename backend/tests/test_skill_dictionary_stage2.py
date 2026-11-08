@@ -22,9 +22,15 @@ from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus
+from app.models.match_score import CandidateJobMatchScore
 from app.models.skill import Skill, SkillAlias
 from app.models.user import User, UserRole
-from app.services import match_score_cache, skill_curation
+from app.services import (
+    job_lifecycle,
+    match_score_cache,
+    skill_curation,
+    skill_taxonomy_loader,
+)
 from app.services.skill_taxonomy_loader import refresh_alias_map
 
 
@@ -54,6 +60,90 @@ async def _headers_for(app_client: AsyncClient, role: UserRole) -> dict[str, str
     )
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def _cached_row_stale(job_id: int, candidate_id: int) -> bool:
+    async with AsyncSessionLocal() as db:
+        stale = await db.scalar(
+            select(CandidateJobMatchScore.stale).where(
+                CandidateJobMatchScore.job_id == job_id,
+                CandidateJobMatchScore.candidate_id == candidate_id,
+            )
+        )
+    assert stale is not None, "brak zapamiętanego wyniku"
+    return stale
+
+
+@pytest.mark.asyncio
+async def test_dictionary_change_touches_published_and_reopen_recomputes() -> None:
+    """Audyt 2, W4 i W5: słownik unieważnia tylko opublikowane, a wersja rośnie.
+    Zamknięta wraca z unieważnionymi wynikami (`publish_core`, jedyna droga otwarcia)."""
+    tag = _hex()
+    skill_id = await _skill(f"Zarn{tag}", "tools")
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Klient W4 {tag}")
+        db.add(client)
+        await db.flush()
+        jobs = [
+            Job(
+                title=f"Analityk {status.value} {tag}",
+                status=status,
+                client_id=client.id,
+                must_skills=[{"name": f"Zarn{tag}"}],
+            )
+            for status in (JobStatus.published, JobStatus.closed)
+        ]
+        candidate = Candidate(
+            name="Kandydat",
+            lastname=f"Wersja{tag}",
+            email=f"skill-w4-{tag}@example.com",
+            skills=[{"name": f"Zarn{tag}"}],
+        )
+        db.add_all([*jobs, candidate])
+        await db.commit()
+        published_id, closed_id = (job.id for job in jobs)
+        candidate_id = candidate.id
+    await refresh_alias_map()
+
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, candidate_id)
+        for job_id in (published_id, closed_id):
+            job = await db.get(Job, job_id)
+            await match_score_cache.get_cached_or_compute(
+                candidate, job, db, semantic_similarity=0.5
+            )
+        await db.commit()
+
+    version_before = await skill_taxonomy_loader._stored_dictionary_version()
+    async with AsyncSessionLocal() as db:
+        await skill_curation.add_alias(db, skill_id, f"zarnish{tag}")
+    version_after = await skill_taxonomy_loader._stored_dictionary_version()
+
+    assert version_after != version_before
+    assert skill_taxonomy_loader._loaded_version == version_after
+    assert await _cached_row_stale(published_id, candidate_id) is True
+    assert await _cached_row_stale(closed_id, candidate_id) is False
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, closed_id)
+        actor = await db.scalar(select(User).where(User.is_active.is_(True)).limit(1))
+        if actor is None:
+            actor = User(
+                email=f"skill-w4-actor-{tag}@example.com",
+                password_hash=hash_password(f"T3st_{tag}!PassX"),
+                name="Aktor",
+                role=UserRole.admin,
+                roles=[UserRole.admin.value],
+                is_active=True,
+                profile_completed=True,
+            )
+            db.add(actor)
+            await db.flush()
+        await job_lifecycle.publish_core(
+            db, job, actor, job_lifecycle.PostCommit(), new_opening=False
+        )
+        await db.commit()
+    assert await _cached_row_stale(closed_id, candidate_id) is True
 
 
 async def _skill(name: str, category: str) -> int:

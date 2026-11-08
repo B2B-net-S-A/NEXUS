@@ -74,7 +74,7 @@ SETTINGS_SNIPPET = (
     " if not secret.search(k) and (k in names or isinstance(v, (bool, int, float)))}))"
 )
 
-# Zrzut ma się skończyć przed backupem produkcji o 02:30 UTC. Start tylko w nocy:
+# Termin zrzutu sprzed przeniesienia backupu produkcji na 06:30 UTC (08.11.2026). Start tylko w nocy:
 # rutyna odpala się po otwarciu aplikacji, a przełączenie w dzień przerwałoby pracę sesji.
 DUMP_DEADLINE_UTC = (2, 15)
 WINDOW_START_UTC_HOUR = 22

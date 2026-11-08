@@ -1783,12 +1783,15 @@ export const jobsApi = {
     acknowledgeActiveCards = false,
     /** Przy „Duplikat”: rekrutacja, która zostaje (21.10.2026). */
     duplicateOfJobId: number | null = null,
+    /** Zakończ pary u klienta „przez klienta” (competitor, budget; 08.11.2026). */
+    endClientCards = false,
   ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
       ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
       ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
+      ...(endClientCards ? { end_client_cards: true } : {}),
     }),
   /**
    * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama
@@ -6941,6 +6944,8 @@ export interface StageCvUploadResult extends CVOriginalSnapshot {
   replaced?: "none" | "auto_cv" | "confirmed" | null;
   /** „Cofnij” w komunikacie — tylko gdy nie zastąpiliśmy niczyjej pracy. */
   undo_available?: boolean;
+  /** Zastąpiony szkic zaczął się w generatorze — można podać powód podmiany. */
+  ask_replace_reason?: boolean;
   stored_in_profile?: boolean;
   uploaded_filename?: string | null;
   /** Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV. */
@@ -7064,6 +7069,9 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
+    /** Opcjonalny powód podmiany szkicu z generatora (pomiar, bez blokady). */
+    replaceReason: (stageId: number, reason: string) =>
+      api.post<void>(`/api/candidates/stages/${stageId}/cv/branded/replace-reason`, { reason }),
     selectGenerated: (
       stageId: number,
       generated_document_id: number,
@@ -7953,31 +7961,6 @@ export interface CallStats {
     avg_duration_seconds: number | null;
     avg_duration_formatted: string;
   };
-  cloudtalk_status: "live" | "disabled";
-}
-
-export interface CloudTalkAgent {
-  id: number;
-  firstname: string | null;
-  lastname: string | null;
-  email: string | null;
-  default_number: string | null;
-  linked_user_id: number | null;
-  linked_user_email: string | null;
-}
-
-export interface InitiateCallResponse {
-  call_id: number;
-  transcript_linkable: boolean;
-  candidate_id: number;
-  phone: string;
-  cloudtalk_response: Record<string, unknown>;
-}
-
-export interface SyncAgentsResponse {
-  linked: number;
-  already_linked: number;
-  unmatched: CloudTalkAgent[];
 }
 
 export const callsApi = {
@@ -8120,25 +8103,6 @@ export const teamsChannelsApi = {
   test: (id: number) =>
     api
       .post<TeamsChannelTestResponse>(`/api/teams-channels/${id}/test`)
-      .then((r) => r.data),
-};
-
-export const cloudtalkApi = {
-  listAgents: () =>
-    api.get<CloudTalkAgent[]>("/api/cloudtalk/agents").then((r) => r.data),
-  assignAgent: (agentId: number, userId: number) =>
-    api.post(`/api/cloudtalk/agents/${agentId}/assign`, { user_id: userId }),
-  unassignAgent: (agentId: number) =>
-    api.delete(`/api/cloudtalk/agents/${agentId}/assign`),
-  syncAgents: () =>
-    api
-      .post<SyncAgentsResponse>("/api/cloudtalk/sync-agents")
-      .then((r) => r.data),
-  initiateCall: (candidateId: number) =>
-    api
-      .post<InitiateCallResponse>("/api/cloudtalk/initiate-call", {
-        candidate_id: candidateId,
-      })
       .then((r) => r.data),
 };
 

@@ -2,6 +2,6 @@
 
 R0 (PR 1) wnosi tu wyłącznie warstwę uprawnień (``capabilities``) — twardy,
 backendowy kontrakt na to KTO może widzieć JAKĄ klasę danych analitycznych.
-Kolejne PR-y dokładają periods/scope/cache/schemas i sam router
-``/api/analytics/v1``.
+Router ``/api/analytics/v1`` usunięty 08.11.2026 (D1 z audytu); zostały
+capabilities, periods i metrics, z których korzystają pulpity i Insights.
 """

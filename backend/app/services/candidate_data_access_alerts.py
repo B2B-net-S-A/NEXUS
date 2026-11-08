@@ -11,8 +11,7 @@ Skąd liczby. Każda droga do pliku kandydata zapisuje już zdarzenie w
 (``document_downloaded``), link do pliku (``document_url_issued``), pobranie
 CV (``cv_downloaded``), paczka ZIP (``bulk_cv_downloaded``) i eksport
 (``export_requested``). Skaner co kilka minut liczy je na osobę, więc nie
-dotyka ścieżki pobierania. Zdarzenia API integracji nie mają osoby
-(``user_id`` puste) — tu ich nie liczymy.
+dotyka ścieżki pobierania.
 „Oceń z AI” (``candidate_ai_assessment.AUDIT_ACTION``, 28.10.2026) też
 nie jest tu liczone: CV nie opuszcza serwera, rekruter widzi tylko cytaty —
 to ta funkcja ma zastąpić pobieranie CV do prywatnego czatu.
@@ -32,6 +31,16 @@ Jeden alarm dziennie na osobę i odbiorcę: dzienny dedup ``emit``
 (``ix_notif_dedup_daily``) patrzy na odbiorcę, typ i ``related_entity_id`` —
 BEZ ``related_entity_type``. Alarm o osobie niesie id konta (od 1), a alarm
 „nowe konta naraz” ``BURST_ENTITY_ID = 0``, żeby nie zdusił alarmu o koncie 1.
+
+Konta serwisowe (08.11.2026). Zdarzenia API integracji nie mają osoby
+(``user_id`` puste), więc klucz ze scope'em ``candidates:cv`` mógł ściągnąć
+bazę CV bez alarmu. Skaner liczy je osobno na konto serwisowe, po
+``details.via`` (``integration:<slug>``), z tym samym podziałem: pobrania
+i eksport, nigdy podgląd. Progi są na konto, nie na integrację, a konto nie ma
+wieku, więc bez połowy progu dla nowych. Na kopii produkcji z 07.11.2026 żaden
+klucz nie miał jeszcze zdarzeń na kandydatach, więc domyślne progi są te same
+co dla osoby. Alarm niesie ujemne id konta (``service_entity_id``): konto
+serwisowe 7 nie może zdusić alarmu o osobie 7.
 """
 
 from __future__ import annotations
@@ -43,14 +52,26 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Integer, Select, and_, case, cast, func, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    Integer,
+    Select,
+    and_,
+    case,
+    cast,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ
 from app.models.activity import Activity
 from app.models.notification import NotificationType
+from app.models.service_account import ServiceAccount
 from app.models.user import User
 from app.services import candidate_audit
+from app.services.integration_actor import VIA_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +79,10 @@ DAY_DISK_FILES = int(os.environ.get("DATA_ACCESS_ALERT_DAY_DISK_FILES", "25"))
 DAY_EXPORT_ROWS = int(os.environ.get("DATA_ACCESS_ALERT_DAY_EXPORT_ROWS", "200"))
 NEW_ACCOUNT_DAYS = int(os.environ.get("DATA_ACCESS_ALERT_NEW_ACCOUNT_DAYS", "14"))
 NEW_ACCOUNTS_BURST = int(os.environ.get("DATA_ACCESS_ALERT_NEW_ACCOUNTS_BURST", "3"))
+SERVICE_DAY_FILES = int(os.environ.get("DATA_ACCESS_ALERT_SERVICE_DAY_FILES", "25"))
+SERVICE_DAY_EXPORT_ROWS = int(
+    os.environ.get("DATA_ACCESS_ALERT_SERVICE_DAY_EXPORT_ROWS", "200")
+)
 
 #: Zdarzenia, w których ktoś otworzył albo dostał plik konkretnego kandydata.
 FILE_ACTIONS: tuple[str, ...] = (
@@ -75,6 +100,8 @@ BURST_ENTITY = "data_access_burst"
 #: Id kont zaczynają się od 1 — zero nie zderzy się w dedupie z alarmem o osobie.
 BURST_ENTITY_ID = 0
 LINK = "/settings?item=people"
+SERVICE_ENTITY = "service_account"
+SERVICE_LINK = "/settings/api-keys"
 
 
 @dataclass(frozen=True)
@@ -87,6 +114,23 @@ class Usage:
     candidates_today: int = 0
     disk_files_today: int = 0
     export_rows_today: int = 0
+
+
+@dataclass(frozen=True)
+class ServiceUsage:
+    """Ruch jednego konta serwisowego od północy w kalendarzu firmy."""
+
+    account_id: int
+    name: str
+    candidates_today: int = 0
+    disk_files_today: int = 0
+    export_rows_today: int = 0
+
+
+def service_entity_id(account_id: int) -> int:
+    """Id do dedupu: ujemne, bo osoby mają id od 1, a alarm „nowe konta” 0."""
+
+    return -account_id
 
 
 def is_new_account(usage: Usage, now: datetime) -> bool:
@@ -114,6 +158,23 @@ def reasons(usage: Usage, *, new_account: bool) -> list[str]:
     return out
 
 
+def service_reasons(usage: ServiceUsage) -> list[str]:
+    """Przekroczone progi klucza API; podgląd nie jest progiem, jak u osób."""
+
+    out: list[str] = []
+    if usage.disk_files_today > SERVICE_DAY_FILES:
+        out.append(
+            f"{usage.disk_files_today} CV pobranych przez API dziś "
+            f"(próg {SERVICE_DAY_FILES})"
+        )
+    if usage.export_rows_today > SERVICE_DAY_EXPORT_ROWS:
+        out.append(
+            f"eksport {usage.export_rows_today} osób dziś "
+            f"(próg {SERVICE_DAY_EXPORT_ROWS})"
+        )
+    return out
+
+
 def alert_text(
     usage: Usage, found: list[str], *, new_account: bool, now: datetime
 ) -> tuple[str, str]:
@@ -136,6 +197,21 @@ def alert_text(
     return title[:255], message
 
 
+def service_alert_text(usage: ServiceUsage, found: list[str]) -> tuple[str, str]:
+    """Tytuł i treść alarmu o kluczu. Bez nazwisk kandydatów, jak u osób."""
+
+    title = f"Integracja {usage.name}: masowe pobieranie CV kandydatów"
+    # Nie ``capitalize()``: zmieniłoby „CV” i „API” na małe litery.
+    summary = "; ".join(found)
+    message = (
+        f"{summary[:1].upper()}{summary[1:]}. Dziś łącznie: pliki "
+        f"{usage.candidates_today} kandydatów. NEXUS niczego nie zablokował. "
+        "Jeśli to nie jest zwykła praca tej integracji, wyłącz klucz "
+        "w Ustawienia → Klucze API."
+    )
+    return title[:255], message
+
+
 def burst_text(new_accounts: list[Usage]) -> tuple[str, str]:
     names = ", ".join(u.name for u in new_accounts[:10])
     more = f" i {len(new_accounts) - 10} innych" if len(new_accounts) > 10 else ""
@@ -148,12 +224,15 @@ def burst_text(new_accounts: list[Usage]) -> tuple[str, str]:
     return title[:255], message
 
 
-def usage_query(now: datetime) -> Select:
-    """Ruch osób od północy w kalendarzu firmy do ``now``."""
-
-    day_start = now.astimezone(ZoneInfo(DEFAULT_TZ)).replace(
+def _day_start(now: datetime) -> datetime:
+    return now.astimezone(ZoneInfo(DEFAULT_TZ)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
+
+
+def _usage_counters(day_start: datetime) -> tuple[ColumnElement, ...]:
+    """Kolumny: kandydaci z plikiem, zapisy na dysk, wiersze eksportu — dziś."""
+
     details = Activity.details
     is_file = Activity.action.in_(FILE_ACTIONS)
     is_today = Activity.created_at >= day_start
@@ -176,44 +255,53 @@ def usage_query(now: datetime) -> Select:
         0,
     )
     return (
+        func.count(func.distinct(Activity.entity_id)).filter(
+            is_file, is_today, Activity.entity_id > 0
+        ),
+        func.coalesce(
+            func.sum(
+                case(
+                    (and_(to_disk, is_today), 1),
+                    (
+                        and_(
+                            Activity.action == candidate_audit.BULK_CV_DOWNLOADED,
+                            is_today,
+                        ),
+                        zip_files,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(
+                            Activity.action == candidate_audit.EXPORT_REQUESTED,
+                            is_today,
+                        ),
+                        export_rows,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ),
+    )
+
+
+def usage_query(now: datetime) -> Select:
+    """Ruch osób od północy w kalendarzu firmy do ``now``."""
+
+    day_start = _day_start(now)
+    return (
         select(
             Activity.user_id,
             User.name,
             User.created_at,
-            func.count(func.distinct(Activity.entity_id)).filter(
-                is_file, is_today, Activity.entity_id > 0
-            ),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (and_(to_disk, is_today), 1),
-                        (
-                            and_(
-                                Activity.action == candidate_audit.BULK_CV_DOWNLOADED,
-                                is_today,
-                            ),
-                            zip_files,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                Activity.action == candidate_audit.EXPORT_REQUESTED,
-                                is_today,
-                            ),
-                            export_rows,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ),
+            *_usage_counters(day_start),
         )
         .join(User, User.id == Activity.user_id)
         .where(
@@ -224,6 +312,32 @@ def usage_query(now: datetime) -> Select:
             Activity.action.in_(WATCHED_ACTIONS),
         )
         .group_by(Activity.user_id, User.name, User.created_at)
+    )
+
+
+def service_usage_query(now: datetime) -> Select:
+    """Ruch kont serwisowych: zdarzenia bez osoby ze stemplem klucza."""
+
+    day_start = _day_start(now)
+    via = Activity.details["via"].astext
+    return (
+        select(
+            ServiceAccount.id,
+            ServiceAccount.name,
+            *_usage_counters(day_start),
+        )
+        .join(
+            ServiceAccount,
+            via == func.concat(VIA_PREFIX, ServiceAccount.slug),
+        )
+        .where(
+            Activity.user_id.is_(None),
+            Activity.created_at >= day_start,
+            Activity.created_at <= now,
+            Activity.entity_type == "candidate",
+            Activity.action.in_(WATCHED_ACTIONS),
+        )
+        .group_by(ServiceAccount.id, ServiceAccount.name)
     )
 
 
@@ -239,6 +353,20 @@ async def collect(db: AsyncSession, now: datetime) -> list[Usage]:
             export_rows_today=int(export or 0),
         )
         for user_id, name, created_at, today, disk, export in rows
+    ]
+
+
+async def collect_service(db: AsyncSession, now: datetime) -> list[ServiceUsage]:
+    rows = (await db.execute(service_usage_query(now))).all()
+    return [
+        ServiceUsage(
+            account_id=account_id,
+            name=name,
+            candidates_today=int(today or 0),
+            disk_files_today=int(disk or 0),
+            export_rows_today=int(export or 0),
+        )
+        for account_id, name, today, disk, export in rows
     ]
 
 
@@ -266,6 +394,7 @@ async def _notify(
     message: str,
     entity_type: str,
     entity_id: int,
+    link: str = LINK,
 ) -> int:
     from app.services.notification_triggers import emit
 
@@ -279,7 +408,7 @@ async def _notify(
             ntype=NotificationType.candidate_data_access_alert,
             related_entity_type=entity_type,
             related_entity_id=entity_id,
-            link=LINK,
+            link=link,
         )
         sent += int(created is not None)
     return sent
@@ -300,7 +429,12 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
         u for u in usages if u.disk_files_today > 0 and is_new_account(u, now)
     ]
     burst = len(new_active) >= NEW_ACCOUNTS_BURST
-    if not flagged and not burst:
+    service_flagged = [
+        (usage, found)
+        for usage in await collect_service(db, now)
+        if (found := service_reasons(usage))
+    ]
+    if not flagged and not burst and not service_flagged:
         return 0
     recipients = await _recipients(db)
     sent = 0
@@ -332,6 +466,24 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
             message=message,
             entity_type=BURST_ENTITY,
             entity_id=BURST_ENTITY_ID,
+        )
+    for service_usage, found in service_flagged:
+        title, message = service_alert_text(service_usage, found)
+        logger.warning(
+            "data_access_alert: service_account_id=%s today=%s files=%s export=%s",
+            service_usage.account_id,
+            service_usage.candidates_today,
+            service_usage.disk_files_today,
+            service_usage.export_rows_today,
+        )
+        sent += await _notify(
+            db,
+            recipients,
+            title=title,
+            message=message,
+            entity_type=SERVICE_ENTITY,
+            entity_id=service_entity_id(service_usage.account_id),
+            link=SERVICE_LINK,
         )
     await db.commit()
     return sent

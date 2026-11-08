@@ -36,6 +36,7 @@ export const TILE_TYPES = [
   "calendar_today",
   "today_cycle",
   "team_signals",
+  "client_response",
   "system_status",
   "my_week",
   "team_results",

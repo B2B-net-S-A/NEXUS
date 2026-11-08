@@ -9,7 +9,19 @@ from pydantic import (
     model_validator,
 )
 
+from pydantic_core import PydanticCustomError
+
 from app.models.client import ClientStatus
+from app.services.order_client_identity import client_registry_number
+
+
+def _checked_nip(value: Optional[str]) -> Optional[str]:
+    """NIP albo VAT UE w postaci rejestru; zły numer to 422 po polsku."""
+    try:
+        return client_registry_number(value)
+    except ValueError as exc:
+        # PydanticCustomError: bez prefiksu „Value error, ...” w komunikacie.
+        raise PydanticCustomError("client_nip", str(exc)) from exc
 
 
 class ClientCreate(BaseModel):
@@ -26,6 +38,11 @@ class ClientCreate(BaseModel):
     legal_name: Optional[str] = Field(None, max_length=255)
     nip: Optional[str] = Field(None, max_length=32)
     regon: Optional[str] = Field(None, max_length=32)
+
+    @field_validator("nip")
+    @classmethod
+    def _valid_nip(cls, value: Optional[str]) -> Optional[str]:
+        return _checked_nip(value)
 
 
 class ClientUpdate(BaseModel):
@@ -57,6 +74,11 @@ class ClientUpdate(BaseModel):
     # ma ją zero klientów. Ekran „Reguły CV" jest pierwszym miejscem, w którym
     # da się ją nadać; PATCH klienta jest generyczny, więc wystarczy tu wpis.
     cv_content_mode_cap: Optional[str] = None
+
+    @field_validator("nip")
+    @classmethod
+    def _valid_nip(cls, value: Optional[str]) -> Optional[str]:
+        return _checked_nip(value)
 
     @model_validator(mode="before")
     @classmethod

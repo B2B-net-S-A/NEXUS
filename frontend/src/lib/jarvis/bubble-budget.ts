@@ -4,8 +4,7 @@
  *
  * Najwyżej `DAILY_UNSOLICITED_BUBBLES` dziennie na osobę — wspólnie dla
  * wszystkich źródeł, bo każde z osobna wygląda niewinnie, a razem robią
- * z maskotki Clippy'ego. Poranny skrót i przypomnienie „Moi ludzie” mają
- * własne reguły i się tu nie liczą.
+ * z maskotki Clippy'ego. Poranny skrót ma własne reguły i się tu nie liczy.
  */
 
 import { readStorage, storageKey, todayKey, writeStorage } from "./storage";

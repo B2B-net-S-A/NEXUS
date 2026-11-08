@@ -17,6 +17,15 @@ const system = (id: number, score: number, extra: object = {}) => ({
 const team = (id: number) => ({ id, candidate_id: id * 10, entry_source: "added_manual" });
 const applied = (id: number) => ({ id, candidate_id: id * 10, entry_source: "application" });
 
+describe("premia porcji w kolejności", () => {
+  it("osoba z premią stoi nad wyższym wynikiem, procent zostaje", () => {
+    const withBonus = system(1, 74, { entry_autofill: { score: 74, decided: false, cautions: [], queue_bonus: 8 } });
+    const { items } = orderNewColumn([system(2, 79), withBonus]);
+    expect(items.map((item) => item.id)).toEqual([1, 2]);
+    expect(items[0].entry_autofill?.score).toBe(74);
+  });
+});
+
 describe("orderNewColumn — zgłoszenia (06.11.2026)", () => {
   it("aplikujący z kompletem „musi mieć” na górze, z brakiem na samym końcu", () => {
     const gaps = new Map([[30, ["BigQuery"]]]);

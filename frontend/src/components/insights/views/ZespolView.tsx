@@ -71,6 +71,7 @@ import {
 } from "@/lib/kpi-who-counts";
 import { useUrlWriter } from "@/lib/url-selection";
 import { TeamAnswer } from "./team/TeamAnswer";
+import { TeamFirstCvStrip } from "./team/TeamFirstCvStrip";
 import { TEAM_LIST_SLUG } from "./team/TeamFunnelPanel";
 import { TeamStageLens } from "./team/TeamStageLens";
 import { useTeamViewData } from "./team/useTeamViewData";
@@ -129,6 +130,7 @@ export function ZespolView() {
           />
         }
       />
+      <TeamFirstCvStrip />
       <TeamStageLens data={data} seesTeam={seesTeam} period={period} />
       {seesTeam ? (
         <PeoplePanel

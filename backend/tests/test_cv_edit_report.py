@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
@@ -25,6 +25,21 @@ from app.services.cv_edit_measure import (
 )
 from scripts.cv_edit_report import (
     ALL_CLIENTS,
+    CHANNEL_ALL,
+    CHANNEL_AUTO,
+    CHANNEL_MANUAL,
+    OUTCOME_CHANGED_MACHINE,
+    OUTCOME_CHANGED_MANUAL,
+    OUTCOME_CHANGED_UNKNOWN,
+    OUTCOME_OPEN_DRAFT,
+    OUTCOME_APPROVED_NO_ENTRY,
+    OUTCOME_OTHER,
+    OUTCOME_REPLACED,
+    OUTCOME_STALE_DRAFT,
+    StartRow,
+    format_starts,
+    start_outcome,
+    starts_table,
     FinishedCv,
     WeeklyRow,
     build_report,
@@ -550,3 +565,94 @@ def test_weekly_without_entries_says_why():
     output = format_weekly({}, date(2026, 11, 2), date(2026, 11, 15))
 
     assert "Brak wpisów" in output
+
+
+_NOW = datetime(2026, 11, 8, 12, tzinfo=ZoneInfo("UTC"))
+_AT = datetime(2026, 11, 1, 12, tzinfo=ZoneInfo("UTC"))
+
+
+def _outcome(**kw) -> str:
+    defaults = {
+        "entry": None,
+        "entry_at": None,
+        "replace_at": None,
+        "undo_at": None,
+        "branded_status": "draft",
+        "branded_updated_at": _NOW,
+        "now": _NOW,
+    }
+    return start_outcome(**{**defaults, **kw})
+
+
+def test_start_outcome_splits_changed_by_applied_machine_edits() -> None:
+    assert (
+        _outcome(entry={"status": "changed", "assisted": {"qc_fixes": 1}})
+        == OUTCOME_CHANGED_MACHINE
+    )
+    assert (
+        _outcome(entry={"status": "changed", "assisted": {"assistant_applied": 2}})
+        == OUTCOME_CHANGED_MACHINE
+    )
+    # Samo pytanie asystenta niczego w CV nie zmienia.
+    assert (
+        _outcome(entry={"status": "changed", "assisted": {"assistant_commands": 3}})
+        == OUTCOME_CHANGED_MANUAL
+    )
+    assert _outcome(entry={"status": "changed"}) == OUTCOME_CHANGED_UNKNOWN
+
+
+def test_start_outcome_replaced_entry_and_legacy_upload_count_as_replaced() -> None:
+    assert _outcome(entry={"status": "replaced"}, entry_at=_AT) == OUTCOME_REPLACED
+    assert _outcome(replace_at=_AT) == OUTCOME_REPLACED
+
+
+def test_start_outcome_undone_replacement_falls_back_to_the_draft_state() -> None:
+    later = _AT + timedelta(minutes=2)
+    assert (
+        _outcome(entry={"status": "replaced"}, entry_at=_AT, undo_at=later)
+        == OUTCOME_OPEN_DRAFT
+    )
+    assert _outcome(replace_at=_AT, undo_at=later) == OUTCOME_OPEN_DRAFT
+
+
+def test_start_outcome_draft_age_and_unknown_state() -> None:
+    assert _outcome(branded_updated_at=_NOW - timedelta(days=8)) == OUTCOME_STALE_DRAFT
+    assert _outcome(branded_updated_at=_NOW - timedelta(days=6)) == OUTCOME_OPEN_DRAFT
+    assert _outcome(branded_status="finalized") == OUTCOME_APPROVED_NO_ENTRY
+    assert _outcome(branded_status="none") == OUTCOME_OTHER
+
+
+def _start_rows() -> list[StartRow]:
+    week = date(2026, 11, 2)
+    return [
+        StartRow(week, "Bank", CHANNEL_MANUAL, "unchanged"),
+        StartRow(week, "Bank", CHANNEL_MANUAL, OUTCOME_REPLACED, "newer_cv", "upload"),
+        StartRow(week, "Bank", CHANNEL_AUTO, OUTCOME_REPLACED, None, "discard"),
+        StartRow(week, "Ubezpieczenia", CHANNEL_AUTO, OUTCOME_STALE_DRAFT),
+    ]
+
+
+def test_starts_table_counts_from_starts_per_channel_with_period_total() -> None:
+    table = starts_table(_start_rows())
+    everyone = table[ALL_CLIENTS]
+    assert list(everyone)[0] == CHANNEL_ALL
+    assert set(everyone) == {CHANNEL_ALL, CHANNEL_AUTO, CHANNEL_MANUAL}
+    total = everyone[CHANNEL_ALL][None]
+    assert total.n == 4 and total.of(OUTCOME_REPLACED) == 2
+    assert everyone[CHANNEL_AUTO][date(2026, 11, 2)].of(OUTCOME_STALE_DRAFT) == 1
+    assert table["Bank"][CHANNEL_MANUAL][None].n == 2
+
+
+def test_starts_output_has_shares_kinds_reasons_and_no_cv_text() -> None:
+    rows = _start_rows()
+    output = format_starts(
+        starts_table(rows), rows, date(2026, 11, 2), date(2026, 11, 8)
+    )
+    assert "2 (50%)" in output
+    assert "wgrany plik 1" in output and "odrzucone 1" in output
+    assert "nowsze CV od kandydata 1" in output
+    assert "bez powódu" not in output and "bez powodu: 1" in output
+
+
+def test_starts_output_without_starts_says_so() -> None:
+    assert "Brak startów" in format_starts({}, [], date(2026, 11, 2), date(2026, 11, 8))

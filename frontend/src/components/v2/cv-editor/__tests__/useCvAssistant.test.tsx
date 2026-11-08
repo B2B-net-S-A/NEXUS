@@ -220,6 +220,31 @@ describe("useCvAssistant — odpowiedź na pytanie po innych zmianach", () => {
   });
 });
 
+describe("useCvAssistant — ślad zastosowania (CV-3)", () => {
+  it("nałożony plan wysyła tylko rodzaj prośby i liczbę, awaria śladu nie psuje zmiany", async () => {
+    const editor = open();
+    const applied = vi.fn(async () => {
+      throw new Error("sieć");
+    });
+    const commandApi: CvEditorCommandApi = {
+      plan: vi.fn(async () => ({
+        status: "ok" as const,
+        operations: [{ id: 0, type: "remove" as const, lines: [6], text: null, why: "", loses: [], new_words: [] }],
+        dropped: [],
+        message: null,
+      })),
+      confirmFact: vi.fn(async () => undefined),
+      applied,
+    };
+    const hook = renderHook(() =>
+      useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft: async () => true, api: commandApi }),
+    );
+    act(() => hook.result.current.send({ command: "skróć rolę w banku" }));
+    await waitFor(() => expect(applied).toHaveBeenCalledWith(7, { preset: null, operations: 1 }));
+    await waitFor(() => expect(hook.result.current.messages.at(-1)?.text).toContain("Zrobione"));
+  });
+});
+
 describe("useCvAssistant — długa lista poprawek (15.10.2026)", () => {
   it("plan ucięty przez serwer: odpowiedź mówi, że zrobiona jest tylko część listy", async () => {
     const editor = open();
