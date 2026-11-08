@@ -152,7 +152,8 @@ async def end_card(
 ) -> Optional[CandidateStage]:
     """Jedna para do „Zamknięci”, bez commitu i bez maila do kandydata.
 
-    ``None`` = para zamknięta w międzyczasie albo szablon bez powodu.
+    ``None`` = para zamknięta w międzyczasie, zablokowana pracą priorytetową
+    albo szablon bez powodu.
     """
     from app.services.candidate_contact_hooks import (  # noqa: PLC0415
         maybe_close_contact_opportunity,
@@ -162,6 +163,7 @@ async def end_card(
         _template_id,
         is_closed,
     )
+    from app.services.priority_work_policy import PriorityWorkLocked  # noqa: PLC0415
     from app.services.recruitment_process_commands import (  # noqa: PLC0415
         transition_process,
     )
@@ -198,19 +200,22 @@ async def end_card(
         )
         return None
     target_def = await _target_stage_def(db, template_id, PipelineStage.rejected)
-    stage = await transition_process(
-        db,
-        candidate_id=candidate_id,
-        job_id=job.id,
-        stage=PipelineStage.rejected,
-        stage_def_id=target_def.id if target_def is not None else None,
-        rejection_reason_id=reason_id,
-        moved_at=moved_at or datetime.now(timezone.utc),
-        actor_user_id=actor_id,
-        require_existing=True,
-        notes=note,
-        ended_by=ended_by,
-    )
+    try:
+        stage = await transition_process(
+            db,
+            candidate_id=candidate_id,
+            job_id=job.id,
+            stage=PipelineStage.rejected,
+            stage_def_id=target_def.id if target_def is not None else None,
+            rejection_reason_id=reason_id,
+            moved_at=moved_at or datetime.now(timezone.utc),
+            actor_user_id=actor_id,
+            require_existing=True,
+            notes=note,
+            ended_by=ended_by,
+        )
+    except PriorityWorkLocked:
+        return None
     await maybe_close_contact_opportunity(
         db,
         candidate_id=candidate_id,
@@ -253,7 +258,6 @@ async def end_client_cards_after_close(
     from app.services.pipeline_realtime import (  # noqa: PLC0415
         broadcast_pipeline_changed,
     )
-    from app.services.priority_work_policy import PriorityWorkLocked  # noqa: PLC0415
 
     key = reason_key_for(reason)
     if key is None:
@@ -279,11 +283,6 @@ async def end_client_cards_after_close(
                     source=source,
                 )
                 await db.commit()
-            except PriorityWorkLocked:
-                await db.rollback()
-                job = await db.get(Job, job_id)
-                skipped += 1
-                continue
             except Exception:  # noqa: BLE001 — jedna para nie zatrzymuje reszty
                 logger.exception(
                     "job_close_client_cards: para job_id=%s candidate_id=%s",

@@ -29,7 +29,6 @@ from app.services.job_close_client_cards import (
     client_side_cards,
     end_card,
 )
-from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.rejection_reason_labels import (
     CLIENT_CHOSE_OTHER,
     REQUEST_CLOSED,
@@ -107,23 +106,17 @@ async def run(*, apply: bool, reasons: list[JobCloseReason], since: date) -> int
                         CandidateStage.candidate_id == candidate_id,
                     )
                 )
-                try:
-                    stage = await end_card(
-                        db,
-                        job,
-                        candidate_id,
-                        reason_key=key,
-                        actor_id=None,
-                        note=f"Porządek po zamknięciu: {rejection_reason_label(key)}",
-                        source=SOURCE,
-                        moved_at=moved_at_for(closed_at, last),
-                    )
-                    await db.commit()
-                except PriorityWorkLocked:
-                    await db.rollback()
-                    job = await db.get(Job, job_id)
-                    skipped += 1
-                    continue
+                stage = await end_card(
+                    db,
+                    job,
+                    candidate_id,
+                    reason_key=key,
+                    actor_id=None,
+                    note=f"Porządek po zamknięciu: {rejection_reason_label(key)}",
+                    source=SOURCE,
+                    moved_at=moved_at_for(closed_at, last),
+                )
+                await db.commit()
                 if stage is None:
                     skipped += 1
                 else:
