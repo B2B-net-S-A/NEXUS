@@ -1,5 +1,25 @@
 [
   {
+    "id": "stoja-ponad-7-dni-wpis-na-rekrutacje",
+    "pr": 3174,
+    "title": "Jeden wpis o osobach, które stoją ponad 7 dni",
+    "why": "Zamiast osobnego dzwonka o każdej osobie dostajesz raz w tygodniu jeden wpis na rekrutację. Kliknięcie otwiera Tablicę z filtrem „Stoją > 7 dni”. Pojedyncze przypomnienie zostaje tylko po wysłanym CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Górny pasek → Rekrutacje → Stoją > 7 dni",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.added-by"
+  },
+  {
     "id": "kandydaci-lata-z-technologia",
     "pr": 3154,
     "title": "Filtr lat z technologią na liście kandydatów",
