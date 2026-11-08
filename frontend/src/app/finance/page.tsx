@@ -270,6 +270,7 @@ export default function FinancePage() {
             <ModeButton
               active={visibleView === "rate-divergences"}
               onClick={() => changeView("rate-divergences")}
+              tourId="finance.rate-divergences"
             >
               Rozjazdy stawek
             </ModeButton>
@@ -316,15 +317,18 @@ function ModeButton({
   active,
   onClick,
   children,
+  tourId,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
+  tourId?: string;
 }) {
   return (
     <button
       type="button"
       role="tab"
+      data-tour={tourId}
       aria-selected={active}
       onClick={onClick}
       // Podkreślenie jak w `ds/WorkspaceModeTabs` (Klienci, Kontrakty). Zakładki

@@ -1,5 +1,22 @@
 [
   {
+    "id": "finanse-rozjazdy-nieznani-nabywcy",
+    "pr": 3182,
+    "title": "Rozjazdy stawek i Nieznani nabywcy",
+    "why": "Nowa zakładka pokazuje, gdzie stawka z kontraktu różni się od zamówienia MD i ile to daje w miesiącu. W „Faktury do klientów” jest też lista „Nieznani nabywcy”: jednym przypisaniem dopiszesz NIP i dowiążesz wszystkie faktury nabywcy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Rozjazdy stawek",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.rate-divergences"
+  },
+  {
     "id": "kandydaci-lata-z-technologia",
     "pr": 3154,
     "title": "Filtr lat z technologią na liście kandydatów",
