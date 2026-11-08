@@ -347,7 +347,7 @@ async def _weekly_mails(db: AsyncSession, now_local: datetime) -> list[_Mail]:
         # Runda 9 (R9-N6-5): zakres `organization` (HoR z rolą admin) ma pusty
         # `allowed_operator_user_ids` — pusty zbiór to TWARDY zakres „nikt”,
         # więc raport wychodził z pustym zespołem. `None` = cała organizacja,
-        # tak jak w `/api/analytics/v1/team/kpis`.
+        # tak jak w KPI zespołu na pulpicie.
         user_ids = (
             None
             if scope.kind is ScopeKind.organization

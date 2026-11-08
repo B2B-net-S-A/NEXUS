@@ -343,7 +343,6 @@ async def test_personal_grant_is_versioned_audited_and_returned_in_auth_snapshot
         "data_scope",
         "effective_section_access",
         "effective_action_access",
-        "analytics_v1_mode",
     ):
         assert impersonated_profile[field] == target_profile[field]
 
