@@ -4,6 +4,7 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query"
 
 import api from "@/lib/api"
+import { pluralPl } from "@/lib/plural-pl"
 import { hasSectionAccess } from "@/lib/section-access"
 import type { KnownFacts } from "@/lib/new-column-queue"
 import { useAuthStore } from "@/store/auth"
@@ -33,6 +34,8 @@ export interface ReviewBatchStatus {
   open_screenings?: number
   jobs: ReviewBatchJob[]
   team_jobs: ReviewBatchJob[]
+  /** Ile osób dokłada „Dodaj kolejnych”: 20 w porcji, 10 przy celu wg tempa. */
+  more_cards?: number
 }
 
 export interface ReviewBatchCaution {
@@ -153,6 +156,57 @@ export function useReviewBatchTeam(enabled: boolean) {
 export async function addMoreFromNexus(jobId: number): Promise<number> {
   const res = await api.post<{ added: number }>(`/api/review-batch/jobs/${jobId}/more`)
   return res.data.added
+}
+
+export type NewColumnTempoState =
+  | { enabled: false }
+  | {
+      enabled: true
+      tier: "quiet" | "moderate" | "hot" | "new" | "p0"
+      target: number
+      /** Decyzje ludzi o kartach z „Nowych” w 21 dni. */
+      decisions: number
+      /** Czekające karty od systemu. */
+      waiting: number
+      more_cards: number
+      can_add_more: boolean
+    }
+
+function newColumnTempoKey(jobId: number) {
+  return [...REVIEW_BATCH_QUERY_KEY, "tempo", jobId] as const
+}
+
+/** Cel kart od systemu wg tempa rekrutacji (`GET …/jobs/{id}/tempo`). */
+export function useNewColumnTempo(jobId: number) {
+  const readsJobs = useAuthStore((s) => hasSectionAccess(s.user, "pipeline"))
+  return useQuery<NewColumnTempoState>({
+    queryKey: newColumnTempoKey(jobId),
+    queryFn: async () =>
+      (await api.get<NewColumnTempoState>(`/api/review-batch/jobs/${jobId}/tempo`)).data,
+    enabled: readsJobs,
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+export function invalidateNewColumnTempo(queryClient: QueryClient, jobId: number): void {
+  void queryClient.invalidateQueries({ queryKey: newColumnTempoKey(jobId) })
+  void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] })
+  void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] })
+}
+
+/** Dymek plakietki „cel N”: skąd ten cel i kiedy kolumna się dopełnia. */
+export function newColumnTargetHint(tempo: Extract<NewColumnTempoState, { enabled: true }>): string {
+  const refills = tempo.tier === "hot" || tempo.tier === "new" || tempo.tier === "p0"
+  const why =
+    tempo.tier === "p0"
+      ? "P0"
+      : tempo.tier === "new"
+        ? "rekrutacja do 14 dni"
+        : tempo.decisions === 0
+          ? "bez decyzji w 21 dni"
+          : `${tempo.decisions} ${pluralPl(tempo.decisions, "decyzja", "decyzje", "decyzji")} w 21 dni`
+  return `Cel ${tempo.target}: ${why}. ${refills ? "Dopełnia się po ruchu karty." : "Reszta przyciskiem."}`
 }
 
 export function invalidateReviewBatch(queryClient: QueryClient): void {

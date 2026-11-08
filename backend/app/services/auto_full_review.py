@@ -1050,9 +1050,11 @@ AUTOFILL_POOL_SCAN_LIMIT = 5000
 
 
 async def _in_job_ids(db, job_id: int) -> set[int]:
-    """Osoby, które są albo były w tej rekrutacji (także usunięte z niej)."""
+    """Osoby, które są albo były w tej rekrutacji (także usunięte z niej).
+    Oprócz osób, które ustąpiły miejsca świeżym: te mogą wrócić (08.11.2026)."""
     from app.models.candidate_stage_removal import CandidateStageRemoval
     from app.models.recruitment_pipeline import CandidateStage
+    from app.services.autofill_withdraw import FRESH_SEAT_REASON
 
     in_job = await db.scalars(
         select(CandidateStage.candidate_id)
@@ -1061,7 +1063,8 @@ async def _in_job_ids(db, job_id: int) -> set[int]:
     )
     removed = await db.scalars(
         select(CandidateStageRemoval.candidate_id).where(
-            CandidateStageRemoval.job_id == job_id
+            CandidateStageRemoval.job_id == job_id,
+            CandidateStageRemoval.reason.is_distinct_from(FRESH_SEAT_REASON),
         )
     )
     return {int(c) for c in in_job.all()} | {int(c) for c in removed.all()}

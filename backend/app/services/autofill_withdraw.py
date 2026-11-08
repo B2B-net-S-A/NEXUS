@@ -27,6 +27,10 @@ Reguły, które łatwo cofnąć „przy okazji”:
 * Przed porcją dnia (decyzja Artura 08.11.2026): ``plan_batch_reset`` i
   ``scripts/autofill_withdraw_batch_reset.py`` — karty starsze niż 7 dni albo
   poniżej 65%, tylko w rekrutacjach w pracy.
+* Miejsce dla świeżych (decyzja Artura 08.11.2026): ``plan_fresh_seats`` wskazuje
+  nietknięte karty od systemu starsze niż ``FRESH_SEAT_AGE_DAYS``, od najniższego
+  wyniku. To jedyny powód, przy którym osoba może wrócić do tej rekrutacji:
+  ``ranked_picks`` i pula nocnego przeglądu pomijają ten wpis archiwum.
 * Dalej niż ``OFFICE_FAR_KM`` od biura (decyzja Artura 29.10.2026): ta sama
   droga, ``plan_far`` i ``scripts/autofill_withdraw_far_from_office.py`` —
   66 nietkniętych kart w 38 rekrutacjach z biurem w Warszawie.
@@ -36,7 +40,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from sqlalchemy import and_, exists, func, or_, select
@@ -66,6 +70,10 @@ FAR_REMOVAL_REASON = "autofill_withdrawn_far_from_office"
 # ``review_batch.MIN_SCORE`` — na kopii z 06.11 ok. 850 starszych niż 7 dni
 # i 147 poniżej 65% z 1 440 kart w rekrutacjach z rekruterem.
 BATCH_RESET_REASON = "autofill_withdrawn_batch_reset"
+# Miejsce dla świeżych (08.11.2026): z 2 993 kart nieruszonych 7 dni do klienta
+# poszły 3 (0,1%), a osoba do 14 dni w bazie to 5,5% wysyłek wobec 1,5% starszych.
+FRESH_SEAT_REASON = "autofill_withdrawn_fresh_seat"
+FRESH_SEAT_AGE_DAYS = 7
 # „Praca w tle” mówi, dlaczego system wycofał osoby (`details.why`).
 _WHY = {
     REMOVAL_REASON: "budget",
@@ -73,6 +81,7 @@ _WHY = {
     NOT_LOOKING_REMOVAL_REASON: "not_looking",
     FAR_REMOVAL_REASON: "far",
     BATCH_RESET_REASON: "batch_reset",
+    FRESH_SEAT_REASON: "fresh_seat",
 }
 ACTIVITY_ENTITY = "job_automation"
 ACTION = "autofill_withdrawn"
@@ -260,6 +269,27 @@ async def plan_batch_reset(
     """Pary do wycofania przed porcją dnia — bez zapisu."""
     rows = (await db.execute(_untouched_pairs(job_ids))).all()
     return await _stale_for_batch(db, [(int(c), int(j)) for c, j in rows], now=now)
+
+
+async def plan_fresh_seats(db, job_id: int, *, now: datetime) -> list[tuple[int, int]]:
+    """Karty, które mogą ustąpić osobie nowej w bazie, od najniższego wyniku.
+    Nietknięte i starsze niż ``FRESH_SEAT_AGE_DAYS`` — bez zapisu."""
+    from app.services import review_batch
+
+    untouched = {
+        (int(c), int(j))
+        for c, j in (await db.execute(_untouched_pairs([job_id]))).all()
+    }
+    oldest = now - timedelta(days=FRESH_SEAT_AGE_DAYS)
+    cards = [
+        card
+        for card in await review_batch.pending_cards(db, job_ids=[job_id])
+        if (card.candidate_id, card.job_id) in untouched
+        and card.opened_at is not None
+        and card.opened_at <= oldest
+    ]
+    cards.sort(key=lambda c: (c.score, c.opened_at, c.candidate_id))
+    return [(card.candidate_id, card.job_id) for card in cards]
 
 
 async def plan(db, *, job_ids: Optional[list[int]] = None) -> list[tuple[int, int]]:

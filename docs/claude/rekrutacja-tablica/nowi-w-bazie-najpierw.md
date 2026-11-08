@@ -33,7 +33,9 @@ w wyniku, więc osoba może mieć braki: 293 z 381 osób z pierwszeństwem miał
   pełnej kolumnie, do `TARGET + FRESH_OVER_TARGET` (25 kart). Pozostałych dobiera tylko
   do `TARGET`. Kart nie zdejmujemy: wygaszanie nietkniętych kart odrzucone 28.10.2026.
   Migawka `entry_meta.fresh_first` odróżnia karty, które weszły z tej reguły. Na niej
-  oprzyj pomiar skutku.
+  oprzyj pomiar skutku. Przy `NEW_COLUMN_TEMPO_TARGET_ENABLED` (08.11.2026) nowi w bazie
+  nie wchodzą ponad cel, tylko zajmują miejsce kart nietkniętych 7 dni:
+  `cel-kart-wg-tempa-i-miejsce-dla-swiezych.md`.
 - **Tablica** (`autofill_badge` + `api/pipeline.py`): serwer liczy `entry_autofill.fresh_first`
   na żywo (`has_fresh_first`), więc karta traci pierwszeństwo po 14 dniach i obejmuje też
   karty dodane przed tą zmianą. Front (`orderNewColumn`) stawia je przed pozostałymi bez uwag,
