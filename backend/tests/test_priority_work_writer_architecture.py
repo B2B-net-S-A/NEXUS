@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
@@ -158,6 +160,7 @@ def test_only_traffit_adapter_may_use_raw_candidate_stage_insert() -> None:
     )
 
 
+@pytest.mark.not_static  # 30 s lokalnie, reszta skanerów ≤ 6 s; łapie go kolejka.
 def test_candidate_stage_update_delete_and_critical_fields_use_command_writer() -> None:
     violations: list[str] = []
     for path in _python_files():

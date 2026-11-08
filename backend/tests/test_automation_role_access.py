@@ -87,7 +87,7 @@ HANDLER_DENIED_WRITES = frozenset(
 
 # Odczyt ponad rekrutera z podglądem Delivery: przetargi bez wartości
 # (capability analityki bez finansów; wartości tylko z ``VIEW_FINANCE``).
-EXTRA_READS = frozenset({"GET /api/analytics/v1/commercial/tenders"})
+EXTRA_READS: frozenset[str] = frozenset()
 
 # Moduły, w których rola nie przechodzi żadnej trasy: pieniądze i umowy.
 CLOSED_MODULES = (

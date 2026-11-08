@@ -13,7 +13,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from app.models.user_activity import UserActionType
+
+pytestmark = pytest.mark.static
 
 APP = Path(__file__).resolve().parents[1] / "app"
 SERVICE = APP / "services" / "insights_team_activity.py"
