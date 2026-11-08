@@ -64,6 +64,8 @@ import type {
   QcRoleState,
   QcSearch,
 } from "@/lib/api/cvQc";
+import { candidateStageCvApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cvQcQueryKey } from "@/lib/api/cvQc";
 import {
   CV_NOT_EDITABLE_MESSAGE,
@@ -174,6 +176,7 @@ export function manualRoleGroups(check: QcCheck): { requirement: string; roles: 
  */
 function ManualRolePicker({ requirement, roles, ctx }: { requirement: string; roles: string[]; ctx: ActionContext }) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [confirmNowhere, setConfirmNowhere] = useState(false);
   const save = ctx.manualRoles;
   if (!save) return null;
   const toggle = (role: string) =>
@@ -219,14 +222,23 @@ function ManualRolePicker({ requirement, roles, ctx }: { requirement: string; ro
         >
           Zapisz
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={ctx.manualRolesPending}
-          onClick={() => save({ requirement, roles: [] })}
-        >
-          Nigdzie — tylko na liście
-        </Button>
+        {confirmNowhere ? (
+          <>
+            <span className="text-xs text-foreground">
+              {requirement} jest tylko na liście technologii, w żadnym stanowisku. Potwierdzasz?
+            </span>
+            <Button size="sm" variant="outline" disabled={ctx.manualRolesPending} onClick={() => save({ requirement, roles: [] })}>
+              Tak, tylko na liście
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmNowhere(false)}>
+              Wróć
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="ghost" disabled={ctx.manualRolesPending} onClick={() => setConfirmNowhere(true)}>
+            Nigdzie — tylko na liście
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -406,6 +418,8 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
           , wgraj zrzut i wygeneruj CV ponownie.
         </span>
       );
+    case "use_older_cv":
+      return <UseOlderCv item={item} ctx={ctx} />;
     case "generate_cv":
       return (
         <GeneratorOpener data={ctx.data}>
@@ -419,6 +433,47 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
     default:
       return null;
   }
+}
+
+/**
+ * QC-4 (08.11.2026): „Użyj tego CV” przy pliku B2B sprzed rekrutacji — wczytuje
+ * plik jako szkic CV tej pary (`select-document`). Jedno kliknięcie wystarcza
+ * (decyzja Artura z audytu); „Wygeneruj nowe” zostaje obok.
+ */
+function UseOlderCv({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [pending, setPending] = useState(false);
+  const stageId = ctx.data.stage_id;
+  const documentId = item.document?.document_id;
+  const use = async () => {
+    if (documentId == null) return;
+    setPending(true);
+    try {
+      const { data: state } = await candidateStageCvApi.branded.get(stageId);
+      await candidateStageCvApi.branded.selectDocument(stageId, documentId, state.edit_revision ?? 0);
+      await queryClient.invalidateQueries({ queryKey: cvQcQueryKey(stageId) });
+      showSuccess("Użyto tego CV jako CV firmowego tej rekrutacji.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się użyć tego CV. Spróbuj ponownie."));
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <Button size="sm" disabled={pending || documentId == null} onClick={() => void use()}>
+        Użyj tego CV
+      </Button>
+      <GeneratorOpener data={ctx.data}>
+        {(open) => (
+          <Button size="sm" variant="outline" onClick={open}>
+            Wygeneruj nowe
+          </Button>
+        )}
+      </GeneratorOpener>
+    </span>
+  );
 }
 
 /** Rola z brakiem: na czym w oryginale stoi wymóg opisu i co jest w CV firmowym. */
@@ -783,6 +838,7 @@ function itemHasAction(item: QcItem): boolean {
     item.fix === "upload_consent" ||
     item.fix === "replace_consent" ||
     item.fix === "generate_cv" ||
+    item.fix === "use_older_cv" ||
     item.fix === "role_order" ||
     item.fix === "restore_dates"
   );

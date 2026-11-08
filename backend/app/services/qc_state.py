@@ -8,6 +8,7 @@ ton i dymek. Front tylko to renderuje.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional, Sequence
 
 CHECKED = "checked"
@@ -17,6 +18,7 @@ CANDIDATE_GAP = "candidate_gap"
 TO_FIX = "to_fix"
 OVERRIDDEN = "overridden"
 UNCHECKED = "unchecked"
+OLDER_CV = "older_cv"
 
 CONSENT_MANUAL_ITEM = "Zgoda RODO — obejrzyj plik"
 # Dłuższa nazwa nie mieści się na chipie karty — wtedy zostaje liczba.
@@ -97,6 +99,27 @@ def _candidate_gap(gaps: Sequence[str]) -> dict:
     )
 
 
+def _older_cv(older: dict) -> dict:
+    day = _day(older.get("at"))
+    return _state(
+        OLDER_CV,
+        f"QC: CV sprzed rekrutacji{f' ({day})' if day else ''} — potwierdź",
+        "wait",
+        n=1,
+        hint=(
+            f"Plik {older.get('filename')} powstał przed tą rekrutacją. "
+            "Użyj go w oknie QC albo wygeneruj nowe CV."
+        ),
+    )
+
+
+def _day(value: object) -> Optional[str]:
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d.%m") if value else None
+    except ValueError:
+        return None
+
+
 def describe(
     *,
     status: str,
@@ -108,6 +131,7 @@ def describe(
     manual_by: Optional[str] = None,
     override_by: Optional[str] = None,
     to_fix_items: Sequence[str] = (),
+    older_document: Optional[dict] = None,
 ) -> dict:
     """``qc_state`` pary: {kind, n, items, text, tone, who, hint}.
 
@@ -122,6 +146,8 @@ def describe(
             "neutral",
             hint="Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić.",
         )
+    if status == "failed" and older_document:
+        return _older_cv(older_document)
     if status == "failed":
         n = max(1, int(blocking_failed or 0))
         named = "; ".join(to_fix_items)

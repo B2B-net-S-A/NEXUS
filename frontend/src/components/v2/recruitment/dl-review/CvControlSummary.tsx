@@ -134,5 +134,5 @@ export function cvReturnPoints(checks: readonly QcCheck[] | undefined): string[]
   const fails = checks
     .filter((check) => check.status === "fail")
     .map((check) => check.label);
-  return [...control.unverified.map((r) => `${r} — opisz w roli, w której kandydat tego używał`), ...fails];
+  return [...control.unverified.map((r) => `${r} — wskaż w QC stanowisko, które to opisuje`), ...fails];
 }
