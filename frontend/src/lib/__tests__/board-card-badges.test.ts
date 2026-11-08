@@ -892,6 +892,6 @@ describe("QC-7 (08.11.2026): „wskaż stanowisko” zostaje u rekrutera", () =>
   });
 
   it("mówi rekruterowi, co zrobić", () => {
-    expect(dlWaitingStatus(item({ qc: holding }), new Date()).text).toBe("QC: wskaż stanowisko · 2 — zrób to, zanim Delivery Lead je zobaczy.");
+    expect(dlWaitingStatus(item({ qc: holding })).text).toBe("QC: wskaż stanowisko · 2 — zrób to, zanim Delivery Lead je zobaczy.");
   });
 });
