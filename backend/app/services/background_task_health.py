@@ -20,9 +20,9 @@ import logging
 import os
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from app.core.background_leader import STANDBY_ALARM_SECONDS
+
+logger = logging.getLogger(__name__)
 
 # Alarmy bramkowane na SLACK_WEBHOOK_URL (patrz docstring). Krótka, jawna lista —
 # NIE dopisuj tu integracji opt-in (LinkedIn, M365, CloudTalk…): ich wyłączenie
