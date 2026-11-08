@@ -42,7 +42,37 @@ describe("„Kontrola CV” w przeglądzie DL (R5, 07.11.2026)", () => {
       unverified: ["ETL"],
       blocking: 0,
       gaps: [],
+      dismissed: [],
+      consentManual: false,
     });
+  });
+
+  it("QC-2: pominięta blokada nie liczy się jako zaliczona i ma swoją linię", () => {
+    const checks: QcCheck[] = [
+      pass("dates", "Każda rola ma daty"),
+      {
+        ...pass("no_unsupported", "CV nie twierdzi niczego spoza oryginału"),
+        severity: "blocking",
+        dismissed_items: [
+          {
+            requirement: "Kafka",
+            dismissal: { id: 1, reason: "in_cv", reason_label: "Jest w CV", note: "jest w CV w roli A", by_name: "Anna Kowalska", at: "2026-11-07" },
+          },
+        ],
+      },
+    ];
+    render(<CvControlSummary checks={checks} override={null} onOpenQc={() => undefined} />);
+    expect(screen.getByText(/1 sprawdzenie automatu w porządku/)).toBeInTheDocument();
+    expect(screen.getByText(/Pominięte jako nieprawdziwe: Kafka — Anna K\.: jest w CV w roli A/)).toBeInTheDocument();
+    expect(screen.queryByText("Nic nie przepuszczono mimo uwag")).toBeNull();
+  });
+
+  it("QC-3: zgoda RODO z pliku kandydata jest widoczna w „Kontroli CV”", () => {
+    const checks: QcCheck[] = [
+      { ...pass("client_rules", "Reguły klienta"), severity: "blocking", status: "manual" },
+    ];
+    render(<CvControlSummary checks={checks} override={null} onOpenQc={() => undefined} />);
+    expect(screen.getByText("Zgoda RODO z pliku kandydata — obejrzyj ręcznie")).toBeInTheDocument();
   });
 
   it("pokazuje trzy linie i „Otwórz QC” przy niesprawdzonym", async () => {

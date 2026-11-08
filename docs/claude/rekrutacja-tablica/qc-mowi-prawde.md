@@ -156,11 +156,15 @@ w żadnym źródle.
     „Java 8, 11 i 17” zawiera 17);
   - prompt mówi, w jakim języku jest CV (`cv_language`), odpowiedzi idą
     w znaczniku `<candidate_answers>`.
-- **Zmiana reguł przelicza nieudane pary sprzed wysłania**
-  (`recompute_outdated`), zaliczonych nie. Nowy przebieg zaliczonej pary
-  dostałby dzisiejszą datę, a od niej kolejka Delivery Leada liczy czas
-  oczekiwania (`dl_send_queue.readiness_of`) — przegląd PR 2. Bramka ruchu
-  liczy QC na żywo. `limit` liczy przeliczone pary, nie pominięte.
+- **Zmiana reguł przelicza pary sprzed wysłania, także zaliczone**
+  (`recompute_outdated`, audyt 08.11.2026 QC-1). Zdany przebieg niesie
+  `result.ok_since`: `_store_run` przenosi go z poprzedniego zdanego przebiegu
+  tego samego CV, a `pair_statuses` podaje go jako `ok_at`. Dzięki temu kolejka
+  Delivery Leada (`dl_send_queue.readiness_of`) dalej mówi „czeka 3 dni” po
+  nowym przebiegu, także po otwarciu przeglądu DL. Nowe CV albo przebieg
+  niezaliczony pomiędzy zaczynają liczyć od nowa. Wiersze sprzed pola mają datę
+  w `created_at`. Bramka ruchu liczy QC na żywo. `limit` liczy przeliczone
+  pary, nie pominięte.
 - **Pomiar przed podbiciem `QC_VERSION`:** `backend/scripts/qc_truth_audit.py`
   w kontenerze backendu (sesja tylko do odczytu, same liczby). Nowy kod
   można zmierzyć przed merge'em, podając go jako nakładkę w tym samym

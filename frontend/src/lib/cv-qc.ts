@@ -7,6 +7,7 @@
 // z propozycji AI i kody błędów. Wszystko zwraca TEKST — nic nie trafia na
 // stronę jako HTML.
 
+import { shortPersonName } from "@/lib/client-acceptance";
 import type {
   QcCheck,
   QcCvBlock,
@@ -343,6 +344,14 @@ export interface CvControl {
   blocking: number;
   /** R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL. */
   gaps: string[];
+  /** QC-2 (08.11.2026): blokady pominięte przez „To nieprawda”. */
+  dismissed: { what: string; reason: string; by: string | null }[];
+  /** QC-3 (08.11.2026): zgoda RODO z pliku kandydata, którą trzeba obejrzeć. */
+  consentManual: boolean;
+}
+
+function hasDismissedBlocking(check: QcCheck): boolean {
+  return check.severity === "blocking" && (check.dismissed_items?.length ?? 0) > 0;
 }
 
 export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
@@ -360,11 +369,20 @@ export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
     }
   }
   return {
-    autoOk: checks.filter((check) => check.status === "pass").length,
+    // Pominięta blokada nie jest zaliczona przez automat.
+    autoOk: checks.filter((check) => check.status === "pass" && !hasDismissedBlocking(check)).length,
     manual: [...manual].map(([requirement, entry]) => ({ requirement, ...entry })),
     unverified: [...unverified],
     blocking: blockingTasks([...checks]).length,
     gaps: candidateGapItems(checks).map((item) => item.requirement ?? "").filter(Boolean),
+    dismissed: checks.filter(hasDismissedBlocking).flatMap((check) =>
+      (check.dismissed_items ?? []).map((item) => ({
+        what: item.requirement ?? item.term ?? item.detail ?? check.label,
+        reason: item.dismissal?.note || item.dismissal?.reason_label || "",
+        by: shortPersonName(item.dismissal?.by_name),
+      })),
+    ),
+    consentManual: checks.some((check) => check.key === "client_rules" && check.status === "manual"),
   };
 }
 
