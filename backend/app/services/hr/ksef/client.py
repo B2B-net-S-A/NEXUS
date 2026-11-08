@@ -1,4 +1,10 @@
-"""Klient API KSeF 2.0 — uwierzytelnienie tokenem, metadane i XML faktur.
+"""Klient API KSeF 2.0 — uwierzytelnienie, metadane i XML faktur.
+
+Dwie metody uwierzytelnienia. Gdy jest certyfikat, idzie pierwszy (podpis
+XAdES, ``xades.py``, ``POST /auth/xades-signature``), a token KSeF zostaje
+ścieżką zapasową. § 13 ust. 1 pkt 1 rozporządzenia z Dz.U. 2025 poz. 1815
+dopuszcza token do 31.12.2026, nowelizacja jest projektem: patrz
+``docs/claude/zamowienia/ksef-tokeny-termin-i-certyfikat.md``.
 
 Uwierzytelnienie tokenem KSeF (dokumentacja MF „Uwierzytelnianie”, 2.2):
 
@@ -35,7 +41,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
-from app.services.hr.ksef import crypto, numbers
+from app.services.hr.ksef import crypto, numbers, xades
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +69,9 @@ CODE_UNKNOWN_KEY = 21470
 CODE_UNAUTHORIZED = 21301
 
 ERROR_MESSAGES = {
-    "auth_failed": "KSeF odrzucił uwierzytelnienie tokenem spółki.",
-    "forbidden": "Token KSeF spółki nie ma uprawnienia do odczytu faktur.",
+    "auth_failed": "KSeF odrzucił uwierzytelnienie spółki.",
+    "forbidden": "Dane logowania KSeF spółki nie dają uprawnienia do odczytu faktur.",
+    "certificate": "Certyfikat KSeF spółki jest poza okresem ważności.",
     "rate_limited": "KSeF chwilowo ogranicza liczbę zapytań.",
     "unavailable": "KSeF nie odpowiada.",
     "rejected": "KSeF odrzucił zapytanie.",
@@ -75,6 +82,10 @@ ERROR_MESSAGES = {
     "public_key": "Brak ważnego klucza publicznego MF do szyfrowania tokenu.",
     "internal": "Pobieranie z KSeF przerwał błąd w NEXUSIE — szczegóły są w logu serwera.",
 }
+#: Te odmowy dotyczą samego certyfikatu, więc token ma szansę przejść.
+CERTIFICATE_FALLBACK = frozenset(
+    {"auth_failed", "forbidden", "rejected", "certificate"}
+)
 #: Kody statusu uwierzytelnienia (``GET /auth/{referenceNumber}``).
 AUTH_STATUS_LABELS = {
     415: "brak uprawnień tokenu w kontekście spółki",
@@ -137,7 +148,7 @@ class MetadataPage:
     hwm: Optional[str]
 
 
-#: Tokeny dostępu per (adres, NIP spółki, skrót tokenu KSeF) — tylko w pamięci.
+#: Tokeny dostępu per (adres, NIP spółki, skrót danych logowania) — tylko w pamięci.
 _SESSIONS: dict[str, _Tokens] = {}
 #: Certyfikaty kluczy publicznych MF per adres środowiska.
 _PUBLIC_KEYS: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
@@ -240,6 +251,7 @@ class KsefClient:
         *,
         context_nip: str,
         token: str,
+        identity: Optional[xades.SigningIdentity] = None,
         transport: Optional[httpx.AsyncBaseTransport] = None,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -247,11 +259,13 @@ class KsefClient:
         self._base_url = base_url.rstrip("/")
         self._context_nip = context_nip
         self._token = token
+        self._identity = identity
         self._transport = transport
         self._sleep = sleep
         self._now = now
         self._http: Optional[httpx.AsyncClient] = None
-        fingerprint = hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        credentials = f"{token}|{identity.fingerprint if identity else ''}"
+        fingerprint = hashlib.sha256(credentials.encode("utf-8")).hexdigest()[:16]
         self._session_key = f"{self._base_url}|{context_nip}|{fingerprint}"
         self.requests = 0
 
@@ -277,6 +291,7 @@ class KsefClient:
         path: str,
         *,
         json_body: Optional[dict[str, Any]] = None,
+        xml_body: Optional[bytes] = None,
         params: Optional[dict[str, Any]] = None,
         bearer: Optional[str] = None,
         accept: Optional[str] = None,
@@ -284,6 +299,8 @@ class KsefClient:
         if self._http is None:
             raise RuntimeError("KsefClient używaj w `async with`")
         headers: dict[str, str] = {}
+        if xml_body is not None:
+            headers["Content-Type"] = "application/xml"
         if bearer:
             headers["Authorization"] = f"Bearer {bearer}"
         if accept:
@@ -294,7 +311,12 @@ class KsefClient:
             self.requests += 1
             try:
                 response = await self._http.request(
-                    method, path, json=json_body, params=params, headers=headers
+                    method,
+                    path,
+                    json=json_body,
+                    content=xml_body,
+                    params=params,
+                    headers=headers,
                 )
             except httpx.HTTPError as exc:
                 if server_attempts < len(SERVER_ERROR_DELAYS):
@@ -340,11 +362,29 @@ class KsefClient:
         _PUBLIC_KEYS[self._base_url] = (now, payload)
         return payload
 
+    async def _challenge(self) -> dict[str, Any]:
+        response = await self._send("POST", "/auth/challenge")
+        if response.status_code != 200:
+            raise _error_for(response)
+        return _json_object(response)
+
+    async def _start_certificate_authentication(self) -> httpx.Response:
+        identity = self._identity
+        if identity is None or not identity.valid_at(self._now()):
+            raise KsefApiError("certificate")
+        data = await self._challenge()
+        if not isinstance(data.get("challenge"), str):
+            raise KsefApiError("invalid_response")
+        return await self._send(
+            "POST",
+            "/auth/xades-signature",
+            xml_body=xades.signed_auth_request(
+                data["challenge"], self._context_nip, identity, self._now()
+            ),
+        )
+
     async def _start_authentication(self, *, refresh_keys: bool) -> httpx.Response:
-        challenge = await self._send("POST", "/auth/challenge")
-        if challenge.status_code != 200:
-            raise _error_for(challenge)
-        data = _json_object(challenge)
+        data = await self._challenge()
         timestamp_ms = data.get("timestampMs")
         if not isinstance(timestamp_ms, int):
             moment = parse_instant(data.get("timestamp"))
@@ -371,10 +411,26 @@ class KsefClient:
         return await self._send("POST", "/auth/ksef-token", json_body=body)
 
     async def _authenticate(self) -> _Tokens:
+        if self._identity is not None:
+            try:
+                return await self._complete_authentication(
+                    await self._start_certificate_authentication()
+                )
+            except KsefApiError as exc:
+                if not self._token or exc.category not in CERTIFICATE_FALLBACK:
+                    raise
+                # ERROR, bo cicha praca na tokenie ukryłaby zepsuty certyfikat
+                # aż do dnia, w którym token przestanie działać.
+                logger.error(
+                    "ksef: certyfikat odrzucony (%s), przejście na token", exc.label
+                )
         response = await self._start_authentication(refresh_keys=False)
         if response.status_code == 400 and CODE_UNKNOWN_KEY in _error_codes(response):
             # MF wymienił klucz — pobieramy listę od nowa i próbujemy raz jeszcze.
             response = await self._start_authentication(refresh_keys=True)
+        return await self._complete_authentication(response)
+
+    async def _complete_authentication(self, response: httpx.Response) -> _Tokens:
         if response.status_code not in (200, 202):
             raise _error_for(response)
         init = _json_object(response)

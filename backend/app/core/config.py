@@ -1666,6 +1666,12 @@ class Settings(BaseSettings):
     # Token KSeF spółki z uprawnieniem „odczyt faktur” (InvoiceRead). Sekret —
     # tylko przez workflow „Coolify set env”, nigdy w logach.
     KSEF_TOKEN: str = ""
+    # Certyfikat (typ Authentication) i jego klucz prywatny, PEM albo Base64 z PEM:
+    # uwierzytelnienie podpisem XAdES, token zostaje zapasowy. Sekrety — tylko
+    # przez workflow „Coolify set env”, z `value_from_secret`.
+    KSEF_CERTIFICATE: str = ""
+    KSEF_CERTIFICATE_KEY: str = ""
+    KSEF_CERTIFICATE_KEY_PASSWORD: str = ""
     # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
     KSEF_SIMULATE_DIR: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
