@@ -377,7 +377,7 @@ export function cvControlSummary(checks: readonly QcCheck[]): CvControl {
     gaps: candidateGapItems(checks).map((item) => item.requirement ?? "").filter(Boolean),
     dismissed: checks.filter(hasDismissedBlocking).flatMap((check) =>
       (check.dismissed_items ?? []).map((item) => ({
-        what: item.requirement ?? item.term ?? item.detail ?? check.label,
+        what: [item.requirement, item.term, item.detail].find(Boolean) ?? check.label,
         reason: item.dismissal?.note || item.dismissal?.reason_label || "",
         by: shortPersonName(item.dismissal?.by_name),
       })),
