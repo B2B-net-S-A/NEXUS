@@ -38,6 +38,13 @@ export const NO_CONTACT_REASON = "no_contact";
 export const CLIENT_NO_REASON_REASON = "client_no_reason";
 export const CLIENT_CHOSE_OTHER_REASON = "client_chose_other";
 
+/** Końce procesu bez decyzji klienta o osobie (08.11.2026, 0662): zapisuje je
+ *  zamknięcie rekrutacji albo brak odpowiedzi klienta, nikt ich nie wybiera. */
+const SYSTEM_ONLY_REASONS: ReadonlySet<string> = new Set([
+  "request_closed",
+  "client_no_response",
+]);
+
 /** Tylko przy „Odrzuca klient”: my ani DL nie mówimy w imieniu klienta. */
 const CLIENT_ONLY_REASONS: ReadonlySet<string> = new Set([
   CLIENT_NO_REASON_REASON,
@@ -59,6 +66,7 @@ export function reasonFitsEndedBy(
   endedBy: "candidate" | "recruiter" | "delivery_lead" | "client",
 ): boolean {
   const name = reason.name?.trim() ?? "";
+  if (SYSTEM_ONLY_REASONS.has(name)) return false;
   if (CLIENT_ONLY_REASONS.has(name)) return endedBy === "client";
   if (NOT_CLIENT_REASONS.has(name)) return endedBy !== "client";
   return true;
