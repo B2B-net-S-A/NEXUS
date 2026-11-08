@@ -287,6 +287,8 @@ async def _gate_and_dealbreakers(
     exclude_office_days_exceeded: bool = True,
     exclude_office_city_mismatch: bool = True,
     exclusion_reasons: dict[int, str] | None = None,
+    evidence_only: tuple[str, ...] | None = None,
+    candidates_loaded: bool = False,
 ) -> tuple[list[Candidate], dict[int, dict], dict, int, DealbreakerInputs]:
     """Apply the eligibility gate and dealbreakers, preserving input order.
 
@@ -338,8 +340,11 @@ async def _gate_and_dealbreakers(
     from app.services.requirement_verification import load_verified_requirements
 
     await load_verified_requirements(db, job, ordered)
+    # `candidates_loaded`: wołający ma świeżo wczytane pełne wiersze, więc drugi
+    # SELECT całego kandydata (z CV) to czysty koszt (przegląd bazy, 08.11.2026).
+    loaded = {"candidates": {c.id: c for c in ordered}} if candidates_loaded else {}
     decisions = await evaluate_candidates_for_job(
-        db, job=job, candidate_ids=[c.id for c in ordered], now=now
+        db, job=job, candidate_ids=[c.id for c in ordered], now=now, **loaded
     )
     # A partial policy response is not an authorization decision. Do not let
     # absent rows become unannotated, assignable search results.
@@ -408,6 +413,7 @@ async def _gate_and_dealbreakers(
         visible,
         inputs.gate_evidence_labels,
         options=inputs.gate_options,
+        only=evidence_only,
         job_id=inputs.verification_job_id,
     )
     db_res = await _apply_dealbreakers_yielding(

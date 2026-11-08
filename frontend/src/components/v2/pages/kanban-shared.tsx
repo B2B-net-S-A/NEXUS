@@ -189,6 +189,8 @@ export interface KanbanItem {
  dl_send_counts?: boolean | null;
  /** Dni robocze czekania, liczone na serwerze jak pas „Do wysłania” (U5). */
  waiting_workdays?: number | null;
+ /** Cisza klienta ponad 5 dni roboczych (serwer); `null` = jeszcze nie. */
+ client_silent_workdays?: number | null;
  // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
  // kody polityki dopuszczalności — konflikt z klientem itd.).
  warnings?: string[];
@@ -203,7 +205,7 @@ export interface KanbanItem {
  next_action_owner?: "recruiter" | "client" | "candidate" | "delivery" | "none";
  // ── Pipeline v4 (0352, 23.09.2026) — odznaki karty (`lib/board-card-badges.ts`) ─
  // Kto zakończył proces (wiersz terminalny).
- ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | null;
+ ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | "client_silent" | null;
  // Stawka, za którą osobę wysłano do klienta.
  client_rate_value?: string | number | null;
  client_rate_unit?: RateUnit | null;

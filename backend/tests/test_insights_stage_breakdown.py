@@ -118,6 +118,7 @@ def test_single_free_text_goes_to_other_and_sums_match() -> None:
         "recruiter",
         "delivery_lead",
         "client",
+        "client_silent",
     ]
     assert by_key["client"]["count"] == 4
     # Wielkość liter nie rozdziela powodu; jednorazowy wpis idzie do „Inne”.
@@ -508,6 +509,7 @@ async def test_endpoint_returns_rows_for_a_recruiter(fx_client: AsyncClient) -> 
         "recruiter",
         "delivery_lead",
         "client",
+        "client_silent",
     ]
 
 

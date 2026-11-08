@@ -118,6 +118,7 @@ def _prefilter_token(form: str) -> str:
 def clear_cache() -> None:
     """Po przeładowaniu słownika i powiązań: wzorce liczone starą mapą są stare."""
     _patterns.cache_clear()
+    _tokens_of.cache_clear()
 
 
 @lru_cache(maxsize=4096)
@@ -179,6 +180,21 @@ def _patterns(
     return tuple(out)
 
 
+@lru_cache(maxsize=4096)
+def _tokens_of(
+    requirements: tuple[GateRequirement, ...], relations: bool
+) -> tuple[str, ...]:
+    """Słowa filtra wszystkich wzorców — raz na zestaw wymagań rekrutacji."""
+    return tuple(
+        {
+            token
+            for requirement in requirements
+            for _, token, _cased in _patterns(requirement, relations)
+            if token
+        }
+    )
+
+
 # K12 (audyt 06.10.2026): „z Kafką”, „w Javie”, „Dockerem” — polska odmiana
 # nazwy w CV i notatkach. Ta sama zamknięta lista końcówek co QC CV
 # (`dz_review._inflected_pattern`), więc „Java” nie trafia w „JavaScript”.
@@ -203,13 +219,20 @@ def _inflected(form: str) -> Optional[tuple[re.Pattern[str], str, bool]]:
 
 
 def _mentions_lowered(
-    requirement: GateRequirement, text: str, lowered: str, relations: bool = True
+    requirement: GateRequirement,
+    text: str,
+    lowered: str,
+    relations: bool = True,
+    *,
+    present: Optional[frozenset[str]] = None,
 ) -> bool:
     for pattern, token, cased in _patterns(requirement, relations):
         # Wzorce z wielkością liter (krótkie aliasy) idą po oryginale.
         haystack = text if cased else lowered
         start = 0
         if token:
+            if present is not None and token not in present:
+                continue
             at = lowered.find(token)
             if at < 0:
                 continue
@@ -454,9 +477,21 @@ def text_met_labels(
         for text in (profile_text(candidate), cv_text(candidate), *note_texts)
         if text
     ]
+    # Słowa filtra sprawdzamy raz na osobę po wszystkich tekstach naraz, zamiast
+    # dla każdego wzorca w każdym źródle; znak nowej linii nie należy do słowa
+    # filtra, więc sklejenie niczego nie dokłada.
+    blob = "\n".join(low for _, low in sources)
+    present = frozenset(
+        token
+        for token in _tokens_of(tuple(req for _, req in requirements), relations)
+        if token in blob
+    )
     met: set[str] = set()
     for label, requirement in requirements:
-        if any(_mentions_lowered(requirement, t, low, relations) for t, low in sources):
+        if any(
+            _mentions_lowered(requirement, t, low, relations, present=present)
+            for t, low in sources
+        ):
             met.add(label)
     return frozenset(met) | from_sheet
 
@@ -688,6 +723,14 @@ def _loose_pg_pattern(
 
     Tylko zawęża, co wraca z bazy — o dopasowaniu decyduje ``mentions``.
     """
+    forms = _loose_forms(must, options)
+    if not forms:
+        return None
+    return "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+
+
+def _loose_forms(must: Sequence[str], options: GateOptions = None) -> set[str]:
+    """Formy wstępnego filtra notatek (bez granic słowa, bez wielkości liter)."""
     from app.services.scoring_service import skill_name_variants
     from app.services.skill_normalize import implied_forms
 
@@ -707,9 +750,7 @@ def _loose_pg_pattern(
                 if inflected is not None and inflected[1]:
                     # „Kafką” nie zawiera „kafka” — filtr notatek bierze rdzeń.
                     forms.add(inflected[1])
-    if not forms:
-        return None
-    return "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+    return forms
 
 
 async def attach_gate_evidence(
@@ -719,6 +760,7 @@ async def attach_gate_evidence(
     *,
     options: GateOptions = None,
     before=None,
+    only: Optional[Sequence[str]] = None,
     job_id: Optional[int] = None,
 ) -> None:
     """Dołącz ``_must_text_evidence`` do kandydatów przed ``apply_dealbreakers``.
@@ -727,8 +769,15 @@ async def attach_gate_evidence(
     sprzed tej chwili — notatki ze screeningu tej samej rekrutacji byłyby
     przeciekiem etykiety.
 
-    Dwa zapytania na paczkę: kto ma notatki-dowody, i treść tych notatek,
-    które wymieniają którąś z technologii. Nigdy nie rzuca dalej — błąd bazy
+    ``only`` (pełny przegląd bazy, 08.11.2026): dowód liczony wyłącznie dla
+    tych etykiet (bramka), a pełne ``must`` wołający dołącza osobie, która
+    bramkę przeszła. Zbiór notatek wyznacza zawsze całe ``must``, bo wstępny
+    filtr ma dziury (fraza „spring boot” nie łapie „Spring-Boot”, którą
+    wzorzec widzi): węższy zbiór zmieniłby, kogo bramka ukrywa.
+
+    Jedno zapytanie na paczkę; wstępny filtr notatek stoi w Pythonie, bo
+    regex w Postgresie to 1 ms na notatkę i był większością czasu bramki
+    (pomiar na kopii 08.11.2026). Nigdy nie rzuca dalej — błąd bazy
     zostawia kandydatów bez dołączonego dowodu, a bramka sprawdza wtedy sam
     profil i CV (``missing_must_skills``).
     """
@@ -736,14 +785,17 @@ async def attach_gate_evidence(
     ids = [c.id for c in candidates if getattr(c, "id", None) is not None]
     if not ids:
         return
+    labels = tuple(only) if only is not None else must
     # Pusta lista też dołącza `has_notes`: kandydat bez CV i umiejętności,
     # ale z notatką z rozmowy, nie jest „bez danych” (30.09.2026).
-    pattern = _loose_pg_pattern(must, options) if must else None
+    forms = _loose_forms(must, options) if labels else None
     try:
-        # Savepoint: błąd zapytania (np. regex, timeout) nie może zostawić
+        # Savepoint: błąd zapytania (np. timeout) nie może zostawić
         # transakcji wywołującego w stanie „aborted”.
         async with db.begin_nested():
-            has_notes, note_texts = await _load_notes(db, ids, pattern, before=before)
+            has_notes, note_texts = await _load_notes(
+                db, ids, None, before=before, forms=forms or ()
+            )
     except Exception:  # noqa: BLE001 — dowód z notatek jest dodatkiem
         import logging
 
@@ -760,18 +812,32 @@ async def attach_gate_evidence(
         if cid is None:
             continue
         candidate._must_text_evidence = MustTextEvidence(
-            key=must,
+            key=labels,
             met=text_met_labels(
-                candidate, must, note_texts.get(cid, ()), options=options, job_id=job_id
+                candidate,
+                labels,
+                note_texts.get(cid, ()),
+                options=options,
+                job_id=job_id,
             ),
             has_notes=cid in has_notes,
             absent=conversation_facts.absent_labels(
-                candidate, must, options=options, job_id=job_id
+                candidate, labels, options=options, job_id=job_id
             ),
         )
 
 
-async def _load_notes(db, ids: list[int], pattern: Optional[str], *, before=None):
+async def _load_notes(
+    db,
+    ids: list[int],
+    pattern: Optional[str],
+    *,
+    before=None,
+    forms: Optional[Iterable[str]] = None,
+):
+    """``forms`` zamiast ``pattern``: te same notatki co ``content ~* pattern``,
+    ale jednym zapytaniem bez regexa (formy to dosłowne słowa, bez wielkości
+    liter — tę regułę Python powtarza ``str.lower`` + ``in``)."""
     from sqlalchemy import text
 
     note_texts: dict[int, list[str]] = {}
@@ -782,6 +848,28 @@ async def _load_notes(db, ids: list[int], pattern: Optional[str], *, before=None
         else ""
     )
     extra = {"before": before} if before is not None else {}
+    if forms is not None:
+        needles = tuple(form.lower() for form in forms)
+        rows = await db.execute(
+            text(
+                "SELECT candidate_id, content, kind FROM notes "
+                "WHERE candidate_id = ANY(:ids) AND source_deleted_at IS NULL "
+                f"AND note_type::text = ANY(:types) AND {note_kinds.ai_readable_sql()}"
+                f"{when}"
+            ),
+            {"ids": ids, "types": list(EVIDENCE_NOTE_TYPES), **extra},
+        )
+        has_notes: set[int] = set()
+        for candidate_id, content, kind in rows:
+            has_notes.add(candidate_id)
+            if not needles or not content:
+                continue
+            lowered = content.lower()
+            if any(needle in lowered for needle in needles):
+                note_texts.setdefault(candidate_id, []).append(
+                    evidence_note_text(kind, content)
+                )
+        return has_notes, note_texts
     rows = await db.execute(
         text(
             "SELECT DISTINCT candidate_id FROM notes "

@@ -4,6 +4,7 @@ import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
   cardBadges,
   cardPrimaryBadges,
+  closedRejectBy,
   dlWaitingStatus,
   waitingWorkdaysText,
   type CardBadgeContext,
@@ -49,13 +50,30 @@ describe("U5: jedna liczba dni na karcie", () => {
   });
 
   it("„44 dni bez odpowiedzi” nie stoi obok liczby z wiersza ruchu", () => {
-    const badges = cardBadges(item({ days_in_stage: 44, moved_at: "2026-09-25T09:00:00Z" }), {
-      ...QC_CTX,
-      column: "cv_sent",
-    });
+    const badges = cardBadges(
+      item({ days_in_stage: 44, client_silent_workdays: 31, moved_at: "2026-09-25T09:00:00Z" }),
+      { ...QC_CTX, column: "cv_sent" }
+    );
     const silence = badges.find((b) => b.key === "client_silence");
     expect(silence?.label).toBe("Klient milczy");
+    expect(silence?.title).toContain("31 dni rob.");
     expect(silence?.title).toContain("na etapie od 25.09");
+  });
+
+  it("„Klient milczy” idzie za serwerem, nie za dniami kalendarza", () => {
+    const silence = (over: Partial<KanbanItem>, column: "cv_sent" | "client_interview" | "verified") =>
+      cardBadges(item(over), { ...QC_CTX, column }).some((b) => b.key === "client_silence");
+    expect(silence({ days_in_stage: 44, client_silent_workdays: null }, "cv_sent")).toBe(false);
+    expect(silence({ client_silent_workdays: 6 }, "cv_sent")).toBe(true);
+    expect(silence({ client_silent_workdays: 6 }, "client_interview")).toBe(true);
+    expect(silence({ client_silent_workdays: 6 }, "verified")).toBe(false);
+  });
+
+  it("brak odpowiedzi klienta liczy się w „Zamkniętych” jako „przez klienta”", () => {
+    expect(closedRejectBy("client_silent")).toBe("client");
+    expect(closedRejectBy("client")).toBe("client");
+    expect(closedRejectBy("delivery_lead")).toBe("delivery_lead");
+    expect(closedRejectBy(null)).toBe("recruiter");
   });
 
   it("zapis liczby: „czeka N dni rob.”", () => {

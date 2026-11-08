@@ -140,6 +140,7 @@ vi.mock("@/components/ChampionProfileEditor", () => ({
 }));
 vi.mock("@/components/v2/jobs/ChampionSectionNav", () => ({ ChampionSectionNav: () => null }));
 vi.mock("@/components/v2/jobs/JobSummaryCard", () => ({ JobSummaryCard: () => null }));
+vi.mock("@/components/v2/jobs/ClientWaitStrip", () => ({ ClientWaitStrip: () => null }));
 vi.mock("@/components/champion/ChampionWorkspace", () => ({
   ChampionWorkspace: stub("workspace", "champion-workspace"),
 }));

@@ -21,7 +21,10 @@ SQL `services/client_panel_schema.py` (lustro w `entrypoint.sh`, sondy w `/api/h
   zamknięta = 410, `noindex`, `no-referrer`, `no-store`, limity tras. „Odwołaj link”
   zmienia `nonce`. Zmiana `SECRET_KEY` unieważnia wszystkie linki: nowy link daje
   dopiero „Odwołaj link”. Ważność przy włączeniu: koniec dnia za 60 dni.
-- **Domyślnie wyłączony na każdej rekrutacji.** Włącza osoba z uprawnieniem
+- **Domyślnie wyłączony na każdej rekrutacji i tylko na żądanie** (potwierdzone
+  przez Artura 08.11.2026, gdy audyt 2 proponował włączanie przy pierwszym CV:
+  niektórzy klienci mogą tego zakazać, więc link nigdy nie idzie do klienta
+  automatycznie). Włącza osoba z uprawnieniem
   „Rekrutacje” i członkostwem w rekrutacji (`RecruitmentManageUser`
   + `ensure_job_membership` + `_ensure_panel_manager`: zespół rekrutacji albo DL z portfelem
   klienta, poza tym admin i Head of Recruitment; DL cudzej rekrutacji dostaje 403, bo panel
