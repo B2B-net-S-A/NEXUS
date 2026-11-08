@@ -44,6 +44,9 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   Zadanie: `~/Library/LaunchAgents/pl.dynaminds.nexus-nocna-kopia.plist`,
   skrypt startowy `bin/nocna-kopia.sh`. Build i `sanitize.sql` idą z kodu stagingu
   (`origin/main`), bo nie mają dostępu do klucza.
+- **Odtwarzanie kopii ma limit 40 min i strażnika postępu** (decyzja z audytu z 08.11.2026):
+  rozmiar bazy, wiersze COPY i start instrukcji bez zmiany przez 5 min przerywają bieg, potem
+  jedno ponowienie z tego samego zrzutu. 07.11 strumień stanął po 8 min, a limit 2 h zabrał noc.
 - **PR-y dotykające bramki wdrożeń i sond nie wchodzą same.** Zmiana w `deploy.yml`,
   `select_release_sha.py`, `deploy_needed.py`, `alert_issue.sh`, `uptime-probe.yml`
   albo `disk-alert.yml` idzie z etykietą `wstrzymaj` i pytaniem do Artura
