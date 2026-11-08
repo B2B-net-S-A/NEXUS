@@ -462,6 +462,7 @@ function newColumnWithQueue() {
         rate_known: true,
         availability_known: true,
         decided: false,
+        awaiting_decision: true,
         waiting_days: 1,
         decision_due: false,
         cautions: [],

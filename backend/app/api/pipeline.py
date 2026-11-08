@@ -4237,6 +4237,7 @@ async def build_kanban_view(
                         recruiter_since=autofill_recruiter_since,
                         now=board_now,
                     ),
+                    in_new_column=board_column == candidate_claim.NEW_COLUMN,
                 )
                 if v4.entry_source == candidate_claim.ENTRY_SYSTEM
                 else None

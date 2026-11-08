@@ -332,6 +332,7 @@ function autofillCards(): KanbanItem[] {
         rate_known: false,
         availability_known: false,
         decided: false,
+        awaiting_decision: true,
         waiting_days: 3,
         decision_due: true,
       },
@@ -345,6 +346,7 @@ function autofillCards(): KanbanItem[] {
         rate_known: true,
         availability_known: true,
         decided: false,
+        awaiting_decision: true,
         waiting_days: 0,
         decision_due: false,
         // 27.10.2026: ostrzeżenia — osoba za resztą, karta mówi dlaczego.
