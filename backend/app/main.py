@@ -786,7 +786,10 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
-    from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
+    from app.tasks.keyword_corpus_backfill import (
+        keyword_corpus_backfill_loop,
+        keyword_corpus_readiness_loop,
+    )
     from app.tasks.note_kind_backfill import note_kind_backfill_loop
     from app.tasks.requirement_row_counts import requirement_row_counts_loop
     from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
@@ -955,6 +958,9 @@ async def lifespan(app: FastAPI):
             # sama, gdy nie zostaje nic do policzenia.
             "keyword_corpus_backfill": asyncio.create_task(
                 keyword_corpus_backfill_loop()
+            ),
+            "keyword_corpus_readiness": asyncio.create_task(
+                keyword_corpus_readiness_loop()
             ),
             "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
             # „Wymagania do poprawy” (rare_word, 27.10.2026): liczby osób wierszy
