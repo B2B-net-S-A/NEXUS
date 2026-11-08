@@ -17,7 +17,11 @@ import json
 import subprocess
 import sys
 
+import pytest
+
 from scripts import build_claude_index as index
+
+pytestmark = pytest.mark.static
 
 _FIX = "Uruchom: cd backend && python3 scripts/build_claude_index.py"
 

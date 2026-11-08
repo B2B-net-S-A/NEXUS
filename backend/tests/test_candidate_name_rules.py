@@ -32,7 +32,6 @@ from app.services.candidate_name_rules import (
     strip_name_markers,
     without_name_markers,
 )
-from app.services.traffit.mappers import traffit_employee_to_candidate
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -174,20 +173,6 @@ def test_user_message_and_error_type():
 
 def _row(**kw) -> NameMarkerRow:
     return NameMarkerRow(id=1, **{"name": "Jan", "lastname": "Testowy", **kw})
-
-
-@pytest.mark.parametrize("raw,expected", PRODUCTION_MARKERS)
-def test_traffit_payload_maps_to_the_same_name_as_the_repair(raw, expected):
-    """Import nie może przywrócić tego, co zdjęła migracja — i odwrotnie."""
-    for field in ("name", "lastname"):
-        payload = {"id": 7, "name": "Jan", "lastname": "Testowy", "status": "active"}
-        payload[field] = raw
-        mapped = traffit_employee_to_candidate(payload)
-        fix = plan_fix(_row(**{field: raw}))
-        assert fix is not None
-        assert mapped[field] == getattr(fix, field) == expected
-        assert (mapped["status"] == "blacklisted") == (fix.status == "blacklisted")
-        assert mapped["cv_extracted_data"]["traffit_name_marker"] == fix.provenance
 
 
 # ── Plan korekty: najpierw pole, potem tekst ────────────────────────────────
@@ -390,9 +375,10 @@ def test_symbol_only_field_gets_the_placeholder():
 def test_manual_split_moves_two_words_from_lastname_when_name_has_no_letters():
     from app.services.candidate_name_marker_repair import plan_manual_fix
 
-    assert plan_manual_fix(
-        "split_from_lastname", "☁", "Szczepan Żuk ☁"
-    ) == ("Szczepan", "Żuk ☁")
+    assert plan_manual_fix("split_from_lastname", "☁", "Szczepan Żuk ☁") == (
+        "Szczepan",
+        "Żuk ☁",
+    )
     # Imię z literą albo nazwisko z innym kształtem — bez zmian.
     assert plan_manual_fix("split_from_lastname", "Jan", "Szczepan Żuk") is None
     assert plan_manual_fix("split_from_lastname", "☁", "Żuk") is None

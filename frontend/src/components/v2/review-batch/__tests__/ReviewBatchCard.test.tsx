@@ -9,7 +9,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReviewBatchCard, rejectMissing } from "@/components/v2/review-batch/ReviewBatchCard";
+import { orderLine, ReviewBatchCard, rejectMissing } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 
 const move = vi.hoisted(() => ({
@@ -107,6 +107,15 @@ describe("ReviewBatchCard", () => {
 });
 
 describe("rejectMissing", () => {
+  it("podaje powód kolejności, a przy samym wyniku milczy", () => {
+    expect(orderLine(item)).toBeNull();
+    expect(orderLine({ ...item, score: 78, order_active: true, order_in_budget: true })).toBe(
+      "Kolejność: 78% + aktywnie szuka + stawka w budżecie",
+    );
+    const known = { points: 8, client_points: 0, note_points: 8, verified_at_client: 0, last_note_days: 12 };
+    expect(orderLine({ ...item, score: 70, known })).toBe("Kolejność: 70% + notatka 12 dni temu");
+  });
+
   it("mówi, czego brakuje", () => {
     expect(rejectMissing(null, "")).toMatch(/Wybierz powód/);
     expect(rejectMissing("missing_skill", " ")).toMatch(/umiejętności/);

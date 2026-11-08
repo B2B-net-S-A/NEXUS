@@ -44,51 +44,25 @@ describe("HolderPicker", () => {
     expect(HOLDER_KIND_LABELS.contract).toBe("Kontraktor");
   });
 
-  it("without academy mode offers only the register and people outside NEXUS", async () => {
+  it("offers only the register and people outside NEXUS", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     wrap(<HolderPicker value={null} onChange={onChange} />);
-    expect(screen.queryByRole("button", { name: "Uczestnik Akademii" })).toBeNull();
     await user.type(screen.getByRole("textbox", { name: "Szukaj osoby albo kontraktu" }), "Ol");
     await user.click(await screen.findByRole("button", { name: /Olga Testowa/ }));
     expect(onChange).toHaveBeenCalledWith(WORKER);
     expect(mocks.get).toHaveBeenCalledWith("/api/equipment/holders", { params: { q: "Ol" } });
   });
 
-  it("finds an academy participant and hands it to the issue wizard", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    wrap(<HolderPicker academy value={null} onChange={onChange} />);
-    await user.click(screen.getByRole("button", { name: "Uczestnik Akademii" }));
-    expect(screen.queryByRole("button", { name: /Osoba spoza NEXUSA/ })).toBeNull();
-    await user.type(screen.getByRole("textbox", { name: "Szukaj uczestnika Akademii" }), "Ola");
-    await user.click(await screen.findByRole("button", { name: /Ola Przykładowa/ }));
-    expect(onChange).toHaveBeenCalledWith(PARTICIPANT);
-    expect(mocks.get).toHaveBeenCalledWith("/api/equipment/holders", {
-      params: { q: "Ola", kind: "academy" },
-    });
-  });
-
-  it("a register-only picker never emits an academy participant", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    mocks.get.mockResolvedValue({ data: { items: [PARTICIPANT] } });
-    wrap(<HolderPicker value={null} onChange={onChange} />);
-    await user.type(screen.getByRole("textbox", { name: "Szukaj osoby albo kontraktu" }), "Ola");
-    await user.click(await screen.findByRole("button", { name: /Ola Przykładowa/ }));
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
   it("shows the chosen academy participant with its description", () => {
-    wrap(<HolderPicker academy value={{ ...PARTICIPANT, kind: "academy" }} onChange={vi.fn()} />);
+    wrap(<HolderPicker value={{ ...PARTICIPANT, kind: "academy" }} onChange={vi.fn()} />);
     expect(screen.getByText("Ola Przykładowa")).toBeInTheDocument();
     expect(screen.getByText(/Uczestnik Akademii · Akademia Rekrutera/)).toBeInTheDocument();
   });
 
-  it("labels the register mode with the three sources, without employment-contract words", () => {
-    wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
+  it("uses no employment-contract words", () => {
+    wrap(<HolderPicker value={null} onChange={vi.fn()} />);
     // Bez „pracownik” na ekranie wielu osób (słowa zgodne z PIP, 21.10.2026).
-    expect(screen.getByRole("button", { name: "Zespół, kontrakty, osoby spoza" })).toBeInTheDocument();
     expect(screen.queryByText(/[Pp]racownik/)).toBeNull();
     expect(screen.getByPlaceholderText("Imię i nazwisko albo e-mail…")).toBeInTheDocument();
   });
@@ -96,7 +70,7 @@ describe("HolderPicker", () => {
   it("explains where it searched and what to do with a newcomer without an account", async () => {
     const user = userEvent.setup();
     mocks.get.mockResolvedValue({ data: { items: [] } });
-    wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
+    wrap(<HolderPicker value={null} onChange={vi.fn()} />);
     await user.type(screen.getByRole("textbox", { name: "Szukaj osoby albo kontraktu" }), "sylwesiuk");
     expect(await screen.findByText("Nikt nie pasuje do „sylwesiuk”.")).toBeInTheDocument();
     expect(
@@ -105,17 +79,6 @@ describe("HolderPicker", () => {
     expect(screen.getByText("Nowa osoba w firmie?")).toBeInTheDocument();
     expect(screen.getByText(/przepiszesz go jednym kliknięciem/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Osoba spoza NEXUSA/ })).toBeInTheDocument();
-  });
-
-  it("academy mode keeps its short no-match sentence", async () => {
-    const user = userEvent.setup();
-    mocks.get.mockResolvedValue({ data: { items: [] } });
-    wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: "Uczestnik Akademii" }));
-    await user.type(screen.getByRole("textbox", { name: "Szukaj uczestnika Akademii" }), "Zuza");
-    expect(await screen.findByText("Nikt nie pasuje do „Zuza”.")).toBeInTheDocument();
-    expect(screen.queryByText("Nowa osoba w firmie?")).toBeNull();
-    expect(screen.getByPlaceholderText("Imię i nazwisko uczestnika Akademii…")).toBeInTheDocument();
   });
 
   it("accounts-only picker lists NEXUS accounts and cannot add a person outside", async () => {

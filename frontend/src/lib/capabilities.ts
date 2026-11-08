@@ -93,8 +93,7 @@ export type Capability =
   // Umowy klientów (04.11.2026) → uprawnienie `client_contracts_view`.
   | "nav.client_contracts"
   // ── Praktykanci (0374) ─────────────────────────────────────────────────────
-  | "nav.trainee"
-  | "nav.trainees";
+  | "nav.trainee";
 
 /** Wszystkie role operacyjne — czyli wszyscy POZA read-only viewerem `user`.
  *  Odpowiednik backendowego `OperationalUser` (deps.py). */
@@ -303,7 +302,6 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.trainee": ["trainee"],
   // Panel „Praktykanci” i reguły listy — `/api/trainee/overview|programs|
   // quality-sample|rules` dla admina i Head of Recruitment.
-  "nav.trainees": ["admin", "head_of_recruitment"],
 };
 
 /**

@@ -16,15 +16,7 @@ from app.services.candidate_added_date import (
     added_via_label,
 )
 from app.services.candidate_quick_view import resolve_source
-from sqlalchemy.dialects import postgresql
 
-from app.services.traffit.importer import (
-    _UPDATE_CANDIDATE_ADOPT,
-    _UPSERT_CANDIDATE,
-    _UPSERT_CANDIDATE_NO_TOMBSTONES,
-    candidate_payload_sha,
-)
-from app.services.traffit.mappers import traffit_employee_to_candidate
 
 UTC = timezone.utc
 IMPORT_DAY = datetime(2026, 4, 16, 10, 0, tzinfo=UTC)
@@ -92,7 +84,9 @@ def test_added_via_prefers_the_traffit_source_name_from_domain() -> None:
 def test_added_via_for_people_added_in_nexus() -> None:
     assert added_via_label([], "cv_upload", "manual") == "CV upload"
     assert added_via_label(None, "email", "manual") == "E-mail"
-    assert added_via_label([], "invite_link:anna-k", "manual") == "Formularz aplikacyjny"
+    assert (
+        added_via_label([], "invite_link:anna-k", "manual") == "Formularz aplikacyjny"
+    )
     assert added_via_label([], None, "manual") is None
     # Wtyczka to rekruter, który sam dodał osobę z LinkedIna — nie „LinkedIn”
     # jako kanał, z którego osoba przyszła sama (19.10.2026).
@@ -130,33 +124,3 @@ def _employee(**over) -> dict:
     }
     base.update(over)
     return base
-
-
-def test_mapper_keeps_the_traffit_added_date_in_utc() -> None:
-    payload = traffit_employee_to_candidate(_employee())
-    # Czas Traffita bez strefy = Europe/Warsaw (maj: +02:00).
-    assert payload["source_created_at"] == IN_TRAFFIT.isoformat()
-
-
-def test_mapper_without_date_gives_none() -> None:
-    assert traffit_employee_to_candidate(_employee(created_at=None))["source_created_at"] is None
-    assert traffit_employee_to_candidate(_employee(created_at=""))["source_created_at"] is None
-
-
-def test_payload_hash_ignores_the_added_date() -> None:
-    """Nowe pole nie może zmienić skrótu 57 tys. kartotek — pełny bieg przepisałby każdą."""
-    payload = traffit_employee_to_candidate(_employee())
-    without = {k: v for k, v in payload.items() if k != "source_created_at"}
-    assert candidate_payload_sha(payload) == candidate_payload_sha(without)
-    other_date = {**payload, "source_created_at": "2020-01-01T00:00:00+00:00"}
-    assert candidate_payload_sha(other_date) == candidate_payload_sha(payload)
-
-
-def test_import_statements_accept_a_missing_added_date() -> None:
-    """Ręczny słownik parametrów (testy, stary payload) bez daty = „nie znamy”, nie błąd."""
-    for statement in (_UPSERT_CANDIDATE, _UPSERT_CANDIDATE_NO_TOMBSTONES, _UPDATE_CANDIDATE_ADOPT):
-        compiled = statement.compile(dialect=postgresql.asyncpg.dialect())
-        others = {name: None for name in compiled.binds if name != "source_created_at"}
-        assert compiled.construct_params(others)["source_created_at"] is None
-        given = compiled.construct_params({**others, "source_created_at": IN_TRAFFIT.isoformat()})
-        assert given["source_created_at"] == IN_TRAFFIT.isoformat()

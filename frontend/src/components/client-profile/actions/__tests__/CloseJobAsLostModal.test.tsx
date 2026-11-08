@@ -60,13 +60,13 @@ describe("CloseJobAsLostModal — osoby w toku", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("W tej rekrutacji są 2 osoby w toku");
     expect(alert).toHaveTextContent("CV wysłane 2");
-    expect(mocks.post).toHaveBeenCalledWith(7, "competitor", "", false, null);
+    expect(mocks.post).toHaveBeenCalledWith(7, "competitor", "", false, null, false);
     expect(onClose).not.toHaveBeenCalled();
     expect(mocks.showError).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Zamknij mimo to" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(mocks.post).toHaveBeenLastCalledWith(7, "competitor", "", true, null);
+    expect(mocks.post).toHaveBeenLastCalledWith(7, "competitor", "", true, null, false);
   });
 });
 

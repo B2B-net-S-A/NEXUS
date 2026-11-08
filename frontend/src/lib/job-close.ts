@@ -20,6 +20,17 @@ export interface ActiveCardsRecipient {
   breakdown: string;
 }
 
+/** Pary u klienta, które zamknięcie może zakończyć „przez klienta” (08.11.2026). */
+export interface ClientEndPreview {
+  /** Powód zamknięcia, dla którego policzono listę. */
+  reason: string;
+  reasonLabel: string;
+  people: number;
+  message: string;
+  /** „CV wysłane 3 · Rozmowa u klienta 1”. */
+  breakdown: string;
+}
+
 export interface ActiveCardsWarning {
   /** Zdanie z serwera: ile osób i kiedy był ostatni ruch karty. */
   message: string;
@@ -27,6 +38,8 @@ export interface ActiveCardsWarning {
   breakdown: string;
   /** Kto dostanie wiadomość po zamknięciu (bez osoby, która zamyka). */
   recipients: ActiveCardsRecipient[];
+  /** `null`: ten powód zamknięcia nie kończy kart albo nikogo nie ma u klienta. */
+  clientEnd: ClientEndPreview | null;
 }
 
 function columnsBreakdown(columns: unknown): string {
@@ -53,21 +66,36 @@ function recipientsFrom(raw: unknown): ActiveCardsRecipient[] {
   });
 }
 
+function clientEndFrom(raw: unknown): ClientEndPreview | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { reason, reason_label, people, message, columns } = raw as Record<string, unknown>;
+  if (typeof reason !== "string" || !(Number(people) > 0)) return null;
+  return {
+    reason,
+    reasonLabel: typeof reason_label === "string" ? reason_label : "",
+    people: Number(people),
+    message: typeof message === "string" ? message : "",
+    breakdown: columnsBreakdown(columns),
+  };
+}
+
 export function activeCardsWarningFrom(error: unknown): ActiveCardsWarning | null {
   const detail = (error as { response?: { data?: { detail?: unknown } } } | null)?.response?.data
     ?.detail;
   if (!detail || typeof detail !== "object") return null;
-  const { code, message, columns, recipients } = detail as {
+  const { code, message, columns, recipients, client_end } = detail as {
     code?: unknown;
     message?: unknown;
     columns?: unknown;
     recipients?: unknown;
+    client_end?: unknown;
   };
   if (code !== "active_cards_warning") return null;
   return {
     message: typeof message === "string" ? message : "W tej rekrutacji są osoby w toku.",
     breakdown: columnsBreakdown(columns),
     recipients: recipientsFrom(recipients),
+    clientEnd: clientEndFrom(client_end),
   };
 }
 
@@ -81,11 +109,26 @@ export function peopleAccusative(count: number): string {
   return `${count} osób`;
 }
 
+/** Ile par zakończy to zamknięcie: 0, gdy ostrzeżenie dotyczyło innego powodu albo ktoś wybrał „Nie”. */
+export function clientEndCount(
+  warning: ActiveCardsWarning | null,
+  reason: string | null,
+  chosen: boolean,
+): number {
+  if (!warning?.clientEnd || !chosen || warning.clientEnd.reason !== reason) return 0;
+  return warning.clientEnd.people;
+}
+
 /**
  * Napis przycisku po ostrzeżeniu: mówi, że zamknięcie powiadomi rekruterów,
  * albo — gdy nie ma kogo — że zamyka mimo osób w toku.
  */
-export function closeAnywayLabel(warning: ActiveCardsWarning, base = "Zamknij"): string {
+export function closeAnywayLabel(
+  warning: ActiveCardsWarning,
+  base = "Zamknij",
+  endClientPeople = 0,
+): string {
+  if (endClientPeople > 0) return `${base} i zakończ ${peopleAccusative(endClientPeople)} u klienta`;
   const count = warning.recipients.length;
   return count > 0 ? `${base} i powiadom ${peopleAccusative(count)}` : `${base} mimo to`;
 }

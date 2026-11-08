@@ -30,17 +30,9 @@ from scripts.repairs.ezdrowie_client_merge_repair import (
     run_ezdrowie_client_merge,
     run_ezdrowie_process_client_sync,
 )
-from app.services.traffit.importer import TraffitImporter, _canonical_client_id
 from tests.test_client_deletion import _client, _contract
 
 pytestmark = pytest.mark.asyncio
-
-
-def test_canonical_client_follows_chain_and_survives_cycle():
-    assert _canonical_client_id(1, {}) == 1
-    assert _canonical_client_id(1, {1: 2, 2: 3}) == 3
-    # Cykl w danych nie wiesza importu — zatrzymuje się na ostatnim nowym.
-    assert _canonical_client_id(1, {1: 2, 2: 1}) == 2
 
 
 async def _merged_pair() -> tuple[int, int, str]:
@@ -55,16 +47,6 @@ async def _merged_pair() -> tuple[int, int, str]:
         )
         await db.commit()
     return canonical, duplicate, ext
-
-
-async def test_traffit_client_map_points_merged_record_at_canonical():
-    canonical, duplicate, ext = await _merged_pair()
-    async with AsyncSessionLocal() as db:
-        client_map = await TraffitImporter(
-            None,
-            db,  # type: ignore[arg-type]
-        )._build_client_external_id_map()
-    assert client_map[ext] == canonical
 
 
 async def test_repair_moves_jobs_and_contracts_once():

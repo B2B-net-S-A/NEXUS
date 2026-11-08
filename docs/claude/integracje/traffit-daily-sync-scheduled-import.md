@@ -2,6 +2,31 @@
 
 <!-- indeks: wyłączony na stałe 14.10.2026 (`traffit_retired.py`, 410) — co zostało tylko w Traffit -->
 
+## Stan od 08.11.2026: kod usunięty
+
+Decyzja Artura 08.11.2026 (D1 z audytu 07.11.2026). Sekcje niżej są historią
+działania importu; przy powrocie czytaj je razem z kodem z commitu `559db3992`.
+
+- **Nie ma już:** `services/traffit/` (klient, importer, mapery, merge, skutki
+  etapów, nagrobki pul, backfill odrzuceń), przeniesienia fal, napraw notatek
+  i dat, `job_twin_merge`, `tasks/traffit_sync.py`,
+  `tasks/candidate_contact_traffit.py`, CLI `app.cli.import_traffit`, zapisu
+  JJIT do Traffita, skryptu `scripts/backfill_rejection_reasons.py`, pętli
+  `traffit_sync` i `candidate_contact_traffit` oraz nieczytanych ustawień
+  `TRAFFIT_*`. Wszystkie trasy `/api/admin/traffit/*` poza odczytem statusu
+  zniknęły (odpowiedź 410 zamiast 404 dodaje `api/retired_modules.py`, #3158).
+- **Zostaje:** `GET /api/admin/traffit/sync/status` (kafelek „Traffit
+  (archiwum)”, `dashboard_v2_sources`, `traffit_status.py` z werdyktem
+  świeżości), `traffit_retired.py`, modele i tabele (`traffit_sync_state` czytają
+  też `notes_insights`, `weekly_eval`, `match_digest`), dane
+  `external_source='traffit'`, migracje i `entrypoint.sh`, wszystkie ekrany
+  z zaimportowaną historią, 410 na `champion-profiles/ingest` i `manage-in-nexus`.
+- **`traffit_job_archive.py` zostaje** mimo usunięcia importu: migracja 0377
+  importuje z niego SQL, a alembic ładuje wszystkie pliki wersji przy każdym
+  poleceniu.
+- **JJIT:** kandydat idzie tylko do NEXUSA; e-mail z CV ma pierwszeństwo przed
+  adresem z panelu (`cv_payload.preferred_email`).
+
 ## Stan od 14.10.2026: Traffit wyłączony na stałe w kodzie
 
 Decyzja Artura 14.10.2026: „my już z Traffita nie korzystamy, żadne importy

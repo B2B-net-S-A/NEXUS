@@ -599,43 +599,6 @@ CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
 )
 
 
-CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
-    name="champion_profile_enrich_from_call",
-    # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
-    # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
-    version=2,
-    expected_format="json",
-    system_prompt=(
-        "Jesteś senior rekruterem IT. Analizujesz krótki transkrypt rozmowy "
-        "telefonicznej Delivery Lead (CloudTalk). Kontekst może być "
-        "fragmentaryczny — wyciągaj tylko to co explicit wspomniane. "
-        "NIE uzupełniaj braków zgadywaniem. "
-        "Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
-    ),
-    template=(
-        "Obecny Profil Championa (JSON):\n"
-        "---\n"
-        "{current_profile_json}\n"
-        "---\n\n"
-        "Kontekst oferty:\n"
-        "  Tytuł: {job_title}\n"
-        "  Klient: {client_name}\n\n"
-        "Rozmowa telefoniczna — uczestnicy: {call_participants}\n"
-        "Rozmowa telefoniczna — podsumowanie:\n"
-        "{call_summary}\n\n"
-        "Rozmowa telefoniczna — transkrypt:\n"
-        "---\n"
-        "{call_transcript}\n"
-        "---\n\n"
-        "Zwróć delta-patch JSON z TYLKO sekcjami do aktualizacji "
-        "(format identyczny jak dla meeting enrichment). "
-        "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
-        "Ze względu na krótki format rozmowy ogranicz confidence do max 0.8. "
-        "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie."
-    ),
-)
-
-
 CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
     name="champion_profile_from_historical_jobs",
     # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
@@ -1597,44 +1560,6 @@ CV_EDITOR_COMMAND = PromptTemplate(
     ),
 )
 
-ACADEMY_SCREENING = PromptTemplate(
-    name="academy_screening",
-    version=2,
-    expected_format="json",
-    system_prompt=(
-        "Czytasz CV osoby, która zgłosiła się do akademii szkoleniowej. "
-        "Twoje jedyne zadanie: wypisać fakty z CV, każdy z DOSŁOWNYM cytatem "
-        "z tekstu CV (skopiuj fragment dokładnie tak, jak jest w CV). "
-        "Nie oceniasz kandydata i nie podejmujesz decyzji. "
-        "ZAKAZY: nie wnioskuj niczego z imienia, nazwiska, narodowości, miejsca "
-        "urodzenia, wyglądu ani wieku — tych danych nie zapisujesz wcale. "
-        "Poziom języka polskiego podaj WYŁĄCZNIE na podstawie tego, co CV mówi "
-        "o znajomości języków — cytat musi zawierać słowo o języku polskim "
-        "(np. 'polski — ojczysty'), a przy 'basic' także poziom. Jeśli CV nic "
-        "o tym nie mówi — 'unknown'. Nie zgaduj dat: pozycja bez daty w CV nie "
-        "trafia do listy, a cytat pracy lub studiów musi zawierać podane lata "
-        "(rok rozpoczęcia i zakończenia pracy, rok ukończenia studiów). Studia to uczelnia wyższa (licencjat, inżynier, magister, "
-        "doktorat); kursy, bootcampy, szkolenia, studia podyplomowe, MBA "
-        "i liceum mają kind 'other'. Odpowiadasz wyłącznie JSON-em."
-    ),
-    template=(
-        "{cv}\n\n"
-        "Zwróć JSON dokładnie w tym kształcie:\n"
-        "{{\n"
-        '  "polish": {{"level": "native|fluent|basic|unknown", "quote": "cytat z CV"}},\n'
-        '  "education": [\n'
-        '    {{"kind": "higher|other", "completed": true, "end_year": 2021, "quote": "cytat"}}\n'
-        "  ],\n"
-        '  "work": [\n'
-        '    {{"start": "RRRR-MM", "end": "RRRR-MM albo present", "quote": "cytat"}}\n'
-        "  ]\n"
-        "}}\n\n"
-        "Studia w trakcie: completed false, end_year null. Przy samym roku "
-        "rozpoczęcia pracy wpisz miesiąc 01."
-    ),
-)
-
-
 APPLICATION_SCREENING = PromptTemplate(
     name="application_screening",
     version=2,
@@ -2046,7 +1971,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         INTERVIEW_PREP,
         CHAMPION_PROFILE_FROM_JD,
         CHAMPION_PROFILE_ENRICH_FROM_MEETING,
-        CHAMPION_PROFILE_ENRICH_FROM_CALL,
         CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
         MATCH_JUSTIFICATION,
         CANDIDATE_ACTIVITY_SUMMARY,
@@ -2054,7 +1978,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         JOB_REQUEST_INTAKE,
         CHAMPION_CLIENT_HISTORY,
         SCREENING_REASSIGN_SUGGEST,
-        ACADEMY_SCREENING,
         LEGACY_INTERVIEW_QUESTIONS,
         APPLICATION_SCREENING,
         INTERVIEW_SLOTS_FROM_MAIL,

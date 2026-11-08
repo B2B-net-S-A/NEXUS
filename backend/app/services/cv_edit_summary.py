@@ -28,6 +28,7 @@ from collections import Counter, defaultdict
 from typing import Optional
 
 from lxml import html as lxml_html
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
@@ -42,6 +43,35 @@ START_HTML_KEY = "generated_editor_html"
 STATUS_UNCHANGED = "unchanged"
 STATUS_BOLD_ONLY = "bold_only"
 STATUS_CHANGED = "changed"
+# Szkic z zapisanym startem zastąpiono czymś spoza generatora (CV-1, 08.11.2026).
+STATUS_REPLACED = "replaced"
+
+# Co zaczyna CV z generatora: mianownik raportu i granica liczenia `assisted`.
+AUTO_START_ACTIONS = frozenset(
+    {"branded_cv_attached_by_automation", "branded_cv_replaced_after_new_cv"}
+)
+MANUAL_START_ACTIONS = frozenset(
+    {"branded_cv_attached_after_generation", "branded_cv_selected_from_generator"}
+)
+START_ACTIONS = AUTO_START_ACTIONS | MANUAL_START_ACTIONS
+_COPY_START_ACTION = "branded_cv_selected_from_other_job"
+# Wpis szkicu → rodzaj podmiany. Nowa droga podmiany = wpis tutaj.
+REPLACE_KINDS = {
+    "branded_cv_uploaded_in_recruitment": "upload",
+    "branded_cv_uploaded_from_disk": "upload",
+    "branded_cv_imported_from_document": "import",
+    _COPY_START_ACTION: "copy",
+    "branded_cv_copied_from_other_job": "copy",
+    "branded_cv_discarded": "discard",
+}
+REPLACE_REASONS = frozenset(
+    {"client_format", "missing_experience", "newer_cv", "other"}
+)
+
+# Ślady poprawek maszynowych między startem a zatwierdzeniem (CV-3).
+ASSISTED_QC_FIX = "cv_qc_fix_applied"
+ASSISTED_COMMAND = "cv_command_ai"
+ASSISTED_APPLIED = "cv_command_applied"
 
 # Sekcje generatora (`h2[data-cv-section]`), których bloki liczą się pod nazwą sekcji.
 _SECTIONS = frozenset(
@@ -227,6 +257,127 @@ def summarize_edits(start_html: str, approved_html: str) -> dict:
     }
 
 
+def has_editor_start(metadata: Optional[dict]) -> bool:
+    start = (metadata or {}).get(START_HTML_KEY)
+    return isinstance(start, str) and bool(start.strip())
+
+
+async def _assisted_counts(db: AsyncSession, csv_id: int) -> Optional[dict[str, int]]:
+    """Ile razy kod i asystent ruszały to CV od ostatniego startu (CV-3).
+
+    ``None`` przy błędzie odczytu: wpis z liczbami zmian i tak ma powstać.
+    """
+    try:
+        # SAVEPOINT: błąd Postgresa poza nim przerwałby transakcję zatwierdzenia,
+        # a COMMIT przerwanej transakcji po cichu cofa zatwierdzenie.
+        async with db.begin_nested():
+            return await _count_assisted(db, csv_id)
+    except Exception:  # noqa: BLE001 — pomiar nie może zatrzymać zatwierdzenia
+        logger.warning(
+            "[cv_edit_summary] brak liczb assisted dla candidate_stage_cv:%s",
+            csv_id,
+            exc_info=True,
+        )
+        return None
+
+
+async def _count_assisted(db: AsyncSession, csv_id: int) -> dict[str, int]:
+    last_start = (
+        select(func.max(Activity.created_at))
+        .where(
+            Activity.entity_type == "candidate_stage_cv",
+            Activity.entity_id == csv_id,
+            Activity.action.in_(START_ACTIONS | {_COPY_START_ACTION}),
+        )
+        .scalar_subquery()
+    )
+    rows = await db.execute(
+        select(Activity.action, func.count())
+        .where(
+            Activity.entity_type == "candidate_stage_cv",
+            Activity.entity_id == csv_id,
+            Activity.action.in_((ASSISTED_QC_FIX, ASSISTED_COMMAND, ASSISTED_APPLIED)),
+            Activity.created_at >= func.coalesce(last_start, Activity.created_at),
+        )
+        .group_by(Activity.action)
+    )
+    counts = dict(rows.all())
+    return {
+        "qc_fixes": counts.get(ASSISTED_QC_FIX, 0),
+        "assistant_commands": counts.get(ASSISTED_COMMAND, 0),
+        "assistant_applied": counts.get(ASSISTED_APPLIED, 0),
+    }
+
+
+async def log_replaced_edits(
+    db: AsyncSession, *, csv, kind: str, user_id: Optional[int]
+) -> bool:
+    """Dopisz ``ACTION`` ze statusem ``replaced``, zanim szkic zniknie (CV-1).
+
+    Mianownikiem generatora jest start, więc CV wyrzucone i zastąpione własnym
+    plikiem musi zostawić ślad z liczbami do chwili podmiany. Wołać przed
+    nadpisaniem szkicu. ``True`` = wpis zapisany (szkic miał start).
+    """
+    metadata = csv.branded_render_metadata
+    if not has_editor_start(metadata):
+        return False
+    try:
+        summary = summarize_edits(
+            metadata[START_HTML_KEY], csv.branded_draft_html or ""
+        )
+        async with db.begin_nested():
+            db.add(
+                Activity(
+                    entity_type="candidate_stage_cv",
+                    entity_id=csv.id,
+                    action=ACTION,
+                    user_id=user_id,
+                    details={
+                        "candidate_stage_id": csv.candidate_stage_id,
+                        "job_id": csv.job_id,
+                        "version": csv.branded_version,
+                        "generated_document_id": csv.generated_document_id,
+                        "origin": metadata.get("source") or "generator",
+                        **summary,
+                        "status": STATUS_REPLACED,
+                        "edits_status": summary["status"],
+                        "replace_kind": kind,
+                        "prior_status": csv.branded_status,
+                    },
+                )
+            )
+        return True
+    except Exception:  # noqa: BLE001 — pomiar nie może zatrzymać podmiany
+        logger.warning(
+            "[cv_edit_summary] nie zapisano podmiany dla candidate_stage_cv:%s",
+            getattr(csv, "id", None),
+            exc_info=True,
+        )
+        return False
+
+
+async def record_replace_reason(
+    db: AsyncSession, *, csv_id: int, user_id: int, reason: str
+) -> bool:
+    """Powód z pigułki dopisany do ostatniego wpisu ``replaced`` tej osoby (CV-2)."""
+    entry = await db.scalar(
+        select(Activity)
+        .where(
+            Activity.entity_type == "candidate_stage_cv",
+            Activity.entity_id == csv_id,
+            Activity.action == ACTION,
+            Activity.user_id == user_id,
+            Activity.details["status"].astext == STATUS_REPLACED,
+        )
+        .order_by(Activity.created_at.desc(), Activity.id.desc())
+        .limit(1)
+    )
+    if entry is None:
+        return False
+    entry.details = {**(entry.details or {}), "reason": reason}
+    return True
+
+
 async def log_approved_edits(
     db: AsyncSession,
     *,
@@ -242,11 +393,11 @@ async def log_approved_edits(
     CV bez zapisanego startu (sprzed E3, z pliku, z innego CV) nie dostaje
     wpisu — nie zgadujemy, od czego zaczął człowiek. Commit robi wołający.
     """
-    start = (metadata or {}).get(START_HTML_KEY)
-    if not isinstance(start, str) or not start.strip():
+    if not has_editor_start(metadata):
         return
     try:
-        summary = summarize_edits(start, approved_html)
+        summary = summarize_edits(metadata[START_HTML_KEY], approved_html)
+        assisted = await _assisted_counts(db, csv.id)
         async with db.begin_nested():
             db.add(
                 Activity(
@@ -260,7 +411,8 @@ async def log_approved_edits(
                         "document_version_id": document_version_id,
                         "version": version,
                         "generated_document_id": csv.generated_document_id,
-                        "origin": (metadata or {}).get("source") or "generator",
+                        "origin": metadata.get("source") or "generator",
+                        "assisted": assisted,
                         **summary,
                     },
                 )

@@ -3269,7 +3269,9 @@ async def close_job(
         # rekruterów, którzy dostaną wiadomość (28.10.2026).
         from app.services.job_closed_notices import active_cards_warning
 
-        warning = await active_cards_warning(db, job.id, actor_id=current_user.id)
+        warning = await active_cards_warning(
+            db, job.id, actor_id=current_user.id, close_reason=choice.reason, job=job
+        )
         if warning is not None:
             raise HTTPException(status_code=409, detail=warning)
 
@@ -3284,9 +3286,27 @@ async def close_job(
     )
     job.duplicate_of_job_id = choice.duplicate_of_job_id
     # Rekruterzy osób od „CV wysłane” w górę dostają dzwonek i mail (28.10.2026).
+    from app.services.job_close_client_cards import (
+        client_side_cards,
+        end_client_cards_after_close,
+        reason_key_for,
+    )
     from app.services.job_closed_notices import notify_closed
 
-    await notify_closed(db, job, actor_id=current_user.id)
+    # 08.11.2026: kończymy pary u klienta dopiero po commicie, ale listę czytamy
+    # teraz, bo dzwonek do rekruterów powstaje przed zmianą kart.
+    ended_ids: frozenset[int] = frozenset()
+    if data.end_client_cards and reason_key_for(choice.reason) is not None:
+        ended_ids = frozenset(await client_side_cards(db, job))
+        closed_job_id, closed_reason = job.id, choice.reason
+        actor = current_user.id
+        effects.add(
+            "end_client_cards",
+            lambda: end_client_cards_after_close(
+                closed_job_id, reason=closed_reason, actor_id=actor
+            ),
+        )
+    await notify_closed(db, job, actor_id=current_user.id, ended_ids=ended_ids)
     await db.commit()
     await db.refresh(job)
     await job_lifecycle.run_post_commit(effects)
@@ -5219,6 +5239,7 @@ async def add_candidate_from_history(
         origin_kind=PriorityOriginKind.assigned,
         entry_source="added_manual",
         claim_for_user_id=current_user.id,
+        entry_meta={"found_via": "proposals"},
     )
     db.add(
         Activity(

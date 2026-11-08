@@ -5,6 +5,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query"
 
 import api from "@/lib/api"
 import { hasSectionAccess } from "@/lib/section-access"
+import type { KnownFacts } from "@/lib/new-column-queue"
 import { useAuthStore } from "@/store/auth"
 
 export interface ReviewBatchJob {
@@ -28,6 +29,8 @@ export interface ReviewBatchStatus {
   met: boolean
   /** Niezrobione minimum teraz blokuje wyszukiwanie (wyłącznik HoR, pilot, dzień roboczy od 7:00). */
   blocks?: boolean
+  /** „Do screeningu” z ostatnich 2 dni roboczych, jeszcze bez wyniku. */
+  open_screenings?: number
   jobs: ReviewBatchJob[]
   team_jobs: ReviewBatchJob[]
 }
@@ -56,6 +59,50 @@ export interface ReviewBatchItem {
   availability_status: string | null
   cautions: ReviewBatchCaution[]
   budget_hourly: number | null
+  known?: KnownFacts | null
+  order_active?: boolean
+  order_in_budget?: boolean
+}
+
+export interface ReviewBatchTeamRow {
+  user_id: number
+  name: string
+  absent: boolean
+  done_today: number
+  required: number
+  pending: number
+  /** Godzina zrobienia minimum, `null` = jeszcze nie. */
+  minimum_at: string | null
+  screened: number
+  rejected: number
+  open_screenings: number
+  /** Wpisy `review_batch.blocked`, jeden na 10 minut. */
+  blocked_today: number
+}
+
+export interface ReviewBatchStreamsWeek {
+  start: string
+  system: number
+  manual: number
+  all: number
+  complete: boolean
+  found_via: Record<string, number>
+}
+
+export interface ReviewBatchTeam {
+  day: string
+  enabled: boolean
+  minimum: number
+  rows: ReviewBatchTeamRow[]
+  good_before_11: number
+  measured: number
+  streams: {
+    weeks: ReviewBatchStreamsWeek[]
+    baseline_week: { system: number; manual: number; all: number }
+    stop_drop_percent: number
+    stop_weeks: number
+    stop: boolean
+  }
 }
 
 export const REVIEW_BATCH_QUERY_KEY = ["review-batch"] as const
@@ -86,6 +133,17 @@ export function useReviewBatchQueue(options: { enabled?: boolean } = {}) {
       })).data,
     enabled: options.enabled ?? true,
     staleTime: 0,
+    retry: false,
+  })
+}
+
+/** Porcja zespołu dziś (HoR i admin), liczona dopiero po rozwinięciu tabeli. */
+export function useReviewBatchTeam(enabled: boolean) {
+  return useQuery<ReviewBatchTeam>({
+    queryKey: [...REVIEW_BATCH_QUERY_KEY, "team"],
+    queryFn: async () => (await api.get<ReviewBatchTeam>("/api/review-batch/team")).data,
+    enabled,
+    staleTime: 30_000,
     retry: false,
   })
 }

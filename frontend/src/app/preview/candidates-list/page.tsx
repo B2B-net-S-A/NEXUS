@@ -55,7 +55,6 @@ import { jobListFilters } from "@/components/v2/recruitment/ManualSearchPanel";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
-import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
 import { DEFAULT_FILTERS, decodeFilters } from "@/lib/url-filters";
 import { hasStageFilter } from "@/lib/stage-filter";
 import {
@@ -608,7 +607,6 @@ function seededClient(): QueryClient {
     { id: 2, slug: "software_development", name_pl: "Wytwarzanie oprogramowania", is_active: true },
   ]);
   qc.setQueryData(candidateContactQueryKeys.status(), { enabled: false });
-  qc.setQueryData(cloudTalkStatusQueryKey, { enabled: false });
   qc.setQueryData(candidateQueryKeys.quickView(501), QUICK_VIEW);
   qc.setQueryData(candidateQueryKeys.risk(501), { level: "low" });
   qc.setQueryData(["clients-lookup-talent-radar"], [

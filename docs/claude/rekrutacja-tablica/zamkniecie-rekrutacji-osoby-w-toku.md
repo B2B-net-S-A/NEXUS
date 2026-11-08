@@ -34,6 +34,39 @@ procesów w 58 rekrutacjach zamkniętych w ciągu dwóch tygodni.
 - **Ostrzeżenie niczego nie robi z kartami.** Nie odrzuca osób i nie przenosi
   ich do innej rekrutacji; przeniesienie przy duplikacie requestu to osobne
   narzędzie scalania (`integracje/przeniesienie-rekrutacji-z-traffita-falami.md`).
+  Wyjątek od 08.11.2026: pary u klienta przy przegranej (sekcja niżej).
+
+## Pary u klienta kończą się przy przegranej (decyzja Artura 08.11.2026)
+
+Zamiast reguły „zamknięcie nie rusza kart” z 13.10 dla osób u klienta. Audyt 2
+z 08.11: 360 par stało „u klienta” w 108 rekrutacjach zamkniętych od 12.10,
+a lejek liczył je jako procesy w toku. Makieta: pierwsza plansza w
+https://claude.ai/artifact/VXHZFJQZQbNRXAVGzNfdCu.
+
+- **Kiedy:** powód zamknięcia `competitor` (koniec pary: „Klient wybrał kogoś
+  innego”, `client_chose_other`) albo `budget` („Request zamknięty”,
+  `request_closed`, seed 0663). Inne powody, w tym `filled_by_us`, nie ruszają kart.
+- **Które pary:** bieżąca karta w „CV wysłane” albo „Rozmowie u klienta”,
+  w bieżącym otwarciu. „Umowa” zostaje, bo tam klient już się zgodził, i etapy
+  wewnętrzne zostają jak dotąd.
+- **Jak:** `ended_by='client'`, wiersz `rejected`, bez maila do kandydata i bez
+  dzwonka o zmianie etapu. Rekruter dostaje dotychczasowy dzwonek zamknięcia
+  ze zdaniem, że NEXUS zakończył procesy i kandydatom trzeba dać znać.
+- **Okno pyta wprost.** 409 `active_cards_warning` niesie `client_end`
+  (liczby i treść), okno pokazuje wybór „Tak, zakończ…” / „Nie, zostaw w toku”,
+  przycisk mówi „Zamknij i zakończ N osób u klienta”. Decyduje pole
+  `end_client_cards`; stare klienty API bez niego niczego nie kończą.
+- **Mail CPro** („Consultant contracted”, „Demand change”) kończy pary sam, bo
+  nikt tego nie potwierdza w oknie (`cpro_mail._apply_closed`).
+- **Po commicie, każda para osobno** (`job_close_client_cards`): trasa trzyma
+  blokadę rekrutacji, a `transition_process` bierze kandydata i potem rekrutację,
+  więc w tej samej transakcji groziło zakleszczenie z ręcznym ruchem karty.
+- **Ranking:** `client_chose_other`, `request_closed` i `client_no_response` nie
+  są oceną osoby, więc nie dają sygnału „odrzucony przez klienta”
+  (`CLIENT_NOT_A_VERDICT`, `known_people_signal`, `known_queue_points`).
+- **Historia:** `scripts/close_client_cards_backfill.py` kończy pary
+  w rekrutacjach `competitor` i `budget` zamkniętych od 12.10, data wiersza to
+  zamknięcie rekrutacji. Domyślnie podgląd, zapis `--apply`. Bez dzwonków.
 
 ## Hit ratio: przegrana = tylko konkurencja, reszta zamknięć „nie liczy się” (21.10.2026)
 

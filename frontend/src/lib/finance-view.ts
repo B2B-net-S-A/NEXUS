@@ -6,6 +6,7 @@ export type FinanceViewMode =
   | "order-changes"
   | "order-pdfs"
   | "sales-invoices"
+  | "rate-divergences"
   | "approved-expenses";
 
 const VIEW_MODES: readonly FinanceViewMode[] = [
@@ -15,6 +16,7 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "order-changes",
   "order-pdfs",
   "sales-invoices",
+  "rate-divergences",
   "approved-expenses",
 ];
 

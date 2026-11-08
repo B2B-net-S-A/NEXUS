@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useAcademyHolderSearch } from "@/lib/api/academy-edition";
 import {
   useCreateExternalPerson,
   useHolderSearch,
@@ -20,34 +19,23 @@ interface HolderPickerProps {
   value: EquipmentHolder | null;
   onChange: (holder: EquipmentHolder | null) => void;
   /**
-   * Kreator wydania: przełącznik „Uczestnik Akademii” (zgłoszenie po zaliczonym
-   * zadaniu). Bez niego (import plików, zwrot z rejestru) uczestnika nie wybierzesz.
-   */
-  academy?: boolean;
-  /**
    * Tylko aktywne konta NEXUSA — „Przepisz na konto” osoby spoza NEXUSA.
    * Bez kontraktów, osób spoza i dodawania nowej osoby.
    */
   accountsOnly?: boolean;
 }
 
-type SearchMode = "registry" | "academy";
-
-/** Wybór posiadacza: konto NEXUSA, kontrakt konsultanta, osoba spoza albo uczestnik Akademii. */
+/** Wybór posiadacza: konto NEXUSA, kontrakt konsultanta albo osoba spoza. */
 export function HolderPicker({
   value,
   onChange,
-  academy: withAcademy = false,
   accountsOnly = false,
 }: HolderPickerProps) {
-  const [mode, setMode] = useState<SearchMode>("registry");
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
-  const academyMode = withAcademy && mode === "academy";
-  const registry = useHolderSearch(academyMode ? "" : deferred);
-  const academy = useAcademyHolderSearch(deferred, academyMode);
-  const results = academyMode ? academy : registry;
-  const found: EquipmentHolder[] = (academyMode ? academy.data : registry.data) ?? [];
+  const registry = useHolderSearch(deferred);
+  const results = registry;
+  const found: EquipmentHolder[] = registry.data ?? [];
   const hits = accountsOnly ? found.filter((holder) => holder.kind === "user") : found;
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -57,8 +45,6 @@ export function HolderPicker({
   const create = useCreateExternalPerson();
 
   const choose = (holder: EquipmentHolder | null) => {
-    // Import plików i zwrot z rejestru nie przyjmują uczestnika Akademii.
-    if (holder?.kind === "academy" && !withAcademy) return;
     if (holder && accountsOnly && holder.kind !== "user") return;
     onChange(holder);
   };
@@ -110,29 +96,6 @@ export function HolderPicker({
 
   return (
     <div className="space-y-2">
-      {withAcademy ? (
-        <div role="group" aria-label="Kogo szukasz" className="flex gap-1">
-          {(
-            [
-              ["registry", "Zespół, kontrakty, osoby spoza"],
-              ["academy", "Uczestnik Akademii"],
-            ] as const
-          ).map(([key, label]) => (
-            <Button
-              key={key}
-              size="sm"
-              variant={mode === key ? "secondary" : "ghost"}
-              aria-pressed={mode === key}
-              onClick={() => {
-                setMode(key);
-                setAdding(false);
-              }}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-      ) : null}
       <div className="relative">
         <Search
           aria-hidden
@@ -140,16 +103,8 @@ export function HolderPicker({
         />
         <Input
           autoFocus
-          aria-label={
-            academyMode
-              ? "Szukaj uczestnika Akademii"
-              : accountsOnly
-                ? "Szukaj konta NEXUSA"
-                : "Szukaj osoby albo kontraktu"
-          }
-          placeholder={
-            academyMode ? "Imię i nazwisko uczestnika Akademii…" : "Imię i nazwisko albo e-mail…"
-          }
+          aria-label={accountsOnly ? "Szukaj konta NEXUSA" : "Szukaj osoby albo kontraktu"}
+          placeholder="Imię i nazwisko albo e-mail…"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="pl-8"
@@ -161,11 +116,7 @@ export function HolderPicker({
             {apiErrorMessage(results.error, "Nie udało się wyszukać osób.")}
           </p>
         ) : results.isSuccess && hits.length === 0 ? (
-          academyMode ? (
-            <p className="text-sm text-muted-foreground">Nikt nie pasuje do „{deferred}”.</p>
-          ) : (
-            <NoMatch query={deferred} accountsOnly={accountsOnly} />
-          )
+          <NoMatch query={deferred} accountsOnly={accountsOnly} />
         ) : (
           <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border">
             {hits.map((holder) => (
@@ -185,12 +136,7 @@ export function HolderPicker({
       ) : (
         <p className="text-xs text-muted-foreground">Wpisz co najmniej dwie litery.</p>
       )}
-      {accountsOnly ? null : academyMode ? (
-        <p className="text-xs text-muted-foreground">
-          Uczestnik po zaliczonym zadaniu w Akademii; imię, nazwisko i e-mail do protokołu
-          pochodzą ze zgłoszenia.
-        </p>
-      ) : adding ? (
+      {accountsOnly ? null : adding ? (
         <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-3">
           <FormField label="Imię i nazwisko" htmlFor="eq-ext-name" required>
             <Input id="eq-ext-name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -201,7 +147,7 @@ export function HolderPicker({
           <FormField label="Kto to" htmlFor="eq-ext-note">
             <Input
               id="eq-ext-note"
-              placeholder="np. Akademia 11.2026"
+              placeholder="np. Stażysta 11.2026"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />

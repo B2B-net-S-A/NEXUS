@@ -535,6 +535,7 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_COST_BUDGET_LOW,
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
         ALERT_FRAMEWORK_CONTRACT_EXPIRING,
+        ALERT_INVOICE_WITHOUT_ORDER_LINE,
         ALERT_MD_BASE_USAGE_HIGH,
         ALERT_MD_BUDGET_LOW,
         ALERT_MISSING_REVENUE_RATE,
@@ -558,6 +559,7 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_NEW_CONTRACTOR_DRAFT,
         ALERT_ORDER_MAIL_REVIEW,
         ALERT_CANDIDATE_CONFLICT_EXPIRED,
+        ALERT_INVOICE_WITHOUT_ORDER_LINE,
     }
 
 

@@ -28,14 +28,13 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
-from app.models.note import Note, NoteType
+from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.services.mention_dispatch import (
     CHAT_DELETED_PLACEHOLDER,
     NOTE_DELETED_PLACEHOLDER,
 )
-from app.services.traffit.importer import TraffitImporter
 
 pytestmark = pytest.mark.asyncio
 
@@ -431,58 +430,7 @@ async def _mk_activity(candidate_id: int, *, ext: str, at: datetime) -> None:
         await db.commit()
 
 
-async def _promote() -> None:
-    async with AsyncSessionLocal() as db:
-        await TraffitImporter(object(), db, dry_run=False).promote_notes()
-
-
 async def _candidate_notes(candidate_id: int) -> list[Note]:
     async with AsyncSessionLocal() as db:
         rows = await db.execute(select(Note).where(Note.candidate_id == candidate_id))
         return list(rows.scalars().all())
-
-
-async def test_deleted_traffit_note_is_not_promoted_again(
-    app_client: AsyncClient, ctx
-) -> None:
-    admin = await _login(app_client, ctx["admin_email"], ctx["admin_password"])
-    cid = ctx["candidate_id"]
-    await _mk_activity(
-        cid, ext=f"r10-{uuid.uuid4().hex[:10]}", at=datetime.now(timezone.utc)
-    )
-    await _promote()
-    notes = await _candidate_notes(cid)
-    assert len(notes) == 1 and notes[0].source_ref.startswith("traffit:activity:")
-
-    resp = await app_client.delete(f"/api/notes/{notes[0].id}", headers=admin)
-    assert resp.status_code == 204
-    await _promote()
-    assert await _candidate_notes(cid) == []
-
-
-async def test_deleted_0077_note_without_source_ref_is_not_promoted_again(
-    app_client: AsyncClient, ctx
-) -> None:
-    admin = await _login(app_client, ctx["admin_email"], ctx["admin_password"])
-    cid = ctx["candidate_id"]
-    at = datetime.now(timezone.utc).replace(microsecond=0)
-    await _mk_activity(cid, ext=f"r10-{uuid.uuid4().hex[:10]}", at=at)
-    # Notatka z migracji 0077: bez `source_ref`, dopasowana po znaczniku czasu.
-    async with AsyncSessionLocal() as db:
-        note = Note(
-            candidate_id=cid,
-            content="notatka z Traffita",
-            note_type=NoteType.general,
-            created_at=at,
-            updated_at=at,
-        )
-        db.add(note)
-        await db.commit()
-        note_id = note.id
-    await _promote()
-    assert [n.id for n in await _candidate_notes(cid)] == [note_id]
-
-    resp = await app_client.delete(f"/api/notes/{note_id}", headers=admin)
-    assert resp.status_code == 204
-    await _promote()
-    assert await _candidate_notes(cid) == []

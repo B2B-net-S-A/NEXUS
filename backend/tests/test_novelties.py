@@ -289,6 +289,33 @@ def frozen_registry(monkeypatch):
 
 @_DB
 @pytest.mark.asyncio
+async def test_novelty_behind_a_switch_waits_for_it(
+    app_client: AsyncClient, monkeypatch
+) -> None:
+    """Porcja dnia wyłączona = nie ma obowiązkowej nowości o liczniku."""
+    from app.api import novelties as api
+    from app.core.config import settings
+
+    novelty = _novelty(
+        id="test-przelacznik",
+        shipped_on=datetime.now(ZoneInfo("Europe/Warsaw")).date().isoformat(),
+        audience={"roles": ["recruiter"]},
+        requires_setting="REVIEW_BATCH_ENABLED",
+    )
+    monkeypatch.setattr(api, "load_novelties", lambda: {novelty.id: novelty})
+    monkeypatch.setattr(api, "load_start_tours", lambda: {})
+    _, recruiter = await _user("recruiter")
+
+    monkeypatch.setattr(settings, "REVIEW_BATCH_ENABLED", False, raising=False)
+    assert (await app_client.get("/api/novelties/mine", headers=recruiter)).json() == []
+
+    monkeypatch.setattr(settings, "REVIEW_BATCH_ENABLED", True, raising=False)
+    mine = (await app_client.get("/api/novelties/mine", headers=recruiter)).json()
+    assert [n["id"] for n in mine] == ["test-przelacznik"]
+
+
+@_DB
+@pytest.mark.asyncio
 async def test_recruiter_sees_own_novelty_and_completes_it_by_tour(
     app_client: AsyncClient, frozen_registry
 ) -> None:

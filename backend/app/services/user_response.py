@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.security import has_usable_password
 from app.models.user import User, UserRole
 from app.schemas.user import DashboardDataScope, DashboardPreset, UserResponse
@@ -82,7 +81,6 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
             await resolve_delivery_lead_finance_client_ids(user, db) or frozenset()
         )
     response.data_scope = DashboardDataScope(**scope_payload)
-    response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
     if user.has_role(UserRole.delivery_lead) and not user.has_any_role(
         UserRole.admin,
         UserRole.finance,

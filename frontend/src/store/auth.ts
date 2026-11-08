@@ -208,9 +208,6 @@ export interface User {
   >
   /** Jawny zakres danych; frontend używa go tylko do UX i query keys. */
   data_scope?: DataScope
-  /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.
-   *  Frontend pyta /api/analytics/v1 tylko przy "live" (fail-closed). */
-  analytics_v1_mode?: string
   /** Zakres klientów Delivery Leada w modułach Delivery (25.09.2026):
    *  "assigned" = tylko klienci z przypisania, "all" = wszyscy; brak dla kont
    *  spoza persony DL. Serwer jest arbitrem — front tylko dopasowuje UX. */

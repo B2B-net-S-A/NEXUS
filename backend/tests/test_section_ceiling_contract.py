@@ -150,11 +150,6 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/cv-generator/feedback/summary": "Ustawienia → „Jakość generatora CV” — zestawienie dla admina i HoR (bramka roli), poza sekcjami jak panel nowości",
     "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
-    "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
-    "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",
-    "POST /api/trainee/items/{item_id}/outcome": "praktykant: wynik telefonu z własnej listy",
-    "GET /api/trainee/items/{item_id}/open-jobs": "praktykant: tytuły otwartych rekrutacji pasujących do osoby z jego listy",
-    "POST /api/trainee/items/{item_id}/handover": "praktykant: propozycja do „Do przejrzenia” dla osoby z jego listy",
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",
 }

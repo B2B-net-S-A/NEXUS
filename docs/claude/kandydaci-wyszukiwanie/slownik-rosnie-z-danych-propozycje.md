@@ -90,3 +90,23 @@ lepiej, 0 gorzej). Decyzja Artura „Etap 1: A + B”.
   unieważnienie wyników rekrutacji, których wymagania wymieniają hasło w którymś
   zapisie (`mark_stale_for_jobs`). Punktowo, nie całej tabeli, jak przy
   profilach wag.
+
+## Wersja słownika i unieważnianie (audyt 2, 08.11.2026)
+
+- Nocny bieg powiązań unieważnia tylko hasła zmienione tej nocy, a przy braku
+  zmian nic. `invalidate_scores` bierze wyłącznie opublikowane rekrutacje.
+  Dlatego powrót do publikacji (`publish_core`, jedyna droga: PATCH statusu
+  daje 409 `reopen_required`) sam unieważnia wyniki tej rekrutacji; bez tego
+  wracałaby ze starymi po zmianach słownika.
+- `app_settings['skill_dictionary_version']` zmienia każda zmiana słownika.
+  Pętla `tasks/skill_dictionary_sync.py` w każdym procesie co 60 s porównuje
+  wersję i przeładowuje mapę. Stoi poza rejestrem pętli w `main.py`, bo rejestr
+  startuje tylko u lidera, a mapa musi być świeża też w procesie bez blokady.
+- Do 60 s po zmianie inny proces liczy jeszcze starą mapą, a taki wynik zostaje
+  w pamięci wyników. To cena odpytywania co minutę.
+- Wersja słownika jest tylko stemplem przeglądu automatycznego
+  (`version_trace.skill_dictionary`), a nie częścią odcisku ani
+  `_REVIEW_VERSION_KEYS`. Decyzja Artura z 08.11.2026. Słownik zmienia się
+  prawie co noc, więc w odcisku dawałby co rano 409 w oknie propozycji na
+  większości rekrutacji (limit 48 przeglądów na noc, 185 rekrutacji w pracy),
+  a w kolejce zrównałby wszystkie z rekrutacjami, w których coś się stało.

@@ -13,7 +13,7 @@ vi.mock("@/store/auth", () => ({
     selector({ user: { id: 5, authorization_version: 1 } }),
 }));
 
-import { JobsNotificationsDropdown } from "../JobsNotificationsDropdown";
+import { JobsNotificationsDropdown, splitJobThreads } from "../JobsNotificationsDropdown";
 import { useClearJobTopic } from "@/lib/api/jobTopic";
 
 const THREADS: JobThreadList = {
@@ -216,5 +216,33 @@ describe("useClearJobTopic — wejście na ekran rekrutacji", () => {
     await waitFor(() => expect(apiMock.get).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(apiMock.put).not.toHaveBeenCalled();
+  });
+});
+
+describe("splitJobThreads", () => {
+  const thread = (id: number, extra: Partial<JobThreadList["items"][number]>) => ({
+    job_id: id,
+    title: `Rekrutacja ${id}`,
+    subtitle: null,
+    unread_count: 1,
+    has_task: false,
+    last_title: "x",
+    last_message: "y",
+    last_at: null,
+    link: `/jobs/${id}`,
+    ...extra,
+  });
+
+  it("wpisy zbiorcze idą pod nowości, a przeczytane na koniec", () => {
+    const sections = splitJobThreads([
+      thread(1, { digest: "stuck" }),
+      thread(2, {}),
+      thread(3, { digest: "unstaffed" }),
+      thread(4, { unread_count: 0, digest: "stuck" }),
+    ]);
+    expect(sections.news.map((t) => t.job_id)).toEqual([2]);
+    expect(sections.unstaffed.map((t) => t.job_id)).toEqual([3]);
+    expect(sections.stuck.map((t) => t.job_id)).toEqual([1]);
+    expect(sections.read.map((t) => t.job_id)).toEqual([4]);
   });
 });

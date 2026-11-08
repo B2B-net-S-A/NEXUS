@@ -2997,6 +2997,7 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         assert isinstance(qc_card.pop("warnings_count"), int)
         # R1 (07.11.2026): blokujące „sprawdź ręcznie” — zależy od odczytu CV.
         assert isinstance(qc_card.pop("manual_checks"), list)
+        assert isinstance(qc_card.pop("manual_items"), list)
         # R2 (07.11.2026): luki kandydata w krytycznych.
         assert isinstance(qc_card.pop("candidate_gaps"), list)
         assert qc_card == {
@@ -4838,8 +4839,8 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
                 await qc.recompute_outdated(db)
         assert await versions() == ["old", qc.QC_VERSION]
 
-        # Zaliczony przebieg starszej wersji zostaje: nowy wiersz dostałby
-        # dzisiejszą datę, a od niej kolejka DL liczy czas oczekiwania.
+        # QC-1 (08.11.2026): zaliczone pary też się przeliczają, bo `ok_since`
+        # idzie z poprzedniego zdanego przebiegu, a plakietka ma mówić prawdę.
         async with AsyncSessionLocal() as db:
             await db.execute(
                 text(
@@ -4852,8 +4853,8 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
             await db.commit()
         with hydrated_taxonomy():
             async with AsyncSessionLocal() as db:
-                await qc.recompute_outdated(db)
-        assert await versions() == ["old", "old"]
+                assert await qc.recompute_outdated(db) >= 1
+        assert await versions() == ["old", "old", qc.QC_VERSION]
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])

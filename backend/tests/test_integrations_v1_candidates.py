@@ -842,6 +842,53 @@ class TestDocuments:
         )
         assert resp.status_code == 404, resp.text
 
+    async def test_cv_text_leaves_a_trail_for_the_data_access_alarm(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        seed = await _seed(app_client)
+        _, api_key = await _key(app_client, app_auth_headers, ["candidates:cv"])
+        resp = await app_client.get(
+            f"{V1}/candidates/{seed['anna']}/cv-text", headers=_h(api_key)
+        )
+        assert resp.status_code == 200, resp.text
+        async with AsyncSessionLocal() as db:
+            audit = await db.scalar(
+                select(Activity).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == seed["anna"],
+                    Activity.action == "cv_downloaded",
+                )
+            )
+        assert audit is not None
+        assert audit.user_id is None
+        assert audit.details["endpoint"] == "integration_cv_text"
+        assert audit.details["via"].startswith("integration:")
+        assert "Anna" not in str(audit.details)
+
+    async def test_cv_text_without_the_text_leaves_no_trail(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        seed = await _seed(app_client)
+        _, cv_key = await _key(app_client, app_auth_headers, ["candidates:cv"])
+        _, read_key = await _key(app_client, app_auth_headers, ["candidates:read"])
+        quarantined = await app_client.get(
+            f"{V1}/candidates/{seed['jan']}/cv-text", headers=_h(cv_key)
+        )
+        assert quarantined.json()["raw_cv_text"] is None
+        denied = await app_client.get(
+            f"{V1}/candidates/{seed['anna']}/cv-text", headers=_h(read_key)
+        )
+        assert denied.status_code == 403, denied.text
+        async with AsyncSessionLocal() as db:
+            trail = await db.scalar(
+                select(Activity).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id.in_((seed["jan"], seed["anna"])),
+                    Activity.action == "cv_downloaded",
+                )
+            )
+        assert trail is None
+
 
 class TestNotes:
     async def test_notes_need_notes_read(

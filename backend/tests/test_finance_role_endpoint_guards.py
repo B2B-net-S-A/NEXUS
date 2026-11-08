@@ -15,11 +15,6 @@ from typing import get_args, get_type_hints
 import pytest
 from fastapi import HTTPException
 
-from app.analytics.scope import (
-    ScopeKind,
-    ensure_recruitment_user_scope,
-    ensure_team_scope,
-)
 from app.api import (
     admin_chats,
     admin_client_portfolio,
@@ -528,18 +523,6 @@ async def test_finance_contractor_scope_is_global():
 
     contractors._require_contractor_access(finance)
     assert await contractors._apply_contractor_scope(query, finance, None) is query
-
-
-@pytest.mark.asyncio
-async def test_finance_analytics_team_and_user_scope_are_organization_wide():
-    finance = _user(UserRole.finance)
-
-    team_scope = await ensure_team_scope(None, finance)
-    assert team_scope.kind is ScopeKind.organization
-
-    user_scope = await ensure_recruitment_user_scope(None, finance, 999)
-    assert user_scope.kind is ScopeKind.user
-    assert user_scope.user_id == 999
 
 
 def test_client_overview_needs_company_results_and_finance_reads_hiring_reports():

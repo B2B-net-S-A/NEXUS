@@ -553,6 +553,9 @@ class JobCloseRequest(BaseModel):
     # 13.10.2026: zamknięcie przy osobach w toku wymaga potwierdzenia —
     # bez niego trasa odpowiada 409 `active_cards_warning` z liczbami.
     acknowledge_active_cards: bool = False
+    # 08.11.2026: przy `competitor`/`budget` pary u klienta kończą się „przez
+    # klienta” z powodem i bez maila. Decyduje osoba zamykająca w oknie.
+    end_client_cards: bool = False
 
 
 class JobCloseReasonUpdate(BaseModel):

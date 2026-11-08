@@ -29,6 +29,7 @@ import {
   useSalesFetch,
   useSalesKsefStatus,
   useToInvoiceSummary,
+  useUnknownBuyers,
   useUploadSalesStatement,
   type ExportFormat,
   type InvoiceDecision,
@@ -62,8 +63,9 @@ import {
   InvoiceReasonDialog,
   MarkPaidDialog,
 } from "./SalesInvoiceDialogs";
+import { UnknownBuyersPanel } from "./UnknownBuyersPanel";
 
-export type SalesInvoicesView = "invoices" | "to-invoice" | "credits" | "overdue";
+export type SalesInvoicesView = "invoices" | "to-invoice" | "unknown-buyers" | "credits" | "overdue";
 type View = SalesInvoicesView;
 type Dialog =
   | { kind: "assign"; invoice: SalesInvoice }
@@ -110,6 +112,7 @@ export function FinanceSalesInvoicesTab({
   const toInvoice = useToInvoiceSummary(year, month, view === "to-invoice");
   const credits = useSalesCredits();
   const overdue = useFinanceOverdue();
+  const unknownBuyers = useUnknownBuyers();
   const fetchNow = useSalesFetch();
   const upload = useUploadSalesStatement();
   const reopen = useReopenSalesInvoice();
@@ -230,20 +233,24 @@ export function FinanceSalesInvoicesTab({
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" aria-label="Poprzedni miesiąc" onClick={() => setPeriod(shiftMonth(period, -1))}>
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </Button>
-          <h3 className="min-w-36 text-center text-sm font-semibold text-foreground">
-            {monthTitlePl(period)}
-          </h3>
-          <Button size="sm" variant="ghost" aria-label="Następny miesiąc" onClick={() => setPeriod(shiftMonth(period, 1))}>
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </Button>
+      {view === "unknown-buyers" ? (
+        <p className="text-sm font-semibold text-foreground">Wszystkie miesiące</p>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" aria-label="Poprzedni miesiąc" onClick={() => setPeriod(shiftMonth(period, -1))}>
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </Button>
+            <h3 className="min-w-36 text-center text-sm font-semibold text-foreground">
+              {monthTitlePl(period)}
+            </h3>
+            <Button size="sm" variant="ghost" aria-label="Następny miesiąc" onClick={() => setPeriod(shiftMonth(period, 1))}>
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </Button>
+          </div>
+          {list.data ? <InlineStats id="finance-sales-stats" stats={summaryStats(list.data.summary, period)} /> : null}
         </div>
-        {list.data ? <InlineStats id="finance-sales-stats" stats={summaryStats(list.data.summary, period)} /> : null}
-      </div>
+      )}
 
       <TabbedNav
         ariaLabel="Faktury do klientów"
@@ -253,6 +260,7 @@ export function FinanceSalesInvoicesTab({
         tabs={[
           { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
           { value: "to-invoice", label: "Do faktury" },
+          { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
           { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
           { value: "overdue", label: "Po terminie", count: overdue.data?.invoices.length },
         ]}
@@ -332,6 +340,8 @@ export function FinanceSalesInvoicesTab({
           )}
         </div>
       ) : null}
+
+      {view === "unknown-buyers" ? <UnknownBuyersPanel /> : null}
 
       {view === "credits" ? (
         credits.isError ? (

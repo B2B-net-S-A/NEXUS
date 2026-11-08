@@ -18,12 +18,11 @@ Nie zaczynaj więc od mappera ani od częstszego syncu — to nie one blokują.
 **Od 14.10.2026 przeniesienie i scalenie są wyłączone na stałe** (decyzja
 Artura: z Traffita nie korzystamy, żadne importy nie mają działać). Audyt 13.10
 pokazał, że ten tor nie czytał `TRAFFIT_SYNC_ENABLED` i dalej pobierał dane
-z Traffita na żądanie. Teraz `POST /api/admin/traffit/transfer` i
-`POST /api/admin/traffit/twins-merge` odpowiadają 410 („Traffit jest wyłączony
-od 14.10.2026 — NEXUS nie importuje już danych z Traffita.”), także przy
-`dry_run=true`; strażnik: `app/services/traffit_retired.py`. Stan
-(`GET …/transfer/status`, `…/twins-merge/status`) i paragony w `app_settings`
-zostają do odczytu. Opis niżej to historia fal z 11–12.10.2026.
+z Traffita na żądanie. **Od 08.11.2026 kodu narzędzia już nie ma** (D1 z audytu
+07.11.2026, ostatnia wersja w commicie `559db3992`): trasy `transfer`
+i `twins-merge` razem z ich statusami są usunięte, paragony zostają w
+`app_settings` (`traffit_transfer_log`, `traffit_transfer_dry_run`). Opis niżej
+to historia fal z 11–12.10.2026, nie instrukcja.
 
 ## Narzędzie
 

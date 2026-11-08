@@ -147,8 +147,14 @@ def _caution(raw: Any) -> Optional[dict]:
     return None
 
 
-def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
-    """Plakietka osoby od systemu — tylko znane pola; cokolwiek innego = ``None``."""
+def autofill_badge(
+    meta: Any, *, waiting_days: Optional[int], in_new_column: bool
+) -> Optional[dict]:
+    """Plakietka osoby od systemu — tylko znane pola; cokolwiek innego = ``None``.
+
+    Termin i prośba o decyzję dotyczą tylko kolumny „Nowi”, jak listy zadań
+    (``autofill_decisions.due_decisions``): przesunięcie dalej też jest decyzją.
+    """
     from app.services.autofill_decisions import decided, decision_due
 
     if not isinstance(meta, dict) or meta.get("kind") != AUTOFILL_KIND:
@@ -156,6 +162,7 @@ def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
     score = meta.get("score")
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         return None
+    days = waiting_days if in_new_column else None
     return {
         "score": int(round(score)),
         "matched_must": _names(meta.get("matched_must")),
@@ -163,8 +170,9 @@ def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
         "rate_known": meta.get("rate_from_hourly") is not None,
         "availability_known": bool(meta.get("availability_date")),
         "decided": decided(meta),
-        "waiting_days": waiting_days,
-        "decision_due": decision_due(waiting_days),
+        "awaiting_decision": in_new_column and not decided(meta),
+        "waiting_days": days,
+        "decision_due": decision_due(days),
         "cautions": [
             c
             for c in (_caution(raw) for raw in (meta.get("cautions") or []))

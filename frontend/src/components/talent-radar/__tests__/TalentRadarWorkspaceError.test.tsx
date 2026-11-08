@@ -185,3 +185,19 @@ describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("Talent Radar przy blokadzie porcji", () => {
+  it("pokazuje ramkę z „Przejrzyj teraz” zamiast toastu", async () => {
+    mocks.search.mockRejectedValue({
+      response: {
+        status: 423,
+        data: { detail: { code: "REVIEW_MINIMUM_PENDING", remaining: 7, required: 10 } },
+      },
+    });
+    await searchOnce();
+    const notice = await screen.findByTestId("review-batch-blocked");
+    expect(notice).toHaveTextContent("zostało 7 z 10 decyzji");
+    expect(screen.getByRole("link", { name: "Przejrzyj teraz" })).toHaveAttribute("href", "/porcja");
+    expect(mocks.showError).not.toHaveBeenCalled();
+  });
+});

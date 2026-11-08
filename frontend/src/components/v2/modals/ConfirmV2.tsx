@@ -34,6 +34,8 @@ interface Props {
  onConfirm: () => void;
  loading?: boolean;
  field?: ConfirmField & { value: string; onChange: (value: string) => void };
+ /** Dodatkowa treść nad przyciskami, np. opcjonalne pigułki z powodem. */
+ extra?: React.ReactNode;
 }
 
 /**
@@ -51,6 +53,7 @@ export function ConfirmV2({
  onConfirm,
  loading,
  field,
+ extra,
 }: Props) {
  const fieldId = React.useId();
  const fieldShort =
@@ -87,6 +90,8 @@ export function ConfirmV2({
  </DialogBody>
  )}
 
+ {extra && <DialogBody className="pt-0">{extra}</DialogBody>}
+
  <DialogFooter>
  <Button
  variant="ghost"
@@ -115,6 +120,7 @@ export interface ConfirmRequest {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "default" | "destructive";
+  extra?: React.ReactNode;
 }
 
 export interface ReasonRequest extends ConfirmRequest {
@@ -201,6 +207,7 @@ export function useConfirmV2(): {
       cancelLabel={request.cancelLabel}
       variant={request.variant}
       field={field}
+      extra={request.extra}
       onConfirm={() => settle(true)}
     />
   ) : null;
