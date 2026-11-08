@@ -709,7 +709,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "back_office", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą (rozliczenie, subskrypcje, faktury bez zgody).",
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -739,10 +739,12 @@
     ],
     "pitfalls": [
       "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
-      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
+      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie.",
+      "„Rozjazdy stawek” niczego nie poprawiają, tylko pokazują różnicę kontrakt ↔ zamówienie MD z nocnego raportu.",
+      "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},

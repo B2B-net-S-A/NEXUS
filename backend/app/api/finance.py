@@ -38,6 +38,7 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import OrdersWorkUser
+from app.api.permission_access import FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES, FinanceSectionUser
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -93,6 +94,7 @@ from app.services.finance_order_changes import (
     order_changes_filename,
     period_label,
 )
+from app.services import rate_divergence_report
 from app.services.finance_import import (
     FinanceHeaderError,
     FinanceWorkbookError,
@@ -311,6 +313,22 @@ async def _current_run(
 
 
 # ── Okresy ──────────────────────────────────────────────────────────────────
+
+
+@router.get("/rate-divergences")
+async def get_rate_divergences(
+    _user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, object]:
+    """Nocny raport: stawka z kontraktu a stawka linii zamówienia MD."""
+
+    report = await rate_divergence_report.latest(db)
+    return report or {
+        "generated_at": None,
+        "month": None,
+        "checked_lines": 0,
+        "skipped": {"no_contract_rate": 0, "other_currency": 0},
+        "rows": [],
+    }
 
 
 @router.get("/periods", response_model=list[FinancePeriod])

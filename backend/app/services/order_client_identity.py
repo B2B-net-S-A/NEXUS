@@ -145,6 +145,35 @@ def nip_checksum_valid(digits: str) -> bool:
     return control != 10 and control == int(digits[9])
 
 
+#: Klucz rejestru w ``clients.nip``: polski NIP albo prefiks kraju z numerem.
+#: Co najmniej 5 cyfr: faktury zapisane przed pełnym numerem mają VAT z literą
+#: ucięty do jednej cyfry („FR1”, „IE9”), a taki klucz mają różne firmy.
+REGISTRY_KEY = re.compile(r"\d{10}|[A-Z]{2}(?=(?:[A-Z+*]*\d){5})[A-Z0-9+*]+")
+
+
+def client_registry_number(value: str | None) -> str | None:
+    """Numer z formularza klienta w postaci rejestru, pusty = ``None``.
+
+    ``ValueError`` niesie zdanie po polsku do formularza. Polski NIP musi mieć
+    poprawną sumę kontrolną, bo numer wpisany z literówką wiązałby faktury
+    z obcym nabywcą albo na zawsze zostawiał je „nieznane”.
+    """
+    if not (value or "").strip():
+        return None
+    number = normalize_buyer_number(value or "")
+    if number.isdigit():
+        if len(number) != 10:
+            raise ValueError("NIP ma 10 cyfr.")
+        if not nip_checksum_valid(number):
+            raise ValueError("Ten NIP ma niepoprawną sumę kontrolną.")
+        return number
+    if REGISTRY_KEY.fullmatch(number):
+        return number
+    raise ValueError(
+        "Wpisz NIP (10 cyfr) albo VAT UE z prefiksem kraju, np. FI12345678."
+    )
+
+
 def fi_business_id_valid(digits: str) -> bool:
     """Y-tunnus: 8 cyfr, ostatnia = 11 − (suma ważona mod 11); reszta 1 = nieważny."""
     if len(digits) != 8 or not digits.isdigit():

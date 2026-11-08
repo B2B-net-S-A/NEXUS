@@ -28,7 +28,8 @@ export type DlAlertType =
   | "md_base_usage_high"
   // Konflikt kandydat↔klient właśnie wygasł — karta jednorazowa (bez powtórek),
   // link prowadzi do profilu kandydata.
-  | "candidate_conflict_expired";
+  | "candidate_conflict_expired"
+  | "invoice_without_order_line";
 
 /** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */
 export type DlAlertSection = "ending" | "new_contractor" | "order_mail" | "decision";

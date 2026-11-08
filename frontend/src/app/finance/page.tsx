@@ -27,6 +27,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
 import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
+import { RateDivergencesTab } from "@/components/finance/RateDivergencesTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
 import {
   APPROVED_EXPENSES_URL_KEYS,
@@ -46,6 +47,8 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
     "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
   "sales-invoices":
     "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
+  "rate-divergences":
+    "Nocny raport: gdzie stawka z kontraktu różni się od stawki linii zamówienia MD",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
 };
@@ -119,6 +122,7 @@ export default function FinancePage() {
     (view === "results" && !hasModule) ||
     (view === "archive" && !hasModule) ||
     (view === "sales-invoices" && !invoicingOpen) ||
+    (view === "rate-divergences" && !hasModule) ||
     (view === "approved-expenses" && !approvalsOpen)
       ? fallbackView
       : view;
@@ -262,6 +266,15 @@ export default function FinancePage() {
               Faktury do klientów
             </ModeButton>
           ) : null}
+          {hasModule ? (
+            <ModeButton
+              active={visibleView === "rate-divergences"}
+              onClick={() => changeView("rate-divergences")}
+              data-tour="finance.rate-divergences"
+            >
+              Rozjazdy stawek
+            </ModeButton>
+          ) : null}
           {approvalsOpen ? (
             <ModeButton
               active={visibleView === "approved-expenses"}
@@ -286,6 +299,8 @@ export default function FinancePage() {
           <OrderPdfsTab />
         ) : visibleView === "sales-invoices" ? (
           <FinanceSalesInvoicesTab />
+        ) : visibleView === "rate-divergences" ? (
+          <RateDivergencesTab />
         ) : visibleView === "approved-expenses" ? (
           <div data-help="finance.approved-expenses">
             <ApprovedExpensesTab />
@@ -302,15 +317,18 @@ function ModeButton({
   active,
   onClick,
   children,
+  "data-tour": dataTour,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
+  "data-tour"?: string;
 }) {
   return (
     <button
       type="button"
       role="tab"
+      data-tour={dataTour}
       aria-selected={active}
       onClick={onClick}
       // Podkreślenie jak w `ds/WorkspaceModeTabs` (Klienci, Kontrakty). Zakładki

@@ -1,5 +1,22 @@
 [
   {
+    "id": "finanse-rozjazdy-nieznani-nabywcy",
+    "pr": 3182,
+    "title": "Rozjazdy stawek i Nieznani nabywcy",
+    "why": "Widać tu, gdzie stawka z kontraktu różni się od zamówienia MD. W „Faktury do klientów” jest też lista „Nieznani nabywcy”: jedno przypisanie dowiązuje wszystkie faktury nabywcy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Rozjazdy stawek",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.rate-divergences"
+  },
+  {
     "id": "pulpit-pilne-w-jednej-linii",
     "pr": 3165,
     "title": "„Pilne u klientów” w jednej linii",
