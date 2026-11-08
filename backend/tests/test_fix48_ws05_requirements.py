@@ -47,8 +47,10 @@ def _job(profile, *, must=None, nice=None):
 
 
 def _build(job):
+    # Bez liczb osób: domyślny bufor `requirement_row_counts` jest pamięcią
+    # procesu i wcześniejszy test w tym samym shardzie mógł w nim zostawić „java”.
     with hydrated_taxonomy(SKILLS):
-        return build_proposal(job)
+        return build_proposal(job, row_count=lambda _words, _exclude: None)
 
 
 def _talk(proposal):
