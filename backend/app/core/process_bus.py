@@ -19,6 +19,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine
 from app.core.tasks import spawn
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +70,10 @@ async def process_bus_loop() -> None:
     """Pętla tła: osobne połączenie, bo LISTEN nie przeżywa powrotu do puli."""
     if settings.NEXUS_PROCESS_ROLE == "all":
         return
+    beat = loop_heartbeat.register("process_bus", max_silence_seconds=180)
     dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
     while True:
+        beat.tick()
         conn = None
         try:
             conn = await asyncpg.connect(
@@ -82,6 +85,7 @@ async def process_bus_loop() -> None:
             while True:
                 await asyncio.sleep(_PING_SECONDS)
                 await conn.fetchval("SELECT 1")
+                beat.tick()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — pętla ponawia po każdej awarii
