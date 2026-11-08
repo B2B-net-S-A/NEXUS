@@ -466,6 +466,12 @@ export function CustomDashboard() {
     commit(prependTemplate(tiles, toCompleteTemplate), "Kafelek „Do uzupełnienia” stoi na górze pulpitu.")
   }
 
+  // Audyt 2 (08.11.2026): „Zamówienia z maila do weryfikacji” raz, w kafelku
+  // „Moi klienci”. Kafelek bez dostępu listy nie pokaże — wtedy zostaje w panelu.
+  const orderMailOnGrid =
+    TILE_DEFINITIONS.my_clients_alerts.availability(user).ok &&
+    saved.some((t) => t.type === "my_clients_alerts")
+
   // „Czeka na Ciebie” jako kafelek (23.10.2026, Head of Recruitment i admin):
   // kafelek na pulpicie = panel tylko w nim; bez kafelka panel stoi nad siatką,
   // chyba że osoba usunęła go z pulpitu (`board_tasks` w ukrytych listach).
@@ -495,6 +501,7 @@ export function CustomDashboard() {
     hiddenPanels,
     dlSendBand,
     toCompleteOnGrid,
+    orderMailOnGrid,
     onMoveToComplete: offerToComplete ? moveToComplete : undefined,
     onKeepToComplete: () => dismissAnnounced(TO_COMPLETE_TILE_TYPE),
     moveBusy: busy,
@@ -554,8 +561,9 @@ export function CustomDashboard() {
           pulpitu nie układała. Pas pierwszy i na całą szerokość — w kolumnie
           panelu gotowi do wysyłki ginęli między innymi listami. */}
       {/* P0 — ultrapilne teraz (27.10.2026): u każdego nad wszystkim, bez
-          względu na własny układ (decyzja Artura); znika, gdy nie ma P0. */}
-      {editing ? null : <P0NowPanel />}
+          względu na własny układ (decyzja Artura); znika, gdy nie ma P0.
+          Od 08.11.2026 pasek jednej linii (wariant A), pod nim kolejka roli. */}
+      {editing ? null : <P0NowPanel compact />}
       {/* Ogłoszenia (28.10.2026): HoR i admin publikują, u odbiorców nad
           kafelkami bez względu na układ; znika, gdy nie ma aktywnych. */}
       {editing ? null : <AnnouncementsPanel />}

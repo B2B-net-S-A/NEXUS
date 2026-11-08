@@ -3500,7 +3500,7 @@
   {
    "id": "dashboard.p0-panel",
    "area": "pulpit",
-   "opis": "Stały panel „P0 — ultrapilne teraz” nad kafelkami pulpitu u każdego i na Daily; znika, gdy nie ma P0 (decyzja Artura 27.10.2026)",
+   "opis": "Stały panel „P0 — ultrapilne teraz” nad kafelkami pulpitu u każdego (od 08.11.2026 pasek jednej linii z „Pokaż tabelę”) i pełna tabela na Daily; znika, gdy nie ma P0 (decyzja Artura 27.10.2026)",
    "file": "components/v2/jobs/p0/P0NowPanel.tsx",
    "marker": "p0-now-panel",
    "v3_home": "pulpit → nad kafelkami; Daily → nad tablicą"
