@@ -834,6 +834,19 @@ async function expectAddButtonFullyInWindow(page: Page, strip: Locator, label: s
   expect(onTop, `„+” klikalny: ${label}`).toBe(true);
 }
 
+/**
+ * Harness przed pomiarem musi być odsłonięty. Treść strony leży w statycznym HTML
+ * w `<div hidden id="S:0">` (granica Suspense z `app/loading.tsx`), a `page.goto`
+ * kończy się na `load`. Gdy szkielet narysuje się przed skryptem odsłaniającym,
+ * React odkłada odsłonięcie do 300 ms po pierwszej klatce: elementy są już
+ * w DOM, ale bez układu, więc `boundingBox()` daje `null`, a `scrollWidth` zero
+ * (08.11.2026, bieg 42513863591). Wszystkie paski są w tej samej granicy.
+ */
+async function gotoKpiTopbar(page: Page): Promise<void> {
+  await page.goto("/preview/kpi-topbar");
+  await expect(page.getByTestId("shell-strip").first()).toBeVisible();
+}
+
 test.describe("górny pasek — licznik celów", () => {
   test("/preview/kpi-topbar: licznik celów nie zgniata wyszukiwarki w oknach laptopów", async ({ page }) => {
     // 13.10.2026: trzy podpisane segmenty przy 1280 px z przypiętym menu
@@ -843,7 +856,7 @@ test.describe("górny pasek — licznik celów", () => {
     // przełączniki wyglądu zastąpiło jedno menu „Wygląd”.
     for (const size of WINDOWS_LAPTOP_WINDOWS) {
       await page.setViewportSize(size);
-      await page.goto("/preview/kpi-topbar");
+      await gotoKpiTopbar(page);
       const strips = page.getByTestId("shell-strip");
       await expect(strips).toHaveCount(4);
       for (const strip of await strips.all()) {
@@ -935,7 +948,7 @@ test.describe("górny pasek — licznik celów", () => {
     // (Delivery Lead, /jobs/509921). Grupa akcji nie zmieści wszystkiego naraz,
     // więc reszta przewija się pod przyklejonym przyciskiem.
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("/preview/kpi-topbar");
+    await gotoKpiTopbar(page);
     const strip = page.getByTestId("shell-strip-fullest");
     const bar = strip.getByTestId("topbar-replica");
     const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
