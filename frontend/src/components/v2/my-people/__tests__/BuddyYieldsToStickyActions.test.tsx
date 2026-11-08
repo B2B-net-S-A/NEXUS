@@ -33,22 +33,14 @@ function Screen({ footer }: { footer: boolean }) {
           </footer>
         )}
       </main>
-      <MyPeopleBuddyView
-        count={3}
-        sentences={["3 nowe rekrutacje pasują do Twoich ludzi."]}
-        showBubble
-        onOpen={() => {}}
-        onDismissBubble={() => {}}
-        onHide={() => {}}
-        animate={false}
-      />
+      <MyPeopleBuddyView onOpen={() => {}} />
       <div data-jarvis-mascot="" />
     </>
   );
 }
 
 describe("postać w rogu ustępuje przyklejonej stopce z przyciskami", () => {
-  it("przy stopce reguła trafia w postać z dymkiem i w ikonę Jarvisa", () => {
+  it("przy stopce reguła trafia w postać i w ikonę Jarvisa", () => {
     render(<Screen footer />);
     const hidden = Array.from(document.querySelectorAll(hidingSelector()));
     const buddy = document.querySelector("[data-floating-corner]");

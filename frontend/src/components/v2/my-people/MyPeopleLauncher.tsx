@@ -5,10 +5,10 @@
  *
  * - `MyPeopleTopbarButton` — przycisk z licznikiem obok dzwonka. To jest
  *   GŁÓWNE, dostępne wejście (klawiatura, czytnik ekranu, mobile);
- * - `MyPeopleBuddy` — mała postać w rogu z tym samym licznikiem i dymkiem.
- *   Dodatek: mówi tylko, gdy ma konkret (zdania z szablonów, zero AI), raz na
- *   sesję dla tej samej treści, i da się ją ukryć. Ustępuje maskotce
- *   Jarvisa (0330 — ten sam róg), gdy ta jest widoczna;
+ * - `MyPeopleBuddy` — mała postać w rogu, sama, bez liczby i dymku (audyt
+ *   08.11.2026, U6: liczba 872 i dymek przestały być sygnałem). Ukrywa się ją
+ *   w stopce panelu. Ustępuje maskotce Jarvisa (0330 — ten sam róg), gdy ta
+ *   jest widoczna;
  * - `MyPeopleRoot` — montowany w `AppShellV2`: panel, postać i obsługa
  *   `?people=1` z linku w dzwonku.
  */
@@ -17,12 +17,11 @@ import { Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
-import { Users, X } from "lucide-react";
+import { Users } from "lucide-react";
 
 import { useMyPeopleSummary } from "@/lib/api/myPeople";
 import { fetchJarvisPrefs, fetchJarvisStatus, jarvisKeys } from "@/lib/jarvis/api";
-import { sentencesKey, summarySentences } from "@/lib/my-people-summary";
-import { prefersReducedMotion } from "@/lib/prefers-reduced-motion";
+import { recentJobsLabel } from "@/lib/my-people-summary";
 import { useCapability } from "@/hooks/useCapability";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { useThemeStore } from "@/store/theme";
@@ -30,8 +29,6 @@ import { useUiStore } from "@/store/ui";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MyPeoplePanel } from "./MyPeoplePanel";
-
-const BUBBLE_SEEN_KEY = "nexus:myPeopleBubbleSeen:v1";
 
 function countLabel(n: number): string {
   return n > 99 ? "99+" : String(n);
@@ -50,10 +47,8 @@ export function MyPeopleTopbarButton() {
       size="icon"
       onClick={toggle}
       aria-pressed={open}
-      aria-label={
-        count > 0 ? `Moi ludzie — ${count} nowych dopasowań` : "Moi ludzie"
-      }
-      title="Moi ludzie (m)"
+      aria-label={count > 0 ? `Moi ludzie — ${recentJobsLabel(count)}` : "Moi ludzie"}
+      title={count > 0 ? `${recentJobsLabel(count)} (m)` : "Moi ludzie (m)"}
       className="relative"
     >
       <Users className="h-4 w-4" aria-hidden />
@@ -66,89 +61,19 @@ export function MyPeopleTopbarButton() {
   );
 }
 
-function readSeenBubble(): string | null {
-  try {
-    return window.sessionStorage.getItem(BUBBLE_SEEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeSeenBubble(key: string) {
-  try {
-    window.sessionStorage.setItem(BUBBLE_SEEN_KEY, key);
-  } catch {
-    // Prywatne okno / zablokowane dane — dymek po prostu pojawi się ponownie.
-  }
-}
-
-export function MyPeopleBuddyView({
-  count,
-  sentences,
-  showBubble,
-  onOpen,
-  onDismissBubble,
-  onHide,
-  animate = true,
-}: {
-  count: number;
-  sentences: string[];
-  showBubble: boolean;
-  onOpen: () => void;
-  onDismissBubble: () => void;
-  onHide: () => void;
-  animate?: boolean;
-}) {
+export function MyPeopleBuddyView({ onOpen }: { onOpen: () => void }) {
   return (
-    // `data-floating-corner`: na czas przeklikania nowości postać i dymek
-    // znikają, bo przy 1280×720 zasłaniają stopkę panelu (`NoveltyLayer`).
+    // `data-floating-corner`: na czas przeklikania nowości postać znika, bo
+    // przy 1280×720 zasłania stopkę panelu (`NoveltyLayer`).
     <div
       data-floating-corner
       className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex items-end gap-2"
     >
-      {showBubble && sentences.length ? (
-        <div
-          role="status"
-          className="relative max-w-[min(260px,calc(100vw-6rem))] rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
-        >
-          <button
-            type="button"
-            onClick={onDismissBubble}
-            aria-label="Zamknij podpowiedź"
-            className="absolute right-1 top-1 rounded p-0.5 pointer-coarse:p-2 pointer-coarse:-m-1.5 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-3 w-3" aria-hidden />
-          </button>
-          <div className="space-y-1 pr-3">
-            {sentences.slice(0, 2).map((s) => (
-              <p key={s}>{s}</p>
-            ))}
-          </div>
-          <div className="mt-1.5 flex gap-2">
-            <button
-              type="button"
-              onClick={onOpen}
-              className="text-xs font-medium text-primary hover:underline pointer-coarse:py-2"
-            >
-              Pokaż moich ludzi
-            </button>
-            <button
-              type="button"
-              onClick={onHide}
-              className="text-xs text-muted-foreground hover:text-foreground pointer-coarse:py-2"
-            >
-              Ukryj postać
-            </button>
-          </div>
-        </div>
-      ) : null}
       <button
         type="button"
         onClick={onOpen}
-        aria-label={count > 0 ? `Moi ludzie — ${count} nowych dopasowań` : "Moi ludzie"}
-        className={cn(
-          "relative flex h-12 w-12 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105",
-        )}
+        aria-label="Moi ludzie"
+        className="relative flex h-12 w-12 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
       >
         <svg viewBox="0 0 32 32" className="h-7 w-7" aria-hidden>
           <circle cx="16" cy="16" r="13" className="fill-primary-foreground/15" />
@@ -162,17 +87,6 @@ export function MyPeopleBuddyView({
             fill="none"
           />
         </svg>
-        {count > 0 ? (
-          <span
-            className={cn(
-              "absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-destructive px-1 text-[10px] font-bold text-destructive-foreground tabular-nums",
-              // Tylko licznik pulsuje — skacząca postać po tygodniu męczy.
-              animate && "animate-pulse",
-            )}
-          >
-            {countLabel(count)}
-          </span>
-        ) : null}
       </button>
     </div>
   );
@@ -212,17 +126,13 @@ function MyPeopleBuddy() {
   const allowed = useCapability("nav.my_people");
   const hidden = useUiStore((s) => s.hideMyPeopleBuddy);
   const jarvisOwnsCorner = useJarvisOwnsCorner(allowed && !hidden);
-  const setHidden = useUiStore((s) => s.setHideMyPeopleBuddy);
   const panelOpen = useMyPeoplePanel((s) => s.open);
   const openPanel = useMyPeoplePanel((s) => s.openPanel);
   const pathname = usePathname();
-  const summary = useMyPeopleSummary(allowed);
   const [mounted, setMounted] = useState(false);
-  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    setDismissedKey(readSeenBubble());
   }, []);
 
   // Na stronie rekrutacji prawy dolny róg zajmuje dok kandydata na tablicy —
@@ -230,26 +140,7 @@ function MyPeopleBuddy() {
   const onJobPage = /^\/jobs\/\d+/.test(pathname ?? "");
   if (!mounted || !allowed || hidden || panelOpen || onJobPage) return null;
   if (jarvisOwnsCorner !== false) return null;
-  const sentences = summarySentences(summary.data);
-  const key = sentencesKey(sentences);
-  const dismiss = () => {
-    writeSeenBubble(key);
-    setDismissedKey(key);
-  };
-  return (
-    <MyPeopleBuddyView
-      count={summary.data?.new_matches ?? 0}
-      sentences={sentences}
-      showBubble={sentences.length > 0 && dismissedKey !== key}
-      onOpen={() => {
-        dismiss();
-        openPanel();
-      }}
-      onDismissBubble={dismiss}
-      onHide={() => setHidden(true)}
-      animate={!prefersReducedMotion()}
-    />
-  );
+  return <MyPeopleBuddyView onOpen={openPanel} />;
 }
 
 /** `?people=1` (link z dzwonka) otwiera panel i znika z adresu. */

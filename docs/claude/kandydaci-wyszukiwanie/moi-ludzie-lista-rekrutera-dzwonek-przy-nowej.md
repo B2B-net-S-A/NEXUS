@@ -1,5 +1,15 @@
 # „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)
 
+> **08.11.2026 (audyt 2, U6, decyzja Artura):** licznik w pasku (`new_matches`
+> w `/api/my-people/summary`, `svc.recent_match_jobs`) = rekrutacje z ostatnich
+> 24 h z co najmniej 1 Twoją nieobejrzaną osobą od `MY_PEOPLE_MATCH_MIN_SCORE`;
+> bez nich ikona bez liczby. Dawna suma (872) nigdy nie gasła. Postać w rogu
+> jest sama, bez liczby i dymku (ukrywa się ją w stopce panelu), dymek Jarvisa
+> o nowej rekrutacji i `MY_PEOPLE_MATCH_EVENT` usunięte; poranny skrót Jarvisa
+> liczy tak samo jak ikona. Kafel Tablicy zostaje, kafel pulpitu wypadł
+> z układów domyślnych rekrutera i TCM (dalej można go dodać ręcznie).
+> `TeamCounts` w widoku „Zespół” dalej liczy wszystkie nieobejrzane.
+
 Rekruter wysyła tych samych ludzi do klientów raz za razem, aż któryś projekt
 się zamknie. „Moi ludzie" to ta lista: buduje się sama, jest pod ręką z każdego
 ekranu (przycisk w topbarze, skrót `m`, postać w rogu), a publikacja rekrutacji

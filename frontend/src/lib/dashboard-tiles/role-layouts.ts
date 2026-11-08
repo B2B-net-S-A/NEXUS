@@ -56,7 +56,6 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
   talent_community_manager: [
     { key: "my_contact_queue", w: 8, h: 5 },
     { key: "today_cycle", w: 4, h: 5 },
-    { key: "my_people", w: 7, h: 4 },
     { key: "my_week", w: 5, h: 2 },
     { key: "request_board_my_category", w: 12, h: 8 },
   ],
@@ -64,7 +63,6 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
     { key: "my_recruitments", w: 8, h: 5 },
     { key: "today_cycle", w: 4, h: 5 },
     { key: "request_board_my_category", w: 12, h: 8 },
-    { key: "my_people", w: 7, h: 3 },
     { key: "my_week", w: 5, h: 3 },
   ],
   // „Pracownik” (17.10.2026). Konto wyłącznie z tą rolą middleware i tak

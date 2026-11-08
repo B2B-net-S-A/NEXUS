@@ -91,6 +91,7 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
   const choice = addedByChoiceLabel(value, options);
   const total = options.find((o) => o.key === "all")?.count ?? 0;
   const visible = options.find((o) => o.key === addedByKey(value))?.count ?? 0;
+  const prefix = value.kind === "stuck" ? "Filtr" : "Kto dodał";
   return (
     <div className="inline-flex items-center gap-1" data-testid="added-by-filter">
       <DropdownMenu modal={false}>
@@ -101,12 +102,14 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
             variant="outline"
             className={cn("gap-1.5", active && "border-primary/40 bg-primary/10")}
             aria-label={
-              active ? `Kto dodał: ${choice}. Widać ${visible} z ${total} osób.` : `Kto dodał: ${choice}`
+              active
+                ? `${prefix}: ${choice}. Widać ${visible} z ${total} osób.`
+                : `${prefix}: ${choice}`
             }
             data-testid="added-by-trigger"
             data-tour="jobs.board.added-by"
           >
-            <span className="font-normal text-muted-foreground">Kto dodał:</span>
+            <span className="font-normal text-muted-foreground">{prefix}:</span>
             <span className="font-semibold">{choice}</span>
             {active ? (
               <span className="font-normal tabular-nums text-muted-foreground">

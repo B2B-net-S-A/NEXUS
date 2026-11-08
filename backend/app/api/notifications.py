@@ -34,6 +34,8 @@ from app.services.notification_categories import (
     types_in,
 )
 from app.services.notification_topics import (
+    STAGE_STUCK_DIGEST_ENTITY,
+    STAGE_STUCK_UNSTAFFED_ENTITY,
     TOAST_TYPES,
     NotificationTopic,
     job_key_expression,
@@ -179,6 +181,10 @@ _JOB_TOPIC_TYPES = tuple(sorted(types_in_topic(NotificationTopic.jobs), key=str)
 _JOB_TOPIC_TASK_TYPES = tuple(
     sorted((t for t in _JOB_TOPIC_TYPES if t in TOAST_TYPES), key=str)
 )
+_STUCK_DIGESTS = {
+    STAGE_STUCK_DIGEST_ENTITY: "stuck",
+    STAGE_STUCK_UNSTAFFED_ENTITY: "unstaffed",
+}
 _JOB_THREADS_WINDOW_DAYS = 7
 _JOB_THREADS_LIMIT = 30
 _TOPIC_READ_MAX_IDS = 100
@@ -197,6 +203,8 @@ class JobThreadResponse(BaseModel):
     last_message: str
     last_at: Optional[str] = None
     link: str
+    # Wątek to sam wpis zbiorczy „stoją > 7 dni”: `stuck` albo `unstaffed`.
+    digest: Optional[str] = None
 
 
 class JobThreadListResponse(BaseModel):
@@ -662,7 +670,12 @@ async def list_job_threads(
     link_key = case((job_key.is_(None), rows_in_window.c.link), else_=None)
     unread = rows_in_window.c.is_read.is_(False)
     unread_rows = func.count().filter(unread)
-    latest_id = func.max(rows_in_window.c.id)
+    # Audyt 08.11.2026 (U4): „stoją > 7 dni” nie zasłania w wątku nowszej sprawy
+    # i nie wypycha go na górę listy; to tylko tygodniowe przypomnienie.
+    latest_news_id = func.max(rows_in_window.c.id).filter(
+        rows_in_window.c.notification_type != NotificationType.stage_stuck_7d
+    )
+    preview_id = func.coalesce(latest_news_id, func.max(rows_in_window.c.id))
     grouped = (
         await db.execute(
             select(
@@ -675,10 +688,14 @@ async def list_job_threads(
                     rows_in_window.c.notification_type.in_(_JOB_TOPIC_TASK_TYPES),
                 )
                 .label("unread_tasks"),
-                latest_id.label("latest_id"),
+                preview_id.label("latest_id"),
             )
             .group_by(job_key, link_key)
-            .order_by((unread_rows > 0).desc(), latest_id.desc())
+            .order_by(
+                (unread_rows > 0).desc(),
+                latest_news_id.is_not(None).desc(),
+                preview_id.desc(),
+            )
             .limit(_JOB_THREADS_LIMIT)
         )
     ).all()
@@ -711,10 +728,14 @@ async def list_job_threads(
         latest = latest_rows.get(row.latest_id)
         if latest is None:
             continue
+        digest = _STUCK_DIGESTS.get(latest.related_entity_type or "")
+        if latest.notification_type != NotificationType.stage_stuck_7d:
+            digest = None
         if row.job_id is not None:
             title, client = titles.get(row.job_id, ("", None))
             title = title or f"Rekrutacja #{row.job_id}"
-            link = f"/jobs/{row.job_id}"
+            # Skrót prowadzi na Tablicę z filtrem, a nie na goły ekran.
+            link = latest.link if digest else f"/jobs/{row.job_id}"
         else:
             title, client = latest.title, None
             link = latest.link or "/jobs"
@@ -729,6 +750,7 @@ async def list_job_threads(
                 last_message=latest.message,
                 last_at=latest.created_at.isoformat() if latest.created_at else None,
                 link=link,
+                digest=digest,
             )
         )
     return JobThreadListResponse(items=items, unread_jobs=unread_jobs)
