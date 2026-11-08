@@ -4022,8 +4022,8 @@ async def build_kanban_view(
     board_today = business_today()
     from app.services import client_wait as client_wait_service
 
-    client_silence = (
-        await client_wait_service.silent_workdays_safely(db, job)
+    client_clocks = (
+        await client_wait_service.client_clocks_safely(db, job)
         if job.status != JobStatus.closed
         else {}
     )
@@ -4169,10 +4169,14 @@ async def build_kanban_view(
                 ok_at=qc_state.get("ok_at"),
                 today=board_today,
                 autofill_days=autofill_days,
+                client_since=client_clock.since if client_clock else None,
             )
 
+        client_clock = client_clocks.get(e.candidate_id)
         payload["waiting_workdays"] = _waiting()
-        payload["client_silent_workdays"] = client_silence.get(e.candidate_id)
+        payload["client_silent_workdays"] = (
+            client_clock.silent_workdays if client_clock else None
+        )
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {
