@@ -4,7 +4,7 @@
 
 Rekord 52 powstał z mapowania w Traffit i trzy razy ściągnął na siebie dane
 właściwego klienta (dwa zgłoszenia z sierpnia → migracja 0244, potem umowa
-1520/2026). Korekta `app/services/cardif_client_merge_repair.py` (blok
+1520/2026). Korekta `scripts/repairs/cardif_client_merge_repair.py` (blok
 `repair-cardif-client-merge` w `entrypoint.sh`, paragon
 `app_settings['0435_cardif_client_merge']`) przeniosła resztę i zamknęła rekord.
 

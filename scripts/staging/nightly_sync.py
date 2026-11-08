@@ -35,6 +35,7 @@ import signal
 import subprocess
 import sys
 import time
+from typing import Callable
 import urllib.error
 import urllib.request
 from zoneinfo import ZoneInfo
@@ -96,6 +97,12 @@ PROD_WAIT_INTERVAL = 60
 MAX_REEMBED_PEOPLE = 5000
 # Limit w skrypcie to 1 h (`--max-duration`). Tu zapas na start kontenera i ostatnie pliki.
 CV_FILES_TIMEOUT = 75 * 60
+# 07.11.2026 strumień COPY stanął po 8 min, a limit 2 h przy normie 8–10 min zabrał całą
+# noc i trzymał DROP DATABASE innej sesji. Cisza 5 min = przerwij i jedno ponowienie z manifestu.
+RESTORE_TIMEOUT = 40 * 60
+RESTORE_STALL_SECONDS = 5 * 60
+RESTORE_POLL_SECONDS = 30
+RESTORE_ATTEMPTS = 2
 
 POSTGRES_USER = "nexus"
 BACKEND = "nexus-staging-backend-1"
@@ -318,8 +325,13 @@ def run_cmd(
     check: bool = True,
     env: dict | None = None,
     what: str = "Komenda",
+    stalled: Callable[[], bool] | None = None,
+    poll: float = RESTORE_POLL_SECONDS,
 ) -> subprocess.CompletedProcess:
-    """Własna grupa procesów, żeby timeout zabił też ssh, którego uruchomił klon."""
+    """Własna grupa procesów, żeby timeout zabił też ssh, którego uruchomił klon.
+
+    `stalled` jest pytane co `poll` sekund; prawda przerywa komendę przed limitem czasu.
+    """
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -330,16 +342,31 @@ def run_cmd(
         start_new_session=True,
         env=env,
     )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    deadline = time.monotonic() + timeout
+    reason = ""
+    while True:
+        remaining = max(0.0, deadline - time.monotonic())
+        try:
+            # Ponowne communicate po TimeoutExpired nie gubi wyjścia (dokumentacja subprocess).
+            stdout, stderr = process.communicate(
+                timeout=min(remaining, poll) if stalled else remaining
+            )
+            break
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= deadline:
+                reason = f"przekroczony czas {int(timeout // 60)} min"
+            elif stalled is not None and stalled():
+                reason = f"brak postępu przez {RESTORE_STALL_SECONDS // 60} min"
+            if reason:
+                break
+    if reason:
         os.killpg(process.pid, signal.SIGTERM)
         try:
             process.communicate(timeout=30)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
-        raise SyncError(f"{what}: przekroczony czas {int(timeout // 60)} min") from None
+        raise SyncError(f"{what}: {reason}")
     LOG.write(stdout)
     LOG.write(stderr)
     if check and process.returncode:
@@ -475,7 +502,7 @@ def local_postgres() -> str:
     return out[0]
 
 
-def psql(postgres: str, database: str, sql: str) -> str:
+def psql(postgres: str, database: str, sql: str, *, timeout: float = 300) -> str:
     return run_cmd(
         [
             "docker",
@@ -494,7 +521,7 @@ def psql(postgres: str, database: str, sql: str) -> str:
             "-c",
             sql,
         ],
-        timeout=300,
+        timeout=timeout,
         what="Zapytanie do Postgresa stagingu",
     ).stdout
 
@@ -515,13 +542,20 @@ def connections(postgres: str, database: str) -> int:
     )
 
 
-def clone_step(arguments: list[str], *, timeout: float, what: str) -> str:
+def clone_step(
+    arguments: list[str],
+    *,
+    timeout: float,
+    what: str,
+    stalled: Callable[[], bool] | None = None,
+) -> str:
     """Komunikat błędu klona jest bezpieczny z założenia (clone_from_hetzner.py)."""
     result = run_cmd(
         [sys.executable, str(CLONE_SCRIPT), *arguments],
         timeout=timeout,
         check=False,
         what=what,
+        stalled=stalled,
     )
     if result.returncode:
         raise SyncError(f"{what}: {result.stderr.strip()[:300]}")
@@ -564,21 +598,84 @@ def dump_production(cfg: Config, database: str, output_root: Path) -> Path:
     raise AssertionError("unreachable")
 
 
-def restore_copy(postgres: str, database: str, manifest: Path) -> None:
-    clone_step(
-        [
-            "--restore-manifest",
-            str(manifest),
-            "--target-db",
-            database,
-            "--local-postgres-container",
-            postgres,
-        ],
-        timeout=2 * 3600,
-        what="Odtworzenie kopii",
-    )
+def restore_progress(postgres: str, database: str) -> str:
+    """Odcisk postępu odtwarzania: rozmiar bazy, wiersze COPY i start bieżącej instrukcji.
+
+    Z bazy `postgres`, żeby sonda nie zmieniała sama `query_start` odtwarzanej bazy.
+    """
+    if not re.fullmatch(r"[a-z0-9_]+", database):
+        raise SyncError("Niedozwolona nazwa bazy")
+    return psql(
+        postgres,
+        "postgres",
+        f"SELECT pg_database_size('{database}')::text"
+        " || ':' || coalesce((SELECT sum(tuples_processed)::text"
+        f" FROM pg_stat_progress_copy WHERE datname = '{database}'), '0')"
+        " || ':' || coalesce((SELECT max(query_start)::text"
+        f" FROM pg_stat_activity WHERE datname = '{database}'), '')",
+        timeout=RESTORE_POLL_SECONDS,
+    ).strip()
+
+
+class RestoreWatch:
+    """Liczy ciszę od ostatniej zmiany odcisku; sonda bez odpowiedzi to też cisza."""
+
+    def __init__(
+        self, postgres: str, database: str, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self.postgres = postgres
+        self.database = database
+        self.clock = clock
+        self.mark = ""
+        self.changed = clock()
+
+    def stalled(self) -> bool:
+        try:
+            mark = restore_progress(self.postgres, self.database)
+        except (SyncError, OSError, ValueError):
+            mark = self.mark
+        if mark != self.mark:
+            self.mark = mark
+            self.changed = self.clock()
+        return self.clock() - self.changed >= RESTORE_STALL_SECONDS
+
+
+def drop_failed_restore(postgres: str, database: str) -> None:
+    """Tylko baza z tej nocy: `sync` nie zaczyna, gdy taka nazwa już istnieje.
+
+    FORCE kończy backend czekający na strumień, który po 07.11 trzymał DROP innej bazy.
+    """
+    if not NIGHTLY_DB.fullmatch(database):
+        raise SyncError("Niedozwolona nazwa bazy")
+    psql(postgres, "postgres", f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+def restore_copy(postgres: str, database: str, manifest: Path) -> int:
+    """Zwraca numer podejścia, które się udało."""
+    for attempt in range(1, RESTORE_ATTEMPTS + 1):
+        try:
+            clone_step(
+                [
+                    "--restore-manifest",
+                    str(manifest),
+                    "--target-db",
+                    database,
+                    "--local-postgres-container",
+                    postgres,
+                ],
+                timeout=RESTORE_TIMEOUT,
+                what="Odtworzenie kopii",
+                stalled=RestoreWatch(postgres, database).stalled,
+            )
+            break
+        except SyncError as error:
+            if attempt == RESTORE_ATTEMPTS:
+                raise
+            LOG.write(f"{error}; ponawiam z manifestu\n")
+            drop_failed_restore(postgres, database)
     if not int(psql(postgres, database, "SELECT count(*) FROM candidates").strip()):
         raise SyncError("Nowa kopia nie ma żadnego kandydata")
+    return attempt
 
 
 def compose(cfg: Config) -> list[str]:
@@ -935,10 +1032,11 @@ def sync(cfg: Config, report: Report, now_utc: datetime, date: str) -> tuple[int
         manifest = dump_production(cfg, database, date_dir)
         size = json.loads(manifest.read_text())["dump"]["bytes"]
         dumped = time.monotonic()
-        restore_copy(postgres, database, manifest)
+        attempt = restore_copy(postgres, database, manifest)
+        retried = " Odtworzenie udało się za drugim podejściem." if attempt == 2 else ""
         report.done.append(
             f"Kopia {database}: zrzut {size / 2**30:.1f} GB w {(dumped - started) / 60:.0f} min, "
-            f"odtworzenie {(time.monotonic() - dumped) / 60:.0f} min."
+            f"odtworzenie {(time.monotonic() - dumped) / 60:.0f} min.{retried}"
         )
         build_code(cfg, sha)
         send_cv_files(cfg, report)

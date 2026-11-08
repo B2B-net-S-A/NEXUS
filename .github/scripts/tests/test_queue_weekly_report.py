@@ -1,8 +1,10 @@
 import importlib.util
+import json
 import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / ".github/scripts"
@@ -148,6 +150,39 @@ class RenderTests(unittest.TestCase):
         self.assertIn("Brak rozpoznanych czerwonych testów.", body)
         self.assertIn("brak kandydatów", body)
         self.assertIn("| 0 | 0 | 0 | 0 | 0% | — |", body)
+
+
+class UpsertIssueTests(unittest.TestCase):
+    def publish(self, issues, title):
+        calls = []
+
+        def gh(*args, stdin=None):
+            calls.append((args, stdin))
+            if args[0] == "api" and "issues?labels=" in args[1]:
+                return "\n".join(json.dumps(issue) for issue in issues)
+            return "https://example.test/issues/9"
+
+        with mock.patch.object(QWR.qff, "gh", gh):
+            result = QWR.upsert_issue("o/r", title, "treść")
+        patches = {
+            call[0][3].rsplit("/", 1)[-1]: json.loads(call[1])
+            for call in calls
+            if "PATCH" in call[0]
+        }
+        return result, patches
+
+    def test_new_report_closes_older_open_ones(self):
+        issues = [[7, "W44", "open"], [8, "W45", "open"], [5, "W40", "closed"]]
+        result, patches = self.publish(issues, "W45")
+        self.assertEqual(result, "zaktualizowane #8")
+        self.assertEqual(patches["7"], {"state": "closed"})
+        self.assertEqual(patches["8"], {"body": "treść", "state": "open"})
+        self.assertNotIn("5", patches)
+
+    def test_first_report_of_the_week_also_closes_the_previous_one(self):
+        result, patches = self.publish([[7, "W44", "open"]], "W45")
+        self.assertEqual(result, "utworzone https://example.test/issues/9")
+        self.assertEqual(patches, {"7": {"state": "closed"}})
 
 
 if __name__ == "__main__":

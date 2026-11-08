@@ -927,7 +927,7 @@ async def _seed_repair_state(app_client, headers, monkeypatch):
 
 
 def _repair_case(case, july_id, august_id, event_ids, **overrides):
-    from app.services.md_import_order_number_repair import RepairCase
+    from scripts.repairs.md_import_order_number_repair import RepairCase
 
     values = dict(
         client_id=case["client_id"],
@@ -966,7 +966,7 @@ async def test_repair_restores_the_ticket_numbers(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
     from app.core.database import AsyncSessionLocal
-    from app.services import md_import_order_number_repair as repair
+    from scripts.repairs import md_import_order_number_repair as repair
 
     case, july_id, august_id, event_ids = await _seed_repair_state(
         app_client, app_auth_headers, monkeypatch
@@ -1022,7 +1022,7 @@ async def test_repair_leaves_a_hand_corrected_state_alone(
 ):
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder
-    from app.services import md_import_order_number_repair as repair
+    from scripts.repairs import md_import_order_number_repair as repair
 
     case, july_id, august_id, event_ids = await _seed_repair_state(
         app_client, app_auth_headers, monkeypatch

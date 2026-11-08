@@ -712,6 +712,55 @@ def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
     assert "exit 1" in commits["run"], "Brak zakresu = czerwień, nie cichy pass."
 
 
+_RELEASE_CURL = re.compile(r"curl\b(?:\\\n|[^\n])*")
+
+
+def _release_downloads() -> list[tuple[str, str, str]]:
+    """(workflow, krok, komenda curl) dla każdej binarki z GitHub Releases."""
+    found = []
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job in workflow["jobs"].values():
+            for step in job.get("steps", []):
+                run = step.get("run", "")
+                for command in _RELEASE_CURL.findall(run):
+                    if "/releases/download/" in command:
+                        found.append((path.name, run, command))
+    return found
+
+
+def test_release_binaries_download_with_retries_and_checksum() -> None:
+    """08.11.2026 GitHub Releases zwracał 504 i błędną treść, a `curl -sL` nie
+    ponawiał: grupy kolejki merge'ów padały, PR-y z dobrym kodem czekały
+    2,5 godziny poza kolejką."""
+    downloads = _release_downloads()
+    assert {name for name, _, _ in downloads} >= {
+        "ci-gate.yml",
+        "ci.yml",
+        "e2e.yml",
+    }, "Test przestał widzieć pobrania binarek."
+    for name, run, command in downloads:
+        assert re.search(r"(^|\s)-[a-zA-Z]*f[a-zA-Z]*\s", command), (
+            f"{name}: bez -f treść błędu HTTP ląduje w pliku: {command}"
+        )
+        assert re.search(r"--retry \d", command), f"{name}: brak ponowień: {command}"
+        assert "--retry-all-errors" in command, (
+            f"{name}: samo --retry nie ponawia zerwanego połączenia: {command}"
+        )
+        assert "sha256sum -c" in run, f"{name}: binarka bez weryfikacji sumy."
+
+
+def test_trivy_is_installed_with_retries_instead_of_by_the_action() -> None:
+    """`setup-trivy` z wnętrza akcji pobiera bez naszych ponowień."""
+    steps = _load("ci.yml")["jobs"]["security-scan"]["steps"]
+    names = [step.get("name") for step in steps]
+    assert names.index("Install Trivy") < names.index(
+        "Trivy filesystem scan (deps + Dockerfile misconfig)"
+    )
+    scan = _step(steps, "Trivy filesystem scan (deps + Dockerfile misconfig)")
+    assert scan["with"]["skip-setup-trivy"] is True
+
+
 def test_deploy_waits_for_the_evening_window() -> None:
     """Decyzja Artura 14.10.2026: wdrożenia tylko 18:00–08:00 (Warszawa).
 

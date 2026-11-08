@@ -210,7 +210,8 @@ jobs:
           .qa/venv/bin/pip install -r qa/requirements.txt
           .qa/venv/bin/python -m pytest qa/tests -q
           mkdir -p .qa/bin qa/reports
-          curl -fsSL --retry 3 https://github.com/grafana/k6/releases/download/v2.2.0/k6-v2.2.0-linux-amd64.tar.gz -o .qa/k6.tar.gz
+          curl -fsSL --retry 6 --retry-delay 15 --retry-all-errors --connect-timeout 20 --max-time 120 \
+            https://github.com/grafana/k6/releases/download/v2.2.0/k6-v2.2.0-linux-amd64.tar.gz -o .qa/k6.tar.gz
           echo 'b5a8003c86f35f5cd5ceef1490312c48e587696c94d998cefc6d7b3b4cb1597d  .qa/k6.tar.gz' | sha256sum -c -
           tar -xzf .qa/k6.tar.gz --strip-components=1 -C .qa/bin
           .qa/bin/k6 version

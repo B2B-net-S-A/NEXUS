@@ -32,6 +32,17 @@ SKILLS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _empty_row_counts():
+    """Pamięć liczników jest na poziomie modułu: liczba z testu, który biegł
+    wcześniej w tym samym shardzie, robiła z „nie policzono” powód rare_word."""
+    from app.services import requirement_row_counts
+
+    requirement_row_counts.clear()
+    yield
+    requirement_row_counts.clear()
+
+
 def _job(profile, *, must=None, nice=None):
     return SimpleNamespace(
         id=7,

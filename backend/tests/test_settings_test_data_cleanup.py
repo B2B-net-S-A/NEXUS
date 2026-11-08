@@ -33,7 +33,7 @@ from app.models.pipeline_template import (
 from app.models.service_account import ServiceAccount, ServiceAccountKey
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
-from app.services.settings_test_data_cleanup import (
+from scripts.repairs.settings_test_data_cleanup import (
     PinnedNamed,
     PinnedRow,
     SettingsCleanupPlan,

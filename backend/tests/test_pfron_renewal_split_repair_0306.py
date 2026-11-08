@@ -88,7 +88,6 @@ def test_details_key_is_never_printed_by_the_receipts_workflow():
     assert is_receipt_key(PFRON_RENEWAL_SPLIT_MARKER)
     assert not is_receipt_key(renewal_split_details_key(PFRON_RENEWAL_SPLIT_MARKER))
 MIGRATION = BACKEND / "alembic/versions/0306_pfron_renewal_split_repair.py"
-ENTRYPOINT = BACKEND / "entrypoint.sh"
 ORDER_API = BACKEND / "app/api/client_orders.py"
 
 T0 = datetime(2026, 9, 9, 22, 7, 13, tzinfo=timezone.utc)
@@ -96,25 +95,11 @@ AFTER = datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc)
 MESSAGE = "Powrót po 1 dniach od zakończenia poprzedniego zamówienia"
 
 
-def _heredoc_opening(tolerated_echo: str) -> str:
-    return f"<<'PY' || echo \"{tolerated_echo}\"\n"
-
-
-def _entrypoint_python_block(source: str, tolerated_echo: str) -> str:
-    """Treść heredoca ``... <<'PY' || echo "<tolerated_echo>"``."""
-    opening = _heredoc_opening(tolerated_echo)
-    assert opening in source, tolerated_echo
-    return source.split(opening, 1)[1].split("\nPY\n", 1)[0]
-
-
 def test_0306_chains_after_0305_and_uses_the_single_sql_source():
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "0306_pfron_renewal_split_repair"' in source
     assert 'down_revision = "0305_candidate_search_retention_indexes"' in source
     assert "PFRON_RENEWAL_SPLIT_SQL" in source
-    entrypoint = ENTRYPOINT.read_text(encoding="utf-8")
-    assert "from app.services.pfron_renewal_split_repair import" in entrypoint
-    assert 'echo "pfron renewal split repair skipped; continuing"' in entrypoint
 
 
 def test_production_block_pins_full_business_identity():
@@ -208,32 +193,23 @@ def test_human_edit_actions_are_the_ones_the_order_api_writes():
         assert 'entity_type="client_order"' in block, action
 
 
-def test_entrypoint_logs_only_counts_and_reasons_then_runs_the_revenue_step():
+def test_repair_scripts_log_only_counts_and_reasons():
     """Log kontenera idzie do Grafany — paragon (tytuły, stawki, ścieżki) nie."""
-    source = ENTRYPOINT.read_text(encoding="utf-8")
-    split_block = _entrypoint_python_block(
-        source, "pfron renewal split repair skipped; continuing"
-    )
-    resync_block = _entrypoint_python_block(
-        source, "pfron revenue resync skipped; continuing"
-    )
-    compile(split_block, "pfron-split-entrypoint", "exec")
-    compile(resync_block, "pfron-resync-entrypoint", "exec")
+    repairs = BACKEND / "scripts" / "repairs"
+    split_block = (repairs / "run_repair_pfron_split.py").read_text(encoding="utf-8")
+    resync_block = (repairs / "run_repair_pfron_resync.py").read_text(encoding="utf-8")
+    compile(split_block, "pfron-split-script", "exec")
+    compile(resync_block, "pfron-resync-script", "exec")
     assert "summarize_receipt_for_log(" in split_block
     assert "{receipt}" not in split_block
     assert "run_pfron_revenue_resync(db)" in resync_block
     assert "summarize_for_log(summary)" in resync_block
     assert "await db.commit()" in resync_block
     for block in (split_block, resync_block):
-        # Błąd bez treści (DETAIL potrafi zacytować wiersz), start idzie dalej.
+        # Błąd bez treści (DETAIL potrafi zacytować wiersz).
         assert "except Exception as exc" in block
         assert "{exc" not in block
         assert "sys.exit(1)" in block
-    # Krok przychodu jest NASTĘPNYM blokiem Pythona po korekcie.
-    between = source.split(split_block, 1)[1].split(
-        _heredoc_opening("pfron revenue resync skipped; continuing"), 1
-    )[0]
-    assert "python" not in between
 
 
 def test_receipt_log_line_carries_counts_and_reasons_only():
