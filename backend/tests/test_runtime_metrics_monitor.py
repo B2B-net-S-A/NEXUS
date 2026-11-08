@@ -77,6 +77,156 @@ def test_gc_window_ignores_stop_without_start() -> None:
     assert window.take()["gc_gen2_count"] == 0
 
 
+def _cpu_window(cpu: list[float], wall: list[float]) -> monitor.CpuWindow:
+    cpu_readings, wall_readings = iter(cpu), iter(wall)
+    return monitor.CpuWindow(
+        cpu_clock=lambda: next(cpu_readings),
+        wall_clock=lambda: next(wall_readings),
+    )
+
+
+def test_cpu_window_first_take_has_no_baseline_and_hides_startup_cpu() -> None:
+    # Pierwszy odczyt nie ma z czym się porównać; czas CPU importów i startu
+    # nie może wejść do pierwszego okna jako „obciążenie”.
+    window = _cpu_window([500.0], [1000.0])
+    assert window.take() == {"cpu_pct": None}
+
+
+def test_cpu_window_divides_cpu_delta_by_real_window_and_moves_on() -> None:
+    window = _cpu_window([10.0, 40.0, 40.6], [100.0, 160.0, 220.0])
+    window.take()
+    assert window.take() == {"cpu_pct": 50.0}
+    assert window.take() == {"cpu_pct": 1.0}
+
+
+def test_cpu_window_uses_actual_elapsed_time_not_nominal_interval() -> None:
+    # Okno z sondą puli albo po awarii trwa dłużej niż 60 s.
+    window = _cpu_window([0.0, 30.0], [0.0, 120.0])
+    window.take()
+    assert window.take() == {"cpu_pct": 25.0}
+
+
+def test_cpu_window_counts_all_threads_and_may_exceed_one_core() -> None:
+    window = _cpu_window([0.0, 90.0], [0.0, 60.0])
+    window.take()
+    assert window.take() == {"cpu_pct": 150.0}
+
+
+def test_cpu_window_reports_none_for_empty_window() -> None:
+    window = _cpu_window([1.0, 2.0], [5.0, 5.0])
+    window.take()
+    assert window.take() == {"cpu_pct": None}
+
+
+def test_cpu_window_failure_gives_none_and_recovers() -> None:
+    readings = iter([0.0, OSError("clock"), 10.0, 40.0])
+
+    def flaky_cpu() -> float:
+        value = next(readings)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    wall = iter([0.0, 60.0, 120.0, 180.0])
+    window = monitor.CpuWindow(cpu_clock=flaky_cpu, wall_clock=lambda: next(wall))
+    window.take()
+    assert window.take() == {"cpu_pct": None}  # awaria odczytu
+    assert window.take() == {"cpu_pct": None}  # brak punktu odniesienia po awarii
+    assert window.take() == {"cpu_pct": 50.0}
+
+
+def test_read_rss_mb_takes_resident_pages_from_statm(tmp_path, monkeypatch) -> None:
+    statm = tmp_path / "statm"
+    statm.write_text("900000 460800 12000 1 0 300000 0\n", encoding="ascii")
+    monkeypatch.setattr(monitor, "STATM_PATH", str(statm))
+    monkeypatch.setattr(monitor.os, "sysconf", lambda name: 4096)
+    assert monitor.read_rss_mb() == 1800.0
+
+
+def test_read_rss_mb_is_none_without_proc(tmp_path, monkeypatch) -> None:
+    # Laptop: macOS nie ma /proc.
+    monkeypatch.setattr(monitor, "STATM_PATH", str(tmp_path / "brak"))
+    assert monitor.read_rss_mb() is None
+
+
+@pytest.mark.parametrize("content", ["", "900000", "900000 x 1\n"])
+def test_read_rss_mb_is_none_for_malformed_statm(
+    tmp_path, monkeypatch, content
+) -> None:
+    statm = tmp_path / "statm"
+    statm.write_text(content, encoding="ascii")
+    monkeypatch.setattr(monitor, "STATM_PATH", str(statm))
+    assert monitor.read_rss_mb() is None
+
+
+@pytest.mark.skipif(
+    not Path(monitor.STATM_PATH).exists(), reason="system bez /proc (laptop)"
+)
+def test_read_rss_mb_reads_this_process_on_linux() -> None:
+    assert (monitor.read_rss_mb() or 0) > 1
+
+
+@pytest.mark.asyncio
+async def test_loop_logs_cpu_and_rss_with_existing_fields(monkeypatch, caplog) -> None:
+    windows = 0
+
+    async def fake_measure(_window, _until) -> None:
+        nonlocal windows
+        windows += 1
+        if windows == 3:
+            raise asyncio.CancelledError
+
+    async def fake_probe(_engine):
+        return 1.5, None
+
+    monkeypatch.setattr(monitor, "_measure_lag", fake_measure)
+    monkeypatch.setattr(monitor, "probe_checkout", fake_probe)
+    monkeypatch.setattr(monitor, "attach_pool_usage", lambda _: monitor.PoolUsage())
+    monkeypatch.setattr(monitor, "pool_snapshot", lambda _: {})
+    monkeypatch.setattr(monitor.gc, "callbacks", [])
+    monkeypatch.setattr(monitor, "read_rss_mb", lambda: 1234.5)
+
+    with caplog.at_level("INFO", logger=monitor.logger.name):
+        with pytest.raises(asyncio.CancelledError):
+            await monitor.runtime_metrics_monitor_loop(engine=object())
+
+    lines = [r for r in caplog.records if r.getMessage() == "runtime_metrics"]
+    assert len(lines) == 2
+    assert lines[0].cpu_pct is None
+    assert isinstance(lines[1].cpu_pct, float)
+    assert [r.rss_mb for r in lines] == [1234.5, 1234.5]
+    assert lines[1].pool_probe_checkout_ms == 1.5
+
+
+@pytest.mark.asyncio
+async def test_loop_keeps_logging_when_rss_is_unavailable(monkeypatch, caplog) -> None:
+    calls = 0
+
+    async def fake_measure(_window, _until) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise asyncio.CancelledError
+
+    async def fake_probe(_engine):
+        return 1.0, None
+
+    monkeypatch.setattr(monitor, "_measure_lag", fake_measure)
+    monkeypatch.setattr(monitor, "probe_checkout", fake_probe)
+    monkeypatch.setattr(monitor, "attach_pool_usage", lambda _: monitor.PoolUsage())
+    monkeypatch.setattr(monitor, "pool_snapshot", lambda _: {})
+    monkeypatch.setattr(monitor.gc, "callbacks", [])
+    monkeypatch.setattr(monitor, "STATM_PATH", "/nie/ma/takiego/pliku")
+
+    with caplog.at_level("INFO", logger=monitor.logger.name):
+        with pytest.raises(asyncio.CancelledError):
+            await monitor.runtime_metrics_monitor_loop(engine=object())
+
+    lines = [r for r in caplog.records if r.getMessage() == "runtime_metrics"]
+    assert len(lines) == 1 and lines[0].rss_mb is None
+    assert not [r for r in caplog.records if r.getMessage() == "runtime_metrics failed"]
+
+
 def test_freeze_startup_heap_collects_first_and_then_freezes(monkeypatch) -> None:
     calls: list[str] = []
     monkeypatch.setattr(monitor.gc, "collect", lambda: calls.append("collect") or 0)
