@@ -108,7 +108,7 @@ ruszysz albo włączysz ponownie.
   (`POST /api/admin/traffit/transfer`), które flagi nie czyta.
 - **Co stanęło razem z importem:** archiwizacja rekrutacji z Traffita po fazie
   `jobs`, poranne przypomnienie o kolejce Cpro liczone z importu
-  (`cpro_queue_reminder` — karty przesuwane w NEXUSIE dają zwykły dzwonek),
+  (usunięte z kodu 08.11.2026 — karty przesuwane w NEXUSIE dają zwykły dzwonek),
   dociąganie tekstu, imion i pól z CV pobranych z Traffita
   (`candidates_cv_text`, `candidates_enrich_names`, `candidates_cv_fields`).
 - **Co działa bez zmian:** pozostałe nocne zadania (dopasowania, wnioski

@@ -23,7 +23,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const at = (days: number) => new Date(NOW.getTime() + days * DAY).toISOString();
 
 const CATALOG = [
-  { value: "traffit:sync", label: "Uruchamianie synchronizacji Traffit" },
+  { value: "ops:snapshot", label: "Odczyt migawki operacyjnej (/api/admin/snapshot)" },
   { value: "clients:read", label: "Klienci: odczyt (nazwa, NIP, Delivery Lead)" },
   { value: "md:read", label: "Zużycie MD: odczyt (salda, importy)" },
   { value: "md:write", label: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)" },
@@ -37,7 +37,7 @@ const CATALOG = [
 
 describe("groupScopes — grupy uprawnień na ekranie", () => {
   it("dzieli scope'y na stałe grupy w ich kolejności, bez pustych grup", () => {
-    const groups = groupScopes(["md:write", "clients:read", "traffit:sync", "md:read"], CATALOG);
+    const groups = groupScopes(["md:write", "clients:read", "ops:snapshot", "md:read"], CATALOG);
     expect(groups.map((g) => g.title)).toEqual([
       "Rozliczenia — odczyt",
       "Rozliczenia — zapis",

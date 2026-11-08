@@ -426,9 +426,9 @@ def ensure_password_change_not_required(request: Request) -> None:
         )
 
 
-#: Odmowa dostępu domenowego praktykantowi (0374). Praktykant przez program
-#: wdrożenia widzi wyłącznie „Telefony na dziś” (`/api/trainee/*` na
-#: ``TraineeUser``); każda trasa na ``CurrentUser``/``require_roles`` odmawia.
+#: Odmowa dostępu domenowego praktykantowi (0374). Program praktykanta usunięto
+#: z kodu 08.11.2026, rola zostaje: każda trasa na
+#: ``CurrentUser``/``require_roles`` odmawia.
 TRAINEE_RESTRICTED_DETAIL = "trainee_restricted"
 
 

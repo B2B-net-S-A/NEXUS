@@ -295,13 +295,10 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.sales": BY_PERMISSION_ONLY,
   // → uprawnienie `client_contracts_view` (bez sekcji produktu, jak Sprzedaż).
   "nav.client_contracts": BY_PERMISSION_ONLY,
-  // Praktykant (0374) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
-  // `/api/trainee/today|items/*` przyjmują tylko rolę `trainee` (własna
-  // lista). Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
-  // wpisów rejestru (świadomie NIE ma jej w `ALL_ROLES`).
+  // Praktykant (0374): program usunięto z kodu 08.11.2026, rola zostaje.
+  // Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych wpisów
+  // rejestru (świadomie NIE ma jej w `ALL_ROLES`).
   "nav.trainee": ["trainee"],
-  // Panel „Praktykanci” i reguły listy — `/api/trainee/overview|programs|
-  // quality-sample|rules` dla admina i Head of Recruitment.
 };
 
 /**

@@ -57,7 +57,7 @@ class ServiceScope(str, enum.Enum):
     """Słownik uprawnień kluczy API — celowo WĄSKI i celowo osobny.
 
     Zasada: jeden scope = jedna powierzchnia operacyjna, nazwa ``<zasób>:<akcja>``.
-    Klucz do odpalania syncu Traffita nie ma jak sięgnąć po dane kandydata, bo
+    Klucz do migawki operacyjnej nie ma jak sięgnąć po dane kandydata, bo
     takiego scope'u po prostu nie ma w tym słowniku — to nie jest kwestia
     ostrożnej konfiguracji, tylko braku istniejącego uprawnienia.
 
@@ -73,7 +73,6 @@ class ServiceScope(str, enum.Enum):
     w guardzie endpointu. Bez migracji — kolumna trzyma stringi, nie enum DB.
     """
 
-    traffit_sync = "traffit:sync"
     traffit_read = "traffit:read"
     ops_snapshot = "ops:snapshot"
     # Eksport kontraktorów dla COMPASSA. Nazwa CELOWO nie brzmi
@@ -165,7 +164,6 @@ class ServiceScope(str, enum.Enum):
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
-    ServiceScope.traffit_sync: "Uruchamianie synchronizacji Traffit",
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
     ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
@@ -274,7 +272,7 @@ class ServiceAccount(Base, TimestampMixin):
     __table_args__ = (
         # Lustro ``ck_users_roles_array``. Gdyby ``scopes`` przestało być tablicą
         # (ręczny UPDATE, zły import), sprawdzenie uprawnień w Pythonie zrobiłoby
-        # z operatora ``in`` test podciągu — ``"traffit:sync" in "traffit:sync-x"``
+        # z operatora ``in`` test podciągu — ``"ops:snapshot" in "ops:snapshot-x"``
         # jest prawdą. Baza odrzuca taki wiersz zamiast pozwolić mu cicho
         # rozszerzyć uprawnienia.
         CheckConstraint(

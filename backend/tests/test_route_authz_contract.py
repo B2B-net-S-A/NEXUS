@@ -483,7 +483,7 @@ def test_own_credential_is_not_public() -> None:
     from app.api.deps import require_service_scope
     from app.models.service_account import ServiceScope
 
-    route = _route("/api/x", require_service_scope(ServiceScope.traffit_sync))
+    route = _route("/api/x", require_service_scope(ServiceScope.ops_snapshot))
     assert _classify(route) == "own_credential"
 
 

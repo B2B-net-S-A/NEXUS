@@ -8,12 +8,13 @@ w otwartych listach, pulach przydziału, follow-upach ani alertach, ale zostaje
 i profili Championa. Wyjątek: rekrutacja przełączona „Prowadzona w NEXUSIE”
 (`managed_in_nexus`) — tę prowadzi zespół i sync jej nie rusza.
 
-Dwie połowy, bo kolumny mają różnych właścicieli (`job_column_ownership`):
+Import z Traffita usunięto z kodu 08.11.2026; moduł zostaje, bo importuje go
+migracja 0377. Archiwizacja miała dwie połowy, bo kolumny miały różnych właścicieli:
 
-* ``status`` jest kolumną Traffita — mapper importu zapisuje ``closed`` (a stan
-  z Traffita trzyma w ``custom_fields.traffit_status``);
+* ``status`` był kolumną Traffita — mapper importu zapisywał ``closed`` (a stan
+  z Traffita trzymał w ``custom_fields.traffit_status``);
 * ``work_state`` i ``is_open`` należą do NEXUSA — ustawia je
-  :func:`archive_traffit_jobs` po fazie rekrutacji, NIE ``_UPSERT_JOB``.
+  :func:`archive_traffit_jobs`.
 
 ``closed_at`` celowo zostaje taki, jak w Trafficie (pusty, dopóki Traffit nie
 zamknie rekrutacji). Hit ratio (Liga Mistrzów DL, Portfele DL, Rok do roku)

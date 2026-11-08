@@ -20,7 +20,7 @@ const SCOPES = [
   { value: "md:read", label: "Zużycie MD: odczyt (salda, importy)" },
   { value: "md:write", label: "Zużycie MD: zapis (import, przypisanie wiersza, korekta miesiąca)" },
   { value: "amounts:read", label: "Wszystkie kwoty: także stawki konsultantów, koszty i marża" },
-  { value: "traffit:sync", label: "Uruchamianie synchronizacji Traffit" },
+  { value: "ops:snapshot", label: "Odczyt migawki operacyjnej (/api/admin/snapshot)" },
 ];
 
 const CONFIG: ServiceAccountConfigDto = {
@@ -382,7 +382,7 @@ describe("ApiKeysSettingsView — formularz konta", () => {
     const write = within(form).getByRole("group", { name: "Rozliczenia — zapis" });
     expect(within(write).getByRole("checkbox", { name: /Zużycie MD: zapis/ })).toBeInTheDocument();
     const ops = within(form).getByRole("group", { name: "Operacyjne" });
-    expect(within(ops).getByRole("checkbox", { name: /Uruchamianie synchronizacji Traffit/ })).toBeInTheDocument();
+    expect(within(ops).getByRole("checkbox", { name: /Odczyt migawki operacyjnej/ })).toBeInTheDocument();
   });
 
   it("odrzuca zły slug, a poprawny wysyła znormalizowany z uprawnieniami w kolejności ekranu", async () => {
