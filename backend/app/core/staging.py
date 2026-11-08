@@ -129,7 +129,6 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "integration_stale_alerts",
         "integration_webhooks",
         "jjit_import",
-        "cloudtalk_sync",
         "traffit_sync",
         "order_mail_ingest",
         "teams_prep_transcripts",

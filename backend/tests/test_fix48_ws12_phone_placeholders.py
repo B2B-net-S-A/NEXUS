@@ -12,7 +12,6 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.services import dedup_service as dd
-from app.services.cloudtalk_candidate import match_call_candidate
 
 
 @pytest.mark.parametrize(
@@ -146,13 +145,3 @@ async def test_short_number_keeps_suffix_match():
 
     sql = _sql(db.statements[0])
     assert "'%1234'" in sql and "'%1234%'" not in sql
-
-
-async def test_cloudtalk_call_from_placeholder_matches_nobody():
-    class _NoDb:
-        async def scalars(self, _stmt):  # pragma: no cover - nie może być wołane
-            raise AssertionError("zaślepka nie pyta bazy")
-
-    match = await match_call_candidate(_NoDb(), "000 000 000")
-
-    assert match.last9 is None and match.candidate_ids == ()

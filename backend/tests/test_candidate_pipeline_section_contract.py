@@ -158,7 +158,6 @@ def test_competitions_have_insights_section_ceiling(method: str, path: str) -> N
 @pytest.mark.parametrize(
     ("method", "path"),
     (
-        ("POST", "/api/calls/webhook"),
         ("GET", "/api/public/cv/{token}"),
         ("GET", "/api/public/apply/{token}"),
         ("POST", "/api/public/apply/{token}"),

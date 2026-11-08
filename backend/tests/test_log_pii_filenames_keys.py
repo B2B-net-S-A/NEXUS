@@ -219,7 +219,6 @@ _EXEMPT_NAMES = {
     ("api/deps.py", "path"),
     ("main.py", "path"),
     ("services/autenti/client.py", "path"),
-    ("services/cloudtalk/client.py", "path"),
     ("services/jarvis/transport.py", "path"),
     ("services/traffit/client.py", "path"),
     ("services/b2b_contract_generator/seeder.py", "path"),
