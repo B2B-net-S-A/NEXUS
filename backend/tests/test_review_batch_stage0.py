@@ -287,6 +287,30 @@ async def test_screening_older_than_window_does_not_count(batch_on):
     assert (await _status(a)).done_today == 0
 
 
+async def test_card_moved_to_screening_today_cannot_be_removed(batch_on):
+    """S, a potem usunięcie z rekrutacji zerowałoby wymagane minimum."""
+    from fastapi import HTTPException
+
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    screened, rejected = await _fill(world["job_id"])
+    await _move(world["job_id"], screened, PipelineStage.screening, a)
+    await _move(world["job_id"], rejected, PipelineStage.rejected, a)
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, a)
+        with pytest.raises(HTTPException) as exc:
+            await rb.assert_removal_allowed(
+                db, user, candidate_id=screened, job_id=world["job_id"]
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == rb.REMOVAL_CODE
+        # Odrzucona osoba nie trzyma minimum, można ją zdjąć.
+        await rb.assert_removal_allowed(
+            db, user, candidate_id=rejected, job_id=world["job_id"]
+        )
+
+
 # ── S-C4: próg z ustawień ───────────────────────────────────────────────────
 
 

@@ -1134,6 +1134,10 @@ async def is_broad_list_query(db, params, user: Optional[User] = None) -> bool:
         if key in _NEUTRAL_LIST_PARAMS or key.startswith("include_"):
             continue
         if user is not None:
+            # ``contacted_by`` zawęża dopiero przy ``contacted=yes``: bez tego
+            # nie filtruje nikogo, a przy ``no`` to wszyscy poza moimi.
+            if key == "contacted_by" and params.get("contacted") != "yes":
+                return True
             if key in _OWN_WORK_PERSON_PARAMS or key == "recruitment_id":
                 own.setdefault(key, []).append(str(value))
                 continue
@@ -1208,8 +1212,9 @@ async def assert_removal_allowed(
     wyszukiwania bez przeglądu (przegląd kodu 07.11.2026)."""
     if not enabled() or not applies_to(user):
         return
+    now = _now()
     min_score = (await read_settings(db)).min_score
-    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), _now(), min_score)
+    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), now, min_score)
     if any(card.candidate_id == candidate_id for card in cards):
         raise HTTPException(
             status_code=409,
@@ -1218,6 +1223,28 @@ async def assert_removal_allowed(
                 "message": (
                     "To osoba z porcji dnia od Nexusa. Zdecyduj: screening albo "
                     "odrzucenie z powodem — usunięcie z rekrutacji nie jest decyzją."
+                ),
+            },
+        )
+    # Dzisiejsze niedomknięte S trzyma wymagane minimum: usunięcie karty po
+    # klawiszu S zerowałoby je tak samo jak usunięcie z „Nowych”.
+    since = day_start(now)
+    decisions = (await _decisions(db, [user.id], now=now)).get(user.id, [])
+    if any(
+        d.job_id == job_id
+        and d.candidate_id == candidate_id
+        and d.counted_at is None
+        and d.moved_at >= since
+        for d in decisions
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": REMOVAL_CODE,
+                "message": (
+                    "To osoba z porcji dnia, którą dziś przesunięto do screeningu. "
+                    "Wpisz wynik albo odrzuć z powodem — usunięcie z rekrutacji "
+                    "nie jest decyzją."
                 ),
             },
         )

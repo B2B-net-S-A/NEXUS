@@ -99,7 +99,8 @@ Flagi porcji dalej wyłączone, włączenie i skład pilota decyduje Artur.
   stoi pusta) w ciągu `SCREENING_CLOSE_DAYS` = 2 dni roboczych. Liczy się w dniu
   domknięcia, odrzucenie z powodem od razu. Bez tego przesunięcie całej porcji na
   screening odblokowywało wyszukiwanie po kilku minutach. Dzisiejsze niedomknięte S
-  zostają w `required`, inaczej porcja wyzerowana klawiszem S dawała `met`.
+  zostają w `required`, inaczej porcja wyzerowana klawiszem S dawała `met`, i tej
+  karty nie da się dziś usunąć z rekrutacji (409 `REVIEW_CARD_NEEDS_DECISION`).
 - **Kolejność jak na Tablicy** (`review_batch_order.order_cards`, lustro
   `orderNewColumn`): nowi w bazie od progu, bez uwag z miejscem co 5., z ostrzeżeniem,
   z brakiem krytycznej, po sumie wyniku, „znamy” i premii. Tego samego klucza używa
@@ -115,8 +116,8 @@ Flagi porcji dalej wyłączone, włączenie i skład pilota decyduje Artur.
   (`Activity review_batch.blocked`, raz na osobę na 10 minut, własna sesja, bo sesja
   żądania cofa się po 423).
 - **Filtry własnej pracy przechodzą** (`is_broad_list_query` z `user`):
-  `added_by_user_id`, `stage_moved_by`, `contacted_by` równe zalogowanej osobie
-  i `recruitment_id` z jej zespołów. Zawężenia (`pipeline_stage`, daty ruchu,
+  `added_by_user_id`, `stage_moved_by`, `contacted_by` (tylko z `contacted=yes`,
+  bo inaczej nie zawęża) równe zalogowanej osobie i `recruitment_id` z jej zespołów. Zawężenia (`pipeline_stage`, daty ruchu,
   `rejection_by`, które przyjmuje tylko `client/us/candidate`) działają wyłącznie
   razem z takim filtrem. Cudze id, rekrutacja spoza zespołu, `recruitment_match`
   inny niż `assigned`, dodana umiejętność albo opis w `q` = 423.

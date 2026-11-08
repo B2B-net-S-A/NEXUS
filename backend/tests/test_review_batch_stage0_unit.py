@@ -186,7 +186,7 @@ def my_team(monkeypatch):
     [
         "added_by_user_id=7",
         "stage_moved_by=7&pipeline_stage=rejected&stage_moved_after=2026-11-01",
-        "contacted_by=7",
+        "contacted_by=7&contacted=yes",
         "stage_moved_by=7&rejection_by=us",
         "recruitment_id=100",
         "recruitment_id=100&recruitment_match=assigned",
@@ -205,7 +205,10 @@ async def test_own_work_filters_pass_the_block(query):
         "added_by_user_id=7&added_by_user_id=9",
         "added_by_user_id=0",  # „system”
         "stage_moved_by=9",
-        "contacted_by=9",
+        "contacted_by=9&contacted=yes",
+        "contacted_by=7",  # bez „contacted=yes” nie zawęża listy
+        "pipeline_stage=rejected&contacted_by=7",
+        "rejection_by=us&contacted_by=7&contacted=no",
         "recruitment_id=200",  # rekrutacja spoza zespołu
         "recruitment_id=100&recruitment_id=200",
         "recruitment_id=abc",
