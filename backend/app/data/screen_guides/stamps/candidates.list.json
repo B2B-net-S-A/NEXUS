@@ -1,9 +1,9 @@
 {
-  "entry": "d09b564448a404849f258abed234f13f0dd7c2d874340b591d82291038db2ef1",
+  "entry": "50ae7503c015dbb3ac219bce28c068cc0ee981d2fe7684e17af23e1842bed9ed",
   "guide": "candidates.list",
   "sources": {
-    "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "b597246adec910c41a41e1aff8eb524ce4eeb45d311cedf900bf60c8ba63b6d6",
+    "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "7e49d5d9ad0a99a22b3e356e54d6756d76079b652803f9d514d04dd07b98b6bc",
     "frontend/src/components/v2/candidates/CandidateSearchFields.tsx": "4c9a75673e6ccdf0ac6b5382652089389c0c4cd189da85558bc83e50a0c305a8",
-    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "5bb9ff7b4738d03ada96a8c1815efe6b162196eacf6fc84933801438db8478f8"
+    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "f286b91357876f8edb8a5c252509d7ac9c8dae355ec671e2a886b7171cbd20b4"
   }
 }

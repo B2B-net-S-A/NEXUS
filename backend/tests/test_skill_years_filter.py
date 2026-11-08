@@ -43,7 +43,16 @@ def test_parser_pomija_puste_wiersze():
 
 @pytest.mark.parametrize(
     "value",
-    ["Java", ":3", "Java:", "Java:trzy", "Java:0", "Java:31", "Java:-1", "x" * 121 + ":2"],
+    [
+        "Java",
+        ":3",
+        "Java:",
+        "Java:trzy",
+        "Java:0",
+        "Java:31",
+        "Java:-1",
+        "x" * 121 + ":2",
+    ],
 )
 def test_parser_odrzuca_zly_wiersz(value):
     with pytest.raises(predicates.InvalidSkillYears):
@@ -241,9 +250,7 @@ async def _search_raw(client, headers, **body: Any) -> dict:
 
 def _rows(data: dict) -> dict[str, dict]:
     return {
-        key: item
-        for item in data["items"]
-        if (key := _key_of(item["id"])) is not None
+        key: item for item in data["items"] if (key := _key_of(item["id"])) is not None
     }
 
 

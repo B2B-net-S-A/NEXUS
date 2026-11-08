@@ -128,6 +128,8 @@ import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import { BlacklistBadge } from "@/components/v2/candidate-profile/BlacklistDialogs";
 import { UnknownFieldBadges } from "@/components/v2/candidates/UnknownFieldBadges";
+import { SkillYearsBadges } from "@/components/v2/candidates/SkillYearsFilter";
+import type { CandidateSkillYears } from "@/lib/candidate-skill-years";
 import {
   dividerIndex,
   dividerTitle,
@@ -379,6 +381,8 @@ interface Candidate {
   unknown_fields?: string[];
   /** D6: „Pruszków · 16 km (Warszawa)” — osoba przeszła przez promień. */
   location_distance?: { place: string; km: number; center: string } | null;
+  /** „Lata z technologią”: lata z dat stanowisk w CV przy każdym wierszu filtru. */
+  skill_years?: CandidateSkillYears[] | null;
 }
 
 interface CandidateListResponse {
@@ -1945,6 +1949,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  traffitExtras.recruitmentClientIds.length +
  (traffitExtras.recruitmentPresence ? 1 : 0) +
  rejectionFilterCount(traffitExtras) +
+ traffitExtras.skillYears.length +
  traffitExtras.stageColumns.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (rateMin !== null || rateMax !== null ? 1 : 0) +
@@ -2901,6 +2906,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                 ) : null}
                                 {/* D5: „brak stawki / lokalizacji / stażu” — osoba
                                     przeszła filtr tylko dlatego, że nie mamy danych. */}
+                                <SkillYearsBadges entries={candidate.skill_years} className="shrink-0" />
                                 <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
                                 {noLocationBadge && !location ? null : (
                                   <span className="min-w-0 shrink-[100] truncate" title={locationTitle}>

@@ -1,6 +1,12 @@
 "use client";
 
 import { NO_REJECTION_FILTER, rejectionFilterSummary } from "@/lib/candidate-last-rejection";
+import {
+ NO_SKILL_YEARS_FILTER,
+ formatSkillYearsEntry,
+ parseSkillYearsEntries,
+ skillYearsRowLabel,
+} from "@/lib/candidate-skill-years";
 import { useMemo } from"react";
 import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
@@ -587,6 +593,18 @@ function collectChips(
  clear: () => onUpdate({ recruitmentPresence: "", page: 1 }),
  });
  }
+ const skillYearsRows = parseSkillYearsEntries(filters.skillYears);
+ for (const row of skillYearsRows) {
+ const rest = skillYearsRows.filter((r) => r !== row).map(formatSkillYearsEntry);
+ chips.push({
+ key: `skill-years-${row.skill}`,
+ label: `${skillYearsRowLabel(row)}${filters.hideUnknownSkillYears ? " · bez dat: ukryte" : ""}`,
+ clear: () =>
+ onUpdate(
+ rest.length ? { skillYears: rest, page: 1 } : { ...NO_SKILL_YEARS_FILTER, page: 1 },
+ ),
+ });
+ }
  const rejectionLabel = rejectionFilterSummary(filters);
  if (rejectionLabel) {
  chips.push({
@@ -829,6 +847,7 @@ export function ActiveFilterChips({
  recruitmentClientIds: [],
  recruitmentPresence: "",
  ...NO_REJECTION_FILTER,
+ ...NO_SKILL_YEARS_FILTER,
  experienceMin: null,
  experienceMax: null,
  rateMin: null,

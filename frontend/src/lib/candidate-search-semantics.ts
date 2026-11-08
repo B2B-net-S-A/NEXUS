@@ -149,12 +149,13 @@ export function summarizeTextInterpretation(
   return { label: "po znaczeniu", detail: "" };
 }
 
-export type UnknownField = "location" | "experience" | "rate";
+export type UnknownField = "location" | "experience" | "rate" | "skill_years";
 
 const UNKNOWN_FIELD_LABELS: Record<UnknownField, string> = {
   location: "brak lokalizacji",
   experience: "brak stażu",
   rate: "brak stawki",
+  skill_years: "bez dat w CV",
 };
 
 const UNKNOWN_FIELD_HINTS: Record<UnknownField, string> = {
@@ -163,6 +164,8 @@ const UNKNOWN_FIELD_HINTS: Record<UnknownField, string> = {
   experience:
     "Nie znamy stażu tej osoby — przeszła filtr lat doświadczenia, bo nie da się jej wykluczyć.",
   rate: "Nie znamy stawki tej osoby — przeszła filtr stawki, bo nie da się jej wykluczyć.",
+  skill_years:
+    "Osoba ma technologię w profilu, ale CV nie podaje przy niej dat stanowisk — przeszła filtr lat, bo nie da się jej wykluczyć.",
 };
 
 /** Znane pola `unknown_fields` w stałej kolejności; nieznane kody odpadają. */
@@ -170,7 +173,7 @@ export function unknownFieldBadges(
   fields: readonly string[] | null | undefined,
 ): Array<{ field: UnknownField; label: string; hint: string }> {
   const out: Array<{ field: UnknownField; label: string; hint: string }> = [];
-  for (const field of ["location", "experience", "rate"] as const) {
+  for (const field of ["location", "experience", "rate", "skill_years"] as const) {
     if (fields?.includes(field)) {
       out.push({
         field,

@@ -32,6 +32,7 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
 | „Otwarty na" | LUB; `open_to_*: false` zostaje osobnym, twardym warunkiem |
 | Kategoria kompetencji | główna LUB poboczna (M2M) LUB legacy FK |
 | Lata doświadczenia | jedna reguła przedziału: dokładna liczba, a gdy jej brak — koszyk Traffita |
+| Lata z technologią | `skill_years=Java:3`: lata z dat stanowisk w CV (`candidate_skill_usage`); technologia bez dat = `unknown_fields: skill_years`, zostaje (oba silniki, obie wersje) → `lata-z-technologia-w-wyszukiwaniu.md` |
 | Tagi | cały tag (token JSON, bez wielkości liter), nie podłańcuch |
 | Lokalizacja | `city` LUB `location`, `%`/`_` dosłownie, bez polskich znaków; kilka miast (`location_cities`) i kraj w obu |
 | `q_all`/`q_any`/`q_none` | jeden parser (`parse_q_groups`; grupa jako lista albo `a\|b`); CAŁE słowa, gwiazdka `java*`/`*script` (`keyword_terms`) — v1 podłańcuch |
