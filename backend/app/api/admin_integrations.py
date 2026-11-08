@@ -2,8 +2,7 @@
 
 ``POST /api/admin/integrations/jjit/run`` startuje run w tle (zwraca od razu);
 ``GET /api/admin/integrations/jjit/status`` mówi, czy coś trwa i jak jest
-skonfigurowany job (enabled / dry_run / pora). Tylko admin — to ten sam
-poziom, co ``POST /api/admin/traffit/sync``.
+skonfigurowany job (enabled / dry_run / pora). Tylko admin.
 """
 
 from __future__ import annotations

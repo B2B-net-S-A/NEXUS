@@ -62,17 +62,9 @@ znało tylko `jobs.recruiter_id` (osobę z automatu przydziału albo nikogo).
   własny typ (`consultant_in_other_recruitment`) i własni odbiorcy, niezależnie
   od reguł i przekazań z tego pliku. Wpięte w to samo `notify_stage_change`;
   szczegóły w `kandydaci-wyszukiwanie/znacznik-pracuje-u-nas.md`.
-- **Kolejka Cpro prowadzona w Traffit też dzwoni (08.10.2026, decyzja Artura).**
-  Pomiar: 122 wejścia na „NORDEA: Wysłać do Cpro” w 14 dni, wszystkie
-  w Traffit — import pisze surowym SQL-em, więc osoba od Cpro nie dostała ani
-  jednego dzwonka. Po fazie `pipelines` (`traffit_sync._pipelines_phase`)
-  `services/cpro_queue_reminder.py` liczy STAN: pary, których najnowszy wiersz
-  to zaimportowany etap kolejki Cpro u klienta z kolejką Cpro, z ostatnich
-  `TRAFFIT_CPRO_REMINDER_WINDOW_DAYS` (7) dni. Jedno `board_task_waiting` na
-  osobę na dzień (encja = odbiorca), mail od razu jak przy `dl_review`, tylko
-  w dni robocze. Nie rób z tego dzwonka na każdy zaimportowany wiersz — przy
-  imporcie nocnym 93 ze 122 kart były już wysłane. Wyłącznik
-  `TRAFFIT_CPRO_REMINDER_ENABLED`.
+- **Kolejka Cpro prowadzona w Traffit (decyzja Artura 08.10.2026, tylko do wyłączenia
+  importu).** Przypomnienie liczone z importu stanęło razem z importem, a kod
+  (`cpro_queue_reminder`) usunięto 08.11.2026. Karty przesuwane w NEXUSIE dają zwykły dzwonek.
 - **„Klient zaakceptował” (0451, D4–D5, 16.10.2026).** Wejście na etap
   akceptacji (kod `acceptance`, także „Zaakceptowany” z Traffita) to
   przekazanie `REASON_CLIENT_ACCEPTED`: rekruter kandydata, prowadzący,

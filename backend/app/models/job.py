@@ -133,8 +133,7 @@ class Job(Base, TimestampMixin):
     )
 
     # „Czy MY aktywnie prowadzimy tę rekrutację" (migracja 0270) — kolumna
-    # NEXUSA, której sync Traffita NIGDY nie dotyka (patrz
-    # `services/job_column_ownership.py`).
+    # NEXUSA, której sync Traffita nigdy nie dotykał.
     #
     # Nie myl ze `status` wyżej: ten mówi, czy rekrutacja żyje U KLIENTA, i jest
     # lustrem Traffita. Do 0270 oba pytania dzieliły jedną kolumnę, przez co
@@ -188,7 +187,7 @@ class Job(Base, TimestampMixin):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     # 0371: stan pracy nad requestem prowadzony w NEXUSIE (Traffit go nie
-    # nadpisuje — `job_column_ownership.NEXUS_OWNED`): to_review („Do
+    # nadpisywał): to_review („Do
     # przejrzenia”), searching („Szukamy kandydatów”), client_silent („Klient
     # milczy”), finished („Zakończony”). „Mamy championa” NIE jest wartością —
     # to `champion_found_at` przy stanie searching
@@ -432,8 +431,8 @@ class Job(Base, TimestampMixin):
     )
 
     # Przełącznik „Rekrutacja prowadzona w NEXUSIE" (0325, decyzja Artura 17.09.2026).
-    # Gdy true: `import_pipelines` POMIJA ruchy etapów tej oferty, a `_UPSERT_JOB`
-    # nie nadpisuje `title`/`status`/`closed_at`. Kolumna NEXUSA — sync jej nie dotyka.
+    # Gdy true, import Traffita (usunięty 08.11.2026) pomijał ruchy etapów tej
+    # oferty i nie nadpisywał `title`/`status`/`closed_at`. Kolumna NEXUSA.
     managed_in_nexus: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

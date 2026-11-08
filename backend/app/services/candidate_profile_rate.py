@@ -79,7 +79,7 @@ def conflicting_profile_rate_currency_clause(currency_column):  # type: ignore[n
     return ~canonical_profile_rate_currency_clause(currency_column)
 
 
-#: Źródło stawki zapisanej przez telefon praktykanta (``trainee_program.NOTE_SOURCE``).
+#: Źródło stawki zapisanej przez telefon praktykanta (program usunięty 08.11.2026, wiersze zostały).
 TRAINEE_CALL_RATE_SOURCE = "trainee_call"
 
 

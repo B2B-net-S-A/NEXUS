@@ -27,10 +27,10 @@ Auth: jak `/api/admin/snapshot` — klucz serwisowy, X-Snapshot-Token albo JWT a
 
 WAŻNE przy czytaniu wyników — dyskryminator „nasza praca vs import" to
 `external_source = 'manual'`, **NIE `IS NULL`**: kolumna ma ORM-owy default
-`"manual"` (`models/recruitment_pipeline.py:224`), a importer stempluje
-`'traffit'` (`services/traffit/mappers.py:629`). Predykat `IS NULL` zwróciłby
+`"manual"` (`models/recruitment_pipeline.py:224`), a import Traffita stemplował
+`'traffit'`. Predykat `IS NULL` zwróciłby
 zero wszędzie — prawdziwy wynik z fałszywego powodu. Z tego samego powodu sam
-`moved_by` nie jest znacznikiem pracy własnej: importer mapuje operatorów
+`moved_by` nie jest znacznikiem pracy własnej: importer mapował operatorów
 Traffita na realne `users.id`.
 """
 

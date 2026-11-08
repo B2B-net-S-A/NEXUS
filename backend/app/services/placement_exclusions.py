@@ -37,8 +37,7 @@ Gdzie działa:
 * liczniki czytające ``candidate_stages`` wprost —
   ``not_excluded_placement(...)`` (SQLAlchemy).
 
-Wykrywanie dobowe: ``run_detection_safely`` po nocnym imporcie Traffita
-(``tasks/traffit_sync.py``) i przed zamrożeniem wyścigów
+Wykrywanie dobowe: ``run_detection_safely`` przed zamrożeniem wyścigów
 (``tasks/competition_autofreeze.py``). Idempotentne, NIGDY nie zdejmuje
 istniejących wykluczeń.
 """
