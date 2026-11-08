@@ -64,7 +64,9 @@ if [ "$1 $2" = "issue list" ]; then cat "$GH_OPEN_ISSUES"; fi
 
 
 def _step(name: str) -> dict:
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["probe"]["steps"]
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["probe"][
+        "steps"
+    ]
     return next(step for step in steps if step.get("name") == name)
 
 
@@ -103,7 +105,9 @@ def sandbox(tmp_path: Path) -> dict[str, str]:
 def _set_days(env: dict[str, str], **days_by_host: int) -> None:
     for host in HOSTS:
         days = days_by_host.get(host.replace(".", "_"), 90)
-        Path(env["EXPIRY_DIR"], host).write_text(str(NOW + days * DAY), encoding="utf-8")
+        Path(env["EXPIRY_DIR"], host).write_text(
+            str(NOW + days * DAY), encoding="utf-8"
+        )
 
 
 def _run_step(name: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -127,7 +131,9 @@ def _gh_calls(env: dict[str, str]) -> str:
 
 
 @pytest.mark.parametrize(("days", "expiring"), [(13, "1"), (14, "0"), (-1, "1")])
-def test_threshold_is_under_14_days(sandbox: dict[str, str], days: int, expiring: str) -> None:
+def test_threshold_is_under_14_days(
+    sandbox: dict[str, str], days: int, expiring: str
+) -> None:
     _set_days(sandbox, api_nexus_b2bnetwork_pl=days)
     proc = _run_step("TLS expiry check", sandbox)
     assert proc.returncode == 0, proc.stderr
