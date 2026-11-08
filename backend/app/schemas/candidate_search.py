@@ -218,7 +218,7 @@ def reversed_range_message(
 
 
 def raise_if_range_reversed(low: Any, high: Any, message: str) -> None:
-    """Wspólna reguła dla obu schematów wyszukiwania (legacy i V3)."""
+    """Wspólna reguła odwróconego przedziału w schemacie wyszukiwania."""
     if low is not None and high is not None and low > high:
         # PydanticCustomError: komunikat wychodzi w 422 bez prefiksu
         # „Value error, ..." — użytkownik widzi zdanie po polsku.
