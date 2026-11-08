@@ -156,16 +156,16 @@ def numbers_found(texts: Iterable[str], refs: Sequence[OrderRef]) -> set[str]:
     return hits
 
 
-def named_order_numbers(order_refs: Iterable[str]) -> list[str]:
-    """Numery zamówień, które faktura podaje wprost w polach zamówienia i opisu.
+def named_order_numbers(texts: Iterable[str]) -> list[str]:
+    """Numery zamówień, które faktura podaje wprost w polach zamówienia, opisie i pozycjach.
 
-    Pole to wolny tekst (osoby, adresy e-mail, nazwy projektów z cyframi), więc
+    To wolny tekst (osoby, adresy e-mail, nazwy projektów z cyframi), więc
     numerem jest tylko wartość po etykiecie albo cały wpis złożony z cyfr. Inaczej
     ciąg cyfr z nazwy projektu zatrzymałby fakturę, którą wiąże kwota.
     """
 
     found: list[str] = []
-    for text_ in order_refs:
+    for text_ in texts:
         value = str(text_ or "").strip()
         if _BARE_NUMBER.fullmatch(value):
             found.append(value)
@@ -249,11 +249,11 @@ def decide(
     rows: Sequence[BillingRow],
     refs: Sequence[OrderRef],
     items: Sequence[dict[str, Any]] = (),
-    order_refs: Iterable[str] = (),
 ) -> Decision:
     """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja)."""
 
     by_key = {row.key: row for row in rows}
+    texts = list(texts)
     hits = numbers_found(texts, refs)
     if hits:
         in_period = [by_key[key] for key in sorted(hits) if key in by_key]
@@ -284,7 +284,7 @@ def decide(
             return Decision((_row_target(equal[0]),), "order_number")
         return Decision(reason="several_orders")
 
-    if named_order_numbers(order_refs):
+    if named_order_numbers(texts):
         return Decision(reason="unknown_order_number")
 
     candidates = [row for row in rows if row.currency == currency]
@@ -455,7 +455,6 @@ async def auto_match(
         rows=rows,
         refs=refs,
         items=invoice.items or [],
-        order_refs=invoice.order_refs or [],
     )
     if decision.matched:
         await _replace_links(db, invoice, decision.targets, period, None)

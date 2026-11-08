@@ -612,7 +612,6 @@ def _named(net, *order_refs, items=()):
         rows=[row],
         refs=_refs(row),
         items=items,
-        order_refs=order_refs,
     )
 
 
@@ -646,7 +645,21 @@ def test_unknown_order_number_is_not_bound_by_person():
         rows=[row],
         refs=_refs(row),
         items=[{"name": "Jan Przykładowy", "unit_price": "1"}],
-        order_refs=["PO number: 87009999"],
+    )
+    assert decision.reason == "unknown_order_number"
+    assert not decision.matched
+
+
+def test_unknown_order_number_in_an_item_name_blocks_too():
+    row = _periodic(5, "87001111", "1000.00")
+    item_name = "Konsultant Jan Przykładowy, Nr zamówienia 1234/2026, SSGW 100001-1"
+    decision = decide(
+        net=Decimal("1000.00"),
+        currency="PLN",
+        texts=[item_name],
+        rows=[row],
+        refs=_refs(row),
+        items=[{"name": item_name, "unit_price": "1"}],
     )
     assert decision.reason == "unknown_order_number"
     assert not decision.matched

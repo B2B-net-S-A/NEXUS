@@ -63,7 +63,7 @@
   rozpoznajemy tylko po etykiecie (`PO`, `PO number`, `purchase order`, `zamówienie`, także `numer zamówienia: SAP …`) albo gdy cały wpis to co
   najmniej 5 cyfr (`named_order_numbers`). Pole to wolny tekst, więc cyfry z nazw projektów, adresów i numery umów nie blokują. Patrzymy tylko w `order_refs`, nie w nazwy
   pozycji. Powód jest w `RETRY_REASONS` (numer może dojść do zamówienia) i w `GAP_REASONS` (alert DL). Pomiar z nocnej kopii 08.11.2026: zmienia
-  wynik 17 z 1450 faktur z klientem, w tym 2 wiązania kwotą; metody `person` nie dotyka.
+  wynik 60 z 1450 faktur z klientem, w tym 10 wiązań (6 kwotą, 4 osobą); pozostałe 50 i tak czekało, zmienia się im powód.
 - **Numer nabywcy idzie do klienta przy ręcznym przypisaniu.** Pomiar z 02.11.2026 na fakturach z października:
   173 ze 188 NIP-ów nabywców nie ma klienta w NEXUSIE, ok. 197 faktur miesięcznie; numer w profilu ma 18 ze 169
   klientów. Okno „Przypisz” pozwala wskazać klienta, a przycisk „Przypisz i dopisz NIP” (`save_buyer_number`) zapisuje
