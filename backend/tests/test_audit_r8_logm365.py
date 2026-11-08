@@ -83,7 +83,7 @@ async def test_one_shot_repair_unlinks_only_scrubbed_private_outlook_events():
     from app.models.app_setting import AppSetting
     from app.models.calendar_event import CalendarEvent, EventType
     from app.services.m365.calendar import M365_SOURCE
-    from app.services.m365_private_event_link_repair import (
+    from scripts.repairs.m365_private_event_link_repair import (
         run_private_event_unlink,
     )
 

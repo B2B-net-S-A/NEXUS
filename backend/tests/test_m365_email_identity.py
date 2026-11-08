@@ -23,7 +23,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.cpro_mail import CproMailEvent
 from app.models.m365 import Email, EmailAttachment, EmailDirection
 from app.models.user import User, UserRole
-from app.services import m365_email_dedupe_repair as repair
+from scripts.repairs import m365_email_dedupe_repair as repair
 from app.services.m365 import sync as sync_mod
 
 

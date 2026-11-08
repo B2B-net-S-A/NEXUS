@@ -51,7 +51,7 @@ from app.services.client_deletion import (
     assess_client_merge_blockers,
 )
 from app.services.critical_events import record_executed
-from app.services.ezdrowie_client_merge_repair import _remaining_references
+from scripts.repairs.ezdrowie_client_merge_repair import _remaining_references
 from app.services.index_outbox_service import JOB, record_bulk_reindex
 
 logger = logging.getLogger(__name__)

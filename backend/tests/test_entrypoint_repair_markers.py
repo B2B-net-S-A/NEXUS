@@ -129,7 +129,8 @@ def test_every_one_shot_phase_is_gated_by_its_marker() -> None:
     """Nowa naprawa bez znacznika to kolejne 3–4 s przerwy przy każdym wdrożeniu."""
     phases = _phases()
     one_shot = {name for name in phases if _ONE_SHOT_PHASE.match(name)}
-    assert len(one_shot) >= 42
+    # Starsze kroki przeszły 08.11.2026 do `scripts/repairs/`.
+    assert len(one_shot) >= 6
     ungated = {name for name in one_shot if not _MARKED_CALL.search(phases[name])}
     assert ungated == _RUNS_ON_EVERY_START
 

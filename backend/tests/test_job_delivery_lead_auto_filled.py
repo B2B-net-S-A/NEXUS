@@ -419,7 +419,7 @@ async def test_repair_returns_the_job_to_the_delivery_lead_who_created_it() -> N
     DL-a klienta. Korekta rusza tylko taki przypadek."""
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
-    from app.services.job_creator_delivery_lead_repair import reassign_to_creators
+    from scripts.repairs.job_creator_delivery_lead_repair import reassign_to_creators
 
     head, creator, recruiter = await _dl(), await _dl(), await _dl(role="recruiter")
     former_dl = await _dl(active=False)
@@ -468,7 +468,7 @@ async def test_repair_runs_once_and_keeps_a_receipt_with_ids_only() -> None:
 
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services.job_creator_delivery_lead_repair import (
+    from scripts.repairs.job_creator_delivery_lead_repair import (
         REPAIR_MARKER,
         run_job_creator_delivery_lead_repair,
     )

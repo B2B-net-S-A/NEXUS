@@ -1513,7 +1513,7 @@ async def test_opening_the_inbox_is_recorded_once_a_day(app_client: AsyncClient)
 async def test_integration_added_proposals_repair_is_one_shot():
     from app.models.app_setting import AppSetting
     from app.models.recruitment_process import RecruitmentProcess
-    from app.services import proposal_added_repair as repair
+    from scripts.repairs import proposal_added_repair as repair
 
     recruiter_id, _ = await _user(UserRole.recruiter)
     world = await _world(people=2, recruiter_id=recruiter_id)
