@@ -594,6 +594,11 @@ async def status_payload(
         "disabled_text": environment.DISABLED_REASONS.get(reason) if reason else None,
         "context_nip": config.context_nip or None,
         "token_configured": bool(config.token),
+        "certificate_configured": config.identity is not None,
+        "certificate_invalid": config.certificate_invalid,
+        "certificate_valid_until": format_instant(config.identity.valid_until)
+        if config.identity
+        else None,
         "cursor": (state.get("cursors") or {}).get(config.state_key),
         "last_run_at": state.get("last_run_at"),
         "last_run_kind": state.get("last_run_kind"),
