@@ -20,6 +20,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.m365 import Email, EmailAttachment, EmailDirection, EmailMatchMethod
 from app.models.user import User, UserRole
+from app.services.m365 import matcher
 
 
 def test_fingerprint_ignores_order() -> None:
@@ -438,3 +439,95 @@ async def test_apply_clears_facts_read_from_the_foreign_cv(monkeypatch) -> None:
         assert victim.ai_summary is None
         assert victim.skills == []
         # Bez commitu: zamknięcie sesji wycofuje dane syntetyczne.
+
+
+# ── smart_thread nie dokleja nowych maili do profilu z nieczytelnym imieniem ──
+
+
+async def _thread_case(db, tag: str, name: str, lastname: str, methods):
+    """Kandydat z wątkiem złożonym z maili o podanych metodach dopasowania."""
+    user = User(
+        email=f"thread-{tag}@example.com",
+        name="Synthetic recruiter",
+        role=UserRole.recruiter,
+        roles=[UserRole.recruiter.value],
+        is_active=True,
+    )
+    person = Candidate(name=name, lastname=lastname, email=f"p-{tag}@example.org")
+    db.add_all([user, person])
+    await db.flush()
+    conv = f"conv-thread-{tag}"
+    now = datetime.now(timezone.utc)
+    for offset, method in enumerate(methods, start=1):
+        db.add(
+            _email(
+                user.id,
+                person.id,
+                method,
+                conv,
+                f"sender-{offset}@{tag}.test",
+                now - timedelta(days=offset),
+            )
+        )
+    await db.flush()
+    return person, conv
+
+
+def _reply(tag: str, conv: str) -> matcher.IncomingMessage:
+    return matcher.IncomingMessage(
+        from_address=f"stranger@{tag}.test",
+        to_addresses=[],
+        cc_addresses=[],
+        subject="Re: Oferta",
+        conversation_id=conv,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "methods",
+    [
+        [EmailMatchMethod.smart_name],
+        [EmailMatchMethod.smart_thread, EmailMatchMethod.smart_name],
+    ],
+)
+async def test_thread_reply_not_glued_to_unreadable_name_profile(methods) -> None:
+    tag = uuid.uuid4().hex[:12]
+    async with AsyncSessionLocal() as db:
+        _person, conv = await _thread_case(db, tag, "Іван", "Петренко", methods)
+
+        result = await matcher.match(db, _reply(tag, conv))
+        await db.rollback()
+
+    assert result.candidate_id is None
+    assert result.method == EmailMatchMethod.unmatched.value
+
+
+@pytest.mark.asyncio
+async def test_thread_reply_stays_when_unreadable_profile_owns_the_thread() -> None:
+    tag = uuid.uuid4().hex[:12]
+    async with AsyncSessionLocal() as db:
+        person, conv = await _thread_case(
+            db, tag, "Іван", "Петренко", [EmailMatchMethod.strict]
+        )
+
+        result = await matcher.match(db, _reply(tag, conv))
+        await db.rollback()
+
+    assert result.candidate_id == person.id
+    assert result.method == EmailMatchMethod.smart_thread.value
+
+
+@pytest.mark.asyncio
+async def test_thread_reply_still_inherited_by_readable_profile() -> None:
+    tag = uuid.uuid4().hex[:12]
+    async with AsyncSessionLocal() as db:
+        person, conv = await _thread_case(
+            db, tag, "Alex", "Example", [EmailMatchMethod.smart_name]
+        )
+
+        result = await matcher.match(db, _reply(tag, conv))
+        await db.rollback()
+
+    assert result.candidate_id == person.id
+    assert result.method == EmailMatchMethod.smart_thread.value
