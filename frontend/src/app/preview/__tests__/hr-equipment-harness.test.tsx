@@ -217,7 +217,7 @@ describe("/preview/hr-equipment", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Import, Intune, Cennik i Akademia: każda zakładka z danymi bez zapytań", async () => {
+  it("Import, Intune i Cennik: każda zakładka z danymi bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-equipment?tab=import");
     render(<HrEquipmentPreviewPage />);
@@ -240,9 +240,6 @@ describe("/preview/hr-equipment", () => {
     );
     expect(screen.getByText("Dell Vostro 3520, 8 GB (nieużywany)")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Więcej" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Akademia" }));
-    expect(await screen.findByText(/Brak uczestników po zaliczonym zadaniu/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(attempted()).toEqual([]);
   });

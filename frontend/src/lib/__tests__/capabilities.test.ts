@@ -377,14 +377,6 @@ const EXPECTED: Record<
     recruiter: false,
     user: false,
   },
-  // Panel „Praktykanci” i reguły listy — admin i Head of Recruitment.
-  "nav.trainees": {
-    admin: true,
-    head_of_recruitment: true,
-    delivery_lead: false,
-    recruiter: false,
-    user: false,
-  },
 };
 
 /** Rada nadzorcza (0490) ma jedną capability: umowy przedwstępne jak rekruter
@@ -1462,10 +1454,6 @@ const CAPABILITY_BACKEND_MIRROR: Record<
     productDecision:
       "Trasy praktykanta (/api/trainee/today|items/*) przyjmują tylko rolę trainee — bramka w api/trainee.py, bez aliasu w deps.py.",
   },
-  "nav.trainees": {
-    productDecision:
-      "Panel praktykantów i reguły listy (/api/trainee/overview|programs|quality-sample|rules) — admin i Head of Recruitment, bramka w api/trainee.py.",
-  },
 };
 
 describe("job.create = strażnik strony `/jobs/new`", () => {
@@ -1636,7 +1624,6 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // należą do sekcji, a nie do osobnej capability nawigacyjnej.
   "/calendar",
   "/cv-generator",
-  // Akademia (0369) zdjęta z menu i palety 17.10.2026.
 ];
 
 describe("kontrakt sidebar ↔ rejestr capability", () => {

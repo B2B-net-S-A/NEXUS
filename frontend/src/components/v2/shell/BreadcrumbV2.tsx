@@ -132,7 +132,6 @@ export const SEGMENT_LABELS: Record<string, string> = {
   // Ustawień i w nagłówkach stron. Nową stronę dopisz tutaj: test
   // „każdy stały segment…" czyta katalog `app/` i odrzuca slug bez nazwy.
   "403": "Brak dostępu",
-  academy: "Akademia",
   "b2b-register-import": "Rejestr umów z Excela",
   "contract-docs-sharepoint": "Dokumenty kontraktów z SharePointa",
   "competence-team": "Kategorie kompetencji",
@@ -147,9 +146,6 @@ export const SEGMENT_LABELS: Record<string, string> = {
   daily: "Daily",
   seeking: "Dostępni kontraktorzy",
   "seeking-contractors": "Dostępni kontraktorzy",
-  trainee: "Telefony na dziś",
-  "trainee-rules": "Lista telefonów praktykantów",
-  trainees: "Praktykanci",
 };
 
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */

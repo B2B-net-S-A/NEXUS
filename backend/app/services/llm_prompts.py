@@ -1597,44 +1597,6 @@ CV_EDITOR_COMMAND = PromptTemplate(
     ),
 )
 
-ACADEMY_SCREENING = PromptTemplate(
-    name="academy_screening",
-    version=2,
-    expected_format="json",
-    system_prompt=(
-        "Czytasz CV osoby, która zgłosiła się do akademii szkoleniowej. "
-        "Twoje jedyne zadanie: wypisać fakty z CV, każdy z DOSŁOWNYM cytatem "
-        "z tekstu CV (skopiuj fragment dokładnie tak, jak jest w CV). "
-        "Nie oceniasz kandydata i nie podejmujesz decyzji. "
-        "ZAKAZY: nie wnioskuj niczego z imienia, nazwiska, narodowości, miejsca "
-        "urodzenia, wyglądu ani wieku — tych danych nie zapisujesz wcale. "
-        "Poziom języka polskiego podaj WYŁĄCZNIE na podstawie tego, co CV mówi "
-        "o znajomości języków — cytat musi zawierać słowo o języku polskim "
-        "(np. 'polski — ojczysty'), a przy 'basic' także poziom. Jeśli CV nic "
-        "o tym nie mówi — 'unknown'. Nie zgaduj dat: pozycja bez daty w CV nie "
-        "trafia do listy, a cytat pracy lub studiów musi zawierać podane lata "
-        "(rok rozpoczęcia i zakończenia pracy, rok ukończenia studiów). Studia to uczelnia wyższa (licencjat, inżynier, magister, "
-        "doktorat); kursy, bootcampy, szkolenia, studia podyplomowe, MBA "
-        "i liceum mają kind 'other'. Odpowiadasz wyłącznie JSON-em."
-    ),
-    template=(
-        "{cv}\n\n"
-        "Zwróć JSON dokładnie w tym kształcie:\n"
-        "{{\n"
-        '  "polish": {{"level": "native|fluent|basic|unknown", "quote": "cytat z CV"}},\n'
-        '  "education": [\n'
-        '    {{"kind": "higher|other", "completed": true, "end_year": 2021, "quote": "cytat"}}\n'
-        "  ],\n"
-        '  "work": [\n'
-        '    {{"start": "RRRR-MM", "end": "RRRR-MM albo present", "quote": "cytat"}}\n'
-        "  ]\n"
-        "}}\n\n"
-        "Studia w trakcie: completed false, end_year null. Przy samym roku "
-        "rozpoczęcia pracy wpisz miesiąc 01."
-    ),
-)
-
-
 APPLICATION_SCREENING = PromptTemplate(
     name="application_screening",
     version=2,
@@ -2054,7 +2016,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         JOB_REQUEST_INTAKE,
         CHAMPION_CLIENT_HISTORY,
         SCREENING_REASSIGN_SUGGEST,
-        ACADEMY_SCREENING,
         LEGACY_INTERVIEW_QUESTIONS,
         APPLICATION_SCREENING,
         INTERVIEW_SLOTS_FROM_MAIL,

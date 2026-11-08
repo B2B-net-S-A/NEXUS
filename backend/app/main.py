@@ -144,10 +144,7 @@ from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
 from app.api import dl_match as dl_match_api
 from app.api import candidate_similar as candidate_similar_api
-from app.api import academy as academy_api
 from app.api.retired_modules import install_retired_modules
-from app.api import academy_edition as academy_edition_api
-from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import review_batch as review_batch_api
 from app.api import candidate_followups as candidate_followups_api
@@ -1600,22 +1597,6 @@ app.include_router(also_fits_api.router, prefix="/api", tags=["also-fits"])
 app.include_router(dl_match_api.router, prefix="/api", tags=["dl-match"])
 app.include_router(
     candidate_similar_api.router, prefix="/api", tags=["candidate-similar"]
-)
-app.include_router(
-    academy_api.router,
-    prefix="/api/academy",
-    tags=["academy"],
-)
-# Edycja Akademii od strony recepcji (0465): /editions, /programs/{id}/editions/{yyyy-mm}.
-app.include_router(
-    academy_edition_api.router,
-    prefix="/api/academy",
-    tags=["academy"],
-)
-app.include_router(
-    trainee_api.router,
-    prefix="/api/trainee",
-    tags=["trainee"],
 )
 app.include_router(
     board_tasks_api.router,

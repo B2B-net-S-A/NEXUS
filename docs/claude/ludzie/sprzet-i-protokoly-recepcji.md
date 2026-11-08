@@ -163,6 +163,10 @@ osobie z kartoteki i uczestniku Akademii.
 
 ## Intune (etap 4, D9) i edycje Akademii (etap 5)
 
+Akademia usunięta z kodu 08.11.2026 (`programy/akademia-i-praktykant-usuniete-08-11-2026.md`):
+zakładki „Akademia” i trybu „Uczestnik Akademii” już nie ma, typ posiadacza
+`academy` został do odczytu historii. Opis edycji poniżej jest historyczny.
+
 - Intune: wyłącznie odczyt (`DeviceManagementManagedDevices.Read.All`, zgoda
   administratora przy przełączeniu), migawka w `equipment_intune_devices`,
   rozjazdy z ewidencją liczone przy odczycie, recepcja je wyjaśnia albo pomija.

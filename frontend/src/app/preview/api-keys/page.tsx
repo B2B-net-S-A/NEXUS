@@ -83,7 +83,6 @@ const SCOPES: ScopeInfoDto[] = [
     label: "Zgłoszenia z linku rekrutacji: rozpatrzenie (dołącz, utwórz, odrzuć)",
   },
   { value: "insights:read", label: "Insights: raporty i wskaźniki (odczyt)" },
-  { value: "academy:read", label: "Akademia: programy i nabór (odczyt)" },
   { value: "events:read", label: "Zdarzenia: kanał zdarzeń (same identyfikatory)" },
   { value: "webhooks:manage", label: "Webhooki: zarządzanie powiadomieniami konta" },
 ];

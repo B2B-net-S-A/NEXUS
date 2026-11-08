@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSelectedLayoutSegment } from "next/navigation";
 import { isCareerHost } from "@/lib/career/host";
 import { api } from "@/lib/api";
-import { isTraineeOnly, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
@@ -22,7 +22,6 @@ import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { TraineeShell } from "@/components/trainee/TraineeShell";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
@@ -82,7 +81,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // Hydrate auth from localStorage post-mount (SSR-safe)
   const hydrateAuth = useAuthStore((s) => s.hydrate);
   const hydrated = useAuthStore((s) => s.hydrated);
-  const traineeOnly = useAuthStore((s) => isTraineeOnly(s.user));
   useEffect(() => {
     if (!hydrated) hydrateAuth();
   }, [hydrated, hydrateAuth]);
@@ -182,11 +180,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // User must finish onboarding before seeing app content — render a blank
   // shell while the redirect above takes effect.
   if (needsOnboarding) return null;
-
-  // Praktykant (0374) ma jeden ekran: cienki pasek zamiast sidebara, bez
-  // palety ⌘K, dzwonka, „Moich ludzi” i Jarvisa (każde z nich pytałoby API,
-  // które praktykantowi odmawia).
-  if (traineeOnly) return <TraineeShell>{children}</TraineeShell>;
 
   // Dokument NIE może się przewijać — przewija się wyłącznie `<main>`.
   // `relative` na roocie i na `<main>` jest nośne: element `absolute` bez

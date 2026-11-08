@@ -47,7 +47,6 @@ const TABS: readonly EquipmentTab[] = [
   "prices",
   "import",
   "intune",
-  "academy",
 ];
 
 const STATES = [

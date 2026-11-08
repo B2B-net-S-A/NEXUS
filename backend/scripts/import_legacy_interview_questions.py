@@ -42,6 +42,7 @@ import json
 import logging
 import re
 import sys
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,6 +125,19 @@ class Entry:
     role: str
     refs: list[str]
     text: str
+
+
+def _fold(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text or "").replace("ł", "l").replace("Ł", "L")
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def quote_in_text(quote: Any, text: str) -> bool:
+    """Cytat modelu musi występować w notatce (po normalizacji białych znaków)."""
+    if not isinstance(quote, str) or len(quote.strip()) < 3:
+        return False
+    return _fold(quote) in _fold(text)
 
 
 def extract_refs(role: str) -> list[str]:
@@ -258,8 +272,6 @@ def validate_model_output(
     było), treść nie może nieść osoby wymienionej w notatce, a oczekiwana
     odpowiedź zostaje tylko, gdy też jest cytatem.
     """
-    from app.services.academy_rules import quote_in_text
-
     kept: list[dict[str, Any]] = []
     rejected: list[Rejected] = []
     if not isinstance(payload, dict):

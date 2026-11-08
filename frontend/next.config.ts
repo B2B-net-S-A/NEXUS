@@ -147,6 +147,12 @@ const nextConfig: NextConfig = {
       permanent: true,
     });
     return [
+      // Akademia i Praktykant usunięte 08.11.2026 (D1 z audytu) — strony
+      // miały adres mimo zdjęcia z menu 17.10.2026; start zamiast 404.
+      gone("/academy/:path*", "/"),
+      gone("/trainee", "/"),
+      gone("/trainees", "/"),
+      gone("/settings/trainee-rules", "/settings"),
       // Bramka „Pending" wyłączona 17.09.2026 — strona kolejki usunięta, ale
       // powiadomienia `pending_verification` zapisane w bazie nadal do niej
       // linkują. Bez tego klik w stare powiadomienie kończył się 404.

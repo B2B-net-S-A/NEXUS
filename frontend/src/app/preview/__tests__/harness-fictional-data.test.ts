@@ -28,7 +28,6 @@ const SRC = join(process.cwd(), "src");
 const HARNESS_FILES = [
   ...walk(join(SRC, "app/preview")),
   ...walk(join(SRC, "components/candidates/preview")),
-  join(SRC, "components/trainee/preview-fixtures.ts"),
 ];
 
 function walk(dir: string): string[] {

@@ -147,7 +147,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
     (
         "programy",
         "Programy",
-        "Akademia i program praktykanta — oba ukryte z UI od 17.10.2026.",
+        "Akademia i program praktykanta — usunięte z kodu 08.11.2026, tabele zostały.",
     ),
     (
         "audyty",
