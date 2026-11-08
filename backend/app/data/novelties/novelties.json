@@ -1670,7 +1670,7 @@
     "id": "tablica-karta-w-trzech-wierszach",
     "pr": 3172,
     "title": "Prostsza karta na Tablicy",
-    "why": "Na karcie stoją najwyżej dwie plakietki, reszta jest pod „+N”. Ile osoba czeka, mówi jedna liczba dni roboczych przy ruchu. Pozostałe źródła kandydatów są w menu „Szukaj”, a „Kto dodał” to ikona filtra w kolumnie „Nowi”.",
+    "why": "Karta ma najwyżej dwie plakietki, resztę pokazuje „+N”, a przy ruchu stoi jedna liczba dni roboczych. Inne źródła są w menu „Szukaj”, „Kto dodał” to ikona w kolumnie „Nowi”.",
     "tier": "dot",
     "shipped_on": "2026-11-08",
     "audience": {
