@@ -23,7 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.skill import Skill, SkillAlias
 from app.services.skill_normalize import alias_counts_in_text
-from app.services.skill_taxonomy_loader import refresh_alias_map
+from app.services.skill_taxonomy_loader import (
+    bump_dictionary_version,
+    sync_dictionary_version,
+)
 
 
 class CurationError(Exception):
@@ -106,10 +109,13 @@ async def skill_forms(db: AsyncSession, skill_ids: Iterable[int]) -> set[str]:
 
 
 async def invalidate_scores(db: AsyncSession, forms: Iterable[str]) -> int:
-    """Unieważnia wyniki rekrutacji, których wymagania wymieniają któryś zapis.
+    """Unieważnia wyniki opublikowanych rekrutacji, których wymagania wymieniają
+    któryś zapis (audyt 2, W4: na kopii 1 305 rekrutacji, z tego 133 opublikowane).
+    Rekrutacja wracająca do publikacji unieważnia swoje wyniki sama
+    (``publish_core``).
 
     Nie commituje. Zwraca liczbę unieważnionych rekrutacji."""
-    from app.models.job import Job
+    from app.models.job import Job, JobStatus
     from app.services.match_score_cache import mark_stale_for_jobs
 
     wanted = {f for f in forms if f}
@@ -117,7 +123,11 @@ async def invalidate_scores(db: AsyncSession, forms: Iterable[str]) -> int:
         return 0
     job_ids: list[int] = []
     for job_id, must, nice in (
-        await db.execute(select(Job.id, Job.must_skills, Job.nice_skills))
+        await db.execute(
+            select(Job.id, Job.must_skills, Job.nice_skills).where(
+                Job.status == JobStatus.published
+            )
+        )
     ).all():
         items = [
             *(must if isinstance(must, list) else []),
@@ -132,6 +142,13 @@ async def invalidate_scores(db: AsyncSession, forms: Iterable[str]) -> int:
     return len(job_ids)
 
 
+async def _publish_dictionary_change(db: AsyncSession) -> None:
+    """Nowa wersja słownika w bazie i nowa mapa w tym procesie. Commituje."""
+    await bump_dictionary_version(db)
+    await db.commit()
+    await sync_dictionary_version()
+
+
 async def after_dictionary_change(
     db: AsyncSession, skill_ids: Iterable[int], extra_forms: Iterable[str] = ()
 ) -> int:
@@ -139,8 +156,8 @@ async def after_dictionary_change(
 
     Kolejność ma znaczenie: wynik policzony między zapisem a odświeżeniem mapy
     (starą mapą) zostaje unieważniony, a każde przeliczenie po unieważnieniu
-    widzi już nową mapę."""
-    await refresh_alias_map()
+    widzi już nową mapę. Pozostałe procesy przeładują mapę do 60 s później."""
+    await _publish_dictionary_change(db)
     forms = await skill_forms(db, skill_ids) | {
         " ".join(f.split()).lower() for f in extra_forms if f
     }
@@ -432,5 +449,5 @@ async def set_alias_in_text(
         raise CurationError("Rola nie ma wariantów w tekście CV.")
     alias.in_text = in_text
     await db.commit()
-    await refresh_alias_map()
+    await _publish_dictionary_change(db)
     return alias_payload(skill, alias)
