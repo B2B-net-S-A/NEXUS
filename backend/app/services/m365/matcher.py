@@ -365,6 +365,39 @@ async def _find_candidate_by_conversation(
     return result.scalars().first()
 
 
+async def _thread_can_be_inherited(db: AsyncSession, prior: Email) -> bool:
+    """Czy odpowiedź w wątku może dostać kandydata z wcześniejszego maila.
+
+    Profil z imieniem albo nazwiskiem bez łacińskiej litery (cyrylica) zebrał
+    do 26.09.2026 tysiące cudzych maili przez `smart_name`, a odpowiedzi w tych
+    wątkach doklejały się dalej. Pomiar 08.11.2026: 49 maili po poprawce z 20.10.
+    Taki profil dziedziczy wątek tylko wtedy, gdy ma w nim mail dopasowany inną
+    metodą (ta sama reguła co ``app.cli.m365_unreadable_name_rematch``).
+    """
+    person = (
+        await db.execute(
+            select(Candidate.name, Candidate.lastname).where(
+                Candidate.id == prior.candidate_id
+            )
+        )
+    ).first()
+    if person is None or not name_folds_to_nothing(person.name, person.lastname):
+        return True
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    Email.m365_conversation_id == prior.m365_conversation_id,
+                    Email.candidate_id == prior.candidate_id,
+                    Email.match_method.notin_(
+                        (EmailMatchMethod.smart_name, EmailMatchMethod.smart_thread)
+                    ),
+                )
+            )
+        )
+    )
+
+
 async def match(db: AsyncSession, msg: IncomingMessage) -> MatchResult:
     """Apply precedence rules and return the best match (or unmatched)."""
     # ── 1. strict (from/to/cc exact) ───────────────────────────────────────
@@ -384,7 +417,11 @@ async def match(db: AsyncSession, msg: IncomingMessage) -> MatchResult:
 
     # ── 2. smart_thread (Phase 2 — already matched conversation) ───────────
     prior = await _find_candidate_by_conversation(db, msg.conversation_id)
-    if prior and prior.candidate_id is not None:
+    if (
+        prior
+        and prior.candidate_id is not None
+        and await _thread_can_be_inherited(db, prior)
+    ):
         return MatchResult(
             candidate_id=prior.candidate_id,
             method=EmailMatchMethod.smart_thread.value,
