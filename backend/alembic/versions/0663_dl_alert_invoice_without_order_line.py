@@ -1,7 +1,7 @@
 """dl_alerts: nowy typ ``invoice_without_order_line`` (faktura bez pozycji zamówienia).
 
-Revision ID: 0664_dl_alert_invoice_no_line
-Revises: 0663_client_close_reasons
+Revision ID: 0663_dl_alert_invoice_no_line
+Revises: 0662_candidate_quick_search_indexes
 
 Kalka 0322: ``alert_type`` to VARCHAR + CHECK, poszerzenie = DROP+ADD więzu.
 Oba lustra w ``entrypoint.sh`` robią to samo;
@@ -10,8 +10,8 @@ Oba lustra w ``entrypoint.sh`` robią to samo;
 
 from alembic import op
 
-revision = "0664_dl_alert_invoice_no_line"
-down_revision = "0663_client_close_reasons"
+revision = "0663_dl_alert_invoice_no_line"
+down_revision = "0662_candidate_quick_search_indexes"
 branch_labels = None
 depends_on = None
 
