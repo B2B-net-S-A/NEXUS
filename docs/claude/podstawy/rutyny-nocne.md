@@ -24,7 +24,7 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 - **Godziny wynikają z audytu z 08.11.2026.** Aplikacja dodaje kilka minut opóźnienia.
   PR Strażnika o 02:30 kończył wdrożenie 3–4 min przed backupem produkcji i 06.11
   zabrał zrzut, a odświeżenie o 01:00 omijało PR-y scalone przed Testerem. Odśmiecacz
-  jest wyłączony: pracy było na 1–2 noce, a CI nie odróżnia złego skasowania.
+  jest usunięty: pracy było na 1–2 noce, a CI nie odróżnia złego skasowania.
 - **Status biegu w aplikacji jest zawsze „succeeded”**, także po kodzie 1, 3, 4
   i odmowie trybu auto. Wynik rutyny czytaj ze śladu `<rutyna>.ok`: jedna linia JSON
   (`stan`: `ok`, `degraded`, `failed`, `skipped`) zapisana przez `bin/slad.py`.
@@ -68,4 +68,8 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 - **Treść rutyn nie leży w repo**, bo repo jest publiczne: zadania są
   w `~/.claude/scheduled-tasks/`, zasady i raporty w `~/.claude/nexus-rutyny/`.
   Tam też trafiają nazwiska i zrzuty; do PR-ów i komentarzy na GitHubie nie.
+- **Rozstrzygnięcia i sprawy przeżywają noc** (audyt z 08.11.2026, wcześniej decyzje czytano
+  z dwóch dni, a sprawy znikały z raportów). `decyzje-stale.md` czyta każda rutyna, a `sprawy.jsonl`
+  (`bin/sprawy.py`) jest jedynym rejestrem spraw z właścicielem i terminem. Terminy z plików
+  pamięci dopisuje Zegarek (`terminarz.py`); kasowania mają właściciela Artura i nikt inny ich nie robi.
 - **Rutyna, która przez miesiąc nic nie znalazła, jest do usunięcia.**
