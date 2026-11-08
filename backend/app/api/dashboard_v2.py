@@ -16,6 +16,7 @@ from app.api.section_access import (
     DELIVERY_SECTION_DEPENDENCIES,
     INSIGHTS_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
+    require_section_access_any,
 )
 from app.api.permission_access import CompanyResultsUser
 from app.api.recruitment_access import ensure_job_membership
@@ -72,6 +73,7 @@ from app.services.recruitment_activity import (
 )
 from app.services.client_response_metrics import cached_client_response_board
 from app.services.kpi_engine import WARSAW
+from app.services.section_permissions import ProductSection
 from app.services import dashboard_v2_sources as sources
 
 
@@ -223,16 +225,24 @@ async def head_of_recruitment_dashboard(
     return await build_head_of_recruitment_dashboard(current_user, db, period)
 
 
-@router.get("/client-response", response_model=ClientResponseBoard)
+@router.get(
+    "/client-response",
+    response_model=ClientResponseBoard,
+    dependencies=[
+        Depends(
+            require_section_access_any(ProductSection.delivery, ProductSection.insights)
+        )
+    ],
+)
 async def client_response_board(
     current_user: ClientResponseUser,
     db: Database,
 ) -> ClientResponseBoard:
     """Odpowiedź klienta, pierwsze CV i tabela per klient (kafelek pulpitu).
 
-    Bez bramki sekcji: Delivery Lead nie zawsze ma Insights, a HoR Delivery,
-    więc o dostępie decyduje rola, a o zakresie `resolve_scope` (DL widzi
-    wyłącznie klientów ze swojego portfela). Nazwy klientów i liczby CV, bez kwot.
+    Wystarczy jedna z sekcji: Delivery Lead pracuje w Delivery, a HoR w Insights.
+    Do tego rola, a o zakresie decyduje `resolve_scope` (DL widzi wyłącznie
+    klientów ze swojego portfela). Nazwy klientów i liczby CV, bez kwot.
     """
     scope = await sources.resolve_scope(current_user, db)
     sources.require_scope(scope, "recruitment_org", "delivery_clients", "organization")

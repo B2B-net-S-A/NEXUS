@@ -40,9 +40,10 @@ dostaje karty systemu w dniu otwarcia.
 
 ## Dostęp
 
-`GET /api/dashboard/v2/client-response`: admin, Head of Recruitment, Delivery Lead;
-zakres z `resolve_scope`. Trasa bez bramki sekcji, bo DL nie zawsze ma Insights,
-a HoR Delivery. Tylko liczby i nazwy klientów, bez kwot.
+`GET /api/dashboard/v2/client-response`: admin, Head of Recruitment, Delivery Lead
+oraz odczyt Delivery albo Insights (`require_section_access_any`), bo DL pracuje
+w Delivery, a HoR w Insights. Zakres z `resolve_scope`. Tylko liczby i nazwy
+klientów, bez kwot.
 
 Baseline sprzed porcji dnia (19,3% przy 7 dniach roboczych, 14,0% kalendarzowych)
 i cel 40% w 6 tygodni są w pamięci projektu.

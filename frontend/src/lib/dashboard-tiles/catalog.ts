@@ -399,10 +399,16 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     defaultSize: { w: 12, h: 6 },
     minSize: { w: 6, h: 4 },
     ownChrome: false,
-    // Lustro `ClientResponseUser` na `GET /api/dashboard/v2/client-response`.
-    availability: needsRole(
-      ["admin", "head_of_recruitment", "delivery_lead"],
-      "Dla Head of Recruitment, Delivery Leadów i administratora",
+    // Lustro bramek `GET /api/dashboard/v2/client-response`: rola i jedna z sekcji.
+    availability: both(
+      (user) =>
+        hasSectionAccess(user, "delivery") || hasSectionAccess(user, "insights")
+          ? { ok: true }
+          : { ok: false, reason: "Wymaga dostępu do Delivery albo Insights" },
+      needsRole(
+        ["admin", "head_of_recruitment", "delivery_lead"],
+        "Dla Head of Recruitment, Delivery Leadów i administratora",
+      ),
     ),
   },
   team_signals: {
