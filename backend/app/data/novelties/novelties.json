@@ -248,6 +248,19 @@
     "dot_anchor": "board.new-applied"
   },
   {
+    "id": "aplikacje-z-ogloszenia",
+    "title": "„Aplikacje” — wszyscy, którzy aplikowali na ogłoszenie",
+    "why": "Kafel „Aplikacje” przy źródłach pokazuje każdego, kto aplikował z JustJoin.IT, Pracuj.pl albo strony kariery, z datą i etapem. Przy propozycji widzisz też, na co osoba sama aplikowała.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "pr": 3119,
+    "audience": {"roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Tablica → pasek źródeł → Aplikacje",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.applicants"
+  },
+  {
     "id": "opublikuj-ogloszenie-jeden-przycisk",
     "title": "„Opublikuj ogłoszenie” — kilka kanałów jednym przyciskiem",
     "why": "Zaznaczasz JustJoin.IT, Pracuj.pl i stronę kariery, klikasz raz, a NEXUS prowadzi po kolei: strona od razu, potem kategoria JustJoin.IT, potem stawka w mailu do opiekuna Pracuj.pl.",

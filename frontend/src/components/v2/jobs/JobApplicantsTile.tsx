@@ -166,6 +166,7 @@ export function JobApplicantsTile({ jobId }: { jobId: number }) {
         type="button"
         onClick={() => setOpen(true)}
         data-testid="source-tile-applicants"
+        data-tour="jobs.sources.applicants"
         title="Wszyscy, którzy aplikowali na ogłoszenie tej rekrutacji (ostatnie 90 dni)"
         className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
       >
