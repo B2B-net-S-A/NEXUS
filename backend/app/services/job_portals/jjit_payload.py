@@ -437,6 +437,18 @@ def _current_locations(current: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _contact_with_phone(contact: Any) -> Optional[dict[str, Any]]:
+    """Kontakt z ``GET`` do ``PUT``, tylko gdy ma telefon.
+
+    Produkcja 08.11.2026: „Contact phone is required when contact is provided”
+    — portal oddaje kontakt bez telefonu, a potem go nie przyjmuje.
+    Ogłoszenie zakładamy z ``contact = None``, więc to dozwolona wartość.
+    """
+    if isinstance(contact, dict) and str(contact.get("phone") or "").strip():
+        return contact
+    return None
+
+
 def update_body(
     board: str,
     *,
@@ -455,7 +467,7 @@ def update_body(
     """
     body = content_fields(board, job, options, apply_url=apply_url, skill_ids=skill_ids)
     body["informationClause"] = current.get("informationClause") or ""
-    body["contact"] = current.get("contact")
+    body["contact"] = _contact_with_phone(current.get("contact"))
     body["publicTags"] = current.get("publicTags") or []
     body["categories"] = [{"key": options["category"]}]
     body["expiredAt"] = (

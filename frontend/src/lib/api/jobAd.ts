@@ -249,6 +249,8 @@ export interface JobAdState {
   pracuj_request: PracujRequest | null;
   /** JustJoin.IT przez API; `null` = portal wyłączony (kopiuj-wklej, 03.11.2026). */
   jjit_api: AdJjitApi | null;
+  /** Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026). */
+  can_mark_publications: boolean;
 }
 
 /** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */
@@ -366,6 +368,7 @@ function normalize(data: unknown): JobAdState {
         : null,
     pracuj_request: d.pracuj_request ?? null,
     jjit_api: d.jjit_api ?? null,
+    can_mark_publications: d.can_mark_publications === true,
   };
 }
 

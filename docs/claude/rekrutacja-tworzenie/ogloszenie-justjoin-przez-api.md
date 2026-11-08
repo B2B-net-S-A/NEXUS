@@ -25,6 +25,13 @@ front `components/v2/job-ad/JjitPublishDialog.tsx`, karta w `AdPublications`
   Bez wiersza `job_ads` kolejka wysyła jak dawniej opis publiczny.
 - **Publikuje DL rekrutacji, Head of Recruitment albo admin**, także starszymi trasami
   `/portals/justjoinit/*`, bo kredyt jest płatny. Rekruter robi stronę kariery i widzi stan.
+- **Oznacza też tylko DL rekrutacji, Head of Recruitment albo admin** (decyzja Artura
+  08.11.2026, `publications.can_mark`, `can_mark_publications` w odpowiedzi okna). Dotyczy
+  „Oznacz jako opublikowane”, zmiany linku, „Zaktualizowane na portalu” i „Zdjęte z portalu”
+  na obu portalach, także w zamkniętej rekrutacji. Oznaczenie rekrutera blokowało DL-owi
+  publikację (409 `ad_marked_published`). Kopiowanie treści i stronę kariery rekruter ma dalej.
+- **`PUT` odsyła kontakt z `GET` tylko z telefonem** (`_contact_with_phone`). Portal oddaje
+  kontakt bez telefonu, a przy aktualizacji go odrzuca (produkcja, 08.11.2026).
 - **Strona kariery musi wisieć w tej samej wersji** (409 `career_not_live`) —
   tylko w trybie linku (`apply.url`). Przy `JJIT_APPLY_EMAIL` (formularz
   portalu, od 06.11.2026) nie jest warunkiem:
