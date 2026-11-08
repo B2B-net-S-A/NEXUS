@@ -624,12 +624,7 @@ def _sheet_filled(payload: object) -> bool:
     `bool(dict)` dałby fałszywe „wypełniony" i odznaka „do uzupełnienia"
     znikałaby z karty, na której nikt niczego nie wpisał.
     """
-    if not isinstance(payload, dict) or not payload:
-        return False
-    answers = payload.get("answers")
-    if isinstance(answers, (list, dict)):
-        return len(answers) > 0
-    return any(value not in (None, "", [], {}) for value in payload.values())
+    return move_requirements.sheet_filled(payload)
 
 
 async def _assert_client_rate_not_order_locked(

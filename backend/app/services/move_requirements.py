@@ -67,16 +67,32 @@ def column_label(column: str, *, nordea: bool = False) -> str:
     return COLUMN_LABEL.get(column, column)
 
 
+def check_has_content(item: Mapping[str, Any]) -> bool:
+    """Sprawdzenie doświadczenia: rozstrzygnięty status albo notatka."""
+    return (item.get("status") or "unknown") != "unknown" or bool(
+        str(item.get("note") or "").strip()
+    )
+
+
 def sheet_filled(payload: object) -> bool:
-    """Czy arkusz screeningu ma treść — lustro `_sheet_filled` w `api/pipeline`.
+    """Czy arkusz screeningu jest zapisany — pozycje odpowiedzi albo sprawdzenie.
 
     `ScreeningAnswers` zapisuje domyślnie `{"answers": [], ...}`, więc samo
-    `bool(dict)` dałoby fałszywe „wypełniony".
+    `bool(dict)` dałoby fałszywe „wypełniony". W rekrutacji bez pytań arkusz
+    bywa samym sprawdzeniem doświadczenia (pusta lista odpowiedzi) — zapis
+    formularza go przyjmuje (`sheet_has_content`), więc odczyt musi go widzieć.
+    Bramka „Zweryfikowany” czyta `sheet_answered`.
     """
 
     if not isinstance(payload, dict) or not payload:
         return False
     answers = payload.get("answers")
+    if isinstance(answers, list):
+        checks = payload.get("experience_checks")
+        if isinstance(checks, list) and any(
+            isinstance(item, Mapping) and check_has_content(item) for item in checks
+        ):
+            return True
     if isinstance(answers, (list, dict)):
         return len(answers) > 0
     return any(value not in (None, "", [], {}) for value in payload.values())
@@ -1598,6 +1614,7 @@ __all__ = [
     "answer_has_content",
     "build_requirements",
     "card_screening_state",
+    "check_has_content",
     "column_label",
     "company_cv_refs",
     "deal_breaker_hits",
