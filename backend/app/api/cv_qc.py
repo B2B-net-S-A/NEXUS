@@ -67,6 +67,13 @@ class QcManualBy(BaseModel):
     at: Optional[str] = None
 
 
+class QcOlderDocument(BaseModel):
+    document_id: int
+    filename: Optional[str] = None
+    at: Optional[str] = None
+    same_client: bool = False
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
@@ -78,6 +85,10 @@ class QcItem(BaseModel):
     similar: Optional[QcSimilar] = None
     fix: Optional[str] = None
     term: Optional[str] = None
+    # R2: krytyczna, której kandydat nie ma — front wiąże z nią „Do decyzji DL”.
+    candidate_gap: Optional[bool] = None
+    # QC-4: plik „…B2B…” sprzed rekrutacji, którego można użyć jednym kliknięciem.
+    document: Optional[QcOlderDocument] = None
     role_index: Optional[int] = None
     # Fragment odczytu oryginału, na którym stoi „oryginał ma to w tej roli”.
     evidence: Optional[str] = None

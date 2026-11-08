@@ -241,3 +241,15 @@ def test_passed_with_manual_items_is_not_in_the_queue() -> None:
         manual_items=["Kafka"],
     )
     assert pushed.ready is True
+
+
+def test_item_fields_survive_the_api_response_model() -> None:
+    """Model odpowiedzi odcinał `document` i `candidate_gap`: „Użyj tego CV”
+    nie miało czego wczytać, a okno QC nie wiedziało o luce kandydata."""
+    from app.api.cv_qc import QcItem
+
+    item = QcItem(
+        document={"document_id": 7, "filename": "a.docx", "at": None},
+        candidate_gap=True,
+    ).model_dump()
+    assert item["document"]["document_id"] == 7 and item["candidate_gap"] is True
