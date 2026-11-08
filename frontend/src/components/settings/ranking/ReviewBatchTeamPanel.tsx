@@ -54,6 +54,7 @@ export function ReviewBatchTeamPanel() {
                   <tr>
                     <th scope="col" className={headCell}>Osoba</th>
                     <th scope="col" className={cn(headCell, "text-right")}>Decyzje dziś</th>
+                    <th scope="col" className={cn(headCell, "text-right")} title="Rośnie o 10 po każdym zrobionym, do 50">Poziom</th>
                     <th scope="col" className={cn(headCell, "text-right")}>Wymagane</th>
                     <th scope="col" className={cn(headCell, "text-right")}>W porcji</th>
                     <th scope="col" className={cn(headCell, "text-right")}>Minimum o</th>
@@ -70,6 +71,7 @@ export function ReviewBatchTeamPanel() {
                         {row.absent ? <span className="ml-1 text-xs text-muted-foreground">nieobecność</span> : null}
                       </td>
                       <td className={numberCell}>{row.done_today}</td>
+                      <td className={numberCell}>{row.minimum}</td>
                       <td className={numberCell}>{row.required}</td>
                       <td className={numberCell}>{row.pending}</td>
                       <td className={numberCell}>{row.minimum_at ?? "—"}</td>

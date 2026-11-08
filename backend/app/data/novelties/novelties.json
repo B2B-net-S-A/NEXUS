@@ -1672,7 +1672,7 @@
     "pr": 3125,
     "requires_setting": "REVIEW_BATCH_ENABLED",
     "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",
-    "why": "Co rano dostajesz osoby od Nexusa ze swoich rekrutacji. Zanim zaczniesz szukać ręcznie, zdecyduj o minimum z nich: screening albo odrzucenie z powodem. Nazwisko, telefon i mail działają zawsze.",
+    "why": "Co rano osoby od Nexusa z Twoich rekrutacji. Przed ręcznym szukaniem zdecyduj o minimum z nich. Start od 10, po zrobionym następnego dnia o 10 więcej, do 50. Nazwisko, telefon i mail działają zawsze.",
     "tier": "process",
     "shipped_on": "2026-11-07",
     "audience": {

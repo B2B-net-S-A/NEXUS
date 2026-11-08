@@ -108,7 +108,11 @@ export function ReviewBatchScreen() {
         density="compact"
         description={
           data.met
-            ? "Minimum zrobione. Wyszukiwanie ręczne odblokowane do następnego dnia roboczego, 7:00."
+            ? `Minimum zrobione. Wyszukiwanie ręczne odblokowane do następnego dnia roboczego, 7:00.${
+                data.minimum < 50 && data.done_today >= data.minimum
+                  ? ` Następnego dnia roboczego minimum to ${Math.min(data.minimum + 10, 50)}.`
+                  : ""
+              }`
             : `Zdecyduj o ${data.required} osobach, zanim zaczniesz szukać ręcznie. Osobę spoza bazy dodasz zawsze.`
         }
         actions={
