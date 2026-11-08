@@ -104,6 +104,8 @@ _ALWAYS = (
     "tests/test_loop_heartbeat.py",
     "tests/test_no_recruitment_types.py",
     "tests/test_recommendation_card_ai_privacy.py",
+    # Termin decyzji o fladze mija z kalendarza, bez zmiany w żadnym pliku.
+    "tests/test_feature_flag_registry.py",
 )
 
 # Macierz bramek tras (werdykt trasa × persona, wzorzec w
