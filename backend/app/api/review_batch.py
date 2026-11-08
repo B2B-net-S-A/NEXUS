@@ -1,7 +1,7 @@
 """Router `/api/review-batch` — porcja dnia od Nexusa (decyzje Artura 07.11.2026).
 
 Stan porcji osoby (licznik w pasku, kafel pulpitu), kolejka przeglądu,
-„Dodaj 20 kolejnych” w rekrutacji i ustawienie minimum (HoR). Same decyzje
+„Dodaj 20 kolejnych” w rekrutacji, cel kart wg tempa i ustawienie minimum (HoR). Same decyzje
 to zwykłe ruchy w pipeline (`POST /api/pipeline/move`, odrzucenie z powodem
 osoby od systemu), żeby reguły ruchu obowiązywały bez kopii. Reguła:
 `docs/claude/rekrutacja-tablica/porcja-dnia-minimum-przed-wyszukiwaniem.md`.
@@ -16,14 +16,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import HeadOfRecruitmentPlus, OperationalUser
+from app.api.recruitment_access import (
+    ensure_job_editor,
+    ensure_job_membership,
+    job_edit_level,
+)
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import review_batch as svc
 from app.services import review_batch_streams, review_batch_team
+from app.services.request_work_state import IN_WORK_STATES
 from app.services.review_batch_order import OrderFacts
 
 router = APIRouter(
@@ -49,8 +55,13 @@ async def my_batch(
     db: AsyncSession = Depends(get_db),
 ):
     """Stan porcji: minimum, decyzje dziś, czekające osoby per rekrutacja."""
+    from app.services.new_column_autofill import MORE_CARDS, tempo_enabled
+
     status = await svc.status_for(db, current_user, now=datetime.now(timezone.utc))
-    return status.as_dict()
+    return {
+        **status.as_dict(),
+        "more_cards": MORE_CARDS if tempo_enabled() else svc.BATCH_SIZE,
+    }
 
 
 def _position(candidate: Candidate) -> Optional[str]:
@@ -155,6 +166,80 @@ async def my_queue(
     return {"items": items}
 
 
+def _in_work(job: Job) -> bool:
+    return job.status == JobStatus.published and job.work_state in IN_WORK_STATES
+
+
+@router.get("/jobs/{job_id}/tempo")
+async def job_tempo(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Plakietka „cel N” i przycisk „Dodaj 10 kolejnych” przy kolumnie „Nowi”."""
+    from app.services import new_column_autofill as autofill
+
+    if not autofill.tempo_enabled():
+        return {"enabled": False}
+    await ensure_job_membership(db, current_user, job_id)
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    now = datetime.now(timezone.utc)
+    tempo = (await autofill.tempo_for_jobs(db, [job_id], now))[job_id]
+    return {
+        "enabled": True,
+        "tier": tempo.tier,
+        "target": tempo.target,
+        "decisions": tempo.decisions,
+        "waiting": await autofill.waiting_system_cards(db, job_id),
+        "more_cards": autofill.MORE_CARDS,
+        "can_add_more": _in_work(job)
+        and await job_edit_level(db, current_user, job) is not None,
+    }
+
+
+async def _add_more_by_tempo(db: AsyncSession, user, job_id: int) -> dict:
+    """„Dodaj 10 kolejnych”: każda osoba z prawem edycji rekrutacji, także bez
+    porcji. W porcji rekruter najpierw przegląda swoje osoby, jak dotąd."""
+    from app.services.new_column_autofill import MORE_CARDS, fill_job
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    await ensure_job_editor(db, user, job)
+    if not _in_work(job):
+        raise HTTPException(status_code=409, detail="Ta rekrutacja nie jest w pracy.")
+    now = datetime.now(timezone.utc)
+    team = (
+        (await svc.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
+        if svc.enabled()
+        else []
+    )
+    if user.id in team:
+        min_score = (await svc.read_settings(db)).min_score
+        mine = svc.batch_cards(
+            await svc.pending_cards(db, job_ids=[job_id], owner_id=user.id),
+            now,
+            min_score,
+        )
+        if mine:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Najpierw przejrzyj swoje osoby w tej rekrutacji ({len(mine)}).",
+            )
+    added = await fill_job(
+        db,
+        job_id,
+        now=now,
+        batch=bool(team),
+        extra_for=user.id if user.id in team else None,
+        extra_cards=MORE_CARDS,
+    )
+    await db.commit()
+    return {"added": len(added)}
+
+
 @router.post("/jobs/{job_id}/more")
 async def add_more(
     job_id: int,
@@ -162,9 +247,12 @@ async def add_more(
     db: AsyncSession = Depends(get_db),
 ):
     """„Dodaj 20 kolejnych”: tylko rekruter tej rekrutacji, gdy jego część
-    porcji w niej jest przejrzana. Nowe osoby trafiają do klikającego."""
-    from app.services.new_column_autofill import fill_job
+    porcji w niej jest przejrzana. Nowe osoby trafiają do klikającego. Przy
+    celu wg tempa zastępuje go „Dodaj 10 kolejnych” (``_add_more_by_tempo``)."""
+    from app.services.new_column_autofill import fill_job, tempo_enabled
 
+    if tempo_enabled():
+        return await _add_more_by_tempo(db, current_user, job_id)
     if not svc.enabled():
         raise HTTPException(status_code=409, detail="Porcja dnia jest wyłączona.")
     min_score = (await svc.read_settings(db)).min_score

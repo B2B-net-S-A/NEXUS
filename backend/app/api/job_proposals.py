@@ -1008,6 +1008,7 @@ _DETAIL_KEYS = (
     "reason",
     "message",
     "why",
+    "target",
 )
 
 

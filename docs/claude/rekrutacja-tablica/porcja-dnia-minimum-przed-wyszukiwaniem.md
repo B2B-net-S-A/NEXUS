@@ -190,6 +190,9 @@ z `kanban-bez-bramek.md`. Nie zdejmuj jej bez nowej decyzji.
 
 ## Wyłącznik i wdrożenie
 
+Przy `NEW_COLUMN_TEMPO_TARGET_ENABLED` (08.11.2026) rozmiar porcji to cel z tempa
+rekrutacji, a nie stałe 20: `cel-kart-wg-tempa-i-miejsce-dla-swiezych.md`.
+
 `REVIEW_BATCH_ENABLED` (domyślnie `false`, workflow „Coolify set env”). Wymaga
 też `NEW_COLUMN_AUTOFILL_ENABLED`. Wyłączenie przywraca silnik sprzed 07.11
 (dopełnianie do 20 co 15 minut) i zdejmuje blokadę od razu. Właściciele

@@ -196,6 +196,9 @@ class PendingCard:
     rate_currency: Optional[str] = None
     # Dołożone przez ``review_batch_order.with_order_facts``.
     facts: object = None
+    # Ktoś wziął kartę („Dzwonię”, aktywna blokada): stoi w „Nowych”, ale już
+    # nie czeka (lustro ``waitsInSystemQueue`` z frontu).
+    taken: bool = False
 
 
 async def _other_column_def_ids(db: AsyncSession) -> list[int]:
@@ -311,6 +314,8 @@ async def pending_cards(
         RecruitmentProcess.candidate_id,
         RecruitmentProcess.entry_meta,
         RecruitmentProcess.opened_at,
+        RecruitmentProcess.claimed_by_user_id,
+        RecruitmentProcess.claimed_until,
     ).where(
         RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
         RecruitmentProcess.voided_at.is_(None),
@@ -338,7 +343,8 @@ async def pending_cards(
     rows = (await db.execute(stmt)).all()
     # Jedna karta na parę: najnowszy proces (ponowne podejście ma nowy wiersz).
     by_pair: dict[tuple[int, int], PendingCard] = {}
-    for pid, job_id, candidate_id, meta, opened_at in rows:
+    moment = _now()
+    for pid, job_id, candidate_id, meta, opened_at, claimed_by, claimed_until in rows:
         card = PendingCard(
             process_id=int(pid),
             job_id=int(job_id),
@@ -351,6 +357,11 @@ async def pending_cards(
             availability_status=(meta or {}).get("availability_status"),
             rate_from_hourly=(meta or {}).get("rate_from_hourly"),
             rate_currency=(meta or {}).get("rate_currency"),
+            taken=bool((meta or {}).get("decided_at"))
+            or (
+                claimed_by is not None
+                and (claimed_until is None or claimed_until > moment)
+            ),
         )
         key = (card.job_id, card.candidate_id)
         prev = by_pair.get(key)

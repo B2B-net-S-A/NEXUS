@@ -175,6 +175,8 @@ import {
  type ClosedRejectBy,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
+import { NewColumnTempo } from "@/components/v2/recruitment/NewColumnTempo";
+import { useNewColumnTempo } from "@/lib/api/reviewBatch";
 import {
  PersonWorkbenchTabs,
  usePersonRow,
@@ -4054,6 +4056,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  ) : null,
  [addedByMenuOptions, addedBy, onAddedByChange]
  );
+ // Bez flagi `tempo.enabled` nagłówek nie dostaje drugiego rzędu; `useMemo` jak wyżej.
+ const tempo = useNewColumnTempo(jobId).data;
+ const newColumnTempo = useMemo(
+ () => (tempo?.enabled ? <NewColumnTempo jobId={jobId} readOnly={readOnly} tempo={tempo} /> : null),
+ [jobId, readOnly, tempo]
+ );
  const queueSuffix = addedByQueueSuffix(addedBy, addedByMenuOptions);
  const queueLabel = queueColumnName
  ? queueSuffix
@@ -4694,6 +4702,8 @@ headerAction={
  }
  headerExtra={contractCountsByColId.has(entry.key) ? (
  <ContractStepChips counts={contractCountsByColId.get(entry.key)!} />
+ ) : boardKeyByColId.get(entry.key) === "new" ? (
+ newColumnTempo
  ) : null}
  purpose={cproQueueColIds.has(entry.key) ? "Wrzuca osoba od Cpro" : boardColumnPurpose(boardKeyByColId.get(entry.key), {
  cproEnabled,
