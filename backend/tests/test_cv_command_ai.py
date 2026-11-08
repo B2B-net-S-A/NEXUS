@@ -1676,6 +1676,8 @@ def test_presets_behind_the_three_buttons_live_in_code() -> None:
         (["not_editable", "amount", "not_editable"], "MSG_DROPPED_TEMPLATE"),
         (["would_empty_role"], "MSG_DROPPED_EMPTY_ROLE"),
         (["no_quote", "no_quote"], "MSG_DROPPED_NO_QUOTE"),
+        (["other_role"], "MSG_DROPPED_OTHER_ROLE"),
+        (["about_a_gap", "about_a_gap"], "MSG_DROPPED_ABOUT_GAP"),
         (["needs_question"], "MSG_DROPPED_NEW_FACT"),
         (["overlap"], "MSG_ALL_DROPPED"),
         (["already_bold"], "MSG_ALREADY_BOLD"),

@@ -248,6 +248,8 @@ class StageCvUploadResponse(CVOriginalSnapshotResponse):
     client_cv: Optional[CVBrandedResponse] = None
     # Wiersz etapu z CV do klienta pary — po ruchu karty bywa wcześniejszy.
     client_cv_stage_id: Optional[int] = None
+    # Pigułki „dlaczego nie CV z generatora”: zastąpiony szkic miał zapisany start.
+    ask_replace_reason: bool = False
     # Co zastąpiło: nic, nieprzejrzane auto-CV albo CV po potwierdzeniu.
     replaced: Optional[Literal["none", "auto_cv", "confirmed"]] = None
     # „Cofnij” w komunikacie: tylko gdy nie zastąpiliśmy niczyjej pracy.

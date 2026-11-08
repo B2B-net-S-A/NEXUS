@@ -156,6 +156,7 @@ _ACTION_LABELS_PL: dict = {
     "cv_file_downloaded": "pobrał(a) plik CV",
     "cv_selection_ai": "poprosił(a) AI o propozycję do fragmentu CV",
     "cv_command_ai": "poprosił(a) AI o plan zmian w CV",
+    "cv_command_applied": "zastosował(a) plan zmian AI w CV",
     "hired": "zatrudnił(a)",
     "candidate_added": "dodał(a) kandydata",
     "screening_done": "przeprowadził(a) screening",

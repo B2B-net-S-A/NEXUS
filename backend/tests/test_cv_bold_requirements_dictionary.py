@@ -21,6 +21,11 @@ from tests.taxonomy_fixture import hydrated_taxonomy
 
 SKILLS: dict[str, tuple[str, tuple[str, ...]]] = {
     "Java": ("language", ()),
+    "Go": ("language", ("golang", "go")),
+    "PostgreSQL": ("database", ("postgres", "pg")),
+    "Elasticsearch": ("database", ("es",)),
+    "AWS S3": ("cloud", ("s3",)),
+    "C#": ("language", ("c#",)),
     "Kotlin": ("language", ()),
     "Android": ("mobile", ()),
     "JUnit": ("qa", ("junit 5",)),
@@ -55,6 +60,44 @@ def _bold(chips: list[str], text: str) -> list[str]:
 def _taxonomy():
     with hydrated_taxonomy(SKILLS):
         yield
+
+
+# ── Generator: krótkie nazwy (CV-5, 08.11.2026) ─────────────────────────────
+
+
+def test_go_does_not_bold_the_polish_pronoun() -> None:
+    text = "Napisał moduł w Go i wdrożył go na produkcję."
+    assert _bold(["Go"], text) == ["Go"]
+
+
+def test_short_names_keep_their_written_case_for_lowercase_chips() -> None:
+    assert _bold(["go"], "Usługi w Go, przetestował go.") == ["Go"]
+
+
+def test_short_aliases_do_not_bold_university_or_country_codes() -> None:
+    text = "Politechnika Gdańska (PG), kurs w ES, baza PostgreSQL i Elasticsearch."
+    assert _bold(["PostgreSQL", "Elasticsearch"], text) == [
+        "PostgreSQL",
+        "Elasticsearch",
+    ]
+
+
+def test_short_alias_with_a_digit_still_bolds_in_its_own_spelling() -> None:
+    assert _bold(["AWS S3"], "Pliki w S3.") == ["S3"]
+
+
+@pytest.mark.parametrize(
+    ("chip", "text", "bolded"),
+    [
+        ("k6", "Testy w k6 oraz K6.", ["k6", "K6"]),
+        ("K6", "Testy w k6.", ["k6"]),
+        ("c#", "Aplikacje w C# oraz c#.", ["C#", "c#"]),
+    ],
+)
+def test_short_name_with_digit_or_sign_ignores_case(
+    chip: str, text: str, bolded: list[str]
+) -> None:
+    assert _bold([chip], text) == bolded
 
 
 # ── Generator: lista słów i wzorce ──────────────────────────────────────────
