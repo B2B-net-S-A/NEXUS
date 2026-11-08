@@ -59,6 +59,7 @@ from sqlalchemy import (
     cast,
     func,
     literal,
+    literal_column,
     not_,
     or_,
     select,
@@ -619,6 +620,12 @@ _KNOWN_CITIES = frozenset(
 )
 
 
+# Wyrażenia pod indeksy GIN z migracji 0662 (lustro w ``entrypoint.sh``). Stoją
+# jako gotowy SQL, nie ``func.*``: indeks pasuje tylko do identycznego drzewa,
+# a parametry wiązane w miejscu stałych rozjeżdżają się z nim w planie ogólnym.
+PHONE_DIGITS_SQL = "regexp_replace(coalesce(candidates.phone, ''), '[^0-9]', '', 'g')"
+
+
 def phone_digits_clause(q: str) -> Optional[ColumnElement]:
     """Dopasowanie numeru telefonu niezależne od zapisu (spacje, myślniki, +48).
 
@@ -635,9 +642,7 @@ def phone_digits_clause(q: str) -> Optional[ColumnElement]:
         return None
     if len(digits) >= 9:
         digits = digits[-9:]
-    return func.regexp_replace(
-        func.coalesce(Candidate.phone, ""), r"[^0-9]", "", "g"
-    ).like(f"%{digits}%")
+    return literal_column(PHONE_DIGITS_SQL).like(f"%{digits}%")
 
 
 @dataclass(frozen=True)
