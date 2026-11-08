@@ -306,6 +306,8 @@ class JobAdResponse(BaseModel):
     # Ostatni mail do opiekuna Pracuj.pl (27.10.2026).
     pracuj_request: Optional[PracujRequestRead] = None
     jjit_api: Optional[AdJjitApi] = None
+    # Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026).
+    can_mark_publications: bool = False
 
 
 class CareerQueueItem(BaseModel):

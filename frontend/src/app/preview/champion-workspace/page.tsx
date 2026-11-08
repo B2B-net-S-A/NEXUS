@@ -75,6 +75,7 @@ const JOB_AD: JobAdState = {
   findings: [],
   rendered: null,
   can_copy: true,
+  can_mark_publications: true,
   publications: [
     {
       portal: "pracuj",

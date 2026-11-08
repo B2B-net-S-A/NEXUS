@@ -553,7 +553,7 @@ def _publication(body: dict, portal: str) -> dict | None:
 async def test_marking_published_keeps_the_link_and_who_did_it(
     api: AsyncClient, monkeypatch
 ):
-    _, headers, job_id = await _owner_with_job(api)
+    _, headers, job_id = await _lead_with_job(api)
     await _generated(api, headers, job_id, monkeypatch)
     before = await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
     assert before.json()["publications"] == []
@@ -575,7 +575,7 @@ async def test_marking_published_keeps_the_link_and_who_did_it(
 async def test_an_edit_after_publication_marks_it_outdated_until_marked_again(
     api: AsyncClient, monkeypatch
 ):
-    _, headers, job_id = await _owner_with_job(api)
+    _, headers, job_id = await _lead_with_job(api)
     ad = await _generated(api, headers, job_id, monkeypatch)
     base = f"/api/jobs/{job_id}/portal-ad"
     marked = await api.put(f"{base}/publications/jjit", json={}, headers=headers)
@@ -604,7 +604,7 @@ async def test_adding_a_link_does_not_confirm_the_content_or_change_who_publishe
     """Ogłoszenie na Pracuj.pl bywa widoczne po moderacji: rekruter oznacza
     publikację bez linku, a link dopisuje później. To nie jest potwierdzenie,
     że treść na portalu jest aktualna."""
-    _, headers, job_id = await _owner_with_job(api)
+    _, headers, job_id = await _lead_with_job(api)
     ad = await _generated(api, headers, job_id, monkeypatch)
     base = f"/api/jobs/{job_id}/portal-ad"
     first = _publication(
@@ -645,7 +645,7 @@ async def test_adding_a_link_does_not_confirm_the_content_or_change_who_publishe
 async def test_removed_publication_leaves_a_trace_and_can_come_back(
     api: AsyncClient, monkeypatch
 ):
-    _, headers, job_id = await _owner_with_job(api)
+    _, headers, job_id = await _lead_with_job(api)
     await _generated(api, headers, job_id, monkeypatch)
     url = f"/api/jobs/{job_id}/portal-ad/publications/pracuj"
     assert (await api.delete(url, headers=headers)).status_code == 404
@@ -666,7 +666,7 @@ async def test_removed_publication_leaves_a_trace_and_can_come_back(
 async def test_publication_needs_an_ad_a_portal_link_and_clean_content(
     api: AsyncClient, monkeypatch
 ):
-    _, headers, job_id = await _owner_with_job(api)
+    _, headers, job_id = await _lead_with_job(api)
     base = f"/api/jobs/{job_id}/portal-ad"
     no_ad = await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
     assert no_ad.status_code == 404
@@ -700,7 +700,7 @@ async def test_publication_needs_an_ad_a_portal_link_and_clean_content(
 async def test_blocked_content_cannot_be_confirmed_but_the_link_can_change(
     api: AsyncClient, monkeypatch
 ):
-    _, headers, job_id = await _owner_with_job(api)
+    _, headers, job_id = await _lead_with_job(api)
     ad = await _generated(api, headers, job_id, monkeypatch)
     base = f"/api/jobs/{job_id}/portal-ad"
     await api.put(f"{base}/publications/pracuj", json={}, headers=headers)
@@ -1028,6 +1028,15 @@ async def test_nightly_prepare_writes_a_first_version_and_never_replaces_one(
     assert again["ad"]["updated_at"] == ad["ad"]["updated_at"]
 
 
+async def _lead_with_job(api: AsyncClient):
+    """Właściciel rekrutacji będący jej Delivery Leadem: tylko on oznacza portale."""
+    uid, headers, job_id = await _owner_with_job(api)
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, job_id)).delivery_lead_id = uid
+        await db.commit()
+    return uid, headers, job_id
+
+
 # ── Dostęp ──────────────────────────────────────────────────────────────────
 
 
@@ -1097,3 +1106,29 @@ async def test_fixed_blocks_refuse_amounts_and_contacts(api: AsyncClient):
         assert resp.status_code == 422, bad
     unchanged = await api.get("/api/job-ads/fixed-blocks", headers=admin)
     assert unchanged.json() == base
+
+
+# ── Kto oznacza ogłoszenia na portalach (08.11.2026) ────────────────────────
+
+
+async def test_recruiter_cannot_mark_or_remove_a_portal_ad(
+    api: AsyncClient, monkeypatch
+):
+    _, recruiter, job_id = await _owner_with_job(api)
+    await _generated(api, recruiter, job_id, monkeypatch)
+    url = f"/api/jobs/{job_id}/portal-ad/publications/pracuj"
+
+    state = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=recruiter)).json()
+    assert state["can_mark_publications"] is False
+
+    denied = await api.put(url, json={"url": _PRACUJ_URL}, headers=recruiter)
+    assert denied.status_code == 403, denied.text
+    assert (await api.delete(url, headers=recruiter)).status_code == 403
+
+    head = await _login(api, *await _seed_role_user(UserRole.head_of_recruitment))
+    state = (await api.get(f"/api/jobs/{job_id}/portal-ad", headers=head)).json()
+    assert state["can_mark_publications"] is True
+    marked = await api.put(url, json={"url": _PRACUJ_URL}, headers=head)
+    assert marked.status_code == 200, marked.text
+    assert (await api.delete(url, headers=recruiter)).status_code == 403
+    assert (await api.delete(url, headers=head)).status_code == 200

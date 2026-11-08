@@ -121,6 +121,20 @@ describe("AdPublications", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: [JOBS_LIST_QUERY_ROOT] });
   });
 
+  it("rekruter nie oznacza portali, a widzi, gdzie ogłoszenie wisi", () => {
+    setup({
+      ...adState({ publications: [publication({ url: PRACUJ_URL, outdated: true })] }),
+      can_mark_publications: false,
+    });
+    const pracuj = within(row("Pracuj.pl"));
+    expect(pracuj.getByRole("link", { name: /Otwórz ogłoszenie/ })).toBeTruthy();
+    expect(pracuj.queryByRole("button")).toBeNull();
+    expect(pracuj.getByText(/zaktualizuje ją Delivery Lead/)).toBeTruthy();
+    const jjit = within(row("JustJoin.IT"));
+    expect(jjit.queryByRole("button", { name: "Oznacz jako opublikowane" })).toBeNull();
+    expect(jjit.getByText("Na JustJoin.IT ogłoszenie wstawia Delivery Lead.")).toBeTruthy();
+  });
+
   it("dopisanie linku nie potwierdza treści — nawet gdy treść ma fragment blokujący", async () => {
     const { api } = setup({
       ...adState({ publications: [publication({ url: null, outdated: true })] }),

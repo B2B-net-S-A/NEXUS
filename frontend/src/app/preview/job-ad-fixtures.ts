@@ -340,6 +340,7 @@ export function stateOf(
     reminders: null,
     pracuj_request: null,
     jjit_api: patch.jjit_api ?? null,
+    can_mark_publications: true,
   };
 }
 
@@ -357,6 +358,7 @@ function initial(state: HarnessState): JobAdState {
       reminders: null,
       pracuj_request: null,
       jjit_api: null,
+      can_mark_publications: true,
     };
   }
   if (state === "published") {
