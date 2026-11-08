@@ -4,8 +4,9 @@ D1 z audytu 07.11.2026: Akademia, Praktykant, Traffit, CloudTalk i Analytics v1
 zniknęły z kodu, tabele zostały. 410 mówi klientowi (stara karta przeglądarki,
 skrypt, klucz API), że adresu nie będzie, i podaje powód po polsku.
 
-Handler działa dopiero na 404, więc trasa, która nadal istnieje pod takim
-prefiksem (np. ``GET /api/admin/traffit/sync/status``), odpowiada normalnie.
+Handler działa tylko wtedy, gdy żadna trasa nie pasuje do adresu. Trasa, która
+nadal istnieje pod takim prefiksem (np. ``GET /api/admin/traffit/sync/status``),
+odpowiada normalnie, także własnym 404.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -27,14 +28,19 @@ RETIRED_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/trainee", _TRAINEE),
     ("/api/analytics/v1", _ANALYTICS),
     ("/api/cloudtalk", _CLOUDTALK),
-    ("/api/calls/webhook", _CLOUDTALK),
-    ("/api/calls/cloudtalk-status", _CLOUDTALK),
     ("/api/admin/traffit", _TRAFFIT),
 )
+
+RETIRED_EXACT: dict[str, str] = {
+    "/api/calls/webhook": _CLOUDTALK,
+    "/api/calls/cloudtalk-status": _CLOUDTALK,
+}
 
 
 def retired_message(path: str) -> str | None:
     """Komunikat, gdy ``path`` należy do usuniętego modułu, inaczej ``None``."""
+    if path in RETIRED_EXACT:
+        return RETIRED_EXACT[path]
     for prefix, message in RETIRED_PREFIXES:
         if path == prefix or path.startswith(f"{prefix}/"):
             return message
@@ -42,7 +48,8 @@ def retired_message(path: str) -> str | None:
 
 
 async def _not_found_or_gone(request: Request, exc: Exception) -> Response:
-    message = retired_message(request.url.path)
+    no_route_matched = "endpoint" not in request.scope
+    message = retired_message(request.url.path) if no_route_matched else None
     if message is not None:
         return JSONResponse(status_code=410, content={"detail": message})
     assert isinstance(exc, (HTTPException, StarletteHTTPException))

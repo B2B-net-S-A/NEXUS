@@ -42,6 +42,10 @@ def client() -> TestClient:
     async def still_alive() -> dict[str, bool]:
         return {"ok": True}
 
+    @app.get("/api/academy/programs/{program_id}")
+    async def academy_program(program_id: int) -> None:
+        raise HTTPException(status_code=404, detail=f"Brak programu {program_id}")
+
     @app.get("/api/candidates/{candidate_id}")
     async def missing(candidate_id: int) -> None:
         raise HTTPException(status_code=404, detail=f"Brak kandydata {candidate_id}")
@@ -51,13 +55,23 @@ def client() -> TestClient:
 
 def test_removed_route_answers_410_for_any_method(client: TestClient) -> None:
     for method in ("get", "post", "patch", "put", "delete"):
-        response = getattr(client, method)("/api/academy/programs")
+        response = getattr(client, method)("/api/academy/sessions")
         assert response.status_code == 410
         assert "Akademia" in response.json()["detail"]
 
 
 def test_surviving_route_under_retired_prefix_still_answers(client: TestClient) -> None:
     assert client.get("/api/admin/traffit/sync/status").json() == {"ok": True}
+
+
+def test_404_raised_by_a_surviving_route_stays_404(client: TestClient) -> None:
+    response = client.get("/api/academy/programs/9")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Brak programu 9"}
+
+
+def test_webhook_path_with_token_is_not_retired() -> None:
+    assert retired_message("/api/calls/webhook/token") is None
 
 
 def test_ordinary_404_keeps_its_own_detail(client: TestClient) -> None:
