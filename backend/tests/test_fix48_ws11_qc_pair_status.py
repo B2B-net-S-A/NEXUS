@@ -101,6 +101,35 @@ async def _move(api_client: AsyncClient, world: dict, who: str):
 
 
 @pytest.mark.asyncio
+async def test_qc_endpoint_says_the_same_state_as_the_board(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Panel osoby i okno QC czytają `qc_state` z `/qc`, karta z `pair_statuses`.
+    Ten sam przebieg ma dać ten sam stan, także po obejściu (09.11.2026)."""
+    world = await _advisory_world(api_client, monkeypatch)
+    pair = (world["candidate_id"], world["job_id"])
+
+    async def both() -> tuple[dict, dict]:
+        with hydrated_taxonomy():
+            resp = await api_client.get(world["qc_url"], headers=world["rec"])
+        assert resp.status_code == 200, resp.text
+        async with AsyncSessionLocal() as db:
+            board = (await qc.pair_statuses(db, [pair]))[pair]["qc_state"]
+        return resp.json()["qc_state"], board
+
+    try:
+        live, board = await both()
+        assert live == board
+        assert live["kind"] != "unchecked"
+
+        await _override(api_client, world, "rec")
+        live, board = await both()
+        assert live == board
+    finally:
+        await _cleanup_advisory(world, world["stage_id"], world["users"])
+
+
+@pytest.mark.asyncio
 async def test_advisory_override_ends_when_the_cv_gets_a_new_blocker(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
