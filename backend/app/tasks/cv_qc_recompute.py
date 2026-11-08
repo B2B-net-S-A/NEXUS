@@ -13,6 +13,7 @@ import asyncio
 import logging
 
 from app.core.database import AsyncSessionLocal
+from app.core.tasks import spawn
 from app.services import cv_qc
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,6 @@ async def cv_qc_recompute_loop() -> None:
         logger.info("cv qc recompute: %d pairs recomputed", done)
 
 
-_running: set[asyncio.Task] = set()
-
-
 async def _recompute_job(job_id: int) -> None:
     try:
         async with AsyncSessionLocal() as db:
@@ -54,6 +52,4 @@ async def schedule_job_recompute(job_id: int) -> None:
     Asynchroniczna, bo `PostCommit.later` potrafi wywołać funkcję także poza
     pętlą zdarzeń (synchroniczne BackgroundTasks idą do wątku)."""
 
-    task = asyncio.create_task(_recompute_job(job_id))
-    _running.add(task)
-    task.add_done_callback(_running.discard)
+    spawn(_recompute_job(job_id), f"cv_qc_recompute_job:{job_id}")
