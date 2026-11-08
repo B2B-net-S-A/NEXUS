@@ -239,6 +239,8 @@ def test_endpointy_czytaja_filtry_tylko_ze_wspolnego_modulu() -> None:
         "build_advanced_filter",  # własny parser grup
         "single_phrase_filter",  # własne dopasowanie `q`
         "_skill_match",  # własne kubełki umiejętności
+        "CandidateSkillUsage",  # własne „Lata z technologią”
+        "candidate_skill_usage",
     ):
         assert forbidden not in builder, (
             f"lista znów ma prywatną kopię filtra ({forbidden}) — "
@@ -247,7 +249,13 @@ def test_endpointy_czytaja_filtry_tylko_ze_wspolnego_modulu() -> None:
 
     assert "build_advanced_filter" not in inspect.getsource(wyszukiwarka)
     groups = inspect.getsource(strukturalne.build_filter_groups)
-    for forbidden in ("strpos", ".ilike(", "years_it_experience", "expected_rate"):
+    for forbidden in (
+        "strpos",
+        ".ilike(",
+        "years_it_experience",
+        "expected_rate",
+        "CandidateSkillUsage",
+    ):
         assert forbidden not in groups, (
             f"wyszukiwarka znów ma prywatną kopię filtra ({forbidden})"
         )

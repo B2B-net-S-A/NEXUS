@@ -7,6 +7,7 @@
  * ignores unknown params and fills unknown fields with defaults.
  */
 
+import { formatSkillYearsEntry, parseSkillYearsEntries } from "@/lib/candidate-skill-years";
 import {
   parseSkillExpression,
   serializeSkillBuckets,
@@ -156,6 +157,14 @@ export interface CandidateFilters {
    */
   hideUnknownRate: boolean;
   hideUnknownLocation: boolean;
+  /**
+   * „Lata z technologią” (08.11.2026, `lib/candidate-skill-years.ts`):
+   * wpisy `Java:3` = co najmniej 3 lata z dat stanowisk w CV. W URL
+   * `sky=Java:3|Kafka:2` i `husy=1`, w API `skill_years` (powtarzany) i
+   * `hide_unknown_skill_years`.
+   */
+  skillYears: string[];
+  hideUnknownSkillYears: boolean;
   /**
    * Zakres pola lokalizacji (`location_scope`). `location_only` = sama kolumna
    * `location` (dawne zachowanie listy) — ustawia go migracja zapisów
@@ -315,6 +324,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   hideUnknown: false,
   hideUnknownRate: false,
   hideUnknownLocation: false,
+  skillYears: [],
+  hideUnknownSkillYears: false,
   locationScope: "",
   location: "",
   poolIds: [],
@@ -461,6 +472,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.hideUnknown) p.set("hu", "1");
   if (f.hideUnknownRate) p.set("hur", "1");
   if (f.hideUnknownLocation) p.set("hul", "1");
+  if (f.skillYears.length) p.set("sky", PIPE(f.skillYears));
+  if (f.hideUnknownSkillYears && f.skillYears.length) p.set("husy", "1");
   if (f.locationScope) p.set("ls", f.locationScope);
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
@@ -595,6 +608,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     hideUnknown: sp.get("hu") === "1",
     hideUnknownRate: sp.get("hur") === "1",
     hideUnknownLocation: sp.get("hul") === "1",
+    skillYears: parseSkillYearsEntries(parsePipe(sp.get("sky"))).map(formatSkillYearsEntry),
+    hideUnknownSkillYears: sp.get("husy") === "1",
     locationScope: sp.get("ls") === "location_only" ? "location_only" : "",
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
@@ -835,6 +850,9 @@ export function filtersToApiParams(
     hide_unknown: filters.hideUnknown ? true : undefined,
     hide_unknown_rate: filters.hideUnknownRate ? true : undefined,
     hide_unknown_location: filters.hideUnknownLocation ? true : undefined,
+    skill_years: filters.skillYears.length ? filters.skillYears : undefined,
+    hide_unknown_skill_years:
+      filters.hideUnknownSkillYears && filters.skillYears.length ? true : undefined,
     location_scope: filters.locationScope || undefined,
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
@@ -1104,6 +1122,8 @@ export type TraffitExtraFilters = Pick<
   | "locationPlaces"
   | "hideUnknownRate"
   | "hideUnknownLocation"
+  | "skillYears"
+  | "hideUnknownSkillYears"
   | "contacted"
   | "contactedFrom"
   | "contactedTo"
@@ -1124,6 +1144,8 @@ const TRAFFIT_EXTRA_KEYS = [
   "locationPlaces",
   "hideUnknownRate",
   "hideUnknownLocation",
+  "skillYears",
+  "hideUnknownSkillYears",
   "contacted",
   "contactedFrom",
   "contactedTo",
@@ -1145,6 +1167,8 @@ export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilter
     locationPlaces: filters.locationPlaces,
     hideUnknownRate: filters.hideUnknownRate,
     hideUnknownLocation: filters.hideUnknownLocation,
+    skillYears: filters.skillYears,
+    hideUnknownSkillYears: filters.hideUnknownSkillYears,
     contacted: filters.contacted,
     contactedFrom: filters.contactedFrom,
     contactedTo: filters.contactedTo,

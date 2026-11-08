@@ -67,6 +67,8 @@ describe("url-filters", () => {
       hideUnknown: true,
       hideUnknownRate: true,
       hideUnknownLocation: true,
+      skillYears: ["Java:3", "Kafka:2"],
+      hideUnknownSkillYears: true,
       locationScope: "location_only",
       location: "Warszawa",
       poolIds: [3, 5],

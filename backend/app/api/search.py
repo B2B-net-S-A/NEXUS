@@ -27,7 +27,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
-from app.schemas.candidate import EmploymentMarker
+from app.schemas.candidate import CandidateSkillYears, EmploymentMarker
 from app.schemas.candidate_search import (
     CandidateSearchItem,
     CandidateSearchRequest,
@@ -438,9 +438,14 @@ async def _last_recruitments(
     }
 
 
-def _unknown_fields(body: CandidateSearchRequest, c: Candidate) -> list[str]:
+def _unknown_fields(
+    body: CandidateSearchRequest,
+    c: Candidate,
+    skill_years: Optional[list[dict[str, Any]]] = None,
+) -> list[str]:
     """v2: oznaczenie wiersza, który przeszedł filtr „na brak danych"."""
-    if not request_semantics(body).unified:
+    sem = request_semantics(body)
+    if not sem.unified:
         return []
     return predicates.unknown_fields_for(
         c,
@@ -452,6 +457,10 @@ def _unknown_fields(body: CandidateSearchRequest, c: Candidate) -> list[str]:
         ),
         rate_active=(
             body.rate_hourly_min is not None or body.rate_hourly_max is not None
+        ),
+        skill_years_unknown=(
+            sem.skill_years_unknown == "include"
+            and predicates.skill_years_unknown_for(skill_years)
         ),
     )
 
@@ -1110,17 +1119,33 @@ async def advanced_candidate_search(
         today=business_today(),
         job_client_id=job_client_id,
     )
+    skill_years_items = predicates.parse_skill_years(body.skill_years)
+    skill_years_by_id = await predicates.skill_years_for_page(
+        db, [c.id for c in candidates], skill_years_items
+    )
     items = [
         _candidate_to_item(
             c,
             0.0,
             eligibility_by_id.get(c.id),
-            _unknown_fields(body, c),
+            _unknown_fields(body, c, skill_years_by_id.get(c.id)),
             employment_markers.get(c.id),
             last_recruitment_by_id.get(c.id),
         )
         for c in candidates
     ]
+    if skill_years_items:
+        items = [
+            item.model_copy(
+                update={
+                    "skill_years": [
+                        CandidateSkillYears(**e)
+                        for e in skill_years_by_id.get(item.id, [])
+                    ]
+                }
+            )
+            for item in items
+        ]
 
     facets_clause = where_clause  # facets reflect current filter set
     facets = SearchFacets(

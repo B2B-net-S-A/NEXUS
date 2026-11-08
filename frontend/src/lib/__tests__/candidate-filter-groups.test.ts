@@ -103,6 +103,7 @@ describe("filterGroupCounts", () => {
       remote: 0,
       history: 0,
       rejection: 0,
+      skillYears: 0,
       skills: 0,
       availability: 0,
       more: 0,
@@ -138,6 +139,7 @@ describe("filterGroupCounts", () => {
       history: 6,
       // powód + kto zakończył + okres
       rejection: 3,
+      skillYears: 0,
       skills: 2,
       availability: 1,
       // język + status; wszystkie wiersze słów kluczowych stoją na pasku

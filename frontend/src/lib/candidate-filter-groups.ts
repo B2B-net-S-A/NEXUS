@@ -19,6 +19,8 @@ export interface FilterGroupCounts {
   /** „Powód odrzucenia” (06.11.2026). */
   rejection: number;
   skills: number;
+  /** „Lata z technologią” (08.11.2026): liczba wierszy. */
+  skillYears: number;
   availability: number;
   /** „Więcej filtrów": profil, firma, źródło i „Inne". */
   more: number;
@@ -66,6 +68,7 @@ export function filterGroupCounts(
       contactCount,
     rejection: rejectionFilterCount(filters),
     skills: skills.required.length + skills.preferred.length + skills.excluded.length,
+    skillYears: filters.skillYears.length,
     availability: filters.availability.length + filters.employment.length,
     more: about + company + source + other,
   };

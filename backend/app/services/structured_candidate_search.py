@@ -56,6 +56,7 @@ def request_semantics(req: CandidateSearchRequest) -> predicates.Semantics:
         getattr(req, "hide_unknown", None),
         hide_unknown_rate=getattr(req, "hide_unknown_rate", None),
         hide_unknown_location=getattr(req, "hide_unknown_location", None),
+        hide_unknown_skill_years=getattr(req, "hide_unknown_skill_years", None),
     )
 
 
@@ -177,6 +178,10 @@ NULL_POLICY: dict[str, GroupPolicy] = {
         ),
     ),
     "experience": GroupPolicy(NullPolicy.include, 1.2, "2026-08-07"),
+    # Lata z dat stanowisk w CV: przy Javie ma je 70% osób z Javą w profilu,
+    # przy Pythonie 53%, SQL 46% (staging z 07.11.2026, po odczycie v9).
+    # Osoba z technologią bez lat zostaje („bez danych o latach”).
+    "skill_years": GroupPolicy(NullPolicy.include, 55.0, "2026-11-08"),
     "location": GroupPolicy(NullPolicy.include, 14.9, "2026-08-07"),
     "languages": GroupPolicy(
         NullPolicy.exclude,
@@ -306,6 +311,14 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     if exp_clause is not None:
         experience.append(exp_clause)
     add("experience", "Doświadczenie", experience)
+
+    add(
+        "skill_years",
+        "Lata z technologią",
+        predicates.skill_years_clauses(
+            predicates.parse_skill_years(getattr(req, "skill_years", None)), sem
+        ),
+    )
 
     languages: list[ColumnElement] = []
     for lang in req.languages:

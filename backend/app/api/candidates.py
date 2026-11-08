@@ -114,6 +114,7 @@ from app.schemas.candidate import (
     CandidateList,
     CandidateLocationDistance,
     CandidateLocationUpdate,
+    CandidateSkillYears,
     CandidateQuickViewAvailability,
     CandidateQuickViewCandidate,
     CandidateQuickViewCapabilities,
@@ -415,6 +416,12 @@ class CandidateFilterSpec(BaseModel):
     # poszerzają wyniku (`candidate_search_predicates.Semantics`).
     hide_unknown_rate: Optional[bool] = None
     hide_unknown_location: Optional[bool] = None
+    # „Lata z technologią” (08.11.2026): `"Java:3"` = Java co najmniej 3 lata
+    # z dat stanowisk w CV (`candidate_search_predicates.skill_years_clauses`).
+    # Osoby z technologią bez lat zostają na końcu, chyba że
+    # `hide_unknown_skill_years` (albo globalne `hide_unknown`).
+    skill_years: Optional[list[str]] = None
+    hide_unknown_skill_years: Optional[bool] = None
     # Brak (v1) = DOKŁADNIE dotychczasowe wyniki listy (na tym stoją alerty
     # zapisanych wyszukiwań). 2 = semantyka wspólna z wyszukiwarką.
     semantics_version: Optional[int] = Field(None, ge=1, le=2)
@@ -1449,7 +1456,20 @@ def _list_semantics(f: CandidateFilterSpec):
         f.hide_unknown,
         hide_unknown_rate=f.hide_unknown_rate,
         hide_unknown_location=f.hide_unknown_location,
+        hide_unknown_skill_years=f.hide_unknown_skill_years,
     )
+
+
+def _list_skill_years(f: CandidateFilterSpec):
+    """Wiersze „technologia:lata” albo 422 po polsku (GET i eksport)."""
+    from app.services import candidate_search_predicates as predicates
+
+    try:
+        return predicates.parse_skill_years(f.skill_years)
+    except predicates.InvalidSkillYears as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def _list_location_places(f: CandidateFilterSpec):
@@ -1500,6 +1520,9 @@ def _unknown_rank_expr(f: CandidateFilterSpec):
         ),
         rate_active=(f.min_rate is not None or f.max_rate is not None)
         and not f.hide_unknown_rate,
+        skill_years_rank=predicates.skill_years_unknown_rank(
+            _list_skill_years(f), _list_semantics(f)
+        ),
     )
 
 
@@ -1734,6 +1757,8 @@ async def _build_candidate_filtered_query(
     )
     if experience_clause is not None:
         query = query.where(experience_clause)
+    for skill_years_clause in predicates.skill_years_clauses(_list_skill_years(f), sem):
+        query = query.where(skill_years_clause)
 
     if f.added_by_user_id:
         real_ids = [uid for uid in f.added_by_user_id if uid != 0]
@@ -2400,6 +2425,24 @@ async def list_candidates(
             "active location filters only. Never widens the result."
         ),
     ),
+    skill_years: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Years with a technology, repeated `skill:years` (e.g. `Java:3`, at "
+            "most 5, years 1-30). Years come from the CV role/project dates "
+            "(`candidate_skill_usage.months`). People who have the skill but no "
+            "dated role with it stay (`unknown_fields` gets `skill_years`) "
+            "unless `hide_unknown_skill_years` / `hide_unknown`. Rows carry "
+            "`skill_years` with the months and their source."
+        ),
+    ),
+    hide_unknown_skill_years: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides people with the skill but no years from CV role "
+            "dates, for the `skill_years` filter only. Never widens the result."
+        ),
+    ),
     semantics_version: Optional[int] = Query(
         None,
         ge=1,
@@ -2966,6 +3009,7 @@ async def list_candidates(
         max_experience=max_experience,
     )
     _reject_invalid_location_places(location_places)
+    _list_skill_years(CandidateFilterSpec(skill_years=skill_years))
     if rejection_within_months not in (None, *last_rejection.WITHIN_MONTHS):
         raise HTTPException(
             status_code=422,
@@ -2995,6 +3039,8 @@ async def list_candidates(
         hide_unknown=hide_unknown,
         hide_unknown_rate=hide_unknown_rate,
         hide_unknown_location=hide_unknown_location,
+        skill_years=skill_years,
+        hide_unknown_skill_years=hide_unknown_skill_years,
         semantics_version=semantics_version,
         remote_policy=remote_policy,
         min_rate=min_rate,
@@ -3538,6 +3584,10 @@ async def list_candidates(
                 db, facets_query.with_only_columns(Candidate.id)
             )
         )
+    skill_years_items = _list_skill_years(filters)
+    skill_years_by_id = await search_predicates.skill_years_for_page(
+        db, [c.id for c in items], skill_years_items
+    )
     response_items: list[CandidateResponse] = []
     distance_places = _radius_places(filters)
     for cand in items:
@@ -3623,7 +3673,22 @@ async def list_candidates(
                             min_experience is not None or max_experience is not None
                         ),
                         rate_active=min_rate is not None or max_rate is not None,
+                        skill_years_unknown=(
+                            list_semantics.skill_years_unknown == "include"
+                            and search_predicates.skill_years_unknown_for(
+                                skill_years_by_id.get(cand.id)
+                            )
+                        ),
                     )
+                }
+            )
+        if skill_years_items:
+            payload = payload.model_copy(
+                update={
+                    "skill_years": [
+                        CandidateSkillYears(**e)
+                        for e in skill_years_by_id.get(cand.id, [])
+                    ]
                 }
             )
         if distance_places:
