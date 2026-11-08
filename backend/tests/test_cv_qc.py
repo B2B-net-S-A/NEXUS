@@ -4885,6 +4885,47 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
         await _cleanup(world, [hor_id])
 
 
+@pytest.mark.asyncio
+async def test_requirement_change_recomputes_the_jobs_pairs(
+    api_client: AsyncClient,
+) -> None:
+    """QC-10 (08.11.2026): po zmianie wymagań plakietka nie mówi starego wyniku."""
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+
+    from app.models.job import Job
+
+    async def verdicts() -> list[bool]:
+        async with AsyncSessionLocal() as db:
+            rows = await db.scalars(
+                select(CvQcRun.passed)
+                .where(CvQcRun.candidate_id == world["candidate_id"])
+                .order_by(CvQcRun.id)
+            )
+            return list(rows)
+
+    try:
+        with hydrated_taxonomy():
+            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        before = await verdicts()
+        assert before == [False]
+        await _mark_critical(world, "Java")
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            job.champion_profile = {"stack": {"must": [], "critical": []}}
+            await db.commit()
+        with hydrated_taxonomy():
+            async with AsyncSessionLocal() as db:
+                assert await qc.recompute_job(db, world["job_id"]) == 1
+        assert len(await verdicts()) == 2
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
 # ── „To nieprawda” i „Jakość QC” (D5, D6, 13.10.2026) ───────────────────────
 
 

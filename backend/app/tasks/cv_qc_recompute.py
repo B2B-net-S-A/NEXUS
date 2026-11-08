@@ -33,3 +33,24 @@ async def cv_qc_recompute_loop() -> None:
         return
     if done:
         logger.info("cv qc recompute: %d pairs recomputed", done)
+
+
+_running: set[asyncio.Task] = set()
+
+
+async def _recompute_job(job_id: int) -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            await cv_qc.recompute_job(db, job_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — zadanie tła nie może paść
+        logger.warning("cv qc recompute job: failed (%s)", type(exc).__name__)
+
+
+def schedule_job_recompute(job_id: int) -> None:
+    """Przelicz QC par rekrutacji w tle, bez trzymania odpowiedzi (QC-10)."""
+
+    task = asyncio.create_task(_recompute_job(job_id))
+    _running.add(task)
+    task.add_done_callback(_running.discard)

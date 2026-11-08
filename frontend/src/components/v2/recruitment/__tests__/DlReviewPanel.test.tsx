@@ -963,12 +963,16 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
   });
 
   describe("QC-8: wysyłka z luką kandydata", () => {
+    const send = () => screen.getByRole("button", { name: /Akceptuj/ });
+
     it("przycisk wysyłki czeka na decyzję, a decyzja jedzie w ruchu", async () => {
+      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
       mockApi({ context: { ...CONTEXT, qc_gaps: ["Kafka"] } });
       renderPanel(task());
-      await typeRate();
+      const choice = await screen.findByRole("radio", { name: "Wysyłam mimo braku: Kafka" });
+      await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
       expect(send()).toBeDisabled();
-      await userEvent.click(await screen.findByRole("radio", { name: "Wysyłam mimo braku: Kafka" }));
+      await userEvent.click(choice);
       expect(send()).toBeEnabled();
     });
   });

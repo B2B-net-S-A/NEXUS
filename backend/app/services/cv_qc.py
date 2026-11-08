@@ -4378,8 +4378,6 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
     pominięte. Commit po każdej parze — awaria jednej nie cofa pozostałych.
     """
 
-    from app.services import pipeline_move_rules
-
     latest = (
         select(
             CvQcRun.candidate_id,
@@ -4405,6 +4403,33 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
             .order_by(latest.c.created_at.desc())
         )
     ).all()
+    return await _recompute_pairs(db, pairs, limit)
+
+
+async def recompute_job(db: AsyncSession, job_id: int, *, limit: int = 200) -> int:
+    """Przelicz pary rekrutacji po zmianie jej wymagań (QC-10, 08.11.2026).
+
+    Pomiar na kopii: 168 z 881 par (30 dni) miało najnowszy przebieg starszy niż
+    ostatnia edycja profilu Championa, z tego 153 zdane. Tablica mówiła wtedy
+    „QC: sprawdzone”, choć bramka liczona na żywo mogła zatrzymać kartę.
+    `ok_since` zostaje (`_store_run`), więc czas oczekiwania się nie zeruje.
+    """
+
+    pairs = (
+        await db.execute(
+            select(CvQcRun.candidate_id, CvQcRun.job_id)
+            .where(CvQcRun.job_id == job_id)
+            .distinct()
+        )
+    ).all()
+    return await _recompute_pairs(db, pairs, limit)
+
+
+async def _recompute_pairs(db: AsyncSession, pairs: Iterable, limit: int) -> int:
+    """Przelicz QC par sprzed wysłania. Commit po każdej parze."""
+
+    from app.services import pipeline_move_rules
+
     done = 0
     for candidate_id, job_id in pairs:
         if done >= limit:
