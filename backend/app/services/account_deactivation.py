@@ -6,7 +6,8 @@ unieważnienie stałego linku kariery rekrutera (audyt 22.09 r2, SEC-06) i wpis
 ``activities`` z akcją ścieżki. Akcja powinna być w
 ``app.services.hr.account_profiles.DEACTIVATION_ACTIONS`` — z niej kartoteka
 bierze dzień wyłączenia. Żywe pary kandydatów osoby przejmują Delivery Leadzi
-rekrutacji (``departure_care``, decyzja Artura 28.10.2026).
+rekrutacji (``departure_care``, decyzja Artura 28.10.2026). Przypisania konta
+do otwartych rekrutacji są zwalniane (``account_assignment_release``).
 
 Wołający blokuje wiersz konta (``SELECT … FOR UPDATE``), pilnuje ostatniego
 admina (``protect_active_admin_membership``) i commituje.
@@ -60,3 +61,8 @@ async def deactivate_account(
     from app.services.departure_care import hand_over_safely  # noqa: PLC0415
 
     await hand_over_safely(db, user, actor_id=actor_id)
+    from app.services.account_assignment_release import (  # noqa: PLC0415
+        release_assignments_safely,
+    )
+
+    await release_assignments_safely(db, user, actor_id=actor_id)

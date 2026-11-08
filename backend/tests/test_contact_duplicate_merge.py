@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
@@ -23,7 +22,6 @@ from app.services.contact_duplicate_merge import (
     load_traffit_contact_aliases,
     run_contact_duplicate_merge,
 )
-from app.services.traffit.importer import TraffitImporter
 
 
 async def _seed(*, duplicate_name: str | None = None) -> dict:
@@ -153,30 +151,3 @@ class _PersonsTraffit:
     async def get_paginated(self, path, *, page_size=100, filter_=None, **kw):
         for person in self.persons:
             yield person
-
-
-@pytest.mark.asyncio
-async def test_nightly_import_does_not_recreate_a_merged_duplicate():
-    world = await _seed()
-    pair = world["pair"]
-    async with AsyncSessionLocal() as db:
-        await run_contact_duplicate_merge(
-            db, targets=[pair], marker=f"test_contact_merge_{world['tag']}"
-        )
-        await db.commit()
-
-    traffit = _PersonsTraffit(
-        [{"id": pair.duplicate_external_id, "name": "Anna", "lastname": "Nowak"}]
-    )
-    async with AsyncSessionLocal() as db:
-        progress = await TraffitImporter(
-            traffit, db, dry_run=False, batch_size=10
-        ).import_contacts()
-        assert progress.skipped == 1
-        recreated = await db.scalar(
-            select(Contact.id).where(
-                Contact.external_source == "traffit",
-                Contact.external_id == pair.duplicate_external_id,
-            )
-        )
-        assert recreated is None

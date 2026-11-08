@@ -31,18 +31,6 @@
   "back_office"
  ],
  "routes": {
-  "GET /api/admin/traffit/added-dates-repair/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/file-dates-repair/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/notes-repair/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/transfer/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/admin/traffit/twins-merge/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/added-dates-repair": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/file-dates-repair": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/notes-repair/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/sync": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/transfer": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/admin/traffit/twins-merge": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/admin/traffit/sync/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

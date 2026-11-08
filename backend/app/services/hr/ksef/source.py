@@ -175,6 +175,7 @@ def open_source(
         config.api_url,
         context_nip=config.context_nip,
         token=config.token,
+        identity=config.identity,
         transport=transport,
         now=now,
     )

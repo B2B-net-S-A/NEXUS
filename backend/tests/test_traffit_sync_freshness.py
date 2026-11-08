@@ -18,15 +18,15 @@ import pytest
 from sqlalchemy import text
 
 from app.core.database import AsyncSessionLocal
-from app.tasks.traffit_sync import (
+from app.services.traffit_status import (
     ADVISORY_PHASES,
-    DAILY_MARKER,
     FULL_MARKER,
-    PHASE_NAMES,
     annotate_freshness,
     phase_freshness,
     phase_stale_after,
 )
+
+DAILY_MARKER = "__daily__"
 
 _NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
 
@@ -102,7 +102,7 @@ def test_weekly_eval_state_uses_the_weekly_threshold():
     przez większość tygodnia.
     """
     from app.tasks import weekly_eval
-    from app.tasks.traffit_sync import WEEKLY_EVAL_STATE_PHASE
+    from app.services.traffit_status import WEEKLY_EVAL_STATE_PHASE
 
     assert weekly_eval.STATE_PHASE == WEEKLY_EVAL_STATE_PHASE
     assert (
@@ -138,7 +138,7 @@ def test_advisory_phase_never_reports_stale(phase):
 
 
 def test_every_known_phase_has_a_threshold():
-    for phase in PHASE_NAMES + (DAILY_MARKER, FULL_MARKER):
+    for phase in ("users", "candidates", "pipelines", DAILY_MARKER, FULL_MARKER):
         assert phase_stale_after(phase) >= timedelta(hours=36)
 
 

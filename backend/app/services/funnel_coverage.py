@@ -26,7 +26,24 @@ from typing import Iterable, Optional
 
 from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.pipeline import STAGE_LABELS
-from app.services.traffit.mappers import TRAFFIT_MAPPED_LEGACY_STAGES
+
+# Etapy, które zapełniał import z Traffita (zbiór `legacy` z mapowania stanów;
+# importer usunięty 08.11.2026, kod w historii gita — commit `559db3992`). Dane
+# z tamtych lat zostają, więc zbiór zostaje jako fakt o historii.
+TRAFFIT_MAPPED_LEGACY_STAGES: frozenset[str] = frozenset(
+    {
+        "acceptance",
+        "client_interview",
+        "cv_sent",
+        "hired",
+        "interview",
+        "new",
+        "rejected",
+        "screening",
+        "verified",
+        "withdrawn",
+    }
+)
 
 # Etapy SPRZED lejka — nie są etapami lejka rekrutacyjnego, więc pytanie
 # „czy Traffit je zapełnia" nie ma sensu i nie mogą zaniżać pokrycia metryk.

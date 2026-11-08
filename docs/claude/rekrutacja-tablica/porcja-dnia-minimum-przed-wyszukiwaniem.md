@@ -29,9 +29,9 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
   `entry_meta.review_owner_id`. Osoba zdjęta z zespołu traci karty przy
   następnym przebiegu i od razu przestaje być nimi blokowana (`_own_cards`).
   Na karcie Tablicy: „Dla: …” (`cardOwner`, rola `review`).
-- **Decyzja** = ruch karty od systemu z „Nowych” przez tę osobę dziś
-  (`decided_today`): screening albo odrzucenie z powodem, z ekranu porcji albo
-  z Tablicy. Pomijania nie ma.
+- **Decyzja** = wyjście karty od systemu z „Nowych” przez tę osobę
+  (`decided_today`, sekcja „Etap 0”): odrzucenie z powodem od razu, screening po
+  domknięciu, z ekranu porcji albo z Tablicy. Pomijania nie ma.
 - **Minimum** (domyślnie 10 od 08.11.2026, wcześniej 50; `app_settings['review_batch']`,
   ustawia HoR i admin w „Ranking kandydatów → Wagi”). Kto ma w porcji mniej, przegląda całą porcję:
   `required = min(minimum, decyzje dziś + czekające)`.
@@ -84,6 +84,62 @@ i 147 poniżej 65%. Artur wstrzymał obie flagi do tych zmian:
   `pilot_user_ids`, „Ranking kandydatów → Wagi”): HoR wyłącza samą blokadę
   (porcja dalej się rozdziela) albo zawęża ją do zaznaczonych osób. Pusta lista
   = wszyscy rekruterzy. Env `REVIEW_BATCH_ENABLED` zostaje wyłącznikiem głównym.
+
+## Etap 0 przed pilotem (audyt 08.11.2026)
+
+Raport: https://claude.ai/artifact/VXHZFJQZQbNRXAVGzNfdCu, plansza „Porcja dnia”.
+Flagi porcji dalej wyłączone, włączenie i skład pilota decyduje Artur.
+
+- **Decyzja to wyjście z „Nowych”** (`_decisions`, poprzedni etap pary w
+  `_NEW_STAGES`). Ruch screening → CV nie jest decyzją: na kopii 155 z 772 par
+  liczonych wcześniej to były takie ruchy. Karta, która wróciła do „Nowych”, też
+  nie jest decyzją.
+- **„Do screeningu” liczy się po domknięciu** (`counted_at_for`): ruch dalej albo
+  zapisany screening (`Activity screening_answered`; tabela `screening_notes`
+  stoi pusta) w ciągu `SCREENING_CLOSE_DAYS` = 2 dni roboczych. Liczy się w dniu
+  domknięcia, odrzucenie z powodem od razu. Bez tego przesunięcie całej porcji na
+  screening odblokowywało wyszukiwanie po kilku minutach. Dzisiejsze niedomknięte S
+  zostają w `required`, inaczej porcja wyzerowana klawiszem S dawała `met`, i tej
+  karty nie da się dziś usunąć z rekrutacji (409 `REVIEW_CARD_NEEDS_DECISION`).
+- **Kolejność jak na Tablicy** (`review_batch_order.order_cards`, lustro
+  `orderNewColumn`): nowi w bazie od progu, bez uwag z miejscem co 5., z ostrzeżeniem,
+  z brakiem krytycznej, po sumie wyniku, „znamy” i premii. Tego samego klucza używa
+  `plan_owners`. Brak krytycznej porcja czyta z `entry_meta.missing_must`, bo
+  `pipeline_base_fit` trwa kilka sekund.
+- **Premia tylko w kolejności, przy włączonej porcji:** `availability=actively_looking`
+  +5, znana stawka w PLN ≤ budżet +3 (`bonus_for`, `entry_autofill.queue_bonus`
+  na Tablicy). Procent na karcie zostaje wynikiem.
+- **Próg wyniku** `BatchSettings.min_score` (domyślnie 65, zakres 50–95) ustawia
+  HoR obok minimum.
+- **Widok zespołu** `GET /api/review-batch/team` (HoR+, „Zobacz zespół dziś”):
+  decyzje dziś, wymagane, w porcji, godzina minimum, S:O, otwarte screeningi, blokady
+  (`Activity review_batch.blocked`, raz na osobę na 10 minut, własna sesja, bo sesja
+  żądania cofa się po 423).
+- **Filtry własnej pracy przechodzą** (`is_broad_list_query` z `user`):
+  `added_by_user_id`, `stage_moved_by`, `contacted_by` (tylko z `contacted=yes`,
+  bo inaczej nie zawęża) równe zalogowanej osobie i `recruitment_id` z jej zespołów. Zawężenia (`pipeline_stage`, daty ruchu,
+  `rejection_by`, które przyjmuje tylko `client/us/candidate`) działają wyłącznie
+  razem z takim filtrem. Cudze id, rekrutacja spoza zespołu, `recruitment_match`
+  inny niż `assigned`, dodana umiejętność albo opis w `q` = 423.
+- **Nieobecni** (`absent_today`, urlop i L4 z `absences_on`, także pół dnia): nie
+  dostają kart i nie mają blokady. Ich karty przechodzą przy następnym przebiegu na
+  resztę zespołu.
+- **Plan dnia** (`_day_plan`): P0, priorytet, nowsze. Dwie rundy: najpierw każda
+  rekrutacja do `FIRST_ROUND_CARDS` = 5 osób, potem reszta. Bezpiecznik 100 dodań na
+  tick zostaje (decyzja z 23.10), więc przy ok. 100 rekrutacjach pierwsza runda
+  trwa kilka minut, nie jeden tick.
+- **Pierwszy rekruter** (`no_team` w `app_settings['review_batch_day']`): rekrutacja
+  bez zespołu czeka na liście, a tick, który zobaczy rekrutera, zdejmuje nietknięte
+  stare karty (`plan_batch_reset`) i dokłada porcję tego samego dnia.
+- **Pomiar blokady (P4):** `entry_meta.found_via` przy dodaniu ręcznym
+  (`search`, `outside_base`, `proposals`) i `review_batch_streams`
+  (`python -m scripts.review_batch_streams_report`, to samo w „Zobacz zespół dziś”):
+  baza 62 od systemu i 187 ręcznych na 14 dni, kryterium zatrzymania to wszystkie
+  wysłane CV niżej o ponad 10% przez 2 pełne tygodnie.
+- **Obowiązkowa nowość** ma `requires_setting: REVIEW_BATCH_ENABLED`. Nowa nowość
+  zależna od flagi: to samo pole w `novelties.json`.
+
+Testy: `test_review_batch_stage0.py`, `test_review_batch_stage0_unit.py`.
 
 ## Szczelność blokady (przegląd kodu 07.11.2026)
 

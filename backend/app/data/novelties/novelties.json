@@ -17,6 +17,26 @@
     "dot_anchor": "finance.rate-divergences"
   },
   {
+    "id": "stoja-ponad-7-dni-wpis-na-rekrutacje",
+    "pr": 3174,
+    "title": "Jeden wpis o osobach, które stoją ponad 7 dni",
+    "why": "Zamiast osobnego dzwonka o każdej osobie dostajesz raz w tygodniu jeden wpis na rekrutację. Kliknięcie otwiera Tablicę z filtrem „Stoją > 7 dni”. Pojedyncze przypomnienie zostaje tylko po wysłanym CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Górny pasek → Rekrutacje → Stoją > 7 dni",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.added-by"
+  },
+  {
     "id": "kandydaci-lata-z-technologia",
     "pr": 3154,
     "title": "Filtr lat z technologią na liście kandydatów",
@@ -1599,6 +1619,23 @@
     "dot_anchor": "requirements.intake-proposals"
   },
   {
+    "id": "odpowiedz-klienta-na-pulpicie",
+    "pr": 3171,
+    "title": "Ile CV dostaje odpowiedź klienta",
+    "why": "Procent CV z odpowiedzią klienta w 7 dni roboczych i klienci, którzy milczą najdłużej. Liczy się odpowiedź zapisana w NEXUSIE, więc rozmowę lub odrzucenie odnotuj od razu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    "where": "Pulpit → kafelek „Odpowiedź klienta”",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.client-response"
+  },
+  {
     "id": "qc-sprawdz-recznie-wskaz-role",
     "pr": 3128,
     "title": "„Sprawdź ręcznie” w QC: wskaż stanowisko jednym kliknięciem",
@@ -1614,6 +1651,7 @@
   {
     "id": "porcja-dnia-od-nexusa",
     "pr": 3125,
+    "requires_setting": "REVIEW_BATCH_ENABLED",
     "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",
     "why": "Co rano dostajesz osoby od Nexusa ze swoich rekrutacji. Zanim zaczniesz szukać ręcznie, zdecyduj o minimum z nich: screening albo odrzucenie z powodem. Nazwisko, telefon i mail działają zawsze.",
     "tier": "process",
@@ -1682,5 +1720,25 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "jobs.sources.my-people"
+  },
+  {
+    "id": "tablica-karta-w-trzech-wierszach",
+    "pr": 3172,
+    "title": "Prostsza karta na Tablicy",
+    "why": "Karta ma najwyżej dwie plakietki, resztę pokazuje „+N”, a przy ruchu stoi jedna liczba dni roboczych. Inne źródła są w menu „Szukaj”, „Kto dodał” to ikona w kolumnie „Nowi”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → pasek źródeł → Szukaj",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.search"
   }
 ]

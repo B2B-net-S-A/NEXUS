@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { activeCardsWarningFrom, closeAnywayLabel, peopleAccusative } from "@/lib/job-close";
+import {
+  activeCardsWarningFrom,
+  clientEndCount,
+  closeAnywayLabel,
+  peopleAccusative,
+} from "@/lib/job-close";
 
 function error409(detail: Record<string, unknown>) {
   return { response: { status: 409, data: { detail } } };
@@ -56,7 +61,7 @@ describe("napis przycisku", () => {
   });
 
   it("zapowiada powiadomienie albo zamyka mimo to", () => {
-    const base = { message: "", breakdown: "" };
+    const base = { message: "", breakdown: "", clientEnd: null };
     expect(closeAnywayLabel({ ...base, recipients: [] })).toBe("Zamknij mimo to");
     expect(
       closeAnywayLabel(
@@ -64,5 +69,50 @@ describe("napis przycisku", () => {
         "Zapisz, zamknij",
       ),
     ).toBe("Zapisz, zamknij i powiadom 1 osobę");
+  });
+});
+
+describe("pary u klienta przy zamknięciu (08.11.2026)", () => {
+  const warning = activeCardsWarningFrom(
+    error409({
+      code: "active_cards_warning",
+      message: "x",
+      columns: { cv_sent: 1 },
+      client_end: {
+        reason: "competitor",
+        reason_label: "Klient wybrał kogoś innego",
+        people: 1,
+        columns: { cv_sent: 1 },
+        message: "1 osoba jest u klienta.",
+      },
+    }),
+  );
+
+  it("czyta podgląd z serwera", () => {
+    expect(warning?.clientEnd).toEqual({
+      reason: "competitor",
+      reasonLabel: "Klient wybrał kogoś innego",
+      people: 1,
+      message: "1 osoba jest u klienta.",
+      breakdown: "CV wysłane 1",
+    });
+  });
+
+  it("zero, gdy powód jest inny albo ktoś wybrał „Nie”", () => {
+    expect(clientEndCount(warning, "competitor", true)).toBe(1);
+    expect(clientEndCount(warning, "budget", true)).toBe(0);
+    expect(clientEndCount(warning, "competitor", false)).toBe(0);
+    expect(clientEndCount(null, "competitor", true)).toBe(0);
+  });
+
+  it("przycisk mówi o zakończeniu tylko wtedy, gdy coś kończy", () => {
+    expect(closeAnywayLabel(warning!, "Zamknij", 3)).toBe("Zamknij i zakończ 3 osoby u klienta");
+    expect(closeAnywayLabel(warning!, "Zamknij", 0)).toBe("Zamknij mimo to");
+  });
+
+  it("stary serwer bez `client_end` = brak pytania", () => {
+    expect(
+      activeCardsWarningFrom(error409({ code: "active_cards_warning", message: "x" }))?.clientEnd,
+    ).toBeNull();
   });
 });

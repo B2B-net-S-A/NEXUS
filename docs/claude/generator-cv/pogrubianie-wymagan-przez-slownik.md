@@ -33,6 +33,11 @@ potem pogrubiał ręcznie.
   technologia z wszystkimi wariantami jak dotąd, narzędzie/standard/AI
   z wariantami liczącymi się w tekście (`TEXT_ALIASES`) — „SailPoint IIQ”
   pogrubia „SailPoint IdentityIQ”.
+- **Nazwa do 2 liter z rozróżnieniem wielkości liter** (CV-5, 08.11.2026):
+  polskie „go” i „PG” przy uczelni się nie pogrubiają. Alias do 2 liter (`pg`, `es`,
+  `sh`, `tf`, `ws`) nie tworzy wzorca. Nazwa z cyfrą albo znakiem (`k6`, `S3`, `C#`)
+  nie jest słowem, więc zostaje bez rozróżniania: `k6` małą literą jest w CV częściej
+  niż `K6` (6 do 1 szkiców na kopii), a „AWS S3” w CV bywa samym „S3”.
 - **Nazwa ze słownika w wymaganiu-zdaniu** (`_dictionary_tech_grams`):
   „Doświadczenie w testowaniu z wykorzystaniem Espresso, JUnit oraz MockK”
   pogrubia „JUnit”, nie słowa zdania. Tylko zapis z wielką literą

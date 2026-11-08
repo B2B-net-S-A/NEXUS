@@ -92,15 +92,6 @@ def test_merge_does_not_tombstone_the_source_record():
     assert "candidate_source_tombstone" not in source
 
 
-def test_importer_checks_tombstones_before_the_adopt_path():
-    source = (BACKEND / "app" / "services" / "traffit" / "importer.py").read_text()
-    body = source[source.index("async def import_candidates(") :]
-    body = body[: body.index("\n    async def ", 10)]
-    tomb = body.index("candidate_source_tombstone(")
-    assert tomb < body.index("email_to_id.get(email_lc)")
-    assert tomb < body.index("upsert_sql, params")
-
-
 def test_migration_is_mirrored_in_entrypoint_and_probed():
     import importlib.util
 

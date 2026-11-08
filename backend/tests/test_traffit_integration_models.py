@@ -82,18 +82,6 @@ def test_runtime_control_defaults_fail_closed_except_dry_run() -> None:
     assert str(columns.dry_run.server_default.arg) == "true"
 
 
-def test_env_gates_default_off_and_dry_run_on() -> None:
-    from app.core.config import Settings
-
-    fields = Settings.model_fields
-    assert fields["TRAFFIT_INTEGRATION_ENABLED"].default is False
-    assert fields["TRAFFIT_WEBHOOK_ACCEPT_ENABLED"].default is False
-    assert fields["TRAFFIT_INBOUND_APPLY_ENABLED"].default is False
-    assert fields["TRAFFIT_POLL_ENABLED"].default is False
-    assert fields["TRAFFIT_OUTBOUND_ENABLED"].default is False
-    assert fields["TRAFFIT_DRY_RUN"].default is True
-
-
 def test_core_models_expose_bidirectional_sync_state() -> None:
     assert {"profile_about", "custom_fields"} <= set(Candidate.__table__.c.keys())
     assert {

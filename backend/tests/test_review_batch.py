@@ -179,7 +179,7 @@ async def test_decision_counts_today_and_refill_only_replaces_decided(small_batc
             CandidateStage(
                 candidate_id=first[0],
                 job_id=world["job_id"],
-                stage=PipelineStage.screening,
+                stage=PipelineStage.rejected,
                 moved_by=a,
             )
         )

@@ -34,27 +34,18 @@ function Screen({ panelOpen }: { panelOpen: boolean }) {
         onClose={() => {}}
         panelLabel="Szczegóły kontraktu"
       />
-      <MyPeopleBuddyView
-        count={3}
-        sentences={["3 nowe rekrutacje pasują do Twoich ludzi."]}
-        showBubble
-        onOpen={() => {}}
-        onDismissBubble={() => {}}
-        onHide={() => {}}
-        animate={false}
-      />
+      <MyPeopleBuddyView onOpen={() => {}} />
       <div data-jarvis-mascot="" />
     </>
   );
 }
 
 describe("postać w rogu ustępuje bocznemu panelowi szczegółów", () => {
-  it("przy otwartym panelu reguła trafia w postać z dymkiem i w ikonę Jarvisa", () => {
+  it("przy otwartym panelu reguła trafia w postać i w ikonę Jarvisa", () => {
     render(<Screen panelOpen />);
     const hidden = Array.from(document.querySelectorAll(hidingSelector()));
     const buddy = document.querySelector("[data-floating-corner]");
     expect(buddy).not.toBeNull();
-    expect(buddy!.querySelector('[role="status"]')).not.toBeNull();
     expect(hidden).toContain(buddy);
     expect(hidden).toContain(document.querySelector("[data-jarvis-mascot]"));
   });

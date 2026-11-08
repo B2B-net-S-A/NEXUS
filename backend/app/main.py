@@ -828,7 +828,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
-    from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
@@ -836,7 +835,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
-    from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
@@ -1029,10 +1027,6 @@ async def lifespan(app: FastAPI):
             # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
             "jjit_import": asyncio.create_task(jjit_import_loop()),
             "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-            # Traffit wyłączony na stałe (14.10.2026) — `traffit_sync`
-            # i `candidate_contact_traffit` kończą się przed pierwszym
-            # odczekaniem, bez względu na flagi (`services/traffit_retired.py`).
-            "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
             "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
             # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
             # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
@@ -1064,9 +1058,6 @@ async def lifespan(app: FastAPI):
             "match_digest": asyncio.create_task(match_digest_loop()),
             "candidate_contact_queue": asyncio.create_task(
                 candidate_contact_queue_loop()
-            ),
-            "candidate_contact_traffit": asyncio.create_task(
-                traffit_contact_intake_loop()
             ),
             "index_outbox": asyncio.create_task(index_outbox_loop()),
             "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),

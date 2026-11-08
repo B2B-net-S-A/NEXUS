@@ -11,7 +11,6 @@ import {
   clearWsSender,
   setWsSender,
 } from "@/lib/wsBus";
-import { MY_PEOPLE_MATCH_EVENT, type MyPeopleMatchEventDetail } from "@/lib/my-people-summary";
 import {
   BOARD_TASKS_QUERY_KEY,
   CPRO_QUEUE_QUERY_KEY,
@@ -325,18 +324,10 @@ export function useNotifications({
       }
     };
 
-    // Nowa rekrutacja pasuje do „Moich ludzi" — licznik od razu, a Jarvis
-    // dostaje sygnał do dymka „kogo przepiąć" (JarvisRoot nasłuchuje). Przychodzi
-    // jako wiersz powiadomienia albo (od PR5, 16.10.2026) samo zdarzenie.
-    const announceMyPeopleMatch = (title: string, link: string | null) => {
+    // Nowa rekrutacja pasuje do „Moich ludzi": licznik od razu. Przychodzi jako
+    // wiersz powiadomienia albo (od PR5, 16.10.2026) samo zdarzenie.
+    const refreshMyPeople = () => {
       queryClient.invalidateQueries({ queryKey: ["my-people"] });
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent<MyPeopleMatchEventDetail>(MY_PEOPLE_MATCH_EVENT, {
-            detail: { title, link },
-          }),
-        );
-      }
     };
 
     ws.onmessage = (event) => {
@@ -349,7 +340,7 @@ export function useNotifications({
           // okienka paska naraz (27.10.2026).
           invalidateNotificationLists(queryClient, notif.topic);
           if (notif.notification_type === "my_people_match") {
-            announceMyPeopleMatch(notif.title, notif.link ?? null);
+            refreshMyPeople();
           }
           if (notif.notification_type === "request_allocation_proposals") {
             // Automat zaproponował osobę do requestu: Head of Recruitment ma
@@ -417,7 +408,7 @@ export function useNotifications({
           // Call external handler (for toast)
           onNotification?.(notif);
         } else if (msg.type === MY_PEOPLE_MATCH_FRAME && msg.data) {
-          announceMyPeopleMatch(String(msg.data.title ?? ""), msg.data.link ?? null);
+          refreshMyPeople();
         } else if (msg.type === "pipeline_changed" && msg.data) {
           const jobId = Number(msg.data.job_id);
           if (Number.isSafeInteger(jobId) && jobId > 0) {

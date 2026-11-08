@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
+import { pluralPl } from "@/lib/plural-pl";
 import {
   addMoreFromNexus,
   invalidateReviewBatch,
@@ -30,6 +31,10 @@ function progressLabel(status: ReviewBatchStatus): string {
   return `${Math.min(status.done_today, status.required)} / ${status.required}`;
 }
 
+function screeningsLabel(count: number): string {
+  return `${count} ${pluralPl(count, "screening", "screeningi", "screeningów")} do domknięcia`;
+}
+
 function AddMore({ jobId, title }: { jobId: number; title: string }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
@@ -47,7 +52,7 @@ function AddMore({ jobId, title }: { jobId: number; title: string }) {
           showSuccess(
             added > 0
               ? `Dodano ${added} kolejnych osób od Nexusa: ${title}.`
-              : `W puli nie ma już osób od 65%: ${title}.`,
+              : `W puli nie ma już osób od progu porcji: ${title}.`,
           );
         } catch (error) {
           showError(apiErrorMessage(error, "Nie udało się dobrać kolejnych osób."));
@@ -113,9 +118,12 @@ export function ReviewBatchScreen() {
           >
             {progressLabel(data)}
             {data.required < data.minimum ? "" : " minimum"} · {data.pending} w porcji
+            {data.open_screenings ? ` · ${screeningsLabel(data.open_screenings)}` : ""}
           </span>
         }
       />
+
+      <p className="text-xs text-muted-foreground">Ta sama kolejność co w kolumnie „Nowi” na Tablicy.</p>
 
       {next ? (
         <ReviewBatchCard key={next.process_id} item={next} onDecided={onDecided} />

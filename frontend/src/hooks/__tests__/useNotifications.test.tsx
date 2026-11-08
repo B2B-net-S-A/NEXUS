@@ -23,7 +23,6 @@ import {
 import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
 import { INTERVIEW_NOTIFY_EVENT } from "@/lib/interview-notifications";
 import { CHAT_NOTIFY_EVENT } from "@/types/job-chat";
-import { MY_PEOPLE_MATCH_EVENT } from "@/lib/my-people-summary";
 
 /**
  * Reaudyt 14.09.2026: R02 (powrót gniazda nie odświeżał dzwonka, który przy
@@ -539,22 +538,15 @@ describe("useNotifications — ikony paska zamiast dzwonka (16.10.2026)", () => 
     hook.unmount();
   });
 
-  it("zdarzenie „Moich ludzi” bez wiersza odświeża listę i budzi Jarvisa", () => {
-    const seen: unknown[] = [];
-    const listener = (e: Event) => seen.push((e as CustomEvent).detail);
-    window.addEventListener(MY_PEOPLE_MATCH_EVENT, listener);
+  it("zdarzenie „Moich ludzi” bez wiersza odświeża tylko listę", () => {
     const onNotification = vi.fn();
     const { hook, keys } = setup({ onNotification });
     frame({
       type: "my_people:match",
       data: { title: "Nowa rekrutacja: Analityk — 3 z Twoich ludzi pasuje", link: "/jobs/4?people=1" },
     });
-    window.removeEventListener(MY_PEOPLE_MATCH_EVENT, listener);
 
     expect(keys()).toEqual([JSON.stringify(["my-people"])]);
-    expect(seen).toEqual([
-      { title: "Nowa rekrutacja: Analityk — 3 z Twoich ludzi pasuje", link: "/jobs/4?people=1" },
-    ]);
     // Bez wiersza nie ma czego liczyć ani pokazywać jako powiadomienia.
     expect(onNotification).not.toHaveBeenCalled();
     hook.unmount();
