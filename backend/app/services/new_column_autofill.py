@@ -1072,7 +1072,7 @@ async def _batch_tick(now: datetime) -> dict:
     i ponad 20 rekrutacjach pierwsza runda trwa kilka ticków."""
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services import review_batch
+    from app.services import review_batch, review_batch_levels
 
     today = business_today().isoformat()
     staffed: list[int] = []
@@ -1080,6 +1080,7 @@ async def _batch_tick(now: datetime) -> dict:
         row = await db.get(AppSetting, BATCH_DAY_KEY)
         state = row.value if row is not None and isinstance(row.value, dict) else {}
         if state.get("day") != today:
+            await review_batch_levels.roll_levels(db, now=now)
             state = await _day_plan(db, today, now)
             if row is None:
                 db.add(AppSetting(key=BATCH_DAY_KEY, value=state))

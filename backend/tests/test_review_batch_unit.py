@@ -115,7 +115,11 @@ def batch_on(monkeypatch):
     async def _settings(_db):
         return rb.BatchSettings(minimum=50)
 
+    async def _no_levels(_db):
+        return {}
+
     monkeypatch.setattr(rb, "read_settings", _settings)
+    monkeypatch.setattr(rb.review_batch_levels, "read_levels", _no_levels)
     # Poniedziałek 09.11, 10:00 w Warszawie — dzień roboczy po 7:00.
     monkeypatch.setattr(rb, "_now", lambda: NOW)
     return monkeypatch

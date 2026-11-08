@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.models.activity import Activity
 from app.models.user import User
 from app.services import review_batch as rb
+from app.services import review_batch_levels as levels
 
 GOOD_BEFORE = time(11, 0)
 
@@ -64,6 +65,7 @@ async def team_view(db: AsyncSession, *, now: datetime) -> dict:
     since = rb.day_start(now)
     decisions = await rb._decisions(db, ids, now=now)
     absent = await rb.absent_today(db, ids)
+    stored = await levels.read_levels(db)
     blocks = await _blocks_today(db, ids, since)
     zone = ZoneInfo(settings.BUSINESS_TZ)
     rows = []
@@ -72,7 +74,8 @@ async def team_view(db: AsyncSession, *, now: datetime) -> dict:
     for user in users:
         counts = rb.summarize_day(decisions.get(user.id, []), since)
         cards = [] if user.id in absent else await rb._own_cards(db, user.id, now=now)
-        required = min(value.minimum, counts.done + len(cards) + counts.open_today)
+        minimum = levels.level_of(stored, user.id, value.minimum)
+        required = min(minimum, counts.done + len(cards) + counts.open_today)
         reached = minimum_reached_at(counts.counted_times, required)
         local = reached.astimezone(zone) if reached is not None else None
         if user.id not in absent and required > 0:
@@ -85,6 +88,7 @@ async def team_view(db: AsyncSession, *, now: datetime) -> dict:
                 "name": user.name or user.email or str(user.id),
                 "absent": user.id in absent,
                 "done_today": counts.done,
+                "minimum": minimum,
                 "required": required,
                 "pending": len(cards),
                 "minimum_at": local.strftime("%H:%M") if local is not None else None,
