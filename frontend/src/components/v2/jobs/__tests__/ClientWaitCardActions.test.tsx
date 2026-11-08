@@ -110,6 +110,34 @@ describe("ClientWaitCardActions", () => {
     expect(onRejected).toHaveBeenCalledTimes(1);
   });
 
+  it("po zapisie odświeża Tablicę, a klik nie otwiera panelu osoby", async () => {
+    mocks.responded.mockResolvedValueOnce({});
+    const onChanged = vi.fn();
+    const onCardClick = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        {/* Klik w kartę Tablicy otwiera panel osoby. */}
+        <div onClick={onCardClick}>
+          <ClientWaitCardActions
+            jobId={7}
+            candidateId={11}
+            candidateName="Anna Nowak"
+            workdays={8}
+            rejectedStageDefId={90}
+            reasons={REASONS}
+            onInterview={vi.fn()}
+            onRejected={vi.fn()}
+            onChanged={onChanged}
+          />
+        </div>
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByTestId("client-wait-card-actions"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Jeszcze się zastanawia" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(onCardClick).not.toHaveBeenCalled();
+  });
+
   it("tylko do odczytu: bez przycisków", () => {
     setup({ readOnly: true });
     expect(screen.queryByTestId("client-wait-card-actions")).not.toBeInTheDocument();

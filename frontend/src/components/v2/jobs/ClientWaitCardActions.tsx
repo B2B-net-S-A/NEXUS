@@ -116,7 +116,7 @@ export function ClientWaitCardActions({
             size="sm"
             variant="outline"
             data-testid="client-wait-card-actions"
-            className="h-5 min-w-0 px-1.5 text-[10px] font-semibold pointer-coarse:min-h-8"
+            className="h-5 shrink-0 px-1.5 text-[10px] font-semibold pointer-coarse:min-h-8"
           >
             Co z klientem?
           </Button>

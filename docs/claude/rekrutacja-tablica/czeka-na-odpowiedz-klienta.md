@@ -32,3 +32,9 @@ i C2 w https://claude.ai/artifact/AotE3yHZ1zq62oy2L4b4Sf.
   (`app_settings['client_wait']`), bez wdrożenia. Po włączeniu pary starsze niż
   próg dostają jeszcze 7 dni (`BACKLOG_GRACE_DAYS`), inaczej pierwszy przebieg
   zamknąłby setki kart naraz. „Rozmowa u klienta” nie zamyka się sama.
+- **Karta:** serwer daje `client_silent_workdays` (ta sama reguła co pas, `None` do 5.
+  dnia roboczego), więc plakietka „Klient milczy” i menu gasną po „Klient odpowiedział”.
+  Plakietka stoi w „CV wysłane” i „Rozmowie u klienta”. Menu „Co z klientem?” jest
+  w wierszu ruchu tylko w „CV wysłane”, dla osób z `recruitment_manage`; liczba dni pod
+  nim, bo karta ma 160 px. Awaria liczenia = brak plakietki i log, nigdy 500 Tablicy.
+- **„Zamknięci”:** `client_silent` liczy się do „przez klienta” (`closedRejectBy`).

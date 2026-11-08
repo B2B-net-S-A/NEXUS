@@ -650,6 +650,7 @@ function NextActionRow({
  waitingDays,
  stageSince,
  button,
+ stackDays = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -663,6 +664,8 @@ function NextActionRow({
  stageSince?: string | null;
  /** Główny przycisk ruchu: mówi to samo co nazwa kroku, więc ją zastępuje. */
  button?: React.ReactNode;
+ /** Szeroki przycisk: liczba dni pod nim, jak przy nazwie kroku. */
+ stackDays?: boolean;
 }) {
  if (action.kind === "none" && !step && !advance && !button && !(waitingDays != null && waitingDays >= 1)) return null;
  const showDays = waitingDays != null && waitingDays >= 1;
@@ -681,7 +684,7 @@ function NextActionRow({
    title={[`Dni robocze czekania: ${waitingDays}`, stageSince].filter(Boolean).join(" · ")}
   >
    {/* Obok przycisku nie ma miejsca na „czeka”, przy nazwie kroku jest. */}
-   {button ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+   {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
   </span>
  ) : null;
  return (
@@ -694,7 +697,10 @@ function NextActionRow({
  )}
  >
  {button ? (
-  <div className="flex min-w-0 flex-1 items-center gap-1.5" title={step ? `${step.who}: ${label}` : label}>
+  <div
+   className={cn("flex min-w-0 flex-1 gap-1.5", stackDays ? "flex-col items-start gap-0.5" : "items-center")}
+   title={step ? `${step.who}: ${label}` : label}
+  >
    {button}
    {days}
   </div>
@@ -1530,6 +1536,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  waitingDays={item.waiting_workdays ?? null}
  stageSince={stageSince}
  hidden={desktopOverview}
+ stackDays={clientSilentDays != null}
  button={
  reviewSend && v5 ? (
  <button
