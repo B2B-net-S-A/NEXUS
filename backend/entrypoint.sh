@@ -11199,9 +11199,10 @@ run_unless_marked() {
 
 # Pięć ogłoszeń JustJoin.IT z 05–06.11 na formularz portalu (decyzja Artura
 # 08.11.2026): tylko kolejkuje aktualizację, wysyła worker. Bez JJIT_APPLY_EMAIL
-# nic nie robi i nie zapisuje znacznika.
+# albo JJIT_CONTACT_PHONE nic nie robi i nie zapisuje znacznika. Znacznik z
+# sufiksem _contact, bo pierwsza próba padła na braku kontaktu w PUT.
 startup_phase "repair-jjit-native-apply-switch"
-run_unless_marked "jjit_native_apply_switch_2026_11" <<'PY' || echo "jjit native apply switch skipped; continuing"
+run_unless_marked "jjit_native_apply_switch_2026_11_contact" <<'PY' || echo "jjit native apply switch skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal

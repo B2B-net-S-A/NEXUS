@@ -1724,6 +1724,11 @@ class Settings(BaseSettings):
     # (``services/portal_application``). Pusty = jak dotąd link do strony
     # kariery (``apply.url``). Zmienia go tylko workflow „Coolify set env”.
     JJIT_APPLY_EMAIL: str = ""
+    # 09.11.2026 (decyzja Artura): telefon kontaktowy na wszystkich ogłoszeniach,
+    # bo ``PUT`` 1EP wymaga pełnego kontaktu z telefonem. Wartość wyłącznie przez
+    # „Coolify set env” z ``value_from_secret`` (repo i logi Actions są publiczne).
+    JJIT_CONTACT_PHONE: str = ""
+    JJIT_CONTACT_NAME: str = "B2B Network"
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""

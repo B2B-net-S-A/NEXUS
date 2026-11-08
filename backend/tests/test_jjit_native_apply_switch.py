@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
 
@@ -60,6 +63,7 @@ async def _run(ids: list[int]):
 
 async def test_queues_update_once_for_live_jjit_postings(monkeypatch):
     monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "praca@example.com")
+    monkeypatch.setattr(settings, "JJIT_CONTACT_PHONE", "+48 500 100 200")
     live = await _posting()
     closing = await _posting(pending_action="close")
     other_portal = await _posting(portal=Portal.pracuj_pl)
@@ -72,8 +76,16 @@ async def test_queues_update_once_for_live_jjit_postings(monkeypatch):
     assert await _run([live]) is None
 
 
-async def test_without_the_portal_form_nothing_changes_and_no_marker(monkeypatch):
-    monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", "")
+@pytest.mark.parametrize(
+    ("apply_email", "phone"),
+    [("", "+48 500 100 200"), ("praca@example.com", "  ")],
+)
+async def test_without_form_or_phone_nothing_changes_and_no_marker(
+    monkeypatch, apply_email, phone
+):
+    """Bez telefonu portal odrzuci ``PUT``, a znacznik zablokowałby kolejne starty."""
+    monkeypatch.setattr(settings, "JJIT_APPLY_EMAIL", apply_email)
+    monkeypatch.setattr(settings, "JJIT_CONTACT_PHONE", phone)
     live = await _posting()
 
     assert await _run([live]) is None
@@ -81,3 +93,13 @@ async def test_without_the_portal_form_nothing_changes_and_no_marker(monkeypatch
     assert (await _state(live))[0] is None
     async with AsyncSessionLocal() as db:
         assert await db.get(AppSetting, REPAIR_MARKER) is None
+
+
+def test_entrypoint_runs_the_step_under_its_current_marker():
+    """Stary znacznik (``queued: 5``) zatrzymałby krok na ``run_unless_marked``."""
+    entrypoint = (Path(__file__).resolve().parents[1] / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert f'run_unless_marked "{REPAIR_MARKER}"' in entrypoint
+    assert REPAIR_MARKER != "jjit_native_apply_switch_2026_11"
