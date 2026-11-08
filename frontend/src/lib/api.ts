@@ -1783,12 +1783,15 @@ export const jobsApi = {
     acknowledgeActiveCards = false,
     /** Przy „Duplikat”: rekrutacja, która zostaje (21.10.2026). */
     duplicateOfJobId: number | null = null,
+    /** Zakończ pary u klienta „przez klienta” (competitor, budget; 08.11.2026). */
+    endClientCards = false,
   ) =>
     api.post(`/api/jobs/${id}/close`, {
       reason,
       notes: notes?.trim() || null,
       ...(duplicateOfJobId != null ? { duplicate_of_job_id: duplicateOfJobId } : {}),
       ...(acknowledgeActiveCards ? { acknowledge_active_cards: true } : {}),
+      ...(endClientCards ? { end_client_cards: true } : {}),
     }),
   /**
    * „Zmień powód zamknięcia” zamkniętej rekrutacji (21.10.2026). Ta sama

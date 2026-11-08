@@ -23,6 +23,7 @@ import { useToast } from "@/components/Toast";
 import { extractErrorMsg, jobsApi } from "@/lib/api";
 import {
   activeCardsWarningFrom,
+  clientEndCount,
   closeAnywayLabel,
   peopleAccusative,
   type ActiveCardsWarning,
@@ -98,10 +99,13 @@ export function JobCloseWithReasonDialog({
   // Osoby w toku (13.10.2026): serwer zatrzymuje pierwsze zamknięcie
   // ostrzeżeniem, drugie idzie z potwierdzeniem.
   const [activeCards, setActiveCards] = useState<ActiveCardsWarning | null>(null);
+  // 08.11.2026: przy competitor/budget okno proponuje zakończenie par u klienta.
+  const [endClient, setEndClient] = useState(true);
   useEffect(() => {
     if (open) {
       setValue(startValue(mode, defaultReason, initial));
       setActiveCards(null);
+      setEndClient(true);
     }
     // `initial` to nowy obiekt przy każdym renderze rodzica — wybór startowy
     // liczy się przy otwarciu, nie przy każdej zmianie referencji.
@@ -109,6 +113,7 @@ export function JobCloseWithReasonDialog({
   }, [open, defaultReason, mode]);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
+  const endPeople = clientEndCount(activeCards, value.reason, endClient);
 
   const mutation = useMutation({
     mutationFn: async (): Promise<void> => {
@@ -121,7 +126,14 @@ export function JobCloseWithReasonDialog({
         });
         return;
       }
-      await jobsApi.close(jobId, reason, value.notes, activeCards != null, value.duplicateOfJobId);
+      await jobsApi.close(
+        jobId,
+        reason,
+        value.notes,
+        activeCards != null,
+        value.duplicateOfJobId,
+        endPeople > 0,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
@@ -173,19 +185,26 @@ export function JobCloseWithReasonDialog({
             {mode === "change"
               ? "Zapisz powód"
               : activeCards
-                ? closeAnywayLabel(activeCards)
+                ? closeAnywayLabel(activeCards, "Zamknij", endPeople)
                 : "Zamknij rekrutację"}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        {activeCards ? <ActiveCardsNotice warning={activeCards} /> : null}
+        {activeCards ? (
+          <ActiveCardsNotice
+            warning={activeCards}
+            reason={value.reason}
+            endClient={endClient}
+            onEndClientChange={setEndClient}
+          />
+        ) : null}
         <CloseReasonFields value={value} onChange={setValue} jobId={jobId} clientId={clientId} />
         {mode === "close" ? (
           <p className="text-[11px] text-muted-foreground">
-            Zamknięcie nie rusza pipeline'u ani kontraktów — zmienia status
-            rekrutacji i zdejmuje ją z alertów terminów oraz digestu dopasowań.
+            Zamknięcie nie rusza kontraktów. Zmienia status rekrutacji i zdejmuje
+            ją z alertów terminów oraz digestu dopasowań.
           </p>
         ) : (
           <p className="text-[11px] text-muted-foreground">
@@ -198,8 +217,23 @@ export function JobCloseWithReasonDialog({
   );
 }
 
-/** Osoby w toku przed zamknięciem — wspólne dla obu okien zamykania. */
-export function ActiveCardsNotice({ warning }: { warning: ActiveCardsWarning }) {
+/** Osoby w toku przed zamknięciem — wspólne dla okien zamykania. */
+export function ActiveCardsNotice({
+  warning,
+  reason,
+  endClient = false,
+  onEndClientChange,
+}: {
+  warning: ActiveCardsWarning;
+  /** Bieżący wybór powodu: pytanie o pary u klienta dotyczy tylko powodu z ostrzeżenia. */
+  reason?: string | null;
+  endClient?: boolean;
+  onEndClientChange?: (value: boolean) => void;
+}) {
+  const clientEnd =
+    onEndClientChange && warning.clientEnd && warning.clientEnd.reason === reason
+      ? warning.clientEnd
+      : null;
   return (
     <div
       role="alert"
@@ -207,7 +241,44 @@ export function ActiveCardsNotice({ warning }: { warning: ActiveCardsWarning }) 
     >
       <p>{warning.message}</p>
       {warning.breakdown ? <p className="font-medium">{warning.breakdown}</p> : null}
-      <p>Odrzuć albo przenieś te osoby przed zamknięciem, albo zamknij mimo to.</p>
+      {clientEnd ? null : <p>Odrzuć albo przenieś te osoby przed zamknięciem, albo zamknij mimo to.</p>}
+      {clientEnd ? (
+        <fieldset
+          data-testid="client-end-choice"
+          className="mt-2 space-y-1.5 rounded-md border border-warning/30 bg-card p-2.5 text-foreground"
+        >
+          <legend className="sr-only">Procesy osób u klienta</legend>
+          <p className="font-medium">{clientEnd.message}</p>
+          {clientEnd.breakdown ? (
+            <p className="text-xs text-muted-foreground">{clientEnd.breakdown}</p>
+          ) : null}
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="client-end"
+              className="mt-1"
+              checked={endClient}
+              onChange={() => onEndClientChange?.(true)}
+            />
+            <span>
+              Tak, zakończ jako „przez klienta”: {clientEnd.reasonLabel}, bez maila do kandydatów
+            </span>
+          </label>
+          <label className="flex items-start gap-2">
+            <input
+              type="radio"
+              name="client-end"
+              className="mt-1"
+              checked={!endClient}
+              onChange={() => onEndClientChange?.(false)}
+            />
+            <span>Nie, zostaw w toku</span>
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Osoby przed „CV wysłane” i w „Umowie” zostają bez zmian.
+          </p>
+        </fieldset>
+      ) : null}
       {warning.recipients.length > 0 ? (
         <div className="mt-2 space-y-1 rounded-md border border-warning/30 bg-card p-2.5 text-foreground">
           <p className="font-medium">Po zamknięciu damy znać rekruterom — mail i „Rekrutacje”:</p>

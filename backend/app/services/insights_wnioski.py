@@ -88,6 +88,7 @@ _READ_CASE = rf"""
         WHEN powod = 'no_contact' THEN 'BrakKontaktu'
         WHEN powod = 'client_no_reason' THEN 'KlientBezKonkretu'
         WHEN powod = 'client_chose_other' THEN 'KlientWybral'
+        WHEN powod IN ('request_closed', 'client_no_response') THEN 'KlientBezKonkretu'
         WHEN powod NOT ILIKE 'Inne%' THEN 'Reszta'
         WHEN t = '' THEN 'BezOpisu'
         WHEN t ~ '{PROTECTED_RE}' THEN 'Nieodczytane'
