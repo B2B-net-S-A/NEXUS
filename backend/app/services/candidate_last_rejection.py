@@ -121,7 +121,7 @@ def who_expression(sq):
     decision_text = func.concat_ws(" ", sq.c.reason_name, sq.c.rejection_note)
     return case(
         (sq.c.ended_by.in_(("recruiter", "delivery_lead")), "us"),
-        (sq.c.ended_by == "client", "client"),
+        (sq.c.ended_by.in_(("client", "client_silent")), "client"),
         (sq.c.ended_by == "candidate", "candidate"),
         (sq.c.stage == PipelineStage.withdrawn, "candidate"),
         (decision_text.op("~*")(CANDIDATE_DECISION_PATTERN), "candidate"),
@@ -140,6 +140,8 @@ def who_of(
     """Kto zakończył: ``client`` / ``us`` / ``candidate`` (reguła Insights)."""
     if ended_by in ("recruiter", "delivery_lead"):
         return "us"
+    if ended_by == "client_silent":
+        return "client"
     if ended_by in ("client", "candidate"):
         return ended_by
     stage_value = getattr(stage, "value", stage)

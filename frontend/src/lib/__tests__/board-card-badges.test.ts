@@ -143,7 +143,7 @@ describe("odznaki karty — Pipeline v4", () => {
       client_rate_value: "165.00",
       client_rate_unit: "hourly",
       client_rate_currency: "PLN",
-      days_in_stage: 5,
+      client_silent_workdays: 6,
     });
     expect(labels(sent, ctx({ column: "cv_sent" }))).toEqual([
       "do klienta 165 zł/h",

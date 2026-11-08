@@ -83,6 +83,13 @@
   Przebieg jest co godzinę, więc faktura wraca najpóźniej po `kolejka / 200` godzinach. Limitu nie zwiększamy, bo
   `billing_rows` liczy się na każdą fakturę z klientem. Kursor zapisujemy przed próbami: wycofany przebieg nie wraca na
   tę samą paczkę, więc jedna wadliwa faktura nie zatrzymuje reszty.
+- **Numer trafia w kilka zamówień: faktura na jedną osobę wiąże się z tą osobą** (08.11.2026), jak przy jednym trafionym zamówieniu.
+  Kolejność przy kilku trafionych: suma wszystkich równa netto (wiąże wszystkie), potem jeden cały wiersz równy netto, a dopiero gdy
+  takiego wiersza nie ma, pozycja osoby w zamówieniu MD z kwotą równą co do grosza. Jedna taka pozycja wiąże z metodą `order_number`,
+  dwie lub więcej (dwie osoby z tą samą stawką) zostają `several_orders`, bo kwota nie mówi, o kogo chodzi. Wspólna pula bez podziału
+  na osoby nie ma pozycji z `order_id`, więc nie wiąże. `several_orders` jest w `RETRY_REASONS`: faktura wraca po poprawce reguły albo
+  po imporcie zużycia MD, który wypełni pozycje. Pomiar na nocnej kopii: jeden numer klienta na dwóch grupach, 9 faktur, 6 wiąże się
+  z osobą, 3 za miesiąc z samą pulą zostają u Finansów.
 
 ## Nieznani nabywcy i NIP w formularzu (audyt C5, 08.11.2026)
 
