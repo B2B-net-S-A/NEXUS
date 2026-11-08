@@ -86,7 +86,8 @@ class _Db:
 
     async def execute(self, stmt):
         self.statements.append(stmt)
-        return _Rows(self._answers[len(self.statements) - 1])
+        n = len(self.statements) - 1
+        return _Rows(self._answers[n] if n < len(self._answers) else [])
 
 
 class _Rows(list):
@@ -110,6 +111,9 @@ def _run(**kw) -> SimpleNamespace:
         manual=None,
         manual_keys=None,
         unverified=None,
+        manual_requirements=None,
+        manual_by=None,
+        to_fix=None,
         gaps=None,
         ok_since=None,
     )
@@ -122,7 +126,9 @@ def _active(count: int) -> SimpleNamespace:
 
 
 async def _status(runs: list, active: list) -> dict:
-    return (await qc.pair_statuses(_Db(runs, active), [(1, 2)]))[(1, 2)]
+    out = (await qc.pair_statuses(_Db(runs, active), [(1, 2)]))[(1, 2)]
+    out.pop("qc_state")
+    return out
 
 
 @pytest.mark.asyncio
@@ -163,6 +169,15 @@ async def test_returned_card_without_a_new_run_is_no_longer_passed_through() -> 
 async def test_returned_dismissals_still_leave_a_senders_override() -> None:
     out = await _status([_run(dismissed="1", has_override=True, override_at=AT)], [])
     assert out["status"] == "overridden" and out["dismissed_blocking"] == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_requirement_in_a_failed_run_does_not_break_the_board() -> None:
+    """Pozycja bez `requirement` daje w jsonpath null; staging padał tu na 500."""
+    out = await _status(
+        [_run(passed=False, blocking_failed=2, to_fix=["Kafka", None])], []
+    )
+    assert out["status"] == "failed" and out["blocking_failed"] == 2
 
 
 @pytest.mark.asyncio

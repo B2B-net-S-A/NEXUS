@@ -242,6 +242,7 @@ const CONTEXT: DlReviewContext = {
   category_name: "Rozwój oprogramowania",
   qc_status: "passed",
   qc_blocking_failed: 0,
+  qc_state: { kind: "verify_roles", n: 1, items: ["Kafka"], text: "QC: wskaż stanowisko · 1", tone: "wait", who: null, hint: "Nikt nie sprawdził opisu w rolach: Kafka." },
   can_see_amounts: true,
   can_see_client_rates: true,
   candidate_rate: { amount: 135, unit: "hourly", currency: "PLN", hourly_pln: 135 },

@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from app.services import must_gate_terms, skill_normalize
+from app.services import dz_review, must_gate_terms, skill_normalize
 from app.services.scoring_service import ALIAS_MAP, set_alias_map
 
 # kanon -> (kategoria, aliasy) — kategorie jak w tabeli `skills` na produkcji.
@@ -86,6 +86,7 @@ def hydrated_taxonomy(
         },
     )
     must_gate_terms.clear_cache()
+    dz_review.clear_pattern_cache()
     try:
         yield
     finally:
@@ -98,3 +99,4 @@ def hydrated_taxonomy(
             text_aliases=saved[4],
         )
         must_gate_terms.clear_cache()
+        dz_review.clear_pattern_cache()

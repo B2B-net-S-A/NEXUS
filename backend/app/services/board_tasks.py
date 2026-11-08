@@ -152,6 +152,8 @@ class BoardTask:
     qc_manual: list[str] = field(default_factory=list)
     # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
     qc_gaps: list[str] = field(default_factory=list)
+    # QC-11 (08.11.2026): gotowy stan do pokazania (`services/qc_state.py`).
+    qc_state: Optional[dict] = None
     # 0380: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
     # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
     job_working_title: Optional[str] = None
@@ -208,6 +210,7 @@ class BoardTask:
             "qc_blocking_failed": self.qc_blocking_failed,
             "qc_manual": list(self.qc_manual),
             "qc_gaps": list(self.qc_gaps),
+            "qc_state": self.qc_state,
             "card_status": self.card_status,
             "card_missing": self.card_missing,
             "ready": self.ready,
@@ -585,6 +588,7 @@ async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:
         t.qc_blocking_failed = int(status.get("blocking_failed") or 0)
         t.qc_manual = list(status.get("manual_checks") or [])
         t.qc_gaps = list(status.get("candidate_gaps") or [])
+        t.qc_state = status.get("qc_state")
 
 
 async def _attach_dl_review_details(

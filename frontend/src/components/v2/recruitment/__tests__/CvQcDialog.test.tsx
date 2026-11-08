@@ -621,10 +621,10 @@ describe("CvQcDialog — QC CV", () => {
     await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
     await userEvent.click(within(form).getByRole("button", { name: "Przepuść CV" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/override`, { reason_code: "client_short_cv" }));
-    expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+    expect(await screen.findByText("QC: przepuszczone")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przepuść mimo QC" })).toBeNull());
     expect(screen.queryByRole("button", { name: "Przepuść mimo QC…" })).toBeNull();
-    expect(screen.getByText(/przez Piotr Zając/)).toHaveTextContent("Klient prosił o krótsze CV");
+    expect(screen.getByText(/· Piotr Zając/)).toHaveTextContent("Klient prosił o krótsze CV");
   });
 
   it("zaliczone QC wygrywa z dawnym obejściem — jak chip na Tablicy", async () => {
@@ -632,7 +632,7 @@ describe("CvQcDialog — QC CV", () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("QC przechodzi")).toBeTruthy();
-    expect(within(dialog).queryByText(/Przepuszczone mimo QC/)).toBeNull();
+    expect(within(dialog).queryByText(/QC: przepuszczone/)).toBeNull();
   });
 
   it("„Przesuń dalej” jest w oknie tylko, gdy wołający umie przesunąć kartę", async () => {
@@ -667,8 +667,8 @@ describe("CvQcDialog — QC CV", () => {
     const onMoveNext = vi.fn();
     renderDialog({ onMoveNext });
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Przepuszczone mimo QC");
-    expect(within(dialog).getByRole("status")).toHaveTextContent("przez Piotr Zając");
+    await within(dialog).findByText("QC: przepuszczone");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("· Piotr Zając");
     await userEvent.click(within(dialog).getByRole("button", { name: /Przesuń dalej/ }));
     expect(onMoveNext).toHaveBeenCalledTimes(1);
   });
@@ -693,7 +693,7 @@ describe("CvQcDialog — QC CV", () => {
     const form = await screen.findByRole("dialog", { name: "Przepuść mimo QC" });
     await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
     await userEvent.click(within(form).getByRole("button", { name: "Przepuść CV" }));
-    expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+    expect(await screen.findByText("QC: przepuszczone")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przepuść mimo QC" })).toBeNull());
     expect(onMoveNext).not.toHaveBeenCalled();
     expect(within(dialog).getByRole("button", { name: /Przesuń dalej/ })).toBeEnabled();
@@ -822,7 +822,7 @@ describe("CvQcDialog — QC CV", () => {
       const form = await screen.findByRole("dialog", { name: "Przesuń mimo uwag QC" });
       await userEvent.click(within(form).getByRole("radio", { name: "Klient prosił o krótsze CV" }));
       await userEvent.click(within(form).getByRole("button", { name: "Przesuń mimo uwag" }));
-      expect(await screen.findByText("Przepuszczone mimo QC")).toBeTruthy();
+      expect(await screen.findByText("QC: przepuszczone")).toBeTruthy();
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Przesuń mimo uwag QC" })).toBeNull());
       expect(screen.queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
     });

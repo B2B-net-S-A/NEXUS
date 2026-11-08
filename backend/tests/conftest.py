@@ -156,6 +156,14 @@ TEST_PASSWORD = "admin123"
 
 
 @pytest.fixture(autouse=True)
+def _fresh_requirement_patterns():
+    """Wzorce wymagań są w cache procesu (W2), a testy podmieniają słownik."""
+    from app.services import dz_review
+
+    dz_review.clear_pattern_cache()
+
+
+@pytest.fixture(autouse=True)
 def _detach_ezdrowie_client_gate(monkeypatch):
     """Odsuń `EZDROWIE_CLIENT_ID` od zakresu, w który trafia `clients.id`.
 

@@ -2,24 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import { qcStateText } from "@/lib/cv-qc";
 
-describe("qcStateText: trzy stany QC wszędzie tak samo (R1, 07.11.2026)", () => {
-  it("sprawdzone / sprawdź ręcznie · N / N do poprawy, a obok przepuszczone i niesprawdzone", () => {
+describe("qcStateText: jeden stan z serwera (QC-11, 08.11.2026)", () => {
+  it("pokazuje gotowy tekst z serwera", () => {
+    const qc_state = { kind: "verify_roles", n: 3, items: [], text: "QC: wskaż stanowisko · 3", tone: "wait", who: null, hint: null } as const;
+    expect(qcStateText({ status: "passed", blocking_failed: 0, qc_state: { ...qc_state, items: [] } })).toBe("QC: wskaż stanowisko · 3");
+  });
+
+  it("bez stanu z serwera: sama nazwa statusu", () => {
     expect(qcStateText({ status: "passed", blocking_failed: 0 })).toBe("QC: sprawdzone");
-    expect(qcStateText({ status: "passed", blocking_failed: 0, manual_checks: [] })).toBe("QC: sprawdzone");
-    expect(qcStateText({ status: "passed", blocking_failed: 0, manual_checks: ["A", "B"] })).toBe(
-      "QC: sprawdź ręcznie · 2",
-    );
     expect(qcStateText({ status: "failed", blocking_failed: 2 })).toBe("QC: 2 do poprawy");
-    expect(qcStateText({ status: "failed", blocking_failed: 0 })).toBe("QC do poprawy");
-    expect(qcStateText({ status: "overridden", blocking_failed: 1 })).toBe("Przepuszczone mimo QC");
-    expect(qcStateText({ status: "unchecked", blocking_failed: 0 })).toBe("QC nie sprawdzone");
-    // R2 (07.11.2026): luka kandydata nie blokuje, ale nie jest „sprawdzone”.
-    expect(qcStateText({ status: "passed", blocking_failed: 0, candidate_gaps: ["FastAPI"] })).toBe(
-      "QC: luka kandydata · 1",
-    );
-    expect(
-      qcStateText({ status: "passed", blocking_failed: 0, candidate_gaps: ["FastAPI"], manual_checks: ["A"] }),
-    ).toBe("QC: luka kandydata · 1");
+    expect(qcStateText({ status: "failed", blocking_failed: 0 })).toBe("QC: 1 do poprawy");
+    expect(qcStateText({ status: "overridden", blocking_failed: 1 })).toBe("QC: przepuszczone");
+    expect(qcStateText({ status: "unchecked", blocking_failed: 0 })).toBe("QC: jeszcze nie sprawdzone");
   });
 });
 

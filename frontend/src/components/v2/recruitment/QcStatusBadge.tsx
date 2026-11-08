@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { QcStatus } from "@/lib/api/boardTasks";
-import { qcStateText } from "@/lib/cv-qc";
+import { qcStateText, type QcStateTone, type QcStateView } from "@/lib/cv-qc";
 
 const QC_BADGE: Record<QcStatus, "success" | "danger" | "warning" | "outline"> = {
   passed: "success",
@@ -9,41 +9,29 @@ const QC_BADGE: Record<QcStatus, "success" | "danger" | "warning" | "outline"> =
   unchecked: "outline",
 };
 
-/**
- * Wynik QC CV pary na liście (przegląd DL, kolejka Cpro). Brak statusu = nic.
- * Zdane QC z blokującym „sprawdź ręcznie” (R1, 07.11.2026) jest bursztynowe,
- * nie zielone — tego nikt nie sprawdził.
- */
+const TONE_VARIANT: Record<QcStateTone, "success" | "info" | "warning" | "danger" | "outline"> = {
+  ok: "success",
+  info: "info",
+  wait: "warning",
+  urgent: "danger",
+  neutral: "outline",
+};
+
+/** Wynik QC CV pary na liście (przegląd DL, kolejka Cpro). Brak statusu = nic. */
 export function QcStatusBadge({
   row,
 }: {
   row: {
     qc_status?: QcStatus | null;
     qc_blocking_failed?: number | null;
-    qc_manual?: readonly string[] | null;
-    qc_gaps?: readonly string[] | null;
+    qc_state?: QcStateView | null;
   };
 }) {
   if (!row.qc_status) return null;
-  const manual = row.qc_manual ?? [];
-  const gaps = row.qc_gaps ?? [];
-  const label = qcStateText({
-    status: row.qc_status,
-    blocking_failed: row.qc_blocking_failed ?? 0,
-    manual_checks: manual,
-    candidate_gaps: gaps,
-  });
-  const attention = row.qc_status === "passed" && (manual.length > 0 || gaps.length > 0);
-  const variant = attention ? "warning" : QC_BADGE[row.qc_status];
-  const title =
-    gaps.length > 0
-      ? `Kandydat nie ma: ${gaps.join(", ")} — o wysyłce decyduje Delivery Lead`
-      : manual.length > 0
-        ? `Sprawdź ręcznie: ${manual.join(", ")}`
-        : undefined;
+  const state = row.qc_state ?? null;
   return (
-    <Badge size="sm" variant={variant} title={title}>
-      {label}
+    <Badge size="sm" variant={state ? TONE_VARIANT[state.tone] : QC_BADGE[row.qc_status]} title={state?.hint ?? undefined}>
+      {qcStateText({ status: row.qc_status, blocking_failed: row.qc_blocking_failed ?? 0, qc_state: state })}
     </Badge>
   );
 }
