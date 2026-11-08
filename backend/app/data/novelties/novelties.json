@@ -21,7 +21,7 @@
     "shipped_on": "2026-11-08",
     "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Insights → Raporty → Klienci i trend",
-    "href": "/insights?tab=raporty",
+    "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.reports.klienci"
   },
