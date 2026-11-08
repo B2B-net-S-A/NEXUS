@@ -17,6 +17,13 @@ export interface ReviewBatchJob {
   p0: boolean
 }
 
+export interface ReviewBatchOpenScreening {
+  job_id: number
+  job_title: string
+  candidate_id: number
+  name: string
+}
+
 export interface ReviewBatchStatus {
   enabled: boolean
   /** Porcja dotyczy patrzącego (konto z rolą rekrutera). */
@@ -32,6 +39,8 @@ export interface ReviewBatchStatus {
   blocks?: boolean
   /** „Do screeningu” z ostatnich 2 dni roboczych, jeszcze bez wyniku. */
   open_screenings?: number
+  /** Przy niezrobionym minimum: dzisiejsze niedomknięte „Do screeningu” z porcji. */
+  open_today_screenings?: ReviewBatchOpenScreening[]
   jobs: ReviewBatchJob[]
   team_jobs: ReviewBatchJob[]
   /** Ile osób dokłada „Dodaj kolejnych”: 20 w porcji, 10 przy celu wg tempa. */
