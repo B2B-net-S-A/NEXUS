@@ -263,6 +263,13 @@ def test_command_request_accepts_own_words_or_a_preset() -> None:
     assert preset.command is None
 
 
+@pytest.mark.parametrize("name", sorted(command_ai.PRESETS))
+def test_every_preset_of_the_service_passes_the_route_schema(name: str) -> None:
+    # Przycisk asystenta wysyła nazwę presetu; nazwa znana usłudze, a nie
+    # trasie, kończy się 422 zanim model zostanie wywołany (#3137).
+    assert CommandRequest(preset=name, lines=COMMAND["lines"]).preset == name
+
+
 def test_command_request_carries_the_conversation_and_selection() -> None:
     body = CommandRequest(
         **COMMAND,
