@@ -356,7 +356,11 @@ interface RowProps
 function GroupCvSummary({ rows }: { rows: readonly BoardRequest[] }) {
   const { quietP1, p1, newProfiles, newProfilesCv } = groupCvSummary(rows)
   return (
-    <span className="ml-auto text-xs text-muted-foreground" data-testid="request-group-cv-summary">
+    <span
+      className="ml-auto text-xs text-muted-foreground"
+      data-testid="request-group-cv-summary"
+      data-tour="daily.p1-no-cv"
+    >
       {p1 > 0 ? (
         <span className={quietP1 > 0 ? "font-semibold text-destructive-muted-foreground" : undefined}>
           P1 bez CV ≥5 dni: {quietP1} z {p1}

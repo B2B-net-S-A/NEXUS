@@ -1,5 +1,31 @@
 [
   {
+    "id": "daily-p1-bez-cv-nowe-profile",
+    "pr": 3200,
+    "title": "P1 bez CV i nowe profile na Daily",
+    "why": "Przy kategorii widać, ile P1 stoi bez CV od 5 dni roboczych i ile nowych profili doszło w tygodniu. P1 bez CV mają w wierszu liczbę dni i stoją wyżej, a Delivery Lead dostaje o nich dzwonek. NEXUS ich nie zamyka.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacje → Daily",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "daily.p1-no-cv"
+  },
+  {
+    "id": "insights-raport-klienci",
+    "pr": 3200,
+    "title": "Raport „Klienci: od CV do zatrudnienia”",
+    "why": "W jednej tabeli widać dla każdego klienta wysłane CV, rozmowy, zatrudnienia, hit ratio i czas do pierwszego CV. Zamknięcia bez powodu stoją osobno i nie obniżają wyniku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Raporty → Klienci i trend",
+    "href": "/insights?tab=raporty",
+    "section": "insights",
+    "dot_anchor": "insights.reports.klienci"
+  },
+  {
     "id": "finanse-rozjazdy-nieznani-nabywcy",
     "pr": 3182,
     "title": "Rozjazdy stawek i Nieznani nabywcy",

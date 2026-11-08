@@ -97,6 +97,7 @@ function ReportCard({ report }: { report: ReportDef }) {
   return (
     <Link
       href={reportHref(report.id)}
+      data-tour={report.id === "klienci" ? "insights.reports.klienci" : undefined}
       className="flex flex-col gap-1.5 rounded-lg border border-border bg-background p-3.5 transition-colors hover:border-primary/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="text-sm font-semibold text-foreground">{report.title}</span>
