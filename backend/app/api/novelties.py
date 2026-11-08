@@ -198,7 +198,7 @@ async def my_novelties(
     mine = [
         n
         for n in load_novelties().values()
-        if n.active_on(today) and _audience_of(current_user, n)
+        if n.switched_on() and n.active_on(today) and _audience_of(current_user, n)
     ]
     starts = [t for t in load_start_tours().values() if _audience_of(current_user, t)]
     progress = await _progress_rows(

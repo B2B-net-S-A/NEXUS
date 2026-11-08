@@ -186,6 +186,8 @@ export interface KanbanItem {
  // opublikowana, etap nie z importu Traffita — `dl_send_queue`). `false` =
  // poza licznikami; brak pola (starszy serwer) = jak dotąd.
  dl_send_counts?: boolean | null;
+ /** Dni robocze czekania, liczone na serwerze jak pas „Do wysłania” (U5). */
+ waiting_workdays?: number | null;
  // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
  // kody polityki dopuszczalności — konflikt z klientem itd.).
  warnings?: string[];

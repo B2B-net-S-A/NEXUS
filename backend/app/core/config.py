@@ -1125,11 +1125,7 @@ class Settings(BaseSettings):
     #   • debug-fire-nudge (P1.15) — smoke-test wymuszający emisję nudge'a; w
     #     produkcji dostępny WYŁĄCZNIE przez tę flagę (a i tak nie kasuje logu
     #     dedupe ani nie zwraca tracebacku),
-    #   • cutover analytics (P1.7) — ustawienie legacy/live boundary jest
-    #     zamrożone do czasu readiness manifestu (PR-39); break-glass służy do
-    #     awaryjnego ustawienia w shadow-prep, z audytem.
     KPI_COACH_DEBUG_BREAKGLASS: bool = False
-    ANALYTICS_CUTOVER_BREAKGLASS: bool = False
 
     # ── Recruitment Priority Lock + Carry-over Duty ────────────────────────
     # off     — persist/read the new domain without changing pipeline access,
@@ -1140,19 +1136,6 @@ class Settings(BaseSettings):
     RECRUITMENT_PRIORITY_MODE: str = "off"
     RECRUITMENT_PRIORITY_WORKER_INTERVAL_SECONDS: int = 300
 
-    # ── Analytics v1 (plan 2026-07-16, PR 2) ──────────────────────────────────
-    # Tryb rolloutu:
-    #   off    — router /api/analytics/v1 zwraca 503, zero zmian zachowania,
-    #   shadow — endpointy v1 liczą i logują (porównanie z legacy), stare
-    #            odpowiedzi UI pozostają NIEZMIENIONE,
-    #   live   — v1 jest źródłem aktywnego UI (dopiero po 7 dniach shadow
-    #            + canary per rola; patrz plan §8).
-    # UWAGA: guardy RBAC/capabilities NIE zależą od tego flaga (R0 jest
-    # niewyłączalne) — flag steruje wyłącznie NOWĄ powierzchnią v1.
-    ANALYTICS_V1_MODE: str = "off"
-    # Opcjonalne zawężenie aktywnych modułów v1 (csv, np. "overview,funnel").
-    # Pusta wartość = wszystkie moduły w danym trybie.
-    ANALYTICS_V1_MODULES: str = ""
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
 
@@ -1164,14 +1147,6 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(f"NEXUS_ENV must be one of {sorted(allowed)}")
         return normalized
-
-    @field_validator("ANALYTICS_V1_MODE")
-    @classmethod
-    def _validate_analytics_mode(cls, v: str) -> str:
-        allowed = {"off", "shadow", "live"}
-        if v not in allowed:
-            raise ValueError(f"ANALYTICS_V1_MODE must be one of {sorted(allowed)}")
-        return v
 
     @field_validator("RECRUITMENT_PRIORITY_MODE")
     @classmethod
@@ -1588,20 +1563,13 @@ class Settings(BaseSettings):
     # days. Older calls are skipped — out of scope for the ATS workflow.
     CLOUDTALK_HISTORICAL_BACKFILL_DAYS: int = 30
 
-    # ── Traffit daily sync (scheduled import) ────────────────────────────────
-    # Keeps Nexus in sync with Traffit: daily incremental delta (updated_at >=
-    # watermark) + weekly full-scan reconcile safety net. The importer is the
-    # same one used for the one-time migration (app/services/traffit/importer.py)
-    # — every write is ON CONFLICT idempotent. Secrets (TRAFFIT_TENANT,
-    # TRAFFIT_CLIENT_ID, TRAFFIT_CLIENT_SECRET, TRAFFIT_THROTTLE_RPS) are read
-    # from the environment by TraffitConfig.from_env() — NOT declared here.
-    #
+    # ── Traffit (archiwum) ───────────────────────────────────────────────
     # WYŁĄCZONY NA STAŁE od 14.10.2026 (decyzja Artura, moduł
-    # `app/services/traffit_retired.py`): `TRAFFIT_SYNC_ENABLED` i
-    # `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED` są zawsze False niezależnie od
-    # env (walidator `_force_traffit_flags_off` niżej), pętla nie startuje,
-    # a POST /api/admin/traffit/* odpowiadają 410. Pola zostają, bo czytają je
-    # zamrożenie wyścigów, analityka i kolejka kontaktów.
+    # `app/services/traffit_retired.py`), kod importu usunięty 08.11.2026.
+    # `TRAFFIT_SYNC_ENABLED` i `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED` są
+    # zawsze False niezależnie od env (walidator `_force_traffit_flags_off`
+    # niżej). Pola zostają, bo czytają je zamrożenie wyścigów, analityka
+    # i kolejka kontaktów.
 
     # ── COMPASS: dni robocze (decyzja D5) ────────────────────────────────
     # Mianownik wskaznikow „na dzien". Do 2026-08-31 Power Calling dzielil
@@ -1691,6 +1659,12 @@ class Settings(BaseSettings):
     # Token KSeF spółki z uprawnieniem „odczyt faktur” (InvoiceRead). Sekret —
     # tylko przez workflow „Coolify set env”, nigdy w logach.
     KSEF_TOKEN: str = ""
+    # Certyfikat (typ Authentication) i jego klucz prywatny, PEM albo Base64 z PEM:
+    # uwierzytelnienie podpisem XAdES, token zostaje zapasowy. Sekrety — tylko
+    # przez workflow „Coolify set env”, z `value_from_secret`.
+    KSEF_CERTIFICATE: str = ""
+    KSEF_CERTIFICATE_KEY: str = ""
+    KSEF_CERTIFICATE_KEY_PASSWORD: str = ""
     # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
     KSEF_SIMULATE_DIR: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
@@ -1821,115 +1795,16 @@ class Settings(BaseSettings):
         Wartość z env przegrywa zawsze, jak przy `AAD_GROUP_RBAC_ENABLED`: do
         14.10 import wyłączała sama zmienna, którą dało się włączyć z powrotem.
         Flaga „włączona” bez działającego importu kazałaby zamrożeniu wyścigów
-        czekać na znacznik `__daily__`, którego już nie będzie. Testy historii
-        importera ustawiają flagę `monkeypatch.setattr` na żywym obiekcie
-        ustawień, co omija walidator. Szczegóły: `app/services/traffit_retired.py`.
+        czekać na znacznik `__daily__`, którego już nie będzie. Szczegóły:
+        `app/services/traffit_retired.py`.
         """
         return False
 
-    # Skutki uboczne dla etapów przychodzących z importu.
-    #
-    # Import pisze do `candidate_stages` surowym SQL-em (świadomie — warstwa
-    # komend robi ~10 zapytań i 2 blokady na wiersz, w kolejności blokad
-    # NIEZGODNEJ z wsadem, co w przeszłości się zakleszczało). Skutkiem było
-    # to, że automatyzacje pipeline'u dotyczyły 0,4% ruchu. Ten przełącznik
-    # włącza WĄSKI, wsadowy zestaw skutków idempotentnych — nigdy maili
-    # do kandydatów.
-    TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED: bool = False
-    # Background loop wake cadence (how often it checks whether a run is due).
-    # The actual import runs at most once/day (delta) + once/week (full),
-    # gated on the persisted watermark — clamped to >=300s in the loop.
-    TRAFFIT_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
-    # UTC hour at/after which the daily delta is allowed to run (low-traffic
-    # window). The first run after enabling fires immediately regardless.
-    TRAFFIT_SYNC_HOUR_UTC: int = 2
-    # Weekday for the heavy full-scan reconcile (0=Mon … 6=Sun).
-    TRAFFIT_SYNC_FULL_WEEKDAY: int = 6
-    # Overlap window subtracted from the last watermark when computing the
-    # delta cutoff — absorbs clock skew / late-arriving edits. Idempotent
-    # upserts make the overlap harmless.
-    TRAFFIT_SYNC_DELTA_LOOKBACK_HOURS: int = 48
-    # First-ever delta (no watermark yet) looks back this far to catch
-    # everything changed in Traffit since the one-time migration. After that,
-    # the watermark drives the cutoff.
-    TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
-    # Consecutive failures after which ONE source row stops holding back the
-    # delta watermark for every other row (see `_blocking_errors`). The retry
-    # policy is deliberate: keep re-covering a failed record while it might be
-    # transient, then park it explicitly rather than freezing the pipeline.
-    # Measured on prod 2026-07-27: one candidate with a colliding e-mail had
-    # frozen the daily watermark for 7 days, so `traffit=degraded` was permanent
-    # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
-    # cadence — long enough that a real outage recovers on its own first.
+    # Próg kwarantanny wiersza importu; pole `max_row_attempts` w `/sync/status`.
     TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
-    # How many candidates the full reconcile sweeps for missing files in ONE
-    # run. The sweep visits every Traffit candidate (not just those with no
-    # files at all), which is one /files call each — ~57k at
-    # TRAFFIT_THROTTLE_RPS=5 is ~3.2 h. Budgeted and resumable: the phase
-    # persists an `after_id` cursor and the next run continues from there, and
-    # an operator can close a backlog faster by triggering
-    # POST /api/admin/traffit/sync?mode=full repeatedly.
-    #
-    # The budget is NOT free to raise to "cover everything in one pass", and
-    # not for the obvious reason. A killed run resumes from its cursor, so the
-    # sweep itself loses nothing — but a full run re-scans the UNBUDGETED
-    # phases too (candidates ~57k, pipelines ~185k, activities ~397k) every
-    # time, and those have no per-slice budget to skip. So each extra run costs
-    # a full re-scan of everything else, which argues for a LARGER budget,
-    # while a run still going during the workday is likelier to be killed
-    # mid-sweep by a redeploy, which argues for a smaller one.
-    #
-    # 25k balances the two: the files phase runs ~1.4 h, a whole run lands
-    # around 05:00 UTC (07:00 local) — before pushes to main start — and the
-    # base is covered in ~3 runs instead of ~6. Combined with the nightly
-    # catch-up in `should_run_full`, a backlog closes in about three nights
-    # rather than a month and a half.
-    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 25000
-    # Delta: kandydaci z Traffita z nazwą CV (`cv_filename`), ale bez żadnego
-    # pobranego dokumentu — dołączani do fazy plików niezależnie od
-    # `updated_at >= run_start`. Bez tego kandydat zaimportowany w biegu, który
-    # deploy zabił przed fazą plików, wypadał z zakresu każdej kolejnej delty
-    # (nowy bieg = nowy `run_start`) i czekał na niedzielny pełny sweep
-    # (prod 22.09.2026: 14 z 50 najnowszych bez pliku po >2 h). Okno w dniach od
-    # utworzenia i sufit na bieg — trwale niepobieralne pliki nie mogą zjadać
-    # każdej delty.
-    TRAFFIT_SYNC_PENDING_FILES_DAYS: int = 14
-    TRAFFIT_SYNC_PENDING_FILES_LIMIT: int = 500
-    # Same idea for the `"? ?"` name-recovery sweep, but a much tighter budget:
-    # every row costs an LLM call, and the selection is NOT self-clearing (a CV
-    # that yields no name stays `"?"`), so an unbounded pass would re-pay for the
-    # same `ORDER BY id` prefix forever and never reach the tail. Budgeted +
-    # resumable via an `after_id` cursor, full reconcile only — delta already
-    # scopes itself to the rows it just touched.
-    TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
-    # Rekrutacja notatek z Traffita (29.09.2026): globalny feed aktywności jej
-    # nie niesie, więc faza aktywności pyta `/employees/{id}/activities` dla
-    # kandydatów z NOWYMI notatkami w biegu. Sufit osób na bieg (5 zapytań/s);
-    # 0 = wyłączone. Resztę domyka naprawa z panelu admina.
-    TRAFFIT_SYNC_NOTE_RECRUITMENT_LIMIT: int = 500
-    # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
-    # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
-    # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
-    TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
-    # Faza `candidates_cv_text`: ile zapisanych CV bez tekstu odczytać w jednym
-    # biegu (ekstrakcja lokalna: pdfplumber/python-docx, OCR tylko dla skanów).
-    TRAFFIT_SYNC_CV_TEXT_LIMIT: int = 1000
 
     # audyt 22.09 r2 (INTG-01/02, INTG-03, DATA-01/PROD-03, REC-01, DATA-03/04,
     # PROD-01) — jeden blok ustawień obszaru „Traffit, automaty, dane".
-    # INTG-01: przerwana próba (deploy w trakcie) wznawia się od faz, których
-    # jeszcze nie skończyła — o ile ta sama `since` i ostatni ślad próby młodszy
-    # niż tyle godzin. Starsza próba = zaczynamy od nowa.
-    TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS: int = 24
-    # INTG-03: delta `pipelines` czyta /recruitment_history od NAJNOWSZYCH
-    # (`id DESC`) i kończy na stronie, na której pojawił się wpis starszy niż
-    # `since` — zamiast pełnego przeglądu ~200 tys. wierszy w każdej delcie.
-    TRAFFIT_PIPELINES_DELTA_TAIL: bool = True
-    # REC-01: przepięcia podobnych rekrutacji dla etapów wstawionych przez import
-    # (99,6% ruchów). Tylko wiersze z ostatnich tylu dni — import historii nie
-    # może przepinać ludzi wysłanych do klienta rok temu.
-    TRAFFIT_IMPORT_REASSIGN_ENABLED: bool = True
-    TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS: int = 7
     # 08.10.2026 (decyzja Artura): po fazie `pipelines` osoba od Cpro dostaje
     # jeden dzwonek z mailem o kartach Nordei, które w Traffit nadal stoją
     # w kolejce „Wysłać do Cpro” (`services/cpro_queue_reminder.py`). Okno =
@@ -2016,8 +1891,6 @@ class Settings(BaseSettings):
     # Enables assignment/reassignment/cooldown processing.  Keeping this
     # separate from the read/API gate allows a safe read-only rollout first.
     CANDIDATE_CONTACT_ASSIGNMENT_ENABLED: bool = False
-    # Enables the strict read-only recruitment_history poller.  This still
-    # requires CANDIDATE_CONTACT_ENABLED and valid Traffit read credentials.
     # Od 14.10.2026 zawsze False (Traffit wyłączony, `_force_traffit_flags_off`).
     CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED: bool = False
     # Required cutover boundary for automatic intake.  Rows older than this
@@ -2026,10 +1899,6 @@ class Settings(BaseSettings):
     # Runtime loops clamp unsafe values, so a bad env cannot create a hot loop.
     CANDIDATE_CONTACT_WORKER_INTERVAL_SECONDS: int = 60
     CANDIDATE_CONTACT_WORKER_BATCH_SIZE: int = 100
-    CANDIDATE_CONTACT_TRAFFIT_POLL_INTERVAL_SECONDS: int = 300
-    # The remote query intentionally overlaps the durable tuple cursor.  A
-    # ledger keyed by Traffit history id makes this safe and absorbs clock skew.
-    CANDIDATE_CONTACT_TRAFFIT_OVERLAP_MINUTES: int = 15
 
     # ── Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026) ──────
     # Decyzje Artura: 14 dni kalendarzowych ciszy klienta i braku kontaktu,
@@ -2040,41 +1909,6 @@ class Settings(BaseSettings):
     CANDIDATE_FOLLOWUP_SINCE: date = date(2026, 9, 24)
     CANDIDATE_FOLLOWUP_DAYS: int = 14
     CANDIDATE_FOLLOWUP_RETRY_BUSINESS_DAYS: int = 2
-
-    # ── Traffit bidirectional integration (plan 2026-07-16) ────────────────
-    # Twarde kill-switche środowiskowe. Runtime control w tabeli
-    # `traffit_integration_control` może dodatkowo pauzować kierunek, ale
-    # NIGDY nie może włączyć wyłączonego env gate'a. Bezpieczne defaulty
-    # rolloutu: accept/apply/poll/send OFF; dry-run ON.
-    TRAFFIT_INTEGRATION_ENABLED: bool = False
-    TRAFFIT_WEBHOOK_ACCEPT_ENABLED: bool = False
-    TRAFFIT_INBOUND_APPLY_ENABLED: bool = False
-    TRAFFIT_POLL_ENABLED: bool = False
-    TRAFFIT_OUTBOUND_ENABLED: bool = False
-    TRAFFIT_DRY_RUN: bool = True
-
-    # SHA-256 wysokoentropijnego sekretu osadzonego w URL subskrypcji webhooka.
-    # Plaintext generowany raz, nigdy nie przechowywany w env ani DB. HMAC
-    # konfigurować tylko jeśli tenant potwierdzi podpisywanie.
-    TRAFFIT_INTEGRATION_WEBHOOK_SECRET_HASH: str = ""
-    TRAFFIT_INTEGRATION_WEBHOOK_HMAC_SECRET: str = ""
-
-    # Live streams muszą mieścić się w 15-minutowym SLO widoczności. Workery
-    # clampują niebezpieczne wartości; jeden globalny limiter dla obu kierunków.
-    TRAFFIT_INTEGRATION_POLL_INTERVAL_SECONDS: int = 300
-    TRAFFIT_INTEGRATION_FILE_SWEEP_INTERVAL_SECONDS: int = 600
-    TRAFFIT_INTEGRATION_WORKER_INTERVAL_SECONDS: int = 5
-    TRAFFIT_INTEGRATION_SCHEMA_REFRESH_INTERVAL_SECONDS: int = 86400
-    TRAFFIT_INTEGRATION_FULL_RECONCILE_INTERVAL_SECONDS: int = 604800
-    TRAFFIT_INTEGRATION_DELTA_LOOKBACK_HOURS: int = 48
-    TRAFFIT_INTEGRATION_HISTORY_API_BUDGET_PERCENT: int = 20
-
-    # Retry/leader/tombstone safety controls.
-    TRAFFIT_INTEGRATION_MAX_ATTEMPTS: int = 8
-    TRAFFIT_INTEGRATION_LEASE_TTL_SECONDS: int = 90
-    TRAFFIT_INTEGRATION_LEASE_HEARTBEAT_SECONDS: int = 30
-    TRAFFIT_INTEGRATION_TOMBSTONE_MISSING_STRIKES: int = 2
-    TRAFFIT_INTEGRATION_TOMBSTONE_GRACE_DAYS: int = 7
 
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but
@@ -2144,12 +1978,12 @@ class Settings(BaseSettings):
     INTEGRATION_ALERT_COOLDOWN_HOURS: float = 24.0
 
     # ── Import JJIT/RocketJobs w NEXUS (etap 2) ─────────────────────────────
-    # Sekrety (JJIT_EMAIL, JJIT_PASSWORD, JJIT_TRAFFIT_CLIENT_ID/SECRET) idą z
-    # env jak TRAFFIT_* — NIE są tu deklarowane. Kill-switch przed pętlą;
+    # Sekrety (JJIT_EMAIL, JJIT_PASSWORD) idą z env — NIE są tu deklarowane.
+    # Kill-switch przed pętlą;
     # `false` → job nie startuje, endpoint admina /run nadal działa (ręcznie).
     JJIT_ENABLED: bool = False
-    # Tydzień równoległej obserwacji: dry_run = liczy „nowi/duplikaty/błędy",
-    # nic nie zapisuje w Traffit ani w NEXUS poza raportem runu.
+    # Tydzień równoległej obserwacji: dry_run = liczy „nowi/błędy",
+    # nic nie zapisuje w NEXUS poza raportem runu.
     JJIT_DRY_RUN: bool = True
     JJIT_RUN_HOUR_LOCAL: int = 13
     JJIT_RUN_MINUTE_LOCAL: int = 0

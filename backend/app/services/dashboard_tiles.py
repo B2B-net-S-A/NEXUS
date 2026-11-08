@@ -67,6 +67,8 @@ TileType = Literal[
     "calendar_today",
     "today_cycle",
     "team_signals",
+    # Odpowiedź klienta i pierwsze CV po otwarciu (audyt 2, 08.11.2026).
+    "client_response",
     "system_status",
     "my_week",
     "team_results",

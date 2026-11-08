@@ -26,7 +26,6 @@ function renderTile() {
 const summary = {
   total: 12,
   new_matches: 0,
-  jobs_with_matches: 0,
   latest_matches: [],
   idle_count: 4,
   idle_top: [],
@@ -60,14 +59,13 @@ describe("MyPeopleBody", () => {
       data: {
         ...summary,
         new_matches: 3,
-        jobs_with_matches: 2,
         latest_matches: [
           { job_id: 5, job_title: "Tester", candidate_id: 1, full_name: "Anna Nowak", score: 81.4, created_at: "2026-10-04T08:00:00Z" },
         ],
       },
     })
     renderTile()
-    expect(await screen.findByText("3 nowe dopasowania w 2 rekrutacjach")).toBeInTheDocument()
+    expect(await screen.findByText("3 rekrutacje z ostatniej doby mają Twoich ludzi")).toBeInTheDocument()
     expect(screen.getByText("81")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Dodaj: Anna Nowak/ })).toHaveAttribute("href", "/jobs/5?people=1")
   })

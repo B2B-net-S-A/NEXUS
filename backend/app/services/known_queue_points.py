@@ -28,6 +28,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.rejection_reason_labels import CLIENT_NOT_A_VERDICT
+
 from app.models.app_setting import AppSetting
 from app.services.known_people_signal import POSITIVE_STAGES
 
@@ -110,18 +112,26 @@ async def _rejected_by_client(
             """
             WITH last AS (
               SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-                     cs.candidate_id, cs.stage::text AS stage, cs.ended_by
+                     cs.candidate_id, cs.stage::text AS stage, cs.ended_by,
+                     rr.name AS reason
               FROM candidate_stages cs
               JOIN jobs j ON j.id = cs.job_id
+              LEFT JOIN rejection_reasons rr ON rr.id = cs.rejection_reason_id
               WHERE j.client_id = :client AND cs.job_id <> :job
                 AND cs.candidate_id = ANY(:ids)
               ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
             )
             SELECT DISTINCT candidate_id FROM last
             WHERE stage = 'rejected' AND ended_by = 'client'
+              AND COALESCE(reason, '') <> ALL(CAST(:not_verdict AS text[]))
             """
         ),
-        {"client": client_id, "job": job_id, "ids": candidate_ids},
+        {
+            "client": client_id,
+            "job": job_id,
+            "ids": candidate_ids,
+            "not_verdict": list(CLIENT_NOT_A_VERDICT),
+        },
     )
     return {int(cid) for cid in rows.scalars()}
 

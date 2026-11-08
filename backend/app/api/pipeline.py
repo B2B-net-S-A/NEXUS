@@ -3767,8 +3767,12 @@ async def build_kanban_view(
         job_proposals,
         known_queue_points,
         new_column_autofill,
+        review_batch_order,
     )
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
+    # Premia porcji w kolejności kolumny „Nowi” (S-C4, zero przy wyłączonej porcji).
+    board_budget_hourly = resolve_job_budget_hourly(job)
     known_queue_facts = await known_queue_points.facts_for(
         db,
         job_id=job_id,
@@ -3999,9 +4003,12 @@ async def build_kanban_view(
     # „Do wysłania do klienta” (`dl_send_queue`): kolejka Delivery Leada bierze
     # tylko opublikowane rekrutacje, a etap z importu Traffita nie liczy się do
     # „Czeka na Ciebie” — karta mówi to samo co pas na pulpicie (audyt 13.10.2026).
-    from app.services.dl_send_queue import TRAFFIT_SOURCE
+    from app.services.dl_send_queue import TRAFFIT_SOURCE, board_waiting_workdays
 
     dl_send_job = job.status == JobStatus.published
+    # Kolumna Tablicy każdego etapu — wypełnione niżej, gdy znane są definicje.
+    column_by_def_id: dict[int, str] = {}
+    board_today = business_today()
 
     # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
     rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
@@ -4131,6 +4138,22 @@ async def build_kanban_view(
         )
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
         payload["dl_send_counts"] = dl_send_job and e.external_source != TRAFFIT_SOURCE
+        board_column = (
+            column_by_def_id.get(e.stage_def_id) if e.stage_def_id is not None else None
+        ) or board_column_for(None, getattr(e.stage, "value", e.stage))
+        qc_state = payload["qc"] or {}
+
+        def _waiting(autofill_days: Optional[int] = None) -> Optional[int]:
+            return board_waiting_workdays(
+                moved_at=e.moved_at,
+                column=board_column,
+                qc_status=qc_state.get("status"),
+                ok_at=qc_state.get("ok_at"),
+                today=board_today,
+                autofill_days=autofill_days,
+            )
+
+        payload["waiting_workdays"] = _waiting()
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {
@@ -4218,6 +4241,10 @@ async def build_kanban_view(
                 if v4.entry_source == candidate_claim.ENTRY_SYSTEM
                 else None
             )
+            # Osoba od systemu: ta sama liczba, po której mija termin decyzji.
+            autofill_days = (payload["entry_autofill"] or {}).get("waiting_days")
+            if autofill_days is not None:
+                payload["waiting_workdays"] = _waiting(autofill_days)
             known_fact = known_queue_facts.get(e.candidate_id)
             if payload["entry_autofill"] is not None and known_fact is not None:
                 payload["entry_autofill"]["known"] = known_fact.as_dict()
@@ -4236,6 +4263,12 @@ async def build_kanban_view(
                 payload["entry_autofill"]["fresh"] = (
                     e.candidate_id in without_process_ids
                 )
+                payload["entry_autofill"]["queue_bonus"] = review_batch_order.bonus_for(
+                    (v4.entry_meta or {}).get("availability_status"),
+                    (v4.entry_meta or {}).get("rate_from_hourly"),
+                    (v4.entry_meta or {}).get("rate_currency"),
+                    board_budget_hourly,
+                ).points
                 review_owner = review_owner_by_candidate.get(e.candidate_id)
                 payload["entry_autofill"]["review_owner"] = (
                     {"id": review_owner, "name": user_name_by_id.get(review_owner)}
@@ -4374,6 +4407,17 @@ async def build_kanban_view(
             }
             if foreign_ids
             else {}
+        )
+        column_by_def_id.update(
+            {
+                sd.id: board_column_for(
+                    sd.name,
+                    sd.legacy_enum_value,
+                    category=sd.category.value if sd.category else None,
+                    terminal_type=sd.terminal_type.value if sd.terminal_type else None,
+                )
+                for sd in [*stage_defs, *foreign_defs.values()]
+            }
         )
         columns_map, off_template_entries = _bucket_by_stage_def(
             _newest_first(seen.values()), stage_defs, foreign_defs

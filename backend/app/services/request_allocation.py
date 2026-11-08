@@ -276,7 +276,7 @@ async def _blocked(
     return frozenset((job_id, user_id) for job_id, user_id in rows)
 
 
-AUTO_RELEASE_REASONS = ("unavailable", "excluded", "inactive")
+AUTO_RELEASE_REASONS = ("unavailable", "excluded", "inactive", "deactivated")
 
 
 async def _auto_released(db: AsyncSession) -> frozenset[tuple[int, int]]:

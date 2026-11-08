@@ -9392,6 +9392,27 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0663 — jednorazowo: „Request zamknięty” i „Klient nie odpowiedział” w każdym
+    # szablonie, tuż przed „Inne”. Lustro migracji (pilnuje
+    # `test_job_close_client_cards.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('client_close_reasons_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, k.name, 'rejected'::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = 'rejected' "
+    "AND r.name = 'Inne (rejected)' LIMIT 1), 99), "
+    "TRUE, FALSE, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "CROSS JOIN (VALUES (1, 'request_closed'), (2, 'client_no_response')) "
+    "AS k(pos, name) "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ORDER BY t.id, k.pos "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
     # w historii). Lustro migracji.
@@ -10012,7 +10033,7 @@ _CONSTRAINT_STATEMENTS = [
         ALTER TABLE candidate_stages
             ADD CONSTRAINT ck_candidate_stages_ended_by
             CHECK (ended_by IS NULL OR ended_by IN (
-                'candidate', 'recruiter', 'delivery_lead', 'client'
+                'candidate', 'recruiter', 'delivery_lead', 'client', 'client_silent'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE finance_monthly_results DROP CONSTRAINT IF EXISTS ck_finance_monthly_results_row_number",
@@ -10289,6 +10310,18 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
+    # 0662: szybkie wyszukiwanie kandydatów (Jarvis, ⌘K „Ludzie”). Tekst wyrażeń
+    # co do znaku jak w `api/search.py` (`test_candidate_quick_search_index.py`).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_quick_identity_trgm "
+    "ON candidates USING GIN ((translate("
+    "coalesce(name, '') || ' ' || coalesce(lastname, '') "
+    "|| ' ' || coalesce(email, '') "
+    "|| ' ' || coalesce(lastname, '') "
+    "|| ' ' || coalesce(name, ''), "
+    "'ąćęłńóśźżĄĆĘŁŃÓŚŹŻ', 'acelnoszzACELNOSZZ')) gin_trgm_ops)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_phone_digits_trgm "
+    "ON candidates USING GIN ("
+    "(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')) gin_trgm_ops)",
     # 0525: aktywne P0 (górny pasek i pulpit u każdego).
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_p0_until "
     "ON jobs (p0_until) WHERE p0_until IS NOT NULL",

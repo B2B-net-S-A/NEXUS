@@ -21,8 +21,10 @@ from typing import Any, Optional
 import httpx
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.x509.oid import NameOID
+from lxml import etree
 
 from app.services.hr.ksef.client import format_instant, parse_instant
 
@@ -87,6 +89,54 @@ def _error(code: int, status: int = 400) -> httpx.Response:
     )
 
 
+_DS = "{http://www.w3.org/2000/09/xmldsig#}"
+_AUTH = "{http://ksef.mf.gov.pl/auth/token/2.0}"
+
+
+def _c14n_digest(element: etree._Element) -> str:
+    canonical = etree.tostring(element, method="c14n", exclusive=True)
+    return base64.b64encode(hashlib.sha256(canonical).digest()).decode("ascii")
+
+
+def verify_xades(document: bytes) -> tuple[str, str]:
+    """Niezależna kontrola podpisu; zwraca (challenge, NIP) albo rzuca wyjątek."""
+
+    root = etree.fromstring(document)
+    signature = root.find(f"{_DS}Signature")
+    signed_info = signature.find(f"{_DS}SignedInfo")
+    whole, properties = signed_info.findall(f"{_DS}Reference")
+
+    without_signature = etree.fromstring(document)
+    without_signature.remove(without_signature.find(f"{_DS}Signature"))
+    assert whole.get("URI") == ""
+    assert whole.findtext(f"{_DS}DigestValue") == _c14n_digest(without_signature)
+
+    assert properties.get("Type") == "http://uri.etsi.org/01903#SignedProperties"
+    target = properties.get("URI").removeprefix("#")
+    signed = root.xpath(f"//*[@Id='{target}']")[0]
+    assert properties.findtext(f"{_DS}DigestValue") == _c14n_digest(signed)
+
+    der = base64.b64decode(signature.findtext(f".//{_DS}X509Certificate"))
+    public_key = x509.load_der_x509_certificate(der).public_key()
+    value = base64.b64decode(signature.findtext(f"{_DS}SignatureValue"))
+    payload = etree.tostring(signed_info, method="c14n", exclusive=True)
+    if isinstance(public_key, rsa.RSAPublicKey):
+        public_key.verify(value, payload, padding.PKCS1v15(), hashes.SHA256())
+    else:
+        half = len(value) // 2
+        public_key.verify(
+            encode_dss_signature(
+                int.from_bytes(value[:half], "big"), int.from_bytes(value[half:], "big")
+            ),
+            payload,
+            ec.ECDSA(hashes.SHA256()),
+        )
+    return (
+        root.findtext(f"{_AUTH}Challenge"),
+        root.findtext(f"{_AUTH}ContextIdentifier/{_AUTH}Nip"),
+    )
+
+
 class FakeKsef:
     def __init__(
         self,
@@ -121,6 +171,7 @@ class FakeKsef:
         self.refresh: dict[str, datetime] = {}
         self.redeemed: set[str] = set()
         self.decrypted: list[str] = []
+        self.signed_documents: list[bytes] = []
         self.rejected_key_ids: set[str] = set()
         self.access_ttl = timedelta(minutes=15)
         self._serial = 0
@@ -179,6 +230,8 @@ class FakeKsef:
             return httpx.Response(200, json=self._certificates(now))
         if request.method == "POST" and path == "/auth/ksef-token":
             return self._ksef_token(body)
+        if request.method == "POST" and path == "/auth/xades-signature":
+            return self._xades_signature(request)
         if request.method == "GET" and path.startswith("/auth/"):
             code = (
                 self.auth_codes.pop(0)
@@ -277,6 +330,31 @@ class FakeKsef:
                 "referenceNumber": self._next("20261017-AU-0000000000-0000000000"),
                 "authenticationToken": {
                     "token": operation,
+                    "validUntil": format_instant(self.clock() + timedelta(minutes=10)),
+                },
+            },
+        )
+
+    def _xades_signature(self, request: httpx.Request) -> httpx.Response:
+        if request.headers.get("content-type") != "application/xml":
+            return httpx.Response(415)
+        self.signed_documents.append(request.content)
+        try:
+            challenge, nip = verify_xades(request.content)
+        except Exception:  # podpis nie przeszedł, tak jak odmowa po stronie MF
+            self.auth_codes = [470]
+            return self._operation()
+        if self.challenges.pop(challenge, None) is None or nip != self.context_nip:
+            self.auth_codes = [470]
+        return self._operation()
+
+    def _operation(self) -> httpx.Response:
+        return httpx.Response(
+            202,
+            json={
+                "referenceNumber": self._next("20261017-AU-0000000000-0000000000"),
+                "authenticationToken": {
+                    "token": self._next("op"),
                     "validUntil": format_instant(self.clock() + timedelta(minutes=10)),
                 },
             },

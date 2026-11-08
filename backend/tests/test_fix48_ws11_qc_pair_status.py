@@ -252,6 +252,7 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": now,
             "dismissed_blocking": 4,
             "warnings_count": 0,
+            "manual_items": [],
             "manual_checks": [],
             "candidate_gaps": [],
         }
@@ -278,6 +279,7 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": None,
             "dismissed_blocking": 0,
             "warnings_count": 0,
+            "manual_items": [],
             "manual_checks": [],
             "candidate_gaps": [],
         }

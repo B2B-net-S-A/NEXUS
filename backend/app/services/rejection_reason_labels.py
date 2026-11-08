@@ -48,6 +48,14 @@ NO_CONTACT = "no_contact"
 CLIENT_NO_REASON = "client_no_reason"
 CLIENT_CHOSE_OTHER = "client_chose_other"
 
+# Końce procesu bez decyzji klienta o osobie (08.11.2026, 0663): zamknięcie
+# requestu i klient, który przez 30 dni nie odpowiedział. Nie wybiera się ich
+# ręcznie w oknie odrzucenia.
+REQUEST_CLOSED = "request_closed"
+CLIENT_NO_RESPONSE = "client_no_response"
+# Powody, które nie mówią nic o osobie: ranking ich nie liczy jako odrzucenia.
+CLIENT_NOT_A_VERDICT = (CLIENT_CHOSE_OTHER, REQUEST_CLOSED, CLIENT_NO_RESPONSE)
+
 OTHER_LABEL = "Inne"
 
 REJECTION_REASON_LABELS: dict[str, str] = {
@@ -59,6 +67,8 @@ REJECTION_REASON_LABELS: dict[str, str] = {
     NO_CONTACT: "Brak kontaktu",
     CLIENT_NO_REASON: "Klient nie podał powodu",
     CLIENT_CHOSE_OTHER: "Klient wybrał kogoś innego",
+    REQUEST_CLOSED: "Request zamknięty",
+    CLIENT_NO_RESPONSE: "Klient nie odpowiedział",
     "counter_offer": "Kontroferta od obecnego pracodawcy",
     "personal_reasons": "Powody osobiste",
     "lost_interest": "Stracił zainteresowanie",

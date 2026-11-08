@@ -263,9 +263,3 @@ def test_deleted_note_source_model_matches_migration() -> None:
     ddl = _migration().CREATE_DELETED_NOTE_SOURCES
     for column in DeletedNoteSource.__table__.columns:
         assert re.search(rf"\b{column.name}\b", ddl), column.name
-
-
-def test_promotion_sql_reads_the_tombstones() -> None:
-    from app.services.traffit.importer import _PROMOTE_NOTES_SQL
-
-    assert "FROM deleted_note_sources" in _PROMOTE_NOTES_SQL

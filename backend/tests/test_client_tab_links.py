@@ -11,6 +11,10 @@ Do 10.09.2026 tak kończyły się alerty „Nowy kontraktor" z maila zamówień
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.static
+
 BACKEND = Path(__file__).resolve().parents[1]
 CLIENT_TAB_TS = BACKEND.parent / "frontend" / "src" / "lib" / "client-tab.ts"
 _LINK = re.compile(r"/clients/\{[^}]+\}\?tab=([A-Za-z0-9_-]+)")

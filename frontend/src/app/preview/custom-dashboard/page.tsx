@@ -946,7 +946,6 @@ function seededClient(
   qc.setQueryData(myPeopleSummaryQueryKey, {
     total: 37,
     new_matches: 3,
-    jobs_with_matches: 2,
     latest_matches: [],
     idle_count: 5,
     idle_top: [],

@@ -89,7 +89,6 @@ from app.api import admin
 from app.api import admin_section_permissions
 from app.api import client_cv_rules as client_cv_rules_api
 from app.api import client_playbooks as client_playbooks_api
-from app.api import analytics_v1 as analytics_v1_api
 from app.api import dashboard_v2 as dashboard_v2_api
 from app.api import finance as finance_api
 from app.api import financial_adjustments as financial_adjustments_api
@@ -607,50 +606,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Legacy powierzchnie statystyk (plan analytics PR 3): nagłówki deprecation
-# na odpowiedziach — BEZ zmiany body (shadow mode nie dotyka legacy).
-# Sunset = data orientacyjna cutoveru; Link wskazuje następcę per RFC 8594.
-# 2026-08-07: `/api/competitions` wyjęte — to natywny, żywy moduł rywalizacji
-# (nie DynaReporter), a analytics_v1 nie ma trasy-następcy dla rankingów.
-_LEGACY_STATS_PREFIXES = (
-    "/api/dashboard",
-    "/api/reports",
-    "/api/kpis",
-)
-
-# Kanoniczne powierzchnie wyłączone spod nagłówków legacy mimo pasującego
-# prefiksu: `/api/dashboard/v2` to bieżący kontrakt RoleDashboard (PR #1031),
-# nie legacy — `startswith("/api/dashboard")` łapał go omyłkowo.
-_LEGACY_STATS_EXEMPT_PREFIXES = ("/api/dashboard/v2",)
-
-
-def _legacy_stats_exempt(path: str) -> bool:
-    """Czy ścieżka to kanoniczna powierzchnia zwolniona z nagłówków legacy.
-
-    Dopasowanie z granicą segmentu: `/api/dashboard/v2` i `/api/dashboard/v2/...`
-    są zwolnione, ale hipotetyczne `/api/dashboard/v2-beta` już nie — goły
-    `startswith` nie zna granic segmentów URL.
-    """
-    return any(
-        path == prefix or path.startswith(prefix + "/")
-        for prefix in _LEGACY_STATS_EXEMPT_PREFIXES
-    )
-
-
-class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-
-        response = await call_next(request)
-        if path.startswith(_LEGACY_STATS_PREFIXES) and not _legacy_stats_exempt(path):
-            response.headers.setdefault("Deprecation", "true")
-            response.headers.setdefault("Sunset", "Wed, 30 Sep 2026 00:00:00 GMT")
-            response.headers.setdefault(
-                "Link", '</api/analytics/v1>; rel="successor-version"'
-            )
-        return response
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Install JSON log formatter (no-op in DEBUG mode). Must happen early
@@ -873,7 +828,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
     from app.tasks.job_portal_worker import job_portal_worker_loop
-    from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
@@ -881,7 +835,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
     from app.tasks.candidate_contact_queue import candidate_contact_queue_loop
-    from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
@@ -1074,10 +1027,6 @@ async def lifespan(app: FastAPI):
             # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
             "jjit_import": asyncio.create_task(jjit_import_loop()),
             "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-            # Traffit wyłączony na stałe (14.10.2026) — `traffit_sync`
-            # i `candidate_contact_traffit` kończą się przed pierwszym
-            # odczekaniem, bez względu na flagi (`services/traffit_retired.py`).
-            "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
             "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
             # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
             # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
@@ -1109,9 +1058,6 @@ async def lifespan(app: FastAPI):
             "match_digest": asyncio.create_task(match_digest_loop()),
             "candidate_contact_queue": asyncio.create_task(
                 candidate_contact_queue_loop()
-            ),
-            "candidate_contact_traffit": asyncio.create_task(
-                traffit_contact_intake_loop()
             ),
             "index_outbox": asyncio.create_task(index_outbox_loop()),
             "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
@@ -1332,7 +1278,6 @@ app.add_middleware(
 app.add_middleware(AccessUsageMiddleware)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(LegacyStatsDeprecationMiddleware)
 
 # Kompresja odpowiedzi (25.09.2026). Przed nią nic po drodze nie kompresowało
 # (API nie stoi za Cloudflare, Traefik bez middleware `compress`): jedno
@@ -2319,12 +2264,7 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
-# Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
-# Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
-app.include_router(
-    analytics_v1_api.router, prefix="/api/analytics/v1", tags=["analytics-v1"]
-)
-# Canonical role dashboards; v1/legacy routes remain available during rollout.
+# Canonical role dashboards.
 app.include_router(
     dashboard_v2_api.router, prefix="/api/dashboard/v2", tags=["dashboard-v2"]
 )

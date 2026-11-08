@@ -392,3 +392,39 @@ async def test_mark_all_messages_includes_notes_only_on_request(app_client, ctx)
         headers=ctx["me"],
     )
     assert {"mention", "reply"}.isdisjoint(await _unread(ctx["ids"]))
+
+
+async def test_stuck_digest_does_not_hide_newer_news_in_the_thread() -> None:
+    # Audyt 08.11.2026 (U4): wpis „stoją > 7 dni” jest nowszy od akceptacji
+    # klienta, a okienko i tak pokazuje akceptację.
+    async with AsyncSessionLocal() as db:
+        owner, _ = await _new_user(db)
+        news = _row(owner.id, _T.client_accepted, "/jobs/7?candidate=4")
+        db.add(news)
+        await db.flush()
+        digest = _row(owner.id, _T.stage_stuck_7d, "/jobs/7?added_by=stuck")
+        digest.related_entity_type = "job"
+        digest.related_entity_id = 7
+        digest.title = "Osoby stoją na etapach"
+        alone = _row(owner.id, _T.stage_stuck_7d, "/jobs/8?added_by=stuck")
+        alone.related_entity_type = "job"
+        alone.related_entity_id = 8
+        alone.title = "Osoby stoją na etapach"
+        db.add_all([digest, alone])
+        await db.commit()
+        owner_id = owner.id
+        news_title = news.title
+
+    async with AsyncSessionLocal() as db:
+        acting = await db.get(User, owner_id)
+        acting.effective_section_access = {s.value: "write" for s in ProductSection}
+        listed = await notifications_api.list_job_threads(acting, db)
+
+    by_job = {item.job_id: item for item in listed.items}
+    assert by_job[7].last_title == news_title
+    assert by_job[7].digest is None
+    assert by_job[7].unread_count == 2
+    assert by_job[7].link == "/jobs/7"
+    assert by_job[8].digest == "stuck"
+    assert by_job[8].link == "/jobs/8?added_by=stuck"
+    assert [item.job_id for item in listed.items[:2]] == [7, 8]
