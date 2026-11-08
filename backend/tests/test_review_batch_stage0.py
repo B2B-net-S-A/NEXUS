@@ -375,6 +375,27 @@ async def test_min_score_from_settings_limits_the_batch(batch_on):
     assert set(added) == {ids[0], ids[1]}
 
 
+async def test_pick_bonuses_read_effective_rate_and_status(batch_on):
+    from app.models.candidate import AvailabilityStatus
+    from app.services import review_batch_order as order
+
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    active, plain = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.rate_budget_hourly = Decimal("170")
+        person = await db.get(Candidate, active)
+        person.availability_status = AvailabilityStatus.actively_looking
+        person.expected_rate_hourly = Decimal("150")
+        person.expected_rate_currency = "PLN"
+        await db.commit()
+    picks = [autofill.Pick(cid, 80.0, "run", (), ()) for cid in (active, plain)]
+    async with AsyncSessionLocal() as db:
+        bonus = await order.pick_bonuses(db, world["job_id"], picks)
+    assert bonus == {active: 8, plain: 0}
+
+
 # ── P8: ślad blokady i widok zespołu ────────────────────────────────────────
 
 

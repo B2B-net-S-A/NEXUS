@@ -177,7 +177,10 @@ async def with_order_facts(
 async def pick_bonuses(db, job_id: int, picks: list) -> dict[int, int]:
     """Premia porcji dla osób jeszcze bez karty (kolejność w ``ranked_picks``)."""
     from app.services import review_batch
-    from app.services.candidate_rate_from import effective_rate
+    from app.services.candidate_rate_from import (
+        effective_currency_sql,
+        effective_rate_sql,
+    )
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
     if not review_batch.enabled() or not picks:
@@ -189,15 +192,14 @@ async def pick_bonuses(db, job_id: int, picks: list) -> dict[int, int]:
             select(
                 Candidate.id,
                 Candidate.availability_status,
-                Candidate.rate_from_computed_at,
-                Candidate.rate_from_hourly,
-                Candidate.expected_rate_hourly,
-                Candidate.expected_rate_currency,
+                effective_rate_sql(Candidate).label("rate"),
+                effective_currency_sql(Candidate).label("currency"),
             ).where(Candidate.id.in_([p.candidate_id for p in picks]))
         )
     ).all()
     out: dict[int, int] = {}
     for row in rows:
-        rate, currency = effective_rate(row)
-        out[row.id] = bonus_for(row.availability_status, rate, currency, budget).points
+        out[row.id] = bonus_for(
+            row.availability_status, row.rate, row.currency, budget
+        ).points
     return out
