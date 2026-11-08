@@ -13,7 +13,6 @@
 import * as React from "react";
 import { AlertTriangle, Ban, CloudOff, Info, Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AnalyticsQuality } from "@/lib/stats-api";
 
 export type StatsBoundaryState =
   | "loading"
@@ -148,7 +147,7 @@ export function deriveBoundaryState(opts: {
   isFetching?: boolean;
   isError: boolean;
   errorStatus?: number;
-  quality?: AnalyticsQuality;
+  quality?: { status: "complete" | "partial" | "unavailable" };
   isEmpty?: boolean;
 }): StatsBoundaryState {
   if (!opts.allowed) return "disabled";

@@ -1125,11 +1125,7 @@ class Settings(BaseSettings):
     #   • debug-fire-nudge (P1.15) — smoke-test wymuszający emisję nudge'a; w
     #     produkcji dostępny WYŁĄCZNIE przez tę flagę (a i tak nie kasuje logu
     #     dedupe ani nie zwraca tracebacku),
-    #   • cutover analytics (P1.7) — ustawienie legacy/live boundary jest
-    #     zamrożone do czasu readiness manifestu (PR-39); break-glass służy do
-    #     awaryjnego ustawienia w shadow-prep, z audytem.
     KPI_COACH_DEBUG_BREAKGLASS: bool = False
-    ANALYTICS_CUTOVER_BREAKGLASS: bool = False
 
     # ── Recruitment Priority Lock + Carry-over Duty ────────────────────────
     # off     — persist/read the new domain without changing pipeline access,
@@ -1140,19 +1136,6 @@ class Settings(BaseSettings):
     RECRUITMENT_PRIORITY_MODE: str = "off"
     RECRUITMENT_PRIORITY_WORKER_INTERVAL_SECONDS: int = 300
 
-    # ── Analytics v1 (plan 2026-07-16, PR 2) ──────────────────────────────────
-    # Tryb rolloutu:
-    #   off    — router /api/analytics/v1 zwraca 503, zero zmian zachowania,
-    #   shadow — endpointy v1 liczą i logują (porównanie z legacy), stare
-    #            odpowiedzi UI pozostają NIEZMIENIONE,
-    #   live   — v1 jest źródłem aktywnego UI (dopiero po 7 dniach shadow
-    #            + canary per rola; patrz plan §8).
-    # UWAGA: guardy RBAC/capabilities NIE zależą od tego flaga (R0 jest
-    # niewyłączalne) — flag steruje wyłącznie NOWĄ powierzchnią v1.
-    ANALYTICS_V1_MODE: str = "off"
-    # Opcjonalne zawężenie aktywnych modułów v1 (csv, np. "overview,funnel").
-    # Pusta wartość = wszystkie moduły w danym trybie.
-    ANALYTICS_V1_MODULES: str = ""
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
 
@@ -1164,14 +1147,6 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(f"NEXUS_ENV must be one of {sorted(allowed)}")
         return normalized
-
-    @field_validator("ANALYTICS_V1_MODE")
-    @classmethod
-    def _validate_analytics_mode(cls, v: str) -> str:
-        allowed = {"off", "shadow", "live"}
-        if v not in allowed:
-            raise ValueError(f"ANALYTICS_V1_MODE must be one of {sorted(allowed)}")
-        return v
 
     @field_validator("RECRUITMENT_PRIORITY_MODE")
     @classmethod
