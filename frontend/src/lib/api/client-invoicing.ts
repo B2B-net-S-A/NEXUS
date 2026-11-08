@@ -254,6 +254,45 @@ export interface CreditImportResult {
 const CLIENTS = "/api/clients";
 const FINANCE = "/api/finance/sales-invoices";
 
+export type UnknownBuyerSuggestion = {
+  client_id: number;
+  client_name: string;
+  /** `differs` — klient ma już inny numer, więc przypisanie zostanie odrzucone. */
+  state: "add" | "differs";
+};
+
+export type UnknownBuyer = {
+  number: string | null;
+  kind: "nip" | "vat_ue" | null;
+  buyer_name: string | null;
+  invoices: number;
+  totals: { currency: string; amount: string }[];
+  first_date: string | null;
+  last_date: string | null;
+  assignable: boolean;
+  suggestion: UnknownBuyerSuggestion | null;
+};
+
+export type UnknownBuyersResponse = {
+  buyers: UnknownBuyer[];
+  summary: {
+    invoices: number;
+    buyers: number;
+    with_suggestion: number;
+    totals: { currency: string; amount: string }[];
+    totals_hidden?: boolean;
+  };
+};
+
+export type WaitingForNumber = {
+  number: string | null;
+  invoices: number;
+  totals: { currency: string; amount: string }[];
+  first_date: string | null;
+  last_date: string | null;
+  buyer_name: string | null;
+};
+
 export const invoicingKeys = {
   all: ["client-invoicing"] as const,
   client: (clientId: number, year: number, month: number) =>
@@ -266,6 +305,9 @@ export const invoicingKeys = {
   credits: ["client-invoicing", "credits"] as const,
   status: ["client-invoicing", "status"] as const,
   module: ["client-invoicing", "module"] as const,
+  unknownBuyers: ["client-invoicing", "unknown-buyers"] as const,
+  waiting: (clientId: number, number: string) =>
+    ["client-invoicing", "waiting", clientId, number] as const,
   options: (invoiceId: number, clientId: number | null, period: string | null) =>
     ["client-invoicing", "options", invoiceId, clientId, period] as const,
 };
@@ -355,6 +397,30 @@ export function useSalesCredits(enabled = true) {
     queryFn: async () =>
       (await api.get<{ credits: SalesCredit[] }>(`${FINANCE}/credits`)).data,
     enabled,
+  });
+}
+
+export function useUnknownBuyers(enabled = true) {
+  return useQuery({
+    queryKey: invoicingKeys.unknownBuyers,
+    queryFn: async () =>
+      (await api.get<UnknownBuyersResponse>(`${FINANCE}/unknown-buyers`)).data,
+    enabled,
+  });
+}
+
+/** Ile faktur czeka na ten numer: ramka w formularzu klienta (bez prawa = brak ramki). */
+export function useWaitingForNumber(clientId: number | null, number: string, enabled = true) {
+  return useQuery({
+    queryKey: invoicingKeys.waiting(clientId ?? 0, number),
+    queryFn: async () =>
+      (
+        await api.get<WaitingForNumber>(`${CLIENTS}/${clientId}/invoicing/waiting-for-number`, {
+          params: { number },
+        })
+      ).data,
+    enabled: enabled && clientId !== null && number.length > 0,
+    retry: false,
   });
 }
 
@@ -453,6 +519,29 @@ export function useSaveBuyerNumber() {
           { client_id: payload.clientId },
         )
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useAssignUnknownBuyer() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: { number: string; clientId: number }) =>
+      (
+        await api.post<{ buyer_number: BuyerNumberSaved }>(`${FINANCE}/unknown-buyers/assign`, {
+          number: payload.number,
+          client_id: payload.clientId,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useSkipUnknownBuyer() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: { number: string; reason: string }) =>
+      (await api.post<{ skipped: number }>(`${FINANCE}/unknown-buyers/skip`, payload)).data,
     onSuccess: invalidate,
   });
 }

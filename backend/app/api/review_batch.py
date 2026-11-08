@@ -23,6 +23,8 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import review_batch as svc
+from app.services import review_batch_streams, review_batch_team
+from app.services.review_batch_order import OrderFacts
 
 router = APIRouter(
     prefix="/api/review-batch",
@@ -36,6 +38,9 @@ class SettingsIn(BaseModel):
     # Brak pola = bez zmiany (stary front wysyła samo minimum).
     block_enabled: Optional[bool] = None
     pilot_user_ids: Optional[list[int]] = Field(default=None, max_length=200)
+    min_score: Optional[float] = Field(
+        default=None, ge=svc.MIN_SCORE_FLOOR, le=svc.MIN_SCORE_CEIL
+    )
 
 
 @router.get("/me")
@@ -56,6 +61,16 @@ def _position(candidate: Candidate) -> Optional[str]:
     )
     value = data.get("current_position") or candidate.linkedin_current_title
     return str(value)[:120] if value else None
+
+
+def _order_note(card: svc.PendingCard) -> dict:
+    """Dlaczego karta stoi na tym miejscu: te same powody co na Tablicy."""
+    facts = card.facts if isinstance(card.facts, OrderFacts) else OrderFacts()
+    return {
+        "known": facts.known.as_dict() if facts.known is not None else None,
+        "order_active": facts.bonus.active,
+        "order_in_budget": facts.bonus.in_budget,
+    }
 
 
 @router.get("/me/queue")
@@ -134,6 +149,7 @@ async def my_queue(
                     if job.rate_budget_hourly is not None
                     else None
                 ),
+                **_order_note(card),
             }
         )
     return {"items": items}
@@ -151,6 +167,7 @@ async def add_more(
 
     if not svc.enabled():
         raise HTTPException(status_code=409, detail="Porcja dnia jest wyłączona.")
+    min_score = (await svc.read_settings(db)).min_score
     team = (await svc.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
     if current_user.id not in team:
         raise HTTPException(
@@ -159,7 +176,9 @@ async def add_more(
         )
     now = datetime.now(timezone.utc)
     mine = svc.batch_cards(
-        await svc.pending_cards(db, job_ids=[job_id], owner_id=current_user.id), now
+        await svc.pending_cards(db, job_ids=[job_id], owner_id=current_user.id),
+        now,
+        min_score,
     )
     if mine:
         raise HTTPException(
@@ -186,7 +205,6 @@ async def get_settings(
     out = {
         **value.as_dict(),
         "batch_size": svc.BATCH_SIZE,
-        "min_score": svc.MIN_SCORE,
         "max_age_days": svc.MAX_AGE_DAYS,
         "enabled": svc.enabled(),
     }
@@ -194,6 +212,19 @@ async def get_settings(
         # Lista do wyboru pilota — tylko dla tych, którzy ją ustawiają.
         out["recruiters"] = await svc.batch_recruiters(db)
     return out
+
+
+@router.get("/team")
+async def team_today(
+    _current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Kto ile dziś zdecydował, kto utknął na blokadzie i dwa strumienie
+    wysłanych CV — dla Head of Recruitment i admina."""
+    now = datetime.now(timezone.utc)
+    view = await review_batch_team.team_view(db, now=now)
+    view["streams"] = await review_batch_streams.weekly_streams(db, now=now)
+    return view
 
 
 @router.put("/settings")
@@ -217,6 +248,7 @@ async def put_settings(
             if payload.pilot_user_ids is None
             else tuple(sorted(set(payload.pilot_user_ids)))
         ),
+        min_score=current.min_score if payload.min_score is None else payload.min_score,
     )
     error = svc.validation_error(value)
     if error:

@@ -23,6 +23,10 @@ import ast
 import warnings
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.static
+
 TESTS_ROOT = Path(__file__).resolve().parent
 
 #: Funkcje zwracające „teraz" albo „dziś", wołane po nazwie.

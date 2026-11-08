@@ -14,7 +14,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.call import Call, CallStatus
@@ -25,6 +24,7 @@ from app.models.job import Job
 from app.models.kpi_target import UserKpiTarget
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services import kpi_catalog
 from app.services.kpi_catalog import KPI_CATALOG, KpiMetric, get_kpi
 from app.services.kpi_engine import (
     count_canonical_metric,
@@ -242,7 +242,7 @@ async def test_target_override_beats_default(seeded):
 @pytest.mark.asyncio
 async def test_cloudtalk_off_hides_calls_kpi(seeded, monkeypatch):
     """CloudTalk off ⇒ KPI rozmów ZNIKA (unavailable), nie świeci zerem."""
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", False)
+    monkeypatch.setattr(kpi_catalog, "TELEPHONY_AVAILABLE", False)
     async with AsyncSessionLocal() as db:
         user = await db.get(User, seeded["user_a"])
         results = await evaluate_user_kpis(db, user=user)
@@ -253,7 +253,7 @@ async def test_cloudtalk_off_hides_calls_kpi(seeded, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cloudtalk_on_shows_calls_kpi(seeded, monkeypatch):
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
+    monkeypatch.setattr(kpi_catalog, "TELEPHONY_AVAILABLE", True)
     async with AsyncSessionLocal() as db:
         user = await db.get(User, seeded["user_a"])
         results = await evaluate_user_kpis(db, user=user)

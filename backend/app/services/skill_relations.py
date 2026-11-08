@@ -460,13 +460,18 @@ async def run(db: AsyncSession, *, use_model: bool = True) -> dict:
     alternatives = await find_alternatives(db, dictionary) if use_model else []
 
     proposed = 0
+    # Tylko hasła zmienione tej nocy (audyt 2, W4): wszystkie dotąd zatwierdzone
+    # powiązania unieważniały co noc ok. 60% zapamiętanych wyników.
+    touched: set[int] = set()
     taken = set(decided)
     for index, pair in enumerate(fresh):
         kind, reason = kinds.get(index, (None, ""))
         guarded = apply_guards(pair, kind, dictionary) if kind else None
         if guarded is None:
             continue
-        proposed += _upsert(db, existing, pair, guarded, reason, model)
+        if _upsert(db, existing, pair, guarded, reason, model):
+            proposed += 1
+            touched.add(pair.to_id)
         taken.add((pair.from_id, pair.to_id))
     for pair, reason in alternatives:
         # Jedna para = jeden rodzaj: zamiennik nie dubluje „typowego” ani „wynika z”.
@@ -475,19 +480,19 @@ async def run(db: AsyncSession, *, use_model: bool = True) -> dict:
         taken.add((pair.from_id, pair.to_id))
         if apply_guards(pair, "alternative", dictionary) is None:
             continue
-        proposed += _upsert(db, existing, pair, "alternative", reason, model)
+        if _upsert(db, existing, pair, "alternative", reason, model):
+            proposed += 1
+            touched.add(pair.to_id)
     await db.commit()
-    if proposed and model is not None:
-        touched = {
-            r.to_skill_id
-            for r in existing.values()
-            if r.status == "accepted" and r.curated_by == AUTO_CURATOR
-        }
-        await skill_curation.after_dictionary_change(db, touched)
+    invalidated_jobs = 0
+    if touched and model is not None:
+        invalidated_jobs = await skill_curation.after_dictionary_change(db, touched)
     summary = {
         "pairs": len(pairs),
         "fresh": len(fresh),
         "accepted": proposed,
+        "touched_skills": len(touched) if model is not None else 0,
+        "invalidated_jobs": invalidated_jobs,
         "model": model,
     }
     logger.info("skill relations: %s", summary)

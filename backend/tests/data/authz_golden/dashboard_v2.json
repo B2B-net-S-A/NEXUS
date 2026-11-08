@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/client-response": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
   "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
   "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDDDDD",

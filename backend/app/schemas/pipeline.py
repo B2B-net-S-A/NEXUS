@@ -313,6 +313,10 @@ class CandidateStageResponse(BaseModel):
     # rekrutacja, etap nie z importu Traffita) — ta sama definicja co pas
     # „Do wysłania do klienta” (audyt 13.10.2026). `None` = endpoint nie liczy.
     dl_send_counts: Optional[bool] = None
+    # Jedna liczba dni na karcie Tablicy: dni robocze czekania, liczone tak samo
+    # jak pas „Do wysłania do klienta” (`dl_send_queue.board_waiting_workdays`,
+    # audyt U5 08.11.2026). `None` = endpoint nie liczy albo proces się skończył.
+    waiting_workdays: Optional[int] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —

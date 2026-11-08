@@ -48,11 +48,14 @@ class ActiveCards:
     columns: dict[str, int]
     last_moved_at: Optional[datetime]
 
-    def message(self) -> str:
+    def message(self, *, cards_may_end: bool = False) -> str:
+        """``cards_may_end``: okno pyta o zakończenie par u klienta (08.11.2026)."""
         last = ""
         if self.last_moved_at is not None:
             day = self.last_moved_at.astimezone(ZoneInfo(DEFAULT_TZ))
             last = f" (ostatni ruch karty {day.strftime('%d.%m.%Y')})"
+        if cards_may_end:
+            return f"W tej rekrutacji {_people(self.total)} w toku{last}."
         return (
             f"W tej rekrutacji {_people(self.total)} w toku{last}. "
             "Zamknięcie nie zamyka kart — zostaną w zamkniętej rekrutacji."

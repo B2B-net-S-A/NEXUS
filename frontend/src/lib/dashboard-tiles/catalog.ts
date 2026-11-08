@@ -390,6 +390,27 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
       ),
     ),
   },
+  client_response: {
+    type: "client_response",
+    label: "Odpowiedź klienta",
+    description:
+      "Procent CV z odpowiedzią klienta w 7 dniach roboczych, czas do pierwszego CV i tabela: który klient nie odpowiada.",
+    category: "team",
+    defaultSize: { w: 12, h: 6 },
+    minSize: { w: 6, h: 4 },
+    ownChrome: false,
+    // Lustro bramek `GET /api/dashboard/v2/client-response`: rola i jedna z sekcji.
+    availability: both(
+      (user) =>
+        hasSectionAccess(user, "delivery") || hasSectionAccess(user, "insights")
+          ? { ok: true }
+          : { ok: false, reason: "Wymaga dostępu do Delivery albo Insights" },
+      needsRole(
+        ["admin", "head_of_recruitment", "delivery_lead"],
+        "Dla Head of Recruitment, Delivery Leadów i administratora",
+      ),
+    ),
+  },
   team_signals: {
     type: "team_signals",
     label: "Gdzie stoi",

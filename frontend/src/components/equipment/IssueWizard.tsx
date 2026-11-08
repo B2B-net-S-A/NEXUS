@@ -16,9 +16,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useIssueToHolder } from "@/lib/api/academy-edition";
 import {
   useEquipmentItems,
+  useIssueToHolder,
   type EquipmentCategory,
   type EquipmentHolder,
   type EquipmentItem,
@@ -344,7 +344,7 @@ export function IssueWizard({
               . Wybierz osobę, której wydajesz sprzęt.
             </p>
           ) : null}
-          <HolderPicker academy value={holder} onChange={setHolder} />
+          <HolderPicker value={holder} onChange={setHolder} />
         </div>
       ) : step === 2 ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">

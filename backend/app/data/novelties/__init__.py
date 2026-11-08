@@ -30,6 +30,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.config import settings
 from app.models.user import UserRole
 from app.services import permission_catalog
 from app.services.section_permissions import ProductSection
@@ -111,6 +112,9 @@ class Novelty(BaseModel):
     #: nikt nie przeklikuje ekranu, do którego nie ma dostępu (Artur, 30.10.2026).
     section: Optional[ProductSection] = None
     steps: list[TourStep] = Field(default_factory=list, max_length=6)
+    #: Nazwa przełącznika z ``Settings``: dopóki jest wyłączony, nowości nie ma,
+    #: bo prowadziłaby po ekranie, którego nikt nie widzi.
+    requires_setting: Optional[str] = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
     active_days: int = Field(default=DEFAULT_ACTIVE_DAYS, ge=7, le=90)
 
     @model_validator(mode="after")
@@ -126,6 +130,18 @@ class Novelty(BaseModel):
                 f"{self.id}: path_prefix ma sens tylko przy zmianie procesu"
             )
         return self
+
+    @field_validator("requires_setting")
+    @classmethod
+    def _known_setting(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not hasattr(settings, value):
+            raise ValueError(f"Nieznany przełącznik w nowości: {value}")
+        return value
+
+    def switched_on(self) -> bool:
+        return self.requires_setting is None or bool(
+            getattr(settings, self.requires_setting, False)
+        )
 
     def active_on(self, day: date) -> bool:
         return (

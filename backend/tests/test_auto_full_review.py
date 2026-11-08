@@ -198,20 +198,33 @@ def _open_gates(monkeypatch, *, busy: bool = False, started: int = 0) -> None:
 # ── okno ────────────────────────────────────────────────────────────────────
 
 
-def test_window_is_half_open_in_business_timezone(monkeypatch):
+@pytest.mark.parametrize(
+    ("clock_utc", "hours_into_night"),
+    [
+        ("2026-10-14T10:00:00+00:00", 3.5),  # zwykła doba
+        ("2026-10-25T10:00:00+00:00", 4.5),  # czas zimowy: noc o godzinę dłuższa
+        ("2027-03-28T10:00:00+00:00", 2.5),  # czas letni: noc o godzinę krótsza
+    ],
+)
+def test_window_is_half_open_in_business_timezone(
+    monkeypatch, clock_utc, hours_into_night
+):
+    """Zegar zamrożony: ``_at`` bierze datę z bieżącej nocy, więc bez tego test
+    sprawdzał zmianę czasu tylko w dniu zmiany. 25.10.2026 padł przez to 17 razy
+    w kolejce merge'ów, a 26.10 przeszedłby znowu."""
+    import time_machine
+
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_START_HOUR", 1)
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 5)
-    assert afr.in_window(_at(1)) and afr.in_window(_at(4))
-    assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
-    assert not afr.in_window(_at(14))
-    # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30. Noc
-    # zmiany czasu na zimowy (ostatnia niedziela października) ma godzinę
-    # więcej, więc granica to 5 h prawdziwego czasu, nie 4.
-    start = afr.night_start(_at(4))
-    assert start <= _at(4) and _at(4) - start < timedelta(hours=5)
-    # Równe godziny = okno zamknięte (wyłącznik bez deployu).
-    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
-    assert not afr.in_window(_at(1))
+    with time_machine.travel(clock_utc, tick=False):
+        assert afr.in_window(_at(1)) and afr.in_window(_at(4))
+        assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
+        assert not afr.in_window(_at(14))
+        # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30.
+        assert _at(4) - afr.night_start(_at(4)) == timedelta(hours=hours_into_night)
+        # Równe godziny = okno zamknięte (wyłącznik bez deployu).
+        monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
+        assert not afr.in_window(_at(1))
 
 
 @pytest.mark.parametrize(
@@ -279,6 +292,7 @@ async def test_event_makes_the_job_due_once_per_night():
         [run] = await _auto_runs(world["job_id"])
         assert run.created_by == owner_id
         assert run.version_trace["origin"] == "auto"
+        assert "skill_dictionary" in run.version_trace
         assert run.state == "queued"
         async with AsyncSessionLocal() as db:
             # Druga próba tej samej nocy: rekrutacja nie jest już należna…

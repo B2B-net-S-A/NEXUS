@@ -148,6 +148,20 @@ Zmienne: `DATA_ACCESS_ALERT_DAY_DISK_FILES`,
 `…_INTERVAL_SECONDS` oraz wyłącznik `DATA_ACCESS_ALERTS_ENABLED`. Na produkcji
 zmienia się je wyłącznie workflowem „Coolify set env”.
 
+### Konta serwisowe (klucze API, od 08.11.2026)
+
+Zdarzenia API integracji mają puste `user_id`, więc skaner liczy je osobno na
+konto serwisowe, po `details.via = integration:<slug>`. Próg to > 25 CV i > 200
+osób w eksportach dziennie na konto (`…_SERVICE_DAY_FILES`,
+`…_SERVICE_DAY_EXPORT_ROWS`). Podgląd nie jest progiem, jak u osób, a połowy
+progu dla nowych kont tu nie ma. Tekst CV z API (`GET …/cv-text`) zostawia ślad
+`cv_downloaded` i liczy się jak pobranie, chyba że odpowiedź w kwarantannie nie
+niosła tekstu. Na kopii produkcji z 07.11.2026 żaden klucz nie miał jeszcze
+zdarzeń na kandydatach, więc progi przyjęto jak dla osoby, nie z pomiaru.
+
+Alarm niesie ujemne id konta (`service_entity_id`), bo dedup `emit` nie patrzy
+na `related_entity_type`: konto serwisowe 7 zdusiłoby alarm o osobie 7.
+
 ### Reguły, które łatwo cofnąć
 
 - **Bez blokady.** Alarm niczego nie wstrzymuje. Wstrzymanie pobierania to

@@ -587,6 +587,22 @@ const QC_PREVIEW = {
         { requirement: "Kafka", role: "Firma Alfa", state: "unverified" },
       ],
     },
+    // QC-2 i QC-3 (08.11.2026): pominięta blokada i zgoda RODO do obejrzenia.
+    {
+      key: "no_unsupported",
+      label: "CV nie twierdzi niczego spoza oryginału",
+      severity: "blocking",
+      status: "pass",
+      summary: "OK · pominięte: 1",
+      items: [],
+      dismissed_items: [
+        {
+          term: "Terraform",
+          dismissal: { id: 1, reason: "in_cv", reason_label: "Jest w CV — QC tego nie znalazło", note: "jest w roli Firma Alfa", by_name: "Ewa Przykładowa", at: "2026-11-07" },
+        },
+      ],
+    },
+    { key: "client_rules", label: "Reguły klienta", severity: "blocking", status: "manual", summary: "Obejrzyj zgodę RODO w pliku", items: [] },
   ],
 } as unknown as QcResult;
 

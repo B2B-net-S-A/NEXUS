@@ -19,6 +19,9 @@ from app.core.feature_flag_registry import (
 )
 from app.core.scheduling import business_today
 
+# Termin mija z kalendarza, bez zmiany w żadnym pliku, więc test biegnie na każdym PR-ze.
+pytestmark = pytest.mark.static
+
 _REGISTERED = {flag.name: flag for flag in REGISTERED_FLAGS}
 
 

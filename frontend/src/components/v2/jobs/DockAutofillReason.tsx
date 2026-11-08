@@ -91,7 +91,7 @@ export function DockAutofillReason({
           ? `System nie znał ${unknown.join(" ani ")} — zapytaj w rozmowie.`
           : "System znał stawkę i dostępność w chwili dodania."}
       </p>
-      {!meta.decided ? (
+      {meta.awaiting_decision ? (
         <p className="text-[11px] text-muted-foreground">
           Zdecyduj: „Dzwonię” albo odrzuć z powodem — powody uczą system.
         </p>

@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import inspect
 from datetime import datetime, timezone
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -558,72 +557,6 @@ def _awaited_call_name(node: ast.Await) -> str | None:
             return "commit"
         return call.func.attr
     return None
-
-
-def test_traffit_stage_upsert_syncs_process_before_every_commit() -> None:
-    importer_path = (
-        Path(__file__).resolve().parents[1] / "app/services/traffit/importer.py"
-    )
-    source = importer_path.read_text()
-    tree = ast.parse(source)
-    importer = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "TraffitImporter"
-    )
-    methods = {
-        node.name: node
-        for node in importer.body
-        if isinstance(node, ast.AsyncFunctionDef)
-    }
-
-    # SAVEPOINT + upsert żyją w `_upsert_stage_row`; wsad i odtwarzanie wiersz
-    # po wierszu domykają je transakcyjnie (`_flush_stage_batch`,
-    # `_replay_stage_rows`). Rozbicie na metody nie może rozerwać niezmiennika:
-    # KAŻDY commit etapów musi być poprzedzony syncem procesu.
-    upsert = methods["_upsert_stage_row"]
-    upsert_source = ast.get_source_segment(source, upsert) or ""
-    has_nested_transaction = any(
-        isinstance(node, ast.AsyncWith)
-        and any(
-            isinstance(item.context_expr, ast.Call)
-            and isinstance(item.context_expr.func, ast.Attribute)
-            and item.context_expr.func.attr == "begin_nested"
-            for item in node.items
-        )
-        for node in ast.walk(upsert)
-    )
-    assert has_nested_transaction
-    assert "INSERT INTO candidate_stages" in upsert_source
-    # Sam upsert nigdy nie commituje — granicę wyznacza wołający.
-    assert not any(
-        _awaited_call_name(node) == "commit"
-        for node in ast.walk(upsert)
-        if isinstance(node, ast.Await)
-    )
-
-    # `import_pipelines` nie ma już własnego commitu — deleguje do flushu.
-    pipelines_events = [
-        _awaited_call_name(node)
-        for node in ast.walk(methods["import_pipelines"])
-        if isinstance(node, ast.Await)
-    ]
-    assert "commit" not in pipelines_events
-    assert "_flush_stage_batch" in pipelines_events
-
-    for name in ("_flush_stage_batch", "_replay_stage_rows"):
-        events: list[tuple[int, str]] = []
-        for node in ast.walk(methods[name]):
-            if not isinstance(node, ast.Await):
-                continue
-            call_name = _awaited_call_name(node)
-            if call_name in {"sync_external_observed_processes", "commit"}:
-                events.append((node.lineno, call_name))
-        ordered_events = [call for _line, call in sorted(events)]
-        assert ordered_events == [
-            "sync_external_observed_processes",
-            "commit",
-        ], f"{name}: {ordered_events}"
 
 
 def test_backfill_locks_deterministically_and_never_reowns_live_processes() -> None:

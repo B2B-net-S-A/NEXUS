@@ -11,7 +11,8 @@ zapisie zamówienia, a odczyt zakładki w Finansach dosypuje świeże wykrycia.
 
 Ten sam bieg dosypuje formułę faktury Nordei zamówieniom z PDF-em, które jej
 nie mają (``nordea_invoice_lines.fill_missing``) — przy starcie obejmuje to
-zamówienia sprzed wdrożenia.
+zamówienia sprzed wdrożenia. Zapisuje też nocny raport rozjazdów stawek dla
+Finansów (``rate_divergence_report``, kontrakt ↔ linia zamówienia MD).
 """
 
 from __future__ import annotations
@@ -22,9 +23,13 @@ from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import seconds_until_local_time
+from app.core.scheduling import business_today, seconds_until_local_time
 from app.services.order_gaps import GapRunResult, run_order_gaps
-from app.services import loop_heartbeat, nordea_invoice_lines
+from app.services import (
+    loop_heartbeat,
+    nordea_invoice_lines,
+    rate_divergence_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +44,7 @@ async def run_once() -> GapRunResult:
             raise
     logger.info("Order gaps run: %s", result)
     await _fill_nordea_invoice_lines()
+    await _refresh_rate_divergences()
     return result
 
 
@@ -57,6 +63,19 @@ async def _fill_nordea_invoice_lines() -> None:
             return
     if filled:
         logger.info("Nordea invoice lines filled: %d", filled)
+
+
+async def _refresh_rate_divergences() -> None:
+    """Nocny raport rozjazdów stawek. Osobna sesja: jego błąd nie wstrzyma Braków."""
+    async with AsyncSessionLocal() as db:
+        try:
+            report = await rate_divergence_report.refresh(db, today=business_today())
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.exception("Rate divergence report failed")
+            return
+    logger.info("Rate divergences %s: %d", report["month"], len(report["rows"]))
 
 
 async def order_gaps_loop() -> None:

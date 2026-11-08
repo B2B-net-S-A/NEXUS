@@ -3388,6 +3388,33 @@ async def evaluate(
     return src, checks, notes
 
 
+def _carried_ok_since(
+    previous: Optional[CvQcRun], fp: Optional[str], now: datetime
+) -> datetime:
+    """Od kiedy para jest gotowa, gdy zapisujemy zdany przebieg.
+
+    Kolejny zdany przebieg tego samego CV (nowa wersja reguł, dopisana notatka,
+    otwarcie przeglądu DL) nie zeruje „czeka N dni”. Nowe CV albo przebieg
+    niezaliczony pomiędzy zaczynają liczyć od nowa, bo czas poprawek rekrutera
+    się nie liczy. Wiersze sprzed tego pola mają datę w `created_at`.
+    """
+
+    if previous is None or not previous.passed or previous.cv_fingerprint != fp:
+        return now
+    return _parse_ok_since((previous.result or {}).get("ok_since")) or (
+        previous.created_at
+    )
+
+
+def _parse_ok_since(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 async def _store_run(
     db: AsyncSession,
     *,
@@ -3416,6 +3443,15 @@ async def _store_run(
     ):
         return latest.id, latest.created_at
     now = datetime.now(timezone.utc)
+    result: dict[str, Any] = {
+        "checks": checks,
+        "checks_hash": digest,
+        "cv_source": cv_source,
+        "qc_version": QC_VERSION,
+        "dismissed_blocking": dismissed_blocking(checks),
+    }
+    if passed:
+        result["ok_since"] = _carried_ok_since(latest, fp, now).isoformat()
     row = CvQcRun(
         candidate_id=candidate_id,
         job_id=job_id,
@@ -3424,13 +3460,7 @@ async def _store_run(
         passed=passed,
         blocking_failed=blocking_failed,
         warnings_count=warnings_count,
-        result={
-            "checks": checks,
-            "checks_hash": digest,
-            "cv_source": cv_source,
-            "qc_version": QC_VERSION,
-            "dismissed_blocking": dismissed_blocking(checks),
-        },
+        result=result,
         created_by_user_id=user_id,
         created_at=now,
     )
@@ -4233,17 +4263,16 @@ def without_dismissed_bold(
 
 
 async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
-    """Przelicz nieudane przebiegi policzone starszymi regułami QC.
+    """Przelicz przebiegi policzone starszymi regułami QC.
 
     Plakietka na Tablicy czyta zapisany wynik (`pair_statuses`), więc po
-    zmianie reguł pokazywałaby stare „do poprawy”, dopóki ktoś nie otworzy
-    okna. Tylko nieudane: nowy przebieg zaliczonej pary dostałby dzisiejszą
-    datę, a od niej kolejka Delivery Leada liczy czas oczekiwania
-    (`dl_send_queue.readiness_of`) — przegląd PR 2, 13.10.2026. Bramka ruchu
-    i tak liczy QC na żywo. Tylko pary sprzed wysłania; po przeliczeniu
-    przebieg ma bieżącą `QC_VERSION`, więc kolejne wywołanie nic nie
-    znajduje. ``limit`` liczy przeliczone pary, nie pominięte. Commit po
-    każdej parze — awaria jednej nie cofa pozostałych.
+    zmianie reguł pokazywałaby stary stan, a „Kontrola CV” liczona na świeżo
+    co innego (audyt 08.11.2026). Zdane pary też: `_store_run` przenosi
+    `ok_since` z poprzedniego zdanego przebiegu tego samego CV, więc czas
+    oczekiwania w kolejce Delivery Leada się nie zeruje. Tylko pary sprzed
+    wysłania; po przeliczeniu przebieg ma bieżącą `QC_VERSION`, więc kolejne
+    wywołanie nic nie znajduje. ``limit`` liczy przeliczone pary, nie
+    pominięte. Commit po każdej parze — awaria jednej nie cofa pozostałych.
     """
 
     from app.services import pipeline_move_rules
@@ -4252,7 +4281,6 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
         select(
             CvQcRun.candidate_id,
             CvQcRun.job_id,
-            CvQcRun.passed,
             CvQcRun.created_at,
             CvQcRun.result["qc_version"].astext.label("qc_version"),
         )
@@ -4269,10 +4297,7 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
     pairs = (
         await db.execute(
             select(latest.c.candidate_id, latest.c.job_id)
-            .where(
-                latest.c.passed.is_(False),
-                func.coalesce(latest.c.qc_version, "") != QC_VERSION,
-            )
+            .where(func.coalesce(latest.c.qc_version, "") != QC_VERSION)
             # Pary sprzed wysłania to te najświeższe.
             .order_by(latest.c.created_at.desc())
         )
@@ -4314,6 +4339,33 @@ _CANDIDATE_GAP_PATH = (
 _MANUAL_BLOCKING_PATH = (
     '\'lax $[*] ? (@.status == "manual" && @.severity == "blocking").label\'::jsonpath'
 )
+_MANUAL_BLOCKING_KEYS_PATH = (
+    '\'lax $[*] ? (@.status == "manual" && @.severity == "blocking").key\'::jsonpath'
+)
+# QC-3: co trzeba sprawdzić ręcznie liczymy per wymaganie, nie per sprawdzenie.
+_UNVERIFIED_ROLES_PATH = (
+    '\'lax $[*] ? (@.key == "critical_skills").roles[*] '
+    '? (@.state == "unverified").requirement\'::jsonpath'
+)
+CONSENT_MANUAL_ITEM = "Zgoda RODO — obejrzyj plik"
+
+
+def manual_items(
+    keys: Sequence[str], labels: Sequence[str], unverified: Sequence[str]
+) -> list[str]:
+    """Rzeczy „sprawdź ręcznie” pary — jedna liczba dla karty, pigułki i panelu.
+
+    Wymagania z ról bez wskazania zamiast nazwy sprawdzenia, zgoda RODO z pliku
+    spoza NEXUSA jako osobna pozycja, reszta etykietą sprawdzenia.
+    """
+
+    wanted = [str(r) for r in dict.fromkeys(unverified) if r]
+    out = list(wanted)
+    for key, label in zip(keys, labels):
+        if not label or (key == "critical_skills" and wanted):
+            continue
+        out.append(CONSENT_MANUAL_ITEM if key == "client_rules" else str(label))
+    return out
 
 
 async def pair_statuses(
@@ -4344,11 +4396,11 @@ async def pair_statuses(
     ``warnings_count`` — uwagi nieblokujące najnowszego przebiegu (14.10.2026,
     karta „CV gotowe · N do poprawy”); 0 bez przebiegu.
 
-    ``manual_checks`` (R1, 07.11.2026) — etykiety blokujących sprawdzeń
-    najnowszego przebiegu ze stanem ``manual`` („sprawdź ręcznie”, np. odczyt
-    CV bez opisów ról). Przebieg z nimi przechodzi, ale tego nikt nie
-    sprawdził: 139 z 535 zdanych par w 30 dniach, a DL widział „QC ✓”.
-    Uwagi nieblokujące „sprawdź ręcznie” się nie liczą.
+    ``manual_items`` (QC-3, 08.11.2026) — co z najnowszego przebiegu czeka na
+    ręczne sprawdzenie (`manual_items`), per wymaganie. Przebieg z nimi
+    przechodzi, ale tego nikt nie sprawdził: 139 z 535 zdanych par w 30 dniach,
+    a DL widział „QC ✓”. Uwagi nieblokujące „sprawdź ręcznie” się nie liczą.
+    ``manual_checks`` to ta sama lista pod starszą nazwą.
 
     ``candidate_gaps`` (R2, 07.11.2026) — krytyczne, których nie ma w CV,
     w oryginale ani w rozmowie. Nie blokują (decyduje Delivery Lead), więc
@@ -4363,6 +4415,7 @@ async def pair_statuses(
             "ok_at": None,
             "dismissed_blocking": 0,
             "warnings_count": 0,
+            "manual_items": [],
             "manual_checks": [],
             "candidate_gaps": [],
         }
@@ -4395,8 +4448,15 @@ async def pair_statuses(
                     CvQcRun.result["checks"], literal_column(_MANUAL_BLOCKING_PATH)
                 ).label("manual"),
                 func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_MANUAL_BLOCKING_KEYS_PATH)
+                ).label("manual_keys"),
+                func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_UNVERIFIED_ROLES_PATH)
+                ).label("unverified"),
+                func.jsonb_path_query_array(
                     CvQcRun.result["checks"], literal_column(_CANDIDATE_GAP_PATH)
                 ).label("gaps"),
+                CvQcRun.result["ok_since"].astext.label("ok_since"),
                 has_override,
                 override_at,
             )
@@ -4441,14 +4501,18 @@ async def pair_statuses(
         # Pominięcia przywrócone po przebiegu — zaliczenie już nie obowiązuje.
         returned = max(dismissed - active_dismissals.get(pair, 0), 0)
         passed = bool(row.passed) and not returned
+        ok_since = _parse_ok_since(row.ok_since) or row.created_at
         if passed and dismissed:
-            status, ok_at = "overridden", row.created_at
+            status, ok_at = "overridden", ok_since
         elif passed:
-            status, ok_at = "passed", row.created_at
+            status, ok_at = "passed", ok_since
         elif row.has_override:
             status, ok_at = "overridden", row.override_at
         else:
             status, ok_at = "failed", None
+        items = manual_items(
+            row.manual_keys or [], row.manual or [], row.unverified or []
+        )
         out[pair] = {
             "status": status,
             "blocking_failed": (
@@ -4457,7 +4521,8 @@ async def pair_statuses(
             "ok_at": ok_at,
             "dismissed_blocking": dismissed if passed else 0,
             "warnings_count": int(row.warnings_count or 0),
-            "manual_checks": [str(label) for label in row.manual or [] if label],
+            "manual_items": items,
+            "manual_checks": items,
             "candidate_gaps": [str(r) for r in getattr(row, "gaps", None) or [] if r],
         }
     return out

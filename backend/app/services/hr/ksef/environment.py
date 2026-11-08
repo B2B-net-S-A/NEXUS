@@ -1,4 +1,4 @@
-"""Tryb i konfiguracja KSeF (``KSEF_MODE``, ``KSEF_CONTEXT_NIP``, ``KSEF_TOKEN``).
+"""Tryb i konfiguracja KSeF (``KSEF_MODE``, ``KSEF_CONTEXT_NIP``, token, certyfikat).
 
 Tryby:
 
@@ -7,18 +7,24 @@ Tryby:
   ``tests/data/ksef``), bez sieci — lokalne przeklikanie zakładki,
 * ``test`` / ``demo`` / ``prod`` — API KSeF 2.0 Ministerstwa Finansów.
 
-Środowisko API wymaga NIP-u spółki (10 cyfr, suma kontrolna) i tokenu;
-brak któregoś = integracja wyłączona z powodem w karcie stanu.
+Środowisko API wymaga NIP-u spółki (10 cyfr, suma kontrolna) oraz tokenu albo
+certyfikatu z kluczem; brak = integracja wyłączona z powodem w karcie stanu.
+Zepsuty certyfikat przy działającym tokenie nie wyłącza integracji, tylko
+trafia do logu i karty stanu.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from app.core.config import settings
+from app.services.hr.ksef import xades
 from app.services.order_client_identity import nip_checksum_valid
+
+logger = logging.getLogger(__name__)
 
 MODES = ("off", "simulate", "test", "demo", "prod")
 API_MODES = ("test", "demo", "prod")
@@ -39,7 +45,8 @@ DISABLED_REASONS = {
     "mode_off": "Pobieranie z KSeF jest wyłączone (KSEF_MODE=off).",
     "missing_context_nip": "Brak NIP-u spółki (KSEF_CONTEXT_NIP).",
     "invalid_context_nip": "NIP spółki w KSEF_CONTEXT_NIP ma złą sumę kontrolną.",
-    "missing_token": "Brak tokenu KSeF spółki (KSEF_TOKEN).",
+    "missing_token": "Brak tokenu KSeF spółki (KSEF_TOKEN) i certyfikatu (KSEF_CERTIFICATE).",
+    "invalid_certificate": "Certyfikat KSeF spółki jest nieczytelny albo klucz do niego nie pasuje.",
 }
 
 _DEFAULT_SIMULATE_DIR = Path(__file__).resolve().parents[4] / "tests" / "data" / "ksef"
@@ -52,6 +59,8 @@ class KsefConfig:
     #: Sekret — poza ``repr``, żeby nie trafił do logów przy wypisaniu obiektu.
     token: str = field(repr=False)
     simulate_dir: Path
+    identity: Optional[xades.SigningIdentity] = field(default=None, repr=False)
+    certificate_invalid: bool = False
 
     @property
     def disabled_reason(self) -> Optional[str]:
@@ -63,8 +72,10 @@ class KsefConfig:
             return "missing_context_nip"
         if not nip_checksum_valid(self.context_nip):
             return "invalid_context_nip"
-        if not self.token:
-            return "missing_token"
+        if not self.token and self.identity is None:
+            return (
+                "invalid_certificate" if self.certificate_invalid else "missing_token"
+            )
         return None
 
     @property
@@ -87,6 +98,25 @@ def current_mode() -> str:
     return mode if mode in MODES else "off"
 
 
+def _load_identity() -> tuple[Optional[xades.SigningIdentity], bool]:
+    certificate = str(getattr(settings, "KSEF_CERTIFICATE", "") or "").strip()
+    key = str(getattr(settings, "KSEF_CERTIFICATE_KEY", "") or "").strip()
+    if not certificate and not key:
+        return None, False
+    try:
+        return (
+            xades.load_identity(
+                certificate,
+                key,
+                str(getattr(settings, "KSEF_CERTIFICATE_KEY_PASSWORD", "") or ""),
+            ),
+            False,
+        )
+    except xades.CertificateError as exc:
+        logger.error("ksef: certyfikat spółki odrzucony przy wczytaniu (%s)", exc)
+        return None, True
+
+
 def load_config() -> KsefConfig:
     nip = "".join(
         ch
@@ -94,9 +124,12 @@ def load_config() -> KsefConfig:
         if ch.isdigit()
     )
     raw_dir = str(getattr(settings, "KSEF_SIMULATE_DIR", "") or "").strip()
+    identity, certificate_invalid = _load_identity()
     return KsefConfig(
         mode=current_mode(),
         context_nip=nip,
         token=str(getattr(settings, "KSEF_TOKEN", "") or "").strip(),
         simulate_dir=Path(raw_dir) if raw_dir else _DEFAULT_SIMULATE_DIR,
+        identity=identity,
+        certificate_invalid=certificate_invalid,
     )

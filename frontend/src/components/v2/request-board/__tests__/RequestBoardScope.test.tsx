@@ -117,3 +117,43 @@ describe("RequestBoard — zakres kafelka", () => {
     expect(screen.queryByText(/^Filtr:/)).not.toBeInTheDocument()
   })
 })
+
+describe("RequestBoard — rekruterzy jako licznik (panel P0 na pulpicie)", () => {
+  const person = (user_id: number, name: string) => ({
+    user_id,
+    name,
+    is_lead: false,
+    proposed: false,
+    source: "manual",
+  })
+  const staffed: RequestBoardData = {
+    ...board,
+    requests: [
+      {
+        ...board.requests[0],
+        people: [person(1, "Anna Testowa"), person(2, "Jan Próbny"), person(3, "Ewa Przykładowa")],
+      } as unknown as RequestBoardData["requests"][number],
+      board.requests[1],
+    ],
+  }
+
+  it("w wierszu „3 osoby” z nazwiskami w dymku zamiast chipów", () => {
+    mocks.board = staffed
+    render(<RequestBoard onlyJobIds={new Set([1])} recruitersAsCount />)
+    const count = screen.getByTestId("request-people-count")
+    expect(count).toHaveTextContent("3 osoby")
+    expect(count).toHaveAttribute("title", expect.stringContaining("Anna Testowa"))
+    expect(screen.queryByText("Jan Próbny")).toBeNull()
+  })
+
+  it("bez przełącznika chipy zostają, a pusty request nadal mówi „Bez rekrutera”", () => {
+    mocks.board = staffed
+    const { unmount } = render(<RequestBoard onlyJobIds={new Set([1])} />)
+    expect(screen.queryByTestId("request-people-count")).toBeNull()
+    expect(screen.getByText(/Jan/)).toBeInTheDocument()
+    unmount()
+    render(<RequestBoard onlyJobIds={new Set([3])} recruitersAsCount />)
+    expect(screen.queryByTestId("request-people-count")).toBeNull()
+    expect(screen.getByText("Bez rekrutera")).toBeInTheDocument()
+  })
+})

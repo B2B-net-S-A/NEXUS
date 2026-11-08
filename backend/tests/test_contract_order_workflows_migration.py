@@ -6,6 +6,10 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.static
+
 BACKEND = Path(__file__).resolve().parents[1]
 MIGRATION = BACKEND / "alembic" / "versions" / "0238_contract_order_workflows.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"

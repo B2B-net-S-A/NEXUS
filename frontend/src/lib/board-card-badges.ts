@@ -21,7 +21,8 @@ import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
 import { qcCountsText, qcStateText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
-import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf } from "@/lib/warsaw-date";
+import { formatDayMonthPl } from "@/lib/date-pl";
 import { addedToBaseTitle, addedToBaseView, newInBaseDaysText } from "@/lib/added-to-base";
 import type { PreContractTone } from "@/lib/api/preContracts";
 import { offLimitsConfirmedDay } from "@/lib/off-limits";
@@ -45,6 +46,8 @@ export interface CardBadge {
   label: string;
   tone: CardBadgeTone;
   title?: string;
+  /** `data-testid` plakietki; domyślnie `card-badge-<key>`. */
+  testId?: string;
 }
 
 /** 0370: podpowiedź do odznak prepów — ruch karty nie jest blokowany. */
@@ -110,13 +113,6 @@ export function hoursLeft(until: string, now: Date): string {
   return `${Math.floor(ms / 3_600_000)} h`;
 }
 
-/** „dziś”, „1 dzień”, „3 dni” — ile osoba czeka (plakietki karty). */
-export function daysLabel(days: number): string {
-  if (days <= 0) return "dziś";
-  if (days === 1) return "1 dzień";
-  return `${days} dni`;
-}
-
 // ── „Do wysłania do klienta” (13.10.2026) ───────────────────────────────────
 
 const DAY_MS = 86_400_000;
@@ -168,13 +164,16 @@ export function dlReadySince(item: KanbanItem): number | null {
   return moved == null || ok == null ? null : Math.max(moved, ok);
 }
 
-/** Dni KALENDARZOWE w Europe/Warsaw od gotowości — ta sama arytmetyka co
- *  `waitingFor` (`lib/api/boardTasks.ts`); bez dat zostają dni na etapie. */
-export function dlWaitingDays(item: KanbanItem, now: Date): number {
-  const since = dlReadySince(item);
-  if (since == null) return item.days_in_stage ?? 0;
-  const dayNumber = (d: Date) => Date.parse(`${warsawToday(d)}T00:00:00Z`) / DAY_MS;
-  return Math.max(0, Math.round(dayNumber(now) - dayNumber(new Date(since))));
+/** „czeka 2 dni rob.” — jedyna liczba dni na karcie (U5, audyt 08.11.2026).
+ *  Liczy ją serwer (`waiting_workdays`, ta sama funkcja co pas DL). */
+export function waitingWorkdaysText(days: number): string {
+  return days === 1 ? "czeka 1 dzień rob." : `czeka ${days} dni rob.`;
+}
+
+/** „na etapie od 03.11” — dni kalendarzowe zostają tylko w dymku karty. */
+export function stageSinceText(item: Pick<KanbanItem, "moved_at">): string | null {
+  const day = item.moved_at ? formatDayMonthPl(warsawDateOf(item.moved_at)) : "—";
+  return day === "—" ? null : `na etapie od ${day}`;
 }
 
 /**
@@ -196,11 +195,11 @@ export function dlSendQueue(
     .sort((a, b) => since(a) - since(b));
 }
 
-/** „od dziś”, „od 1 dnia”, „od 3 dni”. */
+/** „od dziś.”, „od 1 dnia rob.”, „od 3 dni rob.” — razem z kropką zdania. */
 function sinceLabel(days: number): string {
-  if (days <= 0) return "od dziś";
-  if (days === 1) return "od 1 dnia";
-  return `od ${days} dni`;
+  if (days <= 0) return "od dziś.";
+  if (days === 1) return "od 1 dnia rob.";
+  return `od ${days} dni rob.`;
 }
 
 export interface DlWaitingStatus {
@@ -217,12 +216,18 @@ export interface DlWaitingStatus {
  * Ciebie”, której rekruter nie ma. Bez karty (starszy wołający) — zdanie,
  * które jest prawdą zawsze.
  */
-export function dlWaitingStatus(item: KanbanItem | null | undefined, now: Date): DlWaitingStatus {
+export function dlWaitingStatus(item: KanbanItem | null | undefined): DlWaitingStatus {
   if (!item) {
     return { ready: false, text: "Osoba jest w „QC CV” — trafi do Delivery Leada, gdy QC przejdzie." };
   }
   if (isReadyForDlSend(item, "cv_qc", false)) {
-    return { ready: true, text: `Czeka u Delivery Leada ${sinceLabel(dlWaitingDays(item, now))}.` };
+    return {
+      ready: true,
+      text:
+        item.waiting_workdays == null
+          ? "Czeka u Delivery Leada."
+          : `Czeka u Delivery Leada ${sinceLabel(item.waiting_workdays)}`,
+    };
   }
   if (item.qc?.status === "failed") {
     return {
@@ -777,14 +782,13 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   // DL czeka dopiero na CV, które przeszło QC (albo przepuszczone) — przy
   // niesprawdzonym lub niezaliczonym QC ruch ma rekruter. Dni liczą się od
   // gotowości, nie od wejścia do kolumny; Delivery Lead tej rekrutacji czyta
-  // „Czeka na Ciebie” (13.10.2026).
+  // „Czeka na Ciebie” (13.10.2026). Liczba dni stoi w wierszu ruchu (U5).
   if (countsForDlReview(item, column, ctx.stageBadge === "cpro")) {
-    const waited = daysLabel(dlWaitingDays(item, ctx.now));
     out.push(
       ctx.viewerOwnsDlReview
         ? {
             key: "dl_review",
-            label: `Czeka na Ciebie · ${waited}`,
+            label: "Czeka na Ciebie",
             tone: "wait",
             title: ctx.cproEnabled
               ? "Przejrzyj CV, wpisz stawkę do Cpro i zaakceptuj do kolejki Cpro."
@@ -792,7 +796,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
           }
         : {
             key: "dl_review",
-            label: `Czeka na DL · ${waited}`,
+            label: "Czeka na DL",
             tone: "wait",
             title: ctx.cproEnabled
               ? "Delivery Lead przegląda CV, wpisuje stawkę do Cpro i akceptuje osobę do kolejki Cpro."
@@ -829,10 +833,12 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     });
   }
   if (column === "cv_sent" && (item.days_in_stage ?? 0) >= 5) {
+    const since = stageSinceText(item);
     out.push({
       key: "client_silence",
-      label: `${item.days_in_stage} dni bez odpowiedzi`,
+      label: "Klient milczy",
       tone: "wait",
+      title: since ? `Klient jeszcze nie odpowiedział, ${since}.` : "Klient jeszcze nie odpowiedział.",
     });
   }
   // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni (jeden
@@ -844,14 +850,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     item.followup.state !== "scheduled"
   ) {
     const f = item.followup;
+    const full = cardBadgeLabel(f, ctx.viewerId);
     out.push({
       key: "followup",
-      label: cardBadgeLabel(f, ctx.viewerId),
+      // Bez liczby na karcie (U5): „zaległy 31 dni” stało obok liczby z wiersza ruchu.
+      label: f.state === "overdue" ? full.replace(/ \d+ .*$/, "") : full,
       tone: f.state === "overdue" ? "urgent" : f.state === "today" ? "wait" : "neutral",
-      title:
+      title: `${full}. ${
         f.process_count > 1
           ? `Kandydat czeka na klienta w ${f.process_count} procesach — dzwoni jedna osoba i mówi o wszystkich.`
-          : "Klient milczy od 14 dni — telefon do kandydata, że dalej jest w procesie.",
+          : "Klient milczy od 14 dni — telefon do kandydata, że dalej jest w procesie."
+      }`,
     });
   }
   // Odznaka rozmowy stoi w KAŻDEJ kolumnie: do 24.09.2026 tylko w „Rozmowie
@@ -921,6 +930,130 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     );
   }
   return out;
+}
+
+// ── Dwie plakietki i „+N” (U1, audyt 08.11.2026) ────────────────────────────
+
+/** Tyle plakietek stoi w drugim wierszu karty, reszta idzie do dymku „+N”. */
+export const CARD_PRIMARY_LIMIT = 2;
+
+/** Mówi to przycisk w wierszu ruchu — nie dokłada ani plakietki, ani „+N”. */
+const SAID_BY_MOVE_ROW: ReadonlySet<string> = new Set(["dl_review"]);
+
+/** Fakty tylko do dymku: „Nowy · N dni”, „3 dni bez decyzji”, „U klienta 3×”… */
+const ONLY_IN_MORE = (key: string): boolean =>
+  key === "autofill_due" ||
+  key === "new_in_base" ||
+  key === "other_jobs" ||
+  key === "fresh_slot" ||
+  key === "rating" ||
+  key === "contact" ||
+  key === "screening" ||
+  key.startsWith("known_");
+
+/** Kolejność w obrębie grupy; prefiksy dynamicznych kluczy po `startsWith`. */
+const WITHIN_GROUP: readonly string[] = [
+  "hm_veto",
+  "warning_",
+  "off_limits",
+  "champion",
+  "booked_call",
+  "followup",
+  "interview",
+  "qc",
+  "scorecard",
+  "start_docs",
+  "rate_change",
+  "pre_contract",
+  "agreement",
+  "employment",
+  "over_budget",
+  "critical_gap",
+  "autofill_caution_",
+  "requirements_skipped",
+  "care",
+  "cv_state",
+  "client_silence",
+  "contract",
+  "previous_opening",
+  "client_acceptance",
+  "order",
+  "client_rate",
+  "stage_",
+  "recommendation_card",
+  "reassign",
+  "source",
+  "link",
+  "portal",
+  "claim",
+];
+
+function withinGroup(key: string): number {
+  const exact = WITHIN_GROUP.indexOf(key);
+  if (exact >= 0) return exact;
+  const prefix = WITHIN_GROUP.findIndex((p) => p.endsWith("_") && key.startsWith(p));
+  return prefix >= 0 ? prefix : WITHIN_GROUP.length;
+}
+
+const ACTIVE_TONES: ReadonlySet<CardBadgeTone> = new Set(["urgent", "wait", "call_today", "own", "lock"]);
+
+/**
+ * Stały priorytet: 0 blokery (weto, czarna lista, off-limits), 1 ruch z terminem,
+ * 2 ostrzeżenia, 3 stan. Ten sam klucz może zmienić grupę przez ton: „QC: 2 do
+ * poprawy” to ruch, „QC przepuszczone” to ostrzeżenie, a zdane QC to tylko stan.
+ */
+function badgeGroup(b: CardBadge): 0 | 1 | 2 | 3 {
+  if (b.key === "hm_veto" || b.key === "off_limits") return 0;
+  if (b.key.startsWith("warning_")) return b.tone === "urgent" ? 0 : 2;
+  if (b.key === "champion" || b.key === "booked_call" || b.key === "followup" || b.key === "scorecard") return 1;
+  if (b.key === "claim") return b.tone === "own" || b.tone === "lock" ? 1 : 3;
+  if (b.key === "qc") return b.tone === "urgent" ? 1 : b.tone === "wait" ? 2 : 3;
+  if (b.key === "interview" || b.key === "start_docs" || b.key === "rate_change" || b.key === "pre_contract" || b.key === "agreement") {
+    return ACTIVE_TONES.has(b.tone) ? 1 : 3;
+  }
+  if (b.key === "cv_state") return b.tone === "wait" ? 2 : 3;
+  if (
+    b.key === "employment" ||
+    b.key === "over_budget" ||
+    b.key === "critical_gap" ||
+    b.key.startsWith("autofill_caution_") ||
+    b.key === "requirements_skipped" ||
+    b.key === "care" ||
+    b.key === "client_silence" ||
+    b.key === "contract" ||
+    b.key === "previous_opening"
+  ) {
+    return 2;
+  }
+  return 3;
+}
+
+export interface CardPrimaryBadges {
+  /** Drugi wiersz karty: najwyżej `CARD_PRIMARY_LIMIT`. */
+  primary: CardBadge[];
+  /** Dymek „+N”: pełna treść tego, co nie weszło do wiersza. */
+  more: CardBadge[];
+}
+
+/**
+ * Karta w trzech wierszach (U1, zgoda Artura 08.11.2026): najwyżej dwie
+ * plakietki według stałego priorytetu, reszta bez utraty treści w „+N”.
+ * `signals` to to, co karta liczy sama (weto, budżet, chip QC, etap…), bo
+ * zależy od całej Tablicy, a nie od samego wiersza.
+ */
+export function cardPrimaryBadges(
+  item: KanbanItem,
+  ctx: CardBadgeContext | null,
+  signals: readonly CardBadge[] = [],
+): CardPrimaryBadges {
+  const all = [...(ctx ? cardBadges(item, ctx) : []), ...signals].filter((b) => !SAID_BY_MOVE_ROW.has(b.key));
+  const ranked = all
+    .map((badge, index) => ({ badge, index, group: badgeGroup(badge), order: withinGroup(badge.key) }))
+    .sort((a, b) => a.group - b.group || a.order - b.order || a.index - b.index)
+    .map((r) => r.badge);
+  const eligible = ranked.filter((b) => !ONLY_IN_MORE(b.key));
+  const primary = eligible.slice(0, CARD_PRIMARY_LIMIT);
+  return { primary, more: ranked.filter((b) => !primary.includes(b)) };
 }
 
 /**

@@ -13,9 +13,17 @@ import { useThemeStore } from "@/store/theme";
 // role="alert") — runda 13 dała im własny wariant.
 type ToastType = "success" | "error" | "info" | "action";
 
+export interface ToastChips {
+  label: string;
+  options: readonly { value: string; label: string }[];
+  onPick: (value: string) => void;
+}
+
 interface ActionToastOptions {
   actionLabel: string;
   onAction: () => void | Promise<void>;
+  // Opcjonalne pigułki pod komunikatem (CV-2): jedno kliknięcie, można pominąć.
+  chips?: ToastChips;
   // Visible window for the action button. Defaults to 10 seconds — matches
   // the "Cofnij wysyłkę emaila" use case (the full undo window server-side
   // is 15 minutes, but the toast only prompts for the first few seconds).
@@ -27,6 +35,8 @@ interface Toast {
   message: string;
   type: ToastType;
   actionLabel?: string;
+  chips?: ToastChips;
+  chipPicked?: string;
   onAction?: () => void | Promise<void>;
 }
 
@@ -104,6 +114,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           type: "action",
           actionLabel: options.actionLabel,
           onAction: options.onAction,
+          chips: options.chips,
         },
       ]);
       scheduleDismiss(id, durationMs);
@@ -160,7 +171,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             aria-live={toast.type === "error" ? "assertive" : "polite"}
             aria-atomic="true"
             className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium pointer-events-auto",
+              "flex flex-wrap items-center gap-x-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium pointer-events-auto",
               "animate-in slide-in-from-right-5 fade-in-0 duration-200",
               toast.type === "success" &&
                 "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-200",
@@ -168,8 +179,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 "bg-destructive/10 border-destructive/20 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200",
               toast.type === "info" &&
                 "bg-info-muted border-info/25 text-info-muted-foreground",
+              // Pigułki leżą nad panelem osoby: na przezroczystym tle nie da się ich czytać.
               toast.type === "action" &&
-                "bg-primary/10 border-primary/20 text-primary dark:bg-primary/40 dark:border-primary/90 dark:text-primary"
+                (toast.chips
+                  ? "bg-card border-border text-foreground"
+                  : "bg-primary/10 border-primary/20 text-primary dark:bg-primary/40 dark:border-primary/90 dark:text-primary")
             )}
           >
             {toast.type === "success" && (
@@ -216,6 +230,35 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             >
               <X aria-hidden="true" className="w-3.5 h-3.5" />
             </button>
+            {toast.chips && (
+              <div className="basis-full pt-1">
+                <p className="mb-1 text-xs font-normal">{toast.chips.label}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {toast.chips.options.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={toast.chipPicked === option.value}
+                      disabled={toast.chipPicked != null}
+                      onClick={() => {
+                        toast.chips?.onPick(option.value);
+                        setToasts((prev) =>
+                          prev.map((item) => (item.id === toast.id ? { ...item, chipPicked: option.value } : item)),
+                        );
+                      }}
+                      className={cn(
+                        "min-h-8 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                        toast.chipPicked === option.value
+                          ? "border-primary bg-primary/15"
+                          : "border-border bg-background text-foreground hover:border-primary disabled:opacity-60",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

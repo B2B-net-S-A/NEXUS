@@ -34,6 +34,7 @@
   "GET /api/review-batch/me": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/review-batch/me/queue": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/review-batch/settings": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/review-batch/team": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "POST /api/review-batch/jobs/{job_id}/more": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/review-batch/settings": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }

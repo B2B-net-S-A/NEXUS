@@ -17,7 +17,7 @@
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, triggerSessionExpiredRedirect } from "@/lib/api";
 import { countPl } from "@/lib/plural-pl";
@@ -59,14 +59,9 @@ import { hasCapability } from "@/lib/capabilities";
 import { countsForDlSend, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { MyPeopleSummary } from "@/lib/api/myPeople";
 import {
-  MY_PEOPLE_MATCH_EVENT,
   briefFragments,
-  jobIdFromMatchLink,
-  myPeopleMatchHref,
-  type MyPeopleMatchEventDetail,
 } from "@/lib/my-people-summary";
 import { hasRole, useAuthStore } from "@/store/auth";
-import { useMyPeoplePanel } from "@/store/my-people";
 import { useThemeStore } from "@/store/theme";
 import { useOptionalToast } from "@/components/Toast";
 import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
@@ -155,11 +150,6 @@ export function JarvisRoot() {
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
-  // Przypomnienie „Moi ludzie": dymek prowadzi do listy tej rekrutacji. Ma
-  // pierwszeństwo przed porannym skrótem — dotyczy rekrutacji z tej chwili.
-  const [nudge, setNudge] = useState<{ text: string; href: string | null } | null>(null);
-  const router = useRouter();
-  const openMyPeople = useMyPeoplePanel((st) => st.openPanel);
   const [webMode, setWebMode] = useState(false);
   const [search, setSearch] = useState("");
   // Dymek po trzeciej takiej samej odmowie serwera.
@@ -423,25 +413,6 @@ export function JarvisRoot() {
     return () => window.removeEventListener(JARVIS_OPEN_EVENT, onOpen);
   }, [active, send]);
 
-  // Dzwonek `my_people_match` (useNotifications → zdarzenie okna): Jarvis mówi
-  // o nowej rekrutacji, a kliknięcie otwiera listę „Moi ludzie” tej rekrutacji
-  // (07.11.2026; wcześniej pytał sam siebie w czacie i karta „Zrób to”
-  // wygasała). Na żywo — przegapione dopasowania zbiera poranny skrót.
-  useEffect(() => {
-    if (!active || !available || !prefs.enabled) return;
-    const onMatch = (e: Event) => {
-      const detail = (e as CustomEvent<MyPeopleMatchEventDetail>).detail;
-      if (!detail) return;
-      const jobId = jobIdFromMatchLink(detail.link);
-      setNudge({
-        text: `${detail.title}. Kliknij, pokażę Twoich ludzi do tej rekrutacji.`,
-        href: myPeopleMatchHref(jobId),
-      });
-    };
-    window.addEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
-    return () => window.removeEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
-  }, [active, available, prefs.enabled]);
-
   // Poranny skrót dnia — BEZ modelu: liczby z istniejących tras, raz dziennie.
   const briefKey = storageKey(user?.id, "brief");
   useEffect(() => {
@@ -610,7 +581,7 @@ export function JarvisRoot() {
       ? "Dzisiejszy limit wyszukiwań w internecie jest wyczerpany"
       : null;
   const mood = kids.mood ?? turn.mood;
-  const bubble = nudge?.text ?? brief ?? stuck?.text ?? kids.bubble;
+  const bubble = brief ?? stuck?.text ?? kids.bubble;
 
   return (
     <>
@@ -623,28 +594,20 @@ export function JarvisRoot() {
           minimized={prefs.minimized}
           open={open}
           bubble={bubble}
-          attention={Boolean(brief || nudge || stuck)}
+          attention={Boolean(brief || stuck)}
           onToggle={() => setOpen((v) => !v)}
           onHide={hideMascot}
           onBubbleClick={() => {
             const wasBrief = Boolean(brief);
-            const pending = nudge;
-            const pendingStuck = !pending && !wasBrief ? stuck : null;
-            setNudge(null);
+            const pendingStuck = !wasBrief ? stuck : null;
             setBrief(null);
             setStuck(null);
             kids.dismiss();
-            if (pending) {
-              if (pending.href) router.push(pending.href);
-              else openMyPeople();
-              return;
-            }
             setOpen(true);
             if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
             else if (pendingStuck) openStuck(pendingStuck.code);
           }}
           onDismissBubble={() => {
-            setNudge(null);
             setBrief(null);
             setStuck(null);
             kids.dismiss();

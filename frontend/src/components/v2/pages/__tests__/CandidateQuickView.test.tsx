@@ -46,10 +46,6 @@ vi.mock("@/hooks/useCandidateNavigation", () => ({
   }),
 }));
 
-vi.mock("@/components/calls/CallButton", () => ({
-  default: ({ phone }: { phone: string }) => <button>{phone}</button>,
-}));
-
 vi.mock("@/components/v2/modals/QuickAssignV2", () => ({
   QuickAssignV2: () => null,
 }));
@@ -373,30 +369,14 @@ describe("CandidateQuickView", () => {
     expect(screen.queryByText(/Oznacz(ono)? jako zatrudnionego/)).toBeNull();
   });
 
-  it("offers click-to-call only when CloudTalk is enabled", async () => {
-    const { unmount } = render(
-      <CandidateQuickView candidateId={7} onClose={vi.fn()} />,
-      { wrapper },
-    );
+  it("shows the phone as plain text, without click-to-call", async () => {
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
     expect(await screen.findByText("+48 500 100 200")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "+48 500 100 200" }),
     ).not.toBeInTheDocument();
-    unmount();
-
-    const base = apiGet.getMockImplementation()!;
-    apiGet.mockImplementation((url: string, config?: unknown) => {
-      if (url === "/api/calls/cloudtalk-status") {
-        return Promise.resolve({ data: { enabled: true } } as never);
-      }
-      return base(url, config as never);
-    });
-    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
-      wrapper,
-    });
-    expect(
-      await screen.findByRole("button", { name: "+48 500 100 200" }),
-    ).toBeInTheDocument();
   });
 
   it.each([

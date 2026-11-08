@@ -19,19 +19,31 @@ Ten sam rejestr co umowa B2B (``b2b_generated_contracts``,
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from app.schemas.b2b_contract_generator import B2BMandateRenderRequest
-from app.services.academy_documents import pesel_valid
 from app.services.b2b_contract_generator.formatting import format_rate, pl_date
 from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.number_words import rate_in_words
 from app.services.b2b_documents.company_party import company_party
 from app.services.b2b_documents.render import render_docx_file, render_html_file
 from app.services.hr import payroll_rates
+
+_PESEL = re.compile(r"^\d{11}$")
+_PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
+
+
+def pesel_valid(value: str) -> bool:
+    """11 cyfr i poprawna cyfra kontrolna."""
+    if not _PESEL.match(value):
+        return False
+    total = sum(int(d) * w for d, w in zip(value[:10], _PESEL_WEIGHTS))
+    return (10 - total % 10) % 10 == int(value[10])
+
 
 MANDATE_KIND = "mandate"
 

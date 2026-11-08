@@ -91,11 +91,40 @@ export function CvControlSummary({ checks, override, hideOverrideLine = false, o
               {requirement} — nikt nie sprawdził opisu w rolach
             </Line>
           ))}
+          {control.consentManual ? (
+            <Line
+              icon={<HelpCircle className="size-4 text-warning" aria-hidden />}
+              action={
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onOpenQc}>
+                  Otwórz QC
+                </Button>
+              }
+            >
+              Zgoda RODO z pliku kandydata — obejrzyj ręcznie
+            </Line>
+          ) : null}
+          {control.dismissed.map((entry, i) => (
+            <Line
+              key={`dismissed-${entry.what}-${i}`}
+              icon={<AlertTriangle className="size-4 text-warning" aria-hidden />}
+              action={
+                i === 0 ? (
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onOpenQc}>
+                    Otwórz QC
+                  </Button>
+                ) : undefined
+              }
+            >
+              Pominięte jako nieprawdziwe: {entry.what}
+              {entry.by || entry.reason ? " — " : ""}
+              {[entry.by, entry.reason].filter(Boolean).join(": ")}
+            </Line>
+          ))}
           {override && !hideOverrideLine ? (
             <Line icon={<AlertTriangle className="size-4 text-warning" aria-hidden />}>
               Przepuszczone mimo uwag — {override.by_name ?? "rekruter"}: {override.reason.replace(/[.\s]+$/, "")}
             </Line>
-          ) : !override ? (
+          ) : !override && control.dismissed.length === 0 ? (
             <Line icon={<CheckCircle2 className="size-4 text-success" aria-hidden />}>Nic nie przepuszczono mimo uwag</Line>
           ) : null}
         </ul>

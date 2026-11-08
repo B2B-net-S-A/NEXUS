@@ -13,6 +13,8 @@ z wynikiem −0,80, ujemna w 151 ze 166 rekrutacji). Z 3 231 kart od systemu rus
 
 - **Kolejność liczy front** (`orderNewColumn`), przed filtrem „Kto dodał”, więc
   miejsce karty nie zależy od filtra, a strzałki panelu chodzą tą samą listą.
+  Serwerowe lustro dla ekranu porcji: `services/review_batch_order.order_cards`.
+  Zmiana kolejności tu wymaga zmiany tam.
   `_newest_first` na serwerze zostaje: inne kolumny i inni czytelnicy z niego
   korzystają.
 - **Na górze od najmłodszego:** osoby dodane przez zespół i karty od systemu,

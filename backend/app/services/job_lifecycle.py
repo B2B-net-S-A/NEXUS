@@ -1387,6 +1387,11 @@ async def publish_core(
                 actor_id=current_user.id,
                 reason="job_reopened",
             )
+    if status_changes:
+        # Zmiana słownika unieważnia wyniki tylko opublikowanych (`invalidate_scores`).
+        from app.services.match_score_cache import mark_stale_for_job
+
+        await mark_stale_for_job(db, job.id)
     job.status = JobStatus.published
     details: Optional[dict] = None
     if reopened or reason:

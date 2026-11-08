@@ -429,7 +429,7 @@ describe("AddCandidateFromCVModal — nowa osoba z CV", () => {
     const { onChanged } = await uploadCv(user);
 
     expect(await screen.findByText(/Osoba jest w „Nowych” w rekrutacji Senior Java Developer/)).toBeInTheDocument();
-    expect(bulkAdd).toHaveBeenCalledWith(7, { candidate_ids: [77], source: "quick_add" });
+    expect(bulkAdd).toHaveBeenCalledWith(7, { candidate_ids: [77], source: "quick_add", found_via: "outside_base" });
     expect(onChanged).toHaveBeenCalled();
   });
 

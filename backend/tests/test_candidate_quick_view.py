@@ -12,7 +12,6 @@ from app.services.candidate_quick_view import (
     resolve_source,
 )
 from app.services.cv_parser import _normalize_cv_output
-from app.services.traffit.importer import _traffit_document_kind
 
 
 def _candidate(**overrides) -> SimpleNamespace:
@@ -245,9 +244,3 @@ def test_bullet_formatter_normalizes_common_sector_labels_to_polish():
         }
     )
     assert bullets == ["Sektory: Bankowość, Administracja publiczna, Telekomunikacja."]
-
-
-def test_traffit_attachment_classification_is_conservative():
-    assert _traffit_document_kind("Jan-Kowalski-CV.pdf", is_primary=False) == "cv"
-    assert _traffit_document_kind("certificate-aws.pdf", is_primary=False) == "other"
-    assert _traffit_document_kind("profile.pdf", is_primary=True) == "cv"

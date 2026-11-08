@@ -17,6 +17,7 @@ import {
   type AutofillLearnedFrom,
   type AutofillReason,
 } from "@/lib/autofill-feedback";
+import { knownFactLabels } from "@/lib/new-column-queue";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,6 +47,16 @@ export function rejectMissing(reason: AutofillReason | null, note: string): stri
   return "";
 }
 
+/** Dlaczego osoba stoi na tym miejscu; `null`, gdy decyduje sam wynik. */
+export function orderLine(item: ReviewBatchItem): string | null {
+  const parts = [
+    ...knownFactLabels(item.known).map((label) => label.toLowerCase()),
+    item.order_active ? "aktywnie szuka" : null,
+    item.order_in_budget ? "stawka w budżecie" : null,
+  ].filter(Boolean);
+  return parts.length ? `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}` : null;
+}
+
 function rateLine(item: ReviewBatchItem): string | null {
   if (item.rate_from_hourly == null) return null;
   const rate = `od ${Math.round(item.rate_from_hourly)} ${item.rate_currency === "PLN" || !item.rate_currency ? "zł" : item.rate_currency}/h`;
@@ -69,6 +80,7 @@ export function ReviewBatchCard({
 
   const missing = useMemo(() => rejectMissing(reason, note), [reason, note]);
   const rate = rateLine(item);
+  const order = orderLine(item);
   const overBudget =
     item.rate_from_hourly != null &&
     item.budget_hourly != null &&
@@ -176,6 +188,7 @@ export function ReviewBatchCard({
             {Math.round(item.score)}%
           </div>
         </div>
+        {order ? <p className="text-xs text-muted-foreground">{order}</p> : null}
         <div className="flex flex-wrap gap-1.5" aria-label="Musi mieć">
           {item.matched_must.map((m) => (
             <span key={`m-${m}`} className="rounded bg-success/15 px-1.5 py-0.5 text-xs text-success">
@@ -213,6 +226,7 @@ export function ReviewBatchCard({
       </div>
 
       {!rejecting ? (
+        <>
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={() => void toScreening()}
@@ -231,6 +245,10 @@ export function ReviewBatchCard({
             <X className="h-4 w-4" aria-hidden="true" /> Odrzuć… <kbd className="ml-1 text-xs opacity-70">O</kbd>
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Screening liczy się do minimum po wpisaniu wyniku albo ruchu dalej (do 2 dni roboczych). Odrzucenie z powodem liczy się od razu.
+        </p>
+        </>
       ) : (
         <div className="rounded-lg border border-border bg-card p-3 space-y-3" data-testid="review-reject-form">
           <div className="text-sm font-medium">Dlaczego odrzucasz? (1–8)</div>

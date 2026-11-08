@@ -53,7 +53,6 @@ from app.services.admin_active_decision import latest_admin_active_decision
 from app.services.account_deactivation import deactivate_account
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
-from app.services import trainee_program
 from app.services.user_email import find_user_by_email, normalize_email
 from app.services.critical_events import record_executed
 from app.services.effective_access import (
@@ -305,9 +304,6 @@ async def create_user(
     )
     db.add(user)
     await db.flush()
-    await trainee_program.sync_program_for_roles(
-        db, user.id, before=[], after=roles_list, actor_id=_admin.id
-    )
     # „Ludzie w NEXUSIE”: nowe konto pracownicze dostaje kartotekę (19.10.2026).
     await account_profiles.ensure_profile_on_account(
         db, user, actor_id=_admin.id, source="admin_create"
@@ -451,13 +447,6 @@ async def update_user(
         # 0612: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
         # znika z „Nowych osób do ustawienia”.
         user.setup_pending_since = None
-    await trainee_program.sync_program_for_roles(
-        db,
-        user.id,
-        before=original_effective_roles,
-        after=list(user.roles or []),
-        actor_id=_admin.id,
-    )
 
     if entering_finance:
         cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
@@ -1140,16 +1129,6 @@ async def resync_aad_groups(
                 )
             )
         user.roles = role_strs
-    # R8-N3-1: bliźniak zapisu ról z panelu i logowania SSO — bez tego awans
-    # przez grupę AAD zostawiał program praktykanta „active”, a ponowne
-    # nadanie roli nie wznawiało zakończonego programu.
-    await trainee_program.sync_program_for_roles(
-        db,
-        user.id,
-        before=previous_effective_roles,
-        after=list(role_strs),
-        actor_id=_admin.id,
-    )
     if onboarding_reset:
         user.profile_completed = False
         user.profile_completed_at = None

@@ -108,7 +108,10 @@ def _run(**kw) -> SimpleNamespace:
         has_override=False,
         override_at=None,
         manual=None,
+        manual_keys=None,
+        unverified=None,
         gaps=None,
+        ok_since=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -131,6 +134,7 @@ async def test_pass_through_dismissals_is_overridden_while_they_last() -> None:
         "ok_at": AT,
         "dismissed_blocking": 2,
         "warnings_count": 0,
+        "manual_items": [],
         "manual_checks": [],
         "candidate_gaps": [],
     }
@@ -147,6 +151,7 @@ async def test_returned_card_without_a_new_run_is_no_longer_passed_through() -> 
         "ok_at": None,
         "dismissed_blocking": 0,
         "warnings_count": 0,
+        "manual_items": [],
         "manual_checks": [],
         "candidate_gaps": [],
     }
@@ -165,7 +170,12 @@ async def test_passed_run_carries_blocking_checks_nobody_verified() -> None:
     """R1 (07.11.2026): zdane QC z „sprawdź ręcznie” przy blokującym sprawdzeniu
     niesie jego etykietę — karta, panel i przegląd DL mówią to samo."""
     out = await _status(
-        [_run(manual=["Umiejętności krytyczne są w CV i opisane w rolach", None])],
+        [
+            _run(
+                manual=["Umiejętności krytyczne są w CV i opisane w rolach", None],
+                manual_keys=["critical_skills", None],
+            )
+        ],
         [],
     )
     assert out["status"] == "passed"
@@ -189,6 +199,7 @@ async def test_plain_pass_and_plain_failure_are_unchanged() -> None:
         "ok_at": None,
         "dismissed_blocking": 0,
         "warnings_count": 0,
+        "manual_items": [],
         "manual_checks": [],
         "candidate_gaps": [],
     }

@@ -50,11 +50,17 @@ type QueueItem = {
     /** Nowa w bazie, od progu, bez uwag — liczy serwer (`has_fresh_first`). */
     fresh_first?: boolean;
     fresh?: boolean;
+    /** Premia porcji za „Aktywnie szuka” i stawkę w budżecie, liczy serwer (`review_batch_order`). */
+    queue_bonus?: number;
   } | null;
 };
 
 function queueValue(item: QueueItem): number {
-  return (item.entry_autofill?.score ?? 0) + (item.entry_autofill?.known?.points ?? 0);
+  return (
+    (item.entry_autofill?.score ?? 0) +
+    (item.entry_autofill?.known?.points ?? 0) +
+    (item.entry_autofill?.queue_bonus ?? 0)
+  );
 }
 
 export function daysAgoText(days: number): string {
