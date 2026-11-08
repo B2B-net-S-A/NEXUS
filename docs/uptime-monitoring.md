@@ -6,8 +6,8 @@ Stan na 15.09.2026, 19:45 CEST. Konto: Grafana Cloud `arturt96`.
 
 | Nazwa checku | ID | URL | Warunek sukcesu | Lokalizacje | Częstotliwość |
 |---|---|---|---|---|---|
-| `nexus-login-http` | `89783` | `https://nexus.dynaminds.pl/login` | HTTP 2xx, podążanie za przekierowaniami | Frankfurt, Paris | 120 s |
-| `nexus-api-live-http` | `89793` | `https://api.nexus.dynaminds.pl/api/health/live` | HTTP 2xx i body zawiera `"status":"alive"` | Frankfurt, Paris | 120 s |
+| `nexus-login-http` | `89783` | `https://nexus.b2bnetwork.pl/login` | HTTP 2xx, podążanie za przekierowaniami | Frankfurt, Paris | 120 s |
+| `nexus-api-live-http` | `89793` | `https://api.nexus.b2bnetwork.pl/api/health/live` | HTTP 2xx i body zawiera `"status":"alive"` | Frankfurt, Paris | 120 s |
 
 Oba checki wysyłają `User-Agent: dynaminds-smoke-test/1.0` (reguła Cloudflare
 dla sond zdrowia). Walidacja body drugiego checku to wyrażenie regularne
