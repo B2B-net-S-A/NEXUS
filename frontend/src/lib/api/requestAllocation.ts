@@ -58,6 +58,13 @@ export interface BoardRequest {
   channel_plan_linkedin?: number | null
   /** Rekruterzy, którzy ruszają karty bez przypisania do zespołu (30 dni). */
   unassigned_workers?: { user_id: number; name: string; cards: number }[]
+  /** Ostatnie CV do klienta (ISO); brak = żadnego od otwarcia. */
+  last_cv_sent_at?: string | null
+  /** Dni robocze bez CV — tylko P1 w poszukiwaniu i od progu 5 dni (B4). */
+  days_without_cv?: number | null
+  /** Nowe profile dodane w 7 dni i ile z nich doszło do CV (B6). */
+  new_profiles_7d?: number
+  new_profiles_7d_cv?: number
 }
 
 export interface BoardGroup {

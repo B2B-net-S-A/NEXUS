@@ -72,7 +72,9 @@ import {
   filtersFromParams,
   filtersToParams,
   groupCatValue,
+  groupCvSummary,
   groupRequests,
+  lastCvTitle,
   hasUrlFilters,
   loadSummary,
   nextCategory,
@@ -83,7 +85,7 @@ import {
   type BoardFilters,
   type ShownGroup,
 } from "@/lib/request-board"
-import { boardChannelNotes, sortByChannel } from "@/lib/job-channels"
+import { boardChannelNotes, newProfilesText, sortByChannel } from "@/lib/job-channels"
 import { automatAssigns, priorityLevelOf } from "@/lib/request-priority"
 import { cn } from "@/lib/utils"
 import { resolveViewState } from "@/lib/view-state"
@@ -350,6 +352,22 @@ interface RowProps
   now: Date
 }
 
+/** Audyt 08.11.2026: B4 (P1 bez CV) i B6 (nowe profile) nad kategorią na Daily. */
+function GroupCvSummary({ rows }: { rows: readonly BoardRequest[] }) {
+  const { quietP1, p1, newProfiles, newProfilesCv } = groupCvSummary(rows)
+  return (
+    <span className="ml-auto text-xs text-muted-foreground" data-testid="request-group-cv-summary">
+      {p1 > 0 ? (
+        <span className={quietP1 > 0 ? "font-semibold text-destructive-muted-foreground" : undefined}>
+          P1 bez CV ≥5 dni: {quietP1} z {p1}
+        </span>
+      ) : null}
+      {p1 > 0 && newProfiles > 0 ? " · " : null}
+      {newProfiles > 0 ? `${newProfilesText(newProfiles, newProfilesCv)}` : null}
+    </span>
+  )
+}
+
 function RequestRow({
   board,
   request,
@@ -479,6 +497,15 @@ function RequestRow({
             „{request.p0_reason}”
           </p>
         ) : null}
+        {request.days_without_cv != null ? (
+          <span
+            className="mt-1 inline-flex w-fit items-center rounded-full bg-destructive-muted px-2 py-0.5 text-[11px] font-semibold text-destructive-muted-foreground"
+            title={lastCvTitle(request.last_cv_sent_at)}
+            data-testid="request-no-cv-pill"
+          >
+            Bez CV od {request.days_without_cv} dni rob.
+          </span>
+        ) : null}
         {meta.length > 0 && (
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-muted-foreground">
             {meta.map((item, index) => (
@@ -593,6 +620,15 @@ function RequestRow({
             {note}
           </span>
         ))}
+        {(request.new_profiles_7d ?? 0) > 0 ? (
+          <span
+            className="text-[11px] text-muted-foreground"
+            data-testid="request-new-profiles"
+            title="Profile założone przez rekrutera pod tę rekrutację w ostatnich 7 dniach, bez portali i poleceń."
+          >
+            {newProfilesText(request.new_profiles_7d ?? 0, request.new_profiles_7d_cv ?? 0)}
+          </span>
+        ) : null}
         {canStaff && !request.champion && (
           <AddPerson
             board={board}
@@ -678,6 +714,7 @@ export function RequestBoardView({
                   <Badge variant={competenceTone(group.slug)}>{group.name}</Badge>
                   <span className="text-sm font-semibold">{group.shownLabel}</span>
                   <span className="text-sm text-muted-foreground">{group.detail}</span>
+                  {daily ? <GroupCvSummary rows={group.rows} /> : null}
                 </div>
                 {group.rows.map((request) => (
                   <RequestRow

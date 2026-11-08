@@ -7,8 +7,11 @@ import { AlertTriangle } from "lucide-react";
 import {
   CHANNEL_LABELS,
   channelBuckets,
+  fetchJobNewProfiles,
   fetchUnassignedWorkers,
+  jobNewProfilesKey,
   joinChannel,
+  newProfilesText,
   parsePlanInput,
   planShortfall,
   setChannelPlan,
@@ -175,6 +178,8 @@ export function JobChannelBuckets({
         })}
       </div>
 
+      <NewProfilesNote jobId={jobId} />
+
       {buckets.none.length > 0 ? (
         <section aria-label="Bez koszyka" className="space-y-1" data-testid="channel-bucket-none">
           <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
@@ -194,6 +199,25 @@ export function JobChannelBuckets({
       {canStaff ? <PlanEditor jobId={jobId} plan={plan} run={run} pending={pending} /> : null}
       <UnassignedNotice jobId={jobId} canStaff={canStaff} run={run} pending={pending} />
     </div>
+  );
+}
+
+function NewProfilesNote({ jobId }: { jobId: number }) {
+  const { data, isSuccess } = useQuery({
+    queryKey: jobNewProfilesKey(jobId),
+    queryFn: () => fetchJobNewProfiles(jobId),
+    staleTime: 60_000,
+  });
+  // Pomiar jest dodatkiem: przy błędzie nie pokazujemy „0”, tylko nic.
+  if (!isSuccess) return null;
+  return (
+    <p
+      className="text-[11px] text-muted-foreground"
+      data-testid="job-new-profiles"
+      title="Profile założone przez rekrutera pod tę rekrutację (najwyżej dzień przed dodaniem karty), bez portali i poleceń."
+    >
+      {newProfilesText(data.added, data.reached_cv)}
+    </p>
   );
 }
 

@@ -31,6 +31,7 @@
   "back_office"
  ],
  "routes": {
+  "GET /api/insights/clients/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/clients/hiring-managers": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/clients/hit-ratio": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/clients/ranking": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD"

@@ -4,7 +4,7 @@
  * a rekruter spoza zespołu, który rusza karty, jest ostrzeżeniem.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -77,6 +77,24 @@ describe("JobChannelBuckets", () => {
     expect(
       within(screen.getByRole("region", { name: "Bez koszyka" })).getByText("Daria Przykładowa"),
     ).toBeInTheDocument();
+  });
+
+  it("pokazuje nowe profile z 7 dni i ile doszło do CV", async () => {
+    apiMock.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url.endsWith("/new-profiles") ? { added: 4, reached_cv: 3 } : [] }),
+    );
+    renderBuckets();
+    expect(await screen.findByTestId("job-new-profiles")).toHaveTextContent(
+      "Nowe profile w 7 dni: 4, doszły do CV: 3",
+    );
+    expect(apiMock.get).toHaveBeenCalledWith("/api/jobs/11/new-profiles");
+  });
+
+  it("błąd pomiaru nie pokazuje wymyślonego zera", async () => {
+    apiMock.get.mockRejectedValue(new Error("500"));
+    renderBuckets();
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalled());
+    expect(screen.queryByTestId("job-new-profiles")).toBeNull();
   });
 
   it("rekruter wybiera koszyk tylko sobie; planu nie ustawia", async () => {

@@ -49,6 +49,8 @@ from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services.autofill_decisions import business_days_since
+from app.services.job_priority import level_of
 from app.services.job_similarity import CLIENT_STAGES
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,12 @@ SEND_UNTIL_HOUR = 17
 TITLES_MAX = 8
 _LOCK_ID = 617_2810_26
 
+# Rekrutacja P1 bez CV do klienta (audyt 08.11.2026, teza B4): od tylu dni
+# roboczych Daily pokazuje pigułkę, a Delivery Lead dostaje dzwonek. Bez maila
+# i bez zamykania; zamyka wyłącznie reguła 14/21/28 dni wyżej.
+P1_NO_CV_BUSINESS_DAYS = 5
+P1_NO_CV_STAGE = "p1_no_cv"
+
 # Odrzucenie liczy się jako odpowiedź klienta tylko u osoby, która była już
 # u klienta — odrzucenie na screeningu to praca rekrutera.
 _CLOSED_STAGES = (PipelineStage.rejected, PipelineStage.withdrawn)
@@ -86,6 +94,7 @@ class IdleFacts:
     last_move_at: Optional[datetime]
     last_move_kind: Optional[str]  # "cv" | "client"
     snoozed_at: Optional[datetime]
+    last_cv_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +164,39 @@ def idle_state(facts: IdleFacts, *, started_at: datetime, now: datetime) -> Idle
         last_move_at=facts.last_move_at,
         last_move_kind=facts.last_move_kind,
     )
+
+
+def business_days_without_cv(
+    moments: Iterable[Optional[datetime]], now: datetime
+) -> int:
+    """Pełne dni robocze od najpóźniejszej ze znanych chwil (bez dnia startu)."""
+    known = [_aware(moment) for moment in moments if moment is not None]
+    return business_days_since(max(known), _aware(now)) if known else 0
+
+
+def is_p1_searching(priority: object, work_state: object, champion: object) -> bool:
+    """Lustro Daily: P1 w „Szukamy”, bez championa (wtedy nikt już nie szuka)."""
+    return level_of(priority) == "p1" and work_state == "searching" and champion is None
+
+
+async def last_cv_sent_at(
+    db: AsyncSession, job_ids: Sequence[int]
+) -> dict[int, datetime]:
+    """Ostatnie wejście na „CV wysłane” per rekrutacja; ta sama reguła co ruch."""
+    ids = list(job_ids)
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(CandidateStage.job_id, func.max(CandidateStage.moved_at))
+            .where(
+                CandidateStage.job_id.in_(ids),
+                CandidateStage.stage == PipelineStage.cv_sent,
+            )
+            .group_by(CandidateStage.job_id)
+        )
+    ).all()
+    return {job_id: moved_at for job_id, moved_at in rows}
 
 
 def in_send_window(now: datetime) -> bool:
@@ -246,6 +288,7 @@ async def load_facts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, Idle
             last_move_at=last,
             last_move_kind=kind,
             snoozed_at=snoozed_at,
+            last_cv_at=last_cv,
         )
     return facts
 
@@ -393,7 +436,14 @@ async def run_idle_sweep(
     jobs = (
         await db.execute(
             select(
-                Job.id, Job.title, Job.working_title, Job.delivery_lead_id, Client.name
+                Job.id,
+                Job.title,
+                Job.working_title,
+                Job.delivery_lead_id,
+                Client.name,
+                Job.priority,
+                Job.work_state,
+                Job.champion_found_at,
             )
             .join(Client, Client.id == Job.client_id, isouter=True)
             .where(
@@ -407,7 +457,9 @@ async def run_idle_sweep(
         job_id: idle_state(f, started_at=start, now=now) for job_id, f in facts.items()
     }
     due = {job_id: s for job_id, s in states.items() if s.stage is not None}
-    markers = await _markers(db, due)
+    info = {row[0]: row for row in jobs}
+    p1_quiet = _p1_without_cv(facts, info, now=now)
+    markers = await _markers(db, set(due) | set(p1_quiet))
 
     users = (
         await db.execute(select(User.id, User.name, User.is_active, User.roles))
@@ -426,11 +478,10 @@ async def run_idle_sweep(
     to_lead: dict[int, list[_Line]] = {}
     to_hor: list[_Line] = []
     closed: list[_Line] = []
-    counts = {"remind": 0, "hor": 0, "closed": 0}
-    info = {row[0]: row for row in jobs}
+    counts = {"remind": 0, "hor": 0, "closed": 0, P1_NO_CV_STAGE: 0}
 
     for job_id, state in sorted(due.items(), key=lambda kv: -kv[1].quiet_days):
-        _id, title, working_title, lead_id, client = info[job_id]
+        _id, title, working_title, lead_id, client, *_rest = info[job_id]
         line = _Line(
             job_id=job_id,
             title=working_title or title,
@@ -509,9 +560,100 @@ async def run_idle_sweep(
             link=link,
         )
         sent += int(created is not None)
+    # Osobno od zbiorczego wpisu wyżej: dzwonek bez maila (`request_review_needed`
+    # nie ma maila obowiązkowego) i z własnym kluczem dnia, żeby nie zginął przy
+    # porannym skrócie Delivery Leada.
+    p1_by_lead: dict[int, list[_Line]] = {}
+    for job_id, (days, since) in sorted(p1_quiet.items(), key=lambda kv: -kv[1][0]):
+        since_iso = since.isoformat()
+        if f"{P1_NO_CV_STAGE}|{since_iso}" in markers.get(job_id, {}):
+            continue
+        _id, title, working_title, lead_id, client, *_rest = info[job_id]
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action=MARKER_ACTION,
+                user_id=None,
+                details={
+                    "stage": P1_NO_CV_STAGE,
+                    "since": since_iso,
+                    "days": days,
+                    "on": _local_day(now).isoformat(),
+                },
+            )
+        )
+        counts[P1_NO_CV_STAGE] += 1
+        line = _Line(
+            job_id=job_id,
+            title=working_title or title,
+            client=client,
+            lead_id=lead_id,
+            days=days,
+            detail=_last_cv_text(facts[job_id].last_cv_at),
+        )
+        for uid in leads_of(lead_id):
+            p1_by_lead.setdefault(uid, []).append(line)
+    for uid, lines in sorted(p1_by_lead.items()):
+        title, message, link = p1_notice_text(lines)
+        created = await emit(
+            db,
+            user_id=uid,
+            title=title,
+            message=message,
+            ntype=NotificationType.request_review_needed,
+            related_entity_type="job",
+            related_entity_id=lines[0].job_id,
+            link=link,
+        )
+        sent += int(created is not None)
     counts["sent"] = sent
     await db.flush()
     return counts
+
+
+def _p1_without_cv(
+    facts: dict[int, IdleFacts], info: dict[int, Any], *, now: datetime
+) -> dict[int, tuple[int, datetime]]:
+    """P1 w „Szukamy” z ciszą od progu: job_id → (dni robocze, początek ciszy).
+
+    „Jeszcze trwa” odsuwa dzwonek jak przy regule 14 dni; pigułka na Daily
+    pokazuje sam fakt, więc liczy tylko od CV i otwarcia.
+    """
+    out: dict[int, tuple[int, datetime]] = {}
+    for job_id, fact in facts.items():
+        priority, work_state, champion = info[job_id][5:8]
+        if not is_p1_searching(priority, work_state, champion):
+            continue
+        moments = (fact.last_cv_at, fact.opened_at, fact.snoozed_at)
+        days = business_days_without_cv(moments, now)
+        if days >= P1_NO_CV_BUSINESS_DAYS:
+            out[job_id] = (days, max(_aware(m) for m in moments if m is not None))
+    return out
+
+
+def _last_cv_text(last_cv_at: Optional[datetime]) -> str:
+    if last_cv_at is None:
+        return "bez CV od otwarcia"
+    return f"ostatnie CV {_local_day(last_cv_at).strftime('%d.%m')}"
+
+
+def p1_notice_text(lines: Sequence[_Line]) -> tuple[str, str, str]:
+    """Tytuł, treść i link dzwonka „P1 bez CV” dla jednego Delivery Leada."""
+    ordered = sorted(lines, key=lambda line: -line.days)
+    listed = "; ".join(
+        (f"{line.title} · {line.client}" if line.client else line.title)
+        + f" ({line.days} dni rob., {line.detail})"
+        for line in ordered[:TITLES_MAX]
+    )
+    rest = len(ordered) - TITLES_MAX
+    listed += f" i {rest} innych." if rest > 0 else "."
+    message = (
+        f"Od co najmniej {P1_NO_CV_BUSINESS_DAYS} dni roboczych nie poszło CV do "
+        f"klienta: {listed} To tylko przypomnienie, NEXUS niczego nie zamknie."
+    )
+    link = f"/jobs/{ordered[0].job_id}" if len(ordered) == 1 else "/jobs/daily"
+    return f"P1 bez CV: {_plural_jobs(len(ordered))}", message, link
 
 
 def notice_text(

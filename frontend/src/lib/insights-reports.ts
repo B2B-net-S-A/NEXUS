@@ -30,6 +30,7 @@ export type ReportId =
   | "bez-ruchu"
   | "doplyw"
   | "portfele-dl"
+  | "klienci"
   | "zamkniecia-hit-ratio"
   | "ranking-klientow"
   | "rok-do-roku"
@@ -207,6 +208,16 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jak idą rekrutacje i hit ratio u klientów każdego DL?",
     window: "rok",
     defaultPeriod: { period: "year", offset: 0 },
+    note: "bez kwot",
+  },
+  {
+    id: "klienci",
+    group: "Klienci i trend",
+    title: "Klienci: od CV do zatrudnienia",
+    question:
+      "Ile CV, rozmów i zatrudnień daje każdy klient i jak często wygrywamy jego rekrutacje?",
+    window: "kwartał",
+    defaultPeriod: { period: "quarter", offset: 0 },
     note: "bez kwot",
   },
   {

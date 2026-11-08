@@ -199,6 +199,7 @@ from app.services.workforce_availability import (
 from app.services import champion_view
 from app.services import dl_send_queue
 from app.services import new_job_leads
+from app.services.new_profiles import NewProfiles, new_profiles_by_job
 from app.services import job_lifecycle
 from app.services.board_tasks import dl_portfolio_client_ids
 from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
@@ -5835,6 +5836,23 @@ async def set_channel_plan(
     return JobChannelPlanPayload(
         base=job.channel_plan_base, linkedin=job.channel_plan_linkedin
     )
+
+
+@router.get("/{job_id}/new-profiles")
+async def job_new_profiles(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Nowe profile z 7 dni i ile doszło do CV — okienko „Zespół rekrutacji”.
+
+    Definicja: ``services/new_profiles.py``, ta sama co w wierszu Daily."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    counts = (await new_profiles_by_job(db, [job_id])).get(job_id, NewProfiles())
+    return {"added": counts.added, "reached_cv": counts.reached_cv}
 
 
 @router.get("/{job_id}/unassigned-workers", response_model=list[UnassignedWorkerOut])
