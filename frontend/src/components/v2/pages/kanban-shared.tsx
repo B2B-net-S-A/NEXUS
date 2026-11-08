@@ -202,7 +202,7 @@ export interface KanbanItem {
  next_action_owner?: "recruiter" | "client" | "candidate" | "delivery" | "none";
  // ── Pipeline v4 (0352, 23.09.2026) — odznaki karty (`lib/board-card-badges.ts`) ─
  // Kto zakończył proces (wiersz terminalny).
- ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | null;
+ ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | "client_silent" | null;
  // Stawka, za którą osobę wysłano do klienta.
  client_rate_value?: string | number | null;
  client_rate_unit?: RateUnit | null;

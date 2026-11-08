@@ -290,6 +290,7 @@ from app.api import job_similar as job_similar_api
 from app.api import job_twins as job_twins_api
 from app.api import job_champions as job_champions_api
 from app.api import cpro_mail as cpro_mail_api
+from app.api import client_wait as client_wait_api
 from app.api import job_idle as job_idle_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
@@ -814,6 +815,7 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cpro_mail import cpro_mail_loop
+    from app.tasks.client_wait import client_wait_loop
     from app.tasks.job_idle import job_idle_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
@@ -982,6 +984,8 @@ async def lifespan(app: FastAPI):
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
+            # 08.11.2026: pary bez odpowiedzi klienta — zamknięcie po 30 dniach, za wyłącznikiem.
+            "client_wait": asyncio.create_task(client_wait_loop()),
             # 06.11.2026: P0 po terminie trwa do decyzji — dzwonek do Head of Recruitment.
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
@@ -2302,6 +2306,9 @@ app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
+app.include_router(
+    client_wait_api.router, prefix="/api/client-wait", tags=["client-wait"]
+)
 app.include_router(cpro_mail_api.router, prefix="/api", tags=["cpro-mail"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])

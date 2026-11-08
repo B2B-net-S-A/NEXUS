@@ -60,8 +60,16 @@ ENDED_BY_CANDIDATE = "candidate"
 ENDED_BY_RECRUITER = "recruiter"
 ENDED_BY_DELIVERY_LEAD = "delivery_lead"
 ENDED_BY_CLIENT = "client"
+# Klient nie odpowiedział: „Zamknij — brak odpowiedzi” i automat po 30 dniach
+# (S-C2, 08.11.2026). Nie jest decyzją klienta o osobie.
+ENDED_BY_CLIENT_SILENT = "client_silent"
 REJECTION_ENDED_BY = frozenset(
-    {ENDED_BY_RECRUITER, ENDED_BY_DELIVERY_LEAD, ENDED_BY_CLIENT}
+    {
+        ENDED_BY_RECRUITER,
+        ENDED_BY_DELIVERY_LEAD,
+        ENDED_BY_CLIENT,
+        ENDED_BY_CLIENT_SILENT,
+    }
 )
 
 
@@ -535,7 +543,7 @@ def resolve_ended_by(requested: Optional[str], *, withdrawn: bool, user: User) -
     if value not in REJECTION_ENDED_BY:
         raise HTTPException(
             status_code=422,
-            detail="Odrzucić może: rekruter, Delivery Lead albo klient.",
+            detail="Odrzucić może: rekruter, Delivery Lead, klient albo brak odpowiedzi klienta.",
         )
     if value == ENDED_BY_DELIVERY_LEAD and not user.has_any_role(*DL_REJECT_ROLES):
         raise HTTPException(
