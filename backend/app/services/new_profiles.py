@@ -21,7 +21,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_day_start_utc
@@ -42,7 +42,7 @@ _SQL = text(
                bool_or(cs.stage::text = 'posting') AS posting,
                bool_or(cs.stage::text = 'cv_sent') AS reached_cv
         FROM candidate_stages cs
-        WHERE cs.job_id IN :job_ids
+        WHERE cs.job_id = ANY(CAST(:job_ids AS integer[]))
         GROUP BY cs.candidate_id, cs.job_id
         HAVING min(cs.moved_at) >= :since
     )
@@ -54,7 +54,7 @@ _SQL = text(
     WHERE pair.first_by IS NOT NULL
       AND NOT pair.posting
       AND c.created_at >= pair.first_at - interval '1 day'
-      AND COALESCE(c.source, '') NOT IN :excluded_sources
+      AND COALESCE(c.source, '') <> ALL(CAST(:excluded_sources AS text[]))
       AND NOT EXISTS (
           SELECT 1
           FROM candidate_source_events e
@@ -62,7 +62,7 @@ _SQL = text(
             AND (
                 e.channel::text = 'referral'
                 OR (
-                    (e.channel::text = 'posting' OR e.utm_source IN :portal_utm)
+                    (e.channel::text = 'posting' OR e.utm_source = ANY(CAST(:portal_utm AS text[])))
                     AND e.captured_at
                         BETWEEN pair.first_at - interval '3 days'
                             AND pair.first_at + interval '1 day'
@@ -71,10 +71,6 @@ _SQL = text(
       )
     GROUP BY pair.job_id
     """
-).bindparams(
-    bindparam("job_ids", expanding=True),
-    bindparam("excluded_sources", expanding=True),
-    bindparam("portal_utm", expanding=True),
 )
 
 
@@ -98,10 +94,10 @@ async def new_profiles_by_job(
         await db.execute(
             _SQL,
             {
-                "job_ids": ids,
+                "job_ids": list(ids),
                 "since": window_start(today or business_today()),
-                "excluded_sources": ("referral", *PORTAL_SOURCES),
-                "portal_utm": PORTAL_UTM_SOURCES,
+                "excluded_sources": ["referral", *PORTAL_SOURCES],
+                "portal_utm": list(PORTAL_UTM_SOURCES),
             },
         )
     ).all()
