@@ -205,6 +205,8 @@ describe("modale wspólnego budżetu MD", () => {
         lines: [
           {
             contract_id: 100,
+            rate_candidate_currency: "PLN",
+            rate_client_currency: "PLN",
             rate_cost: 1000,
             rate_revenue: 1200,
             start_date: "2026-09-01",
@@ -214,6 +216,60 @@ describe("modale wspólnego budżetu MD", () => {
       },
       null,
     );
+  });
+
+  it("przedłużenie linii w EUR niesie walutę i stawkę z zamówienia, nie PLN/MD", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    provider(
+      <ExtendOrderGroupModal
+        open
+        onOpenChange={vi.fn()}
+        clientId={38339}
+        group={{
+          ...SHARED_MD_GROUP,
+          lines: [
+            {
+              ...LINE,
+              rate_revenue: 4200,
+              source_rate_revenue: 1000,
+              rate_client_currency: "EUR",
+              rate_cost: 2100,
+              source_rate_cost: 500,
+              rate_candidate_currency: "EUR",
+            },
+          ],
+        }}
+        submitting={false}
+        error={null}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    expect(screen.getByLabelText("Stawka przychodowa — Jan Kowalski")).toHaveValue(
+      "1000.000",
+    );
+    expect(screen.getByLabelText("Stawka kosztowa — Jan Kowalski")).toHaveValue(
+      "500.000",
+    );
+    expect(screen.getByText("Przychodowa (EUR)")).toBeInTheDocument();
+    expect(screen.getByText("Kosztowa (EUR)")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Numer zamówienia *"), "CP-MD-2");
+    await user.type(screen.getByLabelText("Budżet w MD *"), "10");
+    await user.click(screen.getByRole("button", { name: "Utwórz przedłużenie" }));
+
+    expect(onSubmit.mock.calls[0][0].lines).toEqual([
+      {
+        contract_id: 100,
+        rate_candidate_currency: "EUR",
+        rate_client_currency: "EUR",
+        rate_cost: 500,
+        rate_revenue: 1000,
+        start_date: "2026-09-01",
+        end_date: null,
+      },
+    ]);
   });
 
   it("dotychczasowe zamówienie MD nadal budżetuje każdą linię osobno", () => {
