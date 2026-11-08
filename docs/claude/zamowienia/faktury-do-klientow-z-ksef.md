@@ -58,6 +58,12 @@
   Pozostałe 70 to dane, nie reguła: 50 osób bez pozycji zamówienia w miesiącu usługi z faktury (24 mają ją
   w kolejnym miesiącu, 5 o miesiąc wcześniej albo dwa później, 21 nie mają w ±2 miesiącach), 11 osób
   z dwiema pozycjami w miesiącu (celowo czeka) i 9 z inną ceną.
+- **Faktura z numerem zamówienia, którego NEXUS nie zna, czeka na Finanse** (`unknown_order_number`, decyzja Artura z 08.11.2026): nie wiąże
+  jej kwota ani osoba, bo przy dwóch fakturach na tę samą kwotę druga rozliczałaby to samo zamówienie i ekran pokazałby obie jako zgodne. Numer
+  rozpoznajemy tylko po etykiecie (`PO`, `PO number`, `purchase order`, `zamówienie`, także `numer zamówienia: SAP …`) albo gdy cały wpis to co
+  najmniej 5 cyfr (`named_order_numbers`). Pole to wolny tekst, więc cyfry z nazw projektów, adresów i numery umów nie blokują. Patrzymy tylko w `order_refs`, nie w nazwy
+  pozycji. Powód jest w `RETRY_REASONS` (numer może dojść do zamówienia) i w `GAP_REASONS` (alert DL). Pomiar z nocnej kopii 08.11.2026: zmienia
+  wynik 60 z 1450 faktur z klientem, w tym 10 wiązań (6 kwotą, 4 osobą); pozostałe 50 i tak czekało, zmienia się im powód.
 - **Numer nabywcy idzie do klienta przy ręcznym przypisaniu.** Pomiar z 02.11.2026 na fakturach z października:
   173 ze 188 NIP-ów nabywców nie ma klienta w NEXUSIE, ok. 197 faktur miesięcznie; numer w profilu ma 18 ze 169
   klientów. Okno „Przypisz” pozwala wskazać klienta, a przycisk „Przypisz i dopisz NIP” (`save_buyer_number`) zapisuje

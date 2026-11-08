@@ -28,7 +28,12 @@ from app.services.client_invoicing import billing, clients, matching
 
 GAP_MONTHS_BACK = 6
 #: Dopasowanie nie znalazło osoby ani kwoty; pozostałe powody mówią o czym innym.
-GAP_REASONS = ("no_orders", "amount_differs", "expected_unknown")
+GAP_REASONS = (
+    "no_orders",
+    "unknown_order_number",
+    "amount_differs",
+    "expected_unknown",
+)
 
 
 @dataclass(frozen=True)
