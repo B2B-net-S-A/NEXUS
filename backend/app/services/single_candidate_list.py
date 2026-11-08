@@ -311,6 +311,25 @@ async def _cards(
     ]
 
 
+def _split_window(
+    pairs: list[Pair], first_ids: frozenset[int]
+) -> tuple[list[Pair], list[Pair]]:
+    """Osoby z pełną kolejnością i reszta (od progu przed osobami spod progu)."""
+
+    def goes_first(pair: Pair) -> bool:
+        return (
+            pair.candidate_id in first_ids
+            or "reassign" in pair.sources
+            or "trainee" in pair.sources
+        )
+
+    ranked = sorted(pairs, key=lambda pair: pair.below_threshold)
+    first = [pair for pair in ranked if goes_first(pair)]
+    others = [pair for pair in ranked if not goes_first(pair)]
+    room = max(0, ORDER_WINDOW - len(first))
+    return first + others[:room], others[room:]
+
+
 async def _ordered(
     db,
     job: Job,
@@ -322,11 +341,14 @@ async def _ordered(
 ) -> tuple[list[Pair], set[int]]:
     """Kolejność listy i osoby „znamy”. Przepięcia i przekazania od praktykantów
     są decyzją człowieka, więc stoją przed kolejką, a osoby spod progu za nią."""
-    from app.services import review_batch_order
+    from app.services import known_queue_points, review_batch_order
 
-    window = pairs[:ORDER_WINDOW]
-    if not window:
+    if not pairs:
         return [], set()
+    # Okno nie może odciąć ludzi, którzy stoją pierwsi: przepięcia nie mają
+    # wyniku, a nowi w bazie bywają daleko po samym wyniku. Osoby spod progu
+    # wchodzą dopiero za wszystkimi od progu, bo za oknem nic ich nie układa.
+    window, rest = _split_window(pairs, first_ids)
     by_id = {pair.candidate_id: pair for pair in window}
     cards = [
         replace(
@@ -337,10 +359,19 @@ async def _ordered(
             db, job, await _cards(db, job, window, evidence), now=now
         )
     ]
+    # Filtr „Znamy” obejmuje całą listę, nie tylko osoby z pełną kolejnością.
     known = {
-        card.candidate_id
-        for card in cards
-        if card.facts.known is not None and card.facts.known.points > 0
+        candidate_id
+        for candidate_id, fact in (
+            await known_queue_points.facts_for(
+                db,
+                job_id=job.id,
+                client_id=job.client_id,
+                candidate_ids=[pair.candidate_id for pair in pairs],
+                now=now,
+            )
+        ).items()
+        if fact.points > 0
     }
 
     def group(card) -> int:
@@ -356,7 +387,7 @@ async def _ordered(
         ranked += review_batch_order.order_cards(
             [card for card in cards if group(card) == position]
         )
-    return [by_id[card.candidate_id] for card in ranked] + pairs[ORDER_WINDOW:], known
+    return [by_id[card.candidate_id] for card in ranked] + rest, known
 
 
 async def _applied_ids(db, job_id: int, candidate_ids: list[int]) -> set[int]:
@@ -403,7 +434,7 @@ async def page(
     fresh = frozenset(int(c) for c in first_ids)
     pairs = await _pairs(db, job.id, threshold)
     evidence, runs = await _evidence_of(
-        db, job.id, [pair.candidate_id for pair in pairs[:ORDER_WINDOW]]
+        db, job.id, [pair.candidate_id for pair in _split_window(pairs, fresh)[0]]
     )
     ordered, known = await _ordered(
         db, job, pairs, first_ids=fresh, evidence=evidence, now=now

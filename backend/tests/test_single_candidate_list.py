@@ -310,6 +310,53 @@ async def test_order_reassign_then_new_in_base_then_score_then_below():
     assert _ids(await _page(job_id, first_ids=[fresh])) == [moved, fresh, top, below]
 
 
+async def test_order_window_never_cuts_off_people_who_go_first(monkeypatch):
+    monkeypatch.setattr(single_list, "ORDER_WINDOW", 2)
+    job_id, (one, two, three, fresh, moved) = await _world(5)
+    await _pool(job_id, {one: 95, two: 94, three: 93, fresh: 71})
+    await _propose(job_id, "reassign", [{"candidate_id": moved, "score": None}])
+
+    order = _ids(await _page(job_id, first_ids=[fresh]))
+
+    assert order[:2] == [moved, fresh]
+    assert set(order) == {one, two, three, fresh, moved}
+
+
+async def test_order_window_keeps_people_above_the_threshold_before_those_below(
+    monkeypatch,
+):
+    monkeypatch.setattr(single_list, "ORDER_WINDOW", 1)
+    job_id, (portal, below, base) = await _world(3)
+    await _pool(job_id, {below: 69, base: 72})
+    await _propose(job_id, "job_board", [{"candidate_id": portal, "score": None}])
+
+    page = await _page(job_id)
+
+    assert [row.below_threshold for row in page.rows] == [False, False, True]
+
+
+async def test_known_counts_people_outside_the_order_window(monkeypatch):
+    from app.services import known_queue_points
+
+    monkeypatch.setattr(single_list, "ORDER_WINDOW", 1)
+    job_id, (top, far) = await _world(2)
+    await _pool(job_id, {top: 95, far: 80})
+
+    async def facts(_db, *, candidate_ids, **_kw):
+        return {
+            cid: known_queue_points.KnownFacts(5, 5, 0, 1, None)
+            for cid in candidate_ids
+            if cid == far
+        }
+
+    monkeypatch.setattr(known_queue_points, "facts_for", facts)
+
+    page = await _page(job_id, "known")
+
+    assert _ids(page) == [far]
+    assert page.counts["known"] == 1
+
+
 async def test_missing_critical_goes_to_the_end_of_the_counted_people(monkeypatch):
     from app.services import critical_skills
 

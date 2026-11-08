@@ -775,10 +775,12 @@ function AddCandidatesPanelOpen({
     () =>
       new Set(
         [...(selected ?? [])].filter(
-          (id) => (entryIds.has(id) || (listTab === "base" && hiddenById.has(id))) && !addedIds.has(id),
+          (id) =>
+            (entryIds.has(id) || (listTab === "base" && showHiddenSection && hiddenById.has(id))) &&
+            !addedIds.has(id),
         ),
       ),
-    [selected, entryIds, addedIds, listTab, hiddenById],
+    [selected, entryIds, addedIds, listTab, hiddenById, showHiddenSection],
   );
   const count = selectedIds.size;
   /**

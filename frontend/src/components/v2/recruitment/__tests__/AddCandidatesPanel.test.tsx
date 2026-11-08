@@ -1625,6 +1625,17 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect(names[0]).toContain("Niska Portal");
     });
 
+    it("osoba zaznaczona w sekcji ukrytych nie liczy się pod innym filtrem", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101]));
+      renderPanel();
+      const section = await screen.findByTestId("hidden-by-critical");
+      await userEvent.click(within(section).getByLabelText("Zaznacz Ukryta Osoba 101"));
+      await waitFor(() => expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 1"));
+      const group = screen.getByTestId("single-list-filters");
+      await userEvent.click(within(group).getByRole("button", { name: /Znamy/ }));
+      await waitFor(() => expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0"));
+    });
+
     it("sekcja „Ukryci przez musi mieć” działa dalej pod „Wszyscy”", async () => {
       hiddenApi.mockResolvedValue(hiddenPayload([101]));
       renderPanel();

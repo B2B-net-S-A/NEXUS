@@ -36,7 +36,8 @@ liczniki i `expire_full_base` musiałyby ich unikać. Potrzebna byłaby też mig
 Jedna, liczona na serwerze (`_ordered`, `review_batch_order.order_cards`), bo stron nie da się
 układać w przeglądarce: przepięcia, przekazania od praktykantów, potem osoby od progu (nowi w bazie,
 bez uwag z co 5. miejscem dla osoby bez procesu, z uwagami, z brakiem krytycznej), na końcu
-osoby spod progu. Pełne fakty dla 500 najlepszych (`ORDER_WINDOW`), reszta wg wyniku.
+osoby spod progu. Pełne reguły dla 500 osób (`ORDER_WINDOW`), ale okno zawsze obejmuje przepięcia,
+przekazania i nowych w bazie, a reszta stoi wg wyniku. Filtr „Znamy” liczy z całej listy.
 
 - Uwagi liczy `_by_rules(keep_all=True)`: nikt nie odpada, powód staje się uwagą. Lista pokazuje
   ludzi, których system sam by nie dodał, i to człowiek decyduje.
