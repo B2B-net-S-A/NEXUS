@@ -4240,14 +4240,12 @@ async def build_kanban_view(
                 payload["entry_autofill"]["fresh"] = (
                     e.candidate_id in without_process_ids
                 )
-                payload["entry_autofill"]["queue_bonus"] = (
-                    review_batch_order.bonus_for(
-                        (v4.entry_meta or {}).get("availability_status"),
-                        (v4.entry_meta or {}).get("rate_from_hourly"),
-                        (v4.entry_meta or {}).get("rate_currency"),
-                        board_budget_hourly,
-                    ).points
-                )
+                payload["entry_autofill"]["queue_bonus"] = review_batch_order.bonus_for(
+                    (v4.entry_meta or {}).get("availability_status"),
+                    (v4.entry_meta or {}).get("rate_from_hourly"),
+                    (v4.entry_meta or {}).get("rate_currency"),
+                    board_budget_hourly,
+                ).points
                 review_owner = review_owner_by_candidate.get(e.candidate_id)
                 payload["entry_autofill"]["review_owner"] = (
                     {"id": review_owner, "name": user_name_by_id.get(review_owner)}
