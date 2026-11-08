@@ -13,10 +13,15 @@ przeglądu nie wchodziły (26 z 26 wysłanych, które system miał w puli).
   ``entry_meta.review_owner_id`` karty od systemu.
 * Decyzja = ruch karty od systemu z „Nowych” (screening albo odrzucenie
   z powodem), z przeglądu porcji albo z Tablicy. Pomijania nie ma.
-* Dopóki rekruter nie podejmie dziś ``minimum`` decyzji (domyślnie 50, ustawia
+* Dopóki rekruter nie podejmie dziś ``minimum`` decyzji (domyślnie 10, ustawia
   HoR), a w porcji ma jeszcze osoby, ręczne wyszukiwanie zwraca 423
   ``REVIEW_MINIMUM_PENDING`` (``assert_search_allowed``). Admin, HoR i DL
   bez blokady.
+* Bezpieczne włączenie (decyzja Artura 08.11.2026, audyt na kopii z 06.11):
+  w porcji tylko karty od ``MIN_SCORE`` nie starsze niż ``MAX_AGE_DAYS``
+  (``in_batch``), blokada tylko w dni robocze od ``BLOCK_START_HOUR``,
+  a HoR ma wyłącznik blokady i listę pilotażową bez wdrożenia
+  (``BatchSettings.block_enabled``, ``pilot_user_ids``).
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ import logging
 import random
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
@@ -35,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, is_business_day
 from app.models.app_setting import AppSetting
 from app.models.job import Job, JobPriority
 from app.models.recruitment_pipeline import CandidateStage
@@ -47,7 +52,15 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 20
 MIN_SCORE = 65.0
-DEFAULT_MINIMUM = 50
+# 08.11.2026: 50 → 10. Na kopii z 06.11 rekruterzy podejmowali 4,7–7,8 decyzji
+# dziennie o kartach od systemu (najwięcej 29), więc 50 blokowało 12 z 16 osób
+# na cały dzień. Kolejne progi (20, 30) ustawia HoR po pomiarze.
+DEFAULT_MINIMUM = 10
+# Karta starsza niż tyle dni nie jest porcją: pierwsza porcja z 06.11 miała
+# 1 440 kart, z czego ok. 850 starszych niż 7 dni i 147 poniżej 65%.
+MAX_AGE_DAYS = 7
+# Blokada od godziny porcji (silnik „Nowych” rusza o 7:00), nie od północy.
+BLOCK_START_HOUR = 7
 MAX_MINIMUM = 300
 SETTING_KEY = "review_batch"
 OWNER_KEY = "review_owner_id"
@@ -72,9 +85,20 @@ def enabled() -> bool:
 @dataclass(frozen=True)
 class BatchSettings:
     minimum: int = DEFAULT_MINIMUM
+    # Wyłącznik samej blokady 423 bez wdrożenia (porcja dalej się rozdziela).
+    block_enabled: bool = True
+    # Pilot: blokada tylko dla tych kont; pusta lista = wszyscy rekruterzy.
+    pilot_user_ids: tuple[int, ...] = ()
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        out = asdict(self)
+        out["pilot_user_ids"] = list(self.pilot_user_ids)
+        return out
+
+    def blocks(self, user_id: int) -> bool:
+        if not self.block_enabled:
+            return False
+        return not self.pilot_user_ids or user_id in self.pilot_user_ids
 
 
 def validation_error(value: BatchSettings) -> Optional[str]:
@@ -83,14 +107,31 @@ def validation_error(value: BatchSettings) -> Optional[str]:
     return None
 
 
+def _pilot(raw) -> tuple[int, ...]:
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    out: set[int] = set()
+    for value in raw:
+        try:
+            out.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return tuple(sorted(out))
+
+
 async def read_settings(db: AsyncSession) -> BatchSettings:
     row = await db.get(AppSetting, SETTING_KEY)
     if row is None or not isinstance(row.value, dict):
         return BatchSettings()
     try:
-        return BatchSettings(minimum=int(row.value.get("minimum", DEFAULT_MINIMUM)))
+        minimum = int(row.value.get("minimum", DEFAULT_MINIMUM))
     except (TypeError, ValueError):
-        return BatchSettings()
+        minimum = DEFAULT_MINIMUM
+    return BatchSettings(
+        minimum=minimum,
+        block_enabled=row.value.get("block_enabled", True) is not False,
+        pilot_user_ids=_pilot(row.value.get("pilot_user_ids")),
+    )
 
 
 async def write_settings(
@@ -141,6 +182,24 @@ def _latest_stage_is_new():
             ),
         )
     )
+
+
+def in_batch(card: "PendingCard", now: datetime) -> bool:
+    """Karta należy do porcji: od ``MIN_SCORE`` i nie starsza niż
+    ``MAX_AGE_DAYS``. Starsze i słabsze karty zostają na Tablicy, ale nikogo
+    nie blokują i nie zajmują miejsca w porcji."""
+    if card.score < MIN_SCORE:
+        return False
+    if card.opened_at is None:
+        return False
+    opened = card.opened_at
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=timezone.utc)
+    return opened >= now - timedelta(days=MAX_AGE_DAYS)
+
+
+def batch_cards(cards: Iterable["PendingCard"], now: datetime) -> list["PendingCard"]:
+    return [card for card in cards if in_batch(card, now)]
 
 
 def _score(meta) -> float:
@@ -289,7 +348,7 @@ async def assign_owners(
 ) -> int:
     """Rozdziel czekające karty od systemu tej rekrutacji. Bez commitu."""
     team = (await recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
-    cards = await pending_cards(db, job_ids=[job_id])
+    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), now)
     plan = plan_owners(
         cards, team, seed=f"{job_id}:{business_today().isoformat()}", only=only
     )
@@ -309,13 +368,15 @@ async def assign_owners(
     return len(plan)
 
 
-async def _own_cards(db: AsyncSession, user_id: int) -> list[PendingCard]:
+async def _own_cards(
+    db: AsyncSession, user_id: int, *, now: datetime
+) -> list[PendingCard]:
     """Karty osoby, tylko z rekrutacji, w których nadal jest rekruterem —
     osoba zdjęta z zespołu w ciągu dnia nie jest blokowana cudzą porcją."""
     from app.models.job import JobStatus
     from app.services.request_work_state import IN_WORK_STATES
 
-    cards = await pending_cards(db, owner_id=user_id)
+    cards = batch_cards(await pending_cards(db, owner_id=user_id), now)
     if not cards:
         return []
     # Karty z rekrutacji zamkniętej albo wstrzymanej nie blokują nikogo.
@@ -394,6 +455,9 @@ class BatchStatus:
     required: int
     met: bool
     jobs: tuple[JobShare, ...] = ()
+    # Czy niezrobione minimum teraz blokuje wyszukiwanie (wyłącznik, pilot,
+    # dzień roboczy od 7:00) — licznik w pasku zostaje zachętą także bez blokady.
+    blocks: bool = False
     # Rekrutacje w pracy, w których osoba jest rekruterem (z czekającymi u niej
     # osobami albo bez) — lista do „Dodaj 20 kolejnych”.
     team_jobs: tuple[JobShare, ...] = ()
@@ -430,6 +494,27 @@ def applies_to(user: User) -> bool:
     return getattr(user, "role", None) == UserRole.recruiter
 
 
+def can_edit_settings(user: User) -> bool:
+    """Ustawienia porcji zmienia admin i Head of Recruitment (``HeadOfRecruitmentPlus``)."""
+    has_role = getattr(user, "has_role", None)
+    if callable(has_role):
+        return has_role(UserRole.admin) or has_role(UserRole.head_of_recruitment)
+    return getattr(user, "role", None) in (UserRole.admin, UserRole.head_of_recruitment)
+
+
+async def batch_recruiters(db: AsyncSession) -> list[dict]:
+    """Aktywne konta, które dostają porcję — do wyboru pilota."""
+    users = (await db.scalars(select(User).where(User.is_active.is_(True)))).all()
+    return sorted(
+        (
+            {"id": u.id, "name": (u.name or u.email or str(u.id))}
+            for u in users
+            if applies_to(u)
+        ),
+        key=lambda row: row["name"].lower(),
+    )
+
+
 def _priority_rank(job: Job, now: datetime) -> int:
     from app.services import job_p0
 
@@ -450,7 +535,7 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
             required=0,
             met=True,
         )
-    cards = await _own_cards(db, user.id)
+    cards = await _own_cards(db, user.id, now=now)
     done = await decided_today(db, user.id, now=now)
     # Kto ma w porcji mniej, niż brakuje do minimum, przegląda całą porcję.
     required = min(settings_value.minimum, done + len(cards))
@@ -482,6 +567,7 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         required=required,
         met=met,
         jobs=tuple(jobs),
+        blocks=not met and blocking_now(settings_value, user.id, now),
         team_jobs=tuple(await _team_jobs(db, user.id, counts, now=now)),
     )
 
@@ -515,11 +601,29 @@ async def _team_jobs(
     ]
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def blocking_now(value: BatchSettings, user_id: int, now: datetime) -> bool:
+    """Blokada działa w dni robocze od ``BLOCK_START_HOUR`` (porcja rusza o 7:00),
+    przy włączonym wyłączniku HoR i dla osoby z pilota (pusty = wszyscy)."""
+    if not value.blocks(user_id):
+        return False
+    if not is_business_day(now, settings.BUSINESS_TZ):
+        return False
+    local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
+    return local.hour >= BLOCK_START_HOUR
+
+
 async def assert_search_allowed(db: AsyncSession, user: User) -> None:
     """423 ``REVIEW_MINIMUM_PENDING``, dopóki rekruter nie zrobi minimum."""
     if not enabled() or not applies_to(user):
         return
-    status = await status_for(db, user, now=datetime.now(timezone.utc))
+    now = _now()
+    if not blocking_now(await read_settings(db), user.id, now):
+        return
+    status = await status_for(db, user, now=now)
     if status.met:
         return
     raise HTTPException(
@@ -548,7 +652,7 @@ async def review_queue(
 ) -> list[PendingCard]:
     """Karty osoby w kolejności przeglądu: rekrutacje na zmianę (P0, potem
     priorytet), w każdej od najlepszej osoby."""
-    cards = await _own_cards(db, user.id)
+    cards = await _own_cards(db, user.id, now=now)
     if not cards:
         return []
     jobs = {
@@ -694,7 +798,7 @@ async def assert_removal_allowed(
     wyszukiwania bez przeglądu (przegląd kodu 07.11.2026)."""
     if not enabled() or not applies_to(user):
         return
-    cards = await pending_cards(db, job_ids=[job_id])
+    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), _now())
     if any(card.candidate_id == candidate_id for card in cards):
         raise HTTPException(
             status_code=409,

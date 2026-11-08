@@ -10,7 +10,9 @@ Kontrakty:
 - lista kandydatów: filtry i opis to ręczne wyszukiwanie, samo nazwisko,
   mail albo telefon — nie;
 - kolejka przeglądu: rekrutacje na zmianę (P0 i priorytet pierwsze), w każdej
-  od najlepszej osoby.
+  od najlepszej osoby;
+- bezpieczne włączenie (08.11.2026): w porcji tylko karty od 65% i do 7 dni,
+  blokada w dni robocze od 7:00, wyłącznik i pilot HoR, minimum domyślnie 10.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -100,11 +102,13 @@ def batch_on(monkeypatch):
         return rb.BatchSettings(minimum=50)
 
     monkeypatch.setattr(rb, "read_settings", _settings)
+    # Poniedziałek 09.11, 10:00 w Warszawie — dzień roboczy po 7:00.
+    monkeypatch.setattr(rb, "_now", lambda: NOW)
     return monkeypatch
 
 
 def _fake_state(monkeypatch, *, pending: int, done: int):
-    async def _own(_db, _uid):
+    async def _own(_db, _uid, *, now=None):
         return [_card(i, 1, 80) for i in range(pending)]
 
     async def _done(_db, _uid, *, now):
@@ -259,7 +263,7 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
         _card(6, 30, 95),
     ]
 
-    async def _own(_db, _uid):
+    async def _own(_db, _uid, *, now=None):
         return cards
 
     monkeypatch.setattr(rb, "_own_cards", _own)
@@ -314,3 +318,118 @@ def _multi(role: UserRole, extra: list[str]):
 )
 def test_who_gets_the_batch(role, extra, applies):
     assert rb.applies_to(_multi(role, extra)) is applies
+
+
+# ── Bezpieczne włączenie (08.11.2026) ───────────────────────────────────────
+
+
+def _dated(pid: int, score: float, age_days: float) -> rb.PendingCard:
+    return rb.PendingCard(
+        process_id=pid,
+        job_id=1,
+        candidate_id=1000 + pid,
+        owner_id=None,
+        score=score,
+        opened_at=NOW - timedelta(days=age_days),
+    )
+
+
+@pytest.mark.parametrize(
+    "score, age, inside",
+    [
+        (80, 1, True),
+        (65, 6.9, True),
+        (64.9, 1, False),  # poniżej progu porcji
+        (90, 7.1, False),  # starsza niż 7 dni
+        (90, 30, False),
+    ],
+)
+def test_only_fresh_cards_from_threshold_are_the_batch(score, age, inside):
+    assert rb.in_batch(_dated(1, score, age), NOW) is inside
+
+
+def test_card_without_open_date_is_not_the_batch():
+    card = rb.PendingCard(1, 1, 1001, None, 90, None)
+    assert not rb.in_batch(card, NOW)
+
+
+def test_default_minimum_is_ten():
+    assert rb.BatchSettings().minimum == 10
+
+
+@pytest.mark.parametrize(
+    "moment, blocks",
+    [
+        (datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc), True),  # pon. 10:00
+        (datetime(2026, 11, 9, 5, 30, tzinfo=timezone.utc), False),  # pon. 6:30
+        (datetime(2026, 11, 9, 6, 0, tzinfo=timezone.utc), True),  # pon. 7:00
+        (datetime(2026, 11, 8, 10, 0, tzinfo=timezone.utc), False),  # niedziela
+        (datetime(2026, 11, 7, 10, 0, tzinfo=timezone.utc), False),  # sobota
+    ],
+)
+def test_block_only_on_business_days_from_seven(moment, blocks):
+    assert rb.blocking_now(rb.BatchSettings(), 7, moment) is blocks
+
+
+def test_hor_switch_turns_the_block_off():
+    assert not rb.blocking_now(rb.BatchSettings(block_enabled=False), 7, NOW)
+
+
+def test_pilot_blocks_only_listed_people():
+    pilot = rb.BatchSettings(pilot_user_ids=(7, 8))
+    assert rb.blocking_now(pilot, 7, NOW)
+    assert not rb.blocking_now(pilot, 9, NOW)
+
+
+async def test_weekend_never_blocks(batch_on):
+    _fake_state(batch_on, pending=100, done=0)
+    batch_on.setattr(
+        rb, "_now", lambda: datetime(2026, 11, 8, 10, 0, tzinfo=timezone.utc)
+    )
+    await rb.assert_search_allowed(_Db(), _user())
+
+
+async def test_switch_off_unblocks_without_deploy(batch_on):
+    _fake_state(batch_on, pending=100, done=0)
+
+    async def _off(_db):
+        return rb.BatchSettings(minimum=50, block_enabled=False)
+
+    batch_on.setattr(rb, "read_settings", _off)
+    await rb.assert_search_allowed(_Db(), _user())
+
+
+async def test_person_outside_pilot_is_not_blocked(batch_on):
+    _fake_state(batch_on, pending=100, done=0)
+
+    async def _pilot(_db):
+        return rb.BatchSettings(minimum=50, pilot_user_ids=(8,))
+
+    batch_on.setattr(rb, "read_settings", _pilot)
+    await rb.assert_search_allowed(_Db(), _user(uid=7))
+    with pytest.raises(HTTPException):
+        await rb.assert_search_allowed(_Db(), _user(uid=8))
+
+
+class _SettingsDb:
+    def __init__(self, value):
+        self.value = value
+
+    async def get(self, _model, _key):
+        return SimpleNamespace(value=self.value)
+
+
+async def test_settings_read_switch_and_pilot():
+    value = await rb.read_settings(
+        _SettingsDb(
+            {"minimum": 20, "block_enabled": False, "pilot_user_ids": [8, "7", "x", 8]}
+        )
+    )
+    assert value == rb.BatchSettings(
+        minimum=20, block_enabled=False, pilot_user_ids=(7, 8)
+    )
+
+
+async def test_old_settings_without_switch_keep_the_block_on():
+    value = await rb.read_settings(_SettingsDb({"minimum": 50}))
+    assert value.block_enabled is True and value.pilot_user_ids == ()

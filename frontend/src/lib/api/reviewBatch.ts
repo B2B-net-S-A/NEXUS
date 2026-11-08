@@ -26,6 +26,8 @@ export interface ReviewBatchStatus {
   required: number
   remaining: number
   met: boolean
+  /** Niezrobione minimum teraz blokuje wyszukiwanie (wyłącznik HoR, pilot, dzień roboczy od 7:00). */
+  blocks?: boolean
   jobs: ReviewBatchJob[]
   team_jobs: ReviewBatchJob[]
 }

@@ -742,7 +742,13 @@ async def fill_job(
         team = (await review_batch.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
         if not team:
             return []
-        have = len(await review_batch.pending_cards(db, job_ids=[job_id]))
+        # Liczą się tylko karty porcji (od 65%, do 7 dni): stare i słabe
+        # karty nie zajmują miejsca świeżym (08.11.2026).
+        have = len(
+            review_batch.batch_cards(
+                await review_batch.pending_cards(db, job_ids=[job_id]), now
+            )
+        )
         missing = review_batch.BATCH_SIZE - (0 if extra_for else have)
         fresh_room = missing
         min_score = review_batch.MIN_SCORE

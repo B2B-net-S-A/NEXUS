@@ -33,6 +33,9 @@ router = APIRouter(
 
 class SettingsIn(BaseModel):
     minimum: int = Field(ge=1, le=svc.MAX_MINIMUM)
+    # Brak pola = bez zmiany (stary front wysyła samo minimum).
+    block_enabled: Optional[bool] = None
+    pilot_user_ids: Optional[list[int]] = Field(default=None, max_length=200)
 
 
 @router.get("/me")
@@ -154,7 +157,10 @@ async def add_more(
             status_code=403,
             detail="Kolejne osoby dobiera rekruter przypisany do tej rekrutacji.",
         )
-    mine = await svc.pending_cards(db, job_ids=[job_id], owner_id=current_user.id)
+    now = datetime.now(timezone.utc)
+    mine = svc.batch_cards(
+        await svc.pending_cards(db, job_ids=[job_id], owner_id=current_user.id), now
+    )
     if mine:
         raise HTTPException(
             status_code=409,
@@ -163,7 +169,7 @@ async def add_more(
     added = await fill_job(
         db,
         job_id,
-        now=datetime.now(timezone.utc),
+        now=now,
         batch=True,
         extra_for=current_user.id,
     )
@@ -177,12 +183,17 @@ async def get_settings(
     db: AsyncSession = Depends(get_db),
 ):
     value = await svc.read_settings(db)
-    return {
+    out = {
         **value.as_dict(),
         "batch_size": svc.BATCH_SIZE,
         "min_score": svc.MIN_SCORE,
+        "max_age_days": svc.MAX_AGE_DAYS,
         "enabled": svc.enabled(),
     }
+    if svc.can_edit_settings(current_user):
+        # Lista do wyboru pilota — tylko dla tych, którzy ją ustawiają.
+        out["recruiters"] = await svc.batch_recruiters(db)
+    return out
 
 
 @router.put("/settings")
@@ -191,8 +202,22 @@ async def put_settings(
     current_user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Minimum decyzji dziennie — ustawia Head of Recruitment i admin."""
-    value = svc.BatchSettings(minimum=payload.minimum)
+    """Minimum decyzji dziennie, wyłącznik blokady i pilot — ustawia Head of
+    Recruitment i admin."""
+    current = await svc.read_settings(db)
+    value = svc.BatchSettings(
+        minimum=payload.minimum,
+        block_enabled=(
+            current.block_enabled
+            if payload.block_enabled is None
+            else payload.block_enabled
+        ),
+        pilot_user_ids=(
+            current.pilot_user_ids
+            if payload.pilot_user_ids is None
+            else tuple(sorted(set(payload.pilot_user_ids)))
+        ),
+    )
     error = svc.validation_error(value)
     if error:
         raise HTTPException(status_code=422, detail=error)
