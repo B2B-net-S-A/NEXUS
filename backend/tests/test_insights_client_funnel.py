@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 
+from app.analytics.periods import resolve_period
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today, local_day_start_utc
@@ -292,7 +293,10 @@ async def test_route_returns_rows_totals_and_no_money(
     client_id = await _client("Trasa")
     job_id = await _job(client_id)
     candidate = await _candidate()
-    await _stage(candidate, job_id, PipelineStage.cv_sent, _now() - timedelta(hours=2))
+    # Stempel liczony od początku okna, bo „2 godziny temu” w poniedziałek
+    # o 00:30 w Warszawie to jeszcze poprzedni tydzień.
+    in_this_week = resolve_period("week").start + timedelta(minutes=1)
+    await _stage(candidate, job_id, PipelineStage.cv_sent, in_this_week)
     await cache_invalidate("insights:clients:funnel:")
 
     response = await app_client.get(
