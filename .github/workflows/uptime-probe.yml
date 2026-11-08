@@ -268,7 +268,9 @@ jobs:
   health-checks:
     name: /api/health per-check degradation
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # 2 odczyty (20 s) i przerwa (75 s) to 115 s, do tego start, checkout i issue.
+    # Ucięty job nie otworzyłby alarmu.
+    timeout-minutes: 4
     permissions:
       contents: read
       issues: write
@@ -277,45 +279,59 @@ jobs:
         id: classify
         run: |
           set -euo pipefail
-          # UA wymagana przez bypass-rule Cloudflare (patrz observability.md);
-          # api.nexus.* jest dziś DNS-only, ale zgodność kosztuje jedną flagę.
-          body=$(curl -sS --max-time 20 \
-            -A "dynaminds-smoke-test/1.0 (+github-actions; Nexus)" \
-            https://api.nexus.b2bnetwork.pl/api/health || true)
-          if ! printf '%s' "$body" | jq -e 'has("checks")' > /dev/null 2>&1; then
-            # Backend nieosiągalny albo bez `.checks` — to jest awaria, którą job
-            # `probe` już zgłasza głośno. Tutaj cisza, żeby jedna awaria nie
-            # otwierała dwóch alarmów o różnej treści.
-            echo "::warning::/api/health nie zwrócił JSON-a z polem .checks — patrz job 'probe'."
-            echo "fail=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          printf '%s' "$body" | jq '.checks'
-          # OPS-N08: `checked=1` = checki PRZECZYTANE. Bez tego zielone `fail=0`
-          # przy nieosiągalnym backendzie zamykałoby alarm o checkach.
-          echo "checked=1" >> "$GITHUB_OUTPUT"
-
           # `configured` to zdrowa wartość checku `anthropic` (mapa
           # {"ok": "configured"} w app/main.py) — bez tego wyjątku ostrzeżenie
           # wisiałoby stale przy poprawnie skonfigurowanym kluczu.
           # `traffit=disabled` od 14.10.2026: Traffit wyłączony na stałe w kodzie
           # (`app/services/traffit_retired.py`), stan oczekiwany, nie awaria.
           ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"],"notification_email_policy":["disabled"],"traffit":["disabled"]}'
-          classified=$(printf '%s' "$body" | jq -r --argjson allow "$ALLOWLIST" '
-            .checks
-            | to_entries
-            | map(.value |= tostring)
-            | map(select(.value != "healthy" and .value != "configured"))
-            | map(. as $e | select(($allow[$e.key] // []) | index($e.value) | not))
-            | map(. + {sev: (
-                if (.value | test("^(unhealthy|misconfigured|critical|crashed)"))
-                then "error" else "warn" end)})
-            | .[] | "\(.sev)\t\(.key)\t\(.value)"
-          ')
 
-          errors=$(printf '%s' "$classified" | grep -c '^error' || true)
-          warns=$(printf '%s' "$classified" | grep -c '^warn' || true)
-          echo "errors=$errors warns=$warns"
+          # Drugi odczyt przed alarmem: restart przy wdrożeniu daje chwilowe
+          # `background_tasks = unhealthy: worker nie odpowiada`, a 40 s później
+          # jest zdrowo (bieg 42531906696, issue #3215). Awaria trwa dłużej niż
+          # przerwa, więc o alarmie decyduje drugi odczyt, jak ponawianie z #995.
+          for attempt in 1 2; do
+            # UA wymagana przez bypass-rule Cloudflare (patrz observability.md);
+            # api.nexus.* jest dziś DNS-only, ale zgodność kosztuje jedną flagę.
+            body=$(curl -sS --max-time 20 \
+              -A "dynaminds-smoke-test/1.0 (+github-actions; Nexus)" \
+              https://api.nexus.b2bnetwork.pl/api/health || true)
+            if ! printf '%s' "$body" | jq -e 'has("checks")' > /dev/null 2>&1; then
+              # Backend nieosiągalny albo bez `.checks` — to jest awaria, którą job
+              # `probe` już zgłasza głośno. Tutaj cisza, żeby jedna awaria nie
+              # otwierała dwóch alarmów o różnej treści.
+              echo "::warning::/api/health nie zwrócił JSON-a z polem .checks — patrz job 'probe'."
+              echo "fail=0" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            printf '%s' "$body" | jq '.checks'
+
+            classified=$(printf '%s' "$body" | jq -r --argjson allow "$ALLOWLIST" '
+              .checks
+              | to_entries
+              | map(.value |= tostring)
+              | map(select(.value != "healthy" and .value != "configured"))
+              | map(. as $e | select(($allow[$e.key] // []) | index($e.value) | not))
+              | map(. + {sev: (
+                  if (.value | test("^(unhealthy|misconfigured|critical|crashed)"))
+                  then "error" else "warn" end)})
+              | .[] | "\(.sev)\t\(.key)\t\(.value)"
+            ')
+
+            errors=$(printf '%s' "$classified" | grep -c '^error' || true)
+            warns=$(printf '%s' "$classified" | grep -c '^warn' || true)
+            echo "odczyt $attempt: errors=$errors warns=$warns"
+
+            if [ "$errors" -eq 0 ] || [ "$attempt" -eq 2 ]; then
+              break
+            fi
+            printf '%s\n' "$classified" | awk -F'\t' '
+              $1 == "error" { printf "::notice::pierwszy odczyt: %s = %s, drugi odczyt za 75 s\n", $2, $3 }'
+            sleep 75
+          done
+          # OPS-N08: `checked=1` = checki PRZECZYTANE. Bez tego zielone `fail=0`
+          # przy nieosiągalnym backendzie zamykałoby alarm o checkach.
+          echo "checked=1" >> "$GITHUB_OUTPUT"
 
           {
             echo "### /api/health — checks poza stanem zdrowym"

@@ -41,32 +41,58 @@ def _classify_step() -> dict:
     return workflow["jobs"]["health-checks"]["steps"][0]
 
 
-def _script(tmp_path: Path) -> Path:
-    """Skrypt kroku 1:1, z podmienionym TYLKO `curl` na odczyt fixture'u."""
-    run = _classify_step()["run"]
-    patched, subs = re.subn(
-        r"body=\$\(curl.*?\|\| true\)", 'body=$(cat "$FIXTURE")', run, flags=re.S
+def _stub_network_and_clock(tmp_path: Path, payloads: tuple[str, ...]) -> Path:
+    """Katalog z `curl` i `sleep` na początek `PATH`; treść kroku zostaje 1:1.
+
+    `curl` oddaje kolejne payloady (ostatni powtarza), `sleep` tylko zapisuje
+    przerwę, żeby test nie czekał na nią naprawdę.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for number, payload in enumerate(payloads, start=1):
+        (tmp_path / f"health-{number}.json").write_text(payload, encoding="utf-8")
+    curl = bin_dir / "curl"
+    curl.write_text(
+        "#!/bin/bash\n"
+        'echo x >> "$STUB_DIR/reads"\n'
+        'read_no=$(wc -l < "$STUB_DIR/reads")\n'
+        f'[ "$read_no" -le {len(payloads)} ] || read_no={len(payloads)}\n'
+        'cat "$STUB_DIR/health-$((read_no)).json"\n',
+        encoding="utf-8",
     )
-    assert subs == 1, "nie rozpoznano pobrania /api/health w kroku 'Classify .checks'"
-    path = tmp_path / "classify.sh"
-    path.write_text(patched, encoding="utf-8")
-    return path
+    sleep = bin_dir / "sleep"
+    sleep.write_text('#!/bin/bash\necho "$1" >> "$STUB_DIR/sleeps"\n', encoding="utf-8")
+    curl.chmod(0o755)
+    sleep.chmod(0o755)
+    return bin_dir
 
 
-def _run(tmp_path: Path, payload: str) -> tuple[int, dict[str, str], list[str]]:
-    fixture = tmp_path / "health.json"
-    fixture.write_text(payload, encoding="utf-8")
+def _reads(tmp_path: Path) -> int:
+    return len((tmp_path / "reads").read_text(encoding="utf-8").splitlines())
+
+
+def _sleeps(tmp_path: Path) -> list[int]:
+    path = tmp_path / "sleeps"
+    if not path.exists():
+        return []
+    return [int(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def _run(tmp_path: Path, *payloads: str) -> tuple[int, dict[str, str], list[str]]:
+    bin_dir = _stub_network_and_clock(tmp_path, payloads)
+    script = tmp_path / "classify.sh"
+    script.write_text(_classify_step()["run"], encoding="utf-8")
     outputs = tmp_path / "outputs.txt"
     summary = tmp_path / "summary.md"
     outputs.touch()
     summary.touch()
     proc = subprocess.run(
-        ["bash", str(_script(tmp_path))],
+        ["bash", str(script)],
         capture_output=True,
         text=True,
         env={
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-            "FIXTURE": str(fixture),
+            "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/local/bin",
+            "STUB_DIR": str(tmp_path),
             "GITHUB_OUTPUT": str(outputs),
             "GITHUB_STEP_SUMMARY": str(summary),
         },
@@ -225,9 +251,7 @@ def test_stalled_background_loop_opens_the_alarm(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert outputs["fail"] == "1"
-    assert any(
-        a.startswith("::error") and "background_tasks" in a for a in annotations
-    )
+    assert any(a.startswith("::error") and "background_tasks" in a for a in annotations)
 
 
 @requires_jq
@@ -256,6 +280,87 @@ def test_unreachable_backend_does_not_double_alarm(tmp_path: Path) -> None:
     assert rc == 0
     assert outputs["fail"] == "0"
     assert all(a.startswith("::warning") for a in annotations)
+
+
+# ── Drugi odczyt przed alarmem o checkach (#3215) ────────────────────────────
+# Bieg 42531906696 z 08.11.2026 trafił w Deploy 42531136042 i zgłosił worker
+# jako padnięty, choć 40 s później `/api/health` był zdrowy.
+
+WORKER_DOWN = _payload(
+    background_tasks="unhealthy: worker nie odpowiada (ConnectError)"
+)
+
+
+@requires_jq
+def test_worker_restart_blip_does_not_open_the_alarm(tmp_path: Path) -> None:
+    rc, outputs, annotations = _run(
+        tmp_path, WORKER_DOWN, _payload(background_tasks="healthy")
+    )
+    assert rc == 0
+    assert outputs["fail"] == "0"
+    assert outputs["checked"] == "1", "zdrowy drugi odczyt ma móc zamknąć alarm"
+    assert not [a for a in annotations if a.startswith("::error")]
+    assert _reads(tmp_path) == 2
+    assert len(_sleeps(tmp_path)) == 1
+    assert 60 <= _sleeps(tmp_path)[0] <= 90
+
+
+@requires_jq
+def test_worker_still_down_on_second_read_opens_the_alarm(tmp_path: Path) -> None:
+    rc, outputs, annotations = _run(tmp_path, WORKER_DOWN, WORKER_DOWN)
+    assert rc == 0
+    assert outputs["fail"] == "1"
+    assert any(a.startswith("::error") and "background_tasks" in a for a in annotations)
+    assert _reads(tmp_path) == 2
+
+
+@requires_jq
+def test_second_read_can_report_a_different_failure(tmp_path: Path) -> None:
+    """Alarm opisuje stan z drugiego odczytu, nie ten sprzed przerwy."""
+    rc, outputs, annotations = _run(
+        tmp_path, WORKER_DOWN, _payload(background_tasks="healthy", voyage="unhealthy")
+    )
+    assert rc == 0
+    assert outputs["fail"] == "1"
+    errors = [a for a in annotations if a.startswith("::error")]
+    assert len(errors) == 1 and "voyage" in errors[0]
+
+
+@requires_jq
+def test_healthy_first_read_does_not_wait(tmp_path: Path) -> None:
+    rc, outputs, _ = _run(tmp_path, _payload(background_tasks="healthy"))
+    assert rc == 0
+    assert outputs["fail"] == "0"
+    assert _reads(tmp_path) == 1
+    assert _sleeps(tmp_path) == []
+
+
+@requires_jq
+def test_warning_alone_does_not_wait(tmp_path: Path) -> None:
+    """`degraded` bywa stanem na całe dni, przerwa nic by mu nie dała."""
+    rc, outputs, _ = _run(tmp_path, _payload(traffit="degraded"))
+    assert rc == 0
+    assert outputs["fail"] == "0"
+    assert _sleeps(tmp_path) == []
+
+
+@requires_jq
+def test_backend_gone_on_second_read_stays_with_probe(tmp_path: Path) -> None:
+    """Web w trakcie restartu: alarmuje job `probe`, a stary alarm nie jest zamykany."""
+    rc, outputs, annotations = _run(
+        tmp_path, WORKER_DOWN, "<html>502 Bad Gateway</html>"
+    )
+    assert rc == 0
+    assert outputs["fail"] == "0"
+    assert "checked" not in outputs
+    assert not [a for a in annotations if a.startswith("::error")]
+
+
+def test_health_checks_timeout_covers_both_reads() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    # Dwa odczyty po 20 s i przerwa 75 s to 115 s, do tego start, checkout i issue.
+    # Ucięty job nie otworzyłby alarmu.
+    assert workflow["jobs"]["health-checks"]["timeout-minutes"] >= 4
 
 
 # ── Ponawianie w sondzie dostępności (#995) ──────────────────────────────────
