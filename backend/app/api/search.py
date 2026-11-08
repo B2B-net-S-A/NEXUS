@@ -1228,7 +1228,7 @@ async def unified_search(
             select(Job)
             .where(
                 or_(
-                    Job.title.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(Job.title, q),
                     Job.description.ilike(_contains_pattern(q)),
                 )
             )
@@ -1249,9 +1249,9 @@ async def unified_search(
             .where(
                 *visible_client_predicates(),
                 or_(
-                    client_name.ilike(_contains_pattern(q)),
-                    Client.name.ilike(_contains_pattern(q)),
-                    Client.industry.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(client_name, q),
+                    polish_folded_ilike(Client.name, q),
+                    polish_folded_ilike(Client.industry, q),
                 ),
             )
             .order_by(func.lower(client_name).asc(), Client.id.asc())
@@ -1318,7 +1318,7 @@ async def global_search(
         jobs_result = await db.execute(
             select(Job)
             .where(
-                Job.title.ilike(_contains_pattern(q)),
+                polish_folded_ilike(Job.title, q),
             )
             .limit(LIMIT)
         )
@@ -1358,9 +1358,9 @@ async def global_search(
             .where(
                 *visible_client_predicates(),
                 or_(
-                    client_name.ilike(_contains_pattern(q)),
-                    Client.name.ilike(_contains_pattern(q)),
-                    Client.industry.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(client_name, q),
+                    polish_folded_ilike(Client.name, q),
+                    polish_folded_ilike(Client.industry, q),
                 ),
             )
             .order_by(func.lower(client_name).asc(), Client.id.asc())
@@ -1394,8 +1394,8 @@ async def global_search(
             select(Contact)
             .where(
                 or_(
-                    Contact.name.ilike(_contains_pattern(q)),
-                    Contact.email.ilike(_contains_pattern(q)),
+                    polish_folded_ilike(Contact.name, q),
+                    polish_folded_ilike(Contact.email, q),
                 )
             )
             .limit(LIMIT)
