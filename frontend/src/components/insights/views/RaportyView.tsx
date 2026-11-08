@@ -25,6 +25,7 @@ import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { CompetenceMatrix } from "@/components/insights/sections/CompetenceMatrix";
 import { InsightsBoardYoY } from "@/components/insights/sections/InsightsBoardYoY";
+import { InsightsClientFunnel } from "@/components/insights/sections/InsightsClientFunnel";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
 import { HitRatioClosures } from "@/components/insights/sections/HitRatioClosures";
 import {
@@ -96,6 +97,7 @@ function ReportCard({ report }: { report: ReportDef }) {
   return (
     <Link
       href={reportHref(report.id)}
+      data-tour={report.id === "klienci" ? "insights.reports.klienci" : undefined}
       className="flex flex-col gap-1.5 rounded-lg border border-border bg-background p-3.5 transition-colors hover:border-primary/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="text-sm font-semibold text-foreground">{report.title}</span>
@@ -241,6 +243,8 @@ function ReportBody({
           <InsightsDlPortfolio period={p} />
         </div>
       );
+    case "klienci":
+      return <InsightsClientFunnel period={p} />;
     case "zamkniecia-hit-ratio":
       return <HitRatioClosures />;
     case "ranking-klientow":

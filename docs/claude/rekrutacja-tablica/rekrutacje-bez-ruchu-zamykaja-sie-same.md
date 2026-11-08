@@ -37,6 +37,20 @@ https://claude.ai/artifact/VKCXNX7A4Tqw5q5FTbP3kz (wersja 2).
   `zamkniecie-rekrutacji-osoby-w-toku.md`); pasek zamkniętej Tablicy pokazuje
   im ich osoby.
 
+## P1 bez CV: pigułka na Daily i dzwonek (audyt 08.11.2026, B4)
+
+Osobna, łagodniejsza reguła obok 14/21/28: P1 w „Szukamy” bez championa, od 5
+dni roboczych (święta i weekendy się nie liczą; `P1_NO_CV_BUSINESS_DAYS`).
+
+- **Pigułka** „Bez CV od N dni rob.” na wierszu Daily (`days_without_cv`,
+  `last_cv_sent_at`). Liczy od późniejszego z: ostatniego CV i otwarcia. P1 z
+  pigułką stoją na górze kategorii, od najdłuższej ciszy, po P0.
+- **Dzwonek** do Delivery Leada (bez aktywnego DL: Head of Recruitment), jeden
+  zbiorczy na osobę. Typ `request_review_needed`, więc bez maila. Nigdy nie
+  zamyka. Znacznik `idle_notice` ze `stage=p1_no_cv` i początkiem ciszy, więc
+  jeden dzwonek na cykl; nowe CV albo „Jeszcze trwa” zaczyna nowy cykl.
+  „Jeszcze trwa” odsuwa dzwonek, a pigułki nie, bo ona pokazuje sam fakt.
+
 ## Gdzie to siedzi
 
 - Reguła i przebieg: `backend/app/services/job_idle.py` (czyste `idle_state`,
