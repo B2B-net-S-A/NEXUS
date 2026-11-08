@@ -141,24 +141,23 @@ export function experienceCheckRows(
   return EXPERIENCE_KINDS.flatMap((kind) =>
     (experience[kind] ?? [])
       .filter((item) => item && typeof item.name === "string" && item.name.trim())
-      .map((item) => ({
-        kind,
-        name: item.name,
-        label: experienceItemLabel(kind, {
+      .map((item) => {
+        const match = saved?.find(
+          (c) => c.kind === kind && c.name.toLowerCase() === item.name.toLowerCase(),
+        );
+        return {
+          kind,
           name: item.name,
+          label: experienceItemLabel(kind, {
+            name: item.name,
+            level: item.level ?? "must",
+            min_years: item.min_years ?? null,
+          }),
           level: item.level ?? "must",
-          min_years: item.min_years ?? null,
-        }),
-        level: item.level ?? "must",
-        status:
-          saved?.find(
-            (c) => c.kind === kind && c.name.toLowerCase() === item.name.toLowerCase(),
-          )?.status ?? "unknown",
-        note:
-          saved?.find(
-            (c) => c.kind === kind && c.name.toLowerCase() === item.name.toLowerCase(),
-          )?.note ?? "",
-      })),
+          status: match?.status ?? "unknown",
+          ...(match?.note ? { note: match.note } : {}),
+        };
+      }),
   );
 }
 
