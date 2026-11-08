@@ -64,7 +64,7 @@ import { formatIsoDatePl } from "@/lib/date-pl"
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle"
 import { canRemoveRecruiter, removeRecruiter, workingRecruiters } from "@/lib/job-team"
 import { invalidateJobTeam } from "@/lib/job-team-cache"
-import { pluralPl } from "@/lib/plural-pl"
+import { countPl, pluralPl } from "@/lib/plural-pl"
 import {
   EMPTY_FILTERS,
   SCOPE_LABEL,
@@ -269,6 +269,8 @@ export interface RequestBoardViewProps {
   onClearScope?: () => void
   /** Sama tabela bez nagłówka, filtrów i obłożenia — panel P0 na pulpicie. */
   tableOnly?: boolean
+  /** Rekruterzy w wierszu jako licznik „12 osób” (rozwinięty pasek P0 na pulpicie). */
+  recruitersAsCount?: boolean
 }
 
 export type RequestBoardVariant = "tile" | "daily"
@@ -340,6 +342,7 @@ interface RowProps
     | "onRemovePerson"
     | "onAcceptProposal"
     | "busyKeys"
+    | "recruitersAsCount"
   > {
   request: BoardRequest
   group: ShownGroup
@@ -359,6 +362,7 @@ function RequestRow({
   onRemovePerson,
   onAcceptProposal,
   busyKeys,
+  recruitersAsCount = false,
 }: RowProps) {
   const toast = useToastIfProvided()
   const [p0DialogOpen, setP0DialogOpen] = useState(false)
@@ -530,46 +534,56 @@ function RequestRow({
       </div>
       {/* „+ osoba” stoi w tej samej linii co osoby, dopóki się mieści. */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 self-center py-2 pr-4">
-        <RecruiterChips
-          people={people}
-          size="sm"
-          // Lista nie szersza niż kolumna: długie nazwisko obcina się w chipie,
-          // zamiast wypychać tabelę w poziome przewijanie.
-          className="max-w-full"
-          label={`Rekruter: ${request.title}`}
-          adornment={(person) =>
-            person.channel ? <ChannelBadge channel={person.channel} iconOnly /> : null
-          }
-          onRemove={(person) => onRemovePerson(request, person)}
-          canRemove={(person) =>
-            !busy(person) &&
-            canRemoveRecruiter(person, { canStaff, canDecide, canEdit: false })
-          }
-          proposalActions={(person) =>
-            canDecide ? (
-              <Button
-                size="sm"
-                loading={busy(person)}
-                onClick={() => onAcceptProposal(request, person)}
-                aria-label={`Akceptuj propozycję: ${person.name} — ${request.title}`}
-              >
-                Akceptuj
-              </Button>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">czeka na akceptację</span>
-            )
-          }
-          emptyLabel={
-            request.champion ? (
-              // Mamy championa — nikt już nie szuka, więc brak osoby to nie alarm.
-              <span className="text-muted-foreground">nikt</span>
-            ) : (
-              <span className="rounded-full bg-warning-muted px-2 py-0.5 text-xs font-medium text-warning-muted-foreground">
-                Bez rekrutera
-              </span>
-            )
-          }
-        />
+        {recruitersAsCount && people.length > 0 ? (
+          <span
+            data-testid="request-people-count"
+            className="text-xs font-medium text-foreground"
+            title={people.map((person) => person.name).join(", ")}
+          >
+            {countPl(people.length, "osoba", "osoby", "osób")}
+          </span>
+        ) : (
+          <RecruiterChips
+            people={people}
+            size="sm"
+            // Lista nie szersza niż kolumna: długie nazwisko obcina się w chipie,
+            // zamiast wypychać tabelę w poziome przewijanie.
+            className="max-w-full"
+            label={`Rekruter: ${request.title}`}
+            adornment={(person) =>
+              person.channel ? <ChannelBadge channel={person.channel} iconOnly /> : null
+            }
+            onRemove={(person) => onRemovePerson(request, person)}
+            canRemove={(person) =>
+              !busy(person) &&
+              canRemoveRecruiter(person, { canStaff, canDecide, canEdit: false })
+            }
+            proposalActions={(person) =>
+              canDecide ? (
+                <Button
+                  size="sm"
+                  loading={busy(person)}
+                  onClick={() => onAcceptProposal(request, person)}
+                  aria-label={`Akceptuj propozycję: ${person.name} — ${request.title}`}
+                >
+                  Akceptuj
+                </Button>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">czeka na akceptację</span>
+              )
+            }
+            emptyLabel={
+              request.champion ? (
+                // Mamy championa — nikt już nie szuka, więc brak osoby to nie alarm.
+                <span className="text-muted-foreground">nikt</span>
+              ) : (
+                <span className="rounded-full bg-warning-muted px-2 py-0.5 text-xs font-medium text-warning-muted-foreground">
+                  Bez rekrutera
+                </span>
+              )
+            }
+          />
+        )}
         {channelNotes.map((note) => (
           <span
             key={note}
@@ -607,6 +621,7 @@ export function RequestBoardView({
   scopeLabel = null,
   onClearScope,
   tableOnly = false,
+  recruitersAsCount = false,
 }: RequestBoardViewProps) {
   const daily = variant === "daily"
   const { groups, shown, total } = useMemo(
@@ -678,6 +693,7 @@ export function RequestBoardView({
                     onRemovePerson={onRemovePerson}
                     onAcceptProposal={onAcceptProposal}
                     busyKeys={busyKeys}
+                    recruitersAsCount={recruitersAsCount}
                   />
                 ))}
               </section>
@@ -797,11 +813,14 @@ export function RequestBoard({
   scope = "all",
   variant = "tile",
   onlyJobIds,
+  recruitersAsCount = false,
 }: {
   scope?: RequestBoardScope
   variant?: RequestBoardVariant
   /** Sama tabela tych requestów, bez filtrów — panel P0 na pulpicie. */
   onlyJobIds?: ReadonlySet<number>
+  /** Rekruterzy w wierszu jako licznik — rozwinięty pasek P0 na pulpicie. */
+  recruitersAsCount?: boolean
 } = {}) {
   const query = useRequestBoard()
   const pathname = usePathname()
@@ -901,6 +920,7 @@ export function RequestBoard({
         board={board}
         variant={variant}
         tableOnly={onlyJobIds !== undefined}
+        recruitersAsCount={recruitersAsCount}
         scopeLabel={scopeActive && scope !== "all" ? SCOPE_LABEL[scope] : null}
         onClearScope={() => setScopeDismissed(true)}
         today={warsawToday()}

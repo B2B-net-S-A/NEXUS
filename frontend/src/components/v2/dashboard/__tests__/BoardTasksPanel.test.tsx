@@ -1529,6 +1529,20 @@ describe("BoardTasksPanel — przepływ rekrutacji i Finanse (04.10.2026)", () =
     );
   });
 
+  it("DL z kafelkiem „Moi klienci”: zamówień z maila nie ma w panelu ani w liczniku", async () => {
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" }, realUser: null } as never);
+    mockQueue({
+      flow: emptyFlow({
+        waiting_client: [flowPair({ candidate_name: "Piotr Wróbel" })],
+        order_mail_review: 3,
+      }),
+    });
+    renderPanel({ orderMailOnGrid: true });
+    const panel = await screen.findByRole("region", { name: "Czeka na Ciebie" });
+    expect(within(panel).queryByRole("region", { name: "Zamówienia z maila do weryfikacji" })).toBeNull();
+    expect(within(panel).queryByRole("link", { name: "3 dokumenty czekają" })).toBeNull();
+  });
+
   it("Finanse: liczby z modułu Finanse i zatrudnieni bez zamówienia", async () => {
     useAuthStore.setState({ user: { id: 1, role: "finance" }, realUser: null } as never);
     get.mockImplementation((url: string) => {

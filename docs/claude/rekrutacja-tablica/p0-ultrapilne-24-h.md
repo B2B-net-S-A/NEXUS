@@ -85,6 +85,24 @@ widziała najpierw trzy cudze, a jej własne chowało się w „I jeszcze 2”.
   zapytanie nie przyszło — zapasowy wiersz jak przed 28.10, panel nie znika.
 
 
+## Na pulpicie pasek jednej linii (audyt 2, wariant A Artura, 08.11.2026)
+
+Panel zajmował 660–960 px przy 1280 × 720 i spychał kolejkę roli na drugi
+ekran (u DL „Do wysłania do klienta” na y = 1158). P0 nadal stoi **nad
+wszystkim**, bez względu na własny układ (decyzja z 27.10), ale w formie
+paska (`P0NowPanel compact` w `CustomDashboard`, 42 px; pas DL na y = 237).
+
+- Pasek: „Pilne u klientów · N”, do 3 P0 z numerem, tytułem, czasem i liczbą
+  wysłanych, licznik reszty, „Pokaż tabelę”. Link w pasku prowadzi na Tablicę.
+- „Pokaż tabelę” rozwija **wszystkie** P0, rekruterzy w wierszu to licznik
+  „12 osób” z nazwiskami w dymku (`RequestBoard recruitersAsCount`). Chipy,
+  usuwanie osoby i akceptacja propozycji zostają na Daily i w kafelku
+  requestów. „+ osoba” jest też w rozwinięciu.
+- Przyciski HoR dla P0 po terminie są w rozwinięciu, w pasku ich nie ma.
+- **Prośby o P0 zostają rozwinięte** pod paskiem: to decyzja do podjęcia.
+- Brak P0 = brak paska. Sama prośba = sama prośba, bez paska.
+- **Daily bez zmian:** pełna tabela, 3 P0 i „Pokaż wszystkie”.
+
 ## P0 po terminie czeka na decyzję, liczba P0 w Obłożeniu (06.11.2026)
 
 Prośby Olafa, decyzje Artura z 06.11.2026. Makiety ze stagingu:

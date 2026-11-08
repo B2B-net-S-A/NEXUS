@@ -17,6 +17,25 @@
     "dot_anchor": "finance.rate-divergences"
   },
   {
+    "id": "pulpit-pilne-w-jednej-linii",
+    "pr": 3165,
+    "title": "„Pilne u klientów” w jednej linii",
+    "why": "Pilne rekrutacje zajmują na pulpicie jeden pasek, a pod nim od razu stoi Twoja kolejka. Całą tabelę otworzysz przyciskiem „Pokaż tabelę”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Pulpit → pasek „Pilne u klientów”",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.p0-line"
+  },
+  {
     "id": "stoja-ponad-7-dni-wpis-na-rekrutacje",
     "pr": 3174,
     "title": "Jeden wpis o osobach, które stoją ponad 7 dni",
