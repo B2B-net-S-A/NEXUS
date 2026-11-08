@@ -774,10 +774,10 @@ async def lifespan(app: FastAPI):
 
     # Phase B1: preload skill alias map into scoring engine
     try:
-        from app.services.skill_taxonomy_loader import refresh_alias_map
+        from app.services.skill_taxonomy_loader import sync_dictionary_version
 
-        count = await refresh_alias_map()
-        logger.info("Skill alias map loaded: %d aliases", count)
+        count = await sync_dictionary_version()
+        logger.info("Skill alias map loaded: %s aliases", count)
     except Exception as e:
         logger.warning("Skill alias map preload skipped: %s", e)
 
@@ -1224,6 +1224,11 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(*_lost, return_exceptions=True)
         app.state.background_tasks = {}
 
+    # Audyt 2, W5: mapa słownika musi być świeża także w procesie bez blokady
+    # lidera, dlatego ta pętla stoi poza rejestrem `background_tasks`.
+    from app.tasks.skill_dictionary_sync import skill_dictionary_sync_loop
+
+    app.state.skill_dictionary_sync = asyncio.create_task(skill_dictionary_sync_loop())
     app.state.background_tasks = {}
     app.state.background_leader = None
     if settings.BACKGROUND_LEADER_LOCK_ENABLED:
@@ -1243,7 +1248,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if app.state.background_leader is not None:
         await app.state.background_leader.stop_watching()
-    tasks = tuple(app.state.background_tasks.values())
+    tasks = (*app.state.background_tasks.values(), app.state.skill_dictionary_sync)
     for t in tasks:
         t.cancel()
     # `gather(..., return_exceptions=True)`, nie pętla `await t` łapiąca sam

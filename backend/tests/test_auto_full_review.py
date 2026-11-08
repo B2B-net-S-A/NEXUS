@@ -279,6 +279,7 @@ async def test_event_makes_the_job_due_once_per_night():
         [run] = await _auto_runs(world["job_id"])
         assert run.created_by == owner_id
         assert run.version_trace["origin"] == "auto"
+        assert "skill_dictionary" in run.version_trace
         assert run.state == "queued"
         async with AsyncSessionLocal() as db:
             # Druga próba tej samej nocy: rekrutacja nie jest już należna…
