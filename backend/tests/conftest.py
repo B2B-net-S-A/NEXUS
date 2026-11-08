@@ -33,6 +33,11 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
+from tests._static_marker import (
+    mark_static_items,
+    may_hold_static_tests,
+    only_static_requested,
+)
 
 
 # ── Zegar: żadnych dat liczonych przy imporcie ──────────────────────────────
@@ -788,6 +793,13 @@ def pytest_ignore_collect(collection_path, config):
     tracerem pokrycia (``--cov-branch``) sama kolekcja trwała w kolejce
     1:52–3:00 min na shard, lokalnie bez pokrycia 36 s.
     """
+    if (
+        collection_path.suffix == ".py"
+        and collection_path.name.startswith("test_")
+        and only_static_requested(config)
+        and not may_hold_static_tests(collection_path)
+    ):
+        return True
     plan = _ci_shard_plan()
     if plan is None or collection_path.suffix != ".py":
         return None
@@ -885,6 +897,7 @@ def _client_fixture_is_live_server(item) -> bool:
 
 
 def pytest_collection_modifyitems(config, items):
+    mark_static_items(items, pytest.mark.static)
     run_live = os.environ.get("RUN_LIVE_TESTS", "").lower() in ("1", "true", "yes")
     if not run_live:
         skip_live = pytest.mark.skip(

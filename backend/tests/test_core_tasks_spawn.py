@@ -16,6 +16,8 @@ import pytest
 
 from app.core import tasks as core_tasks
 
+pytestmark = pytest.mark.static
+
 _BACKEND = Path(__file__).resolve().parents[1]
 
 
