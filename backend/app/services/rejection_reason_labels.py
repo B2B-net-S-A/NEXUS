@@ -48,7 +48,7 @@ NO_CONTACT = "no_contact"
 CLIENT_NO_REASON = "client_no_reason"
 CLIENT_CHOSE_OTHER = "client_chose_other"
 
-# Końce procesu bez decyzji klienta o osobie (08.11.2026, 0662): zamknięcie
+# Końce procesu bez decyzji klienta o osobie (08.11.2026, 0663): zamknięcie
 # requestu i klient, który przez 30 dni nie odpowiedział. Nie wybiera się ich
 # ręcznie w oknie odrzucenia.
 REQUEST_CLOSED = "request_closed"

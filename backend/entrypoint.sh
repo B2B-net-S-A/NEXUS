@@ -9392,7 +9392,7 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
-    # 0662 — jednorazowo: „Request zamknięty” i „Klient nie odpowiedział” w każdym
+    # 0663 — jednorazowo: „Request zamknięty” i „Klient nie odpowiedział” w każdym
     # szablonie, tuż przed „Inne”. Lustro migracji (pilnuje
     # `test_job_close_client_cards.py`).
     "WITH marker AS ("

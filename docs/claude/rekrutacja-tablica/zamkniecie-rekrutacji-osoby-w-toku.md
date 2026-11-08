@@ -45,7 +45,7 @@ https://claude.ai/artifact/VXHZFJQZQbNRXAVGzNfdCu.
 
 - **Kiedy:** powód zamknięcia `competitor` (koniec pary: „Klient wybrał kogoś
   innego”, `client_chose_other`) albo `budget` („Request zamknięty”,
-  `request_closed`, seed 0662). Inne powody, w tym `filled_by_us`, nie ruszają kart.
+  `request_closed`, seed 0663). Inne powody, w tym `filled_by_us`, nie ruszają kart.
 - **Które pary:** bieżąca karta w „CV wysłane” albo „Rozmowie u klienta”,
   w bieżącym otwarciu. „Umowa” zostaje, bo tam klient już się zgodził, i etapy
   wewnętrzne zostają jak dotąd.

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0662_client_close_reasons"
-down_revision = "0661_cv_title_with_reference"
+revision = "0663_client_close_reasons"
+down_revision = "0662_candidate_quick_search_indexes"
 branch_labels = None
 depends_on = None
 
@@ -52,7 +52,7 @@ BEGIN
     ) OR EXISTS (
         SELECT 1 FROM candidate_stages WHERE ended_by = 'client_silent'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0662 odmawia: są wpisy z nowymi powodami.';
+        RAISE EXCEPTION 'Downgrade 0663 odmawia: są wpisy z nowymi powodami.';
     END IF;
 END $$"""
 

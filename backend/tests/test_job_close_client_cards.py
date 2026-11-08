@@ -32,7 +32,7 @@ from tests.test_job_close import _create_draft_job, _seed_candidate_in_job
 
 _BACKEND = Path(__file__).resolve().parents[1]
 _ENTRYPOINT = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-_MIGRATION_PATH = _BACKEND / "alembic" / "versions" / "0662_client_close_reasons.py"
+_MIGRATION_PATH = _BACKEND / "alembic" / "versions" / "0663_client_close_reasons.py"
 
 
 def _migration():
@@ -309,7 +309,7 @@ async def test_filled_by_us_never_ends_cards_even_if_asked(
 
 @pytest.mark.asyncio
 async def test_ended_by_client_silent_passes_the_database_check() -> None:
-    """0662 dopisuje `client_silent` do CHECK-a: inaczej automat wywróci zapis."""
+    """0663 dopisuje `client_silent` do CHECK-a: inaczej automat wywróci zapis."""
     from sqlalchemy import text
 
     from app.core.database import AsyncSessionLocal
