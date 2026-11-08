@@ -111,6 +111,7 @@ function P0Line({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
+        data-tour="dashboard.p0-line"
         className="ml-auto flex shrink-0 items-center gap-0.5 whitespace-nowrap text-xs font-medium underline-offset-2 hover:underline"
       >
         {open ? "Zwiń tabelę" : "Pokaż tabelę"}
