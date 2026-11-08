@@ -641,6 +641,11 @@ class Settings(BaseSettings):
     # (domyślnie 50, ustawia HoR) nie szuka ręcznie (423). Wymaga też
     # NEW_COLUMN_AUTOFILL_ENABLED. False = silnik jak przed 07.11.
     REVIEW_BATCH_ENABLED: bool = False
+    # Cel kart od systemu wg tempa rekrutacji i miejsce dla świeżych (decyzje
+    # Artura z 08.11.2026, `services/new_column_autofill.py`): 5, 10 albo 20
+    # czekających kart, poranny przebieg raz dziennie, w dzień tylko gorące.
+    # False = silnik jak dotąd (20 we wszystkich, pełny przebieg co 15 minut).
+    NEW_COLUMN_TEMPO_TARGET_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.

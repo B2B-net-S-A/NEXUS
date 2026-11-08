@@ -1802,5 +1802,18 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "job.client-wait"
+  },
+  {
+    "id": "qc-wskaz-stanowisko-i-luka",
+    "pr": 3204,
+    "title": "QC przed przekazaniem do Delivery Leada",
+    "why": "Niesprawdzona umiejętność krytyczna? Karta zostaje u rekrutera: otwórz QC i wskaż stanowisko. Kandydat jej nie ma? Delivery Lead wybiera: wysłać mimo braku albo wrócić do rekrutera.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"] },
+    "where": "Rekrutacja → Tablica → kolumna QC CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.card"
   }
 ]

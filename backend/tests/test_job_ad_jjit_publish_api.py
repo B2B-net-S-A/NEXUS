@@ -348,7 +348,7 @@ async def test_hand_marked_ad_does_not_buy_a_second_credit(
     api, monkeypatch, jjit_ready
 ):
     recruiter, lead, _lead_id, job_id = await _ready_job(api, monkeypatch)
-    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=recruiter)
+    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=lead)
     assert marked.status_code == 200, marked.text
     resp = await _publish(api, lead, job_id)
     assert resp.status_code == 409
@@ -356,7 +356,7 @@ async def test_hand_marked_ad_does_not_buy_a_second_credit(
     assert await _posting(job_id) is None
 
     # Po „Zdjęte z portalu” publikacja jest znów możliwa.
-    assert (await api.delete(_mark_url(job_id), headers=recruiter)).status_code == 200
+    assert (await api.delete(_mark_url(job_id), headers=lead)).status_code == 200
     assert (await _publish(api, lead, job_id)).status_code == 200
 
 
@@ -365,7 +365,7 @@ async def test_hand_marking_is_refused_while_the_api_holds_the_ad(
 ):
     recruiter, lead, _lead_id, job_id = await _ready_job(api, monkeypatch)
     assert (await _publish(api, lead, job_id)).status_code == 200
-    resp = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=recruiter)
+    resp = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=lead)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "jjit_api_live"
 
@@ -388,7 +388,7 @@ async def test_late_cleanup_does_not_erase_a_hand_mark(api, monkeypatch, jjit_re
             )
         )
         await db.commit()
-    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=recruiter)
+    marked = await api.put(_mark_url(job_id), json={"url": AD_URL}, headers=lead)
     assert marked.status_code == 200, marked.text
 
     await _process(job_id)

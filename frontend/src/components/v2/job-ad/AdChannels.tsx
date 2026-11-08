@@ -486,13 +486,11 @@ export function AdChannels({
                   ? "JustJoin.IT publikujesz stąd jednym kliknięciem."
                   : "JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."
               }`
-            : `Pracuj.pl wstawia opiekun konta po mailu od Delivery Leada. ${
-                jjitReady
-                  ? "JustJoin.IT publikuje Delivery Lead."
-                  : "JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."
-              }`}
+            : state.can_mark_publications
+              ? "Pracuj.pl i JustJoin.IT oznaczasz tutaj po publikacji."
+              : "Pracuj.pl wstawia opiekun konta po mailu od Delivery Leada. JustJoin.IT publikuje Delivery Lead."}
         </p>
-        {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
+        {/* Oznacza Delivery Lead rekrutacji, Head of Recruitment albo admin. */}
         <AdPublications
           jobId={jobId}
           portals={["pracuj", "jjit"]}

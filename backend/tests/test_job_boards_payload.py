@@ -7,6 +7,8 @@ nic spoza ``public_job_payload`` (klient, stawka), a tekst jest escapowany.
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.job_portals import jjit_payload as p
 
 
@@ -223,6 +225,28 @@ def test_update_body_carries_fields_put_requires():
     assert body["informationClause"] == "Klauzula"
     assert body["contact"]["email"] == "a@b.pl"
     assert body["publicTags"] == [{"key": "x"}]
+
+
+@pytest.mark.parametrize(
+    "contact",
+    [
+        {"name": "A", "email": "a@b.pl"},
+        {"name": "A", "email": "a@b.pl", "phone": None},
+        {"name": "A", "email": "a@b.pl", "phone": "  "},
+        None,
+    ],
+)
+def test_update_body_drops_contact_without_phone(contact):
+    """Portal: „Contact phone is required when contact is provided” (08.11.2026)."""
+    body = p.update_body(
+        "justjoinit",
+        current={"informationClause": "Klauzula", "contact": contact},
+        job=_job(),
+        options=_options(),
+        apply_url="https://x/r/a",
+        skill_ids={},
+    )
+    assert body["contact"] is None
 
 
 def test_skill_key_keeps_cpp_and_csharp_apart():

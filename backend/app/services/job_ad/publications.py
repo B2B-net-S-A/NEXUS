@@ -1,7 +1,8 @@
 """Gdzie wisi ogłoszenie — oznaczenia publikacji (0432).
 
-Rekruter wkleja treść na portalu ręcznie, a potem oznacza to tutaj; publikację
-przez API na JustJoin.IT zapisuje tu worker (``record_portal_send``). Stan
+Ogłoszenia na portale prowadzi Delivery Lead (decyzja Artura 08.11.2026,
+``can_mark``): oznacza tu to, co wisi na Pracuj.pl albo zostało wklejone;
+publikację przez API na JustJoin.IT zapisuje worker (``record_portal_send``). Stan
 czyta okno „Ogłoszenie na portale”, sekcja „Zespół i ogłoszenie” i kolumna
 „Ogłoszenia” na liście rekrutacji.
 
@@ -26,9 +27,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.job import Job
 from app.models.job_ad import JobAd
 from app.models.job_ad_publication import JobAdPublication
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.job_ad_publication_schema import (
     PORTAL_JJIT,
     PORTAL_PRACUJ,
@@ -205,6 +207,17 @@ async def career_pages_for_jobs(db: AsyncSession, job_ids: Iterable[int]) -> set
         )
     )
     return set(rows)
+
+
+def can_mark(user: User, job: Job) -> bool:
+    """Oznaczenia portali: Delivery Lead rekrutacji, Head of Recruitment, admin.
+
+    Ta sama lista co przy publikacji (``reminders.can_manage``), ale działa też
+    dla zamkniętej rekrutacji, bo zdjęcie ogłoszenia trzeba wtedy jeszcze oznaczyć.
+    """
+    return job.delivery_lead_id == user.id or user.has_any_role(
+        UserRole.head_of_recruitment, UserRole.admin
+    )
 
 
 class ContentBlocked(Exception):

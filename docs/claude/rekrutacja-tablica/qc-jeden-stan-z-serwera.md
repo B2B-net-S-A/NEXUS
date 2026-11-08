@@ -20,3 +20,21 @@ i cztery nazwy przepuszczenia. Każda poprawka stanu szła w sześciu kopiach.
   nie powtarza już wyniku QC.
 
 Testy: `tests/test_qc_state.py`, `CvControlSummary.test.tsx`, `QcStatusBadge.test.tsx`.
+
+## Co zatrzymuje parę u rekrutera (QC-7, QC-8, 08.11.2026)
+
+- **Niesprawdzone stanowiska albo zgoda RODO z pliku** (`manual_items`): zdane QC nie
+  wchodzi do kolejki Delivery Leada (`dl_send_queue.readiness_of`, `isReadyForDlSend`).
+  Ruch ma rekruter: „Wskaż stanowisko w QC”. W trybie doradczym może przesunąć mimo to
+  („Przesuń mimo uwag…”, dzwonek do DL), wtedy para jest `overridden` i trafia do kolejki.
+- **Luka kandydata** przy wysyłce do klienta: Delivery Lead wybiera „Wysyłam mimo braku”
+  albo „Wracam do rekrutera” (`GapDecision`). Wybór jedzie jako `gap_decision`
+  i zostaje w `Activity` (`cv_qc_gap_decision`, lista luk). Pomiar: odrzucenia u klienta
+  z luką i bez luki, po 21 dniach.
+- **Starszy plik B2B** (QC-4): `cv_present` = manual z `fix: "use_older_cv"`, „Użyj tego CV”
+  wczytuje plik jako szkic tej pary. Wysyłka bez decyzji dalej stoi (`holds_send`), bo
+  nie ma CV tej rekrutacji. Reguła „plik sprzed rekrutacji nie jest jej CV” obowiązuje.
+- **Obejścia z gotowym powodem** (QC-5): „Kandydat potwierdził” wymaga wskazania uwagi
+  i słów kandydata (15 znaków), „Nie dotyczy tej roli” wskazania uwagi.
+- **Wskazanie stanowisk** ma odcisk oryginału (`original_fp`): po wgraniu innego QC pyta
+  znowu. „Nigdzie — tylko na liście” pyta raz, zanim zapisze.

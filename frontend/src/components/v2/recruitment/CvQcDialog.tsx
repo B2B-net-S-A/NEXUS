@@ -90,11 +90,12 @@ import {
   qcDismissedMessage,
   roleGaps,
   segmentCv,
+  cvControlSummary,
   splitChecks,
+  type QcPendingItem,
   candidateGapItems,
   splitDlReturns,
   taskPendingItem,
-  taskTitle,
   thingsLabel,
   unboldedTerms,
   type RoleGap,
@@ -696,9 +697,22 @@ export function CvQcDialogView({
   const [editorOpen, setEditorOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);
-  const pending = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskTitle) : []), [data]);
-  const pendingItems = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskPendingItem) : []), [data]);
-  const cleared = Boolean(data && (data.passed || data.override));
+  const manualToDo = useMemo(() => {
+    if (!data?.passed || data.override) return [];
+    const control = cvControlSummary(data.checks);
+    return [...control.unverified, ...(control.consentManual ? ["Zgoda RODO z pliku kandydata"] : [])];
+  }, [data]);
+  const pendingItems = useMemo<QcPendingItem[]>(
+    () =>
+      manualToDo.length > 0
+        ? manualToDo.map((title) => ({ title, keys: [], labelable: false }))
+        : data
+          ? splitChecks(data.checks).tasks.map(taskPendingItem)
+          : [],
+    [data, manualToDo],
+  );
+  const pending = useMemo(() => pendingItems.map((item) => item.title), [pendingItems]);
+  const cleared = Boolean(data && (data.passed || data.override) && manualToDo.length === 0);
 
   return (
     <>

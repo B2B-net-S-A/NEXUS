@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func, or_, select, tuple_
@@ -132,11 +132,15 @@ def readiness_of(
     qc_status: Optional[str],
     ok_at: Optional[datetime],
     today: date,
+    manual_items: Sequence[str] = (),
 ) -> Readiness:
     """Gotowość pary ze stanu QC — jedna reguła dla kolejki Delivery Leada
-    i dla „Twoje CV w drodze” rekrutera (`cv_in_transit`)."""
+    i dla „Twoje CV w drodze” rekrutera (`cv_in_transit`).
 
-    if qc_status not in QC_OK_STATUSES:
+    QC-7: zdane QC z rzeczami „sprawdź ręcznie” nie trafia do kolejki, bo ruch
+    ma rekruter. Przepuszczenie (`overridden`) trafia."""
+
+    if qc_status not in QC_OK_STATUSES or (qc_status == "passed" and manual_items):
         return Readiness(ready=False)
     ready_since = max(since, ok_at) if ok_at is not None else since
     workdays = waiting_workdays(ready_since, today)
@@ -183,7 +187,11 @@ def apply_readiness(task: BoardTask, *, ok_at: Optional[datetime], today: date) 
     """``ready`` / ``ready_since`` / dni robocze / pilność ze stanu QC wiersza."""
 
     state = readiness_of(
-        since=task.since, qc_status=task.qc_status, ok_at=ok_at, today=today
+        since=task.since,
+        qc_status=task.qc_status,
+        ok_at=ok_at,
+        today=today,
+        manual_items=task.qc_manual,
     )
     task.ready = state.ready
     task.ready_since = state.ready_since

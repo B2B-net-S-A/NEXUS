@@ -125,6 +125,23 @@ async def _material(db: AsyncSession, job: Job) -> material.AdMaterial:
     return await portal_content.ad_material(db, job)
 
 
+async def _can_mark(db: AsyncSession, job: Job, user_id: int) -> bool:
+    user = await db.get(User, user_id)
+    return user is not None and publications.can_mark(user, job)
+
+
+def _require_can_mark(user: User, job: Job) -> None:
+    """Rekruter nie wstawia ogłoszeń na portale (decyzja Artura 08.11.2026)."""
+    if not publications.can_mark(user, job):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ogłoszenia na portalach prowadzi Delivery Lead tej rekrutacji, "
+                "Head of Recruitment albo admin."
+            ),
+        )
+
+
 async def _response(
     db: AsyncSession,
     job: Job,
@@ -140,6 +157,7 @@ async def _response(
         "reminders": await _reminders_panel(db, job.id, user_id),
         "pracuj_request": await _pracuj_request(db, job.id),
         "jjit_api": await _jjit_api(db, job.id),
+        "can_mark_publications": await _can_mark(db, job, user_id),
     }
     if ad is None:
         return JobAdResponse(**base)
@@ -417,6 +435,7 @@ async def mark_ad_published(
     Sama zmiana linku przy aktywnym oznaczeniu niczego nie potwierdza.
     """
     job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
     ad = await db.get(JobAd, job_id)
     if ad is None:
         raise HTTPException(
@@ -481,6 +500,7 @@ async def mark_ad_removed(
     zapisuje zdjęcie; decyduje DL rekrutacji, Head of Recruitment albo admin.
     """
     job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
     if portal == PORTAL_JJIT and await live_on_jjit(db, job_id) is not None:
         await _managed_status(db, current_user, job)
         await request_unpublish(db, job=job, portal=Portal.justjoinit)

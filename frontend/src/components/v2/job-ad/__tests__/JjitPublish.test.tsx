@@ -167,6 +167,17 @@ describe("karta JustJoin.IT przy włączonym portalu", () => {
     expect(row.queryByRole("button", { name: "Zaktualizowane na portalu" })).toBeNull();
   });
 
+  it("przy formularzu portalu podpowiedź nie odsyła do strony kariery", () => {
+    const row = card(
+      adState({
+        publications: [jjit({ outdated: true })],
+        jjit_api: { ...READY, status: "published", career_required: false },
+      }),
+    );
+    expect(row.getByText(/Kliknij „Zaktualizuj na JustJoin.IT”/)).toBeTruthy();
+    expect(row.queryByText(/Zaktualizuj stronę kariery/)).toBeNull();
+  });
+
   it("ogłoszenie oznaczone ręcznie zostaje ręczne, bez publikacji przez API", () => {
     const row = card(adState({ publications: [jjit()], jjit_api: READY }));
     expect(row.queryByTestId("jjit-publish")).toBeNull();

@@ -1024,6 +1024,11 @@ async def save_champion_core(
                 fields_changed=fields_changed,
             ),
         )
+    if "stack" in fields_changed:
+        # QC-10: zmiana wymagań — plakietki pokazują wynik zgodny z bramką.
+        from app.tasks.cv_qc_recompute import schedule_job_recompute
+
+        effects.later(schedule_job_recompute, job_id)
 
     return {
         "job_id": job_id,

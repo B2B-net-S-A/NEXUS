@@ -35,7 +35,7 @@ function screeningsLabel(count: number): string {
   return `${count} ${pluralPl(count, "screening", "screeningi", "screeningów")} do domknięcia`;
 }
 
-function AddMore({ jobId, title }: { jobId: number; title: string }) {
+function AddMore({ jobId, title, count }: { jobId: number; title: string; count: number }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
   const [busy, setBusy] = useState(false);
@@ -61,7 +61,7 @@ function AddMore({ jobId, title }: { jobId: number; title: string }) {
         }
       }}
     >
-      Dodaj 20 kolejnych od Nexusa
+      Dodaj {count} kolejnych od Nexusa
     </Button>
   );
 }
@@ -171,7 +171,7 @@ export function ReviewBatchScreen() {
                   <Link href={`/jobs/${job.job_id}`} className="min-w-0 flex-1 truncate hover:underline">
                     {job.title}
                   </Link>
-                  <AddMore jobId={job.job_id} title={job.title} />
+                  <AddMore jobId={job.job_id} title={job.title} count={status.data?.more_cards ?? 20} />
                 </li>
               ))}
           </ul>

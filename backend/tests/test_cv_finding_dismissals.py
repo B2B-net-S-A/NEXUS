@@ -131,7 +131,7 @@ def test_compute_checks_marks_critical_role_items_absent_from_the_cv() -> None:
     ("reason", "note", "error"),
     [
         ("nonsense", None, "Wybierz powód"),
-        ("other", "   ", "Opisz"),
+        ("other", "   ", "napisz co najmniej"),
     ],
 )
 def test_reason_is_checked(reason: str, note: str | None, error: str) -> None:

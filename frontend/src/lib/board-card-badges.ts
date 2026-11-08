@@ -128,8 +128,13 @@ export function isReadyForDlSend(
   column: BoardColumnKey | null,
   inCproQueue: boolean,
 ): boolean {
-  if (column !== "cv_qc" || inCproQueue) return false;
+  if (column !== "cv_qc" || inCproQueue || qcHoldsAtRecruiter(item)) return false;
   return item.qc?.status === "passed" || item.qc?.status === "overridden";
+}
+
+/** QC-7 (08.11.2026): stanowiska bez wskazania — ruch rekrutera, nie Delivery Leada. */
+function qcHoldsAtRecruiter(item: KanbanItem): boolean {
+  return item.qc?.qc_state?.kind === "verify_roles";
 }
 
 /**
@@ -235,6 +240,9 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined): DlWaitingS
       text: `QC: ${item.qc.blocking_failed} do poprawy — popraw CV, zanim Delivery Lead je zobaczy.`,
     };
   }
+  if (qcHoldsAtRecruiter(item)) {
+    return { ready: false, text: `${item.qc?.qc_state?.text} — zrób to, zanim Delivery Lead je zobaczy.` };
+  }
   return {
     ready: false,
     text: "QC jeszcze nie sprawdzone — sprawdź CV, zanim Delivery Lead je zobaczy.",
@@ -317,6 +325,17 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
   const hasCompanyCv =
     item.company_cv === true || (item.company_cv == null && item.auto_cv_ready === true);
   if (column === "verified" && hasCompanyCv && qc && qcRan) {
+    // QC-11 (08.11.2026): ten sam tekst co chip, panel i przegląd DL. Tu nic
+    // nie blokuje, więc „do poprawy” nie jest czerwone.
+    if (qc.qc_state) {
+      const extra = qc.warnings_count ?? 0;
+      return {
+        key: "cv_state",
+        label: `CV gotowe · ${qc.qc_state.text}${extra > 0 ? ` · ${qcCountsText(0, extra)}` : ""}`,
+        tone: qc.qc_state.tone === "urgent" ? "wait" : qc.qc_state.tone,
+        title: qc.qc_state.hint ?? qc.qc_state.text,
+      };
+    }
     if (qc.status === "overridden") {
       return {
         key: "cv_state",
@@ -1206,7 +1225,8 @@ export function knownForwardGap(
   // 14.10.2026: bez CV firmowego przeciągnięcie na „QC CV” wkładało osobę
   // wprost do kolejki Delivery Leada. `null`/brak pola = nie wiadomo.
   if (from === "verified" && item.company_cv === false) {
-    return "Brak CV firmowego";
+    // QC-4: starszy plik B2B ma własny napis zamiast cichego „Brak CV”.
+    return item.qc?.qc_state?.kind === "older_cv" ? item.qc.qc_state.text.replace(/^QC: /, "") : "Brak CV firmowego";
   }
   if (from === "cv_qc" && item.qc?.status === "failed") {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
@@ -1476,6 +1496,9 @@ export function cardNextStep(
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
       return { ...recruiter(), label: "Popraw CV wg QC" };
+    }
+    if (qcHoldsAtRecruiter(item)) {
+      return { ...recruiter(), label: "Wskaż stanowisko w QC" };
     }
     if (ctx.stageBadge !== "cpro" && item.qc?.status !== "passed" && item.qc?.status !== "overridden") {
       return { ...recruiter(), label: "Sprawdź QC CV" };

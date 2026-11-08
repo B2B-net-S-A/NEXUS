@@ -11208,6 +11208,29 @@ run_unless_marked() {
 
 
 
+# Pięć ogłoszeń JustJoin.IT z 05–06.11 na formularz portalu (decyzja Artura
+# 08.11.2026): tylko kolejkuje aktualizację, wysyła worker. Bez JJIT_APPLY_EMAIL
+# nic nie robi i nie zapisuje znacznika.
+startup_phase "repair-jjit-native-apply-switch"
+run_unless_marked "jjit_native_apply_switch_2026_11" <<'PY' || echo "jjit native apply switch skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_portals.native_apply_switch import run_native_apply_switch
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_native_apply_switch(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"jjit native apply switch: {summary or 'nothing to do'}")
+
+asyncio.run(repair())
+PY
+
 # Synchronizacja kontrakt ↔ zamówienia (0304, 09.2026) — jednorazowo:
 # migawka raportu zgodności SPRZED synchronizacji, potem wszystkie szkice
 # kontraktów → Aktywny (z okresem zamówienia i stawką przychodową, gdy osoba

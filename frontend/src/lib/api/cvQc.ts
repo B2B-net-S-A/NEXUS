@@ -15,6 +15,8 @@ export type QcSeverity = "blocking" | "warning";
 export type QcFixKind =
   | "bold_all"
   | "generate_cv"
+  /** QC-4: plik „…B2B…” sprzed rekrutacji — „Użyj tego CV”. */
+  | "use_older_cv"
   | "upload_consent"
   /** Zrzut zgody nie pasuje do rekrutacji (F37, 27.10.2026) — „Wymień zrzut”. */
   | "replace_consent"
@@ -65,6 +67,8 @@ export interface QcItem {
   searched?: QcSearch[];
   /** Fragment oryginału z tą samą rzeczą pod inną nazwą: pytanie zamiast „nie ma”. */
   similar?: { term: string; quote: string } | null;
+  /** QC-4: plik sprzed rekrutacji, który można użyć jednym kliknięciem. */
+  document?: { document_id: number; filename: string; at: string | null; same_client: boolean } | null;
   /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
   dismissal?: QcDismissal | null;
 }
