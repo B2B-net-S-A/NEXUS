@@ -22,7 +22,12 @@ from app.services.client_invoicing.billing import (
     period_fraction,
 )
 from app.services.client_invoicing.ledger import Chain, check
-from app.services.client_invoicing.matching import Target, decide, numbers_found
+from app.services.client_invoicing.matching import (
+    RETRY_REASONS,
+    Target,
+    decide,
+    numbers_found,
+)
 from app.services.client_invoicing.views import row_status
 from app.services.client_invoicing.payments import (
     OpenInvoice,
@@ -153,6 +158,112 @@ def test_number_and_one_person_amount_links_to_that_person():
         refs=_refs(row),
     )
     assert decision.targets == (Target(order_id=2),)
+
+
+def _one_number_on_two_groups(first_lines, second_lines):
+    """Ten sam numer zamówienia na dwóch grupach klienta (dwa trafione wiersze)."""
+
+    a = _group(10, "445", *first_lines)
+    b = _group(11, "445", *second_lines)
+    return [a, b]
+
+
+def test_number_on_two_groups_and_one_person_amount_links_to_that_person():
+    rows = _one_number_on_two_groups(
+        [_line(1, "10000.00"), _line(2, "12000.00", "Ewa Przykładowa")],
+        [_line(3, "7000.00", "Adam Przykładowy")],
+    )
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+    )
+    assert decision.targets == (Target(order_id=2),)
+    assert decision.method == "order_number"
+
+
+def test_number_on_two_groups_and_two_people_with_that_amount_waits():
+    rows = _one_number_on_two_groups(
+        [_line(1, "12000.00"), _line(2, "9000.00", "Ewa Przykładowa")],
+        [_line(3, "12000.00", "Adam Przykładowy"), _line(4, "5000.00", "Ola Testowa")],
+    )
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
+def test_number_on_two_groups_prefers_a_whole_row_over_a_person():
+    rows = _one_number_on_two_groups(
+        [_line(1, "12000.00"), _line(2, "9000.00", "Ewa Przykładowa")],
+        [_line(3, "7000.00", "Adam Przykładowy"), _line(4, "5000.00", "Ola Testowa")],
+    )
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+    )
+    assert decision.targets == (Target(group_id=11),)
+
+
+def test_two_equal_whole_rows_are_not_resolved_by_a_person():
+    group = _group(10, "445", _line(1, "12000.00"))
+    periodic = _periodic(20, "445", "12000.00")
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=[group, periodic],
+        refs=_refs(group, periodic),
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
+def test_number_on_two_rows_ignores_a_person_amount_outside_a_group():
+    pool = BillingRow(
+        client_id=1,
+        kind="md",
+        group_id=10,
+        order_id=None,
+        order_number="445",
+        currency="PLN",
+        lines=(
+            BillingLine(
+                order_id=None,
+                consultant="2 os.",
+                basis="md",
+                quantity=Decimal("1"),
+                unit_price=Decimal("1"),
+                net=Decimal("12000.00"),
+                currency="PLN",
+            ),
+            _line(1, "5000.00"),
+        ),
+    )
+    other = _group(11, "445", _line(3, "7000.00", "Adam Przykładowy"))
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=[pool, other],
+        refs=_refs(pool, other),
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
+def test_several_orders_gets_another_attempt():
+    assert "several_orders" in RETRY_REASONS
 
 
 def test_number_outside_the_month_is_not_guessed():
