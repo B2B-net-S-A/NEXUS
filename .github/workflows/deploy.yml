@@ -701,7 +701,8 @@ jobs:
                 # kolejne kroki smoke.
                 set +e
                 python3 .github/scripts/select_release_sha.py accept \
-                  --repo "${{ github.repository }}" --release "$RELEASE_SHA" --live "$version"
+                  --repo "${{ github.repository }}" --release "$RELEASE_SHA" --live "$version" \
+                  --rebuild-skipped "${{ steps.precheck.outputs.skip == 'true' }}"
                 verdict=$?
                 set -e
                 if [ "$verdict" = "0" ]; then

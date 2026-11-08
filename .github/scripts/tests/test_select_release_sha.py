@@ -46,7 +46,7 @@ class SelectTests(unittest.TestCase):
 
 
 class AcceptTests(unittest.TestCase):
-    def accept(self, live, rel, statuses, wait=60.0):
+    def accept(self, live, rel, statuses, wait=60.0, rebuild_skipped=False):
         seq = list(statuses)
         clock = [0.0]
 
@@ -59,6 +59,7 @@ class AcceptTests(unittest.TestCase):
         return SELECT.accept_live(
             live, A, lambda base, head: rel, status_of,
             wait_seconds=wait, poll_seconds=20, sleep=sleep, clock=lambda: clock[0],
+            rebuild_skipped=rebuild_skipped,
         )
 
     def test_equal_version_is_accepted(self):
@@ -77,6 +78,15 @@ class AcceptTests(unittest.TestCase):
     def test_stale_or_unrelated_version_is_retried(self):
         self.assertEqual(self.accept(C, "behind", ["success"]).code, 2)
         self.assertEqual(self.accept("unknown", "ahead", ["success"]).code, 2)
+
+    def test_skipped_rebuild_accepts_live_ancestor_of_inert_release(self):
+        # 08.11.2026: wydanie z samą zmianą w docs/ — deploy_needed pominął
+        # rebuild, więc produkcja słusznie stoi na przodku wydania.
+        result = self.accept(C, "behind", ["failure"], rebuild_skipped=True)
+        self.assertEqual((result.code, result.relation), (0, "behind"))
+
+    def test_skipped_rebuild_does_not_accept_unrelated_version(self):
+        self.assertEqual(self.accept(C, "diverged", ["success"], rebuild_skipped=True).code, 2)
 
 
 class GateStatusTests(unittest.TestCase):
@@ -450,6 +460,15 @@ class CliTests(unittest.TestCase):
 
         code = SELECT.main(["accept", "--repo", "o/r", "--release", A, "--live", B], fetch=broken)
         self.assertEqual(code, 3)
+
+    def test_accept_with_skipped_rebuild_exports_live_ancestor(self):
+        _, env = self.env()
+        code = SELECT.main(
+            ["accept", "--repo", "o/r", "--release", A, "--live", B, "--rebuild-skipped", "true"],
+            fetch=lambda p: {"status": "behind"},
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(env.read_text(), f"ACCEPTED_SHA={B}\n")
 
 
 if __name__ == "__main__":
