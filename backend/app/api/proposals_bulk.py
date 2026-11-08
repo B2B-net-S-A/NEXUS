@@ -116,6 +116,25 @@ BulkAddSource = Literal[
     "similar_candidates",
 ]
 
+# Skąd osoba dodana ręcznie (porcja dnia, P4): trzy strumienie, żeby odróżnić
+# osoby znalezione wyszukiwarką od reszty ręcznych dodań.
+FoundVia = Literal["search", "outside_base", "proposals"]
+_FOUND_VIA_BY_SOURCE: dict[str, FoundVia] = {
+    "manual_search": "search",
+    "talent_radar": "search",
+    "candidate_list": "search",
+    "quick_add": "search",
+    "full_search": "proposals",
+    "historical": "proposals",
+    "proposal_inbox": "proposals",
+    "recommendation": "proposals",
+    "my_people": "proposals",
+    "jarvis": "proposals",
+    "also_fits": "proposals",
+    "also_manual": "proposals",
+    "similar_candidates": "proposals",
+}
+
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
 _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
     EligibilityReason.blacklisted: "blacklisted",
@@ -162,6 +181,9 @@ class BulkProposalsRequest(BaseModel):
     # the candidate (`emit_pipeline_additions`). Never guessed from history.
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
+    # Dodanie z pliku CV idzie tą samą trasą co „+ Dodaj”, ale to osoba spoza
+    # bazy: mówi o tym sam ekran.
+    found_via: Optional[FoundVia] = None
     # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
     # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`
     # i `also_manual`.
@@ -482,6 +504,11 @@ async def _reassign_sources(
 _PROPOSAL_SOURCES = frozenset(
     {"full_search", "historical", "proposal_inbox", "recommendation"}
 )
+
+
+def _found_via_meta(found_via: Optional[str], source: Optional[str]) -> Optional[dict]:
+    value = found_via or _FOUND_VIA_BY_SOURCE.get(source or "")
+    return {"found_via": value} if value else None
 
 
 def _entry_source_for(source: Optional[str]) -> str:
@@ -1300,6 +1327,9 @@ async def bulk_add_proposals(
             else _entry_source_for(body.source)
         ),
         claim=not from_integration,
+        entry_meta=(
+            None if from_integration else _found_via_meta(body.found_via, body.source)
+        ),
         # Każde `BulkAddSource` to kliknięcie człowieka; token integracji nie.
         mark_proposals=not from_integration,
     )
