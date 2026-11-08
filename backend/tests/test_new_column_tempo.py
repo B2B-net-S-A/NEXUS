@@ -484,6 +484,33 @@ async def test_swap_leaves_a_trace_and_the_card_can_come_back(tempo_on):
     assert gone in {pick.candidate_id for pick in picks}
 
 
+async def test_a_person_who_gave_way_does_not_come_back_as_new_in_base(tempo_on):
+    world = await _seats([(10, 70)] * 5, newcomers=1)
+    job_id = world["job_id"]
+    gone = world["board"][0]
+    await _new_in_base(gone, days=8)
+    await _fill(job_id, swap=True)
+    assert gone not in await _board(job_id)
+    await _pool(job_id, {gone: 95})
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        picks = await autofill.new_in_base_picks(db, job, now=_WORKDAY)
+    assert gone not in {pick.candidate_id for pick in picks}
+    # Następnego ranka nie zabiera miejsca kolejnej karcie.
+    assert await _fill(job_id, swap=True) == []
+    assert len(await _removals(job_id)) == 1
+
+
+async def test_batch_never_swaps_because_old_cards_take_no_place(tempo_on):
+    recruiter = await _user()
+    world = await _seats(
+        [(1, 90)] * 5 + [(8, 70)] * 5, newcomers=5, recruiter_id=recruiter
+    )
+    job_id = world["job_id"]
+    assert await _fill(job_id, batch=True, swap=True) == []
+    assert await _removals(job_id) == []
+
+
 async def test_other_removal_reasons_stay_excluded(tempo_on):
     world = await _world(2)
     job_id = world["job_id"]

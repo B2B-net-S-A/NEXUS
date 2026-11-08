@@ -58,11 +58,13 @@ Stałe w `services/new_column_autofill.py`, reguła w `tempo_of`:
 
 ## Miejsce dla świeżych
 
-Tylko w porannym przebiegu (`fill_job(swap=True)`), także przy włączonej porcji (runda „reszta”).
+Tylko w porannym przebiegu (`fill_job(swap=True)`) i tylko bez porcji. W porcji karta starsza
+niż 7 dni nie liczy się do celu (`in_batch`), więc świeża osoba wchodzi na wolne miejsce, a zamiana
+przekraczałaby cel.
 
 - Najpierw zwykłe dopełnienie do celu. Zamiana dotyczy osób nowych w bazie, które zostały.
 - **Świeża osoba:** te same warunki co `new_in_base_picks` (do 14 dni w bazie, od
-  `proposal_threshold`, bez uwag) i bramka `_allowed`. W porcji także od jej progu.
+  `proposal_threshold`, bez uwag) i bramka `_allowed`.
 - **Karta, która ustępuje** (`autofill_withdraw.plan_fresh_seats`): od systemu, otwarta co
   najmniej `FRESH_SEAT_AGE_DAYS` = 7 dni temu i nietknięta wg `_untouched_pairs` (bez „Dzwonię”,
   blokady, decyzji, ruchu, oceny, screeningu, notatki). Warunek sprawdzany drugi raz pod
@@ -71,9 +73,10 @@ Tylko w porannym przebiegu (`fill_job(swap=True)`), także przy włączonej porc
   przerwany przebieg nie zamienia drugi raz. Zamiany liczą się do bezpiecznika dodań.
 - **Zdejmuje `autofill_withdraw.apply`** z powodem `autofill_withdrawn_fresh_seat`, bez wpisu
   w `autofill_feedback`, bo to nie decyzja człowieka.
-- **Osoba może wrócić.** To jedyny powód w archiwum, który `ranked_picks` i pula nocnego
-  przeglądu (`auto_full_review._in_job_ids`) pomijają. Inny wpis tej pary w archiwum dalej
-  wyklucza osobę. Propozycji nie zamykamy.
+- **Osoba może wrócić, ale bez pierwszeństwa.** To jedyny powód w archiwum, który `ranked_picks`
+  i pula nocnego przeglądu (`auto_full_review._in_job_ids`) pomijają. Wraca zwykłym dopełnieniem,
+  nie jako „nowa w bazie” (`new_in_base_at`), bo karta z 7.–14. dnia w bazie zdejmowałaby następną.
+  Inny wpis tej pary w archiwum dalej wyklucza osobę. Propozycji nie zamykamy.
 - **„Praca w tle”:** `autofill_withdrawn` z `why: "fresh_seat"` i `count` („Rano 5 zamian…”).
 
 ## „Dodaj 10 kolejnych” i plakietka

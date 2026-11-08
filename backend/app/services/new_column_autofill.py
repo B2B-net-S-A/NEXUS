@@ -404,13 +404,17 @@ async def ranked_picks(
     ever_in_job = select(CandidateStage.candidate_id).where(
         CandidateStage.job_id == job_id
     )
-    # Osoba, która ustąpiła miejsca świeżym, może wrócić (08.11.2026).
     removed = select(CandidateStageRemoval.candidate_id).where(
-        CandidateStageRemoval.job_id == job_id,
-        CandidateStageRemoval.reason.is_distinct_from(
-            autofill_withdraw.FRESH_SEAT_REASON
-        ),
+        CandidateStageRemoval.job_id == job_id
     )
+    # Osoba, która ustąpiła miejsca świeżym, może wrócić (08.11.2026), ale już
+    # nie z pierwszeństwem „nowa w bazie”: inaczej zdejmowałaby następną kartę.
+    if new_in_base_at is None:
+        removed = removed.where(
+            CandidateStageRemoval.reason.is_distinct_from(
+                autofill_withdraw.FRESH_SEAT_REASON
+            )
+        )
     dismissed = select(JobProposal.candidate_id).where(
         JobProposal.job_id == job_id, JobProposal.status == "dismissed"
     )
@@ -927,7 +931,8 @@ async def fill_job(
 
     Przy ``NEW_COLUMN_TEMPO_TARGET_ENABLED`` cel to ``Tempo.target`` (także
     w porcji), a osoby nowe w bazie nie wchodzą ponad cel. ``extra_cards`` =
-    tyle osób ponad cel z przycisku, ``swap`` = poranne miejsce dla świeżych."""
+    tyle osób ponad cel z przycisku, ``swap`` = poranne miejsce dla świeżych,
+    bez porcji: tam stara karta nie zajmuje miejsca, więc zamiana przekraczałaby cel."""
     from app.api.proposals_bulk import add_candidates_to_job
     from app.services import review_batch
     from app.services.known_queue_points import without_process
@@ -960,7 +965,7 @@ async def fill_job(
         fresh_room = min(fresh_room, limit)
     fresh_room = max(fresh_room, 0)
     swap_room = 0
-    if swap:
+    if swap and not batch:
         swap_room = FRESH_SWAPS_PER_DAY - await _swaps_today(db, job_id, now)
         if limit is not None:
             swap_room = min(swap_room, limit - fresh_room)
@@ -1363,12 +1368,7 @@ async def _batch_tick(now: datetime) -> dict:
     # Reszta dopiero, gdy każda rekrutacja dostała swoje pierwsze osoby.
     if not left_first:
         done_rest, cut_rest, budget = await _fill_round(
-            rest,
-            now=now,
-            budget=budget,
-            cap=None,
-            filled=filled,
-            swap=rest if tempo_enabled() else (),
+            rest, now=now, budget=budget, cap=None, filled=filled
         )
     left_rest = [j for j in rest if j not in done_rest or j == cut_rest]
     async with AsyncSessionLocal() as db:
