@@ -8,7 +8,6 @@ scope'ami) — opis i zasady: ``docs/api/integracje-v1.md``.
 
 from app.api.integrations_v1 import (
     absences,
-    academy,
     applications,
     calendar,
     candidate_writes,
@@ -51,7 +50,6 @@ ROUTERS = (
     calendar.router,
     applications.router,
     insights.router,
-    academy.router,
     absences.router,
     equipment.router,
     events.router,

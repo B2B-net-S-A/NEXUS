@@ -148,7 +148,6 @@ class TestScopeVocabulary:
                 "cv",
                 "calendar",
                 "applications",
-                "academy",
             }
         }
         assert personal == {
@@ -165,7 +164,6 @@ class TestScopeVocabulary:
             "calendar:read",
             "applications:read",
             "applications:write",
-            "academy:read",
         }
 
     def test_write_scope_implies_read_scope(self):
