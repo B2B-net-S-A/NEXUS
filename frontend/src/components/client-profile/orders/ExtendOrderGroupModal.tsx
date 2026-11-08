@@ -51,8 +51,11 @@ interface CarryLine {
   contractId: number;
   consultantName: string;
   selected: boolean;
+  /** Stawki w walucie zamówienia; serwer sam przelicza je do PLN/MD. */
   rateCost: string;
   rateRevenue: string;
+  costCurrency: string;
+  revenueCurrency: string;
   /** Liczba MD nowego budżetu — puste na zamówieniu kosztowym. */
   mdTotal: string;
 }
@@ -134,8 +137,12 @@ export function ExtendOrderGroupModal({
           consultantName: line.consultant_name,
           selected: true,
           // Trzy miejsca jak kolumny stawek linii (0419).
-          rateCost: formatRateField(line.rate_cost),
-          rateRevenue: formatRateField(line.rate_revenue),
+          rateCost: formatRateField(line.source_rate_cost ?? line.rate_cost),
+          rateRevenue: formatRateField(
+            line.source_rate_revenue ?? line.rate_revenue,
+          ),
+          costCurrency: line.rate_candidate_currency ?? "PLN",
+          revenueCurrency: line.rate_client_currency ?? "PLN",
           mdTotal: "",
         })),
     );
@@ -159,10 +166,12 @@ export function ExtendOrderGroupModal({
       const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
       const extractedEnd = extractedEndDate(data);
       // Pozycje osób z dokumentu (BIK) → przenoszone linie tych samych osób.
-      // Stawka tylko za 1 MD: linie zamówienia wieloosobowego są w PLN/MD.
+      // Stawka tylko za 1 MD i tylko w walucie linii: kwota z dokumentu w innej
+      // walucie zapisałaby się pod walutą linii jako inna stawka.
       // Gdy dokument niesie tabelę osób, decyduje WYŁĄCZNIE nazwisko — także
       // przy jednej przenoszonej osobie nie dostaje ona limitu kogoś innego.
       const documentHasPeople = (data.consultant_rows ?? []).length > 0;
+      const documentCurrency = (data.currency ?? "PLN").toUpperCase();
       const lineUpdates = documentHasPeople
         ? lines.flatMap((line) => {
             const row = matchExtractedConsultant(
@@ -175,7 +184,9 @@ export function ExtendOrderGroupModal({
                 ? String(row.md_total)
                 : null;
             const rate =
-              row.rate_client != null && row.rate_unit === "day"
+              row.rate_client != null &&
+              row.rate_unit === "day" &&
+              documentCurrency === line.revenueCurrency
                 ? formatRateField(row.rate_client)
                 : null;
             return md == null && rate == null ? [] : [{ line, md, rate }];
@@ -305,6 +316,9 @@ export function ExtendOrderGroupModal({
   function buildLines(): OrderLineInput[] {
     return selected.map((line) => ({
       contract_id: line.contractId,
+      // Bez walut serwer przyjmuje PLN, a stawka w EUR staje się stawką w złotych.
+      rate_candidate_currency: line.costCurrency,
+      rate_client_currency: line.revenueCurrency,
       rate_cost: parseDecimalInput(line.rateCost) as number,
       rate_revenue: parseDecimalInput(line.rateRevenue) as number,
       ...(costBased || sharedMdBased
@@ -518,7 +532,11 @@ export function ExtendOrderGroupModal({
                     {line.consultantName}
                   </label>
                   <div className="w-28">
-                    <span className={labelClass}>Kosztowa</span>
+                    <span className={labelClass}>
+                      {line.costCurrency === "PLN"
+                        ? "Kosztowa"
+                        : `Kosztowa (${line.costCurrency})`}
+                    </span>
                     <input
                       aria-label={`Stawka kosztowa — ${line.consultantName}`}
                       inputMode="decimal"
@@ -548,7 +566,11 @@ export function ExtendOrderGroupModal({
                     />
                   </div>
                   <div className="w-28">
-                    <span className={labelClass}>Przychodowa</span>
+                    <span className={labelClass}>
+                      {line.revenueCurrency === "PLN"
+                        ? "Przychodowa"
+                        : `Przychodowa (${line.revenueCurrency})`}
+                    </span>
                     <input
                       aria-label={`Stawka przychodowa — ${line.consultantName}`}
                       inputMode="decimal"

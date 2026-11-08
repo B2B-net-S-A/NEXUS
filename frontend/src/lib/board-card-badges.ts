@@ -832,13 +832,16 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
         "Kandydat zmienił stawkę w trakcie procesu. Szczegóły i historia w panelu osoby.",
     });
   }
-  if (column === "cv_sent" && (item.days_in_stage ?? 0) >= 5) {
+  // Serwer liczy to samo co pas „Czeka na odpowiedź klienta”: dni robocze, od 6.
+  // dnia, bez rozmowy przed nami; „Klient odpowiedział” zeruje zegar.
+  if ((column === "cv_sent" || column === "client_interview") && item.client_silent_workdays != null) {
     const since = stageSinceText(item);
+    const silent = `Klient nie odpowiada od ${item.client_silent_workdays} dni rob.`;
     out.push({
       key: "client_silence",
       label: "Klient milczy",
       tone: "wait",
-      title: since ? `Klient jeszcze nie odpowiedział, ${since}.` : "Klient jeszcze nie odpowiedział.",
+      title: since ? `${silent}, ${since}.` : `${silent}.`,
     });
   }
   // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni (jeden
@@ -1498,4 +1501,15 @@ export function cardNextStep(
     ...recruiterSideWho(item, action.owner, ctx.viewerId, ctx.column),
     label: action.label,
   };
+}
+
+export type ClosedRejectBy = "recruiter" | "delivery_lead" | "client";
+
+/**
+ * Grupa odrzuconych w „Zamkniętych”. Brak odpowiedzi klienta (`client_silent`)
+ * liczy się „przez klienta”; wiersz bez `ended_by` (sprzed 0352, import) „przez nas”.
+ */
+export function closedRejectBy(endedBy: string | null | undefined): string {
+  if (endedBy === "client_silent") return "client";
+  return endedBy ?? "recruiter";
 }

@@ -1785,5 +1785,22 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "jobs.sources.search"
+  },
+  {
+    "id": "tablica-czeka-na-odpowiedz-klienta",
+    "pr": 3202,
+    "title": "Czeka na odpowiedź klienta",
+    "why": "Nad Tablicą widać, kto od ponad 5 dni roboczych czeka na klienta. Przypomnienie przygotujesz jednym kliknięciem, a NEXUS nic sam nie wysyła. Na karcie w „CV wysłane” jest przycisk „Co z klientem?”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → pas nad kolumnami",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.client-wait"
   }
 ]

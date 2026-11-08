@@ -315,6 +315,39 @@ describe("BIK — odczyt zamówienia wieloosobowego", () => {
     expect(screen.getByLabelText("Obowiązuje do (puste = bezterminowo)")).toHaveValue("");
   });
 
+  it("przedłużenie: stawka z dokumentu w PLN nie nadpisuje stawki linii w EUR", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    provider(
+      <ExtendOrderGroupModal
+        open
+        onOpenChange={vi.fn()}
+        clientId={18}
+        group={{
+          ...GROUP,
+          lines: [
+            {
+              ...line(1, "Krystian Sowiński", 1050),
+              source_rate_revenue: 250,
+              rate_client_currency: "EUR",
+            },
+          ],
+        }}
+        submitting={false}
+        error={null}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    await readDocument(user);
+    // Data startu z dokumentu różni się od podpowiedzianej po końcu poprzednika.
+    await user.click(screen.getByRole("button", { name: /Tak — zapisz dane z dokumentu/ }));
+
+    expect(screen.getByLabelText("Liczba MD — Krystian Sowiński")).toHaveValue("35");
+    expect(screen.getByLabelText("Stawka przychodowa — Krystian Sowiński")).toHaveValue(
+      "250.000",
+    );
+  });
+
   it("przedłużenie jednej osoby nie dostaje limitu z pozycji kogoś innego", async () => {
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue({
       data: {

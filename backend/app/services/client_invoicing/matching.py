@@ -74,6 +74,7 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "currency_differs",
         "amount_differs",
         "expected_unknown",
+        "several_orders",
         "original_unmatched",
         "original_missing",
     }
@@ -198,6 +199,18 @@ def _person_and_price(
     return Target(order_id=line.order_id)
 
 
+def _people_with_amount(rows: Sequence[BillingRow], net: Decimal) -> list[BillingLine]:
+    """Pozycje osób z zamówień MD z kwotą równą netto faktury co do grosza."""
+
+    return [
+        line
+        for row in rows
+        if row.group_id is not None
+        for line in row.lines
+        if line.order_id and line.net == net
+    ]
+
+
 def decide(
     *,
     net: Decimal,
@@ -238,6 +251,10 @@ def decide(
         equal = [row for row in same if row.expected_net == net]
         if len(equal) == 1:
             return Decision((_row_target(equal[0]),), "order_number")
+        if not equal:
+            people = _people_with_amount(same, net)
+            if len(people) == 1:
+                return Decision((Target(order_id=people[0].order_id),), "order_number")
         return Decision(reason="several_orders")
 
     candidates = [row for row in rows if row.currency == currency]
@@ -248,13 +265,7 @@ def decide(
         return Decision((_row_target(equal_rows[0]),), "amount")
     if len(equal_rows) > 1:
         return Decision(reason="amount_ambiguous")
-    equal_people = [
-        line
-        for row in candidates
-        if row.group_id is not None
-        for line in row.lines
-        if line.order_id and line.net == net
-    ]
+    equal_people = _people_with_amount(candidates, net)
     if len(equal_people) == 1:
         return Decision((Target(order_id=equal_people[0].order_id),), "amount")
     if len(equal_people) > 1:

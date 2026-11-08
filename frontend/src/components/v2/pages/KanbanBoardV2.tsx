@@ -118,6 +118,7 @@ import {
 import { cardCareLabel } from "@/lib/departed-care";
 import { myWaitingItems } from "@/lib/job-closed-waiting";
 import { ClosedJobWaitingBanner } from "@/components/v2/jobs/ClosedJobWaitingBanner";
+import { ClientWaitCardActions } from "@/components/v2/jobs/ClientWaitCardActions";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -170,6 +171,8 @@ import {
  dlSendQueue,
  isReadyForDlSend,
  shortStepLabel,
+ closedRejectBy,
+ type ClosedRejectBy,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import { NewColumnTempo } from "@/components/v2/recruitment/NewColumnTempo";
@@ -649,6 +652,7 @@ function NextActionRow({
  waitingDays,
  stageSince,
  button,
+ stackDays = false,
 }: {
  action: NextAction;
  /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
@@ -662,6 +666,8 @@ function NextActionRow({
  stageSince?: string | null;
  /** Główny przycisk ruchu: mówi to samo co nazwa kroku, więc ją zastępuje. */
  button?: React.ReactNode;
+ /** Szeroki przycisk: liczba dni pod nim, jak przy nazwie kroku. */
+ stackDays?: boolean;
 }) {
  if (action.kind === "none" && !step && !advance && !button && !(waitingDays != null && waitingDays >= 1)) return null;
  const showDays = waitingDays != null && waitingDays >= 1;
@@ -680,7 +686,7 @@ function NextActionRow({
    title={[`Dni robocze czekania: ${waitingDays}`, stageSince].filter(Boolean).join(" · ")}
   >
    {/* Obok przycisku nie ma miejsca na „czeka”, przy nazwie kroku jest. */}
-   {button ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
+   {button && !stackDays ? waitingWorkdaysText(waitingDays).replace("czeka ", "") : waitingWorkdaysText(waitingDays)}
   </span>
  ) : null;
  return (
@@ -693,7 +699,10 @@ function NextActionRow({
  )}
  >
  {button ? (
-  <div className="flex min-w-0 flex-1 items-center gap-1.5" title={step ? `${step.who}: ${label}` : label}>
+  <div
+   className={cn("flex min-w-0 flex-1 gap-1.5", stackDays ? "flex-col items-start gap-0.5" : "items-center")}
+   title={step ? `${step.who}: ${label}` : label}
+  >
    {button}
    {days}
   </div>
@@ -791,7 +800,6 @@ const SETTABLE_BADGE_TOGGLE_LABEL: Partial<Record<StageBadgeKey, string>> = {
 // Odrzuceni dzielą się na trzy grupy po `ended_by`; wiersz bez tej informacji
 // (sprzed 0352, import) liczy się jako „przez nas", jak w statystykach.
 const CLOSED_BY_SEP = "::";
-type ClosedRejectBy = "recruiter" | "delivery_lead" | "client";
 // `short` stoi na chipie po „Zamknięci:" w pasku filtrów (24.09.2026),
 // `label` — w nazwie dostępnej i dymku.
 const CLOSED_REJECT_GROUPS: { by: ClosedRejectBy; label: string; short: string }[] = [
@@ -812,7 +820,7 @@ function closedChips(closed: KanbanColumn[]) {
  droppableId: `${colId(c)}${CLOSED_BY_SEP}${by}`,
  label,
  short,
- count: c.items.filter((i) => (i.ended_by ?? "recruiter") === by).length,
+ count: c.items.filter((i) => closedRejectBy(i.ended_by) === by).length,
  }));
  }
  return [{ col: c, droppableId: colId(c), label: columnLabel(c), short: columnLabel(c), count: c.count }];
@@ -854,6 +862,17 @@ interface BoardV4Ctx {
  onClientAccept: ((item: KanbanItem) => void) | null;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
+
+/** Menu „Co z klientem?” karty: ruchy idą oknami Tablicy (osobny kontekst, bo
+ *  powstają niżej niż `BoardV4Ctx`). */
+interface ClientWaitBoardCtx {
+ rejectedStageDefId?: number;
+ reasons: React.ComponentProps<typeof ClientWaitCardActions>["reasons"];
+ onInterview: (item: KanbanItem) => void;
+ onRejected: (item: KanbanItem) => void;
+ onChanged: () => void;
+}
+const ClientWaitBoardContext = React.createContext<ClientWaitBoardCtx | null>(null);
 
 /** Klucz osoby w kolejce przeglądu „po kolei” (stała funkcja — zależność haka). */
 const candidateIdOf = (item: KanbanItem): number => item.candidate_id;
@@ -906,6 +925,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  // Rekrutacja v5: kolumna Tablicy karty, „kto ma ruch", strzałka „→" i chip QC.
  const v5 = React.useContext(BoardV4Context);
+ const clientWaitBoard = React.useContext(ClientWaitBoardContext);
  const previousOpening = fromPreviousOpening(item, v5?.openingStartedAt);
  const boardKey = v5?.columnByItemId.get(item.id) ?? null;
  const nextStep = v5
@@ -1106,7 +1126,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  : "Biorę";
  // Jeden przycisk w wierszu ruchu; screening, gdy miejsce zajęte, idzie do „+N”.
  const clientAccept = boardKey === "client_interview" && v5?.onClientAccept && !readOnly ? v5.onClientAccept : null;
- const screeningInRow = !readOnly && canScreen && screeningDue && !reviewSend && !takeAction && !clientAccept;
+ // Cisza klienta od 6. dnia roboczego: jedno menu w wierszu ruchu (S-C2).
+ const clientSilentDays =
+  boardKey === "cv_sent" && !readOnly && v5?.canReviewAsDl && clientWaitBoard ? (item.client_silent_workdays ?? null) : null;
+ const screeningInRow =
+  !readOnly && canScreen && screeningDue && !reviewSend && !takeAction && !clientAccept && clientSilentDays == null;
  if (!readOnly && canScreen && !screeningInRow) {
  signals.push({
  key: "screening",
@@ -1514,6 +1538,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  waitingDays={item.waiting_workdays ?? null}
  stageSince={stageSince}
  hidden={desktopOverview}
+ stackDays={clientSilentDays != null}
  button={
  reviewSend && v5 ? (
  <button
@@ -1553,6 +1578,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  >
  <span className="truncate">Zaznacz akceptację</span>
  </button>
+ ) : clientSilentDays != null && clientWaitBoard ? (
+ <ClientWaitCardActions
+ jobId={jobId}
+ candidateId={item.candidate_id}
+ candidateName={fullName}
+ workdays={clientSilentDays}
+ rejectedStageDefId={clientWaitBoard.rejectedStageDefId}
+ reasons={clientWaitBoard.reasons}
+ onInterview={() => clientWaitBoard.onInterview(item)}
+ onRejected={() => clientWaitBoard.onRejected(item)}
+ onChanged={clientWaitBoard.onChanged}
+ />
  ) : screeningInRow ? (
  <button
  type="button"
@@ -3341,6 +3378,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  () => stageCols.find((c) => terminalOf(c) === "rejected"),
  [stageCols]
  );
+ const clientWaitBoard = useMemo<ClientWaitBoardCtx>(
+  () => ({
+   rejectedStageDefId: rejectedTemplateCol?.stage_def_id ?? undefined,
+   reasons: rejectionReasons,
+   onInterview: (item) => {
+    const source = cols.find((c) => c.items.some((i) => i.id === item.id));
+    if (source && clientInterviewHost) routeMove(item, colId(source), clientInterviewHost);
+    else openPersonViaRef(item);
+   },
+   onRejected: (item) => requestReject(item, rejectedTemplateCol, { endedBy: "client" }),
+   onChanged: () => void refreshBoardFromServer(),
+  }),
+  [rejectedTemplateCol, rejectionReasons, cols, clientInterviewHost, routeMove, openPersonViaRef, requestReject, refreshBoardFromServer]
+ );
  // Zamknięta rekrutacja (28.10.2026): osoby patrzącego od „CV wysłane”, którym
  // trzeba dać znać — ta sama osoba karty co dzwonek z serwera.
  const myWaiting = useMemo(
@@ -4361,6 +4412,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
 
  return (
  <BoardV4Context.Provider value={boardV4}>
+ <ClientWaitBoardContext.Provider value={clientWaitBoard}>
  <div ref={boardRootRef} className="group/board relative space-y-3">
  {/* DragDropContext obejmuje też kolumnę „Zamknięci" obok tablicy — jej
  strefy są celami upuszczenia. */}
@@ -5044,6 +5096,7 @@ headerAction={
  </Dialog>
  )}
  </div>
+ </ClientWaitBoardContext.Provider>
  </BoardV4Context.Provider>
  );
 }

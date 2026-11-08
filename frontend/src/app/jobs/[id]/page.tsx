@@ -59,6 +59,7 @@ import {
 import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { ClientWaitStrip } from "@/components/v2/jobs/ClientWaitStrip";
 import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
 import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
 import { fetchJobCproEvents } from "@/lib/cpro-events-api";
@@ -1395,6 +1396,7 @@ export default function JobDetailPage() {
               snoozing={idleSnoozing}
             />
           ) : null}
+          {canCloseJob && job.status === "published" ? <ClientWaitStrip jobId={jobId} /> : null}
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}

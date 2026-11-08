@@ -85,8 +85,10 @@ def preview_payload(columns: dict[int, str], reason: Any) -> Optional[dict[str, 
     }
 
 
-async def client_side_cards(db: AsyncSession, job: Job) -> dict[int, str]:
-    """{kandydat: kolumna} par u klienta w bieżącym otwarciu rekrutacji."""
+async def client_side_rows(
+    db: AsyncSession, job: Job
+) -> dict[int, tuple[str, datetime]]:
+    """{kandydat: (kolumna, chwila ruchu)} par u klienta w bieżącym otwarciu."""
     rows = (
         await db.execute(
             select(
@@ -107,7 +109,7 @@ async def client_side_cards(db: AsyncSession, job: Job) -> dict[int, str]:
     latest: dict[int, Any] = {}
     for row in rows:
         latest[row.candidate_id] = row
-    cards: dict[int, str] = {}
+    cards: dict[int, tuple[str, datetime]] = {}
     for candidate_id, row in latest.items():
         if not in_opening(row.moved_at, job.cycle_started_at):
             continue
@@ -118,8 +120,13 @@ async def client_side_cards(db: AsyncSession, job: Job) -> dict[int, str]:
             terminal_type=getattr(row.terminal_type, "value", row.terminal_type),
         )
         if column in CLIENT_SIDE_COLUMNS:
-            cards[candidate_id] = column
+            cards[candidate_id] = (column, row.moved_at)
     return cards
+
+
+async def client_side_cards(db: AsyncSession, job: Job) -> dict[int, str]:
+    """{kandydat: kolumna} par u klienta w bieżącym otwarciu rekrutacji."""
+    return {cid: rows[0] for cid, rows in (await client_side_rows(db, job)).items()}
 
 
 async def _reason_id(
