@@ -105,3 +105,14 @@
   u tego klienta, która w miesiącu usługi nie ma pozycji zamówienia. Pozycję sprawdzamy po zamówieniach (`member_ids`), nie po tekście linii:
   kosztowe mają nazwiska po przecinku, a wspólna pula „N os.”. Nazwisko spoza kontraktów zostaje Finansom. Faktury starsze niż
   6 miesięcy nie alarmują, karta zamyka się sama po przypisaniu faktury albo dopisaniu pozycji.
+
+## Zamówienia MD w obcej walucie (08.11.2026)
+
+- **„Do faktury” idzie w walucie stawki z zamówienia, bez kursu.** `md_rate_revenue` linii jest zawsze w PLN/MD (materializator
+  przelicza kursem z dnia startu), a stawkę z zamówienia niesie `rate_client` (`_client_md_rate`). Wiersz MD miał na stałe PLN,
+  więc każda faktura w EUR kończyła z `currency_differs`, choć numer zamówienia i kwota się zgadzały.
+- Brak `rate_client` w obcej walucie to brak kwoty, nie kwota w złotych. Linie w różnych walutach w jednym zamówieniu zostają
+  na PLN/MD (`_group_currency`), bo suma EUR + PLN nie ma sensu. Linia w PLN liczy się jak dotąd z `md_rate_revenue`.
+- Faktura w PLN do zamówienia w EUR dalej czeka z `currency_differs`: równowartości w złotych nie porównujemy.
+- `currency_differs` jest w `RETRY_REASONS`: po poprawce waluty zamówienia faktura wraca do automatu bez ręcznego przypisania.
+- Zamówienie kosztowe zostaje w PLN: kwotę faktury ustalają Finanse, a budżet nie ma pola waluty.

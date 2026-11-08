@@ -65,12 +65,13 @@ REASON_LABELS: dict[str, str] = {
     "reopened": "Przypisanie cofnięte — wskaż zamówienie.",
 }
 #: Powody, przy których kolejny przebieg próbuje dopasować jeszcze raz
-#: (nowe zamówienie, import MD, dopisany NIP klienta).
+#: (nowe zamówienie, import MD, dopisany NIP klienta, poprawiona waluta).
 RETRY_REASONS: frozenset[str] = frozenset(
     {
         "unknown_buyer",
         "no_orders",
         "order_outside_period",
+        "currency_differs",
         "amount_differs",
         "expected_unknown",
         "original_unmatched",
