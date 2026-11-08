@@ -14,7 +14,8 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 | 03:17, pon.–pt. | Odświeżenie stagingu | `scripts/staging/refresh_code.sh`: kod z `origin/main` tuż przed Testerem, baza bez zmian |
 | 03:30, pon.–pt. | Tester | PR-y od poprzedniego biegu na stagingu, każdą dotkniętą rolą przy 1280 × 720, najwyżej 10 |
 | 06:30 | Domykacz wdrożeń | `/api/health` względem maina i listy „po wdrożeniu” |
-| 07:30 | Poranny raport | Jedna sesja z pytaniami do Artura |
+| 07:30, pon.–pt. | Poranny raport | Jedna sesja z pytaniami do Artura |
+| 08:30, codziennie | Zegarek (launchd, bez modelu) | Oczekiwane biegi kontra ślady `.ok`: brak śladu to czerwień, powiadomienie na laptopie i ping poza laptop |
 
 - **Działają na laptopie jako zadania w aplikacji Claude**, bo potrzebują
   stagingu, `gh` i klucza SSH. Zamknięta aplikacja = bieg przy następnym
@@ -25,7 +26,9 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   zabrał zrzut, a odświeżenie o 01:00 omijało PR-y scalone przed Testerem. Odśmiecacz
   jest wyłączony: pracy było na 1–2 noce, a CI nie odróżnia złego skasowania.
 - **Status biegu w aplikacji jest zawsze „succeeded”**, także po kodzie 1, 3, 4
-  i odmowie trybu auto. Wynik rutyny czytaj z `.ok` i `.md`.
+  i odmowie trybu auto. Wynik rutyny czytaj ze śladu `<rutyna>.ok`: jedna linia JSON
+  (`stan`: `ok`, `degraded`, `failed`, `skipped`) zapisana przez `bin/slad.py`.
+  Zegarek (`~/.claude/nexus-rutyny/zegarek.py`) liczy brak śladu jako awarię.
 - **PR-y rutyn wchodzą same po zielonym CI** (`gh pr merge --squash --auto`,
   decyzja Artura). Najwyżej jeden PR na rutynę na noc, bez migracji. Dlatego
   rutyna zmieniająca kod musi przed PR-em uruchomić lokalne testy zmienionych plików.
