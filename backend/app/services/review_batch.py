@@ -35,7 +35,7 @@ import logging
 import random
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
@@ -53,7 +53,7 @@ from app.models.job import Job, JobPriority
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
-from app.services import candidate_claim
+from app.services import candidate_claim, review_batch_levels
 
 logger = logging.getLogger(__name__)
 
@@ -556,10 +556,11 @@ def _value(stage: object) -> str:
     return str(getattr(stage, "value", stage))
 
 
-def close_window_start() -> datetime:
-    """Początek okna domknięcia: dziś minus ``SCREENING_CLOSE_DAYS`` dni roboczych."""
+def close_window_start(before: Optional[date] = None) -> datetime:
+    """Początek okna domknięcia: dziś (albo ``before``) minus
+    ``SCREENING_CLOSE_DAYS`` dni roboczych."""
     tz = settings.BUSINESS_TZ
-    day = business_today()
+    day = before or business_today()
     left = SCREENING_CLOSE_DAYS
     while left:
         day -= timedelta(days=1)
@@ -589,7 +590,11 @@ def counted_at_for(
 
 
 async def _decisions(
-    db: AsyncSession, user_ids: Iterable[int], *, now: datetime
+    db: AsyncSession,
+    user_ids: Iterable[int],
+    *,
+    now: datetime,
+    since: Optional[datetime] = None,
 ) -> dict[int, list[Decision]]:
     """Wyjścia z „Nowych” w oknie domknięcia, per osoba. Ruch karty już po
     „Nowych” (screening → CV) to nie decyzja o propozycji, tak samo karta, która
@@ -598,7 +603,7 @@ async def _decisions(
     out: dict[int, list[Decision]] = {uid: [] for uid in ids}
     if not ids:
         return out
-    since = close_window_start()
+    since = since or close_window_start()
     earlier = aliased(CandidateStage)
     previous_stage = (
         select(earlier.stage)
@@ -872,13 +877,16 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
             required=0,
             met=True,
         )
+    minimum = review_batch_levels.level_of(
+        await review_batch_levels.read_levels(db), user.id, settings_value.minimum
+    )
     cards = await _own_cards(db, user.id, now=now)
     day = await day_counts(db, user.id, now=now)
     done = day.done
     # Kto ma w porcji mniej, niż brakuje do minimum, przegląda całą porcję.
     # Dzisiejsze niedomknięte S zostają w rachunku: inaczej przesunięcie całej
     # porcji na screening zerowałoby wymagane minimum.
-    required = min(settings_value.minimum, done + len(cards) + day.open_today)
+    required = min(minimum, done + len(cards) + day.open_today)
     met = done >= required
     counts: dict[int, int] = {}
     for card in cards:
@@ -901,7 +909,7 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
     return BatchStatus(
         enabled=True,
         applies=True,
-        minimum=settings_value.minimum,
+        minimum=minimum,
         done_today=done,
         pending=len(cards),
         required=required,

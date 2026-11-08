@@ -104,6 +104,7 @@ export function ReviewBatchMinimumBlock({ canEdit }: { canEdit: boolean }) {
           od {data.min_score}%, dzielonych po równo w zespole. W porcji są tylko karty
           nie starsze niż {data.max_age_days ?? 7} dni. Rekruter szuka ręcznie dopiero po
           tylu decyzjach (screening albo odrzucenie z powodem), w dni robocze od 7:00.
+          Kto zrobi swoje minimum, następnego dnia roboczego ma o 10 więcej, aż do 50.
           {data.enabled ? "" : " Porcja jest teraz wyłączona."}
         </p>
       </div>

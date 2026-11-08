@@ -9,8 +9,10 @@ import {
   deadlineLabel,
   filtersFromParams,
   filtersToParams,
+  groupCvSummary,
   groupRequests,
   hasActiveFilters,
+  lastCvTitle,
   leadOptions,
   loadBarScale,
   loadSummary,
@@ -467,5 +469,42 @@ describe("boardPeople na osobach z wiersza listy", () => {
     const proposal = { user_id: 2, name: "B", proposed: true, via: "assignment" as const, assigned_by_name: null }
     expect(boardPeople({ people: [working, proposal] })).toEqual([working])
     expect(boardPeople({ people: [proposal] })).toEqual([proposal])
+  })
+})
+
+describe("Daily: P1 bez CV i nowe profile (audyt 08.11.2026)", () => {
+  it("P1 z pigułką stoi nad resztą, od najdłuższej ciszy", () => {
+    const rows = [
+      req({ job_id: 1, deadline: "2026-10-01" }),
+      req({ job_id: 2, days_without_cv: 6 }),
+      req({ job_id: 3, days_without_cv: 9 }),
+    ]
+    expect(orderRequests(rows).map((r) => r.job_id)).toEqual([3, 2, 1])
+  })
+
+  it("P0 i champion zachowują swoje miejsca mimo pigułki", () => {
+    const rows = [
+      req({ job_id: 1, days_without_cv: 9, champion: true }),
+      req({ job_id: 2, days_without_cv: 6 }),
+      req({ job_id: 3, is_p0: true, p0_until: "2099-01-01T00:00:00+00:00" }),
+    ]
+    expect(orderRequests(rows).map((r) => r.job_id)).toEqual([3, 2, 1])
+  })
+
+  it("licznik nad kategorią liczy P1 w poszukiwaniu bez P0 i bez championa", () => {
+    const p1 = { priority_level: "p1" as const }
+    const summary = groupCvSummary([
+      req({ job_id: 1, ...p1, days_without_cv: 7, new_profiles_7d: 3, new_profiles_7d_cv: 2 }),
+      req({ job_id: 2, ...p1, new_profiles_7d: 1 }),
+      req({ job_id: 3, ...p1, is_p0: true, p0_until: "2099-01-01T00:00:00+00:00", days_without_cv: 5 }),
+      req({ job_id: 4, ...p1, champion: true }),
+      req({ job_id: 5, priority_level: "p2", new_profiles_7d: 1, new_profiles_7d_cv: 1 }),
+    ])
+    expect(summary).toEqual({ quietP1: 1, p1: 2, newProfiles: 5, newProfilesCv: 3 })
+  })
+
+  it("dymek mówi o dacie ostatniego CV albo o braku CV", () => {
+    expect(lastCvTitle("2026-10-30T11:00:00+00:00")).toBe("Ostatnie CV do klienta: 30.10.2026")
+    expect(lastCvTitle(null)).toBe("Żadnego CV od otwarcia rekrutacji")
   })
 })

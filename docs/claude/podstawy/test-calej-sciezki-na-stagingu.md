@@ -42,6 +42,9 @@ klient) — to też są kroki.
     -e 'CORS_ORIGINS=["http://localhost:3101"]' backend
   ```
 
+  Backend z gałęzi ma rolę `web` (`web-i-worker-osobno.md`), więc pętle w tle zostają
+  w głównym workerze. Na własnej bazie dopisz `-e NEXUS_PROCESS_ROLE=all`.
+
   Baza główna zmienia się co noc (`staging-na-laptopie.md`), a zapisy z testu
   zostają na starej kopii. Po teście `docker stop nexus-staging-backend-branch`. Jeden taki kontener
   naraz — nazwa jest stała celowo, druga sesja dostanie konflikt zamiast

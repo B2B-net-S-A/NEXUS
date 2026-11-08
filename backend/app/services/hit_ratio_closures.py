@@ -29,7 +29,7 @@ from app.services.job_fill import filled_by_job
 _CLOSE_ACTIONS = ("closed", "close_reason_changed")
 
 
-def _row_group(reason, hired: bool) -> str:
+def closure_group(reason, hired: bool) -> str:
     group = close_reason_group(reason)
     if group == "neutral":
         return "neutral"
@@ -99,7 +99,7 @@ async def hit_ratio_closures(
     counts = {"won": 0, "lost": 0, "neutral": 0, "unreviewed": 0}
     listed: dict[str, list[dict]] = {"neutral": [], "unreviewed": []}
     for r in rows:
-        group = _row_group(r.close_reason, bool(hired.get(r.id)))
+        group = closure_group(r.close_reason, bool(hired.get(r.id)))
         counts[group] += 1
         if group not in listed:
             continue

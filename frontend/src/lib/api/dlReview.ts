@@ -8,6 +8,7 @@
  * dolicza poza marżą z wpisanej stawki (`lib/dl-review-margin.ts`).
  */
 
+import type { QcStateView } from "@/lib/cv-qc";
 import { useQuery } from "@tanstack/react-query";
 
 import api, { type RateUnit } from "@/lib/api";
@@ -116,6 +117,7 @@ export interface DlReviewContext {
   /** R1 (07.11.2026): blokujące „sprawdź ręcznie” przy zdanym QC. */
   qc_manual?: string[];
   qc_gaps?: string[];
+  qc_state?: QcStateView | null;
   qc_override?: DlReviewQcOverride | null;
   can_see_amounts: boolean;
   can_see_client_rates: boolean;
@@ -174,6 +176,7 @@ export interface DlReviewQueueItem {
   qc_status: string | null;
   qc_manual?: string[];
   qc_gaps?: string[];
+  qc_state?: QcStateView | null;
   overall_fit: "fit" | "uncertain" | "miss" | null;
   overall_fit_label: string | null;
   requirements_met: number;

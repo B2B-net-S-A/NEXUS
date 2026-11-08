@@ -847,6 +847,9 @@ async def lifespan(app: FastAPI):
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
     from app.tasks.access_usage import access_usage_loop
+    from app.core.process_bus import process_bus_loop
+    from app.core.process_role import keep_tasks_for_role
+    from app.tasks.critical_stats_cache import critical_stats_cache_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -907,6 +910,8 @@ async def lifespan(app: FastAPI):
             "queue_retention": asyncio.create_task(queue_retention_loop()),
             # 0632: zapis i retencja licznika użycia obszarów.
             "access_usage": asyncio.create_task(access_usage_loop()),
+            "critical_stats_cache": asyncio.create_task(critical_stats_cache_loop()),
+            "process_bus": asyncio.create_task(process_bus_loop()),
             "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
             "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
             "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -1114,6 +1119,12 @@ async def lifespan(app: FastAPI):
                 hr_loops.hr_approval_mail_replies_loop()
             ),
         }
+        _supervise_background_tasks()
+
+    def _supervise_background_tasks() -> None:
+        app.state.background_tasks = keep_tasks_for_role(
+            app.state.background_tasks, settings.NEXUS_PROCESS_ROLE
+        )
         # Staging (pełna kopia produkcji): przed pierwszym `await`, więc zatrzymana
         # pętla nie wykona ani jednej linii — lista w `app/core/staging.py`.
         if settings.NEXUS_ENV == "staging":
@@ -1172,7 +1183,8 @@ async def lifespan(app: FastAPI):
     app.state.skill_dictionary_sync = asyncio.create_task(skill_dictionary_sync_loop())
     app.state.background_tasks = {}
     app.state.background_leader = None
-    if settings.BACKGROUND_LEADER_LOCK_ENABLED:
+    # Web nie bierze blokady: jego pętle dotyczą pamięci tego procesu.
+    if settings.BACKGROUND_LEADER_LOCK_ENABLED and settings.NEXUS_PROCESS_ROLE != "web":
         from app.core.background_leader import BackgroundLeader
 
         app.state.background_leader = BackgroundLeader(
@@ -3207,24 +3219,18 @@ async def api_health_check():
     # biegnie. Wartość celowo NIE zaczyna się od prefiksu awaryjnego — patrz
     # `spend_alarm_status`. Realny błąd (webhook jest, pętla nie biegnie)
     # alarmuje przez `background_tasks`, nie tutaj.
-    try:
-        from app.services.background_task_health import (
-            classify_background_tasks,
-            spend_alarm_status,
-        )
+    #
+    # Pętle w tle. `crashed` (wyjątek) alarmuje jak dotąd. Ta sama klasyfikacja
+    # co w /api/admin/snapshot. Informacyjne — nie flipują `overall` na 503.
+    # Kontener web pętli nie ma: pyta workera.
+    if settings.NEXUS_PROCESS_ROLE == "web":
+        from app.services.worker_health import fetch_worker_state
 
-        _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
-        _cls = classify_background_tasks(getattr(app.state, "background_tasks", None))
-        _leader = getattr(app.state, "background_leader", None)
-        # Pętli nie ma tu z założenia, a długi `standby` alarmuje `background_tasks`.
-        checks["ai_features"] = (
-            "standby"
-            if _leader is not None and not _leader.is_leader
-            else spend_alarm_status(_cls, webhook_set=_webhook_set)
-        )
-    except Exception as exc:
-        logger.warning("[health] ai_features check failed: %s", exc)
-        checks["ai_features"] = "unknown"
+        checks.update((await fetch_worker_state())["checks"])
+    else:
+        from app.services.background_task_health import local_background_checks
+
+        checks.update(local_background_checks(app.state))
 
     # FX — wiek cache'u kursów NBP. To JEDYNE miejsce, w którym „NBP milczy od
     # dwóch miesięcy" jest w ogóle widoczne: `fetch_and_store_nbp_today` rzuca
@@ -3274,58 +3280,6 @@ async def api_health_check():
     except Exception as exc:
         logger.warning("[health] migrations check failed: %s", exc)
         checks["migrations"] = "unknown"
-
-    # Pętle w tle. `crashed` (wyjątek) alarmuje jak dotąd. Dodatkowo:
-    # krytyczne alarmy Slack (ochrona budżetu AI) bramkowane configiem — gdy
-    # SLACK_WEBHOOK_URL JEST ustawiony, a pętla i tak wyszła czysto, to realny
-    # błąd wart issue (`critical:`); gdy webhook nieustawiony — stan O-1, cisza.
-    # Ta sama klasyfikacja co w /api/admin/snapshot (jedna funkcja, zero
-    # rozjazdu). Informacyjny — nie flipuje `overall` na 503.
-    try:
-        from app.services.background_task_health import (
-            classify_background_tasks,
-            leader_check_value,
-            stopped_webhook_alarms,
-        )
-
-        _bg = getattr(app.state, "background_tasks", None)
-        _leader = getattr(app.state, "background_leader", None)
-        _standby = (
-            leader_check_value(
-                is_leader=_leader.is_leader, standby_seconds=_leader.standby_seconds
-            )
-            if _leader is not None
-            else None
-        )
-        if not isinstance(_bg, dict):
-            checks["background_tasks"] = "unknown"
-        elif _standby is not None:
-            checks["background_tasks"] = _standby
-        else:
-            _cls = classify_background_tasks(_bg)
-            _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
-            _stopped = stopped_webhook_alarms(_cls, webhook_set=_webhook_set)
-            if _cls["crashed"]:
-                checks["background_tasks"] = (
-                    f"crashed: {','.join(sorted(_cls['crashed_tasks']))}"
-                )
-            elif _stopped:
-                checks["background_tasks"] = (
-                    f"critical: {','.join(_stopped)} — pętla alarmu wyszła mimo "
-                    "ustawionego SLACK_WEBHOOK_URL"
-                )
-            else:
-                # MON-04: zadanie żyje, ale jego pętla nie zaczęła iteracji dłużej
-                # niż próg (zawieszony await). `unhealthy` = issue z uptime-probe
-                # (od 22.09.2026, po tygodniu `degraded` bez fałszywych alarmów).
-                from app.services.loop_heartbeat import health_value, heartbeats
-
-                checks["background_tasks"] = health_value(
-                    heartbeats.stalled(running=set(_cls["tasks"]))
-                )
-    except Exception as exc:
-        logger.warning("[health] background_tasks check failed: %s", exc)
-        checks["background_tasks"] = "unknown"
 
     # Disk usage — informational only (never flips `overall` → no false outages).
     # `shutil.disk_usage("/")` inside the container reflects the host's backing
@@ -3382,6 +3336,27 @@ async def api_health_check():
         if db_healthy
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+
+
+@app.get("/api/health/background")
+async def api_health_background():
+    """Stan pętli TEGO procesu; web czyta tu workera do `/api/health`.
+
+    Bez logowania jak reszta sond: same nazwy pętli, a kontener workera nie ma
+    trasy z zewnątrz.
+    """
+    from app.services.background_task_health import (
+        classify_background_tasks,
+        local_background_checks,
+    )
+
+    return {
+        "role": settings.NEXUS_PROCESS_ROLE,
+        "checks": local_background_checks(app.state),
+        "tasks": classify_background_tasks(
+            getattr(app.state, "background_tasks", None)
+        ),
+    }
 
 
 @app.get("/api/health/alembic")
@@ -4744,6 +4719,9 @@ async def api_health_deep_check():
 
     all_healthy = all(v == "healthy" for v in checks.values())
 
+    # B3, etap 1: informacja dla decyzji o lustrze DDL, poza `checks`, więc nie blokuje deployu.
+    from app.services.schema_compare import schema_compare_report
+
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
@@ -4751,6 +4729,7 @@ async def api_health_deep_check():
         "collation": collation_report,
         "client_portfolio_import": portfolio_import,
         "postgres_started_at": postgres_started_at,
+        "schema_compare": schema_compare_report(),
     }
     if errors:
         body["errors"] = errors

@@ -8,7 +8,8 @@ Wiersz = zamówienie, które się fakturuje:
 
 * **zamówienie MD** (grupa z numerem klienta, osoby jako linie) — dla każdej
   osoby zużycie MD z miesiąca × jej stawka przychodowa (``md_rate_revenue``,
-  PLN/MD). Wspólna pula MD (``shared_md_orders.uses_shared_md_pool`` — sama
+  PLN/MD; zamówienie w obcej walucie — ``rate_client``, bez przeliczania
+  kursem, patrz ``_group_currency``). Wspólna pula MD (``shared_md_orders.uses_shared_md_pool`` — sama
   flaga ``is_md_budget_based`` z 0246 nie rozstrzyga): zejście puli z podziałem
   na osoby (``breakdown``),
   bez podziału — jedna pozycja, jeśli wszystkie osoby mają tę samą stawkę;
@@ -69,6 +70,7 @@ from app.services.client_order_lines import line_settles_in_month
 from app.services.hr.calendar import month_range
 from app.services.order_burn_rate import workdays_between
 from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
+from app.services.order_rate_snapshots import convert_order_rate
 from app.services.shared_md_orders import uses_shared_md_pool
 
 CENT = Decimal("0.01")
@@ -283,9 +285,42 @@ def _periodic_line(order: ClientOrder, first: date, last: date) -> BillingLine:
     )
 
 
-def _md_line(order: ClientOrder, md: Optional[Decimal]) -> BillingLine:
+def _line_currency(order: ClientOrder) -> str:
+    return (order.rate_client_currency or order.currency or "PLN").upper()
+
+
+def _group_currency(lines: list[ClientOrder]) -> str:
+    """Waluta wiersza zamówienia MD.
+
+    Linie w różnych walutach zostają na stawkach PLN/MD: suma EUR + PLN nie
+    ma sensu, a przeliczać na walutę faktury nie wolno.
+    """
+
+    currencies = {_line_currency(order) for order in lines}
+    return currencies.pop() if len(currencies) == 1 else "PLN"
+
+
+def _client_md_rate(order: ClientOrder, currency: str) -> Optional[Decimal]:
+    """Stawka za MD w walucie wiersza.
+
+    ``md_rate_revenue`` jest zawsze w PLN/MD (materializator przelicza kursem
+    z dnia startu), a stawkę z zamówienia niesie ``rate_client``. Brak tej
+    stawki w obcej walucie to brak kwoty, nie kwota w złotych.
+    """
+
+    if currency == "PLN":
+        return order.md_rate_revenue
+    return convert_order_rate(
+        order.rate_client,
+        order.rate_unit or RateUnit.daily,
+        RateUnit.daily,
+        order.billing_hours_per_month or HOURS_PER_MONTH,
+    )
+
+
+def _md_line(order: ClientOrder, md: Optional[Decimal], currency: str) -> BillingLine:
     name = _consultant(order)
-    rate = order.md_rate_revenue
+    rate = _client_md_rate(order, currency)
     if md is None:
         return BillingLine(
             order_id=order.id,
@@ -294,7 +329,7 @@ def _md_line(order: ClientOrder, md: Optional[Decimal]) -> BillingLine:
             quantity=None,
             unit_price=Decimal(rate) if rate is not None else None,
             net=None,
-            currency="PLN",
+            currency=currency,
             note="czeka na zużycie MD za miesiąc",
         )
     if rate is None:
@@ -305,7 +340,7 @@ def _md_line(order: ClientOrder, md: Optional[Decimal]) -> BillingLine:
             quantity=md,
             unit_price=None,
             net=None,
-            currency="PLN",
+            currency=currency,
             note="osoba bez stawki MD do klienta",
         )
     return BillingLine(
@@ -315,7 +350,7 @@ def _md_line(order: ClientOrder, md: Optional[Decimal]) -> BillingLine:
         quantity=md,
         unit_price=Decimal(rate),
         net=money(md * Decimal(rate)),
-        currency="PLN",
+        currency=currency,
     )
 
 
@@ -326,8 +361,9 @@ def _pool_lines(
 ) -> list[BillingLine]:
     """Wspólna pula MD: podział z panelu zamówienia albo jedna stawka dla wszystkich."""
 
+    currency = _group_currency(lines)
     if pool is None:
-        return [_md_line(order, None) for order in lines]
+        return [_md_line(order, None, currency) for order in lines]
     split: dict[int, Decimal] = {}
     for part in pool.breakdown or []:
         try:
@@ -336,9 +372,11 @@ def _pool_lines(
             continue
     if split:
         return [
-            _md_line(order, split.get(order.id)) for order in lines if order.id in split
+            _md_line(order, split.get(order.id), currency)
+            for order in lines
+            if order.id in split
         ]
-    rates = {order.md_rate_revenue for order in lines if order.md_rate_revenue}
+    rates = {rate for order in lines if (rate := _client_md_rate(order, currency))}
     if len(rates) == 1 and lines:
         rate = next(iter(rates))
         md = Decimal(pool.md_reported)
@@ -350,7 +388,7 @@ def _pool_lines(
                 quantity=md,
                 unit_price=Decimal(rate),
                 net=money(md * Decimal(rate)),
-                currency="PLN",
+                currency=currency,
             )
         ]
     return [
@@ -361,7 +399,7 @@ def _pool_lines(
             quantity=Decimal(pool.md_reported),
             unit_price=None,
             net=None,
-            currency="PLN",
+            currency=currency,
             note="osoby mają różne stawki, a zejście puli nie ma podziału na osoby",
         )
     ]
@@ -542,13 +580,19 @@ async def billing_rows(
     for group_id, members in by_group.items():
         group = groups[group_id]
         budget: Optional[CostBudget] = None
+        currency = "PLN"
         if group.is_cost_based:
             lines = [_cost_line(members, sheet_by_line)]
             budget = _cost_budget(group, settled_before.get(group_id, ZERO))
-        elif uses_shared_md_pool(group):
-            lines = _pool_lines(group, members, pools.get(group_id))
         else:
-            lines = [_md_line(order, md_by_line.get(order.id)) for order in members]
+            currency = _group_currency(members)
+            if uses_shared_md_pool(group):
+                lines = _pool_lines(group, members, pools.get(group_id))
+            else:
+                lines = [
+                    _md_line(order, md_by_line.get(order.id), currency)
+                    for order in members
+                ]
         rows.append(
             BillingRow(
                 client_id=group.client_id,
@@ -556,7 +600,7 @@ async def billing_rows(
                 group_id=group.id,
                 order_id=None,
                 order_number=(group.order_number or "").strip() or f"#{group.id}",
-                currency="PLN",
+                currency=currency,
                 lines=tuple(lines),
                 budget=budget,
                 member_ids=frozenset(order.id for order in members)

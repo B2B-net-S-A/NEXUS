@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete
@@ -142,3 +143,64 @@ def test_manual_items_name_the_consent_and_keep_other_checks() -> None:
 def test_manual_items_keep_the_check_when_no_role_is_known() -> None:
     """Odczyt bez ról: nie ma czego wymienić, zostaje nazwa sprawdzenia."""
     assert qc.manual_items(["critical_skills"], ["Krytyczne"], []) == ["Krytyczne"]
+
+
+def test_requirement_patterns_refresh_after_a_dictionary_change() -> None:
+    """W2: wzorce w cache procesu nie mogą przeżyć zmiany słownika."""
+    from app.services import dz_review as dz
+    from tests.taxonomy_fixture import hydrated_taxonomy
+
+    assert not any(p.search("Plughwork") for p in dz._patterns("Xyzzy"))
+    with hydrated_taxonomy({"Xyzzy": ("devops", ("plughwork",))}):
+        assert any(p.search("Plughwork") for p in dz._patterns("Xyzzy"))
+    assert not any(p.search("Plughwork") for p in dz._patterns("Xyzzy"))
+
+
+def _action_setup(monkeypatch, stored_fp: str, version: str = qc.QC_VERSION) -> list:
+    """W3: fałszywe źródła i przebieg; ``evaluate`` tylko liczy wywołania."""
+    calls: list = []
+    src = SimpleNamespace(
+        generated={"source": "branded_draft"},
+        blocks=[],
+        candidate=SimpleNamespace(id=1),
+        job=SimpleNamespace(id=2),
+    )
+    latest = SimpleNamespace(
+        cv_fingerprint=stored_fp,
+        result={"qc_version": version, "checks": [{"key": "stored"}]},
+    )
+
+    async def load(db, stage):
+        return src
+
+    async def run(db, candidate_id, job_id):
+        return latest
+
+    async def evaluate(db, stage, *, src=None):
+        calls.append(src)
+        return src, [{"key": "live"}], ""
+
+    monkeypatch.setattr(qc, "_load_sources", load)
+    monkeypatch.setattr(qc, "_latest_run", run)
+    monkeypatch.setattr(qc, "fingerprint", lambda blocks: "cv-a")
+    monkeypatch.setattr(qc, "evaluate", evaluate)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_action_validates_on_the_saved_run_of_the_same_cv(monkeypatch) -> None:
+    calls = _action_setup(monkeypatch, "cv-a")
+    _, checks = await qc._action_checks(None, None)
+    assert checks == [{"key": "stored"}] and calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored_fp", "version"), [("cv-b", qc.QC_VERSION), ("cv-a", "qc-truth-4")]
+)
+async def test_action_counts_live_when_cv_or_rules_changed(
+    monkeypatch, stored_fp: str, version: str
+) -> None:
+    calls = _action_setup(monkeypatch, stored_fp, version)
+    _, checks = await qc._action_checks(None, None)
+    assert checks == [{"key": "live"}] and len(calls) == 1

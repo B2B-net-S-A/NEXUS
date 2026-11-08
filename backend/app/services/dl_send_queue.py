@@ -359,6 +359,7 @@ async def attach_readiness(
         t.qc_blocking_failed = int(status.get("blocking_failed") or 0)
         t.qc_manual = list(status.get("manual_checks") or [])
         t.qc_gaps = list(status.get("candidate_gaps") or [])
+        t.qc_state = status.get("qc_state")
         apply_readiness(t, ok_at=status.get("ok_at"), today=today)
 
 

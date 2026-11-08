@@ -19,6 +19,7 @@ const team = {
       name: "Rekruter A",
       absent: false,
       done_today: 10,
+      minimum: 10,
       required: 10,
       pending: 54,
       minimum_at: "09:42",
@@ -32,6 +33,7 @@ const team = {
       name: "Rekruter B",
       absent: false,
       done_today: 3,
+      minimum: 40,
       required: 10,
       pending: 118,
       minimum_at: null,
@@ -75,6 +77,8 @@ describe("ReviewBatchTeamPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Zobacz zespół dziś" }));
     expect(await screen.findByText("Rekruter B")).toBeInTheDocument();
     expect(screen.getByText("09:42")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Poziom" })).toBeInTheDocument();
+    expect(screen.getByText("40")).toBeInTheDocument();
     expect(screen.getByText("6:4")).toBeInTheDocument();
     expect(screen.getByText("Rekruter B").closest("tr")).toHaveClass("bg-warning/10");
     expect(screen.getByText("Rekruter A").closest("tr")).not.toHaveClass("bg-warning/10");

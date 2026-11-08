@@ -49,6 +49,12 @@ fi
 
 export PYTHONPATH=/app:${PYTHONPATH}
 
+# Kontener pętli w tle: migracje, siatkę DDL i seedy robi web.
+# → docs/claude/podstawy/web-i-worker-osobno.md
+if [ "${NEXUS_PROCESS_ROLE:-all}" = "worker" ]; then
+    exec bash /app/scripts/worker-start.sh
+fi
+
 # ── Pomiar czasu faz startu (reaudyt 14.09.2026) ────────────────────────────
 # Przy każdym deployu API nie odpowiada, dopóki ten skrypt nie dojdzie do
 # `exec uvicorn` — zmierzone ~52 s przerwy przy #1509. Bez czasu każdej fazy

@@ -43,7 +43,7 @@ from app.models.job_work_assignment import WORK_ROLE, JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.schemas.job_team import JobRecruiterOut
-from app.services import job_channels, job_p0
+from app.services import job_channels, job_idle, job_p0
 from app.services.job_p0 import p0_rank_expr
 from app.services.job_priority import level_of
 from app.services.job_similarity import at_client_counts, board_column_counts
@@ -69,6 +69,7 @@ from app.services.request_allocation_plan import (
 )
 from app.services.request_allocation_proposals import pending_pairs
 from app.services import new_job_leads
+from app.services.new_profiles import new_profiles_by_job
 from app.services.workforce_availability import workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -129,6 +130,13 @@ class BoardRequest(BaseModel):
     channel_plan_base: Optional[int] = None
     channel_plan_linkedin: Optional[int] = None
     unassigned_workers: list[BoardUnassigned] = []
+    # Audyt 08.11.2026 (B4): ostatnie CV do klienta. `days_without_cv` tylko dla
+    # P1 w poszukiwaniu i od progu 5 dni roboczych; inaczej brak pigułki.
+    last_cv_sent_at: Optional[datetime] = None
+    days_without_cv: Optional[int] = None
+    # Audyt 08.11.2026 (B6): nowe profile z ostatnich 7 dni i ile z nich do CV.
+    new_profiles_7d: int = 0
+    new_profiles_7d_cv: int = 0
 
 
 class BoardGroup(BaseModel):
@@ -259,6 +267,19 @@ def _board_person(person: TeamPerson, row_source: Optional[str]) -> BoardPerson:
     )
 
 
+def _days_without_cv(
+    job: Job, last_cv: Optional[datetime], now: datetime
+) -> Optional[int]:
+    if not job_idle.is_p1_searching(
+        job.priority, job.work_state, job.champion_found_at
+    ):
+        return None
+    days = job_idle.business_days_without_cv(
+        (last_cv, job.opened_at or job.created_at), now
+    )
+    return days if days >= job_idle.P1_NO_CV_BUSINESS_DAYS else None
+
+
 def _p0_fields(job: Job, now: datetime) -> dict:
     if not job_p0.is_active(job, now):
         return {}
@@ -303,6 +324,8 @@ async def get_request_board(
     sent = await at_client_counts(db, ids)
     verified = await board_column_counts(db, ids, ("verified",))
     cv_qc = await board_column_counts(db, ids, ("cv_qc",))
+    last_cv = await job_idle.last_cv_sent_at(db, ids)
+    new_profiles = await new_profiles_by_job(db, ids)
     # Jedna reguła „kto pracuje” — także prowadzący i ręczny współpracownik,
     # których w ``job_work_assignments`` nie ma (do 02.10.2026 pulpit czytał
     # samą tabelę przypisań i przy 19 z 20 requestów pokazywał „nikt”).
@@ -366,6 +389,12 @@ async def get_request_board(
                 BoardUnassigned(user_id=w.user_id, name=w.name, cards=w.cards)
                 for w in unassigned.get(job.id, [])
             ],
+            last_cv_sent_at=last_cv.get(job.id),
+            days_without_cv=_days_without_cv(job, last_cv.get(job.id), now),
+            new_profiles_7d=new_profiles[job.id].added if job.id in new_profiles else 0,
+            new_profiles_7d_cv=new_profiles[job.id].reached_cv
+            if job.id in new_profiles
+            else 0,
         )
         for job in jobs
     ]

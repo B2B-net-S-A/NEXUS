@@ -949,8 +949,14 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
 
   it("pokazuje wynik QC CV i „Otwórz QC” otwiera okno QC dla etapu z kolejki", async () => {
     mockApi();
-    renderPanel(task({ qc_status: "failed", qc_blocking_failed: 3 }));
-    expect(screen.getByText("QC: 3 do poprawy")).toBeTruthy();
+    renderPanel(
+      task({
+        qc_status: "failed",
+        qc_blocking_failed: 3,
+        qc_state: { kind: "to_fix", n: 3, items: [], text: "QC: 3 do poprawy", tone: "urgent", who: null, hint: null },
+      }),
+    );
+    expect(await screen.findByText("· 3 do poprawy")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "QC CV" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Otwórz QC/ }));
     expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");

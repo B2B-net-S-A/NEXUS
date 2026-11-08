@@ -16,9 +16,13 @@ braku. Zatrzymanie alarmu AI jest awarią, a nie brakiem konfiguracji Slacka.
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 from typing import Any
 
 from app.core.background_leader import STANDBY_ALARM_SECONDS
+
+logger = logging.getLogger(__name__)
 
 # Alarmy bramkowane na SLACK_WEBHOOK_URL (patrz docstring). Krótka, jawna lista —
 # NIE dopisuj tu integracji opt-in (LinkedIn, M365, CloudTalk…): ich wyłączenie
@@ -108,3 +112,62 @@ def spend_alarm_status(classification: dict[str, Any], *, webhook_set: bool) -> 
             else "healthy: powiadomienia NEXUS; Slack nieustawiony"
         )
     return "unhealthy: pętla alarmów zużycia AI nie biegnie"
+
+
+def local_background_checks(state: Any) -> dict[str, str]:
+    """``checks.background_tasks`` i ``checks.ai_features`` dla pętli TEGO procesu."""
+    tasks = getattr(state, "background_tasks", None)
+    leader = getattr(state, "background_leader", None)
+    in_standby = leader is not None and not leader.is_leader
+    webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
+    return {
+        "ai_features": _ai_features_value(tasks, in_standby, webhook_set),
+        "background_tasks": _background_tasks_value(tasks, leader, webhook_set),
+    }
+
+
+def _ai_features_value(
+    tasks: dict[str, "asyncio.Task[Any]"] | None, in_standby: bool, webhook_set: bool
+) -> str:
+    try:
+        # Pętli nie ma tu z założenia, a długi `standby` alarmuje `background_tasks`.
+        if in_standby:
+            return "standby"
+        return spend_alarm_status(
+            classify_background_tasks(tasks), webhook_set=webhook_set
+        )
+    except Exception as exc:
+        logger.warning("[health] ai_features check failed: %s", exc)
+        return "unknown"
+
+
+def _background_tasks_value(
+    tasks: dict[str, "asyncio.Task[Any]"] | None, leader: Any, webhook_set: bool
+) -> str:
+    """`crashed` (wyjątek) i `critical:` alarmują; informacyjne, nie flipują `overall`."""
+    try:
+        if not isinstance(tasks, dict):
+            return "unknown"
+        if leader is not None:
+            standby = leader_check_value(
+                is_leader=leader.is_leader, standby_seconds=leader.standby_seconds
+            )
+            if standby is not None:
+                return standby
+        classification = classify_background_tasks(tasks)
+        stopped = stopped_webhook_alarms(classification, webhook_set=webhook_set)
+        if classification["crashed"]:
+            return f"crashed: {','.join(sorted(classification['crashed_tasks']))}"
+        if stopped:
+            return (
+                f"critical: {','.join(stopped)} — pętla alarmu wyszła mimo "
+                "ustawionego SLACK_WEBHOOK_URL"
+            )
+        # MON-04: zadanie żyje, ale jego pętla nie zaczęła iteracji dłużej
+        # niż próg (zawieszony await). `unhealthy` = issue z uptime-probe.
+        from app.services.loop_heartbeat import health_value, heartbeats
+
+        return health_value(heartbeats.stalled(running=set(classification["tasks"])))
+    except Exception as exc:
+        logger.warning("[health] background_tasks check failed: %s", exc)
+        return "unknown"

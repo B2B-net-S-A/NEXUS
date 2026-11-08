@@ -19,7 +19,7 @@ import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
 import { WHY_CANDIDATE_LABEL } from "@/lib/pipeline-next-action";
 import { autoMatchBadgeLabel, autoMatchBadgeTitle } from "@/lib/candidate-notes-view";
-import { qcCountsText, qcStateText } from "@/lib/cv-qc";
+import { QC_STATUS_LABEL, qcCountsText, qcStateText } from "@/lib/cv-qc";
 import { rateArrowLine, rateChangeBadgeText } from "@/lib/rate-change";
 import { warsawDateOf } from "@/lib/warsaw-date";
 import { formatDayMonthPl } from "@/lib/date-pl";
@@ -1155,7 +1155,7 @@ export function claimAction(
 
 // ── Rekrutacja v5: chip QC, strzałka „→" i „kto ma ruch" na karcie ─────────
 
-export type QcChipTone = "ok" | "urgent" | "wait" | "neutral";
+export type QcChipTone = "ok" | "urgent" | "wait" | "info" | "neutral";
 
 export interface QcChip {
   label: string;
@@ -1166,45 +1166,15 @@ export interface QcChip {
 /** Chip QC na karcie w kolumnie „QC CV" (`item.qc` z tablicy). */
 export function qcChip(item: KanbanItem): QcChip {
   const qc = item.qc ?? null;
+  const state = qc?.qc_state ?? null;
+  if (state) return { label: state.text, tone: state.tone, title: state.hint ?? state.text };
+  // Odpowiedź starszego wdrożenia — sama nazwa statusu.
   if (!qc || qc.status === "unchecked") {
-    return {
-      label: "QC nie sprawdzone",
-      tone: "neutral",
-      title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić.",
-    };
+    return { label: QC_STATUS_LABEL.unchecked, tone: "neutral", title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić." };
   }
-  if (qc.status === "passed" && (qc.candidate_gaps?.length ?? 0) > 0) {
-    // R2 (07.11.2026): kandydat nie ma krytycznej — nie blokuje, decyduje DL.
-    return {
-      label: qcStateText(qc),
-      tone: "wait",
-      title: `Kandydat nie ma: ${qc.candidate_gaps?.join(", ")}. W CV nie ma czego poprawić — o wysyłce decyduje Delivery Lead.`,
-    };
-  }
-  if (qc.status === "passed" && (qc.manual_checks?.length ?? 0) > 0) {
-    // R1 (07.11.2026): nic nie blokuje, ale części nikt nie sprawdził.
-    return {
-      label: qcStateText(qc),
-      tone: "wait",
-      title: `QC przechodzi, ale tego nie umiało sprawdzić: ${qc.manual_checks?.join(", ")}. Sprawdź ręcznie przed wysłaniem.`,
-    };
-  }
-  if (qc.status === "passed") {
-    return { label: qcStateText(qc), tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
-  }
-  if (qc.status === "overridden") {
-    return {
-      label: "QC przepuszczone",
-      tone: "wait",
-      title: "Delivery Lead albo admin przepuścił CV mimo uwag QC (z powodem).",
-    };
-  }
-  const n = qc.blocking_failed;
-  return {
-    label: `QC: ${n} do poprawy`,
-    tone: "urgent",
-    title: "CV ma braki, które blokują wysłanie — kliknij, żeby zobaczyć poprawki.",
-  };
+  if (qc.status === "passed") return { label: qcStateText(qc), tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
+  if (qc.status === "overridden") return { label: qcStateText(qc), tone: "wait", title: "Przepuszczone mimo uwag QC." };
+  return { label: qcStateText(qc), tone: "urgent", title: "CV ma braki, które blokują wysłanie — kliknij, żeby zobaczyć poprawki." };
 }
 
 /**

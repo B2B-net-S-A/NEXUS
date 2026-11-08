@@ -67,6 +67,22 @@ describe("„Kontrola CV” w przeglądzie DL (R5, 07.11.2026)", () => {
     expect(screen.queryByText("Nic nie przepuszczono mimo uwag")).toBeNull();
   });
 
+  it("S1: nagłówek łączy stan z serwera i jedno „Otwórz QC”", async () => {
+    const onOpenQc = vi.fn();
+    render(
+      <CvControlSummary
+        checks={[pass("dates", "Każda rola ma daty")]}
+        state={{ kind: "checked", n: 0, items: [], text: "QC: sprawdzone", tone: "ok", who: null, hint: null }}
+        override={null}
+        onOpenQc={onOpenQc}
+      />,
+    );
+    const box = screen.getByRole("region", { name: "Kontrola CV" });
+    expect(within(box).getByRole("heading")).toHaveTextContent("Kontrola CV · sprawdzone");
+    await userEvent.click(within(box).getByRole("button", { name: "Otwórz QC" }));
+    expect(onOpenQc).toHaveBeenCalledTimes(1);
+  });
+
   it("QC-3: zgoda RODO z pliku kandydata jest widoczna w „Kontroli CV”", () => {
     const checks: QcCheck[] = [
       { ...pass("client_rules", "Reguły klienta"), severity: "blocking", status: "manual" },

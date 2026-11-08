@@ -30,6 +30,7 @@ from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.process_lock import cross_process_lock
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
@@ -440,7 +441,9 @@ async def run_and_persist() -> dict[str, Any]:
     Jeden lock znaczy, że `sync_is_running()` widzi oba źródła uruchomień
     i pętla dzienna nie wystartuje w trakcie biegu odpalonego ręcznie.
     """
-    async with _run_lock:
+    async with _run_lock, cross_process_lock("notes_insights_sync") as owned:
+        if not owned:
+            return {"skipped": "running_in_other_process"}
         stats = await run_notes_insights_sync()
         await save_state(stats)
         from app.core.operation_telemetry import record_job_outcome
