@@ -141,13 +141,19 @@ export function StatsBoundary({
  * - quality.status unavailable                  → "unavailable"
  * - quality.status partial                      → "partial"
  */
+interface AnalyticsQuality {
+  status: "complete" | "partial" | "unavailable";
+  warnings: string[];
+  source_watermarks: Record<string, string>;
+}
+
 export function deriveBoundaryState(opts: {
   allowed: boolean;
   isLoading: boolean;
   isFetching?: boolean;
   isError: boolean;
   errorStatus?: number;
-  quality?: { status: "complete" | "partial" | "unavailable" };
+  quality?: AnalyticsQuality;
   isEmpty?: boolean;
 }): StatsBoundaryState {
   if (!opts.allowed) return "disabled";
