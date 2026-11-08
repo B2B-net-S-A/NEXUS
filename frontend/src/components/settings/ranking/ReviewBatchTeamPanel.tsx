@@ -10,6 +10,14 @@ import { cn } from "@/lib/utils";
 const headCell = "px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground";
 const numberCell = "px-2 py-1.5 text-right tabular-nums";
 
+const count = (value: number) => value.toLocaleString("pl-PL");
+
+/** `2026-11-02` → `02.11`: pełna data w wąskiej liście tylko przeszkadza. */
+function weekLabel(start: string): string {
+  const [, month, day] = start.split("-");
+  return `${day}.${month}`;
+}
+
 function stuck(row: ReviewBatchTeamRow): boolean {
   return !row.absent && row.done_today < row.required && row.blocked_today > 0;
 }
@@ -94,12 +102,12 @@ function Streams({
   return (
     <div className="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="review-batch-streams">
       <p className="font-semibold text-foreground">
-        Wysłane CV tygodniowo (baza: od systemu {base.system}, ręcznie {base.manual}, razem {base.all})
+        Wysłane CV tygodniowo (baza: od systemu {count(base.system)}, ręcznie {count(base.manual)}, razem {count(base.all)})
       </p>
       <ul className="tabular-nums">
         {data.weeks.map((week) => (
           <li key={week.start}>
-            od {week.start}: od systemu {week.system} · ręcznie {week.manual} · razem {week.all}
+            od {weekLabel(week.start)}: od systemu {week.system} · ręcznie {week.manual} · razem {week.all}
             {week.complete ? "" : " (tydzień trwa)"}
           </li>
         ))}

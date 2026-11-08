@@ -198,14 +198,46 @@ class PendingCard:
     facts: object = None
 
 
-def _latest_stage_is_new():
-    """Ostatni etap pary stoi w „Nowych”."""
+async def _other_column_def_ids(db: AsyncSession) -> list[int]:
+    """Etapy z enumem „new”, które Tablica pokazuje w innej kolumnie (np.
+    „Wysłać do Cpro”). Karta tam nie jest porcją: „Odrzuć” dostawało 422,
+    bo trasa ruchu czyta kolumnę, i taka karta zatykała początek kolejki."""
+    from app.models.pipeline_template import PipelineStageDef
+    from app.services.board_stage_badges import board_column_for
+
+    rows = await db.execute(
+        select(
+            PipelineStageDef.id,
+            PipelineStageDef.name,
+            PipelineStageDef.category,
+            PipelineStageDef.terminal_type,
+        )
+    )
+    return [
+        int(def_id)
+        for def_id, name, category, terminal_type in rows.all()
+        if board_column_for(
+            name,
+            "new",
+            category=getattr(category, "value", category),
+            terminal_type=getattr(terminal_type, "value", terminal_type),
+        )
+        != "new"
+    ]
+
+
+def _latest_stage_is_new(other_column_defs: Iterable[int] = ()):
+    """Ostatni etap pary stoi w „Nowych” także na Tablicy."""
     later = CandidateStage.__table__.alias("later")
     return exists(
         select(CandidateStage.id).where(
             CandidateStage.job_id == RecruitmentProcess.job_id,
             CandidateStage.candidate_id == RecruitmentProcess.candidate_id,
             CandidateStage.stage.in_(_NEW_STAGES),
+            or_(
+                CandidateStage.stage_def_id.is_(None),
+                CandidateStage.stage_def_id.not_in(list(other_column_defs)),
+            ),
             ~exists(
                 select(later.c.id).where(
                     later.c.job_id == CandidateStage.job_id,
@@ -282,7 +314,7 @@ async def pending_cards(
     ).where(
         RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
         RecruitmentProcess.voided_at.is_(None),
-        _latest_stage_is_new(),
+        _latest_stage_is_new(await _other_column_def_ids(db)),
         # Karta od systemu jest najnowszym podejściem pary — osoba dodana potem
         # ręcznie (nowy proces) nie jest już porcją starego właściciela.
         ~exists(

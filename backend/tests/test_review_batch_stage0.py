@@ -311,6 +311,50 @@ async def test_card_moved_to_screening_today_cannot_be_removed(batch_on):
         )
 
 
+async def test_card_in_cpro_column_with_new_enum_is_not_in_batch(batch_on):
+    """Etap „Wysłać do Cpro” ma enum ``new``, ale na Tablicy to inna kolumna:
+    rekruter nie może takiej karty odrzucić z porcji (422 ruchu) i stałaby
+    na początku kolejki."""
+    from app.models.pipeline_template import (
+        PipelineStageDef,
+        PipelineTemplate,
+        StageCategoryEnum,
+    )
+
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    stuck, fine = await _fill(world["job_id"])
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        template = PipelineTemplate(name=f"RB0 {tag}")
+        db.add(template)
+        await db.flush()
+        stage_def = PipelineStageDef(
+            template_id=template.id,
+            name="Wysłać do Cpro",
+            order=5,
+            category=StageCategoryEnum.internal,
+        )
+        db.add(stage_def)
+        await db.flush()
+        row = CandidateStage(
+            candidate_id=stuck,
+            job_id=world["job_id"],
+            stage=PipelineStage.new,
+            stage_def_id=stage_def.id,
+            moved_by=a,
+        )
+        db.add(row)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        left = {
+            c.candidate_id
+            for c in await rb.pending_cards(db, job_ids=[world["job_id"]])
+        }
+    assert left == {fine}
+
+
 # ── S-C4: próg z ustawień ───────────────────────────────────────────────────
 
 
