@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import uuid
-
 import pytest_asyncio
 from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
-from app.models.job import Job
 from app.models.job_posting import JobPosting, Portal, PostingStatus
 from app.services.job_portals.native_apply_switch import (
     REPAIR_MARKER,
     run_native_apply_switch,
 )
 from app.services.job_portals.service import ACTION_UPDATE
+from tests.test_career_links_api import _seed_job, _seed_user
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -32,12 +30,11 @@ async def _no_marker():
 
 
 async def _posting(**fields) -> int:
+    owner_id, _email, _password = await _seed_user("jjit-switch")
+    job_id = await _seed_job(owner_id)
     async with AsyncSessionLocal() as db:
-        job = Job(title=f"Ogłoszenie {uuid.uuid4().hex[:6]}")
-        db.add(job)
-        await db.flush()
         posting = JobPosting(
-            job_id=job.id,
+            job_id=job_id,
             portal=fields.pop("portal", Portal.justjoinit),
             status=fields.pop("status", PostingStatus.published),
             last_error="Portal odrzucił ogłoszenie",

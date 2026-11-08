@@ -728,7 +728,7 @@ async def test_blocked_content_cannot_be_confirmed_but_the_link_can_change(
 async def test_jobs_list_and_detail_carry_only_active_publications(
     api: AsyncClient, monkeypatch
 ):
-    owner_id, headers, job_id = await _owner_with_job(api)
+    owner_id, headers, job_id = await _lead_with_job(api)
     await _generated(api, headers, job_id, monkeypatch)
     base = f"/api/jobs/{job_id}/portal-ad/publications"
     await api.put(f"{base}/pracuj", json={"url": _PRACUJ_URL}, headers=headers)
