@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from app.models.recruitment_pipeline import PipelineStage
 from app.services.funnel_coverage import (
     CONVERSION_OPERAND_STAGES,
@@ -30,6 +32,8 @@ from app.services.traffit.mappers import (
     _TRAFFIT_STATE_TYPE_MAP,
     TRAFFIT_MAPPED_LEGACY_STAGES,
 )
+
+pytestmark = pytest.mark.static
 
 
 def test_uncovered_stages_are_derived_from_the_mapper_not_copied():

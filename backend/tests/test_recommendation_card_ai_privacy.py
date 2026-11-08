@@ -14,6 +14,8 @@ import pytest
 from app.services import notes_insights_extractor
 from app.services.cv_generator_b2b import standalone_service as svc
 
+pytestmark = pytest.mark.static
+
 _BACKEND = Path(__file__).resolve().parents[1]
 
 _CARD = (
