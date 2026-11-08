@@ -50,7 +50,33 @@ describe("ReviewBatchMinimumBlock", () => {
       minimum: 40,
       block_enabled: true,
       pilot_user_ids: [],
+      min_score: 65,
     });
+  });
+
+  it("HoR zmienia próg wyniku porcji", async () => {
+    renderBlock(true);
+    const input = await screen.findByLabelText("Próg wyniku porcji (%)");
+    fireEvent.change(input, { target: { value: "70" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz próg" }));
+    expect(await screen.findByText("Zapisano próg wyniku porcji.")).toBeInTheDocument();
+    expect(api.put).toHaveBeenCalledWith(
+      "/api/review-batch/settings",
+      expect.objectContaining({ min_score: 70, minimum: 50 }),
+    );
+  });
+
+  it("próg poza zakresem blokuje zapis", async () => {
+    renderBlock(true);
+    fireEvent.change(await screen.findByLabelText("Próg wyniku porcji (%)"), { target: { value: "40" } });
+    expect(screen.getByText("Podaj liczbę od 50 do 95.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz próg" })).toBeDisabled();
+  });
+
+  it("bez prawa zapisu nie ma tabeli zespołu", async () => {
+    renderBlock(false);
+    await screen.findByLabelText("Minimum decyzji dziennie");
+    expect(screen.queryByRole("button", { name: "Zobacz zespół dziś" })).not.toBeInTheDocument();
   });
 
   it("bez prawa zapisu pole jest wyłączone, a zła liczba blokuje zapis", async () => {
@@ -74,6 +100,7 @@ describe("ReviewBatchMinimumBlock", () => {
         minimum: 50,
         block_enabled: false,
         pilot_user_ids: [],
+        min_score: 65,
       }),
     );
     expect(
@@ -89,6 +116,7 @@ describe("ReviewBatchMinimumBlock", () => {
         minimum: 50,
         block_enabled: true,
         pilot_user_ids: [8],
+        min_score: 65,
       }),
     );
     expect(await screen.findByText("Blokada dotyczy 1 os. z pilota.")).toBeInTheDocument();

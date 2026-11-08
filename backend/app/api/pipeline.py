@@ -3767,8 +3767,12 @@ async def build_kanban_view(
         job_proposals,
         known_queue_points,
         new_column_autofill,
+        review_batch_order,
     )
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
+    # Premia porcji w kolejności kolumny „Nowi” (S-C4, zero przy wyłączonej porcji).
+    board_budget_hourly = resolve_job_budget_hourly(job)
     known_queue_facts = await known_queue_points.facts_for(
         db,
         job_id=job_id,
@@ -4235,6 +4239,14 @@ async def build_kanban_view(
                 )
                 payload["entry_autofill"]["fresh"] = (
                     e.candidate_id in without_process_ids
+                )
+                payload["entry_autofill"]["queue_bonus"] = (
+                    review_batch_order.bonus_for(
+                        (v4.entry_meta or {}).get("availability_status"),
+                        (v4.entry_meta or {}).get("rate_from_hourly"),
+                        (v4.entry_meta or {}).get("rate_currency"),
+                        board_budget_hourly,
+                    ).points
                 )
                 review_owner = review_owner_by_candidate.get(e.candidate_id)
                 payload["entry_autofill"]["review_owner"] = (

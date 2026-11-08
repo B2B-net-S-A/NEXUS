@@ -22,6 +22,11 @@ przeglądu nie wchodziły (26 z 26 wysłanych, które system miał w puli).
   (``in_batch``), blokada tylko w dni robocze od ``BLOCK_START_HOUR``,
   a HoR ma wyłącznik blokady i listę pilotażową bez wdrożenia
   (``BatchSettings.block_enabled``, ``pilot_user_ids``).
+* Etap 0 przed pilotem (audyt 08.11.2026): decyzja to tylko wyjście z „Nowych”,
+  „Do screeningu” liczy się po ruchu dalej albo zapisanym screeningu
+  (``_decisions``), kolejność jak na Tablicy (``review_batch_order``), osoba
+  nieobecna nie dostaje kart i nie ma blokady, filtry własnej pracy przechodzą
+  (``is_broad_list_query``).
 """
 
 from __future__ import annotations
@@ -35,12 +40,14 @@ from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, func, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
-from app.core.scheduling import business_today, is_business_day
+from app.core.scheduling import business_today, is_business_day, local_day_start_utc
+from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.job import Job, JobPriority
 from app.models.recruitment_pipeline import CandidateStage
@@ -52,6 +59,14 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 20
 MIN_SCORE = 65.0
+# Próg porcji ustawia HoR; poniżej 50% system i tak nie proponuje nikogo sensownego.
+MIN_SCORE_FLOOR = 50.0
+MIN_SCORE_CEIL = 95.0
+# W pierwszym przebiegu każda rekrutacja dostaje tyle osób, zanim inne dostaną
+# resztę: 2 100 dodań przy 100 na tick to ponad 20 minut od 7:00 (W8).
+FIRST_ROUND_CARDS = 5
+# „Do screeningu” liczy się po domknięciu w tylu dniach roboczych (P5).
+SCREENING_CLOSE_DAYS = 2
 # 08.11.2026: 50 → 10. Na kopii z 06.11 rekruterzy podejmowali 4,7–7,8 decyzji
 # dziennie o kartach od systemu (najwięcej 29), więc 50 blokowało 12 z 16 osób
 # na cały dzień. Kolejne progi (20, 30) ustawia HoR po pomiarze.
@@ -65,6 +80,10 @@ MAX_MINIMUM = 300
 SETTING_KEY = "review_batch"
 OWNER_KEY = "review_owner_id"
 BLOCK_CODE = "REVIEW_MINIMUM_PENDING"
+BLOCK_ACTION = "review_batch.blocked"
+BLOCK_ENTITY = "review_batch"
+# Ślad blokady: jeden wpis na osobę na tyle czasu, bo front ponawia zapytania.
+BLOCK_LOG_EVERY = timedelta(minutes=10)
 # Kolumna „Nowi” po samym etapie (lustro ``board_column_for`` dla enumów).
 _NEW_STAGES = ("new", "posting")
 _PRIORITY_RANK = {
@@ -89,6 +108,8 @@ class BatchSettings:
     block_enabled: bool = True
     # Pilot: blokada tylko dla tych kont; pusta lista = wszyscy rekruterzy.
     pilot_user_ids: tuple[int, ...] = ()
+    # Od jakiego wyniku karta wchodzi do porcji.
+    min_score: float = MIN_SCORE
 
     def as_dict(self) -> dict:
         out = asdict(self)
@@ -104,6 +125,11 @@ class BatchSettings:
 def validation_error(value: BatchSettings) -> Optional[str]:
     if not 1 <= value.minimum <= MAX_MINIMUM:
         return f"Minimum musi być w zakresie 1–{MAX_MINIMUM}."
+    if not MIN_SCORE_FLOOR <= value.min_score <= MIN_SCORE_CEIL:
+        return (
+            f"Próg wyniku musi być w zakresie {MIN_SCORE_FLOOR:.0f}–"
+            f"{MIN_SCORE_CEIL:.0f}%."
+        )
     return None
 
 
@@ -127,8 +153,13 @@ async def read_settings(db: AsyncSession) -> BatchSettings:
         minimum = int(row.value.get("minimum", DEFAULT_MINIMUM))
     except (TypeError, ValueError):
         minimum = DEFAULT_MINIMUM
+    try:
+        min_score = float(row.value.get("min_score", MIN_SCORE))
+    except (TypeError, ValueError):
+        min_score = MIN_SCORE
     return BatchSettings(
         minimum=minimum,
+        min_score=min_score,
         block_enabled=row.value.get("block_enabled", True) is not False,
         pilot_user_ids=_pilot(row.value.get("pilot_user_ids")),
     )
@@ -157,6 +188,14 @@ class PendingCard:
     owner_id: Optional[int]
     score: float
     opened_at: Optional[datetime]
+    # Migawka z ``entry_meta`` do kolejności (``review_batch_order``).
+    cautions: tuple = ()
+    missing_must: tuple = ()
+    availability_status: Optional[str] = None
+    rate_from_hourly: Optional[float] = None
+    rate_currency: Optional[str] = None
+    # Dołożone przez ``review_batch_order.with_order_facts``.
+    facts: object = None
 
 
 def _latest_stage_is_new():
@@ -184,11 +223,13 @@ def _latest_stage_is_new():
     )
 
 
-def in_batch(card: "PendingCard", now: datetime) -> bool:
-    """Karta należy do porcji: od ``MIN_SCORE`` i nie starsza niż
-    ``MAX_AGE_DAYS``. Starsze i słabsze karty zostają na Tablicy, ale nikogo
-    nie blokują i nie zajmują miejsca w porcji."""
-    if card.score < MIN_SCORE:
+def in_batch(
+    card: "PendingCard", now: datetime, min_score: Optional[float] = None
+) -> bool:
+    """Karta należy do porcji: od progu (``BatchSettings.min_score``) i nie
+    starsza niż ``MAX_AGE_DAYS``. Starsze i słabsze karty zostają na Tablicy,
+    ale nikogo nie blokują i nie zajmują miejsca w porcji."""
+    if card.score < (MIN_SCORE if min_score is None else min_score):
         return False
     if card.opened_at is None:
         return False
@@ -198,8 +239,10 @@ def in_batch(card: "PendingCard", now: datetime) -> bool:
     return opened >= now - timedelta(days=MAX_AGE_DAYS)
 
 
-def batch_cards(cards: Iterable["PendingCard"], now: datetime) -> list["PendingCard"]:
-    return [card for card in cards if in_batch(card, now)]
+def batch_cards(
+    cards: Iterable["PendingCard"], now: datetime, min_score: Optional[float] = None
+) -> list["PendingCard"]:
+    return [card for card in cards if in_batch(card, now, min_score)]
 
 
 def _score(meta) -> float:
@@ -271,6 +314,11 @@ async def pending_cards(
             owner_id=_owner(meta),
             score=_score(meta),
             opened_at=opened_at,
+            cautions=tuple((meta or {}).get("cautions") or ()),
+            missing_must=tuple((meta or {}).get("missing_must") or ()),
+            availability_status=(meta or {}).get("availability_status"),
+            rate_from_hourly=(meta or {}).get("rate_from_hourly"),
+            rate_currency=(meta or {}).get("rate_currency"),
         )
         key = (card.job_id, card.candidate_id)
         prev = by_pair.get(key)
@@ -281,11 +329,20 @@ async def pending_cards(
     return list(by_pair.values())
 
 
+async def absent_today(db: AsyncSession, user_ids: Iterable[int]) -> set[int]:
+    """Kto ma dziś zatwierdzoną nieobecność (urlop, L4). Tych kont porcja nie
+    dotyczy, a ich karty nie stoją przez cały urlop."""
+    from app.services.hr.absence import absences_on
+
+    return set(await absences_on(db, user_ids, business_today()))
+
+
 async def recruiter_ids_for_jobs(
     db: AsyncSession, job_ids: Iterable[int]
 ) -> dict[int, list[int]]:
     """Aktywni rekruterzy rekrutacji (reguła ``job_team``), bez propozycji
-    automatu i bez kont innych ról (DL dopisany do zespołu porcji nie dostaje)."""
+    automatu, bez kont innych ról (DL dopisany do zespołu porcji nie dostaje)
+    i bez osób nieobecnych dziś: ich karty przechodzą na resztę zespołu (P11)."""
     from app.services.job_team import recruiters_for_jobs, working
 
     teams = await recruiters_for_jobs(db, job_ids)
@@ -297,6 +354,7 @@ async def recruiter_ids_for_jobs(
         for user in (await db.scalars(select(User).where(User.id.in_(user_ids)))).all()
         if user.is_active and applies_to(user)
     }
+    allowed -= await absent_today(db, allowed)
     return {
         job_id: sorted({p.user_id for p in working(people) if p.user_id in allowed})
         for job_id, people in teams.items()
@@ -309,13 +367,15 @@ def plan_owners(
     *,
     seed: str,
     only: Optional[int] = None,
+    rank: Optional[dict[int, int]] = None,
 ) -> dict[int, int]:
     """Kto dostaje którą kartę: proces → właściciel.
 
     Karty z właścicielem spoza zespołu wracają do podziału. Nowe idą od
     najlepszej do osoby z najmniejszą liczbą kart w tej rekrutacji; remis
     rozstrzyga losowa (stała w ciągu dnia) kolejność zespołu. ``only`` =
-    wszystkie nowe karty do jednej osoby („Dodaj 20 kolejnych”)."""
+    wszystkie nowe karty do jednej osoby („Dodaj 20 kolejnych”). ``rank`` =
+    miejsce karty w kolejce Tablicy (proces → miejsce)."""
     if not team:
         return {}
     members = list(team)
@@ -329,7 +389,11 @@ def plan_owners(
         else:
             free.append(card)
     plan: dict[int, int] = {}
-    for card in sorted(free, key=lambda c: (-c.score, c.candidate_id)):
+    last = len(cards) + 1
+    for card in sorted(
+        free,
+        key=lambda c: ((rank or {}).get(c.process_id, last), -c.score, c.candidate_id),
+    ):
         if only is not None and only in load:
             uid = only
         else:
@@ -348,9 +412,18 @@ async def assign_owners(
 ) -> int:
     """Rozdziel czekające karty od systemu tej rekrutacji. Bez commitu."""
     team = (await recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
-    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), now)
+    min_score = (await read_settings(db)).min_score
+    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), now, min_score)
+    rank = None
+    if team and any(card.owner_id not in team for card in cards):
+        ordered = await _board_order(db, job_id, cards, now=now)
+        rank = {card.process_id: i for i, card in enumerate(ordered)}
     plan = plan_owners(
-        cards, team, seed=f"{job_id}:{business_today().isoformat()}", only=only
+        cards,
+        team,
+        seed=f"{job_id}:{business_today().isoformat()}",
+        only=only,
+        rank=rank,
     )
     if not plan:
         return 0
@@ -368,6 +441,20 @@ async def assign_owners(
     return len(plan)
 
 
+async def _board_order(
+    db: AsyncSession, job_id: int, cards: list[PendingCard], *, now: datetime
+) -> list[PendingCard]:
+    """Karty w kolejności kolumny „Nowi” z faktami do plakietek."""
+    from app.services import review_batch_order
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        return sorted(cards, key=lambda c: (-c.score, c.candidate_id))
+    return review_batch_order.order_cards(
+        await review_batch_order.with_order_facts(db, job, cards, now=now)
+    )
+
+
 async def _own_cards(
     db: AsyncSession, user_id: int, *, now: datetime
 ) -> list[PendingCard]:
@@ -376,7 +463,8 @@ async def _own_cards(
     from app.models.job import JobStatus
     from app.services.request_work_state import IN_WORK_STATES
 
-    cards = batch_cards(await pending_cards(db, owner_id=user_id), now)
+    min_score = (await read_settings(db)).min_score
+    cards = batch_cards(await pending_cards(db, owner_id=user_id), now, min_score)
     if not cards:
         return []
     # Karty z rekrutacji zamkniętej albo wstrzymanej nie blokują nikogo.
@@ -406,29 +494,234 @@ def day_start(now: Optional[datetime] = None) -> datetime:
     return datetime.combine(today, time.min, tzinfo=tz).astimezone(timezone.utc)
 
 
-async def decided_today(db: AsyncSession, user_id: int, *, now: datetime) -> int:
-    """Ile kart od systemu ta osoba dziś wyprowadziła z „Nowych”."""
-    since = day_start(now)
-    stmt = (
-        select(func.count(func.distinct(RecruitmentProcess.id)))
-        .select_from(RecruitmentProcess)
-        .join(
-            CandidateStage,
-            and_(
-                CandidateStage.job_id == RecruitmentProcess.job_id,
-                CandidateStage.candidate_id == RecruitmentProcess.candidate_id,
+@dataclass(frozen=True)
+class Decision:
+    """Wyjście karty od systemu z „Nowych”. ``counted_at`` = kiedy liczy się do
+    minimum; ``None`` = „Do screeningu” jeszcze niedomknięte."""
+
+    process_id: int
+    job_id: int
+    candidate_id: int
+    user_id: int
+    stage: str
+    moved_at: datetime
+    counted_at: Optional[datetime]
+
+
+@dataclass(frozen=True)
+class DayCounts:
+    done: int = 0
+    # Dzisiejsze „Do screeningu” bez domknięcia: nie zmniejszają wymaganego minimum.
+    open_today: int = 0
+    # Wszystkie niedomknięte w oknie ``SCREENING_CLOSE_DAYS`` (do licznika na ekranie).
+    open_screenings: int = 0
+    screened_today: int = 0
+    rejected_today: int = 0
+    counted_times: tuple[datetime, ...] = ()
+
+
+def _value(stage: object) -> str:
+    return str(getattr(stage, "value", stage))
+
+
+def close_window_start() -> datetime:
+    """Początek okna domknięcia: dziś minus ``SCREENING_CLOSE_DAYS`` dni roboczych."""
+    tz = settings.BUSINESS_TZ
+    day = business_today()
+    left = SCREENING_CLOSE_DAYS
+    while left:
+        day -= timedelta(days=1)
+        if is_business_day(datetime.combine(day, time(12), tzinfo=ZoneInfo(tz)), tz):
+            left -= 1
+    return local_day_start_utc(day, tz)
+
+
+def counted_at_for(
+    stage: str,
+    moved_at: datetime,
+    later: list[tuple[str, datetime]],
+    answered: list[datetime],
+) -> Optional[datetime]:
+    """Kiedy wyjście z „Nowych” liczy się do minimum.
+
+    Odrzucenie i każdy ruch dalej niż screening od razu. Samo „Do screeningu”
+    dopiero po kolejnym ruchu (poza „Nowych”) albo zapisanym screeningu, bo
+    bez tego wciśnięcie S przez kilka minut odblokowywało wyszukiwanie (P5)."""
+    if stage != "screening":
+        return moved_at
+    moves = [at for name, at in later if name not in (*_NEW_STAGES, "screening")]
+    # Screening zapisany jeszcze w „Nowych” też się liczy: formularz nie wymaga
+    # przesunięcia karty.
+    closed = sorted([*moves, *answered])
+    return max(closed[0], moved_at) if closed else None
+
+
+async def _decisions(
+    db: AsyncSession, user_ids: Iterable[int], *, now: datetime
+) -> dict[int, list[Decision]]:
+    """Wyjścia z „Nowych” w oknie domknięcia, per osoba. Ruch karty już po
+    „Nowych” (screening → CV) to nie decyzja o propozycji, tak samo karta, która
+    do „Nowych” wróciła (P6)."""
+    ids = sorted({int(u) for u in user_ids})
+    out: dict[int, list[Decision]] = {uid: [] for uid in ids}
+    if not ids:
+        return out
+    since = close_window_start()
+    earlier = aliased(CandidateStage)
+    previous_stage = (
+        select(earlier.stage)
+        .where(
+            earlier.job_id == CandidateStage.job_id,
+            earlier.candidate_id == CandidateStage.candidate_id,
+            or_(
+                earlier.moved_at < CandidateStage.moved_at,
+                and_(
+                    earlier.moved_at == CandidateStage.moved_at,
+                    earlier.id < CandidateStage.id,
+                ),
             ),
         )
-        .where(
-            RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
-            RecruitmentProcess.voided_at.is_(None),
-            CandidateStage.moved_by == user_id,
-            CandidateStage.moved_at >= since,
-            CandidateStage.moved_at >= RecruitmentProcess.opened_at,
-            CandidateStage.stage.not_in(_NEW_STAGES),
-        )
+        .order_by(earlier.moved_at.desc(), earlier.id.desc())
+        .limit(1)
+        .scalar_subquery()
     )
-    return int((await db.scalar(stmt)) or 0)
+    rows = (
+        await db.execute(
+            select(
+                RecruitmentProcess.id,
+                RecruitmentProcess.job_id,
+                RecruitmentProcess.candidate_id,
+                CandidateStage.id,
+                CandidateStage.stage,
+                CandidateStage.moved_at,
+                CandidateStage.moved_by,
+            )
+            .join(
+                CandidateStage,
+                and_(
+                    CandidateStage.job_id == RecruitmentProcess.job_id,
+                    CandidateStage.candidate_id == RecruitmentProcess.candidate_id,
+                ),
+            )
+            .where(
+                RecruitmentProcess.entry_source == candidate_claim.ENTRY_SYSTEM,
+                RecruitmentProcess.voided_at.is_(None),
+                CandidateStage.moved_by.in_(ids),
+                CandidateStage.moved_at >= since,
+                CandidateStage.moved_at >= RecruitmentProcess.opened_at,
+                CandidateStage.stage.not_in(_NEW_STAGES),
+                previous_stage.in_(_NEW_STAGES),
+            )
+        )
+    ).all()
+    if not rows:
+        return out
+    # Ponowne wyjście z „Nowych” zastępuje poprzednie: jedna karta, jedna decyzja.
+    exits: dict[int, tuple] = {}
+    for row in rows:
+        prev = exits.get(row[0])
+        if prev is None or (row[5], row[3]) > (prev[5], prev[3]):
+            exits[row[0]] = row
+    job_ids = {row[1] for row in exits.values()}
+    candidate_ids = {row[2] for row in exits.values()}
+    stage_rows = (
+        await db.execute(
+            select(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                CandidateStage.id,
+                CandidateStage.stage,
+                CandidateStage.moved_at,
+            )
+            .where(
+                CandidateStage.job_id.in_(job_ids),
+                CandidateStage.candidate_id.in_(candidate_ids),
+            )
+            .order_by(CandidateStage.moved_at, CandidateStage.id)
+        )
+    ).all()
+    by_pair: dict[tuple[int, int], list] = {}
+    pair_of_stage: dict[int, tuple[int, int]] = {}
+    for job_id, candidate_id, stage_id, stage, moved_at in stage_rows:
+        by_pair.setdefault((job_id, candidate_id), []).append(
+            (stage_id, _value(stage), moved_at)
+        )
+        pair_of_stage[stage_id] = (job_id, candidate_id)
+    # Notatka screeningu to ``Activity screening_answered`` (tabela
+    # ``screening_notes`` od dawna stoi pusta, formularz pisze tu i na etap).
+    answered_rows = (
+        await db.execute(
+            select(Activity.entity_id, Activity.created_at).where(
+                Activity.entity_type == "candidate_stage",
+                Activity.entity_id.in_(list(pair_of_stage)),
+                Activity.action == "screening_answered",
+                Activity.created_at >= since,
+            )
+        )
+    ).all()
+    answered: dict[tuple[int, int], list[datetime]] = {}
+    for entity_id, created_at in answered_rows:
+        answered.setdefault(pair_of_stage[entity_id], []).append(created_at)
+    for (
+        process_id,
+        job_id,
+        candidate_id,
+        stage_id,
+        stage,
+        moved_at,
+        user,
+    ) in exits.values():
+        pair = by_pair.get((job_id, candidate_id), [])
+        if pair and pair[-1][1] in _NEW_STAGES:
+            continue  # karta wróciła do „Nowych” — decyzji nie ma
+        later = [
+            (name, at) for sid, name, at in pair if (at, sid) > (moved_at, stage_id)
+        ]
+        name = _value(stage)
+        out[int(user)].append(
+            Decision(
+                process_id=int(process_id),
+                job_id=int(job_id),
+                candidate_id=int(candidate_id),
+                user_id=int(user),
+                stage=name,
+                moved_at=moved_at,
+                counted_at=counted_at_for(
+                    name, moved_at, later, answered.get((job_id, candidate_id), [])
+                ),
+            )
+        )
+    return out
+
+
+def summarize_day(decisions: Iterable[Decision], since: datetime) -> DayCounts:
+    done = sorted(
+        d.counted_at for d in decisions if d.counted_at and d.counted_at >= since
+    )
+    items = list(decisions)
+    waiting = [d for d in items if d.stage == "screening" and d.counted_at is None]
+    return DayCounts(
+        done=len(done),
+        open_today=sum(1 for d in waiting if d.moved_at >= since),
+        open_screenings=len(waiting),
+        screened_today=sum(
+            1 for d in items if d.stage == "screening" and d.moved_at >= since
+        ),
+        rejected_today=sum(
+            1 for d in items if d.stage == "rejected" and d.moved_at >= since
+        ),
+        counted_times=tuple(done),
+    )
+
+
+async def day_counts(db: AsyncSession, user_id: int, *, now: datetime) -> DayCounts:
+    decisions = await _decisions(db, [user_id], now=now)
+    return summarize_day(decisions.get(user_id, []), day_start(now))
+
+
+async def decided_today(db: AsyncSession, user_id: int, *, now: datetime) -> int:
+    """Ile decyzji o kartach od systemu liczy się dziś do minimum tej osoby."""
+    return (await day_counts(db, user_id, now=now)).done
 
 
 # ── Stan osoby i blokada ────────────────────────────────────────────────────
@@ -458,6 +751,8 @@ class BatchStatus:
     # Czy niezrobione minimum teraz blokuje wyszukiwanie (wyłącznik, pilot,
     # dzień roboczy od 7:00) — licznik w pasku zostaje zachętą także bez blokady.
     blocks: bool = False
+    # „Do screeningu” z ostatnich dni roboczych, jeszcze bez wyniku.
+    open_screenings: int = 0
     # Rekrutacje w pracy, w których osoba jest rekruterem (z czekającymi u niej
     # osobami albo bez) — lista do „Dodaj 20 kolejnych”.
     team_jobs: tuple[JobShare, ...] = ()
@@ -535,10 +830,23 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
             required=0,
             met=True,
         )
+    if await absent_today(db, [user.id]):
+        return BatchStatus(
+            enabled=True,
+            applies=False,
+            minimum=settings_value.minimum,
+            done_today=0,
+            pending=0,
+            required=0,
+            met=True,
+        )
     cards = await _own_cards(db, user.id, now=now)
-    done = await decided_today(db, user.id, now=now)
+    day = await day_counts(db, user.id, now=now)
+    done = day.done
     # Kto ma w porcji mniej, niż brakuje do minimum, przegląda całą porcję.
-    required = min(settings_value.minimum, done + len(cards))
+    # Dzisiejsze niedomknięte S zostają w rachunku: inaczej przesunięcie całej
+    # porcji na screening zerowałoby wymagane minimum.
+    required = min(settings_value.minimum, done + len(cards) + day.open_today)
     met = done >= required
     counts: dict[int, int] = {}
     for card in cards:
@@ -568,6 +876,7 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         met=met,
         jobs=tuple(jobs),
         blocks=not met and blocking_now(settings_value, user.id, now),
+        open_screenings=day.open_screenings,
         team_jobs=tuple(await _team_jobs(db, user.id, counts, now=now)),
     )
 
@@ -616,6 +925,42 @@ def blocking_now(value: BatchSettings, user_id: int, now: datetime) -> bool:
     return local.hour >= BLOCK_START_HOUR
 
 
+async def _record_block(user_id: int, status: BatchStatus, *, now: datetime) -> None:
+    """Ślad blokady dla HoR (raz na ``BLOCK_LOG_EVERY``). Własna sesja, bo sesja
+    żądania cofa się po 423, a awaria zapisu nie może zmienić odpowiedzi."""
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            recent = await db.scalar(
+                select(Activity.id)
+                .where(
+                    Activity.entity_type == BLOCK_ENTITY,
+                    Activity.entity_id == user_id,
+                    Activity.action == BLOCK_ACTION,
+                    Activity.created_at >= now - BLOCK_LOG_EVERY,
+                )
+                .limit(1)
+            )
+            if recent is not None:
+                return
+            db.add(
+                Activity(
+                    entity_type=BLOCK_ENTITY,
+                    entity_id=user_id,
+                    action=BLOCK_ACTION,
+                    user_id=user_id,
+                    details={
+                        "remaining": status.remaining,
+                        "required": status.required,
+                    },
+                )
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — ślad nie może zmienić odpowiedzi 423
+        logger.warning("[review_batch] block log failed: %s", type(exc).__name__)
+
+
 async def assert_search_allowed(db: AsyncSession, user: User) -> None:
     """423 ``REVIEW_MINIMUM_PENDING``, dopóki rekruter nie zrobi minimum."""
     if not enabled() or not applies_to(user):
@@ -626,6 +971,7 @@ async def assert_search_allowed(db: AsyncSession, user: User) -> None:
     status = await status_for(db, user, now=now)
     if status.met:
         return
+    await _record_block(user.id, status, now=now)
     raise HTTPException(
         status_code=423,
         detail={
@@ -651,7 +997,7 @@ async def review_queue(
     db: AsyncSession, user: User, *, now: datetime, limit: int = 50
 ) -> list[PendingCard]:
     """Karty osoby w kolejności przeglądu: rekrutacje na zmianę (P0, potem
-    priorytet), w każdej od najlepszej osoby."""
+    priorytet), w każdej w kolejności kolumny „Nowi” na Tablicy (P7)."""
     cards = await _own_cards(db, user.id, now=now)
     if not cards:
         return []
@@ -664,8 +1010,15 @@ async def review_queue(
     by_job: dict[int, list[PendingCard]] = {}
     for card in cards:
         by_job.setdefault(card.job_id, []).append(card)
-    for items in by_job.values():
-        items.sort(key=lambda c: (-c.score, c.candidate_id))
+    for job_id, items in by_job.items():
+        mine = {card.process_id for card in items}
+        # Cała kolumna, nie tylko moje karty: miejsca „co 5.” liczą się od góry.
+        column = await pending_cards(db, job_ids=[job_id])
+        by_job[job_id] = [
+            card
+            for card in await _board_order(db, job_id, column, now=now)
+            if card.process_id in mine
+        ]
     job_order = sorted(
         by_job,
         key=lambda jid: (
@@ -701,6 +1054,31 @@ _NEUTRAL_LIST_PARAMS = frozenset(
         "text_mode",
     }
 )
+# Filtry własnej pracy: przechodzą przy blokadzie, gdy wskazują zalogowaną osobę
+# (P9). „Moi kandydaci” to przegląd swojej pracy, nie przeszukiwanie bazy.
+_OWN_WORK_PERSON_PARAMS = frozenset(
+    {"added_by_user_id", "stage_moved_by", "contacted_by"}
+)
+# Zawężenia, które mają sens tylko razem z filtrem własnej pracy: same dalej
+# przeszukują całą bazę (np. wszyscy odrzuceni przez nas).
+_OWN_WORK_QUALIFIERS = frozenset(
+    {
+        "stage_moved_after",
+        "stage_moved_before",
+        "stage_current_only",
+        "stage_column",
+        "stage_category",
+        "pipeline_stage",
+        "contacted",
+        "contacted_from",
+        "contacted_to",
+        "rejection_by",
+        "rejection_key",
+        "rejection_within_months",
+        "sent_to_client_from",
+        "sent_to_client_to",
+    }
+)
 _PERSON_KINDS = frozenset({"name", "email", "phone", "empty"})
 _PHONE_PART = re.compile(r"^[+\d\s()\-]{3,}$")
 _SKILL_RULES = frozenset({"known_skill", "known_city"})
@@ -723,10 +1101,29 @@ def is_person_lookup(q: Optional[str]) -> bool:
     return "@" in raw or "." in raw or bool(_PHONE_PART.match(raw))
 
 
-async def is_broad_list_query(db: AsyncSession, params) -> bool:
+async def _is_own_work(db: AsyncSession, own: dict[str, list[str]], user: User) -> bool:
+    """Wszystkie filtry wskazują tę osobę albo rekrutacje z jej zespołu."""
+    for key, values in own.items():
+        if key != "recruitment_id" and values != [str(user.id)] * len(values):
+            return False
+    raw_jobs = own.get("recruitment_id")
+    if not raw_jobs:
+        return True
+    try:
+        job_ids = {int(value) for value in raw_jobs}
+    except ValueError:
+        return False
+    teams = await recruiter_ids_for_jobs(db, job_ids)
+    return all(user.id in teams.get(job_id, []) for job_id in job_ids)
+
+
+async def is_broad_list_query(db, params, user: Optional[User] = None) -> bool:
     """Filtry albo opis w ``q`` = ręczne wyszukiwanie; samo nazwisko, mail
-    albo telefon (wybór osoby, ⌘K, telefon od kandydata) — nie."""
+    albo telefon (wybór osoby, ⌘K, telefon od kandydata) i filtry własnej pracy
+    zalogowanej osoby — nie."""
     items = params.multi_items() if hasattr(params, "multi_items") else params.items()
+    own: dict[str, list[str]] = {}
+    qualified = False
     for key, value in items:
         if value in (None, ""):
             continue
@@ -736,6 +1133,19 @@ async def is_broad_list_query(db: AsyncSession, params) -> bool:
             continue
         if key in _NEUTRAL_LIST_PARAMS or key.startswith("include_"):
             continue
+        if user is not None:
+            if key in _OWN_WORK_PERSON_PARAMS or key == "recruitment_id":
+                own.setdefault(key, []).append(str(value))
+                continue
+            if key in _OWN_WORK_QUALIFIERS:
+                qualified = True
+                continue
+            if key == "recruitment_match" and value == "assigned":
+                continue
+        return True
+    if qualified and not own:
+        return True
+    if own and not await _is_own_work(db, own, user):
         return True
     return not is_person_lookup(params.get("q"))
 
@@ -780,7 +1190,7 @@ async def assert_body_search_allowed(db: AsyncSession, user: User, body) -> None
 async def assert_list_search_allowed(db: AsyncSession, user: User, params) -> None:
     if not enabled() or not applies_to(user):
         return
-    if not await is_broad_list_query(db, params):
+    if not await is_broad_list_query(db, params, user):
         return
     await assert_search_allowed(db, user)
 
@@ -798,7 +1208,8 @@ async def assert_removal_allowed(
     wyszukiwania bez przeglądu (przegląd kodu 07.11.2026)."""
     if not enabled() or not applies_to(user):
         return
-    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), _now())
+    min_score = (await read_settings(db)).min_score
+    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), _now(), min_score)
     if any(card.candidate_id == candidate_id for card in cards):
         raise HTTPException(
             status_code=409,

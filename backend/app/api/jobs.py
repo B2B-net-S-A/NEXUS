@@ -5219,6 +5219,7 @@ async def add_candidate_from_history(
         origin_kind=PriorityOriginKind.assigned,
         entry_source="added_manual",
         claim_for_user_id=current_user.id,
+        entry_meta={"found_via": "proposals"},
     )
     db.add(
         Activity(
