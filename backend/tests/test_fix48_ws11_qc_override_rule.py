@@ -182,6 +182,24 @@ async def test_empty_requirement_in_a_failed_run_does_not_break_the_board() -> N
 
 
 @pytest.mark.asyncio
+async def test_recruiter_override_of_unverified_items_is_a_pass_through() -> None:
+    """QC-7: zdane z „sprawdź ręcznie” i obejściem doradczym idzie do kolejki DL."""
+    out = await _status(
+        [
+            _run(
+                manual=["Krytyczne"],
+                manual_keys=["critical_skills"],
+                unverified=["Kafka"],
+                has_override=True,
+                override_at=AT,
+            )
+        ],
+        [],
+    )
+    assert out["status"] == "overridden" and out["manual_items"] == ["Kafka"]
+
+
+@pytest.mark.asyncio
 async def test_passed_run_carries_blocking_checks_nobody_verified() -> None:
     """R1 (07.11.2026): zdane QC z „sprawdź ręcznie” przy blokującym sprawdzeniu
     niesie jego etykietę — karta, panel i przegląd DL mówią to samo."""

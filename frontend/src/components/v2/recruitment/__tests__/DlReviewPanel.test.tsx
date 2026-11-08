@@ -962,6 +962,17 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
   });
 
+  describe("QC-8: wysyłka z luką kandydata", () => {
+    it("przycisk wysyłki czeka na decyzję, a decyzja jedzie w ruchu", async () => {
+      mockApi({ context: { ...CONTEXT, qc_gaps: ["Kafka"] } });
+      renderPanel(task());
+      await typeRate();
+      expect(send()).toBeDisabled();
+      await userEvent.click(await screen.findByRole("radio", { name: "Wysyłam mimo braku: Kafka" }));
+      expect(send()).toBeEnabled();
+    });
+  });
+
   describe("uwaga rekrutera z przekazania (14.10.2026)", () => {
     it("stoi na górze kolumny decyzji, nad „Warunkami”, z autorem", async () => {
       mockApi({

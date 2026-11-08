@@ -42,7 +42,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
 import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { countPl } from "@/lib/plural-pl";
-import { QC_STATUS_LABEL, qcStateText } from "@/lib/cv-qc";
+import { QC_STATUS_LABEL } from "@/lib/cv-qc";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
@@ -563,7 +563,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                               dostępność: <span className="font-mono text-foreground">{cproAvailabilityText(item.availability)}</span>
                             </span>
                             <span className={cn(item.qc_status === "failed" && "text-destructive")}>
-                              {item.qc_status ? qcStateText({ status: item.qc_status, blocking_failed: item.qc_blocking_failed ?? 0, qc_state: item.qc_state }) : QC_STATUS_LABEL.unchecked}
+                              {item.qc_status ? QC_STATUS_LABEL[item.qc_status] : QC_STATUS_LABEL.unchecked}
                             </span>
                             <span>czeka {waitingFor(item.since)}</span>
                           </p>

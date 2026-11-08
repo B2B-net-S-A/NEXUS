@@ -128,8 +128,13 @@ export function isReadyForDlSend(
   column: BoardColumnKey | null,
   inCproQueue: boolean,
 ): boolean {
-  if (column !== "cv_qc" || inCproQueue) return false;
+  if (column !== "cv_qc" || inCproQueue || qcHoldsAtRecruiter(item)) return false;
   return item.qc?.status === "passed" || item.qc?.status === "overridden";
+}
+
+/** QC-7 (08.11.2026): stanowiska bez wskazania — ruch rekrutera, nie Delivery Leada. */
+function qcHoldsAtRecruiter(item: KanbanItem): boolean {
+  return item.qc?.qc_state?.kind === "verify_roles";
 }
 
 /**
@@ -234,6 +239,9 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined): DlWaitingS
       ready: false,
       text: `QC: ${item.qc.blocking_failed} do poprawy — popraw CV, zanim Delivery Lead je zobaczy.`,
     };
+  }
+  if (qcHoldsAtRecruiter(item)) {
+    return { ready: false, text: `${item.qc?.qc_state?.text} — zrób to, zanim Delivery Lead je zobaczy.` };
   }
   return {
     ready: false,
@@ -1203,7 +1211,8 @@ export function knownForwardGap(
   // 14.10.2026: bez CV firmowego przeciągnięcie na „QC CV” wkładało osobę
   // wprost do kolejki Delivery Leada. `null`/brak pola = nie wiadomo.
   if (from === "verified" && item.company_cv === false) {
-    return "Brak CV firmowego";
+    // QC-4: starszy plik B2B ma własny napis zamiast cichego „Brak CV”.
+    return item.qc?.qc_state?.kind === "older_cv" ? item.qc.qc_state.text.replace(/^QC: /, "") : "Brak CV firmowego";
   }
   if (from === "cv_qc" && item.qc?.status === "failed") {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
@@ -1473,6 +1482,9 @@ export function cardNextStep(
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
       return { ...recruiter(), label: "Popraw CV wg QC" };
+    }
+    if (qcHoldsAtRecruiter(item)) {
+      return { ...recruiter(), label: "Wskaż stanowisko w QC" };
     }
     if (ctx.stageBadge !== "cpro" && item.qc?.status !== "passed" && item.qc?.status !== "overridden") {
       return { ...recruiter(), label: "Sprawdź QC CV" };

@@ -831,6 +831,7 @@ export type QcStateKind =
   | "checked"
   | "checked_manually"
   | "verify_roles"
+  | "older_cv"
   | "candidate_gap"
   | "to_fix"
   | "overridden"

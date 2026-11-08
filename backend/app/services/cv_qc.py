@@ -4638,6 +4638,9 @@ async def pair_statuses(
         ok_since = _parse_ok_since(row.ok_since) or row.created_at
         if passed and dismissed:
             status, ok_at = "overridden", ok_since
+        elif passed and row.has_override and (row.unverified or row.manual_keys):
+            # QC-7: w trybie doradczym rekruter przesunął mimo niesprawdzonych.
+            status, ok_at = "overridden", ok_since
         elif passed:
             status, ok_at = "passed", ok_since
         elif row.has_override:
@@ -4735,6 +4738,40 @@ async def _pass_through_names(
     for candidate_id, job_id, name in [*dismissed.all(), *overrides.all()]:
         names[(candidate_id, job_id)] = _short_name(name)
     return names
+
+
+GAP_DECISION_ACTION = "cv_qc_gap_decision"
+
+
+async def record_gap_decision(
+    db: AsyncSession,
+    *,
+    stage_id: int,
+    candidate_id: int,
+    job_id: int,
+    decision: str,
+    user_id: Optional[int],
+) -> None:
+    """Decyzja Delivery Leada o luce kandydata (QC-8): ślad do pomiaru R2 (bez commitu)."""
+
+    from app.models.activity import Activity
+
+    pair = (candidate_id, job_id)
+    gaps = (await pair_statuses(db, [pair]))[pair]["candidate_gaps"]
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage_id,
+            action=GAP_DECISION_ACTION,
+            user_id=user_id,
+            details={
+                "candidate_id": candidate_id,
+                "job_id": job_id,
+                "decision": decision,
+                "gaps": gaps,
+            },
+        )
+    )
 
 
 def gate_applies(

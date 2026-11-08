@@ -210,3 +210,34 @@ def test_original_fingerprint_ignores_whitespace_only_changes() -> None:
         "Jan Kowalski Kotlin"
     )
     assert qc.original_fingerprint("") is None
+
+
+# ── QC-7: niesprawdzone krytyczne zostają u rekrutera ────────────────────────
+
+
+def test_passed_with_manual_items_is_not_in_the_queue() -> None:
+    from app.services import dl_send_queue as queue
+
+    since = _AT - timedelta(days=5)
+    today = (_AT + timedelta(days=1)).date()
+    held = queue.readiness_of(
+        since=since,
+        qc_status="passed",
+        ok_at=since,
+        today=today,
+        manual_items=["Kafka"],
+    )
+    assert held.ready is False
+    plain = queue.readiness_of(
+        since=since, qc_status="passed", ok_at=since, today=today
+    )
+    assert plain.ready is True
+    # Rekruter przesunął mimo to: przepuszczenie trafia do kolejki.
+    pushed = queue.readiness_of(
+        since=since,
+        qc_status="overridden",
+        ok_at=since,
+        today=today,
+        manual_items=["Kafka"],
+    )
+    assert pushed.ready is True

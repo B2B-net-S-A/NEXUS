@@ -67,6 +67,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
+import { GapDecision, type GapChoice } from "@/components/v2/recruitment/dl-review/GapDecision";
 import { requirementFindWords, useRequirementFindWords } from "@/components/champion/use-job-requirements";
 import {
   CvColumn,
@@ -417,6 +418,7 @@ export function DlReviewBody({
   const [busy, setBusy] = useState<PendingAction | null>(null);
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
   const [qcStageId, setQcStageId] = useState<number | null>(null);
+  const [gapChoice, setGapChoice] = useState<GapChoice | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnInput, setReturnInput] = useState<{ fields: string[]; remark: string } | null>(null);
   const [cvView, setCvView] = useState<CvView>("company");
@@ -446,6 +448,7 @@ export function DlReviewBody({
     setShowRequirements(false);
     setCvSearch(null);
     setQcStageId(null);
+    setGapChoice(null);
     setRateRaw("");
     setRateUnit("hourly");
     setCurrency("PLN");
@@ -653,10 +656,14 @@ export function DlReviewBody({
         client_rate_value: clientRate,
         client_rate_unit: rateUnit,
         client_rate_currency: currency,
+        ...(qcGaps.length > 0 ? { gap_decision: "send_anyway" } : {}),
       });
     } else if (action === "return") {
       if (task.return_stage_def_id == null) return;
-      Object.assign(payload, { stage_def_id: task.return_stage_def_id });
+      Object.assign(payload, {
+        stage_def_id: task.return_stage_def_id,
+        ...(qcGaps.length > 0 && gapChoice === "return" ? { gap_decision: "return" } : {}),
+      });
       if (fix) {
         sentRemark = fix.remark;
         if (fix.fields.length > 0) payload.fix_fields = fix.fields;
@@ -748,8 +755,14 @@ export function DlReviewBody({
         interviews: earlierInterviews,
       })) &&
     !(sendEmail && emailState.invalid);
+  const qcGaps = context.data?.qc_gaps ?? task.qc_gaps ?? [];
   const sendReady =
-    canSend && clientRate != null && task.target_stage_def_id != null && matchMissingRate === 0;
+    canSend &&
+    clientRate != null &&
+    task.target_stage_def_id != null &&
+    matchMissingRate === 0 &&
+    // QC-8: przy luce kandydata wysyłka wymaga jawnej decyzji.
+    (qcGaps.length === 0 || gapChoice === "send");
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
 
   return (
@@ -939,6 +952,9 @@ export function DlReviewBody({
                 hideOverrideLine={qcOverride != null}
                 onOpenQc={() => setQcStageId(task.stage_id)}
               />
+              {canSend && qcGaps.length > 0 ? (
+                <GapDecision gaps={qcGaps} value={gapChoice} onChange={setGapChoice} />
+              ) : null}
               <PersonFacts
                 testId="dl-review-person-facts"
                 rows={[

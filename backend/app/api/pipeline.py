@@ -2527,6 +2527,17 @@ async def apply_move(
         stage_display_name=stage_display_name,
         extra_details=activity_extra,
     )
+    if data.gap_decision is not None:
+        from app.services.cv_qc import record_gap_decision  # noqa: PLC0415
+
+        await record_gap_decision(
+            db,
+            stage_id=stage.id,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            decision=data.gap_decision,
+            user_id=policy.actor_id,
+        )
     if skipped_requirements:
         db.add(
             Activity(

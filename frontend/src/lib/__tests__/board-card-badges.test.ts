@@ -882,3 +882,16 @@ describe("„FastAPI? zna Flask” — krytyczne z zamiennikiem (mapa wiedzy IT,
   });
 });
 
+
+describe("QC-7 (08.11.2026): „wskaż stanowisko” zostaje u rekrutera", () => {
+  const holding = { status: "passed" as const, blocking_failed: 0, qc_state: { kind: "verify_roles" as const, n: 2, items: ["Kafka"], text: "QC: wskaż stanowisko · 2", tone: "wait" as const, who: null, hint: null } };
+
+  it("nie jest gotowa do wysyłki u Delivery Leada", () => {
+    expect(isReadyForDlSend(item({ qc: holding }), "cv_qc", false)).toBe(false);
+    expect(isReadyForDlSend(item({ qc: { status: "passed", blocking_failed: 0 } }), "cv_qc", false)).toBe(true);
+  });
+
+  it("mówi rekruterowi, co zrobić", () => {
+    expect(dlWaitingStatus(item({ qc: holding }), new Date()).text).toBe("QC: wskaż stanowisko · 2 — zrób to, zanim Delivery Lead je zobaczy.");
+  });
+});
