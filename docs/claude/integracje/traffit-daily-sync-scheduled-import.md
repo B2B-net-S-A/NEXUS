@@ -223,7 +223,7 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
   - `_UPSERT_JOB` nie nadpisuje `title`/`status`/`closed_at` przełączonej oferty
     (CASE jak `recruiter_id`↔`is_open`) i nie unieważnia wtedy wymagań (tytuł się nie
     zmienia). `deadline`/`opened_at`/`client_id`… nadal DOPEŁNIAJĄ puste pola
-    (COALESCE), `custom_fields` scala JSONB. Kolumny flagi są w `NEXUS_OWNED`;
+    (COALESCE), `custom_fields` scala JSONB. Kolumny flagi należały do NEXUSA;
   - `POST /api/jobs/{id}/manage-in-nexus` (`RecruiterPlus` + członkostwo sprawdzane PO
     odczycie oferty — brak oferty = 404; wyłączenie tylko admin / Delivery Lead = 403
     dla reszty; rekrutacja spoza Traffita = 409; idempotentne) — OSOBNA trasa, nie

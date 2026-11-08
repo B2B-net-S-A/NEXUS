@@ -19,7 +19,7 @@ Decyzja Artura: rekruter ma widzieć, czego szukamy, a klient dostaje swoje nazw
   (`jobDisplayTitle`, SQL `job_display_title_expr`); nigdy do klienta.
 - Odczyt maila (`JOB_REQUEST_INTAKE` v3) daje `client_title`/`client_reference`
   wyłącznie jako dosłowny cytat (`_in_text`) i `working_title_suggestion`.
-- Kolumny są w `NEXUS_OWNED` (Traffit ich nie pisze). Istniejące rekrutacje
+- Istniejące rekrutacje
   uzupełnił jednorazowy krok `job-names-backfill` w `entrypoint.sh`.
 
 ## Rekrutacje osoby na ekranach kandydata (16.10.2026)
