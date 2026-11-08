@@ -343,7 +343,6 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/health/live"),
     # Webhooki — podpis albo token dostawcy sprawdza handler.
     ("POST", "/api/autenti/webhook"),
-    ("POST", "/api/calls/webhook"),
     ("POST", "/api/microsoft365/webhooks"),
     # Strony dla osób z zewnątrz: dostęp niesie nieodgadywalny token z linku.
     ("GET", "/api/public/apply/{token}"),
@@ -391,7 +390,6 @@ _PUBLIC_WITHOUT_RATE_LIMIT: set[tuple[str, str]] = {
     ("GET", "/api/health/deep"),
     ("GET", "/api/health/live"),
     ("POST", "/api/autenti/webhook"),
-    ("POST", "/api/calls/webhook"),
     ("POST", "/api/microsoft365/webhooks"),
 }
 
