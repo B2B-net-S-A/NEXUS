@@ -63,6 +63,8 @@ from app.services.recommendation_card_parser import (
 from app.services.dz_review import Block, Requirement, Role
 from app.services.money_text import MONEY_RE, RATE_WORD_RE, is_cv_rate_text
 from app.services.prompt_fencing import fence, restore_tags
+from app.services import qc_state
+from app.services.qc_state import CONSENT_MANUAL_ITEM
 from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
@@ -3316,7 +3318,7 @@ async def record_manual_roles(
 
     from app.models.activity import Activity
 
-    src, checks, _ = await evaluate(db, stage)
+    src, checks = await _action_checks(db, stage)
     check = next((c for c in checks if c["key"] == "critical_skills"), None)
     states = [
         r
@@ -3347,15 +3349,46 @@ async def record_manual_roles(
         )
     )
     await db.flush()
-    return await run_qc(db, stage, user_id=user_id, persist=True)
+    return await run_qc(db, stage, user_id=user_id, persist=True, src=src)
+
+
+async def _action_checks(
+    db: AsyncSession, stage: CandidateStage
+) -> tuple[dz.ReviewSources, list[dict]]:
+    """Źródła i sprawdzenia do walidacji akcji z okna QC.
+
+    Kliknięcie w oknie QC liczyło całe QC dwa razy: raz do walidacji, raz po
+    zapisie decyzji (W3). Gdy ostatni przebieg ma to samo CV i bieżące reguły,
+    walidujemy na nim. Inaczej zostaje dzisiejsze liczenie na żywo.
+    """
+
+    src = await _load_sources(db, stage)
+    if src.generated is not None:
+        latest = await _latest_run(db, src.candidate.id, src.job.id)
+        result = (latest.result or {}) if latest is not None else {}
+        if (
+            latest is not None
+            and latest.cv_fingerprint == fingerprint(src.blocks)
+            and result.get("qc_version") == QC_VERSION
+            and result.get("checks")
+        ):
+            return src, result["checks"]
+    _, checks, _ = await evaluate(db, stage, src=src)
+    return src, checks
 
 
 async def evaluate(
-    db: AsyncSession, stage: CandidateStage
+    db: AsyncSession,
+    stage: CandidateStage,
+    *,
+    src: Optional[dz.ReviewSources] = None,
 ) -> tuple[dz.ReviewSources, list[dict], str]:
-    """(źródła, sprawdzenia, tekst notatek) — bez zapisu."""
+    """(źródła, sprawdzenia, tekst notatek) — bez zapisu.
 
-    src = await _load_sources(db, stage)
+    ``src`` to źródła wczytane wcześniej w tym samym żądaniu (jedno pobranie
+    pliku CV zamiast dwóch)."""
+
+    src = src if src is not None else await _load_sources(db, stage)
     rows = await _note_rows(db, src.candidate.id)
     notes = notes_text(rows)
     consent = await _consent_state(db, src)
@@ -3476,6 +3509,7 @@ async def run_qc(
     user_id: Optional[int],
     persist: bool = True,
     own_session: bool = False,
+    src: Optional[dz.ReviewSources] = None,
 ) -> dict:
     """QC pary z wiersza etapu (kształt `GET …/qc`). Wołający sprawdził dostęp.
 
@@ -3484,7 +3518,7 @@ async def run_qc(
     przebieg odmowy ma przetrwać wycofanie ruchu).
     """
 
-    src, checks, _ = await evaluate(db, stage)
+    src, checks, _ = await evaluate(db, stage, src=src)
     passed, blocking_failed, warnings_count = summarize(checks)
     critical, critical_source = critical_requirements(src.job, src.must)
     run_id: Optional[int] = None
@@ -3606,7 +3640,7 @@ async def record_override(
 
     from app.services import cv_finding_dismissals as dismissals
 
-    src, checks, _ = await evaluate(db, stage)
+    src, checks = await _action_checks(db, stage)
     passed, blocking_failed, warnings_count = summarize(checks)
     about = override_about(checks, about_keys, reason_code)
     labels, wrong_items = override_labels(checks, wrong_keys)
@@ -3713,7 +3747,7 @@ async def record_override(
                 db, src, stage, literal, note, user_id=user_id, via="override"
             )
     await db.flush()
-    return await run_qc(db, stage, user_id=user_id, persist=True)
+    return await run_qc(db, stage, user_id=user_id, persist=True, src=src)
 
 
 async def _notify_reviewers_of_override(
@@ -3779,7 +3813,7 @@ async def confirm_with_candidate(
     """
 
     check_confirmation_text(text)
-    src, checks, _ = await evaluate(db, stage)
+    src, checks = await _action_checks(db, stage)
     role = checked_role(src, role)
     wanted = _norm(term)
     item = next(
@@ -3797,7 +3831,7 @@ async def confirm_with_candidate(
     literal = str(item.get("term") or item.get("requirement") or "").strip()
     _add_confirmation(db, src, stage, literal, text, user_id=user_id, role=role)
     await db.flush()
-    return await run_qc(db, stage, user_id=user_id, persist=True)
+    return await run_qc(db, stage, user_id=user_id, persist=True, src=src)
 
 
 def check_confirmation_text(text: Optional[str]) -> None:
@@ -4097,7 +4131,7 @@ async def dismiss_finding(
             "Tej uwagi nie da się pominąć — chroni przed wysłaniem stawki, "
             "kontaktu albo CV bez zgody RODO."
         )
-    src, checks, notes = await evaluate(db, stage)
+    src, checks = await _action_checks(db, stage)
     check = next((c for c in checks if c["key"] == check_key), None)
     item = next(
         (i for i in (check or {}).get("items") or [] if i.get("key") == key), None
@@ -4109,6 +4143,7 @@ async def dismiss_finding(
         raise DismissForbidden()
     clean_quote = " ".join((quote or "").split())[: dismissals.QUOTE_MAX] or None
     if check_key == "no_unsupported" and reason == "other_name":
+        notes = notes_text(await _note_rows(db, src.candidate.id))
         sources = "\n".join(
             (src.original.get("text") or "", notes, answers_text(stage, src.job))
         )
@@ -4137,7 +4172,7 @@ async def dismiss_finding(
     )
     if not created:
         # Ktoś pominął tę uwagę chwilę wcześniej — bez drugiego wpisu i dzwonka.
-        return await run_qc(db, stage, user_id=user_id, persist=True)
+        return await run_qc(db, stage, user_id=user_id, persist=True, src=src)
     db.add(
         Activity(
             entity_type="candidate_stage",
@@ -4160,7 +4195,7 @@ async def dismiss_finding(
             db, src, stage, actor_id=user_id, label=label, reason=reason_label
         )
     await db.flush()
-    return await run_qc(db, stage, user_id=user_id, persist=True)
+    return await run_qc(db, stage, user_id=user_id, persist=True, src=src)
 
 
 async def restore_finding(
@@ -4347,7 +4382,17 @@ _UNVERIFIED_ROLES_PATH = (
     '\'lax $[*] ? (@.key == "critical_skills").roles[*] '
     '? (@.state == "unverified").requirement\'::jsonpath'
 )
-CONSENT_MANUAL_ITEM = "Zgoda RODO — obejrzyj plik"
+_MANUAL_ROLE_REQUIREMENTS_PATH = (
+    '\'lax $[*] ? (@.key == "critical_skills").roles[*] '
+    "? (exists(@.manual)).requirement'::jsonpath"
+)
+_MANUAL_ROLE_BY_PATH = (
+    "'lax $[*] ? (@.key == \"critical_skills\").roles[*].manual.by'::jsonpath"
+)
+_TO_FIX_REQUIREMENTS_PATH = (
+    '\'lax $[*] ? (@.severity == "blocking" && @.status == "fail")'
+    ".items[*].requirement'::jsonpath"
+)
 
 
 def manual_items(
@@ -4402,6 +4447,9 @@ async def pair_statuses(
     a DL widział „QC ✓”. Uwagi nieblokujące „sprawdź ręcznie” się nie liczą.
     ``manual_checks`` to ta sama lista pod starszą nazwą.
 
+    ``qc_state`` (QC-11, 08.11.2026) — gotowy stan do pokazania
+    (`services/qc_state.py`): front tylko go renderuje.
+
     ``candidate_gaps`` (R2, 07.11.2026) — krytyczne, których nie ma w CV,
     w oryginale ani w rozmowie. Nie blokują (decyduje Delivery Lead), więc
     zdany przebieg z nimi nie może wyglądać jak „sprawdzone”.
@@ -4418,6 +4466,7 @@ async def pair_statuses(
             "manual_items": [],
             "manual_checks": [],
             "candidate_gaps": [],
+            "qc_state": qc_state.describe(status="unchecked"),
         }
         for pair in wanted
     }
@@ -4453,6 +4502,16 @@ async def pair_statuses(
                 func.jsonb_path_query_array(
                     CvQcRun.result["checks"], literal_column(_UNVERIFIED_ROLES_PATH)
                 ).label("unverified"),
+                func.jsonb_path_query_array(
+                    CvQcRun.result["checks"],
+                    literal_column(_MANUAL_ROLE_REQUIREMENTS_PATH),
+                ).label("manual_requirements"),
+                func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_MANUAL_ROLE_BY_PATH)
+                ).label("manual_by"),
+                func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_TO_FIX_REQUIREMENTS_PATH)
+                ).label("to_fix"),
                 func.jsonb_path_query_array(
                     CvQcRun.result["checks"], literal_column(_CANDIDATE_GAP_PATH)
                 ).label("gaps"),
@@ -4513,19 +4572,93 @@ async def pair_statuses(
         items = manual_items(
             row.manual_keys or [], row.manual or [], row.unverified or []
         )
+        gaps = [str(r) for r in row.gaps or [] if r]
+        blocking_left = 0 if passed else returned or int(row.blocking_failed or 0)
         out[pair] = {
             "status": status,
-            "blocking_failed": (
-                0 if passed else returned or int(row.blocking_failed or 0)
-            ),
+            "blocking_failed": blocking_left,
             "ok_at": ok_at,
             "dismissed_blocking": dismissed if passed else 0,
             "warnings_count": int(row.warnings_count or 0),
             "manual_items": items,
             "manual_checks": items,
-            "candidate_gaps": [str(r) for r in getattr(row, "gaps", None) or [] if r],
+            "candidate_gaps": gaps,
+            "qc_state": qc_state.describe(
+                status=status,
+                blocking_failed=blocking_left,
+                manual_items=items,
+                unverified=_names(row.unverified),
+                candidate_gaps=gaps,
+                manual_requirements=_names(row.manual_requirements),
+                manual_by=next((str(b) for b in row.manual_by or [] if b), None),
+                to_fix_items=_names(row.to_fix),
+            ),
         }
+    overridden = [
+        pair for pair, entry in out.items() if entry["status"] == "overridden"
+    ]
+    if overridden:
+        names = await _pass_through_names(db, overridden)
+        for pair in overridden:
+            if names.get(pair):
+                out[pair]["qc_state"] = qc_state.describe(
+                    status="overridden", override_by=names[pair]
+                )
     return out
+
+
+def _names(values: Optional[Iterable[Any]]) -> list[str]:
+    """Nazwy z jsonpath bez pustych pozycji i powtórzeń."""
+
+    return [str(v) for v in dict.fromkeys(values or []) if v]
+
+
+async def _pass_through_names(
+    db: AsyncSession, pairs: list[tuple[int, int]]
+) -> dict[tuple[int, int], Optional[str]]:
+    """Kto przepuścił parę: obejście, a bez niego pominięcie blokady."""
+
+    from app.models.cv_finding_dismissal import CvFindingDismissal  # noqa: PLC0415
+    from app.models.user import User  # noqa: PLC0415
+
+    candidates = sorted({c for c, _ in pairs})
+    jobs = sorted({j for _, j in pairs})
+    dismissed = await db.execute(
+        select(
+            CvFindingDismissal.candidate_id,
+            CvFindingDismissal.job_id,
+            User.name,
+        )
+        .join(User, User.id == CvFindingDismissal.dismissed_by_user_id)
+        .where(
+            CvFindingDismissal.candidate_id.in_(candidates),
+            CvFindingDismissal.job_id.in_(jobs),
+            CvFindingDismissal.source == "qc",
+            CvFindingDismissal.blocking.is_(True),
+            CvFindingDismissal.restored_at.is_(None),
+        )
+        .distinct(CvFindingDismissal.candidate_id, CvFindingDismissal.job_id)
+        .order_by(
+            CvFindingDismissal.candidate_id,
+            CvFindingDismissal.job_id,
+            CvFindingDismissal.created_at.desc(),
+        )
+    )
+    overrides = await db.execute(
+        select(CvQcRun.candidate_id, CvQcRun.job_id, User.name)
+        .join(User, User.id == CvQcRun.override_by_user_id)
+        .where(
+            CvQcRun.candidate_id.in_(candidates),
+            CvQcRun.job_id.in_(jobs),
+            _override_applies(),
+        )
+        .distinct(CvQcRun.candidate_id, CvQcRun.job_id)
+        .order_by(CvQcRun.candidate_id, CvQcRun.job_id, CvQcRun.created_at.desc())
+    )
+    names: dict[tuple[int, int], Optional[str]] = {}
+    for candidate_id, job_id, name in [*dismissed.all(), *overrides.all()]:
+        names[(candidate_id, job_id)] = _short_name(name)
+    return names
 
 
 def gate_applies(

@@ -364,7 +364,8 @@ def polish_base_forms(word: str) -> list[str]:
     return out
 
 
-def _patterns(name: str) -> list[re.Pattern[str]]:
+@lru_cache(maxsize=4096)
+def _patterns(name: str) -> tuple[re.Pattern[str], ...]:
     """Wzorce do szukania wymagania w tekście: nazwa i jej warianty ze
     słownika, które liczą się w tekście CV — także narzędzia, metodyki, AI,
     standardy i dziedziny (etap 3a, 07.11.2026: „AML” przy „Anti-Money
@@ -374,15 +375,22 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
     # Mapa wiedzy IT (07.11.2026, decyzja Artura „wszędzie”): powiązania
     # „wynika z” i „część” spełniają wymaganie także w QC — „Git” przy GitHubie,
     # „SQL” przy PostgreSQL — tak samo jak w wyszukiwaniu i przeglądzie DL.
-    return _forms_patterns(name, [*text_alias_forms(name), *implied_forms(name)])
+    return tuple(_forms_patterns(name, [*text_alias_forms(name), *implied_forms(name)]))
 
 
-def _tech_patterns(name: str) -> list[re.Pattern[str]]:
+@lru_cache(maxsize=4096)
+def _tech_patterns(name: str) -> tuple[re.Pattern[str], ...]:
     """Wzorce pogrubiania i usuwania terminu: nazwa i warianty wyłącznie
     technologii — pogrubiamy technologie, nie narzędzia ani dziedziny."""
     from app.services.skill_normalize import tech_alias_forms
 
-    return _forms_patterns(name, tech_alias_forms(name))
+    return tuple(_forms_patterns(name, tech_alias_forms(name)))
+
+
+def clear_pattern_cache() -> None:
+    """Słownik się zmienił, więc wzorce trzeba zbudować od nowa (`refresh_alias_map`)."""
+    _patterns.cache_clear()
+    _tech_patterns.cache_clear()
 
 
 def _forms_patterns(name: str, aliases: list[str]) -> list[re.Pattern[str]]:

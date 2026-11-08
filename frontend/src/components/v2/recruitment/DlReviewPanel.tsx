@@ -836,12 +836,6 @@ export function DlReviewBody({
       <div className={cn("relative grid min-h-0 flex-1 bg-inherit", GRID_CLASS[mode])} data-layout={mode}>
         <CvToolbar
           className={TOOLBAR_CLASS[mode]}
-          // R1 (07.11.2026): wiersz z Tablicy może nie znać „sprawdź ręcznie” — kontekst przeglądu zna.
-          task={{
-            ...task,
-            qc_manual: task.qc_manual ?? context.data?.qc_manual ?? null,
-            qc_gaps: task.qc_gaps ?? context.data?.qc_gaps ?? null,
-          }}
           view={shownCvView}
           coverSheet={coverSheet != null}
           onViewChange={(view) => {
@@ -857,7 +851,6 @@ export function DlReviewBody({
                 }
               : null
           }
-          onOpenQc={() => setQcStageId(task.stage_id)}
         />
 
         <CvColumn
@@ -941,6 +934,7 @@ export function DlReviewBody({
               ) : null}
               <CvControlSummary
                 checks={qcResult.data?.checks}
+                state={context.data?.qc_state ?? task.qc_state ?? null}
                 override={qcResult.data?.override ?? null}
                 hideOverrideLine={qcOverride != null}
                 onOpenQc={() => setQcStageId(task.stage_id)}

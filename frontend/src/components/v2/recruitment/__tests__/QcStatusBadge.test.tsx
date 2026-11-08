@@ -5,30 +5,21 @@ import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 
 describe("QcStatusBadge — trzy stany QC (R1, 07.11.2026)", () => {
   it("zdane bez „sprawdź ręcznie” = „QC: sprawdzone”", () => {
-    render(<QcStatusBadge row={{ qc_status: "passed", qc_blocking_failed: 0, qc_manual: [] }} />);
+    render(<QcStatusBadge row={{ qc_status: "passed", qc_blocking_failed: 0 }} />);
     expect(screen.getByText("QC: sprawdzone")).toBeInTheDocument();
   });
 
-  it("zdane z blokującym „sprawdź ręcznie” mówi, czego nikt nie sprawdził", () => {
+  it("QC-11: pokazuje gotowy stan z serwera, z tonem i dymkiem", () => {
     render(
       <QcStatusBadge
         row={{
           qc_status: "passed",
           qc_blocking_failed: 0,
-          qc_manual: ["Umiejętności krytyczne są w CV i opisane w rolach"],
+          qc_state: { kind: "verify_roles", n: 2, items: ["Kafka", "AWS"], text: "QC: wskaż stanowisko · 2", tone: "wait", who: null, hint: "Nikt nie sprawdził opisu w rolach: Kafka, AWS." },
         }}
       />,
     );
-    const badge = screen.getByText("QC: sprawdź ręcznie · 1");
-    expect(badge).toHaveAttribute("title", "Sprawdź ręcznie: Umiejętności krytyczne są w CV i opisane w rolach");
-  });
-
-  it("luka kandydata (R2) mówi, czego kandydat nie ma", () => {
-    render(<QcStatusBadge row={{ qc_status: "passed", qc_blocking_failed: 0, qc_gaps: ["FastAPI"] }} />);
-    expect(screen.getByText("QC: luka kandydata · 1")).toHaveAttribute(
-      "title",
-      "Kandydat nie ma: FastAPI — o wysyłce decyduje Delivery Lead",
-    );
+    expect(screen.getByText("QC: wskaż stanowisko · 2")).toHaveAttribute("title", "Nikt nie sprawdził opisu w rolach: Kafka, AWS.");
   });
 
   it("do poprawy z liczbą; brak statusu = nic", () => {

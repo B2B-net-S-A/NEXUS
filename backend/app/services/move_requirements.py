@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Pola karty, które klient może dołożyć do minimum (karta klienta, D3) — jedno
 # wejście dla modułów spoza listy czytelników kart rekomendacji.
+from app.services import qc_state
 from app.services.recommendation_card_rules import CLIENT_EXTRA_FIELDS
 
 from app.services.board_stage_badges import (
@@ -158,6 +159,8 @@ class PairFacts:
     qc_manual: tuple[str, ...] = ()
     # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
     qc_gaps: tuple[str, ...] = ()
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania (`services/qc_state.py`).
+    qc_state: Optional[dict] = None
     client_rate: bool = False
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
@@ -677,60 +680,28 @@ def _qc_result_item(column: str, f: PairFacts) -> _Item:
 
     Przypomnienie, nie bramka: do „QC CV” przekazuje się także z uwagami
     (tryb doradczy), a bramka QC stoi przed wysyłką. Ramka „Następny etap”
-    mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”.
+    mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”. Tekst to ten sam
+    słownik co na karcie (`qc_state`, QC-11).
     """
 
-    open_qc = _action("open_qc", "Otwórz QC", f.stage_id)
-    if f.qc_status == "failed":
-        return _Item(
-            column,
-            "cv_qc_result",
-            "QC CV",
-            MISSING,
-            False,
-            f"do poprawy: {max(1, f.qc_blocking_failed)}",
-            open_qc,
-        )
-    if f.qc_status == "overridden":
-        return _Item(
-            column,
-            "cv_qc_result",
-            "QC CV",
-            OK,
-            False,
-            "przepuszczone mimo uwag (z powodem)",
-        )
-    if f.qc_status == "passed" and f.qc_gaps:
-        return _Item(
-            column,
-            "cv_qc_result",
-            "QC CV",
-            WAITING,
-            False,
-            "luka kandydata: " + ", ".join(f.qc_gaps) + " — zdecyduje Delivery Lead",
-            open_qc,
-        )
-    if f.qc_status == "passed" and f.qc_manual:
-        return _Item(
-            column,
-            "cv_qc_result",
-            "QC CV",
-            WAITING,
-            False,
-            "sprawdź ręcznie: " + ", ".join(f.qc_manual),
-            open_qc,
-        )
-    if f.qc_status == "passed":
-        return _Item(column, "cv_qc_result", "QC CV", OK, False, "sprawdzone")
-    return _Item(
-        column,
-        "cv_qc_result",
-        "QC CV",
-        WAITING,
-        False,
-        "QC jeszcze nie policzone",
-        open_qc,
+    state = f.qc_state or qc_state.describe(
+        status=f.qc_status,
+        blocking_failed=f.qc_blocking_failed,
+        manual_items=f.qc_manual,
+        candidate_gaps=f.qc_gaps,
     )
+    detail = state["text"].removeprefix("QC: ")
+    kind = state["kind"]
+    open_qc = _action("open_qc", "Otwórz QC", f.stage_id)
+    if kind == qc_state.TO_FIX:
+        return _Item(column, "cv_qc_result", "QC CV", MISSING, False, detail, open_qc)
+    if kind in (qc_state.CHECKED, qc_state.CHECKED_MANUALLY, qc_state.OVERRIDDEN):
+        return _Item(column, "cv_qc_result", "QC CV", OK, False, detail)
+    if kind == qc_state.CANDIDATE_GAP:
+        detail = f"{detail} — zdecyduje Delivery Lead"
+    if kind == qc_state.UNCHECKED:
+        detail = "QC jeszcze nie policzone"
+    return _Item(column, "cv_qc_result", "QC CV", WAITING, False, detail, open_qc)
 
 
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
@@ -1595,6 +1566,7 @@ async def load_pair_facts(
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
         qc_manual=tuple(qc.get("manual_checks") or ()),
         qc_gaps=tuple(qc.get("candidate_gaps") or ()),
+        qc_state=qc.get("qc_state"),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         skips_fill_gates=skips_fill_gates(user),
