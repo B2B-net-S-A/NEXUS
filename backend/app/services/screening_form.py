@@ -75,6 +75,7 @@ from app.schemas.champion import (
 from app.services import (
     candidate_claim,
     champion_view,
+    conversation_facts,
     note_kinds,
     screening_fix_requests,
     screening_sheets,
@@ -83,6 +84,11 @@ from app.services import candidate_rate_change as rate_change
 from app.services import recommendation_cards as cards
 from app.services import screening_calls
 from app.services import screening_form_rules as rules
+from app.services.candidate_notes_facts import (
+    modes_for_office_days,
+    profile_work_mode,
+    set_profile_work_mode,
+)
 from app.services.move_requirements import sheet_filled
 from app.services.recommendation_card_assist import (
     NOTE_MAX_CHARS,
@@ -183,6 +189,19 @@ class NoteImportInput(BaseModel):
     note_id: Optional[int] = Field(default=None, gt=0)
 
 
+class ProfileFieldsInput(BaseModel):
+    """Pola arkusza zapisywane do profilu osoby (08.11.2026, za flagą rejestru).
+
+    Wersji formularza nie tworzą: to fakty o osobie, nie o tej rekrutacji.
+    ``None`` = pola nie ruszamy.
+    """
+
+    notice_period: Optional[int] = Field(default=None, ge=0, le=365)
+    notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
+    max_onsite_days: Optional[int] = Field(default=None, ge=0, le=7)
+    work_modes: Optional[list[Literal["remote", "hybrid", "onsite"]]] = None
+
+
 class SaveInput(BaseModel):
     expected_version: int = Field(ge=0)
     # Odcisk stanu, z którego formularz wziął wartości (``ScreeningFormState``).
@@ -191,6 +210,7 @@ class SaveInput(BaseModel):
     card: Optional[CardInput] = None
     rate: Optional[RateInput] = None
     note_import: Optional[NoteImportInput] = None
+    profile: Optional[ProfileFieldsInput] = None
 
 
 def validate_save(data: SaveInput, questions: Mapping[str, str]) -> None:
@@ -963,6 +983,7 @@ async def load_state(
             ),
         },
         "rate_change_notifies": state.column in rate_change.NOTIFY_COLUMNS,
+        "profile_fields": profile_fields_state(candidate),
         "can_edit_rate": can_edit_rate,
         "suggestions_from_notes": suggestions_from_notes(
             candidate, include_rate=can_edit_rate
@@ -1047,6 +1068,8 @@ class SaveOutcome:
     skipped_answers: list[str] = field(default_factory=list)
     # Zapis wziął osobę na 12 h (``_claim_on_save``) — trasa powiadamia Tablice.
     claimed: bool = False
+    # Pola z arkusza zapisane w profilu — trasa oznacza wyniki jak przy arkuszu.
+    profile_changed: bool = False
 
 
 @dataclass
@@ -1298,9 +1321,27 @@ async def _apply(
             )
         await db.flush()
         outcome.sheet_changed = True
+        await conversation_facts.after_sheet_saved(
+            db,
+            candidate_id=candidate_id,
+            job_id=job.id,
+            stage_id=newest.id,
+            raw_checks=newest.screening_answers.get("experience_checks"),
+            user_id=user.id,
+            now=now,
+        )
     elif clear_sheet and newest is not None:
         await _clear_pair_sheets(db, newest=newest, stages=state.stages)
         outcome.sheet_changed = True
+        await conversation_facts.after_sheet_saved(
+            db,
+            candidate_id=candidate_id,
+            job_id=job.id,
+            stage_id=newest.id,
+            raw_checks=[],
+            user_id=user.id,
+            now=now,
+        )
 
     if card_changes:
         provenance: dict[str, dict[str, Any]] = {}
@@ -1602,6 +1643,78 @@ async def _joint_note_from_other_pair(
     )
 
 
+def profile_fields_state(candidate: Candidate) -> Optional[dict[str, Any]]:
+    """Wartości z profilu do pól arkusza; ``None`` = pola ukryte (flaga)."""
+    if not conversation_facts.enabled():
+        return None
+    current = profile_work_mode(candidate)
+    return {
+        "notice_period": candidate.notice_period,
+        "notice_period_unit": candidate.notice_period_unit or "days",
+        "max_onsite_days": current["max_onsite_days"],
+        "work_modes": current["modes"],
+    }
+
+
+async def _save_profile_fields(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    fields: ProfileFieldsInput,
+    user: User,
+) -> bool:
+    """Okres wypowiedzenia, dni w biurze i tryb pracy z arkusza do profilu.
+
+    Świeża deklaracja z rozmowy nadpisuje profil, jak przy odrzuceniu za tryb
+    pracy (decyzja D3 z 14.10.2026). Tryby wynikają z dni, gdy dni są podane.
+    """
+    from app.services import candidate_audit  # noqa: PLC0415
+
+    candidate = await db.scalar(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if candidate is None:
+        return False
+    changed = False
+    if fields.notice_period is not None:
+        unit = fields.notice_period_unit or "days"
+        if (candidate.notice_period, candidate.notice_period_unit) != (
+            fields.notice_period,
+            unit,
+        ):
+            candidate.notice_period = fields.notice_period
+            candidate.notice_period_unit = unit
+            changed = True
+    before = profile_work_mode(candidate)
+    days = (
+        fields.max_onsite_days
+        if fields.max_onsite_days is not None
+        else before["max_onsite_days"]
+    )
+    if fields.max_onsite_days is not None:
+        modes = modes_for_office_days(fields.max_onsite_days)
+    elif fields.work_modes is not None:
+        modes = list(fields.work_modes)
+    else:
+        modes = before["modes"]
+    if modes != before["modes"] or days != before["max_onsite_days"]:
+        change = set_profile_work_mode(candidate, modes=modes, max_onsite_days=days)
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.WORK_MODE_CHANGED,
+            user_id=user.id,
+            entity_id=candidate_id,
+            details=change,
+        )
+        changed = True
+    if changed:
+        await conversation_facts.enqueue_recalculation(db, candidate)
+    return changed
+
+
 async def save(
     db: AsyncSession,
     *,
@@ -1679,6 +1792,10 @@ async def save(
         note_import=data.note_import,
         reused_note=reused_note,
     )
+    if data.profile is not None and conversation_facts.enabled():
+        outcome.profile_changed = await _save_profile_fields(
+            db, candidate_id=candidate.id, fields=data.profile, user=user
+        )
     if outcome.saved_version is not None:
         outcome.claimed = await _claim_on_save(db, state=state, user=user)
         # Zapisany screening to odbyty telefon: termin gaśnie sam.

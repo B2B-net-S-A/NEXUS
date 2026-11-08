@@ -1197,6 +1197,16 @@ except Exception as _autofill_pool_err:  # noqa: BLE001
     print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
     _AUTOFILL_POOL_DDL = []
 
+# Rejestr faktów z rozmów (migracja 0665) — JEDNO źródło z migracją
+# (`app/services/conversation_facts_schema.py`).
+try:
+    from app.services import conversation_facts_schema as _conversation_facts_schema
+
+    _CONVERSATION_FACTS_DDL = list(_conversation_facts_schema.TABLE_DDL)
+except Exception as _conversation_facts_err:  # noqa: BLE001
+    print(f"conversation facts DDL unavailable: {_conversation_facts_err!r}")
+    _CONVERSATION_FACTS_DDL = []
+
 # Powody odrzucenia osób od systemu (migracja 0516) — JEDNO źródło z migracją
 # (`app/services/autofill_feedback_schema.py`).
 try:
@@ -1483,6 +1493,7 @@ _COLUMN_STATEMENTS = [
     *_RANKING_WEIGHT_CHANGES_DDL,
     *_PREP_REVIEW_CONFIG_DDL,
     *_AUTOFILL_POOL_DDL,
+    *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,

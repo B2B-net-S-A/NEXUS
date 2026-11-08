@@ -717,7 +717,12 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     candidate = await db.get(Candidate, event.candidate_id)
     if candidate is None:
         return {"skipped": "candidate_missing"}
-    revision = event.profile_revision or candidate_revision(candidate)
+    # Zdarzenie rozmowy powstaje przed odczytem notatek: wersja dopiero teraz.
+    revision = (
+        candidate_revision(candidate)
+        if event.trigger == "conversation"
+        else event.profile_revision or candidate_revision(candidate)
+    )
     wait = timedelta(minutes=max(0, settings.AUTO_MATCH_VECTOR_WAIT_MINUTES))
     if datetime.now(timezone.utc) - event.created_at < wait:
         from app.services.full_search_measurement import vector_ready
@@ -766,6 +771,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
             [candidate],
             job_inputs.gate_evidence_labels,
             options=job_inputs.gate_options,
+            job_id=job.id,
         )
         kept = apply_dealbreakers([candidate], inputs=job_inputs)
         if not kept.kept:
@@ -910,7 +916,11 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     )
     job_inputs = search_dealbreaker_inputs(job)
     await attach_gate_evidence(
-        db, eligible, job_inputs.gate_evidence_labels, options=job_inputs.gate_options
+        db,
+        eligible,
+        job_inputs.gate_evidence_labels,
+        options=job_inputs.gate_options,
+        job_id=job.id,
     )
     kept = apply_dealbreakers(eligible, inputs=job_inputs).kept
     revisions = {c.id: candidate_revision(c) for c in candidates}

@@ -129,6 +129,7 @@ async def fits_for_job(
             candidates,
             gate_inputs.gate_evidence_labels,
             options=gate_inputs.gate_options,
+            job_id=job.id,
         )
     fits = await score_candidates(db, context, candidates) if candidates else []
     decisions = await evaluate_candidates_for_job(

@@ -2,6 +2,13 @@
  "_comment": "Spis funkcji pełnego profilu kandydata (od 13.10.2026 układ E1–E6, makieta https://claude.ai/artifact/LPzm9GQGPQCrnWjdtg2WG9; wcześniej wariant B v5 z 04.10.2026). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/candidate-profile-feature-parity.test.ts.",
  "features": [
   {
+   "id": "c.conversation-facts",
+   "opis": "Blok „Z rozmów”: fakty z arkusza i z odczytu notatek ze źródłem i datą, bez potwierdzania (wariant A, 08.11.2026; za flagą CONVERSATION_FACTS_ENABLED)",
+   "file": "components/v2/candidate-profile/ConversationFactsSection.tsx",
+   "marker": "Z rozmów",
+   "home": "Przegląd"
+  },
+  {
    "id": "c.back",
    "opis": "Powrót do listy kandydatów / do rekrutacji",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",

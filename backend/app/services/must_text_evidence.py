@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable, Mapping, Optional, Sequence
 
-from app.services import note_kinds
+from app.services import conversation_facts, note_kinds
 from app.services.keyword_terms import parse_keyword, py_regex
 from app.services.must_gate_terms import (
     GateRequirement,
@@ -98,6 +98,8 @@ class MustTextEvidence:
     key: tuple[str, ...]
     met: frozenset[str]
     has_notes: bool
+    # Etykiety, których według arkusza rozmowy kandydat nie ma (08.11.2026).
+    absent: frozenset[str] = frozenset()
 
 
 # Najdłuższe słowo nazwy jako tani filtr: regex idzie wyłącznie po tekstach,
@@ -244,6 +246,7 @@ def profile_text(candidate) -> str:
                     else json.dumps(value, ensure_ascii=False, default=str)
                 )
         parts.extend(_notes_insights_evidence(data.get("_notes_insights")))
+    parts.extend(conversation_facts.evidence_names(candidate))
     for attr in ("current_position", "headline", "title"):
         value = getattr(candidate, attr, None)
         if isinstance(value, str) and value:
@@ -426,16 +429,26 @@ def text_met_labels(
     *,
     options: GateOptions = None,
     relations: bool = True,
+    job_id: Optional[int] = None,
 ) -> frozenset[str]:
     """Etykiety must, które profil, CV albo notatki wymieniają.
-    ``relations=False`` = bez powiązań z mapy wiedzy IT (dowód dosłowny)."""
+    ``relations=False`` = bez powiązań z mapy wiedzy IT (dowód dosłowny).
+
+    Z rejestru rozmów (08.11.2026): opcja „nie ma” odpada z wymagania, a zdanie
+    potwierdzone w arkuszu ``job_id`` jest spełnione w tej jednej rekrutacji."""
+    from_sheet = conversation_facts.job_confirmed_labels(candidate, must, job_id)
     requirements = [
         (label, requirement)
         for label in must
-        if (requirement := requirement_with_options(label, options))
+        if label not in from_sheet
+        and (
+            requirement := conversation_facts.narrow_requirement(
+                requirement_with_options(label, options), candidate
+            )
+        )
     ]
     if not requirements:
-        return frozenset()
+        return from_sheet
     sources = [
         (text, text.lower())
         for text in (profile_text(candidate), cv_text(candidate), *note_texts)
@@ -445,7 +458,7 @@ def text_met_labels(
     for label, requirement in requirements:
         if any(_mentions_lowered(requirement, t, low, relations) for t, low in sources):
             met.add(label)
-    return frozenset(met)
+    return frozenset(met) | from_sheet
 
 
 # Źródła dowodu dla przeglądu Delivery Leada (D9, 08.10.2026): ten sam test
@@ -706,6 +719,7 @@ async def attach_gate_evidence(
     *,
     options: GateOptions = None,
     before=None,
+    job_id: Optional[int] = None,
 ) -> None:
     """Dołącz ``_must_text_evidence`` do kandydatów przed ``apply_dealbreakers``.
 
@@ -748,9 +762,12 @@ async def attach_gate_evidence(
         candidate._must_text_evidence = MustTextEvidence(
             key=must,
             met=text_met_labels(
-                candidate, must, note_texts.get(cid, ()), options=options
+                candidate, must, note_texts.get(cid, ()), options=options, job_id=job_id
             ),
             has_notes=cid in has_notes,
+            absent=conversation_facts.absent_labels(
+                candidate, must, options=options, job_id=job_id
+            ),
         )
 
 

@@ -55,6 +55,7 @@ from app.services.board_stage_badges import (
 )
 from app.services import (
     champion_view,
+    conversation_facts,
     move_requirements,
     rejection_reason_labels,
     screening_fix_requests,
@@ -4898,6 +4899,15 @@ async def submit_stage_screening(
     )
 
     stage.screening_answers = answers.model_dump(mode="json")
+    await conversation_facts.after_sheet_saved(
+        db,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        stage_id=stage.id,
+        raw_checks=stage.screening_answers.get("experience_checks"),
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
     db.add(
         Activity(
             entity_type="candidate_stage",

@@ -110,6 +110,7 @@ import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { DockClosedReason } from "@/components/v2/jobs/DockClosedReason";
 import { DockAutofillReason } from "@/components/v2/jobs/DockAutofillReason";
+import { PersonConversationBadge } from "@/components/v2/person/PersonConversationBadge";
 import { closedReason } from "@/lib/closed-reason";
 import { useNoteFillAvailable, type NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
@@ -1998,6 +1999,7 @@ export function PipelineCandidateDock({
             z kolumny zamkniętych — także w widoku „Rozwiń”. */}
         <DockClosedReason item={item} />
         <DockAutofillReason item={item} />
+        <PersonConversationBadge candidateId={item.candidate_id} />
         {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
