@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 INTERVAL_SECONDS = 60
@@ -190,6 +192,7 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
                 "runtime_metrics",
                 extra={
                     "event_kind": "runtime_metrics",
+                    "process_role": settings.NEXUS_PROCESS_ROLE,
                     "window_seconds": INTERVAL_SECONDS,
                     **window.take(),
                     **gc_window.take(),
