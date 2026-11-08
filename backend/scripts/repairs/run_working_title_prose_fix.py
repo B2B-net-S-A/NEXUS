@@ -9,3 +9,19 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # tytułów nie rusza i nie podbija `updated_at`. Reguła jest w Pythonie:
 # `app/services/job_working_title.py`. Marker w `app_settings` + advisory lock
 # → drugi start kończy się od razu. Log i paragon: same liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_working_title import recompute_auto_working_titles
+
+async def recompute():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await recompute_auto_working_titles(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"working title prose fix: {receipt or 'nothing to do'}")
+
+asyncio.run(recompute())

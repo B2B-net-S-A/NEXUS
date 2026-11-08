@@ -281,7 +281,7 @@ async def test_repair_waits_for_a_client_policy_that_is_not_synchronised(monkeyp
     """503 polityki klienta: wiersz pominięty, krok nie stawia markera."""
     from fastapi import HTTPException
 
-    from app.services import stage_cv_copy_filename_repair as repair
+    from scripts.repairs import stage_cv_copy_filename_repair as repair
     from app.services.cv_generator_b2b import client_rules
 
     async def _pending(db, client_id):
@@ -293,15 +293,11 @@ async def test_repair_waits_for_a_client_policy_that_is_not_synchronised(monkeyp
     assert await repair._job_names(db, 11) == "pending"
 
 
-def test_entrypoint_runs_the_repair_after_client_references_are_filled():
-    """Numer projektu i nazwa roli czytają ``client_reference``, które krok
-    „client-reference-from-title” dopiero uzupełnia z nazwy."""
+def test_repair_script_runs_the_rename_and_commits():
     from pathlib import Path
 
-    entrypoint = (Path(__file__).parents[1] / "entrypoint.sh").read_text()
-    fill = entrypoint.index('startup_phase "client-reference-from-title"')
-    repair = entrypoint.index('startup_phase "stage-cv-copy-filenames"')
-    assert fill < repair
-    phase = entrypoint[repair : entrypoint.index("\nPY\n", repair)]
-    assert "rename_copy_filenames" in phase
-    assert "await db.commit()" in phase
+    script = (
+        Path(__file__).parents[1] / "scripts/repairs/run_stage_cv_copy_filenames.py"
+    ).read_text(encoding="utf-8")
+    assert "rename_copy_filenames" in script
+    assert "await db.commit()" in script

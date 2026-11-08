@@ -8,3 +8,27 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # kandydata pokazywał „Spotkanie prywatne”, czyli z kim było. Logika
 # w `scripts/repairs/m365_private_event_link_repair.py`; marker w `app_settings`
 # + advisory lock; porażka nie zapisuje niczego. Log: wyłącznie liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from scripts.repairs.m365_private_event_link_repair import (
+    run_private_event_unlink,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_private_event_unlink(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane wydarzeń
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"private event unlink failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"private event unlink: {summarize_for_log(summary)}")
+
+asyncio.run(repair())

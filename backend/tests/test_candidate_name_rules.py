@@ -305,16 +305,13 @@ def test_migration_0436_runs_the_shared_repair():
     assert "apply_name_marker_repair(op.get_bind())" in source
 
 
-def test_entrypoint_runs_the_repair_and_logs_only_the_summary():
-    source = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-    assert 'startup_phase "repair-candidate-name-markers"' in source
-    block = source.split("run_candidate_name_marker_repair", 1)[1].split("\nPY\n", 1)[0]
+def test_repair_script_logs_only_the_summary():
+    block = (BACKEND / "scripts/repairs/run_repair_candidate_name_markers.py").read_text(
+        encoding="utf-8"
+    )
     assert "summarize_for_log(summary)" in block
     assert "await db.commit()" in block
     assert "await db.rollback()" in block
-    assert source.index('startup_phase "repair-candidate-name-markers"') < (
-        source.index("exec uvicorn app.main:app")
-    )
 
 
 # ── Druga runda z produkcji 20.10.2026 (0481) ───────────────────────────────
@@ -426,8 +423,7 @@ def test_migration_0481_runs_the_shared_repair_with_its_own_receipt():
     )
     assert 'revision = "0481_candidate_name_markers_v2"' in source
     assert "apply_name_marker_repair_0481(op.get_bind())" in source
-    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-    assert 'startup_phase "repair-candidate-name-markers-0481"' in entrypoint
+    assert (BACKEND / "scripts/repairs/run_repair_candidate_name_markers_0481.py").exists()
     from app.services.candidate_name_marker_repair import (
         DETAILS_KEY_0481,
         REPAIR_MARKER_0481,

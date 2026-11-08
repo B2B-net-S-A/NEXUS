@@ -269,13 +269,11 @@ async def test_mismatched_client_or_group_number_or_ended_contract_is_skipped():
         await _drop(marker, details_key)
 
 
-def test_entrypoint_runs_the_repair_and_logs_only_the_summary():
-    source = (Path(__file__).resolve().parents[1] / "entrypoint.sh").read_text(
-        encoding="utf-8"
-    )
-    block = source.split("run_cez_standalone_md_duplicate_repair", 1)[1].split(
-        "\nPY\n", 1
-    )[0]
+def test_repair_script_logs_only_the_summary():
+    block = (
+        Path(__file__).resolve().parents[1]
+        / "scripts/repairs/run_repair_cez_standalone_md_duplicates.py"
+    ).read_text(encoding="utf-8")
     assert "summarize_for_log(summary)" in block
     assert "await db.commit()" in block
     assert "await db.rollback()" in block

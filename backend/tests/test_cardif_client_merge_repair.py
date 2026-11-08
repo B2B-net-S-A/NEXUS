@@ -565,9 +565,10 @@ async def test_contract_fill_leaves_an_unlinked_pair_alone():
         assert await db.get(AppSetting, marker) is not None
 
 
-def test_entrypoint_runs_the_merge_and_logs_only_the_summary():
-    source = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-    block = source.split("run_cardif_client_merge", 1)[1].split("\nPY\n", 1)[0]
+def test_repair_script_logs_only_the_summary():
+    block = (BACKEND / "scripts/repairs/run_repair_cardif_client_merge.py").read_text(
+        encoding="utf-8"
+    )
     assert "summarize_for_log(summary)" in block
     assert "await db.commit()" in block
     assert "await db.rollback()" in block

@@ -8,3 +8,27 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # rekord Traffita dostaje alias (`traffit_contact_aliases`), żeby nocny import
 # go nie odtworzył. Logika w `app/services/contact_duplicate_merge.py`,
 # przypięta do id. Marker + advisory lock; porażka nie zapisuje niczego.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contact_duplicate_merge import (
+    run_contact_duplicate_merge,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contact_duplicate_merge(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"contact duplicate merge failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"contact duplicate merge: {summarize_for_log(summary)}")
+
+asyncio.run(repair())

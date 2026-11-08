@@ -10,3 +10,28 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # marker w `app_settings` + advisory lock → drugi start kończy się od razu.
 # Porażka nie zapisuje niczego (rollback) — następny start spróbuje ponownie.
 # Log: wyłącznie liczby.
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from scripts.repairs.b2b_end_date_repair import (
+    run_b2b_end_date_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_b2b_end_date_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"b2b end-date repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"b2b end-date repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())

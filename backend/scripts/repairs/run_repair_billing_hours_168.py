@@ -11,3 +11,32 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # w `app/services/billing_hours_unification.py`; marker + advisory lock,
 # `lock_timeout` 15 s — po przekroczeniu nic nie zapisuje, następny start
 # ponawia. Log: wyłącznie liczby (paragon w `app_settings`).
+import asyncio
+import json
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.billing_hours_unification import (
+    BILLING_HOURS_MARKER,
+    BILLING_HOURS_UNIFICATION_SQL,
+    summarize_receipt_for_log,
+)
+
+async def repair():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(BILLING_HOURS_UNIFICATION_SQL))
+            receipt = await conn.scalar(
+                text("SELECT value::text FROM app_settings WHERE key = :key"),
+                {"key": BILLING_HOURS_MARKER},
+            )
+    except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        print(
+            f"billing hours unification failed ({type(exc).__name__}, "
+            f"sqlstate={sqlstate}); nothing written, next start retries"
+        )
+        return
+    summary = summarize_receipt_for_log(json.loads(receipt) if receipt else None)
+    print(f"billing hours unification: {summary}")
+
+asyncio.run(repair())

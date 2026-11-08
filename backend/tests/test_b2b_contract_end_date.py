@@ -163,9 +163,10 @@ def test_receipt_key_is_a_public_receipt_and_details_key_is_not():
     assert not is_receipt_key(DETAILS_KEY)
 
 
-def test_entrypoint_runs_the_repair_and_logs_only_numbers():
-    source = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-    block = source.split("run_b2b_end_date_repair", 1)[1].split("\nPY\n", 1)[0]
+def test_repair_script_logs_only_numbers():
+    block = (BACKEND / "scripts/repairs/run_repair_b2b_end_dates.py").read_text(
+        encoding="utf-8"
+    )
     assert "summarize_for_log(summary)" in block
     assert "await db.commit()" in block
     assert "await db.rollback()" in block

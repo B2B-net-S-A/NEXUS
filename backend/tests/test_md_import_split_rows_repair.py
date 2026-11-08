@@ -146,7 +146,7 @@ async def test_repair_books_each_row_on_its_order_and_redates_the_closure(
     from app.models.client_order import ClientOrder
     from app.models.client_order_group import ClientOrderGroup
     from app.models.md_consumption import MdConsumptionImportRow
-    from app.services import md_import_split_rows_repair as repair
+    from scripts.repairs import md_import_split_rows_repair as repair
 
     case = await _seed_wrong_state(app_client, app_auth_headers, monkeypatch)
     marker = f"test_split_repair_{uuid.uuid4().hex[:8]}"
@@ -195,7 +195,7 @@ async def test_repair_leaves_a_hand_corrected_state_alone(
 ):
     from app.core.database import AsyncSessionLocal
     from app.models.md_consumption import ClientOrderMdConsumption
-    from app.services import md_import_split_rows_repair as repair
+    from scripts.repairs import md_import_split_rows_repair as repair
     from sqlalchemy import update
 
     case = await _seed_wrong_state(app_client, app_auth_headers, monkeypatch)
@@ -221,9 +221,8 @@ async def test_repair_leaves_a_hand_corrected_state_alone(
     assert await _consumptions(case["b_line"]) == {}
 
 
-def test_entrypoint_runs_the_repair_once():
-    source = open("entrypoint.sh", encoding="utf-8").read()
-    assert 'startup_phase "repair-md-import-split-rows"' in source
+def test_repair_script_runs_the_repair():
+    source = open("scripts/repairs/run_repair_md_import_split_rows.py", encoding="utf-8").read()
     assert "run_md_import_split_rows_repair" in source
 
 

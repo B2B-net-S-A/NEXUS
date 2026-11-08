@@ -15,3 +15,33 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # bez zapisu i bez markera — następny start spróbuje ponownie.
 # Log idzie do Grafany (Loki): wypisujemy WYŁĄCZNIE liczby i powody pominięcia,
 # nigdy tytuły, stawki ani ścieżki — paragon zostaje w `app_settings`.
+import asyncio
+import json
+import sys
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.pfron_renewal_split_repair import (
+    PFRON_RENEWAL_SPLIT_MARKER,
+    PFRON_RENEWAL_SPLIT_SQL,
+    summarize_receipt_for_log,
+)
+
+async def repair():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(PFRON_RENEWAL_SPLIT_SQL))
+            receipt = await conn.scalar(
+                text("SELECT value::text FROM app_settings WHERE key = :key"),
+                {"key": PFRON_RENEWAL_SPLIT_MARKER},
+            )
+    except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        print(
+            f"pfron renewal split repair failed ({type(exc).__name__}, "
+            f"sqlstate={sqlstate}); nothing written, next start retries"
+        )
+        sys.exit(1)
+    summary = summarize_receipt_for_log(json.loads(receipt) if receipt else None)
+    print(f"pfron renewal split repair: {summary}")
+
+asyncio.run(repair())

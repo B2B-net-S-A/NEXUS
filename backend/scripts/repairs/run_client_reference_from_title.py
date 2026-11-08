@@ -10,3 +10,19 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # potem przelicza automatyczne tytuły dla rekrutera, których to dotyczy.
 # Reguła: `app/services/job_working_title.py`. Marker w `app_settings`
 # + advisory lock → drugi start kończy się od razu. Log: same liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_working_title import fill_client_references_from_titles
+
+async def fill():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await fill_client_references_from_titles(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"client reference from title: {receipt or 'nothing to do'}")
+
+asyncio.run(fill())

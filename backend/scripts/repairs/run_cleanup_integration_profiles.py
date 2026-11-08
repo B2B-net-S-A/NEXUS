@@ -9,3 +9,27 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # timesheetów. Usuwana jest tylko kartoteka założona z konta i bez danych
 # kadrowych. Logika w `scripts/repairs/integration_profile_cleanup.py`;
 # paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from scripts.repairs.integration_profile_cleanup import (
+    run_integration_profile_cleanup,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_integration_profile_cleanup(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — log bez treści wierszy
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"integration profile cleanup failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"integration profile cleanup: {summarize_for_log(summary)}")
+
+asyncio.run(repair())

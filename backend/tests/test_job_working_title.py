@@ -76,7 +76,6 @@ def test_migration_is_chained_and_mirrored() -> None:
     for statement in module.ADD_COLUMNS:
         assert "IF NOT EXISTS" in statement
         assert _collapse(statement) in entrypoint
-    assert 'startup_phase "job-names-backfill"' in entrypoint
 
 
 def test_new_columns_are_never_written_by_the_traffit_sync() -> None:
@@ -574,20 +573,12 @@ async def test_reference_fill_reads_titles_and_overwrites_only_internal_codes() 
     assert again["working_titles"] == 0
 
 
-def test_reference_fill_phase_runs_after_the_title_fixes_and_never_stops_the_boot() -> (
-    None
-):
+def test_reference_fill_has_a_manual_script() -> None:
     from app.services.job_working_title import CLIENT_REFERENCE_MARKER
 
     assert CLIENT_REFERENCE_MARKER == "client_reference_from_title_2026_10"
-    entrypoint = (BACKEND / "entrypoint.sh").read_text()
-    fix = entrypoint.index('startup_phase "working-title-prose-fix"')
-    fill = entrypoint.index('startup_phase "client-reference-from-title"')
-    assert fix < fill
-    phase = entrypoint[fill : entrypoint.index("\nPY\n", fill)]
-    assert "fill_client_references_from_titles" in phase
-    assert "<<'PY' || echo" in phase
-    assert "exit" not in phase
+    script = (BACKEND / "scripts/repairs/run_client_reference_from_title.py").read_text()
+    assert "fill_client_references_from_titles" in script
 
 
 # ── Tytuł bez zdań + jednorazowe przeliczenie (02.10.2026) ──────────────────
@@ -605,21 +596,12 @@ def test_a_sentence_in_must_never_reaches_the_title() -> None:
     assert working_title_for_job(job) == "Analityk Biznesowo-Systemowy KYC/AML · SQL"
 
 
-def test_prose_fix_phase_follows_the_names_backfill_and_never_stops_the_boot() -> None:
+def test_prose_fix_has_a_manual_script() -> None:
     from app.services.job_working_title import PROSE_FIX_MARKER
 
     assert PROSE_FIX_MARKER == "job_working_title_prose_fix_2026_10"
-    entrypoint = (BACKEND / "entrypoint.sh").read_text()
-    backfill = entrypoint.index('startup_phase "job-names-backfill"')
-    fix = entrypoint.index('startup_phase "working-title-prose-fix"')
-    assert backfill < fix
-    # Faza stoi zaraz po uzupełnieniu nazw — między nimi nie ma innej.
-    assert entrypoint[backfill:fix].count("startup_phase ") == 1
-    phase = entrypoint[fix : entrypoint.index("\nPY\n", fix)]
-    assert "recompute_auto_working_titles" in phase
-    # Awaria loguje i idzie dalej — nigdy nie zatrzymuje startu.
-    assert "<<'PY' || echo" in phase
-    assert "exit" not in phase
+    script = (BACKEND / "scripts/repairs/run_working_title_prose_fix.py").read_text()
+    assert "recompute_auto_working_titles" in script
 
 
 @needs_db

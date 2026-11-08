@@ -11,3 +11,21 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # + advisory lock → drugi start kończy się natychmiast. Na produkcji wykonane
 # 17.09.2026; blok ZOSTAJE, bo świeża instalacja i odtworzenie bazy z kopii
 # sprzed tej daty nadal go potrzebują. Log: same liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from scripts.repairs.pending_verification_promotion import (
+    run_pending_verification_promotion,
+)
+
+async def promote():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_pending_verification_promotion(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"pending verification promotion: {summary or 'nothing to do'}")
+
+asyncio.run(promote())

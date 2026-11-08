@@ -12,3 +12,19 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # bo nazwa roli i numer projektu czytają `client_reference`. Reguła:
 # `scripts/repairs/stage_cv_copy_filename_repair.py`. Marker w `app_settings`
 # + advisory lock → drugi start kończy się od razu. Log: same liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from scripts.repairs.stage_cv_copy_filename_repair import rename_copy_filenames
+
+async def rename():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await rename_copy_filenames(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"stage cv copy filenames: {receipt or 'nothing to do'}")
+
+asyncio.run(rename())

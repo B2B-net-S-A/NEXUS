@@ -10,3 +10,34 @@ Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.r
 # „Usuń”. Logika w `scripts/repairs/prod_test_records_cleanup.py`, przypięta do
 # id i odcisków; paragon w `app_settings` + advisory lock; porażka nie
 # zapisuje niczego. Log: wyłącznie liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.candidate_hard_delete import finish_after_commit
+from scripts.repairs.prod_test_records_cleanup import (
+    run_prod_test_records_cleanup,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await run_prod_test_records_cleanup(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"prod test records cleanup failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+        summary, outcomes = result if result is not None else (None, [])
+        for outcome in outcomes:
+            try:
+                await finish_after_commit(db, outcome, actor_id=None)
+            except Exception as exc:  # noqa: BLE001 — wektor ma trwały retry w outboxie
+                print(f"prod test records cleanup: after-commit step {type(exc).__name__}")
+    print(f"prod test records cleanup: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
