@@ -104,6 +104,9 @@ def test_entrypoint_worker_skips_migrations() -> None:
     text = (BACKEND / "entrypoint.sh").read_text()
     worker = text.index('"${NEXUS_PROCESS_ROLE:-all}" = "worker"')
     assert worker < text.index("alembic -c alembic/alembic.ini upgrade heads")
+    start = (BACKEND / "scripts/worker-start.sh").read_text()
+    assert start.index("api/health/live") < start.index("exec uvicorn")
+    assert "--workers 1" in start and "DB_STATEMENT_TIMEOUT_MS=120000" in start
 
 
 def _state(tasks: dict | None, leader=None) -> SimpleNamespace:
