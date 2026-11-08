@@ -506,9 +506,7 @@ _PROPOSAL_SOURCES = frozenset(
 )
 
 
-def _found_via_meta(
-    found_via: Optional[str], source: Optional[str]
-) -> Optional[dict]:
+def _found_via_meta(found_via: Optional[str], source: Optional[str]) -> Optional[dict]:
     value = found_via or _FOUND_VIA_BY_SOURCE.get(source or "")
     return {"found_via": value} if value else None
 
@@ -1330,9 +1328,7 @@ async def bulk_add_proposals(
         ),
         claim=not from_integration,
         entry_meta=(
-            None
-            if from_integration
-            else _found_via_meta(body.found_via, body.source)
+            None if from_integration else _found_via_meta(body.found_via, body.source)
         ),
         # Każde `BulkAddSource` to kliknięcie człowieka; token integracji nie.
         mark_proposals=not from_integration,
