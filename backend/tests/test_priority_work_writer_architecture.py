@@ -11,8 +11,6 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
 COMMAND_WRITER = APP_ROOT / "services" / "recruitment_process_commands.py"
-RAW_ADAPTER = APP_ROOT / "services" / "traffit" / "importer.py"
-RAW_METADATA_ADAPTER = APP_ROOT / "services" / "traffit" / "rejection_backfill.py"
 CANDIDATE_PROFILE_FACTS = APP_ROOT / "services" / "candidate_profile_facts.py"
 SCRIPTS_ROOT = BACKEND_ROOT / "scripts"
 ROOT_RUNTIME_WRITERS = (
@@ -140,24 +138,14 @@ def test_candidate_stage_has_one_native_constructor() -> None:
     )
 
 
-def test_only_traffit_adapter_may_use_raw_candidate_stage_insert() -> None:
+def test_nothing_uses_raw_candidate_stage_insert() -> None:
+    # Jedyny wyjątek, importer Traffita, usunięto 08.11.2026.
     violations: list[str] = []
     for path in _python_files():
         source = path.read_text(encoding="utf-8")
-        if "insert into candidate_stages" not in source.lower():
-            continue
-        if path != RAW_ADAPTER:
+        if "insert into candidate_stages" in source.lower():
             violations.append(_display_path(path))
-    assert violations == [], (
-        "Raw candidate_stages INSERT is allowed only in the Traffit adapter: "
-        f"{violations}"
-    )
-
-    adapter_source = RAW_ADAPTER.read_text(encoding="utf-8")
-    assert "sync_external_observed_processes" in adapter_source, (
-        "The Traffit raw adapter must reconcile every imported pair into "
-        "RecruitmentProcess in the same batch workflow."
-    )
+    assert violations == [], f"Raw candidate_stages INSERT is not allowed: {violations}"
 
 
 @pytest.mark.not_static  # 30 s lokalnie, reszta skanerów ≤ 6 s; łapie go kolejka.
@@ -195,18 +183,14 @@ def test_candidate_stage_update_delete_and_critical_fields_use_command_writer() 
     )
 
 
-def test_raw_candidate_stage_update_is_only_the_traffit_metadata_adapter() -> None:
+def test_nothing_uses_raw_candidate_stage_update() -> None:
+    # Jedyny wyjątek, backfill metadanych Traffita, usunięto 08.11.2026.
     violations: list[str] = []
     for path in _python_files():
         source = path.read_text(encoding="utf-8").lower()
-        if "update candidate_stages" not in source:
-            continue
-        if path != RAW_METADATA_ADAPTER:
+        if "update candidate_stages" in source:
             violations.append(_display_path(path))
-    assert violations == [], (
-        "Raw candidate_stages UPDATE is allowed only for the idempotent "
-        f"Traffit metadata adapter: {violations}"
-    )
+    assert violations == [], f"Raw candidate_stages UPDATE is not allowed: {violations}"
 
 
 def test_demo_seed_never_deletes_pipeline_or_process_history() -> None:

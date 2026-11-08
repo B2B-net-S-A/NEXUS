@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete, select
@@ -22,7 +21,6 @@ from app.models.user import User, UserRole
 from app.services import cpro_queue_reminder as reminder
 from app.services import cpro_sender
 from app.services.notification_delivery import immediate_email_kind
-from app.tasks import traffit_sync
 from tests.test_board_tasks import (
     _cleanup,
     _seed_user,
@@ -100,61 +98,6 @@ def test_the_reminder_bell_goes_out_by_mail_right_away() -> None:
 
 
 # ── Faza importu: przypomnienie po ruchach, nigdy kosztem fazy ───────────────
-
-
-@pytest.mark.asyncio
-async def test_pipelines_phase_reminds_after_the_import(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    order: list[str] = []
-
-    async def _import_pipelines(since=None):
-        order.append("import")
-        return "progress"
-
-    async def _remind(db, *, now=None) -> int:
-        order.append("remind")
-        return 2
-
-    monkeypatch.setattr(reminder, "remind", _remind)
-    importer = SimpleNamespace(import_pipelines=_import_pipelines)
-    assert await traffit_sync._pipelines_phase(importer, None) == "progress"
-    assert order == ["import", "remind"]
-
-
-@pytest.mark.asyncio
-async def test_a_failing_reminder_does_not_fail_the_pipelines_phase(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _import_pipelines(since=None):
-        return "progress"
-
-    async def _boom(db, *, now=None) -> int:
-        raise RuntimeError("smtp down")
-
-    monkeypatch.setattr(reminder, "remind", _boom)
-    importer = SimpleNamespace(import_pipelines=_import_pipelines)
-    assert await traffit_sync._pipelines_phase(importer, None) == "progress"
-
-
-@pytest.mark.asyncio
-async def test_a_crashed_import_sends_no_reminder(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    called: list[str] = []
-
-    async def _import_pipelines(since=None):
-        raise RuntimeError("traffit 500")
-
-    async def _remind(db, *, now=None) -> int:
-        called.append("remind")
-        return 0
-
-    monkeypatch.setattr(reminder, "remind", _remind)
-    importer = SimpleNamespace(import_pipelines=_import_pipelines)
-    with pytest.raises(RuntimeError):
-        await traffit_sync._pipelines_phase(importer, None)
-    assert called == []
 
 
 # ── Integracyjne: stan kolejki z zaimportowanych wierszy ─────────────────────

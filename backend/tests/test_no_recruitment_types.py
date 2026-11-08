@@ -22,7 +22,6 @@ APP = Path(__file__).resolve().parents[1] / "app"
 # zapis importu Traffita (NOT NULL) i lista kolumn należących do NEXUSA.
 _ALLOWED = {
     "models/job.py",
-    "services/traffit/importer.py",
     "services/job_column_ownership.py",
 }
 

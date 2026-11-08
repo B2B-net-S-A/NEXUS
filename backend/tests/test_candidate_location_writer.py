@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import uuid
 from unittest.mock import AsyncMock, Mock
 
@@ -265,38 +264,3 @@ async def test_manual_location_and_parser_serialize_without_losing_locks_or_prov
         }
         assert verified.cv_extracted_data["_manual_override_city"] is True
         assert verified.cv_extracted_data["_manual_override_country"] is True
-
-
-def test_importer_raw_sql_never_authors_location_columns():
-    from app.services.talent_radar_importer import (
-        _MERGE_CV_INTO_EXISTING,
-        TalentRadarImporter,
-    )
-    from app.services.traffit.importer import (
-        _UPDATE_CANDIDATE_ADOPT,
-        _UPSERT_CANDIDATE,
-    )
-
-    authored_location = re.compile(
-        r"(?<![a-z_])(city|country|location)(?![a-z_])",
-        re.IGNORECASE,
-    )
-    statements = (
-        _UPSERT_CANDIDATE,
-        _UPDATE_CANDIDATE_ADOPT,
-        _MERGE_CV_INTO_EXISTING,
-        TalentRadarImporter._INSERT_SQL,
-    )
-
-    for statement in statements:
-        assert authored_location.search(str(statement)) is None
-
-    # The statements that replace imported metadata preserve canonical manual
-    # locks before the location writer evaluates them.
-    for statement in (_UPSERT_CANDIDATE, _UPDATE_CANDIDATE_ADOPT):
-        sql = str(statement)
-        assert "_manual_override_city" in sql
-        assert "_manual_override_country" in sql
-    talent_sql = str(TalentRadarImporter._INSERT_SQL)
-    assert "_manual_override_city" in talent_sql
-    assert "_manual_override_country" in talent_sql
