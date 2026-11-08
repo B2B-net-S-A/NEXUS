@@ -19,6 +19,8 @@ sięga do bazy przez kod aplikacji, czego analiza tutaj nie zobaczy.
 
 from __future__ import annotations
 
+import ast
+import functools
 import inspect
 import re
 from pathlib import Path
@@ -39,6 +41,26 @@ def only_static_requested(config: Any) -> bool:
     if config is None:
         return False
     return (config.getoption("markexpr", "") or "").strip() == "static"
+
+
+def share_parsed_trees() -> None:
+    """W biegu ``-m static`` każdy strażnik parsuje całe ``app/`` osobno.
+
+    Pomiar 08.11.2026: ``compile`` i ``ast.walk`` to ponad 80% czasu strażnika, a
+    job trwał 5:15 (pytest 3:54) przy celu 3 min. Drzewa współdzielimy w obrębie
+    procesu; poza tym biegiem zostają zwykłe funkcje z ``ast``.
+    """
+    walk = ast.walk
+
+    def cached_walk(node: ast.AST) -> Iterator[ast.AST]:
+        if not isinstance(node, ast.Module):
+            return walk(node)
+        if not hasattr(node, "_all_nodes"):
+            node._all_nodes = list(walk(node))
+        return iter(node._all_nodes)
+
+    ast.parse = functools.lru_cache(maxsize=None)(ast.parse)
+    ast.walk = cached_walk
 
 
 def may_hold_static_tests(path: Path) -> bool:

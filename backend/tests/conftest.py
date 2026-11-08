@@ -37,6 +37,7 @@ from tests._static_marker import (
     mark_static_items,
     may_hold_static_tests,
     only_static_requested,
+    share_parsed_trees,
 )
 
 
@@ -783,6 +784,11 @@ def _ci_shard_plan() -> tuple[int, int, dict[str, int]] | None:
         }
     )
     return index, count, ci_shard_assignment(files, count, _ci_file_durations())
+
+
+def pytest_configure(config):
+    if only_static_requested(config):
+        share_parsed_trees()
 
 
 def pytest_ignore_collect(collection_path, config):
