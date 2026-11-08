@@ -47,6 +47,7 @@
   "GET /api/jobs/{job_id}/champion-profile/historical-matches": "PPDPDDDDPPPDDDDDDDDDDDDDDDPDD",
   "GET /api/jobs/{job_id}/champion-profile/suggestions": "PPDPDDDDPPPDDDDDDDDDDDDDDDPDD",
   "GET /api/jobs/{job_id}/collaborators": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/new-profiles": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/readiness": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
   "GET /api/jobs/{job_id}/request-history": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/requirement-proposal": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",

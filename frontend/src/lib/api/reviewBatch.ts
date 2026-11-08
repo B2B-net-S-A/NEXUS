@@ -69,6 +69,8 @@ export interface ReviewBatchTeamRow {
   name: string
   absent: boolean
   done_today: number
+  /** Minimum tej osoby na dziś: rośnie o 10 po każdym zrobionym, do 50. */
+  minimum: number
   required: number
   pending: number
   /** Godzina zrobienia minimum, `null` = jeszcze nie. */

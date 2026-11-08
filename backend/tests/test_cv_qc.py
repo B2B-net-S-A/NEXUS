@@ -2998,6 +2998,7 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
         # R1 (07.11.2026): blokujące „sprawdź ręcznie” — zależy od odczytu CV.
         assert isinstance(qc_card.pop("manual_checks"), list)
         assert isinstance(qc_card.pop("manual_items"), list)
+        qc_card.pop("qc_state")
         # R2 (07.11.2026): luki kandydata w krytycznych.
         assert isinstance(qc_card.pop("candidate_gaps"), list)
         assert qc_card == {

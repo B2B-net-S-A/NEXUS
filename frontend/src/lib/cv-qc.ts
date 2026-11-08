@@ -808,19 +808,37 @@ export type QcCardStatus = "passed" | "failed" | "overridden" | "unchecked";
 
 export const QC_STATUS_LABEL: Record<QcCardStatus, string> = {
   passed: "QC: sprawdzone",
-  failed: "QC do poprawy",
-  overridden: "Przepuszczone mimo QC",
-  unchecked: "QC nie sprawdzone",
+  failed: "QC: do poprawy",
+  overridden: "QC: przepuszczone",
+  unchecked: "QC: jeszcze nie sprawdzone",
 };
+
+export type QcStateKind =
+  | "checked"
+  | "checked_manually"
+  | "verify_roles"
+  | "candidate_gap"
+  | "to_fix"
+  | "overridden"
+  | "unchecked";
+export type QcStateTone = "ok" | "info" | "wait" | "urgent" | "neutral";
+
+/** Gotowy stan QC z serwera (`services/qc_state.py`, QC-11): front tylko renderuje. */
+export interface QcStateView {
+  kind: QcStateKind;
+  n: number;
+  items: string[];
+  text: string;
+  tone: QcStateTone;
+  who: string | null;
+  hint: string | null;
+}
 
 /** Stan QC pary tak, jak liczy go serwer (`cv_qc.pair_statuses`). */
 export interface QcPairState {
   status: QcCardStatus;
   blocking_failed: number;
-  /** R1 (07.11.2026): blokujące sprawdzenia „sprawdź ręcznie” zdanego przebiegu. */
-  manual_checks?: readonly string[] | null;
-  /** R2 (07.11.2026): krytyczne, których kandydat nie ma (nie blokują). */
-  candidate_gaps?: readonly string[] | null;
+  qc_state?: QcStateView | null;
 }
 
 /** Luki kandydata z wyniku QC (R2) — pozycje informacyjne krytycznych. */
@@ -831,15 +849,11 @@ export function candidateGapItems(checks: readonly QcCheck[]): QcItem[] {
 }
 
 /**
- * Jeden napis stanu QC dla karty, pulpitu i przeglądu DL (R1, 07.11.2026):
- * „QC: sprawdzone”, „QC: sprawdź ręcznie · N”, „QC: N do poprawy”. Do tej
- * zmiany zdane QC z niesprawdzonymi krytycznymi było „QC ✓” (139 z 535 par).
+ * Jeden napis stanu QC dla karty, pulpitu i przeglądu DL. Słownik jest na
+ * serwerze (`qc_state`); bez niego (odpowiedź starszego wdrożenia) sama nazwa statusu.
  */
 export function qcStateText(state: QcPairState): string {
-  const manual = state.manual_checks?.length ?? 0;
-  const gaps = state.candidate_gaps?.length ?? 0;
-  if (state.status === "passed" && gaps > 0) return `QC: luka kandydata · ${gaps}`;
-  if (state.status === "passed" && manual > 0) return `QC: sprawdź ręcznie · ${manual}`;
-  if (state.status === "failed" && state.blocking_failed > 0) return `QC: ${state.blocking_failed} do poprawy`;
+  if (state.qc_state) return state.qc_state.text;
+  if (state.status === "failed") return `QC: ${Math.max(1, state.blocking_failed)} do poprawy`;
   return QC_STATUS_LABEL[state.status];
 }

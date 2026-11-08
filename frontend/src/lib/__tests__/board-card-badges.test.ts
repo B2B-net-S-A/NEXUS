@@ -212,18 +212,26 @@ describe("odznaki karty — Pipeline v4", () => {
 
 describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
   it("chip QC mówi wynik ostatniej kontroli; brak pola = „nie sprawdzone”", () => {
-    expect(qcChip(item({})).label).toBe("QC nie sprawdzone");
+    expect(qcChip(item({})).label).toBe("QC: jeszcze nie sprawdzone");
     expect(qcChip(item({ qc: { status: "passed", blocking_failed: 0 } })).label).toBe("QC: sprawdzone");
-    // R1 (07.11.2026): zdane, ale blokującego sprawdzenia nikt nie sprawdził.
+    // QC-11 (08.11.2026): gotowy stan z serwera, front go tylko pokazuje.
     expect(
-      qcChip(item({ qc: { status: "passed", blocking_failed: 0, manual_checks: ["Umiejętności krytyczne"] } })),
-    ).toMatchObject({ label: "QC: sprawdź ręcznie · 1", tone: "wait" });
+      qcChip(
+        item({
+          qc: {
+            status: "passed",
+            blocking_failed: 0,
+            qc_state: { kind: "verify_roles", n: 3, items: ["Kafka"], text: "QC: wskaż stanowisko · 3", tone: "wait", who: null, hint: "Nikt nie sprawdził" },
+          },
+        }),
+      ),
+    ).toEqual({ label: "QC: wskaż stanowisko · 3", tone: "wait", title: "Nikt nie sprawdził" });
     expect(qcChip(item({ qc: { status: "failed", blocking_failed: 3 } }))).toMatchObject({
       label: "QC: 3 do poprawy",
       tone: "urgent",
     });
     expect(qcChip(item({ qc: { status: "overridden", blocking_failed: 2 } })).label).toBe(
-      "QC przepuszczone",
+      "QC: przepuszczone",
     );
   });
 

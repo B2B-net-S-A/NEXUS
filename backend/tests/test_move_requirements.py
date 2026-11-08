@@ -113,7 +113,7 @@ def test_qc_column_shows_the_qc_result_without_blocking() -> None:
     failed = qc_item(qc_status="failed", qc_blocking_failed=2)
     assert failed["status"] == "missing" and failed["blocking"] is False
     assert failed["label"] == "QC CV"
-    assert failed["detail"] == "do poprawy: 2"
+    assert failed["detail"] == "2 do poprawy"
     assert failed["action"]["kind"] == "open_qc"
 
     manual = qc_item(
@@ -121,14 +121,12 @@ def test_qc_column_shows_the_qc_result_without_blocking() -> None:
         qc_manual=("Umiejętności krytyczne są w CV i opisane w rolach",),
     )
     assert manual["status"] == "waiting"
-    assert manual["detail"] == (
-        "sprawdź ręcznie: Umiejętności krytyczne są w CV i opisane w rolach"
-    )
+    assert manual["detail"] == "sprawdź ręcznie · 1"
     assert manual["action"]["kind"] == "open_qc"
 
     gap = qc_item(qc_status="passed", qc_gaps=("FastAPI",))
     assert gap["status"] == "waiting"
-    assert gap["detail"] == "luka kandydata: FastAPI — zdecyduje Delivery Lead"
+    assert gap["detail"] == "kandydat nie ma: FastAPI — zdecyduje Delivery Lead"
 
     checked = qc_item(qc_status="passed")
     assert checked["status"] == "ok" and checked["detail"] == "sprawdzone"
@@ -136,7 +134,7 @@ def test_qc_column_shows_the_qc_result_without_blocking() -> None:
 
     overridden = qc_item(qc_status="overridden")
     assert overridden["status"] == "ok"
-    assert overridden["detail"] == "przepuszczone mimo uwag (z powodem)"
+    assert overridden["detail"] == "przepuszczone"
 
     # Bez CV firmowego QC nie ma czego liczyć — zostaje sam brak CV.
     no_cv = build_requirements(VERIFIED_READY, "cv_qc")

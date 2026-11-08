@@ -2195,7 +2195,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const qcCol = container.querySelector('[data-colid="def:303"]') as HTMLElement;
     expect(within(qcCol).getByText("Iga Mazur")).toBeTruthy();
     expect(within(qcCol).queryByText("DZ ✓")).toBeNull();
-    expect(within(qcCol).getByTestId("card-qc-chip")).toHaveTextContent("QC nie sprawdzone");
+    expect(within(qcCol).getByTestId("card-qc-chip")).toHaveTextContent("QC: jeszcze nie sprawdzone");
     // Niesprawdzone QC: ruch ma rekruter („Sprawdź QC CV”), nie DL.
     expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
     // Odrzuceni i wycofani nie zajmują pełnych kolumn — stoją w wąskiej kolumnie

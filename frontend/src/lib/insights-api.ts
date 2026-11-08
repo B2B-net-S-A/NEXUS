@@ -990,6 +990,40 @@ export interface InsightsClientRankingRow {
   monthly_revenue_complete: boolean;
 }
 
+export interface InsightsClientFunnelRow {
+  client_id: number;
+  client_name: string;
+  cv_sent: number;
+  client_interviews: number;
+  hires: number;
+  cv_per_hire: number | null;
+  won: number;
+  lost: number;
+  /** Zamknięte bez powodu albo z „Inny” — poza hit ratio, do przejrzenia. */
+  unreviewed: number;
+  hit_ratio: number | null;
+  first_cv_median_days: number | null;
+  first_cv_jobs: number;
+}
+
+export interface InsightsClientFunnelResponse {
+  period: unknown;
+  hit_ratio_since: string;
+  hit_ratio_target_pct: number;
+  clients: InsightsClientFunnelRow[];
+  totals: {
+    clients: number;
+    cv_sent: number;
+    client_interviews: number;
+    hires: number;
+    cv_per_hire: number | null;
+    won: number;
+    lost: number;
+    unreviewed: number;
+    hit_ratio: number | null;
+  };
+}
+
 export interface InsightsClientsRankingResponse {
   period: InsightsPeriod;
   valuation: { on: string; basis: string; note: string };
@@ -1362,6 +1396,8 @@ export const insightsQueryKeys = {
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
     ["insights", "clients", "ranking", p] as const,
+  clientsFunnel: (p: InsightsPeriodParams) =>
+    ["insights", "clients", "funnel", p] as const,
   clientsHitRatio: (p: InsightsPeriodParams, o: InsightsHitRatioOptions) =>
     ["insights", "clients", "hit-ratio", p, o] as const,
   deliveryLeads: (p: InsightsPeriodParams) =>
@@ -1432,6 +1468,13 @@ export const insightsBoardApi = {
   clientsRanking: (p: InsightsPeriodParams) =>
     api
       .get<InsightsClientsRankingResponse>("/api/insights/clients/ranking", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  clientsFunnel: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsClientFunnelResponse>("/api/insights/clients/funnel", {
         params: periodQuery(p),
       })
       .then((r) => r.data),

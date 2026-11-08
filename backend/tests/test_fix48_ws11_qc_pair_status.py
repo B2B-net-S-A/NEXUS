@@ -48,7 +48,9 @@ async def api_client():
 async def _status(world: dict) -> dict:
     pair = (world["candidate_id"], world["job_id"])
     async with AsyncSessionLocal() as db:
-        return (await qc.pair_statuses(db, [pair]))[pair]
+        out = (await qc.pair_statuses(db, [pair]))[pair]
+    out.pop("qc_state")
+    return out
 
 
 def _send(world: dict) -> dict:

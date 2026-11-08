@@ -74,9 +74,8 @@ i 147 poniżej 65%. Artur wstrzymał obie flagi do tych zmian:
   `python -m scripts.autofill_withdraw_batch_reset` (podgląd), potem `--apply`.
   Tylko nietknięte karty od systemu (ta sama droga i reguły co
   `autofill_withdraw`), powód `autofill_withdrawn_batch_reset`.
-- **Minimum domyślnie 10.** Kolejne progi (20, 30) HoR ustawia po pomiarze:
-  krok w górę, gdy co najmniej 80% rekruterów robi minimum przed 11:00,
-  a wysłane CV z ręcznych dodań nie spadają o więcej niż 15%.
+- **Minimum domyślnie 10**, dalej rośnie osobno dla każdego (sekcja „Narastanie
+  minimum”).
 - **Blokada tylko w dni robocze od 7:00** (`blocking_now`, `BLOCK_START_HOUR`).
   W weekend i przed 7:00 wyszukiwanie działa, a ekran mówi „do następnego dnia
   roboczego, 7:00”.
@@ -85,10 +84,35 @@ i 147 poniżej 65%. Artur wstrzymał obie flagi do tych zmian:
   (porcja dalej się rozdziela) albo zawęża ją do zaznaczonych osób. Pusta lista
   = wszyscy rekruterzy. Env `REVIEW_BATCH_ENABLED` zostaje wyłącznikiem głównym.
 
+## Narastanie minimum (decyzja Artura 08.11.2026)
+
+Porcja rusza 09.11.2026 dla wszystkich rekruterów, bez pilota, z minimum 10.
+Artur: „jak ktoś zrobi 10 to dajesz 10 więcej kolejnego dnia aż będzie 50 i
+zostaniemy przy 50 do odwołania”.
+
+- **Poziom jest osobny dla każdego** (`services/review_batch_levels.py`,
+  `app_settings['review_batch_levels']`): kto w dniu roboczym podjął tyle decyzji,
+  ile wynosi jego minimum (`next_level`), następnego dnia roboczego ma o 10 więcej,
+  aż do 50. Kto nie zrobił albo był nieobecny, zostaje na swoim poziomie, a poziom
+  nie spada. Liczy się `counted_at` decyzji z etapu 0, więc samo S bez domknięcia
+  nie podnosi poziomu.
+- **Przelicza pierwszy tick nowego dnia** (`roll_levels` w `_batch_tick`, ta sama
+  transakcja co plan dnia, więc restart nie podnosi drugi raz). Pierwsze przeliczenie
+  zakłada stan i nikogo nie podnosi: dni sprzed włączenia porcji się nie liczą.
+- **Blokada zostaje po stronie dostępnych kart:** `required = min(poziom, decyzje +
+  czekające + dzisiejsze otwarte S)`. Kto przy poziomie 50 ma w porcji 30 osób,
+  przegląda 30 i wyszukiwanie wraca. Poziom ustawiony przez HoR w „Minimum” jest
+  podłogą (`level_of`).
+- **Gdzie widać:** „Zobacz zespół dziś” (kolumna „Poziom”), `/porcja` po minimum.
+  Na 09.11 z pomiaru na kopii 08.11 minimum 10 padło w 10 z 244 osobodni, stąd
+  warunek stopu z etapu 0 (spadek wysłanych CV) i wyłącznik blokady w ustawieniach.
+
+Testy: `backend/tests/test_review_batch_levels.py`.
+
 ## Etap 0 przed pilotem (audyt 08.11.2026)
 
 Raport: https://claude.ai/artifact/VXHZFJQZQbNRXAVGzNfdCu, plansza „Porcja dnia”.
-Flagi porcji dalej wyłączone, włączenie i skład pilota decyduje Artur.
+Włączenie to decyzja Artura z 08.11 (sekcja „Narastanie minimum”).
 
 - **Decyzja to wyjście z „Nowych”** (`_decisions`, poprzedni etap pary w
   `_NEW_STAGES`). Ruch screening → CV nie jest decyzją: na kopii 155 z 772 par

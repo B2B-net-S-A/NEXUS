@@ -130,7 +130,7 @@ async def _query_alembic_head() -> dict[str, str | None]:
         return {"head": None, "applied_at": None}
 
 
-def _background_tasks_status(request: Request) -> dict[str, Any]:
+async def _background_tasks_status(request: Request) -> dict[str, Any]:
     """Owijka nad wspólnym klasyfikatorem — bierze Request, oddaje dict.
 
     Sama klasyfikacja żyje w ``background_task_health.classify_background_tasks``
@@ -139,8 +139,14 @@ def _background_tasks_status(request: Request) -> dict[str, Any]:
     zgodności z istniejącymi konsumentami; ``crashed`` przy zdrowej instalacji
     wynosi zero — i to jest liczba, po której operator alarmuje.
     """
+    from app.core.config import settings
     from app.services.background_task_health import classify_background_tasks
 
+    if settings.NEXUS_PROCESS_ROLE == "web":
+        from app.services.worker_health import fetch_worker_state
+
+        worker = await fetch_worker_state()
+        return worker["tasks"] or {"error": worker["checks"]["background_tasks"]}
     tasks = getattr(request.app.state, "background_tasks", None)
     return classify_background_tasks(tasks)
 
@@ -180,7 +186,7 @@ async def admin_snapshot(
             "checks": {"database": db_check},
         },
         "kpis": kpis,
-        "background_tasks": _background_tasks_status(request),
+        "background_tasks": await _background_tasks_status(request),
         "alembic": alembic,
         "sentry_release": os.environ.get("GIT_SHA", "unknown"),
         "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

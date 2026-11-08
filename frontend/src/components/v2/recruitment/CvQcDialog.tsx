@@ -396,7 +396,7 @@ function Verdict({ data }: { data: QcResult }) {
   if (data.override) {
     return (
       <Badge variant="warning" size="lg">
-        Przepuszczone mimo QC
+        QC: przepuszczone
       </Badge>
     );
   }
@@ -537,7 +537,7 @@ export function CvQcBody({
         <Confirmations items={data.confirmations ?? []} />
         {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
-            Przepuszczone mimo QC{data.override.by_name ? ` przez ${data.override.by_name}` : ""}
+            QC: przepuszczone{data.override.by_name ? ` · ${data.override.by_name}` : ""}
             {data.override.at ? ` (${formatDate(data.override.at)})` : ""}: {data.override.reason}
           </p>
         ) : null}

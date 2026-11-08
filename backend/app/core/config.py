@@ -20,12 +20,23 @@ class Settings(BaseSettings):
     NEXUS_ENV: str = "production"
     # Pętle w tle tylko w procesie z blokadą doradczą (`core/background_leader.py`).
     BACKGROUND_LEADER_LOCK_ENABLED: bool = True
+    # Podział pracy między kontenery. `all` = HTTP i pętle w jednym procesie
+    # (domyślnie: testy, staging z gałęzi, wycofanie), `web` = samo HTTP,
+    # `worker` = pętle. → docs/claude/podstawy/web-i-worker-osobno.md
+    NEXUS_PROCESS_ROLE: str = "all"
+    # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
+    NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
     # (po przecinku). Na produkcji bez znaczenia.
     STAGING_EXTRA_ALLOWED_HOSTS: str = ""
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    # Pula na proces. Web i worker razem muszą się zmieścić w `max_connections`
+    # (100 na produkcji), z zapasem na zrzut bazy i `docker exec`.
+    DB_POOL_SIZE: int = 40
+    DB_MAX_OVERFLOW: int = 20
 
     # Database (PostgreSQL)
     DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
@@ -551,6 +562,12 @@ class Settings(BaseSettings):
     AUTO_MATCH_MAX_CANDIDATES_PER_JOB: int = 10
     AUTO_MATCH_JOB_LOOKBACK_DAYS: int = 90
     AUTO_MATCH_INTERVAL_SECONDS: int = 15
+    # Ile minut zdarzenie nowego CV czeka na aktualny wektor (08.11.2026): w 14
+    # dni 34% CV kończyło się bez oceny, bo zdarzenie biegło przed wektorem.
+    # 0 = bez czekania.
+    AUTO_MATCH_VECTOR_WAIT_MINUTES: int = 15
+    # Wynik nowego CV dopisywany do puli dopełniania, bez sufitu rekrutacji.
+    AUTO_MATCH_WRITE_POOL_ENABLED: bool = True
 
     # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
     # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla
@@ -1137,6 +1154,15 @@ class Settings(BaseSettings):
         normalized = v.strip().lower()
         if normalized not in allowed:
             raise ValueError(f"NEXUS_ENV must be one of {sorted(allowed)}")
+        return normalized
+
+    @field_validator("NEXUS_PROCESS_ROLE")
+    @classmethod
+    def _validate_process_role(cls, v: str) -> str:
+        allowed = {"all", "web", "worker"}
+        normalized = v.strip().lower()
+        if normalized not in allowed:
+            raise ValueError(f"NEXUS_PROCESS_ROLE must be one of {sorted(allowed)}")
         return normalized
 
     @field_validator("RECRUITMENT_PRIORITY_MODE")

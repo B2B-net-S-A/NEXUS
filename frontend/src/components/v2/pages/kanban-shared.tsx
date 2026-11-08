@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { QcStateView } from "@/lib/cv-qc";
 import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
 import type { CardStartDocs } from "@/lib/api/start-documents";
@@ -374,6 +375,8 @@ export interface KanbanItem {
   manual_checks?: string[];
   /** R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL. */
   candidate_gaps?: string[];
+  /** QC-11 (08.11.2026): gotowy stan QC z serwera. */
+  qc_state?: QcStateView | null;
  } | null;
  // Karta rekomendacji (0413): stan karty pary i liczba notatek „nie odebrał”.
  // `card: null` = pary nie ma jeszcze w kartach.

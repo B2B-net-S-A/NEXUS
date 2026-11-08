@@ -169,6 +169,9 @@ async def refresh_alias_map() -> int:
     from app.services import must_text_evidence
 
     must_text_evidence.clear_cache()
+    from app.services import dz_review
+
+    dz_review.clear_pattern_cache()
     logger.debug(
         "Tech taxonomy loaded: %d tech canonicals of %d skills",
         len(tech_canonicals),

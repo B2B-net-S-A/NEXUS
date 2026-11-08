@@ -28,7 +28,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy import and_, exists, func, or_, select
@@ -40,9 +40,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # holding the DB connection and poisoning the pool.
 _SYNC_TIMEOUT_SECONDS = 8 * 60
 
+from app.core import process_bus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
+from app.core.process_lock import cross_process_lock
 from app.models.app_setting import AppSetting
 from app.models.calendar_event import (
     CalendarEvent,
@@ -139,14 +141,9 @@ class SyncResult:
 # UNIQUE `emails.m365_message_id` zatruwały sesję tak, że commit strony
 # odrzucał całą stronę maili.
 #
-# Mutex jest W PROCESIE, a nie w bazie — świadomie. Wariant bazowy wymaga
-# kolumny `last_sync_started_at` (bez niej nie da się odróżnić przebiegu
-# TRWAJĄCEGO od porzuconego przez restart kontenera, a sam warunek
-# `status == running` zamurowałby skrzynkę na zawsze po każdym redeployu
-# w trakcie backfillu), czyli migracji. Wszystkie cztery ścieżki żyją w tym
-# samym procesie aplikacji, więc lock je pokrywa; przy przejściu na wiele
-# workerów (patrz uwaga o leader-election dla pętli tła) trzeba dołożyć
-# wariant bazodanowy.
+# Mutex w procesie plus `cross_process_lock`, bo pętla biegnie w workerze, a
+# webhook i backfill w web. Blokada doradcza znika z procesem, więc restart w
+# trakcie backfillu nie zamurowuje skrzynki (warunek `status == running` by to zrobił).
 _sync_locks: dict[int, asyncio.Lock] = {}
 
 
@@ -160,6 +157,14 @@ _resync_requested: set[int] = set()
 # Sufit dodatkowych przebiegów pod jednym lockiem — seria webhooków w trakcie
 # każdego kolejnego przebiegu nie może trzymać skrzynki w nieskończoność.
 _MAX_TRAILING_RESYNCS = 3
+_RESYNC_TOPIC = "m365_resync"
+
+
+async def _on_resync_requested(data: dict[str, Any]) -> None:
+    _resync_requested.add(int(data["connection_id"]))
+
+
+process_bus.subscribe(_RESYNC_TOPIC, _on_resync_requested)
 
 
 def _connection_lock(connection_id: int) -> asyncio.Lock:
@@ -212,7 +217,14 @@ async def sync_connection(
             _resync_requested.add(conn.id)
         return result
 
-    async with lock:
+    async with lock, cross_process_lock("m365_sync", conn.id) as owned:
+        if not owned:
+            # Trwający przebieg jest w drugim procesie (web albo worker).
+            logger.info("m365 sync skipped: connection_id=%s syncs elsewhere", conn.id)
+            result.skipped_already_running = True
+            if resync_if_busy:
+                await process_bus.publish(_RESYNC_TOPIC, {"connection_id": conn.id})
+            return result
         _resync_requested.discard(conn.id)
         result = await _sync_connection_locked(db, conn, result, scope)
         for _ in range(_MAX_TRAILING_RESYNCS):
