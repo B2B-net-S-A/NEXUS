@@ -72,8 +72,8 @@ export interface UnseenMatch {
 
 export interface MyPeopleSummary {
   total: number;
+  /** Rekrutacje z ostatniej doby z Twoją osobą od progu dopasowania. */
   new_matches: number;
-  jobs_with_matches: number;
   latest_matches: UnseenMatch[];
   idle_count: number;
   idle_top: { candidate_id: number; full_name: string; days_since_last_send: number }[];
