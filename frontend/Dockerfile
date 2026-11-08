@@ -53,6 +53,11 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=6144
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Harnessy /preview/* to tylko narzędzie nocnego E2E: 119 stron z fikcyjnymi
+# danymi, które na produkcji nikt nie otwiera, a kompilator buduje przy każdym
+# wdrożeniu. Poza stackiem E2E (`NEXT_PUBLIC_PREVIEW_PUBLIC=1`) nie wchodzą do
+# builda; pliki zostają w repo, `next dev` i Vitest ich używają.
+RUN if [ "$NEXT_PUBLIC_PREVIEW_PUBLIC" != "1" ]; then rm -rf src/app/preview; fi
 # DEP-03: `public/version.json` z SHA builda — smoke test deployu porównuje go
 # z oczekiwanym commitem (jak `/api/health.version` dla backendu). Musi powstać
 # PRZED `next build`, bo `public/` jest kopiowane do obrazu jako całość.
