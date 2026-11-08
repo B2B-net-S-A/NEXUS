@@ -48,8 +48,11 @@ async def _recompute_job(job_id: int) -> None:
         logger.warning("cv qc recompute job: failed (%s)", type(exc).__name__)
 
 
-def schedule_job_recompute(job_id: int) -> None:
-    """Przelicz QC par rekrutacji w tle, bez trzymania odpowiedzi (QC-10)."""
+async def schedule_job_recompute(job_id: int) -> None:
+    """Przelicz QC par rekrutacji w tle, bez trzymania odpowiedzi (QC-10).
+
+    Asynchroniczna, bo `PostCommit.later` potrafi wywołać funkcję także poza
+    pętlą zdarzeń (synchroniczne BackgroundTasks idą do wątku)."""
 
     task = asyncio.create_task(_recompute_job(job_id))
     _running.add(task)
