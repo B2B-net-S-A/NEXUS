@@ -709,7 +709,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "back_office", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek kontraktów z zamówieniami MD, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą (rozliczenie, subskrypcje, faktury bez zgody).",
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -732,16 +732,6 @@
         "anchor": "finance.approved-expenses"
       },
       {
-        "q": "Czy stawki w kontraktach zgadzają się z zamówieniami MD?",
-        "a": "„Rozjazdy stawek” pokazuje z nocnego raportu, gdzie stawka linii zamówienia różni się od kontraktu: osoba, klient, stawki i skutek w miesiącu. Raport niczego nie poprawia. Zaokrąglenia stawki godzinowej są na końcu listy.",
-        "anchor": "finance.modes"
-      },
-      {
-        "q": "Co zrobić z fakturą z KSeF bez klienta?",
-        "a": "„Faktury do klientów” → „Nieznani nabywcy”: faktury ze wszystkich miesięcy według numeru nabywcy. „Przypisz” dopisuje numer do klienta i od razu wiąże wszystkie jego faktury, „Pomiń” wymaga powodu.",
-        "anchor": "finance.modes"
-      },
-      {
         "q": "Gdzie są PDF-y zamówień za miesiąc?",
         "a": "W trybie „Zamówienia PDF”: miesiąc startu, potem klient i pliki do pobrania.",
         "anchor": "finance.modes"
@@ -749,7 +739,9 @@
     ],
     "pitfalls": [
       "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
-      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
+      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie.",
+      "„Rozjazdy stawek” niczego nie poprawiają, tylko pokazują różnicę kontrakt ↔ zamówienie MD z nocnego raportu.",
+      "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [
       {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
