@@ -42,7 +42,7 @@ function PersonRow({ jobId, person }: { jobId: number; person: ClientWaitPerson 
         {BOARD_COLUMN_LABEL[person.column]} od {formatDayMonthPl(person.entered_at)}
         <br />
         <span className="font-medium text-foreground">{workdaysLabel(person.workdays)}</span>
-        {person.reminded_at ? ` · przypomniano ${formatDayMonthPl(person.reminded_at)}` : ""}
+        {person.reminded_at ? ` · przygotowano przypomnienie ${formatDayMonthPl(person.reminded_at)}` : ""}
       </p>
       <span
         className={cn(
