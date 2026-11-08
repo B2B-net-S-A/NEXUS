@@ -883,8 +883,8 @@ export default function JobDetailPage() {
       .then(() => showSuccess("Skopiowano link do rekrutacji."))
       .catch(() => showError("Nie udało się skopiować linku."));
   };
-  // Filtr „Kto dodał” — w linii źródeł nagłówka, a w zwiniętym nagłówku
-  // (gdy włączony) w linii tytułu.
+  // Filtr „Kto dodał”: wybiera się go ikoną w nagłówku kolumny „Nowi”; włączony
+  // stoi w linii źródeł, a w zwiniętym nagłówku w linii tytułu (audyt U3).
   const addedByButton =
     showBoard && addedByMenuOptions ? (
       <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
@@ -1022,7 +1022,7 @@ export default function JobDetailPage() {
             />
           ) : undefined
         }
-        sourcesTrailing={addedByButton}
+        sourcesTrailing={addedBy.kind !== "all" ? addedByButton : undefined}
         collapsed={headerCollapsed}
         onToggleCollapsed={toggleHeaderCollapsed}
         // Zwinięty nagłówek nie chowa WŁĄCZONEGO filtra Tablicy.

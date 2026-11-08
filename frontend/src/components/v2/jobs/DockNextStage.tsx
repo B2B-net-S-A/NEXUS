@@ -139,7 +139,7 @@ export function DockNextStage({
   // Bez odpowiedzi serwera (ładowanie, awaria) przycisk robi zwykły ruch —
   // serwer i tak sprawdzi swoje bramki.
   const step = data?.primary ? planPrimaryStep(data, gaps) : ({ type: "move" } as const);
-  const waiting = step.type === "waiting" ? dlWaitingStatus(item, new Date()) : null;
+  const waiting = step.type === "waiting" ? dlWaitingStatus(item) : null;
   const primaryKind = data?.primary?.kind ?? "move";
   const handsOver = primaryKind === "hand_to_dl" || primaryKind === "hand_to_cpro";
   const buttonDisabled =

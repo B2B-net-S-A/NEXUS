@@ -6,7 +6,7 @@
  * menu otwiera etykieta kolejki w panelu osoby, bo w widoku „Rozwiń” Tablica
  * jest zasłonięta. Logika i napisy: `lib/board-added-by.ts`.
  */
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, ListFilter, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -85,6 +85,31 @@ export function AddedByMenuContent({
   );
 }
 
+/** Ikona filtra w nagłówku kolumny „Nowi” (audyt U3, 08.11.2026). */
+export function AddedByColumnFilter({ options, value, onChange }: AddedByMenuProps) {
+  const active = value.kind !== "all";
+  const label = `Kto dodał: ${addedByChoiceLabel(value, options)}`;
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          className={cn("h-6 w-6 shrink-0", active && "bg-primary/10 text-primary")}
+          aria-label={label}
+          title={label}
+          data-testid="added-by-column-filter"
+          data-tour="jobs.board.added-by"
+        >
+          <ListFilter className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <AddedByMenuContent options={options} value={value} onChange={onChange} />
+    </DropdownMenu>
+  );
+}
+
 /** Przycisk w nagłówku rekrutacji: „Kto dodał: wszyscy ▾” / „Kto dodał: Ty · 23 z 66” + „✕”. */
 export function AddedByFilterButton({ options, value, onChange }: AddedByMenuProps) {
   const active = value.kind !== "all";
@@ -107,7 +132,6 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
                 : `${prefix}: ${choice}`
             }
             data-testid="added-by-trigger"
-            data-tour="jobs.board.added-by"
           >
             <span className="font-normal text-muted-foreground">{prefix}:</span>
             <span className="font-semibold">{choice}</span>
