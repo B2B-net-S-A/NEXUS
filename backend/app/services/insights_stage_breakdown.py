@@ -91,6 +91,7 @@ CLOSED_BY: tuple[tuple[str, str], ...] = (
     ("recruiter", "Odrzucony przez nas"),
     ("delivery_lead", "Odrzucony przez DL"),
     ("client", "Odrzucony przez klienta"),
+    ("client_silent", "Klient nie odpowiedział"),
 )
 _CLOSED_BY_KEYS = tuple(k for k, _ in CLOSED_BY)
 

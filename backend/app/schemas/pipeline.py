@@ -184,9 +184,9 @@ class StageMove(BaseModel):
     client_rate_unit: Optional[RateUnit] = None
     client_rate_currency: Optional[str] = Field(None, max_length=3)
     # Kto zakończył proces (ruch terminalny): kandydat | my | DL | klient.
-    ended_by: Optional[Literal["candidate", "recruiter", "delivery_lead", "client"]] = (
-        None
-    )
+    ended_by: Optional[
+        Literal["candidate", "recruiter", "delivery_lead", "client", "client_silent"]
+    ] = None
 
     @field_validator("rejection_email_subject")
     @classmethod
@@ -317,6 +317,9 @@ class CandidateStageResponse(BaseModel):
     # jak pas „Do wysłania do klienta” (`dl_send_queue.board_waiting_workdays`,
     # audyt U5 08.11.2026). `None` = endpoint nie liczy albo proces się skończył.
     waiting_workdays: Optional[int] = None
+    # Cisza klienta ponad 5 dni roboczych, ta sama reguła co pas „Czeka na
+    # odpowiedź klienta” (`client_wait.silent_workdays`). `None` = jeszcze nie.
+    client_silent_workdays: Optional[int] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —
