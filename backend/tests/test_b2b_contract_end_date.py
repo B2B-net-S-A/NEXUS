@@ -6,7 +6,7 @@ Trzy warstwy, każda z testem:
 * API — tworzenie, edycja, aneks przedłużający i okno „Nowy kontraktor /
   zamówienie" nie dają umowie B2B daty końca bez zakończenia; umowy zlecenie
   bez zmian; „Zakończ współpracę" nadal ustawia datę (także przyszłą);
-* jednorazowa korekta (``app.services.b2b_end_date_repair``) — WYKONYWANA na
+* jednorazowa korekta (``scripts.repairs.b2b_end_date_repair``) — WYKONYWANA na
   bazie testowej: literówka w kolumnie wyszłaby dopiero na produkcji,
   a entrypoint połknąłby ją (``|| echo skipped``).
 
@@ -42,7 +42,7 @@ from app.services.b2b_contract_end_date import (
     B2B_END_DATE_REASON,
     end_date_allowed,
 )
-from app.services.b2b_end_date_repair import (
+from scripts.repairs.b2b_end_date_repair import (
     DETAILS_KEY,
     NOTE_REASON,
     REPAIR_MARKER,

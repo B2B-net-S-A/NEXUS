@@ -46,7 +46,7 @@ from app.models.job import Job, JobStatus
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
-from app.services.cardif_client_merge_repair import (
+from scripts.repairs.cardif_client_merge_repair import (
     AgreementLink,
     CardifMergeTarget,
     run_cardif_client_merge,
@@ -582,7 +582,7 @@ def test_repair_imports_in_a_bare_interpreter():
 
     code = (
         "import app.models\n"
-        "import app.services.cardif_client_merge_repair\n"
+        "import scripts.repairs.cardif_client_merge_repair\n"
         "from app.api.clients import _move_client_materials_on_merge\n"
         "from app.api.b2b_contract_generator import apply_contract_link\n"
     )

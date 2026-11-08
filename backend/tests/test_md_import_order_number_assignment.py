@@ -927,7 +927,7 @@ async def _seed_repair_state(app_client, headers, monkeypatch):
 
 
 def _repair_case(case, july_id, august_id, event_ids, **overrides):
-    from app.services.md_import_order_number_repair import RepairCase
+    from scripts.repairs.md_import_order_number_repair import RepairCase
 
     values = dict(
         client_id=case["client_id"],

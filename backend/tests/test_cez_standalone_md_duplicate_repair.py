@@ -27,7 +27,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.critical_event import CriticalEvent
-from app.services.cez_standalone_md_duplicate_repair import (
+from scripts.repairs.cez_standalone_md_duplicate_repair import (
     DETAILS_KEY,
     REPAIR_MARKER,
     TICKET_DUPLICATES,

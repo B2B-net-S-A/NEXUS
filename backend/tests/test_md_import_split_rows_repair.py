@@ -106,7 +106,7 @@ async def _seed_wrong_state(app_client: AsyncClient, headers: dict, monkeypatch)
 
 
 def _spec(case):
-    from app.services.md_import_split_rows_repair import SplitRowsCase
+    from scripts.repairs.md_import_split_rows_repair import SplitRowsCase
 
     return SplitRowsCase(
         client_id=case["client_id"],

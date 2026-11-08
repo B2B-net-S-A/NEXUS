@@ -25,7 +25,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
-from app.services.ezdrowie_client_merge_repair import (
+from scripts.repairs.ezdrowie_client_merge_repair import (
     ClientMergeTarget,
     run_ezdrowie_client_merge,
     run_ezdrowie_process_client_sync,

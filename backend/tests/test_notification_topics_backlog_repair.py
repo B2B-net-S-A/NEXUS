@@ -18,7 +18,7 @@ from app.core.security import hash_password
 from app.models.app_setting import AppSetting
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
-from app.services.notification_backlog_repair import (
+from scripts.repairs.notification_backlog_repair import (
     TOPICS_REPAIR_MARKER,
     run_topics_backlog_repair,
 )

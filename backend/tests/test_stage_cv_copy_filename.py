@@ -153,7 +153,7 @@ def _pko():
 
 
 def test_repair_swaps_only_the_role_and_keeps_the_person_as_stored():
-    from app.services.stage_cv_copy_filename_repair import renamed_copy_filename
+    from scripts.repairs.stage_cv_copy_filename_repair import renamed_copy_filename
 
     assert renamed_copy_filename(OLD_NAME, _pko(), TITLE, ROLE, "4321") == NEW_NAME
     # Osoba zostaje w zapisanej pisowni (imię mogło się od tego czasu zmienić).
@@ -180,7 +180,7 @@ def test_repair_swaps_only_the_role_and_keeps_the_person_as_stored():
 
 
 def test_repair_leaves_names_it_did_not_build():
-    from app.services.stage_cv_copy_filename_repair import renamed_copy_filename
+    from scripts.repairs.stage_cv_copy_filename_repair import renamed_copy_filename
 
     # Już poprawna, zmieniona ręcznie, pusta, tytuł bez kodów.
     assert renamed_copy_filename(NEW_NAME, _pko(), TITLE, ROLE, "4321") is None
@@ -213,7 +213,7 @@ async def test_repair_renames_copy_and_its_approved_versions_once(monkeypatch):
 
     from app.core.database import AsyncSessionLocal
     from app.models.cv_document_version import CvDocumentVersion
-    from app.services.stage_cv_copy_filename_repair import rename_copy_filenames
+    from scripts.repairs.stage_cv_copy_filename_repair import rename_copy_filenames
     from tests.test_stage_cv_pick_from_profile import _seed
 
     _rule(monkeypatch, PKO_PATTERN)
