@@ -50,7 +50,6 @@ _V1_MODULES = tuple(
         "calendar",
         "applications",
         "insights",
-        "academy",
         "absences",
         "equipment",
         "events",

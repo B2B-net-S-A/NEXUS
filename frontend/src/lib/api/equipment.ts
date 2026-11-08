@@ -801,3 +801,22 @@ export function downloadImportControlSheet(batchId: number) {
     `Arkusz_kontrolny_importu_${batchId}.xlsx`,
   );
 }
+
+/** Wydanie z kreatora dla każdego posiadacza. */
+export function useIssueToHolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: IssueInput) =>
+      (
+        await api.post<{ protocol: EquipmentProtocol; link_url: string | null }>(
+          "/api/equipment/issue",
+          payload,
+        )
+      ).data,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: equipmentKeys.all });
+      // Zakładka „Sprzęt” kontraktu czyta własny klucz.
+      void queryClient.invalidateQueries({ queryKey: ["contract-equipment"] });
+    },
+  });
+}

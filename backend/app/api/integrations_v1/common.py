@@ -230,7 +230,6 @@ CalendarRead = Annotated[Caller, _scoped(ServiceScope.calendar_read)]
 ApplicationsRead = Annotated[Caller, _scoped(ServiceScope.applications_read)]
 ApplicationsWrite = Annotated[Caller, _scoped(ServiceScope.applications_write)]
 InsightsRead = Annotated[Caller, _scoped(ServiceScope.insights_read)]
-AcademyRead = Annotated[Caller, _scoped(ServiceScope.academy_read)]
 EventsRead = Annotated[Caller, _scoped(ServiceScope.events_read)]
 WebhooksManage = Annotated[Caller, _scoped(ServiceScope.webhooks_manage)]
 

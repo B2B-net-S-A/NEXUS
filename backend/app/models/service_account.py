@@ -144,7 +144,6 @@ class ServiceScope(str, enum.Enum):
     applications_read = "applications:read"
     applications_write = "applications:write"
     insights_read = "insights:read"
-    academy_read = "academy:read"
     # Zdarzenia: kanał zdarzeń (same identyfikatory, bez danych osobowych)
     # i zarządzanie własnymi webhookami konta.
     events_read = "events:read"
@@ -222,7 +221,6 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
         "Zgłoszenia z linku rekrutacji: rozpatrzenie (dołącz, utwórz, odrzuć)"
     ),
     ServiceScope.insights_read: "Insights: raporty i wskaźniki (odczyt)",
-    ServiceScope.academy_read: "Akademia: programy i nabór (odczyt)",
     ServiceScope.events_read: "Zdarzenia: kanał zdarzeń (same identyfikatory)",
     ServiceScope.webhooks_manage: "Webhooki: zarządzanie powiadomieniami konta",
     ServiceScope.absences_read: "Nieobecności — kto i kiedy, bez rodzaju",
