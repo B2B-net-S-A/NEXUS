@@ -186,9 +186,7 @@ class StageMove(BaseModel):
     # Kto zakończył proces (ruch terminalny): kandydat | my | DL | klient.
     ended_by: Optional[
         Literal["candidate", "recruiter", "delivery_lead", "client", "client_silent"]
-    ] = (
-        None
-    )
+    ] = None
 
     @field_validator("rejection_email_subject")
     @classmethod
