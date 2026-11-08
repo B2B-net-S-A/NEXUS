@@ -40,6 +40,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
+from app.services import single_candidate_list as single_list
 from app.services.candidate_added_date import added_to_base_of
 from app.services.employment_marker import load_employment_markers
 from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX
@@ -284,6 +285,9 @@ async def list_job_proposals(
     status: Literal["proposed", "dismissed", "added"] = "proposed",
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    list_filter: Literal[
+        "all", "applied", "new_in_base", "portal", "known", "similar"
+    ] = Query("all", alias="list"),
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.candidate_job_eligibility import Visibility  # noqa: PLC0415
@@ -306,14 +310,32 @@ async def list_job_proposals(
         if status == "proposed"
         else set()
     )
-    rows, total = await proposals.list_for_job(
-        db,
-        job_id=job_id,
-        status=status,
-        limit=limit,
-        offset=offset,
-        min_score=threshold,
-        first_ids=new_in_base,
+    single = (
+        await single_list.page(
+            db,
+            job=job,
+            threshold=threshold,
+            first_ids=new_in_base,
+            limit=limit,
+            offset=offset,
+            list_filter=list_filter,
+            now=now,
+        )
+        if single_list.enabled() and status == "proposed"
+        else None
+    )
+    rows, total = (
+        (single.rows, single.total)
+        if single is not None
+        else await proposals.list_for_job(
+            db,
+            job_id=job_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+            min_score=threshold,
+            first_ids=new_in_base,
+        )
     )
     ids = [row.candidate_id for row in rows]
     candidates = {
@@ -389,6 +411,7 @@ async def list_job_proposals(
                 "reassign_from": reassign_from.get(row.candidate_id),
                 "trainee_handover": trainee_handover.get(row.candidate_id),
                 "history": history.get(row.candidate_id),
+                **({"labels": list(row.labels)} if single is not None else {}),
             }
         )
     # Runda 10 (R10-N7-1): pominięci znikają ze wszystkich źródeł widoku, nie
@@ -407,11 +430,20 @@ async def list_job_proposals(
         "total": total,
         # Próg propozycji: osoby z `below_threshold` stoją pod „Poniżej N%”.
         "threshold": threshold,
-        "new_in_base_total": await proposals.people_on_base_tab(
-            db,
-            job_id=job_id,
-            candidate_ids=new_in_base,
-            posting_since=posting_since,
+        "new_in_base_total": (
+            single.counts[single_list.NEW_IN_BASE]
+            if single is not None
+            else await proposals.people_on_base_tab(
+                db,
+                job_id=job_id,
+                candidate_ids=new_in_base,
+                posting_since=posting_since,
+            )
+        ),
+        **(
+            {"single_list": True, "label_counts": single.counts}
+            if single is not None
+            else {}
         ),
         "hidden_on_page": hidden,
         "limit": limit,
@@ -579,8 +611,14 @@ async def job_proposal_counts(
     job = await _job(db, user, job_id)
     since = datetime.now(timezone.utc) - timedelta(days=days)
     threshold = await proposals.proposal_threshold(db)
-    split = await proposals.open_split_counts(
-        db, job_id=job_id, since=since, min_score=threshold
+    split = (
+        await single_list.split_counts(
+            db, job_id=job_id, since=since, min_score=threshold
+        )
+        if single_list.enabled()
+        else await proposals.open_split_counts(
+            db, job_id=job_id, since=since, min_score=threshold
+        )
     )
     screened_out = int(
         await db.scalar(
@@ -610,6 +648,7 @@ async def job_proposal_counts(
         # D5 (13.10.2026): „Zapytaj w rozmowie” na karcie propozycji —
         # sekcja 4 Championa, język i must, których wyszukiwanie nie czyta.
         "talk_checks": _talk_checks(job, not_searchable),
+        **({"single_list": True} if single_list.enabled() else {}),
     }
 
 
@@ -951,6 +990,14 @@ async def dismiss_job_proposals_bulk(
             skipped.append(candidate_id)
             continue
         changed = await proposals.dismiss(
+            db,
+            job_id=job_id,
+            candidate_id=candidate_id,
+            user_id=user.id,
+            cv_revision=candidate_revision(candidate),
+            reason=reason,
+            note=note,
+        ) or await single_list.dismiss_pool_only(
             db,
             job_id=job_id,
             candidate_id=candidate_id,

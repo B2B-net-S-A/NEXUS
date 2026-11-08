@@ -35,6 +35,11 @@
  * liczy), a pod listą stoi sekcja „Ukryci przez »musi mieć«”
  * (`HiddenByCriticalSection`).
  *
+ * 08.11.2026, flaga `SINGLE_CANDIDATE_LIST_ENABLED` (makieta 3,
+ * https://claude.ai/artifact/HgCGsxN7Nk7ENGpb6iNg2B): trzy zakładki listy stają
+ * się filtrami jednej listy, kolejność układa serwer. Bez flagi okno działa jak
+ * wyżej (`docs/claude/rekrutacja-tablica/jedna-lista-kandydatow.md`).
+ *
  * Dodanie idzie przez `proposals/bulk` jak dotąd (źródło z pochodzenia
  * wiersza). Serwer zakłada blokadę 12 h dla dodającego. Ostrzeżenia (NDA,
  * konkurent, ponad budżet) zostają widoczne; weto hiring managera blokuje
@@ -86,6 +91,7 @@ import {
   talkChecksOf,
   type HiddenByCriticalItem,
   type ProposalFacts,
+  type ProposalListFilter,
 } from "@/lib/job-proposals-api";
 import { unmeasuredReason } from "@/lib/match-breakdown";
 import {
@@ -99,6 +105,13 @@ import {
 import { markerCoversEligibility } from "@/lib/employment-marker";
 import { pluralPl } from "@/lib/plural-pl";
 import { rateBudgetBadge } from "@/lib/rate-budget-badge";
+import {
+  SINGLE_LIST_FILTERS,
+  filterOfTab,
+  isSingleListTab,
+  singleListBadges,
+  tabOfFilter,
+} from "@/lib/single-candidate-list";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -302,6 +315,9 @@ const TAB_LABEL: Record<CandidateWindowTab, string> = {
   manual: "Szukaj ręcznie",
 };
 
+const SINGLE_LIST_DESCRIPTION =
+  "Wszyscy kandydaci do tej rekrutacji na jednej liście, w tej samej kolejności co na Tablicy. Plakietka mówi, skąd jest osoba.";
+
 function tabDescription(tab: CandidateWindowTab, jobTitle: string | null | undefined): string {
   switch (tab) {
     case "similar":
@@ -396,11 +412,23 @@ function AddCandidatesPanelOpen({
   // „Pasuje też do” (14.10.2026): inne rekrutacje dla osób dodanych w tym oknie.
   const alsoFits = useAlsoFitsJobs({ fromJobId: jobId, addedIds, enabled: !readOnly });
 
+  const counts = useQuery({
+    queryKey: jobProposalsKeys.counts(jobId),
+    queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
+    staleTime: 30_000,
+    retry: false,
+  });
+  // Jedna lista (08.11.2026): flagę niesie serwer; awaria licznika = stare zakładki.
+  const singleList = counts.data?.single_list === true;
+  const [panelFilter, setPanelFilter] = useState<ProposalListFilter>("all");
+  const listFilter = singleList ? filterOfTab(tab, panelFilter) : "all";
   const proposals = useJobProposals(jobId, {
     filters: DEFAULT_PROPOSAL_FILTERS,
     budgetHourly,
     pipelineCandidateIds,
     readOnly,
+    singleList,
+    listFilter,
   });
   // „Pomiń” jednej osoby i „Pomiń zaznaczone” (R8) — jeden powód dla całej
   // grupy; zaznaczenie znika dopiero po potwierdzeniu powodu.
@@ -415,12 +443,6 @@ function AddCandidatesPanelOpen({
       }
       return next;
     });
-  });
-  const counts = useQuery({
-    queryKey: jobProposalsKeys.counts(jobId),
-    queryFn: ({ signal }) => jobProposalsApi.counts(jobId, signal),
-    staleTime: 30_000,
-    retry: false,
   });
   // „Zapytaj w rozmowie” (wariant A, 13.10.2026) — zakładka wyszukiwania
   // i podgląd osoby czytają tę samą listę.
@@ -453,7 +475,10 @@ function AddCandidatesPanelOpen({
       : undefined,
   });
 
-  const split = useMemo(() => splitByPostings(proposals.entries), [proposals.entries]);
+  const split = useMemo(
+    () => (singleList ? { postings: [], base: proposals.entries } : splitByPostings(proposals.entries)),
+    [proposals.entries, singleList],
+  );
   // Kafle nad Tablicą mają mówić to samo, co zakładki: lista łączy skrzynkę
   // z żywym przeglądem i podobnymi projektami, więc bywa dłuższa niż licznik
   // samej skrzynki. Publikujemy dopiero, gdy każde źródło się rozstrzygnęło.
@@ -473,21 +498,27 @@ function AddCandidatesPanelOpen({
     if (!sourcesSettled) return;
     queryClient.setQueryData(
       jobProposalsKeys.visibleSplit(jobId),
-      inboxHasMore ? null : { postings: postingsCount, base: baseCount },
+      inboxHasMore || singleList ? null : { postings: postingsCount, base: baseCount },
     );
-  }, [queryClient, jobId, sourcesSettled, inboxHasMore, postingsCount, baseCount]);
+  }, [queryClient, jobId, sourcesSettled, inboxHasMore, postingsCount, baseCount, singleList]);
 
   // Telemetria otwarcia „Propozycji z bazy” — raz na wejście w zakładkę
   // (serwer i tak zapisuje najwyżej raz dziennie). Błąd nie ma znaczenia.
   const openedSent = useRef(false);
+  const listTab: ListTab | null = singleList
+    ? isSingleListTab(tab)
+      ? "base"
+      : null
+    : tab === "postings" || tab === "base"
+      ? tab
+      : null;
   useEffect(() => {
-    if (tab !== "base" || readOnly || openedSent.current) return;
+    if (listTab !== "base" || readOnly || openedSent.current) return;
     openedSent.current = true;
     void Promise.resolve()
       .then(() => jobProposalsApi.opened(jobId))
       .catch(() => undefined);
-  }, [tab, readOnly, jobId]);
-  const listTab: ListTab | null = tab === "postings" || tab === "base" ? tab : null;
+  }, [listTab, readOnly, jobId]);
   const liveEntries = listTab === "postings" ? split.postings : split.base;
   // Dodani w tym oknie stoją dalej w swoim miejscu, z „Cofnij”.
   const keptHere = useMemo(
@@ -499,7 +530,9 @@ function AddCandidatesPanelOpen({
     [liveEntries, keptHere],
   );
   // Sekcja „Ukryci przez »musi mieć«” (28.10.2026) — tylko w „Propozycjach z bazy”.
-  const hiddenQuery = useHiddenByCritical(jobId, visited.has("base"));
+  const hiddenQuery = useHiddenByCritical(jobId, visited.has("base") || singleList);
+  // Jedna lista: sekcja ukrytych stoi tylko pod „Wszyscy”, jak „Nowi w bazie”.
+  const showHiddenSection = !singleList || listFilter === "all";
   const hiddenItems = useMemo(() => {
     const listed = new Set(liveEntries.map((e) => e.row.candidateId));
     return withKeptRows(
@@ -554,6 +587,7 @@ function AddCandidatesPanelOpen({
       const id = e.row.candidateId;
       return {
         ...proposalRow(e, factsById.get(id) ?? null, budgetHourly, askLabels),
+        ...(singleList ? { sourceLabel: null, sourceLabels: singleListBadges(e) } : {}),
         roleMismatch: factsById.get(id)?.role_mismatch ?? null,
         appliedTo: factsById.get(id)?.applied_to ?? null,
         mustCoverage: mustCoverage(e),
@@ -579,6 +613,7 @@ function AddCandidatesPanelOpen({
     undoWindow.expired,
     alsoFits,
     readOnly,
+    singleList,
   ]);
 
   // Dopasowanie bez klikania (D1, 14.10.2026) — wiersz na ekranie sam o nie
@@ -629,7 +664,7 @@ function AddCandidatesPanelOpen({
   }, [sortMode, listTab, unscoredNow, reportScoreRow]);
   // Nowi w bazie najpierw (03.11.2026): „Najpierw byli u tego klienta” to jawny
   // wybór innej kolejności, a „Nowi z ogłoszeń” mają własną zakładkę.
-  const freshSection = sortMode === "match" && listTab === "base";
+  const freshSection = sortMode === "match" && listTab === "base" && listFilter === "all";
   const listRows = useMemo(() => {
     // Wiersz niesie procent, który widać: zapisany albo policzony na ekranie
     // (osoba tylko z portalu ogłoszeń nie ma zapisanego — 27.10.2026). Tak
@@ -643,7 +678,9 @@ function AddCandidatesPanelOpen({
       const sorted =
         sortMode === "client_first"
           ? sortByClientHistory(rows, factsById)
-          : sortByShownScore(rows, (row) => row.fitScore);
+          : singleList
+            ? rows // Kolejność z serwera (`review_batch_order`), jedna dla całej listy.
+            : sortByShownScore(rows, (row) => row.fitScore);
       // Inna rola (tester przy programiście, 27.10.2026) zawsze pod osobami
       // z roli rekrutacji, niezależnie od procentu.
       const rest = [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
@@ -655,7 +692,7 @@ function AddCandidatesPanelOpen({
       ...order(shown.filter((r) => !belowIds.has(r.candidateId))),
       ...order(shown.filter((r) => belowIds.has(r.candidateId))),
     ];
-  }, [sortMode, freshSection, unsortedRows, factsById, matchScores.scores, belowIds]);
+  }, [sortMode, freshSection, unsortedRows, factsById, matchScores.scores, belowIds, singleList]);
   const belowStart = listRows.findIndex((r) => belowIds.has(r.candidateId));
   const aboveRows = belowStart < 0 ? listRows : listRows.slice(0, belowStart);
   const freshRows = freshSection ? aboveRows.filter((r) => r.newInBaseDays != null) : [];
@@ -738,10 +775,12 @@ function AddCandidatesPanelOpen({
     () =>
       new Set(
         [...(selected ?? [])].filter(
-          (id) => (entryIds.has(id) || (listTab === "base" && hiddenById.has(id))) && !addedIds.has(id),
+          (id) =>
+            (entryIds.has(id) || (listTab === "base" && showHiddenSection && hiddenById.has(id))) &&
+            !addedIds.has(id),
         ),
       ),
-    [selected, entryIds, addedIds, listTab, hiddenById],
+    [selected, entryIds, addedIds, listTab, hiddenById, showHiddenSection],
   );
   const count = selectedIds.size;
   /**
@@ -874,8 +913,8 @@ function AddCandidatesPanelOpen({
   );
   // Podgląd chodzi po liście i dalej po sekcji ukrytych („Propozycje z bazy”).
   const previewRows = useMemo(
-    () => (listTab === "base" ? [...listRows, ...hiddenRows] : listRows),
-    [listTab, listRows, hiddenRows],
+    () => (listTab === "base" && showHiddenSection ? [...listRows, ...hiddenRows] : listRows),
+    [listTab, listRows, hiddenRows, showHiddenSection],
   );
   const previewIndex = previewId == null ? -1 : previewRows.findIndex((r) => r.candidateId === previewId);
   const previewRow = previewIndex >= 0 ? previewRows[previewIndex] : null;
@@ -889,7 +928,7 @@ function AddCandidatesPanelOpen({
   // Zmiana zakładki zamyka kartę osoby z poprzedniej listy.
   useEffect(() => {
     setPreviewId(null);
-  }, [tab]);
+  }, [tab, listFilter]);
 
   const similarTotal = similarPeopleTotal(similarJobs.data);
   // Gdy skrzynka ma kolejne strony, liczba z serwera mówi, ile osób naprawdę
@@ -907,10 +946,28 @@ function AddCandidatesPanelOpen({
     manual: "—",
   };
 
+  // Jedna lista: trzy zakładki, a „Kandydaci” obejmują dawne źródła jako filtry.
+  const windowTabs: readonly CandidateWindowTab[] = singleList
+    ? ["base", "search", "manual"]
+    : CANDIDATE_WINDOW_TABS;
+  const activeTab: CandidateWindowTab = singleList && listTab ? "base" : tab;
+  const labelCounts = proposals.status.labelCounts;
+  const filterCount = (key: ProposalListFilter): number | null => {
+    if (key === "similar") {
+      const listed = labelCounts?.similar ?? 0;
+      return Math.max(listed, similarTotal?.total ?? 0) || null;
+    }
+    return labelCounts?.[key] ?? null;
+  };
+  const pickFilter = (key: ProposalListFilter) => {
+    if (key !== "portal" && key !== "similar") setPanelFilter(key);
+    onTabChange(tabOfFilter(key));
+  };
+
   // U7: strzałki, Home i End chodzą po zakładkach (wzorzec ARIA „tabs”).
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const index = CANDIDATE_WINDOW_TABS.indexOf(tab);
-    const last = CANDIDATE_WINDOW_TABS.length - 1;
+    const index = windowTabs.indexOf(activeTab);
+    const last = windowTabs.length - 1;
     const target =
       event.key === "ArrowRight"
         ? index >= last ? 0 : index + 1
@@ -923,36 +980,71 @@ function AddCandidatesPanelOpen({
               : null;
     if (target == null) return;
     event.preventDefault();
-    const next = CANDIDATE_WINDOW_TABS[target];
+    const next = windowTabs[target];
     onTabChange(next);
     document.getElementById(`add-candidates-tab-${next}`)?.focus();
   };
 
   const tablist = (
     <div role="tablist" aria-label="Źródło kandydatów" className="flex flex-wrap gap-1 pb-2">
-      {CANDIDATE_WINDOW_TABS.map((key) => (
+      {windowTabs.map((key) => (
         <button
           key={key}
           type="button"
           role="tab"
           id={`add-candidates-tab-${key}`}
           data-tour={key === "manual" ? "jobs.add.manual-tab" : key === "base" ? "jobs.add.base-tab" : undefined}
-          aria-selected={tab === key}
+          aria-selected={activeTab === key}
           aria-controls={`add-candidates-panel-${key}`}
-          tabIndex={tab === key ? 0 : -1}
+          tabIndex={activeTab === key ? 0 : -1}
           onKeyDown={onTabKeyDown}
           onClick={() => onTabChange(key)}
           className={cn(
             "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            tab === key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
+            activeTab === key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
           )}
         >
-          {TAB_LABEL[key]}
-          {tabCount[key] != null ? <span className="tabular-nums">· {tabCount[key]}</span> : null}
+          {singleList && key === "base" ? "Kandydaci" : TAB_LABEL[key]}
+          {singleList && key === "base" ? (
+            labelCounts ? <span className="tabular-nums">· {labelCounts.all}</span> : null
+          ) : tabCount[key] != null ? (
+            <span className="tabular-nums">· {tabCount[key]}</span>
+          ) : null}
         </button>
       ))}
     </div>
   );
+
+  const filterBar =
+    singleList && listTab ? (
+      <div
+        role="group"
+        aria-label="Skąd jest osoba"
+        data-testid="single-list-filters"
+        className="flex flex-wrap gap-1 pb-2"
+      >
+        {SINGLE_LIST_FILTERS.map(({ key, label }) => {
+          const number = filterCount(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={listFilter === key}
+              onClick={() => pickFilter(key)}
+              className={cn(
+                "inline-flex h-6 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                listFilter === key
+                  ? "border-primary bg-primary font-semibold text-primary-foreground"
+                  : "border-border bg-card text-foreground hover:bg-muted",
+              )}
+            >
+              {label}
+              {number != null ? <span className="tabular-nums">{number}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
 
   const proposalsFooter = (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1161,21 +1253,28 @@ function AddCandidatesPanelOpen({
           />
         </section>
       ) : null}
-      {proposalsList("Propozycje z bazy", "Nikt nie czeka w propozycjach z bazy.")}
-      <HiddenByCriticalSection
-        jobId={jobId}
-        query={hiddenQuery}
-        rows={hiddenRows}
-        readOnly={readOnly}
-        selected={selectedIds}
-        onToggle={pickListProps.onToggle}
-        activeId={pickListProps.activeId}
-        onPreview={pickListProps.onPreview}
-        onClosePreview={closePreview}
-        onDismiss={pickListProps.onDismiss}
-        onAdd={pickListProps.onAdd}
-        onUndo={pickListProps.onUndo}
-      />
+      {singleList
+        ? proposalsList(
+            "Kandydaci do rekrutacji",
+            listFilter === "all" ? "Nikt nie czeka na liście kandydatów." : "Nikogo pod tym filtrem.",
+          )
+        : proposalsList("Propozycje z bazy", "Nikt nie czeka w propozycjach z bazy.")}
+      {showHiddenSection ? (
+        <HiddenByCriticalSection
+          jobId={jobId}
+          query={hiddenQuery}
+          rows={hiddenRows}
+          readOnly={readOnly}
+          selected={selectedIds}
+          onToggle={pickListProps.onToggle}
+          activeId={pickListProps.activeId}
+          onPreview={pickListProps.onPreview}
+          onClosePreview={closePreview}
+          onDismiss={pickListProps.onDismiss}
+          onAdd={pickListProps.onAdd}
+          onUndo={pickListProps.onUndo}
+        />
+      ) : null}
       {onOpenFullList ? (
         <button
           type="button"
@@ -1251,24 +1350,52 @@ function AddCandidatesPanelOpen({
     sidePane: undefined,
     onEscapeKeyDown: () => undefined,
   };
+  const closeListPreview = (event: KeyboardEvent) => {
+    if (!previewRow) return;
+    event.preventDefault();
+    closePreview();
+  };
+  // Jedna lista: narzędzie przepięć i odłożone zgłoszenia zostają pod filtrami.
+  const singleListSlots = {
+    toolbar: null,
+    body: (
+      <>
+        {baseBody}
+        {listFilter === "applied" || listFilter === "portal" ? (
+          <ScreenedOutSection jobId={jobId} readOnly={readOnly} />
+        ) : null}
+        {listFilter === "similar" ? (
+          <section aria-label="Przepnij z podobnych rekrutacji" className="space-y-2 border-t border-border pt-3">
+            <h3 className="text-sm font-semibold">Przepnij z podobnych rekrutacji</h3>
+            {similarTab.toolbar}
+            {similarTab.body}
+          </section>
+        ) : null}
+      </>
+    ),
+    footer: listFilter === "similar" && count === 0 ? similarTab.footer : proposalsFooter,
+    sidePane: listSidePane ?? (listFilter === "similar" ? similarTab.sidePane : undefined),
+    onEscapeKeyDown: (event: KeyboardEvent) => {
+      if (previewRow) closeListPreview(event);
+      else if (listFilter === "similar") similarTab.onEscapeKeyDown(event);
+    },
+  };
   const slots =
-    tab === "similar"
-      ? similarTab
-      : tab === "search"
-        ? searchTab
-        : tab === "manual"
-          ? manualSlots
-          : {
-            toolbar: null,
-            body: tab === "postings" ? postingsBody : baseBody,
-            footer: proposalsFooter,
-            sidePane: listSidePane,
-            onEscapeKeyDown: (event: KeyboardEvent) => {
-              if (!previewRow) return;
-              event.preventDefault();
-              closePreview();
-            },
-          };
+    singleList && listTab
+      ? singleListSlots
+      : tab === "similar"
+        ? similarTab
+        : tab === "search"
+          ? searchTab
+          : tab === "manual"
+            ? manualSlots
+            : {
+                toolbar: null,
+                body: tab === "postings" ? postingsBody : baseBody,
+                footer: proposalsFooter,
+                sidePane: listSidePane,
+                onEscapeKeyDown: closeListPreview,
+              };
 
   // „Szukaj ręcznie” po pierwszym wejściu zostaje zamontowane (ukryte poza
   // swoją zakładką) — filtry i zaznaczenia przeżywają przełączanie.
@@ -1290,13 +1417,14 @@ function AddCandidatesPanelOpen({
       open
       onOpenChange={onOpenChange}
       title="Kandydaci do dodania"
-      description={tabDescription(tab, job.title)}
+      description={singleList && listTab ? SINGLE_LIST_DESCRIPTION : tabDescription(tab, job.title)}
       // Wyszukiwarka niesie szynę filtrów i tabelę — 540 px jej nie pomieści.
       width={tab === "manual" ? "wide" : "standard"}
       bodyClassName={tab === "manual" ? "px-3 sm:px-4" : undefined}
       toolbar={
         <>
           {tablist}
+          {filterBar}
           {slots.toolbar}
         </>
       }
@@ -1316,8 +1444,8 @@ function AddCandidatesPanelOpen({
     >
       <div
         role="tabpanel"
-        id={`add-candidates-panel-${tab}`}
-        aria-labelledby={`add-candidates-tab-${tab}`}
+        id={`add-candidates-panel-${activeTab}`}
+        aria-labelledby={`add-candidates-tab-${activeTab}`}
         className="space-y-3"
       >
         {slots.body}

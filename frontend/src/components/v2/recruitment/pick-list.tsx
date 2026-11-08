@@ -52,6 +52,8 @@ export interface PickRow {
   /** Nowi w bazie najpierw: dni w bazie osoby z pierwszeństwem na liście. */
   newInBaseDays?: number | null;
   sourceLabel: string | null;
+  /** Jedna lista: plakietki źródła zamiast jednej etykiety. */
+  sourceLabels?: readonly string[];
   /** Znacznik „Pracuje u nas” — pigułka w rzędzie plakietek. */
   employment?: EmploymentMarker | null;
   warnings: Array<{ key: string; label: string; blocking: boolean }>;
@@ -426,7 +428,7 @@ function PickListItem({
           ) : null}
           {added ? row.alsoFits : null}
           {row.extra}
-          {(row.sourceLabel || row.cvBadge || row.employment || row.newInBaseDays != null || row.warnings.length > 0) && (
+          {(row.sourceLabel || row.sourceLabels?.length || row.cvBadge || row.employment || row.newInBaseDays != null || row.warnings.length > 0) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               {/* Poza przyciskiem nazwiska i linią faktów — ich treść
                   jest nazwą dostępną wiersza i tekstem do skanowania. */}
@@ -445,6 +447,15 @@ function PickListItem({
                   {row.sourceLabel}
                 </span>
               )}
+              {row.sourceLabels?.map((label) => (
+                <span
+                  key={label}
+                  data-testid="pick-row-source"
+                  className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground"
+                >
+                  {label}
+                </span>
+              ))}
               {row.warnings.map((w) => (
                 <span
                   key={w.key}
