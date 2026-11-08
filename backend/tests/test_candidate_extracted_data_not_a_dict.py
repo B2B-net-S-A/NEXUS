@@ -25,18 +25,14 @@ Traffit sync walks for every candidate.
 
 from __future__ import annotations
 
-import uuid
 
-import pytest
 import pytest_asyncio
-from sqlalchemy import text
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
 )
-from app.services.traffit.importer import TraffitImporter
 
 
 @pytest_asyncio.fixture
@@ -173,38 +169,3 @@ class _OneEmployee:
                 }
             ],
         )
-
-
-@pytest.mark.asyncio
-async def test_traffit_sync_no_longer_errors_on_such_a_candidate(db) -> None:
-    """End-to-end through the phase that actually broke.
-
-    Testing only `_manual_lock` would prove the helper and leave the question
-    the prod incident asked — does the candidates phase still count this row as
-    a blocking error? — unanswered.
-    """
-    ext = f"x{uuid.uuid4().hex[:10]}"
-    await db.execute(
-        text(
-            """
-            INSERT INTO candidates (
-                external_id, external_source, name, lastname,
-                cv_extracted_data, created_at, updated_at
-            ) VALUES (
-                :e, 'traffit', 'Jan', 'Kowalski',
-                CAST(:d AS jsonb), NOW(), NOW()
-            )
-            """
-        ),
-        {"e": ext, "d": '[{"skill": "Python"}]'},
-    )
-    await db.commit()
-
-    importer = TraffitImporter(_OneEmployee(ext), db, dry_run=False, batch_size=10)
-    progress = await importer.import_candidates(since=None)
-
-    assert progress.errors == 0, f"still failing: {progress.error_samples}"
-    row = await db.execute(
-        text("SELECT city FROM candidates WHERE external_id = :e"), {"e": ext}
-    )
-    assert row.scalar_one() == "Warszawa"

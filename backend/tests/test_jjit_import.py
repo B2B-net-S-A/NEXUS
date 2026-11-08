@@ -3,13 +3,12 @@
 1. **Kształt panelu** — kanban `columns[].applications[]` spłaszcza się z
    `statusKey`; `appliedFrom` zawsze pełne ISO (sama data = HTTP 500 w panelu);
    aplikacje usunięte / zanonimizowane / bez CV są pomijane.
-2. **Payload Traffit** — e-mail z CV ma pierwszeństwo, ale niepoprawny wraca
-   do e-maila z panelu; lata doświadczenia trafiają w kubełki Traffita;
-   nieznane języki nie psują listy ID.
+2. **E-mail kandydata** — ten z CV ma pierwszeństwo, ale niepoprawny wraca
+   do e-maila z panelu.
 3. **Reguła dopasowania jest ta sama, co w scraperze** — próg + published +
    co najmniej jedno trafione must-have.
 4. **dry_run nic nie zapisuje** poza raportem runu: run w bazie ma liczniki,
-   Traffit i NEXUS nie dostają żadnego zapisu, stan aplikacji nie jest
+   NEXUS nie dostaje żadnego zapisu, stan aplikacji nie jest
    zapamiętywany (ten sam kandydat policzy się ponownie w prawdziwym runie).
 5. **Drugi run w trakcie pierwszego jest odrzucany** (`RunInProgress`).
 """
@@ -26,8 +25,7 @@ from app.models.integration_external_item import IntegrationExternalItem
 from app.models.integration_run import IntegrationRun
 from app.services.integrations.jjit import runner
 from app.services.integrations.jjit.cv_payload import (
-    build_traffit_payload,
-    language_ids,
+    preferred_email,
 )
 from app.services.integrations.jjit.nexus_client import is_good_match
 from app.services.integrations.jjit.panel_client import (
@@ -73,29 +71,19 @@ def test_skip_reasons():
     assert application_skip_reason({"hasCv": True}) is None
 
 
-# ── 2. payload Traffit ──────────────────────────────────────────────────────
+# ── 2. e-mail kandydata ──────────────────────────────────────────────────
 
 
-def test_payload_prefers_cv_email_but_falls_back_to_panel():
-    parsed = {
-        "first_name": "Jan",
-        "last_name": "Kowalski",
-        "email": "not-an-email",
-        "years_it_experience": 7,
-    }
-    payload = build_traffit_payload(
-        parsed,
-        fallback={"first_name": "J.", "last_name": "K.", "email": "jan@example.com"},
-        offer_title="DevOps",
+def test_email_prefers_cv_but_falls_back_to_panel():
+    assert (
+        preferred_email({"email": "not-an-email"}, panel_email=" jan@example.com ")
+        == "jan@example.com"
     )
-    assert payload["email"] == "jan@example.com"
-    assert payload["name"] == "Jan" and payload["lastname"] == "Kowalski"
-    assert payload["_experience"] == ["5+"]
-    assert payload["_Position"] == "DevOps"
-
-
-def test_language_ids_ignore_unknown():
-    assert language_ids(["English (C1)", "Klingon", {"language": "Polski"}]) == [1, 0]
+    assert (
+        preferred_email({"email": "anna@example.com"}, panel_email="jan@example.com")
+        == "anna@example.com"
+    )
+    assert preferred_email({}, panel_email="") == ""
 
 
 # ── 3. reguła dopasowania ───────────────────────────────────────────────────
@@ -133,7 +121,7 @@ def test_match_rule_requires_must_have_when_job_has_them():
     assert is_good_match(real, min_score=70, require_must=True) is False
 
 
-# ── 4/5. dry_run i lock (z atrapami panelu / Traffit / NEXUS) ──────────────
+# ── 4/5. dry_run i lock (z atrapami panelu / NEXUS) ──────────────
 
 
 class _FakePanel:
@@ -180,25 +168,6 @@ class _FakePanel:
             filename=f"{application_id}.pdf",
             mime="application/pdf",
         )
-
-
-class _FakeTraffit:
-    writes: list = []
-
-    def __init__(self, *_a, **_k):
-        pass
-
-    configured = True
-
-    async def search_by_email(self, email):
-        return {"id": 777} if email == "jan@example.com" else None
-
-    async def create_candidate(self, payload):
-        _FakeTraffit.writes.append(("create", payload))
-        return {"status": 201, "data": {"id": 1}}
-
-    async def upload_cv(self, *a, **k):
-        _FakeTraffit.writes.append(("upload", a))
 
 
 class _FakeNexus:
@@ -249,7 +218,6 @@ async def fakes(monkeypatch):
     monkeypatch.setenv("JJIT_EMAIL", "test@example.com")
     monkeypatch.setenv("JJIT_PASSWORD", "secret")
     monkeypatch.setattr(runner, "PanelClient", _FakePanel)
-    monkeypatch.setattr(runner, "TraffitWriter", _FakeTraffit)
     monkeypatch.setattr(runner, "NexusLoopbackClient", _FakeNexus)
     monkeypatch.setattr(
         runner, "_cv_text", lambda cv: "Anna Nowa anna@example.com Python 5 lat"
@@ -268,7 +236,6 @@ async def fakes(monkeypatch):
 
     monkeypatch.setattr(runner, "parse_cv", _parse)
     monkeypatch.setattr(runner, "PAUSE_BETWEEN_CANDIDATES_SEC", 0)
-    _FakeTraffit.writes.clear()
     _FakeNexus.calls.clear()
     _FakeNexus.candidate_id = await _seed_candidate()
     yield
@@ -284,14 +251,13 @@ async def test_dry_run_reports_but_writes_nothing(fakes):
         dry_run=True, since="2026-09-01", states=["published"]
     )
     assert result["status"] == "ok", result
-    assert result["created"] == 1  # Anna — nowa w Traffit
-    assert result["duplicates"] == 1  # Jan — znany
+    assert result["created"] == 2  # Anna i Jan
+    assert result["duplicates"] == 0
     assert result["skipped"] == 1  # bez CV
-    assert _FakeTraffit.writes == [], "dry_run nie zapisuje w Traffit"
     assert _FakeNexus.calls == [], "dry_run nie woła NEXUS-a"
     async with AsyncSessionLocal() as db:
         run = await db.get(IntegrationRun, result["run_id"])
-        assert run.mode == "dry_run" and run.stats["created"] == 1
+        assert run.mode == "dry_run" and run.stats["created"] == 2
         remembered = await db.scalar(
             select(IntegrationExternalItem).where(
                 IntegrationExternalItem.source == "jjit",
@@ -307,10 +273,7 @@ async def test_real_run_writes_and_remembers(fakes):
         dry_run=False, since="2026-09-01", states=["published"]
     )
     assert result["status"] == "ok", result
-    assert result["created"] == 1 and result["duplicates"] == 1
-    assert [w[0] for w in _FakeTraffit.writes] == ["create", "upload", "upload"], (
-        "nowy: create + upload; duplikat dostaje nowe CV"
-    )
+    assert result["created"] == 2 and result["duplicates"] == 0
     assert len(_FakeNexus.calls) == 2
     async with AsyncSessionLocal() as db:
         items = (
@@ -327,17 +290,14 @@ async def test_real_run_writes_and_remembers(fakes):
         )
         assert {i.external_id: i.last_action for i in items} == {
             "app-1": "created",
-            "app-2": "cv_refreshed",
+            "app-2": "created",
         }
     # Drugi prawdziwy run: obie aplikacje już widziane → pominięte, zero zapisów.
-    _FakeTraffit.writes.clear()
     _FakeNexus.calls.clear()
     again = await runner.run_once(
         dry_run=False, since="2026-09-01", states=["published"]
     )
-    assert (
-        again["skipped"] == 3 and _FakeTraffit.writes == [] and _FakeNexus.calls == []
-    )
+    assert again["skipped"] == 3 and _FakeNexus.calls == []
 
 
 @pytest.mark.asyncio

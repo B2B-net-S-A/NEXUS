@@ -55,7 +55,6 @@ _WRITE_PATHS = [
     ("app/api/candidates.py", "apply_candidate_create"),
     ("app/api/import_export.py", "import_candidates"),
     ("app/api/candidates.py", "bulk_import_candidates"),
-    ("app/services/traffit/importer.py", "import_candidates"),
 ]
 
 
@@ -199,7 +198,6 @@ def test_bulk_paths_do_not_embed_inline() -> None:
     for path, func_name in [
         ("app/api/import_export.py", "import_candidates"),
         ("app/api/candidates.py", "bulk_import_candidates"),
-        ("app/services/traffit/importer.py", "import_candidates"),
     ]:
         node = _function_node(path, func_name)
         assert node is not None
@@ -242,4 +240,3 @@ def test_shared_cv_ingest_path_really_indexes() -> None:
     node = _function_node("app/services/cv_ingest_service.py", "finish_cv_ingest")
     assert node is not None
     assert "schedule_or_embed_candidate" in _calls_indexing(node)
-
