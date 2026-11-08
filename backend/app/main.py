@@ -3402,7 +3402,9 @@ async def api_health_background():
     return {
         "role": settings.NEXUS_PROCESS_ROLE,
         "checks": local_background_checks(app.state),
-        "tasks": classify_background_tasks(getattr(app.state, "background_tasks", None)),
+        "tasks": classify_background_tasks(
+            getattr(app.state, "background_tasks", None)
+        ),
     }
 
 
