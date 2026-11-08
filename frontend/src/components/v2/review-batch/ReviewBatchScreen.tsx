@@ -103,7 +103,7 @@ export function ReviewBatchScreen() {
         density="compact"
         description={
           data.met
-            ? "Minimum zrobione. Wyszukiwanie ręczne odblokowane do jutra, 7:00."
+            ? "Minimum zrobione. Wyszukiwanie ręczne odblokowane do następnego dnia roboczego, 7:00."
             : `Zdecyduj o ${data.required} osobach, zanim zaczniesz szukać ręcznie. Osobę spoza bazy dodasz zawsze.`
         }
         actions={
@@ -127,7 +127,7 @@ export function ReviewBatchScreen() {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
-          Porcja przejrzana. Nowa porcja przyjdzie jutro o 7:00.
+          Porcja przejrzana. Nowa porcja przyjdzie w następny dzień roboczy o 7:00.
         </p>
       )}
 

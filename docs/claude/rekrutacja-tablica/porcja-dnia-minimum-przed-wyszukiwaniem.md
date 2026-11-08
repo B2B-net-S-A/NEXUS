@@ -1,4 +1,4 @@
-# Porcja dnia od Nexusa: 20 osób na rekrutację, minimum 50 decyzji przed ręcznym wyszukiwaniem
+# Porcja dnia od Nexusa: 20 osób na rekrutację, minimum 10 decyzji przed ręcznym wyszukiwaniem
 <!-- indeks: `services/review_batch.py`, `/api/review-batch`, `REVIEW_BATCH_ENABLED`, 423 `REVIEW_MINIMUM_PENDING`, `entry_meta.review_owner_id`, `/porcja`, „Dla: …” na karcie, „Dodaj 20 kolejnych” -->
 
 Decyzje Artura z 07.11.2026, raport i makiety M1–M11:
@@ -32,8 +32,8 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
 - **Decyzja** = ruch karty od systemu z „Nowych” przez tę osobę dziś
   (`decided_today`): screening albo odrzucenie z powodem, z ekranu porcji albo
   z Tablicy. Pomijania nie ma.
-- **Minimum** (domyślnie 50, `app_settings['review_batch']`, ustawia HoR i admin
-  w „Ranking kandydatów → Wagi”). Kto ma w porcji mniej, przegląda całą porcję:
+- **Minimum** (domyślnie 10 od 08.11.2026, wcześniej 50; `app_settings['review_batch']`,
+  ustawia HoR i admin w „Ranking kandydatów → Wagi”). Kto ma w porcji mniej, przegląda całą porcję:
   `required = min(minimum, decyzje dziś + czekające)`.
 - **Blokada 423 `REVIEW_MINIMUM_PENDING`** tylko dla konta z rolą rekrutera,
   przy włączonej porcji i niezrobionym minimum (`assert_search_allowed`). Trasy:
@@ -58,6 +58,32 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
   rekruter rekrutacji, gdy jego część porcji w niej jest przejrzana. Nowe osoby
   trafiają do klikającego.
 - **Licznik w pasku** tylko przed minimum (przy 1280 px pasek jest ciasny).
+
+## Bezpieczne włączenie (decyzja Artura 08.11.2026)
+
+Audyt na kopii produkcji z 06.11 przed planowanym włączeniem w pon. 09.11:
+rekruterzy podejmowali 4,7–7,8 decyzji dziennie o kartach od systemu (najwięcej
+29, nikt nie doszedł do 50), więc minimum 50 blokowało 12 z 16 osób na cały
+dzień. Pierwsza porcja miałaby 1 440 kart, z czego ok. 850 starszych niż 7 dni
+i 147 poniżej 65%. Artur wstrzymał obie flagi do tych zmian:
+
+- **W porcji tylko karty od 65% i nie starsze niż 7 dni** (`in_batch`,
+  `MAX_AGE_DAYS`). Starsze i słabsze karty zostają na Tablicy, ale nie mają
+  właściciela, nie blokują, nie liczą się do 20 i można je zdjąć z rekrutacji.
+- **Jednorazowe wycofanie przed włączeniem flagi:**
+  `python -m scripts.autofill_withdraw_batch_reset` (podgląd), potem `--apply`.
+  Tylko nietknięte karty od systemu (ta sama droga i reguły co
+  `autofill_withdraw`), powód `autofill_withdrawn_batch_reset`.
+- **Minimum domyślnie 10.** Kolejne progi (20, 30) HoR ustawia po pomiarze:
+  krok w górę, gdy co najmniej 80% rekruterów robi minimum przed 11:00,
+  a wysłane CV z ręcznych dodań nie spadają o więcej niż 15%.
+- **Blokada tylko w dni robocze od 7:00** (`blocking_now`, `BLOCK_START_HOUR`).
+  W weekend i przed 7:00 wyszukiwanie działa, a ekran mówi „do następnego dnia
+  roboczego, 7:00”.
+- **Wyłącznik i pilot bez wdrożenia** (`BatchSettings.block_enabled`,
+  `pilot_user_ids`, „Ranking kandydatów → Wagi”): HoR wyłącza samą blokadę
+  (porcja dalej się rozdziela) albo zawęża ją do zaznaczonych osób. Pusta lista
+  = wszyscy rekruterzy. Env `REVIEW_BATCH_ENABLED` zostaje wyłącznikiem głównym.
 
 ## Szczelność blokady (przegląd kodu 07.11.2026)
 
@@ -105,7 +131,11 @@ Testy: `backend/tests/test_review_batch.py`, `test_review_batch_unit.py`,
 - **Pierwszy pełny przegląd tego samego dnia** (`_daytime_first_review`): dni
   robocze 7–19, rekrutacje w pracy bez żadnego przeglądu automatycznego
   (`first_review_job_ids`), pojedynczo (ustępuje każdemu aktywnemu przeglądowi),
-  najwyżej `AUTO_FULL_REVIEW_DAYTIME_MAX` (10) dziennie poza nocnym oknem.
+  najwyżej `AUTO_FULL_REVIEW_DAYTIME_MAX` (3 od 08.11.2026, wcześniej 10) dziennie
+  poza nocnym oknem. **Automat ustępuje ręcznemu przeglądowi po każdej paczce**
+  (`candidate_search_worker._execute_claimed`, `store.yield_run`): bez tego
+  rekruter czekał na koniec trwającego automatu (p50 286 s, p90 534 s).
+  Ustąpienie nie zużywa próby z `MAX_CLAIMS`.
   Wyłącznik `AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED`, domyślnie wyłączony (przegląd
   idzie w procesie web, który w dzień ma już wolne trasy) — włącza się razem z porcją. Szybkie dopasowanie przy
   zapisie (`new_cv`, 11–19 osób) zostaje.

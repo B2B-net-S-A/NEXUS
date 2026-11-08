@@ -271,12 +271,12 @@ async def test_closed_job_cards_do_not_block(small_batch):
     await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
     await _fill(world["job_id"])
     async with AsyncSessionLocal() as db:
-        assert len(await rb._own_cards(db, a)) == 3
+        assert len(await rb._own_cards(db, a, now=_WORKDAY)) == 3
         job = await db.get(Job, world["job_id"])
         job.status = JobStatus.closed
         await db.commit()
     async with AsyncSessionLocal() as db:
-        assert await rb._own_cards(db, a) == []
+        assert await rb._own_cards(db, a, now=_WORKDAY) == []
 
 
 async def test_batch_card_cannot_be_removed_instead_of_decided(small_batch):
@@ -350,3 +350,80 @@ async def test_card_readded_by_hand_is_not_the_old_owners(small_batch):
         await db.commit()
     async with AsyncSessionLocal() as db:
         assert await rb.pending_cards(db, owner_id=a) == []
+
+
+async def test_stale_card_leaves_the_batch_and_the_reset_withdraws_it(small_batch):
+    """08.11.2026: karta starsza niż 7 dni nie jest porcją — nie blokuje, nie
+    zajmuje miejsca świeżej, a jednorazowe wycofanie zdejmuje ją z Tablicy."""
+    from datetime import timedelta
+
+    from app.services import autofill_withdraw
+
+    a = await _user()
+    world = await _world(6, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(world["ids"])})
+    first = await _fill(world["job_id"])
+    assert len(first) == 4
+    stale = first[0]
+    async with AsyncSessionLocal() as db:
+        process = (
+            await db.scalars(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.job_id == world["job_id"],
+                    RecruitmentProcess.candidate_id == stale,
+                )
+            )
+        ).one()
+        process.opened_at = _WORKDAY - timedelta(days=10)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        mine = {c.candidate_id for c in await rb._own_cards(db, a, now=_WORKDAY)}
+    assert stale not in mine and len(mine) == 3
+    # Świeża karta wchodzi w miejsce starej.
+    assert len(await _fill(world["job_id"])) == 1
+
+    async with AsyncSessionLocal() as db:
+        planned = await autofill_withdraw.plan_batch_reset(
+            db, now=_WORKDAY, job_ids=[world["job_id"]]
+        )
+        assert planned == [(stale, world["job_id"])]
+        done = await autofill_withdraw.apply(
+            db,
+            planned,
+            reason=autofill_withdraw.BATCH_RESET_REASON,
+            check_batch_reset=True,
+        )
+        await db.commit()
+    assert done == planned
+    async with AsyncSessionLocal() as db:
+        left = {
+            c.candidate_id
+            for c in await rb.pending_cards(db, job_ids=[world["job_id"]])
+        }
+    assert stale not in left and len(left) == 4
+
+
+async def test_low_score_card_is_not_the_batch(small_batch):
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    [first, *_] = await _fill(world["job_id"])
+    async with AsyncSessionLocal() as db:
+        process = (
+            await db.scalars(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.job_id == world["job_id"],
+                    RecruitmentProcess.candidate_id == first,
+                )
+            )
+        ).one()
+        process.entry_meta = {**(process.entry_meta or {}), "score": 50}
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, a)
+        # Słaba karta nie blokuje usunięcia i nie liczy się do porcji.
+        await rb.assert_removal_allowed(
+            db, user, candidate_id=first, job_id=world["job_id"]
+        )
+        mine = {c.candidate_id for c in await rb._own_cards(db, a, now=_WORKDAY)}
+    assert first not in mine

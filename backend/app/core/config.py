@@ -602,7 +602,9 @@ class Settings(BaseSettings):
     # Domyślnie wyłączone: przegląd (4–5 min) idzie w procesie web, który
     # w dzień ma już wolne trasy; włącza się razem z porcją dnia.
     AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED: bool = False
-    AUTO_FULL_REVIEW_DAYTIME_MAX: int = 10
+    # 08.11.2026: 10 → 3 na start; automat ustępuje ręcznemu przeglądowi po
+    # każdej paczce (`candidate_search_worker._execute_claimed`).
+    AUTO_FULL_REVIEW_DAYTIME_MAX: int = 3
     # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
     # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę
     # „Nowi” każdej rekrutacji w pracy osobami z puli nocnego przeglądu.

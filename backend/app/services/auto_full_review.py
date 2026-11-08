@@ -750,7 +750,7 @@ async def _daytime_first_review(now: datetime) -> Optional[dict]:
     async with AsyncSessionLocal() as db:
         if await _search_busy(db):
             return {"skipped": "search_active"}
-        cap = max(0, int(getattr(settings, "AUTO_FULL_REVIEW_DAYTIME_MAX", 10)))
+        cap = max(0, int(getattr(settings, "AUTO_FULL_REVIEW_DAYTIME_MAX", 3)))
         if (
             await _started_since(db, day_start)
             - await _started_in_window_since(db, day_start)

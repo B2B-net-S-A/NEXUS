@@ -344,6 +344,7 @@ async def _record_failure(run_id: str, token: str, exc: BaseException) -> None:
 async def _execute_claimed(run_id: str, token: str):
     async with AsyncSessionLocal() as db:
         run = await db.get(CandidateSearchRun, run_id)
+        auto_run = store.is_auto_run(run)
         if store.claim_count(run.metrics) > MAX_CLAIMS:
             # Earlier attempts died without reporting (e.g. process crash).
             if await store.fail_run(db, run_id, "attempts_exhausted", token=token):
@@ -403,4 +404,11 @@ async def _execute_claimed(run_id: str, token: str):
                 metrics=telemetry.snapshot(),
             )
             await db.commit()
+            # Automat ustępuje ręcznemu przeglądowi po każdej paczce (08.11.2026):
+            # bez tego rekruter czekał na koniec automatu (p50 286 s, p90 534 s).
+            # Zapisane paczki zostają, automat wraca po ręcznym przebiegu.
+            if auto_run and await store.manual_run_waiting(db, exclude_id=run_id):
+                await store.yield_run(db, run_id, token)
+                await db.commit()
+                return
         await asyncio.sleep(0)  # yield between bounded CPU/SQL batches

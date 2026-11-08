@@ -24,6 +24,9 @@ Reguły, które łatwo cofnąć „przy okazji”:
 * Uruchamia ``scripts/autofill_withdraw_over_budget.py`` (domyślnie podgląd).
 * Próg czyta z ``BUDGET_HARD_OVER``: 27.10.2026 zdjęto 197 kart ponad 25%,
   a po obniżce progu do 15% ten sam skrypt zdejmuje karty 15–25%.
+* Przed porcją dnia (decyzja Artura 08.11.2026): ``plan_batch_reset`` i
+  ``scripts/autofill_withdraw_batch_reset.py`` — karty starsze niż 7 dni albo
+  poniżej 65%, tylko w rekrutacjach w pracy.
 * Dalej niż ``OFFICE_FAR_KM`` od biura (decyzja Artura 29.10.2026): ta sama
   droga, ``plan_far`` i ``scripts/autofill_withdraw_far_from_office.py`` —
   66 nietkniętych kart w 38 rekrutacjach z biurem w Warszawie.
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 from sqlalchemy import and_, exists, func, or_, select
@@ -57,12 +61,18 @@ CLIENT_REMOVAL_REASON = "autofill_withdrawn_client"
 NOT_LOOKING_REMOVAL_REASON = "autofill_withdrawn_not_looking"
 # Miasto dalej niż ``OFFICE_FAR_KM`` od każdego biura rekrutacji (29.10.2026).
 FAR_REMOVAL_REASON = "autofill_withdrawn_far_from_office"
+# Przed włączeniem porcji dnia (decyzja Artura 08.11.2026): nietknięte karty
+# od systemu starsze niż ``review_batch.MAX_AGE_DAYS`` albo poniżej
+# ``review_batch.MIN_SCORE`` — na kopii z 06.11 ok. 850 starszych niż 7 dni
+# i 147 poniżej 65% z 1 440 kart w rekrutacjach z rekruterem.
+BATCH_RESET_REASON = "autofill_withdrawn_batch_reset"
 # „Praca w tle” mówi, dlaczego system wycofał osoby (`details.why`).
 _WHY = {
     REMOVAL_REASON: "budget",
     CLIENT_REMOVAL_REASON: "client",
     NOT_LOOKING_REMOVAL_REASON: "not_looking",
     FAR_REMOVAL_REASON: "far",
+    BATCH_RESET_REASON: "batch_reset",
 }
 ACTIVITY_ENTITY = "job_automation"
 ACTION = "autofill_withdrawn"
@@ -208,6 +218,50 @@ async def plan_far(db, *, job_ids: Optional[list[int]] = None) -> list[tuple[int
     return await _far_from_office(db, [(int(c), int(j)) for c, j in rows])
 
 
+async def _stale_for_batch(
+    db, pairs: Iterable[tuple[int, int]], *, now: datetime
+) -> list[tuple[int, int]]:
+    """Pary w rekrutacjach w pracy, których karta nie należy do porcji dnia
+    (``review_batch.in_batch``): za stara albo poniżej progu."""
+    from app.models.job import JobStatus
+    from app.services import review_batch
+    from app.services.request_work_state import IN_WORK_STATES
+
+    pairs = list(pairs)
+    if not pairs:
+        return []
+    working = set(
+        (
+            await db.scalars(
+                select(Job.id).where(
+                    Job.id.in_({j for _, j in pairs}),
+                    Job.status == JobStatus.published,
+                    Job.work_state.in_(IN_WORK_STATES),
+                )
+            )
+        ).all()
+    )
+    cards = {
+        (card.candidate_id, card.job_id): card
+        for card in await review_batch.pending_cards(db, job_ids=working)
+    }
+    return [
+        pair
+        for pair in pairs
+        if pair[1] in working
+        and pair in cards
+        and not review_batch.in_batch(cards[pair], now)
+    ]
+
+
+async def plan_batch_reset(
+    db, *, now: datetime, job_ids: Optional[list[int]] = None
+) -> list[tuple[int, int]]:
+    """Pary do wycofania przed porcją dnia — bez zapisu."""
+    rows = (await db.execute(_untouched_pairs(job_ids))).all()
+    return await _stale_for_batch(db, [(int(c), int(j)) for c, j in rows], now=now)
+
+
 async def plan(db, *, job_ids: Optional[list[int]] = None) -> list[tuple[int, int]]:
     """Pary do wycofania — bez zapisu."""
     rows = (await db.execute(_untouched_pairs(job_ids))).all()
@@ -222,6 +276,7 @@ async def _withdraw_pair(
     reason: str = REMOVAL_REASON,
     check_budget: bool = True,
     check_far: bool = False,
+    check_batch_reset: bool = False,
 ) -> bool:
     from app.services.candidate_contact_hooks import (
         has_active_contact_trigger,
@@ -246,7 +301,13 @@ async def _withdraw_pair(
     still = (await db.execute(_untouched_pairs([job_id]))).all()
     if (candidate_id, job_id) not in {(int(c), int(j)) for c, j in still}:
         return False
-    if check_far:
+    if check_batch_reset:
+        stale = await _stale_for_batch(
+            db, [(candidate_id, job_id)], now=datetime.now(timezone.utc)
+        )
+        if not stale:
+            return False
+    elif check_far:
         if not await _far_from_office(db, [(candidate_id, job_id)]):
             return False
     elif check_budget and not await _over_budget(db, [(candidate_id, job_id)]):
@@ -295,6 +356,7 @@ async def apply(
     reason: str = REMOVAL_REASON,
     check_budget: bool = True,
     check_far: bool = False,
+    check_batch_reset: bool = False,
 ) -> list[tuple[int, int]]:
     """Wycofaj pary z podglądu; każda w savepoincie. Bez commitu.
     ``check_far`` sprawdza pod blokadą odległość zamiast budżetu."""
@@ -309,6 +371,7 @@ async def apply(
                     reason=reason,
                     check_budget=check_budget,
                     check_far=check_far,
+                    check_batch_reset=check_batch_reset,
                 )
         except Exception as exc:  # noqa: BLE001 — jedna karta nie wywraca reszty
             logger.warning(
