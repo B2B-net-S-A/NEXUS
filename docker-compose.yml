@@ -75,9 +75,9 @@ services:
     #    istniejący baseline. Zrzuć liczniki do pliku przed jakimkolwiek resetem.
     #
     # UWAGA przy zmianie: to NIE jest zaproszenie do dokładania workerów uvicorna.
-    # Backend odpala 24 pętle w tle bezwarunkowo i 22 z nich nie mają leader-election,
-    # więc drugi worker = zdublowane maile, alerty i importy. Patrz `entrypoint.sh`
-    # (uvicorn bez --workers) oraz `backend/app/main.py` (rejestr background_tasks).
+    # Pętle w tle biegną w osobnym kontenerze `worker`, ale kilka procesów web ma
+    # własne kopie stanu w pamięci (limiter, słownik). Warunki:
+    # docs/claude/podstawy/web-i-worker-osobno.md
     command:
       - postgres
       - -c
@@ -173,6 +173,12 @@ services:
       # domyślnych 10 s Dockera. Świadomie KRÓTKO: stary kontener, który czeka
       # na długie żądanie, wydłuża przerwę dla wszystkich pozostałych.
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      # Same żądania HTTP; pętle w tle ma `worker` niżej. Wycofanie bez rewertu:
+      # `NEXUS_BACKEND_PROCESS_ROLE=all` (workflow „Coolify set env” + deploy).
+      # Worker przechodzi wtedy w standby za blokadą lidera.
+      NEXUS_PROCESS_ROLE: ${NEXUS_BACKEND_PROCESS_ROLE:-web}
+      DB_POOL_SIZE: "40"
+      DB_MAX_OVERFLOW: "10"
     # 8 s na żądania + zamknięcie lifespanu (anulowanie pętli w tle, dispose
     # puli). Domyślne 10 s ucinało tę drugą część.
     stop_grace_period: 15s
@@ -228,6 +234,51 @@ services:
       # audyt 22.09 r2 (PROD-01): TYLKO katalog statusu hosta (cron zapisuje
       # tam `backup-volume.json` z zajętością wolumenu kopii) — read-only,
       # bez dostępu do samych dumpów. `/api/health` → `backupVolumePercent`.
+      - /var/lib/nexus-status:/run/nexus-host-status:ro
+    logging: *default-logging
+
+  # Pętle w tle, ten sam obraz co `backend`. Bez domeny, więc Traefik nie kieruje
+  # tu ruchu. `backend` robi migracje; entrypoint workera czeka, aż web odpowie.
+  # Nazwa bez „backend”: skrypty szukają kontenera po prefiksie `backend-ocgkw`.
+  # → docs/claude/podstawy/web-i-worker-osobno.md
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
+    restart: unless-stopped
+    mem_limit: 4g
+    mem_reservation: 1g
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      NEXUS_PROCESS_ROLE: worker
+      WEB_CONCURRENCY: "1"
+      # Razem z backendem 50 + 30 = 80 przy max_connections=100.
+      DB_POOL_SIZE: "15"
+      DB_MAX_OVERFLOW: "15"
+    stop_grace_period: 15s
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      # Worker czeka na migracje backendu: ten sam zapas co tam, plus jego własny start.
+      start_period: 420s
+    volumes:
+      - uploads_data:/tmp/nexus/uploads
       - /var/lib/nexus-status:/run/nexus-host-status:ro
     logging: *default-logging
 

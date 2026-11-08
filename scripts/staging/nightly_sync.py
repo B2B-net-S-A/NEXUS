@@ -673,7 +673,7 @@ def build_code(cfg: Config, sha: str) -> None:
         link.symlink_to(cfg.env_file)
     if health().get("version") != sha:
         run_cmd(
-            [*compose(cfg), "build", "backend", "frontend"],
+            [*compose(cfg), "build", "backend", "worker", "frontend"],
             timeout=3600,
             env=compose_env(sha),
             what="Build stagingu",
@@ -682,7 +682,7 @@ def build_code(cfg: Config, sha: str) -> None:
 
 def start_staging(cfg: Config, sha: str) -> None:
     run_cmd(
-        [*compose(cfg), "up", "-d", "--no-deps", "--no-build", "backend", "frontend"],
+        [*compose(cfg), "up", "-d", "--no-deps", "--no-build", "backend", "worker", "frontend"],
         timeout=600,
         env=compose_env(sha),
         what="Start stagingu",

@@ -69,8 +69,8 @@ FLAGS_FILE="$(dirname "$ENV_FILE")/.env.staging-flags.local"
 [ ! -f "$FLAGS_FILE" ] || compose+=(--env-file "$FLAGS_FILE")
 
 # Najpierw build: gdy padnie, stare kontenery działają dalej.
-"${compose[@]}" build backend frontend
-"${compose[@]}" up -d --no-deps --no-build backend frontend
+"${compose[@]}" build backend worker frontend
+"${compose[@]}" up -d --no-deps --no-build backend worker frontend
 
 # Pierwszy start po dłuższej przerwie wykonuje migracje, stąd długie okno.
 for _ in $(seq 1 60); do
