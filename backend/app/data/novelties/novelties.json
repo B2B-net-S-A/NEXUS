@@ -1,5 +1,24 @@
 [
   {
+    "id": "kandydaci-lata-z-technologia",
+    "pr": 3154,
+    "title": "Filtr lat z technologią na liście kandydatów",
+    "why": "Pigułka „Lata” szuka np. Javy co najmniej 3 lata, liczonych z dat stanowisk w CV. Przy osobie widać „Java 6 lat 8 mies.”, a osoby z technologią bez dat w CV są na końcu listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Kandydaci → filtry → „Lata”",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.skill-years-filter"
+  },
+  {
     "id": "naglowek-liczba-osob",
     "pr": 3141,
     "title": "Liczba osób w nagłówku rekrutacji",
