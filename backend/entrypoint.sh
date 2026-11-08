@@ -3105,7 +3105,7 @@ END $$""",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS source_ref VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
-    # 0665: lustro samego ADD COLUMN zostawiło NULL w każdym wierszu, a model ma
+    # 0666: lustro samego ADD COLUMN zostawiło NULL w każdym wierszu, a model ma
     # NOT NULL z domyślną. Tekst taki sam jak w migracji (test tego pilnuje).
     """DO $$
     BEGIN
