@@ -47,6 +47,7 @@ import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
 import { candidateStageCvApi } from "@/lib/api";
 import { QcOverrideDialog } from "@/components/v2/recruitment/QcOverrideDialog";
+import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
   AiFixesView,
   CheckRow,
@@ -88,6 +89,7 @@ import {
   candidateQuestion,
   highlightTerms,
   qcDismissedMessage,
+  qcResultPairState,
   roleGaps,
   segmentCv,
   cvControlSummary,
@@ -96,7 +98,6 @@ import {
   candidateGapItems,
   splitDlReturns,
   taskPendingItem,
-  thingsLabel,
   unboldedTerms,
   type RoleGap,
 } from "@/lib/cv-qc";
@@ -385,26 +386,14 @@ const LOAD_ERROR: Record<string, string> = {
   error: "Nie udało się policzyć QC. Spróbuj ponownie.",
 };
 
-/** Kolejność jak na Tablicy (`pair_statuses`): zaliczone wygrywa z dawnym obejściem. */
+/** Stan z serwera, ten sam napis co na karcie (`qc_state`). */
 function Verdict({ data }: { data: QcResult }) {
-  if (data.passed) {
-    return (
-      <Badge variant="success" size="lg">
-        QC przechodzi
-      </Badge>
-    );
-  }
-  if (data.override) {
-    return (
-      <Badge variant="warning" size="lg">
-        QC: przepuszczone
-      </Badge>
-    );
-  }
+  const state = qcResultPairState(data);
   return (
-    <Badge variant="danger" size="lg">
-      Do poprawy: {thingsLabel(data.blocking_failed)}
-    </Badge>
+    <QcStatusBadge
+      size="lg"
+      row={{ qc_status: state.status, qc_blocking_failed: state.blocking_failed, qc_state: state.qc_state }}
+    />
   );
 }
 
@@ -514,6 +503,9 @@ export function CvQcBody({
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
   const tasksTitle = data.advisory ? "Zalecane poprawki przed wysłaniem" : "Do poprawy przed wysłaniem";
+  // Para czeka na ruch człowieka: „Nic nie blokuje wysyłki” byłoby nieprawdą.
+  const waitingNote =
+    data.qc_state?.kind === "verify_roles" || data.qc_state?.kind === "candidate_gap" ? data.qc_state.hint : null;
 
   return (
     // `min-h-0` tylko od `lg`: w jednej kolumnie (telefon) wiersze siatki
@@ -553,6 +545,10 @@ export function CvQcBody({
               ))}
             </ul>
           </section>
+        ) : waitingNote ? (
+          <p role="status" className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+            {waitingNote}
+          </p>
         ) : (
           <p role="status" className="flex items-center gap-2 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground">
             <CheckCircle2 className="size-4 shrink-0" aria-hidden />

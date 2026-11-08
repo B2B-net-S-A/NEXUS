@@ -15,6 +15,7 @@ import type {
   QcFix,
   QcFixKind,
   QcItem,
+  QcResult,
   QcRoleState,
   QcRoleStateKind,
   QcSearchSource,
@@ -854,6 +855,17 @@ export interface QcPairState {
   status: QcCardStatus;
   blocking_failed: number;
   qc_state?: QcStateView | null;
+}
+
+/** Stan pary z wyniku `/qc`; status tylko dla odpowiedzi bez `qc_state`. */
+export function qcResultPairState(
+  result: Pick<QcResult, "passed" | "blocking_failed" | "override" | "qc_state">,
+): QcPairState {
+  return {
+    status: result.passed ? "passed" : result.override ? "overridden" : "failed",
+    blocking_failed: result.blocking_failed,
+    qc_state: result.qc_state,
+  };
 }
 
 /** Luki kandydata z wyniku QC (R2) — pozycje informacyjne krytycznych. */
