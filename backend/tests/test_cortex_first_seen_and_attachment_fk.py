@@ -23,7 +23,7 @@ from app.models.cortex import CortexUnmatchedTerm
 from app.models.m365 import EmailAttachment
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0666_cortex_first_seen_not_null.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0665_cortex_first_seen_not_null.py"
 ADD_COLUMN = (
     "ALTER TABLE cortex_unmatched_terms "
     "ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ"
