@@ -33,6 +33,7 @@
  "routes": {
   "GET /api/insights/recruitment/available-periods": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/recruitment/competence-matrix": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/first-cv": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/recruitment/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
   "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",

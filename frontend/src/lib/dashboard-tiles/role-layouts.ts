@@ -41,12 +41,14 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
   head_of_recruitment: [
     { key: "team_results", w: 8, h: 6 },
     { key: "team_signals", w: 4, h: 6 },
+    { key: "client_response", w: 12, h: 6 },
     { key: "request_board", w: 12, h: 8 },
     { key: "contact_oversight", w: 12, h: 5 },
   ],
   delivery_lead: [
     { key: "my_clients_alerts", w: 8, h: 5 },
     { key: "today_cycle", w: 4, h: 5 },
+    { key: "client_response", w: 12, h: 6 },
     { key: "active_contracts", w: 4, h: 2 },
     { key: "orders_ending_count", w: 4, h: 2 },
     { key: "margin_number", w: 4, h: 2 },
@@ -259,7 +261,11 @@ export function recommendedTemplates(
  * widzi tylko konto bez zapisu, więc bez tego nowość nie dociera do nikogo
  * (24.09.2026: „Requesty i obłożenie” wdrożone, na 5 pulpitach 0 kafelków).
  */
-export const ANNOUNCED_TILES: TileType[] = ["request_board", "today_cycle"]
+export const ANNOUNCED_TILES: TileType[] = [
+  "client_response",
+  "request_board",
+  "today_cycle",
+]
 
 /** Pierwszy ogłaszany kafelek układu tej roli, którego nie ma na pulpicie. */
 export function announcedTile(
