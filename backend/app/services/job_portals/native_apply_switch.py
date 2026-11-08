@@ -5,6 +5,10 @@ na stronę kariery. Decyzja Artura: przełączyć je zwykłą aktualizacją, kt�
 worker. Aktualizacja nie zużywa kredytu. Bez ustawionego formularza krok nic nie
 robi i nie zostawia znacznika, żeby nie wysłać znowu linku do strony kariery.
 
+Pierwsza próba (znacznik ``jjit_native_apply_switch_2026_11``, 08.11) padła na
+całej piątce: ``PUT`` poszedł bez kontaktu i portal go odrzucił. Stąd nowy znacznik
+i warunek ``JJIT_CONTACT_PHONE``, bo bez telefonu portal odrzuci to samo.
+
 Znacznik w ``app_settings`` + advisory lock: drugi start kończy się od razu.
 """
 
@@ -15,23 +19,27 @@ from typing import Any, Iterable, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.app_setting import AppSetting
 from app.models.job_posting import JobPosting, Portal, PostingStatus
 from app.services.job_portals import jjit_payload
 from app.services.job_portals.service import ACTION_UPDATE, _queue
 
-REPAIR_MARKER = "jjit_native_apply_switch_2026_11"
+REPAIR_MARKER = "jjit_native_apply_switch_2026_11_contact"
 POSTING_IDS = (17, 18, 19, 20, 21)
 
 
 async def run_native_apply_switch(
     db: AsyncSession, *, posting_ids: Iterable[int] = POSTING_IDS
 ) -> Optional[dict[str, Any]]:
-    """Kolejkuje aktualizację. ``None`` = wykonane albo brak formularza.
+    """Kolejkuje aktualizację. ``None`` = wykonane, brak formularza albo telefonu.
 
     Wołający commituje.
     """
-    if not jjit_payload.native_apply_enabled():
+    if (
+        not jjit_payload.native_apply_enabled()
+        or not settings.JJIT_CONTACT_PHONE.strip()
+    ):
         return None
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": REPAIR_MARKER}
