@@ -10289,6 +10289,18 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
+    # 0662: szybkie wyszukiwanie kandydatów (Jarvis, ⌘K „Ludzie”). Tekst wyrażeń
+    # co do znaku jak w `api/search.py` (`test_candidate_quick_search_index.py`).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_quick_identity_trgm "
+    "ON candidates USING GIN ((translate("
+    "coalesce(name, '') || ' ' || coalesce(lastname, '') "
+    "|| ' ' || coalesce(email, '') "
+    "|| ' ' || coalesce(lastname, '') "
+    "|| ' ' || coalesce(name, ''), "
+    "'ąćęłńóśźżĄĆĘŁŃÓŚŹŻ', 'acelnoszzACELNOSZZ')) gin_trgm_ops)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_phone_digits_trgm "
+    "ON candidates USING GIN ("
+    "(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')) gin_trgm_ops)",
     # 0525: aktywne P0 (górny pasek i pulpit u każdego).
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_p0_until "
     "ON jobs (p0_until) WHERE p0_until IS NOT NULL",
