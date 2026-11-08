@@ -646,6 +646,11 @@ class Settings(BaseSettings):
     # czekających kart, poranny przebieg raz dziennie, w dzień tylko gorące.
     # False = silnik jak dotąd (20 we wszystkich, pełny przebieg co 15 minut).
     NEW_COLUMN_TEMPO_TARGET_ENABLED: bool = False
+    # Jedna lista kandydatów rekrutacji (decyzja Artura z 08.11.2026,
+    # `services/single_candidate_list.py`): pula i propozycje scalone w jeden
+    # wiersz na osobę, wynik portali na skali „Dop.”, panel z filtrami-plakietkami.
+    # False = dzisiejszy panel z zakładkami i dzisiejsze zapisy.
+    SINGLE_CANDIDATE_LIST_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.

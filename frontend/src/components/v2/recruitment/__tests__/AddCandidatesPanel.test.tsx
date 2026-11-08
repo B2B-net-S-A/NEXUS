@@ -1546,4 +1546,105 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect(screen.queryByTestId("hidden-by-critical")).toBeNull();
     });
   });
+
+  describe("jedna lista (`single_list`)", () => {
+    const COUNTS = { all: 7, applied: 1, new_in_base: 2, portal: 3, known: 1, similar: 4 };
+
+    beforeEach(() => {
+      countsApi.mockResolvedValue({
+        job_id: 5,
+        days: 7,
+        postings_recent: 3,
+        base: 4,
+        screened_out: 0,
+        not_searchable_must: [],
+        single_list: true,
+      });
+      (proposalsState.status as Record<string, unknown>).labelCounts = COUNTS;
+    });
+
+    function singleEntry(id: number, name: string, labels: string[], sources: string[]) {
+      const made = entry(id, name, ["inbox"], { sources });
+      return { ...made, detail: { ...made.detail, labels } };
+    }
+
+    it("trzy zakładki zamiast pięciu i filtry-plakietki z liczbami", async () => {
+      renderPanel();
+      const group = await screen.findByTestId("single-list-filters");
+      const tabs = within(screen.getByRole("tablist", { name: "Źródło kandydatów" })).getAllByRole("tab");
+      expect(tabs.map((t) => t.textContent)).toEqual(["Kandydaci· 7", "Szukaj w bazie", "Szukaj ręcznie· —"]);
+      expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
+        "Wszyscy7",
+        "Zgłosili się1",
+        "Nowi w bazie2",
+        "Z portali3",
+        "Podobne4",
+        "Znamy1",
+      ]);
+      expect(within(group).getByRole("button", { name: /Wszyscy/ })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("filtr portali i podobnych idzie adresem, pozostałe zostają w panelu", async () => {
+      const { props } = renderPanel();
+      const group = await screen.findByTestId("single-list-filters");
+      await userEvent.click(within(group).getByRole("button", { name: /Z portali/ }));
+      expect(props.onTabChange).toHaveBeenLastCalledWith("postings");
+      await userEvent.click(within(group).getByRole("button", { name: /Podobne/ }));
+      expect(props.onTabChange).toHaveBeenLastCalledWith("similar");
+      await userEvent.click(within(group).getByRole("button", { name: /Znamy/ }));
+      expect(props.onTabChange).toHaveBeenLastCalledWith("base");
+      expect(within(group).getByRole("button", { name: /Znamy/ })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("stary adres „Nowi z ogłoszeń” otwiera listę z filtrem portali i odłożonymi zgłoszeniami", async () => {
+      renderPanel({ tab: "postings" });
+      const group = await screen.findByTestId("single-list-filters");
+      expect(within(group).getByRole("button", { name: /Z portali/ })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("screened-out")).toBeInTheDocument();
+      expect(screen.queryByTestId("hidden-by-critical")).toBeNull();
+    });
+
+    it("„Podobne” zostawia narzędzie przepięć pod listą, ze stopką przepięć bez zaznaczeń", async () => {
+      renderPanel({ tab: "similar" });
+      await screen.findByTestId("single-list-filters");
+      expect(screen.getByTestId("similar-body")).toBeInTheDocument();
+      expect(screen.getByTestId("similar-footer")).toBeInTheDocument();
+    });
+
+    it("wiersze mają plakietki źródła i zostają w kolejności z serwera", async () => {
+      proposalsState.entries = [
+        { ...singleEntry(1, "Niska Portal", ["portal"], ["job_board"]), row: { ...singleEntry(1, "Niska Portal", ["portal"], ["job_board"]).row, fitScore: 71 } },
+        { ...singleEntry(2, "Wysoka Baza", [], ["full_base"]), row: { ...singleEntry(2, "Wysoka Baza", [], ["full_base"]).row, fitScore: 95 } },
+      ];
+      renderPanel();
+      await screen.findByTestId("single-list-filters");
+      await waitFor(() =>
+        expect(screen.getAllByTestId("pick-row-source").map((n) => n.textContent)).toEqual(["Z portalu", "Z bazy"]),
+      );
+      const names = screen.getAllByText(/Niska Portal|Wysoka Baza/).map((n) => n.textContent);
+      expect(names[0]).toContain("Niska Portal");
+    });
+
+    it("sekcja „Ukryci przez musi mieć” działa dalej pod „Wszyscy”", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101]));
+      renderPanel();
+      expect(await screen.findByTestId("hidden-by-critical")).toBeInTheDocument();
+    });
+
+    it("bez flagi zostaje pięć zakładek i żadnych filtrów", async () => {
+      countsApi.mockResolvedValue({
+        job_id: 5,
+        days: 7,
+        postings_recent: 0,
+        base: 0,
+        screened_out: 0,
+        not_searchable_must: [],
+      });
+      renderPanel();
+      await waitFor(() => expect(countsApi).toHaveBeenCalled());
+      const tabs = within(await screen.findByRole("tablist", { name: "Źródło kandydatów" })).getAllByRole("tab");
+      expect(tabs).toHaveLength(5);
+      expect(screen.queryByTestId("single-list-filters")).toBeNull();
+    });
+  });
 });
