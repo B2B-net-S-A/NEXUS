@@ -840,6 +840,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     it.each([
       ["cudza aktywna blokada", { stage: "new", can_take: false, claim_user_id: 7 }, {}],
       ["własna blokada", { stage: "new", can_take: false, claim_user_id: 1 }, {}],
+      ["zamknięta rekrutacja (serwer: can_take = false)", { stage: "new", can_take: false, claim_user_id: null }, {}],
       ["przejęcie cudzej zostaje na karcie", { stage: "new", can_take: true, claim_user_id: 7 }, {}],
       ["etap po „Screeningu”", { stage: "cv_sent", can_take: true, claim_user_id: null }, {}],
       ["tylko do odczytu", { stage: "new", can_take: true, claim_user_id: null }, { readOnly: true }],

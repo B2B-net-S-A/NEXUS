@@ -30,6 +30,11 @@ describe("boardColumnPurpose — „co tu robisz” pod nazwą kolumny (v5)", ()
     expect(boardColumnPurpose("hired")).toBe("Obsada — / —");
   });
 
+  it("zamknięta rekrutacja nie woła do „Biorę”, reszta kolumn bez zmian", () => {
+    expect(boardColumnPurpose("new", { jobClosed: true })).toBeNull();
+    expect(boardColumnPurpose("screening", { jobClosed: true })).toBe("Arkusz pytań z Championa");
+  });
+
   it("własny etap szablonu i zamknięci — brak podpisu (zostaje linia SLA)", () => {
     expect(boardColumnPurpose(null)).toBeNull();
     expect(boardColumnPurpose(undefined)).toBeNull();
