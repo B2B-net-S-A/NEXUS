@@ -95,7 +95,6 @@ from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import calls
-from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
@@ -824,7 +823,6 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
-    from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
@@ -1023,7 +1021,6 @@ async def lifespan(app: FastAPI):
             # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
             # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
             "jjit_import": asyncio.create_task(jjit_import_loop()),
-            "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
             "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
             # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
             # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
@@ -1792,7 +1789,6 @@ app.include_router(
     tags=["user-email-templates"],
 )
 app.include_router(calls.router, prefix="/api", tags=["calls"])
-app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
 app.include_router(
     teams_channels_api.router,
     prefix="/api/teams-channels",
@@ -2702,7 +2698,7 @@ HEALTH_DB_PING_TIMEOUT_SECONDS = 8.0
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
 
-    Shape: {status, version, deployedAt, checks: {database, m365, cloudtalk, autenti}}.
+    Shape: {status, version, deployedAt, checks: {database, m365, autenti}}.
     HTTP 503 only when `database` is unhealthy (uptime-probe contract);
     `m365` is informational and does not affect the gate; it also degrades
     when a mailbox has been stuck in a sync error for more than 24 h.
@@ -2796,34 +2792,6 @@ async def api_health_check():
             checks["m365_encryption"] = "unhealthy"
         except Exception:
             checks["m365_encryption"] = "unhealthy"
-
-    # CloudTalk status — raportowany TYLKO gdy integracja jest włączona.
-    #
-    # Wcześniej klucz `cloudtalk: "unconfigured"` wisiał w odpowiedzi zawsze,
-    # także przy wyłączonym kill-switchu — czyli od wdrożenia integracji do
-    # dziś, bez jednego dnia przerwy. Stały wpis „czegoś tu nie ma" nie niesie
-    # informacji: nie da się po nim poznać, czy ktoś właśnie wyłączył działającą
-    # integrację, czy po prostu nigdy jej nie uruchomiono. Uczy natomiast
-    # ignorować niezdrowe pozycje w `checks` — a to jest kosztowne, bo obok
-    # stoją pozycje, które znaczą coś naprawdę (`database`, `traffit`).
-    #
-    # Decyzja produktowa 28.07: nie używamy CloudTalka. Kod zostaje (model
-    # `Call` i kolumny są niezależne od dostawcy i przydadzą się przy następnej
-    # telefonii), ale przestaje raportować swoją nieobecność.
-    if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
-        pass
-    else:
-        try:
-            from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
-
-            cfg = CloudTalkConfig.from_settings()
-            async with CloudTalkClient(cfg) as ct:
-                await asyncio.wait_for(ct.ping(), timeout=2.0)
-            checks["cloudtalk"] = "healthy"
-        except asyncio.TimeoutError:
-            checks["cloudtalk"] = "degraded"
-        except Exception:
-            checks["cloudtalk"] = "unhealthy"
 
     # Autenti status — informational only. Config-only probe (no network call
     # to keep uptime-probe latency low — full ping lives at /api/autenti/health

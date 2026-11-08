@@ -599,43 +599,6 @@ CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
 )
 
 
-CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
-    name="champion_profile_enrich_from_call",
-    # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
-    # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
-    version=2,
-    expected_format="json",
-    system_prompt=(
-        "Jesteś senior rekruterem IT. Analizujesz krótki transkrypt rozmowy "
-        "telefonicznej Delivery Lead (CloudTalk). Kontekst może być "
-        "fragmentaryczny — wyciągaj tylko to co explicit wspomniane. "
-        "NIE uzupełniaj braków zgadywaniem. "
-        "Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
-    ),
-    template=(
-        "Obecny Profil Championa (JSON):\n"
-        "---\n"
-        "{current_profile_json}\n"
-        "---\n\n"
-        "Kontekst oferty:\n"
-        "  Tytuł: {job_title}\n"
-        "  Klient: {client_name}\n\n"
-        "Rozmowa telefoniczna — uczestnicy: {call_participants}\n"
-        "Rozmowa telefoniczna — podsumowanie:\n"
-        "{call_summary}\n\n"
-        "Rozmowa telefoniczna — transkrypt:\n"
-        "---\n"
-        "{call_transcript}\n"
-        "---\n\n"
-        "Zwróć delta-patch JSON z TYLKO sekcjami do aktualizacji "
-        "(format identyczny jak dla meeting enrichment). "
-        "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
-        "Ze względu na krótki format rozmowy ogranicz confidence do max 0.8. "
-        "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie."
-    ),
-)
-
-
 CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
     name="champion_profile_from_historical_jobs",
     # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
@@ -2046,7 +2009,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         INTERVIEW_PREP,
         CHAMPION_PROFILE_FROM_JD,
         CHAMPION_PROFILE_ENRICH_FROM_MEETING,
-        CHAMPION_PROFILE_ENRICH_FROM_CALL,
         CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
         MATCH_JUSTIFICATION,
         CANDIDATE_ACTIVITY_SUMMARY,
