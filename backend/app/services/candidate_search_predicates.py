@@ -190,6 +190,11 @@ def semantics_for(
 # ═══════════════════════════════════════════════════════════════════════════
 
 _MAX_SKILLS_PER_BUCKET = 40
+# Znaki specjalne wyrażeń ARE Postgresa; reszta nazwy idzie dosłownie.
+_ARE_META = re.compile(r"[\\^$.|?*+()\[\]{}]")
+# Zapas względem progu „regular expression is too complex” (ok. 16 tys. znaków
+# igły działało, 64 tys. już nie; zmierzone na Postgresie 16, 08.11.2026).
+_JSON_TOKEN_REGEX_MAX_CHARS = 4000
 
 
 def skills_text() -> ColumnElement:
@@ -217,15 +222,25 @@ def _json_token_match(blob: ColumnElement, needles: Sequence[str]) -> ColumnElem
     zamienia test podłańcuchowy na test całego tokenu (``"go"`` nie trafia
     w ``"django"``). DWA kodowania: część wierszy trzyma JSON podwójnie
     zakodowany (string JSON wewnątrz JSONB), gdzie granicą tokenu jest ``\\"``.
-    ``strpos`` zamiast ``ILIKE`` świadomie — LIKE traktuje ``\\`` jako znak
-    ucieczki i wzorzec na podwójne kodowanie degeneruje się po cichu; ``strpos``
-    nie ma ani znaków ucieczki, ani wieloznaczników.
+    Nigdy ``ILIKE`` — LIKE traktuje ``\\`` jako znak ucieczki i wzorzec na
+    podwójne kodowanie degeneruje się po cichu.
+
+    Jedno wyrażenie regularne zamiast ``strpos`` na pisownię (08.11.2026): każdy
+    ``strpos`` rzutował JSONB na tekst i robił ``lower()`` od nowa, więc rodzina
+    Javy (9 pisowni, 18 przejść) kosztowała 3,4 s na 68 tys. osób, a jedno
+    przejście 0,5 s. Obie granice tokenu są osobnymi gałęziami, bo ``\\\\?"`` po
+    obu stronach dopuszczałoby kodowanie mieszane, którego ``strpos`` nie łapał.
+    Bardzo długie nazwy zostają przy ``strpos``: Postgres odrzuca zbyt złożone
+    wyrażenie błędem, a filtr ma nie kończyć się 500.
     """  # noqa: D301
-    conditions: list[ColumnElement] = []
-    for needle in needles:
-        conditions.append(func.strpos(blob, f'"{needle}"') > 0)
-        conditions.append(func.strpos(blob, f'\\"{needle}\\"') > 0)
-    return or_(*conditions)
+    if sum(len(needle) for needle in needles) > _JSON_TOKEN_REGEX_MAX_CHARS:
+        conditions: list[ColumnElement] = []
+        for needle in needles:
+            conditions.append(func.strpos(blob, f'"{needle}"') > 0)
+            conditions.append(func.strpos(blob, f'\\"{needle}\\"') > 0)
+        return or_(*conditions)
+    alternatives = "|".join(_ARE_META.sub(r"\\\g<0>", needle) for needle in needles)
+    return blob.op("~")(f'"(?:{alternatives})"|\\\\"(?:{alternatives})\\\\"')
 
 
 def skill_match(skill: str, sem: Optional[Semantics] = None) -> ColumnElement:
