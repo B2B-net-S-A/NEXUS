@@ -9,6 +9,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -38,8 +40,10 @@ export interface ClientWaitCardActionsProps {
 }
 
 /**
- * Trzy ruchy DL-a na karcie od 6. dnia roboczego ciszy klienta (S-C2, 08.11.2026).
- * „Zamknij — brak odpowiedzi” to zwykły ruch przez `usePipelineMoveCore`.
+ * Trzy ruchy DL-a na karcie od 6. dnia roboczego ciszy klienta (S-C2, 08.11.2026):
+ * przypomnij, klient odpowiedział, zamknij. Jeden przycisk w wierszu ruchu, bo
+ * karta ma stałe trzy wiersze. „Zamknij — brak odpowiedzi” idzie przez
+ * `usePipelineMoveCore`.
  */
 export function ClientWaitCardActions({
   jobId,
@@ -96,25 +100,30 @@ export function ClientWaitCardActions({
 
   if (readOnly) return null;
   return (
-    <div data-testid="client-wait-card-actions" className="mt-1 flex flex-col gap-1">
-      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => setReminderOpen(true)}>
-        Przypomnij klientowi
-      </Button>
+    <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" size="sm" variant="outline" className="h-7 text-xs">
-            Klient odpowiedział
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            data-testid="client-wait-card-actions"
+            className="h-6 px-2 text-xs"
+          >
+            Co z klientem?
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setReminderOpen(true)}>Przypomnij klientowi</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Klient odpowiedział</DropdownMenuLabel>
           <DropdownMenuItem onSelect={onInterview}>Zaprosił na rozmowę</DropdownMenuItem>
           <DropdownMenuItem onSelect={onRejected}>Odrzucił</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => responded.mutate()}>Jeszcze się zastanawia</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => void closeSilent()}>Zamknij — brak odpowiedzi</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => void closeSilent()}>
-        Zamknij — brak odpowiedzi
-      </Button>
       <ClientReminderDialog
         open={reminderOpen}
         onOpenChange={setReminderOpen}
@@ -124,6 +133,6 @@ export function ClientWaitCardActions({
       />
       {confirmDialog}
       {core.dialogs}
-    </div>
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,6 +52,11 @@ function setup(props: Partial<Parameters<typeof ClientWaitCardActions>[0]> = {})
   return { onInterview, onRejected };
 }
 
+async function chooseClose() {
+  await userEvent.click(screen.getByTestId("client-wait-card-actions"));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Zamknij — brak odpowiedzi" }));
+}
+
 describe("ClientWaitCardActions", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -58,7 +64,7 @@ describe("ClientWaitCardActions", () => {
     mocks.ask.mockResolvedValue(true);
     mocks.send.mockResolvedValue({ ok: true, data: {} });
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Zamknij — brak odpowiedzi" }));
+    await chooseClose();
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
     expect(mocks.send.mock.calls[0][0]).toMatchObject({
       candidate_id: 11,
@@ -73,16 +79,35 @@ describe("ClientWaitCardActions", () => {
   it("anulowanie potwierdzenia nie rusza karty", async () => {
     mocks.ask.mockResolvedValue(false);
     setup();
-    fireEvent.click(screen.getByRole("button", { name: "Zamknij — brak odpowiedzi" }));
+    await chooseClose();
     await waitFor(() => expect(mocks.ask).toHaveBeenCalled());
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
   it("brak powodu w szablonie to komunikat, nie ruch", async () => {
     setup({ reasons: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Zamknij — brak odpowiedzi" }));
+    await chooseClose();
     await waitFor(() => expect(mocks.showError).toHaveBeenCalled());
     expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("„Jeszcze się zastanawia” zapisuje odpowiedź i nie rusza karty", async () => {
+    mocks.responded.mockResolvedValue(undefined);
+    setup();
+    await userEvent.click(screen.getByTestId("client-wait-card-actions"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Jeszcze się zastanawia" }));
+    await waitFor(() => expect(mocks.responded).toHaveBeenCalledWith(7, 11));
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("menu oddaje rozmowę i odrzucenie oknom Tablicy", async () => {
+    const { onInterview, onRejected } = setup();
+    await userEvent.click(screen.getByTestId("client-wait-card-actions"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Zaprosił na rozmowę" }));
+    expect(onInterview).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByTestId("client-wait-card-actions"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Odrzucił" }));
+    expect(onRejected).toHaveBeenCalledTimes(1);
   });
 
   it("tylko do odczytu: bez przycisków", () => {
