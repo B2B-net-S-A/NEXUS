@@ -260,10 +260,22 @@ def upsert_issue(repo: str, title: str, body: str) -> str:
         "api",
         f"repos/{repo}/issues?labels={LABEL}&state=all&per_page=100",
         "--jq",
-        ".[] | [.number, .title] | @json",
+        ".[] | [.number, .title, .state] | @json",
     )
-    for line in raw.splitlines():
-        number, existing = json.loads(line)
+    issues = [json.loads(line) for line in raw.splitlines()]
+    # Otwarty ma zostać tylko bieżący raport; do 08.11.2026 starsze zamykała rutyna z modelem.
+    for number, existing, state in issues:
+        if existing != title and state == "open":
+            qff.gh(
+                "api",
+                "-X",
+                "PATCH",
+                f"repos/{repo}/issues/{number}",
+                "--input",
+                "-",
+                stdin=json.dumps({"state": "closed"}),
+            )
+    for number, existing, _state in issues:
         if existing == title:
             qff.gh(
                 "api",

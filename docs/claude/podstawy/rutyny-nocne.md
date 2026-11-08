@@ -11,11 +11,11 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 | 00:11, codziennie | Nocna kopia stagingu (launchd, bez modelu) | `nightly_sync.py` z kopii w `~/.claude/nexus-rutyny/bin/kopia/`: flagi z produkcji, nowa kopia bazy, dosłanie plików CV, Qdrant, strażnik rankingu (`staging-na-laptopie.md`) |
 | 01:05, pon. i czw. | Strażnik Nowości | PR-y ze zmianą ekranu a `novelties.json`, także tytuły `fix` |
 | 02:00, codziennie | Dyżurny | Alarmy na GitHubie i wiszące PR-y |
-| 03:17, pon.–pt. | Odświeżenie stagingu | `scripts/staging/refresh_code.sh`: kod z `origin/main` tuż przed Testerem, baza bez zmian |
+| 03:17, pon.–pt. | Odświeżenie stagingu (launchd, bez modelu) | `refresh_code.sh` z kopii w `bin/kopia`: kod z `origin/main` tuż przed Testerem, baza bez zmian |
 | 03:30, pon.–pt. | Tester | PR-y od poprzedniego biegu na stagingu, każdą dotkniętą rolą przy 1280 × 720, najwyżej 10 |
 | 06:30 | Domykacz wdrożeń | `/api/health` względem maina i listy „po wdrożeniu” |
 | 07:30, pon.–pt. | Poranny raport | Jedna sesja z pytaniami do Artura |
-| 08:30, codziennie | Zegarek (launchd, bez modelu) | Oczekiwane biegi kontra ślady `.ok`: brak śladu to czerwień, powiadomienie na laptopie i ping poza laptop |
+| 08:30, codziennie | Zegarek (launchd, bez modelu) | Oczekiwane biegi kontra ślady `.ok`, świeżość `OK pg` i tabele biegów na produkcji: brak śladu albo zrzutu to czerwień, powiadomienie na laptopie i ping poza laptop |
 
 - **Działają na laptopie jako zadania w aplikacji Claude**, bo potrzebują
   stagingu, `gh` i klucza SSH. Zamknięta aplikacja = bieg przy następnym
@@ -41,6 +41,7 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   `~/.claude/nexus-rutyny/bin/kopia/scripts/staging/`, a nie z maina: scalony PR
   nie zmienia sam tego, co działa z kluczem. Po zmianie tych dwóch skryptów:
   `git show origin/main:scripts/staging/<plik> > ~/.claude/nexus-rutyny/bin/kopia/scripts/staging/<plik>`.
+  Tak samo `refresh_code.sh` dla Odświeżenia (`pl.dynaminds.nexus-odswiezenie`, `bin/odswiezenie.sh`).
   Zadanie: `~/Library/LaunchAgents/pl.dynaminds.nexus-nocna-kopia.plist`,
   skrypt startowy `bin/nocna-kopia.sh`. Build i `sanitize.sql` idą z kodu stagingu
   (`origin/main`), bo nie mają dostępu do klucza.
@@ -63,8 +64,10 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   scalony PR rutyny nie poszerza sam, co rutyny mogą na produkcji.
   Bramki pilnuje `backend/tests/test_prod_readonly_script.py`.
 - **Nic nie idzie do ludzi.** Rutyna pisze szkic „daj znać”, wysyła Artur.
-- **Backup jest poza rutynami:** robi go admin osobno, więc `#1247`
-  i `backup-drill.yml` nie są sprawą Dyżurnego.
+- **Backup jest poza rutynami z modelem:** robi go admin osobno, więc `#1247`
+  i `backup-drill.yml` nie są sprawą Dyżurnego. Świeżość zrzutu sprawdza Zegarek
+  przez `prod_readonly.py backup-log`. Tabeli `order_mail_recheck_runs` sonda nie czyta:
+  wiersz powstaje tylko, gdy bieg coś zrobił, więc brak świeżego wpisu nie jest awarią.
 - **Treść rutyn nie leży w repo**, bo repo jest publiczne: zadania są
   w `~/.claude/scheduled-tasks/`, zasady i raporty w `~/.claude/nexus-rutyny/`.
   Tam też trafiają nazwiska i zrzuty; do PR-ów i komentarzy na GitHubie nie.
