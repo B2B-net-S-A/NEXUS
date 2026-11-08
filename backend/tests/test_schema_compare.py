@@ -57,6 +57,29 @@ def test_alembic_version_is_ignored() -> None:
     assert schema_compare._include_object(None, "candidates", "table")
 
 
+def test_abandoned_tables_stay_out_of_the_report() -> None:
+    """Decyzja z 08.11.2026: 70 tabel bez modelu zostaje w bazie, poza raportem."""
+    ignored = schema_compare._ABANDONED_TABLES
+    assert len(ignored) == 70
+    assert {"dr_consultants", "signature_links"} <= ignored
+    assert any(name.startswith("ai_") for name in ignored)
+    assert any("_bak_" in name for name in ignored)
+    for name in ignored:
+        assert not schema_compare._include_object(None, name, "table")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "embedding_index_queue",
+        "dr_sourcer_category_assignments",
+        "dr_tac_delivery_lead_assignments",
+    ],
+)
+def test_tables_outside_the_decision_stay_in_the_report(name: str) -> None:
+    assert schema_compare._include_object(None, name, "table")
+
+
 @pytest.fixture
 def clean_state(monkeypatch):
     monkeypatch.setattr(schema_compare, "_result", None)
