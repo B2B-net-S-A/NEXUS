@@ -227,7 +227,7 @@ class SalesContact(Base, TimestampMixin):
     #: Ostatni zapis importu z Atlasa; ``updated_at > synced_at`` = zmienione w NEXUSIE.
     synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    #: 0669: osoba nie życzy sobie kontaktu (wynik rozmowy „Nie kontaktować”).
+    #: 0670: osoba nie życzy sobie kontaktu (wynik rozmowy „Nie kontaktować”).
     do_not_contact_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True)
     )
@@ -446,7 +446,7 @@ class SalesActivity(Base, TimestampMixin):
     web_link: Mapped[Optional[str]] = mapped_column(String(2000))
     direction: Mapped[Optional[str]] = mapped_column(String(3))
     duration_minutes: Mapped[Optional[int]] = mapped_column(Integer)
-    #: 0669: wynik rozmowy zapisanej z karty szansy (``CALL_OUTCOMES``).
+    #: 0670: wynik rozmowy zapisanej z karty szansy (``CALL_OUTCOMES``).
     outcome: Mapped[Optional[str]] = mapped_column(String(20))
 
 

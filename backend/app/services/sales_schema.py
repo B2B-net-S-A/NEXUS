@@ -689,7 +689,7 @@ TRANSCRIPTS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0669: wynik rozmowy i sprzeciw wobec kontaktu ────────────────────────
+# ── 0670: wynik rozmowy i sprzeciw wobec kontaktu ────────────────────────
 #
 # Wynik zapisany w polu, nie tylko w temacie wpisu, żeby dało się go policzyć.
 # ``sales_contacts`` nie miało dotąd żadnego pola zgody ani sprzeciwu.
