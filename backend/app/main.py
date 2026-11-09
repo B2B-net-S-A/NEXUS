@@ -805,6 +805,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
+    from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -1013,6 +1014,8 @@ async def lifespan(app: FastAPI):
             # Finanse → Braki (0308): zamówienie zakończone bez następcy. Biegnie
             # po północy w Warszawie; kill-switch ORDER_GAPS_ENABLED przed pętlą.
             "order_gaps": asyncio.create_task(order_gaps_loop()),
+            # Sprzedaż: tryb cienia automatu archiwizacji, sam odczyt i linia logu.
+            "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),

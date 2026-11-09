@@ -39,6 +39,7 @@ from app.services.sales import company_dates, decision_map, history
 from app.services.sales.lifecycle import apply_stage, deal_value
 from app.services.sales.motion import build_atlas_motion, entry_keys
 from app.services.sales.summary import Period, build_summary
+from app.services.sales.touch import last_touch_at
 from app.services.sales_schema import OpportunityEventKind
 
 pipelines_router = APIRouter()
@@ -232,6 +233,8 @@ class OpportunityOut(BaseModel):
     tags: list[Any]
     owner: Optional[Ref]
     last_activity_at: Optional[datetime]
+    #: Ostatni dotyk (``services/sales/touch.py``); jest zawsze, dolna granica to założenie.
+    last_touch_at: datetime
     keep_open_until: Optional[date]
     archived_at: Optional[datetime]
     created_at: datetime
@@ -301,6 +304,7 @@ def _out(row: Any) -> OpportunityOut:
             else None
         ),
         last_activity_at=opp.last_activity_at,
+        last_touch_at=row.last_touch_at,
         keep_open_until=opp.keep_open_until,
         archived_at=opp.archived_at,
         created_at=opp.created_at,
@@ -308,7 +312,7 @@ def _out(row: Any) -> OpportunityOut:
     )
 
 
-def _base_query():
+def _base_query(now: datetime):
     owner = aliased(User)
     return (
         select(
@@ -316,6 +320,7 @@ def _base_query():
             SalesPipelineStage,
             SalesCompany.name.label("company_name"),
             owner.name.label("owner_name"),
+            last_touch_at(now).label("last_touch_at"),
         )
         .join(SalesPipelineStage, SalesPipelineStage.id == SalesOpportunity.stage_id)
         .join(SalesCompany, SalesCompany.id == SalesOpportunity.company_id)
@@ -341,7 +346,11 @@ async def _decision_map_enabled(db: AsyncSession, opp: SalesOpportunity) -> bool
 
 async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
     row = (
-        await db.execute(_base_query().where(SalesOpportunity.id == opportunity_id))
+        await db.execute(
+            _base_query(datetime.now(timezone.utc)).where(
+                SalesOpportunity.id == opportunity_id
+            )
+        )
     ).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
@@ -433,7 +442,6 @@ _SORTS = {
     "updated": (SalesOpportunity.updated_at.desc(),),
     "value": (SalesOpportunity.value.desc().nulls_last(),),
     "close": (SalesOpportunity.expected_close_date.asc().nulls_last(),),
-    "activity": (SalesOpportunity.last_activity_at.desc().nulls_last(),),
     "created": (SalesOpportunity.created_at.desc(),),
 }
 
@@ -457,7 +465,8 @@ async def list_opportunities(
     limit: int = Query(default=200, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
 ) -> OpportunityList:
-    query = _base_query().where(
+    now = datetime.now(timezone.utc)
+    query = _base_query(now).where(
         SalesOpportunity.archived_at.is_not(None)
         if archived
         else SalesOpportunity.archived_at.is_(None)
@@ -493,9 +502,11 @@ async def list_opportunities(
             conditions.append(nip.like(f"%{digits}%"))
         query = query.where(or_(*conditions))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    # „Ostatni kontakt” sortuje po tym samym dotyku, który widać na kafelku.
+    ordering = (last_touch_at(now).desc(),) if sort == "activity" else _SORTS[sort]
     rows = (
         await db.execute(
-            query.order_by(*_SORTS[sort], SalesOpportunity.id.desc())
+            query.order_by(*ordering, SalesOpportunity.id.desc())
             .limit(limit)
             .offset(offset)
         )

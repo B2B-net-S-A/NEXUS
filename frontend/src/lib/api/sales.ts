@@ -212,6 +212,8 @@ export interface Opportunity {
   tags: string[];
   owner: Ref | null;
   last_activity_at: string | null;
+  /** Ostatni dotyk (definicja w backendzie: services/sales/touch.py). */
+  last_touch_at: string;
   keep_open_until: string | null;
   archived_at: string | null;
   created_at: string;
