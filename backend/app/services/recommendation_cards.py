@@ -35,6 +35,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoInspectionAvailable
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pair_filter import in_pairs
 from app.models.client import Client
 from app.models.job import Job
 from app.models.note import Note
@@ -143,7 +144,7 @@ async def stage_rate_pairs(
     rows = await db.execute(
         select(CandidateStage.candidate_id, CandidateStage.job_id)
         .where(
-            tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(wanted),
+            in_pairs(CandidateStage.candidate_id, CandidateStage.job_id, wanted),
             CandidateStage.expected_rate_value.isnot(None),
         )
         .distinct()
