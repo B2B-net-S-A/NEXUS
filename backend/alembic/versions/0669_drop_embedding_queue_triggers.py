@@ -1,7 +1,7 @@
 """Zdejmuje triggery martwej kolejki ``embedding_index_queue``.
 
-Revision ID: 0668_drop_embedding_queue_trg
-Revises: 0664_dl_alert_invoice_no_line
+Revision ID: 0669_drop_embedding_queue_trg
+Revises: 0668_cortex_first_seen_not_null
 
 Kolejka powstała w 0165 (#701), a rewert #713 usunął migrację, nie obiekty:
 triggery zostały w bazie, choć nic ich nie czyta ani nie definiuje. Decyzja
@@ -15,8 +15,8 @@ usunięcia kroku ``embedding-queue-triggers`` z entrypointu.
 
 from alembic import op
 
-revision = "0668_drop_embedding_queue_trg"
-down_revision = "0664_dl_alert_invoice_no_line"
+revision = "0669_drop_embedding_queue_trg"
+down_revision = "0668_cortex_first_seen_not_null"
 branch_labels = None
 depends_on = None
 

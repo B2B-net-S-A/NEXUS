@@ -1,4 +1,4 @@
-"""0668: triggery martwej kolejki ``embedding_index_queue`` znikają z bazy.
+"""0669: triggery martwej kolejki ``embedding_index_queue`` znikają z bazy.
 
 Migracja 0165 z #701 założyła kolejkę bez konsumenta, a rewert #713 usunął
 migrację, nie obiekty. Decyzja Artura z 08.11.2026: zdjąć triggery, tabelę
@@ -13,7 +13,7 @@ import importlib.util
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0668_drop_embedding_queue_triggers.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0669_drop_embedding_queue_triggers.py"
 TRIGGERS = ("trg_candidates_embedding_index", "trg_jobs_embedding_index")
 
 

@@ -11089,7 +11089,7 @@ async def finalize():
 asyncio.run(finalize())
 PY
 
-# 0668: triggery martwej kolejki embedding_index_queue (rewert #713 zostawił je
+# 0669: triggery martwej kolejki embedding_index_queue (rewert #713 zostawił je
 # w bazie, nic ich nie czyta). Tabela i funkcja zostają, decyzja Artura z
 # 08.11.2026. DROP TRIGGER prosi o ACCESS EXCLUSIVE nawet przy IF EXISTS, więc
 # krok najpierw sprawdza pg_trigger, a na czystej bazie nie dotyka tabel.
