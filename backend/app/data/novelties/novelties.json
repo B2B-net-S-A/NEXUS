@@ -1815,5 +1815,19 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "jobs.board.card"
+  },
+  {
+    "id": "sprzedaz-spotkania-co-dalej",
+    "pr": 3241,
+    "title": "Spotkania: co dalej przy każdym wierszu",
+    "why": "Spotkanie przypniesz do szansy albo założysz z niego nową jednym kliknięciem. Spotkanie u naszego klienta od razu mówi, do którego Delivery Leada je przekazać.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Spotkania",
+    "href": "/sales/meetings",
+    "dot_anchor": "sales.tabs"
   }
 ]
