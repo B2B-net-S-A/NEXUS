@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { useBonusClawbacks, type BonusClawback } from "@/lib/api/hr-payroll";
+import { useBonusClawbacks, useBonusMode, type BonusClawback } from "@/lib/api/hr-payroll";
 import { apiErrorMessage } from "@/lib/api-error";
 import { CALM_SUBLINE } from "@/lib/calm-table";
 
@@ -18,6 +18,7 @@ import { clawbackActive, clawbackProgress, clawbackReason, clawbackRemaining } f
  */
 export function ClawbacksSection({ meId }: { meId?: number }) {
   const list = useBonusClawbacks();
+  const manualAllowed = useBonusMode().data?.manual_allowed ?? true;
   const [cancelling, setCancelling] = useState<BonusClawback | null>(null);
   if (list.isError) {
     return (
@@ -48,7 +49,7 @@ export function ClawbacksSection({ meId }: { meId?: number }) {
                 {clawbackReason(item)} · {clawbackProgress(item)}
               </span>
             </div>
-            {item.status !== "cancelled" && item.recipient_user_id !== meId ? (
+            {manualAllowed && item.status !== "cancelled" && item.recipient_user_id !== meId ? (
               <Button size="sm" variant="quiet" onClick={() => setCancelling(item)}>
                 Zdejmij
               </Button>

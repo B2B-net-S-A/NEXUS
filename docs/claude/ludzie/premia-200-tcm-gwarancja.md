@@ -72,16 +72,11 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
   (marża ujemna dalej nic). System indywidualny wygrywa. Migawka `fixed_amount`,
   `rule_amount` czyta ją przy porównaniu z arkuszem.
 
-## Gwarancja: tylko premia DL tego samego placementu
+## Zastępstwo a premia (zmiana 09.11.2026)
 
-- Zastępstwo (`contracts.is_replacement` + `replaced_contract_id`, obowiązkowe
-  w Generatorze od 26.10.2026) zabiera premię DL i dodatkową premię DL tylko
-  wtedy, gdy zastępowaną osobę zatrudnił ten sam DL (regułą automatu
-  na zastąpionym kontrakcie) i jej kontrakt trwał krócej niż rok (365 dni od
-  startu do końca; bez końca liczy się do startu zastępstwa).
-- Propozycja anulowana z powodem `guarantee` (automat ją przywróci, gdy dane się
-  zmienią). Rekruter gwarancji nie ma: dostaje premię, a zastępstwo liczy mu się
-  do celu 200% (decyzja Artura 05.11.2026, zmienia „rekruterzy od 2027” z 26.10).
+- Zastępstwo (`contracts.is_replacement`) nie wpływa na premie: ani rekrutera, ani DL-a.
+  Gwarancja to zwrot premii, opis w `gwarancja-premii-dl.md`.
+- Znacznika „Replacement” przy premii nie ma.
 
 ## Domknięcie po rekruterze, który odszedł (06.11.2026)
 

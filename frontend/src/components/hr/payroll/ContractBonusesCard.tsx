@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { useHrConfig } from "@/lib/api/hr";
-import { useContractBonuses, type BonusRow } from "@/lib/api/hr-payroll";
+import { useBonusMode, useContractBonuses, type BonusRow } from "@/lib/api/hr-payroll";
 import { formatMoney } from "@/lib/money";
 
 import { BonusDeleteDialog } from "./BonusDeleteDialog";
@@ -22,6 +22,7 @@ const STATUS_LABEL: Record<BonusRow["status"], string> = {
 export function ContractBonusesCard({ contractId }: { contractId: number }) {
   const config = useHrConfig(true);
   const allowed = Boolean(config.data?.me.payroll && config.data?.open_modules.payroll);
+  const manualAllowed = useBonusMode().data?.manual_allowed ?? true;
   const query = useContractBonuses(contractId, allowed);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [deleting, setDeleting] = useState<BonusRow | null>(null);
@@ -67,7 +68,7 @@ export function ContractBonusesCard({ contractId }: { contractId: number }) {
                   {row.flags?.length ? ` · ${row.flags.map((flag) => flag.label).join(", ")}` : ""}
                 </td>
                 <td className="py-2 text-right">
-                  {row.status !== "cancelled" ? (
+                  {row.status !== "cancelled" && manualAllowed ? (
                     <button type="button" className="font-medium text-primary hover:underline" onClick={() => setEditing(row)}>
                       Zmień
                     </button>

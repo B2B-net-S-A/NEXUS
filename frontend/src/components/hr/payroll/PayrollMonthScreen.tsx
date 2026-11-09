@@ -27,6 +27,7 @@ import {
   closeConflict,
   payrollPaths,
   useApproveBonus,
+  useBonusMode,
   useCloseMonth,
   usePayrollMonth,
   type BonusRow,
@@ -87,6 +88,9 @@ export function PayrollMonthScreen({
   const close = useCloseMonth(year, month);
   const approve = useApproveBonus();
   const me = useAuthStore((state) => state.user);
+  const bonusMode = useBonusMode();
+  const automatic = bonusMode.data?.automatic ?? false;
+  const manualAllowed = bonusMode.data?.manual_allowed ?? true;
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const cancelRow = useCancelBonusRow(askConfirm);
@@ -350,9 +354,11 @@ export function PayrollMonthScreen({
                   missingRates={data.missing_rates}
                   meId={me?.id}
                   open={open}
-                  canCreate={open && people.length > 0}
+                  canCreate={open && people.length > 0 && manualAllowed}
                   onCreate={() => setBonusOpen(true)}
-                  onImport={open ? () => setImportOpen(true) : undefined}
+                  onImport={open && !automatic ? () => setImportOpen(true) : undefined}
+                  automatic={automatic}
+                  readOnly={!manualAllowed}
                   onApprove={approveRow}
                   onEdit={setEditing}
                   onCancel={setDeleting}
@@ -363,7 +369,7 @@ export function PayrollMonthScreen({
           ) : (
             <div className="flex flex-wrap items-end justify-between gap-3">
               <InlineStats id="payroll-month-stats" stats={monthStats(data)} />
-              {open && people.length > 0 ? (
+              {open && people.length > 0 && manualAllowed ? (
                 <Button size="sm" variant="secondary" onClick={() => setBonusOpen(true)}>
                   <Plus className="h-4 w-4" aria-hidden />
                   Nowa premia
@@ -409,7 +415,7 @@ export function PayrollMonthScreen({
               <BonusTable
                 rows={decidable}
                 renderActions={(row) => {
-                  if (!open || mine(row)) return null;
+                  if (!open || mine(row) || !manualAllowed) return null;
                   const decision = bonusDecision(row, me?.id);
                   return (
                     <div className="flex justify-end gap-1">
@@ -453,6 +459,7 @@ export function PayrollMonthScreen({
                   renderActions={(row) => {
                     const actions = assignedBonusActions(row, { open, payroll, meId: me?.id });
                     // Zwrot z gwarancji także w zamkniętym miesiącu: premia jest już wypłacona.
+                    if (!manualAllowed) return null;
                     if (!actions.edit && !actions.cancel && !row.can_clawback) return null;
                     return (
                       <div className="flex justify-end gap-1">

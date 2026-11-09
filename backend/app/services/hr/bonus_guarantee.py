@@ -18,6 +18,12 @@ startu kontraktu, odbiera DL-owi premię za ten placement. Decyzje z tego dnia:
   październik 2026 nie są w NEXUSIE zamknięte, choć premie z nich są wypłacone. Zamknięcie miesiąca zamraża potrącenie
   w ``hr_bonus_clawback_offsets``, ponowne otwarcie je kasuje.
 
+Zastępstwo (replacement) nie ma wpływu na premie. Przepięcie, czyli następny
+kontrakt tej samej osoby do 31 dni, nie łamie gwarancji: liczy się koniec
+ostatniego kontraktu w łańcuchu, od startu pierwszego (decyzje Artura 09.11.2026).
+Premie DL z importu Compassa nie mają kontraktu, więc nocny przebieg dopasowuje je
+po nazwisku z opisu; działa po włączeniu samego przyznawania.
+
 Cofnięcie zakończenia kontraktu anuluje otwarty dług automatu; dług ręczny
 zostaje, bo to decyzja Płac. Dług zdjęty ręcznie automat już nie zakłada.
 Potrącenie zamrożone przed anulowaniem zostaje w historii jako „do oddania”
@@ -33,10 +39,11 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
+from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.models.hr_payroll import (
     HrBonus,
@@ -52,8 +59,13 @@ from app.services.hr.payroll_errors import (
     PayrollForbidden,
     PayrollNotFound,
 )
+from app.services.hr.bonus_rules import load_rules
 from app.services.hr.payroll_periods import closed_months
-from app.services.hr.placement_bonuses import contract_end
+from app.services.hr.placement_bonuses import (
+    CONTINUATION_DAYS,
+    STARTED_STATUSES,
+    contract_end,
+)
 from app.services.hr_bonus_guarantee_schema import NOTE_MAX_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -66,6 +78,10 @@ REASON_CONTRACT_RESTORED = "contract_restored"
 REASON_BONUS_CANCELLED = "bonus_cancelled"
 REASON_MANUAL = "manual"
 NOTE_MIN_LENGTH = 3
+IMPORT_SOURCE = "compass_import"
+#: Premie z importu, których gwarancję Płace rozliczyły w październiku 2026, usuwając
+#: nową premię DL (decyzja Artura 09.11.2026): bez drugiego zwrotu.
+SETTLED_BEFORE_AUTOMATION: frozenset[int] = frozenset({42, 94, 128, 169, 216})
 
 
 # ── Termin ───────────────────────────────────────────────────────────────────
@@ -87,8 +103,12 @@ class GuaranteeCheck:
     ended_on: Optional[date] = None
 
 
-def check_contract(contract: Contract, today: date) -> GuaranteeCheck:
+def check_contract(
+    contract: Contract, today: date, *, last: Optional[Contract] = None
+) -> GuaranteeCheck:
     """Czy kontrakt skończył się przed upływem 12 miesięcy od startu.
+
+    ``last`` to ostatni kontrakt łańcucha przepięć: jego koniec decyduje.
 
     Liczy się koniec, który już nastąpił: kontrakt z datą końca w przyszłości
     („kończy się”) jeszcze trwa, a data może się zmienić (przedłużenie).
@@ -99,9 +119,10 @@ def check_contract(contract: Contract, today: date) -> GuaranteeCheck:
     if start is None:
         return GuaranteeCheck(False)
     until = guarantee_until(start)
-    end = contract_end(contract)
+    latest = last or contract
+    end = contract_end(latest)
     if end is None:
-        ended = contract.status == ContractStatus.ended
+        ended = latest.status == ContractStatus.ended
         return GuaranteeCheck(ended and today <= until)
     if end > today:
         return GuaranteeCheck(False)
@@ -397,7 +418,7 @@ def _new_clawback(
     return HrBonusClawback(
         bonus_id=bonus.id,
         recipient_user_id=bonus.recipient_user_id,
-        contract_id=bonus.contract_id,
+        contract_id=contract.id if contract is not None else bonus.contract_id,
         amount=bonus.amount,
         currency=bonus.currency,
         origin=origin,
@@ -426,8 +447,84 @@ def _cancel(
     clawback.cancel_note = note
 
 
+async def last_of_chain(db: AsyncSession, contract: Contract) -> Contract:
+    """Ostatni kontrakt łańcucha przepięć tej samej osoby (sam kontrakt, gdy brak)."""
+
+    current = contract
+    seen = {contract.id}
+    while current.candidate_id is not None:
+        ended = contract_end(current)
+        if ended is None:
+            break
+        following = await db.scalar(
+            select(Contract)
+            .where(
+                Contract.candidate_id == current.candidate_id,
+                Contract.id.not_in(seen),
+                Contract.status.in_(STARTED_STATUSES),
+                Contract.start_date.between(
+                    ended - timedelta(days=CONTINUATION_DAYS),
+                    ended + timedelta(days=CONTINUATION_DAYS),
+                ),
+            )
+            .order_by(Contract.start_date.desc())
+            .limit(1)
+        )
+        if following is None:
+            break
+        seen.add(following.id)
+        current = following
+    return current
+
+
+async def imported_bonuses(db: AsyncSession, *, today: date) -> dict[int, list[int]]:
+    """Premie DL z importu dopasowane do kontraktu po imieniu i nazwisku z opisu.
+
+    Tylko dopasowania jednoznaczne i kontrakty, które ruszyły w oknie gwarancji: od
+    4 miesięcy przed miesiącem premii do miesiąca po nim. Premii bez nazwiska
+    w opisie gwarancja nie obejmuje. Nazwisko musi zaczynać słowo opisu.
+    """
+
+    full_name = func.concat(Candidate.name, " ", Candidate.lastname)
+    month_start = func.make_date(HrBonus.period_year, HrBonus.period_month, 1)
+    rows = await db.execute(
+        select(HrBonus.id, Contract.id)
+        .join(
+            Candidate,
+            or_(
+                HrBonus.description.ilike(func.concat(full_name, "%")),
+                HrBonus.description.ilike(func.concat("% ", full_name, "%")),
+            ),
+        )
+        .join(Contract, Contract.candidate_id == Candidate.id)
+        .where(
+            HrBonus.source == IMPORT_SOURCE,
+            HrBonus.category == GUARANTEED_CATEGORY,
+            HrBonus.status == "assigned",
+            HrBonus.contract_id.is_(None),
+            HrBonus.id.not_in(SETTLED_BEFORE_AUTOMATION),
+            Contract.status.in_(STARTED_STATUSES),
+            Contract.start_date >= today - timedelta(days=SYNC_WINDOW_DAYS),
+            Contract.start_date >= func.date(month_start - text("interval '4 months'")),
+            Contract.start_date <= func.date(month_start + text("interval '1 month'")),
+        )
+    )
+    matches: dict[int, set[int]] = defaultdict(set)
+    for bonus_id, contract_id in rows.all():
+        matches[int(bonus_id)].add(int(contract_id))
+    by_contract: dict[int, list[int]] = defaultdict(list)
+    for bonus_id, contracts in matches.items():
+        if len(contracts) == 1:
+            by_contract[next(iter(contracts))].append(bonus_id)
+    return dict(by_contract)
+
+
 async def reconcile_contract(
-    db: AsyncSession, contract: Contract, *, today: date
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    today: date,
+    imported: Sequence[int] = (),
 ) -> dict[str, int]:
     """Automat: dług za przyznane premie DL kontraktu, który złamał gwarancję."""
 
@@ -436,7 +533,10 @@ async def reconcile_contract(
         await db.scalars(
             select(HrBonus)
             .where(
-                HrBonus.contract_id == contract.id,
+                or_(
+                    HrBonus.contract_id == contract.id,
+                    HrBonus.id.in_(list(imported)),
+                ),
                 HrBonus.category == GUARANTEED_CATEGORY,
                 HrBonus.status == "assigned",
             )
@@ -456,7 +556,8 @@ async def reconcile_contract(
     ):
         existing[row.bonus_id].append(row)
 
-    check = check_contract(contract, today)
+    last = await last_of_chain(db, contract)
+    check = check_contract(contract, today, last=last)
     for bonus in bonuses:
         rows = existing.get(bonus.id, [])
         live = next((row for row in rows if row.status != "cancelled"), None)
@@ -509,7 +610,11 @@ async def sync_guarantees(db: AsyncSession, *, today: date) -> dict[str, int]:
         )
         .distinct()
     )
-    ids = sorted({cid for cid in (*with_bonus, *with_debt) if cid is not None})
+    rules = await load_rules(db)
+    imported = await imported_bonuses(db, today=today) if rules.auto_assign_from else {}
+    ids = sorted(
+        {cid for cid in (*with_bonus, *with_debt, *imported) if cid is not None}
+    )
     totals = {"contracts": 0, "created": 0, "cancelled": 0, "errors": 0}
     for contract_id in ids:
         totals["contracts"] += 1
@@ -518,7 +623,9 @@ async def sync_guarantees(db: AsyncSession, *, today: date) -> dict[str, int]:
                 contract = await db.get(Contract, contract_id)
                 if contract is None:
                     continue
-                counts = await reconcile_contract(db, contract, today=today)
+                counts = await reconcile_contract(
+                    db, contract, today=today, imported=imported.get(contract_id, ())
+                )
         except Exception as exc:  # noqa: BLE001 — jeden kontrakt nie zatrzymuje reszty
             logger.error(
                 "[payroll] gwarancja premii: błąd kontraktu %s (%s)",
@@ -763,6 +870,8 @@ __all__ = [
     "deducted_by_currency",
     "freeze_offsets",
     "guarantee_until",
+    "imported_bonuses",
+    "last_of_chain",
     "list_clawbacks",
     "live_by_bonus",
     "lock_open",

@@ -28,7 +28,7 @@ zamknięty w płacach) — ``paid_flags`` zwraca wtedy ``None``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
@@ -46,6 +46,7 @@ from app.services.hr import audit, payroll_periods
 from app.services.hr import modules as hr_modules
 from app.services.hr.employment_terms import bonus_message, terms
 from app.services.hr.notify import notify_each
+from app.services.hr.recipients import admin_ids
 from app.services.hr.settlements_rules import settled_in_nexus
 from app.services.hr.payroll_access import PayrollViewer
 from app.services.hr.payroll_errors import (
@@ -78,6 +79,7 @@ AUTO_CANCEL_REASONS: frozenset[str] = frozenset(
         "rule_no_longer_applies",
         "guarantee",
         "client_referral",
+        "recipient_left",
     }
 )
 
@@ -597,6 +599,42 @@ async def cancel_bonus(
     return bonus
 
 
+async def report_to_admin(
+    db: AsyncSession, viewer: PayrollViewer, bonus_id: int, *, note: Optional[str]
+) -> None:
+    """„Zgłoś”: coś się nie zgadza, więc admin zmienia zasady albo dane."""
+
+    text = (note or "").strip()
+    if len(text) < 3:
+        raise PayrollError("Napisz, co się nie zgadza (co najmniej 3 znaki).")
+    bonus = await _locked_bonus(db, bonus_id)
+    _require_scope(viewer, bonus)
+    _audit(db, bonus, actor_id=viewer.user_id, action="bonus_reported")
+    await notify_each(
+        db,
+        await admin_ids(db),
+        title="Zgłoszenie do premii",
+        message=f"{bonus.description or 'Premia'}: {clean_description(text)}",
+        ntype=NotificationType.hr_bonus_assigned,
+        link=f"/people/payroll/{bonus.period_year}-{bonus.period_month:02d}",
+        related_entity_type="hr_bonus",
+        related_entity_id=bonus.id,
+        log_tag="payroll",
+        fresh=True,
+    )
+
+
+async def auto_assign(db: AsyncSession, bonus: HrBonus, *, now: datetime) -> None:
+    """Automat przyznaje premię: bez osoby przyznającej, z dzwonkiem jak zwykle."""
+
+    bonus.status = "assigned"
+    bonus.assigned_by = None
+    bonus.assigned_at = now
+    await db.flush()
+    _audit(db, bonus, actor_id=None, action="bonus_auto_assigned")
+    await _notify(db, bonus, event="new")
+
+
 async def paid_flags(
     db: AsyncSession, bonuses: list[HrBonus]
 ) -> Optional[dict[int, bool]]:
@@ -722,7 +760,9 @@ __all__ = [
     "approve_bonus",
     "bonus_payload",
     "can_approve",
+    "auto_assign",
     "cancel_bonus",
+    "report_to_admin",
     "create_manual",
     "list_bonuses",
     "names_for",

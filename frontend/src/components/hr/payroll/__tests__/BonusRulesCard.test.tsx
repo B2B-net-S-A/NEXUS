@@ -27,6 +27,7 @@ vi.mock("@/lib/api/hr", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api/hr-payroll", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/hr-payroll")>()),
+  useBonusMode: () => ({ data: undefined }),
   useBonusRules: () => ({ data: RULES, isLoading: false, isError: false, error: null, isSuccess: true }),
   useSaveBonusRules: () => ({ mutate: vi.fn(), isPending: false }),
   useRefreshProposals: () => ({ mutate: vi.fn(), isPending: false }),
@@ -143,5 +144,22 @@ describe("godziny premii DL", () => {
   it("zła wartość to zdanie błędu", () => {
     expect(rulesPayload({ ...form, dlDefaultHours: "0" }).ok).toBe(false);
     expect(rulesPayload({ ...form, dlDefaultHours: "abc" }).ok).toBe(false);
+  });
+});
+
+describe("automat premii", () => {
+  const form = formFromRules(RULES);
+
+  it("miesiąc startu i pozycje admina idą do zapisu", () => {
+    const item = { user_id: 7, amount: "1495", month: "2026-11", reason: "Premia za punkty" };
+    const result = rulesPayload({ ...form, autoAssignFrom: "2026-11", ruleItems: [item] });
+    expect(result.ok && result.payload.auto_assign_from).toBe("2026-11");
+    expect(result.ok && result.payload.rule_items).toEqual([item]);
+  });
+
+  it("puste pole wyłącza automat, zły miesiąc to zdanie błędu", () => {
+    const off = rulesPayload(form);
+    expect(off.ok && off.payload.auto_assign_from).toBeNull();
+    expect(rulesPayload({ ...form, autoAssignFrom: "listopad" }).ok).toBe(false);
   });
 });

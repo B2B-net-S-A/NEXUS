@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/table";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useDeleteRate, usePersonPayroll, type BonusRow, type RateRow } from "@/lib/api/hr-payroll";
+import { useBonusMode, useDeleteRate, usePersonPayroll, type BonusRow, type RateRow } from "@/lib/api/hr-payroll";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
 import { formatMoney } from "@/lib/money";
@@ -114,6 +114,7 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
   const me = useAuthStore((state) => state.user);
   const [rateOpen, setRateOpen] = useState(false);
   const [bonusOpen, setBonusOpen] = useState(false);
+  const manualAllowed = useBonusMode().data?.manual_allowed ?? true;
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [deleting, setDeleting] = useState<BonusRow | null>(null);
   const [clawing, setClawing] = useState<BonusRow | null>(null);
@@ -149,7 +150,7 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
   const payrollScope = data?.scope === "full";
 
   const renderBonusActions = (row: BonusRow) => {
-    if (row.status === "cancelled") return null;
+    if (row.status === "cancelled" || !manualAllowed) return null;
     const actions = assignedBonusActions(row, { open: true, payroll: payrollScope, meId: me?.id });
     if (!actions.edit && !actions.cancel && !row.can_clawback) return null;
     return (
