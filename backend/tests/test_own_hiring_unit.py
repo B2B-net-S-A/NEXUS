@@ -183,7 +183,7 @@ def test_invitation_escapes_title_and_assumes_no_gender():
 def test_migration_and_entrypoint_share_one_ddl_source():
     root = Path(__file__).resolve().parents[1]
     entrypoint = (root / "entrypoint.sh").read_text(encoding="utf-8")
-    migration = (root / "alembic/versions/0670_own_hiring.py").read_text(
+    migration = (root / "alembic/versions/0673_own_hiring.py").read_text(
         encoding="utf-8"
     )
     assert "own_hiring_schema.TABLE_DDL" in migration
