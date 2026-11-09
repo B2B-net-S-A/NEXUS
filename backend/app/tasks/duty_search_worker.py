@@ -13,7 +13,7 @@ import time
 
 from app.core.database import AsyncSessionLocal
 from app.models.duty_search_run import DutySearchRun
-from app.services import duty_search
+from app.services import duty_search, loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,11 @@ async def _run_one() -> bool:
 
 
 async def duty_search_loop():
+    # Jeden przebieg trwa do kilku minut bez ticku; 30 min ciszy = pętla stoi.
+    beat = loop_heartbeat.register("duty_search", max_silence_seconds=1800)
     last_purge = 0.0
     while True:
+        beat.tick()
         try:
             if time.monotonic() - last_purge > PURGE_EVERY_SECONDS:
                 async with AsyncSessionLocal() as db:
