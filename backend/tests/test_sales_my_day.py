@@ -109,9 +109,8 @@ async def _opportunity(
     primary_contact_id: Optional[int] = None,
 ) -> int:
     pipeline_id, stage_id = await _stage(stage)
-    # Wiek w dniach kalendarza firmy, w południe. ``_now() - 20 dni`` przed
-    # północą przeskakuje przy zmianie czasu na następny dzień (20.10 22:30 UTC
-    # to 21.10 w Warszawie) i „20 dni” liczy się jako 19.
+    # Południe dnia sprzed ``age_days`` dni: o 23:00 w Warszawie „teraz minus 20 dni”
+    # wypadało przez zmianę czasu na inny dzień kalendarza firmy (19 zamiast 20).
     created = _noon(business_today() - timedelta(days=age_days)) if age_days else _now()
     async with AsyncSessionLocal() as db:
         opportunity = SalesOpportunity(
@@ -176,8 +175,8 @@ async def _day(app_client: Any, user: Any) -> dict[str, Any]:
     return resp.json()
 
 
-async def _day_at(user: Any, now: datetime) -> dict[str, Any]:
-    """Kolejka na wskazaną chwilę, w kształcie odpowiedzi trasy.
+async def _prep_at(user: Any, now: datetime) -> dict[str, Any]:
+    """Przygotowanie do spotkania na wskazaną chwilę, w kształcie odpowiedzi trasy.
 
     Dla testów, które potrzebują „za 20 minut, ale jeszcze dziś”: po 23:40
     takiej chwili od prawdziwego zegara już nie ma.
@@ -185,7 +184,9 @@ async def _day_at(user: Any, now: datetime) -> dict[str, Any]:
 
     async with AsyncSessionLocal() as db:
         day = await my_day.load_my_day(db, user.id, now=now)
-    return sales_my_day_api._out(day).model_dump(mode="json")
+    prep = sales_my_day_api._prep(day.prep)
+    assert prep is not None
+    return prep.model_dump(mode="json")
 
 
 # ── Dostęp ───────────────────────────────────────────────────────────────
@@ -224,7 +225,10 @@ async def test_meetings_today_are_mine_and_one_per_event(app_client) -> None:
     other = await _user("sales_view")
     first = await _company("Kopia A")
     second = await _company("Kopia B")
-    when = _today_noon()
+    # Dziś w kalendarzu firmy o każdej porze biegu („za godzinę” o 23:30 to już jutro).
+    when = min(
+        _now() + timedelta(hours=1), _day_start() + timedelta(hours=23, minutes=59)
+    )
     uid = uuid.uuid4().hex
     for company in (first, second):
         await _activity(
@@ -1002,7 +1006,7 @@ async def test_prep_covers_the_nearest_meeting(app_client) -> None:
         created_by_user_id=rep.id,
         occurred_at=now + timedelta(minutes=40),
     )
-    prep = (await _day_at(rep, now))["prep"]
+    prep = await _prep_at(rep, now)
     assert prep["activity_id"] == meeting
     assert prep["company"]["id"] == near
     assert prep["can_create_opportunity"] is True
@@ -1026,7 +1030,7 @@ async def test_prep_does_not_offer_opportunity_when_one_is_open(app_client) -> N
         created_by_user_id=rep.id,
         occurred_at=now + timedelta(minutes=20),
     )
-    assert (await _day_at(rep, now))["prep"]["can_create_opportunity"] is False
+    assert (await _prep_at(rep, now))["can_create_opportunity"] is False
 
 
 # ── Poranny mail ─────────────────────────────────────────────────────────
