@@ -1,5 +1,5 @@
 # Sprzedaż w NEXUSIE (Atlas → NEXUS) — decyzje Artura 26–27.10.2026 i reguły modułu
-<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap) -->
+<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, inne nazwy z CV, dziennik odczytu, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap) -->
 
 Sekcja „Sprzedaż” zastępuje CRM Atlasa (D1 = budowa w NEXUSIE od nowa
 i import danych). Propozycja z makietami M0–M4:
@@ -41,6 +41,42 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   `EXPERIENCE_DATES_ON_DEMAND_ENABLED`, powtórka po 30 dniach). Bieg kosztuje
   (model AI) — na stagingu też. **„running” starszy niż 2 h jest porzucony**
   (wdrożenie restartuje kontener w trakcie biegu) — nie usuwaj tej reguły.
+
+### Porządek w panelu, inne nazwy z CV i dziennik odczytu (etap P8, 09.11.2026)
+
+- **Pięć osób na start.** API układa grupy (`priority_order` w
+  `lookup_company_people`, przed cięciem do `limit`): najpierw role decyzyjne
+  (`services/company_people_rank.py`, bez stażu, praktyk i juniorów), potem
+  najświeżej dodani do bazy. Przy osobie dodanej ponad 3 lata temu znacznik
+  „CV sprzed 3 lat”. Nowe pola idą tylko do Sprzedaży (`_CRM_EXCLUDE`).
+- **„Inne nazwy z CV” na karcie**, tabela `sales_company_aliases` (0665):
+  „Dołącz” (`joined`) dolicza nazwę do osób i szukania klienta, „Nie ta firma”
+  (`rejected`) tylko przestaje podpowiadać, „Cofnij” kasuje decyzję. Zapis
+  `SalesEditUser`. Nazwy dołączone czyta serwer (`extra_names`), poza limitem
+  10 nazw z API dla CRM. Bez modelu AI i bez kolejki. Wariant powstaje na dwa
+  sposoby. Pierwszy: nazwa z CV zaczyna się od nazwy karty bez końcówek typu
+  „Bank Polska”, „S.A.”; gdy z karty zostaje jeden wyraz („Nordea Bank Abp” →
+  „nordea”), dalszy ciąg nazwy z CV może mieć tylko takie końcówki, bo sam
+  pierwszy wyraz nie odróżnia firmy („Credit Agricole” to nie „Credit Suisse”,
+  „Narodowy Bank Polski” to nie „Narodowy Fundusz Zdrowia”). Wpis z kilkoma
+  częściami to lista firm, nie wariant. Drugi: most w jednym wpisie
+  („mBank (BRE Bank S.A.)”), od trzech osób i gdy co najmniej połowa osób z takimi
+  wpisami przy tej nazwie wskazuje tę kartę, bo pośrednik („7N / mBank”) ma
+  wielu klientów.
+  Freelance, NDA, szkoły i nasza firma nigdy nie są wariantem. Nazwa z własną
+  kartą nie daje się dołączyć (409), bo duplikat to scalenie kart.
+- **Klient:** ręczne powiązanie `client_id` ma pierwszeństwo, potem NIP, potem
+  nazwa z aliasami klienta i nazwami dołączonymi na karcie.
+- **Karta naszej firmy** nie pokazuje listy osób ani wariantów, a spółka z naszą
+  nazwą nie wchodzi do liczb grupy (`company_aliases.OWN_COMPANY_NAMES`).
+- **Prefiltr po nazwach to jeden `LIKE ANY`** (`_company_prefilter`): osobne
+  `EXISTS` na każdą nazwę to 14 wariantów w 38,2 s przy budżecie 8 s. Nie wracaj
+  do `OR` po nazwach.
+- **Dziennik odczytu** to `activities` przez `record_candidate_audit`, akcja
+  `sales_company_people_read`, same identyfikatory. Tylko pełna lista osób;
+  liczby grupy i pusta lista nie są odczytem. Napis „Odczyt zapisany w dzienniku”
+  wisi na `read_logged` z odpowiedzi, czyli na udanym zapisie. Akcja jest poza
+  alarmem o pobieraniu (decyzja z 07.11.2026).
 
 ## Szanse
 

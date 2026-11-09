@@ -1313,6 +1313,8 @@ try:
         *_sales_schema.OUTLOOK_SYNC_DDL,
         # 0628: transkrypty Teams przy spotkaniach handlowców.
         *_sales_schema.TRANSCRIPTS_DDL,
+        # 0665: inne nazwy firmy z CV („Kogo znamy”).
+        *_sales_schema.COMPANY_ALIASES_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001

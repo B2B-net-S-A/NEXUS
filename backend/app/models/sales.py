@@ -487,6 +487,31 @@ class SalesMeetingTranscript(Base, TimestampMixin):
     )
 
 
+class SalesCompanyAlias(Base, TimestampMixin):
+    """Inna nazwa firmy z CV: dołączona do karty albo odrzucona („Nie ta firma”)."""
+
+    __tablename__ = "sales_company_aliases"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "normalized_alias", name="uq_sales_company_aliases_name"
+        ),
+        CheckConstraint(
+            schema.CK_COMPANY_ALIAS_STATUS, name="ck_sales_company_aliases_status"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_companies.id", ondelete="CASCADE"), nullable=False
+    )
+    alias: Mapped[str] = mapped_column(String(500), nullable=False)
+    normalized_alias: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
 class SalesCompanyContact(Base):
     """Osoba w firmie — także w drugiej i kolejnej (``sales_contacts.company_id`` to firma główna)."""
 

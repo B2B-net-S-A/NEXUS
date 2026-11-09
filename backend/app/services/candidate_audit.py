@@ -37,6 +37,9 @@ DOCUMENT_URL_ISSUED = "document_url_issued"
 # 0435: „Usuń z profilu” przy pliku kandydata (plik zostaje w magazynie).
 DOCUMENT_REMOVED = "candidate_document_removed"
 SENSITIVE_OPERATION_BLOCKED = "sensitive_operation_blocked"
+# „Kogo znamy”: handlowiec dostał listę osób przy firmie (P8, 09.11.2026). Samo
+# przeglądanie, więc celowo poza alarmem o pobieraniu (decyzja z 07.11.2026).
+SALES_COMPANY_PEOPLE_READ = "sales_company_people_read"
 # Trwałe usunięcie profilu kandydata (admin). Zapisywane PRZED usunięciem, żeby
 # ślad przetrwał samą operację — po `db.delete()` nie ma już czego audytować.
 HARD_DELETED = "candidate_hard_deleted"
