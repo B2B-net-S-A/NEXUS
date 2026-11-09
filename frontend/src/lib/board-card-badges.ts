@@ -128,8 +128,13 @@ export function isReadyForDlSend(
   column: BoardColumnKey | null,
   inCproQueue: boolean,
 ): boolean {
-  if (column !== "cv_qc" || inCproQueue) return false;
+  if (column !== "cv_qc" || inCproQueue || qcHoldsAtRecruiter(item)) return false;
   return item.qc?.status === "passed" || item.qc?.status === "overridden";
+}
+
+/** QC-7 (08.11.2026): stanowiska bez wskazania — ruch rekrutera, nie Delivery Leada. */
+function qcHoldsAtRecruiter(item: KanbanItem): boolean {
+  return item.qc?.qc_state?.kind === "verify_roles";
 }
 
 /**
@@ -168,6 +173,12 @@ export function dlReadySince(item: KanbanItem): number | null {
  *  Liczy ją serwer (`waiting_workdays`, ta sama funkcja co pas DL). */
 export function waitingWorkdaysText(days: number): string {
   return days === 1 ? "czeka 1 dzień rob." : `czeka ${days} dni rob.`;
+}
+
+/** Linia „następna w kolumnie”: ta sama liczba co na karcie tej osoby. */
+export function nextPersonWaitText(days: number | null | undefined): string | null {
+  if (days == null) return null;
+  return days <= 0 ? "czeka od dziś" : waitingWorkdaysText(days);
 }
 
 /** „na etapie od 03.11” — dni kalendarzowe zostają tylko w dymku karty. */
@@ -234,6 +245,9 @@ export function dlWaitingStatus(item: KanbanItem | null | undefined): DlWaitingS
       ready: false,
       text: `QC: ${item.qc.blocking_failed} do poprawy — popraw CV, zanim Delivery Lead je zobaczy.`,
     };
+  }
+  if (qcHoldsAtRecruiter(item)) {
+    return { ready: false, text: `${item.qc?.qc_state?.text} — zrób to, zanim Delivery Lead je zobaczy.` };
   }
   return {
     ready: false,
@@ -317,6 +331,17 @@ export function cvStateBadge(item: KanbanItem, column: BoardColumnKey | null): C
   const hasCompanyCv =
     item.company_cv === true || (item.company_cv == null && item.auto_cv_ready === true);
   if (column === "verified" && hasCompanyCv && qc && qcRan) {
+    // QC-11 (08.11.2026): ten sam tekst co chip, panel i przegląd DL. Tu nic
+    // nie blokuje, więc „do poprawy” nie jest czerwone.
+    if (qc.qc_state) {
+      const extra = qc.warnings_count ?? 0;
+      return {
+        key: "cv_state",
+        label: `CV gotowe · ${qc.qc_state.text}${extra > 0 ? ` · ${qcCountsText(0, extra)}` : ""}`,
+        tone: qc.qc_state.tone === "urgent" ? "wait" : qc.qc_state.tone,
+        title: qc.qc_state.hint ?? qc.qc_state.text,
+      };
+    }
     if (qc.status === "overridden") {
       return {
         key: "cv_state",
@@ -562,9 +587,10 @@ export function autofillDecisionBadge(meta: KanbanItem["entry_autofill"]): CardB
   if (!meta?.decision_due || meta.waiting_days == null) return null;
   return {
     key: "autofill_due",
-    label: `${workdaysText(meta.waiting_days)} bez decyzji`,
+    // Liczba stoi raz, w wierszu ruchu (`waiting_workdays` = `waiting_days`).
+    label: "Bez decyzji",
     tone: "wait",
-    title: "Osoba od systemu czeka na decyzję: zadzwoń („Dzwonię”) albo odrzuć z powodem.",
+    title: `Osoba od systemu czeka na decyzję od ${workdaysText(meta.waiting_days)} rob.: zadzwoń („Dzwonię”) albo odrzuć z powodem.`,
   };
 }
 
@@ -650,7 +676,9 @@ function newInBaseBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | nu
   if (!view?.isNew || view.days == null) return null;
   return {
     key: "new_in_base",
-    label: `Nowy · ${newInBaseDaysText(view.days)}`,
+    // Data, nie „N dni”: dni kalendarzowe obok „czeka N dni rob.” czytały się jak
+    // druga miara tego samego czekania. Dziś zostaje słowem.
+    label: `Nowy · ${view.days <= 0 ? newInBaseDaysText(view.days) : `od ${formatDayMonthPl(warsawDateOf(item.candidate_added_at))}`}`,
     tone: "info",
     title: addedToBaseTitle(view, item.candidate_added_by_name),
   };
@@ -943,7 +971,7 @@ export const CARD_PRIMARY_LIMIT = 2;
 /** Mówi to przycisk w wierszu ruchu — nie dokłada ani plakietki, ani „+N”. */
 const SAID_BY_MOVE_ROW: ReadonlySet<string> = new Set(["dl_review"]);
 
-/** Fakty tylko do dymku: „Nowy · N dni”, „3 dni bez decyzji”, „U klienta 3×”… */
+/** Fakty tylko do dymku: „Nowy · od 28.10”, „Bez decyzji”, „U klienta 3×”… */
 const ONLY_IN_MORE = (key: string): boolean =>
   key === "autofill_due" ||
   key === "new_in_base" ||
@@ -1206,7 +1234,8 @@ export function knownForwardGap(
   // 14.10.2026: bez CV firmowego przeciągnięcie na „QC CV” wkładało osobę
   // wprost do kolejki Delivery Leada. `null`/brak pola = nie wiadomo.
   if (from === "verified" && item.company_cv === false) {
-    return "Brak CV firmowego";
+    // QC-4: starszy plik B2B ma własny napis zamiast cichego „Brak CV”.
+    return item.qc?.qc_state?.kind === "older_cv" ? item.qc.qc_state.text.replace(/^QC: /, "") : "Brak CV firmowego";
   }
   if (from === "cv_qc" && item.qc?.status === "failed") {
     return `QC: ${item.qc.blocking_failed} do poprawy`;
@@ -1476,6 +1505,9 @@ export function cardNextStep(
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
       return { ...recruiter(), label: "Popraw CV wg QC" };
+    }
+    if (qcHoldsAtRecruiter(item)) {
+      return { ...recruiter(), label: "Wskaż stanowisko w QC" };
     }
     if (ctx.stageBadge !== "cpro" && item.qc?.status !== "passed" && item.qc?.status !== "overridden") {
       return { ...recruiter(), label: "Sprawdź QC CV" };

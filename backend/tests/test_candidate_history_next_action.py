@@ -137,3 +137,64 @@ async def test_history_endpoint_carries_next_action_owner(
     by_job = {job["job_id"]: job for job in r.json()["jobs"]}
     assert by_job[open_id]["next_action_owner"] == "recruiter"
     assert by_job[closed_id]["next_action_owner"] is None
+
+
+async def test_history_endpoint_shows_only_an_upcoming_client_interview(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.calendar_event import CalendarEvent, EventType
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+    from app.models.recruitment_pipeline import CandidateStage
+
+    suffix = uuid.uuid4().hex[:6]
+    now = datetime.now(timezone.utc)
+    term = (now + timedelta(days=5)).replace(microsecond=0)
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Termin",
+            lastname=f"Test-{suffix}",
+            email=f"termin-{suffix}@example.com",
+        )
+        cli = Client(name=f"TerminClient-{suffix}")
+        db.add_all([cand, cli])
+        await db.flush()
+        upcoming = Job(
+            title=f"Przed-{suffix}", status=JobStatus.published, client_id=cli.id
+        )
+        finished = Job(
+            title=f"Po-{suffix}", status=JobStatus.published, client_id=cli.id
+        )
+        db.add_all([upcoming, finished])
+        await db.flush()
+        for job, start in ((upcoming, term), (finished, now - timedelta(days=5))):
+            db.add_all(
+                [
+                    CandidateStage(
+                        candidate_id=cand.id,
+                        job_id=job.id,
+                        stage=PipelineStage.client_interview,
+                        moved_at=now - timedelta(days=7),
+                    ),
+                    CalendarEvent(
+                        title="Rozmowa u klienta",
+                        event_type=EventType.client_interview,
+                        start_time=start,
+                        candidate_id=cand.id,
+                        job_id=job.id,
+                    ),
+                ]
+            )
+        await db.commit()
+        candidate_id, upcoming_id, finished_id = cand.id, upcoming.id, finished.id
+
+    r = await app_client.get(
+        f"/api/candidates/{candidate_id}/history", headers=app_auth_headers
+    )
+
+    assert r.status_code == 200, r.text
+    by_job = {job["job_id"]: job for job in r.json()["jobs"]}
+    assert datetime.fromisoformat(by_job[upcoming_id]["client_interview_at"]) == term
+    assert by_job[finished_id]["client_interview_at"] is None

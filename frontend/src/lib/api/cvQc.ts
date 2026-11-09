@@ -8,13 +8,15 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import api from "@/lib/api";
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
-import { apiErrorCode } from "@/lib/cv-qc";
+import { apiErrorCode, type QcStateView } from "@/lib/cv-qc";
 
 export type QcCheckStatus = "pass" | "fail" | "manual" | "skip";
 export type QcSeverity = "blocking" | "warning";
 export type QcFixKind =
   | "bold_all"
   | "generate_cv"
+  /** QC-4: plik „…B2B…” sprzed rekrutacji — „Użyj tego CV”. */
+  | "use_older_cv"
   | "upload_consent"
   /** Zrzut zgody nie pasuje do rekrutacji (F37, 27.10.2026) — „Wymień zrzut”. */
   | "replace_consent"
@@ -65,6 +67,8 @@ export interface QcItem {
   searched?: QcSearch[];
   /** Fragment oryginału z tą samą rzeczą pod inną nazwą: pytanie zamiast „nie ma”. */
   similar?: { term: string; quote: string } | null;
+  /** QC-4: plik sprzed rekrutacji, który można użyć jednym kliknięciem. */
+  document?: { document_id: number; filename: string; at: string | null; same_client: boolean } | null;
   /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
   dismissal?: QcDismissal | null;
 }
@@ -179,6 +183,8 @@ export interface QcResult {
   blocking_failed: number;
   warnings_count: number;
   override: QcOverride | null;
+  /** Gotowy stan pary, ten sam co na karcie (`services/qc_state.py`). */
+  qc_state?: QcStateView | null;
   /** QC doradza, nie blokuje (`CV_QC_ADVISORY`). */
   advisory?: boolean;
   /** Czy TA osoba może przesunąć kartę mimo uwag QC. */

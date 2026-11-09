@@ -67,6 +67,13 @@ class QcManualBy(BaseModel):
     at: Optional[str] = None
 
 
+class QcOlderDocument(BaseModel):
+    document_id: int
+    filename: Optional[str] = None
+    at: Optional[str] = None
+    same_client: bool = False
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
@@ -78,6 +85,10 @@ class QcItem(BaseModel):
     similar: Optional[QcSimilar] = None
     fix: Optional[str] = None
     term: Optional[str] = None
+    # R2: krytyczna, której kandydat nie ma — front wiąże z nią „Do decyzji DL”.
+    candidate_gap: Optional[bool] = None
+    # QC-4: plik „…B2B…” sprzed rekrutacji, którego można użyć jednym kliknięciem.
+    document: Optional[QcOlderDocument] = None
     role_index: Optional[int] = None
     # Fragment odczytu oryginału, na którym stoi „oryginał ma to w tej roli”.
     evidence: Optional[str] = None
@@ -189,6 +200,8 @@ class QcResponse(BaseModel):
     blocking_failed: int
     warnings_count: int
     override: Optional[QcOverride] = None
+    # Gotowy stan pary, ten sam co na karcie (`services/qc_state.py`).
+    qc_state: Optional[dict] = None
     # Tryb doradczy i to, czy TA osoba może przesunąć kartę mimo uwag QC.
     advisory: bool = False
     can_override: bool = False
@@ -377,6 +390,14 @@ class QcOverrideRequest(BaseModel):
             and self.reason_code not in cv_qc.OVERRIDE_REASONS
         ):
             raise ValueError("Nieznany powód obejścia QC.")
+        if (
+            self.reason_code == cv_qc.CONFIRMED_IN_CALL
+            and len(self.reason) < cv_qc.CONFIRM_TEXT_MIN
+        ):
+            raise ValueError(
+                "Wpisz, co dokładnie powiedział kandydat (co najmniej "
+                f"{cv_qc.CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead."
+            )
         if self.reason_code in (None, "other") and not self.reason:
             raise ValueError("Opisz powód obejścia QC.")
         if (

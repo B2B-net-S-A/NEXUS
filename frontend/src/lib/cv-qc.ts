@@ -15,6 +15,7 @@ import type {
   QcFix,
   QcFixKind,
   QcItem,
+  QcResult,
   QcRoleState,
   QcRoleStateKind,
   QcSearchSource,
@@ -308,6 +309,8 @@ export function splitChecks(checks: QcCheck[]): QcSplit {
     if (check.status === "pass") split.passed.push(check);
     else if (check.status === "skip") split.skipped.push(check);
     else if (check.status === "fail" && check.severity === "blocking") split.tasks.push(...checkTasks(check));
+    // QC-4: starszy plik B2B zatrzymuje wysyłkę jak brak CV, tyle że z wyborem.
+    else if (check.status === "manual" && check.key === "cv_present") split.tasks.push(...checkTasks(check));
     // Blokad serwer nigdy nie wycisza — `muted` dotyczy tylko uwag.
     else if (check.muted && check.severity === "warning") split.muted.push(check);
     else split.notes.push(check);
@@ -644,6 +647,13 @@ export const QC_OVERRIDE_REASONS = [
 
 export type QcOverrideReason = "client_short_cv" | "confirmed_in_call" | "requirement_not_applicable" | "other";
 
+/** QC-5 (08.11.2026): powody, przy których trzeba wskazać uwagę. Lustro serwera. */
+export const QC_OVERRIDE_POINTS_AT_ITEM: ReadonlySet<QcOverrideReason> = new Set<QcOverrideReason>([
+  "other",
+  "confirmed_in_call",
+  "requirement_not_applicable",
+]);
+
 export const QC_OVERRIDE_NOTE_MAX = 900;
 
 /** Zdanie błędu formularza obejścia albo `null`, gdy można wysłać. */
@@ -680,7 +690,9 @@ export function qcOverrideError(
     if (overrideWordCount(clean) < QC_OVERRIDE_OTHER_MIN_WORDS) {
       return "Napisz co najmniej trzy słowa — Delivery Lead ma zrozumieć, dlaczego CV idzie dalej.";
     }
-    if (about?.required && about.picked === 0) return "Zaznacz, której uwagi dotyczy powód.";
+  }
+  if (QC_OVERRIDE_POINTS_AT_ITEM.has(reason) && about?.required && about.picked === 0) {
+    return "Zaznacz, której uwagi dotyczy powód.";
   }
   return null;
 }
@@ -728,6 +740,9 @@ export function qcDismissError(
   const clean = note.trim();
   if (clean.length > QC_DISMISS_NOTE_MAX) return `Opis może mieć najwyżej ${QC_DISMISS_NOTE_MAX} znaków.`;
   if (reason === "other" && !clean) return "Przy „Inny powód” opisz, dlaczego uwaga jest nieprawdziwa.";
+  if (reason === "other" && overrideWordCount(clean) < QC_OVERRIDE_OTHER_MIN_WORDS) {
+    return "Przy „Inny powód” napisz co najmniej trzy słowa, dlaczego uwaga jest nieprawdziwa.";
+  }
   if (quote !== null) {
     const fragment = quote.trim();
     if (!fragment) return "Wklej fragment oryginału, notatki albo odpowiedzi, w którym to stoi.";
@@ -817,6 +832,7 @@ export type QcStateKind =
   | "checked"
   | "checked_manually"
   | "verify_roles"
+  | "older_cv"
   | "candidate_gap"
   | "to_fix"
   | "overridden"
@@ -839,6 +855,17 @@ export interface QcPairState {
   status: QcCardStatus;
   blocking_failed: number;
   qc_state?: QcStateView | null;
+}
+
+/** Stan pary z wyniku `/qc`; status tylko dla odpowiedzi bez `qc_state`. */
+export function qcResultPairState(
+  result: Pick<QcResult, "passed" | "blocking_failed" | "override" | "qc_state">,
+): QcPairState {
+  return {
+    status: result.passed ? "passed" : result.override ? "overridden" : "failed",
+    blocking_failed: result.blocking_failed,
+    qc_state: result.qc_state,
+  };
 }
 
 /** Luki kandydata z wyniku QC (R2) — pozycje informacyjne krytycznych. */

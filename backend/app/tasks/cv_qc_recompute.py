@@ -13,6 +13,7 @@ import asyncio
 import logging
 
 from app.core.database import AsyncSessionLocal
+from app.core.tasks import spawn
 from app.services import cv_qc
 
 logger = logging.getLogger(__name__)
@@ -33,3 +34,22 @@ async def cv_qc_recompute_loop() -> None:
         return
     if done:
         logger.info("cv qc recompute: %d pairs recomputed", done)
+
+
+async def _recompute_job(job_id: int) -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            await cv_qc.recompute_job(db, job_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — zadanie tła nie może paść
+        logger.warning("cv qc recompute job: failed (%s)", type(exc).__name__)
+
+
+async def schedule_job_recompute(job_id: int) -> None:
+    """Przelicz QC par rekrutacji w tle, bez trzymania odpowiedzi (QC-10).
+
+    Asynchroniczna, bo `PostCommit.later` potrafi wywołać funkcję także poza
+    pętlą zdarzeń (synchroniczne BackgroundTasks idą do wątku)."""
+
+    spawn(_recompute_job(job_id), f"cv_qc_recompute_job:{job_id}")

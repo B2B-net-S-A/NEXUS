@@ -192,6 +192,10 @@ LABELS = {
 # dawało w historii wpisy w rodzaju „keksekqekndxjndxkqw”; gotowy powód niesie
 # więcej niż wymuszone zdanie. Lustro: `QC_OVERRIDE_REASONS` w
 # `frontend/src/lib/cv-qc.ts` (pilnuje `test_qc_override_reasons_mirror`).
+# QC-5 (08.11.2026): powody o konkretnej blokadzie wskazują, której dotyczą.
+OVERRIDE_POINTS_AT_BLOCKER = frozenset(
+    {"confirmed_in_call", "requirement_not_applicable"}
+)
 OVERRIDE_REASONS: dict[str, str] = {
     "client_short_cv": "Klient prosił o krótsze CV",
     "confirmed_in_call": "Kandydat potwierdził to w rozmowie, w CV tego nie ma",
@@ -217,14 +221,17 @@ class OverrideAboutMissing(ValueError):
 def override_about(
     checks: list[dict], about_keys: Sequence[str], reason_code: Optional[str]
 ) -> list[str]:
-    """Blokady, których dotyczy „Inny powód” — tylko klucze z bieżącego przebiegu.
+    """Blokady, których dotyczy powód — tylko klucze z bieżącego przebiegu.
 
-    Gotowy powód i automat „DL match” nie wskazują blokad (pusta lista).
-    „Inny powód” (albo sam opis bez kodu) przy blokadach z kluczami bez
-    żadnego pasującego klucza → `OverrideAboutMissing`.
+    „Inny powód” (albo sam opis bez kodu) i powody o konkretnej rzeczy
+    (`OVERRIDE_POINTS_AT_BLOCKER`, QC-5) przy blokadach z kluczami bez
+    pasującego klucza → `OverrideAboutMissing`. Reszta powodów i automat
+    „DL match” nie wskazują blokad (pusta lista).
     """
 
-    if reason_code not in (None, "other"):
+    if reason_code not in (None, "other") and (
+        reason_code not in OVERRIDE_POINTS_AT_BLOCKER
+    ):
         return []
     current = blocking_keys(checks)
     keyed = {key for key in current if not key.split("|", 1)[-1].startswith("#")}
@@ -1014,6 +1021,8 @@ class QcInput:
     # — klucz `manual_role_key(wymaganie)`, wartość {roles, by, at}; pusta
     # lista ról = „nigdzie” (`manual_role_checks`).
     manual_roles: dict[str, dict] = field(default_factory=dict)
+    # QC-4 (08.11.2026): plik „…B2B…” sprzed rekrutacji, gdy nie ma innego CV.
+    older_document: Optional[dict] = None
 
 
 def critical_requirements(
@@ -1854,23 +1863,48 @@ def _employer_expected(role: CvRole, companies: list[str]) -> bool:
     return not any(company in text for company in companies)
 
 
+def _no_cv_check(older: Optional[dict]) -> dict:
+    """Brak CV firmowego albo starszy plik do potwierdzenia (QC-4)."""
+
+    if not older:
+        return _check(
+            "cv_present",
+            "fail",
+            "Brak CV firmowego",
+            [
+                _item(
+                    detail="Nie ma jeszcze CV firmowego dla tej rekrutacji.",
+                    fix="generate_cv",
+                )
+            ],
+        )
+    day = _short_date(older.get("at"))
+    where = (
+        "z rekrutacji u tego klienta"
+        if older.get("same_client")
+        else "sprzed tej rekrutacji"
+    )
+    detail = (
+        f"Plik {older.get('filename')}"
+        f"{f' z {day}' if day else ''}, {where}. Użyj go albo wygeneruj nowe CV."
+    )
+    item = _item(detail=detail, fix="use_older_cv")
+    item["document"] = older
+    return _check("cv_present", "manual", "CV sprzed tej rekrutacji", [item])
+
+
+def _short_date(value: Any) -> Optional[str]:
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d.%m") if value else None
+    except ValueError:
+        return None
+
+
 def compute_checks(data: QcInput) -> list[dict]:
     """Wszystkie sprawdzenia QC w kolejności kontraktu. Czysta funkcja."""
 
     if not data.has_cv:
-        checks = [
-            _check(
-                "cv_present",
-                "fail",
-                "Brak CV firmowego",
-                [
-                    _item(
-                        detail="Nie ma jeszcze CV firmowego dla tej rekrutacji.",
-                        fix="generate_cv",
-                    )
-                ],
-            )
-        ]
+        checks = [_no_cv_check(data.older_document)]
         for key in (*BLOCKING_KEYS[1:], *WARNING_KEYS):
             checks.append(_check(key, "skip", "Brak CV"))
         return checks
@@ -2586,6 +2620,19 @@ def _consent_matches_check(data: QcInput) -> dict:
     )
 
 
+def holds_send(check: dict) -> bool:
+    """Blokada, która zatrzymuje wysyłkę.
+
+    Starszy plik B2B (`cv_present` = manual, QC-4) też: bez decyzji rekrutera
+    nie ma CV tej rekrutacji, więc QC nie może przejść.
+    """
+
+    if check.get("severity") != "blocking":
+        return False
+    status = check.get("status")
+    return status == "fail" or (status == "manual" and check.get("key") == "cv_present")
+
+
 def _tasks(check: dict) -> int:
     """Ile rzeczy do poprawy niesie niezaliczone sprawdzenie.
 
@@ -2608,11 +2655,7 @@ def summarize(checks: list[dict]) -> tuple[bool, int, int]:
     ``blocking_failed`` liczy RZECZY do poprawy (`_tasks`), nie sprawdzenia.
     """
 
-    blocking = sum(
-        _tasks(c)
-        for c in checks
-        if c["severity"] == "blocking" and c["status"] == "fail"
-    )
+    blocking = sum(_tasks(c) for c in checks if holds_send(c))
     # Uwaga wyciszona w „Jakość QC” (`muted`, D6) jest informacją.
     warnings = sum(
         1
@@ -2930,6 +2973,7 @@ def _qc_input(
         nice=src.nice,
         blocks=src.blocks,
         has_cv=src.generated is not None,
+        older_document=src.older_document,
         bold_known=src.bold_known,
         original_text=(src.original.get("text") or ""),
         original_partial=(
@@ -3057,7 +3101,7 @@ def blocking_keys(checks: list[dict]) -> frozenset[str]:
 
     out: set[str] = set()
     for check in checks or []:
-        if check.get("severity") != "blocking" or check.get("status") != "fail":
+        if not holds_send(check):
             continue
         items = check.get("items") or []
         if not items:
@@ -3258,10 +3302,25 @@ async def _load_sources(db: AsyncSession, stage: CandidateStage) -> dz.ReviewSou
 MANUAL_ROLES_ACTION = "cv_qc_manual_roles"
 
 
+def original_fingerprint(text: Optional[str]) -> Optional[str]:
+    """Odcisk tekstu oryginału, bez różnic w białych znakach (QC-6)."""
+
+    clean = " ".join((text or "").split())
+    return hashlib.sha256(clean.encode("utf-8")).hexdigest()[:16] if clean else None
+
+
 async def manual_role_checks(
-    db: AsyncSession, candidate_id: int, job_id: int
+    db: AsyncSession,
+    candidate_id: int,
+    job_id: int,
+    *,
+    original_fp: Optional[str] = None,
 ) -> dict[str, dict]:
-    """Wskazania ról pary: ``{manual_role_key: {roles, by, at}}``."""
+    """Wskazania ról pary: ``{manual_role_key: {roles, by, at}}``.
+
+    Wskazanie dotyczy oryginału, przy którym je zrobiono (QC-6): po wgraniu
+    innego QC pyta znowu. Wpisy bez odcisku (sprzed 08.11.2026) nadal się liczą.
+    """
 
     from app.models.activity import Activity
     from app.models.user import User
@@ -3283,6 +3342,9 @@ async def manual_role_checks(
     for details, created_at, name in rows:
         requirement = str((details or {}).get("requirement") or "")
         if not requirement:
+            continue
+        stored_fp = (details or {}).get("original_fp")
+        if stored_fp and original_fp and stored_fp != original_fp:
             continue
         out[manual_role_key(requirement)] = {
             "roles": [str(r) for r in (details or {}).get("roles") or []],
@@ -3345,6 +3407,7 @@ async def record_manual_roles(
                 "stage_id": stage.id,
                 "requirement": states[0]["requirement"],
                 "roles": chosen,
+                "original_fp": original_fingerprint(src.original.get("text")),
             },
         )
     )
@@ -3404,7 +3467,12 @@ async def evaluate(
         bold=bold_expected(src, payload),
         notes_quote=notes_text(rows, CV_HIDDEN_FIELDS),
     )
-    data.manual_roles = await manual_role_checks(db, src.candidate.id, src.job.id)
+    data.manual_roles = await manual_role_checks(
+        db,
+        src.candidate.id,
+        src.job.id,
+        original_fp=original_fingerprint(src.original.get("text")),
+    )
     checks = compute_checks(data)
     # Jedyne miejsce, w którym stan sprawdzeń (D6) i pominięcia „To
     # nieprawda” (D5) wchodzą do wyniku: okno, zapisany przebieg, bramka ruchu,
@@ -3551,6 +3619,16 @@ async def run_qc(
         " ".join(p for p in (src.candidate.name, src.candidate.lastname) if p)
         or "Kandydat"
     )
+    # Obejście doradcze dotyczy CV, przy którym je zrobiono (to liczone teraz).
+    override = await _latest_override(
+        db, src.candidate.id, src.job.id, cv_fingerprint=fp
+    )
+    state = qc_state_of_checks(checks, has_override=override is not None)
+    if state["kind"] == qc_state.OVERRIDDEN:
+        pair = (src.candidate.id, src.job.id)
+        who = (await _pass_through_names(db, [pair])).get(pair)
+        if who:
+            state = qc_state.describe(status="overridden", override_by=who)
     return {
         "stage_id": stage.id,
         "candidate_id": src.candidate.id,
@@ -3561,10 +3639,8 @@ async def run_qc(
         "passed": passed,
         "blocking_failed": blocking_failed,
         "warnings_count": warnings_count,
-        # Obejście doradcze dotyczy CV, przy którym je zrobiono (to liczone teraz).
-        "override": await _latest_override(
-            db, src.candidate.id, src.job.id, cv_fingerprint=fp
-        ),
+        "override": override,
+        "qc_state": state,
         "advisory": advisory_mode(),
         "confirmations": await _confirmations(db, src.candidate.id),
         "confirm_roles": confirm_roles(src),
@@ -4310,8 +4386,6 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
     pominięte. Commit po każdej parze — awaria jednej nie cofa pozostałych.
     """
 
-    from app.services import pipeline_move_rules
-
     latest = (
         select(
             CvQcRun.candidate_id,
@@ -4337,6 +4411,33 @@ async def recompute_outdated(db: AsyncSession, *, limit: int = 300) -> int:
             .order_by(latest.c.created_at.desc())
         )
     ).all()
+    return await _recompute_pairs(db, pairs, limit)
+
+
+async def recompute_job(db: AsyncSession, job_id: int, *, limit: int = 200) -> int:
+    """Przelicz pary rekrutacji po zmianie jej wymagań (QC-10, 08.11.2026).
+
+    Pomiar na kopii: 168 z 881 par (30 dni) miało najnowszy przebieg starszy niż
+    ostatnia edycja profilu Championa, z tego 153 zdane. Tablica mówiła wtedy
+    „QC: sprawdzone”, choć bramka liczona na żywo mogła zatrzymać kartę.
+    `ok_since` zostaje (`_store_run`), więc czas oczekiwania się nie zeruje.
+    """
+
+    pairs = (
+        await db.execute(
+            select(CvQcRun.candidate_id, CvQcRun.job_id)
+            .where(CvQcRun.job_id == job_id)
+            .distinct()
+        )
+    ).all()
+    return await _recompute_pairs(db, pairs, limit)
+
+
+async def _recompute_pairs(db: AsyncSession, pairs: Iterable, limit: int) -> int:
+    """Przelicz QC par sprzed wysłania. Commit po każdej parze."""
+
+    from app.services import pipeline_move_rules
+
     done = 0
     for candidate_id, job_id in pairs:
         if done >= limit:
@@ -4389,6 +4490,10 @@ _MANUAL_ROLE_REQUIREMENTS_PATH = (
 _MANUAL_ROLE_BY_PATH = (
     "'lax $[*] ? (@.key == \"critical_skills\").roles[*].manual.by'::jsonpath"
 )
+_OLDER_CV_PATH = (
+    '\'lax $[*] ? (@.key == "cv_present" && @.status == "manual")'
+    ".items[*].document'::jsonpath"
+)
 _TO_FIX_REQUIREMENTS_PATH = (
     '\'lax $[*] ? (@.severity == "blocking" && @.status == "fail")'
     ".items[*].requirement'::jsonpath"
@@ -4407,10 +4512,92 @@ def manual_items(
     wanted = [str(r) for r in dict.fromkeys(unverified) if r]
     out = list(wanted)
     for key, label in zip(keys, labels):
-        if not label or (key == "critical_skills" and wanted):
+        if not label or key == "cv_present" or (key == "critical_skills" and wanted):
             continue
         out.append(CONSENT_MANUAL_ITEM if key == "client_rules" else str(label))
     return out
+
+
+def _pair_status(
+    *, passed: bool, dismissed: int, has_override: bool, pending_manual: bool
+) -> str:
+    """Status pary: ta sama kolejność dla zapisu (Tablica) i QC liczonego na żywo."""
+
+    if passed and dismissed:
+        return "overridden"
+    if passed and has_override and pending_manual:
+        # QC-7: w trybie doradczym rekruter przesunął mimo niesprawdzonych.
+        return "overridden"
+    if passed:
+        return "passed"
+    return "overridden" if has_override else "failed"
+
+
+def qc_state_of_checks(checks: list[dict], *, has_override: bool) -> dict:
+    """``qc_state`` z bieżącego wyniku QC (panel osoby i okno QC, 09.11.2026).
+
+    Lustro ścieżek jsonpath z `pair_statuses`, które czytają zapisany przebieg:
+    karta i okno mają mówić to samo. Zgodność pilnuje
+    `test_qc_endpoint_says_the_same_state_as_the_board`.
+    """
+
+    passed, blocking_failed, _ = summarize(checks)
+    manual = [
+        c
+        for c in checks
+        if c.get("status") == "manual" and c.get("severity") == "blocking"
+    ]
+    critical = [c for c in checks if c.get("key") == "critical_skills"]
+    roles = [r for c in critical for r in c.get("roles") or []]
+    unverified = [r.get("requirement") for r in roles if r.get("state") == "unverified"]
+    return qc_state.describe(
+        status=_pair_status(
+            passed=passed,
+            dismissed=dismissed_blocking(checks) if passed else 0,
+            has_override=has_override,
+            pending_manual=bool(unverified or manual),
+        ),
+        blocking_failed=0 if passed else blocking_failed,
+        manual_items=manual_items(
+            [str(c.get("key")) for c in manual],
+            [str(c.get("label") or "") for c in manual],
+            [str(r) for r in unverified if r],
+        ),
+        unverified=_names(unverified),
+        candidate_gaps=[
+            str(i["requirement"])
+            for c in critical
+            for i in c.get("info") or []
+            if i.get("candidate_gap") is True and i.get("requirement")
+        ],
+        manual_requirements=_names(
+            r.get("requirement") for r in roles if r.get("manual")
+        ),
+        manual_by=next(
+            (
+                str(r["manual"]["by"])
+                for r in roles
+                if (r.get("manual") or {}).get("by")
+            ),
+            None,
+        ),
+        to_fix_items=_names(
+            i.get("requirement")
+            for c in checks
+            if c.get("severity") == "blocking" and c.get("status") == "fail"
+            for i in c.get("items") or []
+        ),
+        older_document=next(
+            (
+                i["document"]
+                for c in checks
+                if c.get("key") == "cv_present" and c.get("status") == "manual"
+                for i in c.get("items") or []
+                if i.get("document")
+            ),
+            None,
+        ),
+    )
 
 
 async def pair_statuses(
@@ -4513,6 +4700,9 @@ async def pair_statuses(
                     CvQcRun.result["checks"], literal_column(_TO_FIX_REQUIREMENTS_PATH)
                 ).label("to_fix"),
                 func.jsonb_path_query_array(
+                    CvQcRun.result["checks"], literal_column(_OLDER_CV_PATH)
+                ).label("older_cv"),
+                func.jsonb_path_query_array(
                     CvQcRun.result["checks"], literal_column(_CANDIDATE_GAP_PATH)
                 ).label("gaps"),
                 CvQcRun.result["ok_since"].astext.label("ok_since"),
@@ -4560,15 +4750,14 @@ async def pair_statuses(
         # Pominięcia przywrócone po przebiegu — zaliczenie już nie obowiązuje.
         returned = max(dismissed - active_dismissals.get(pair, 0), 0)
         passed = bool(row.passed) and not returned
+        status = _pair_status(
+            passed=passed,
+            dismissed=dismissed,
+            has_override=bool(row.has_override),
+            pending_manual=bool(row.unverified or row.manual_keys),
+        )
         ok_since = _parse_ok_since(row.ok_since) or row.created_at
-        if passed and dismissed:
-            status, ok_at = "overridden", ok_since
-        elif passed:
-            status, ok_at = "passed", ok_since
-        elif row.has_override:
-            status, ok_at = "overridden", row.override_at
-        else:
-            status, ok_at = "failed", None
+        ok_at = ok_since if passed else row.override_at if row.has_override else None
         items = manual_items(
             row.manual_keys or [], row.manual or [], row.unverified or []
         )
@@ -4592,6 +4781,7 @@ async def pair_statuses(
                 manual_requirements=_names(row.manual_requirements),
                 manual_by=next((str(b) for b in row.manual_by or [] if b), None),
                 to_fix_items=_names(row.to_fix),
+                older_document=next(iter(row.older_cv or []), None),
             ),
         }
     overridden = [
@@ -4659,6 +4849,40 @@ async def _pass_through_names(
     for candidate_id, job_id, name in [*dismissed.all(), *overrides.all()]:
         names[(candidate_id, job_id)] = _short_name(name)
     return names
+
+
+GAP_DECISION_ACTION = "cv_qc_gap_decision"
+
+
+async def record_gap_decision(
+    db: AsyncSession,
+    *,
+    stage_id: int,
+    candidate_id: int,
+    job_id: int,
+    decision: str,
+    user_id: Optional[int],
+) -> None:
+    """Decyzja Delivery Leada o luce kandydata (QC-8): ślad do pomiaru R2 (bez commitu)."""
+
+    from app.models.activity import Activity
+
+    pair = (candidate_id, job_id)
+    gaps = (await pair_statuses(db, [pair]))[pair]["candidate_gaps"]
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage_id,
+            action=GAP_DECISION_ACTION,
+            user_id=user_id,
+            details={
+                "candidate_id": candidate_id,
+                "job_id": job_id,
+                "decision": decision,
+                "gaps": gaps,
+            },
+        )
+    )
 
 
 def gate_applies(

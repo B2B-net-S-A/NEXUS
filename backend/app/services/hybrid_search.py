@@ -188,7 +188,8 @@ async def bm25_candidates(
         FROM candidates
         WHERE fts_doc @@ websearch_to_tsquery('simple', :q)
         ORDER BY ts_rank(fts_doc, websearch_to_tsquery('simple', :q)) DESC,
-                 updated_at DESC
+                 updated_at DESC,
+                 id ASC
         LIMIT :limit
         """
     ).bindparams(bindparam("q", value=query), bindparam("limit", value=limit))

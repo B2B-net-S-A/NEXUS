@@ -19,7 +19,7 @@ import { AlertTriangle, CheckCircle2, ListChecks, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { networkIssuesApi } from "@/lib/api/cvEditorIssues";
-import { thingsLabel } from "@/lib/cv-qc";
+import { candidateGapItems, thingsLabel } from "@/lib/cv-qc";
 import {
   cvChecksBeforeSending,
   cvToClientIssuesQueryKey,
@@ -39,6 +39,7 @@ export interface CvToClientChecksProps {
 export interface CvChecksCount {
   status: "loading" | "failed" | "forbidden" | "ready";
   count: number;
+  gaps?: string[];
   retry: () => void;
 }
 
@@ -79,11 +80,11 @@ export function useCvChecksCount(stageId: number, revision: number | null, enabl
     warnings: issues.generator_warnings,
     findings: issues.content_review.findings,
   });
-  return { status: "ready", count, retry };
+  return { status: "ready", count, gaps: candidateGapItems(checks).map((item) => item.requirement ?? "").filter(Boolean), retry };
 }
 
 export function CvToClientChecks({ stageId, revision, readOnly, onReview }: CvToClientChecksProps) {
-  const { status, count, retry } = useCvChecksCount(stageId, revision);
+  const { status, count, retry, gaps = [] } = useCvChecksCount(stageId, revision);
 
   if (status === "forbidden") return null;
 
@@ -105,6 +106,18 @@ export function CvToClientChecks({ stageId, revision, readOnly, onReview }: CvTo
     );
   }
 
+  if (count === 0 && gaps.length > 0) {
+    // QC-9: luka kandydata to nie „nic do sprawdzenia”, tylko decyzja DL-a.
+    return (
+      <p
+        role="status"
+        data-testid="cv-checks-count"
+        className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground"
+      >
+        Nic do poprawy w CV · Kandydat nie ma: {gaps.join(", ")} — zdecyduje Delivery Lead
+      </p>
+    );
+  }
   if (count === 0) {
     return (
       <p

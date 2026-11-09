@@ -24,6 +24,7 @@ from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_ad
 from app.core.database import get_db
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.sales import (
+    SalesActivity,
     SalesCompany,
     SalesContact,
     SalesOpportunity,
@@ -33,12 +34,23 @@ from app.models.sales import (
     SalesPipelineStage,
 )
 from app.models.user import User
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.effective_access import resolve_effective_access
 from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import company_dates, decision_map, history
+from app.services.sales import (
+    calls,
+    client_gate,
+    company_dates,
+    decision_map,
+    history,
+    meeting_decisions,
+)
 from app.services.sales.lifecycle import apply_stage, deal_value
 from app.services.sales.motion import build_atlas_motion, entry_keys
+from app.services.sales.next_step import Step, StepSignals, load_signals
 from app.services.sales.summary import Period, build_summary
+from app.services.sales.touch import last_touch_at
 from app.services.sales_schema import OpportunityEventKind
 
 pipelines_router = APIRouter()
@@ -176,6 +188,20 @@ class OpportunityCreate(OpportunityFields):
         return value
 
 
+class OpportunityFromMeeting(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    service_line: ServiceLine
+    contact_ids: list[int] = Field(default_factory=list, max_length=50)
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Podaj nazwę szansy.")
+        return value
+
+
 class OpportunityUpdate(OpportunityFields):
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
 
@@ -201,6 +227,20 @@ class OpportunityContactOut(BaseModel):
     email: Optional[str]
     phone: Optional[str]
     role: Optional[str]
+    #: Osoba nie życzy sobie kontaktu: numer i mail przestają być klikalne.
+    do_not_contact_at: Optional[datetime] = None
+
+
+class NextStepOut(BaseModel):
+    kind: str
+    at: datetime
+    subject: Optional[str]
+
+
+class LastContactOut(BaseModel):
+    kind: str
+    direction: Optional[str]
+    at: datetime
 
 
 class OpportunityOut(BaseModel):
@@ -232,6 +272,16 @@ class OpportunityOut(BaseModel):
     tags: list[Any]
     owner: Optional[Ref]
     last_activity_at: Optional[datetime]
+    #: Ostatni dotyk (``services/sales/touch.py``); jest zawsze, dolna granica to założenie.
+    last_touch_at: datetime
+    #: Definicje: ``services/sales/next_step.py``.
+    next_step: Optional[NextStepOut]
+    overdue_step: Optional[NextStepOut]
+    last_contact: Optional[LastContactOut]
+    #: Klient napisał ostatni, a kroku nie ma.
+    waiting_for_reply: bool
+    #: Brak kroku na szansie założonej albo ruszonej po wdrożeniu zasad.
+    step_alarm: bool
     keep_open_until: Optional[date]
     archived_at: Optional[datetime]
     created_at: datetime
@@ -265,7 +315,13 @@ def _weighted(opportunity: SalesOpportunity) -> Optional[Decimal]:
     return (opportunity.value * opportunity.probability / 100).quantize(Decimal("0.01"))
 
 
-def _out(row: Any) -> OpportunityOut:
+def _step_out(step: Optional[Step]) -> Optional[NextStepOut]:
+    if step is None:
+        return None
+    return NextStepOut(kind=step.kind, at=step.at, subject=step.subject)
+
+
+def _out(row: Any, signals: StepSignals) -> OpportunityOut:
     opp: SalesOpportunity = row.SalesOpportunity
     stage: SalesPipelineStage = row.SalesPipelineStage
     return OpportunityOut(
@@ -301,6 +357,20 @@ def _out(row: Any) -> OpportunityOut:
             else None
         ),
         last_activity_at=opp.last_activity_at,
+        last_touch_at=row.last_touch_at,
+        next_step=_step_out(signals.next_step),
+        overdue_step=_step_out(signals.overdue_step),
+        last_contact=(
+            LastContactOut(
+                kind=signals.last_contact.kind,
+                direction=signals.last_contact.direction,
+                at=signals.last_contact.at,
+            )
+            if signals.last_contact is not None
+            else None
+        ),
+        waiting_for_reply=signals.waiting_for_reply,
+        step_alarm=signals.step_alarm,
         keep_open_until=opp.keep_open_until,
         archived_at=opp.archived_at,
         created_at=opp.created_at,
@@ -308,7 +378,7 @@ def _out(row: Any) -> OpportunityOut:
     )
 
 
-def _base_query():
+def _base_query(now: datetime):
     owner = aliased(User)
     return (
         select(
@@ -316,6 +386,7 @@ def _base_query():
             SalesPipelineStage,
             SalesCompany.name.label("company_name"),
             owner.name.label("owner_name"),
+            last_touch_at(now).label("last_touch_at"),
         )
         .join(SalesPipelineStage, SalesPipelineStage.id == SalesOpportunity.stage_id)
         .join(SalesCompany, SalesCompany.id == SalesOpportunity.company_id)
@@ -340,8 +411,9 @@ async def _decision_map_enabled(db: AsyncSession, opp: SalesOpportunity) -> bool
 
 
 async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
+    now = datetime.now(timezone.utc)
     row = (
-        await db.execute(_base_query().where(SalesOpportunity.id == opportunity_id))
+        await db.execute(_base_query(now).where(SalesOpportunity.id == opportunity_id))
     ).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
@@ -360,8 +432,9 @@ async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
     motion = await build_atlas_motion(
         db, company_id=opp.company_id, custom_fields=opp.custom_fields
     )
+    signals = await load_signals(db, [opp], now=now)
     return OpportunityDetail(
-        **_out(row).model_dump(),
+        **_out(row, signals[opp.id]).model_dump(),
         atlas_motion=AtlasMotion(**motion) if motion is not None else None,
         decision_map_enabled=await _decision_map_enabled(db, opp),
         contacts=[
@@ -372,6 +445,7 @@ async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
                 email=contact.email,
                 phone=contact.phone or contact.mobile_phone,
                 role=role,
+                do_not_contact_at=contact.do_not_contact_at,
             )
             for contact, role in contacts
         ],
@@ -433,7 +507,6 @@ _SORTS = {
     "updated": (SalesOpportunity.updated_at.desc(),),
     "value": (SalesOpportunity.value.desc().nulls_last(),),
     "close": (SalesOpportunity.expected_close_date.asc().nulls_last(),),
-    "activity": (SalesOpportunity.last_activity_at.desc().nulls_last(),),
     "created": (SalesOpportunity.created_at.desc(),),
 }
 
@@ -457,7 +530,8 @@ async def list_opportunities(
     limit: int = Query(default=200, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
 ) -> OpportunityList:
-    query = _base_query().where(
+    now = datetime.now(timezone.utc)
+    query = _base_query(now).where(
         SalesOpportunity.archived_at.is_not(None)
         if archived
         else SalesOpportunity.archived_at.is_(None)
@@ -493,14 +567,20 @@ async def list_opportunities(
             conditions.append(nip.like(f"%{digits}%"))
         query = query.where(or_(*conditions))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    # „Ostatni kontakt” sortuje po tym samym dotyku, który widać na kafelku.
+    ordering = (last_touch_at(now).desc(),) if sort == "activity" else _SORTS[sort]
     rows = (
         await db.execute(
-            query.order_by(*_SORTS[sort], SalesOpportunity.id.desc())
+            query.order_by(*ordering, SalesOpportunity.id.desc())
             .limit(limit)
             .offset(offset)
         )
     ).all()
-    return OpportunityList(items=[_out(row) for row in rows], total=int(total or 0))
+    signals = await load_signals(db, [row.SalesOpportunity for row in rows], now=now)
+    return OpportunityList(
+        items=[_out(row, signals[row.SalesOpportunity.id]) for row in rows],
+        total=int(total or 0),
+    )
 
 
 @router.post("", response_model=OpportunityDetail, status_code=status.HTTP_201_CREATED)
@@ -563,6 +643,122 @@ async def create_opportunity(
     await db.commit()
     # D3: szansa w firmie to moment, w którym „kto tam pracuje” zaczyna się
     # liczyć — uzupełniamy daty osób z tej firmy w tle (raz na 30 dni).
+    if company_dates.needs_run(company.dates_backfill, now=now):
+        company_dates.schedule_company_dates(company.id)
+    return await _detail(db, opp.id)
+
+
+@router.get("/owner-candidates", response_model=list[Ref])
+async def list_owner_candidates(
+    _user: SalesEditUser, db: AsyncSession = Depends(get_db)
+) -> list[Ref]:
+    """Komu można przekazać szansę: aktywne konta z „Sprzedaż: edycja”."""
+
+    active = list(
+        (
+            await db.execute(
+                select(User).where(User.is_active.is_(True)).order_by(User.name)
+            )
+        ).scalars()
+    )
+    await resolve_effective_access(db, active)
+    return [
+        Ref(id=user.id, name=user.name)
+        for user in active
+        if has_permission(user, ProductAction.sales_edit)
+    ]
+
+
+@router.post(
+    "/from-activity/{activity_id}",
+    response_model=OpportunityDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_opportunity_from_meeting(
+    activity_id: int,
+    payload: OpportunityFromMeeting,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityDetail:
+    """Szansa ze spotkania z Outlooka; spotkanie od razu przypina się do niej."""
+
+    activity = await meeting_decisions.lock_activity(db, activity_id)
+    if activity is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Nie ma takiego spotkania."
+        )
+    if activity.kind != "meeting" or not meeting_decisions.is_outlook(activity):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Szansę da się założyć tylko ze spotkania z Outlooka.",
+        )
+    if activity.opportunity_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="To spotkanie jest już przy szansie."
+        )
+    company = (
+        await db.get(SalesCompany, activity.company_id)
+        if activity.company_id is not None
+        else None
+    )
+    if company is None or company.archived_at is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=COMPANY_MISSING_DETAIL
+        )
+    if company.normalized_name == client_gate.OWN_COMPANY_KEY:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=client_gate.OWN_COMPANY_REFUSAL
+        )
+    clients = await client_gate.match_companies(
+        db,
+        [
+            client_gate.CompanyIdentity(
+                company_id=company.id,
+                client_id=company.client_id,
+                normalized_name=company.normalized_name,
+            )
+        ],
+    )
+    if company.id in clients:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=clients[company.id].refusal
+        )
+    contact_ids = list(dict.fromkeys(payload.contact_ids))
+    allowed = {p.id for p in await meeting_decisions.company_people(db, company.id)}
+    if set(contact_ids) - allowed:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Kontakt nie należy do tej firmy.",
+        )
+    pipeline = await _default_pipeline(db)
+    stages = await _stages(db, pipeline.id)
+    if not stages:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Ten lejek nie ma jeszcze etapów."
+        )
+    stage = next((s for s in stages if s.outcome == "open"), stages[0])
+    now = datetime.now(timezone.utc)
+    opp = SalesOpportunity(
+        company_id=company.id,
+        pipeline_id=pipeline.id,
+        stage_id=stage.id,
+        title=payload.title,
+        service_line=payload.service_line,
+        source=meeting_decisions.OPPORTUNITY_SOURCE,
+        primary_contact_id=contact_ids[0] if contact_ids else None,
+        owner_user_id=current_user.id,
+        created_by_user_id=current_user.id,
+    )
+    apply_stage(opp, stage, stages, now=now)
+    db.add(opp)
+    await db.flush()
+    history.record_created(db, opp, user_id=current_user.id)
+    db.add_all(
+        SalesOpportunityContact(opportunity_id=opp.id, contact_id=contact_id)
+        for contact_id in contact_ids
+    )
+    meeting_decisions.attach(db, activity, opp, user_id=current_user.id, now=now)
+    await db.commit()
     if company_dates.needs_run(company.dates_backfill, now=now):
         company_dates.schedule_company_dates(company.id)
     return await _detail(db, opp.id)
@@ -688,6 +884,11 @@ _LABELLED = {
     "stage_id": (SalesPipelineStage, SalesPipelineStage.name),
     "owner_user_id": (User, User.name),
     "company_id": (SalesCompany, SalesCompany.name),
+    # Temat czytany z wiersza: oznaczony jako prywatny znika też z historii.
+    meeting_decisions.OUTLOOK_FIELD: (
+        SalesActivity,
+        func.coalesce(SalesActivity.subject, meeting_decisions.NO_SUBJECT),
+    ),
 }
 
 
@@ -965,6 +1166,30 @@ async def remove_decision_person(
         opp.id,
         current_user.id,
         old_value=decision_map.describe_person(removed),
+    )
+    await db.commit()
+    return await _detail(db, opportunity_id)
+
+
+# ── Zapis rozmowy ─────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/{opportunity_id}/calls",
+    response_model=OpportunityDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def log_call(
+    opportunity_id: int,
+    payload: calls.CallLogRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityDetail:
+    """Wynik rozmowy jednym kliknięciem; krok zakłada osobno okno „Co dalej i kiedy”."""
+
+    opp = await _get_locked(db, opportunity_id)
+    await calls.log_call(
+        db, opp, payload, user_id=current_user.id, now=datetime.now(timezone.utc)
     )
     await db.commit()
     return await _detail(db, opportunity_id)

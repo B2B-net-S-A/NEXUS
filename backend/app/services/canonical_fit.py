@@ -93,7 +93,12 @@ async def _attach_missing_evidence(db, job, candidates, before=None) -> None:
     missing = [c for c in candidates if evidence_for(c, labels) is None]
     if missing:
         await attach_gate_evidence(
-            db, missing, labels, options=inputs.gate_options, before=before
+            db,
+            missing,
+            labels,
+            options=inputs.gate_options,
+            before=before,
+            job_id=getattr(job, "id", None),
         )
 
 

@@ -105,6 +105,8 @@ export interface ExperienceCheckRow {
   label: string;
   level: ExperienceLevel;
   status: ExperienceCheck["status"];
+  /** Dopisek rekrutera przy wymaganiu; trafia do rejestru faktów jako dowód. */
+  note?: string;
 }
 
 export interface ScreeningFormValues {
@@ -139,20 +141,23 @@ export function experienceCheckRows(
   return EXPERIENCE_KINDS.flatMap((kind) =>
     (experience[kind] ?? [])
       .filter((item) => item && typeof item.name === "string" && item.name.trim())
-      .map((item) => ({
-        kind,
-        name: item.name,
-        label: experienceItemLabel(kind, {
+      .map((item) => {
+        const match = saved?.find(
+          (c) => c.kind === kind && c.name.toLowerCase() === item.name.toLowerCase(),
+        );
+        return {
+          kind,
           name: item.name,
+          label: experienceItemLabel(kind, {
+            name: item.name,
+            level: item.level ?? "must",
+            min_years: item.min_years ?? null,
+          }),
           level: item.level ?? "must",
-          min_years: item.min_years ?? null,
-        }),
-        level: item.level ?? "must",
-        status:
-          saved?.find(
-            (c) => c.kind === kind && c.name.toLowerCase() === item.name.toLowerCase(),
-          )?.status ?? "unknown",
-      })),
+          status: match?.status ?? "unknown",
+          ...(match?.note ? { note: match.note } : {}),
+        };
+      }),
   );
 }
 
@@ -208,6 +213,7 @@ export function makeSchema(questions: ScreeningQuestion[]) {
             label: z.string(),
             level: z.enum(["must", "nice"]),
             status: z.enum(["confirmed", "not_confirmed", "unknown"]),
+            note: z.string().max(500, "Dopisek może mieć najwyżej 500 znaków").optional().default(""),
           }),
         )
         .optional()
@@ -266,6 +272,7 @@ export function buildScreeningPayload(
       kind: row.kind,
       name: row.name,
       status: row.status,
+      note: (row.note ?? "").trim(),
     })),
   };
 }
@@ -452,6 +459,7 @@ export function ScreeningFormFields({
   renderQuestionExtra,
   phrase,
   withOverallFit = true,
+  withCheckNotes = false,
 }: {
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
@@ -464,10 +472,12 @@ export function ScreeningFormFields({
   phrase?: PhraseController;
   /** Formularz screeningu stawia ocenę ogólną w sekcji „Ocena” (`OverallFitField`). */
   withOverallFit?: boolean;
+  /** Dopisek przy wymaganiu (za flagą rejestru faktów z rozmów). */
+  withCheckNotes?: boolean;
 }) {
   return (
     <div className="space-y-5">
-      <ExperienceChecklistField methods={methods} />
+      <ExperienceChecklistField methods={methods} withNotes={withCheckNotes} />
       {questions.map((q, i) => {
         const dealBreakerName = `answers.${q.id}.deal_breaker_hit` as const;
         // Chip stanu pytania — makieta kroku 05 pokazuje przy każdym pytaniu,
@@ -663,18 +673,21 @@ export function OverallFitField({
 
 function ExperienceChecklistField({
   methods,
+  withNotes,
 }: {
   methods: UseFormReturn<ScreeningFormValues>;
+  withNotes: boolean;
 }) {
   const checks = methods.watch("experience_checks") ?? [];
   if (checks.length === 0) return null;
   return (
     <ExperienceChecklist
       rows={checks}
-      onChange={(index, status) =>
+      withNotes={withNotes}
+      onChange={(index, patch) =>
         methods.setValue(
           "experience_checks",
-          checks.map((row, i) => (i === index ? { ...row, status } : row)),
+          checks.map((row, i) => (i === index ? { ...row, ...patch } : row)),
           { shouldDirty: true },
         )
       }
@@ -691,9 +704,11 @@ const CHECK_OPTIONS: { value: ExperienceCheck["status"]; label: string }[] = [
 function ExperienceChecklist({
   rows,
   onChange,
+  withNotes,
 }: {
   rows: ExperienceCheckRow[];
-  onChange: (index: number, status: ExperienceCheck["status"]) => void;
+  onChange: (index: number, patch: Partial<Pick<ExperienceCheckRow, "status" | "note">>) => void;
+  withNotes: boolean;
 }) {
   return (
     <div
@@ -729,7 +744,7 @@ function ExperienceChecklist({
                   type="button"
                   role="radio"
                   aria-checked={row.status === opt.value}
-                  onClick={() => onChange(index, opt.value)}
+                  onClick={() => onChange(index, { status: opt.value })}
                   className={cn(
                     "rounded px-2 py-0.5",
                     row.status === opt.value
@@ -743,6 +758,17 @@ function ExperienceChecklist({
                 </button>
               ))}
             </span>
+            {withNotes && row.status !== "unknown" ? (
+              <input
+                type="text"
+                maxLength={500}
+                value={row.note ?? ""}
+                onChange={(event) => onChange(index, { note: event.target.value })}
+                placeholder="Dopisek, np. 3 lata w banku"
+                aria-label={`${row.label} — dopisek`}
+                className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              />
+            ) : null}
           </li>
         ))}
       </ul>

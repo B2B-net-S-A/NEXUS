@@ -21,6 +21,7 @@ import {
   Inbox,
   LayoutDashboard,
   Laptop,
+  Lock,
   Lightbulb,
   PhoneCall,
   Radar,
@@ -66,6 +67,7 @@ export type NavBadgeKey =
 
 export type NavFeatureFlag =
   | "contactQueue"
+  | "ownHiring"
   // „Ludzie w NEXUSIE” (16.10.2026): pozycje modułu kadrowego. O widoczności
   // decyduje `/api/hr/config` (przełącznik modułu + kartoteka albo uprawnienie
   // z grupy „Ludzie”) — patrz `hrNavState` w `lib/api/hr.ts`.
@@ -94,6 +96,8 @@ export type NavUser =
 
 export type NavVisibilityOptions = {
   contactQueueEnabled: boolean;
+  /** Czy ta osoba należy do procesu rekrutacji własnej (po członkostwie, nie roli). */
+  ownHiring?: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
   hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
 };
@@ -613,6 +617,16 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
   // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
   {
+    id: "own-hiring",
+    href: "/rekrutacja-wlasna",
+    label: "Rekrutacja własna",
+    icon: Lock,
+    section: "system",
+    featureFlag: "ownHiring",
+    placement: "primary",
+    inPalette: true,
+  },
+  {
     id: "my-time",
     href: "/my-time",
     label: "Moja współpraca",
@@ -716,7 +730,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "work",
     title: "Praca",
-    ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
+    ids: ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"],
   },
   {
     key: "clients",
@@ -744,6 +758,8 @@ function featureFlagOn(
   switch (flag) {
     case "contactQueue":
       return opts.contactQueueEnabled;
+    case "ownHiring":
+      return opts.ownHiring ?? false;
     case "hrMyTime":
       return opts.hr?.myTime ?? false;
     case "hrPeople":

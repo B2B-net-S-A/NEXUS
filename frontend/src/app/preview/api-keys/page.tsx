@@ -42,7 +42,6 @@ const DAY = 24 * 60 * 60 * 1000;
 const FAKE_KEY = "nxs_v2_PODGLADxxxxxxxxxxxxxxxxx_to-nie-jest-prawdziwy-klucz-api";
 
 const SCOPES: ScopeInfoDto[] = [
-  { value: "traffit:sync", label: "Uruchamianie synchronizacji Traffit" },
   { value: "traffit:read", label: "Odczyt statusu synchronizacji Traffit" },
   { value: "ops:snapshot", label: "Odczyt migawki operacyjnej (/api/admin/snapshot)" },
   { value: "contractors:read", label: "Eksport kontraktorów dla COMPASSA (bez kwot)" },

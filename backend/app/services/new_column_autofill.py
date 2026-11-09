@@ -94,7 +94,12 @@ from app.models.job_autofill_pool import JobAutofillPool
 from app.models.job_proposal import JobProposal
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import autofill_withdraw, candidate_claim
+from app.services import (
+    autofill_withdraw,
+    candidate_claim,
+    conversation_facts,
+    single_candidate_list,
+)
 from app.services.board_stage_badges import board_column_for
 from app.services.candidate_added_date import (
     AddedToBase,
@@ -371,6 +376,39 @@ async def _other_role_ids(db, job: Optional[Job], candidate_ids: list[int]) -> s
     return set(await mismatches_for_job(db, job, people))
 
 
+def system_exclusions(job_id: int, *, fresh_seat_returns: bool = True) -> list:
+    """Osoby, których system nie dodaje do tej rekrutacji, niezależnie od źródła.
+
+    ``fresh_seat_returns``: osoba, która ustąpiła miejsca świeżym, może wrócić
+    (08.11.2026), ale już nie z pierwszeństwem „nowa w bazie”, bo inaczej
+    zdejmowałaby następną kartę.
+    """
+    removed = select(CandidateStageRemoval.candidate_id).where(
+        CandidateStageRemoval.job_id == job_id
+    )
+    if fresh_seat_returns:
+        removed = removed.where(
+            CandidateStageRemoval.reason.is_distinct_from(
+                autofill_withdraw.FRESH_SEAT_REASON
+            )
+        )
+    hired_now = select(CandidateStage.candidate_id).where(current_hired_stage_clause())
+    # Odrzucenie „na cały klient” (27.10.2026): pracuje u klienta albo nie
+    # chce do niego — żadna rekrutacja tego klienta tej osoby nie dostaje.
+    rejected_job = aliased(Job)
+    refused_client = (
+        select(AutofillFeedback.candidate_id)
+        .join(rejected_job, rejected_job.id == AutofillFeedback.job_id)
+        .where(
+            AutofillFeedback.whole_client.is_(True),
+            rejected_job.client_id.is_not(None),
+            rejected_job.client_id
+            == select(Job.client_id).where(Job.id == job_id).scalar_subquery(),
+        )
+    )
+    return [removed, hired_now, refused_client, not_looking_now()]
+
+
 async def ranked_picks(
     db,
     job_id: int,
@@ -400,37 +438,16 @@ async def ranked_picks(
         JobProposal.source.in_(_PROPOSAL_SOURCES),
         JobProposal.score.is_not(None),
     )
-    both = union_all(pool, proposals).subquery()
+    both = (
+        single_candidate_list.engine_rows(job_id, _PROPOSAL_SOURCES)
+        if single_candidate_list.enabled()
+        else union_all(pool, proposals)
+    ).subquery()
     ever_in_job = select(CandidateStage.candidate_id).where(
         CandidateStage.job_id == job_id
     )
-    removed = select(CandidateStageRemoval.candidate_id).where(
-        CandidateStageRemoval.job_id == job_id
-    )
-    # Osoba, która ustąpiła miejsca świeżym, może wrócić (08.11.2026), ale już
-    # nie z pierwszeństwem „nowa w bazie”: inaczej zdejmowałaby następną kartę.
-    if new_in_base_at is None:
-        removed = removed.where(
-            CandidateStageRemoval.reason.is_distinct_from(
-                autofill_withdraw.FRESH_SEAT_REASON
-            )
-        )
     dismissed = select(JobProposal.candidate_id).where(
         JobProposal.job_id == job_id, JobProposal.status == "dismissed"
-    )
-    hired_now = select(CandidateStage.candidate_id).where(current_hired_stage_clause())
-    # Odrzucenie „na cały klient” (27.10.2026): pracuje u klienta albo nie
-    # chce do niego — żadna rekrutacja tego klienta tej osoby nie dostaje.
-    rejected_job = aliased(Job)
-    refused_client = (
-        select(AutofillFeedback.candidate_id)
-        .join(rejected_job, rejected_job.id == AutofillFeedback.job_id)
-        .where(
-            AutofillFeedback.whole_client.is_(True),
-            rejected_job.client_id.is_not(None),
-            rejected_job.client_id
-            == select(Job.client_id).where(Job.id == job_id).scalar_subquery(),
-        )
     )
     narrowing = []
     if new_in_base_at is not None:
@@ -448,19 +465,24 @@ async def ranked_picks(
             select(both.c.candidate_id, both.c.score, both.c.run_id, both.c.evidence)
             .where(
                 both.c.candidate_id.not_in(ever_in_job),
-                both.c.candidate_id.not_in(removed),
                 both.c.candidate_id.not_in(dismissed),
-                both.c.candidate_id.not_in(hired_now),
-                both.c.candidate_id.not_in(refused_client),
-                both.c.candidate_id.not_in(not_looking_now()),
+                *[
+                    both.c.candidate_id.not_in(refused)
+                    for refused in system_exclusions(
+                        job_id, fresh_seat_returns=new_in_base_at is None
+                    )
+                ],
                 *narrowing,
             )
             .order_by(both.c.score.desc(), both.c.candidate_id)
         )
     ).all()
+    blocked = await conversation_facts.blocked_for_job(
+        db, job_id, sorted({row[0] for row in rows})
+    )
     best: dict[int, Pick] = {}
     for candidate_id, score, run_id, evidence in rows:
-        if candidate_id in best:
+        if candidate_id in best or candidate_id in blocked:
             continue  # wiersze idą od najlepszego wyniku — pierwszy wygrywa
         evidence = evidence or {}
         best[candidate_id] = Pick(
@@ -682,13 +704,17 @@ def office_cautions(
     return out
 
 
-async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
+async def _by_rules(
+    db, job: Job, picks: list[Pick], *, keep_all: bool = False
+) -> list[Pick]:
     """Reguły z odrzuceń: bez osób daleko ponad budżetem, pracujących teraz
     u klienta i mieszkających dalej niż ``OFFICE_FAR_KM`` od biura; osoby
     trochę ponad budżetem za resztą (kolejność wyniku
     w obrębie poziomu zostaje), tak samo osoby z ostrzeżeniem o biurze albo
     mieście. Czyta tylko potrzebne kolumny — okno ma do ``_RULES_WINDOW``
-    osób, a pełny wiersz kandydata niesie tekst CV."""
+    osób, a pełny wiersz kandydata niesie tekst CV. ``keep_all``: nikt nie
+    odpada, a powód staje się uwagą (jedna lista pokazuje też osoby, których
+    system sam by nie dodał)."""
     from types import SimpleNamespace
 
     from app.services import client_off_limits
@@ -754,11 +780,14 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
             budget_hourly=budget,
         )
         if tier is None:
-            continue
-        if client_off_limits.find_hit(person, labels, undated_counts=True):
+            if not keep_all:
+                continue
+            tier = 1
+        off_limits = client_off_limits.find_hit(person, labels, undated_counts=True)
+        if off_limits and not keep_all:
             continue
         km = office_km(person, inputs.office_tokens) if inputs.wants_office else None
-        if km is not None and km > OFFICE_FAR_KM:
+        if km is not None and km > OFFICE_FAR_KM and not keep_all:
             continue
         cautions = [
             c
@@ -777,6 +806,8 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
             km=km,
         )
         cautions.extend(office)
+        if off_limits:
+            cautions.append({"key": "off_limits"})
         tiered.append(
             (tier + (1 if office else 0), replace(pick, cautions=tuple(cautions)))
         )

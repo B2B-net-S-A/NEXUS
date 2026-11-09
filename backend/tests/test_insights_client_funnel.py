@@ -15,12 +15,13 @@ from httpx import AsyncClient
 
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today, local_day_start_utc
+from app.core.scheduling import business_date
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobCloseReason, JobStatus, RemotePolicy
 from app.models.placement_exclusion import PlacementExclusion
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services import competition_history
 from app.services.insights_client_funnel import (
     ClientFunnelRow,
     compute_client_funnel,
@@ -228,7 +229,7 @@ async def test_hit_ratio_shows_unreviewed_apart_from_lost() -> None:
 @pytest.mark.asyncio
 async def test_hit_ratio_ignores_closures_before_the_rule_started() -> None:
     client_id = await _client("Przed")
-    before = local_day_start_utc(business_today()) - timedelta(days=400)
+    before = competition_history.cutover_utc() - timedelta(days=30)
     await _job(
         client_id,
         status=JobStatus.closed,
@@ -292,11 +293,16 @@ async def test_route_returns_rows_totals_and_no_money(
     client_id = await _client("Trasa")
     job_id = await _job(client_id)
     candidate = await _candidate()
-    await _stage(candidate, job_id, PipelineStage.cv_sent, _now() - timedelta(hours=2))
+    at = _now() - timedelta(hours=2)
+    await _stage(candidate, job_id, PipelineStage.cv_sent, at)
     await cache_invalidate("insights:clients:funnel:")
 
+    # Tydzień wskazany dniem etapu: bieżący tydzień w poniedziałek przed 02:00
+    # (Warszawa) nie obejmuje chwili sprzed dwóch godzin.
     response = await app_client.get(
-        FUNNEL, params={"period": "week"}, headers=app_auth_headers
+        FUNNEL,
+        params={"period": "week", "anchor": business_date(at).isoformat()},
+        headers=app_auth_headers,
     )
 
     assert response.status_code == 200, response.text

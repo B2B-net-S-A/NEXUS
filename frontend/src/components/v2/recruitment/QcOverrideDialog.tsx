@@ -31,6 +31,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useQcOverride, type QcResult } from "@/lib/api/cvQc";
 import {
   QC_OVERRIDE_NOTE_MAX,
+  QC_OVERRIDE_POINTS_AT_ITEM,
   QC_OVERRIDE_REASONS,
   countForm,
   qcOverrideError,
@@ -92,6 +93,7 @@ export function QcOverrideDialog({
   const items: readonly QcPendingItem[] =
     pendingItems ?? pending.map((title) => ({ title, keys: [], labelable: false }));
   const aboutChoices = items.map((item, index) => ({ item, index })).filter(({ item }) => item.keys.length > 0);
+  const pointsAtItem = reason !== null && QC_OVERRIDE_POINTS_AT_ITEM.has(reason);
   const error = qcOverrideError(reason, note, { required: aboutChoices.length > 0, picked: about.size });
   const close = (next: boolean) => {
     if (!next) {
@@ -108,7 +110,7 @@ export function QcOverrideDialog({
     if (error || !reason || override.isPending) return;
     const clean = note.trim();
     const wrongKeys = (pendingItems ?? []).flatMap((item, index) => (wrong.has(index) ? item.keys : []));
-    const aboutKeys = reason === "other" ? items.flatMap((item, index) => (about.has(index) ? item.keys : [])) : [];
+    const aboutKeys = pointsAtItem ? items.flatMap((item, index) => (about.has(index) ? item.keys : [])) : [];
     override.mutate(
       {
         reason_code: reason,
@@ -244,7 +246,7 @@ export function QcOverrideDialog({
             onChange={(event) => setNote(event.target.value)}
           />
         </div>
-        {reason === "other" && aboutChoices.length > 0 ? (
+        {pointsAtItem && aboutChoices.length > 0 ? (
           <fieldset className="space-y-1.5">
             <legend className="text-xs font-medium text-muted-foreground">Której uwagi dotyczy powód?</legend>
             <div className="space-y-1">

@@ -45,7 +45,6 @@ Makiety: https://claude.ai/artifact/JTKoqosf8yQf61YcrP7dhE.
   `POST /api/jobs/{id}/p0` `{reason, duration}`,
   `POST /api/jobs/{id}/p0/extend`, `DELETE /api/jobs/{id}/p0`.
   Ślad w Historii zdarzeń: `p0_set`, `p0_extended`, `p0_cleared`.
-- Kolumny P0 są w `NEXUS_OWNED` — Traffit ich nie nadpisuje.
 
 
 ## Propozycje Olafa — decyzje Artura (28.10.2026)

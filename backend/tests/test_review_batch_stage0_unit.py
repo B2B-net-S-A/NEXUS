@@ -328,3 +328,60 @@ def test_batch_novelty_follows_the_flag(monkeypatch):
     assert novelty.switched_on() is False
     monkeypatch.setattr(rb.settings, "REVIEW_BATCH_ENABLED", True, raising=False)
     assert novelty.switched_on() is True
+
+
+# ── Dzisiejsze otwarte S trzymają minimum tylko z własnej porcji ────────────
+
+
+def _open_s(pid: int, *, own_batch: bool) -> rb.Decision:
+    return rb.Decision(
+        process_id=pid,
+        job_id=1,
+        candidate_id=1000 + pid,
+        user_id=7,
+        stage="screening",
+        moved_at=NOW,
+        counted_at=None,
+        own_batch=own_batch,
+    )
+
+
+def test_open_screening_outside_own_batch_does_not_hold_the_minimum():
+    """Done 3, porcja 3: stara karta przesunięta na Tablicy nie cofa odblokowania."""
+    rejected = [
+        rb.Decision(
+            process_id=pid,
+            job_id=1,
+            candidate_id=1000 + pid,
+            user_id=7,
+            stage="rejected",
+            moved_at=NOW,
+            counted_at=NOW,
+            own_batch=True,
+        )
+        for pid in (1, 2, 3)
+    ]
+    counts = rb.summarize_day(
+        [*rejected, _open_s(4, own_batch=False)], NOW - timedelta(hours=1)
+    )
+    assert counts.done == 3
+    assert counts.open_today == 0
+    assert counts.open_cards == ()
+    # Licznik „do domknięcia” dalej pokazuje każde niedomknięte S.
+    assert counts.open_screenings == 1
+
+
+def test_open_screenings_from_own_batch_still_hold_the_minimum():
+    """10×S z porcji: done 0, open_today 10, więc required zostaje 10."""
+    decisions = [_open_s(pid, own_batch=True) for pid in range(1, 11)]
+    counts = rb.summarize_day(decisions, NOW - timedelta(hours=1))
+    assert counts.done == 0
+    assert counts.open_today == 10
+    assert [d.process_id for d in counts.open_cards] == list(range(1, 11))
+
+
+def test_open_screening_from_yesterday_is_not_listed_for_today():
+    old = _open_s(1, own_batch=True)
+    counts = rb.summarize_day([old], NOW + timedelta(hours=1))
+    assert counts.open_today == 0 and counts.open_cards == ()
+    assert counts.open_screenings == 1

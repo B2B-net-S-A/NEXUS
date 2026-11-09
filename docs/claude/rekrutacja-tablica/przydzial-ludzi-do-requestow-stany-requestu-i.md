@@ -5,8 +5,7 @@ Main, Portfel, C6). Automat z #1390 nigdy nie ruszył na produkcji (0 osób
 z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
 0371 zastąpił go ciągłym przydziałem.
 
-- **Stan requestu `jobs.work_state` należy do NEXUSA** (`NEXUS_OWNED`, Traffit
-  go nie pisze): `to_review` („Do przejrzenia”, domyślny) · `searching`
+- **Stan requestu `jobs.work_state` należy do NEXUSA:** `to_review` („Do przejrzenia”, domyślny) · `searching`
   („Szukamy kandydatów”) · `client_silent` („Klient milczy”) · `finished`
   („Zakończony” — tylko w NEXUSIE, `jobs.status` z Traffita zostaje).
   **„Mamy championa” NIE jest wartością** — to `champion_found_at` przy

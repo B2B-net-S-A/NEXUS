@@ -131,11 +131,9 @@ def _section_read(user: User, section: ProductSection) -> bool:
 
 
 def _digest(user: User, _: _Context) -> bool:
-    from app.tasks.daily_digest_email import DIGEST_ROLES
+    from app.tasks.daily_digest_email import receives_digest
 
-    return user.has_any_role(*DIGEST_ROLES) and _section_read(
-        user, ProductSection.pipeline
-    )
+    return receives_digest(user)
 
 
 def _dl_review(user: User, ctx: _Context) -> bool:

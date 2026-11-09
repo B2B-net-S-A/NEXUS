@@ -47,6 +47,8 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         # 0619: ważne ogłoszenie — odbiorców wybiera rola z ogłoszenia, nie
         # sekcja (pulpit ma każdy, także „Pracownik” i Rada).
         NotificationType.announcement_important,
+        # Rekrutacja własna: odbiorcą jest osoba z procesu, także bez sekcji rekrutacji.
+        NotificationType.own_hiring_update,
     }
 )
 

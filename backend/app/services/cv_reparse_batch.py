@@ -18,7 +18,8 @@ Zasady:
 * **Wznowienie bez stanu poza bazą**: odczytany tekst dostaje znacznik
   `_cv_reparse` (skrót tekstu, wynik, próby), a zakres pomija osoby ze
   znacznikiem tego samego tekstu. Nieudana odpowiedź (niepoprawny JSON,
-  błąd paczki) wraca do zakresu raz. Nowe CV (inny tekst) wraca samo.
+  błąd paczki) wraca do zakresu raz, a próbą jest paczka, nie jej zebranie.
+  Nowe CV (inny tekst) wraca samo.
 * **Paczka czeka na wynik, zanim pójdzie następna**: przerwany proces traci
   najwyżej jedną paczkę, a jej id jest w logu (`collect`).
 """
@@ -164,14 +165,24 @@ class ReparseStats:
         return dict(self.__dict__)
 
 
-def _mark(candidate: Candidate, digest: str, outcome: str) -> None:
+def _mark(
+    candidate: Candidate, digest: str, outcome: str, batch_id: Optional[str]
+) -> None:
     extracted = candidate.cv_extracted_data
     extracted = dict(extracted) if isinstance(extracted, dict) else {}
     previous = extracted.get(REPARSE_KEY)
     attempts = 1
     if isinstance(previous, dict) and previous.get("md5") == digest:
-        attempts = int(previous.get("attempts") or 0) + 1
-    extracted[REPARSE_KEY] = {"md5": digest, "outcome": outcome, "attempts": attempts}
+        attempts = int(previous.get("attempts") or 0)
+        # Ta sama paczka zebrana drugi raz nie jest nową płatną próbą.
+        if batch_id is None or previous.get("batch_id") != batch_id:
+            attempts += 1
+    extracted[REPARSE_KEY] = {
+        "md5": digest,
+        "outcome": outcome,
+        "attempts": attempts,
+        "batch_id": batch_id,
+    }
     # Nowy obiekt, nie mutacja — JSONB bez `MutableDict` nie widzi zmian w miejscu.
     candidate.cv_extracted_data = extracted
 
@@ -184,6 +195,7 @@ async def apply_result(
     result: Any,
     model: str,
     stats: ReparseStats,
+    batch_id: Optional[str] = None,
 ) -> None:
     """Zapisz jeden wynik paczki. Błąd wiersza nie zatrzymuje biegu."""
     from app.services.claude_client import record_batch_message_usage
@@ -219,7 +231,7 @@ async def apply_result(
         return
     if getattr(result, "type", None) != "succeeded":
         stats.failed += 1
-        _mark(candidate, digest, "failed")
+        _mark(candidate, digest, "failed", batch_id)
         await db.flush()
         return
 
@@ -236,7 +248,7 @@ async def apply_result(
         parsed = None
     if parsed is None:
         stats.failed += 1
-        _mark(candidate, digest, "failed")
+        _mark(candidate, digest, "failed", batch_id)
         await db.flush()
         return
     parsed = finalize_claude_cv_output(parsed, cv_text)
@@ -244,7 +256,7 @@ async def apply_result(
     async with db.begin_nested():
         if await _read_names_another_person(db, candidate, parsed):
             stats.identity_held += 1
-            _mark(candidate, digest, "identity_held")
+            _mark(candidate, digest, "identity_held", batch_id)
             await db.flush()
             return
         await finish_cv_ingest(
@@ -257,7 +269,7 @@ async def apply_result(
             trigger=TRIGGER,
             enqueue_auto_match=False,
         )
-        _mark(candidate, digest, "ok")
+        _mark(candidate, digest, "ok", batch_id)
         await db.flush()
     stats.applied += 1
     extracted = candidate.cv_extracted_data
@@ -277,6 +289,7 @@ async def apply_batch_results(
     model: str,
     stats: ReparseStats,
     commit_every: int = 25,
+    batch_id: Optional[str] = None,
 ) -> None:
     """Wyniki paczki (`client.messages.batches.results`) → profile.
 
@@ -301,6 +314,7 @@ async def apply_batch_results(
                         result=entry.result,
                         model=model,
                         stats=stats,
+                        batch_id=batch_id,
                     )
             except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
                 stats.errors += 1
@@ -309,7 +323,7 @@ async def apply_batch_results(
                     candidate_id,
                     type(exc).__name__,
                 )
-                await _mark_write_failure(db, candidate_id, digest)
+                await _mark_write_failure(db, candidate_id, digest, batch_id)
                 continue
             since_commit += 1
             if since_commit >= commit_every:
@@ -319,7 +333,9 @@ async def apply_batch_results(
         await db.commit()
 
 
-async def _mark_write_failure(db: AsyncSession, candidate_id: int, digest: str) -> None:
+async def _mark_write_failure(
+    db: AsyncSession, candidate_id: int, digest: str, batch_id: Optional[str]
+) -> None:
     """Znacznik `failed` po błędzie zapisu, osobnym savepointem.
 
     Odpowiedź jest już zapłacona, a savepoint wiersza cofnął też znacznik —
@@ -333,7 +349,7 @@ async def _mark_write_failure(db: AsyncSession, candidate_id: int, digest: str) 
                 return
             full_digest = text_digest(candidate.raw_cv_text or "")
             if full_digest.startswith(digest):
-                _mark(candidate, full_digest, "failed")
+                _mark(candidate, full_digest, "failed", batch_id)
                 await db.flush()
     except Exception as exc:  # noqa: BLE001 — znacznik to ratunek, nie warunek
         logger.warning(

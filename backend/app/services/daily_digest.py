@@ -24,9 +24,11 @@ from app.core.scheduling import business_today
 from app.services.cv_in_transit import RETURNED_TO_FIX_KINDS
 from app.services.dl_send_queue import local_date
 from app.services.email import absolute_link, open_button_html
+from app.services.sales.my_day import DayRow, MyDay
 
 MAX_ROWS = 5
 DASHBOARD_PATH = "/dashboard#czeka-na-ciebie"
+SALES_DAY_PATH = "/sales/my-day"
 
 
 @dataclass(frozen=True)
@@ -403,6 +405,61 @@ def build_sections(
     return [s for s in out if s is not None]
 
 
+def _sales_path(row: DayRow) -> str:
+    if row.opportunity is not None:
+        return f"/sales/opportunities/{row.opportunity.id}"
+    return f"/sales/companies/{row.company_id}"
+
+
+def _days_word(days: int) -> str:
+    return "1 dzień" if days == 1 else f"{days} dni"
+
+
+def _meeting_hour(row: DayRow) -> str:
+    return f"{row.at.astimezone(ZoneInfo(settings.BUSINESS_TZ)):%H:%M}"
+
+
+def _sales_section(
+    title: str, rows: list[DayRow], text: Any, *, path: str = SALES_DAY_PATH
+) -> Optional[Section]:
+    return _section(
+        title,
+        tuple(Row(text(row), _sales_path(row)) for row in rows),
+        path=path,
+    )
+
+
+def sales_sections(day: MyDay) -> list[Section]:
+    """Sekcja Sprzedaży: te same wiersze co „Mój dzień”, bez kwot i bez numerów."""
+
+    sections = (
+        _sales_section(
+            "Sprzedaż: spotkania dziś",
+            day.meetings,
+            lambda row: f"{row.company_name} — {_meeting_hour(row)}",
+        ),
+        _sales_section(
+            "Sprzedaż: do odpisania",
+            day.reply,
+            lambda row: f"{row.company_name} — napisali {_days_word(row.days)} temu",
+        ),
+        _sales_section(
+            "Sprzedaż: zaległe kroki",
+            day.overdue,
+            lambda row: (
+                f"{row.company_name} — {row.subject or 'krok'}"
+                f" · po terminie {_days_word(row.days)}"
+            ),
+        ),
+        _sales_section(
+            "Sprzedaż: oferty bez ruchu ponad 14 dni",
+            day.offers,
+            lambda row: f"{row.company_name} — bez ruchu {_days_word(row.days)}",
+        ),
+    )
+    return [section for section in sections if section is not None]
+
+
 def _more(section: Section) -> int:
     return section.total - len(section.rows)
 
@@ -441,14 +498,17 @@ def render(name: str, sections: list[Section], today: date) -> tuple[str, str, s
             f'<p style="margin:16px 0 4px"><strong>{title_html}</strong> ({section.total})</p>'
             + (f'<ul style="margin:0">{"".join(items)}</ul>' if items else "")
         )
-    dashboard = absolute_link(DASHBOARD_PATH)
+    # Handlowiec bez kolejki rekrutacji nie ma czego szukać na pulpicie.
+    sales_only = all(section.path == SALES_DAY_PATH for section in sections)
+    dashboard = absolute_link(SALES_DAY_PATH if sales_only else DASHBOARD_PATH)
+    button = "Otwórz „Mój dzień”" if sales_only else "Otwórz „Czeka na Ciebie”"
     text += [
         f"Wszystko w jednym miejscu: {dashboard}",
         "",
         "— Nexus ATS (skrót wychodzi w dni robocze o 8:00, tylko gdy coś na Ciebie czeka)",
     ]
     parts += [
-        f'<p style="margin-top:20px">{open_button_html(dashboard, "Otwórz „Czeka na Ciebie”")}</p>',
+        f'<p style="margin-top:20px">{open_button_html(dashboard, button)}</p>',
         '<hr><p style="color:#888;font-size:12px">Nexus ATS — skrót wychodzi '
         "w dni robocze o 8:00, tylko gdy coś na Ciebie czeka.</p>",
     ]

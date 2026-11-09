@@ -123,6 +123,20 @@ async def _run_my_people(db, event: CandidateMatchOutbox) -> dict:
         return {"error": type(exc).__name__}
 
 
+async def _read_notes_now(candidate_id: int) -> None:
+    """Odczyt notatek jednej osoby. Awaria modelu nie blokuje przeliczenia."""
+    from app.tasks.notes_insights_sync import extract_candidate_now
+
+    try:
+        await extract_candidate_now(candidate_id)
+    except Exception as exc:  # noqa: BLE001 — dopasowanie liczy się na tym, co jest
+        logger.warning(
+            "[auto_match] odczyt notatek kandydata=%s nieudany: %s",
+            candidate_id,
+            type(exc).__name__,
+        )
+
+
 async def _process(event_id: int) -> str:
     from app.services.auto_match_service import (
         AutoMatchUnavailable,
@@ -130,6 +144,7 @@ async def _process(event_id: int) -> str:
         run_candidate_event,
         run_job_event,
     )
+    from app.services.auto_match_outbox import conversation_reading_needed
 
     async with AsyncSessionLocal() as db:
         event = await db.get(CandidateMatchOutbox, event_id)
@@ -146,6 +161,8 @@ async def _process(event_id: int) -> str:
         trigger, attempts = event.trigger, event.attempts
         try:
             if event.candidate_id is not None:
+                if conversation_reading_needed(event):
+                    await _read_notes_now(event.candidate_id)
                 result = await run_candidate_event(db, event)
             else:
                 result = await run_job_event(db, event)

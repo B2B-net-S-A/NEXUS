@@ -114,6 +114,7 @@ def _run(**kw) -> SimpleNamespace:
         manual_requirements=None,
         manual_by=None,
         to_fix=None,
+        older_cv=None,
         gaps=None,
         ok_since=None,
     )
@@ -178,6 +179,24 @@ async def test_empty_requirement_in_a_failed_run_does_not_break_the_board() -> N
         [_run(passed=False, blocking_failed=2, to_fix=["Kafka", None])], []
     )
     assert out["status"] == "failed" and out["blocking_failed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_recruiter_override_of_unverified_items_is_a_pass_through() -> None:
+    """QC-7: zdane z „sprawdź ręcznie” i obejściem doradczym idzie do kolejki DL."""
+    out = await _status(
+        [
+            _run(
+                manual=["Krytyczne"],
+                manual_keys=["critical_skills"],
+                unverified=["Kafka"],
+                has_override=True,
+                override_at=AT,
+            )
+        ],
+        [],
+    )
+    assert out["status"] == "overridden" and out["manual_items"] == ["Kafka"]
 
 
 @pytest.mark.asyncio

@@ -224,7 +224,7 @@ describe("CvQcDialog — QC CV", () => {
   it("mówi, co sprawdza, i dzieli wynik na: do poprawy, warto poprawić, w porządku", async () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByText("Do poprawy: 2 rzeczy")).toBeTruthy();
+    expect(await within(dialog).findByText("QC: 2 do poprawy")).toBeTruthy();
 
     const explainer = within(dialog).getByRole("region", { name: "Co sprawdza QC" });
     expect(explainer).toHaveTextContent("Umiejętności krytyczne: Java — podpowiedź z historii rekrutacji");
@@ -291,10 +291,54 @@ describe("CvQcDialog — QC CV", () => {
     const cv = await within(dialog).findByRole("article", { name: "CV firmowe" });
     expect(cv.querySelector('[data-qc-gap="note"]')).toHaveTextContent("(nie blokuje)");
     expect(cv.querySelector('[data-qc-gap="blocking"]')).toBeNull();
-    expect(within(dialog).getByText("QC przechodzi")).toBeTruthy();
+    expect(within(dialog).getByText("QC: sprawdzone")).toBeTruthy();
     expect(within(dialog).getByText("Nic nie blokuje wysyłki tego CV.")).toBeTruthy();
     // Zdania AI dopisuje też do uwag — sekcja zostaje mimo zaliczonego QC.
     expect(within(dialog).getByRole("region", { name: "Propozycje AI" })).toBeTruthy();
+  });
+
+  // 09.11.2026: okno świeciło „QC przechodzi”, karta mówiła „QC: wskaż stanowisko · 2”.
+  it("plakietka okna to stan z serwera, nie wynik `passed`", async () => {
+    serve(
+      passed({
+        qc_state: {
+          kind: "verify_roles",
+          n: 2,
+          items: ["Kafka", "AWS"],
+          text: "QC: wskaż stanowisko · 2",
+          tone: "wait",
+          who: null,
+          hint: "Nikt nie sprawdził opisu w rolach: Kafka, AWS.",
+        },
+      }),
+    );
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("QC: wskaż stanowisko · 2")).toBeTruthy();
+    expect(within(dialog).queryByText("QC: sprawdzone")).toBeNull();
+    // Para czeka u rekrutera, więc „Nic nie blokuje wysyłki” byłoby nieprawdą.
+    expect(within(dialog).queryByText("Nic nie blokuje wysyłki tego CV.")).toBeNull();
+    expect(within(dialog).getByText("Nikt nie sprawdził opisu w rolach: Kafka, AWS.")).toBeTruthy();
+  });
+
+  it("zaliczone ze stanu serwera dalej mówi, że nic nie blokuje", async () => {
+    serve(
+      passed({
+        qc_state: {
+          kind: "checked",
+          n: 0,
+          items: [],
+          text: "QC: sprawdzone",
+          tone: "ok",
+          who: null,
+          hint: "CV przeszło kontrolę przed wysłaniem.",
+        },
+      }),
+    );
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("QC: sprawdzone")).toBeTruthy();
+    expect(within(dialog).getByText("Nic nie blokuje wysyłki tego CV.")).toBeTruthy();
   });
 
   it("bez CV firmowego jedyną rzeczą do zrobienia jest wygenerowanie CV", async () => {
@@ -317,7 +361,7 @@ describe("CvQcDialog — QC CV", () => {
     );
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByText("Do poprawy: 1 rzecz")).toBeTruthy();
+    expect(await within(dialog).findByText("QC: 1 do poprawy")).toBeTruthy();
     const tasks = within(dialog).getByRole("region", { name: "Do poprawy przed wysłaniem" });
     expect(within(tasks).getByText("Nie ma jeszcze CV firmowego dla tej rekrutacji.")).toBeTruthy();
     // Generator otwiera się w oknie z osobą i rekrutacją z QC — osobnego
@@ -433,7 +477,7 @@ describe("CvQcDialog — QC CV", () => {
     await userEvent.click(await within(dialog).findByRole("button", { name: /Must-have są pogrubione/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Pogrub wszystkie" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/apply`, { action: "bold_all", scope: "must" }));
-    expect(await within(dialog).findByText("QC przechodzi")).toBeTruthy();
+    expect(await within(dialog).findByText("QC: sprawdzone")).toBeTruthy();
     expect(get).toHaveBeenCalledTimes(1);
     expect(onChanged).toHaveBeenCalled();
     expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
@@ -478,7 +522,7 @@ describe("CvQcDialog — QC CV", () => {
   it("zamknięcie okna odświeża Tablicę — chip QC nie zostaje stary", async () => {
     const { keys, onClose } = renderDialog();
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Do poprawy: 2 rzeczy");
+    await within(dialog).findByText("QC: 2 do poprawy");
     expect(keys()).not.toContain('["kanban",31]');
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -575,7 +619,7 @@ describe("CvQcDialog — QC CV", () => {
   async function overrideButton() {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Do poprawy: 2 rzeczy");
+    await within(dialog).findByText("QC: 2 do poprawy");
     return within(dialog).queryByRole("button", { name: "Przepuść mimo QC…" });
   }
 
@@ -631,14 +675,14 @@ describe("CvQcDialog — QC CV", () => {
     serve(passed({ override: { reason: "Klient prosił o skrót", by_name: "Piotr Zając", at: "2026-09-24T10:00:00Z" } }));
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByText("QC przechodzi")).toBeTruthy();
+    expect(await within(dialog).findByText("QC: sprawdzone")).toBeTruthy();
     expect(within(dialog).queryByText(/QC: przepuszczone/)).toBeNull();
   });
 
   it("„Przesuń dalej” jest w oknie tylko, gdy wołający umie przesunąć kartę", async () => {
     renderDialog();
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Do poprawy: 2 rzeczy");
+    await within(dialog).findByText("QC: 2 do poprawy");
     expect(within(dialog).queryByRole("button", { name: /Przesuń dalej/ })).toBeNull();
   });
 
@@ -646,7 +690,7 @@ describe("CvQcDialog — QC CV", () => {
     const onMoveNext = vi.fn();
     renderDialog({ onMoveNext });
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Do poprawy: 2 rzeczy");
+    await within(dialog).findByText("QC: 2 do poprawy");
     expect(within(dialog).getByRole("button", { name: /Przesuń dalej/ })).toBeDisabled();
     expect(onMoveNext).not.toHaveBeenCalled();
   });
@@ -656,7 +700,7 @@ describe("CvQcDialog — QC CV", () => {
     const onMoveNext = vi.fn();
     const { keys } = renderDialog({ onMoveNext });
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("QC przechodzi");
+    await within(dialog).findByText("QC: sprawdzone");
     await userEvent.click(within(dialog).getByRole("button", { name: /Przesuń dalej/ }));
     expect(onMoveNext).toHaveBeenCalledWith(expect.objectContaining({ candidate_id: 21, job_id: 31 }));
     expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]']));
@@ -779,7 +823,7 @@ describe("CvQcDialog — QC CV", () => {
       serve(advisory({ can_override: false }));
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      await within(dialog).findByText("Do poprawy: 2 rzeczy");
+      await within(dialog).findByText("QC: 2 do poprawy");
       expect(within(dialog).queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
       expect(within(dialog).queryByRole("button", { name: "Przepuść mimo QC…" })).toBeNull();
     });
@@ -789,7 +833,7 @@ describe("CvQcDialog — QC CV", () => {
       serve(advisory());
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      await within(dialog).findByText("Do poprawy: 2 rzeczy");
+      await within(dialog).findByText("QC: 2 do poprawy");
       expect(within(dialog).queryByRole("button", { name: "Przesuń mimo uwag…" })).toBeNull();
     });
 
@@ -1052,7 +1096,7 @@ describe("CvQcDialog — QC CV", () => {
         expect(showSuccess).toHaveBeenCalledWith("Potwierdzenie zapisane w notatkach kandydata — QC przeliczone."),
       );
       // Świeży wynik z odpowiedzi zastępuje cache — bez drugiego odczytu.
-      expect(await within(dialog).findByText("QC przechodzi")).toBeTruthy();
+      expect(await within(dialog).findByText("QC: sprawdzone")).toBeTruthy();
       expect(get).toHaveBeenCalledTimes(1);
       expect(onChanged).toHaveBeenCalled();
       expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
@@ -1153,7 +1197,7 @@ describe("CvQcDialog — QC CV", () => {
     it("bez potwierdzeń sekcji nie ma", async () => {
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      await within(dialog).findByText("Do poprawy: 2 rzeczy");
+      await within(dialog).findByText("QC: 2 do poprawy");
       expect(within(dialog).queryByRole("region", { name: "Potwierdzone z kandydatem" })).toBeNull();
     });
   });
@@ -1236,7 +1280,7 @@ describe("CvQcDialog — QC CV", () => {
       );
       renderDialog();
       const dialog = await screen.findByRole("dialog");
-      expect(await within(dialog).findByText("Do poprawy: 1 rzecz")).toBeTruthy();
+      expect(await within(dialog).findByText("QC: 1 do poprawy")).toBeTruthy();
       const tasks = within(dialog).getByRole("region", { name: "Do poprawy przed wysłaniem" });
       expect(within(tasks).getByText("Do poprawy przed wysłaniem (1)")).toBeTruthy();
       expect(within(tasks).queryByText(/Java — brak/)).toBeNull();
@@ -1739,6 +1783,9 @@ describe("CvQcDialog — QC CV", () => {
       renderDialog();
       const picker = await screen.findByRole("group", { name: "Gdzie oryginał opisuje: Java" });
       await userEvent.click(within(picker).getByRole("button", { name: "Nigdzie — tylko na liście" }));
+      // QC-6: „Nigdzie” pyta raz, zanim zapisze.
+      expect(post).not.toHaveBeenCalledWith(expect.stringContaining("manual-roles"), expect.anything());
+      await userEvent.click(screen.getByRole("button", { name: "Tak, tylko na liście" }));
       await waitFor(() =>
         expect(post).toHaveBeenCalledWith(`${QC_URL}/manual-roles`, { requirement: "Java", roles: [] }),
       );

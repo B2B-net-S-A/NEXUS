@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { QcStateView } from "@/lib/cv-qc";
 import {
   MY_MOVE_LABEL,
   cardBadges,
@@ -640,7 +641,7 @@ describe("karta na laptopie (04.10.2026)", () => {
   });
 });
 
-describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
+describe("„Nowy · od DD.MM” — osoba świeżo w bazie (13.10.2026, data od 08.11.2026)", () => {
   const fresh = (extra: Partial<KanbanItem> = {}) =>
     item({
       entry_source: "application",
@@ -652,11 +653,11 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
     });
 
   it("w „Nowych” i „Screeningu” po źródle i blokadzie, z datą i autorem w dymku", () => {
-    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · 3 dni"]);
+    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · od 20.09"]);
     expect(labels(fresh(), ctx({ column: "screening" }))).toEqual([
       "Z ogłoszenia",
       "Wolny",
-      "Nowy · 3 dni",
+      "Nowy · od 20.09",
     ]);
     const badge = cardBadges(fresh(), ctx()).find((b) => b.key === "new_in_base");
     expect(badge).toMatchObject({ tone: "info", title: "W bazie od 20.09.2026 · dodał(a) Marta Nowak" });
@@ -665,7 +666,7 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
   });
 
   it("dalsze kolumny jej nie pokazują", () => {
-    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · 3 dni");
+    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · od 20.09");
   });
 
   it("15 dni i więcej — bez pigułki; 14 dni — jeszcze z pigułką", () => {
@@ -673,7 +674,7 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
       "Z ogłoszenia",
       "Wolny",
     ]);
-    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · 14 dni");
+    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · od 09.09");
   });
 
   it("data niedokładna (import z Traffita bez daty u źródła) — bez pigułki", () => {
@@ -726,6 +727,17 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
     expect(
       label(item({ auto_cv_ready: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } })),
     ).toBe("CV gotowe · QC bez uwag");
+  });
+
+  it("QC-11: ten sam tekst co chip z serwera, a „do poprawy” bez czerwieni", () => {
+    const state = { kind: "verify_roles", n: 2, items: ["Kafka", "AWS"], text: "QC: wskaż stanowisko · 2", tone: "wait", who: null, hint: "Nikt nie sprawdził opisu w rolach: Kafka, AWS." } satisfies QcStateView;
+    const verify = cvStateBadge(item({ company_cv: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 1, qc_state: state } }), "verified");
+    expect(verify?.label).toBe("CV gotowe · QC: wskaż stanowisko · 2 · 1 uwaga");
+    expect(verify?.title).toBe(state.hint);
+    const toFix = cvStateBadge(item({ company_cv: true, qc: { status: "failed", blocking_failed: 2, qc_state: { ...state, kind: "to_fix", text: "QC: 2 do poprawy", tone: "urgent", hint: null } } }), "verified");
+    expect(toFix?.label).toBe("CV gotowe · QC: 2 do poprawy");
+    expect(toFix?.tone).toBe("wait");
+    expect(toFix?.title).toBe("QC: 2 do poprawy");
   });
 
   it("QC przepuszczone mimo uwag (D6) — „przepuszczone”, nie „do poprawy”", () => {
@@ -882,3 +894,16 @@ describe("„FastAPI? zna Flask” — krytyczne z zamiennikiem (mapa wiedzy IT,
   });
 });
 
+
+describe("QC-7 (08.11.2026): „wskaż stanowisko” zostaje u rekrutera", () => {
+  const holding = { status: "passed" as const, blocking_failed: 0, qc_state: { kind: "verify_roles" as const, n: 2, items: ["Kafka"], text: "QC: wskaż stanowisko · 2", tone: "wait" as const, who: null, hint: null } };
+
+  it("nie jest gotowa do wysyłki u Delivery Leada", () => {
+    expect(isReadyForDlSend(item({ qc: holding }), "cv_qc", false)).toBe(false);
+    expect(isReadyForDlSend(item({ qc: { status: "passed", blocking_failed: 0 } }), "cv_qc", false)).toBe(true);
+  });
+
+  it("mówi rekruterowi, co zrobić", () => {
+    expect(dlWaitingStatus(item({ qc: holding })).text).toBe("QC: wskaż stanowisko · 2 — zrób to, zanim Delivery Lead je zobaczy.");
+  });
+});

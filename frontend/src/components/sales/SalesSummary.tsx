@@ -102,7 +102,7 @@ export function SalesSummary() {
                         <TableCell className="font-medium">
                           {row.owner ? (
                             <Link
-                              href={`/sales?opiekun=${row.owner.id}`}
+                              href={`/sales/opportunities?opiekun=${row.owner.id}`}
                               className="hover:underline"
                             >
                               {row.owner.name}

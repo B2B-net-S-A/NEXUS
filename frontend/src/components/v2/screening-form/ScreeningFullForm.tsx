@@ -74,6 +74,7 @@ import {
 } from "@/components/v2/screening/ScreeningForm";
 import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
+import { ScreeningProfileFields } from "@/components/v2/screening-form/ScreeningProfileFields";
 import { useCapability } from "@/hooks/useCapability";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { candidatesApi, type RateUnit, type ScreeningQuestion } from "@/lib/api";
@@ -187,6 +188,7 @@ const EMPTY_VALUES: ScreeningFullFormValues = {
   rate_unit: "hourly",
   rate_currency: "PLN",
   clear_legacy_notes: false,
+  profile: null,
 };
 
 const SET = { shouldDirty: true } as const;
@@ -800,6 +802,7 @@ export function ScreeningFullFormView({
       renderQuestionExtra={renderQuestionExtra(extra)}
       phrase={phrase}
       withOverallFit={false}
+      withCheckNotes={Boolean(state.profile_fields)}
     />
   );
 
@@ -1059,6 +1062,7 @@ export function ScreeningFullFormView({
               </p>
             ) : null}
           </div>
+          <ScreeningProfileFields methods={methods} disabled={!state.editable} />
           {termsKeys.length > 0 ? (
             <div className="@container">
               {/* grid-cols-1 (minmax(0,1fr)), nie niejawna kolumna `auto`: ta rosła

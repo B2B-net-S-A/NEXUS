@@ -9,7 +9,11 @@ plakietek i trzy różne liczby dni.
 ## Karta
 
 - **Wiersz 1:** numer kolejki, imię i nazwisko w jednej linii (pełne w dymku),
-  inicjały właściciela (kto, kiedy i dlaczego: dymek), pierścień.
+  pod nimi imię właściciela (kto, kiedy i dlaczego: dymek), pierścień obok.
+  Imię zamiast inicjałów od 09.11.2026, po zgłoszeniu Delivery Leada: kółko 16 px
+  z czcionką 7 px było nieczytelne. Decyzja Artura z makiet (wariant A): karta
+  o 5 px wyższa przy 1280 × 720, plakietki bez zmian. Nie wstawiaj imienia do
+  wiersza plakietek (ucina je) ani obok nazwiska (zostają 3–4 litery kandydata).
 - **Wiersz 2:** najwyżej dwie plakietki z `cardPrimaryBadges`
   (`lib/board-card-badges.ts`). Reszta idzie do „+N”: dymek (natywny `title`)
   i okienko po kliknięciu z pełną treścią i przyciskami (QC, Scorecard,
@@ -34,12 +38,18 @@ ma, zostaje ikona screeningu, resztę daje klik w kafelek i panel osoby.
 - `waiting_workdays` w odpowiedzi tablicy liczy serwer:
   `dl_send_queue.board_waiting_workdays`, ta sama funkcja co pas „Do wysłania do
   klienta” (karta gotowa w „QC CV” od `max(moved_at, qc.ok_at)`), a osoba od
-  systemu od terminu decyzji (`entry_autofill.waiting_days`). Reszta od wejścia
+  systemu od terminu decyzji (`entry_autofill.waiting_days`), karta u klienta
+  z zegara ciszy (`client_wait.client_clocks`, ten sam co „Klient milczy”, więc
+  „Klient odpowiedział” zeruje też wiersz ruchu). Reszta od wejścia
   na etap. 0 dni nie ma napisu, a zatrudniony i zamknięty nie mają liczby
   (`None`), bo proces się skończył.
 - Na karcie stoi raz: „czeka 2 dni rob.” (przy przycisku „2 dni rob.”). Liczby
   kalendarzowe („44 dni bez odpowiedzi”, „Czeka na Ciebie · 2 dni”, „zaległy 31
   dni”) zeszły do dymku; dni kalendarzowe zostają w „na etapie od 03.11”.
+- „najstarszy N d rob.” w nagłówku kolumny i „czeka N dni rob.” przy następnej
+  osobie biorą tę samą liczbę z serwera. „Bez decyzji” nie ma liczby, bo stoi
+  ona w wierszu ruchu, a „Nowy · od 28.10” mówi datą, bo to wiek w bazie, nie
+  czekanie.
 - Nie licz dni na froncie z `moved_at`: tak powstały trzy arytmetyki na jednej
   karcie (`dlWaitingDays`, `days_in_stage`, `waitingFor`).
 

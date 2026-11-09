@@ -112,6 +112,20 @@ export interface ScreeningFormClaim {
   mine: boolean;
 }
 
+export interface ScreeningProfileFieldsState {
+  notice_period: number | null;
+  notice_period_unit: "days" | "weeks" | "months";
+  max_onsite_days: number | null;
+  work_modes: ("remote" | "hybrid" | "onsite")[];
+}
+
+export interface ScreeningFormProfileSave {
+  notice_period?: number;
+  notice_period_unit?: "days" | "weeks" | "months";
+  max_onsite_days?: number;
+  work_modes?: ("remote" | "hybrid" | "onsite")[];
+}
+
 export interface ScreeningFormState {
   candidate_id: number;
   job_id: number;
@@ -164,6 +178,8 @@ export interface ScreeningFormState {
   /** Karta z notatki i „Ułóż w zdanie” (RECOMMENDATION_CARD_ASSIST_ENABLED). */
   assist_enabled: boolean;
   phrase_language: PhraseLanguage;
+  /** Pola arkusza zapisywane do profilu; `null` = ukryte (flaga rejestru rozmów). */
+  profile_fields?: ScreeningProfileFieldsState | null;
   /** D6: otwarta prośba Delivery Leada o poprawki (`null` = brak). */
   fix_request?: ScreeningFixRequest | null;
   /** Etap „QC CV” — „Zapisz i oddaj do przeglądu DL” (tylko przy otwartej prośbie). */
@@ -230,6 +246,8 @@ export interface ScreeningFormSave {
   } | null;
   /** `null` = stawka bez zmian. */
   rate: FormRate | null;
+  /** `null` albo brak = pola profilu bez zmian. */
+  profile?: ScreeningFormProfileSave | null;
   /** `note_id` — notatka zapisana już w doku (D3, 14.10.2026); serwer jej nie dubluje. */
   note_import: { text: string; source_name?: string | null; note_id?: number | null } | null;
 }
@@ -453,6 +471,7 @@ export function refreshScreeningFormDependents(
   queryClient: QueryClient,
   result: ScreeningFormSaveResult,
 ): void {
+  void queryClient.invalidateQueries({ queryKey: ["candidate-conversation-facts", result.candidate_id] });
   const { candidate_id: candidateId, job_id: jobId } = result;
   queryClient.setQueryData(screeningFormQueryKey(jobId, candidateId), result);
   void queryClient.invalidateQueries({ queryKey: screeningFormVersionsQueryKey(jobId, candidateId) });

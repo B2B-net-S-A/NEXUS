@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-from app.services.job_column_ownership import NEXUS_OWNED
 from app.services.request_allocation_schema import (
     COLUMN_STATEMENTS,
     ENUM_STATEMENTS,
@@ -45,13 +44,6 @@ def test_data_block_runs_after_the_schema_in_entrypoint() -> None:
     columns_applied = entry.index("_COLUMN_STATEMENTS = [")
     data_block = entry.index('startup_phase "competence-categories-four"')
     assert data_block > columns_applied
-
-
-@pytest.mark.unit
-def test_work_state_is_never_written_by_the_traffit_sync() -> None:
-    assert {"work_state", "work_state_changed_at", "work_state_changed_by"} <= (
-        NEXUS_OWNED
-    )
 
 
 @pytest.mark.unit

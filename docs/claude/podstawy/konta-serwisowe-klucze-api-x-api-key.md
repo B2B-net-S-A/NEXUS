@@ -28,10 +28,10 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   `role` — żaden guard rolowy go nie przepuści. Dziedziczenie roli oznaczałoby ciche
   zyskiwanie uprawnień przy awansie właściciela i śmierć klucza przy jego odejściu, a rola
   `admin` = „wszystko", więc wykluczałoby najmniejsze uprawnienia z definicji.
-- **Scope'y są własnym, wąskim słownikiem** (`ServiceScope`): `traffit:sync`, `traffit:read`,
+- **Scope'y są własnym, wąskim słownikiem** (`ServiceScope`): `traffit:read`,
   `ops:snapshot`. Świadomie NIE `OAuthScope` — tamten jest kontraktem zgodności dla integracji
   migrujących z Traffita i opisuje dane domenowe (`candidate:read`). **Nie ma scope'u na dane
-  kandydatów**, więc klucz do syncu nie ma jak ich dotknąć; powierzchnie domenowe i tak wiszą
+  kandydatów**, więc klucz operacyjny nie ma jak ich dotknąć; powierzchnie domenowe i tak wiszą
   na `get_current_user`, dla którego `X-API-Key` jest nieznanym nagłówkiem (→ 401).
 - **Uprawnienia czytane z konta przy każdym requeście**, nie zapiekane w poświadczeniu —
   odebranie scope'u i rewokacja działają NATYCHMIAST. Tym różni się od `oauth_clients`, gdzie
@@ -45,7 +45,7 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   Połączenie poświadczenia bez wygasania sesji z cudzymi oczami znosiłoby sens scope'ów.
 - **Kluczem nie da się zarządzać kontami serwisowymi** (CRUD za `AdminUser`) — inaczej klucz
   o wąskim scope'ie wydałby sobie szerszy.
-- **Wpięte:** `POST /api/admin/traffit/sync` (`traffit:sync`), `GET .../sync/status`
+- **Wpięte:** `GET /api/admin/traffit/sync/status`
   (`traffit:read`) oraz `GET /api/admin/snapshot` (`ops:snapshot`). Admin z JWT nadal działa —
   `require_service_scope(..., allow_admin_jwt=True)`, więc to nie jest zmiana zrywająca.
   W snapshotcie klucz jest sprawdzany **przed** legacy `X-Snapshot-Token` (w trakcie migracji

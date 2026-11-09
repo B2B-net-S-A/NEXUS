@@ -25,8 +25,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.pair_filter import in_pairs
 
 # Pola karty, które klient może dołożyć do minimum (karta klienta, D3) — jedno
 # wejście dla modułów spoza listy czytelników kart rekomendacji.
@@ -67,16 +69,32 @@ def column_label(column: str, *, nordea: bool = False) -> str:
     return COLUMN_LABEL.get(column, column)
 
 
+def check_has_content(item: Mapping[str, Any]) -> bool:
+    """Sprawdzenie doświadczenia: rozstrzygnięty status albo notatka."""
+    return (item.get("status") or "unknown") != "unknown" or bool(
+        str(item.get("note") or "").strip()
+    )
+
+
 def sheet_filled(payload: object) -> bool:
-    """Czy arkusz screeningu ma treść — lustro `_sheet_filled` w `api/pipeline`.
+    """Czy arkusz screeningu jest zapisany — pozycje odpowiedzi albo sprawdzenie.
 
     `ScreeningAnswers` zapisuje domyślnie `{"answers": [], ...}`, więc samo
-    `bool(dict)` dałoby fałszywe „wypełniony".
+    `bool(dict)` dałoby fałszywe „wypełniony". W rekrutacji bez pytań arkusz
+    bywa samym sprawdzeniem doświadczenia (pusta lista odpowiedzi) — zapis
+    formularza go przyjmuje (`sheet_has_content`), więc odczyt musi go widzieć.
+    Bramka „Zweryfikowany” czyta `sheet_answered`.
     """
 
     if not isinstance(payload, dict) or not payload:
         return False
     answers = payload.get("answers")
+    if isinstance(answers, list):
+        checks = payload.get("experience_checks")
+        if isinstance(checks, list) and any(
+            isinstance(item, Mapping) and check_has_content(item) for item in checks
+        ):
+            return True
     if isinstance(answers, (list, dict)):
         return len(answers) > 0
     return any(value not in (None, "", [], {}) for value in payload.values())
@@ -1115,7 +1133,7 @@ async def company_cv_refs(
                 CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
             )
             .where(
-                tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(wanted),
+                in_pairs(CandidateStage.candidate_id, CandidateStage.job_id, wanted),
                 CandidateStageCV.branded_status.in_(("draft", "finalized")),
                 CandidateStageCV.branded_draft_html.is_not(None),
             )
@@ -1147,9 +1165,11 @@ async def company_cv_refs(
                     CvGeneratedDocument.id,
                 )
                 .where(
-                    tuple_(
-                        CvGeneratedDocument.candidate_id, CvGeneratedDocument.job_id
-                    ).in_(missing),
+                    in_pairs(
+                        CvGeneratedDocument.candidate_id,
+                        CvGeneratedDocument.job_id,
+                        missing,
+                    ),
                     CvGeneratedDocument.status == "ready",
                     CvGeneratedDocument.render_payload.is_not(None),
                     # „Odrzuć to CV” (audyt 22.10, F64): nie jest już CV pary.
@@ -1598,6 +1618,7 @@ __all__ = [
     "answer_has_content",
     "build_requirements",
     "card_screening_state",
+    "check_has_content",
     "column_label",
     "company_cv_refs",
     "deal_breaker_hits",

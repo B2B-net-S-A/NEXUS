@@ -1037,7 +1037,7 @@
       "permissions": ["sales_view"]
     },
     "where": "Sprzedaż → zakładki",
-    "href": "/sales",
+    "href": "/sales/opportunities",
     "dot_anchor": "sales.tabs"
   },
   {
@@ -1061,7 +1061,7 @@
       "permissions": ["sales_edit"]
     },
     "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
-    "href": "/sales",
+    "href": "/sales/opportunities",
     "dot_anchor": "sales.decision-map.add"
   },
   {
@@ -1802,5 +1802,92 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "job.client-wait"
+  },
+  {
+    "id": "qc-wskaz-stanowisko-i-luka",
+    "pr": 3204,
+    "title": "QC przed przekazaniem do Delivery Leada",
+    "why": "Niesprawdzona umiejętność krytyczna? Karta zostaje u rekrutera: otwórz QC i wskaż stanowisko. Kandydat jej nie ma? Delivery Lead wybiera: wysłać mimo braku albo wrócić do rekrutera.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"] },
+    "where": "Rekrutacja → Tablica → kolumna QC CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.card"
+  },
+  {
+    "id": "sprzedaz-spotkania-co-dalej",
+    "pr": 3241,
+    "title": "Spotkania: co dalej przy każdym wierszu",
+    "why": "Spotkanie przypniesz do szansy albo założysz z niego nową jednym kliknięciem. Spotkanie u naszego klienta od razu mówi, do którego Delivery Leada je przekazać.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Spotkania",
+    "href": "/sales/meetings",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-kogo-znamy-najpierw-najwazniejsi",
+    "pr": 3239,
+    "title": "Kogo znamy: najpierw najważniejsi",
+    "why": "Na karcie firmy najpierw widzisz pięć osób, od ról decyzyjnych. Inne nazwy tej firmy z CV dołączysz albo odrzucisz jednym kliknięciem, a liczby się przeliczą.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Firmy → Kogo znamy",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-krok-i-zapis-rozmowy",
+    "pr": 3243,
+    "title": "Szanse: krok, zapis rozmowy, przeciąganie",
+    "why": "Na górze karty widzisz, do kogo zadzwonić i dlaczego. Po rozmowie jednym kliknięciem zapisujesz wynik i ustalasz, co dalej. Karty na tablicy przeciągasz między etapami.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-moj-dzien",
+    "pr": 3243,
+    "title": "Mój dzień w Sprzedaży",
+    "why": "Nowa pierwsza zakładka mówi, co dziś zrobić: spotkania, komu odpisać, zaległe kroki i oferty, które ucichły. Telefon zapiszesz prosto z wiersza, a skrót dostaniesz też rano mailem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Mój dzień",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "insights-termin-rozmowy",
+    "pr": 3249,
+    "title": "Termin rozmowy pod ręką",
+    "why": "W tabeli „W drodze”, na liście osób za liczbami i na profilu kandydata widzisz, kiedy jest rozmowa u klienta, a najbliższe stoją na górze. Przy akceptacjach i placementach widać datę startu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Insights → Mój miesiąc → W drodze",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.in-flight-term"
   }
 ]

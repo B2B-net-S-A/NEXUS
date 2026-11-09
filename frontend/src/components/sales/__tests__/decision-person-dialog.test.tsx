@@ -79,8 +79,8 @@ describe("panel mapy decyzyjnej", () => {
     const data = motion([entry()]);
     data.it_factory = { ...data.it_factory, updated_at: "2026-09-07T10:00:00Z", nexus_updated_at: "2026-11-02T12:00:00Z" };
     render(<SalesMotionPanel opportunityId={1} motion={data} mapEnabled />);
-    expect(screen.getByText(/poprawiona/)).toBeInTheDocument();
-    expect(screen.queryByText(/z Atlasa/)).toBeNull();
+    expect(screen.getByTitle(/Poprawiona/)).toBeInTheDocument();
+    expect(screen.queryByTitle(/Z Atlasa/)).toBeNull();
   });
 });
 

@@ -253,13 +253,13 @@ async def test_a_raw_alias_with_a_too_short_canonical_form_never_reaches_like(
     """„IT” (kanonicznie „it”) nie może iść do `LIKE '%it%'` obok pełnej nazwy."""
     world = await _seed_company()
     seen: list[list[str]] = []
-    original = integrations_companies._current_company_predicate
+    original = integrations_companies._company_prefilter
 
     def spy(values):
         seen.append(list(values))
         return original(values)
 
-    monkeypatch.setattr(integrations_companies, "_current_company_predicate", spy)
+    monkeypatch.setattr(integrations_companies, "_company_prefilter", spy)
     resp = await app_client.post(
         URL, json={"names": [world["company"], "IT"]}, headers=_headers()
     )
@@ -267,6 +267,19 @@ async def test_a_raw_alias_with_a_too_short_canonical_form_never_reaches_like(
     assert seen, "prefiltr nie został wywołany"
     assert all("IT" not in values and "it" not in values for values in seen), seen
     assert world["company"] in seen[0]
+
+
+@pytest.mark.asyncio
+async def test_crm_answer_keeps_its_contract_without_sales_fields(app_client) -> None:
+    world = await _seed_company()
+    resp = await app_client.post(
+        URL, json={"names": [world["company"]]}, headers=_headers()
+    )
+    assert resp.status_code == 200, resp.text
+    person = resp.json()["people"][0]
+    assert "added_at" not in person
+    assert "decision_role" not in person
+    assert "cv_stale" not in person
 
 
 @pytest.mark.asyncio

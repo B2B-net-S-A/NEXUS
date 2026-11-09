@@ -4176,11 +4176,15 @@ async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead
             ok = await api_client.post(
                 f"{qc_url}/override",
                 headers=rec,
-                json={"reason_code": "confirmed_in_call"},
+                json={
+                    "reason_code": "confirmed_in_call",
+                    "reason": "Mówił, że używał Javy w banku",
+                    "about_keys": _blocker_keys(mine),
+                },
             )
         assert ok.status_code == 200, ok.text
-        assert (
-            ok.json()["override"]["reason"] == qc.OVERRIDE_REASONS["confirmed_in_call"]
+        assert ok.json()["override"]["reason"].startswith(
+            qc.OVERRIDE_REASONS["confirmed_in_call"]
         )
         assert [t.split(":")[0] for t in await bells(dl_id)] == [
             "Przesunięte mimo uwag QC"
@@ -4207,7 +4211,9 @@ async def test_advisory_mode_lets_the_recruiter_pass_and_rings_the_delivery_lead
         assert context.status_code == 200, context.text
         body = context.json()
         assert body["qc_status"] == "overridden"
-        assert body["qc_override"]["reason"] == qc.OVERRIDE_REASONS["confirmed_in_call"]
+        assert body["qc_override"]["reason"].startswith(
+            qc.OVERRIDE_REASONS["confirmed_in_call"]
+        )
         assert "qc_overridden" in {r["code"] for r in body["risks"]}
 
         # Obejście osoby od wysyłki nikogo nie powiadamia.
@@ -4374,10 +4380,16 @@ async def test_advisory_override_lets_the_delivery_lead_accept_to_cpro(
         assert refused.status_code == 409, refused.text
         assert refused.json()["detail"]["code"] == "CV_QC_FAILED"
         with hydrated_taxonomy():
+            current = await api_client.get(
+                f"/api/pipeline/stages/{stage_id}/qc", headers=rec
+            )
             passed = await api_client.post(
                 f"/api/pipeline/stages/{stage_id}/qc/override",
                 headers=rec,
-                json={"reason_code": "requirement_not_applicable"},
+                json={
+                    "reason_code": "requirement_not_applicable",
+                    "about_keys": _blocker_keys(current.json()),
+                },
             )
             assert passed.status_code == 200, passed.text
             # Rekruter sam do kolejki nie wkłada — przekazuje osobę DL-owi.
@@ -4629,6 +4641,7 @@ async def test_override_confirmed_in_call_saves_confirmations(
                 json={
                     "reason_code": "confirmed_in_call",
                     "reason": "Spring Boot w Acme",
+                    "about_keys": _blocker_keys(short.json()),
                 },
             )
         assert ok.status_code == 200, ok.text
@@ -4790,6 +4803,17 @@ def test_confirmable_terms_are_unsupported_terms_and_absent_critical_skills() ->
     assert len(qc.confirmable_terms(many)) == qc.CONFIRMATIONS_MAX
 
 
+def _blocker_keys(body: dict) -> list[str]:
+    """Klucze blokad z odpowiedzi QC — do `about_keys` przy obejściu (QC-5)."""
+    return [
+        item["key"]
+        for check in body["checks"]
+        if check["severity"] == "blocking" and check["status"] == "fail"
+        for item in check["items"]
+        if item.get("key")
+    ]
+
+
 @pytest.mark.asyncio
 async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
     api_client: AsyncClient,
@@ -4856,6 +4880,47 @@ async def test_recompute_outdated_refreshes_failed_runs_of_older_rules(
             async with AsyncSessionLocal() as db:
                 assert await qc.recompute_outdated(db) >= 1
         assert await versions() == ["old", "old", qc.QC_VERSION]
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+@pytest.mark.asyncio
+async def test_requirement_change_recomputes_the_jobs_pairs(
+    api_client: AsyncClient,
+) -> None:
+    """QC-10 (08.11.2026): po zmianie wymagań plakietka nie mówi starego wyniku."""
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    await _mark_critical(world, "Java", "Kubernetes")
+
+    from app.models.job import Job
+
+    async def verdicts() -> list[bool]:
+        async with AsyncSessionLocal() as db:
+            rows = await db.scalars(
+                select(CvQcRun.passed)
+                .where(CvQcRun.candidate_id == world["candidate_id"])
+                .order_by(CvQcRun.id)
+            )
+            return list(rows)
+
+    try:
+        with hydrated_taxonomy():
+            await api_client.get(f"/api/pipeline/stages/{stage_id}/qc", headers=hor)
+        before = await verdicts()
+        assert before == [False]
+        await _mark_critical(world, "Java")
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, world["job_id"])
+            job.champion_profile = {"stack": {"must": [], "critical": []}}
+            await db.commit()
+        with hydrated_taxonomy():
+            async with AsyncSessionLocal() as db:
+                assert await qc.recompute_job(db, world["job_id"]) == 1
+        assert len(await verdicts()) == 2
     finally:
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id])

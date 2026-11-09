@@ -110,6 +110,7 @@ import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { DockClosedReason } from "@/components/v2/jobs/DockClosedReason";
 import { DockAutofillReason } from "@/components/v2/jobs/DockAutofillReason";
+import { PersonConversationBadge } from "@/components/v2/person/PersonConversationBadge";
 import { closedReason } from "@/lib/closed-reason";
 import { useNoteFillAvailable, type NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
@@ -147,7 +148,7 @@ import { useCvQc, type QcResult } from "@/lib/api/cvQc";
 import { formatClientRate } from "@/lib/board-card-badges";
 import { CONTRACT_PANEL_STAGES, DockContractSteps } from "@/components/v2/jobs/DockContractSteps";
 import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
-import { countForm, qcWarningsText } from "@/lib/cv-qc";
+import { qcResultPairState, qcStateText, qcWarningsText } from "@/lib/cv-qc";
 import {
   acceptanceLine,
   acceptanceTitle,
@@ -544,25 +545,25 @@ export interface PipelineCandidateDockProps {
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
 
 /**
- * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Od 18.10.2026
- * dopisuje nieblokujące uwagi tą samą regułą co plakietka karty
- * (`qcCountsText`), żeby karta i panel mówiły te same liczby.
+ * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Tekst przychodzi
+ * z serwera, ten sam co na karcie (`qc_state`, 09.11.2026). Nieblokujące uwagi
+ * dopisuje ta sama reguła co plakietka karty (`qcCountsText`, 18.10.2026).
  */
 export function earlyQcSentence(
   loading: boolean,
-  result: Pick<QcResult, "passed" | "blocking_failed" | "override"> & { warnings_count?: number } | null,
+  result: Pick<QcResult, "passed" | "blocking_failed" | "override" | "qc_state"> & { warnings_count?: number } | null,
 ): string {
   if (loading) return "QC CV: sprawdzam…";
   if (!result) return "QC CV: nie udało się sprawdzić";
   const warnings = result.warnings_count ?? 0;
   const tail = warnings > 0 ? ` · ${qcWarningsText(warnings)} (nie blokuje)` : "";
-  if (result.passed) {
-    return result.override
-      ? "QC CV: przepuszczone przez Delivery Leada"
-      : `QC CV: bez blokad — można przekazać dalej${tail}`;
-  }
-  const n = result.blocking_failed;
-  return `QC CV: ${countForm(n, ["rzecz", "rzeczy", "rzeczy"])} do poprawy przed wysłaniem${tail}`;
+  return `${qcStateText(qcResultPairState(result))}${tail}`;
+}
+
+/** Kropka przy zdaniu QC: ton stanu z serwera, a bez niego wynik przebiegu. */
+function earlyQcDotClass(result: QcResult): string {
+  const ok = result.qc_state ? ["ok", "info"].includes(result.qc_state.tone) : result.passed;
+  return ok ? "bg-success" : "bg-warning";
 }
 
 function WorkbenchLink({
@@ -1998,6 +1999,7 @@ export function PipelineCandidateDock({
             z kolumny zamkniętych — także w widoku „Rozwiń”. */}
         <DockClosedReason item={item} />
         <DockAutofillReason item={item} />
+        <PersonConversationBadge candidateId={item.candidate_id} />
         {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
@@ -2555,11 +2557,7 @@ export function PipelineCandidateDock({
                       aria-hidden="true"
                       className={cn(
                         "mt-1 h-2 w-2 shrink-0 rounded-full",
-                        qcQuery.isSuccess && qcQuery.data.passed
-                          ? "bg-success"
-                          : qcQuery.isSuccess
-                            ? "bg-warning"
-                            : "bg-muted-foreground",
+                        qcQuery.isSuccess ? earlyQcDotClass(qcQuery.data) : "bg-muted-foreground",
                       )}
                     />
                   )}

@@ -165,6 +165,9 @@ w żadnym źródle.
   niezaliczony pomiędzy zaczynają liczyć od nowa. Wiersze sprzed pola mają datę
   w `created_at`. Bramka ruchu liczy QC na żywo. `limit` liczy przeliczone
   pary, nie pominięte.
+- **Zmiana wymagań przelicza pary rekrutacji** (`recompute_job`, QC-10): zapis
+  sekcji `stack` profilu Championa odpala przeliczenie w tle. Pomiar 08.11.2026:
+  168 z 881 par miało przebieg starszy niż ostatnia edycja profilu, 153 zdane.
 - **Pomiar przed podbiciem `QC_VERSION`:** `backend/scripts/qc_truth_audit.py`
   w kontenerze backendu (sesja tylko do odczytu, same liczby). Nowy kod
   można zmierzyć przed merge'em, podając go jako nakładkę w tym samym

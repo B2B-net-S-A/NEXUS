@@ -14,6 +14,7 @@ from pathlib import Path
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
+    SalesCompanyAlias,
     SalesCompanyContact,
     SalesContact,
     SalesFile,
@@ -44,6 +45,7 @@ MODELS = {
     "sales_opportunity_events": SalesOpportunityEvent,
     "sales_targets": SalesTarget,
     "sales_meeting_transcripts": SalesMeetingTranscript,
+    "sales_company_aliases": SalesCompanyAlias,
 }
 
 
@@ -51,9 +53,9 @@ def _added_columns(table: str) -> set[str]:
     """Kolumny dołożone przez ``ALTER TABLE … ADD COLUMN`` (0614)."""
     return {
         match.group(1)
-        for statement in schema.GAPS_DDL
+        for statement in (*schema.GAPS_DDL, *schema.CALL_OUTCOME_DDL)
         for match in re.finditer(
-            rf"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS (\w+)", statement
+            rf"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS\s+(\w+)", statement
         )
     }
 
@@ -66,6 +68,7 @@ def _ddl_for(table: str) -> str:
         *schema.HISTORY_DDL,
         *schema.TARGETS_DDL,
         *schema.TRANSCRIPTS_DDL,
+        *schema.COMPANY_ALIASES_DDL,
     ):
         if f"CREATE TABLE IF NOT EXISTS {table} (" in ddl:
             return ddl
@@ -100,6 +103,16 @@ def test_migration_reads_the_shared_module() -> None:
     ).read_text(encoding="utf-8")
     assert "for stmt in schema.TRANSCRIPTS_DDL:" in transcripts
     assert "*_sales_schema.TRANSCRIPTS_DDL," in entry
+    aliases = (ROOT / "alembic/versions/0671_sales_company_aliases.py").read_text(
+        encoding="utf-8"
+    )
+    assert "for stmt in schema.COMPANY_ALIASES_DDL:" in aliases
+    assert "*_sales_schema.COMPANY_ALIASES_DDL," in entry
+    outcomes = (ROOT / "alembic/versions/0672_sales_call_outcome.py").read_text(
+        encoding="utf-8"
+    )
+    assert "for stmt in schema.CALL_OUTCOME_DDL:" in outcomes
+    assert "*_sales_schema.CALL_OUTCOME_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:
@@ -120,6 +133,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
         "sales_opportunity_events",
         "sales_targets",
         "sales_meeting_transcripts",
+        "sales_company_aliases",
     }
     for table, model in MODELS.items():
         ddl = _ddl_for(table)
@@ -175,6 +189,7 @@ def test_tables_are_probed_by_deep_health_and_registered() -> None:
         "sales_activities",
         "sales_targets",
         "sales_meeting_transcripts",
+        "sales_company_aliases",
     ):
         assert re.search(rf'\("{table}",\s*\w+\)', block), table
     models_init = (ROOT / "app/models/__init__.py").read_text(encoding="utf-8")

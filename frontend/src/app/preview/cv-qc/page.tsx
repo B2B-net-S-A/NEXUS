@@ -307,6 +307,27 @@ const NO_CV: QcResult = {
   ),
 };
 
+// QC-4 (08.11.2026): plik „…B2B…” sprzed rekrutacji — „Użyj tego CV”.
+const OLDER_CV: QcResult = {
+  ...NO_CV,
+  checks: NO_CV.checks.map((c) =>
+    c.key === "cv_present"
+      ? {
+          ...c,
+          status: "manual",
+          summary: "CV sprzed tej rekrutacji",
+          items: [
+            {
+              detail: "Plik Anna_B2B_Bank.docx z 12.09, z rekrutacji u tego klienta. Użyj go albo wygeneruj nowe CV.",
+              fix: "use_older_cv",
+              document: { document_id: 9, filename: "Anna_B2B_Bank.docx", at: "2026-09-12T10:00:00+00:00", same_client: true },
+            },
+          ],
+        }
+      : c,
+  ),
+};
+
 const EXTERNAL: QcResult = {
   ...FAILING,
   cv: {
@@ -569,6 +590,7 @@ const STATES = {
   fail: { label: "Do poprawy", data: FAILING },
   pass: { label: "Przechodzi", data: PASSING },
   nocv: { label: "Bez CV firmowego", data: NO_CV },
+  older: { label: "CV sprzed rekrutacji", data: OLDER_CV },
   overridden: { label: "Przepuszczone", data: OVERRIDDEN },
   nocritical: { label: "Bez krytycznych", data: NO_CRITICAL },
   external: { label: "Plik spoza NEXUSA", data: EXTERNAL },

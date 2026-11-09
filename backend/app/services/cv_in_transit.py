@@ -305,7 +305,11 @@ def review_state(
     status = status or {}
     qc_status = status.get("status") or "unchecked"
     state = dl_send_queue.readiness_of(
-        since=since, qc_status=qc_status, ok_at=status.get("ok_at"), today=today
+        since=since,
+        qc_status=qc_status,
+        ok_at=status.get("ok_at"),
+        today=today,
+        manual_items=status.get("manual_items") or (),
     )
     return ReviewState(
         qc_status=qc_status,

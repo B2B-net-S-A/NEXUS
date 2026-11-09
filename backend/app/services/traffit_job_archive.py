@@ -8,7 +8,7 @@ w otwartych listach, pulach przydziału, follow-upach ani alertach, ale zostaje
 i profili Championa. Wyjątek: rekrutacja przełączona „Prowadzona w NEXUSIE”
 (`managed_in_nexus`) — tę prowadzi zespół i sync jej nie rusza.
 
-Dwie połowy, bo kolumny mają różnych właścicieli (`job_column_ownership`):
+Dwie połowy, bo kolumny mają różnych właścicieli:
 
 * ``status`` jest kolumną Traffita — mapper importu zapisuje ``closed`` (a stan
   z Traffita trzyma w ``custom_fields.traffit_status``);

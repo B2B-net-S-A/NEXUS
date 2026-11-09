@@ -129,7 +129,10 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "start",
         # Umowy klientów: nadawane imiennie, poza sekcjami, które mierzy przegląd.
         "client-contracts",
+        # Rekrutacja własna: proces dwóch osób, poza sekcjami, które mierzy przegląd.
+        "rekrutacja-wlasna",
         # Logowanie, publiczne strony i dokumenty otwierane z linku.
+        "t",
         "apply",
         "auth",
         "cv",

@@ -154,6 +154,8 @@ async def _fill_from_contacts(db: AsyncSession, entries: list[dict[str, Any]]) -
         contact = contacts.get(entry["nexus_contact_id"])
         if contact is None:
             continue
+        if contact.do_not_contact_at is not None:
+            entry["do_not_contact"] = True
         values = {
             "email": contact.email,
             "phone": contact.phone or contact.mobile_phone,
@@ -213,6 +215,7 @@ async def build_atlas_motion(
             entry["key"] = key
             entry["nexus_contact_id"] = contact_id
             entry["from_contact"] = []
+            entry["do_not_contact"] = bool(entry.get("do_not_contact"))
         await _fill_from_contacts(db, entries)
         it_factory["decision_map"] = entries
         it_factory["decision_map_completeness"] = decision_map_completeness(it_factory)

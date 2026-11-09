@@ -646,6 +646,11 @@ class Settings(BaseSettings):
     # czekających kart, poranny przebieg raz dziennie, w dzień tylko gorące.
     # False = silnik jak dotąd (20 we wszystkich, pełny przebieg co 15 minut).
     NEW_COLUMN_TEMPO_TARGET_ENABLED: bool = False
+    # Jedna lista kandydatów rekrutacji (decyzja Artura z 08.11.2026,
+    # `services/single_candidate_list.py`): pula i propozycje scalone w jeden
+    # wiersz na osobę, wynik portali na skali „Dop.”, panel z filtrami-plakietkami.
+    # False = dzisiejszy panel z zakładkami i dzisiejsze zapisy.
+    SINGLE_CANDIDATE_LIST_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
@@ -1325,6 +1330,13 @@ class Settings(BaseSettings):
     # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
     # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
     SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
+    # Automat archiwizacji szans w trybie cienia: raz dziennie jedna linia logu,
+    # nic nie zapisuje (``app/tasks/sales_archive_shadow.py``).
+    # Od tego dnia szansa bez kroku świeci się na czerwono, jeśli założono ją albo
+    # ruszono po tej dacie (lejek Sprzedaż). Starsze zostają szare, bo 97% lejka
+    # nie ma kroku i czerwień na wszystkim nic by nie znaczyła.
+    SALES_STEP_RULES_SINCE: date = date(2026, 11, 10)
+    SALES_ARCHIVE_SHADOW_ENABLED: bool = True
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
@@ -1724,6 +1736,11 @@ class Settings(BaseSettings):
     # (``services/portal_application``). Pusty = jak dotąd link do strony
     # kariery (``apply.url``). Zmienia go tylko workflow „Coolify set env”.
     JJIT_APPLY_EMAIL: str = ""
+    # 09.11.2026 (decyzja Artura): telefon kontaktowy na wszystkich ogłoszeniach,
+    # bo ``PUT`` 1EP wymaga pełnego kontaktu z telefonem. Wartość wyłącznie przez
+    # „Coolify set env” z ``value_from_secret`` (repo i logi Actions są publiczne).
+    JJIT_CONTACT_PHONE: str = ""
+    JJIT_CONTACT_NAME: str = "B2B Network"
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""
@@ -1788,12 +1805,6 @@ class Settings(BaseSettings):
 
     # audyt 22.09 r2 (INTG-01/02, INTG-03, DATA-01/PROD-03, REC-01, DATA-03/04,
     # PROD-01) — jeden blok ustawień obszaru „Traffit, automaty, dane".
-    # 08.10.2026 (decyzja Artura): po fazie `pipelines` osoba od Cpro dostaje
-    # jeden dzwonek z mailem o kartach Nordei, które w Traffit nadal stoją
-    # w kolejce „Wysłać do Cpro” (`services/cpro_queue_reminder.py`). Okno =
-    # jak dawno karta mogła wejść do kolejki, żeby jeszcze o niej przypominać.
-    TRAFFIT_CPRO_REMINDER_ENABLED: bool = True
-    TRAFFIT_CPRO_REMINDER_WINDOW_DAYS: int = 7
     # DATA-03/04: retencja kolejek i dzienników automatów (pętla co 6 h).
     QUEUE_RETENTION_ENABLED: bool = True
     QUEUE_RETENTION_INTERVAL_SECONDS: int = 6 * 3600
@@ -1811,6 +1822,9 @@ class Settings(BaseSettings):
     # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
     # + honorowanie wierszy legacy) — patrz app/tasks/notes_insights_sync.py.
     NOTES_INSIGHTS_SYNC_ENABLED: bool = False
+    # Rejestr faktów z rozmów (08.11.2026, wariant A): arkusz i odczyt notatek
+    # zasilają profil, bramkę krytycznych i wynik. False = jak przed zmianą.
+    CONVERSATION_FACTS_ENABLED: bool = False
     # Jak często pętla sprawdza, czy bieg jest należny (clamp >=300 s w pętli);
     # sam bieg jest najwyżej raz dziennie.
     NOTES_INSIGHTS_SYNC_CHECK_INTERVAL_SECONDS: int = 1800

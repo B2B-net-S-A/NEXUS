@@ -26,6 +26,7 @@ from app.api.candidate_access import (
 from app.api.recruitment_access import job_read_scope_clause
 from app.core.database import get_db
 from app.models.candidate import Candidate
+from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recommendation_card import RecommendationCard
 from app.schemas.candidate_profile_facts import (
@@ -34,6 +35,7 @@ from app.schemas.candidate_profile_facts import (
     CandidateCallFactsUpdate,
     CandidateNotesFactApply,
     CandidateNotesFactsResponse,
+    ConversationFactsResponse,
     CandidateWorkModeResponse,
     CandidateWorkModeUpdate,
     CandidateLanguagesPut,
@@ -44,6 +46,7 @@ from app.schemas.candidate_profile_facts import (
     CandidateScreeningAnswersResponse,
 )
 from app.services import candidate_audit
+from app.services import conversation_facts
 from app.services import candidate_profile_facts as facts
 from app.services import recommendation_cards
 from app.services import screening_sheets
@@ -390,6 +393,34 @@ async def get_candidate_recommendation_cards(
         job_scope=job_read_scope_clause(current_user, RecommendationCard.job_id),
     )
     return CandidateCardOverviewResponse(candidate_id=candidate_id, **overview)
+
+
+# ── Rejestr faktów z rozmów (08.11.2026) ───────────────────────────────────
+
+
+@router.get(
+    "/{candidate_id}/conversation-facts",
+    response_model=ConversationFactsResponse,
+)
+async def get_candidate_conversation_facts(
+    candidate_id: int,
+    current_user: CandidateProfileFactsReadAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ConversationFactsResponse:
+    """Blok „Z rozmów”: co rejestr wie o osobie, skąd i z jakiego dnia."""
+    if not conversation_facts.enabled():
+        return ConversationFactsResponse(candidate_id=candidate_id, enabled=False)
+    if await db.get(Candidate, candidate_id) is None:
+        raise _not_found()
+    return ConversationFactsResponse(
+        candidate_id=candidate_id,
+        enabled=True,
+        facts=await conversation_facts.list_for_profile(
+            db,
+            candidate_id=candidate_id,
+            job_scope=job_read_scope_clause(current_user, Job.id),
+        ),
+    )
 
 
 # ── Fakty z notatek rekruterów + tryb pracy (22.09.2026) ───────────────────

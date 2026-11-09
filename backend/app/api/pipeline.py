@@ -55,6 +55,7 @@ from app.services.board_stage_badges import (
 )
 from app.services import (
     champion_view,
+    conversation_facts,
     move_requirements,
     rejection_reason_labels,
     screening_fix_requests,
@@ -624,12 +625,7 @@ def _sheet_filled(payload: object) -> bool:
     `bool(dict)` dałby fałszywe „wypełniony" i odznaka „do uzupełnienia"
     znikałaby z karty, na której nikt niczego nie wpisał.
     """
-    if not isinstance(payload, dict) or not payload:
-        return False
-    answers = payload.get("answers")
-    if isinstance(answers, (list, dict)):
-        return len(answers) > 0
-    return any(value not in (None, "", [], {}) for value in payload.values())
+    return move_requirements.sheet_filled(payload)
 
 
 async def _assert_client_rate_not_order_locked(
@@ -2527,6 +2523,17 @@ async def apply_move(
         stage_display_name=stage_display_name,
         extra_details=activity_extra,
     )
+    if data.gap_decision is not None:
+        from app.services.cv_qc import record_gap_decision  # noqa: PLC0415
+
+        await record_gap_decision(
+            db,
+            stage_id=stage.id,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            decision=data.gap_decision,
+            user_id=policy.actor_id,
+        )
     if skipped_requirements:
         db.add(
             Activity(
@@ -4011,8 +4018,8 @@ async def build_kanban_view(
     board_today = business_today()
     from app.services import client_wait as client_wait_service
 
-    client_silence = (
-        await client_wait_service.silent_workdays_safely(db, job)
+    client_clocks = (
+        await client_wait_service.client_clocks_safely(db, job)
         if job.status != JobStatus.closed
         else {}
     )
@@ -4158,10 +4165,14 @@ async def build_kanban_view(
                 ok_at=qc_state.get("ok_at"),
                 today=board_today,
                 autofill_days=autofill_days,
+                client_since=client_clock.since if client_clock else None,
             )
 
+        client_clock = client_clocks.get(e.candidate_id)
         payload["waiting_workdays"] = _waiting()
-        payload["client_silent_workdays"] = client_silence.get(e.candidate_id)
+        payload["client_silent_workdays"] = (
+            client_clock.silent_workdays if client_clock else None
+        )
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {
@@ -4327,11 +4338,14 @@ async def build_kanban_view(
                 payload["taken_by_user_id"] = claim.user_id
                 payload["taken_by_name"] = user_name_by_id.get(claim.user_id)
             if viewer is not None:
-                payload["can_take"] = candidate_claim.can_take(
-                    v4, viewer, board_now, inactive_claimers
+                payload["can_take"] = (
+                    job.status != JobStatus.closed
+                    and candidate_claim.can_take(
+                        v4, viewer, board_now, inactive_claimers
+                    )
                 )
         elif viewer is not None:
-            payload["can_take"] = True
+            payload["can_take"] = job.status != JobStatus.closed
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
@@ -4906,6 +4920,15 @@ async def submit_stage_screening(
     )
 
     stage.screening_answers = answers.model_dump(mode="json")
+    await conversation_facts.after_sheet_saved(
+        db,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        stage_id=stage.id,
+        raw_checks=stage.screening_answers.get("experience_checks"),
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
     db.add(
         Activity(
             entity_type="candidate_stage",
@@ -5228,6 +5251,13 @@ async def claim_candidate(
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     await ensure_job_membership(db, current_user, job.id)
+    # Tester 05.11.2026: blokada 12 h w zamkniętej rekrutacji nikomu nie służy,
+    # a „Biorę” przepisywało kartę i dzwoniło do poprzedniego rekrutera.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=409,
+            detail="Rekrutacja jest zamknięta — nie można wziąć tej osoby.",
+        )
 
     # Ta sama kolejność blokad co `/move`: kandydat, potem proces.
     locked = await db.scalar(

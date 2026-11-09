@@ -97,11 +97,14 @@ async def unknown_people(db, company: SalesCompany) -> list[int]:
         lookup_company_people,
     )
 
+    from app.services.sales.company_aliases import joined_names
+
     names = [n for n in dict.fromkeys((company.name, company.legal_name)) if n]
     result = await lookup_company_people(
         db,
         CompanyPeopleRequest(names=names[:10], nip=company.nip, limit=1),
         limit=MAX_PEOPLE_PER_RUN,
+        extra_names=await joined_names(db, company.id),
     )
     return [p.candidate_id for p in result.people if p.relationship == "unknown"]
 

@@ -187,6 +187,8 @@ class StageMove(BaseModel):
     ended_by: Optional[
         Literal["candidate", "recruiter", "delivery_lead", "client", "client_silent"]
     ] = None
+    # QC-8 (08.11.2026): decyzja DL przy luce kandydata w krytycznej — ślad w Activity.
+    gap_decision: Optional[Literal["send_anyway", "return"]] = None
 
     @field_validator("rejection_email_subject")
     @classmethod

@@ -338,14 +338,23 @@ def _silent_since(
     return max(at for at in (moved_at, signal, responded) if at is not None)
 
 
-async def silent_workdays(
+@dataclass(frozen=True)
+class ClientClock:
+    """Zegar karty u klienta: jedna liczba dni dla wiersza ruchu i „Klient milczy”."""
+
+    since: datetime
+    #: Dni robocze ciszy ponad progiem; `None`, gdy pas tej osoby nie obejmuje.
+    silent_workdays: Optional[int]
+
+
+async def client_clocks(
     db: AsyncSession,
     job: Job,
     *,
     now: Optional[datetime] = None,
     today: Optional[date] = None,
-) -> dict[int, int]:
-    """{kandydat: dni robocze ciszy} par ponad progiem, ta sama reguła co pas."""
+) -> dict[int, ClientClock]:
+    """{kandydat: zegar} kart u klienta, ta sama reguła co pas."""
     now = now or datetime.now(timezone.utc)
     today = today or business_today()
     rows = await client_side_rows(db, job)
@@ -353,23 +362,20 @@ async def silent_workdays(
         return {}
     paused, signals = await _interview_signals(db, job.id, sorted(rows), now)
     _, responded = await _marks(db, job.id)
-    out: dict[int, int] = {}
+    out: dict[int, ClientClock] = {}
     for cid, (_, moved_at) in rows.items():
-        if cid in paused:
-            continue
-        days = waiting_workdays(
-            _silent_since(moved_at, signals.get(cid), responded.get(cid)), today
-        )
-        if days > WAIT_AFTER_WORKDAYS:
-            out[cid] = days
+        since = _silent_since(moved_at, signals.get(cid), responded.get(cid))
+        days = waiting_workdays(since, today)
+        silent = days if cid not in paused and days > WAIT_AFTER_WORKDAYS else None
+        out[cid] = ClientClock(since=since, silent_workdays=silent)
     return out
 
 
-async def silent_workdays_safely(db: AsyncSession, job: Job) -> dict[int, int]:
+async def client_clocks_safely(db: AsyncSession, job: Job) -> dict[int, ClientClock]:
     """Dla Tablicy: awaria = brak plakietki + log, nigdy 500 całej Tablicy."""
     try:
         async with db.begin_nested():
-            return await silent_workdays(db, job)
+            return await client_clocks(db, job)
     except Exception:  # noqa: BLE001
         logger.exception("client_wait: cisza klienta job_id=%s", job.id)
         return {}

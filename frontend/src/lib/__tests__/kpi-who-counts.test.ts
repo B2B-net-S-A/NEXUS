@@ -4,8 +4,13 @@ import {
   candidateJobsBadge,
   countedSince,
   currentPeriodHint,
+  formatDay,
+  formatReached,
+  formatTerm,
   groupByDay,
+  groupByTerm,
   historyNote,
+  interviewTerm,
   isIsoDay,
   isLatestPeriod,
   metricFromSlug,
@@ -297,5 +302,130 @@ describe("countedSince — akceptacje liczone od 12.10.2026", () => {
   it("okres od 12.10 i inne etapy: całe okno", () => {
     expect(countedSince("acceptance", { start: "2026-10-12", end: "2026-10-25" })).toBe("full");
     expect(countedSince("placement", { start: "2026-09-01", end: "2026-09-30" })).toBe("full");
+  });
+});
+
+describe("termin rozmowy", () => {
+  it("podaje dzień tygodnia, datę i godzinę w kalendarzu firmy", () => {
+    expect(formatTerm("2026-10-20T23:30:00Z")).toBe("śr 21.10, 01:30");
+    expect(formatReached("2026-10-15T14:05:00Z")).toBe("15.10, 16:05");
+    expect(formatDay("2027-02-01")).toBe("1.02.2027");
+  });
+
+  it("rozmowa dziś nie ma dopisku, nawet gdy jej godzina minęła", () => {
+    expect(interviewTerm(item({ client_interview_at: "2026-10-17T05:00:00Z" }), TODAY)).toEqual({
+      kind: "today",
+      label: "Dziś, 07:00",
+      hint: null,
+    });
+  });
+
+  it("nadchodząca mówi, za ile dni", () => {
+    expect(interviewTerm(item({ client_interview_at: "2026-10-18T08:00:00Z" }), TODAY)).toMatchObject({
+      kind: "upcoming",
+      hint: "jutro",
+    });
+    expect(interviewTerm(item({ client_interview_at: "2026-10-26T08:00:00Z" }), TODAY)).toMatchObject({
+      kind: "upcoming",
+      hint: "za 9 dni",
+    });
+  });
+
+  it("minionej nie nazywa odbytą", () => {
+    expect(interviewTerm(item({ client_interview_at: "2026-10-16T08:00:00Z" }), TODAY)).toMatchObject({
+      kind: "past",
+      hint: null,
+    });
+  });
+
+  it.each(["rejected_by_client", "ended"] as const)(
+    "przyszły termin pary %s jest historią",
+    (state) => {
+      expect(
+        interviewTerm(item({ state, client_interview_at: "2026-10-20T08:00:00Z" }), TODAY),
+      ).toMatchObject({ kind: "past", hint: "proces zakończony" });
+    },
+  );
+
+  it("potwierdzony termin wygrywa z propozycją, sama propozycja czeka na potwierdzenie", () => {
+    expect(
+      interviewTerm(
+        item({
+          client_interview_at: "2026-10-20T08:00:00Z",
+          client_interview_tentative_at: "2026-10-19T08:00:00Z",
+        }),
+        TODAY,
+      ),
+    ).toMatchObject({ kind: "upcoming" });
+    expect(
+      interviewTerm(item({ client_interview_tentative_at: "2026-10-19T08:00:00Z" }), TODAY),
+    ).toMatchObject({ kind: "tentative", hint: "do potwierdzenia" });
+  });
+
+  it("po minionej rundzie otwarta propozycja kolejnej wygrywa z datą minioną", () => {
+    const next = item({
+      state: "at_client",
+      client_interview_at: "2026-10-01T08:00:00Z",
+      client_interview_tentative_at: "2026-10-19T08:00:00Z",
+    });
+    expect(interviewTerm(next, TODAY)).toMatchObject({
+      kind: "tentative",
+      hint: "do potwierdzenia",
+    });
+    expect(groupByTerm([next], TODAY).map((group) => group.day)).toEqual(["upcoming"]);
+  });
+
+  it("para zamknięta z rozmową dziś nie jest „przed nami”", () => {
+    const closed = item({
+      state: "rejected_by_client",
+      client_interview_at: "2026-10-17T08:00:00Z",
+    });
+    expect(interviewTerm(closed, TODAY)).toMatchObject({
+      kind: "past",
+      hint: "proces zakończony",
+    });
+    expect(groupByTerm([closed], TODAY).map((group) => group.day)).toEqual(["past"]);
+  });
+
+  it("bez terminu mówi to wprost", () => {
+    expect(interviewTerm(item(), TODAY)).toEqual({ kind: "none", label: "Brak terminu", hint: null });
+  });
+
+  it("dzieli wiersze na grupy i nie zmienia kolejności z serwera", () => {
+    const later = item({ candidate_jobs: 1, client_interview_at: "2026-10-22T08:00:00Z" });
+    const sooner = item({ candidate_jobs: 2, client_interview_at: "2026-10-18T08:00:00Z" });
+    const past = item({ client_interview_at: "2026-10-01T08:00:00Z" });
+    const none = item();
+    const tentative = item({ client_interview_tentative_at: "2026-10-19T08:00:00Z" });
+
+    const groups = groupByTerm([later, none, sooner, past, tentative], TODAY);
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "Przed nami",
+      "Termin minął",
+      "Bez terminu w kalendarzu",
+    ]);
+    expect(groups[0].items).toEqual([later, sooner, tentative]);
+    expect(groups[1].items).toEqual([past]);
+    expect(groups[2].items).toEqual([none]);
+  });
+
+  it("pusta grupa znika", () => {
+    expect(groupByTerm([item()], TODAY).map((group) => group.day)).toEqual(["none"]);
+  });
+
+  it("plakietka dopisuje termin tylko na życzenie i tylko przy rozmowie", () => {
+    const interview = item({
+      state: "at_client",
+      state_stage: "client_interview",
+      client_interview_at: "2026-10-20T08:00:00Z",
+    });
+    expect(stateText(interview, TODAY)?.label).toBe("Rozmowa u klienta");
+    expect(stateText(interview, TODAY, { withTerm: true })?.label).toBe(
+      "Rozmowa u klienta · wt 20.10, 10:00",
+    );
+    expect(
+      stateText({ ...interview, state_stage: "negotiation" }, TODAY, { withTerm: true })?.label,
+    ).toBe("Negocjacje");
   });
 });

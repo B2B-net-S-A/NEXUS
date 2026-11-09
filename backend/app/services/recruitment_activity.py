@@ -26,11 +26,14 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityMetricCounts,
     RecruitmentActivityPerson,
     RecruitmentActivityProgress,
+    RecruitmentActivityDetailOrder,
     RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
     RecruitmentActivityTeamTotalsResponse,
     RecruitmentActivityWindow,
 )
+from app.core.scheduling import business_today
+from app.services.client_interview_terms import pair_terms_lateral, term_from
 from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.kpi_engine import WARSAW
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
@@ -242,7 +245,39 @@ def _detail_summary_sql(person_filter: str):
     )
 
 
-def _detail_sql(person_filter: str):
+# Układ „po terminie”: przed nami od najbliższej, potem minione od najnowszej,
+# na końcu bez terminu. Para zamknięta nie jest „przed nami”, nawet gdy
+# w kalendarzu został przyszły termin.
+_ORDER_BY_REACHED = """
+    ORDER BY described.reached_at DESC,
+             described.candidate_id,
+             described.job_id
+"""
+_ORDER_BY_TERM = """
+    ORDER BY CASE
+                 WHEN coalesce(
+                     interview_term.next_at, interview_term.last_at,
+                     interview_proposal.tentative_at
+                 ) IS NULL THEN 2
+                 WHEN described.state IN ('rejected_by_client', 'ended') THEN 1
+                 WHEN coalesce(
+                     interview_term.next_at, interview_proposal.tentative_at
+                 ) IS NOT NULL THEN 0
+                 ELSE 1
+             END,
+             CASE
+                 WHEN described.state NOT IN ('rejected_by_client', 'ended')
+                 THEN coalesce(interview_term.next_at, interview_proposal.tentative_at)
+             END ASC NULLS LAST,
+             coalesce(interview_term.last_at, interview_term.next_at) DESC NULLS LAST,
+             described.reached_at DESC,
+             described.candidate_id,
+             described.job_id
+"""
+_DETAIL_ORDER_BY = {"reached": _ORDER_BY_REACHED, "term": _ORDER_BY_TERM}
+
+
+def _detail_sql(person_filter: str, order: str):
     return _with_user_ids(
         text(
             CREDITED_FROM_SNAPSHOT_CTE
@@ -270,7 +305,11 @@ def _detail_sql(person_filter: str):
            described.latest_stage,
            described.latest_at,
            reason.name AS reason_name,
-           described.candidate_jobs
+           described.candidate_jobs,
+           coalesce(interview_term.next_at, interview_term.last_at)
+               AS client_interview_at,
+           interview_proposal.tentative_at AS client_interview_tentative_at,
+           pair_start.start_on
     FROM described
     JOIN candidates candidate ON candidate.id = described.candidate_id
     JOIN jobs job ON job.id = described.job_id
@@ -278,10 +317,13 @@ def _detail_sql(person_filter: str):
     LEFT JOIN users credit ON credit.id = described.credit_user
     LEFT JOIN users mover ON mover.id = described.mover_id
     LEFT JOIN rejection_reasons reason ON reason.id = described.rejection_reason_id
+    """
+            + pair_terms_lateral("described.candidate_id", "described.job_id")
+            + """
     WHERE CAST(:state AS text) IS NULL OR described.state = CAST(:state AS text)
-    ORDER BY described.reached_at DESC,
-             described.candidate_id,
-             described.job_id
+    """
+            + _DETAIL_ORDER_BY[order]
+            + """
     OFFSET :offset
     LIMIT :limit
     """
@@ -296,9 +338,13 @@ _DETAIL_SUMMARY_SQL = {
     "unattributed": _detail_summary_sql(_UNATTRIBUTED_FILTER),
 }
 _DETAIL_SQL = {
-    "person": _detail_sql(_PERSON_FILTER),
-    "team": _detail_sql(_TEAM_FILTER),
-    "unattributed": _detail_sql(_UNATTRIBUTED_FILTER),
+    (scope, order): _detail_sql(person_filter, order)
+    for scope, person_filter in (
+        ("person", _PERSON_FILTER),
+        ("team", _TEAM_FILTER),
+        ("unattributed", _UNATTRIBUTED_FILTER),
+    )
+    for order in _DETAIL_ORDER_BY
 }
 # Najdłuższy okres listy — jak okres „custom” w Insights (`MAX_CUSTOM_PERIOD_DAYS`).
 _MAX_RANGE_DAYS = 366
@@ -674,6 +720,7 @@ async def list_recruitment_activity_details(
     date_to: date | None = None,
     unattributed: bool = False,
     state: RecruitmentActivityState | None = None,
+    order: RecruitmentActivityDetailOrder = "reached",
 ) -> RecruitmentActivityDetailResponse:
     """Wiersze za jedną liczbą — lista „Kto się liczy” i rozwinięcie kafla.
 
@@ -760,9 +807,10 @@ async def list_recruitment_activity_details(
         rows = (
             (
                 await db.execute(
-                    _DETAIL_SQL[scope],
+                    _DETAIL_SQL[(scope, order)],
                     {
                         **params,
+                        "term_from": term_from(business_today()),
                         "state": state,
                         "offset": (page - 1) * page_size,
                         "limit": page_size,
@@ -930,6 +978,9 @@ def _detail_item(row) -> RecruitmentActivityDetailItem:
         state_since=row["latest_at"],
         state_reason=row["reason_name"] or None,
         candidate_jobs=max(int(row["candidate_jobs"] or 1), 1),
+        client_interview_at=row["client_interview_at"],
+        client_interview_tentative_at=row["client_interview_tentative_at"],
+        start_on=row["start_on"],
     )
 
 

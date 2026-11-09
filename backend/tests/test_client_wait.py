@@ -295,7 +295,10 @@ async def test_board_card_carries_silence_until_client_responded(
         f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
     )
     assert board.status_code == 200, board.text
-    assert _board_card(board.json(), candidate_id)["client_silent_workdays"] > 5
+    card = _board_card(board.json(), candidate_id)
+    assert card["client_silent_workdays"] > 5
+    # Jedna liczba na karcie: wiersz ruchu i dymek „Klient milczy”.
+    assert card["waiting_workdays"] == card["client_silent_workdays"]
 
     await app_client.post(
         f"/api/client-wait/jobs/{job_id}/candidates/{candidate_id}/responded",
@@ -304,16 +307,17 @@ async def test_board_card_carries_silence_until_client_responded(
     after = await app_client.get(
         f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
     )
-    assert _board_card(after.json(), candidate_id)["client_silent_workdays"] is None
+    card = _board_card(after.json(), candidate_id)
+    assert card["client_silent_workdays"] is None
+    # „Klient odpowiedział” zeruje zegar też w wierszu ruchu.
+    assert card["waiting_workdays"] == 0
 
 
 @pytest.mark.asyncio
 async def test_board_card_has_no_silence_within_five_workdays(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
-    job_id, candidate_id = await _job_with_waiting(
-        app_client, app_auth_headers, days=1
-    )
+    job_id, candidate_id = await _job_with_waiting(app_client, app_auth_headers, days=1)
     board = await app_client.get(
         f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
     )
@@ -325,9 +329,7 @@ async def test_broken_silence_query_does_not_take_the_board_down(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
     job_id, candidate_id = await _job_with_waiting(app_client, app_auth_headers)
-    with patch.object(
-        client_wait, "silent_workdays", side_effect=RuntimeError("awaria")
-    ):
+    with patch.object(client_wait, "client_clocks", side_effect=RuntimeError("awaria")):
         board = await app_client.get(
             f"/api/pipeline/kanban/{job_id}", headers=app_auth_headers
         )

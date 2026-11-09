@@ -55,6 +55,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // `/k/{token}` — panel klienta pod linkiem z CV. Ukośnik na końcu, żeby nie
   // złapać `/kariera`, `/klienci` i podobnych.
   const isClientPanelPage = pathname?.startsWith("/k/") ?? false;
+  // `/t/{token}` — wybór terminu rozmowy z maila, bez konta.
+  const isOwnHiringBookingPage = pathname?.startsWith("/t/") ?? false;
   // `/engagement/{token}` — public magic-link engagement page, no internal shell.
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
   // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
@@ -164,6 +166,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isRegisterPage) return <>{children}</>;
   if (isCvPreviewPage) return <>{children}</>;
   if (isClientPanelPage) return <>{children}</>;
+  if (isOwnHiringBookingPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
   if (isProtocolPage) return <>{children}</>;
   if (isConsultantPortal) return <>{children}</>;

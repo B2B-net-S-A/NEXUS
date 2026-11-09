@@ -23,6 +23,7 @@ from app.api.insights_recruitment import stage_counted_from, trend_months, trend
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.calendar_event import CalendarEvent, EventType
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
@@ -332,6 +333,72 @@ async def test_my_in_flight_credits_the_first_named_verifier_only() -> None:
 
     assert await people_of(world["rec_id"]) == {world["c0"]}
     assert await people_of(world["dl_id"]) == {world["c1"]}
+
+
+@pytest.mark.asyncio
+async def test_people_list_puts_upcoming_interviews_first_with_their_term() -> None:
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"InFlight-term-{tag}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"Termin {tag}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        db.add(job)
+        await db.flush()
+        cands = [
+            Candidate(
+                name=f"Termin{i}",
+                lastname=f"Test-{tag}",
+                email=f"in-flight-term-{tag}-{i}@example.com",
+            )
+            for i in range(3)
+        ]
+        db.add_all(cands)
+        await db.flush()
+        # Najdłużej czeka osoba bez terminu; dwie pozostałe mają rozmowę przed sobą.
+        for cand, when in zip(cands, (_at(3, 1), _at(4, 1), _at(4, 20))):
+            db.add(
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.client_interview,
+                    moved_at=when,
+                )
+            )
+        for cand, day in ((cands[1], 20), (cands[2], 10)):
+            db.add(
+                CalendarEvent(
+                    title="Rozmowa u klienta",
+                    event_type=EventType.client_interview,
+                    start_time=_at(5, day),
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                )
+            )
+        await db.commit()
+        ids = [cand.id for cand in cands]
+        job_id = job.id
+
+    async with AsyncSessionLocal() as db:
+        result = await compute_in_flight(
+            db,
+            today=date(_YEAR, 5, 1),
+            now=_at(5, 1),
+            with_acceptances=False,
+            with_people=True,
+            job_ids=[job_id],
+        )
+
+    people = result["people"]
+    assert [p["candidate_id"] for p in people] == [ids[2], ids[1], ids[0]]
+    assert people[0]["client_interview_at"].startswith(f"{_YEAR}-05-10")
+    assert people[2]["client_interview_at"] is None
 
 
 @pytest.mark.asyncio

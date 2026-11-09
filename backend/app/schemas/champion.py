@@ -910,8 +910,10 @@ class ScreeningAnswerItem(BaseModel):
 class ExperienceCheck(BaseModel):
     """„Sprawdź w rozmowie” — pozycja sekcji 4 potwierdzona (albo nie) przez rekrutera.
 
-    Tylko zapis rozmowy: nie zmienia `match_percent`, scoringu ani plakietek
-    (te mówią o śladzie w CV, a to o tym, co kandydat powiedział).
+    Nie zmienia `match_percent` ani plakietek (te mówią o śladzie w CV, a to
+    o tym, co kandydat powiedział). Przy `CONVERSATION_FACTS_ENABLED` zasila
+    rejestr faktów (`services/conversation_facts.py`), a przez niego bramkę
+    i wynik; bez flagi to sam zapis rozmowy.
     """
 
     kind: ExperienceKind = "domains"
