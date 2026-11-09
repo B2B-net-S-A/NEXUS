@@ -75,12 +75,12 @@ async def _preferences_response(
         # Odblokowanie mogło zniknąć (ranking przeliczony) — pokazujemy
         # domyślną postać, zapis zostaje nietknięty.
         prefs = prefs.model_copy(update={"character": "robot"})
-    from app.tasks.daily_digest_email import DIGEST_ROLES
+    from app.tasks.daily_digest_email import receives_digest
 
     return UserPreferencesResponse(
         kpi_coach_enabled=user.kpi_coach_enabled,
         daily_digest_email_enabled=user.daily_digest_email_enabled,
-        daily_digest_email_available=user.has_any_role(*DIGEST_ROLES),
+        daily_digest_email_available=receives_digest(user),
         jarvis=JarvisPrefsResponse(
             **prefs.model_dump(),
             unlocked_characters=unlocked,

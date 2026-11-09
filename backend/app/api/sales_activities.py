@@ -54,7 +54,9 @@ router = APIRouter()
 
 NOT_FOUND_DETAIL = "Nie ma takiej aktywności."
 AUTHOR_ONLY_DETAIL = "Aktywność usuwa jej autor albo administrator."
-EDIT_AUTHOR_ONLY_DETAIL = "Aktywność poprawia jej autor albo administrator."
+EDIT_AUTHOR_ONLY_DETAIL = (
+    "Aktywność poprawia jej autor, osoba przypisana albo administrator."
+)
 #: Maile i spotkania z Outlooka (Microsoft Graph) — ``external_source`` z Atlasa.
 COMPANY_MAIL_SOURCE_PATTERN = "msgraph-%"
 MEETING_PREVIEW_CHARS = 300
@@ -1106,7 +1108,11 @@ async def update_activity(
     activity = await db.get(SalesActivity, activity_id)
     if activity is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
-    if activity.created_by_user_id != current_user.id and not is_admin(current_user):
+    # Przypisany przekłada też zadanie z importu i zadanie założone przez kogoś innego.
+    if current_user.id not in (
+        activity.created_by_user_id,
+        activity.assignee_user_id,
+    ) and not is_admin(current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=EDIT_AUTHOR_ONLY_DETAIL)
     fields = payload.model_dump(exclude_unset=True)
     if fields.get("kind", "") is None:

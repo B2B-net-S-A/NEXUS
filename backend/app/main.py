@@ -262,6 +262,7 @@ from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
+from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
@@ -2229,6 +2230,7 @@ app.include_router(
     sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
 )
 app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
+app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
     sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]

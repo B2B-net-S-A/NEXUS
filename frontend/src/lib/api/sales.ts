@@ -556,6 +556,7 @@ export const salesKeys = {
   ownerLabels: ["sales", "owner-labels"] as const,
   ownerCandidates: ["sales", "owner-candidates"] as const,
   companyDuplicates: ["sales", "company-duplicates"] as const,
+  myDay: ["sales", "my-day"] as const,
 };
 
 function clean(params: Record<string, unknown>): Record<string, string> {
@@ -619,6 +620,75 @@ export function useCompanyGroupPeople(id: number, enabled = true) {
       (await api.get<GroupCompanyPeople[]>(`/api/sales/companies/${id}/people/group`)).data,
     enabled: enabled && Number.isFinite(id) && id > 0,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export type MyDaySectionKey = "meetings" | "reply" | "overdue" | "offers";
+
+export interface MyDayPerson {
+  id: number;
+  name: string;
+  title: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export interface MyDayRow {
+  key: string;
+  section: MyDaySectionKey;
+  company: Ref;
+  opportunity: { id: number; title: string } | null;
+  activity_id: number | null;
+  kind: "task" | "call" | null;
+  subject: string | null;
+  at: string;
+  days: number;
+  amount: string | null;
+  currency: string;
+  open_opportunities: number;
+  duration_minutes: number | null;
+  web_link: string | null;
+  do_not_contact: boolean;
+  person: MyDayPerson | null;
+  people_without_phone: MyDayPerson[];
+}
+
+export interface MyDayPrepEntry {
+  kind: ActivityKind;
+  direction: "in" | "out" | null;
+  at: string;
+  subject: string | null;
+  /** Dni kalendarzowe (kalendarz firmy) od tego wpisu. */
+  days: number;
+}
+
+export interface MyDayPrep {
+  activity_id: number;
+  company: Ref;
+  subject: string | null;
+  at: string;
+  duration_minutes: number | null;
+  open_opportunities: number;
+  can_create_opportunity: boolean;
+  history: MyDayPrepEntry[];
+  contacts: MyDayPerson[];
+}
+
+export interface MyDay {
+  today: string;
+  counts: Record<MyDaySectionKey | "older_tasks", number>;
+  meetings: MyDayRow[];
+  reply: MyDayRow[];
+  overdue: MyDayRow[];
+  offers: MyDayRow[];
+  prep: MyDayPrep | null;
+}
+
+/** Kolejka „Mój dzień” zalogowanej osoby. */
+export function useMyDay() {
+  return useQuery({
+    queryKey: salesKeys.myDay,
+    queryFn: async () => (await api.get<MyDay>("/api/sales/my-day")).data,
   });
 }
 
@@ -776,6 +846,26 @@ export function useLogCall() {
         )
       ).data,
     // Bez czekania na przeładowanie karty: okno „Co dalej” ma się otworzyć od razu.
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+}
+
+export interface CompanyCallInput {
+  company_id: number;
+  outcome: CallOutcome;
+  contact_id?: number;
+  note?: string;
+}
+
+/** Wynik rozmowy przy firmie bez szansy (zaległe zadanie założone przy samej firmie). */
+export function useLogCompanyCall() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ company_id, ...payload }: CompanyCallInput) => {
+      await api.post(`/api/sales/companies/${company_id}/calls`, payload);
+    },
     onSuccess: () => {
       void invalidate();
     },

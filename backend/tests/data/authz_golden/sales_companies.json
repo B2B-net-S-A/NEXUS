@@ -40,6 +40,7 @@
   "POST /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/companies/owner-labels/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/companies/{company_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/calls": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/companies/{company_id}/merge": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/companies/{company_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }

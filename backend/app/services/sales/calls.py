@@ -60,6 +60,14 @@ class CallLogRequest(BaseModel):
         return self
 
 
+class CompanyCallRequest(BaseModel):
+    """Telefon przy firmie bez szansy, np. zaległe zadanie założone przy samej firmie."""
+
+    outcome: Outcome
+    contact_id: Optional[int] = None
+    note: Optional[str] = Field(default=None, max_length=5000)
+
+
 @dataclass
 class _Person:
     name: Optional[str] = None
@@ -188,3 +196,55 @@ async def log_call(
         opp.last_activity_at = now
     if objecting:
         _save_objection(db, opp, person, entries, user_id=user_id, now=now)
+
+
+async def log_company_call(
+    db: AsyncSession,
+    company_id: int,
+    payload: CompanyCallRequest,
+    *,
+    user_id: int,
+    now: datetime,
+) -> None:
+    """Jak ``log_call``, tylko przy firmie: bez mapy decyzyjnej i bez szansy."""
+
+    contact: Optional[SalesContact] = None
+    if payload.contact_id is not None:
+        linked = select(SalesCompanyContact.contact_id).where(
+            SalesCompanyContact.company_id == company_id
+        )
+        contact = await db.scalar(
+            select(SalesContact).where(
+                SalesContact.id == payload.contact_id,
+                or_(SalesContact.company_id == company_id, SalesContact.id.in_(linked)),
+            )
+        )
+        if contact is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, detail=OTHER_COMPANY_DETAIL
+            )
+    objecting = payload.outcome == DO_NOT_CONTACT
+    if objecting and contact is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=NO_PERSON_DETAIL
+        )
+    if contact is not None and contact.do_not_contact_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=OBJECTION_DETAIL)
+    label = OUTCOME_LABELS[payload.outcome]
+    db.add(
+        SalesActivity(
+            kind="call",
+            outcome=payload.outcome,
+            subject=f"{label}: {contact.full_name}" if contact else label,
+            body=(payload.note or "").strip() or None,
+            direction="out",
+            company_id=company_id,
+            contact_id=contact.id if contact else None,
+            created_by_user_id=user_id,
+            occurred_at=now,
+            done_at=now,
+        )
+    )
+    if objecting and contact is not None:
+        contact.do_not_contact_at = now
+        contact.do_not_contact_by_user_id = user_id

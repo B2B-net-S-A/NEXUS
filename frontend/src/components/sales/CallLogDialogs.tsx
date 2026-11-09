@@ -40,7 +40,7 @@ const WHEN: { label: string; days: number }[] = [
 const MORNING_HOUR = 9;
 const FORM_ROW = "sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-3 sm:py-2";
 
-function plusDays(days: number): string {
+export function plusDays(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -48,7 +48,7 @@ function plusDays(days: number): string {
 }
 
 /** Termin z pola daty: rano tego dnia w czasie użytkownika. */
-function dueAtMorning(isoDay: string): string {
+export function dueAtMorning(isoDay: string): string {
   const [year, month, day] = isoDay.split("-").map(Number);
   return new Date(year, month - 1, day, MORNING_HOUR).toISOString();
 }

@@ -337,8 +337,8 @@ CATALOG = (
         id="daily_digest",
         label="Poranny skrót „Twój dzień w NEXUSIE”",
         module="Pulpit",
-        trigger="Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie”. Pusty skrót nie wychodzi.",
-        recipient_rule="Aktywni rekruterzy, TCM, Delivery Leadzi, Head of Recruitment i Finanse (rola główna albo dodatkowa). Admin bez tych ról — nie.",
+        trigger="Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie” i w Sprzedaży na ekranie „Mój dzień”. Pusty skrót nie wychodzi.",
+        recipient_rule="Aktywni rekruterzy, TCM, Delivery Leadzi, Head of Recruitment i Finanse (rola główna albo dodatkowa) oraz konta z uprawnieniem „Sprzedaż: podgląd”. Admin bez tych ról — nie.",
     ),
     # Raporty KPI mailem (plan PR3, 23.09.2026) — `tasks/kpi_email_reports.py`.
     dict(

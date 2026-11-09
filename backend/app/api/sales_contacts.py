@@ -30,6 +30,8 @@ from app.services.sales.companies import http_url
 router = APIRouter()
 
 NOT_FOUND_DETAIL = "Nie ma takiego kontaktu."
+OBJECTION_DETAIL = "Ta osoba zgłosiła sprzeciw wobec kontaktu, numeru nie zapisujemy."
+PHONE_FIELDS = ("phone", "mobile_phone")
 
 
 class ContactFields(BaseModel):
@@ -234,6 +236,41 @@ def _apply(contact: SalesContact, fields: dict[str, Any]) -> None:
         setattr(contact, key, value)
 
 
+def _adds_phone(contact: SalesContact, fields: dict[str, Any]) -> bool:
+    """Czy zapis wpisuje numer inny niż dotąd; ponowny zapis formularza to nie zmiana."""
+
+    return any(
+        (fields.get(key) or "").strip()
+        and (fields[key] or "").strip() != (getattr(contact, key) or "").strip()
+        for key in PHONE_FIELDS
+        if key in fields
+    )
+
+
+async def _ensure_new_person_not_objected(
+    db: AsyncSession, full_name: str, fields: dict[str, Any]
+) -> None:
+    """Sprzeciw zostaje też wtedy, gdy numer przyjdzie pod „nową osobą” o tej nazwie."""
+
+    company_id = fields.get("company_id")
+    if company_id is None or not any(fields.get(key) for key in PHONE_FIELDS):
+        return
+    linked = select(SalesCompanyContact.contact_id).where(
+        SalesCompanyContact.company_id == company_id
+    )
+    objected = await db.scalar(
+        select(SalesContact.id)
+        .where(
+            func.lower(SalesContact.full_name) == full_name.lower(),
+            SalesContact.do_not_contact_at.is_not(None),
+            or_(SalesContact.company_id == company_id, SalesContact.id.in_(linked)),
+        )
+        .limit(1)
+    )
+    if objected is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=OBJECTION_DETAIL)
+
+
 def _digits(column):
     return func.regexp_replace(func.coalesce(column, ""), r"\D", "", "g")
 
@@ -314,6 +351,7 @@ async def create_contact(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Podaj imię i nazwisko."
         )
     await _check_company(db, fields.get("company_id"))
+    await _ensure_new_person_not_objected(db, full_name, fields)
     contact = SalesContact(
         full_name=full_name, source="manual", created_by_user_id=current_user.id
     )
@@ -345,6 +383,8 @@ async def update_contact(
     if contact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     fields = payload.model_dump(exclude_unset=True)
+    if contact.do_not_contact_at is not None and _adds_phone(contact, fields):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=OBJECTION_DETAIL)
     await _check_company(db, fields.get("company_id"))
     primary_changed = (
         "company_id" in fields and fields["company_id"] != contact.company_id
