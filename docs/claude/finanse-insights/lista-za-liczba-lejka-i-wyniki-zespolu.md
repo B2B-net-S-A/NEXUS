@@ -36,3 +36,13 @@ z 25.10.2026, makiety: https://claude.ai/artifact/4yk43hHpCNbD1RDKYwwFuV.
   7 dni”. Okres pamięta przeglądarka per kafelek (`nexus:team-results:<id>`) —
   zapis do układu szedłby całym PUT-em z wersją. Akceptacje okresu sprzed
   12.10.2026 to „—” z dopiskiem „liczone od 12.10”, nie 0.
+- **Termin rozmowy i start (prośba z 09.11.2026):** dzień i godzina na liście to
+  chwila przesunięcia karty, a rozmowa wypada średnio 4,6 dnia później (listopad:
+  23 z 25 terminów po wpisie). Zakładka rozmów ma kolumnę „Termin rozmowy”,
+  a chwila wpisu stoi pod osobą, która ją wpisała. Pozostałe listy mają termin
+  w plakietce „Teraz”, Akceptacje i Placementy kolumnę „Start”. Grupowanie po dniu
+  wpisu zostaje domyślne, bo tak liczba zgadza się z celami; „Wg terminu” to
+  `order=term`, kolejność daje serwer. Reguły terminu, propozycji i startu są
+  w jednym miejscu: `services/client_interview_terms.py`, z niego korzystają też
+  „W drodze” i profil kandydata. Rozmowa bez wpisu w kalendarzu ma etykietę
+  „Brak terminu”, termin pary zamkniętej jest wyszarzony.

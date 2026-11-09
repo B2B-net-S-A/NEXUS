@@ -361,6 +361,9 @@ def _detail_row(**overrides) -> dict:
         "latest_at": datetime(2026, 10, 15, 14, 5, tzinfo=timezone.utc),
         "reason_name": None,
         "candidate_jobs": 2,
+        "client_interview_at": None,
+        "client_interview_tentative_at": None,
+        "start_on": None,
     }
     row.update(overrides)
     return row
@@ -526,6 +529,53 @@ async def test_state_filter_pages_one_state_and_keeps_period_counts() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_row_carries_the_interview_term_and_start() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    page = MagicMock()
+    term = datetime(2026, 10, 21, 9, 0, tzinfo=timezone.utc)
+    page.mappings.return_value.all.return_value = [
+        _detail_row(client_interview_at=term, start_on=date(2026, 12, 1))
+    ]
+    db.execute.side_effect = [
+        _result([recruiter]),
+        _summary(total=1, people=1, state_at_client=1),
+        page,
+    ]
+
+    result = await _details(db, recruiter, metric="interview")
+
+    assert result.items[0].client_interview_at == term
+    assert result.items[0].client_interview_tentative_at is None
+    assert result.items[0].start_on == date(2026, 12, 1)
+    assert "term_from" in db.execute.await_args.args[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("order", "fragment"),
+    [
+        ("reached", "ORDER BY described.reached_at DESC"),
+        ("term", "ORDER BY CASE"),
+    ],
+)
+async def test_detail_order_picks_the_query_layout(order: str, fragment: str) -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    page = MagicMock()
+    page.mappings.return_value.all.return_value = [_detail_row()]
+    db.execute.side_effect = [
+        _result([recruiter]),
+        _summary(total=1, people=1, state_waiting=1),
+        page,
+    ]
+
+    await _details(db, recruiter, metric="interview", order=order)
+
+    assert fragment in str(db.execute.await_args.args[0])
+
+
+@pytest.mark.asyncio
 async def test_detail_row_names_the_job_like_its_header_and_who_clicked() -> None:
     recruiter = _user(UserRole.recruiter, 11)
     db = AsyncMock()
@@ -569,7 +619,7 @@ def test_detail_states_match_the_response_contract() -> None:
     assert set(activity_service.DETAIL_STATES) == set(
         get_args(RecruitmentActivityState)
     )
-    sql = str(activity_service._DETAIL_SQL["person"])
+    sql = str(activity_service._DETAIL_SQL[("person", "reached")])
     # Odrzucenie przez klienta = ta sama reguła co `known_people_signal`.
     assert "latest.ended_by = 'client'" in sql
     assert "'cv_sent', 'client_interview'" in sql

@@ -165,13 +165,101 @@ describe("WhoCountsListView", () => {
   })
 })
 
+const INTERVIEWS: RecruitmentActivityDetailResponse = {
+  ...RESPONSE,
+  metric: "interview",
+  items: [
+    { ...RESPONSE.items[0], client_interview_at: "2026-10-20T08:00:00Z" },
+    { ...RESPONSE.items[1], client_interview_at: null },
+  ],
+}
+
+function renderView(
+  metric: "interview" | "placement" | "recommendation",
+  response: RecruitmentActivityDetailResponse,
+  extra: Partial<Parameters<typeof WhoCountsListView>[0]> = {},
+) {
+  return render(
+    <WhoCountsListView
+      metric={metric}
+      response={response}
+      viewerId={11}
+      today="2026-10-17"
+      state={null}
+      onStateChange={vi.fn()}
+      onPageChange={vi.fn()}
+      {...extra}
+    />,
+  )
+}
+
+describe("WhoCountsListView — daty", () => {
+  it("rozmowy mają termin, a chwila wpisu stoi pod osobą, która wpisała", () => {
+    renderView("interview", INTERVIEWS)
+
+    expect(screen.getByRole("columnheader", { name: "Termin rozmowy" })).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Godzina" })).not.toBeInTheDocument()
+    expect(screen.getByText("wt 20.10, 10:00")).toBeInTheDocument()
+    expect(screen.getByText("za 3 dni")).toBeInTheDocument()
+    expect(screen.getByText("15.10, 16:42")).toBeInTheDocument()
+    expect(screen.getByText("Brak terminu")).toBeInTheDocument()
+  })
+
+  it("inne listy zostają przy godzinie, placementy dostają start", () => {
+    const { unmount } = renderView("recommendation", RESPONSE)
+    expect(screen.getByRole("columnheader", { name: "Godzina" })).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Termin rozmowy" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Start" })).not.toBeInTheDocument()
+    unmount()
+
+    renderView("placement", {
+      ...RESPONSE,
+      metric: "placement",
+      items: [{ ...RESPONSE.items[0], start_on: "2026-12-01" }, RESPONSE.items[1]],
+    })
+    expect(screen.getByRole("columnheader", { name: "Start" })).toBeInTheDocument()
+    expect(screen.getByText("1.12.2026")).toBeInTheDocument()
+  })
+
+  it("plakietka „Teraz” na innych listach podaje termin rozmowy", () => {
+    renderView("recommendation", {
+      ...RESPONSE,
+      items: [{ ...RESPONSE.items[1], client_interview_at: "2026-10-20T08:00:00Z" }],
+    })
+    expect(screen.getByText("Rozmowa u klienta · wt 20.10, 10:00")).toBeInTheDocument()
+  })
+
+  it("układ po terminie grupuje po terminie, a przełącznik zgłasza zmianę", async () => {
+    const user = userEvent.setup()
+    const onOrderChange = vi.fn()
+    renderView("interview", INTERVIEWS, { order: "term", onOrderChange })
+
+    expect(screen.getByRole("columnheader", { name: "Przed nami" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Bez terminu w kalendarzu" })).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Czwartek 15.10" })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Wg dnia wpisu" }))
+    expect(onOrderChange).toHaveBeenCalledWith("reached")
+  })
+
+  it("przełącznika nie ma poza rozmowami ani w kafelku", () => {
+    const { unmount } = renderView("recommendation", RESPONSE, { onOrderChange: vi.fn() })
+    expect(screen.queryByRole("button", { name: "Wg terminu" })).not.toBeInTheDocument()
+    unmount()
+
+    renderView("interview", INTERVIEWS, { onOrderChange: vi.fn(), compact: true })
+    expect(screen.queryByRole("button", { name: "Wg terminu" })).not.toBeInTheDocument()
+    expect(screen.getByText("· termin: wt 20.10, 10:00")).toBeInTheDocument()
+  })
+})
+
 describe("WhoCountsList", () => {
-  function renderList() {
+  function renderList(metric: "interview" | "recommendation" = "recommendation") {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     return render(
       <QueryClientProvider client={client}>
         <WhoCountsList
-          metric="recommendation"
+          metric={metric}
           viewerId={11}
           cacheKey="11:1"
           query={{ window: "week", day: "2026-10-15", month: "2026-10", subjectUserId: 11 }}
@@ -204,6 +292,22 @@ describe("WhoCountsList", () => {
     await waitFor(() =>
       expect(getDetails).toHaveBeenLastCalledWith(
         expect.objectContaining({ state: "at_client", page: 1 }),
+      ),
+    )
+  })
+
+  it("zmiana układu pyta serwer o kolejność po terminie, od pierwszej strony", async () => {
+    const user = userEvent.setup()
+    getDetails.mockResolvedValue({ ...INTERVIEWS, total: 120 })
+    renderList("interview")
+
+    await user.click(await screen.findByRole("button", { name: "Dalej" }))
+    await waitFor(() => expect(getDetails).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })))
+    await user.click(screen.getByRole("button", { name: "Wg terminu" }))
+
+    await waitFor(() =>
+      expect(getDetails).toHaveBeenLastCalledWith(
+        expect.objectContaining({ order: "term", page: 1 }),
       ),
     )
   })

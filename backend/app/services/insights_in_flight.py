@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import competition_history
+from app.services.client_interview_terms import PairTerms, load_pair_terms
 from app.services.insights_stage_breakdown import (
     _DEF_MAP_CTE,
     _JOB_FILTER_SQL,
@@ -384,22 +385,45 @@ async def compute_in_flight(
             key=lambda a: (-a["days"], a["client_name"] or "", a["job_id"]),
         )
 
-    people = None
+    people: Optional[list[dict[str, Any]]] = None
     if with_people:
         order = {col: i for i, (col, _label, _keys) in enumerate(COLUMNS)}
-        people = sorted(
-            (
+        terms = await load_pair_terms(
+            db,
+            ((p["candidate_id"], p["job_id"]) for p in pairs),
+            today=today,
+        )
+
+        def term_of(p: dict[str, Any]) -> PairTerms:
+            return terms.get((p["candidate_id"], p["job_id"]), PairTerms())
+
+        def sort_key(p: dict[str, Any]) -> tuple[int, bool, float, int, int]:
+            # Najpierw najbliżej placementu; w kolumnie rozmowy przed nami od
+            # najbliższej, dalej — najdłużej czekający.
+            upcoming = term_of(p).next_at
+            return (
+                -order[p["col"]],
+                upcoming is None,
+                upcoming.timestamp() if upcoming else 0.0,
+                -days_in(p),
+                p["candidate_id"],
+            )
+
+        people = []
+        for p in sorted(pairs, key=sort_key):
+            term = term_of(p)
+            people.append(
                 {
                     **common(p),
                     "candidate_id": p["candidate_id"],
                     "candidate_name": p["candidate_name"],
                     "column": p["col"],
+                    "client_interview_at": (
+                        term.interview_at.isoformat() if term.interview_at else None
+                    ),
+                    "start_on": term.start_on.isoformat() if term.start_on else None,
                 }
-                for p in pairs
-            ),
-            # Najpierw najbliżej placementu, w kolumnie — najdłużej czekający.
-            key=lambda x: (-order[x["column"]], -x["days"], x["candidate_id"]),
-        )
+            )
 
     hired, resolved = await _resolved_acceptances(db, params)
     open_count = next(c["count"] for c in columns if c["column"] == "contract")

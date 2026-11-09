@@ -13,9 +13,13 @@ import {
   WHO_COUNTS_FOOTNOTES,
   WHO_COUNTS_METRICS,
   candidateJobsBadge,
+  formatDay,
+  formatReached,
   formatTime,
   groupByDay,
+  groupByTerm,
   historyNote,
+  interviewTerm,
   moverText,
   stateFilters,
   stateText,
@@ -26,7 +30,9 @@ import {
 } from "@/lib/kpi-who-counts"
 import {
   getRecruitmentActivityDetails,
+  type RecruitmentActivityDetailItem,
   type RecruitmentActivityDetailFilters,
+  type RecruitmentActivityDetailOrder,
   type RecruitmentActivityDetailResponse,
   type RecruitmentActivityState,
 } from "@/lib/recruitment-activity-api"
@@ -49,6 +55,9 @@ export interface WhoCountsListViewProps {
   state: RecruitmentActivityState | null
   onStateChange: (state: RecruitmentActivityState | null) => void
   onPageChange: (page: number) => void
+  /** Układ listy rozmów; bez `onOrderChange` przełącznika nie ma. */
+  order?: RecruitmentActivityDetailOrder
+  onOrderChange?: (order: RecruitmentActivityDetailOrder) => void
   /** Odpowiedź dla nowej strony albo filtra jeszcze idzie. */
   isFetching?: boolean
   /** Wąskie miejsce (kafelek pulpitu): wiersz w dwóch liniach zamiast tabeli. */
@@ -67,6 +76,8 @@ export function WhoCountsListView({
   state,
   onStateChange,
   onPageChange,
+  order = "reached",
+  onOrderChange,
   isFetching = false,
   compact = false,
 }: WhoCountsListViewProps) {
@@ -75,8 +86,19 @@ export function WhoCountsListView({
   const showMover = response.items.some((item) => item.moved_by !== undefined)
   const showState = response.items.some((item) => item.state !== undefined)
   const filters = stateFilters(response)
-  const groups = groupByDay(response.items, today)
-  const columns = 3 + (showMover ? 1 : 0) + (showCredited ? 1 : 0) + (showState ? 1 : 0)
+  const showTerm = metric === "interview"
+  const termLayout = showTerm && order === "term"
+  const canChangeOrder = showTerm && !compact && onOrderChange !== undefined
+  const showStart = metric === "acceptance" || metric === "placement"
+  const groups = termLayout
+    ? groupByTerm(response.items, today)
+    : groupByDay(response.items, today)
+  const columns =
+    3 +
+    (showStart ? 1 : 0) +
+    (showMover ? 1 : 0) +
+    (showCredited ? 1 : 0) +
+    (showState ? 1 : 0)
   const totalPages = Math.max(1, Math.ceil(response.total / response.page_size))
   const periodTotal = response.period_total ?? response.total
   const history = historyNote(response)
@@ -96,20 +118,36 @@ export function WhoCountsListView({
         </p>
       ) : null}
 
-      {filters.length > 1 ? (
-        <div role="group" aria-label="Gdzie są teraz" className="flex flex-wrap gap-1.5">
-          <FilterChip active={state === null} onClick={() => onStateChange(null)}>
-            Wszystkie <span className="tabular-nums opacity-75">{periodTotal}</span>
-          </FilterChip>
-          {filters.map((filter) => (
-            <FilterChip
-              key={filter.state}
-              active={state === filter.state}
-              onClick={() => onStateChange(state === filter.state ? null : filter.state)}
-            >
-              {filter.label} <span className="tabular-nums opacity-75">{filter.count}</span>
-            </FilterChip>
-          ))}
+      {filters.length > 1 || canChangeOrder ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {filters.length > 1 ? (
+            <div role="group" aria-label="Gdzie są teraz" className="flex flex-wrap gap-1.5">
+              <FilterChip active={state === null} onClick={() => onStateChange(null)}>
+                Wszystkie <span className="tabular-nums opacity-75">{periodTotal}</span>
+              </FilterChip>
+              {filters.map((filter) => (
+                <FilterChip
+                  key={filter.state}
+                  active={state === filter.state}
+                  onClick={() => onStateChange(state === filter.state ? null : filter.state)}
+                >
+                  {filter.label} <span className="tabular-nums opacity-75">{filter.count}</span>
+                </FilterChip>
+              ))}
+            </div>
+          ) : (
+            <span />
+          )}
+          {canChangeOrder ? (
+            <div role="group" aria-label="Układ listy" className="flex gap-1.5">
+              <FilterChip active={order === "reached"} onClick={() => onOrderChange?.("reached")}>
+                Wg dnia wpisu
+              </FilterChip>
+              <FilterChip active={order === "term"} onClick={() => onOrderChange?.("term")}>
+                Wg terminu
+              </FilterChip>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -126,6 +164,8 @@ export function WhoCountsListView({
           groups={groups}
           today={today}
           showCredited={showCredited}
+          showTerm={showTerm}
+          showStart={showStart}
           isFetching={isFetching}
         />
       ) : (
@@ -142,7 +182,15 @@ export function WhoCountsListView({
                   Osoba
                 </th>
                 <th scope="col" className="px-3 py-2 font-medium">Rekrutacja</th>
-                <th scope="col" className="px-3 py-2 font-medium">Godzina</th>
+                {showTerm ? (
+                  <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Termin rozmowy</th>
+                ) : null}
+                {showStart ? (
+                  <th scope="col" className="whitespace-nowrap px-3 py-2 font-medium">Start</th>
+                ) : null}
+                {showTerm ? null : (
+                  <th scope="col" className="px-3 py-2 font-medium">Godzina</th>
+                )}
                 {showMover ? (
                   <th scope="col" className="px-3 py-2 font-medium">{definition.moverLabel}</th>
                 ) : null}
@@ -162,7 +210,7 @@ export function WhoCountsListView({
                   columns={columns}
                   rows={group.items.map((item, index) => {
                     const badge = candidateJobsBadge(item)
-                    const now = stateText(item, today)
+                    const now = stateText(item, today, { withTerm: !showTerm })
                     return (
                       <tr
                         key={`${item.candidate.id}-${item.job.id}-${item.reached_at}-${index}`}
@@ -197,12 +245,29 @@ export function WhoCountsListView({
                             {item.job.client_name}
                           </span>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums text-muted-foreground">
-                          {formatTime(item.reached_at)}
-                        </td>
+                        {showTerm ? (
+                          <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums">
+                            <InterviewTermCell item={item} today={today} />
+                          </td>
+                        ) : null}
+                        {showStart ? (
+                          <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums">
+                            {item.start_on ? formatDay(item.start_on) : "—"}
+                          </td>
+                        ) : null}
+                        {showTerm ? null : (
+                          <td className="whitespace-nowrap px-3 py-2 align-top tabular-nums text-muted-foreground">
+                            {formatTime(item.reached_at)}
+                          </td>
+                        )}
                         {showMover ? (
                           <td className="whitespace-nowrap px-3 py-2 align-top">
                             {moverText(item.moved_by, viewerId)}
+                            {showTerm ? (
+                              <span className="block text-xs tabular-nums text-muted-foreground">
+                                {formatReached(item.reached_at)}
+                              </span>
+                            ) : null}
                           </td>
                         ) : null}
                         {showCredited ? (
@@ -294,16 +359,54 @@ export function WhoCountsListView({
   )
 }
 
+function InterviewTermCell({
+  item,
+  today,
+}: {
+  item: RecruitmentActivityDetailItem
+  today: string
+}) {
+  const term = interviewTerm(item, today)
+  if (term.kind === "none") {
+    return (
+      <Badge variant="warning" size="sm" className="normal-case">
+        {term.label}
+      </Badge>
+    )
+  }
+  return (
+    <span className="flex flex-col">
+      <span
+        className={cn(
+          term.kind === "past" ? "text-muted-foreground" : "font-medium text-foreground",
+          term.kind === "tentative" && "font-normal italic",
+        )}
+      >
+        {term.label}
+      </span>
+      {term.hint ? (
+        <span className={cn("text-xs", term.kind === "tentative" ? "text-muted-foreground" : "text-primary")}>
+          {term.hint}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 /** Kafelek pulpitu: osoba i dzień w pierwszej linii, rekrutacja i stan w drugiej. */
 function CompactRows({
   groups,
   today,
   showCredited,
+  showTerm,
+  showStart,
   isFetching,
 }: {
   groups: ReturnType<typeof groupByDay>
   today: string
   showCredited: boolean
+  showTerm: boolean
+  showStart: boolean
   isFetching: boolean
 }) {
   return (
@@ -314,7 +417,7 @@ function CompactRows({
           <ul className="divide-y divide-border/60 rounded-lg border border-border bg-card">
             {group.items.map((item, index) => {
               const badge = candidateJobsBadge(item)
-              const now = stateText(item, today)
+              const now = stateText(item, today, { withTerm: !showTerm })
               return (
                 <li
                   key={`${item.candidate.id}-${item.job.id}-${item.reached_at}-${index}`}
@@ -353,6 +456,12 @@ function CompactRows({
                     <span>· {item.job.client_name}</span>
                     {showCredited && item.credited_user ? (
                       <span>· liczy się: {item.credited_user.name}</span>
+                    ) : null}
+                    {showTerm ? (
+                      <span className="tabular-nums">· termin: {interviewTerm(item, today).label}</span>
+                    ) : null}
+                    {showStart && item.start_on ? (
+                      <span className="tabular-nums">· start: {formatDay(item.start_on)}</span>
                     ) : null}
                     {now ? (
                       <Badge variant={TONE_BADGE[now.tone]} size="sm" className="normal-case">
@@ -434,6 +543,7 @@ export function whoCountsQueryKey(
   state: RecruitmentActivityState | null,
   page: number,
   pageSize: number,
+  order: RecruitmentActivityDetailOrder = "reached",
 ) {
   return [
     "recruitment-activity",
@@ -444,6 +554,7 @@ export function whoCountsQueryKey(
     state,
     page,
     pageSize,
+    order,
   ] as const
 }
 
@@ -475,14 +586,16 @@ export function WhoCountsList({
     key: string
     state: RecruitmentActivityState | null
     page: number
-  }>({ key: viewKey, state: null, page: 1 })
+    order: RecruitmentActivityDetailOrder
+  }>({ key: viewKey, state: null, page: 1, order: "reached" })
   const state = view.key === viewKey ? view.state : null
   const page = view.key === viewKey ? view.page : 1
+  const order = view.key === viewKey ? view.order : "reached"
 
   const details = useQuery({
-    queryKey: whoCountsQueryKey(cacheKey, metric, query, state, page, pageSize),
+    queryKey: whoCountsQueryKey(cacheKey, metric, query, state, page, pageSize, order),
     queryFn: () =>
-      getRecruitmentActivityDetails({ ...query, metric, state, page, pageSize }),
+      getRecruitmentActivityDetails({ ...query, metric, state, page, pageSize, order }),
     staleTime: 30_000,
     // Poprzednia strona albo filtr zostaje na ekranie, póki idzie następna —
     // ale nie dane innego celu albo innej osoby pod nowym nagłówkiem.
@@ -520,8 +633,10 @@ export function WhoCountsList({
       response={details.data}
       viewerId={viewerId}
       state={state}
-      onStateChange={(next) => setView({ key: viewKey, state: next, page: 1 })}
-      onPageChange={(next) => setView({ key: viewKey, state, page: next })}
+      onStateChange={(next) => setView({ key: viewKey, state: next, page: 1, order })}
+      onPageChange={(next) => setView({ key: viewKey, state, page: next, order })}
+      order={order}
+      onOrderChange={(next) => setView({ key: viewKey, state, page: 1, order: next })}
       isFetching={details.isFetching && details.isPlaceholderData}
       compact={compact}
     />
