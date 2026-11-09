@@ -11,6 +11,8 @@ Task Center pokazywał każdy otwarty rodzaj. Na osi szansy można dołożyć ma
 i spotkania jej firmy z Outlooka (``with_company_mail``), jak karta szansy
 w Atlasie: synchronizacja przypina je do firmy, nie do szansy. Do szansy
 przypina handlowiec (``/pin``, ``services/sales/meeting_decisions``).
+Spotkanie z transkryptem Teams niesie na osi podsumowanie, a organizator wysyła
+z NEXUSA podsumowanie dla klienta (``services/sales/meeting_client_mail``).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -42,11 +45,13 @@ from app.models.sales import (
     SalesOpportunity,
     SalesPipelineStage,
 )
+from app.models.m365 import M365Connection
 from app.models.user import User
 from app.services import sales_schema as schema
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_duplicates import load_client_name_index
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import client_gate, meeting_decisions
+from app.services.sales import client_gate, meeting_client_mail, meeting_decisions
 from app.services.sales.next_step import not_system_entry
 from app.services.sales.task_scope import not_orphaned, task_items
 from app.services.sales.timeline import Scope, merge_duplicates
@@ -67,6 +72,9 @@ OUTLOOK_EVENT_SOURCE = "msgraph-event"
 #: Pierwszy blok listy spotkań: dziś i najbliższy tydzień.
 MEETING_SOON_DAYS = 7
 TRANSCRIPT_NOT_FOUND_DETAIL = "To spotkanie nie ma transkryptu."
+CLIENT_MAIL_ORGANIZER_DETAIL = (
+    "Podsumowanie dla klienta wysyła organizator spotkania albo administrator."
+)
 
 Kind = Literal[schema.ACTIVITY_KINDS]  # type: ignore[valid-type]
 Priority = Literal[schema.PRIORITIES]  # type: ignore[valid-type]
@@ -144,6 +152,13 @@ class TimelineItem(ActivityOut):
     scope: Scope
     #: Skąd wpis: po sklejeniu duplikatów może być kilka źródeł.
     sources: list[str]
+    #: Spotkanie z pobranym transkryptem Teams: aktywność z Outlooka, przy której
+    #: leży transkrypt (po sklejeniu duplikatów nie musi to być ``id`` wiersza).
+    transcript_activity_id: Optional[int] = None
+    transcript_summary: Optional[str] = None
+    #: Organizator spotkania albo admin z „Sprzedaż: edycja”.
+    can_send_client_summary: bool = False
+    client_mail_sent_at: Optional[datetime] = None
 
 
 class TimelineCounts(BaseModel):
@@ -220,6 +235,33 @@ class MeetingTranscriptOut(BaseModel):
     subject: Optional[str]
     summary: Optional[str]
     plain_text: str
+
+
+class ClientMailRecipient(BaseModel):
+    address: str
+    name: Optional[str]
+    blocked: Optional[Literal["candidate"]] = None
+
+
+class ClientMailDraftOut(BaseModel):
+    subject: str
+    body: str
+    #: Model nie dał szkicu: okno zostawia puste pole do napisania ręcznie.
+    model_failed: bool
+    recipients: list[ClientMailRecipient]
+    mailbox: Literal["ok", "missing", "no_send_scope"]
+    sender_address: Optional[str]
+    sent_at: Optional[datetime]
+
+
+class ClientMailSend(BaseModel):
+    subject: str = Field(min_length=1, max_length=300)
+    body: str = Field(min_length=1, max_length=20_000)
+    to: list[str] = Field(min_length=1, max_length=meeting_client_mail.MAX_RECIPIENTS)
+    #: Nadawany przy otwarciu okna: drugi klik z tym samym kluczem nie wysyła drugi raz.
+    request_id: UUID
+    #: Karta, z której wysłano; liczy się tylko dla spotkania nieprzypiętego.
+    opportunity_id: Optional[int] = None
 
 
 def _ref(id_: Optional[int], name: Optional[str]) -> Optional[Ref]:
@@ -453,18 +495,45 @@ async def opportunity_timeline(
     ).all()
     now = datetime.now(timezone.utc)
     by_id = {row.SalesActivity.id: row for row in rows}
-    items = [
-        TimelineItem(
-            **{
-                **_out(by_id[entry.activity.id], now).model_dump(),
-                "body": entry.body,
-                "web_link": entry.web_link,
-            },
-            scope=entry.scope(opportunity_id),
-            sources=entry.sources,
+    entries = merge_duplicates([row.SalesActivity for row in rows])
+    transcripts = await _timeline_transcripts(db, entries)
+    may_edit = has_permission(current_user, ProductAction.sales_edit)
+    admin = is_admin(current_user)
+    items = []
+    for entry in entries:
+        found = next(
+            (
+                (member.id, transcripts[member.external_id])
+                for member in entry.members
+                if member.external_source == OUTLOOK_EVENT_SOURCE
+                and member.external_id in transcripts
+            ),
+            None,
         )
-        for entry in merge_duplicates([row.SalesActivity for row in rows])
-    ]
+        meeting_id, transcript = found or (None, None)
+        items.append(
+            TimelineItem(
+                **{
+                    **_out(by_id[entry.activity.id], now).model_dump(),
+                    "body": entry.body,
+                    "web_link": entry.web_link,
+                },
+                scope=entry.scope(opportunity_id),
+                sources=entry.sources,
+                transcript_activity_id=meeting_id,
+                transcript_summary=transcript.summary if transcript else None,
+                can_send_client_summary=bool(
+                    transcript
+                    and may_edit
+                    and meeting_client_mail.may_send(
+                        current_user.id, transcript, admin=admin
+                    )
+                ),
+                client_mail_sent_at=(
+                    transcript.client_mail_sent_at if transcript else None
+                ),
+            )
+        )
     tally = Counter(item.scope for item in items)
     return TimelineOut(
         items=items,
@@ -475,6 +544,30 @@ async def opportunity_timeline(
             other_opportunity=tally["other_opportunity"],
         ),
     )
+
+
+async def _timeline_transcripts(
+    db: AsyncSession, entries
+) -> dict[str, SalesMeetingTranscript]:
+    """Pobrane transkrypty spotkań z osi, po ``iCalUId``."""
+
+    uids = {
+        member.external_id
+        for entry in entries
+        for member in entry.members
+        if member.kind == "meeting"
+        and member.external_source == OUTLOOK_EVENT_SOURCE
+        and member.external_id
+    }
+    if not uids:
+        return {}
+    found = await db.scalars(
+        select(SalesMeetingTranscript).where(
+            SalesMeetingTranscript.ical_uid.in_(uids),
+            SalesMeetingTranscript.status == "fetched",
+        )
+    )
+    return {row.ical_uid: row for row in found.all()}
 
 
 @router.get("/tasks", response_model=TaskList)
@@ -902,6 +995,177 @@ async def meeting_transcript(
         summary=transcript.summary,
         plain_text=transcript.plain_text or "",
     )
+
+
+async def _client_mail_meeting(
+    db: AsyncSession, activity_id: int, user: User, *, lock: bool = False
+) -> meeting_client_mail.Meeting:
+    meeting = await meeting_client_mail.load(db, activity_id, lock=lock)
+    if meeting is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=TRANSCRIPT_NOT_FOUND_DETAIL
+        )
+    if not meeting_client_mail.may_send(
+        user.id, meeting.transcript, admin=is_admin(user)
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail=CLIENT_MAIL_ORGANIZER_DETAIL
+        )
+    return meeting
+
+
+async def _own_connection(db: AsyncSession, user_id: int) -> Optional[M365Connection]:
+    return await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == user_id)
+    )
+
+
+@router.get("/{activity_id}/client-summary", response_model=ClientMailDraftOut)
+async def meeting_client_summary_draft(
+    activity_id: int,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> ClientMailDraftOut:
+    """Szkic maila do klienta po spotkaniu: treść z modelu, adresaci spoza firmy."""
+
+    meeting = await _client_mail_meeting(db, activity_id, current_user)
+    connection = await _own_connection(db, current_user.id)
+    sender_address = connection.mailbox_upn if connection is not None else None
+    subject = meeting_client_mail.default_subject(meeting.activity)
+    sent_at = meeting.transcript.client_mail_sent_at
+    recipients = await meeting_client_mail.attendees(
+        db, meeting.activity, sender_address or meeting.transcript.organizer_upn
+    )
+    mailbox = meeting_client_mail.mailbox_state(connection)
+    body, model_failed = await meeting_client_mail.client_summary(
+        db, meeting, user_id=current_user.id
+    )
+    return ClientMailDraftOut(
+        subject=subject,
+        body=body,
+        model_failed=model_failed,
+        recipients=[
+            ClientMailRecipient(
+                address=recipient.address,
+                name=recipient.name,
+                blocked=recipient.blocked,
+            )
+            for recipient in recipients
+        ],
+        mailbox=mailbox,
+        sender_address=sender_address,
+        sent_at=sent_at,
+    )
+
+
+@router.post("/{activity_id}/client-summary/send", response_model=ActivityOut)
+async def send_meeting_client_summary(
+    activity_id: int,
+    payload: ClientMailSend,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> ActivityOut:
+    """Wyślij podsumowanie klientowi ze swojej skrzynki i zapisz mail na osi szansy."""
+
+    addresses: list[str] = []
+    invalid: list[str] = []
+    for value in payload.to:
+        address = meeting_client_mail.normalize_address(value)
+        if address is None:
+            invalid.append(value.strip()[:80])
+        elif address not in addresses:
+            addresses.append(address)
+    if invalid:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Niepoprawny adres: {', '.join(invalid)}.",
+        )
+    subject = payload.subject.strip()
+    body = payload.body.strip()
+    if not subject or not body:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Mail musi mieć temat i treść.",
+        )
+    # Bramka kandydatów zostaje: ta ścieżka nie pisze do osób z bazy kandydatów.
+    candidates = await meeting_client_mail.candidate_addresses(db, addresses)
+    if candidates:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Te adresy są w bazie kandydatów, a podsumowania z Sprzedaży do "
+                f"kandydatów nie wysyłamy: {', '.join(sorted(candidates))}."
+            ),
+        )
+    connection = await _own_connection(db, current_user.id)
+    mailbox = meeting_client_mail.mailbox_state(connection)
+    if mailbox != "ok":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Podłącz skrzynkę Outlook w Sprzedaży, żeby wysłać mail."
+                if mailbox == "missing"
+                else "Połącz skrzynkę Outlook ponownie: brakuje zgody na wysyłkę."
+            ),
+        )
+
+    meeting = await _client_mail_meeting(db, activity_id, current_user, lock=True)
+    request_id = str(payload.request_id)
+    if meeting.transcript.client_mail_request_id == request_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Ten mail jest już wysyłany albo wyszedł. Sprawdź oś szansy.",
+        )
+    opportunity_id = meeting.activity.opportunity_id
+    if opportunity_id is None and payload.opportunity_id is not None:
+        card = await db.get(SalesOpportunity, payload.opportunity_id)
+        if card is not None and card.company_id == meeting.activity.company_id:
+            opportunity_id = card.id
+    transcript_id = meeting.transcript.id
+    meeting.transcript.client_mail_request_id = request_id
+    await db.commit()  # klucz widzi drugie żądanie, zanim mail wyjdzie
+
+    try:
+        draft = await meeting_client_mail.deliver(
+            db, connection, subject=subject, body=body, to=addresses
+        )
+    except meeting_client_mail.Undelivered:
+        await db.rollback()
+        row = await db.get(
+            SalesMeetingTranscript, transcript_id, populate_existing=True
+        )
+        if row is not None and row.client_mail_request_id == request_id:
+            row.client_mail_request_id = None
+            await db.commit()
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="Outlook nie przyjął maila. Nic nie wyszło, spróbuj ponownie.",
+        )
+    except meeting_client_mail.Uncertain:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie wiadomo, czy mail wyszedł. Sprawdź folder Wysłane w Outlooku, "
+                "zanim spróbujesz ponownie."
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+    row = await db.get(SalesMeetingTranscript, transcript_id, populate_existing=True)
+    if row is not None:
+        row.client_mail_sent_at = now
+    sent_id = await meeting_client_mail.record_sent(
+        db,
+        meeting,
+        opportunity_id=opportunity_id,
+        user_id=current_user.id,
+        subject=subject,
+        body=body,
+        internet_message_id=draft.get("internetMessageId"),
+        now=now,
+    )
+    await db.commit()
+    return await _load(db, sent_id)
 
 
 @router.post("/{activity_id}/pin", response_model=ActivityOut)

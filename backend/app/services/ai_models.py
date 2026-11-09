@@ -67,6 +67,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
 | F44 | cv_call_questions                | claude-sonnet-5-5 (z 5)  |
 | F45 | skill_dictionary_proposals       | gpt-6.1-sol (z Sonnet 5.5)|
+| F46 | sales_meeting_client_summary     | claude-sonnet-5-5 (z 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -563,6 +564,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "klasyfikacja nazw spoza słownika: próba na 400 rodzinach na Solu podniosła pokrycie "
         "must-have z 46% do 56% i P@5 z 0,103 do 0,117. Dodatek: nic nie wchodzi do słownika "
         "bez zatwierdzenia HoR+, awaria modelu zostawia wczorajsze propozycje.",
+    ),
+    AIFeatureKey.sales_meeting_client_summary: ModelChoice(
+        default=SONNET_55,
+        env_vars=("SALES_MEETING_CLIENT_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F46 (09.11.2026, POZA badaniem 16.09). Podsumowanie spotkania do "
+        "wysłania klientowi z NEXUSA: tekst idzie do osoby spoza firmy, więc ten sam model "
+        "co tekst dla klienta w F44, a nie Luna z F40. Jedno wywołanie na okno, handlowiec "
+        "czyta i poprawia treść przed wysyłką; awaria modelu zostawia puste pole do "
+        "napisania ręcznie.",
     ),
 }
 

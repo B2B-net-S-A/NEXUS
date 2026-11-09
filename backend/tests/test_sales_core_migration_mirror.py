@@ -53,7 +53,11 @@ def _added_columns(table: str) -> set[str]:
     """Kolumny dołożone przez ``ALTER TABLE … ADD COLUMN`` (0614)."""
     return {
         match.group(1)
-        for statement in (*schema.GAPS_DDL, *schema.CALL_OUTCOME_DDL)
+        for statement in (
+            *schema.GAPS_DDL,
+            *schema.CALL_OUTCOME_DDL,
+            *schema.CLIENT_SUMMARY_DDL,
+        )
         for match in re.finditer(
             rf"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS\s+(\w+)", statement
         )
@@ -113,6 +117,11 @@ def test_migration_reads_the_shared_module() -> None:
     )
     assert "for stmt in schema.CALL_OUTCOME_DDL:" in outcomes
     assert "*_sales_schema.CALL_OUTCOME_DDL," in entry
+    client_summary = (
+        ROOT / "alembic/versions/0676_sales_meeting_client_summary.py"
+    ).read_text(encoding="utf-8")
+    assert "for stmt in schema.CLIENT_SUMMARY_DDL:" in client_summary
+    assert "*_sales_schema.CLIENT_SUMMARY_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:

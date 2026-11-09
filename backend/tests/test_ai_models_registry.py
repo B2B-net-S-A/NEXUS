@@ -176,6 +176,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_call_questions: ("F44", "claude-sonnet-5-5"),
     # F45 — 06.11.2026: nocne propozycje do słownika umiejętności.
     AIFeatureKey.skill_dictionary_proposals: ("F45", "gpt-6.1-sol"),
+    # F46 — 09.11.2026: podsumowanie spotkania handlowca do wysłania klientowi.
+    AIFeatureKey.sales_meeting_client_summary: ("F46", "claude-sonnet-5-5"),
 }
 
 

@@ -23,7 +23,9 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
   (z nich `m365_cv_parse` zakłada kandydatów). `eligible_m365_owner`,
   `require_eligible_connection_owner` i `GraphClient` bez `sales_ok=True` są
   bramką kandydatów — `sales_ok=True` podają wyłącznie synchronizacja,
-  subskrypcje Graph i ich odnawianie. Nie dokładaj go nigdzie indziej.
+  subskrypcje Graph i ich odnawianie oraz wysyłka podsumowania spotkania do klienta
+  (`services/sales/meeting_client_mail.py`, od 09.11.2026), która odrzuca adresy
+  z bazy kandydatów przed wywołaniem Graph. Nie dokładaj go nigdzie indziej.
 
 ## Dopasowanie do firmy (`services/sales/outlook_activities.py`)
 

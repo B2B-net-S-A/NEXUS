@@ -495,6 +495,12 @@ class SalesMeetingTranscript(Base, TimestampMixin):
     summary_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0", default=0
     )
+    #: 0676: szkic maila do klienta (F46) i klucz ostatniej wysyłki z NEXUSA.
+    client_summary: Mapped[Optional[str]] = mapped_column(Text)
+    client_mail_request_id: Mapped[Optional[str]] = mapped_column(String(64))
+    client_mail_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
 
 
 class SalesCompanyAlias(Base, TimestampMixin):
