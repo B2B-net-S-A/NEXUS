@@ -137,6 +137,7 @@ from app.api import client_orders as client_orders_api
 from app.api import dl_alerts as dl_alerts_api
 from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
+from app.api import bnp_report as bnp_report_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
 from app.api import also_fits as also_fits_api
@@ -1498,6 +1499,7 @@ app.include_router(
     client_playbooks_api.router, prefix="/api", tags=["client-playbooks"]
 )
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
+app.include_router(bnp_report_api.router, prefix="/api/clients", tags=["clients"])
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",

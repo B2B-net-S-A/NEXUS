@@ -190,11 +190,77 @@ describe("ProjectsTab — podział aktywne/zamknięte + wyszukiwarka", () => {
     await waitFor(
       () =>
         expect(
-          screen.getAllByText("Brak projektów pasujących do wyszukiwania.")
+          screen.getAllByText("Brak projektów pasujących do filtrów.")
             .length,
         ).toBeGreaterThanOrEqual(1),
       { timeout: 2500 },
     );
     expect(screen.queryByText("Brak aktywnych projektów.")).not.toBeInTheDocument();
+  });
+});
+
+describe("ProjectsTab — data otwarcia i „Wszystkie”", () => {
+  it("zakres dat idzie do serwera w obu kubełkach", async () => {
+    renderTab();
+    await screen.findByText("Senior Python Developer");
+    fireEvent.change(screen.getByLabelText("Data otwarcia od"), {
+      target: { value: "2026-10-01" },
+    });
+    fireEvent.change(screen.getByLabelText("Data otwarcia do"), {
+      target: { value: "2026-10-31" },
+    });
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        "/api/jobs",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            status: "closed",
+            opened_from: "2026-10-01",
+            opened_to: "2026-10-31",
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("odwrócony zakres nie idzie do serwera i mówi, co poprawić", async () => {
+    renderTab();
+    await screen.findByText("Senior Python Developer");
+    fireEvent.change(screen.getByLabelText("Data otwarcia od"), {
+      target: { value: "2026-10-31" },
+    });
+    fireEvent.change(screen.getByLabelText("Data otwarcia do"), {
+      target: { value: "2026-10-01" },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("popraw zakres");
+    for (const [, config] of mocks.apiGet.mock.calls) {
+      expect(config?.params?.opened_to).not.toBe("2026-10-01");
+    }
+  });
+
+  it("„Poprzedni miesiąc” otwiera wspólną listę aktywnych i zamkniętych", async () => {
+    const user = setupUser();
+    renderTab();
+    await screen.findByText("Senior Python Developer");
+    await user.click(screen.getByRole("button", { name: "Poprzedni miesiąc" }));
+    await waitFor(() => expect(tab(/Wszystkie/)).toHaveAttribute("aria-selected", "true"));
+    const allCall = mocks.apiGet.mock.calls.find(
+      ([, config]) =>
+        config?.params?.opened_from && !config.params.open_only && !config.params.status,
+    );
+    expect(allCall).toBeDefined();
+  });
+
+  it("licznik „Wszystkie” to suma kubełków", async () => {
+    renderTab();
+    await screen.findByText("Senior Python Developer");
+    await waitFor(() => expect(tab(/Wszystkie/)).toHaveTextContent("3"));
+  });
+
+  it("bez roli widzącej stawki nie pyta o raport BNP", async () => {
+    renderTab();
+    await screen.findByText("Senior Python Developer");
+    expect(screen.queryByRole("button", { name: /Raport miesięczny/ })).not.toBeInTheDocument();
+    expect(mocks.apiGet).not.toHaveBeenCalledWith("/api/clients/42/bnp-report/availability");
   });
 });

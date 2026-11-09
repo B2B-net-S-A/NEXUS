@@ -9,6 +9,7 @@ import {
   type RequestStage,
 } from "@/lib/request-stage";
 import { jobsActiveFilterCount } from "@/lib/jobs-filter-groups";
+import { JobsHiddenByScopeNotice } from "@/components/v2/jobs/JobsHiddenByScopeNotice";
 import {
   JobsFilterBar,
   type JobsFilterBarValue,
@@ -878,6 +879,28 @@ export function JobsListV2({
   const canStaff = can["job.recruiter.assign"] === true;
   const canDecideProposals = can["request.proposal.decide"] === true;
 
+
+  // Te same warunki dla listy i dla licznika rekrutacji schowanych przez zakres.
+  const listFilterParams = {
+    q: debouncedSearch || undefined,
+    request_stage: stages.length ? stages : undefined,
+    client_id: filterValue.clientIds.length ? filterValue.clientIds : undefined,
+    competence_category_id: filterValue.ccIds.length ? filterValue.ccIds : undefined,
+    delivery_lead_id: filterValue.deliveryLeadIds.length
+      ? filterValue.deliveryLeadIds
+      : undefined,
+    worked_by: filterValue.workedBy.length ? filterValue.workedBy : undefined,
+    nobody_working: filterValue.nobodyWorking ? true : undefined,
+    priority_level: filterValue.priorityLevels.length
+      ? filterValue.priorityLevels
+      : undefined,
+    ...dl,
+    ...sentQueryParams(filterValue.sent),
+    ...toSendQueryParams(filterValue.toSend),
+    // Odwrócony zakres nie idzie wcale (serwer odpowiada 422).
+    ...openedQueryParams(filterValue.openedRange),
+  };
+
   const {
     data,
     isLoading: queryLoading,
@@ -914,28 +937,12 @@ export function JobsListV2({
       api
         .get("/api/jobs", {
           params: {
-            q: debouncedSearch || undefined,
+            ...listFilterParams,
             mine: mine ? true : undefined,
             // „Moja kategoria” idzie sama — serwer sam pomija zamknięte.
             my_category: myCategory ? true : undefined,
             open_only: openOnly ? true : undefined,
-            request_stage: stages.length ? stages : undefined,
-            client_id: filterValue.clientIds.length ? filterValue.clientIds : undefined,
-            competence_category_id: filterValue.ccIds.length ? filterValue.ccIds : undefined,
-            delivery_lead_id: filterValue.deliveryLeadIds.length
-              ? filterValue.deliveryLeadIds
-              : undefined,
-            worked_by: filterValue.workedBy.length ? filterValue.workedBy : undefined,
-            nobody_working: filterValue.nobodyWorking ? true : undefined,
-            priority_level: filterValue.priorityLevels.length
-              ? filterValue.priorityLevels
-              : undefined,
             sort,
-            ...dl,
-            ...sentQueryParams(filterValue.sent),
-            ...toSendQueryParams(filterValue.toSend),
-            // Odwrócony zakres nie idzie wcale (serwer odpowiada 422).
-            ...openedQueryParams(filterValue.openedRange),
             page,
             // Osiem kolumn Tablicy w wierszu — JEDNO dodatkowe GROUP BY
             // na całą stronę wyników (`stage_breakdown` per wiersz), zero
@@ -949,6 +956,26 @@ export function JobsListV2({
     // bez tego lista migocze pustym stanem ładowania przy każdej zmianie filtra.
     placeholderData: keepPreviousData,
   });
+
+  // Filtr daty działa w obrębie zakresu, więc przy „Moje” i „Otwarte” mówimy,
+  // ile rekrutacji z tego okresu zakres schował. Dodatek: awaria go wygasza.
+  const scopeHidesJobs = scope === "mine" || scope === "open";
+  const openedFilterActive = Object.keys(openedQueryParams(filterValue.openedRange)).length > 0;
+  const { data: allInPeriod } = useQuery({
+    enabled: authHydrated && !scopePending && scopeHidesJobs && openedFilterActive,
+    queryKey: ["jobs-hidden-by-scope", listFilterParams],
+    queryFn: () =>
+      api
+        .get("/api/jobs", {
+          params: { ...listFilterParams, page_size: 1 },
+          paramsSerializer: { indexes: null },
+        })
+        .then((r) => r.data as { total: number }),
+  });
+  const hiddenByScope =
+    scopeHidesJobs && openedFilterActive && allInPeriod && data
+      ? allInPeriod.total - (data.total ?? 0)
+      : 0;
 
   // Liczby przełączników i pigułek stanu są policzone dla „Moich” i dla
   // rejestru. „Wszystkie” nie ma liczb przełączników (objęłyby archiwum),
@@ -1336,6 +1363,14 @@ export function JobsListV2({
             canClear={activeFilterCount > 0 || scopeOverride !== null}
             onClearAll={resetFilters}
           />
+
+          {scope === "mine" || scope === "open" ? (
+            <JobsHiddenByScopeNotice
+              hidden={hiddenByScope}
+              scope={scope}
+              onShowAll={() => changeScope("all")}
+            />
+          ) : null}
 
           {/* Wyniki — tabela (widok kafelków usunięty 02.10.2026) */}
           {isLoading ? (

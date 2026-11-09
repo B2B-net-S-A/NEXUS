@@ -129,7 +129,12 @@ function renderJobs() {
 }
 
 function jobsCalls() {
-  return getMock.mock.calls.filter((call) => call[0] === "/api/jobs");
+  // `page_size: 1` to licznik rekrutacji schowanych przez zakres, nie lista.
+  return getMock.mock.calls.filter(
+    (call) =>
+      call[0] === "/api/jobs" &&
+      (call[1] as { params?: { page_size?: number } } | undefined)?.params?.page_size !== 1,
+  );
 }
 
 function latestParams(): Record<string, unknown> {

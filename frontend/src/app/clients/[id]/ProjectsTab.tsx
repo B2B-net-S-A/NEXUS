@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, UserPlus, XCircle } from "lucide-react";
+import { FileSpreadsheet, Search, UserPlus, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { TabbedNav } from "@/components/ds";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -22,8 +23,16 @@ import {
   workingRecruiters,
   type JobTeamSource,
 } from "@/lib/job-team";
+import { canViewClientRate } from "@/lib/client-rate-access";
+import {
+  openedQueryParams,
+  openedRangeReversed,
+  type JobOpenedRange,
+} from "@/lib/jobs-url-filters";
+import { previousMonth } from "@/lib/previous-month";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
+import { BnpMonthlyReportDialog } from "@/components/client-profile/BnpMonthlyReportDialog";
 import { AddCandidateToJobModal } from "@/components/client-profile/actions/AddCandidateToJobModal";
 import { CloseJobAsLostModal } from "@/components/client-profile/actions/CloseJobAsLostModal";
 import {
@@ -70,7 +79,7 @@ interface JobsPage {
   total: number;
 }
 
-type Bucket = "active" | "closed";
+type Bucket = "active" | "closed" | "all";
 
 // Sufit jednej strony. /api/jobs zwraca max 100 wierszy na page_size — dla
 // widoku pojedynczego klienta to praktycznie zawsze pełen zbiór. Gdy zamknięta
@@ -84,15 +93,17 @@ async function fetchClientJobs(
   clientId: number,
   bucket: Bucket,
   q: string,
+  opened: JobOpenedRange,
 ): Promise<JobsPage> {
   const params: Record<string, unknown> = {
     client_id: clientId,
     page_size: PAGE_SIZE,
+    ...openedQueryParams(opened),
   };
   if (bucket === "active") {
     // open_only = status in (draft, published) — "aktywne / w toku".
     params.open_only = true;
-  } else {
+  } else if (bucket === "closed") {
     params.status = "closed";
   }
   const trimmed = q.trim();
@@ -219,7 +230,7 @@ function ProjectsSection({
       <div className="rounded-lg border border-border py-6 text-center text-sm text-muted-foreground">
         {/* Pustka po wyszukaniu ≠ brak projektów — inaczej czyta się jak
             utratę danych (ten sam wzorzec co w rejestrze umów B2B). */}
-        {searching ? "Brak projektów pasujących do wyszukiwania." : emptyLabel}
+        {searching ? "Brak projektów pasujących do filtrów." : emptyLabel}
       </div>
     );
   }
@@ -268,7 +279,22 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
   const canCloseLost = canCloseJobAsLost(user);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
-  const searching = debouncedSearch.trim().length > 0;
+  const [opened, setOpened] = useState<JobOpenedRange>({});
+  const reversed = openedRangeReversed(opened);
+  // Odwrócony zakres nie idzie do serwera (422); lista zostaje bez zawężenia.
+  const appliedOpened = reversed ? {} : opened;
+  const openedActive = Object.keys(openedQueryParams(appliedOpened)).length > 0;
+  const searching = debouncedSearch.trim().length > 0 || openedActive;
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportAvailable = useQuery({
+    queryKey: ["bnp-report-availability", clientId],
+    enabled: canViewClientRate(user),
+    staleTime: 300_000,
+    queryFn: async () =>
+      (await api.get(`/api/clients/${clientId}/bnp-report/availability`)).data as {
+        available: boolean;
+      },
+  });
 
   // Akcje rekrutacji — jedyny dom po usunięciu sekcji „Otwarte rekrutacje"
   // z Profilu (ticket #3). CloseJobAsLostModal to JEDYNY caller
@@ -287,13 +313,20 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
   // `0` przez `?? 0` niżej, czyli skłamałby „brak zamkniętych projektów".
   // Dane oba, render jeden.
   const activeQuery = useQuery({
-    queryKey: ["client-jobs", clientId, "active", debouncedSearch],
-    queryFn: () => fetchClientJobs(clientId, "active", debouncedSearch),
+    queryKey: ["client-jobs", clientId, "active", debouncedSearch, appliedOpened],
+    queryFn: () => fetchClientJobs(clientId, "active", debouncedSearch, appliedOpened),
     staleTime: 10_000,
   });
   const closedQuery = useQuery({
-    queryKey: ["client-jobs", clientId, "closed", debouncedSearch],
-    queryFn: () => fetchClientJobs(clientId, "closed", debouncedSearch),
+    queryKey: ["client-jobs", clientId, "closed", debouncedSearch, appliedOpened],
+    queryFn: () => fetchClientJobs(clientId, "closed", debouncedSearch, appliedOpened),
+    staleTime: 10_000,
+  });
+  // „Wszystkie” pobiera wiersze dopiero po wyborze; licznik to suma dwóch kubełków.
+  const allQuery = useQuery({
+    enabled: bucket === "all",
+    queryKey: ["client-jobs", clientId, "all", debouncedSearch, appliedOpened],
+    queryFn: () => fetchClientJobs(clientId, "all", debouncedSearch, appliedOpened),
     staleTime: 10_000,
   });
 
@@ -336,6 +369,14 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
                   ? undefined
                   : (closedQuery.data?.total ?? 0),
             },
+            {
+              value: "all",
+              label: "Wszystkie",
+              count:
+                activeQuery.isSuccess && closedQuery.isSuccess
+                  ? activeQuery.data.total + closedQuery.data.total
+                  : undefined,
+            },
           ]}
         />
         <div className="relative min-w-[220px] flex-1">
@@ -349,6 +390,59 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
           />
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Data otwarcia</span>
+        <Input
+          type="date"
+          aria-label="Data otwarcia od"
+          aria-invalid={reversed || undefined}
+          className="h-9 w-[150px]"
+          value={opened.from ?? ""}
+          onChange={(e) => setOpened({ ...opened, from: e.target.value || undefined })}
+        />
+        <span className="text-muted-foreground">–</span>
+        <Input
+          type="date"
+          aria-label="Data otwarcia do"
+          aria-invalid={reversed || undefined}
+          className="h-9 w-[150px]"
+          value={opened.to ?? ""}
+          onChange={(e) => setOpened({ ...opened, to: e.target.value || undefined })}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            const { from, to } = previousMonth();
+            setOpened({ from, to });
+            setBucket("all");
+          }}
+        >
+          Poprzedni miesiąc
+        </Button>
+        {opened.from || opened.to ? (
+          <Button size="sm" variant="quiet" onClick={() => setOpened({})}>
+            Wyczyść
+          </Button>
+        ) : null}
+        {reportAvailable.data?.available ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => setReportOpen(true)}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+            Raport miesięczny BNP
+          </Button>
+        ) : null}
+      </div>
+      {reversed ? (
+        <p role="alert" className="text-xs text-destructive">
+          Data „od” jest późniejsza niż „do” — popraw zakres, żeby go zastosować.
+        </p>
+      ) : null}
 
       {/* Renderujemy DOKŁADNIE jedną listę — niewybrany kubełek wychodzi z DOM,
           nie jest ukrywany CSS-em (inaczej „aktywne znikają" byłoby pozorne). */}
@@ -389,6 +483,15 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
             ) : null
           }
         />
+      ) : bucket === "all" ? (
+        <ProjectsSection
+          total={allQuery.data?.total ?? 0}
+          items={allQuery.data?.items ?? []}
+          isLoading={allQuery.isLoading}
+          isError={allQuery.isError}
+          searching={searching}
+          emptyLabel="Brak projektów."
+        />
       ) : (
         /* Bez `renderActions` — akcje rekrutacji nie mogą wyciec do zamkniętych. */
         <ProjectsSection
@@ -400,6 +503,10 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
           emptyLabel="Brak zamkniętych projektów."
         />
       )}
+
+      {reportOpen ? (
+        <BnpMonthlyReportDialog clientId={clientId} onClose={() => setReportOpen(false)} />
+      ) : null}
 
       {addCandidateTo && (
         <AddCandidateToJobModal
