@@ -188,8 +188,10 @@ async def test_empty_day_has_all_sections_empty(app_client) -> None:
         "overdue": 0,
         "offers": 0,
         "older_tasks": 0,
+        "signals": 0,
     }
     assert day["meetings"] == day["reply"] == day["overdue"] == day["offers"] == []
+    assert day["signals"] == []
     assert day["prep"] is None
 
 

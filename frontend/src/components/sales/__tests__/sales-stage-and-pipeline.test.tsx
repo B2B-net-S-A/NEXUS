@@ -59,6 +59,7 @@ const OPPORTUNITY = {
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
   useOpportunity: () => ({ data: OPPORTUNITY, isLoading: false, error: null, isSuccess: true, refetch: vi.fn() }),
+  useCompanyBriefing: () => ({ data: undefined, isSuccess: false, isError: false }),
   usePipelines: () => ({ data: pipelinesData, isLoading: false, error: null, isSuccess: pipelinesData !== undefined }),
   useMoveOpportunity: () => ({ mutate: move, isPending: false }),
   useArchiveOpportunity: () => ({ mutate: vi.fn(), isPending: false }),

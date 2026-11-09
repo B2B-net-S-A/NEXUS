@@ -1337,6 +1337,8 @@ try:
         *_sales_schema.COMPANY_ALIASES_DDL,
         # 0672: wynik rozmowy i sprzeciw wobec kontaktu.
         *_sales_schema.CALL_OUTCOME_DDL,
+        # 0676: biegi bota researchu i punkty do rozmowy przy firmie.
+        *_sales_schema.SIGNALS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001

@@ -14,6 +14,7 @@ import { useAuthStore } from "@/store/auth";
 import { dayHeading, dayLine, isDayEmpty, OFFERS_PREVIEW, plural } from "./my-day";
 import { MyDayPrepCard } from "./MyDayPrepCard";
 import { MyDayRowItem } from "./MyDayRowItem";
+import { MyDaySignals } from "./signals/MyDaySignals";
 
 const SECTIONS: { key: MyDaySectionKey; title: string }[] = [
   { key: "meetings", title: "Spotkania dziś" },
@@ -46,9 +47,7 @@ function DayQueue({ day, canEdit }: { day: MyDay; canEdit: boolean }) {
   const [allOffers, setAllOffers] = useState(false);
   const rowsOf = (key: MyDaySectionKey): MyDayRow[] =>
     key === "offers" && !allOffers ? day[key].slice(0, OFFERS_PREVIEW) : day[key];
-  return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
-      {SECTIONS.filter((section) => day[section.key].length > 0).map((section) => (
+  const renderSection = (section: (typeof SECTIONS)[number]) => (
         <section key={section.key}>
           <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1">
             <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{section.title}</h2>
@@ -66,7 +65,14 @@ function DayQueue({ day, canEdit }: { day: MyDay; canEdit: boolean }) {
             ))}
           </ul>
         </section>
-      ))}
+  );
+  const visible = SECTIONS.filter((section) => day[section.key].length > 0);
+  return (
+    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+      {visible.filter((section) => section.key !== "offers").map(renderSection)}
+      {/* Nowe sygnały nad ofertami bez ruchu (G3). */}
+      <MyDaySignals signals={day.signals ?? []} />
+      {visible.filter((section) => section.key === "offers").map(renderSection)}
     </div>
   );
 }

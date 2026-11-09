@@ -1,0 +1,103 @@
+"""Sprzedaż: odczyt kanału sygnałów (raport ostatniego biegu, punkty do rozmowy).
+
+Prefiks ``/api/sales/signals``, „Sprzedaż: podgląd”. Z wyłączoną flagą
+``SALES_SIGNALS_ENABLED`` odpowiedzi mówią ``enabled: false`` i ekran nic nie pokazuje.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal, Optional
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.sales_gates import SalesViewUser
+from app.core.database import get_db
+from app.models.sales import SalesCompanyBriefing, SalesSignalRun
+from app.services.sales import signals
+
+router = APIRouter()
+
+
+class RunOut(BaseModel):
+    id: int
+    kind: str
+    status: str
+    started_at: datetime
+    received_at: Optional[datetime]
+    company_count: int
+    report: dict[str, Any]
+    error: Optional[str]
+
+
+class LatestRunOut(BaseModel):
+    enabled: bool
+    reject_reasons: list[str]
+    run: Optional[RunOut]
+
+
+class BriefingOut(BaseModel):
+    mode: str
+    points: list[dict[str, Any]]
+    generated_at: datetime
+
+
+class CompanyBriefingOut(BaseModel):
+    enabled: bool
+    briefing: Optional[BriefingOut]
+
+
+@router.get("/latest-run", response_model=LatestRunOut)
+async def latest_run(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    kind: Literal["signals", "briefing"] = Query(default="signals"),
+) -> LatestRunOut:
+    if not signals.enabled():
+        return LatestRunOut(enabled=False, reject_reasons=[], run=None)
+    run = (
+        await db.execute(
+            select(SalesSignalRun)
+            .where(SalesSignalRun.kind == kind)
+            .order_by(SalesSignalRun.started_at.desc(), SalesSignalRun.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return LatestRunOut(
+        enabled=True,
+        reject_reasons=list(signals.REJECT_REASONS),
+        run=None
+        if run is None
+        else RunOut(
+            id=run.id,
+            kind=run.kind,
+            status=run.status,
+            started_at=run.started_at,
+            received_at=run.received_at,
+            company_count=len(run.company_ids or []),
+            report=run.report or {},
+            error=run.error,
+        ),
+    )
+
+
+@router.get("/briefings/{company_id}", response_model=CompanyBriefingOut)
+async def company_briefing(
+    company_id: int,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> CompanyBriefingOut:
+    if not signals.enabled():
+        return CompanyBriefingOut(enabled=False, briefing=None)
+    row = await db.get(SalesCompanyBriefing, company_id)
+    return CompanyBriefingOut(
+        enabled=True,
+        briefing=None
+        if row is None
+        else BriefingOut(
+            mode=row.mode, points=list(row.points or []), generated_at=row.generated_at
+        ),
+    )
