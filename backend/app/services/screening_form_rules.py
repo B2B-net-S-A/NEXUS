@@ -33,7 +33,7 @@ from app.services.candidate_rate_change import (
     NOTIFY_COLUMNS,
     format_rate,
 )
-from app.services.move_requirements import answer_has_content
+from app.services.move_requirements import answer_has_content, check_has_content
 from app.services.recommendation_card_rules import (
     CARD_ORIGINS,
     DISPLAY_LABELS,
@@ -162,17 +162,12 @@ def skips_need_reason(answers: Sequence[Any], previous: Any) -> bool:
     return not (isinstance(earlier, list) and any(skipped(item) for item in earlier))
 
 
-def _check_has_content(item: Mapping[str, Any]) -> bool:
-    return (item.get("status") or "unknown") != "unknown" or bool(
-        _text(item.get("note"))
-    )
-
-
 def sheet_has_content(sheet: Any) -> bool:
     """Czy arkusz niesie cokolwiek z rozmowy — odpowiedź albo sprawdzenie.
 
     Pusty arkusz (same puste odpowiedzi) nie jest zapisywany: ``sheet_filled``
-    liczy każdą pozycję odpowiedzi. Sama ocena i stara notatka z arkusza to
+    liczy każdą pozycję odpowiedzi i rozstrzygnięte sprawdzenie, więc odczyt
+    widzi każdy zapisany tu arkusz. Sama ocena i stara notatka z arkusza to
     nie rozmowa. Arkusz z samym sprawdzeniem doświadczenia zapisuje się, ale
     bramka „Zweryfikowany” liczy tylko odpowiedzi
     (``move_requirements.sheet_answered``, od 14.10.2026).
@@ -187,7 +182,7 @@ def sheet_has_content(sheet: Any) -> bool:
         return True
     checks = data.get("experience_checks")
     return isinstance(checks, list) and any(
-        isinstance(item, Mapping) and _check_has_content(item) for item in checks
+        isinstance(item, Mapping) and check_has_content(item) for item in checks
     )
 
 
@@ -336,7 +331,7 @@ def sheet_view(sheet: Any) -> Optional[dict[str, Any]]:
         "experience": {
             (item["kind"], item["name"]): (item["status"], item["note"])
             for item in snap["experience_checks"]
-            if _check_has_content(item)
+            if check_has_content(item)
         },
         "overall_fit": snap["overall_fit"],
         "notes": snap["notes"],
@@ -465,7 +460,7 @@ def _answer_text(item: Optional[Mapping[str, Any]]) -> Optional[str]:
 
 
 def _check_text(item: Optional[Mapping[str, Any]]) -> Optional[str]:
-    if not item or not _check_has_content(item):
+    if not item or not check_has_content(item):
         return None
     status = EXPERIENCE_STATUS_LABELS.get(item.get("status") or "unknown", "")
     note = _text(item.get("note"))
@@ -528,7 +523,7 @@ def diff_snapshots(
         return {
             (item["kind"], item["name"]): item
             for item in (sheet or {}).get("experience_checks") or []
-            if _check_has_content(item)
+            if check_has_content(item)
         }
 
     old_checks, new_checks = checks(old_sheet), checks(new_sheet)
