@@ -1,7 +1,7 @@
 """cortex_unmatched_terms.first_seen_at: uzupełnienie, domyślna now(), NOT NULL.
 
-Revision ID: 0665_cortex_first_seen_not_null
-Revises: 0664_dl_alert_invoice_no_line
+Revision ID: 0668_cortex_first_seen_not_null
+Revises: 0667_drop_abandoned_tables
 
 Model od 0167 deklaruje NOT NULL z domyślną, a kolumna powstała bez obu. Lustro
 w ``entrypoint.sh`` robiło samo ADD COLUMN, więc na kopii produkcji z 08.11.2026
@@ -15,8 +15,8 @@ lustro przy kolejnych startach nie brało blokady na tabeli bez potrzeby.
 
 from alembic import op
 
-revision = "0665_cortex_first_seen_not_null"
-down_revision = "0664_dl_alert_invoice_no_line"
+revision = "0668_cortex_first_seen_not_null"
+down_revision = "0667_drop_abandoned_tables"
 branch_labels = None
 depends_on = None
 
