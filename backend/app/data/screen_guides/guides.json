@@ -293,7 +293,7 @@
       },
       {
         "q": "Jak wrócić do poprzedniego wyszukiwania albo przejrzanych CV?",
-        "a": "Lista wraca do ostatniego wyszukiwania i strony; starsze są pod „Ostatnie wyszukiwania”. Z profilu wrócisz przez „Wróć do wyników wyszukiwania”, a ostatnio oglądana osoba ma pasek z lewej. W oknie CV „Poprzednia” i „Następna” (Shift + ←/→) przechodzą po liście, „Przypisz do rekrutacji” przypisuje oglądaną osobę; obejrzane CV ma ✓.",
+        "a": "Lista wraca do ostatniego wyszukiwania i strony; starsze są pod „Ostatnie wyszukiwania”. Z profilu wrócisz przez „Wróć do wyników wyszukiwania”, a ostatnio oglądana osoba ma pasek z lewej. W oknie CV „Poprzednia” i „Następna” (Shift + ←/→) przechodzą po liście, „Przypisz do rekrutacji” przypisuje oglądaną osobę; obejrzane CV ma ✓. W „Szukaj ręcznie” w rekrutacji zamiast tego jest „Dodaj do Nowych”, a okno CV zostaje otwarte.",
         "anchor": "candidates.list.saved"
       },
       {
