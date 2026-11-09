@@ -1944,24 +1944,6 @@
     "dot_anchor": "prep.organizer-calendar"
   },
   {
-    "id": "porcja-cv-obok-decyzji",
-    "pr": 3253,
-    "title": "Porcja dnia: CV obok decyzji",
-    "why": "CV, wymagania i opis projektu widzisz przy decyzji. „Do screeningu” liczy się od razu, a wynik wpisz w 2 dni robocze, inaczej wyszukiwanie znów się zablokuje.",
-    "tier": "dot",
-    "shipped_on": "2026-11-09",
-    "audience": {
-      "roles": [
-        "recruiter"
-      ]
-    },
-    "where": "Pasek u góry → licznik porcji → Porcja dnia",
-    "href": "/porcja",
-    "section": "pipeline",
-    "dot_anchor": "review-batch.to-screening",
-    "requires_setting": "REVIEW_BATCH_ENABLED"
-  },
-  {
     "id": "zastepca-dostaje-prace",
     "pr": 3262,
     "title": "Zastępca dostaje Twoją pracę",
@@ -1979,5 +1961,23 @@
     "where": "Moja współpraca → Przerwy → Kto przejmie bieżące sprawy",
     "href": "/my-time",
     "dot_anchor": "leave.substitute"
+  },
+  {
+    "id": "porcja-cv-obok-decyzji",
+    "pr": 3253,
+    "title": "Porcja dnia: CV obok decyzji",
+    "why": "CV, wymagania i opis projektu widzisz przy decyzji. „Do screeningu” liczy się od razu, a wynik wpisz w 2 dni robocze, inaczej wyszukiwanie znów się zablokuje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.to-screening",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
   }
 ]
