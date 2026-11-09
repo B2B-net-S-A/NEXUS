@@ -1,7 +1,7 @@
 """Sprzedaż: wynik rozmowy w aktywności i sprzeciw wobec kontaktu.
 
-Revision ID: 0665_sales_call_outcome
-Revises: 0664_dl_alert_invoice_no_line
+Revision ID: 0670_sales_call_outcome
+Revises: 0669_drop_embedding_queue_trg
 
 DDL w ``app/services/sales_schema.py``; ``entrypoint.sh`` wpina tę samą listę.
 """
@@ -10,8 +10,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0665_sales_call_outcome"
-down_revision = "0664_dl_alert_invoice_no_line"
+revision = "0670_sales_call_outcome"
+down_revision = "0669_drop_embedding_queue_trg"
 branch_labels = None
 depends_on = None
 

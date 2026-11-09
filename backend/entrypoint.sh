@@ -1313,7 +1313,7 @@ try:
         *_sales_schema.OUTLOOK_SYNC_DDL,
         # 0628: transkrypty Teams przy spotkaniach handlowców.
         *_sales_schema.TRANSCRIPTS_DDL,
-        # 0665: wynik rozmowy i sprzeciw wobec kontaktu.
+        # 0670: wynik rozmowy i sprzeciw wobec kontaktu.
         *_sales_schema.CALL_OUTCOME_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
