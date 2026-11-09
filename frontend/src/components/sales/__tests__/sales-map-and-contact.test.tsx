@@ -45,6 +45,8 @@ describe("mapa decyzyjna", () => {
       />,
     );
     expect(screen.getByRole("link", { name: /\+48 600 100 200/ })).toHaveAttribute("href", "tel:+48600100200");
+    // Karta jest zwarta: mail, LinkedIn i notatka po rozwinięciu osoby.
+    fireEvent.click(screen.getByRole("button", { name: /Osoba/ }));
     expect(screen.getByRole("link", { name: /osoba@example.com/ })).toHaveAttribute("href", "mailto:osoba@example.com");
     expect(screen.getByRole("link", { name: /LinkedIn/ })).toHaveAttribute("href", "https://www.linkedin.com/in/osoba");
     expect(screen.getByText("Właściciel budżetu")).toBeInTheDocument();
@@ -53,6 +55,21 @@ describe("mapa decyzyjna", () => {
   it("nie robi linku z adresu LinkedIn innego niż http(s)", () => {
     render(<SalesMotionPanel opportunityId={1} motion={motion({ name: "Osoba", linkedin_url: "javascript:alert(1)" })} />);
     expect(screen.queryByRole("link", { name: /LinkedIn/ })).toBeNull();
+  });
+});
+
+describe("poziom decyzyjny na mapie", () => {
+  it("po rozwinięciu osoby widać poziom, także bez prawa edycji", () => {
+    render(<SalesMotionPanel opportunityId={1} motion={motion({ name: "Osoba", decision_level: 1 })} />);
+    expect(screen.queryByText(/Zarząd \/ C-level/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Osoba/ }));
+    expect(screen.getByText(/Zarząd \/ C-level/)).toBeInTheDocument();
+  });
+
+  it("osoba bez poziomu nie dostaje poziomu z domysłu", () => {
+    render(<SalesMotionPanel opportunityId={1} motion={motion({ name: "Osoba", decision_level: null })} />);
+    fireEvent.click(screen.getByRole("button", { name: /Osoba/ }));
+    expect(screen.queryByText(/Zespół/)).toBeNull();
   });
 });
 

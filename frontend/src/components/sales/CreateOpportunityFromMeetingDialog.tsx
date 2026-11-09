@@ -32,7 +32,7 @@ const SERVICE_OPTIONS = Object.entries(SERVICE_LINE_LABELS).map(([value, label])
 type Person = MeetingDraft["people"][number];
 
 interface DraftFormProps {
-  meeting: Meeting;
+  meeting: Pick<Meeting, "id">;
   draft: MeetingDraft;
   onClose: () => void;
 }
@@ -209,7 +209,7 @@ function DraftForm({ meeting, draft, onClose }: DraftFormProps) {
 }
 
 interface CreateOpportunityFromMeetingDialogProps {
-  meeting: Meeting;
+  meeting: Pick<Meeting, "id">;
   onClose: () => void;
 }
 

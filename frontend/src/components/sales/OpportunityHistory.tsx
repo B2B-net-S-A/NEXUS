@@ -24,6 +24,7 @@ const FIELD_LABELS: Record<string, string> = {
   company_id: "Firma",
   decision_map: "Mapa decyzyjna",
   decision_map_contact: "Kontakt uzupełniony z mapy",
+  do_not_contact: "Sprzeciw wobec kontaktu",
   outlook_activity: "Spotkanie lub mail z Outlooka",
   last_activity_at: "Ostatnia aktywność",
 };

@@ -1037,7 +1037,7 @@
       "permissions": ["sales_view"]
     },
     "where": "Sprzedaż → zakładki",
-    "href": "/sales",
+    "href": "/sales/opportunities",
     "dot_anchor": "sales.tabs"
   },
   {
@@ -1061,7 +1061,7 @@
       "permissions": ["sales_edit"]
     },
     "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
-    "href": "/sales",
+    "href": "/sales/opportunities",
     "dot_anchor": "sales.decision-map.add"
   },
   {
@@ -1842,6 +1842,34 @@
     },
     "where": "Sprzedaż → Firmy → Kogo znamy",
     "href": "/sales/companies",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-krok-i-zapis-rozmowy",
+    "pr": 3243,
+    "title": "Szanse: krok, zapis rozmowy, przeciąganie",
+    "why": "Na górze karty widzisz, do kogo zadzwonić i dlaczego. Po rozmowie jednym kliknięciem zapisujesz wynik i ustalasz, co dalej. Karty na tablicy przeciągasz między etapami.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-moj-dzien",
+    "pr": 3243,
+    "title": "Mój dzień w Sprzedaży",
+    "why": "Nowa pierwsza zakładka mówi, co dziś zrobić: spotkania, komu odpisać, zaległe kroki i oferty, które ucichły. Telefon zapiszesz prosto z wiersza, a skrót dostaniesz też rano mailem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Mój dzień",
+    "href": "/sales/my-day",
     "dot_anchor": "sales.tabs"
   }
 ]

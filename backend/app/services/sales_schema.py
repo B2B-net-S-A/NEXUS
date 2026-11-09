@@ -716,3 +716,37 @@ COMPANY_ALIASES_DDL: tuple[str, ...] = (
 COMPANY_ALIASES_DOWNGRADE_DDL: tuple[str, ...] = (
     "DROP TABLE IF EXISTS sales_company_aliases",
 )
+
+# ── 0672: wynik rozmowy i sprzeciw wobec kontaktu ────────────────────────
+#
+# Wynik zapisany w polu, nie tylko w temacie wpisu, żeby dało się go policzyć.
+# ``sales_contacts`` nie miało dotąd żadnego pola zgody ani sprzeciwu.
+
+CALL_OUTCOMES: tuple[str, ...] = (
+    "connected",
+    "no_answer",
+    "call_back",
+    "wants_offer",
+    "not_now",
+    "do_not_contact",
+)
+CK_ACTIVITY_OUTCOME = f"outcome IS NULL OR outcome IN ({quoted(CALL_OUTCOMES)})"
+
+CALL_OUTCOME_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_activities ADD COLUMN IF NOT EXISTS outcome VARCHAR(20) NULL",
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_activities_outcome') THEN "
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
+    f"CHECK ({CK_ACTIVITY_OUTCOME}); END IF; END $$",
+    "ALTER TABLE sales_contacts ADD COLUMN IF NOT EXISTS "
+    "do_not_contact_at TIMESTAMPTZ NULL",
+    "ALTER TABLE sales_contacts ADD COLUMN IF NOT EXISTS do_not_contact_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+)
+
+CALL_OUTCOME_DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_contacts DROP COLUMN IF EXISTS do_not_contact_by_user_id",
+    "ALTER TABLE sales_contacts DROP COLUMN IF EXISTS do_not_contact_at",
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome",
+    "ALTER TABLE sales_activities DROP COLUMN IF EXISTS outcome",
+)

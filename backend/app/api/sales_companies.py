@@ -38,6 +38,7 @@ from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.company_names import normalize_company_name
+from app.services.sales import calls as sales_calls
 from app.services.sales import companies as service
 from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
 from app.services.sales.merge import merge_companies
@@ -612,6 +613,27 @@ async def update_company(
     _apply(company, fields)
     await db.commit()
     return await _load(db, company_id)
+
+
+@router.post("/{company_id}/calls", status_code=status.HTTP_204_NO_CONTENT)
+async def log_company_call(
+    company_id: int,
+    payload: sales_calls.CompanyCallRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Zapis rozmowy przy firmie bez szansy, ten sam co na karcie szansy."""
+
+    if await db.get(SalesCompany, company_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    await sales_calls.log_company_call(
+        db,
+        company_id,
+        payload,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
+    await db.commit()
 
 
 @router.post("/{company_id}/archive", response_model=CompanyOut)

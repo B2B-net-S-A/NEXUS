@@ -30,6 +30,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   calendar: "Kalendarz",
   // Sprzedaż (Atlas → NEXUS, 26.10.2026).
   sales: "Sprzedaż",
+  "my-day": "Mój dzień",
   companies: "Firmy",
   opportunities: "Szanse",
   meetings: "Spotkania",

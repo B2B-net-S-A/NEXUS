@@ -301,3 +301,77 @@ poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo
 kanał przetargów, eksport CSV (najpierw limit i dziennik odczytów), „Kogo
 możemy dać od ręki” (Talent Radar na rolach), metryka „nowi klienci na
 spotkaniach” z KPI Atlasa.
+
+## Krok, zapis rozmowy i przeciąganie (decyzje Artura 09.11.2026)
+
+- **Jedna definicja kroku: `services/sales/next_step.py`**, obok `touch.py`. Krok to
+  najbliższe otwarte zadanie albo telefon z terminem od początku dzisiejszego dnia firmy
+  (przy szansie albo przy firmie bez szansy) lub przyszłe, nieodwołane spotkanie firmy.
+  „Po terminie” jest osobno i liczy tylko zaległości tej szansy. Telefon bez terminu
+  (import historii) krokiem nie jest.
+- **Ostatni kontakt** bierze chwilę dotyku z `touch.py`, bez zadań i bez wpisów
+  systemowych Pipedrive („This deal was converted to a lead”, wizyty na stronie).
+- **Czerwień tylko po wdrożeniu:** `SALES_STEP_RULES_SINCE`, lejek Sprzedaż, szansa
+  założona albo ruszona (własna aktywność, zdarzenie z historii) od tej daty. Mail do
+  samej firmy szansy nie budzi. Reszta zostaje szara, bo bez tego czerwone byłoby
+  prawie wszystko.
+- **Zapis rozmowy:** `POST /api/sales/opportunities/{id}/calls`, wynik w
+  `sales_activities.outcome`, żeby dało się go policzyć. Krok zakłada osobno okno
+  „Co dalej i kiedy” zwykłym zadaniem, a zadanie dostaje opiekun szansy.
+- **„Nie kontaktować”:** `sales_contacts.do_not_contact_at`; osoba z mapy bez kontaktu
+  ma flagę na wpisie mapy, bo mapa nie zakłada kontaktów. Numer i mail przestają być
+  klikalne, kolejny wpis rozmowy dostaje 409. Cofnięcia sprzeciwu na ekranie nie ma.
+- **Oś firmy i szansy:** `GET /api/sales/activities/timeline`. Jedno zdarzenie jeden
+  wiersz (`services/sales/timeline.py`): spotkania firmy do 15 minut od siebie,
+  podsumowanie Fireflies do 3 godzin po spotkaniu, ta sama treść tego samego dnia
+  (cała, ucięta kopia też się liczy), a dwa maile tylko o tym samym temacie, bo wiele
+  zaczyna się tym samym nagłówkiem adresatów.
+  Otwartego zadania się nie skleja, bo zniknęłoby „Zrobione”.
+- **Przeciąganie** tylko między etapami bez wyniku, przez `/move`; wygraną i przegraną
+  zamyka karta. „Cofnij” tylko, gdy oba etapy, źródłowy i docelowy, leżą przed
+  linią `qualifies`, bo powrót na tę linię ustawiłby `qualified_at` i zawyżył KPI.
+- **Zmiana opiekuna** wybiera z `GET /api/sales/opportunities/owner-candidates`: aktywne
+  konta z „Sprzedaż: edycja”. `GET /api/users` odpada, bo handlowcy bywają „Pracownikami”,
+  a ta rola dostaje na niej 403; filtr lejka zna tylko osoby z otwartą szansą.
+
+## Mój dzień (decyzje Artura 09.11.2026)
+
+Pierwsza i domyślna zakładka: `/sales` przekierowuje od razu na `/sales/my-day`, Szanse
+mają własny adres `/sales/opportunities`, a `/sales` z parametrami (stare `?bezruchu=1`,
+`?opiekun=`) nadal prowadzi do Szans. Logika: `services/sales/my_day.py`, trasa
+`GET /api/sales/my-day` (`SalesViewUser`), zawsze dla zalogowanej osoby: przełącznika
+osoby, paska postępu i blokady za brak skrzynki celowo nie ma.
+
+- **Spotkania dziś:** spotkania tej osoby z kalendarza firmy, bez odwołanych i automatów.
+  Jedno wydarzenie to jeden wiersz po `external_id`; bez `external_id` każde osobno.
+- **Odpowiedz:** ostatni mail przychodzący z 21 dni przy firmie z jej otwartą szansą, po
+  dwóch dniach roboczych bez reakcji. Reakcją jest mail wychodzący, odbyty telefon,
+  spotkanie albo krok zaplanowany po tym mailu, także na drugiej karcie tej samej firmy
+  (ten sam mail i to samo pierwsze słowo nazwy). Auto-odpowiedzi i zaproszenia nie liczą
+  się ani jako mail, ani nie zasłaniają wcześniejszego prawdziwego (`AUTO_SUBJECT`).
+  Listę przedrostków trzymaj przy tym, co jest w `sales_activities` (Outlook pisze
+  „Automatyczna odpowiedź:” i „Informacja o nieobecności”). Przedrostki kalendarza wymagają
+  dwukropka, bo „Zaproszenie do złożenia ofert” to prawdziwy mail od klienta.
+- **Zaległe:** jej zadania i telefony sprzed dziś do 60 dni, starsze jako jeden licznik.
+- **Oferty:** etap `offer-sent`, dotyk z `touch.py` starszy niż 14 dni i bez kroku
+  z `next_step.py`, od największej; dziesięć i „Pokaż pozostałe”. Zaplanowany krok
+  zdejmuje ofertę i wątek z kolejki, bo inaczej „Zaplanuj” nie miałoby widocznego skutku.
+- **Osoba w wierszu:** kontakt z aktywności, główny szansy, kontakty szansy, historia
+  firmy, potem pozostałe kontakty firmy; pierwsza z numerem. Osoba ze sprzeciwem,
+  z archiwum i firma „Nie kontaktować” nie są proponowane. Każdy kandydat musi należeć
+  do firmy albo szansy (lustro `calls._contact_in_company`), bo historia niesie też
+  naszych pracowników z kalendarza, a zapis rozmowy z taką osobą kończy się 422.
+- **„Uzupełnij numer”** nie dopisze numeru osobie ze sprzeciwem, także pod „nową osobą”
+  o tej samej nazwie w firmie (409 w `sales_contacts.py`). Ponowny zapis tego samego
+  numeru przechodzi, bo formularz kontaktu wysyła wszystkie pola.
+- **Zaległy krok przekłada osoba przypisana**, nie tylko autor: po imporcie 118 ze 149
+  otwartych zadań ma innego autora niż wykonawcę.
+- **Telefon przy firmie bez szansy:** `POST /api/sales/companies/{id}/calls`, ten sam wynik
+  i sprzeciw co na karcie szansy; zaległe zadanie zamyka się razem z zapisem rozmowy.
+- **Poranny mail:** sekcja dla kont z „Sprzedaż: podgląd” (handlowcy to często „Pracownicy”,
+  poza rolami skrótu), bez kwot i numerów. Admin bez ról skrótu dalej go nie dostaje.
+  Własny wyłącznik wisi na tej samej regule co wysyłka (`daily_digest_email.receives_digest`),
+  bo każdy, kto dostaje mail, ma móc go sobie wyłączyć.
+  Pusty skrót nie wychodzi.
+- **Rama:** tytuł i zakładki w jednym rzędzie od 1280 px, opis i akcje w niskiej linii
+  pod spodem. Karta firmy i szansy bez zakładek zostają przy `PageHeader`.
