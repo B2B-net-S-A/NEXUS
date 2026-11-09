@@ -38,6 +38,8 @@ class CVOriginalSnapshotResponse(BaseModel):
     original_cv_language: Optional[str] = None
     original_snapshot_at: Optional[datetime] = None
     original_snapshot_source: Optional[str] = None
+    # Ramka „inne główne CV” porównuje ją z sumą pliku w profilu.
+    original_cv_sha256: Optional[str] = None
     download_url: Optional[str] = None
 
 
@@ -190,6 +192,10 @@ class CVBrandedResponse(BaseModel):
     text_align: Literal["justify", "left"] = "justify"
     docx_available: bool = False
     docx_filename: str | None = None
+    # Nazwa pliku także dla szkicu (`docx_filename` jest tylko przy zatwierdzonym)
+    # i nazwa ze wzoru klienta, gdy ktoś zmienił ją ręcznie (02.11.2026).
+    current_filename: str | None = None
+    pattern_filename: str | None = None
     generated_document_id: int | None = None
     from_generator: bool = False
     # Skąd treść: generator (także kopia z innej rekrutacji), plik Word
@@ -242,6 +248,8 @@ class StageCvUploadResponse(CVOriginalSnapshotResponse):
     client_cv: Optional[CVBrandedResponse] = None
     # Wiersz etapu z CV do klienta pary — po ruchu karty bywa wcześniejszy.
     client_cv_stage_id: Optional[int] = None
+    # Pigułki „dlaczego nie CV z generatora”: zastąpiony szkic miał zapisany start.
+    ask_replace_reason: bool = False
     # Co zastąpiło: nic, nieprzejrzane auto-CV albo CV po potwierdzeniu.
     replaced: Optional[Literal["none", "auto_cv", "confirmed"]] = None
     # „Cofnij” w komunikacie: tylko gdy nie zastąpiliśmy niczyjej pracy.
@@ -440,3 +448,12 @@ class PublicCVView(BaseModel):
     job_title: Optional[str] = None
     cv_html: str
     expires_at: Optional[datetime] = None
+
+
+class CVFilenameUpdate(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+
+
+class CVFilenameResponse(BaseModel):
+    filename: str
+    pattern_filename: str | None = None

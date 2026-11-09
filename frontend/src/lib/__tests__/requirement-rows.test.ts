@@ -35,6 +35,7 @@ import {
   type RequirementLevel,
   type RequirementRowForm,
   type RowCriticalInfo,
+  sentGapForRow,
 } from "@/lib/requirement-rows";
 
 const row = (
@@ -701,5 +702,41 @@ describe("wariant A (13.10.2026): odczyt słów wiersza", () => {
     expect(criticalReachWarning(0)).toContain("nie zostawiają nikogo");
     expect(criticalReachWarning(1)).toContain("1 osobę");
     expect(criticalReachWarning(9)).toContain("9 osób");
+  });
+});
+
+describe("sentGapForRow", () => {
+  const gaps = [
+    { label: "risk mgmt.", words: ["risk mgmt."] },
+    { label: "azure lub aws", words: ["azure", "aws"] },
+  ];
+
+  it("łączy wiersz z brakiem bez względu na wielkość liter", () => {
+    expect(sentGapForRow(["Risk Mgmt."], gaps)?.label).toBe("risk mgmt.");
+  });
+
+  it("wiersz z wariantami pasuje, gdy serwer zna wszystkie jego słowa", () => {
+    expect(sentGapForRow(["AWS", "Azure"], gaps)?.label).toBe("azure lub aws");
+  });
+
+  it("zapisane warianty spoza etykiety dalej pasują", () => {
+    const withVariants = [
+      { label: "płatności", words: ["płatnoś*", "płatności", "payments"] },
+    ];
+    expect(sentGapForRow(["płatnoś*", "płatności", "payments"], withVariants)?.label).toBe(
+      "płatności",
+    );
+  });
+
+  it("dopisane słowo chowa ostrzeżenie do zapisu", () => {
+    expect(sentGapForRow(["risk mgmt.", "risk management"], gaps)).toBeNull();
+  });
+
+  it("pusty wiersz nie dostaje ostrzeżenia", () => {
+    expect(sentGapForRow([], gaps)).toBeNull();
+  });
+
+  it("inny wiersz nie dostaje ostrzeżenia", () => {
+    expect(sentGapForRow(["java"], gaps)).toBeNull();
   });
 });

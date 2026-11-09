@@ -157,8 +157,8 @@ async def _compute_current(
         else:
             ranked = await comp_service.compute_live(db, ctype, period)
 
-        # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja,
-        # wykluczenie lidera kwartału z wyścigu miesięcznego i remisy. Do 25.09.2026
+        # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja
+        # i remisy. Do 25.09.2026
         # ekran brał `ranked[:3]` (poza wyścigiem rekomendacji) — podium i kwoty
         # różniły się od tego, co potem wypłacało zamrożenie. Miejsce objęte
         # remisem, którego regulamin nie rozstrzyga, nie ma kwoty (`tied`).
@@ -190,7 +190,7 @@ async def _compute_current(
         days_remaining = (
             None if frozen is not None else comp_service.days_left_in_quarter(today)
         )
-        prize_pool = sum(comp_service.QUARTERLY_PRIZES_PLN.values())
+        prize_pool = sum(comp_service.quarterly_prizes(period).values())
         if ctype == CompetitionType.quarterly_champions_dl:
             if comp_service.dl_league_pays(period):
                 # Kwartały do Q3 2026 — zasady, którymi je rozliczono.
@@ -235,7 +235,7 @@ async def _compute_current(
         days_remaining = (
             None if frozen is not None else comp_service.days_left_in_month(today)
         )
-        prize_pool = comp_service.MONTHLY_RACE_PRIZE_PLN
+        prize_pool = comp_service.monthly_race_prize(period)
 
     return {
         "type": ctype.value,
@@ -262,7 +262,7 @@ async def _compute_current(
         "requirement": requirement,
         "points_formula": points_formula,
         "quarterly_prizes_pln": (
-            comp_service.QUARTERLY_PRIZES_PLN
+            comp_service.quarterly_prizes(period)
             if ctype == CompetitionType.quarterly_champions_recruiter
             or (
                 ctype == CompetitionType.quarterly_champions_dl
@@ -283,11 +283,9 @@ async def monthly_races(
     period: Optional[str] = None,
 ):
     """Dwa wyścigi miesięczne w jednym response (dla hero dashboard):
-    Wyścig Rekomendacji + Wyścig Placementów. Każdy z warunkami kwal +
-    oznaczeniem czyją nagrodę wyklucza lider kwartału.
+    Wyścig Rekomendacji + Wyścig Placementów, każdy z warunkami kwalifikacji.
     """
-    # Kompozycja (rankingi + wykluczenie lidera kwartału) wyniesiona do
-    # serwisu — composite dashboardu używa dokładnie tej samej funkcji.
+    # Kompozycja rankingów wyniesiona do serwisu — composite dashboardu używa dokładnie tej samej funkcji.
     _check_period_format(CompetitionType.monthly_recommendations, period)
     key = f"{_CACHE_PREFIX}monthly-races:{period or ''}"
     async with cache_single_flight(key, db=db):
@@ -563,7 +561,7 @@ async def my_league(
         "days_remaining": comp_service.days_left_in_quarter(today),
         # Liga DL od Q4 2026 bez nagród — pusty słownik, pasek nie pisze kwot.
         "prizes_pln": (
-            comp_service.QUARTERLY_PRIZES_PLN
+            comp_service.quarterly_prizes(period)
             if ctype == CompetitionType.quarterly_champions_recruiter
             or comp_service.dl_league_pays(quarter)
             else {}
@@ -600,6 +598,15 @@ async def my_league(
     return payload
 
 
+@router.get("/my-wins")
+async def my_wins(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Wygrane zalogowanej osoby w zamkniętych okresach (profil, 06.11.2026)."""
+    return {"items": await comp_service.wins_for_user(db, current_user.id)}
+
+
 @router.get("/my-position")
 async def my_position(
     current_user: CurrentUser,
@@ -632,7 +639,7 @@ async def my_position(
     ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=None)
 
     # Ta sama numeracja co podium i lista pod nim (`award_ranked_rows`):
-    # niezakwalifikowany i wykluczony lider kwartału są na liście, ale bez
+    # niezakwalifikowani są na liście, ale bez
     # miejsca (`rank: null`). Do 25.09.2026 numer brano z pozycji w surowym
     # rankingu, więc „Mój miesiąc” mówił „1. miejsce” osobie bez nagrody.
     order = await comp_service.award_order(db, ctype, period, ranked)

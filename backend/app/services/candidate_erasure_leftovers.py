@@ -23,6 +23,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from fastapi import HTTPException, status
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,6 +137,67 @@ async def purged_candidate_hashes(
     for source, digest in rows.fetchall():
         out.setdefault(str(source), set()).add(str(digest))
     return out
+
+
+# Nagrobek stawia każde trwałe usunięcie, także duplikatu, więc te zdania mówią
+# o usuniętym profilu, a nie o prośbie osoby.
+ERASED_EMAIL_CODE = "candidate_erased"
+ERASED_EMAIL_MESSAGE = (
+    "Ten adres należał do profilu trwale usuniętego. Dodaj osobę tylko wtedy, "
+    "gdy wiesz, że wróciła do kontaktu."
+)
+ERASED_EMAIL_SKIP_REASON = "Ten adres należał do profilu trwale usuniętego"
+RECREATED_AFTER_ERASURE = "recreated_after_erasure"
+VIA_SCREEN = "screen"
+VIA_SELF_APPLICATION = "self_application"
+
+
+async def email_was_erased(db: AsyncSession, email: Any) -> bool:
+    """Czy adres ma nagrobek. Bez klucza nagrobków nie ma czym porównać."""
+    from app.core.config import settings
+    from app.models.purged_candidate import PurgedCandidate
+    from app.services.candidate_audit import (
+        EMAIL_TOMBSTONE_SOURCE,
+        candidate_email_tombstone,
+    )
+
+    if not settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip():
+        return False
+    email_hash = candidate_email_tombstone(email)
+    if email_hash is None:
+        return False
+    found = await db.scalar(
+        select(PurgedCandidate.id).where(
+            PurgedCandidate.external_source == EMAIL_TOMBSTONE_SOURCE,
+            PurgedCandidate.external_id_hash == email_hash,
+        )
+    )
+    return found is not None
+
+
+def erased_email_conflict() -> HTTPException:
+    """Pytanie do człowieka; wraca z ``confirm_erased`` (decyzja 03.11.2026)."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": ERASED_EMAIL_CODE, "message": ERASED_EMAIL_MESSAGE},
+    )
+
+
+def record_recreated_after_erasure(
+    db: AsyncSession, candidate_id: int, *, user_id: Optional[int], via: str
+) -> None:
+    """Wpis w historii profilu założonego na adres z nagrobkiem. Bez danych osoby."""
+    from app.models.activity import Activity
+
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action=RECREATED_AFTER_ERASURE,
+            user_id=user_id,
+            details={"via": via},
+        )
+    )
 
 
 async def _erase_notifications(db: AsyncSession, candidate_id: int) -> int:

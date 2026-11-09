@@ -54,10 +54,37 @@ def test_matching_reply_passes_with_what_was_checked():
     result = cc.assess(reading(), SUBJECT)
     assert result["status"] == "ok"
     assert codes(result) == []
-    assert codes(result, "passed") == ["sender", "name", "zob", "date"]
+    assert codes(result, "passed") == ["sender", "name", "supplier", "zob", "date"]
     assert result["reading"]["zob"] == ["ZOB-3092"]
     # Treść zgody nie ląduje w zapisanym wyniku — tylko nagłówek.
     assert "consent_text" not in result["reading"]
+
+
+@pytest.mark.parametrize(
+    "offeror",
+    [
+        "[Nazwa Dostawcy] („Oferent”)",  # pusty wzór z zapytania PKO
+        '"Oferent"',  # nazwę firmy usunięto razem z nawiasem (02.11, ZOB-3103)
+        "Mirosław Kowalczyk („Oferent”)",  # kandydat wpisał siebie (02.11, ZOB-3103)
+        "PKO FINAT („Oferent”)",  # wzór z opisu ZOB-2983 i ZOB-2984
+    ],
+)
+def test_consent_must_name_our_company_as_the_offeror(offeror):
+    text = CONSENT.replace("B2B.net S.A.", offeror)
+    result = cc.assess(reading(consent_text=text), SUBJECT)
+    assert result["status"] == "mismatch"
+    assert codes(result) == ["no_supplier"]
+    assert "supplier" not in codes(result, "passed")
+
+
+@pytest.mark.parametrize(
+    "company", ["B2B.netS.A.", "B2B.net", "b2b net s.a.", "B2BNET"]
+)
+def test_company_spelling_variants_pass(company):
+    text = CONSENT.replace("B2B.net S.A.", company)
+    result = cc.assess(reading(consent_text=text), SUBJECT)
+    assert codes(result) == []
+    assert "supplier" in codes(result, "passed")
 
 
 def test_recruiter_request_is_not_the_candidates_answer():

@@ -25,10 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDDD",
-  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDDD"
+  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB",
+  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB"
  }
 }

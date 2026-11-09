@@ -12,7 +12,14 @@ co ``INTERVAL_SECONDS`` loguje ``runtime_metrics`` (Alloy → Loki):
   (liczone zdarzeniami `checkout`/`checkin` puli);
 * ``pool_probe_checkout_ms`` — ile trwało wypożyczenie JEDNEGO połączenia na
   koniec okna (nic nie wykonuje). Kilka ms = pula ma zapas; setki ms albo
-  ``pool_probe_error`` = żądania czekają w kolejce puli.
+  ``pool_probe_error`` = żądania czekają w kolejce puli;
+* ``gc_gen2_count`` / ``gc_gen2_ms_sum`` / ``gc_gen2_ms_max`` — pełne sprzątanie
+  pamięci Pythona, które zatrzymuje cały proces. Pomiar 04.11.2026: 10 z 14
+  nieprzerwanych bloków CPU trwało 1,5–2 s, a to tej metryki brakowało, żeby
+  przypisać je wprost do GC;
+* ``cpu_pct`` — czas CPU procesu (wszystkie wątki) jako procent rzeczywistej
+  długości okna, więc może przekroczyć 100; w pierwszym oknie ``None``;
+* ``rss_mb`` — bieżąca pamięć RSS z ``/proc/self/statm``; bez ``/proc`` ``None``.
 
 Wyłącznie liczby, bez treści zapytań i danych. Awaria pomiaru nigdy nie
 przerywa pętli.
@@ -21,18 +28,25 @@ przerywa pętli.
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
+import os
 import time
+from collections.abc import Callable
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 INTERVAL_SECONDS = 60
 LAG_TICK_SECONDS = 0.5
 PROBE_TIMEOUT_SECONDS = 10.0
+STATM_PATH = "/proc/self/statm"
 
 
 @dataclass
@@ -77,6 +91,81 @@ class LagWindow:
             "loop_lag_ms_max": round(values[-1], 1),
             "loop_lag_samples": len(values),
         }
+
+
+@dataclass
+class GcWindow:
+    """Czas pełnych zbiórek GC w bieżącym oknie (`gc.callbacks`)."""
+
+    count: int = 0
+    sum_ms: float = 0.0
+    max_ms: float = 0.0
+    clock: Callable[[], float] = time.perf_counter
+    _started: float | None = None
+
+    def callback(self, phase: str, info: dict[str, int]) -> None:
+        if info["generation"] != 2:
+            return
+        if phase == "start":
+            self._started = self.clock()
+        elif self._started is not None:
+            elapsed_ms = (self.clock() - self._started) * 1000
+            self._started = None
+            self.count += 1
+            self.sum_ms += elapsed_ms
+            self.max_ms = max(self.max_ms, elapsed_ms)
+
+    def take(self) -> dict[str, float | int]:
+        stats = {
+            "gc_gen2_count": self.count,
+            "gc_gen2_ms_sum": round(self.sum_ms, 1),
+            "gc_gen2_ms_max": round(self.max_ms, 1),
+        }
+        self.count, self.sum_ms, self.max_ms = 0, 0.0, 0.0
+        return stats
+
+
+@dataclass
+class CpuWindow:
+    """Zużycie CPU procesu od poprzedniego odczytu, liczone z rzeczywistego czasu."""
+
+    cpu_clock: Callable[[], float] = time.process_time
+    wall_clock: Callable[[], float] = time.monotonic
+    _last_cpu: float | None = None
+    _last_wall: float | None = None
+
+    def take(self) -> dict[str, float | None]:
+        last_cpu, last_wall = self._last_cpu, self._last_wall
+        try:
+            self._last_cpu, self._last_wall = self.cpu_clock(), self.wall_clock()
+        except Exception:  # noqa: BLE001 — pomiar, nie może wywrócić pętli
+            self._last_cpu, self._last_wall = None, None
+            return {"cpu_pct": None}
+        if last_cpu is None or last_wall is None or self._last_wall <= last_wall:
+            return {"cpu_pct": None}
+        cpu_share = (self._last_cpu - last_cpu) / (self._last_wall - last_wall)
+        return {"cpu_pct": round(cpu_share * 100, 1)}
+
+
+def read_rss_mb() -> float | None:
+    """Bieżące RSS procesu; ``ru_maxrss`` podaje tylko szczyt od startu."""
+    try:
+        resident_pages = int(Path(STATM_PATH).read_text("ascii").split()[1])
+        return round(resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024), 1)
+    except Exception:  # noqa: BLE001 — brak /proc (laptop) albo inny format
+        return None
+
+
+def freeze_startup_heap() -> None:
+    """Wyjmij obiekty z importu i startu spod pełnego sprzątania pamięci.
+
+    Trasy, schematy i metadane to ponad 1,3 mln obiektów, które żyją do końca
+    procesu, a każda pełna zbiórka przechodzi je od nowa i zatrzymuje pętlę
+    zdarzeń. Staging 04.11.2026, ten sam ruch: pełna zbiórka 589 ms bez
+    zamrożenia, 51 ms po nim. Wołać przed startem pętli w tle.
+    """
+    gc.collect()
+    gc.freeze()
 
 
 def attach_pool_usage(engine: AsyncEngine) -> PoolUsage:
@@ -129,6 +218,9 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
         engine = default_engine
     usage = attach_pool_usage(engine)
     window = LagWindow()
+    gc_window = GcWindow()
+    cpu_window = CpuWindow()
+    gc.callbacks.append(gc_window.callback)
     loop = asyncio.get_running_loop()
     while True:
         try:
@@ -138,8 +230,12 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
                 "runtime_metrics",
                 extra={
                     "event_kind": "runtime_metrics",
+                    "process_role": settings.NEXUS_PROCESS_ROLE,
                     "window_seconds": INTERVAL_SECONDS,
                     **window.take(),
+                    **gc_window.take(),
+                    **cpu_window.take(),
+                    "rss_mb": read_rss_mb(),
                     **pool_snapshot(engine),
                     "pool_in_use_max": usage.take_window_max(),
                     "pool_probe_checkout_ms": probe_ms,

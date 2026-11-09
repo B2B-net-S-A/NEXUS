@@ -25,11 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDDDDDDDP"
+  "GET /api/insights/clients/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/clients/hiring-managers": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/clients/ranking": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD"
  }
 }

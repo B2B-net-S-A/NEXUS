@@ -19,6 +19,7 @@ import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-fi
 import { formatDateTimePl } from "@/lib/date-pl";
 import { monthLabelPl } from "@/lib/order-consumption";
 import { cn } from "@/lib/utils";
+import { mayExportFiles, useAuthStore } from "@/store/auth";
 import { formatPLN } from "@/types/client-profile";
 
 import { formatMd } from "./MdBudgetBar";
@@ -73,6 +74,7 @@ function ImportDetail({
     queryFn: async () => (await orderGroupsApi.getClientMdImport(clientId, importId)).data,
   });
   const { showToast } = useToast();
+  const canExport = mayExportFiles(useAuthStore((state) => state.user));
   const [exporting, setExporting] = useState(false);
 
   async function exportToExcel() {
@@ -128,17 +130,19 @@ function ImportDetail({
                 <ImportCounts summary={detail.data} />
               </div>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="shrink-0"
-              onClick={exportToExcel}
-              disabled={exporting}
-            >
-              <Download className="h-4 w-4" aria-hidden="true" />
-              {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
-            </Button>
+            {canExport ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={exportToExcel}
+                disabled={exporting}
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+                {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
+              </Button>
+            ) : null}
           </div>
           <div className="relative overflow-x-auto border-t border-border">
             <table className="w-full min-w-[48rem] text-sm">

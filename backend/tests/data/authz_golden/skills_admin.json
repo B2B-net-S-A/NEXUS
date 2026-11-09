@@ -25,17 +25,29 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/skills-admin/plain-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/skills-admin/plain-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/plain-terms/{term_id}/history": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/proposals": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/relations": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/skills-admin/unmatched-terms": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PATCH /api/skills-admin/aliases/{alias_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PATCH /api/skills-admin/skills/{skill_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/proposals/accept-sure": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/proposals/{proposal_id}/accept": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/proposals/{proposal_id}/reject": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/relations": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/relations/{relation_id}/withdraw": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/skills": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/skills/{skill_id}/aliases": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/ignore": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/skills-admin/unmatched-terms/{term_id}/map": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/skills-admin/plain-terms/{term_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

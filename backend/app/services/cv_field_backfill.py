@@ -17,11 +17,22 @@ Zasady, które nie są kosmetyką:
 * **Keyset pagination, wznawialny kursor** — Coolify restartuje kontener przy
   każdym pushu, a pełny bieg to godziny. `after_id` w statusie mówi, od czego
   wznowić.
-* **Sam krok Claude** (`_parse_with_claude`, model+prompt masowe), bez Ollamy:
+* **Pełny prompt `CV_ENRICHMENT` od 07.11.2026** (decyzja Artura „każde CV
+  czytamy raz”): szablon masowy `CV_ENRICHMENT_BULK` zapisywał tylko nazwy firm
+  i jedną liczbę lat na umiejętność, więc oś technologii wymagała drugiego
+  odczytu. Model `cv_backfill` (Haiku 5.5) jest tańszy od dawnego Sonneta na
+  szablonie masowym, a oś trafia też do `candidate_skill_usage`.
+* **Sam krok Claude** (`_parse_with_claude`, model masowy), bez Ollamy:
   fallback na lokalny model dawałby niespójną jakość w obrębie jednego biegu,
   a regex nie wypełnia pól celu. Wiersz bez wyniku = pominięty, nie blokujący.
 * **`message.usage` jest zbierane** — bieg kalibracyjny ma zmierzyć realny
   koszt jednostkowy zamiast szacunku; sumy tokenów są w statusie.
+* **Odczyt przechodzi bramkę tożsamości** (`record_detected_identity`), zanim
+  cokolwiek trafi do profilu. Bieg z 08.2026 jej nie miał: 586 profili dostało
+  pola z tekstu pliku, w którym model przeczytał inne imię i nazwisko, a
+  kwarantanna nie miała o tym wiersza. Tekst bez dokumentu źródłowego idzie jako
+  `legacy_cv`, tak jak w `cv_backfill`. Przy sprzeczności nazw bieg nie wpisuje
+  faktów i niczego nie kasuje, tylko zostawia profil do przeglądu.
 * **Zaktualizowani trafiają do outboxu reindeksu** — tekst embeddingu kandydata
   zawiera skills/kategorię, więc wypełnienie pól BEZ oznaczenia do re-embeddingu
   zostawiłoby wektory stare i praca Claude'a nigdy nie dotarłaby do Voyage.
@@ -46,9 +57,10 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cv_enrichment import CvWritePolicy, _apply_cv_enrichment
-from app.services.cv_parser import parse_cv_with_claude
-from app.services.llm_prompts import CV_ENRICHMENT_BULK
+from app.services.cv_parser import normalize_cv_output, parse_cv_with_claude
+from app.services.llm_prompts import CV_ENRICHMENT
 from app.services.ai_models import model_for
+from app.services.profile_projection import replace_skill_usage
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +70,8 @@ COMMIT_EVERY = 25
 # i nie może zmonopolizować ani limitów dostawcy, ani pętli zdarzeń.
 SLEEP_BETWEEN_CALLS_S = 0.15
 
-# Ile ID padłych wierszy zmieści się w statystykach biegu. Lustro
-# ``PhaseProgress._MAX_ERROR_REFS`` (``app/services/traffit/importer.py``) —
-# liczba skopiowana świadomie, nie zaimportowana: ten moduł nie zna importera
-# Traffita i nie warto zakładać tej krawędzi dla stałej. Powyżej progu to nie
+# Ile ID padłych wierszy zmieści się w statystykach biegu (ta sama liczba, co
+# w usuniętym imporcie Traffita). Powyżej progu to nie
 # jest zatruty wiersz, tylko awaria systemowa; nadmiar zostaje NIEprzypisany
 # i dalej mrozi watermark, co jest tu bezpieczną odpowiedzią.
 _MAX_ERROR_IDS = 500
@@ -130,6 +140,34 @@ def _empty_now(candidate: Candidate) -> set[str]:
     if candidate.years_it_experience is None:
         empty.add("years_it_experience")
     return empty
+
+
+async def _read_names_another_person(
+    db: AsyncSession, candidate: Candidate, parsed: dict[str, Any]
+) -> bool:
+    """Zapisz decyzję bramki; True = faktów z tego odczytu nie wpisujemy."""
+
+    first_name = parsed.get("first_name")
+    last_name = parsed.get("last_name")
+    if not (first_name or last_name):
+        return False
+    from app.services.candidate_identity_quarantine import (
+        MISMATCH_HELD_EVIDENCE,
+        record_detected_identity,
+    )
+
+    review = await record_detected_identity(
+        db,
+        candidate=candidate,
+        source_kind="legacy_cv",
+        source_id=candidate.id,
+        observed_first_name=first_name,
+        observed_last_name=last_name,
+        observed_phone=parsed.get("phone"),
+        provenance="cv_parser:bulk_fields",
+        hold_mismatch_for_review=True,
+    )
+    return bool(review.is_quarantined or review.evidence.get(MISMATCH_HELD_EVIDENCE))
 
 
 async def count_scope(db: AsyncSession, *, after_id: int = 0) -> dict[str, int]:
@@ -208,6 +246,9 @@ async def backfill_cv_fields(
     # padło (limit, constraint, parser), a nie tylko że padło.
     stats.setdefault("error_types", {})
     stats.setdefault("email_collisions", 0)
+    stats.setdefault("identity_mismatch_held", 0)
+    # Do przeglądu człowieka; ta sama sprzeczność zostaje też w wierszu bramki.
+    stats.setdefault("identity_mismatch_ids", [])
     stats.setdefault("fields_filled", {f: 0 for f in TARGET_FIELDS})
     stats.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "calls": 0})
     stats.setdefault("reindex_enqueued", 0)
@@ -304,7 +345,7 @@ async def backfill_cv_fields(
                         parsed = await parse_cv_with_claude(
                             candidate.raw_cv_text,
                             model=bulk_model,
-                            template=CV_ENRICHMENT_BULK,
+                            template=CV_ENRICHMENT,
                         )
                 except AIQuotaExceeded as quota_exc:
                     # Hamulec organizacyjny — zatrzymuje BIEG, nie wiersz.
@@ -318,6 +359,8 @@ async def backfill_cv_fields(
                 if parsed is None:
                     stats["skipped_no_result"] += 1
                     continue
+                # Ta sama walidacja dat i list co `parse_cv` na ścieżce rekrutera.
+                parsed = normalize_cv_output(parsed)
 
                 usage = parsed.get("_usage") or {}
                 stats["usage"]["input_tokens"] += int(usage.get("input_tokens") or 0)
@@ -332,6 +375,31 @@ async def backfill_cv_fields(
                         )
                         + "\n"
                     )
+
+                try:
+                    async with db.begin_nested():
+                        if await _read_names_another_person(db, candidate, parsed):
+                            # Tekst i wektor zostają: sama nazwa nie odróżnia
+                            # własnego CV od cudzego. Znacznik, żeby kolejny bieg
+                            # nie płacił za ten sam tekst.
+                            _mark_read(candidate)
+                            await db.flush()
+                            stats["identity_mismatch_held"] += 1
+                            if len(stats["identity_mismatch_ids"]) < _MAX_ERROR_IDS:
+                                stats["identity_mismatch_ids"].append(candidate.id)
+                            continue
+                except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
+                    stats["errors"] += 1
+                    if len(stats["error_ids"]) < _MAX_ERROR_IDS:
+                        stats["error_ids"].append(candidate.id)
+                        stats["error_types"][candidate.id] = type(exc).__name__
+                    logger.warning(
+                        "[cv-backfill] bramka tożsamości padła dla id=%s: %s — "
+                        "wiersz pominięty, bieg trwa",
+                        candidate.id,
+                        type(exc).__name__,
+                    )
+                    continue
 
                 # Kolizja e-maila wykrywana PRZED zapisem, nie na commicie.
                 # `ix_candidates_email` jest UNIQUE, a FILL_EMPTY chroni tylko
@@ -391,6 +459,16 @@ async def backfill_cv_fields(
                         exc,
                     )
                     continue
+
+                try:
+                    async with db.begin_nested():
+                        await replace_skill_usage(db, candidate)
+                except Exception as exc:  # noqa: BLE001 — indeks dogoni kolejny odczyt
+                    logger.warning(
+                        "[cv-backfill] indeks osi padł dla id=%s: %s",
+                        candidate.id,
+                        type(exc).__name__,
+                    )
 
                 filled = empty_before - _empty_now(candidate)
                 if filled:

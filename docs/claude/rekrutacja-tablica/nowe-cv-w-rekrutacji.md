@@ -1,5 +1,5 @@
 # Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026)
-<!-- indeks: „Wgraj nowe CV”, `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj CV” w profilu i CV do klienta z nowego CV (29.10) -->
+<!-- indeks: „Wgraj nowe CV”, `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj CV” w profilu i CV do klienta z nowego CV (29.10), „Zmień plik” w „CV oryginalnym” i `…/cv/original/from-document` (04.11) -->
 
 Dwa zgłoszenia rekruterów z 13.10.2026. Pierwsze: w panelu osoby nie dało się
 wgrać CV, gdy osoba miała już jakiekolwiek CV — trzeba było wyjść do profilu,
@@ -91,6 +91,9 @@ upuszczenie pliku na podgląd i kafelek w pustym stanie. Po wgraniu podgląd
 przechodzi na „CV oryginalne”. Przegląd DL i edytor CV go nie dostają.
 
 ### Pobieranie z podglądu (15.10.2026, D1–D5)
+
+Od 02.11.2026 osoba z samą rolą rekrutera nie ma tu „Pobierz CV”:
+`generator-cv/oryginal-cv-tylko-po-generatorze.md`.
 
 Prośba z zespołu: z dużego podglądu nie dało się pobrać CV, które się ogląda
 (oryginał tylko przez dok: sekcja „CV” → „Pokaż CV oryginalne” → okno →
@@ -301,6 +304,34 @@ nowym CV” — w granicach niżej.
 
 Testy: `backend/tests/test_new_cv_company_cv.py`, `lib/__tests__/new-cv-upload.test.ts`,
 `recruitment/__tests__/NewCvProgress.test.tsx`, `candidate-profile/__tests__/AddCvDialog.test.tsx`.
+
+## „Zmień plik” w „CV oryginalnym” (04.11.2026, wariant C, decyzja Artura)
+
+Zgłoszenie rekrutera: „CV oryginalne” nie miało ostatniego doświadczenia, a właściwy
+plik leżał w „Innych plikach” bez żadnej akcji. Obejście wymagało dwóch miejsc profilu.
+Pomiar na kopii z 04.11: inne CV kandydata późniejsze o ponad dobę od głównego ma do
+3033 z 63 468 osób, 584 z nich z kartą w toku (górna granica, daty z Traffita to daty importu).
+
+- **Pasek nad „CV oryginalnym”** (`CandidatePreviewPane`, `data-testid="original-cv-file"`,
+  tylko z prawem wgrania): nazwa i data pliku oraz „Zmień plik”. Najpierw podgląd
+  w tym samym miejscu, potem „Ustaw jako CV oryginalne” z pytaniem. Do tej chwili nic się
+  nie zapisuje; „Pobierz CV” pobiera to, co widać. Przegląd DL i edytor CV paska nie mają.
+- **Trasa** `POST /api/candidates/stages/{stage_id}/cv/original/from-document`, skutek
+  jak przy wgraniu: główne CV profilu, kopia tego etapu (`manual_refresh`) w jednej
+  transakcji, odczyt AI i bramka tożsamości w tle, plan CV do klienta i blok „Nowe CV”.
+  Inne rekrutacje osoby bez zmian. Ten sam plik drugi raz niczego nie zmienia.
+- **Odmowy:** plik innej osoby (404), rodzaj inny niż „cv” (422), nieaktualny (409), format
+  inny niż PDF/DOC/DOCX (415), CV dla klienta (422, także wzór nazwy klienta rekrutacji),
+  kwarantanna tożsamości (409). Na liście CV dla klienta jest wyszarzone.
+- **Bajty tylko ze wskazanego pliku.** Przy awarii magazynu odmowa, a nie zejście do innego
+  CV osoby (audyt 13.10: kopia dostawała starsze CV pod nazwą nowego pliku).
+
+**Ramka „W profilu jest…” porównuje pliki** (`otherProfileCv`). Główne CV ustawione w profilu
+ze starszą datą niż kopia (plik 11.08, kopia 03.11) nie dawało sygnału, więc karta zostawała
+przy starym pliku. Teraz: obie sumy są → decyduje suma; brak sumy (pliki z Traffita, 3562
+z 5333 kart) i inna nazwa przy wskazanym głównym CV → ramka; ta sama nazwa bez sumy i plik bez
+wskazania głównego → data jak dotąd. Tytuł: „nowsze CV” albo „inne główne CV”. Pomiar na
+kopii z 04.11: 5 nowych ramek (4 osoby) na 5333 karty, 45 fałszywych znika.
 
 ## Czego nie robimy
 

@@ -67,7 +67,9 @@ def _is_contract_termination_recovery(request: Request, current_user: User) -> b
         and parts[2].isdigit()
         and parts[3] in _TERMINATION_RECOVERY_COMMANDS
         and current_user.has_any_role(
-            UserRole.talent_community_manager, UserRole.finance
+            UserRole.talent_community_manager,
+            UserRole.finance,
+            UserRole.back_office,
         )
     )
 
@@ -171,7 +173,8 @@ def require_section_access(section: ProductSection):
             and len(parts) == 5
             and parts[:3] == ["api", "b2b-generator", "generated"]
             and parts[3].isdigit()
-            and parts[4] == "confirm-fully-signed"
+            # „signatures” = podgląd podpisów z pliku w tym samym oknie (0654).
+            and parts[4] in ("confirm-fully-signed", "signatures")
             and action_access_for_user(
                 current_user, ProductAction.b2b_signature_confirmation
             )

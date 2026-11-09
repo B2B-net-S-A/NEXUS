@@ -15,6 +15,7 @@ const RECRUITER_PLUS: UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ];
 
 describe("useCanAddToRecruitment — bramka jak proposals/bulk", () => {

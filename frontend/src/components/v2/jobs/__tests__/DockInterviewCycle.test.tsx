@@ -40,6 +40,17 @@ vi.mock("@/components/calendar/cycle/PrepEditButtons", () => ({
   ),
 }));
 
+vi.mock("@/components/calendar/cycle/RescheduleInterview", () => ({
+  InterviewRescheduleButton: ({ onEdit }: { onEdit: () => void }) => (
+    <button type="button" onClick={onEdit}>
+      Zmień termin
+    </button>
+  ),
+  RescheduleInterviewDialog: ({ eventId }: { eventId: number }) => (
+    <div data-testid="reschedule-interview-dialog">{eventId}</div>
+  ),
+}));
+
 vi.mock("@/components/calendar/cycle/PrepResponseChip", () => ({
   PrepResponseChip: ({ eventId }: { eventId: number }) => (
     <span data-testid={`prep-response-${eventId}`}>Kandydat przyjął</span>
@@ -124,6 +135,41 @@ describe("DockInterviewCycle", () => {
     expect(rescheduleProps.current).toEqual(
       expect.objectContaining({ eventId: 701, prepNo: 1, mode: "cancel", pair: PAIR }),
     );
+  });
+
+  it("zaplanowana rozmowa ma „Zmień termin” — klient przełożył, a prep dało się przełożyć sam (04.11.2026)", () => {
+    const withIds = steps(
+      { slots: "done", choice: "done", interview: "scheduled" },
+      "2031-10-08T08:00:00.000Z",
+    ).map((s) => (s.key === "interview" ? { ...s, event_id: 702 } : s));
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: withIds })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Zmień termin" }));
+
+    expect(screen.getByTestId("reschedule-interview-dialog")).toHaveTextContent("702");
+  });
+
+  it("tylko do odczytu: bez „Zmień termin” przy rozmowie", () => {
+    const withIds = steps({ interview: "scheduled" }, "2031-10-08T08:00:00.000Z").map((s) =>
+      s.key === "interview" ? { ...s, event_id: 702 } : s,
+    );
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: withIds })}
+        pair={PAIR}
+        readOnly
+        onDebrief={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Zmień termin" })).toBeNull();
   });
 
   it("tylko do odczytu: bez wierszy z akcjami prepu", () => {
@@ -253,6 +299,36 @@ describe("DockInterviewCycle", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź termin" }));
     expect(slotProps.current).toEqual(expect.objectContaining({ mode: "confirm" }));
+  });
+
+  it("wszystkie terminy minęły: bez wyboru i potwierdzenia, DL dodaje nowe (04.11.2026)", () => {
+    const onAdd = vi.fn();
+    const expired = badge({
+      kind: "slots_expired",
+      label: "Terminy minęły · czeka na DL",
+      tone: "wait",
+      steps: steps({ slots: "overdue" }),
+      slot_request: { ...REQUEST, expired: true },
+    });
+    const { rerender } = render(
+      <DockInterviewCycle badge={expired} pair={PAIR} readOnly={false} onDebrief={() => {}} />,
+    );
+    // Rekruter: odznaka mówi, na kogo czeka, a klik kończyłby się 422.
+    expect(screen.getByText("Terminy minęły · czeka na DL")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wybierz termin z kandydatem" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dodaj nowe terminy" })).toBeNull();
+    rerender(
+      <DockInterviewCycle
+        badge={{ ...expired, slot_request: { ...REQUEST, status: "awaiting_dl", chosen_index: 0, expired: true } }}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+        onAddClientSlots={onAdd}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Potwierdź termin" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj nowe terminy" }));
+    expect(onAdd).toHaveBeenCalledTimes(1);
   });
 
   it("prep z oceną otwiera okno oceny prepu", () => {

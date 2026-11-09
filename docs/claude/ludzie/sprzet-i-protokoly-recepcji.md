@@ -76,6 +76,9 @@ osobie z kartoteki i uczestniku Akademii.
   (`fonts-crosextra-caladea`), bez niej tekst się rozjeżdża. Podpisy to
   tabelka bez ramek, nie spacje i tabulatory; strona `/protocol/<token>`
   ukrywa ją po pierwszym wierszu („Strona przekazująca Strona przyjmująca”).
+- **Potwierdzenie w panelu konsultanta** (`protocols.sign_in_panel`, 05.11.2026): ta sama droga
+  co link (`signature_method='link'`), zamek `protocols.lock`, aktywne linki gasną. Panel pokazuje
+  tylko wydania z protokołem (`ludzie/portal-konsultanta.md`).
 - Link (D8): publiczna strona `/protocol/<token>`, trasa
   `/api/public/equipment-protocols/{token}` z limiterem (moduł bez
   `from __future__ import annotations`). Token tylko w adresie, w bazie SHA-256;
@@ -159,6 +162,10 @@ osobie z kartoteki i uczestniku Akademii.
   nie jest zastępowana.
 
 ## Intune (etap 4, D9) i edycje Akademii (etap 5)
+
+Akademia usunięta z kodu 08.11.2026 (`programy/akademia-i-praktykant-usuniete-08-11-2026.md`):
+zakładki „Akademia” i trybu „Uczestnik Akademii” już nie ma, typ posiadacza
+`academy` został do odczytu historii. Opis edycji poniżej jest historyczny.
 
 - Intune: wyłącznie odczyt (`DeviceManagementManagedDevices.Read.All`, zgoda
   administratora przy przełączeniu), migawka w `equipment_intune_devices`,

@@ -25,12 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/work-rhythm": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/insights/work-rhythm/day": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/insights/work-rhythm": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/work-rhythm/day": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

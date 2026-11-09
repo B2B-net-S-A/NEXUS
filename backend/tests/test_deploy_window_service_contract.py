@@ -27,8 +27,10 @@ from __future__ import annotations
 import importlib.util
 import os
 import re
+import signal
 import stat
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -259,6 +261,55 @@ def test_slots_sit_inside_the_deploy_window() -> None:
         hour = int(slot.split(":")[0])
         assert hour >= 18 or hour < 8, slot
     assert re.search(r"^export TZ=Europe/Warsaw$", src, re.M)
+
+
+# ── Sygnał stop (03.11.2026) ─────────────────────────────────────────────
+
+
+def _stops_on_sigterm(script: Path, tmp_path: Path, env: dict[str, str]) -> float:
+    """Sekundy od SIGTERM do końca skryptu; wynik > 2 s oznacza zwis."""
+    process = subprocess.Popen(
+        ["sh", str(script)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env={**os.environ, "TMPDIR": str(tmp_path), **env},
+        start_new_session=True,
+    )
+    try:
+        time.sleep(1)
+        assert process.poll() is None, "pętla skończyła się przed sygnałem"
+        started = time.monotonic()
+        process.terminate()
+        assert process.wait(timeout=5) == 0
+        return time.monotonic() - started
+    finally:
+        # Poza PID 1 zostałyby `sleep` i pętla heartbeatu; w kontenerze ginie to
+        # razem z PID 1.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+@pytest.mark.parametrize(
+    ("script", "env"),
+    [
+        (_LOOP_SH, {}),
+        (_REPO / "backup" / "loop.sh", {"BACKUP_ENABLED": "false"}),
+    ],
+)
+def test_sidecar_loop_stops_at_once_on_sigterm(
+    script: Path, env: dict[str, str], tmp_path: Path
+) -> None:
+    """`sh` jako PID 1 ignoruje SIGTERM bez własnej pułapki. Coolify zatrzymuje
+    kontenery po kolei z `docker stop --time=30` i dopiero potem startuje nowe,
+    więc budzik wydłużał przerwę każdego wdrożenia o 30 s (front 5 → 37 s od
+    15.10.2026; lokalnie zmierzone 30 s i kod 137). Sama pułapka nie wystarcza:
+    powłoka obsługuje ją po zakończeniu `sleep` na pierwszym planie, a poza
+    PID 1 test bez pułapki przechodziłby fałszywie, stąd oba warunki."""
+    source = script.read_text(encoding="utf-8")
+    assert re.search(r"^trap 'exit 0' TERM INT$", source, re.M), script
+    assert _stops_on_sigterm(script, tmp_path, env) < 2
 
 
 # ── Alarm „slot bez dispatchu” (29.10.2026) ──────────────────────────────

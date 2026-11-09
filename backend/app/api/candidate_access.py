@@ -65,6 +65,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 # 0446: „Automatyzacje” czytają kandydatów i CV jak reszta firmy (decyzja
@@ -79,9 +80,15 @@ CANDIDATE_READ_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
 )
 CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = CANDIDATE_READ_ROLES
+# Paczka ZIP: bez samej roli rekrutera (decyzja Artura 02.11.2026). Rekruter
+# z rolą dodatkową przechodzi, bo bramka pyta o dowolną z ról.
+CANDIDATE_BULK_CV_ROLES: tuple[UserRole, ...] = tuple(
+    role for role in CANDIDATE_READ_ROLES if role != UserRole.recruiter
+)
 
 # Parity with deps.RecruiterPlus. Od 2026-09-17 obejmuje head_of_recruitment
 # (decyzja Artura: HoR = pełny parytet z rekruterem; wcześniej FE bramkował
@@ -93,6 +100,7 @@ CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
@@ -101,6 +109,7 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
@@ -123,6 +132,7 @@ CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 
@@ -486,6 +496,10 @@ CandidatePIIAccess = Annotated[
 # CV + document listing/content/presigned URLs/ZIP.
 CandidateDocumentAccess = Annotated[
     User, Depends(require_candidate_roles(*CANDIDATE_DOCUMENT_ROLES))
+]
+
+CandidateBulkCvAccess = Annotated[
+    User, Depends(require_candidate_roles(*CANDIDATE_BULK_CV_ROLES))
 ]
 
 # Mutations: notes, source events, talent pools, tags, engagement, location.

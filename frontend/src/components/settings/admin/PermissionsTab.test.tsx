@@ -45,7 +45,7 @@ function permissionSwitch(name: string) {
   return screen.getByRole("switch", { name });
 }
 
-describe("PermissionsTab — jedna rola, szesnaście przełączników", () => {
+describe("PermissionsTab — jedna rola, dziewiętnaście przełączników", () => {
   beforeEach(() => {
     hrProgram.on = true;
     vi.clearAllMocks();
@@ -101,7 +101,7 @@ describe("PermissionsTab — jedna rola, szesnaście przełączników", () => {
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Sprzedaż"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(11);
+    expect(screen.getAllByRole("switch")).toHaveLength(14);
     expect(
       within(screen.getByRole("group", { name: "Rola" })).queryByRole("button", {
         name: "Pracownik",
@@ -109,14 +109,14 @@ describe("PermissionsTab — jedna rola, szesnaście przełączników", () => {
     ).toBeNull();
   });
 
-  it("rysuje pięć grup i szesnaście przełączników ze stanem roli", async () => {
+  it("rysuje pięć grup i dziewiętnaście przełączników ze stanem roli", async () => {
     renderTab();
     await screen.findByRole("group", { name: "Rola" });
 
     for (const [name, switches] of [
-      ["Klienci i kontrakty", 5],
+      ["Klienci i kontrakty", 7],
       ["Rekrutacje", 1],
-      ["Pieniądze", 3],
+      ["Pieniądze", 4],
       ["Ludzie", 5],
       ["Sprzedaż", 2],
     ] as const) {
@@ -127,7 +127,7 @@ describe("PermissionsTab — jedna rola, szesnaście przełączników", () => {
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Ludzie", "Sprzedaż"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(16);
+    expect(screen.getAllByRole("switch")).toHaveLength(19);
     expect(
       permissionSwitch("Finanse: Kontrakty i zamówienia: tworzenie i edycja"),
     ).toBeChecked();
@@ -480,7 +480,7 @@ describe("PermissionsTab — jedna rola, szesnaście przełączników", () => {
 
     await user.click(within(alert).getByRole("button", { name: /Spróbuj ponownie/ }));
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(16);
+    expect(await screen.findAllByRole("switch")).toHaveLength(19);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

@@ -19,10 +19,11 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.api.insights_recruitment import stage_counted_from, trend_weeks
+from app.api.insights_recruitment import stage_counted_from, trend_months, trend_weeks
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.calendar_event import CalendarEvent, EventType
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
@@ -182,8 +183,28 @@ async def _seed() -> dict[str, Any]:
             "dl": dl.name,
             "dl_id": dl.id,
             "rec_id": rec.id,
+            "c0": c[0],
             "c1": c[1],
         }
+
+
+@pytest.mark.asyncio
+async def test_in_flight_recent_counts_skip_pairs_older_than_recent_days() -> None:
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        result = await compute_in_flight(
+            db,
+            today=date(_YEAR, 4, 15),
+            now=_at(4, 15),
+            with_acceptances=False,
+            job_ids=[world["open_job"], world["closed_job"]],
+        )
+    by_col = {c["column"]: c for c in result["columns"]}
+    assert result["recent_days"] == 30
+    assert by_col["cv_sent"]["count"] == 1
+    assert by_col["cv_sent"]["stale_count"] == 1
+    assert by_col["cv_sent"]["recent_count"] == 0
+    assert by_col["cv_sent"]["recent_stale_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -210,6 +231,9 @@ async def test_in_flight_counts_columns_ages_and_acceptances() -> None:
     assert by_col["cv_sent"]["count"] == 1
     assert by_col["cv_sent"]["oldest_days"] == 30
     assert by_col["cv_sent"]["stale_count"] == 1
+    # Próg zdania o zatorze: 30 dni jeszcze się liczy.
+    assert by_col["cv_sent"]["recent_count"] == 1
+    assert by_col["cv_sent"]["recent_stale_count"] == 1
     assert by_col["client_interview"]["count"] == 1
     assert by_col["client_interview"]["oldest_days"] == 16
     assert by_col["contract"]["count"] == 1
@@ -265,6 +289,116 @@ async def test_my_in_flight_keeps_only_pairs_i_verified() -> None:
     assert person["column"] == "contract"
     assert person["stage_label"] == "Umowa wysłana"
     assert sum(c["count"] for c in result["columns"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_my_in_flight_credits_the_first_named_verifier_only() -> None:
+    """Pierwszy weryfikujący z kontem. Wiersz bez `moved_by` nie odbiera zasługi."""
+    world = await _seed()
+    async with AsyncSessionLocal() as db:
+        # c1: dostaje wcześniejszą weryfikację DL-a, więc przestaje być rekrutera.
+        db.add(
+            CandidateStage(
+                candidate_id=world["c1"],
+                job_id=world["open_job"],
+                stage=PipelineStage.verified,
+                moved_at=_at(2, 1),
+                moved_by=world["dl_id"],
+            )
+        )
+        # c0: pierwszy wiersz „verified” jest bez konta, zasługa idzie za drugim.
+        db.add(
+            CandidateStage(
+                candidate_id=world["c0"],
+                job_id=world["open_job"],
+                stage=PipelineStage.verified,
+                moved_at=_at(2, 22),
+                moved_by=world["rec_id"],
+            )
+        )
+        await db.commit()
+
+    async def people_of(user_id: int) -> set[int]:
+        async with AsyncSessionLocal() as db:
+            result = await compute_in_flight(
+                db,
+                today=date(_YEAR, 3, 31),
+                now=_at(3, 31),
+                with_acceptances=False,
+                owner=("verifier", user_id),
+                with_people=True,
+                job_ids=[world["open_job"]],
+            )
+        return {p["candidate_id"] for p in result["people"]}
+
+    assert await people_of(world["rec_id"]) == {world["c0"]}
+    assert await people_of(world["dl_id"]) == {world["c1"]}
+
+
+@pytest.mark.asyncio
+async def test_people_list_puts_upcoming_interviews_first_with_their_term() -> None:
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"InFlight-term-{tag}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"Termin {tag}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        db.add(job)
+        await db.flush()
+        cands = [
+            Candidate(
+                name=f"Termin{i}",
+                lastname=f"Test-{tag}",
+                email=f"in-flight-term-{tag}-{i}@example.com",
+            )
+            for i in range(3)
+        ]
+        db.add_all(cands)
+        await db.flush()
+        # Najdłużej czeka osoba bez terminu; dwie pozostałe mają rozmowę przed sobą.
+        for cand, when in zip(cands, (_at(3, 1), _at(4, 1), _at(4, 20))):
+            db.add(
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.client_interview,
+                    moved_at=when,
+                )
+            )
+        for cand, day in ((cands[1], 20), (cands[2], 10)):
+            db.add(
+                CalendarEvent(
+                    title="Rozmowa u klienta",
+                    event_type=EventType.client_interview,
+                    start_time=_at(5, day),
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                )
+            )
+        await db.commit()
+        ids = [cand.id for cand in cands]
+        job_id = job.id
+
+    async with AsyncSessionLocal() as db:
+        result = await compute_in_flight(
+            db,
+            today=date(_YEAR, 5, 1),
+            now=_at(5, 1),
+            with_acceptances=False,
+            with_people=True,
+            job_ids=[job_id],
+        )
+
+    people = result["people"]
+    assert [p["candidate_id"] for p in people] == [ids[2], ids[1], ids[0]]
+    assert people[0]["client_interview_at"].startswith(f"{_YEAR}-05-10")
+    assert people[2]["client_interview_at"] is None
 
 
 @pytest.mark.asyncio
@@ -429,6 +563,39 @@ async def test_weekly_trend_marks_acceptance_before_cutover_as_missing(
         if week["week_start"] < "2026-10-12":
             assert week["counts"]["acceptance"] is None
         assert isinstance(week["counts"]["hired"], int)
+
+
+@pytest.mark.asyncio
+async def test_monthly_trend_marks_what_nobody_recorded_as_missing(
+    fx_client: AsyncClient,
+) -> None:
+    headers = await _login(fx_client, UserRole.recruiter)
+    resp = await fx_client.get(
+        "/api/insights/recruitment/monthly-trend", headers=headers, params={"months": 24}
+    )
+    assert resp.status_code == 200, resp.text
+    months = resp.json()["months"]
+    assert len(months) == 24
+    assert months[-1]["partial"] is True
+    assert all(month["partial"] is False for month in months[:-1])
+    for month in months:
+        counts = month["counts"]
+        assert set(counts) == {"verified", "cv_sent", "client_interview", "acceptance", "hired"}
+        assert isinstance(counts["hired"], int)
+        if month["month_start"] < "2026-10-01":
+            assert counts["acceptance"] is None
+        if month["month_start"] < "2026-01-01":
+            assert counts["verified"] is None
+        # Tylko miesiąc przecinający 12.10.2026 ma osobny odcinek.
+        assert (month["cutover_counts"] is not None) == (month["month_start"] == "2026-10-01")
+
+
+def test_trend_months_cross_the_year_boundary() -> None:
+    assert trend_months(date(2026, 2, 15), 3) == [
+        date(2025, 12, 1),
+        date(2026, 1, 1),
+        date(2026, 2, 1),
+    ]
 
 
 @pytest.mark.asyncio

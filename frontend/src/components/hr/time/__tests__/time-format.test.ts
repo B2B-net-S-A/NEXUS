@@ -1,20 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import type { MonthDay, MonthView } from "@/lib/api/hr-time";
+import type { DayLeave, MonthDay, MonthView, QueueStatus, TeamQueueItem } from "@/lib/api/hr-time";
 
 import {
+  afterLeaveCancelNote,
   canEditMonth,
   defaultQueueMonth,
+  filterQueue,
   formatHours,
   hoursLabel,
+  isFirstLeaveDay,
+  leaveTermForDay,
   needsEntry,
   parseHours,
+  queueCounts,
   queueHoursFill,
   queueHoursLabel,
+  sortQueue,
   statusLine,
   weekGroups,
   weekTitle,
   wouldExceedDay,
+  overLeaveLimit,
 } from "../time-format";
 
 function day(overrides: Partial<MonthDay> = {}): MonthDay {
@@ -110,6 +117,27 @@ describe("godziny", () => {
   });
 });
 
+describe("overLeaveLimit", () => {
+  const half = { full: false, label: "Urlop" } as DayLeave;
+  const entry = { is_overtime: false } as MonthDay["entries"][number];
+
+  it("pół dnia i więcej godzin, niż zostawia, to pomyłka do poprawy", () => {
+    expect(overLeaveLimit(day({ leave: half, capacity: 4, hours: 8, entries: [entry] }))).toBe(true);
+    expect(overLeaveLimit(day({ leave: half, capacity: 4, hours: 4, entries: [entry] }))).toBe(false);
+  });
+
+  it("świadome nadgodziny, pełny dzień i dzień bez nieobecności nie", () => {
+    const overtime = { is_overtime: true } as MonthDay["entries"][number];
+    expect(overLeaveLimit(day({ leave: half, capacity: 4, hours: 8, entries: [overtime] }))).toBe(false);
+    expect(overLeaveLimit(day({ leave: { ...half, full: true }, capacity: null, hours: 8 }))).toBe(false);
+    expect(overLeaveLimit(day({ leave: null, capacity: 8, hours: 10, entries: [entry] }))).toBe(false);
+  });
+
+  it("połowa płatnej puli: auto-wpis 4 h i 4 h pracy to komplet, nie nadmiar", () => {
+    expect(overLeaveLimit(day({ leave: { ...half, paid_work: true }, capacity: 8, hours: 8 }))).toBe(false);
+  });
+});
+
 describe("pasek statusu", () => {
   it("szkic pokazuje termin, zwrot i zamknięcie płac mówią same za siebie", () => {
     expect(statusLine(view())).toBe("szkic · wyślij do 05.11");
@@ -121,7 +149,7 @@ describe("pasek statusu", () => {
     );
     expect(statusLine(view({ timesheet: { ...header, status: "approved" } }))).toBe("zaakceptowany");
     expect(statusLine(view({ timesheet: { ...header, payroll_locked: true } }))).toBe(
-      "zamknięty w płacach",
+      "zamknięty w rozliczeniach",
     );
   });
 
@@ -139,7 +167,7 @@ describe("pasek statusu", () => {
   });
 });
 
-describe("godziny w kolejce Akceptacji", () => {
+describe("godziny w kolejce Do potwierdzenia", () => {
   it("etykieta z normą i bez niej", () => {
     expect(queueHoursLabel(72, 176)).toBe("72 / 176 h");
     expect(queueHoursLabel(7.5, 168)).toBe("7,5 / 168 h");
@@ -219,5 +247,81 @@ describe("needsEntry / weekGroups / weekTitle", () => {
     expect(weekTitle({ start: "2026-11-30", end: "2026-11-30" })).toBe(
       "Tydzień 30.11",
     );
+  });
+});
+
+describe("filtr kolejki po statusie", () => {
+  const person = (user_id: number, status: QueueStatus): TeamQueueItem => ({
+    user_id,
+    name: `Osoba ${user_id}`,
+    job_title: null,
+    timesheet: null,
+    status,
+    hours: 0,
+    overtime_hours: 0,
+    absence_days: 0,
+    can_decide: true,
+  });
+  const items = [person(1, "approved"), person(2, "submitted"), person(3, "missing"), person(4, "submitted")];
+
+  it("„Wszystkie” zostawia każdego, status zawęża", () => {
+    expect(filterQueue(items, "all").map((item) => item.user_id)).toEqual([1, 2, 3, 4]);
+    expect(filterQueue(items, "submitted").map((item) => item.user_id)).toEqual([2, 4]);
+    expect(filterQueue(items, "draft")).toEqual([]);
+  });
+
+  it("liczby każdego statusu, także zerowe", () => {
+    expect(queueCounts(items)).toEqual({ all: 4, missing: 1, submitted: 2, draft: 0, approved: 1 });
+    expect(queueCounts([])).toEqual({ all: 0, missing: 0, submitted: 0, draft: 0, approved: 0 });
+  });
+
+  it("sortowanie po filtrze nie miesza kolejności statusów", () => {
+    expect(sortQueue(filterQueue(items, "all")).map((item) => item.status)).toEqual([
+      "missing",
+      "submitted",
+      "submitted",
+      "approved",
+    ]);
+  });
+});
+
+describe("termin nieobecności przy dniu raportu", () => {
+  const leave: DayLeave = { status: "approved", fraction: 1, full: true, paid_work: false, paid_hours: 0, label: "Nieobecność" };
+  const term = { status: "approved", start_date: "2031-03-28", end_date: "2031-04-02" };
+  const april = [
+    day({ date: "2031-04-01", leave }),
+    day({ date: "2031-04-02", leave }),
+    day({ date: "2031-04-03", leave: null }),
+  ];
+
+  it("znajduje termin obejmujący dzień, z granicami włącznie", () => {
+    expect(leaveTermForDay([term], "2031-03-28")).toBe(term);
+    expect(leaveTermForDay([term], "2031-04-02")).toBe(term);
+    expect(leaveTermForDay([term], "2031-04-03")).toBeNull();
+  });
+
+  it("pomija odrzucony i anulowany termin tych samych dni", () => {
+    const cancelled = { ...term, status: "cancelled" };
+    const rejected = { ...term, status: "rejected" };
+    expect(leaveTermForDay([cancelled, rejected], "2031-04-01")).toBeNull();
+    expect(leaveTermForDay([cancelled, term], "2031-04-01")).toBe(term);
+  });
+
+  it("akcja stoi przy pierwszym dniu terminu w tym miesiącu, także gdy zaczął się wcześniej", () => {
+    expect(isFirstLeaveDay(april, term, "2031-04-01")).toBe(true);
+    expect(isFirstLeaveDay(april, term, "2031-04-02")).toBe(false);
+  });
+});
+
+describe("zdanie o godzinach po cofnięciu nieobecności", () => {
+  it("mówi, co dalej, przy każdym stanie raportu", () => {
+    expect(afterLeaveCancelNote("draft", false)).toContain("Szkic");
+    expect(afterLeaveCancelNote("submitted", false)).toContain("zwróć do poprawy");
+    expect(afterLeaveCancelNote("approved", false)).toContain("cofnij akceptację");
+  });
+
+  it("zamknięty miesiąc płac wygrywa ze stanem raportu", () => {
+    expect(afterLeaveCancelNote("approved", true)).toContain("zamknięty w rozliczeniach");
+    expect(afterLeaveCancelNote("draft", true)).toContain("zamknięty w rozliczeniach");
   });
 });

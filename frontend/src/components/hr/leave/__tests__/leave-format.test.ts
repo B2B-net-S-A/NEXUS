@@ -114,10 +114,10 @@ describe("leaveToast — zmiana urlopu w zamkniętym miesiącu płac", () => {
     const { leaveToast } = await import("../leave-format");
     expect(
       leaveToast("Wniosek zaakceptowany", {
-        payroll_warning: "Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
+        payroll_warning: "Miesiąc 2031-03 jest zamknięty w Rozliczeniach — dostały informację.",
       }),
     ).toEqual([
-      "Wniosek zaakceptowany. Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
+      "Wniosek zaakceptowany. Miesiąc 2031-03 jest zamknięty w Rozliczeniach — dostały informację.",
       "info",
     ]);
   });
@@ -196,7 +196,7 @@ describe("leaveInputFrom — dane wniosku ze stanu okna", () => {
     expect(withoutSubstitute?.note).toBeNull();
   });
 
-  it("wpis za pracownika: notatka bez zgody na przekierowanie i bez OOF", () => {
+  it("wpis za osoby: notatka bez zgody na przekierowanie i bez OOF", () => {
     expect(
       leaveInputFrom(
         values({
@@ -231,7 +231,7 @@ describe("cproSubstituteMissing — osoba od Cpro wskazuje zastępcę do Cpro", 
     expect(cproSubstituteMissing({ ...form, cproSubstitute: "9" }, true, false)).toBe(false);
   });
 
-  it("pół dnia, wpis za pracownika i zwykła osoba nie wymagają wyboru", () => {
+  it("pół dnia, wpis za osoby i zwykła osoba nie wymagają wyboru", () => {
     const half = { ...form, end: form.start, halfDay: "morning" };
     expect(cproSubstituteMissing(half, true, false)).toBe(false);
     expect(cproSubstituteMissing(form, true, true)).toBe(false);

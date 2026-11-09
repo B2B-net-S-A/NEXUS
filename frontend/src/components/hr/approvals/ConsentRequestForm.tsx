@@ -460,7 +460,7 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
             Anuluj
           </Button>
           <span className="ml-auto text-xs text-muted-foreground">
-            Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — tu go nie składasz.
+            Wynagrodzenie z reguł umowy (placement, liga) liczą Rozliczenia same — tu go nie składasz.
           </span>
         </div>
       </div>
@@ -508,7 +508,7 @@ export function ConsentRequestForm({ editing, onDone, onCancel }: ConsentRequest
             ) : null}
             <li className="text-muted-foreground">
               {bonus
-                ? "Po zgodzie wynagrodzenie dodatkowe trafia do Płac jako przyznane."
+                ? "Po zgodzie wynagrodzenie dodatkowe trafia do Rozliczeń jako przyznane."
                 : "Po zgodzie możesz kupić albo zapłacić."}
             </li>
           </ol>

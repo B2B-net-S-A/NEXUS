@@ -714,14 +714,15 @@ async def test_404_for_missing_client_403_for_denied(
     cam_client: AsyncClient,
 ) -> None:
     """Brak encji → 404 (istnienie klienta nie jest tajne); brak prawa → 403."""
-    _, v_email, v_pass = await _seed_user(UserRole.user)
-    v_headers = await _login(cam_client, v_email, v_pass)
+    # Rekruter bez przypisania przechodzi bramkę sekcji, a odmawia dopiero klient.
+    _, r_email, r_pass = await _seed_user(UserRole.recruiter)
+    r_headers = await _login(cam_client, r_email, r_pass)
 
-    resp = await cam_client.get("/api/clients/99999999/contacts", headers=v_headers)
+    resp = await cam_client.get("/api/clients/99999999/contacts", headers=r_headers)
     assert resp.status_code == 404
 
     client_id = await _seed_client()
-    resp = await cam_client.get(f"/api/clients/{client_id}/contacts", headers=v_headers)
+    resp = await cam_client.get(f"/api/clients/{client_id}/contacts", headers=r_headers)
     assert resp.status_code == 403
     # Stabilny kod błędu w detail (kryterium akceptacji PR1)
     assert resp.json()["detail"].startswith("client_access_denied")

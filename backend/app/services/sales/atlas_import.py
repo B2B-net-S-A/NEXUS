@@ -102,7 +102,7 @@ PROTECTED: dict[str, frozenset[str]] = {
         }
     ),
     "sales_contacts": frozenset(
-        {"full_name", "title", "email", "phone", "company_id", "notes"}
+        {"full_name", "title", "email", "phone", "linkedin_url", "company_id", "notes"}
     ),
     "sales_opportunities": frozenset(
         {
@@ -120,10 +120,14 @@ PROTECTED: dict[str, frozenset[str]] = {
             "owner_user_id",
             "lost_reason",
             "archived_at",
+            "archived_reason",
+            "keep_open_until",
+            # Mapa decyzyjna poprawiana w NEXUSIE (services/sales/decision_map.py).
+            "custom_fields",
         }
     ),
     "sales_activities": frozenset(
-        {"done_at", "assignee_user_id", "subject", "body", "due_at"}
+        {"done_at", "assignee_user_id", "subject", "body", "due_at", "kind"}
     ),
 }
 #: Ile może minąć między zapisem importu a ``updated_at`` bez uznania wiersza

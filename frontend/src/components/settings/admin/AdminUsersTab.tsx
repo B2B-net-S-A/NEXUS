@@ -307,6 +307,7 @@ export function AdminUsersTab({
           role: data.role,
           roles: data.roles,
           can_delete_clients: data.can_delete_clients,
+          receives_board_report: data.receives_board_report,
           ...(data.clear_microsoft_identity
             ? { clear_microsoft_identity: true }
             : {}),

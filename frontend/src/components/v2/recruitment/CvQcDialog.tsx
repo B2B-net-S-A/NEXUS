@@ -36,7 +36,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 
@@ -44,7 +44,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/Toast";
+import { useCapability } from "@/hooks/useCapability";
+import { candidateStageCvApi } from "@/lib/api";
 import { QcOverrideDialog } from "@/components/v2/recruitment/QcOverrideDialog";
+import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
   AiFixesView,
   CheckRow,
@@ -60,12 +63,14 @@ import {
 } from "@/components/v2/recruitment/cv-qc-cards";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  cvQcQueryKey,
   invalidateAfterQcChange,
   useCvQc,
   useCvQcFixes,
   useQcApply,
   useQcConfirm,
   useQcDismiss,
+  useQcManualRoles,
   useQcRestore,
   cvQcFixesQueryKey,
   type QcApplyBody,
@@ -84,12 +89,15 @@ import {
   candidateQuestion,
   highlightTerms,
   qcDismissedMessage,
+  qcResultPairState,
   roleGaps,
   segmentCv,
+  cvControlSummary,
   splitChecks,
+  type QcPendingItem,
+  candidateGapItems,
+  splitDlReturns,
   taskPendingItem,
-  taskTitle,
-  thingsLabel,
   unboldedTerms,
   type RoleGap,
 } from "@/lib/cv-qc";
@@ -136,6 +144,11 @@ export interface CvQcDialogProps {
    * „Przesuń dalej” (ruch etapu ma jedną drogę). Bez niego przycisku nie ma.
    */
   onMoveNext?: (result: QcResult) => void;
+  /**
+   * R5 (07.11.2026): kto patrzy. Delivery Lead z przeglądu dostaje objaśnienie
+   * dla siebie, nie „możesz przesunąć kartę mimo uwag” pisane do rekrutera.
+   */
+  audience?: "recruiter" | "dl";
 }
 
 // ── CV po lewej ──────────────────────────────────────────────────────────────
@@ -279,7 +292,7 @@ function CvPaper({ data }: { data: QcResult }) {
 const championHref = (data: QcResult) => `/jobs/${data.job_id}?tab=champion`;
 
 /** Co QC sprawdza i które umiejętności są krytyczne w tej rekrutacji. */
-function Explainer({ data }: { data: QcResult }) {
+function Explainer({ data, audience = "recruiter" }: { data: QcResult; audience?: "recruiter" | "dl" }) {
   const critical = data.client_request.critical ?? [];
   const source = data.client_request.critical_source ?? "none";
   const champion = (
@@ -301,7 +314,12 @@ function Explainer({ data }: { data: QcResult }) {
         <strong className="font-semibold">Co sprawdza QC:</strong> czy CV firmowe opisuje umiejętności krytyczne tej
         rekrutacji i czy nie mówi nic ponad oryginalne CV kandydata. Reszta to podpowiedzi — nie zatrzymują wysyłki.
       </p>
-      {data.advisory ? (
+      {audience === "dl" ? (
+        <p>
+          Patrzysz jako Delivery Lead: to samo widział rekruter przed przekazaniem. „Sprawdź ręcznie” znaczy, że QC
+          tego nie umiało sprawdzić — zaznacz to w „Wróć do poprawy”, jeśli trzeba poprawić CV.
+        </p>
+      ) : data.advisory ? (
         <p>
           QC doradza: możesz przesunąć kartę mimo uwag — Delivery Lead zobaczy, co zostało niepoprawione, i może
           cofnąć ją do poprawy.
@@ -368,26 +386,14 @@ const LOAD_ERROR: Record<string, string> = {
   error: "Nie udało się policzyć QC. Spróbuj ponownie.",
 };
 
-/** Kolejność jak na Tablicy (`pair_statuses`): zaliczone wygrywa z dawnym obejściem. */
+/** Stan z serwera, ten sam napis co na karcie (`qc_state`). */
 function Verdict({ data }: { data: QcResult }) {
-  if (data.passed) {
-    return (
-      <Badge variant="success" size="lg">
-        QC przechodzi
-      </Badge>
-    );
-  }
-  if (data.override) {
-    return (
-      <Badge variant="warning" size="lg">
-        Przepuszczone mimo QC
-      </Badge>
-    );
-  }
+  const state = qcResultPairState(data);
   return (
-    <Badge variant="danger" size="lg">
-      Do poprawy: {thingsLabel(data.blocking_failed)}
-    </Badge>
+    <QcStatusBadge
+      size="lg"
+      row={{ qc_status: state.status, qc_blocking_failed: state.blocking_failed, qc_state: state.qc_state }}
+    />
   );
 }
 
@@ -396,16 +402,19 @@ export function CvQcBody({
   stageId,
   onChanged,
   onOpenEditor,
+  audience = "recruiter",
 }: {
   data: QcResult;
   stageId: number;
   onChanged?: () => void;
+  audience?: "recruiter" | "dl";
   /** Otwiera edytor sprawdzanego CV — brak, gdy CV nie da się edytować w NEXUSIE. */
   onOpenEditor?: () => void;
 }) {
   const { showSuccess, showError } = useToast();
   const apply = useQcApply(stageId, onChanged);
   const confirm = useQcConfirm(stageId, onChanged);
+  const manualRoles = useQcManualRoles(stageId, onChanged);
   const dismiss = useQcDismiss(stageId, onChanged);
   const restore = useQcRestore(stageId, onChanged);
   // Jak „Przepuść mimo QC”: w podglądzie jako inny użytkownik — nikomu.
@@ -442,6 +451,16 @@ export function CvQcBody({
           showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia. Spróbuj ponownie.")),
       }),
     confirming: confirm.isPending,
+    confirmRoles: data?.confirm_roles ?? [],
+    manualRoles: (body, onSaved) =>
+      manualRoles.mutate(body, {
+        onSuccess: () => {
+          showSuccess("Wskazanie zapisane — QC przeliczone.");
+          onSaved?.();
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać wskazania. Spróbuj ponownie.")),
+      }),
+    manualRolesPending: manualRoles.isPending,
     requestAiFixes: () => {
       if (typeof document !== "undefined") {
         document.getElementById(`qc-ai-${stageId}`)?.scrollIntoView?.({ block: "nearest" });
@@ -475,11 +494,18 @@ export function CvQcBody({
     restoring: restore.isPending,
   };
 
-  const { tasks, notes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  const { tasks, notes: allNotes, muted, passed, skipped } = useMemo(() => splitChecks(data.checks), [data.checks]);
+  // R4 (07.11.2026): uwagi, za które DL najczęściej cofa kartę, idą wyżej.
+  const { dlReturns, rest: notes } = useMemo(() => splitDlReturns(allNotes), [allNotes]);
+  // R2 (07.11.2026): luka kandydata — nie poprawka CV, decyzja DL.
+  const gaps = useMemo(() => candidateGapItems(data.checks), [data.checks]);
   // Zdania AI dopisuje do ról — także wtedy, gdy QC już przechodzi, a brak
   // opisu jest tylko uwagą.
   const hasAiGaps = data.checks.some((c) => c.status === "fail" && c.items.some((i) => i.fix === "ai"));
   const tasksTitle = data.advisory ? "Zalecane poprawki przed wysłaniem" : "Do poprawy przed wysłaniem";
+  // Para czeka na ruch człowieka: „Nic nie blokuje wysyłki” byłoby nieprawdą.
+  const waitingNote =
+    data.qc_state?.kind === "verify_roles" || data.qc_state?.kind === "candidate_gap" ? data.qc_state.hint : null;
 
   return (
     // `min-h-0` tylko od `lg`: w jednej kolumnie (telefon) wiersze siatki
@@ -500,11 +526,11 @@ export function CvQcBody({
         <CvPaper data={data} />
       </div>
       <div className="space-y-3 p-4 lg:min-h-0 lg:overflow-y-auto">
-        <Explainer data={data} />
+        <Explainer data={data} audience={audience} />
         <Confirmations items={data.confirmations ?? []} />
         {data.override && !data.passed ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
-            Przepuszczone mimo QC{data.override.by_name ? ` przez ${data.override.by_name}` : ""}
+            QC: przepuszczone{data.override.by_name ? ` · ${data.override.by_name}` : ""}
             {data.override.at ? ` (${formatDate(data.override.at)})` : ""}: {data.override.reason}
           </p>
         ) : null}
@@ -519,14 +545,47 @@ export function CvQcBody({
               ))}
             </ul>
           </section>
+        ) : waitingNote ? (
+          <p role="status" className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+            {waitingNote}
+          </p>
         ) : (
           <p role="status" className="flex items-center gap-2 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground">
             <CheckCircle2 className="size-4 shrink-0" aria-hidden />
             Nic nie blokuje wysyłki tego CV.
           </p>
         )}
+        {gaps.length > 0 ? (
+          <section aria-label="Do decyzji Delivery Leada" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Do decyzji Delivery Leada ({gaps.length})</h3>
+            <ul className="space-y-2">
+              {gaps.map((item, i) => (
+                <li
+                  key={item.key ?? i}
+                  className="space-y-1.5 rounded-lg border border-warning/40 bg-warning-muted/40 px-3 py-2 text-sm"
+                >
+                  <p className="font-medium">{item.requirement} — kandydat tego nie ma</p>
+                  {item.detail ? <p className="text-xs text-muted-foreground">{item.detail}</p> : null}
+                  <Button size="sm" variant="outline" onClick={() => ctx.copyQuestion(item)}>
+                    Skopiuj pytanie do kandydata
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {data.cv && hasAiGaps ? (
           <AiFixes stageId={stageId} ctx={ctx} />
+        ) : null}
+        {dlReturns.length > 0 ? (
+          <section aria-label="Delivery Lead zwykle o to cofa" className="space-y-2">
+            <h3 className={SECTION_TITLE}>Delivery Lead zwykle o to cofa ({dlReturns.length})</h3>
+            <ul className="space-y-2">
+              {dlReturns.map((check) => (
+                <CheckRow key={check.key} check={check} ctx={ctx} />
+              ))}
+            </ul>
+          </section>
         ) : null}
         {notes.length > 0 ? (
           <section aria-label="Warto poprawić — nie blokuje" className="space-y-2">
@@ -562,6 +621,53 @@ const MOVE_BLOCKED_HINT = "Najpierw popraw rzeczy z listy „Do poprawy przed wy
 const MOVE_ADVISORY_HINT = "Popraw rzeczy z listy albo użyj „Przesuń mimo uwag…”.";
 
 /** Okno bez zapytania o wynik — `CvQcDialog` i harness `/preview/cv-qc`. */
+/**
+ * Z którego pliku QC czyta oryginał. Rekruter może patrzeć na nowsze CV w profilu
+ * i widzieć technologię, której w kopii tej rekrutacji nie ma.
+ */
+function QcOriginalNote({ data, stageId }: { data: QcResult; stageId: number }) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const canRefresh = useCapability("candidate.document.manage");
+  const refresh = useMutation({
+    mutationFn: () => candidateStageCvApi.original.refresh(stageId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cv-original", stageId] });
+      void queryClient.invalidateQueries({ queryKey: cvQcQueryKey(stageId) });
+      showSuccess("CV z profilu jest teraz CV tej rekrutacji.");
+    },
+    onError: (error) => showError(apiErrorMessage(error, "Nie udało się podmienić CV w tej rekrutacji.")),
+  });
+  const { filename, snapshot_at: snapshotAt, newer_profile_cv: newer } = data.original_cv;
+  if (!filename) return null;
+  return (
+    <>
+      <p data-testid="qc-original-file" className="mt-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        Oryginał, w którym szukam: <span className="font-medium text-foreground">{filename}</span>
+        {snapshotAt ? ` · ${formatDate(snapshotAt)}` : ""}
+      </p>
+      {newer ? (
+        <p
+          data-testid="qc-newer-cv"
+          className="mt-1 rounded-md border border-warning/30 bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground [overflow-wrap:anywhere]"
+        >
+          W profilu jest nowsze CV: {newer.filename} · {formatDate(newer.uploaded_at)}. QC sprawdza starsze.{" "}
+          {canRefresh ? (
+            <button
+              type="button"
+              className="font-medium underline"
+              disabled={refresh.isPending}
+              onClick={() => refresh.mutate()}
+            >
+              Użyj w tej rekrutacji
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export function CvQcDialogView({
   stageId,
   open,
@@ -574,6 +680,7 @@ export function CvQcDialogView({
   state,
   refreshFailed,
   onRecheck,
+  audience = "recruiter",
 }: CvQcDialogViewProps) {
   const me = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
@@ -586,9 +693,22 @@ export function CvQcDialogView({
   const [editorOpen, setEditorOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const editorTarget = qcEditorTarget(data?.cv);
-  const pending = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskTitle) : []), [data]);
-  const pendingItems = useMemo(() => (data ? splitChecks(data.checks).tasks.map(taskPendingItem) : []), [data]);
-  const cleared = Boolean(data && (data.passed || data.override));
+  const manualToDo = useMemo(() => {
+    if (!data?.passed || data.override) return [];
+    const control = cvControlSummary(data.checks);
+    return [...control.unverified, ...(control.consentManual ? ["Zgoda RODO z pliku kandydata"] : [])];
+  }, [data]);
+  const pendingItems = useMemo<QcPendingItem[]>(
+    () =>
+      manualToDo.length > 0
+        ? manualToDo.map((title) => ({ title, keys: [], labelable: false }))
+        : data
+          ? splitChecks(data.checks).tasks.map(taskPendingItem)
+          : [],
+    [data, manualToDo],
+  );
+  const pending = useMemo(() => pendingItems.map((item) => item.title), [pendingItems]);
+  const cleared = Boolean(data && (data.passed || data.override) && manualToDo.length === 0);
 
   return (
     <>
@@ -621,6 +741,7 @@ export function CvQcDialogView({
                   : "Sprawdzenia CV firmowego przed „CV wysłane” i Cpro."}
             </DialogDescription>
             <QcWordFileNote cv={data?.cv} />
+            {data && stageId != null ? <QcOriginalNote data={data} stageId={stageId} /> : null}
           </div>
           {data ? (
             <div className="flex items-center gap-2">
@@ -646,6 +767,7 @@ export function CvQcDialogView({
             stageId={stageId}
             onChanged={onChanged}
             onOpenEditor={editorTarget ? () => setEditorOpen(true) : undefined}
+            audience={audience}
           />
         ) : loading ? (
           <p className="flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
@@ -733,7 +855,7 @@ export function CvQcDialogView({
   );
 }
 
-export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: CvQcDialogProps) {
+export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext, audience }: CvQcDialogProps) {
   const query = useCvQc(stageId, open);
   const queryClient = useQueryClient();
   // Otwarcie okna przelicza i zapisuje QC (CV mogło się zmienić poza oknem) —
@@ -764,6 +886,7 @@ export function CvQcDialog({ stageId, open, onClose, onChanged, onMoveNext }: Cv
       state={resolveViewState({ isLoading: query.isLoading, error: query.error })}
       refreshFailed={query.isError && query.data != null}
       onRecheck={() => void query.refetch()}
+      audience={audience}
     />
   );
 }

@@ -230,15 +230,14 @@ async def test_both_charts_are_reachable_for_every_logged_in_role(
 ):
     """D7: wykresy widzi KAŻDA zalogowana rola.
 
-    `finance` i `sourcer` to dwa końce spektrum uprawnień, a legacy `user` jest
-    wycofywany — gdyby guard rolowy wrócił tu cichym refaktorem, najpierw
-    odbiłby się któryś z tych trzech.
+    `finance` i `recruiter` to dwa końce spektrum uprawnień — gdyby guard rolowy
+    wrócił tu cichym refaktorem, najpierw odbiłby się któryś z nich. Wycofywany
+    Viewer od 0637 nie ma sekcji Insights.
     """
     for role in (
         UserRole.admin,
         UserRole.finance,
         UserRole.recruiter,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(charts_client, email, password)

@@ -95,10 +95,10 @@ async def _authorized_builder(*_args: Any, **_kwargs: Any) -> None:
             "build_head_of_recruitment_dashboard",
         ),
         ("/my-work", UserRole.recruiter, "build_my_work_dashboard"),
-        ("/finance", UserRole.finance, "build_finance_dashboard"),
+        ("/finance", UserRole.admin, "build_finance_dashboard"),
         (
             "/finance?tab=executive",
-            UserRole.finance,
+            UserRole.admin,
             "build_finance_dashboard",
         ),
     ],
@@ -178,7 +178,7 @@ async def test_executive_tab_requires_separate_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, context = dashboard_client
-    context["user"] = _user(UserRole.finance)
+    context["user"] = _user(UserRole.admin)
     monkeypatch.setattr(
         dashboard_api,
         "user_has_capability",
@@ -203,7 +203,7 @@ async def test_finance_tab_is_a_closed_enum(
     dashboard_client: tuple[AsyncClient, dict[str, User]],
 ) -> None:
     client, context = dashboard_client
-    context["user"] = _user(UserRole.finance)
+    context["user"] = _user(UserRole.admin)
 
     response = await client.get("/api/dashboard/v2/finance?tab=unknown")
 
@@ -468,8 +468,9 @@ async def test_delivery_milestones_are_not_limited_to_tac_actors() -> None:
             statements.append(sql)
             if "MIN(first_reached_at)" in sql:
                 return _Rows([SimpleNamespace(job_id=101, reached_at=None)])
-            if "GROUP BY job_id" in sql:
-                return _Rows([SimpleNamespace(job_id=101, placements=1)])
+            if "cycle_started_at" in sql:
+                # Obsada bieżącego otwarcia (`job_fill.filled_by_job`).
+                return _Rows([(101, 1)])
             if "COUNT(*)" in sql:
                 return _Rows([], scalar=1)
             return _Rows([job_row])
@@ -480,9 +481,12 @@ async def test_delivery_milestones_are_not_limited_to_tac_actors() -> None:
     )
 
     milestone_sql = [sql for sql in statements if "analytics_first_milestones" in sql]
-    assert len(milestone_sql) == 3
-    assert all("first_moved_by" not in sql for sql in milestone_sql)
+    # Pierwsza rekomendacja i placementy z widoku; wakaty z obsady bieżącego
+    # otwarcia (05.11.2026), też bez zawężenia do osoby, która ruszyła kartę.
+    assert len(milestone_sql) == 2
+    assert all("first_moved_by" not in sql for sql in statements)
     assert snapshot.placements == 1
+    assert [job.open_vacancies for job in snapshot.jobs] == [1]
 
 
 @pytest.mark.asyncio

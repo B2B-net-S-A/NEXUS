@@ -185,7 +185,8 @@ async def active_prep(
         if s is not None
     ]
     round_start = max((s for s in starts if s <= now), default=None)
-    upcoming = sorted(s for s in starts if s > now)
+    # Zbiór: rozmowa wpisana dwa razy na tę samą godzinę to jedna runda.
+    upcoming = sorted({s for s in starts if s > now})
     round_end = upcoming[0] if len(upcoming) > 1 else None
     q = (
         select(PrepMeeting)

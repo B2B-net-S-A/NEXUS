@@ -1,0 +1,17 @@
+{
+  "filename": [
+    { "pattern": "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}", "spaces": false, "position": "Senior Fullstack Developer (.NET + React)", "project": "3156", "name": "Anna Nowak", "expected": "ZOB-3156_Senior Fullstack Developer (.NET + React)_Anna Nowak.docx" },
+    { "pattern": "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}", "spaces": false, "position": "Tester", "project": "ZOB-3156", "name": "Anna Nowak", "expected": "ZOB-3156_Tester_Anna Nowak.docx" },
+    { "pattern": "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}", "spaces": false, "position": "Tester", "project": "", "name": "Anna Nowak", "expected": "ZOB_Tester_Anna Nowak.docx" },
+    { "pattern": "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", "spaces": false, "position": "Data Engineer (SQL Server / SSIS)", "project": "", "name": "Anna Nowak", "expected": "B2B_Data Engineer (SQL Server  SSIS)_Anna Nowak.docx" },
+    { "pattern": "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", "spaces": true, "position": "IT  Analyst", "project": "", "name": "Anna Nowak", "expected": "B2B_IT_Analyst_Anna_Nowak.docx" }
+  ],
+  "typed": [
+    { "value": "ZOB-3103 Senior Fullstack Developer", "reference": "ZOB-3156", "expected": "Senior Fullstack Developer" },
+    { "value": "Programista Java (ZOB 48213)", "reference": null, "expected": "Programista Java" },
+    { "value": "Analityk_RITM0864052", "reference": "RITM0864052", "expected": "Analityk" },
+    { "value": "ZOB-3103", "reference": "ZOB-3103", "expected": "" },
+    { "value": "Administrator usług IT", "reference": "ZOB-1", "expected": "Administrator usług IT" },
+    { "value": "Starszy Programista .NET", "reference": null, "expected": "Starszy Programista .NET" }
+  ]
+}

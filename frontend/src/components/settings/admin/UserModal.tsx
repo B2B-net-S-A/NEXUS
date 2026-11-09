@@ -4,20 +4,23 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import {
-  extraPermissionRows,
+  grantedByRoles,
   legacyLimits,
-  permissionsOfRoles,
+  personPermissionRows,
   requiredByCaption,
   rolesAcceptGrants,
+  setPersonPermission,
   snapshotIsUsable,
-  togglePermission,
+  storedPersonOverrides,
   userPermissionsSave,
-  type ExtraPermissionRow,
+  type PersonOverrides,
+  type PersonPermissionRow,
   type UserPermissionsSave,
 } from "@/lib/admin-permissions";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { adminApi } from "@/lib/api";
 import { useHrProgram } from "@/lib/api/hr";
-import { isPermission, type Permission } from "@/lib/permissions";
+import type { Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import {
   AdminUser,
@@ -29,38 +32,38 @@ import {
   isExclusiveRole,
 } from "./types";
 
-interface GrantDraft {
+interface OverridesDraft {
   revision: number;
-  granted: Set<Permission>;
+  overrides: PersonOverrides;
 }
 
-type ExtraPermissionsState =
+type PersonPermissionsState =
   | { status: "hidden" }
   | { status: "loading" }
   | { status: "error"; retry: () => void }
   | {
       status: "ready";
-      rows: ExtraPermissionRow[];
-      /** Stare wyjątki osoby nazwane słowami (pusto = nie ma czego usuwać). */
+      rows: PersonPermissionRow[];
+      /** Stare limity sekcji nazwane słowami (pusto = nie ma czego usuwać). */
       legacy: string[];
       removeLegacy: boolean;
       /** Szkic przepadł, bo zasady zmieniły się, gdy okno było otwarte. */
       refreshed: boolean;
       /** Drugie żądanie zapisu albo `null`, gdy uprawnienia się nie zmieniają. */
       save: UserPermissionsSave | null;
-      toggle: (key: Permission) => void;
+      setPermission: (key: Permission, on: boolean) => void;
       setRemoveLegacy: (remove: boolean) => void;
     };
 
 /**
- * „Dodatkowe uprawnienia” jednej osoby. Lista idzie za rolami WYBRANYMI
- * w formularzu, nie zapisanymi — zmiana roli w tym samym oknie od razu
- * pokazuje, czego nowa rola nie daje.
+ * Uprawnienia jednej osoby. Lista idzie za rolami WYBRANYMI w formularzu, nie
+ * zapisanymi — zmiana roli w tym samym oknie od razu pokazuje, co nowa rola
+ * daje, a czego nie.
  */
-function useExtraPermissions(
+function usePersonPermissions(
   userId: number | null,
   roles: string[],
-): ExtraPermissionsState {
+): PersonPermissionsState {
   const enabled = userId !== null;
   const hrProgram = useHrProgram();
   const snapshotQuery = useQuery({
@@ -75,7 +78,7 @@ function useExtraPermissions(
       adminApi.getUserPermissions(userId as number).then((response) => response.data),
     enabled,
   });
-  const [draft, setDraft] = useState<GrantDraft | null>(null);
+  const [draft, setDraft] = useState<OverridesDraft | null>(null);
   const [removeLegacy, setRemoveLegacy] = useState(false);
   const [refreshed, setRefreshed] = useState(false);
 
@@ -85,30 +88,30 @@ function useExtraPermissions(
 
   useEffect(() => {
     if (!draft || revision === undefined || draft.revision === revision) return;
-    // Zaznaczenia powstały na starszej wersji zasad — nie przenosimy ich po
-    // cichu na nową (role mogą dawać już co innego).
+    // Wybory powstały na starszej wersji zasad — nie przenosimy ich po cichu
+    // na nową (role mogą dawać już co innego).
     setDraft(null);
     setRefreshed(true);
   }, [draft, revision]);
 
-  const stored = useMemo(
-    () => new Set((person?.user.grants ?? []).filter(isPermission)),
+  const stored = useMemo<PersonOverrides>(
+    () => (person ? storedPersonOverrides(person.user) : new Map()),
     [person],
   );
-  const granted = draft && draft.revision === revision ? draft.granted : stored;
-  const roleGiven = useMemo(
-    () => (snapshot ? permissionsOfRoles(snapshot, roles) : new Set<Permission>()),
+  const overrides = draft && draft.revision === revision ? draft.overrides : stored;
+  const roleGranted = useMemo(
+    () => (snapshot ? grantedByRoles(snapshot, roles) : new Set<Permission>()),
     [snapshot, roles],
   );
 
   if (!enabled) return { status: "hidden" };
-  // Same zasady wystarczą, żeby wiedzieć, że wybranym rolom nic się nie nadaje
+  // Same zasady wystarczą, żeby wiedzieć, że wybranym rolom nic się nie ustawia
   // (administrator, Viewer, Praktykant) — sekcja nie pojawia się wtedy nawet
   // na czas odczytu osoby.
   if (snapshot && !rolesAcceptGrants(snapshot, roles)) return { status: "hidden" };
   if (snapshotQuery.isPending || personQuery.isPending) return { status: "loading" };
   // Błędem jest brak danych. Nieudane odświeżenie w tle zostawia listę — zapis
-  // i tak sprawdza wersję zasad, a zaznaczenia nie powinny znikać.
+  // i tak sprawdza wersję zasad, a wybory nie powinny znikać.
   if (!snapshot || !person) {
     return {
       status: "error",
@@ -125,10 +128,10 @@ function useExtraPermissions(
     roles.some((role) => !savedRoles.has(role));
   return {
     status: "ready",
-    rows: extraPermissionRows(
+    rows: personPermissionRows(
       snapshot,
-      roleGiven,
-      granted,
+      roleGranted,
+      overrides,
       hrProgram ? undefined : new Set([HR_PROGRAM_PERMISSION_GROUP]),
     ),
     legacy: legacyLimits(person.user),
@@ -136,55 +139,68 @@ function useExtraPermissions(
     refreshed,
     save: userPermissionsSave({
       response: person,
-      draft: granted,
-      roleGiven,
+      draft: overrides,
+      roleGranted,
       rolesChanged,
       removeLegacy,
     }),
-    toggle: (key) => {
+    setPermission: (key, on) => {
       setRefreshed(false);
-      setDraft({ revision: person.revision, granted: togglePermission(granted, key) });
+      setDraft({
+        revision: person.revision,
+        overrides: setPersonPermission(overrides, roleGranted, key, on),
+      });
     },
     setRemoveLegacy,
   };
 }
 
-function rolesPhrase(roles: string[]): string {
-  const labels = roles.map((role) => ROLE_LABELS[role] ?? role);
-  return labels.length === 1
-    ? `rola ${labels[0]} nie daje`
-    : `role ${labels.join(", ")} nie dają`;
-}
+type RowChoice = "on" | "off";
 
-function ExtraPermissionRowField({
+function PersonPermissionRowField({
   row,
-  onToggle,
+  onChange,
 }: {
-  row: ExtraPermissionRow;
-  onToggle: (key: Permission) => void;
+  row: PersonPermissionRow;
+  onChange: (key: Permission, on: boolean) => void;
 }) {
+  const labelId = useId();
   const captionId = useId();
   const locked = row.requiredBy.length > 0;
+  const describedBy = locked ? captionId : undefined;
   return (
-    <div>
-      <label
-        className={cn(
-          "flex items-start gap-2 py-0.5 text-sm pointer-coarse:min-h-10 pointer-coarse:items-center",
-          row.checked && "font-medium",
-        )}
-      >
-        <input
-          type="checkbox"
-          checked={row.checked}
+    <div className="py-1">
+      <div className="flex items-center justify-between gap-3">
+        <span id={labelId} className="min-w-0 text-sm">
+          {row.label}
+        </span>
+        <SegmentedRadio<RowChoice>
+          labelledBy={labelId}
+          size="sm"
+          className="shrink-0 flex-nowrap"
+          value={row.on ? "on" : "off"}
           disabled={locked}
-          onChange={() => onToggle(row.key)}
-          aria-describedby={locked ? captionId : undefined}
-          className="mt-0.5 shrink-0 rounded border-border pointer-coarse:mt-0"
+          onChange={(choice) => onChange(row.key, choice === "on")}
+          options={
+            row.fromRole
+              ? [
+                  { value: "on", label: "Z roli", describedBy },
+                  {
+                    value: "off",
+                    label: "Odebrane",
+                    describedBy,
+                    checkedClassName: "bg-warning-muted text-warning-muted-foreground",
+                  },
+                ]
+              : [
+                  { value: "off", label: "Brak", describedBy },
+                  { value: "on", label: "Nadane", describedBy },
+                ]
+          }
         />
-        <span>{row.label}</span>
-      </label>
+      </div>
       {locked ? (
-        <p id={captionId} className="ml-6 text-xs text-muted-foreground">
+        <p id={captionId} className="mt-0.5 text-xs text-muted-foreground">
           {requiredByCaption(row.requiredBy)}
         </p>
       ) : null}
@@ -192,19 +208,13 @@ function ExtraPermissionRowField({
   );
 }
 
-function ExtraPermissionsSection({
-  state,
-  roles,
-}: {
-  state: ExtraPermissionsState;
-  roles: string[];
-}) {
+function PersonPermissionsSection({ state }: { state: PersonPermissionsState }) {
   const headingId = useId();
   if (state.status === "hidden") return null;
   return (
     <div role="group" aria-labelledby={headingId}>
       <p id={headingId} className="block text-sm font-medium text-foreground mb-1">
-        Dodatkowe uprawnienia
+        Uprawnienia tej osoby
       </p>
       {state.status === "loading" ? (
         <p role="status" className="text-sm text-muted-foreground">
@@ -226,25 +236,24 @@ function ExtraPermissionsSection({
         </div>
       ) : (
         <>
-          <div className="border border-border rounded-lg px-3 py-2 space-y-1">
-            {state.rows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Role tej osoby dają już wszystkie uprawnienia.
-              </p>
-            ) : (
-              state.rows.map((row) => (
-                <ExtraPermissionRowField key={row.key} row={row} onToggle={state.toggle} />
-              ))
-            )}
+          <div className="border border-border rounded-lg px-3 py-1.5 divide-y divide-border">
+            {state.rows.map((row) => (
+              <PersonPermissionRowField
+                key={row.key}
+                row={row}
+                onChange={state.setPermission}
+              />
+            ))}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Lista pokazuje tylko to, czego {rolesPhrase(roles)}. Zaznaczone działa
-            wyłącznie dla tej osoby.
+            Rola daje punkt wyjścia. Tu możesz dla tej jednej osoby dodać uprawnienie
+            albo je odebrać. Każda zmiana trafia do Historii zdarzeń i wylogowuje tę
+            osobę.
           </p>
           {state.refreshed ? (
             <p className="text-xs text-warning-muted-foreground mt-1">
               Zasady uprawnień zmieniły się w międzyczasie — wczytaliśmy aktualne.
-              Zaznacz uprawnienia jeszcze raz.
+              Ustaw uprawnienia jeszcze raz.
             </p>
           ) : null}
           {state.legacy.length > 0 ? (
@@ -312,6 +321,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
     role: initialPrimary,
     roles: initialRoles,
     can_delete_clients: initial?.can_delete_clients ?? false,
+    receives_board_report: initial?.receives_board_report ?? false,
     clear_microsoft_identity: false,
   });
 
@@ -355,15 +365,15 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
     });
   }, [form.role]);
 
-  const extraPermissions = useExtraPermissions(
+  const personPermissions = usePersonPermissions(
     isEdit ? (initial?.id as number) : null,
     form.roles,
   );
   // Uprawnienia jadą obok danych konta — rodzic zapisuje je drugim żądaniem.
   const handleSave = () =>
     onSave(
-      extraPermissions.status === "ready"
-        ? { ...form, permissions: extraPermissions.save }
+      personPermissions.status === "ready"
+        ? { ...form, permissions: personPermissions.save }
         : form,
     );
 
@@ -475,7 +485,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
             </p>
           </div>
 
-          <ExtraPermissionsSection state={extraPermissions} roles={form.roles} />
+          <PersonPermissionsSection state={personPermissions} />
 
           {isEdit && (
             <div className="border border-border rounded-lg px-3 py-2">
@@ -492,6 +502,25 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
                 Uprawnienie imienne — nie wynika z roli (także administrator go
                 nie ma bez zaznaczenia). Nadanie i odebranie trafia do Historii
                 zdarzeń.
+              </p>
+            </div>
+          )}
+
+          {isEdit && (
+            <div className="border border-border rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.receives_board_report}
+                  onChange={(e) => set("receives_board_report", e.target.checked)}
+                  className="rounded border-border"
+                />
+                Dostaje mail „Podsumowanie Rady”
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Mail z przychodem i marżą firmy. Rada nadzorcza dostaje go zawsze,
+                inni tylko po zaznaczeniu, także administrator. Zmiana trafia do
+                Historii zdarzeń.
               </p>
             </div>
           )}

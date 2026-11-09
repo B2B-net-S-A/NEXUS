@@ -49,6 +49,7 @@ from app.services import note_kinds
 from app.services import recommendation_cards
 from app.services.money_text import strip_rates_and_availability
 from app.services.cv_role_order import sort_experience
+from app.services.cv_source_dates import restore_experience_dates
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
@@ -68,6 +69,7 @@ from app.services.cv_generator_b2b.champion_builder import (
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
     apply_date_format,
+    apply_header_reference,
     apply_presentation_policy,
     build_filename as build_client_filename,
     build_prompt_blocks,
@@ -227,6 +229,9 @@ class UploadGenerationInput:
     # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy — podaje rekruter.
     position: str = ""
     project_ref: str = ""
+    # Numer zapytania rekrutacji, pod którą idzie upload — do nagłówka przy
+    # regule klienta `title_with_reference` (07.11.2026).
+    client_reference: str = ""
     # Server notices decided before generation (e.g. "tailored" fell back to
     # polished for want of a Champion); appended to the document warnings.
     source_warnings: tuple[str, ...] = ()
@@ -1636,6 +1641,7 @@ def _run_generation_pipeline(
     prepared_source_facts: PreparedSourceFacts | None = None,
     position_fallback: str | None = None,
     instruction: str = "",
+    title_reference: str | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1676,6 +1682,7 @@ def _run_generation_pipeline(
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
             instruction=instruction,
+            title_reference=title_reference,
         )
     # Pipeline v10 (CV_GENERATION_PIPELINE=v10) nie czyta uwagi rekrutera —
     # „Napisz od nowa” działa na domyślnej ścieżce legacy_v7.
@@ -1808,6 +1815,7 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    restore_experience_dates(candidate_data, cv_text)
     # Stanowiska od najnowszego ustawia kod, nie model — jak w legacy_v7 (16.10.2026).
     if sort_experience(candidate_data):
         logger.info("[cv_b2b][%s] experience reordered newest first", request_id)
@@ -1884,6 +1892,7 @@ def _run_generation_pipeline(
             # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
             # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
             candidate_data["presentation_position"] = explicit_position
+    apply_header_reference(candidate_data, client_rule, title_reference)
 
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
@@ -2608,6 +2617,10 @@ class CandidateGenerationSource:
     # „Napisz od nowa: krócej, więcej o Kafce” (Edytor CV 3, PR 5): życzenie
     # rekrutera co do formy i akcentów, nigdy źródło faktów. Bez stawek.
     instruction: str = ""
+    # Numer zapytania klienta (`jobs.client_reference`) — do nagłówka CV, gdy
+    # reguła klienta ma `title_with_reference` (07.11.2026). Domyślnie pusty,
+    # więc snapshoty zadań sprzed zmiany dekodują się bez niego.
+    client_reference: str = ""
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2621,6 +2634,8 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
         raise StandaloneGenerationError(
             code="candidate_not_found", message="Konsultant nie istnieje."
         )
+    from app.services.cv_source import current_cv_ordering
+
     rows = (
         await db.scalars(
             select(CandidateDocument)
@@ -2628,11 +2643,7 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
                 CandidateDocument.candidate_id == candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering())
         )
     ).all()
     return [
@@ -2702,7 +2713,7 @@ async def load_candidate_generation_source(
 
     client = await db.get(Client, client_id) if client_id else None
     # ── 1. CV file ────────────────────────────────────────────────────────
-    from app.services.cv_source import current_cv_filters, current_cv_ordering
+    from app.services.cv_source import current_cv_filters_for, current_cv_ordering
 
     cv_doc_q = (
         select(CandidateDocument)
@@ -2722,7 +2733,7 @@ async def load_candidate_generation_source(
     else:
         # Wybór domyślny (bez pliku wskazanego przez rekrutera) tą samą regułą
         # co migawka oryginału CV (R9-N7-11).
-        cv_doc_q = cv_doc_q.where(*current_cv_filters())
+        cv_doc_q = cv_doc_q.where(*await current_cv_filters_for(db, candidate_id))
     cv_doc = (await db.scalars(cv_doc_q)).first()
     if cv_doc is None and cv_document_id is not None:
         raise StandaloneGenerationError(
@@ -2832,11 +2843,6 @@ async def load_candidate_generation_source(
 
     position = (position or "").strip()
     job_title = (job.title or "").strip() if job is not None else ""
-    # Pole „Stanowisko” jest w UI podpowiadane tytułem rekrutacji — ten sam
-    # tekst to nie decyzja rekrutera, więc nagłówek dalej dopasowuje model.
-    position_override = (
-        position if position and position.casefold() != job_title.casefold() else ""
-    )
     # D2 (13.10.2026): do nagłówka CV idzie nazwa roli od klienta bez jego
     # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
     header_title = ""
@@ -2844,6 +2850,21 @@ async def load_candidate_generation_source(
         from app.services.job_working_title import cv_role_title_for_job
 
         header_title = await cv_role_title_for_job(db, job)
+    # Pole „Stanowisko” jest w UI podpowiadane nazwą roli (wcześniej tytułem
+    # rekrutacji) — ten sam tekst to nie decyzja rekrutera. Wpisany numer
+    # zapytania schodzi: nazwa pliku ma go już ze wzoru klienta.
+    position_override = position
+    if job is not None:
+        from app.services.job_working_title import typed_cv_position
+
+        position_override = typed_cv_position(
+            position, getattr(job, "client_reference", None)
+        )
+    if (
+        position.casefold() == job_title.casefold()
+        or position_override.casefold() == header_title.casefold()
+    ):
+        position_override = ""
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
@@ -2869,6 +2890,9 @@ async def load_candidate_generation_source(
             tuple(chosen_sources(sources).items()) if stage is not None else ()
         ),
         instruction=recruiter_instruction(instruction),
+        client_reference=(getattr(job, "client_reference", None) or "")
+        if job is not None
+        else "",
     )
 
 
@@ -2927,6 +2951,7 @@ async def generate_cv_from_candidate_source(
             prepared_source_facts=prepared_source_facts,
             position_fallback=position_fallback,
             instruction=source.instruction,
+            title_reference=source.client_reference or None,
         )
     )
     if source.source_warnings:
@@ -3083,6 +3108,7 @@ def generate_cv_from_uploads(
         project_ref=payload.project_ref or None,
         position_ref=payload.position or None,
         prepared_source_facts=prepared_source_facts,
+        title_reference=payload.client_reference or None,
     )
     if payload.source_warnings:
         result.warnings.extend(payload.source_warnings)

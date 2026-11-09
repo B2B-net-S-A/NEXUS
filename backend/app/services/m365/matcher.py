@@ -32,6 +32,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contact import Contact
 from app.models.m365 import Email, EmailMatchMethod
+from app.models.user import User
 from app.services.m365.provider import MatchResult
 
 logger = logging.getLogger(__name__)
@@ -298,7 +299,7 @@ def _subject_tokens(folded_subject: str) -> list[str]:
 
 
 async def _find_candidate_by_subject_name(
-    db: AsyncSession, subject: str
+    db: AsyncSession, subject: str, *, owner_address: Optional[str] = None
 ) -> Optional[int]:
     """Kandydat, którego imię i nazwisko są w temacie (runda 6 audytu).
 
@@ -306,6 +307,11 @@ async def _find_candidate_by_subject_name(
     obiektów) przy każdym niedopasowanym mailu i blokowała pętlę zdarzeń.
     Teraz zawężenie jest w SQL (imię i nazwisko są słowami tematu, kandydat
     w kontakcie < 90 dni), a przy więcej niż jednej osobie nic nie przypinamy.
+
+    Profil pracownika (adres w domenie firmy albo imię i nazwisko konta z
+    ``users``) nie dostaje maila po temacie: 04.11.2026 było tak 237 maili z
+    cudzych skrzynek w 21 profilach, a przypięty mail widzą admin i Delivery
+    Lead (``email_threads._can_access_email``).
     """
     tokens = _subject_tokens(_fold_diacritics(subject))
     if not tokens:
@@ -314,6 +320,11 @@ async def _find_candidate_by_subject_name(
     recently_emailed = exists().where(
         Email.candidate_id == Candidate.id, Email.received_at >= cutoff
     )
+    named_like_account = exists().where(
+        _folded_sql(func.btrim(User.name))
+        == _folded_sql(func.concat(Candidate.name, " ", Candidate.lastname))
+    )
+    address_domain = func.split_part(func.lower(func.btrim(Candidate.email)), "@", 2)
     stmt = (
         select(Candidate.id, Candidate.name, Candidate.lastname)
         .where(
@@ -322,6 +333,8 @@ async def _find_candidate_by_subject_name(
             _folded_sql(Candidate.lastname).in_(tokens),
             _folded_sql(Candidate.name).in_(tokens),
             or_(Candidate.last_contacted_at >= cutoff, recently_emailed),
+            address_domain.not_in(sorted(_internal_domains(owner_address))),
+            ~named_like_account,
         )
         .order_by(Candidate.id)
         .limit(_SMART_NAME_ROW_LIMIT)
@@ -352,6 +365,39 @@ async def _find_candidate_by_conversation(
     return result.scalars().first()
 
 
+async def _thread_can_be_inherited(db: AsyncSession, prior: Email) -> bool:
+    """Czy odpowiedź w wątku może dostać kandydata z wcześniejszego maila.
+
+    Profil z imieniem albo nazwiskiem bez łacińskiej litery (cyrylica) zebrał
+    do 26.09.2026 tysiące cudzych maili przez `smart_name`, a odpowiedzi w tych
+    wątkach doklejały się dalej. Pomiar 08.11.2026: 49 maili po poprawce z 20.10.
+    Taki profil dziedziczy wątek tylko wtedy, gdy ma w nim mail dopasowany inną
+    metodą (ta sama reguła co ``app.cli.m365_unreadable_name_rematch``).
+    """
+    person = (
+        await db.execute(
+            select(Candidate.name, Candidate.lastname).where(
+                Candidate.id == prior.candidate_id
+            )
+        )
+    ).first()
+    if person is None or not name_folds_to_nothing(person.name, person.lastname):
+        return True
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    Email.m365_conversation_id == prior.m365_conversation_id,
+                    Email.candidate_id == prior.candidate_id,
+                    Email.match_method.notin_(
+                        (EmailMatchMethod.smart_name, EmailMatchMethod.smart_thread)
+                    ),
+                )
+            )
+        )
+    )
+
+
 async def match(db: AsyncSession, msg: IncomingMessage) -> MatchResult:
     """Apply precedence rules and return the best match (or unmatched)."""
     # ── 1. strict (from/to/cc exact) ───────────────────────────────────────
@@ -371,7 +417,11 @@ async def match(db: AsyncSession, msg: IncomingMessage) -> MatchResult:
 
     # ── 2. smart_thread (Phase 2 — already matched conversation) ───────────
     prior = await _find_candidate_by_conversation(db, msg.conversation_id)
-    if prior and prior.candidate_id is not None:
+    if (
+        prior
+        and prior.candidate_id is not None
+        and await _thread_can_be_inherited(db, prior)
+    ):
         return MatchResult(
             candidate_id=prior.candidate_id,
             method=EmailMatchMethod.smart_thread.value,
@@ -396,7 +446,9 @@ async def match(db: AsyncSession, msg: IncomingMessage) -> MatchResult:
 
     # ── 4. smart_name (name+lastname in subject, contacted < 90 days) ──────
     if msg.subject:
-        candidate_id = await _find_candidate_by_subject_name(db, msg.subject)
+        candidate_id = await _find_candidate_by_subject_name(
+            db, msg.subject, owner_address=msg.owner_address
+        )
         if candidate_id is not None:
             return MatchResult(
                 candidate_id=candidate_id,

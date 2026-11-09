@@ -19,6 +19,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.b2b_contract_generator import B2BGeneratedContractUpdate
+from tests._confirm_signed import confirm_request
 
 PATH = "/api/b2b-generator/generated"
 
@@ -1578,7 +1579,9 @@ async def test_cancelled_row_hides_the_signature_button_and_blocks_confirming(
     assert "W trakcie" in after["blocked_reason"]
 
     confirm = await app_client.post(
-        f"{PATH}/{rid}/confirm-fully-signed", headers=app_auth_headers, json={}
+        f"{PATH}/{rid}/confirm-fully-signed",
+        headers=app_auth_headers,
+        **confirm_request(),
     )
     assert confirm.status_code == 409, confirm.text
     assert "anulowana" in confirm.text.lower()

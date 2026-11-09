@@ -130,6 +130,10 @@ async def start_search(
     if payload.job_id is not None:
         job = await _authorized_job(db, user, payload.job_id)
     else:
+        # Talent Radar to ręczne wyszukiwanie — porcja dnia (07.11.2026).
+        from app.services import review_batch
+
+        await review_batch.assert_search_allowed(db, user)
         values = payload.radar.model_dump()
         job = build_ephemeral_job(RadarQuery(**values))
         if not job.description and not job.champion_profile:

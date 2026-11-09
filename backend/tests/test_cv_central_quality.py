@@ -144,12 +144,19 @@ def test_central_rule_does_not_lock_the_mode():
 # ── No forced why_points_max rendered as a client instruction ────────────
 
 
-@pytest.mark.parametrize("client_id", [NORDEA, ALIOR, 26, None])
+@pytest.mark.parametrize("client_id", [ALIOR, 26, None])
 def test_central_policy_renders_no_client_instruction(client_id):
     rule = snapshot_rule(_central_rule(client_id))
     assert rule.why_points_max is None
     assert build_client_presentation_rules_block(rule, "pl") == ""
     assert build_client_presentation_rules_block(rule, "en") == ""
+
+
+def test_nordea_renders_only_the_scrum_point_of_the_summary_standard():
+    rule = snapshot_rule(_central_rule(NORDEA))
+    assert rule.why_points_max is None
+    assert "Scrumie/Agile" in build_client_presentation_rules_block(rule, "pl")
+    assert "Scrum/Agile" in build_client_presentation_rules_block(rule, "en")
 
 
 # ── Startup resilience ───────────────────────────────────────────────────
@@ -334,6 +341,7 @@ async def _upload(
     from app.api import cv_generator_b2b as api
     from app.api import champion_intake as champion_api
     from app.models.user import User, UserRole
+    from app.services import job_public_profile as public_profile
     from app.services.cv_generator_b2b import durable_jobs
 
     monkeypatch.setattr(policies.settings, "CV_CENTRAL_POLICIES_ENABLED", True)
@@ -363,6 +371,12 @@ async def _upload(
         return _central_rule(client_id)
 
     monkeypatch.setattr(api, "resolve_client_rule", rule)
+
+    async def no_names(_db, _client_id):
+        return []
+
+    # Stanowisko z rekrutacji liczy `cv_role_title_for_job`; `db` to tu atrapa.
+    monkeypatch.setattr(public_profile, "_client_names", no_names)
 
     async def no_preview(*args, **kwargs):
         raise HTTPException(503, "model unavailable")
@@ -430,6 +444,7 @@ async def test_upload_client_cap_wins_over_the_uploaded_champion(monkeypatch):
         stage=True,
     )
     assert payload.content_mode == "basic"
+    assert payload.position == "QA"
 
 
 @pytest.mark.asyncio

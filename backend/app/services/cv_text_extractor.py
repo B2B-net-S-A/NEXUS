@@ -30,6 +30,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -232,7 +234,17 @@ _PDF_WORKER_MAX_CHARS = 2_000_000
 _BACKEND_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages")
+_WORKER_OPS = (
+    "pdf",
+    "native",
+    "pdfminer",
+    "pages",
+    "words",
+    "all_pages",
+    "word",
+    "odt",
+    "first_page_ocr",
+)
 #: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
 _PDF_WORKER_MAX_WORDS = 50_000
 
@@ -428,6 +440,15 @@ def _ocr_one_page(path: str, number: int) -> str:
         )
 
 
+def _worker_first_page_ocr(path: str) -> Optional[str]:
+    """OCR pierwszej strony; awaria to brak nagłówka, nie brak tekstu CV."""
+    try:
+        os.environ["OMP_THREAD_LIMIT"] = "1"
+        return _ocr_one_page(path, 1)
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return None
+
+
 def _worker_all_pages(path: str) -> dict:
     """Strona po stronie: tekst z PDF-a, a gdy go brak, OCR tej strony."""
     try:
@@ -508,6 +529,12 @@ def _worker_main(argv: list[str]) -> int:
         payload["words"] = _worker_words(path)
     elif op == "all_pages":
         payload = _worker_all_pages(path)
+    elif op == "word":
+        payload["text"] = _worker_word(path)
+    elif op == "odt":
+        payload["text"] = _worker_odt(path)
+    elif op == "first_page_ocr":
+        payload["text"] = _worker_first_page_ocr(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
@@ -518,8 +545,90 @@ def _worker_main(argv: list[str]) -> int:
     return 0
 
 
+#: Tylko prawdziwy Word po bajtach. RTF czy HTML pod nazwą `.doc` zostają bez
+#: tekstu: arkusz stylów z HTML-a wykonywał żądanie mimo blokady linków w profilu.
+_WORD_IMPORT_FILTERS = {".doc": "MS Word 97", ".docx": "MS Word 2007 XML"}
+
+
+def _worker_word(path: str) -> Optional[str]:
+    """Plik Worda przez LibreOffice do PDF-a, dalej zwykły odczyt PDF (z OCR)."""
+    infilter = _WORD_IMPORT_FILTERS.get(sniff_extension(path) or "")
+    if not infilter:
+        return None
+    try:
+        from app.core.zip_guard import assert_safe_ooxml
+        from app.services.cv_pdf_preview import docx_to_pdf
+
+        # `_extract_docx` połyka odmowę strażnika, więc bomba ZIP dochodzi aż tutaj.
+        assert_safe_ooxml(path)
+        with open(path, "rb") as handle:
+            pdf = docx_to_pdf(handle.read(), infilter=infilter)
+        with tempfile.TemporaryDirectory(prefix="nexus-word-") as tmpdir:
+            target = os.path.join(tmpdir, "word.pdf")
+            with open(target, "wb") as handle:
+                handle.write(pdf)
+            return _extract_pdf_inprocess(target)
+    except Exception as e:  # noqa: BLE001 — wynik best-effort
+        logger.warning(
+            "[cv_text_extractor] LibreOffice failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+
+
+# LibreOffice to ciężki proces (`cv_pdf_preview`): jedna zamiana naraz na proces
+# webowy, a kolejka z limitem, żeby seria plików nie zabrała wątków innym trasom.
+_word_slot = threading.BoundedSemaphore(1)
+_WORD_SLOT_WAIT_SECONDS = 60
+#: LibreOffice rezerwuje więcej przestrzeni adresowej niż pdfplumber i tesseract:
+#: prawdziwe CV (69 KB) przy 1,5 GB kończyło się sygnałem 11, od 1,75 GB czytało się.
+WORD_WORKER_MEMORY_BYTES = 2560 * 1024 * 1024
+
+
+def _extract_word_via_pdf(path: str) -> Optional[str]:
+    """Tekst Worda z LibreOffice, w procesie odczytu z limitem pamięci i czasu."""
+    from app.services.cv_pdf_preview import soffice_path
+
+    if not soffice_path():
+        return None
+    if not _word_slot.acquire(timeout=_WORD_SLOT_WAIT_SECONDS):
+        logger.warning(
+            "[cv_text_extractor] %s: LibreOffice zajęty, plik bez odczytu",
+            safe_filename(path),
+        )
+        return None
+    try:
+        result = _run_pdf_worker("word", path, memory_bytes=WORD_WORKER_MEMORY_BYTES)
+    finally:
+        _word_slot.release()
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def _extract_word(path: str) -> Optional[str]:
+    """Word: python-docx, a gdy prawie nic nie odczytał, LibreOffice.
+
+    python-docx odrzuca binarny `.doc`, a w `.docx` pomija pola tekstowe
+    i kontrolki, więc takie CV miało pusty tekst i `/from-cv` odpowiadał 400
+    (03.11.2026, zgłoszenia z Pracuj.pl przepadały). LibreOffice jest tylko
+    ścieżką zapasową, bo wolny: pomiar na kopii produkcji to 0,4–2,6 s na plik.
+    """
+    text = _extract_docx(path)
+    if len((text or "").strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
+        return text
+    via_pdf = _extract_word_via_pdf(path)
+    if len(via_pdf or "") > len(text or ""):
+        logger.info(
+            "[cv_text_extractor] %s extracted via LibreOffice (python-docx too short)",
+            safe_filename(path),
+        )
+        return via_pdf
+    return text
+
+
 def _extract_docx(path: str) -> Optional[str]:
-    """Extract text from a DOCX (or legacy .doc, best-effort) via python-docx."""
+    """Extract text from a DOCX via python-docx (binary .doc always fails here)."""
     try:
         from docx import Document  # type: ignore[import-untyped]
 
@@ -541,6 +650,89 @@ def _extract_docx(path: str) -> Optional[str]:
             type(e).__name__,
         )
         return None
+
+
+_ODF_OFFICE = "{urn:oasis:names:tc:opendocument:xmlns:office:1.0}"
+_ODF_TEXT = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+_ODF_PARAGRAPHS = frozenset({f"{_ODF_TEXT}p", f"{_ODF_TEXT}h"})
+#: `text:s` niesie liczbę spacji z pliku, a `_normalize` i tak zwija je do jednej,
+#: więc liczba z pliku nie steruje kosztem odczytu.
+_ODF_INLINE_BREAKS = {
+    f"{_ODF_TEXT}s": " ",
+    f"{_ODF_TEXT}tab": "\t",
+    f"{_ODF_TEXT}line-break": "\n",
+}
+#: Usunięty tekst ze śledzenia zmian i komentarze: w pliku są, w dokumencie nie.
+_ODF_NOT_CONTENT = frozenset(
+    {f"{_ODF_TEXT}tracked-changes", f"{_ODF_OFFICE}annotation"}
+)
+
+
+def _odf_parse(content: bytes):
+    # Plik od kandydata: bez DTD, encji i sieci, jak `hr/bank/camt053.py`.
+    from lxml import etree
+
+    return etree.fromstring(
+        content,
+        etree.XMLParser(
+            resolve_entities=False,
+            no_network=True,
+            load_dtd=False,
+            huge_tree=False,
+            remove_comments=True,
+            remove_pis=True,
+        ),
+    )
+
+
+def _odf_collect(element, out: list[str], in_paragraph: bool = False) -> None:
+    """Tekst akapitów z poddrzewa. Poza `text:p` i `text:h` tekstu nie bierzemy,
+    bo leżą tam opisy obrazków i wzorce spisu treści."""
+    if in_paragraph and element.text:
+        out.append(element.text)
+    for child in element:
+        tag = child.tag
+        # Encja zostaje w drzewie jako węzeł bez nazwy; tekst po niej jest treścią.
+        if isinstance(tag, str) and tag not in _ODF_NOT_CONTENT:
+            if tag in _ODF_PARAGRAPHS:
+                out.append("\n")
+                _odf_collect(child, out, True)
+                out.append("\n")
+            elif tag in _ODF_INLINE_BREAKS:
+                out.append(_ODF_INLINE_BREAKS[tag])
+            else:
+                _odf_collect(child, out, in_paragraph and tag.startswith(_ODF_TEXT))
+        if in_paragraph and child.tail:
+            out.append(child.tail)
+
+
+def _worker_odt(path: str) -> Optional[str]:
+    """ODT: tekst z `content.xml`, w procesie odczytu, bo drzewo XML buduje się
+    z pliku od kandydata. Limit rozpakowanego rozmiaru daje `assert_safe_ooxml`."""
+    try:
+        import zipfile
+
+        from app.core.zip_guard import assert_safe_ooxml
+
+        assert_safe_ooxml(path)
+        with zipfile.ZipFile(path) as archive:
+            root = _odf_parse(archive.read("content.xml"))
+        parts: list[str] = []
+        _odf_collect(root.find(f"{_ODF_OFFICE}body"), parts)
+        return "\n".join(line for line in "".join(parts).splitlines() if line.strip())
+    except Exception as e:  # noqa: BLE001 — wynik best-effort
+        logger.warning(
+            "[cv_text_extractor] ODT read failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+
+
+def _extract_odt(path: str) -> Optional[str]:
+    result = _run_pdf_worker("odt", path)
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
 
 
 def _extract_txt(path: str) -> Optional[str]:
@@ -568,12 +760,26 @@ def _declared_extension(file_path: str, filename: str) -> str:
 _PDF_MAGIC = b"%PDF-"
 _ZIP_MAGIC = b"PK\x03\x04"
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_ODT_MIMETYPE = b"application/vnd.oasis.opendocument.text"
 # PDF allows junk before the header; readers look within the first 1 KB.
 _SNIFF_BYTES = 1024
 
 
+def _zip_document_extension(archive) -> Optional[str]:
+    """``.docx`` albo ``.odt`` po zawartości archiwum; xlsx, pages czy arkusz ODS
+    to też ZIP, ale nie dokument tekstowy."""
+    names = archive.namelist()
+    if "word/document.xml" in names:
+        return ".docx"
+    if "mimetype" in names:
+        with archive.open("mimetype") as handle:
+            if handle.read(len(_ODT_MIMETYPE) + 1) == _ODT_MIMETYPE:
+                return ".odt"
+    return None
+
+
 def sniff_extension(file_path: str) -> Optional[str]:
-    """Real format from the file's first bytes: ``.pdf``, ``.docx``, ``.doc``.
+    """Real format from the file's first bytes: ``.pdf``, ``.docx``, ``.odt``, ``.doc``.
 
     The NAME lies. Measured on prod 2026-09-22: 3 320 Traffit CVs named
     ``*.docx`` are PDFs inside (Traffit serves its converted copy under the
@@ -594,11 +800,9 @@ def sniff_extension(file_path: str) -> Optional[str]:
             import zipfile
 
             with zipfile.ZipFile(file_path) as zf:
-                if "word/document.xml" in zf.namelist():
-                    return ".docx"
+                return _zip_document_extension(zf)
         except Exception:  # noqa: BLE001 — broken zip = unknown format
             return None
-        return None  # odt/xlsx/pages — a zip, but not a Word document
     if _PDF_MAGIC in head:
         return ".pdf"
     return None
@@ -620,11 +824,9 @@ def sniff_extension_bytes(data: bytes) -> Optional[str]:
             import zipfile
 
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                if "word/document.xml" in zf.namelist():
-                    return ".docx"
+                return _zip_document_extension(zf)
         except Exception:  # noqa: BLE001 — broken zip = unknown format
             return None
-        return None
     if _PDF_MAGIC in head:
         return ".pdf"
     return None
@@ -667,25 +869,109 @@ def extract_text(file_path: str, filename: str) -> str:
     Raises
     ------
     UnsupportedCvFormat
-        If the format is not one of: .pdf, .docx, .doc, .txt. The format comes
-        from the file's first bytes when they carry a known signature, so a PDF
-        saved as ``cv.docx`` (or ``cv.odt``) is read as a PDF.
+        If the format is not one of: .pdf, .docx, .doc, .odt, .txt. The format
+        comes from the file's first bytes when they carry a known signature, so
+        a PDF saved as ``cv.docx`` (or ``cv.odt``) is read as a PDF.
     """
     ext = _resolve_extension(file_path, filename)
 
     if ext == ".pdf":
         raw = _extract_pdf(file_path)
     elif ext in (".docx", ".doc"):
-        raw = _extract_docx(file_path)
+        raw = _extract_word(file_path)
+    elif ext == ".odt":
+        raw = _extract_odt(file_path)
     elif ext == ".txt":
         raw = _extract_txt(file_path)
     else:
         raise UnsupportedCvFormat(
             f"Unsupported CV format: {ext!r} (filename={filename!r}). "
-            "Supported: .pdf, .docx, .doc, .txt"
+            "Supported: .pdf, .docx, .doc, .odt, .txt"
         )
 
     return _normalize(raw or "")
+
+
+# ── Nazwisko i kontakt w grafice nagłówka CV (05.11.2026) ────────────────────
+#
+# PDF z tekstem w treści i nagłówkiem w obrazku przekracza próg
+# ``_OCR_FALLBACK_THRESHOLD_CHARS``, więc OCR nie rusza, a tekst nie ma nazwiska,
+# maila ani telefonu. Reguła nagłówka bierze wtedy nagłówek sekcji, a wykrywanie
+# duplikatów nie ma czego szukać. Pomiar: ``kandydaci-wyszukiwanie/odczyt-naglowka-z-grafiki.md``.
+
+#: OCR jednej strony z procesem odczytu: mediana ok. 2,4 s, najgorszy plik 27 s.
+_FIRST_PAGE_OCR_TIMEOUT_SECONDS = 45
+#: Sufit bloku: to nagłówek, nie druga kopia pierwszej strony.
+_OCR_HEADER_MAX_LINES = 15
+_OCR_WORD = re.compile(r"[^\W_]+")
+#: Linia OCR jest nowa, gdy co najmniej tyle jej słów nie ma w tekście PDF-a.
+#: OCR myli pojedyncze litery, więc linia z tekstu PDF-a bywa nowa w części.
+_OCR_NEW_LINE_MIN_SHARE = 0.6
+#: Adres z OCR nie wchodzi do tekstu, także z `@` odczytaną jako litera. Kalibracja na
+#: 190 CV z mailem w tekście: 8 z 80 odczytanych adresów było błędnych, a drugi odczyt
+#: w 300 dpi tego nie łapie (w 5 z 55 par mylą się oba). Wiadomość do kandydata
+#: poszłaby do obcej osoby. Telefon: 2 z 179 błędnych.
+_OCR_ADDRESS = re.compile(
+    r"\S*(?:@|\.(?:com|pl|eu|net|org|io|de|uk)\b)\S*", re.IGNORECASE
+)
+
+
+def _ocr_lines_missing_from_text(native: str, ocr: str) -> list[str]:
+    """Linie z OCR, których tekst PDF-a nie ma, w kolejności ze strony.
+
+    Linia z telefonem zostaje zawsze: reszta jej słów bywa w tekście PDF-a, a sam
+    numer leży czasem w stopce, za sufitem bloku.
+    """
+    from app.services.cv_parser import _extract_phone_from_text
+
+    known = {word.casefold() for word in _OCR_WORD.findall(native)}
+    lines: list[str] = []
+    other_lines = 0
+    for raw_line in ocr.splitlines():
+        line = _HORIZONTAL_WS.sub(" ", _OCR_ADDRESS.sub("", raw_line)).strip()
+        if _extract_phone_from_text(line):
+            lines.append(line)
+            continue
+        words = [w.casefold() for w in _OCR_WORD.findall(line) if len(w) >= 2]
+        if not words or other_lines >= _OCR_HEADER_MAX_LINES:
+            continue
+        new_words = [word for word in words if word not in known]
+        if len(new_words) >= _OCR_NEW_LINE_MIN_SHARE * len(words):
+            lines.append(line)
+            other_lines += 1
+    return lines
+
+
+def extract_cv_text(file_path: str, filename: str) -> str:
+    """``extract_text`` dla CV: PDF bez maila i telefonu dostaje OCR pierwszej strony.
+
+    Linie, których nie ma w tekście PDF-a, idą bez adresów na początek, jak nagłówek
+    na stronie. Dalej to zwykły tekst CV: nazwa z niego przechodzi przez odczyt
+    modelu, ``record_detected_identity`` i bramkę, jak każda inna. Zamówienia
+    i dokumenty klientów zostają przy ``extract_text``. Awaria OCR zostawia tekst PDF-a.
+    """
+    text = extract_text(file_path, filename)
+    # Krótszy tekst przeszedł już OCR w `_extract_pdf_inprocess`, cały plik.
+    if (
+        len(text) < _OCR_FALLBACK_THRESHOLD_CHARS
+        or sniff_extension(file_path) != ".pdf"
+    ):
+        return text
+    from app.services.cv_parser import (
+        _extract_email_from_text,
+        _extract_phone_from_text,
+    )
+
+    if _extract_email_from_text(text) or _extract_phone_from_text(text):
+        return text
+    result = _run_pdf_worker(
+        "first_page_ocr", file_path, timeout=_FIRST_PAGE_OCR_TIMEOUT_SECONDS
+    )
+    ocr = result.get("text") if result else None
+    lines = _ocr_lines_missing_from_text(text, ocr) if isinstance(ocr, str) else []
+    if not lines:
+        return text
+    return _normalize("\n".join(lines) + "\n\n" + text)
 
 
 if __name__ == "__main__":  # proces odczytu PDF (``_run_pdf_worker``)

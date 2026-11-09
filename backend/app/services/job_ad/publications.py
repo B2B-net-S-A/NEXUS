@@ -1,6 +1,8 @@
 """Gdzie wisi ogłoszenie — oznaczenia publikacji (0432).
 
-Rekruter wkleja treść na portalu ręcznie, a potem oznacza to tutaj. Stan
+Ogłoszenia na portale prowadzi Delivery Lead (decyzja Artura 08.11.2026,
+``can_mark``): oznacza tu to, co wisi na Pracuj.pl albo zostało wklejone;
+publikację przez API na JustJoin.IT zapisuje worker (``record_portal_send``). Stan
 czyta okno „Ogłoszenie na portale”, sekcja „Zespół i ogłoszenie” i kolumna
 „Ogłoszenia” na liście rekrutacji.
 
@@ -25,9 +27,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.job import Job
 from app.models.job_ad import JobAd
 from app.models.job_ad_publication import JobAdPublication
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.job_ad_publication_schema import (
     PORTAL_JJIT,
     PORTAL_PRACUJ,
@@ -206,6 +209,17 @@ async def career_pages_for_jobs(db: AsyncSession, job_ids: Iterable[int]) -> set
     return set(rows)
 
 
+def can_mark(user: User, job: Job) -> bool:
+    """Oznaczenia portali: Delivery Lead rekrutacji, Head of Recruitment, admin.
+
+    Ta sama lista co przy publikacji (``reminders.can_manage``), ale działa też
+    dla zamkniętej rekrutacji, bo zdjęcie ogłoszenia trzeba wtedy jeszcze oznaczyć.
+    """
+    return job.delivery_lead_id == user.id or user.has_any_role(
+        UserRole.head_of_recruitment, UserRole.admin
+    )
+
+
 class ContentBlocked(Exception):
     """Treść ma znalezisko blokujące — nie wolno potwierdzić, że wisi na portalu."""
 
@@ -234,7 +248,6 @@ async def mark_published(
     Potwierdzenie treści (pierwszy i trzeci przypadek) przy znalezisku
     blokującym kończy się ``ContentBlocked``.
     """
-    now = datetime.now(timezone.utc)
     row = await db.get(JobAdPublication, (ad.job_id, portal), with_for_update=True)
     active = row is not None and row.removed_at is None
     if blocked and (content_updated or not active):
@@ -243,11 +256,23 @@ async def mark_published(
         row.url = url
         if content_updated:
             row.content_hash = ad_hash(ad)
-        row.updated_at = now
+        row.updated_at = datetime.now(timezone.utc)
         return
+    await _insert(db, ad.job_id, portal, url, ad_hash(ad), user_id)
+
+
+async def _insert(
+    db: AsyncSession,
+    job_id: int,
+    portal: str,
+    url: Optional[str],
+    hash_: str,
+    user_id: Optional[int],
+) -> None:
+    now = datetime.now(timezone.utc)
     values = {
         "url": url,
-        "content_hash": ad_hash(ad),
+        "content_hash": hash_,
         "published_at": now,
         "published_by": user_id,
         "removed_at": None,
@@ -257,12 +282,56 @@ async def mark_published(
     # Upsert: dwa pierwsze kliknięcia naraz nie kończą się błędem klucza.
     await db.execute(
         pg_insert(JobAdPublication)
-        .values(job_id=ad.job_id, portal=portal, **values)
+        .values(job_id=job_id, portal=portal, **values)
         .on_conflict_do_update(
             index_elements=[JobAdPublication.job_id, JobAdPublication.portal],
             set_=values,
         )
     )
+
+
+async def record_portal_send(
+    db: AsyncSession,
+    job_id: int,
+    *,
+    url: Optional[str],
+    hash_: str,
+    user_id: Optional[int],
+) -> None:
+    """Worker wysłał ogłoszenie na JustJoin.IT przez API: wisi, w tej wersji.
+
+    ``hash_`` to odcisk WYSŁANEJ treści: poprawka zapisana w trakcie wysyłki
+    zapala „do aktualizacji”. Adres spoza domeny portalu nie trafia na listę
+    rekrutacji jako odnośnik, ogłoszenie zostaje oznaczone bez linku.
+    """
+    try:
+        safe_url = clean_url(url, PORTAL_JJIT)
+    except ValueError:
+        safe_url = None
+    row = await db.get(
+        JobAdPublication,
+        (job_id, PORTAL_JJIT),
+        with_for_update=True,
+        populate_existing=True,
+    )
+    if row is not None and row.removed_at is None:
+        row.url = safe_url or row.url
+        row.content_hash = hash_
+        row.updated_at = datetime.now(timezone.utc)
+        return
+    await _insert(db, job_id, PORTAL_JJIT, safe_url, hash_, user_id)
+
+
+async def record_portal_removal(db: AsyncSession, job_id: int) -> None:
+    """Ogłoszenia z API już nie ma na portalu (zamknięte, wygasłe, usunięte)."""
+    row = await db.get(
+        JobAdPublication,
+        (job_id, PORTAL_JJIT),
+        with_for_update=True,
+        populate_existing=True,
+    )
+    if row is not None and row.removed_at is None:
+        row.removed_at = datetime.now(timezone.utc)
 
 
 async def mark_removed(

@@ -193,6 +193,29 @@ function prepare(params: URLSearchParams) {
   client.setQueryData(payrollKeys.settlement(year), olaSettlement(current));
   // W styczniu „Premie i stawka” pyta też o poprzedni rok — harness bez żądań.
   client.setQueryData(payrollKeys.settlement(year - 1), { year: year - 1, months: [], bonuses_paid: {} });
+  // „Do 200%”: fikcyjny postęp rekruterki w miesiącu programu.
+  client.setQueryData(payrollKeys.myDoubleBonus, {
+    year: current.year,
+    month: current.month,
+    in_program: true,
+    final: false,
+    thresholds: { verifications_per_day: "4", precision_pct: "75", dl_min_margin: "50", multiplier: "2" },
+    rows: [
+      {
+        user_id: viewer.id,
+        name: viewer.name,
+        kind: "recruiter",
+        placements: 1,
+        target: 2,
+        verifications_per_day: "3.5",
+        precision_pct: "82",
+        checks: { placements: false, verifications: false, precision: true },
+        excluded: null,
+        qualified: false,
+        contracts: [],
+      },
+    ],
+  });
 
   return { user: viewer, client, value: { state, config, form } };
 }
@@ -217,7 +240,7 @@ export default function HrMyTimePreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Mój czas"
+      title="Moja współpraca"
       note={
         state === "request"
           ? "Kamil Testowy (Delivery Lead, umowa o pracę) składa wniosek. Dane fikcyjne, bez zapytań."

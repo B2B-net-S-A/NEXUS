@@ -49,6 +49,7 @@ export const CHECK_TONE: Record<InvoiceCheck, StatusDotTone> = {
 export const METHOD_LABELS: Record<string, string> = {
   order_number: "numer zamówienia w fakturze",
   amount: "jednoznaczna kwota",
+  person: "osoba i stawka z faktury",
   correction: "korekta faktury",
   manual: "przypisana ręcznie",
 };
@@ -114,13 +115,15 @@ export function summaryStats(
       value: summary.rows,
     },
     { id: "invoiced", label: "zafakturowane w KSeF", value: summary.invoiced },
-    {
+  ];
+  if (!summary.totals_hidden) {
+    stats.push({
       id: "expected",
       label: `netto do faktury · ${monthYearPl(period)}`,
       value: totalsText(summary.expected),
       title: outside.length ? outside.join(" ") : undefined,
-    },
-  ];
+    });
+  }
   if (summary.differences) {
     stats.push({ id: "differences", label: "różnice do sprawdzenia", value: summary.differences });
   }

@@ -27,7 +27,7 @@
       },
       {
         "q": "Jak założyć nową rekrutację?",
-        "a": "Kliknij „Nowa rekrutacja”, wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Rekrutacja powstaje dopiero kompletna: „Utwórz i opublikuj” od razu przekazuje ją do searchu. Niedokończony formularz czeka na Twoim koncie. Przycisk widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i Delivery Lead).",
+        "a": "Kliknij „Nowa rekrutacja”, wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Rekrutacja powstaje dopiero kompletna: „Utwórz i opublikuj” od razu przekazuje ją do searchu. Niedokończony formularz wraca przyciskiem „Dokończ szkic requestu z …” obok. Oba widzą osoby z uprawnieniem do zakładania rekrutacji (domyślnie admin i DL).",
         "anchor": "jobs.list.new"
       }
     ],
@@ -35,7 +35,12 @@
       "Lista otwiera się z Twoimi ostatnimi filtrami (bez tekstu z wyszukiwarki). Pusta albo krótka lista nie znaczy, że rekrutacji nie ma — kliknij „Wyczyść” albo przełącz zakres na „Moja kategoria”, „Otwarte” lub „Wszystkie”. Head of Recruitment i admin widzą obok tytułu „⇄ N możliwych bliźniaków”: bardzo podobne otwarte rekrutacje różnych Delivery Leadów — do połączenia albo odrzucenia („To nie bliźniak”).",
       "Przerywana ramka z dopiskiem „propozycja” w kolumnie „Rekruter” to propozycja automatu. Dopóki Head of Recruitment jej nie zaakceptuje, nikt nie jest przypisany, a rekrutacja liczy się jako „Bez rekrutera”. Admin, Head of Recruitment i Delivery Lead zmieniają Rekrutera kliknięciem w tę kolumnę (poza zamkniętymi rekrutacjami) — tam też Head of Recruitment akceptuje propozycję. Kropka przy Rekruterze albo DL znaczy, że ta osoba jest dziś nieobecna — po najechaniu widać, do kiedy i kto ją zastępuje.",
       "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje P1 (pilne), potem te z największą liczbą kandydatów czekających na Twój ruch. P1 z championem jest wstrzymany (szare „P1” z pauzą) i schodzi niżej.",
-      "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
+      "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”. Stan i priorytet to dwie różne rzeczy. „Szukamy” mówi, że trwa praca nad requestem (do wskazania championów), a priorytet — jak pilnie: „P1 Pilne”, „Bez priorytetu” albo „Przyjmujemy kandydatów” (nie szukamy aktywnie, automat nikogo nie proponuje). „Szukamy” bywa przy każdym priorytecie. Priorytet zmienia plakietka priorytetu przed tytułem rekrutacji albo wiersz „Priorytet” w zakładce „Zespół” podglądu — osoby z uprawnieniem do zakładania rekrutacji i Head of Recruitment. P0 (ultrapilne na 24 h, 48 h albo do piątku) ustawia Head of Recruitment albo admin, z powodem."
+    ],
+    "asked": [
+      "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
+      "Gdzie jest request, który zacząłem i nie skończyłem?",
+      "Czemu „Szukamy” bez priorytetu?"
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Moja kategoria / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
@@ -58,20 +63,20 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Akceptacja i umowa oraz Zatrudniony; u góry kolumny ten, kto ostatni wszedł na etap. Źródła są w nagłówku.",
+    "what": "Tu prowadzisz kandydatów przez 8 kolumn, od Nowych po Zatrudnionego. W „Nowych” najpierw aplikujący z kompletem „musi mieć”, potem zespół i kolejka systemu; aplikujący z brakiem czekają zwinięci na dole.",
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Na górze: priorytet, numer u klienta, tytuł (nazwa od klienta w dymku), klient, budżet, tryb pracy i „Rekruter” — klik pokazuje zespół. „Kto dodał” → „Ty” to karty z Twoim imieniem, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
+        "a": "Na górze: priorytet, numer u klienta, tytuł, klient, budżet, tryb pracy, „Rekruter” (klik: zespół) i liczba osób z ✎ (klik ją zmienia). Filtr przy „Nowi”: „Ty” to Twoje karty, „˄” zwija nagłówek. Klik w nazwisko otwiera kartę z boku; w „Nowych” i „Screeningu” na całe okno, z CV i wymaganiami po lewej (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno pyta „Kiedy rozmowa?” — termin włącza przypomnienie o telefonie i pytaniach klienta. Klient zaakceptował osobę? „Klient zaakceptował” na karcie przenosi ją do „Akceptacja i umowa”.",
+        "a": "Kliknij strzałkę „→” na karcie: bez braków karta przechodzi od razu (10 s na „Cofnij”), z brakami otworzy się „Przesuń dalej”. Na „Rozmowę u klienta” okno pyta „Kiedy rozmowa?” — termin włącza przypomnienie o telefonie i pytaniach klienta. Klient zaakceptował osobę? „Zaznacz akceptację” na karcie przenosi ją do „Akceptacja i umowa”.",
         "anchor": "jobs.board.columns"
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij źródło w nagłówku: „Podobne rekrutacje”, „Nowi z ogłoszeń”, „Propozycje z bazy” albo „Szukaj w bazie”; „+ Dodaj” daje osobę na górę Nowych na 12 h. „Otwarte podobne” to otwarte rekrutacje o tym samym profilu — tam DL łączy bliźniaka (chip „⇄” obok). „+1 rekrutacja” na karcie: „Screening razem” to jedna rozmowa pod obie.",
+        "a": "Kliknij „Nowi z ogłoszeń” albo menu „Szukaj ▾”: podobne rekrutacje, propozycje z bazy, szukaj w bazie; „+ Dodaj” daje osobę na górę Nowych na 12 h. „Otwarte podobne” (w menu) to otwarte rekrutacje o tym samym profilu — tam DL łączy bliźniaka. „+1 rekrutacja” w „+N” na karcie: „Screening razem” to jedna rozmowa pod obie.",
         "anchor": "jobs.board.sources"
       },
       {
@@ -85,14 +90,20 @@
       }
     ],
     "pitfalls": [
-      "Wysłanie na „CV wysłane” poza Nordeą robi osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin) w przeglądzie: wymagania z dowodem, CV, budżet i marża na żywo, stawka do klienta. Gdy CV jest po QC, na karcie w „QC CV” ma ona przycisk „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”) zamiast strzałki. Delivery Lead tej rekrutacji widzi na takiej karcie „Twój ruch” i „Czeka na Ciebie”, a przy dwóch i więcej osobach „Przejrzyj po kolei” w nagłówku kolumny — przegląd osoba po osobie, od najdłużej czekającej. U Nordei przegląd kończy „Akceptuj — do Cpro” ze stawką do Cpro: rekruter przekazuje osobę Delivery Leadowi, a osoba od Cpro dostaje zadanie dopiero po akceptacji. Zaakceptowani stoją w osobnej kolumnie „Do Cpro” po „QC CV” i tam czekają na osobę od Cpro. Delivery Lead, który kładzie kartę na „QC CV” albo „Do Cpro” we własnej rekrutacji, od razu dostaje akceptację ze stawką. Cofnięcie karty z „Rozmowy u klienta” przeglądu nie wymaga. „Wróć do poprawy…” zaznacza pola — rekruter widzi je w formularzu screeningu, a uwagę w powiadomieniu i notatkach kandydata. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata.",
-      "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu, stawki kandydata, lokalizacji, trybu pracy, dostępności i „Dlaczego ten kandydat” oraz pól dołożonych w karcie klienta (gdy brakuje tylko tych pól, strzałka otwiera okno z nimi; w rekrutacji bez pytań screeningowych zamiast odpowiedzi wystarcza „Dlaczego ten kandydat”), wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ruch na „Zatrudniony” (może każdy z zespołu; zamówienie nie jest potrzebne) — informacji, jak podpisano umowę. Delivery Lead i admin przechodzą bramki odpowiedzi, stawki, minimum i debriefu mimo braków: strzałka przesuwa od razu, komunikat wymienia braki, a karta dostaje „Przesunął DL · bez …”. Umowa w podpisie w NEXUSIE przesuwa kartę na „Zatrudniony” sama po podpisie obu stron; ręczny ruch wymaga najpierw „Przejdź na zwykłą drogę” w rejestrze umów.",
-      "QC CV doradza: bez zielonego QC ruch na „CV wysłane” i do kolejki Cpro (u Nordei akceptuje Delivery Lead, a wrzuca osoba od Cpro) wymaga „Przesuń mimo uwag…” z powodem; Delivery Lead dostaje wtedy powiadomienie i może cofnąć kartę. QC zgłasza cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV (da się zapisać „Potwierdzone z kandydatem”) i reguły klienta — reszta to uwagi. Powrót z „Zamkniętych” tego nie omija. Osoby z plakietką „Od systemu” i podpisem „System” dodał automat, który trzyma „Nowych” na 20 — nikt ich nie trzyma, więc pierwszy klik „Dzwonię” bierze je na 12 h. „Kto dodał” → „System” pokazuje tylko je. Po 2 dniach roboczych bez decyzji karta mówi „N dni bez decyzji”: zadzwoń albo odrzuć z powodem.",
-      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin. Zielona linia „Pracuje u nas · klient” na karcie znaczy trwającą umowę u nas; plakietki konfliktu z klientem (NDA, czarna lista klienta, konkurent) ostrzegają, nie blokują. Gdy CV takiej osoby idzie do innego klienta albo zostaje u niego zatrudniona, Delivery Lead jej obecnego klienta dostaje powiadomienie, a okno zatrudnienia pyta „Co z obecną współpracą?”. Plakietka „brak: …” obok wyniku dopasowania znaczy, że tej umiejętności krytycznej nie ma w profilu, CV ani notatkach — wyszukiwanie tej osoby nie pokaże, ale wynik na karcie jest; sprawdź to w rozmowie albo dopisz w profilu. Rekrutacja zamknięta, a Twoje osoby stoją od „CV wysłane” w górę? Pasek nad tablicą je wymienia, a „Odrzuć i napisz: …” otwiera odrzucenie z mailem do kandydata — osoba po osobie. Żółty pasek „Bez ruchu od N dni” (widzi go Delivery Lead) znaczy, że od 14 dni nie poszło CV do klienta ani nie wpisano odpowiedzi klienta: po 21 dniach przypomnienie dostaje też Head of Recruitment, po 28 NEXUS zamyka rekrutację jako przegraną. „Zamknij…” otwiera okno zamykania, „Jeszcze trwa” liczy od nowa. Rekrutacja z bliźniakiem: osobę przekazujesz na „Zweryfikowany” po jednej rozmowie pod obie rekrutacje (bliźniak w „Screening dla” jest z kłódką) albo pomijasz bliźniaka z powodem. Stawka jest jedna, inna tylko przy innym trybie pracy, i nie może przekroczyć budżetu. Karta z „domykasz Ty” albo „domyka …” to kandydat rekrutera, który odszedł z firmy (konto wyłączone): domyka go Delivery Lead rekrutacji, „Prowadzi” zostaje bez zmian, a „Kto dodał” → „Po osobach, które odeszły” pokazuje wszystkie takie karty."
+      "Karty od systemu w „Nowych” to porcja dnia: system rozdziela je co rano po równo między rekruterów rekrutacji i na karcie widać imię osoby, która ją przegląda. Kartę z porcji przenieś na screening albo odrzuć z powodem — usunąć jej z rekrutacji się nie da. Wszystkie swoje osoby z porcji przejrzysz po kolei w „Porcji dnia” (licznik w pasku u góry). Wysłanie na „CV wysłane” poza Nordeą robi osoba z uprawnieniem do wysyłki CV do klienta (domyślnie Delivery Lead i admin) w przeglądzie: wymagania z dowodem, CV, budżet i marża na żywo, stawka do klienta. Gdy CV jest po QC, na karcie w „QC CV” ma ona przycisk „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”) zamiast strzałki. Delivery Lead tej rekrutacji widzi na takiej karcie „Twój ruch” i „Czeka na Ciebie”, a przy dwóch i więcej osobach „Przejrzyj po kolei” w nagłówku kolumny — przegląd osoba po osobie, od najdłużej czekającej. U Nordei przegląd kończy „Akceptuj — do Cpro” ze stawką do Cpro: rekruter przekazuje osobę Delivery Leadowi, a osoba od Cpro dostaje zadanie dopiero po akceptacji. Zaakceptowani stoją w osobnej kolumnie „Do Cpro” po „QC CV” i tam czekają na osobę od Cpro. Delivery Lead, który kładzie kartę na „QC CV” albo „Do Cpro” we własnej rekrutacji, od razu dostaje akceptację ze stawką. Cofnięcie karty z „Rozmowy u klienta” przeglądu nie wymaga. „Wróć do poprawy…” zaznacza pola — rekruter widzi je w formularzu screeningu, a uwagę w powiadomieniu i notatkach kandydata. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata. „Przekaż Delivery Leadowi” w oknie „Przesuń dalej” (i w ramce „Następny etap” panelu osoby) to nie osobny etap: rekruter bez prawa wysyłki CV przy ruchu na „CV wysłane” przenosi tak kartę do „QC CV”, a Delivery Lead przegląda osobę i sam wysyła CV do klienta (u Nordei akceptuje ją do kolejki Cpro). Do jego przeglądu osoba trafia, gdy QC CV przejdzie; gdy już stoi w „QC CV”, okno mówi, że czeka u Delivery Leada. Szablon bez etapu „QC CV” — przesuwa Delivery Lead.",
+      "Wejście na „Zweryfikowany” wymaga odpowiedzi z formularza screeningu, stawki kandydata, lokalizacji, trybu pracy, dostępności i „Dlaczego ten kandydat” oraz pól dołożonych w karcie klienta (gdy brakuje tylko tych pól, strzałka otwiera okno z nimi; w rekrutacji bez pytań screeningowych zamiast odpowiedzi wystarcza „Dlaczego ten kandydat”), wyjście z „Rozmowy u klienta” — debriefu (pytań klienta albo potwierdzenia, że ich nie było), a ruch na „Zatrudniony” (może każdy z zespołu; zamówienie nie jest potrzebne) — informacji, jak podpisano umowę. Delivery Lead i admin przechodzą bramki odpowiedzi, stawki, minimum i debriefu mimo braków: strzałka przesuwa od razu, komunikat wymienia braki, a karta dostaje „Przesunął DL · bez …”. Umowa w podpisie w NEXUSIE przesuwa kartę na „Zatrudniony” sama po podpisie obu stron; ręczny ruch wymaga najpierw „Przejdź na zwykłą drogę” w rejestrze umów. Kółko na karcie to dopasowanie AI do tej rekrutacji; „?” znaczy, że jeszcze go nie policzono, a nie zero. „Moi ludzie” w pasku źródeł pokazuje Twoich ludzi pasujących do tej rekrutacji, z odznaką „ponad budżet”.",
+      "QC CV doradza: bez zielonego QC ruch na „CV wysłane” i do kolejki Cpro (u Nordei akceptuje Delivery Lead, a wrzuca osoba od Cpro) wymaga „Przesuń mimo uwag…” z powodem; Delivery Lead dostaje wtedy powiadomienie i może cofnąć kartę. QC zgłasza cztery rzeczy: brak CV firmowego, umiejętności krytyczne nieopisane w rolach, treść spoza oryginalnego CV (da się zapisać „Potwierdzone z kandydatem”) i reguły klienta — reszta to uwagi. Powrót z „Zamkniętych” tego nie omija. Osoby z plakietką „Od systemu” i podpisem „System” dodał automat, który trzyma „Nowych” na 20 — nikt ich nie trzyma, więc pierwszy klik „Dzwonię” bierze je na 12 h. Pierwsze pięć w kolejce ma numer i nagłówek „Zadzwoń najpierw”; najpierw stoją osoby nowe w bazie (do 14 dni) z wynikiem od progu, nawet przed wyższym wynikiem. Dla nich „Nowi” mogą mieć do 25 kart. „Kto dodał” → „System” pokazuje tylko je. Po 2 dniach roboczych bez decyzji karta mówi „N dni bez decyzji”: zadzwoń albo odrzuć z powodem. Klient nie odpowiada na CV: od 6. dnia roboczego ciszy nad Tablicą stoi pas „Czeka na odpowiedź klienta” („Pokaż osoby”, „Przypomnij klientowi”), a karta w „CV wysłane” ma przycisk „Co z klientem?”: przypomnij, klient odpowiedział (zaprosił, odrzucił, jeszcze się zastanawia) albo „Zamknij — brak odpowiedzi”. NEXUS nic nie wysyła do klienta: przypomnienie to gotowa treść do skopiowania, a link do panelu dokleja się tylko, gdy panel włączono na tej rekrutacji.",
+      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin. Zielona linia „Pracuje u nas · klient” na karcie znaczy trwającą umowę u nas; plakietki konfliktu z klientem (NDA, czarna lista klienta, konkurent) ostrzegają, nie blokują. Gdy CV takiej osoby idzie do innego klienta albo zostaje u niego zatrudniona, Delivery Lead jej obecnego klienta dostaje powiadomienie, a okno zatrudnienia pyta „Co z obecną współpracą?”. Plakietka „brak: …” obok wyniku dopasowania znaczy, że tej umiejętności krytycznej nie ma w profilu, CV ani notatkach — wyszukiwanie tej osoby nie pokaże, ale wynik na karcie jest; sprawdź to w rozmowie albo dopisz w profilu. Rekrutacja zamknięta, a Twoje osoby stoją od „CV wysłane” w górę? Pasek nad tablicą je wymienia, a „Odrzuć i napisz: …” otwiera odrzucenie z mailem do kandydata — osoba po osobie. Żółty pasek „Bez ruchu od N dni” (widzi go Delivery Lead) znaczy, że od 14 dni nie poszło CV do klienta ani nie wpisano odpowiedzi klienta: po 21 dniach przypomnienie dostaje też Head of Recruitment, po 28 NEXUS zamyka rekrutację jako przegraną. „Zamknij…” otwiera okno zamykania, „Jeszcze trwa” liczy od nowa. Rekrutacja z bliźniakiem: osobę przekazujesz na „Zweryfikowany” po jednej rozmowie pod obie rekrutacje (bliźniak w „Screening dla” jest z kłódką) albo pomijasz bliźniaka z powodem. Stawka jest jedna, inna tylko przy innym trybie pracy, i nie może przekroczyć budżetu. Karta z „domykasz Ty” albo „domyka …” to kandydat rekrutera, który odszedł z firmy (konto wyłączone): domyka go Delivery Lead rekrutacji, „Prowadzi” zostaje bez zmian, a „Kto dodał” → „Po osobach, które odeszły” pokazuje wszystkie takie karty. Po „Otwórz ponownie” karty z poprzedniego otwarcia zostają w kolumnach wyszarzone, z etykietą „Sprzed otwarcia” — nie liczą się w „W drodze”, w obsadzie ani w ostrzeżeniu przy zamknięciu, dopóki ktoś ich nie ruszy. Plakietka „X? zna Y” na karcie znaczy, że brakuje umiejętności krytycznej X, ale osoba zna zamiennik Y (np. Flask przy FastAPI) i dlatego została na liście — zapytaj w rozmowie; to, co wynika z innej technologii (Java przy Spring Boot, Git przy GitHubie), NEXUS liczy jako spełnione. Liczbę osób do zatrudnienia (wakatów) najprościej zmienisz w nagłówku: kliknij chip za „Rekruter” („Szukamy N osób ✎”, na laptopie sama liczba przy ikonie osób), wpisz liczbę i „Zapisz”. To jedno pole, widoczne też w Profilu Championa → „Zespół i ogłoszenie” („Liczba osób” → „Zmień”) i w podglądzie z listy rekrutacji (zakładka „Zespół”) — zapis w jednym miejscu zmienia je wszędzie. Zmienia ją osoba z uprawnieniem do zakładania rekrutacji (domyślnie Delivery Lead i admin); inni widzą samą liczbę."
+    ],
+    "asked": [
+      "Jak zmienić liczbę wakatów?",
+      "Dlaczego przy części kart nie ma wyniku dopasowania?",
+      "Kto może przenieść kandydata na „Zatrudniony”?",
+      "Gdzie jest briefing dla rekrutera?"
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Kolumny etapów (u Nordei po „QC CV” stoi „Do Cpro”) — strzałka „→” albo przeciąganie. W „QC CV” gotowa karta ma „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”)."},
-      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Cztery źródła w nagłówku rekrutacji: podobne rekrutacje, nowi z ogłoszeń, propozycje z bazy, szukaj w bazie; „Dodaj” — po nazwisku albo z CV."},
+      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Źródła w nagłówku rekrutacji: nowi z ogłoszeń, moi ludzie i menu „Szukaj ▾” (podobne rekrutacje, propozycje z bazy, szukaj w bazie); „Dodaj” — po nazwisku albo z CV."},
       {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."},
       {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead; u Nordei przed akceptacją do Cpro): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."}
     ],
@@ -176,18 +187,18 @@
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
-        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Klient zaakceptował” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
+        "a": "Na „Rozmowie u klienta” sekcja „W procesie” ma termin, prepy i debrief; bez terminu — „Pytania z rozmowy”. „Zaznacz akceptację klienta” zapisuje akceptację. Sekcja „Do „Zatrudnionego””: umowa i podpis; zamówienie po zatrudnieniu. Umowa przedwstępna: „⋯ → Umowa przedwstępna…” albo zakładka „Umowa” — prośba, wystawienie, podpisy, ważność.",
         "anchor": "jobs.person.expand"
       }
     ],
     "pitfalls": [
-      "Pierwszy zapis formularza screeningu bierze wolną osobę na 12 h. Osoby zarezerwowanej przez kogoś innego nie przesuniesz, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie. Pigułka „Pracuje u nas” pod danymi kontaktowymi znaczy trwającą umowę u nas — kliknij ją, żeby zobaczyć klienta, koniec zamówienia i Delivery Leada; przed wysłaniem CV uzgodnij to z nim. Liczy się wyłącznie umowa: na „Zatrudniony” bez umowy panel pokazuje „Brak umowy w Kontraktach”, a Delivery Lead dostaje przypomnienie. Umowa wysłana do podpisu w NEXUSIE: sekcja „Do „Zatrudnionego”” mówi, u kogo jest, a „Zatrudniony” ustawi się sam po podpisie obu stron — ręcznie przesuniesz dopiero po „Przejdź na zwykłą drogę”. Czarną listę (u nas albo u klienta) ustawisz w „Więcej akcji osoby” → „Czarna lista…”; pigułka „Czarna lista” po kliknięciu pokazuje powód. Niezapisane wpisy formularza screeningu zostają przy osobie do zapisu, najdłużej 12 h — także po odznaczeniu rekrutacji w „Screening dla” i zamknięciu panelu; zapis je czyści, „Odrzuć szkic” kasuje. Delivery Lead „Zapisz i przekaż dalej” może kliknąć bez kompletu odpowiedzi i minimum — stopka dalej mówi, czego brakuje. Formularz za ciasny na laptopie: „Tryb rozmowy” obok „Zwiń” zostawia z nagłówka samo nazwisko i zwija „Screening dla” do jednej linii („Zmień” rozwija listę), a krawędź między CV a formularzem przeciągniesz, żeby poszerzyć panel — dwuklik wraca do zwykłej szerokości.",
-      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”. Delivery Lead wyśle osobę po „CV wysłane” także do innych swoich rekrutacji: „⋯ → Wyślij też do…”; rekruter z tej rekrutacji dostanie prośbę, żeby dał znać kandydatowi. Przy osobie od systemu blok „Od systemu · %” mówi, czemu ją dodał i czego nie wiedział (stawka, dostępność). „Dzwonię — biorę na 12 h” zapisuje decyzję, a „Odrzuć z powodem” pyta jeszcze „Skąd to wiesz?” i „Dlaczego odpada?” — bez tego nie odrzucisz, bo z powodów system uczy się dobierać ludzi.",
+      "Kandydat prosi o kontakt później: „Umów telefon” obok „Nie odebrał” przypomni 15 minut przed i trzyma osobę przy Tobie do terminu, najdłużej 7 dni. Pierwszy zapis formularza screeningu bierze wolną osobę na 12 h; przed rozmową weźmiesz ją przyciskiem przy „Prowadzi” („Biorę” albo „Dzwonię” przy osobie od systemu). Osoby zarezerwowanej przez kogoś innego nie przesuniesz, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie. Pigułka „Pracuje u nas” pod danymi kontaktowymi znaczy trwającą umowę u nas — kliknij ją, żeby zobaczyć klienta, koniec zamówienia i Delivery Leada; przed wysłaniem CV uzgodnij to z nim. Liczy się wyłącznie umowa: na „Zatrudniony” bez umowy panel pokazuje „Brak umowy w Kontraktach”, a Delivery Lead dostaje przypomnienie. Umowa wysłana do podpisu w NEXUSIE: sekcja „Do „Zatrudnionego”” mówi, u kogo jest, a „Zatrudniony” ustawi się sam po podpisie obu stron — ręcznie przesuniesz dopiero po „Przejdź na zwykłą drogę”. Czarną listę (u nas albo u klienta) ustawisz w „Więcej akcji osoby” → „Czarna lista…”; pigułka „Czarna lista” po kliknięciu pokazuje powód. Niezapisane wpisy formularza screeningu zostają przy osobie do zapisu, najdłużej 12 h — także po odznaczeniu rekrutacji w „Screening dla” i zamknięciu panelu; zapis je czyści, „Odrzuć szkic” kasuje. Delivery Lead „Zapisz i przekaż dalej” może kliknąć bez kompletu odpowiedzi i minimum — stopka dalej mówi, czego brakuje. Formularz za ciasny na laptopie: „Tryb rozmowy” obok „Zwiń” zostawia z nagłówka samo nazwisko i zwija „Screening dla” do jednej linii („Zmień” rozwija listę), a krawędź między CV a formularzem przeciągniesz, żeby poszerzyć panel — dwuklik wraca do zwykłej szerokości.",
+      "Odznaka „Follow-up: Anna K. · zaległy” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”. Delivery Lead wyśle osobę po „CV wysłane” także do innych swoich rekrutacji: „⋯ → Wyślij też do…”; rekruter z tej rekrutacji dostanie prośbę, żeby dał znać kandydatowi. Przy osobie od systemu blok „Od systemu · %” mówi, czemu ją dodał i czego nie wiedział (stawka, dostępność). „Dzwonię — biorę na 12 h” zapisuje decyzję, a „Odrzuć z powodem” pyta jeszcze „Skąd to wiesz?” i „Dlaczego odpada?” — bez tego nie odrzucisz, bo z powodów system uczy się dobierać ludzi. „Przekaż Delivery Leadowi” w „Następnym etapie” przenosi osobę do „QC CV” — to nie etap, tylko przekazanie: CV do klienta wysyła Delivery Lead po przeglądzie.",
       "Stawkę kandydata wpisz w „Warunkach” formularza albo przyciskiem „Zmień” przy „W tej rekrutacji”, nie w notatce. Po wysłaniu CV wyższa stawka czeka na Delivery Leada: w ramce pod faktami zleca on negocjację albo decyduje o stawce do klienta. Kwota z dopiskiem „Screening (z notatki)” przy „W tej rekrutacji” i „Notatka z wysyłki” pod „Do klienta” to podpowiedzi z notatek sprzed NEXUSA — stawką stają się dopiero po zapisaniu. Gdy stawka jest ponad budżetem, a znana jest niższa, która się w nim mieści, ramka ostrzeżenia to mówi, a „Użyj” ją wpisuje; u osoby pracującej u nas pole dostaje „Stawkę u nas” z umowy, a „Zadeklarowana od” pokazuje niższą deklarację. Pytania bez odpowiedzi zapiszesz jako pominięte („Pomiń brakujące”), gdy osoba jest przepięta, miała już screening w innej rekrutacji albo jest zatrudniona przez nas; w rekrutacji bez pytań do „Zweryfikowany” wystarcza stawka i „Dlaczego ten kandydat”. Gdy kandydat nie chce biura albo hybrydy, odrzuć z powodem „Nie akceptuje trybu pracy” zamiast „Inne”: okno zapyta, ile dni w biurze akceptuje, i zapisze to na profilu, więc wyszukiwanie pokaże „Tylko zdalnie”. Stawkę do klienta po wysłaniu CV zmienia Delivery Lead przyciskiem „Zmień” przy „Do klienta”: powód jest obowiązkowy, a okno pokazuje, za ile CV poszło i każdą zmianę. Gdy osoba ma już zamówienie, stawkę zmienia się w zamówieniu.",
       "Sekcja „Notatki” pokazuje notatki z tej rekrutacji i ostatnie rozmowy z wcześniejszych; podpis „0 tu · 14 wcześniej” znaczy, że osoba ma u nas historię. Całość jest po „Rozwiń” w „Notatki i historia”, w grupach „Wcześniej u nas” z wynikiem każdej rekrutacji. Przypięte notatki są na górze karty. Pigułka „Nowy w bazie · N dni” przy nazwisku znaczy, że osoba weszła do bazy w ostatnich 14 dniach; datę, skąd jest i kto ją dodał pokazuje „Osoba w bazie” na górze „Notatek i historii”. „Prowadzi” pod danymi kontaktowymi mówi, czyja to osoba w tej rekrutacji — od tego zależą „Moi ludzie”, Liga i premia rekrutera. Zmienia to admin albo Head of Recruitment przyciskiem „Przypisz”, z powodem. Podpowiedź „Pasuje też do” pokazuje najwyżej 3 inne rekrutacje — każdą inną dorzucisz sam: w formularzu screeningu „Screening dla” → „Dodaj inną rekrutację” (numer, nazwa albo klient; „+ Dodaj i dołącz” bierze ją też do tej rozmowy), a na dalszych etapach „Więcej akcji osoby” → „Dodaj też do rekrutacji…”."
     ],
     "anchors": [
-      {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
+      {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty. W Nowych i Screeningu ma „Ściągę do rozmowy” z pytaniami pod CV."},
       {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
       {"id": "jobs.person.screening-form", "label": "Formularz screeningu", "describe": "Pytania z Profilu Championa, warunki ze stawką kandydata i ocena dla Delivery Leada — z historią zmian."},
       {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty: rośnie z tekstem, „Powiększ” otwiera duże pole."},
@@ -211,7 +222,7 @@
       },
       {
         "q": "Co jeszcze trzeba dopiąć w zleceniu?",
-        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji, a hiring managera, termin, kategorię i liczbę osób ustawisz w zakładce „Zespół i ogłoszenie”. Gdy wszystko jest dopięte, paska nie ma.",
+        "a": "Na górze Briefu stoi pasek „Do dopięcia” (widzi go Delivery Lead): braki w zleceniu, rozmowa z klientem i konsultantem, briefing. Kliknięcie braku otwiera właściwy blok do edycji, a hiring managera, termin, kategorię i liczbę osób ustawisz w zakładce „Zespół i ogłoszenie” (liczbę osób też w nagłówku, ✎). Gdy wszystko jest dopięte, paska nie ma.",
         "anchor": "job.champion.todo"
       },
       {
@@ -233,8 +244,12 @@
     "pitfalls": [
       "Wymagania z „Czego szukamy” są tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
       "Kandydata z list AI ukrywa tylko brak wymagania krytycznego: najwyżej trzy słowa do szukania (zdanie nie może być krytyczne). Gdy razem zostawiają mniej niż 20 osób, zapis pyta. Bez decyzji działa podpowiedź z historii; „Brak krytycznych” = nikt nie jest ukrywany.",
-      "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy.",
+      "Budżet podany zakresem (np. 60–80) widać jako przedział, a plakietki liczą się od górnej granicy. „Liczba osób” w bloku „Warunki” to liczba wakatów; przy więcej niż jednej Brief pokazuje „Szukamy N osób”. To jedno pole: zmienisz je chipem z liczbą osób w nagłówku (za „Rekruter”) albo w zakładce „Zespół i ogłoszenie” („Zmień” przy „Liczba osób”, nowa liczba, „Zapisz”); „Zmień” w „Warunkach” prowadzi do tej zakładki. Zmienia je osoba z uprawnieniem do zakładania rekrutacji (domyślnie Delivery Lead i admin).",
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta — numer stoi przed tytułem, nazwa jest w dymku tytułu. Zmienisz je przyciskiem „Zmień” przy tych wierszach w bloku „Warunki”, nie przez „Edytuj” bloku."
+    ],
+    "asked": [
+      "Czy Profil Championa aktualizuje się sam?",
+      "Gdzie zmienić liczbę osób?"
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},
@@ -264,7 +279,7 @@
       "recruiter",
       "delivery_lead"
     ],
-    "what": "Tu szukasz ludzi w bazie: słowa kluczowe jak w Traffit, stawka, lokalizacja (kilka miast, każde z własnym promieniem, i województwa), tryb pracy, rekrutacje i historia współpracy — albo wyszukiwanie z treści requestu.",
+    "what": "Tu szukasz ludzi w bazie: słowa kluczowe jak w Traffit, stawka, lokalizacja (kilka miast z promieniem, województwa), tryb pracy, rekrutacje i historia współpracy — albo z treści requestu. Twoje CV z generatora są pod „Moje CV”.",
     "tasks": [
       {
         "q": "Jak szukać po słowach kluczowych?",
@@ -293,9 +308,9 @@
       }
     ],
     "pitfalls": [
-      "Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki albo miasta w profilu zostają na liście pod kreską „Bez stawki albo miasta w profilu”, z plakietką „brak stawki” / „brak lokalizacji”, a licznik nad tabelą mówi, ilu spełnia filtr, a ilu nie ma danych. W okienku „Stawka” i „Lokalizacja” wybierzesz osobno „pokaż na końcu” albo „ukryj”; „Ukryj osoby bez danych” w „Więcej filtrów” ukrywa wszystkie braki naraz, także stażu. Lokalizacja przyjmuje kilka miast — osoba pasuje, gdy mieszka w którymkolwiek, w jego promieniu albo w wybranym województwie. Zielona linia „Pracuje u nas · klient · do daty” pod nazwiskiem znaczy trwającą umowę u nas (bursztynowa „Kończy u nas”, niebieska „Zaczyna u nas”): osobę da się dodać do rekrutacji, ale przed wysłaniem CV uzgodnij to z Delivery Leadem. Przed nią napis „Szuka aktywnie”, „Otwarty na oferty” albo „Nie szuka” to dostępność z profilu; brak napisu znaczy „nie ustalono”. W „Dostępność” wybierzesz „Pracuje u nas” albo „Kończy u nas w ciągu 60 dni”. Czerwona pigułka „Czarna lista” pod nazwiskiem znaczy, że nie współpracujemy z tą osobą — powód jest w profilu.",
-      "Filtr „Kontakt z kandydatem” liczy rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu kontaktem nie są. Kolumna „Ostatnia rozmowa” (na laptopie włączysz ją w „Kolumny”) pokazuje datę i autora ostatniej rozmowy albo liczbę prób kontaktu. Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie. W „Rekrutacje i historia” opcja „Nie brał udziału” bez wskazania rekrutacji znaczy: w żadnej, a z wybraną rekrutacją ukrywa osoby, które są albo były w tej rekrutacji. „Bez procesu w toku” pokazuje osoby, z którymi nikt teraz nie prowadzi procesu. W „Etap w rekrutacji” wybierzesz „Dodany na etap” (etap jak na Tablicy, np. QC CV), „Dodany przez” (kto przesunął osobę na ten etap) i daty — lista pokaże wtedy kolumnę „Dodany na etap”: kiedy, kto i w jakiej rekrutacji.",
-      "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi.",
+      "Rekruter, który nie podjął dziś minimum decyzji z porcji dnia od Nexusa, nie wyszuka z filtrami ani opisem: lista pokaże „Najpierw porcja od Nexusa” z przyciskiem „Przejrzyj teraz”. Nazwisko, telefon i mail działają zawsze, osobę spoza bazy dodasz zawsze. Po minimum wyszukiwanie wraca do jutra, 7:00. Filtr stawki porównuje „Stawkę od” — najniższą stawkę z ostatnich 18 miesięcy. Osoby bez stawki albo miasta w profilu zostają na liście pod kreską „Bez stawki albo miasta w profilu”, z plakietką „brak stawki” / „brak lokalizacji”, a licznik nad tabelą mówi, ilu spełnia filtr, a ilu nie ma danych. W okienku „Stawka” i „Lokalizacja” wybierzesz osobno „pokaż na końcu” albo „ukryj”; „Ukryj osoby bez danych” w „Więcej filtrów” ukrywa wszystkie braki naraz, także stażu. Pigułka „Lata” (lata z technologią) szuka np. Javy co najmniej 3 lata: to suma okresów stanowisk i projektów z tą technologią w CV, przy osobie widać „Java 6 lat 8 mies.”, a osoby z technologią bez dat w CV stoją pod kreską „Bez dat przy technologii w CV”. Lokalizacja przyjmuje kilka miast — osoba pasuje, gdy mieszka w którymkolwiek, w jego promieniu albo w wybranym województwie. Zielona linia „Pracuje u nas · klient · do daty” pod nazwiskiem znaczy trwającą umowę u nas (bursztynowa „Kończy u nas”, niebieska „Zaczyna u nas”): osobę da się dodać do rekrutacji, ale przed wysłaniem CV uzgodnij to z Delivery Leadem. Przed nią napis „Szuka aktywnie”, „Otwarty na oferty” albo „Nie szuka” to dostępność z profilu; brak napisu znaczy „nie ustalono”. W „Dostępność” wybierzesz „Pracuje u nas” albo „Kończy u nas w ciągu 60 dni”. Czerwona pigułka „Czarna lista” pod nazwiskiem znaczy, że nie współpracujemy z tą osobą — powód jest w profilu.",
+      "Filtr „Kontakt z kandydatem” liczy rozmowy, maile i ustalone terminy — „nie odebrał” i wpisy automatu kontaktem nie są. Kolumna „Ostatnia rozmowa” (włączysz ją w „Kolumny”) pokazuje datę i autora ostatniej rozmowy albo liczbę prób kontaktu. Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie. W „Rekrutacje i historia” opcja „Nie brał udziału” bez wskazania rekrutacji znaczy: w żadnej, a z wybraną rekrutacją ukrywa osoby, które są albo były w tej rekrutacji. „Bez procesu w toku” pokazuje osoby, z którymi nikt teraz nie prowadzi procesu. Na szerokim ekranie (od 1800 px) pasek „Ostatnie odrzucenie” nad tabelą mówi, z jakiego powodu odpadł ostatni proces osób z wyniku: klik w powód pokazuje tylko te osoby, drugi je ukrywa, trzeci zdejmuje filtr; na laptopie te same liczby i kliknięcia są w pigułce „Odrzucenie”, w której ustawisz też, kto zakończył, okres i kilka powodów, a na dużym ekranie powód stoi w kolumnie „Ostatnie odrzucenie”. W „Etap w rekrutacji” wybierzesz „Dodany na etap” (etap jak na Tablicy, np. QC CV), „Dodany przez” (kto przesunął osobę na ten etap) i daty — lista pokaże wtedy kolumnę „Dodany na etap”: kiedy, kto i w jakiej rekrutacji.",
+      "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa. Imię albo nazwisko w górnym polu pokazuje tylko osoby, które dokładnie tak się nazywają (bez polskich znaków też zadziała; „Nowak” nie pokaże „Nowakowskiego”). Podobne nazwiska pojawiają się tylko, gdy nikogo takiego nie ma — lista to mówi. Dwa profile tej samej osoby scala admin albo Head of Recruitment z profilu kandydata: „Więcej akcji” → „Scal z…” (albo „Scal…” przy „Możliwy duplikat” w zakładce „Podobni”). Profil, z którego scalasz, zostaje; duplikat jest usuwany, a jego notatki, dokumenty, procesy i historia przechodzą na ten profil.",
       "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto i kategorię; wymagania „musi mieć” od Delivery Leada, które nie są krytyczne, mają chip „Musi mieć (DL)” — też nikogo nie ukrywają, liczą się w dopasowaniu. W rekrutacji lista idzie od najwyższego dopasowania, bez względu na liczbę trafionych chipów. Zaznaczone osoby (do 30) oceni „Oceń z AI”: Dzwoń / Może / Nie pasuje z cytatem z CV, bez pobierania plików; AI nikogo nie odrzuca."
     ],
     "anchors": [
@@ -366,7 +381,7 @@
       },
       {
         "q": "Jak scalić dwa profile tej samej osoby?",
-        "a": "Admin i Head of Recruitment mają w menu „⋯” pozycję „Scal z…”. Wybierz duplikat, porównaj pola w konflikcie i zatwierdź — rekrutacje, notatki, dokumenty i kontrakty przejdą na ten profil, a duplikat zniknie."
+        "a": "Admin i Head of Recruitment: „Więcej akcji” (⋯) → „Scal z…” albo „Scal…” przy „Możliwy duplikat” w zakładce „Podobni”. Ten profil zostaje: wybierz duplikat albo wpisz jego numer, rozstrzygnij pola w konflikcie i zaznacz zgodę. Notatki, dokumenty, procesy i historia przejdą tutaj, duplikat zniknie — nie da się tego cofnąć."
       }
     ],
     "pitfalls": [
@@ -374,6 +389,11 @@
       "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie. Profil otwarty z wyników (lista albo „Szukaj ręcznie” w rekrutacji) ma nad sobą „Wróć do wyników wyszukiwania” — wraca tam, gdzie skończyłeś — i „Poprzedni”/„Następny” (K/J). Przy „Szukaj ręcznie” „Wybieram” zaznacza osobę: po powrocie wybrani czekają zaznaczeni na „Dodaj do Nowych”.",
       "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”. „Podobni” to osoby z podobnym CV i umiejętnościami — kolejność nie zależy od rekrutacji; „Sprawdź pod rekrutację” pokazuje, kto spełnia jej umiejętności krytyczne, a dodanie osoby bez krytycznej wymaga zdania „dlaczego mimo to”, które trafia na kartę jako notatka. Przy drugim profilu tej samej osoby (to samo imię i nazwisko, telefon, LinkedIn albo plik CV) stoi „Możliwy duplikat” — „Scal…” (admin, Head of Recruitment) otwiera okno scalania.",
       "W „Notatkach” widać 10 najnowszych, starsze są pod „Pokaż starsze”. Ważną notatkę przypnij pinezką — zobaczy ją cały zespół, także w karcie kandydata w rekrutacji. Imię i nazwisko zapisuj bez dopisków w nawiasie: „Szuka aktywnie” ustawisz w Dostępności, czarną listę w menu „⋯” → „Czarna lista…” (u nas albo u klienta, z powodem — potem widać ją w ramce pod paskiem osoby), a zatrudnienie widać samo z umowy w Kontraktach."
+    ],
+    "asked": [
+      "Jak dodać kandydata do rekrutacji?",
+      "Gdzie sprawdzić ID kandydata?",
+      "Czy mogę scalić duplikaty?"
     ],
     "anchors": [
       {
@@ -428,7 +448,7 @@
       },
       {
         "q": "Jak dodać terminy zaproponowane przez klienta?",
-        "a": "Delivery Lead klika „Terminy od klienta” i wkleja maila klienta albo wpisuje terminy; inne terminy przed wyborem: nazwisko na karcie → „Zmień terminy”. Rekruter w „Umów rozmowę i prepy” wybiera termin z kandydatem i godziny obu prepów („Inna godzina…” pokaże zajętość). Rozmowa trafia do kalendarza, a Delivery Lead dostaje „Odpisz klientowi”.",
+        "a": "Delivery Lead klika „Terminy od klienta” i wkleja maila klienta albo wpisuje terminy; inne terminy przed wyborem: nazwisko na karcie → „Zmień terminy”. Rekruter w „Umów rozmowę i prepy” wybiera termin z kandydatem oraz czas i godziny prepów („Inna godzina…” pokaże zajętość). Rozmowa trafia do kalendarza, a Delivery Lead dostaje „Odpisz klientowi”.",
         "anchor": "calendar.slots"
       },
       {
@@ -449,8 +469,8 @@
     ],
     "pitfalls": [
       "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
-      "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
-    "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji.",
+      "Klient przełożył rozmowę: nazwisko na karcie → „Zmień termin” przy rozmowie. Zmieniają ją właściciel rozmowy, Delivery Lead rekrutacji i rekruter kandydata; kandydatowi mówisz sam, bo zaprasza go klient. Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony.",
+    "Terminy od klienta przesuwają kandydata na „Rozmowę u klienta” tylko wtedy, gdy jego CV zostało już wysłane do klienta. Inaczej karta zostaje na swoim etapie — przesuń ją na tablicy rekrutacji. Gdy wszystkie terminy miną, Delivery Lead widzi „Dodaj nowe”, a rekruter na karcie „Terminy minęły · czeka na DL”.",
       "Prep zmieniają prowadzący, Delivery Lead rekrutacji, rekruter kandydata i osoba, która go zaplanowała — kandydat dostaje aktualizację tego samego zaproszenia. Prep po rozmowie u klienta świeci na czerwono z „Przełóż”. Inny prowadzący = odwołanie i nowe zaproszenie. Przy prepie widać odpowiedź kandydata z Outlooka; gdy proponuje inny termin, „Przyjmij termin” przekłada prep."
     ],
     "anchors": [
@@ -475,7 +495,7 @@
     "key": "client.orders",
     "title": "Zamówienia klienta",
     "section": "delivery",
-    "roles": ["delivery_lead", "finance", "admin"],
+    "roles": ["delivery_lead", "finance", "back_office", "admin"],
     "what": "Zamówienia klienta w sekcjach MD, Kosztowe i Okresowe. Zakładka otwiera się na aktywnych; resztę pokazuje „Wszystkie” na końcu. Zamówienie MD albo kosztowe to osobna karta z numerem i osobami. Kliknij wiersz, by otworzyć panel z akcjami.",
     "tasks": [
       {
@@ -507,6 +527,10 @@
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć — najpierw usuń zejścia: wspólna pula w panelu zamówienia („Zejścia MD”), osoba w oknie „Zużycie MD”, kwoty zamówienia kosztowego w zakładce „Zużycie” osoby.",
       "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się też anulować — okno pokaże, które miesiące je blokują."
+    ],
+    "asked": [
+      "Ile MD zostało na zamówieniu?",
+      "Jak dodać kolejne zamówienie dla konsultanta?"
     ],
     "anchors": [
       {
@@ -575,7 +599,7 @@
     "key": "contracts.order_mail",
     "title": "Skrzynka zamówień",
     "section": "delivery",
-    "roles": ["delivery_lead", "finance", "admin"],
+    "roles": ["delivery_lead", "finance", "back_office", "admin"],
     "what": "Tu trafiają zamówienia z maila zamowienia@: pewne zapisują się same, a te wymagające decyzji czekają w „Do weryfikacji” z powodem wstrzymania.",
     "tasks": [
       {
@@ -615,7 +639,7 @@
         "id": "contracts.order_mail.check",
         "label": "Pobierz zamówienia z maila",
         "describe": "Ręczne sprawdzenie skrzynki i wynik ostatniego biegu.",
-        "requires": {"roles": ["admin", "finance", "delivery_lead"]}
+        "requires": {"roles": ["admin", "finance", "back_office", "delivery_lead"]}
       },
       {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."},
       {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan, podgląd PDF-a obok i przyciski decyzji dla wybranego zamówienia."},
@@ -641,7 +665,7 @@
       },
       {
         "q": "Jak podpisać umowę i co dalej?",
-        "a": "„Wyślij do podpisu”: link do kontraktora, potem podpis za B2B Network; kontrakt i plik powstaną same. Termin mija? „Przedłuż termin”, a po nim „Wyślij nowy link” (ten sam PDF). Droga mailowa: „Oznacz jako podpisaną” (bez uprawnienia „Podpis B2B” poproś DL), dzień podpisu i plik. Powstaje kontrakt, szkic zamówienia, kandydat idzie na „Zatrudniony”.",
+        "a": "„Wyślij do podpisu”: link do kontraktora, potem podpis za B2B Network; kontrakt i plik powstaną same. Termin mija? „Przedłuż termin” albo „Wyślij nowy link”. Droga mailowa: „Oznacz jako podpisaną” (bez „Podpis B2B” poproś DL) z podpisanym PDF-em; dzień podpisu z podpisu konsultanta, przy skanie data i powód. Kandydat idzie na „Zatrudniony”.",
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
@@ -684,8 +708,8 @@
     "key": "finance",
     "title": "Finanse",
     "section": "finance",
-    "roles": ["finance", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą (rozliczenie, subskrypcje, faktury bez zgody).",
+    "roles": ["finance", "back_office", "admin"],
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach faktury do klientów z KSeF i wydatki ze zgodą.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -715,10 +739,12 @@
     ],
     "pitfalls": [
       "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
-      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
+      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie.",
+      "„Rozjazdy stawek” niczego nie poprawiają, tylko pokazują różnicę kontrakt ↔ zamówienie MD z nocnego raportu.",
+      "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów i Wydatki ze zgodą (przy włączonych modułach)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},
@@ -733,14 +759,14 @@
   },
   {
     "key": "hr.my_time",
-    "title": "Mój czas",
+    "title": "Moja współpraca",
     "section": null,
     "roles": [],
     "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin, premie i „Zgody i wydatki”: prośby o zgodę.",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
-        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Wrzucasz do Cpro? Wskaż zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na przełożonego; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
+        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Wrzucasz do Cpro? Wskaż zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na koordynatora; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
         "anchor": "hr.my_time.leave_submit"
       },
       {
@@ -754,26 +780,31 @@
         "anchor": "hr.my_time.leave_list"
       },
       {
-        "q": "Jak szybko wypełnić miesiąc godzin?",
-        "a": "Pusty dzień wpiszesz w wierszu: godziny i opis, potem „Wpisz”. Wszystkie puste dni naraz — „Wypełnij puste dni…” nad siatką: godziny dziennie (najwyżej 8), opis i projekt. Dni z wpisem, weekendy, święta i nieobecności zostają. Szablony i „Wypełnij miesiąc…” są w „Więcej”. Gotowy miesiąc wyślij przyciskiem „Wyślij do…” pod siatką.",
+        "q": "Jak wypełnić i poprawić miesiąc godzin?",
+        "a": "Pusty dzień wpisz w wierszu, a wszystkie puste dni naraz przez „Wypełnij puste dni…” (najwyżej 8 h dziennie). Wpisane dni, weekendy, święta i nieobecności zostają, a pół dnia dostaje 4 h. Gotowy miesiąc wyślij przyciskiem pod siatką. Wysłany, którego nikt jeszcze nie przyjął, cofniesz przez „Wycofaj i popraw”.",
         "anchor": "hr.my_time.month_actions"
       },
       {
         "q": "Jak pobrać moje godziny do Excela albo PDF?",
-        "a": "Rozwiń „Archiwum timesheetów” pod siatką miesiąca. „Eksport CSV” daje plik do Excela za wybrane miesiące (najwyżej 24, bez kwot), a przy zaakceptowanym miesiącu jest PDF. Zaakceptowany miesiąc otwarty w siatce pobierzesz też przyciskiem „Pobierz PDF”.",
+        "a": "Rozwiń „Archiwum raportów godzin” pod siatką miesiąca. „Eksport CSV” daje plik do Excela za wybrane miesiące (najwyżej 24, bez kwot), a przy zaakceptowanym miesiącu jest PDF. Zaakceptowany miesiąc otwarty w siatce pobierzesz też przyciskiem „Pobierz PDF”.",
         "anchor": "hr.my_time.archive"
       }
     ],
     "pitfalls": [
-      "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje przełożony albo Kadry (na B2B i zleceniu — Kadry). Daty złożonego wniosku zmienia przełożony albo Kadry, zgłoszenia z B2B i zlecenia — tylko Kadry.",
-      "Rodzaj nieobecności widzisz Ty, Twój koordynator i Kadry. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
-      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z opisem i uprawnieniem (na umowie o pracę „nadgodziny”, na B2B i zleceniu „godziny ponad 8 h”) — bez niego poproś Kadry.",
+      "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje koordynator albo Administracja współpracy (na B2B i zleceniu — Administracja współpracy). Daty złożonego wniosku zmienia koordynator albo Administracja współpracy, zgłoszenia z B2B i zlecenia — tylko Administracja współpracy.",
+      "Rodzaj nieobecności widzisz Ty, Twój koordynator i Administracja współpracy. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
+      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z opisem i uprawnieniem (na umowie o pracę „nadgodziny”, na B2B i zleceniu „godziny ponad 8 h”) — bez niego poproś Administrację współpracy. Bez opisu i sufitu tylko z „Godzinami bez limitu” w kartotece.",
       "Na B2B i zleceniu nie zgłosisz przerwy na dni z wysłanego albo przyjętego raportu godzin — najpierw koordynator cofa raport do szkicu."
+    ],
+    "asked": [
+      "Jak zgłosić urlop albo przerwę?",
+      "Czy mogę usunąć wpisane godziny?",
+      "Jak sprawdzić zatwierdzony dzień wolny?"
     ],
     "anchors": [
       {
         "id": "hr.my_time.tabs",
-        "label": "Zakładki „Mojego czasu”",
+        "label": "Zakładki „Mojej współpracy”",
         "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie, premie oraz zgody i wydatki — widać tylko włączone."
       },
       {
@@ -783,17 +814,17 @@
       },
       {
         "id": "hr.my_time.leave_list",
-        "label": "Moje wnioski",
-        "describe": "Terminy, status, zastępca, załącznik do wniosku (umowa o pracę), przekierowanie poczty i anulowanie."
+        "label": "Moje zgłoszenia",
+        "describe": "Terminy, status, zastępca, załącznik do wniosku (umowa o pracę), kopia poczty do zastępcy i anulowanie."
       },
       {
         "id": "hr.my_time.month_actions",
         "label": "Akcje miesiąca",
-        "describe": "Szablony opisów, kopiowanie opisów, „Wypełnij miesiąc…”, wysyłka i PDF."
+        "describe": "Szablony opisów, kopiowanie opisów, „Wypełnij miesiąc…”, wysyłka, „Wycofaj i popraw” i PDF."
       },
       {
         "id": "hr.my_time.archive",
-        "label": "Archiwum timesheetów",
+        "label": "Archiwum raportów godzin",
         "describe": "Ostatnie 12 miesięcy, PDF zaakceptowanych i eksport CSV."
       }
     ],
@@ -806,42 +837,45 @@
   },
   {
     "key": "hr.approvals",
-    "title": "Akceptacje",
+    "title": "Do potwierdzenia",
     "section": null,
     "roles": [],
-    "what": "Jedna lista spraw do decyzji z chipami rodzaju: nieobecności, raporty godzin, zgody i zgłoszenia z B2B i zlecenia do wiadomości; po prawej szczegół. „Czeka | Zdecydowane” przełącza na historię.",
+    "what": "Jedna lista spraw do decyzji z chipami rodzaju: nieobecności, raporty godzin, zgody i zgłoszenia z B2B i zlecenia do wiadomości; po prawej szczegół. „Czeka | Załatwione” przełącza na historię.",
     "tasks": [
       {
         "q": "Jak zaakceptować albo odrzucić wniosek?",
-        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz z „Mojego zespołu” i z maila.",
+        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Potwierdź” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz z „Koordynacji” i z maila.",
         "anchor": "hr.approvals.pending"
       },
       {
         "q": "Co robię ze zgłoszeniem z B2B albo zlecenia?",
-        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Wybierz zgłoszenie w „Do wiadomości · B2B i zlecenie”; gdy koliduje z pracą, kliknij „Zgłoś kolizję” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Kadry.",
+        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Wybierz zgłoszenie w „Do wiadomości · B2B i zlecenie”; gdy jest problemem, kliknij „Zgłoś uwagę” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Administracja współpracy.",
         "anchor": "hr.approvals.reported"
       },
       {
         "q": "Jak poprawić złożony wniosek?",
-        "a": "„Edytuj” w szczególe sprawy albo w widoku „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
+        "a": "„Edytuj” w szczególe sprawy albo w „Załatwione” zmienia rodzaj, daty, pół dnia i zastępcę; NEXUS przelicza dni i przesuwa autoodpowiedź. Inny zastępca zdejmuje zgodę na kopię poczty. Termin wpisany przez pomyłkę cofniesz też z „Podglądu” raportu godzin, od pierwszego dnia z powodem; zgłoszenie z B2B i zlecenia cofają tylko Administracja współpracy.",
         "anchor": "hr.approvals.history"
       },
       {
-        "q": "Jak przyjąć timesheet?",
-        "a": "W „Raportach godzin” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”. Całą firmę przyjmują Kadry i „Raporty godzin”.",
+        "q": "Jak przyjąć raport godzin?",
+        "a": "W „Raportach godzin” wybierz miesiąc i status, otwórz „Podgląd”. Godziny poprawisz, klikając godziny albo opis dnia. „Potwierdź” przyjmuje, „Zwróć” z notatką odsyła, przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Całą firmę przyjmują Administracja współpracy i „Raporty godzin”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
         "q": "Jak wpisać komuś nieobecność, np. L4?",
-        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na przekierowanie poczty nie dasz za tę osobę.",
+        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisuje tylko Administracja współpracy — one zgłaszają nieobecność same. Zgody na kopię poczty nie dasz za tę osobę.",
         "anchor": "hr.approvals.on_behalf"
       }
     ],
     "pitfalls": [
-      "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym.",
-      "W zastępstwie nieobecnego przełożonego akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
+      "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym. PDF raportu godzin powstaje dopiero po akceptacji („Potwierdź”, status „Zaakceptowany”) — szkic i raport „Do akceptacji” go nie mają. W „Raportach godzin” nie ma PDF-u pojedynczego raportu: „Pobierz ZIP” (Rozliczenia, Administracja współpracy i admin) daje PDF-y wszystkich zaakceptowanych raportów miesiąca, a „Eksport CSV” godziny osoby za zakres miesięcy (te same role także cały zespół za miesiąc). PDF jednej osoby: jej kartoteka w Ludziach, zakładka „Nieobecności i godziny”, „PDF” przy zaakceptowanym miesiącu; osoba sama — „Pobierz PDF” w „Mojej współpracy”. Rozliczenia mają też „PDF-y raportów godzin (ZIP)” w miesiącu płac.",
+      "W zastępstwie nieobecnego koordynatora akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
       "Liczba przy chipie „Nieobecności” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia („Do wiadomości”) nie czekają na nikogo.",
-      "Przekierowanie poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz przekierowanie” z powodem, do końca urlopu); włączyć je z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Kadry → Microsoft 365."
+      "Kopię poczty z cudzego wniosku wyłącza tylko Administracja współpracy („Wyłącz kopię poczty” z powodem, do końca urlopu); włączyć ją z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Administracja współpracy → Microsoft 365."
+    ],
+    "asked": [
+      "Jak pobrać PDF raportu godzin?"
     ],
     "anchors": [
       {
@@ -852,22 +886,22 @@
       {
         "id": "hr.approvals.reported",
         "label": "Do wiadomości · B2B i zlecenie",
-        "describe": "Przerwy i nieobecności z B2B i zlecenia; w szczególe „Zgłoś kolizję”."
+        "describe": "Przerwy i nieobecności z B2B i zlecenia; w szczególe „Zgłoś uwagę”."
       },
       {
         "id": "hr.approvals.timesheets",
-        "label": "Timesheety",
-        "describe": "Godziny zespołu za miesiąc wobec normy: podgląd, akceptacja, zwrot, „Przypomnij”, CSV i ZIP."
+        "label": "Raporty godzin",
+        "describe": "Godziny zespołu za miesiąc wobec normy: filtr statusu, podgląd z cofnięciem nieobecności, akceptacja, zwrot, „Potwierdź za osobę” przy szkicu kogoś, kto odszedł, „Przypomnij”, CSV i ZIP."
       },
       {
         "id": "hr.approvals.history",
-        "label": "Zdecydowane",
-        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja, anulowanie (od pierwszego dnia — z powodem), rozpatrzone zgody."
+        "label": "Załatwione",
+        "describe": "Przełącznik „Czeka | Załatwione”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja, anulowanie (od pierwszego dnia — z powodem), rozpatrzone zgody."
       },
       {
         "id": "hr.approvals.on_behalf",
         "label": "Wpis za konsultanta/kontraktora",
-        "describe": "Nieobecność wpisana przez koordynatora albo Kadry, od razu zatwierdzona."
+        "describe": "Nieobecność wpisana przez koordynatora albo Administracja współpracy, od razu zatwierdzona."
       }
     ],
     "help_slug": null,
@@ -896,7 +930,7 @@
       },
       {
         "q": "Jak zawęzić kalendarz do zespołu albo działu?",
-        "a": "Nad siatką są chipy „Mój zespół” (dla koordynatorów, domyślnie zaznaczony), „Wszyscy” i nazwy działów, a pole „Imię, stanowisko” zawęża listę. Wybór zostaje w adresie, więc link pokaże to samo. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
+        "a": "Nad siatką są chipy „Koordynacja” (dla koordynatorów, domyślnie zaznaczony), „Wszyscy” i nazwy działów, a pole „Imię, stanowisko” zawęża listę. Wybór zostaje w adresie, więc link pokaże to samo. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
         "anchor": "hr.team_calendar.filters"
       },
       {
@@ -906,7 +940,7 @@
       }
     ],
     "pitfalls": [
-      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej koordynator i Kadry.",
+      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej koordynator i Administracja współpracy.",
       "Domyślne dni zdalne z kartoteki się nie pokazuje — „Z” to tylko dni oznaczone w miesiącu godzin."
     ],
     "anchors": [
@@ -936,36 +970,36 @@
     "title": "Zgody",
     "section": null,
     "roles": [],
-    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moim czasie” na karcie „Zgody i wydatki” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
+    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Do potwierdzenia” zgody czekające na Twoją decyzję, w „Mojej współpracy” na karcie „Zgody i wydatki” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
     "tasks": [
       {
         "q": "Jak poprosić o zgodę na wydatek albo wynagrodzenie dodatkowe?",
-        "a": "„Mój czas → Zgody i wydatki” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — o nie nie prosisz.",
+        "a": "„Moja współpraca → Zgody i wydatki” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Rozliczenia same — o nie nie prosisz.",
         "anchor": "hr.consents.form"
       },
       {
         "q": "Jak zatwierdzić albo odrzucić zgodę?",
-        "a": "„Akceptacje” → chip „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
+        "a": "„Do potwierdzenia” → chip „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
         "anchor": "hr.consents.inbox"
       },
       {
         "q": "Dlaczego widzę „Popieram”, a nie „Zatwierdź”?",
-        "a": "Kwota jest ponad Twój próg koordynatora. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Kadry → Moduły.",
+        "a": "Kwota jest ponad Twój próg koordynatora. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Administracja współpracy → Moduły.",
         "anchor": "hr.consents.inbox"
       },
       {
         "q": "Co zrobić, gdy dostałem pytanie do zgody?",
-        "a": "W „Moim czasie → Zgody i wydatki” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
+        "a": "W „Mojej współpracy → Zgody i wydatki” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
         "anchor": "hr.consents.mine"
       },
       {
         "q": "Jak dołączyć fakturę albo paragon do zgody?",
-        "a": "W „Moim czasie → Zgody i wydatki” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
+        "a": "W „Mojej współpracy → Zgody i wydatki” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
         "anchor": "hr.consents.mine"
       }
     ],
     "pitfalls": [
-      "Zatwierdzone wynagrodzenie dodatkowe jest od razu przyznane w Płacach — Płace nie zatwierdzają go drugi raz.",
+      "Zatwierdzone wynagrodzenie dodatkowe jest od razu przyznane w Rozliczeniach — Rozliczenia nie zatwierdzają go drugi raz.",
       "Wynagrodzenie dodatkowe dla osoby na B2B wymaga „Podstawy w umowie” — punktu umowy albo numeru aneksu; bez niej wniosek nie wyjdzie.",
       "O zgodzie dla siebie (także o wynagrodzeniu dodatkowym dla siebie) nie decydujesz — nawet jako zatwierdzający.",
       "Zgoda jednorazowa bez faktury i paragonu nie wygasa — rachunek z wyjazdu czy szkolenia dołączysz po wydarzeniu; cykliczna bez dokumentu wygasa po 30 dniach od startu. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."
@@ -1034,6 +1068,11 @@
     ],
     "anchors": [
       {
+        "id": "hr.care.queue",
+        "label": "Kolejka",
+        "describe": "Karty czterech zespołów po typie pracy, filtry Do wzięcia i Moje, przełącznik Po typie / Po statusie, lista Wszystko dla kierownika."
+      },
+      {
         "id": "hr.care.board",
         "label": "Do zrobienia",
         "describe": "Tablica spraw z kartami opieki: kolumny Nowa, W toku, Czeka na kogoś, Zrobione, chipy obszarów i przełącznik Tablica / Lista."
@@ -1053,7 +1092,67 @@
     "sources": [
       "frontend/src/components/care/CareScreen.tsx",
       "frontend/src/components/care/card/ConsultantCard.tsx",
-      "frontend/src/components/care/ConversationDialog.tsx"
+      "frontend/src/components/back-office/QueueBoard.tsx"
+    ]
+  },
+  {
+    "key": "hr.payroll",
+    "title": "Rozliczenia — miesiąc płac",
+    "section": null,
+    "roles": [],
+    "what": "Tu Rozliczenia prowadzą miesiąc płac: godziny i premie osób, premie do decyzji, placementy w drodze do premii i zamknięcie miesiąca. Koordynator widzi godziny i premie swojego zespołu, bez stawek.",
+    "tasks": [
+      {
+        "q": "Jak zmienić przyznaną premię kontraktora?",
+        "a": "Otwórz miesiąc premii i w ramce „Placementy w drodze” kliknij „Przyznane w tym miesiącu (N) ›”. „Zmień” przy premii otwiera „Zmień premię”: kwota, waluta, kategoria, miesiąc i opis; Rozliczenia zmieniają też osobę i placement (premia automatu zostaje przy swoim kontrakcie). Zapisuje „Zapisz zmiany”.",
+        "anchor": "hr.payroll.assigned"
+      },
+      {
+        "q": "Jak usunąć albo anulować premię?",
+        "a": "Przyznaną: „Anuluj” przy premii na liście „Przyznane w tym miesiącu” — osoba dostanie powiadomienie bez kwoty. Propozycję w „Premiach do decyzji”: menu decyzji przy wierszu → „Usuń premię” z powodem; automat jej już nie zaproponuje. Rozliczenia mają też „Usuń premię” w oknie „Zmień premię”. Anulowana zostaje w historii.",
+        "anchor": "hr.payroll.decisions"
+      },
+      {
+        "q": "Dlaczego nie ma „Zmień” ani „Anuluj” przy premii?",
+        "a": "Zamknięty miesiąc ma zamrożone kwoty — zostaje najwyżej „Zwrot z gwarancji”. Otwiera go ponownie admin („Otwórz ponownie”, z powodem). Własnej premii nie zmienisz ani nie anulujesz. Koordynator zmienia tylko propozycje, które sam przyznał; przyznane premie zmieniają Rozliczenia."
+      },
+      {
+        "q": "Jak przyznać premię ręcznie?",
+        "a": "Kliknij „Nowa premia” w ramce „Premie do decyzji” (koordynator ma ją nad listą osób): osoba, kwota, waluta, kategoria, miesiąc, opis i opcjonalnie placement, potem „Przyznaj premię”. Od Rozliczeń jest od razu przyznana, od koordynatora czeka na zatwierdzenie Rozliczeń. Osoba dostaje powiadomienie bez kwoty.",
+        "anchor": "hr.payroll.decisions"
+      },
+      {
+        "q": "Jak przejść do innego miesiąca?",
+        "a": "„Poprzedni miesiąc” i „Następny miesiąc” na górze miesiąca, a „Wszystkie miesiące” (Rozliczenia) to lista 13 ostatnich miesięcy ze stanem, liczbą osób, sumami i liczbą premii do decyzji — klik w miesiąc otwiera go.",
+        "anchor": "hr.payroll.months"
+      }
+    ],
+    "pitfalls": [
+      "Premię zmieniasz i anulujesz w miesiącu, do którego należy — ta sama premia jest też w kartotece osoby (sekcja płac) i na kontrakcie w „Premiach z tego kontraktu”, z tym samym „Zmień”. Usuwania premii bez śladu nie ma: anulowane liczy dopisek „anulowane: N” przy „Premiach przyznanych w tym miesiącu”.",
+      "Nagłówek miesiąca (Rozliczenia) ma „Eksport do księgowości (XLSX)”, „PDF-y raportów godzin (ZIP)” z zaakceptowanymi raportami godzin i „Zamknij miesiąc”; zakładki „Rozliczenia”, „Faktury z KSeF” i „Przelewy” są obok „Miesiąca”."
+    ],
+    "anchors": [
+      {
+        "id": "hr.payroll.decisions",
+        "label": "Premie do decyzji",
+        "describe": "Propozycje premii czekające na Rozliczenia: zatwierdzenie, „Zmień”, „Usuń premię” z powodem, „Nowa premia” i „Wczytaj arkusz”."
+      },
+      {
+        "id": "hr.payroll.assigned",
+        "label": "Przyznane w tym miesiącu",
+        "describe": "Rozwija listę premii przyznanych w miesiącu, z „Zmień”, „Anuluj” i „Zwrot z gwarancji”."
+      },
+      {
+        "id": "hr.payroll.months",
+        "label": "Miesiące płac",
+        "describe": "13 ostatnich miesięcy: stan, osoby, sumy per waluta i premie do decyzji; klik otwiera miesiąc."
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/hr/payroll/PayrollMonthScreen.tsx",
+      "frontend/src/components/hr/payroll/PayrollCloseParts.tsx",
+      "frontend/src/components/hr/payroll/BonusDialog.tsx"
     ]
   }
 ]

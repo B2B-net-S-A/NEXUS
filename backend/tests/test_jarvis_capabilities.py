@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.jarvis.capabilities import NEVER, READ, WRITE, capabilities_for
+from app.services.jarvis.capabilities import NEVER, NOW, READ, WRITE, capabilities_for
 from app.services.jarvis.tools import TOOLS_BY_NAME, tools_for_user
 from app.services.section_permissions import ProductSection
 
@@ -13,7 +13,7 @@ def _names(sections: dict[ProductSection, int]) -> list[str]:
 
 def test_every_listed_tool_exists() -> None:
     """Literówka w nazwie narzędzia po cichu chowałaby pozycję każdej roli."""
-    for _label, tools in (*READ, *WRITE):
+    for _label, tools in (*READ, *NOW, *WRITE):
         for name in tools:
             assert name in TOOLS_BY_NAME, name
 
@@ -41,4 +41,11 @@ def test_read_only_section_offers_nothing_to_prepare() -> None:
 
 def test_no_sections_still_says_what_jarvis_never_does() -> None:
     caps = capabilities_for([])
-    assert caps == {"read": [], "write": [], "never": list(NEVER)}
+    assert caps == {"read": [], "now": [], "write": [], "never": list(NEVER)}
+
+
+def test_now_lists_exactly_the_tools_with_undo() -> None:
+    """Panel nie może obiecać „zrobię od razu” dla zapisu, który czeka na klik."""
+    listed = {name for _label, tools in NOW for name in tools}
+    assert listed == {t.name for t in TOOLS_BY_NAME.values() if t.undo is not None}
+    assert not listed.intersection(name for _label, tools in WRITE for name in tools)

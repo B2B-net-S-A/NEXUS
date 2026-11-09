@@ -43,6 +43,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services import job_champion_rules as rules
 from app.services.board_stage_badges import board_column_for
+from app.services.job_opening import in_opening
 from app.services.pipeline_latest import latest_stage_ids
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class PairPlace:
     name: str
     column: Optional[str]
     stage_label: Optional[str]
+    moved_at: Optional[datetime] = None
 
 
 @dataclass
@@ -98,6 +100,7 @@ async def pair_places(
         select(
             CandidateStage.candidate_id,
             CandidateStage.stage,
+            CandidateStage.moved_at,
             Candidate.name,
             Candidate.lastname,
             PipelineStageDef.name,
@@ -114,7 +117,7 @@ async def pair_places(
             return {}
         stmt = stmt.where(CandidateStage.candidate_id.in_(ids))
     out: dict[int, PairPlace] = {}
-    for cid, stage, name, lastname, def_name, category, terminal_type in (
+    for cid, stage, moved_at, name, lastname, def_name, category, terminal_type in (
         await db.execute(stmt)
     ).all():
         column = board_column_for(
@@ -128,6 +131,7 @@ async def pair_places(
             name=_full_name(name, lastname),
             column=column,
             stage_label=def_name,
+            moved_at=moved_at,
         )
     return out
 
@@ -184,8 +188,17 @@ async def live_candidate_ids(db: AsyncSession, job_id: int) -> set[int]:
     )
 
 
-def _hired_ids(places: dict[int, PairPlace]) -> set[int]:
-    return {cid for cid, place in places.items() if place.column == "hired"}
+def _hired_ids(
+    places: dict[int, PairPlace], since: Optional[datetime] = None
+) -> set[int]:
+    """Zatrudnieni zajmujący miejsce — w bieżącym otwarciu (``since``,
+    ``job_opening``): stare „Zatrudniony” po „Otwórz ponownie” go nie zajmuje."""
+    return {
+        cid
+        for cid, place in places.items()
+        if place.column == "hired"
+        and (place.moved_at is None or in_opening(place.moved_at, since))
+    }
 
 
 async def detail_fields(db: AsyncSession, job: Job) -> dict:
@@ -199,7 +212,7 @@ async def detail_fields(db: AsyncSession, job: Job) -> dict:
     briefs = (await live_briefs(db, [job.id])).get(job.id, [])
     hired: set[int] = set()
     if briefs:
-        hired = _hired_ids(await pair_places(db, job.id))
+        hired = _hired_ids(await pair_places(db, job.id), since=job.cycle_started_at)
         for brief in briefs:
             brief["hired"] = brief["candidate_id"] in hired
     return {
@@ -251,7 +264,7 @@ async def view(db: AsyncSession, job: Job, *, can_edit: bool) -> dict:
         "job_id": job.id,
         "can_edit": can_edit,
         "seats": rules.seats(job.headcount),
-        "hired_count": len(_hired_ids(places)),
+        "hired_count": len(_hired_ids(places, since=job.cycle_started_at)),
         "search_stopped": stopped,
         "legacy_flag": stopped and not live_ids,
         "work_state": job.work_state,
@@ -276,7 +289,9 @@ async def sync_found_flag(
     if champion_ids is None:
         champion_ids = await live_candidate_ids(db, job.id)
     if hired_ids is None:
-        hired_ids = _hired_ids(await pair_places(db, job.id))
+        hired_ids = _hired_ids(
+            await pair_places(db, job.id), since=job.cycle_started_at
+        )
     before = job.champion_found_at is not None
     after = rules.search_stops(champion_ids, hired_ids, job.headcount)
     if before == after:
@@ -374,7 +389,7 @@ async def set_champions(
         actor_id=actor_id,
         now=now,
         champion_ids=wanted,
-        hired_ids=_hired_ids(places),
+        hired_ids=_hired_ids(places, since=job.cycle_started_at),
     )
     changed = bool(added or removed)
     if changed:
@@ -469,7 +484,7 @@ async def reconcile(
         actor_id=actor_id,
         now=now,
         champion_ids=live - set(gone),
-        hired_ids=_hired_ids(places),
+        hired_ids=_hired_ids(places, since=job.cycle_started_at),
     )
     if before and not after:
         names = ", ".join(places[cid].name for cid in gone if cid in places)

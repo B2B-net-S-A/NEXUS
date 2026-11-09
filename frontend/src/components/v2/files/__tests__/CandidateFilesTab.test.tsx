@@ -475,10 +475,33 @@ describe("CandidateFilesTab — „Usuń z profilu” (13.10.2026)", () => {
       currentRole = role;
       const view = renderTab();
       const { user, menu } = await openMenu("cv.pdf");
-      expect(within(menu).getByRole("menuitem", { name: "Pobierz" })).toBeInTheDocument();
+      if (role === "recruiter") {
+        // Sama rola rekrutera ogląda plik w NEXUSIE (decyzja Artura 02.11.2026).
+        expect(within(menu).queryByRole("menuitem", { name: "Pobierz" })).toBeNull();
+      } else {
+        expect(within(menu).getByRole("menuitem", { name: "Pobierz" })).toBeInTheDocument();
+      }
       expect(within(menu).queryByRole("menuitem", { name: "Usuń z profilu" })).toBeNull();
       await user.keyboard("{Escape}");
       view.unmount();
+    }
+  });
+
+  it("rekruter pobierze tylko plik bez podglądu, także gdy rodzaj to „Inny”", async () => {
+    currentRole = "recruiter";
+    mockDocuments([
+      cv({ id: 1, filename: "cv.pdf", is_primary: true }),
+      cv({ id: 2, filename: "stare.doc", content_type: "application/msword", document_kind: "other" }),
+      cv({ id: 3, filename: "kopia.docx", content_type: "application/msword", document_kind: "other" }),
+    ]);
+    renderTab();
+    for (const [filename, allowed] of [
+      ["stare.doc", true],
+      ["kopia.docx", false],
+    ] as const) {
+      const { user, menu } = await openMenu(filename);
+      expect(within(menu).queryAllByRole("menuitem", { name: "Pobierz" })).toHaveLength(allowed ? 1 : 0);
+      await user.keyboard("{Escape}");
     }
   });
 
@@ -801,6 +824,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
   });
 
   it("każda grupa zachowuje akcje wiersza „⋯”", async () => {
+    currentRole = "head_of_recruitment";
     mockApi([file(1, "cv.pdf", { is_primary: true }), file(2, "ZOB-2962_cv.docx")]);
     const user = userEvent.setup();
     renderTab(["ZOB-2962"]);
@@ -877,5 +901,247 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByLabelText("Rodzaj")).toBeNull());
+  });
+});
+
+describe("CandidateFilesTab — kwarantanna tożsamości (05.11.2026)", () => {
+  const cv = (overrides: Record<string, unknown>) => ({
+    content_type: "application/pdf",
+    size_bytes: 1024,
+    document_kind: "cv",
+    is_primary: false,
+    uploaded_at: "2026-09-01T10:00:00Z",
+    created_at: "2026-09-01T10:00:00Z",
+    external_source: "manual",
+    ...overrides,
+  });
+  const quarantined = {
+    document_id: 1,
+    state: "quarantined",
+    source_document_id: 1,
+    source_filename: "zrodlo.pdf",
+    source_removed: false,
+    manual: false,
+    reviewed_at: "2026-09-22T10:00:00Z",
+  };
+  const copy = { ...quarantined, document_id: 2, state: "copy" };
+
+  function mockFiles(states: unknown[] | "error") {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/candidates/42/documents") {
+        return {
+          data: [
+            cv({ id: 1, filename: "zrodlo.pdf" }),
+            cv({ id: 2, filename: "kopia.pdf" }),
+            cv({ id: 3, filename: "wlasne.pdf" }),
+          ],
+        };
+      }
+      if (url === "/api/candidates/42/identity-quarantine") {
+        if (states === "error") throw new Error("awaria");
+        return { data: states };
+      }
+      return { data: [] };
+    });
+  }
+
+  function rowOf(filename: string) {
+    return screen
+      .getByRole("button", { name: filename })
+      .closest("[data-testid=candidate-file-row]") as HTMLElement;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentRole = "admin";
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+  });
+
+  it("oznacza plik i kopię, a zwykły plik zostawia bez plakietki", async () => {
+    mockFiles([quarantined, copy]);
+    renderTab();
+    expect(await screen.findByText("kwarantanna")).toBeInTheDocument();
+    expect(within(rowOf("kopia.pdf")).getByText("kopia pliku z kwarantanny")).toBeInTheDocument();
+    expect(within(rowOf("kopia.pdf")).getByText(/Ten sam plik co „zrodlo\.pdf”/)).toBeInTheDocument();
+    expect(within(rowOf("wlasne.pdf")).queryByText(/kwarantann/)).toBeNull();
+  });
+
+  it("przycisk stoi przy oryginale, nie przy kopii", async () => {
+    mockFiles([quarantined, copy]);
+    renderTab();
+    await screen.findByText("kwarantanna");
+    expect(within(rowOf("zrodlo.pdf")).getByRole("button", { name: /Zwolnij/ })).toBeInTheDocument();
+    expect(within(rowOf("kopia.pdf")).queryByRole("button", { name: /Zwolnij/ })).toBeNull();
+    expect(within(rowOf("wlasne.pdf")).queryByRole("button", { name: /Zwolnij/ })).toBeNull();
+  });
+
+  it("gdy oryginał usunięto z profilu, zwolnienie idzie od kopii", async () => {
+    const user = userEvent.setup();
+    mockFiles([{ ...copy, source_document_id: 77, source_filename: "usuniety.pdf", source_removed: true }]);
+    renderTab();
+    await user.click(
+      await within(await waitFor(() => rowOf("kopia.pdf"))).findByRole("button", { name: /Zwolnij/ }),
+    );
+    await user.type(await screen.findByLabelText("Powód"), "To ta osoba");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Zwolnij" }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/api/candidates/42/identity-quarantine/document/77/override",
+        { reason: "To ta osoba" },
+      ),
+    );
+  });
+
+  it("rekruter widzi stan i kogo poprosić, ale bez przycisku", async () => {
+    currentRole = "recruiter";
+    mockFiles([quarantined, copy]);
+    renderTab();
+    await screen.findByText("kwarantanna");
+    expect(
+      within(rowOf("zrodlo.pdf")).getByText(/Zwolnić może administrator albo Head of Recruitment/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zwolnij/ })).toBeNull();
+  });
+
+  it("Head of Recruitment zwalnia z powodem i lista odświeża się z serwera", async () => {
+    currentRole = "head_of_recruitment";
+    const user = userEvent.setup();
+    mockFiles([quarantined, copy]);
+    renderTab();
+    await screen.findByText("kwarantanna");
+    await user.click(within(rowOf("zrodlo.pdf")).getByRole("button", { name: /Zwolnij/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/razem z kopiami tego pliku \(1\)/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/ustaw potem plik jako główne CV/)).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: "Zwolnij" });
+    expect(confirm).toBeDisabled();
+    await user.type(within(dialog).getByLabelText("Powód"), "Nagłówek to stanowisko");
+    expect(confirm).toBeEnabled();
+    mockFiles([]);
+    await user.click(confirm);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/api/candidates/42/identity-quarantine/document/1/override",
+        { reason: "Nagłówek to stanowisko" },
+      ),
+    );
+    await waitFor(() => expect(screen.queryByText("kwarantanna")).toBeNull());
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining("główne CV"), "success");
+  });
+
+  it("„Anuluj” niczego nie wysyła", async () => {
+    const user = userEvent.setup();
+    mockFiles([quarantined]);
+    renderTab();
+    await screen.findByText("kwarantanna");
+    await user.click(within(rowOf("zrodlo.pdf")).getByRole("button", { name: /Zwolnij/ }));
+    await user.click(await screen.findByRole("button", { name: "Anuluj" }));
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("odmowa serwera trafia do komunikatu błędu, plik zostaje w kwarantannie", async () => {
+    const user = userEvent.setup();
+    mockFiles([quarantined]);
+    vi.mocked(api.post).mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 403,
+        data: { detail: "Zwolnić plik z kwarantanny może administrator albo Head of Recruitment." },
+      },
+    });
+    renderTab();
+    await screen.findByText("kwarantanna");
+    await user.click(within(rowOf("zrodlo.pdf")).getByRole("button", { name: /Zwolnij/ }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("Powód"), "To ta osoba");
+    await user.click(within(dialog).getByRole("button", { name: "Zwolnij" }));
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        "Zwolnić plik z kwarantanny może administrator albo Head of Recruitment.",
+      ),
+    );
+    expect(screen.getByText("kwarantanna")).toBeInTheDocument();
+  });
+
+  it("plik w kwarantannie i kopia nie mają „Ustaw jako główne CV”", async () => {
+    const user = userEvent.setup();
+    mockFiles([quarantined, copy]);
+    renderTab();
+    await screen.findByText("kwarantanna");
+    for (const filename of ["zrodlo.pdf", "kopia.pdf"]) {
+      await user.click(screen.getByRole("button", { name: `Akcje pliku ${filename}` }));
+      expect(within(await screen.findByRole("menu")).queryByText("Ustaw jako główne CV")).toBeNull();
+      await user.keyboard("{Escape}");
+    }
+    await user.click(screen.getByRole("button", { name: "Akcje pliku wlasne.pdf" }));
+    expect(within(await screen.findByRole("menu")).getByText("Ustaw jako główne CV")).toBeInTheDocument();
+  });
+
+  it("po usunięciu oryginału przycisk przechodzi na kopię — stan pyta serwer od nowa", async () => {
+    const user = userEvent.setup();
+    let removed = false;
+    vi.mocked(api.delete).mockImplementation(async () => {
+      removed = true;
+      return { data: null };
+    });
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/candidates/42/documents") {
+        return {
+          data: [
+            ...(removed ? [] : [cv({ id: 1, filename: "zrodlo.pdf" })]),
+            cv({ id: 2, filename: "kopia.pdf" }),
+          ],
+        };
+      }
+      if (url === "/api/candidates/42/identity-quarantine") {
+        return {
+          data: removed ? [{ ...copy, source_removed: true }] : [quarantined, copy],
+        };
+      }
+      return { data: [] };
+    });
+    renderTab();
+    await screen.findByText("kwarantanna");
+    expect(within(rowOf("kopia.pdf")).queryByRole("button", { name: /Zwolnij/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Akcje pliku zrodlo.pdf" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Usuń z profilu" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Usuń z profilu" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("button", { name: "zrodlo.pdf" })).toBeNull());
+    expect(
+      await within(rowOf("kopia.pdf")).findByRole("button", { name: /Zwolnij/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("zmiana metadanych i wgranie pliku też pytają o stan kwarantanny", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    mockFiles([quarantined]);
+    const quarantineCalls = () =>
+      vi
+        .mocked(api.get)
+        .mock.calls.filter(([url]) => url === "/api/candidates/42/identity-quarantine").length;
+    renderTab();
+    await screen.findByText("kwarantanna");
+    expect(quarantineCalls()).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Akcje pliku wlasne.pdf" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Oznacz jako nieaktualne" }));
+    await waitFor(() => expect(quarantineCalls()).toBe(2));
+
+    await user.click(screen.getByRole("button", { name: "Dodaj plik" }));
+    await screen.findByLabelText("Rodzaj");
+    pickFile(new File(["x"], "nowe.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(quarantineCalls()).toBe(3));
+  });
+
+  it("awaria sprawdzenia nie wygląda jak brak kwarantanny", async () => {
+    mockFiles("error");
+    renderTab();
+    expect(
+      await screen.findByText(/Nie udało się sprawdzić, które pliki są w kwarantannie/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "wlasne.pdf" })).toBeInTheDocument();
   });
 });

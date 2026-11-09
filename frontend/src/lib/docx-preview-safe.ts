@@ -113,4 +113,10 @@ export async function renderDocxSafely(
   const { renderAsync } = await import("docx-preview");
   await renderAsync(data, host, undefined, { ...options, ...SAFE_DOCX_OPTIONS });
   hardenDocxDom(host);
+  // Biblioteka wstawia `.docx { hyphens: auto }`, a przy `lang="pl"` przeglądarka
+  // dzieliła imiona w tytule CV, choć plik Word i PDF ich nie dzielą. Inline, bo
+  // musi wygrać z jej arkuszem; `manual` zostawia łączniki miękkie z dokumentu.
+  host.querySelectorAll<HTMLElement>("section").forEach((page) => {
+    page.style.setProperty("hyphens", "manual");
+  });
 }

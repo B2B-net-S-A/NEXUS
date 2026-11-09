@@ -30,6 +30,21 @@ def _nobody_is_a_previous_recruiter(monkeypatch):
     monkeypatch.setattr(nt, "working_owner_id", working_owner_id)
 
 
+@pytest.fixture(autouse=True)
+def _nobody_has_a_substitute(monkeypatch):
+    """Atrapy sesji nie znają też dostępności. Bez tego test przechodził tylko
+    wtedy, gdy wcześniejszy test w shardzie zdążył ustawić w pamięci przełącznik
+    źródła (`availability_local._SOURCE`), więc zależał od kolejności plików."""
+    from app.services import workforce_availability
+
+    async def effective_owner_id(_db, owner_id):
+        return owner_id
+
+    monkeypatch.setattr(
+        workforce_availability, "effective_owner_id", effective_owner_id
+    )
+
+
 def test_exports_the_core_triggers():
     names = {
         "check_client_feedback_eobd",
@@ -427,50 +442,220 @@ async def test_post_interview_call_goes_to_the_compass_substitute(monkeypatch):
     assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [77]
 
 
-@pytest.mark.asyncio
-async def test_stage_stuck_reminder_for_inactive_recruiter_goes_to_the_dl(
-    monkeypatch,
-):
-    from types import SimpleNamespace
+# ── Audyt 08.11.2026 (U4): skrót na rekrutację zamiast dzwonka na parę ─────
 
+
+_U4_NOW = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
+
+
+def _u4_stage(stage_id, days, stage=None, candidate_id=None, job_id=12, source=None):
     from app.models.recruitment_pipeline import PipelineStage
 
-    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
-    stage = nt.LatestStage(
-        id=5,
-        candidate_id=77,
-        job_id=12,
-        stage=PipelineStage.cv_sent,
-        moved_at=now - timedelta(days=10),
+    return nt.LatestStage(
+        id=stage_id,
+        candidate_id=candidate_id or 100 + stage_id,
+        job_id=job_id,
+        stage=stage or PipelineStage.interview,
+        moved_at=_U4_NOW - timedelta(days=days),
+        external_source=source,
     )
-    sent: list[int] = []
+
+
+def _u4_world(monkeypatch, *, team, reminded=(), owner=3, priority="medium"):
+    """Atrapy: rekrutacja 12, zespół ``team``, DL 44, HoR 55 i 56."""
+    from types import SimpleNamespace
+
+    from app.services.job_team import TeamPerson
+
+    sent: list[dict] = []
 
     async def emit(db, **kwargs):
-        sent.append(kwargs["user_id"])
+        sent.append(kwargs)
         return object()
 
     async def jobs_by_id(db, ids):
         return {
-            12: SimpleNamespace(id=12, title="Java", working_title=None, recruiter_id=3)
+            12: SimpleNamespace(
+                id=12,
+                title="Senior PM",
+                working_title=None,
+                client_reference="43084",
+                recruiter_id=owner,
+                delivery_lead_id=44,
+                priority=priority,
+            )
         }
 
-    async def targets(db, job):
-        return [44]
+    async def recruiters(db, ids):
+        people = [
+            TeamPerson(user_id=uid, name="R", role="recruiter", via="owner")
+            for uid in team
+        ]
+        return {12: people}
 
     async def names(db, ids):
-        return {77: "Anna Nowak"}
+        return {101: "Anna Nowak"}
+
+    async def hors(db):
+        return [55, 56]
 
     class _Db:
         async def execute(self, statement):
-            return []
+            return list(reminded)
+
+        async def scalar(self, statement):
+            return None
 
     monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
-    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "recruiters_for_jobs", recruiters)
     monkeypatch.setattr(nt, "_candidate_names", names)
-    monkeypatch.setattr(nt, "_user_is_active", _active_only())
+    monkeypatch.setattr(nt, "_head_of_recruitment_ids", hors)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(3, 44))
     monkeypatch.setattr(nt, "emit", emit)
-    assert await nt.check_stage_stuck_7d(_Db(), now, {(77, 12): stage}) == 1
-    assert sent == [44]
+    return sent, _Db()
+
+
+def _latest(*stages):
+    return {(s.candidate_id, s.job_id): s for s in stages}
+
+
+@pytest.mark.asyncio
+async def test_stuck_cards_become_one_entry_per_recruitment(monkeypatch):
+    sent, db = _u4_world(monkeypatch, team=[3])
+    latest = _latest(_u4_stage(1, 9), _u4_stage(2, 12), _u4_stage(3, 21))
+
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, latest) == 1
+
+    assert len(sent) == 1
+    row = sent[0]
+    assert row["user_id"] == 3
+    assert row["title"] == "3 osoby stoją ponad 7 dni"
+    assert row["message"] == (
+        "43084 Senior PM: 3 osoby stoją ponad 7 dni (najdłużej 21 dni)."
+    )
+    assert row["link"] == "/jobs/12?added_by=stuck"
+    assert (row["related_entity_type"], row["related_entity_id"]) == ("job", 12)
+
+
+@pytest.mark.asyncio
+async def test_stuck_count_matches_the_board_filter(monkeypatch):
+    # Filtr na Tablicy pokazuje karty „> 7 dni”, bez górnej granicy i z importem.
+    sent, db = _u4_world(monkeypatch, team=[3])
+    latest = _latest(
+        _u4_stage(1, 9),
+        _u4_stage(2, 7),  # równo tydzień: jeszcze nie „ponad 7 dni”
+        _u4_stage(3, 90),  # starsza niż okno budzenia, ale widać ją na Tablicy
+        _u4_stage(4, 15, source="traffit"),
+    )
+
+    await nt.check_stage_stuck_7d(db, _U4_NOW, latest)
+
+    assert "3 osoby stoją ponad 7 dni (najdłużej 90 dni)" in sent[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_stuck_count_includes_postings_but_not_closed_cards(monkeypatch):
+    # Filtr pokazuje też „Ogłoszenia” (kolumna Nowi), a zatrudnionych już nie.
+    from app.models.recruitment_pipeline import PipelineStage as S
+
+    sent, db = _u4_world(monkeypatch, team=[3])
+    latest = _latest(
+        _u4_stage(1, 9),
+        _u4_stage(2, 10, stage=S.posting),
+        _u4_stage(3, 30, stage=S.onboarding),
+        _u4_stage(4, 30, stage=S.hired),
+        _u4_stage(5, 30, stage=S.rejected),
+    )
+
+    await nt.check_stage_stuck_7d(db, _U4_NOW, latest)
+
+    assert "2 osoby stoją ponad 7 dni" in sent[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_old_cards_alone_do_not_wake_the_digest(monkeypatch):
+    # Backlog sprzed miesiąca sam nie budzi — jak dotąd (STAGE_STUCK_MAX_DAYS).
+    sent, db = _u4_world(monkeypatch, team=[3])
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, _latest(_u4_stage(1, 45))) == 0
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_cv_sent_keeps_its_own_reminder_without_a_digest(monkeypatch):
+    from app.models.recruitment_pipeline import PipelineStage
+
+    sent, db = _u4_world(monkeypatch, team=[3])
+    latest = _latest(_u4_stage(1, 10, stage=PipelineStage.cv_sent))
+
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, latest) == 1
+
+    assert sent[0]["link"] == "/jobs/12?candidate=101"
+    assert sent[0]["related_entity_type"] == "candidate_stage"
+    assert "Anna Nowak" in sent[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_recruitment_without_working_recruiter_goes_to_dl_and_hor(monkeypatch):
+    from app.models.recruitment_pipeline import PipelineStage
+
+    sent, db = _u4_world(monkeypatch, team=[])
+    latest = _latest(
+        _u4_stage(1, 10),
+        # „CV wysłane” bez pracującego rekrutera: bez pojedynczego dzwonka.
+        _u4_stage(2, 11, stage=PipelineStage.cv_sent),
+    )
+
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, latest) == 3
+
+    assert [row["user_id"] for row in sent] == [44, 55, 56]
+    for row in sent:
+        assert row["title"] == "2 osoby czekają, przypisz rekrutera"
+        assert row["message"] == (
+            "43084 Senior PM. Rekrutacja bez pracującego rekrutera: "
+            "2 osoby czekają, przypisz rekrutera."
+        )
+        assert row["related_entity_type"] == "job_unstaffed"
+        assert row["link"] == "/jobs/12"
+
+
+@pytest.mark.asyncio
+async def test_no_owner_outside_p1_is_not_a_reason_to_assign(monkeypatch):
+    # Bez prowadzącego poza P1 to stan normalny (83 rekrutacje 08.11.2026).
+    sent, db = _u4_world(monkeypatch, team=[], owner=None, priority="medium")
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, _latest(_u4_stage(1, 10))) == 0
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_p1_without_owner_needs_a_recruiter(monkeypatch):
+    sent, db = _u4_world(monkeypatch, team=[], owner=None, priority="urgent")
+    await nt.check_stage_stuck_7d(db, _U4_NOW, _latest(_u4_stage(1, 10)))
+    assert [row["user_id"] for row in sent] == [44, 55, 56]
+
+
+@pytest.mark.asyncio
+async def test_inactive_dl_is_skipped_but_hor_still_hears(monkeypatch):
+    sent, db = _u4_world(monkeypatch, team=[])
+    monkeypatch.setattr(nt, "_user_is_active", _active_only())
+
+    await nt.check_stage_stuck_7d(db, _U4_NOW, _latest(_u4_stage(1, 10)))
+
+    assert [row["user_id"] for row in sent] == [55, 56]
+
+
+@pytest.mark.asyncio
+async def test_digest_is_sent_once_per_week(monkeypatch):
+    sent, db = _u4_world(monkeypatch, team=[3], reminded=[(3, "job", 12)])
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, _latest(_u4_stage(1, 10))) == 0
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_pair_reminder_with_same_id_does_not_block_digest(monkeypatch):
+    # Id etapu i id rekrutacji to dwie numeracje: to samo 12 to dwie różne rzeczy.
+    sent, db = _u4_world(monkeypatch, team=[3], reminded=[(3, "candidate_stage", 12)])
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, _latest(_u4_stage(1, 10))) == 1
+    assert sent[0]["related_entity_type"] == "job"
 
 
 # ── Runda 8 (CAL2): przypomnienie po rozmowie u klienta gasi tylko debrief ───
@@ -557,8 +742,14 @@ def _stage_reminder_fakes(monkeypatch, sent: list[str]):
     async def names(db, ids):
         return {}
 
+    async def recruiters(db, ids):
+        from app.services.job_team import TeamPerson
+
+        return {12: [TeamPerson(user_id=3, name="R", role="recruiter", via="owner")]}
+
     monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
     monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "recruiters_for_jobs", recruiters)
     monkeypatch.setattr(nt, "_candidate_names", names)
     monkeypatch.setattr(nt, "_user_is_active", _active_only(3))
     monkeypatch.setattr(nt, "emit", emit)
@@ -567,6 +758,12 @@ def _stage_reminder_fakes(monkeypatch, sent: list[str]):
 class _NoRemindersYet:
     async def execute(self, statement):
         return []
+
+    # `availability_local.refresh_source` czyta przełącznik z bazy, gdy jego
+    # pamięć na proces jest pusta albo starsza niż minuta — bez tego wynik
+    # zależał od tego, co biegło wcześniej w tym samym shardzie.
+    async def scalar(self, statement):
+        return None
 
 
 @pytest.mark.asyncio

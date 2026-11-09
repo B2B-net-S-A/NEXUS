@@ -1371,7 +1371,7 @@ export function useSkillReview(state: "open" | "closed", enabled = true) {
     queryKey: careKeys.skillReview(state),
     queryFn: async () =>
       (
-        await api.get<{ items: SkillReviewRow[]; can_curate: boolean }>(
+        await api.get<{ items: SkillReviewRow[]; can_curate: boolean; categories: string[] }>(
           "/api/care/skill-review",
           { params: { state } },
         )
@@ -1566,7 +1566,7 @@ export function useResolveSkillReview() {
     mutationFn: async (
       action:
         | { kind: "map"; itemId: number; skillId: number }
-        | { kind: "create"; itemId: number; canonicalName: string; category: string | null }
+        | { kind: "create"; itemId: number; canonicalName: string; category: string }
         | { kind: "dismiss"; itemId: number },
     ) => {
       const base = `/api/care/skill-review/${action.itemId}`;

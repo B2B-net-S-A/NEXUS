@@ -2,7 +2,7 @@
 
 import { ClipboardCheck } from "lucide-react";
 
-import { PrepReviewSettings } from "@/components/settings/PrepReviewSettings";
+import { PREP_REVIEW_INTRO, PrepReviewSettings } from "@/components/settings/PrepReviewSettings";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -35,8 +35,7 @@ export default function PrepReviewSettingsPage() {
           Ocena prepów
         </h1>
         <p className="text-sm text-muted-foreground">
-          Jak oceniamy Prep 1 i Prep 2 (follow-up) z nagrania w Teams: kryteria i wagi,
-          tematy prowadzącego, skala odpowiedzi kandydata i co trafia do notatki na Prep 2.
+          {PREP_REVIEW_INTRO}
         </p>
       </div>
       <PrepReviewSettings />

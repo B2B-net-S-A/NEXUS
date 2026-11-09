@@ -22,7 +22,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
-from app.models.invite_link import CandidateInviteLink
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.application_submission import (  # noqa: F401
     ApplicationSubmission,
     ApplicationSubmissionStatus,
@@ -79,6 +79,7 @@ from app.models.pre_contract import (  # noqa: F401
     PreContractWatcher,
 )
 from app.models.b2b_contract_document import B2BContractDocument
+from app.models.start_document import ClientStartDocument, PlacementStartDocument
 from app.models.b2b_register_import import B2BRegisterImportRow, B2BRegisterImportRun
 from app.models.contract_doc_sharepoint import (
     ContractDocSpItem,
@@ -139,6 +140,9 @@ from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
+from app.models.cv_call_question import CvCallQuestions  # noqa: F401
+from app.models.skill_proposal import SkillProposal  # noqa: F401
+from app.models.skill_relation import SkillRelation  # noqa: F401
 from app.models.plain_knowledge import (  # noqa: F401
     JobPlainBrief,
     PlainKnowledgeEvent,
@@ -224,6 +228,7 @@ from app.models.interview_feedback import (
     InterviewFeedback,
     NextStepPreference,
 )
+from app.models.cpro_mail import CproMailEvent  # noqa: F401
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -348,6 +353,7 @@ from app.models.linkedin_extension import (  # noqa: F401
     LinkedinExtensionConnection,
 )
 from app.models.candidate_ai_assessment import CandidateAiAssessment  # noqa: F401
+from app.models.cv_generator_feedback import CvGeneratorFeedback  # noqa: F401
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,
@@ -381,6 +387,7 @@ __all__ = [
     "CcSuggestionOverride",
     "JobSecondaryCc",
     "CandidateInviteLink",
+    "CandidateInviteLinkVisitDay",
     "ApplicationSubmission",
     "ApplicationSubmissionStatus",
     "Client",
@@ -419,6 +426,8 @@ __all__ = [
     "B2BGeneratedContract",
     "B2BSigningRequest",
     "B2BContractDocument",
+    "ClientStartDocument",
+    "PlacementStartDocument",
     "B2BRegisterImportRow",
     "B2BRegisterImportRun",
     "ContractDocSpItem",
@@ -467,6 +476,7 @@ __all__ = [
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
+    "CvCallQuestions",
     "JobPlainBrief",
     "PlainKnowledgeEvent",
     "PlainTerm",
@@ -742,8 +752,17 @@ from app.models.jarvis import (  # noqa: F401
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401
 from app.models.job_autofill_pool import JobAutofillPool  # noqa: F401
+from app.models.candidate_conversation_fact import (  # noqa: F401
+    CandidateConversationFact,
+)
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
+from app.models.own_hiring import (  # noqa: F401
+    OwnHiringApplication,
+    OwnHiringBooking,
+    OwnHiringEvent,
+    OwnHiringProcess,
+)
 from app.models.candidate_job_owner import (  # noqa: F401
     CandidateJobOwner,
     CandidateJobOwnerEvent,
@@ -810,6 +829,7 @@ from app.models.competition_period_closure import (  # noqa: F401
 # 0371: kto pracuje nad requestem (automat przydziału + ręczne dodanie).
 from app.models.job_work_assignment import JobWorkAssignment  # noqa: F401
 from app.models.job_previous_recruiter import JobPreviousRecruiter  # noqa: F401
+from app.models.job_recruiter_channel import JobRecruiterChannel  # noqa: F401
 
 # 0450: championi rekrutacji — osoby, które klient chce (D1–D9, 15.10.2026).
 from app.models.job_champion import JobChampion  # noqa: F401
@@ -892,6 +912,8 @@ from app.models import client_sales_invoice as _client_sales_invoice_models  # n
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
+from app.models import consultant_portal as _consultant_portal_models  # noqa: F401,E402
+from app.models import consultant_panel as _consultant_panel_models  # noqa: F401,E402
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
@@ -902,3 +924,8 @@ from app.models import announcement as _announcement_models  # noqa: F401,E402
 
 # 0625: Nowości do przeklikania — postęp osoby przy nowości.
 from app.models import novelty as _novelty_models  # noqa: F401,E402
+from app.models import access_usage as _access_usage_models  # noqa: F401,E402
+from app.models import insight_decision as _insight_decision_models  # noqa: F401,E402
+
+# 0639: panel klienta pod linkiem z CV.
+from app.models import client_panel as _client_panel_models  # noqa: F401,E402

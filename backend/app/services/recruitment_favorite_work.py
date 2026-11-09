@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.models.activity import Activity
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
-from app.services.job_fill import open_vacancies, placements_by_job
+from app.services.job_fill import open_vacancies, filled_by_job
 
 
 def apply_favorite_work_state(job: Job, *, stage: str | None, vacancies: int) -> bool:
@@ -108,7 +108,7 @@ async def reconcile_favorite_work(
             (job, candidate): getattr(stage, "value", stage)
             for job, candidate, stage in rows
         }
-    filled = await placements_by_job(db, [job.id for job in jobs])
+    filled = await filled_by_job(db, [job.id for job in jobs])
     changed = 0
     for job in jobs:
         previous_favorite = job.favorite_candidate_id

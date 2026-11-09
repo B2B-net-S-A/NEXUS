@@ -158,7 +158,7 @@ export function monthProgress(person: TeamPerson, team: MyTeam): MonthProgress |
       hours: null,
       norm,
       percent: 0,
-      text: person.timesheet_required ? "—" : "bez timesheetu",
+      text: person.timesheet_required ? "—" : "bez raportu godzin",
       status: null,
       statusLabel: "",
       full: false,
@@ -316,7 +316,7 @@ export function decisionCards(team: MyTeam): DecisionCard[] {
             "propozycja premii",
             "propozycje premii",
             "propozycji premii",
-          )} — decydują Płace`,
+          )} — decydują Rozliczenia`,
         });
       }
     }

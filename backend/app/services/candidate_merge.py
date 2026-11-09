@@ -21,6 +21,16 @@ Reguły, które łatwo cofnąć:
   częściowego). Zostaje NOWSZY z pary (``updated_at``, potem ``created_at``;
   remis = ocalały), starszy jest usuwany; wszystkie inne wiersze duplikatu są
   przepinane. Nigdy „usuń wszystkie wiersze duplikatu w tabeli”.
+* **Główne CV zostaje przy ocalałym** (05.11.2026). Data wiersza to data importu,
+  nie wersja CV, więc nowszy plik duplikatu niczego nie dowodzi. Flagę przejmuje
+  plik duplikatu tylko wtedy, gdy ocalały nie ma głównego CV, i pokazuje to
+  podgląd (``primary_cv``).
+* **Karta w rekrutacji wspólnej dla obu profili** (decyzja Artura 05.11.2026).
+  ``candidate_stages`` to historia dopisywana, więc po przepięciu obie historie
+  się przeplatają, a etap karty wyznacza najnowszy wiersz: scalenie cofało kartę
+  z „CV wysłane” na „Screening”. Zostaje etap z ``card_after_merge``. Gdy to nie
+  jest najnowszy wiersz, dopisujemy jego kopię tuż po najnowszym. Proces idzie
+  za kartą, a podgląd pokazuje wynik (``cards``).
 * **Referencje polimorficzne** (``activities``, ``notifications``,
   ``traffit_entity_links.nexus_entity_id``) przepinane jawnie — nie mają FK.
 * **Pola profilu:** puste po jednej stronie = bierzemy niepuste; różne po obu
@@ -29,7 +39,10 @@ Reguły, które łatwo cofnąć:
   duplicates`` — scalenie nie gubi adresu, pod którym ktoś pisał.
 * **Tożsamość z Traffita:** gdy tylko duplikat pochodzi z Traffita, ocalały
   przejmuje jego ``external_id`` (inaczej nocny sync założyłby duplikat
-  z powrotem). Oba z Traffita = blokada — to trzeba scalić w Traffit.
+  z powrotem). Oba z tego samego żywego systemu = blokada — to trzeba scalić
+  tam. Traffit jest wyłączony od 14.10.2026 (``traffit_retired``), więc dwóch
+  profili z Traffita nikt już nie odtworzy: ocalały zostaje przy swoim id,
+  a id duplikatu ląduje w ``custom_fields.merged_duplicates``.
 * Imię/nazwisko wybrane z duplikatu dostaje blokadę synchronizacji
   (``candidate_identity_ownership``), jak ręczna edycja.
 """
@@ -42,9 +55,9 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Iterable, Literal, Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
@@ -52,12 +65,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.job import Job
+from app.models.pipeline_template import PipelineStageDef
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage, STAGE_ORDER
+from app.schemas.pipeline import STAGE_LABELS
 from app.services.candidate_name_rules import without_name_markers
 
 logger = logging.getLogger(__name__)
 
 _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 _UNIQUE_VIOLATION = "23505"
+
+# Systemy, z których nic już nie przychodzi: usunięty profil nie wróci importem.
+_RETIRED_EXTERNAL_SOURCES = frozenset({"traffit"})
 
 # Tabela z triggerem append-only (blokuje UPDATE i DELETE) — migracja 0201.
 _APPEND_ONLY_TRIGGERS: dict[str, str] = {
@@ -113,6 +133,9 @@ _NEUTRALIZE: dict[str, dict[str, str]] = {
     },
 }
 
+# Indeksy, w których przegrywa zawsze wiersz duplikatu, bez patrzenia na datę.
+_SURVIVOR_ROW_WINS = frozenset({"ux_candidate_documents_active_primary_cv"})
+
 Choice = Literal["survivor", "duplicate"]
 
 # (pole, etykieta PL) porównywane w oknie scalania.
@@ -167,6 +190,53 @@ _CONSENT_OF: dict[str, str] = {
 }
 
 
+_CLOSED_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdrawn})
+# Wejście do procesu: wiersz bywa automatyczny, więc nie odwołuje decyzji człowieka.
+_ENTRY_STAGES = frozenset({PipelineStage.posting, PipelineStage.new})
+_STAGE_RANK = {stage: rank for rank, stage in enumerate(STAGE_ORDER)}
+_CARD_RESTORED_NOTE = "Scalenie profili: zostaje etap dalej w procesie."
+
+
+@dataclass(frozen=True)
+class CardRow:
+    stage: PipelineStage
+    moved_at: datetime
+    id: int
+
+
+def card_after_merge(survivor: CardRow, duplicate: CardRow) -> Choice:
+    """Czyj etap zostaje na karcie, gdy oba profile są w tej samej rekrutacji.
+
+    Zatrudniony wygrywa zawsze. Między żywymi etapami zostaje dalszy. Odrzucenie
+    albo wycofanie przegrywa tylko z nowszym wierszem dalej niż „Nowi”. Poza tym
+    (ten sam etap, dwa etapy końcowe) zostaje nowszy wiersz.
+    """
+    newest: Choice = (
+        "duplicate"
+        if (duplicate.moved_at, duplicate.id) > (survivor.moved_at, survivor.id)
+        else "survivor"
+    )
+    survivor_hired = survivor.stage == PipelineStage.hired
+    duplicate_hired = duplicate.stage == PipelineStage.hired
+    if survivor_hired != duplicate_hired:
+        return "survivor" if survivor_hired else "duplicate"
+    survivor_closed = survivor.stage in _CLOSED_STAGES
+    duplicate_closed = duplicate.stage in _CLOSED_STAGES
+    if survivor_closed and duplicate_closed:
+        return newest
+    if survivor_closed or duplicate_closed:
+        closed: Choice = "survivor" if survivor_closed else "duplicate"
+        live_row = duplicate if survivor_closed else survivor
+        if newest != closed and live_row.stage not in _ENTRY_STAGES:
+            return "duplicate" if survivor_closed else "survivor"
+        return closed
+    survivor_rank = _STAGE_RANK[survivor.stage]
+    duplicate_rank = _STAGE_RANK[duplicate.stage]
+    if survivor_rank == duplicate_rank:
+        return newest
+    return "survivor" if survivor_rank > duplicate_rank else "duplicate"
+
+
 class MergeError(Exception):
     """Odmowa (404/409/422) z komunikatem po polsku."""
 
@@ -215,6 +285,51 @@ class ReferencePlan:
         }
 
 
+@dataclass(frozen=True)
+class CardPlan:
+    job_id: int
+    job_title: Optional[str]
+    survivor: CardRow
+    duplicate: CardRow
+    survivor_stage_name: str
+    duplicate_stage_name: str
+    kept: Choice
+
+    @property
+    def kept_row(self) -> CardRow:
+        return self.survivor if self.kept == "survivor" else self.duplicate
+
+    @property
+    def newest_moved_at(self) -> datetime:
+        return max(self.survivor.moved_at, self.duplicate.moved_at)
+
+    @property
+    def restores(self) -> bool:
+        """Etap, który zostaje, nie leży w najnowszym wierszu, więc trzeba go dopisać."""
+        newest = max(
+            (self.survivor, self.duplicate), key=lambda row: (row.moved_at, row.id)
+        )
+        return self.kept_row.id != newest.id
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "job_title": self.job_title,
+            "survivor_stage": self.survivor.stage.value,
+            "survivor_stage_name": self.survivor_stage_name,
+            "duplicate_stage": self.duplicate.stage.value,
+            "duplicate_stage_name": self.duplicate_stage_name,
+            "result_stage": self.kept_row.stage.value,
+            "result_stage_name": (
+                self.survivor_stage_name
+                if self.kept == "survivor"
+                else self.duplicate_stage_name
+            ),
+            "kept": self.kept,
+            "restores": self.restores,
+        }
+
+
 @dataclass
 class MergePlan:
     survivor_id: int
@@ -225,6 +340,8 @@ class MergePlan:
     references: list[ReferencePlan] = field(default_factory=list)
     polymorphic: list[dict[str, Any]] = field(default_factory=list)
     blockers: list[dict[str, str]] = field(default_factory=list)
+    primary_cv: dict[str, Any] = field(default_factory=dict)
+    cards: list[CardPlan] = field(default_factory=list)
     fingerprint: str = ""
 
     @property
@@ -244,6 +361,8 @@ class MergePlan:
             + sum(p["rows"] for p in self.polymorphic),
             "conflicts": sum(r.conflicts for r in self.references),
             "blockers": self.blockers,
+            "primary_cv": self.primary_cv,
+            "cards": [card.as_dict() for card in self.cards],
             "can_apply": self.can_apply,
             "fingerprint": self.fingerprint,
         }
@@ -644,6 +763,10 @@ def _fingerprint(plan: MergePlan) -> str:
         ),
         "polymorphic": sorted((p["table"], p["rows"]) for p in plan.polymorphic),
         "blockers": sorted(b["code"] for b in plan.blockers),
+        "primary_cv": plan.primary_cv,
+        "cards": sorted(
+            (c.job_id, c.survivor.id, c.duplicate.id, c.kept) for c in plan.cards
+        ),
     }
     encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -664,6 +787,126 @@ async def _usable_references(db: AsyncSession) -> list[Reference]:
     return usable
 
 
+async def _primary_cv_plan(
+    db: AsyncSession, survivor: Candidate, duplicate: Candidate
+) -> dict[str, Any]:
+    """Główne CV ocalałego przed scaleniem i po nim (lustro ``_neutralize_conflicts``)."""
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    rows = await db.execute(
+        select(
+            CandidateDocument.candidate_id,
+            CandidateDocument.id,
+            CandidateDocument.filename,
+        ).where(
+            CandidateDocument.candidate_id.in_([survivor.id, duplicate.id]),
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+        )
+    )
+    primary = {
+        candidate_id: {
+            "document_id": document_id,
+            "filename": filename,
+            "from_duplicate": candidate_id == duplicate.id,
+        }
+        for candidate_id, document_id, filename in rows.all()
+    }
+    before = primary.get(survivor.id)
+    legacy = _legacy_cv(survivor)
+    if before is None and legacy is not None:
+        before = {
+            "document_id": None,
+            "filename": legacy["filename"],
+            "from_duplicate": False,
+        }
+    after = primary.get(survivor.id) or primary.get(duplicate.id) or before
+    return {"before": before, "after": after, "changes": after != before}
+
+
+async def _cards_plan(
+    db: AsyncSession, survivor_id: int, duplicate_id: int
+) -> list[CardPlan]:
+    """Rekrutacje wspólne dla obu profili i etap, który zostanie na karcie."""
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.id,
+                CandidateStage.stage,
+                CandidateStage.moved_at,
+                CandidateStage.stage_def_id,
+            )
+            .where(CandidateStage.candidate_id.in_([survivor_id, duplicate_id]))
+            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+        )
+    ).all()
+    latest: dict[tuple[int, int], Any] = {
+        (row.candidate_id, row.job_id): row for row in rows
+    }
+    job_ids = sorted(
+        job_id
+        for candidate_id, job_id in latest
+        if candidate_id == survivor_id and (duplicate_id, job_id) in latest
+    )
+    if not job_ids:
+        return []
+    titles = dict(
+        (await db.execute(select(Job.id, Job.title).where(Job.id.in_(job_ids)))).all()
+    )
+    def_ids = {
+        latest[(candidate_id, job_id)].stage_def_id
+        for job_id in job_ids
+        for candidate_id in (survivor_id, duplicate_id)
+    } - {None}
+    def_names = (
+        dict(
+            (
+                await db.execute(
+                    select(PipelineStageDef.id, PipelineStageDef.name).where(
+                        PipelineStageDef.id.in_(def_ids)
+                    )
+                )
+            ).all()
+        )
+        if def_ids
+        else {}
+    )
+
+    def stage_name(row: Any) -> str:
+        return def_names.get(row.stage_def_id) or STAGE_LABELS.get(
+            row.stage, row.stage.value
+        )
+
+    def card_row(row: Any) -> CardRow:
+        return CardRow(stage=row.stage, moved_at=row.moved_at, id=row.id)
+
+    cards: list[CardPlan] = []
+    for job_id in job_ids:
+        survivor_row = latest[(survivor_id, job_id)]
+        duplicate_row = latest[(duplicate_id, job_id)]
+        cards.append(
+            CardPlan(
+                job_id=job_id,
+                job_title=titles.get(job_id),
+                survivor=card_row(survivor_row),
+                duplicate=card_row(duplicate_row),
+                survivor_stage_name=stage_name(survivor_row),
+                duplicate_stage_name=stage_name(duplicate_row),
+                kept=card_after_merge(card_row(survivor_row), card_row(duplicate_row)),
+            )
+        )
+    return cards
+
+
 async def build_plan(
     db: AsyncSession,
     survivor_id: int,
@@ -680,9 +923,16 @@ async def build_plan(
         survivor=_person(survivor),
         duplicate=_person(duplicate),
         fields=field_plan(survivor, duplicate),
+        primary_cv=await _primary_cv_plan(db, survivor, duplicate),
+        cards=await _cards_plan(db, survivor.id, duplicate.id),
     )
     s_ext, d_ext = _external(survivor), _external(duplicate)
-    if s_ext and d_ext and s_ext[0] == d_ext[0]:
+    if (
+        s_ext
+        and d_ext
+        and s_ext[0] == d_ext[0]
+        and s_ext[0] not in _RETIRED_EXTERNAL_SOURCES
+    ):
         plan.blockers.append(
             {
                 "code": "both_external",
@@ -811,7 +1061,7 @@ async def _stamp_academy_reapplied(
 ) -> None:
     """Wykluczony wiersz wygrał z nowszym zgłoszeniem — zostaw ślad powrotu.
 
-    Lustro naboru (``services/academy.py``): osoba odrzucona, która aplikuje
+    Tak robił nabór Akademii (usunięty 08.11.2026): osoba odrzucona, która aplikuje
     ponownie, dostaje tylko ``reapplied_at`` (najpóźniejsze zgłoszenie).
     """
     await db.execute(
@@ -934,7 +1184,7 @@ async def _neutralize_conflicts(
         if clause is None:
             raise _unresolvable(ref.table)
         stamps: dict[str, Any] = {}
-        if ts_col is not None:
+        if ts_col is not None and idx.name not in _SURVIVOR_ROW_WINS:
             every = set(pairs) | {k for keys in pairs.values() for k in keys}
             stamps = await _timestamps(db, ref, key, ts_col, every, ids)
         losers: set[str] = set()
@@ -963,6 +1213,30 @@ async def _neutralize_conflicts(
     return changed
 
 
+async def _process_sides(
+    db: AsyncSession,
+    ref: Reference,
+    key: str,
+    keys: set[str],
+    ids: tuple[int, int],
+    cards: Iterable[CardPlan],
+) -> dict[str, Choice]:
+    """Klucz wiersza procesu duplikatu → strona, której etap zostaje na karcie."""
+    kept = {card.job_id: card.kept for card in cards}
+    if not kept or not keys:
+        return {}
+    rows = (
+        await db.execute(
+            text(
+                f"SELECT {key}::text, job_id FROM {ref.table} "
+                f"WHERE {ref.column} IN (:a, :b) AND {key}::text = ANY(:keys)"
+            ),
+            {"a": ids[0], "b": ids[1], "keys": sorted(keys)},
+        )
+    ).all()
+    return {str(k): kept[job_id] for k, job_id in rows if job_id in kept}
+
+
 async def _move_reference(
     db: AsyncSession,
     ref: Reference,
@@ -970,6 +1244,7 @@ async def _move_reference(
     *,
     survivor_id: int,
     duplicate_id: int,
+    cards: Iterable[CardPlan] = (),
 ) -> dict[str, int]:
     """Przepięcie jednej referencji z rozstrzygnięciem konfliktów per wiersz."""
 
@@ -999,13 +1274,21 @@ async def _move_reference(
         if winning_state is not None:
             every = set(pairs) | {k for keys in pairs.values() for k in keys}
             states = await _winning_states(db, ref, key, winning_state, every, ids)
+        # Opiekun i kredyt z procesu zostają z kartą, nie z nowszym wierszem procesu.
+        card_sides = (
+            await _process_sides(db, ref, key, set(pairs), ids, cards)
+            if ref.table == "recruitment_processes"
+            else {}
+        )
         drop_duplicate: list[str] = []
         drop_survivor: set[str] = set()
         reapplied: list[tuple[str, list[str]]] = []
         for dup_key, surv_keys in sorted(pairs.items()):
             dup_wins = states.get(dup_key, False)
             surv_wins = any(states.get(k, False) for k in surv_keys)
-            if dup_wins and not surv_wins:
+            if dup_key in card_sides:
+                newer = card_sides[dup_key] == "duplicate"
+            elif dup_wins and not surv_wins:
                 newer = True
             elif surv_wins and not dup_wins:
                 newer = False
@@ -1138,6 +1421,64 @@ async def _repoint_notification_links(
         )
         touched += result.rowcount or 0
     return touched
+
+
+async def _restore_kept_cards(
+    db: AsyncSession, cards: Iterable[CardPlan], *, survivor_id: int
+) -> list[dict[str, Any]]:
+    """Dopisz etap, który zostaje, gdy po przepięciu najnowszy wiersz jest inny.
+
+    Mikrosekunda po najnowszym zamiast „teraz”: terminy liczone od etapu i liczniki
+    dnia nie mogą uznać scalenia za nowy ruch. Autor zostaje z wiersza, a sam
+    ruch nie wywołuje powiadomień (``run_move_effects`` stoi poza ``apply_move``).
+    """
+    from app.services.recruitment_process_commands import restore_stage_after_merge
+
+    restored: list[dict[str, Any]] = []
+    for card in cards:
+        if not card.restores:
+            continue
+        new_row = await restore_stage_after_merge(
+            db,
+            source_stage_id=card.kept_row.id,
+            candidate_id=survivor_id,
+            job_id=card.job_id,
+            moved_at=card.newest_moved_at + timedelta(microseconds=1),
+            default_note=_CARD_RESTORED_NOTE,
+        )
+        restored.append(
+            {
+                "job_id": card.job_id,
+                "stage": card.kept_row.stage.value,
+                "new_stage_row_id": new_row.id,
+                "from_stage_row_id": card.kept_row.id,
+            }
+        )
+    return restored
+
+
+async def _sync_card_processes(
+    db: AsyncSession, cards: Iterable[CardPlan], *, survivor_id: int
+) -> None:
+    """Wskaźnik procesu pary na wiersz, który po scaleniu wyznacza kartę."""
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services.recruitment_process_commands import (
+        sync_external_observed_process,
+    )
+
+    for card in cards:
+        has_process = await db.scalar(
+            select(RecruitmentProcess.id)
+            .where(
+                RecruitmentProcess.candidate_id == survivor_id,
+                RecruitmentProcess.job_id == card.job_id,
+            )
+            .limit(1)
+        )
+        if has_process is not None:
+            await sync_external_observed_process(
+                db, candidate_id=survivor_id, job_id=card.job_id
+            )
 
 
 _UNSET = object()
@@ -1274,6 +1615,8 @@ async def execute_merge(
         "email": duplicate.email,
         "phone": duplicate.phone,
         "linkedin": duplicate.linkedin,
+        "external_source": duplicate.external_source,
+        "external_id": duplicate.external_id,
         "merged_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -1301,7 +1644,12 @@ async def execute_merge(
     moved: dict[str, dict[str, int]] = {}
     for ref in await _usable_references(db):
         stats = await _move_reference(
-            db, ref, indexes, survivor_id=survivor_id, duplicate_id=duplicate_id
+            db,
+            ref,
+            indexes,
+            survivor_id=survivor_id,
+            duplicate_id=duplicate_id,
+            cards=plan.cards,
         )
         if stats["moved"] or stats["replaced"]:
             moved[f"{ref.table}.{ref.column}"] = stats
@@ -1309,6 +1657,8 @@ async def execute_merge(
     polymorphic = await _move_polymorphic(
         db, survivor_id=survivor_id, duplicate_id=duplicate_id
     )
+    cards_restored = await _restore_kept_cards(db, plan.cards, survivor_id=survivor_id)
+    await _sync_card_processes(db, plan.cards, survivor_id=survivor_id)
 
     # Usunięcie duplikatu SQL-em, nie `db.delete`: relacje ORM z kaskadą
     # próbowałyby doczytać dzieci (w async to MissingGreenlet), a dzieci
@@ -1405,6 +1755,7 @@ async def execute_merge(
                 "tables": sorted(moved),
                 "fields_from_duplicate": sorted(updates),
                 "search_runs_failed": search_erasure["search_runs_failed"],
+                "cards_restored": cards_restored,
             },
         )
     )
@@ -1442,6 +1793,7 @@ async def execute_merge(
         "moved_rows": moved_rows,
         "replaced_rows": replaced_rows,
         "fields_from_duplicate": sorted(updates),
+        "cards_restored": len(cards_restored),
     }
 
 

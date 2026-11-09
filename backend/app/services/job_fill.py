@@ -12,6 +12,12 @@ Kanoniczna jest pierwsza: placement to PIERWSZE wejście pary (kandydat,
 rekrutacja) na „Zatrudniony" (`FIRST_HIRED_PER_CANDIDATE_JOB`). Ta sama
 definicja stoi za `/insights` i banerem kampanii.
 
+Obsada rekrutacji (05.11.2026) to coś innego niż placementy w statystykach:
+osoby zatrudnione w BIEŻĄCYM otwarciu (`job_opening`). Po „Otwórz ponownie”
+zatrudnienie sprzed otwarcia nie zajmuje wakatu, a osoba z poprzedniego
+otwarcia zatrudniona jeszcze raz zajmuje go, choć drugiego placementu nie
+daje. Bez otwarcia ponownego obie liczby są równe.
+
 Moduł NIE zmienia stanu rekrutacji ani kandydata. Zamknięcie oferty zostaje
 świadomą decyzją człowieka (`POST /api/jobs/{job_id}/close`) — 99,6% ruchu
 w pipelinie pochodzi z importu, więc automat działałby retroaktywnie na
@@ -28,28 +34,43 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.job_opening import in_opening_sql
+from app.services.placement_exclusions import excluded_pair_exists_sql
+
 if TYPE_CHECKING:
     from app.models.job import Job
 
 logger = logging.getLogger(__name__)
 
-_PLACEMENTS_SQL = text(
+
+def filled_in_opening_sql(job_ids_sql: str) -> str:
+    """``(job_id, cnt)`` — osoby zatrudnione w bieżącym otwarciu rekrutacji.
+
+    ``job_ids_sql`` to podzapytanie z identyfikatorami rekrutacji. Bez
+    wykluczonych placementów (0343): seria bez CV nie zajmuje wakatu.
     """
-    SELECT fm.job_id, count(*) AS cnt
-    FROM analytics_first_milestones fm
-    WHERE fm.stage = 'hired'
-      AND fm.job_id = ANY(:job_ids)
-    GROUP BY fm.job_id
+
+    return f"""
+        SELECT cs.job_id, count(DISTINCT cs.candidate_id) AS cnt
+        FROM candidate_stages cs
+        JOIN jobs oj ON oj.id = cs.job_id
+        WHERE cs.stage = 'hired'
+          AND cs.job_id IN ({job_ids_sql})
+          AND {in_opening_sql("oj", "cs.moved_at")}
+          AND NOT {excluded_pair_exists_sql("cs")}
+        GROUP BY cs.job_id
     """
-)
 
 
-async def placements_by_job(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, int]:
-    """Liczba placementów per rekrutacja wg definicji kanonicznej."""
+_FILLED_SQL = text(filled_in_opening_sql("SELECT unnest(CAST(:job_ids AS integer[]))"))
+
+
+async def filled_by_job(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, int]:
+    """Obsada per rekrutacja — osoby zatrudnione w bieżącym otwarciu."""
 
     if not job_ids:
         return {}
-    rows = await db.execute(_PLACEMENTS_SQL, {"job_ids": list(job_ids)})
+    rows = await db.execute(_FILLED_SQL, {"job_ids": list(job_ids)})
     return {int(job_id): int(cnt) for job_id, cnt in rows.all()}
 
 
@@ -96,7 +117,7 @@ async def suggest_closing_when_fully_staffed(db: AsyncSession, job: "Job") -> in
             filled = (
                 1
                 if headcount <= 1
-                else (await placements_by_job(db, [job_id])).get(job_id, 0)
+                else (await filled_by_job(db, [job_id])).get(job_id, 0)
             )
             if (
                 not is_fully_staffed(headcount, filled)
@@ -106,17 +127,16 @@ async def suggest_closing_when_fully_staffed(db: AsyncSession, job: "Job") -> in
             # Bez dedupu KAŻDE kolejne zatrudnienie na tej rekrutacji
             # rozsyłałoby ten sam komunikat do całego zespołu. Podpowiedź ma
             # być jedna — powtórka niczego nie doda, a nauczy ignorować
-            # powiadomienia.
-            already_hinted = await db.scalar(
-                select(Notification.id)
-                .where(
-                    Notification.related_entity_type == "job",
-                    Notification.related_entity_id == job_id,
-                    Notification.notification_type
-                    == NotificationType.suggest_next_step,
-                )
-                .limit(1)
+            # powiadomienia. Jedna na otwarcie: po „Otwórz ponownie” komplet
+            # nowej obsady znów zasługuje na podpowiedź (05.11.2026).
+            hinted = select(Notification.id).where(
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == job_id,
+                Notification.notification_type == NotificationType.suggest_next_step,
             )
+            if job.cycle_started_at is not None:
+                hinted = hinted.where(Notification.created_at >= job.cycle_started_at)
+            already_hinted = await db.scalar(hinted.limit(1))
             if already_hinted is not None:
                 return 0
             # Odbiorcy = zespół TEJ rekrutacji (właściciel, DL, TAC,
@@ -169,8 +189,9 @@ async def suggest_closing_when_fully_staffed(db: AsyncSession, job: "Job") -> in
 
 
 __all__ = [
+    "filled_by_job",
+    "filled_in_opening_sql",
     "is_fully_staffed",
     "open_vacancies",
-    "placements_by_job",
     "suggest_closing_when_fully_staffed",
 ]

@@ -137,6 +137,9 @@ describe("CvRuleEditor", () => {
     // Wyrównanie (decyzja J1): domyślnie wyjustowane, klient może chcieć „do lewej”.
     expect(screen.getByLabelText("Wyrównanie")).toHaveValue("justify");
     fireEvent.change(screen.getByLabelText("Wyrównanie"), { target: { value: "left" } });
+    // 07.11.2026: numer zapytania w nagłówku CV — domyślnie wyłączony.
+    expect(screen.getByLabelText("Numer zapytania w nagłówku CV")).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("Numer zapytania w nagłówku CV"));
     // 0521: klient bierze swój formularz CV zamiast CV firmowego.
     expect(screen.getByRole("radio", { name: /^CV firmowe/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /^Formularz klienta/ }));
@@ -147,6 +150,7 @@ describe("CvRuleEditor", () => {
     expect(url).toBe("/api/clients/5/cv-rule");
     expect(body.confirm).toBe(true);
     expect(body.cv_text_align).toBe("left");
+    expect(body.cv_title_with_reference).toBe(true);
     expect(body.highlight_policy).toBe("explicit");
     expect(body.highlight_terms).toEqual(["Python", "SQL"]);
     expect(body.content_mode).toBe("basic");

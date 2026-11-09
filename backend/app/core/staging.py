@@ -54,9 +54,13 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",
+        "access_usage",
+        "critical_stats_cache",
+        "process_bus",
         "match_history_ttl",
         "runtime_metrics",
         "keyword_corpus_backfill",
+        "keyword_corpus_readiness",
         "note_kind_backfill",
         "requirement_row_counts",
         "candidate_rate_from",
@@ -66,6 +70,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "competition_autofreeze",
         "dl_portal_expiry",
         "index_outbox",
+        "sales_archive_shadow",
     }
 )
 
@@ -74,14 +79,15 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
 # drugi raz dziennie, a wynik i tak jest na produkcji).
 STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
     {
+        "consultant_portal_transcripts",
+        "consultant_portal_ratings",
+        "consultant_portal_mailbox",
         "cv_generation",
         "cv_approval",
         "cv_source_cleanup",
         "cv_version_maps",
         "candidate_search",
-        "academy_intake",
         "application_screening",
-        "trainee_call_lists",
         "calendar_reminder",
         "slack_sla_alerts",
         "ai_spend_alerts",
@@ -112,8 +118,14 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "signature_reconciler",
         "b2b_esign_sweeper",
         "pre_contract_sweeper",
+        "start_documents_sweeper",
         "job_deadline_alerts",
         "job_idle",
+        "client_wait",
+        "own_hiring",
+        "job_p0_overdue",
+        "skill_proposals",
+        "cpro_mail",
         "kpi_email_reports",
         "daily_digest_email",
         "notification_email_outbox",
@@ -121,8 +133,6 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "integration_stale_alerts",
         "integration_webhooks",
         "jjit_import",
-        "cloudtalk_sync",
-        "traffit_sync",
         "order_mail_ingest",
         "teams_prep_transcripts",
         "contract_docs_sharepoint",
@@ -134,7 +144,6 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "weekly_eval",
         "match_digest",
         "candidate_contact_queue",
-        "candidate_contact_traffit",
         "candidate_auto_match",
         "auto_full_review",
         "new_column_autofill",
@@ -159,6 +168,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "equipment_reminders",
         "equipment_intune_sync",
         "admin_cases_mail_ingest",
+        # Zapisuje tylko w bazie, ale z dzwonkami; na stagingu odpala się ją ręcznie.
+        "back_office_sync",
         "hr_approval_mail_replies",
     }
 )

@@ -21,7 +21,7 @@ from app.services.pfron_renewal_split_repair import (
     REVENUE_RESYNC_NOT_APPLICABLE,
     REVENUE_RESYNC_PENDING,
 )
-from app.services.pfron_revenue_resync import (
+from scripts.repairs.pfron_revenue_resync import (
     STATUS_DONE,
     STATUS_SKIPPED,
     STATUS_SKIPPED_SYNC_DISABLED,
@@ -44,7 +44,7 @@ SEPTEMBER = date(2026, 9, 15)
 
 
 def test_only_split_orders_with_a_restorable_revenue_period_are_resynced():
-    from app.services.pfron_revenue_resync import _pending_contract_ids
+    from scripts.repairs.pfron_revenue_resync import _pending_contract_ids
 
     def split(contract_id, resync):
         return {

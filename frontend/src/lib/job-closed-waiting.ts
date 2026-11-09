@@ -4,7 +4,8 @@
  * Tablicy („CV wysłane”, „Rozmowa u klienta”, „Akceptacja i umowa”) i ta
  * sama osoba karty — przypisana „Prowadzi”, potem pierwszy weryfikujący,
  * potem ta, która dodała. Dlatego nie filtr „Kto dodał” (ten nie liczy
- * weryfikującego).
+ * weryfikującego). Po ponownym otwarciu (05.11.2026) — tylko karty ruszone
+ * od otwarcia, jak `waiting_cards(since=…)` na serwerze.
  */
 import { placeStage, type BoardColumnKey, type StageLike } from "@/lib/board-stages";
 
@@ -15,6 +16,7 @@ export interface WaitingItem {
   owner_user_id?: number | null;
   verified_by_id?: number | null;
   added_to_job_by_id?: number | null;
+  moved_at?: string | null;
 }
 
 export interface WaitingColumn<T extends WaitingItem> extends StageLike {
@@ -28,11 +30,15 @@ export function cardPersonId(item: WaitingItem): number | null {
 export function myWaitingItems<T extends WaitingItem>(
   columns: readonly WaitingColumn<T>[],
   userId: number | null | undefined,
+  openingStartedAt: string | null = null,
 ): T[] {
   if (userId == null) return [];
+  const since = openingStartedAt ? new Date(openingStartedAt).getTime() : null;
+  const inOpening = (item: T) =>
+    since == null || !item.moved_at || new Date(item.moved_at).getTime() >= since;
   return columns
     .filter((col) => WAITING_COLUMNS.includes(placeStage(col).column))
-    .flatMap((col) => col.items.filter((item) => cardPersonId(item) === userId));
+    .flatMap((col) => col.items.filter((item) => cardPersonId(item) === userId && inOpening(item)));
 }
 
 const DAY_MONTH = new Intl.DateTimeFormat("pl-PL", {

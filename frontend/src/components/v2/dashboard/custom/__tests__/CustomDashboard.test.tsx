@@ -87,7 +87,7 @@ describe("własny pulpit", () => {
     expect(screen.getByText("treść today_cycle")).toBeInTheDocument()
     expect(screen.queryByText("Twój pulpit jest pusty")).toBeNull()
     expect(screen.getByRole("status")).toHaveTextContent("To jest pulpit ustawiony dla roli Rekruter.")
-    expect(screen.getByRole("link", { name: "Na daily" })).toHaveAttribute("href", "/jobs/daily")
+    expect(screen.getByRole("link", { name: "Przegląd requestów" })).toHaveAttribute("href", "/jobs/daily")
     expect(saveMock).not.toHaveBeenCalled()
   })
 
@@ -112,7 +112,6 @@ describe("własny pulpit", () => {
       "my_recruitments",
       "today_cycle",
       "request_board",
-      "my_people",
     ])
   })
 
@@ -128,7 +127,7 @@ describe("własny pulpit", () => {
     expect(await screen.findByText("Twój pulpit jest pusty")).toBeInTheDocument()
     expect(screen.getByText("Polecane dla roli Rekruter")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "Dodaj wszystkie 5" }))
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj wszystkie 4" }))
 
     await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1))
     const [tiles, version] = saveMock.mock.calls[0]
@@ -137,7 +136,6 @@ describe("własny pulpit", () => {
       "my_recruitments",
       "today_cycle",
       "request_board",
-      "my_people",
       "my_week",
     ])
     expect(await screen.findByText("treść my_recruitments")).toBeInTheDocument()

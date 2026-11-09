@@ -75,6 +75,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "automation",
   "employee",
   "board",
+  "back_office",
 ];
 
 /**
@@ -140,20 +141,30 @@ export const ROLE_SECTION_ACCESS: Record<
     system_admin: "none",
   },
   user: {
-    sourcing: "read",
-    pipeline: "read",
+    sourcing: "none",
+    pipeline: "none",
     delivery: "none",
-    insights: "read",
+    insights: "none",
     finance: "none",
     system_admin: "none",
   },
-  // Praktykant (0374) nie ma żadnej sekcji produktu — pracuje wyłącznie na
-  // własnej liście telefonów (`/api/trainee/*`, bramka roli w backendzie).
+  // Praktykant (0374) nie ma żadnej sekcji produktu (program usunięty 08.11.2026,
+  // rola została).
   trainee: {
     sourcing: "none",
     pipeline: "none",
     delivery: "none",
     insights: "none",
+    finance: "none",
+    system_admin: "none",
+  },
+  // „Back office” (0645): jak Finanse, bez sekcji Finanse. Zakładki o zamówieniach
+  // otwiera uprawnienie `orders_work`, nie ta sekcja.
+  back_office: {
+    sourcing: "write",
+    pipeline: "write",
+    delivery: "write",
+    insights: "read",
     finance: "none",
     system_admin: "none",
   },

@@ -28,6 +28,9 @@ vi.mock("@/lib/api", () => ({
   interviewQuestionsApi: { listForJob: (...a: unknown[]) => mocks.listForJob(...a) },
 }));
 
+vi.mock("@/components/v2/recruitment/ConsentRequestNotice", () => ({
+  ConsentRequestNotice: (props: { moment: string }) => <div data-testid="consent-notice">{props.moment}</div>,
+}));
 vi.mock("@/components/v2/screening-form/ScreeningFullForm", () => ({
   ScreeningFullForm: (props: {
     candidateId: number;
@@ -384,6 +387,15 @@ describe("ScreeningWorkbench — co stoi po lewej", () => {
     expect(form).toHaveTextContent("bez ruchu dalej");
     expect(form).toHaveTextContent("bez odrzucenia");
     expect(form).toHaveTextContent("tylko odczyt");
+    expect(screen.queryByTestId("consent-notice")).toBeNull();
+  });
+
+  it("prośba o zgodę stoi nad formularzem screeningu", async () => {
+    renderWorkbench({ focusCandidateId: 112 });
+    const form = await screen.findByTestId("full-form");
+    const notice = screen.getByTestId("consent-notice");
+    expect(notice).toHaveTextContent("screening");
+    expect(notice.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

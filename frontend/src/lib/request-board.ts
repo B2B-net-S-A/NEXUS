@@ -26,6 +26,8 @@ import {
   type PriorityLevel,
 } from "@/lib/request-priority"
 import { isP0Active } from "@/lib/job-p0"
+import { formatIsoDatePl } from "@/lib/date-pl"
+import { warsawDateOf } from "@/lib/warsaw-date"
 
 export type DueFilter = "late" | "week" | "two" | "none"
 export type SentFilter = "0" | "12" | "3" | "champ"
@@ -421,18 +423,47 @@ export function unstaffedCount(
 }
 
 /** W grupie: szukane od najbliższego terminu, champion na dole. */
-export function orderRequests(rows: BoardRequest[], now: Date = new Date()): BoardRequest[] {
+export function orderRequests(rows: BoardRequest[]): BoardRequest[] {
   return [...rows].sort((a, b) => {
-    // P0 — ultrapilne przez 24 h (27.10.2026) zawsze na górze kategorii.
-    const p0a = isP0Active(a, now)
-    const p0b = isP0Active(b, now)
+    // P0 — ultrapilne przez 24 h (27.10.2026) zawsze na górze kategorii;
+    // od 06.11.2026 także po terminie, dopóki ktoś go nie zakończy.
+    const p0a = isP0Active(a)
+    const p0b = isP0Active(b)
     if (p0a !== p0b) return p0a ? -1 : 1
     if (a.champion !== b.champion) return a.champion ? 1 : -1
+    // P1 z pigułką „Bez CV” na górze, od najdłuższej ciszy (audyt 08.11.2026, B4).
+    const quietA = a.days_without_cv ?? -1
+    const quietB = b.days_without_cv ?? -1
+    if (quietA !== quietB) return quietB - quietA
     const da = a.deadline ?? "9999-12-31"
     const db = b.deadline ?? "9999-12-31"
     if (da !== db) return da < db ? -1 : 1
     return a.job_id - b.job_id
   })
+}
+
+/** Licznik nad kategorią: P1 bez CV od progu i nowe profile z widocznych wierszy. */
+export function groupCvSummary(rows: readonly BoardRequest[]): {
+  quietP1: number
+  p1: number
+  newProfiles: number
+  newProfilesCv: number
+} {
+  const p1 = rows.filter(
+    (r) => priorityLevelOf(r) === "p1" && !r.champion && !isP0Active(r),
+  )
+  return {
+    quietP1: p1.filter((r) => r.days_without_cv != null).length,
+    p1: p1.length,
+    newProfiles: rows.reduce((sum, r) => sum + (r.new_profiles_7d ?? 0), 0),
+    newProfilesCv: rows.reduce((sum, r) => sum + (r.new_profiles_7d_cv ?? 0), 0),
+  }
+}
+
+/** Dymek pigułki: data ostatniego CV albo informacja, że żadnego nie było. */
+export function lastCvTitle(lastCvSentAt: string | null | undefined): string {
+  const day = warsawDateOf(lastCvSentAt ?? null)
+  return day ? `Ostatnie CV do klienta: ${formatIsoDatePl(day)}` : "Żadnego CV od otwarcia rekrutacji"
 }
 
 export interface ShownGroup extends BoardGroup {

@@ -117,7 +117,7 @@ function DecisionsMenu({ className }: { className?: string }) {
         <div className="flex items-center justify-between gap-2 px-3 py-2.5">
           <strong className="text-sm text-foreground">Premie do decyzji</strong>
           <Link href="/people/payroll" className="text-xs font-medium text-primary hover:underline">
-            Otwórz w Płacach
+            Otwórz w Rozliczeniach
           </Link>
         </div>
         {signed.length > 0 ? (

@@ -37,7 +37,8 @@ from sqlalchemy.orm import selectinload
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import FinanceModuleUser
+from app.api.deps import OrdersWorkUser
+from app.api.permission_access import FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES, FinanceSectionUser
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -84,11 +85,6 @@ from app.services import finance_order_pdfs
 from app.services import nordea_invoice_lines, order_change_checks
 from app.services import storage_service
 from app.services.action_permissions import ProductAction, has_permission
-from app.services.section_permissions import (
-    ProductSection,
-    SectionAccess,
-    section_access_for_user,
-)
 from app.services.finance_order_changes import (
     OrderChangesFilters,
     OrderChangesTab,
@@ -98,6 +94,7 @@ from app.services.finance_order_changes import (
     order_changes_filename,
     period_label,
 )
+from app.services import rate_divergence_report
 from app.services.finance_import import (
     FinanceHeaderError,
     FinanceWorkbookError,
@@ -107,6 +104,9 @@ from app.services.finance_import import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
+# Zakładki o zamówieniach stoją za własnym uprawnieniem, a nie za sekcją Finanse:
+# jej odczyt nadałby rola Back office ``VIEW_FINANCE`` (decyzja Artura 04.11.2026).
+orders_router = APIRouter()
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 _ALLOWED_EXT = (".xlsx",)
@@ -193,6 +193,10 @@ async def _lock_period(db: AsyncSession, year: int, month: int) -> None:
 
 
 _PCT_QUANT = Decimal("0.1")
+
+
+#: Sortowanie po marży to gotowy ranking całej firmy — tylko z „Wynikami firmy”.
+_COMPANY_RESULT_SORTS = frozenset({"margin_pln", "margin_pct"})
 
 
 def _margin_percent(row: FinanceMonthlyResult) -> Optional[Decimal]:
@@ -311,6 +315,22 @@ async def _current_run(
 # ── Okresy ──────────────────────────────────────────────────────────────────
 
 
+@router.get("/rate-divergences")
+async def get_rate_divergences(
+    _user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, object]:
+    """Nocny raport: stawka z kontraktu a stawka linii zamówienia MD."""
+
+    report = await rate_divergence_report.latest(db)
+    return report or {
+        "generated_at": None,
+        "month": None,
+        "checked_lines": 0,
+        "skipped": {"no_contract_rate": 0, "other_currency": 0},
+        "rows": [],
+    }
+
+
 @router.get("/periods", response_model=list[FinancePeriod])
 async def list_periods(
     _user: FinanceSectionUser,
@@ -364,6 +384,10 @@ async def get_results(
     run = await _current_run(db, year, month)
     if run is None:
         raise HTTPException(404, detail="Brak importu za wskazany miesiąc.")
+    # Bez konta (`_user=None`) woła nas API v1, które ma własne zakresy kwot.
+    sees_totals = _user is None or has_permission(_user, ProductAction.company_results)
+    if not sees_totals and sort in _COMPANY_RESULT_SORTS:
+        sort, direction = "row_number", "asc"
 
     query = select(FinanceMonthlyResult).where(
         FinanceMonthlyResult.import_run_id == run.id
@@ -431,13 +455,17 @@ async def get_results(
         month=month,
         run_id=run.id,
         rows=[_row_to_read(r) for r in rows],
-        totals=FinanceTotals(
-            cost=cost,
-            revenue=revenue,
-            margin=margin,
-            avg_margin_pct=avg_pct,
-            rows_without_margin=len(without_margin),
-            cost_without_margin=cost_without_margin,
+        totals=(
+            FinanceTotals(
+                cost=cost,
+                revenue=revenue,
+                margin=margin,
+                avg_margin_pct=avg_pct,
+                rows_without_margin=len(without_margin),
+                cost_without_margin=cost_without_margin,
+            )
+            if sees_totals
+            else None
         ),
         needs_completion_count=_needs_completion_count(all_rows),
     )
@@ -880,10 +908,10 @@ def _order_changes_filters(
     )
 
 
-@router.get("/order-changes", response_model=OrderChangesResponse)
+@orders_router.get("/order-changes", response_model=OrderChangesResponse)
 async def get_order_changes(
     request: Request,
-    user: FinanceSectionUser,
+    user: OrdersWorkUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
     q: Optional[str] = Query(None, max_length=200),
@@ -916,26 +944,19 @@ def _impersonating(request: Request) -> bool:
 
 
 def _can_check(request: Request, user: User) -> bool:
-    """Odhaczać mogą osoby z uprawnieniem „Moduł Finanse” i zapisem sekcji.
+    """Odhaczać może posiadacz „Zamówienia: zmiany, PDF-y, import MD”.
 
-    Lustro bramek ``POST /order-changes/checks``: uprawnienie
-    (``FinanceModuleUser``; domyślnie Admin i Finanse) i zapis sekcji
-    z ``FINANCE_SECTION_DEPENDENCIES``. Sekcja Finanse wynika z uprawnienia,
-    ale stary wyjątek osoby potrafi ją ograniczyć do odczytu — taka osoba
-    widziałaby aktywne checkboxy, a każde kliknięcie kończyłoby się 403.
-    Nigdy w trybie „podgląd jako".
+    Lustro bramki ``POST /order-changes/checks``. Nigdy w trybie „podgląd jako".
     """
 
-    return (
-        not _impersonating(request)
-        and has_permission(user, ProductAction.finance_module)
-        and section_access_for_user(user, ProductSection.finance) >= SectionAccess.write
+    return not _impersonating(request) and has_permission(
+        user, ProductAction.orders_work
     )
 
 
-@router.get("/order-changes/summary", response_model=OrderChangesSummaryResponse)
+@orders_router.get("/order-changes/summary", response_model=OrderChangesSummaryResponse)
 async def get_order_changes_summary(
-    _user: FinanceSectionUser,
+    _user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Liczniki „Do zrobienia" bieżącego miesiąca — badge przy zakładce w menu.
@@ -956,13 +977,13 @@ async def get_order_changes_summary(
     )
 
 
-@router.post("/order-changes/checks", response_model=OrderCheckResponse)
+@orders_router.post("/order-changes/checks", response_model=OrderCheckResponse)
 async def set_order_change_check(
     payload: OrderCheckRequest,
-    user: FinanceModuleUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie („Moduł Finanse”).
+    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie (`orders_work`).
 
     Pozycja musi istnieć w audycie wskazanego miesiąca — klucz spoza niego
     to nieaktualny widok (zamówienie zmieniono w międzyczasie), nie zapis.
@@ -994,14 +1015,14 @@ async def set_order_change_check(
     return OrderCheckResponse(item_key=payload.item_key, done=done)
 
 
-@router.put(
+@orders_router.put(
     "/order-changes/invoice-lines/{order_id}", response_model=InvoiceLinesResponse
 )
 async def update_invoice_line(
     order_id: int,
     payload: InvoiceLineUpdate,
     request: Request,
-    user: FinanceModuleUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczna poprawka pozycji faktury Nordei (ticket 8) — zapis przy zamówieniu.
@@ -1034,9 +1055,9 @@ async def update_invoice_line(
     )
 
 
-@router.get("/order-changes/history", response_model=OrderHistoryResponse)
+@orders_router.get("/order-changes/history", response_model=OrderHistoryResponse)
 async def get_order_change_history(
-    _user: FinanceSectionUser,
+    _user: OrdersWorkUser,
     order_id: Optional[int] = Query(None),
     order_group_id: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -1054,9 +1075,9 @@ async def get_order_change_history(
     )
 
 
-@router.get("/order-changes/export")
+@orders_router.get("/order-changes/export")
 async def export_order_changes(
-    _user: FinanceSectionUser,
+    _user: OrdersWorkUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
     tab: Optional[OrderChangesTab] = Query(None),
@@ -1118,9 +1139,9 @@ def _order_pdf_file(
     )
 
 
-@router.get("/order-pdfs/months", response_model=OrderPdfMonthsResponse)
+@orders_router.get("/order-pdfs/months", response_model=OrderPdfMonthsResponse)
 async def get_order_pdf_months(
-    _user: FinanceSectionUser,
+    _user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Miesiące startu zamówień z PDF-em — z liczbą klientów i plików.
@@ -1151,9 +1172,9 @@ async def _pending_change_orders(
     return order_change_checks.todo_orders(audit, states)
 
 
-@router.get("/order-pdfs", response_model=OrderPdfsResponse)
+@orders_router.get("/order-pdfs", response_model=OrderPdfsResponse)
 async def get_order_pdfs(
-    user: FinanceSectionUser,
+    user: OrdersWorkUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -1248,10 +1269,10 @@ def _parse_file_refs(raw: str) -> list[tuple[str, int]]:
     return refs
 
 
-@router.get("/order-pdfs/zip")
+@orders_router.get("/order-pdfs/zip")
 async def download_order_pdfs_zip(
     request: Request,
-    user: FinanceSectionUser,
+    user: OrdersWorkUser,
     year: int = Query(...),
     month: int = Query(...),
     client_id: Optional[int] = Query(None),
@@ -1316,12 +1337,12 @@ async def download_order_pdfs_zip(
     )
 
 
-@router.get("/order-pdfs/{kind}/{entry_id}/file")
+@orders_router.get("/order-pdfs/{kind}/{entry_id}/file")
 async def download_order_pdf(
     request: Request,
     kind: finance_order_pdfs.PdfKind,
     entry_id: int,
-    user: FinanceSectionUser,
+    user: OrdersWorkUser,
     preview: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):

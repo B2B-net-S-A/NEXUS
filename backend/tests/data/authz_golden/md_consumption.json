@@ -25,13 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
+  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
+  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
+  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
+  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
+  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP"
  }
 }

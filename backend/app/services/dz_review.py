@@ -34,6 +34,7 @@ import re
 import tempfile
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from html.parser import HTMLParser
@@ -363,16 +364,47 @@ def polish_base_forms(word: str) -> list[str]:
     return out
 
 
-def _patterns(name: str) -> list[re.Pattern[str]]:
+@lru_cache(maxsize=4096)
+def _patterns(name: str) -> tuple[re.Pattern[str], ...]:
+    """Wzorce do szukania wymagania w tekście: nazwa i jej warianty ze
+    słownika, które liczą się w tekście CV — także narzędzia, metodyki, AI,
+    standardy i dziedziny (etap 3a, 07.11.2026: „AML” przy „Anti-Money
+    Laundering”). Pogrubianie i usuwanie terminu biorą ``_tech_patterns``."""
+    from app.services.skill_normalize import implied_forms, text_alias_forms
+
+    # Mapa wiedzy IT (07.11.2026, decyzja Artura „wszędzie”): powiązania
+    # „wynika z” i „część” spełniają wymaganie także w QC — „Git” przy GitHubie,
+    # „SQL” przy PostgreSQL — tak samo jak w wyszukiwaniu i przeglądzie DL.
+    return tuple(_forms_patterns(name, [*text_alias_forms(name), *implied_forms(name)]))
+
+
+@lru_cache(maxsize=4096)
+def _tech_patterns(name: str) -> tuple[re.Pattern[str], ...]:
+    """Wzorce pogrubiania i usuwania terminu: nazwa i warianty wyłącznie
+    technologii — pogrubiamy technologie, nie narzędzia ani dziedziny."""
     from app.services.skill_normalize import tech_alias_forms
 
+    return tuple(_forms_patterns(name, tech_alias_forms(name)))
+
+
+def clear_pattern_cache() -> None:
+    """Słownik się zmienił, więc wzorce trzeba zbudować od nowa (`refresh_alias_map`)."""
+    _patterns.cache_clear()
+    _tech_patterns.cache_clear()
+
+
+def _forms_patterns(name: str, aliases: list[str]) -> list[re.Pattern[str]]:
     forms = {name.strip()}
-    forms.update(tech_alias_forms(name))
+    forms.update(aliases)
     out: list[re.Pattern[str]] = []
     for form in sorted(forms, key=len, reverse=True):
         term = parse_keyword(form)
         if term is not None:
-            out.append(py_regex(term))
+            pattern = py_regex(term)
+            # „C” to nie „C++” ani „C#”, tak jak Java to nie JavaScript.
+            if len(term.text) == 1:
+                pattern = re.compile(pattern.pattern + r"(?![+#])", pattern.flags)
+            out.append(pattern)
     for form in sorted(forms, key=len, reverse=True):
         inflected = _inflected_pattern(form)
         if inflected is not None:
@@ -497,6 +529,13 @@ def found_in(
         for other in _equivalents(name, loose=mode == "presence"):
             if _found(text, Requirement(label=other, alternatives=(other,))):
                 return "translation"
+    for name in names:
+        # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
+        # („Teams” to nie „team”). Ten sam skrót, więc także w ostrym dopasowaniu.
+        bare = name.strip()
+        if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
+            if _found(text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))):
+                return "translation"
     if mode == "presence":
         tokens: Optional[list[str]] = None
         for name in names:
@@ -507,14 +546,6 @@ def found_in(
                 if any(
                     found_in(text, Requirement(label=h, alternatives=(h,)))
                     for h in halves
-                ):
-                    return "translation"
-            # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
-            # („Teams” to nie „team”).
-            bare = name.strip()
-            if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
-                if _found(
-                    text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))
                 ):
                     return "translation"
             parts = _FOLD_WORD.findall(_fold(name))
@@ -1224,6 +1255,82 @@ def document_cv_conditions() -> list[Any]:
     ]
 
 
+def rows_from_job(rows: Any, job_created_at: Optional[datetime]) -> list:
+    """Pliki „…B2B…" powstałe po utworzeniu rekrutacji (07.11.2026).
+
+    Plik starszy niż rekrutacja nie może być CV przygotowanym dla niej: to CV
+    z innego zlecenia tej osoby. Dawniej QC zaliczał na nim „CV firmowe jest
+    przygotowane” i para wchodziła do kolejki Delivery Leada bez CV (5 uwag
+    „CV się nie wygenerowało” z 28–29.10). Plik, który rekruter wybrał dla pary
+    jawnie (`select-document`), jest szkicem etapu i tego filtra nie dotyczy.
+    Wiersze: ``(id, filename, uploaded_at, created_at)``.
+    """
+
+    if job_created_at is None:
+        return list(rows)
+    return [
+        row
+        for row in rows
+        if (row[2] or row[3]) is None or (row[2] or row[3]) >= job_created_at
+    ]
+
+
+def older_b2b_row(
+    rows: Any, client_name: Optional[str], job_created_at: Optional[datetime]
+) -> Optional[dict]:
+    """Plik „…B2B…” sprzed rekrutacji, którego rekruter może użyć jednym
+    kliknięciem (QC-4, 08.11.2026).
+
+    Pomiar: 28 z 40 par z plikiem spoza generatora po #3133 dostawało cichy
+    „Brak CV firmowego”, a 22 z tych osób było już u tego klienta. Podajemy plik,
+    tylko gdy nie ma nowszego. ``same_client`` = nazwa pliku pasuje do klienta.
+    """
+
+    if job_created_at is None:
+        return None
+    rows = list(rows)
+    if rows_from_job(rows, job_created_at):
+        return None
+    doc_id = pick_document_cv(rows, client_name)
+    if doc_id is None:
+        return None
+    row = next(r for r in rows if r[0] == doc_id)
+    tokens = _client_tokens(client_name)
+    stamp = row[2] or row[3]
+    return {
+        "document_id": row[0],
+        "filename": row[1],
+        "at": stamp.isoformat() if stamp is not None else None,
+        "same_client": bool(tokens) and _matches_client(row[1], tokens),
+    }
+
+
+async def older_document_cv(
+    db: AsyncSession,
+    candidate_id: int,
+    client_name: Optional[str],
+    job_created_at: Optional[datetime],
+) -> Optional[dict]:
+    """`older_b2b_row` z plików kandydata, bez pobierania ich treści."""
+
+    from app.models.candidate_document import CandidateDocument
+
+    rows = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.filename,
+                CandidateDocument.uploaded_at,
+                CandidateDocument.created_at,
+            ).where(
+                CandidateDocument.candidate_id == candidate_id,
+                *document_cv_conditions(),
+            )
+        )
+    ).all()
+    return older_b2b_row(rows, client_name, job_created_at)
+
+
 def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
     """Id pliku „…B2B…" dla klienta z wierszy ``(id, filename, uploaded_at,
     created_at)`` jednego kandydata: najpierw plik z wyróżniającym słowem
@@ -1261,7 +1368,10 @@ def document_cv_ambiguous(rows: Any, client_name: Optional[str]) -> bool:
 
 
 async def _document_cv(
-    db: AsyncSession, candidate_id: int, client_name: Optional[str]
+    db: AsyncSession,
+    candidate_id: int,
+    client_name: Optional[str],
+    job_created_at: Optional[datetime] = None,
 ) -> Optional[dict]:
     """CV dla klienta przygotowane POZA generatorem: plik „…B2B…" kandydata.
 
@@ -1284,6 +1394,7 @@ async def _document_cv(
             )
         )
     ).all()
+    rows = rows_from_job(rows, job_created_at)
     doc_id = pick_document_cv(rows, client_name)
     ambiguous = document_cv_ambiguous(rows, client_name)
     doc = await db.get(CandidateDocument, doc_id) if doc_id is not None else None
@@ -1400,6 +1511,7 @@ async def _original_cv(
             "source": "snapshot",
             "stage_id": csv.candidate_stage_id,
             "filename": csv.original_cv_filename,
+            "snapshot_at": csv.original_snapshot_at,
             "text": text[:ORIGINAL_TEXT_MAX] or None,
         }
     profile_text = (candidate.raw_cv_text or "").strip()
@@ -1425,6 +1537,8 @@ class ReviewSources:
     original: dict
     blocks: list[Block]
     bold_known: bool
+    # QC-4: plik „…B2B…” sprzed rekrutacji, gdy pary nie ma żadnego innego CV.
+    older_document: Optional[dict] = None
 
 
 async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources:
@@ -1443,7 +1557,7 @@ async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources
         client_name = (client.display_name or client.name) if client else None
     generated = await _generated_cv(db, candidate.id, job.id)
     if generated is None:
-        generated = await _document_cv(db, candidate.id, client_name)
+        generated = await _document_cv(db, candidate.id, client_name, job.created_at)
     original = await _original_cv(db, candidate, stage.id, job.id)
     if generated is None:
         blocks: list[Block] = []
@@ -1452,6 +1566,11 @@ async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources
     else:
         blocks = html_blocks(generated["html"])
     bold_known = bool(generated) and generated.get("bold_known", True)
+    older_document = (
+        await older_document_cv(db, candidate.id, client_name, job.created_at)
+        if generated is None
+        else None
+    )
     return ReviewSources(
         candidate=candidate,
         job=job,
@@ -1462,6 +1581,7 @@ async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources
         original=original,
         blocks=blocks,
         bold_known=bold_known,
+        older_document=older_document,
     )
 
 

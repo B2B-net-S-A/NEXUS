@@ -7,7 +7,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Axios } from "axios";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -36,7 +36,15 @@ function open(search: string) {
   render(<HrMyTimePreviewPage />);
 }
 
+// Fikstury kładą urlop na czwarty dzień roboczy miesiąca, a dzień z urlopem nie ma
+// przycisku „Dodaj wpis”. Bez stałej daty test padał w dniu takim jak 05.11.2026.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-18T10:00:00+01:00"));
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   attempts.mockClear();
   window.history.replaceState({}, "", "/");
   useAuthStore.setState({ user: null, realUser: null });
@@ -94,14 +102,16 @@ describe("/preview/hr-my-time", () => {
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Ewa Makietowa")).toBeInTheDocument();
-    expect(within(table).getByText("przekierowanie poczty")).toBeInTheDocument();
+    expect(within(table).getByText("kopia poczty do zastępcy")).toBeInTheDocument();
     expect(within(table).getAllByText("Zgłoszone").length).toBeGreaterThan(0);
     expect(within(table).getByText(/kolizja · Marta Fikcyjna/)).toBeInTheDocument();
     expect(within(table).queryByText("Urlop wypoczynkowy")).toBeNull();
     expect(screen.getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Wynagrodzenie dodatkowe i stawka" }));
-    expect(await screen.findByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
+    // Lista idzie po miesiącach; „Wszystkie” pokazuje pozycje z każdego z nich.
+    await user.click(await screen.findByRole("button", { name: "Wszystkie" }));
+    expect(screen.getByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
     expect(screen.getByText("kontrakt zakończony przed 21. dniem roboczym")).toBeInTheDocument();
     expect(screen.getByRole("generic", { name: "Moje rozliczenie" })).toBeInTheDocument();
     // Bez zakładki „Kartoteka” — koordynator i link do kartoteki są w „Ja w firmie” na „Przeglądzie”.
@@ -139,6 +149,15 @@ describe("/preview/hr-my-time", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("Mój miesiąc: urlop z danych nie wypada dziś, także w 4. dzień roboczy miesiąca", async () => {
+    // 05.11.2026 cała kolejka merge'ów padała: 4. dzień roboczy to urlop bez „Dodaj wpis”.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-05T09:00:00Z") });
+    open("?tab=month");
+
+    expect(await screen.findByRole("button", { name: "Dodaj wpis 2026-11-05" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj wpis 2026-11-09" })).toBeNull();
+  });
+
   it("Mój miesiąc: dziś z podpowiedzią opisu, poprzedni miesiąc potwierdzony", async () => {
     const user = userEvent.setup();
     const today = warsawToday();
@@ -164,7 +183,7 @@ describe("/preview/hr-my-time", () => {
     expect(screen.queryByRole("button", { name: "Wyślij do potwierdzenia" })).toBeNull();
 
     // Archiwum timesheetów rozwija się z zasiewu, bez zapytania.
-    await user.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    await user.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     expect(
       await screen.findByRole("button", {
         name: `Pobierz PDF ${monthTitlePl(shiftMonth(current, -2)).toLowerCase()}`,

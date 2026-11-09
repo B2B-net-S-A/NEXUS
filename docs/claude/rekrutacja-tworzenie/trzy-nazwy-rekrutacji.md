@@ -19,7 +19,7 @@ Decyzja Artura: rekruter ma widzieć, czego szukamy, a klient dostaje swoje nazw
   (`jobDisplayTitle`, SQL `job_display_title_expr`); nigdy do klienta.
 - Odczyt maila (`JOB_REQUEST_INTAKE` v3) daje `client_title`/`client_reference`
   wyłącznie jako dosłowny cytat (`_in_text`) i `working_title_suggestion`.
-- Kolumny są w `NEXUS_OWNED` (Traffit ich nie pisze). Istniejące rekrutacje
+- Istniejące rekrutacje
   uzupełnił jednorazowy krok `job-names-backfill` w `entrypoint.sh`.
 
 ## Rekrutacje osoby na ekranach kandydata (16.10.2026)
@@ -39,8 +39,8 @@ i listy kandydata pokazywały samą nazwę od klienta, więc nie dało się ich 
 - **Front:** wiersz = `JobNameLabel` (`components/v2/jobs/JobNameLabel.tsx`: numer
   kopiuje, `copyable={false}` wewnątrz innego przycisku, `stretched` dla wiersza-linku,
   `wrap` gdy tytuł ma się łamać), tekst = `jobNameText` (`lib/job-name-text.ts`),
-  pola kandydata → `candidateJobNames`. Okna, które mówią do klienta (generator CV,
-  podgląd CV, maile), dostają dalej `job_title`.
+  pola kandydata → `candidateJobNames`. Okna, które mówią do klienta (podgląd CV,
+  maile), dostają dalej `job_title`. Generator CV od 03.11.2026: niżej.
 - `_enriched_select()` w `api/notes.py` ma stałą kolejność kolumn — API integracyjne
   rozpakowuje ją po pozycjach; nazwy dokłada lista notatek przez `add_columns`.
 
@@ -121,3 +121,47 @@ potwierdzał sam siebie.
 - `cv_role_title` nigdy nie zwraca nagłówka bez liter, gdy nazwa je ma —
   wtedy liczy rolę z pełnej nazwy, ignorując numer.
 - QC CV nie uznaje nagłówka bez liter za zgodny tytuł.
+
+## Nazwa usługi nie jest stanowiskiem (02.11.2026)
+
+PKO od 09.2026 nazywa zapytania przedmiotem usługi: „ZOB-3103 usługi
+programistyczne”, „usługa analizy systemowej”. CV dostawały nagłówek i nazwę pliku
+„usługi programistyczne – Imię Nazwisko”, a QC to przepuszczało, bo nagłówek
+z payloadu potwierdzał sam siebie. U Orlenu to samo: „RFX - Zakup usług Analityka IT”.
+
+- Nazwa od klienta zaczynająca się od „usługa/usługi/usług” (także po „Zakup”,
+  „RFX - Zakup”; `is_service_title`) ustępuje roli z Championa
+  w `cv_role_title_for_job`: generator, kopia CV etapu, plik wgrywany do rekrutacji i QC.
+  Sama `cv_role_title` Championa nie czyta.
+- Bez roli w Championie (albo gdy rola to też nazwa usługi lub kod) zostaje nazwa
+  od klienta. „Administrator usług IT” to stanowisko i nie zmienia się.
+- QC nie uznaje nagłówka będącego nazwą usługi za zgodny tytuł, więc CV sprzed
+  poprawki dostają uwagę „Tytuł CV zgodny ze stanowiskiem”.
+- `jobs.title` zostaje bez zmian: to dalej dosłowna nazwa od klienta.
+
+## Pole „Stanowisko” pokazuje to, co pójdzie do klienta (03.11.2026)
+
+Zgłoszenie DL-a PKO po #2872: silnik brał już rolę z Championa, ale pole pokazywało
+„ZOB-3103 usługi programistyczne”, a „Reguły klienta” przykład „Jan Kowalski”. DL
+wpisał więc ręcznie „ZOB-3103 Senior Fullstack Developer” i dwa CV dostały zły numer
+w nagłówku i pliku `ZOB-3156_ZOB-3103 …`. W 157 ze 189 otwartych rekrutacji pole
+różniło się od nagłówka. Decyzja Artura: wariant A z makiet
+https://claude.ai/artifact/6q8Gs9uRKjeAuqLUL34mtR, dla wszystkich klientów.
+
+- **Pole** startuje od `cv_position` (`cv_position_for_form`, odpowiedź
+  `/candidates/{id}/recruitments`): ta sama wartość co nagłówek. Serwer sprzed
+  zmiany nie przysyła pola, wtedy front bierze `job_title`, bo front wdraża się pierwszy.
+- **Pusty `cv_position`** = nazwa usługi i brak roli w Championie: pole jest wymagane
+  („Brakuje: Stanowisko”). Generacja bez formularza (automaty, API) dalej bierze
+  nazwę od klienta.
+- **Wpis ręczny** obowiązuje tylko w tym CV i traci numer klienta
+  (`typed_cv_position`, lustro `typedCvPosition`). Wartość równa nazwie od klienta albo
+  nagłówkowi z rekrutacji nie jest decyzją rekrutera (`position_override` puste).
+- **Podgląd:** `headerPreview` i `filenamePreview` z `useCvGenerator` pokazują prawdziwy
+  nagłówek i plik; okno w „Regułach klienta”, panel w karcie pod polem.
+  `cvFilenamePreview` to lustro `build_filename`, wspólne przypadki
+  `lib/__fixtures__/cv-filename-preview-cases.json`. `filename_preview` z „Jan
+  Kowalski” zostaje tylko bez wybranego procesu.
+- **Lista procesów** w generatorze jest wewnętrzna, więc mówi `jobNameText` i etap.
+  Do klienta dalej nie idzie tytuł dla rekrutera.
+- Gotowe dokumenty ta zmiana zostawia bez zmian.

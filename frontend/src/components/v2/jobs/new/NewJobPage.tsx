@@ -1635,7 +1635,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         </div>
       </div>
 
-      <footer className="sticky bottom-0 z-20 mt-2 -mx-4 border-t [@media(max-height:600px)]:static border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:-mx-8">
+      <footer data-sticky-actions="" className="sticky bottom-0 z-20 mt-2 -mx-4 border-t [@media(max-height:600px)]:static border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:-mx-8">
         <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <span

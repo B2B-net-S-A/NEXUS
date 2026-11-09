@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   previewMounted: vi.fn(),
   upload: vi.fn(),
   refresh: vi.fn(),
+  fromDocument: vi.fn(),
   candidateGet: vi.fn(),
   downloadOriginal: vi.fn(),
   fetchBlob: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@/lib/api", () => ({
       get: (...a: unknown[]) => mocks.original(...a),
       upload: (...a: unknown[]) => mocks.upload(...a),
       refresh: (...a: unknown[]) => mocks.refresh(...a),
+      fromDocument: (...a: unknown[]) => mocks.fromDocument(...a),
     },
     branded: {
       get: (...a: unknown[]) => mocks.branded(...a),
@@ -83,6 +85,8 @@ vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({
 }));
 
 vi.mock("@/components/v2/files/FilePreviewModal", () => ({
+  previewKind: (doc: { filename?: string }) =>
+    /\.(pdf|docx)$/i.test(doc.filename ?? "") ? "pdf" : "unsupported",
   FilePreviewContent: ({
     doc,
     searchRequest,
@@ -1307,6 +1311,21 @@ describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
     expect(screen.getByRole("button", { name: "Pobierz PDF" })).toBeDisabled();
   });
 
+  it("sama rola rekrutera nie ma „Pobierz CV” przy oryginale, rola dodatkowa ma", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } as never, hydrated: true });
+    mountPane();
+    await screen.findByTestId("file-preview");
+    expect(screen.queryByTestId("preview-cv-download")).toBeNull();
+    cleanup();
+
+    useAuthStore.setState({
+      user: { id: 7, role: "recruiter", roles: ["recruiter", "delivery_lead"] } as never,
+      hydrated: true,
+    });
+    mountPane();
+    expect(await screen.findByTestId("preview-cv-download")).toBeInTheDocument();
+  });
+
   it("bez CV firmowego nie ma czego pobrać", async () => {
     mocks.branded.mockResolvedValue({ data: { status: "none" } });
     const user = userEvent.setup();
@@ -1385,6 +1404,76 @@ describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
       expect(mocks.refresh).toHaveBeenCalledWith(901);
       await waitFor(() => expect(screen.getByTestId("file-preview")).toHaveTextContent("Tomasz_CV_2026.pdf"));
       expect(screen.queryByText("W profilu jest nowsze CV")).toBeNull();
+    });
+  });
+
+  describe("„Zmień plik” w CV oryginalnym (04.11.2026)", () => {
+    const FILES = [
+      { ...PROFILE_DOCS[0], id: 1, is_primary: true, filename: "Stare_CV.pdf", uploaded_at: null, created_at: "2026-05-05T08:00:00Z" },
+      { ...PROFILE_DOCS[0], id: 2, is_primary: false, filename: "Nowe_CV_07_2026.pdf", uploaded_at: null, created_at: "2026-08-11T08:00:00Z" },
+      { ...PROFILE_DOCS[0], id: 3, is_primary: false, filename: "B2B_Data_Engineer_Osoba.docx", uploaded_at: null, created_at: "2026-08-11T08:00:00Z" },
+    ];
+
+    beforeEach(() => {
+      mocks.original.mockResolvedValue({
+        data: { has_snapshot: true, original_cv_filename: "Stare_CV.pdf", original_snapshot_at: "2026-11-03T08:00:00Z" },
+      });
+      mocks.get.mockResolvedValue({ data: FILES });
+    });
+
+    it("bez prawa wgrania nie ma paska ani zmiany", async () => {
+      mountPane();
+      await screen.findByTestId("file-preview");
+      expect(screen.queryByTestId("original-cv-file")).toBeNull();
+    });
+
+    it("najpierw podgląd pliku, „Zostaw obecne” niczego nie zapisuje; CV dla klienta jest wyłączone", async () => {
+      const user = userEvent.setup();
+      mountPane({ cvUpload: UPLOAD });
+      const bar = await screen.findByTestId("original-cv-file");
+      expect(bar).toHaveTextContent("Stare_CV.pdf");
+      expect(bar).toHaveTextContent("5.05.2026");
+
+      await user.click(within(bar).getByRole("button", { name: "Zmień plik" }));
+      expect(screen.queryByRole("menuitem", { name: /Stare_CV/ })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: /B2B_Data_Engineer/ })).toHaveAttribute("aria-disabled", "true");
+      await user.click(screen.getByRole("menuitem", { name: /Nowe_CV_07_2026/ }));
+
+      expect(screen.getByTestId("file-preview")).toHaveTextContent("Nowe_CV_07_2026.pdf");
+      await user.click(screen.getByRole("button", { name: "Zostaw obecne" }));
+      expect(screen.getByTestId("file-preview")).toHaveTextContent("Stare_CV.pdf");
+      expect(mocks.fromDocument).not.toHaveBeenCalled();
+    });
+
+    it("„Ustaw jako CV oryginalne” pyta i wysyła wskazany plik", async () => {
+      mocks.fromDocument.mockResolvedValue({
+        data: { has_snapshot: true, original_cv_filename: "Nowe_CV_07_2026.pdf", outcome: "original" },
+      });
+      const user = userEvent.setup();
+      mountPane({ cvUpload: UPLOAD });
+      await user.click(within(await screen.findByTestId("original-cv-file")).getByRole("button", { name: "Zmień plik" }));
+      await user.click(screen.getByRole("menuitem", { name: /Nowe_CV_07_2026/ }));
+      await user.click(screen.getByRole("button", { name: "Ustaw jako CV oryginalne" }));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog).toHaveTextContent("głównym CV profilu i CV oryginalnym tej rekrutacji");
+      expect(mocks.fromDocument).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole("button", { name: "Ustaw jako CV oryginalne" }));
+
+      await waitFor(() => expect(mocks.fromDocument).toHaveBeenCalledWith(901, 2));
+    });
+
+    it("odmowa serwera zostawia podgląd i pokazuje komunikat", async () => {
+      mocks.fromDocument.mockRejectedValue({ response: { status: 409, data: { detail: "Ten plik wygląda na CV innej osoby." } } });
+      const user = userEvent.setup();
+      mountPane({ cvUpload: UPLOAD });
+      await user.click(within(await screen.findByTestId("original-cv-file")).getByRole("button", { name: "Zmień plik" }));
+      await user.click(screen.getByRole("menuitem", { name: /Nowe_CV_07_2026/ }));
+      await user.click(screen.getByRole("button", { name: "Ustaw jako CV oryginalne" }));
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Ustaw jako CV oryginalne" }));
+
+      await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Ten plik wygląda na CV innej osoby."));
+      expect(screen.getByTestId("file-preview")).toHaveTextContent("Nowe_CV_07_2026.pdf");
     });
   });
 

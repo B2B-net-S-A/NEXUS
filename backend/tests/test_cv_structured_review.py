@@ -12,6 +12,7 @@ def test_review_schema_reaches_shared_provider_without_changing_plain_calls(
     monkeypatch,
 ):
     monkeypatch.setattr(provider, "_api_key", lambda: "unit")
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-5")
     call = Mock(return_value="{}")
     monkeypatch.setattr(provider, "call_claude_text", call)
     provider.analyze_with_ai(

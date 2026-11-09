@@ -14,12 +14,13 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from collections.abc import Callable
-from typing import Any, get_args
+from typing import Any, Optional, get_args
 
 from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Response,
@@ -28,6 +29,7 @@ from fastapi import (
 )
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
+from pydantic import ValidationError
 from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -107,6 +109,7 @@ from app.schemas.b2b_contract_generator import (
     B2BContractStatus,
     B2BGenerateRequest,
     B2BGenerateResponse,
+    B2BConfirmFullySignedForm,
     B2BConfirmFullySignedRequest,
     B2BConfirmFullySignedResponse,
     B2BGeneratedContractItem,
@@ -116,6 +119,7 @@ from app.schemas.b2b_contract_generator import (
     B2BLinkContractResponse,
     B2BNextNumberResponse,
     B2BAgreementPrefillResponse,
+    B2BSignatureReadResponse,
     B2BSignatureRequestResponse,
     B2BStatusEventItem,
     B2BRenderHtmlResponse,
@@ -177,11 +181,20 @@ from app.services.b2b_contract_generator.entity_type import (
     partner_display_lines,
     resolve_partner_entity_type,
 )
-from app.services.b2b_contract_generator import admin_details, mandate, signed_file
+from app.services.b2b_contract_generator import (
+    admin_details,
+    mandate,
+    signed_file,
+    signed_on_evidence,
+)
 from app.services.hr import payroll_rates
 from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_esign.history import esign_history
+from app.services.b2b_contract_generator.address_format import (
+    format_registry_address,
+    tidy_house_number,
+)
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -865,11 +878,14 @@ async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -
 
 #: Kto oznacza podpis KAŻDEJ umowy (w swoim zakresie klientów). Delivery Lead
 #: jest tu, bo jego zakres i tak zawęża portfel (``_assert_signature_client_access``).
+#: Finanse nie bywają autorem ani w zespole rekrutacji, więc bez tego wpisu
+#: nadane im uprawnienie nie działałoby przy żadnej umowie (zgłoszenie 04.11.2026).
 _SIGNS_EVERY_CONTRACT_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.talent_community_manager,
     UserRole.delivery_lead,
+    UserRole.finance,
 )
 
 _SIGNATURE_ROW_SCOPE_DENIED = (
@@ -986,6 +1002,20 @@ def _stamp_assigned_person(
         payload.assigned_person_name = full_name
 
 
+def _tidy_partner_addresses(payload: "B2BRenderRequest") -> None:
+    """Adres wklejony z wydruku CEIDG: „ul. Polna 12” zamiast „ul. Polna, nr 12”.
+
+    Tylko przy wydaniu i poprawce umowy, nie w walidatorze schematu: ten sam
+    schemat odtwarza zapisany ``render_payload``, a ponowne pobranie ma dać
+    dokument, który wydano."""
+    payload.partner_business_address = tidy_house_number(
+        payload.partner_business_address
+    )
+    payload.partner_correspondence_address = tidy_house_number(
+        payload.partner_correspondence_address
+    )
+
+
 async def _validate_candidate_job_link(
     db: AsyncSession,
     *,
@@ -1064,7 +1094,12 @@ async def _serialize_generated_contracts(
     user_ids = {
         uid
         for row in rows
-        for uid in (row.created_by, row.signed_by_user_id, row.recruiter_user_id)
+        for uid in (
+            row.created_by,
+            row.signed_by_user_id,
+            row.recruiter_user_id,
+            row.signed_on_set_by,
+        )
         if uid is not None
     }
     candidate_ids = {row.candidate_id for row in rows if row.candidate_id is not None}
@@ -1467,6 +1502,10 @@ async def _serialize_generated_contracts(
                 canonical_client_name=clients.get(row.client_id),
                 signed_at=row.signed_at.isoformat() if row.signed_at else None,
                 signed_on=row.signed_on,
+                signed_on_source=row.signed_on_source,
+                signed_on_reason=row.signed_on_reason,
+                signed_on_set_by_name=users.get(row.signed_on_set_by),
+                consultant_signed_at=row.consultant_signed_at,
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
@@ -2282,6 +2321,7 @@ async def _stamp_admin_details(
         fte=payload.fte,
         candidate_id=payload.candidate_id,
         linked=linked_job is not None,
+        is_client_referral=payload.is_client_referral,
     )
     if linked_job is None or payload.candidate_id is None:
         return None
@@ -2341,7 +2381,12 @@ async def company_lookup(
             status_code=404,
             detail="Nie znaleziono firmy w rejestrze (sprawdź NIP / KRS).",
         )
-    return data
+    return {
+        **data,
+        "address": format_registry_address(
+            data.get("address"), has_street=data.get("has_street")
+        ),
+    }
 
 
 @router.get("/company-verification", response_model=B2BCompanyVerificationResponse)
@@ -2377,6 +2422,7 @@ async def render_standalone(
     numer, loguje wygenerowanie i zwraca plik DOCX.
     """
     _require_contract_generation(current_user)
+    _tidy_partner_addresses(payload)
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     linked_job: Job | None = None
@@ -3201,7 +3247,7 @@ async def export_generated_contracts_xlsx(
         user_names=user_names,
         job_recruiters=job_recruiters,
         include_free_text=current_user.has_role(UserRole.admin)
-        or current_user.has_role(UserRole.finance),
+        or current_user.has_any_role(UserRole.finance, UserRole.back_office),
     )
     return Response(
         content=data,
@@ -3785,6 +3831,7 @@ async def rerender_generated_contract(
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     if row.candidate_id is not None:
         _stamp_assigned_person(payload, await db.get(Candidate, row.candidate_id))
+    _tidy_partner_addresses(payload)
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
     override_key, override_ops = resolve_override(payload.client_name, lang)
@@ -3812,6 +3859,7 @@ async def rerender_generated_contract(
         fte=payload.fte,
         candidate_id=row.candidate_id,
         linked=row.job_id is not None,
+        is_client_referral=payload.is_client_referral,
     )
     row.render_payload = {
         **payload.model_dump(mode="json"),
@@ -4024,17 +4072,168 @@ async def request_signature_confirmation(
     )
 
 
+async def _company_names(db: AsyncSession) -> list[str]:
+    """Imiona i nazwiska kont NEXUSA — podpis firmy w pliku (B2B Network)."""
+    names = await db.scalars(
+        select(User.name).where(User.is_active.is_(True), User.name.is_not(None))
+    )
+    return [name for name in names.all() if name]
+
+
+async def _signed_upload(
+    db: AsyncSession, file: UploadFile
+) -> tuple[tuple[str, str, bytes], Optional[list[signed_on_evidence.SignatureEntry]]]:
+    """Plik z okna podpisu i jego podpisy (bez przypisania stron)."""
+    name, content_type, data = await signed_scan.read_scan(
+        file, format_msg=signed_file.MSG_FORMAT
+    )
+    signatures = await signed_on_evidence.read_pdf_signatures(data)
+    if signatures is None:
+        return (name, content_type, data), None
+    # Strony przypisuje ``classify`` z nazwiskiem z umowy; tu tylko odczyt.
+    entries = [
+        signed_on_evidence.SignatureEntry(
+            signer=sig.signer,
+            signed_at=sig.signed_at,
+            time_source=sig.time_source,
+            intact=sig.intact,
+            party="other",
+        )
+        for sig in signatures
+    ]
+    return (name, content_type, data), entries
+
+
+def _with_parties(
+    entries: Optional[list[signed_on_evidence.SignatureEntry]],
+    *,
+    partner_name: str | None,
+    company_names: list[str],
+) -> Optional[list[signed_on_evidence.SignatureEntry]]:
+    if entries is None:
+        return None
+    return signed_on_evidence.classify(
+        [
+            signed_on_evidence.PdfSignature(
+                signer=e.signer,
+                signed_at=e.signed_at,
+                time_source=e.time_source,
+                intact=e.intact,
+            )
+            for e in entries
+        ],
+        partner_name=partner_name,
+        company_names=company_names,
+    )
+
+
+@router.post(
+    "/generated/{generated_id}/signatures",
+    response_model=B2BSignatureReadResponse,
+)
+async def read_generated_contract_signatures(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Podpisy z pliku podpisanej umowy — podgląd w oknie „Oznacz jako podpisaną”.
+
+    Nic nie zapisuje. Wchodzi ten, kto mógłby oznaczyć podpis tej umowy
+    (te same bramki co ``signed-file``). Potwierdzenie czyta plik jeszcze raz,
+    więc podgląd nie jest dowodem."""
+    _require_signature_confirmation(current_user)
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    _reject_excel_row(row)
+    await _assert_signature_client_access(db, current_user, row.client_id)
+    team_job_ids = (
+        await _jobs_run_by(db, current_user, {row.job_id})
+        if row.job_id is not None
+        and not current_user.has_any_role(*_SIGNS_EVERY_CONTRACT_ROLES)
+        else set()
+    )
+    if not _may_confirm_row_signature(
+        current_user,
+        created_by=row.created_by,
+        job_id=row.job_id,
+        team_job_ids=team_job_ids,
+    ):
+        raise HTTPException(status_code=403, detail=_SIGNATURE_ROW_SCOPE_DENIED)
+    _upload, entries = await _signed_upload(db, file)
+    classified = _with_parties(
+        entries,
+        partner_name=row.partner_name,
+        company_names=await _company_names(db),
+    )
+    return B2BSignatureReadResponse(**signed_on_evidence.preview(classified))
+
+
 @router.post(
     "/generated/{generated_id}/confirm-fully-signed",
     response_model=B2BConfirmFullySignedResponse,
 )
+async def confirm_generated_contract_fully_signed_with_file(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    file: UploadFile = File(...),
+    payload: str = Form("{}"),
+    db: AsyncSession = Depends(get_db),
+):
+    """„Oznacz jako podpisaną”: plik podpisanej umowy obowiązkowy (06.11.2026).
+
+    Dzień podpisu = dzień podpisu konsultanta w PDF-ie; skan bez podpisu
+    elektronicznego = data ręcznie z powodem. Plik trafia do Dokumentów
+    kontraktu w tej samej transakcji co podpis."""
+    _require_signature_confirmation(current_user)
+    try:
+        form = B2BConfirmFullySignedForm.model_validate_json(payload or "{}")
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Nieprawidłowe dane potwierdzenia podpisu.",
+        ) from exc
+    upload, entries = await _signed_upload(db, file)
+    company_names = await _company_names(db)
+
+    def _evidence(row: B2BGeneratedContract) -> signed_on_evidence.SignedOnEvidence:
+        return signed_on_evidence.resolve(
+            _with_parties(
+                entries, partner_name=row.partner_name, company_names=company_names
+            ),
+            manual_on=form.signed_on,
+            reason=form.signed_on_reason,
+        )
+
+    return await confirm_generated_contract_fully_signed(
+        generated_id=generated_id,
+        payload=B2BConfirmFullySignedRequest(
+            candidate_id=form.candidate_id,
+            job_id=form.job_id,
+            keep_existing_contract_terms=form.keep_existing_contract_terms,
+        ),
+        current_user=current_user,
+        db=db,
+        evidence_for=_evidence,
+        upload=upload,
+    )
+
+
 async def confirm_generated_contract_fully_signed(
     generated_id: int,
     payload: B2BConfirmFullySignedRequest,
-    current_user: B2BGeneratorAccess,
-    db: AsyncSession = Depends(get_db),
+    current_user: User,
+    db: AsyncSession,
+    *,
+    evidence_for: Callable[[B2BGeneratedContract], signed_on_evidence.SignedOnEvidence],
+    upload: Optional[tuple[str, str, bytes]] = None,
 ):
     """One-way, audited manual confirmation with atomic employment automation.
+
+    ``evidence_for`` daje dzień podpisu i jego źródło dla zablokowanego wiersza
+    (plik z okna albo e-podpis w NEXUSIE); ``upload`` — podpisany plik, który
+    trafia do Dokumentów kontraktu w tej samej transakcji.
 
     Wiąże kontrakt, zapewnia zamówienie i przesuwa kandydata na „Zatrudniony"
     (Pipeline v4, decyzja Artura 23.09.2026 — cofa decyzję z 17.09.2026:
@@ -4186,7 +4385,8 @@ async def confirm_generated_contract_fully_signed(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_ENDED_BLOCKS_SIGNATURE,
             )
-        signed_on = signing_day_or_reject(row, payload.signed_on)
+        evidence = evidence_for(row)
+        signed_on = signing_day_or_reject(row, evidence.signed_on)
 
         if (
             row.candidate_id is not None
@@ -4313,8 +4513,23 @@ async def confirm_generated_contract_fully_signed(
         )
         row.signed_at = datetime.now(timezone.utc)
         row.signed_on = signed_on
+        row.signed_on_source = evidence.source
+        row.signed_on_reason = evidence.reason
+        row.signed_on_set_by = current_user.id if evidence.source == "manual" else None
+        row.consultant_signed_at = evidence.consultant_signed_at
         row.signed_by_user_id = current_user.id
         await db.flush()
+        replaced_signed_path: str | None = None
+        if upload is not None:
+            upload_name, upload_type, upload_data = upload
+            replaced_signed_path = await signed_file.attach(
+                db,
+                row=row,
+                filename=upload_name,
+                content_type=upload_type,
+                data=upload_data,
+                actor_id=current_user.id,
+            )
         from app.services.order_mail_signature import complete_signed_mail_drafts
 
         await complete_signed_mail_drafts(
@@ -4344,6 +4559,9 @@ async def confirm_generated_contract_fully_signed(
                     "contract_id": result.contract.id,
                     "order_id": result.order.id if result.order else None,
                     "source": "manual_confirmation",
+                    "signed_on": signed_on.isoformat(),
+                    "signed_on_source": evidence.source,
+                    "signed_on_reason": evidence.reason,
                     "outcome": (
                         "created" if result.created_contract else "linked_existing"
                     ),
@@ -4385,6 +4603,7 @@ async def confirm_generated_contract_fully_signed(
         current_user_id = current_user.id
         hired_stage_id = result.hired_stage.id if result.hired_stage else None
         await db.commit()
+        signed_file.discard(replaced_signed_path)
         # Live kanban: karta przeszła na „Zatrudniony" (best-effort).
         if result.created_hired_stage:
             await broadcast_pipeline_changed(db, job.id, current_user_id)

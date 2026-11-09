@@ -175,7 +175,7 @@ def test_custom_text_is_stripped_of_html() -> None:
 
 
 def test_contact_lines_follow_the_chain_kind() -> None:
-    manager = oof_template.Contact("manager", "szef@example.com", "Jan Przełożony")
+    manager = oof_template.Contact("manager", "szef@example.com", "Jan Koordynator")
     office = oof_template.Contact("office", "biuro@example.com")
     internal_manager, _ = oof_template.default_messages(
         employee_name="A",
@@ -189,7 +189,7 @@ def test_contact_lines_follow_the_chain_kind() -> None:
         return_on=date(2026, 11, 9),
         contact=office,
     )
-    assert "proszę o kontakt: <strong>Jan Przełożony</strong>" in internal_manager
+    assert "proszę o kontakt: <strong>Jan Koordynator</strong>" in internal_manager
     assert 'z biurem: <a href="mailto:biuro@example.com">' in internal_office
     assert "our office" in external_office
 
@@ -209,6 +209,86 @@ def test_rule_names_of_nexus_and_compass_are_recognised() -> None:
     assert forward_rules.parse_leave_id("NEXUS · zastępstwo · moja") is None
     assert forward_rules.parse_leave_id("NEXUS - zastępstwo - " + LEAVE_ID) is None
     assert forward_rules.parse_leave_id(None) is None
+
+
+def _rule(name: str, *, enabled: bool = True, **actions: object) -> dict:
+    return {"displayName": name, "isEnabled": enabled, "actions": actions}
+
+
+COPY = {"forwardTo": [{"emailAddress": {"address": "a@example.com"}}]}
+
+
+def test_mailbox_state_copy_rule_keeps_mail() -> None:
+    rules = [_rule(f"NEXUS · zastępstwo · {LEAVE_ID}", **COPY)]
+    assert forward_rules.mailbox_state(rules) == {
+        "mailbox_keeps_mail": True,
+        "mailbox_note": None,
+    }
+
+
+def test_mailbox_state_counts_folder_rules_as_kept_mail() -> None:
+    rules = [
+        _rule("Faktury", moveToFolder="f1", stopProcessingRules=True),
+        _rule("Newsy", moveToFolder="f2"),
+        _rule("Stare", enabled=False, moveToFolder="f3"),
+    ]
+    assert forward_rules.mailbox_state(rules) == {
+        "mailbox_keeps_mail": True,
+        "mailbox_note": "reguły przenoszące maile do folderów: 2",
+    }
+
+
+@pytest.mark.parametrize(
+    "actions",
+    [
+        {"redirectTo": [{"emailAddress": {"address": "a@example.com"}}]},
+        {"delete": True},
+        {"permanentDelete": True},
+    ],
+)
+def test_mailbox_state_flags_own_rule_that_takes_mail_away(actions: dict) -> None:
+    state = forward_rules.mailbox_state([_rule("Moja", **actions)])
+    assert state == {
+        "mailbox_keeps_mail": False,
+        "mailbox_note": "własna reguła osoby: przekazywanie albo kasowanie",
+    }
+
+
+def test_mailbox_state_counts_several_own_rules() -> None:
+    rules = [_rule("A", delete=True), _rule("B", permanentDelete=True)]
+    assert (
+        forward_rules.mailbox_state(rules)["mailbox_note"]
+        == "własne reguły osoby: przekazywanie albo kasowanie (2)"
+    )
+
+
+def test_mailbox_state_ignores_disabled_and_empty_actions() -> None:
+    rules = [
+        _rule("Wyłączona", enabled=False, redirectTo=[{"x": 1}]),
+        _rule("Puste", redirectTo=[], delete=False, permanentDelete=None),
+    ]
+    assert forward_rules.mailbox_state(rules)["mailbox_keeps_mail"] is True
+
+
+def test_mailbox_state_flags_our_rule_when_it_stopped_being_a_copy() -> None:
+    rules = [
+        _rule(f"NEXUS · zastępstwo · {LEAVE_ID}", redirectTo=[{"x": 1}]),
+        _rule("Moja", delete=True),
+    ]
+    assert forward_rules.mailbox_state(rules) == {
+        "mailbox_keeps_mail": False,
+        "mailbox_note": "reguła zastępstwa nie jest kopią",
+    }
+
+
+def test_rule_body_is_a_copy_and_passes_mailbox_state() -> None:
+    body = forward_rules.rule_body(
+        leave_id=LEAVE_ID,
+        substitute_email="ola.zastepca@example.com",
+        substitute_name="Ola Zastępca",
+        company_domains=["example.com"],
+    )
+    assert forward_rules.mailbox_state([body])["mailbox_keeps_mail"] is True
 
 
 def test_rule_filter_excludes_company_domain_from_config() -> None:

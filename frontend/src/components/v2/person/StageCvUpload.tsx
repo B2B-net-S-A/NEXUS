@@ -101,6 +101,8 @@ interface UploadVariables {
   file: File;
   mode?: "original";
   replaceClientCv?: boolean;
+  /** Pigułka z potwierdzenia „Zastąpić CV do klienta?”, gdy ktoś ją kliknął. */
+  replaceReason?: string;
   /**
    * „Cofnij” po CV do klienta: serwer dostaje tylko `mode: "original"` i sam
    * przywraca poprzednie CV do klienta — tu komunikat i wiersz do odświeżenia.
@@ -108,8 +110,70 @@ interface UploadVariables {
   undo?: { clientCvStageId: number };
 }
 
+/** Co liczy od nowa zmiana CV oryginalnego: wgranie i plik wskazany z profilu. */
+function newOriginalCvKeys(candidateId: number, stageId: number, jobId: number): QueryKey[] {
+  return [
+    candidateQueryKeys.quickView(candidateId),
+    ["cv-original", stageId],
+    ["cv-qc", stageId],
+    // Otwarty panel „Z czego zrobić CV?”: nowy plik to Oryginał CV
+    // rekrutacji i musi być na liście generatora (audyt 22.10).
+    cvAiSourcesQueryKey(stageId).slice(0, 1),
+    ["cv-gen-sources", candidateId],
+    MOVE_REQUIREMENTS_PREFIX,
+    ["kanban", String(jobId)],
+    ["kanban", jobId],
+  ];
+}
+
 const REPLACE_CONFIRM_CODE = "client_cv_replace_confirm";
 const UPLOAD_FAILED = "Nie udało się wgrać CV. Spróbuj ponownie.";
+
+/** Powody podmiany CV z generatora (CV-2, 08.11.2026): jedno kliknięcie, do pominięcia. */
+export const REPLACE_REASON_OPTIONS = [
+  { value: "client_format", label: "Klient chce swój format" },
+  { value: "missing_experience", label: "Generator pominął doświadczenie" },
+  { value: "newer_cv", label: "Mam nowsze CV od kandydata" },
+  { value: "other", label: "Inny" },
+] as const;
+const REPLACE_REASON_LABEL = "Dlaczego nie CV z generatora? (opcjonalnie)";
+const AUTO_CV_REASON_TOAST_MS = 20_000;
+
+function asksReplaceReason(error: unknown): boolean {
+  const detail = (error as { response?: { data?: { detail?: { ask_replace_reason?: boolean } } } })
+    .response?.data?.detail;
+  return detail?.ask_replace_reason === true;
+}
+
+function ReplaceReasonRow({ onChange }: { onChange: (reason: string) => void }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium text-muted-foreground">{REPLACE_REASON_LABEL}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {REPLACE_REASON_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={picked === option.value}
+            onClick={() => {
+              setPicked(option.value);
+              onChange(option.value);
+            }}
+            className={cn(
+              "min-h-8 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              picked === option.value
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-background text-foreground hover:border-primary",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function useStageCvUpload({
   candidateId,
@@ -144,6 +208,11 @@ export function useStageCvUpload({
     cvAiSourcesQueryKey(targetId),
   ];
 
+  // Pomiar: nieudany zapis powodu nie dotyczy rekrutera, plik jest już podmieniony.
+  const sendReplaceReason = (targetId: number, reason: string) => {
+    void candidateStageCvApi.branded.replaceReason(targetId, reason).catch(() => undefined);
+  };
+
   // Plik stał się CV do klienta pary: oryginał i profil bez zmian, bez odczytu AI.
   const clientCvUploaded = (data: StageCvUploadResult, variables: UploadVariables) => {
     const targetId = data.client_cv_stage_id ?? stageId;
@@ -160,9 +229,23 @@ export function useStageCvUpload({
       `CV do klienta z pliku ${name}.` +
       (data.replaced === "auto_cv" ? " Zastąpiło CV od automatu." : "") +
       (data.replaced === "confirmed" ? " Poprzednia wersja jest w historii." : "");
+    if (variables.replaceReason && data.ask_replace_reason) {
+      sendReplaceReason(targetId, variables.replaceReason);
+    }
     if (data.undo_available) {
+      const asksReason = data.replaced === "auto_cv" && data.ask_replace_reason === true;
       showActionToast(message, {
         actionLabel: "Cofnij",
+        ...(asksReason
+          ? {
+              durationMs: AUTO_CV_REASON_TOAST_MS,
+              chips: {
+                label: REPLACE_REASON_LABEL,
+                options: REPLACE_REASON_OPTIONS,
+                onPick: (reason: string) => sendReplaceReason(targetId, reason),
+              },
+            }
+          : {}),
         // Błąd pokazuje `onError`; toast tylko czeka na koniec.
         onAction: () =>
           mutation.mutateAsync({ file: variables.file, mode: "original", undo: { clientCvStageId: targetId } }).then(
@@ -198,18 +281,7 @@ export function useStageCvUpload({
         return;
       }
       invalidateCandidateMutation(queryClient, candidateId, "document");
-      invalidate([
-        candidateQueryKeys.quickView(candidateId),
-        ["cv-original", stageId],
-        ["cv-qc", stageId],
-        // Otwarty panel „Z czego zrobić CV?”: nowy plik to Oryginał CV
-        // rekrutacji i musi być na liście generatora (audyt 22.10).
-        cvAiSourcesQueryKey(stageId).slice(0, 1),
-        ["cv-gen-sources", candidateId],
-        MOVE_REQUIREMENTS_PREFIX,
-        ["kanban", String(jobId)],
-        ["kanban", jobId],
-      ]);
+      invalidate(newOriginalCvKeys(candidateId, stageId, jobId));
       // Cofnięcie przywróciło poprzednie CV do klienta — karta i dok pokazują je od nowa.
       if (variables.undo) {
         const targetId = variables.undo.clientCvStageId;
@@ -238,14 +310,18 @@ export function useStageCvUpload({
       // pytamy i wysyłamy ten sam plik jeszcze raz. „Nie podmieniaj” = nic.
       if (apiErrorCode(error) === REPLACE_CONFIRM_CODE && !variables.replaceClientCv) {
         setConfirming(variables.file);
+        let replaceReason: string | undefined;
         void askConfirm({
           title: "Zastąpić CV do klienta?",
           description: apiErrorMessage(error, "Ta osoba ma już CV do klienta w tej rekrutacji."),
           confirmLabel: "Zastąp",
           cancelLabel: "Nie podmieniaj",
+          ...(asksReplaceReason(error)
+            ? { extra: <ReplaceReasonRow onChange={(reason) => (replaceReason = reason)} /> }
+            : {}),
         }).then((yes) => {
           setConfirming(null);
-          if (yes) mutation.mutate({ file: variables.file, replaceClientCv: true });
+          if (yes) mutation.mutate({ file: variables.file, replaceClientCv: true, replaceReason });
         });
         return;
       }
@@ -268,6 +344,47 @@ export function useStageCvUpload({
     uploadedAt,
     confirmDialog,
   };
+}
+
+/**
+ * „Zmień plik” w „CV oryginalnym” (04.11.2026): plik z profilu zamiast wgrywania.
+ * Ten sam skutek co wgranie, także blok „Nowe CV” z planem CV do klienta.
+ */
+export function useOriginalCvFromDocument({
+  candidateId,
+  stageId,
+  jobId,
+  onChanged,
+}: {
+  candidateId: number;
+  stageId: number;
+  jobId: number;
+  onChanged?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  return useMutation<AxiosResponse<StageCvUploadResult>, unknown, { documentId: number; filename: string }>({
+    mutationFn: ({ documentId }) => candidateStageCvApi.original.fromDocument(stageId, documentId),
+    onSuccess: (response, { filename }) => {
+      invalidateCandidateMutation(queryClient, candidateId, "document");
+      for (const queryKey of newOriginalCvKeys(candidateId, stageId, jobId)) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+      const entry = newCvUploadFrom(response.data, filename, Date.now());
+      queryClient.setQueryData(newCvUploadKey(candidateId, jobId), entry);
+      for (const queryKey of [
+        ...(entry?.companyStageId != null ? [stageBrandedQueryKey(entry.companyStageId)] : []),
+        ...(entry?.plan === "regenerating"
+          ? [stageBrandedQueryKey(stageId), cvToClientRowsQueryKey(candidateId, jobId)]
+          : []),
+      ]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+      showSuccess("CV oryginalne zmienione. Plik jest też głównym CV w profilu.");
+      onChanged?.();
+    },
+    onError: (error) => showError(apiErrorMessage(error, "Nie udało się zmienić CV oryginalnego.")),
+  });
 }
 
 /** Kafelek „Wgraj nowe CV” — klik otwiera wybór pliku, plik można też upuścić. */

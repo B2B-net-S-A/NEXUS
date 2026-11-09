@@ -31,7 +31,9 @@ import {
   careerLinkQueryKey,
   inviteLinksQueryKey,
   jobPublicProfileQueryKey,
+  linkPeopleQueryKey,
   linkResultsQueryKey,
+  type LinkPeople,
   type LinkResults,
   shareableJobQueryKey,
   shareablePublishedJobsQueryKey,
@@ -95,6 +97,47 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
     },
     show: { must: true, nice: true, params: true, process: true },
   },
+};
+
+// Zakładka „Wyniki” — fikcyjne osoby.
+const LINK_PEOPLE: LinkPeople = {
+  days: 30,
+  total: 2,
+  truncated: false,
+  people: [
+    {
+      candidate_id: 9001,
+      full_name: "Celina Fikcyjna",
+      applied_at: "2026-10-28T09:12:00Z",
+      was_duplicate: false,
+      kind: "job",
+      slug: "senior-java-developer-7kq2",
+      job_id: 101,
+      job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
+      current_stage: "screening",
+      current_job_id: 101,
+      current_job_title: "Senior Java Developer · Spring, Kafka · 6+ lat",
+      screening_status: null,
+      screening_outcome: null,
+      in_my_people: false,
+    },
+    {
+      candidate_id: 9002,
+      full_name: "Damian Testowy",
+      applied_at: "2026-10-21T14:40:00Z",
+      was_duplicate: true,
+      kind: "recruiter",
+      slug: "marta-n",
+      job_id: null,
+      job_title: null,
+      current_stage: null,
+      current_job_id: null,
+      current_job_title: null,
+      screening_status: null,
+      screening_outcome: null,
+      in_my_people: true,
+    },
+  ],
 };
 
 // Zakładka „Wyniki” (etap 4) — fikcyjne liczby.
@@ -267,6 +310,7 @@ export default function CareerSharePreviewPage() {
     qc.setQueryData(jobPublicProfileQueryKey(101), PROFILE_WITH_FINDING, future);
     qc.setQueryData(careerLinkQueryKey(), CAREER_LINK, future);
     qc.setQueryData(linkResultsQueryKey(30), LINK_RESULTS, future);
+    qc.setQueryData(linkPeopleQueryKey(30), LINK_PEOPLE, future);
     return qc;
   }, []);
 

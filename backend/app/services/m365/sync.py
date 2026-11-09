@@ -28,7 +28,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy import and_, exists, func, or_, select
@@ -40,11 +40,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # holding the DB connection and poisoning the pool.
 _SYNC_TIMEOUT_SECONDS = 8 * 60
 
+from app.core import process_bus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
+from app.core.process_lock import cross_process_lock
 from app.models.app_setting import AppSetting
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.calendar_event import (
+    CalendarEvent,
+    EventStatus,
+    EventType,
+    is_booked_call,
+)
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -69,7 +76,9 @@ from app.services.m365.calendar import M365_SOURCE
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
 from app.services.m365.matcher import IncomingMessage
+from app.services.m365.oauth import M365ReauthRequired
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
+from app.services.sales import meeting_transcripts as sales_transcripts
 from app.services.sales import outlook_activities as sales_outlook
 
 logger = logging.getLogger(__name__)
@@ -132,14 +141,9 @@ class SyncResult:
 # UNIQUE `emails.m365_message_id` zatruwały sesję tak, że commit strony
 # odrzucał całą stronę maili.
 #
-# Mutex jest W PROCESIE, a nie w bazie — świadomie. Wariant bazowy wymaga
-# kolumny `last_sync_started_at` (bez niej nie da się odróżnić przebiegu
-# TRWAJĄCEGO od porzuconego przez restart kontenera, a sam warunek
-# `status == running` zamurowałby skrzynkę na zawsze po każdym redeployu
-# w trakcie backfillu), czyli migracji. Wszystkie cztery ścieżki żyją w tym
-# samym procesie aplikacji, więc lock je pokrywa; przy przejściu na wiele
-# workerów (patrz uwaga o leader-election dla pętli tła) trzeba dołożyć
-# wariant bazodanowy.
+# Mutex w procesie plus `cross_process_lock`, bo pętla biegnie w workerze, a
+# webhook i backfill w web. Blokada doradcza znika z procesem, więc restart w
+# trakcie backfillu nie zamurowuje skrzynki (warunek `status == running` by to zrobił).
 _sync_locks: dict[int, asyncio.Lock] = {}
 
 
@@ -153,6 +157,14 @@ _resync_requested: set[int] = set()
 # Sufit dodatkowych przebiegów pod jednym lockiem — seria webhooków w trakcie
 # każdego kolejnego przebiegu nie może trzymać skrzynki w nieskończoność.
 _MAX_TRAILING_RESYNCS = 3
+_RESYNC_TOPIC = "m365_resync"
+
+
+async def _on_resync_requested(data: dict[str, Any]) -> None:
+    _resync_requested.add(int(data["connection_id"]))
+
+
+process_bus.subscribe(_RESYNC_TOPIC, _on_resync_requested)
 
 
 def _connection_lock(connection_id: int) -> asyncio.Lock:
@@ -205,7 +217,14 @@ async def sync_connection(
             _resync_requested.add(conn.id)
         return result
 
-    async with lock:
+    async with lock, cross_process_lock("m365_sync", conn.id) as owned:
+        if not owned:
+            # Trwający przebieg jest w drugim procesie (web albo worker).
+            logger.info("m365 sync skipped: connection_id=%s syncs elsewhere", conn.id)
+            result.skipped_already_running = True
+            if resync_if_busy:
+                await process_bus.publish(_RESYNC_TOPIC, {"connection_id": conn.id})
+            return result
         _resync_requested.discard(conn.id)
         result = await _sync_connection_locked(db, conn, result, scope)
         for _ in range(_MAX_TRAILING_RESYNCS):
@@ -240,8 +259,11 @@ async def _sync_connection_locked(
             async with GraphClient(conn, db, sales_ok=True) as gc:
                 await _sync_messages(db, gc, conn, result, scope=scope)
                 await _sync_events(db, gc, conn, result, scope=scope)
+                if scope.sales:
+                    await sales_transcripts.resolve_join_urls(db, gc, conn.user_id)
             if scope.sales:
                 await _sales_catch_up(db, conn)
+                await _settle_sales_meetings(db, conn)
 
         await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
@@ -287,6 +309,21 @@ async def _sync_connection_locked(
             subject_id=conn.id,
         )
         return result
+    except M365ReauthRequired:
+        # Stan zapisał już `GraphClient` (`reconnect_required`). Ogólna gałąź
+        # niżej nadpisałaby go zwykłym `error` i baner by się nie pokazał.
+        logger.warning("m365 sync_connection %s: refresh token odrzucony", conn.id)
+        result.errors += 1
+        result.error_samples.append("top: M365ReauthRequired")
+        from app.core.operation_telemetry import record_job_outcome
+
+        record_job_outcome(
+            "m365_sync",
+            False,
+            interval_seconds=max(60, settings.M365_SYNC_INTERVAL_SECONDS),
+            subject_id=conn.id,
+        )
+        return result
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
         await db.refresh(conn)
@@ -307,7 +344,11 @@ async def _sync_connection_locked(
         )
         return result
 
-    if result.errors > 0:
+    if conn.last_sync_status == M365SyncStatus.reconnect_required:
+        # Refresh odrzucony przy pojedynczej wiadomości: pętla per wiadomość
+        # połknęła wyjątek, ale połączenie jest już wyłączone. Stan zostaje.
+        pass
+    elif result.errors > 0:
         # Błędy per wiadomość/wydarzenie/strona są łapane w pętlach niżej,
         # żeby jeden zepsuty mail nie urwał reszty skrzynki — ale przebieg,
         # w którym coś przepadło, NIE jest udany. `idle` chowałby go przed
@@ -655,6 +696,26 @@ async def _has_cv_attachment(db: AsyncSession, email_id: int) -> bool:
     )
 
 
+async def message_body(msg: dict) -> tuple[Optional[str], str, str]:
+    """Treść wiadomości Graph jako ``(body_html, body_text, body_preview)``."""
+    body = msg.get("body") or {}
+    raw_html = body.get("content") or ""
+    # bleach sanitize/parse is sync CPU work — offload off the event loop.
+    body_html = (
+        await asyncio.to_thread(sanitize_html, raw_html)
+        if body.get("contentType") == "html"
+        else None
+    )
+    body_text = (
+        await asyncio.to_thread(html_to_text, raw_html)
+        if not body_html
+        else await asyncio.to_thread(html_to_text, body_html)
+    )
+    if body.get("contentType") == "text" and not body_html:
+        body_text = raw_html
+    return body_html, body_text, (msg.get("bodyPreview") or "")[:255]
+
+
 async def _upsert_message(
     db: AsyncSession,
     gc: GraphClient,
@@ -711,6 +772,29 @@ async def _upsert_message(
         # Wysłanych zakładała drugi wiersz tej samej wysyłki.
         existing = await _adopt_by_internet_message_id(db, conn, msg, folder_hint)
 
+    # Delta Graph potrafi oddać zmienioną wiadomość bez `body` (zwykle po samym
+    # przeczytaniu), choć `$select` je zawiera. Brak klucza to „bez zmian”, nie
+    # pusta wartość: do 02.11.2026 taki mail tracił treść, podgląd i flagę
+    # załączników (2782 wiersze, 1477 przy kandydatach).
+    if "body" not in msg:
+        logger.info(
+            "m365_partial_delta",
+            extra={
+                "event_kind": "m365_progress",
+                "subject_id": conn.id,
+                "email_id": existing.id if existing is not None else None,
+                "message_keys": sorted(k for k in msg if not k.startswith("@")),
+            },
+        )
+        if existing is None:
+            # Bez nadawcy i tematu wiersz nikomu nie służy (15 takich na 02.11),
+            # a zwykle to stary mail spoza okna backfillu.
+            return None
+        row = _apply_partial_delta(existing, msg)
+        if scope.sales:
+            await _record_sales_mail(db, conn, row)
+        return row
+
     categories = msg.get("categories") or []
     is_private = settings.M365_IGNORE_CATEGORY in categories
 
@@ -734,22 +818,7 @@ async def _upsert_message(
         body_preview = None
         has_attachments = False
     else:
-        body = msg.get("body") or {}
-        raw_html = body.get("content") or ""
-        # bleach sanitize/parse is sync CPU work — offload off the event loop.
-        body_html = (
-            await asyncio.to_thread(sanitize_html, raw_html)
-            if body.get("contentType") == "html"
-            else None
-        )
-        body_text = (
-            await asyncio.to_thread(html_to_text, raw_html)
-            if not body_html
-            else await asyncio.to_thread(html_to_text, body_html)
-        )
-        if body.get("contentType") == "text" and not body_html:
-            body_text = raw_html
-        body_preview = (msg.get("bodyPreview") or "")[:255]
+        body_html, body_text, body_preview = await message_body(msg)
         has_attachments = bool(msg.get("hasAttachments"))
 
     direction = (
@@ -952,6 +1021,16 @@ def _addresses_of(recipients) -> list[str]:
     ]
 
 
+async def _settle_sales_meetings(db: AsyncSession, conn: M365Connection) -> None:
+    """Spotkania przypięte do szans, które minęły od ostatniego przebiegu."""
+    try:
+        async with db.begin_nested():
+            await sales_outlook.settle_pinned_meetings(db)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
+        logger.exception("m365 conn %s: pinned sales meetings failed", conn.id)
+
+
 async def _sales_catch_up(db: AsyncSession, conn: M365Connection) -> None:
     """Raz na skrzynkę: maile z ostatnich ``SALES_CATCH_UP_DAYS`` dni już w bazie."""
     row = await db.get(AppSetting, SALES_CATCH_UP_KEY)
@@ -1136,13 +1215,16 @@ def _apply_email_update(
 ) -> Email:
     """Nadpisanie istniejącego wiersza świeżą treścią z Graph.
 
-    Wydzielone bez zmiany zachowania, bo tę samą ścieżkę wykonuje teraz także
-    przegrany wyścig na UNIQUE (INSERT → IntegrityError → SELECT → update).
+    Tę samą ścieżkę wykonuje także przegrany wyścig na UNIQUE (INSERT →
+    IntegrityError → SELECT → update). Pusta treść nie kasuje zapisanej; kasuje
+    ją tylko kategoria prywatna, bo to decyzja właściciela skrzynki.
     """
     existing.is_read = is_read
-    existing.body_html = body_html
-    existing.body_text = body_text
-    existing.body_preview = body_preview
+    if is_private or body_html or body_text:
+        existing.body_html = body_html
+        existing.body_text = body_text
+    if is_private or body_preview:
+        existing.body_preview = body_preview
     existing.has_attachments = has_attachments
     existing.raw_categories = categories
     existing.is_private_filtered = is_private
@@ -1151,6 +1233,28 @@ def _apply_email_update(
         existing.match_method = match_method
         existing.match_confidence = match_confidence
         existing.matched_at = matched_at
+    return existing
+
+
+def _apply_partial_delta(existing: Email, msg: dict) -> Email:
+    """Aktualizacja bez ``body``: zmieniamy tylko pola, które Graph przysłał.
+
+    Dopasowanie do kandydata i załączniki zostają bez zmian, bo bez nadawcy
+    i treści nie ma ich z czego liczyć.
+    """
+    if "isRead" in msg:
+        existing.is_read = bool(msg["isRead"])
+    if "hasAttachments" in msg:
+        existing.has_attachments = bool(msg["hasAttachments"])
+    if "categories" in msg:
+        categories = msg["categories"] or []
+        existing.raw_categories = categories
+        existing.is_private_filtered = settings.M365_IGNORE_CATEGORY in categories
+        if existing.is_private_filtered:
+            existing.body_html = None
+            existing.body_text = None
+            existing.body_preview = None
+            existing.has_attachments = False
     return existing
 
 
@@ -1444,10 +1548,14 @@ async def _upsert_event(
     # Terminem rządzi NEXUS: usunięcie blokady nie odwołuje rozmowy (znikała
     # bramka debriefu i telefon po rozmowie), a przesunięcie blokady nie
     # przestawia terminu ani nie nadpisuje opisu z notatką DL-a.
-    nexus_interview = (
-        existing is not None
-        and existing.event_type == EventType.client_interview
-        and _created_in_nexus(existing)
+    # Umówiony telefon na screening (03.11.2026) działa tak samo: w Outlooku jest
+    # tylko blokada z imieniem i inicjałem, a tytuł i termin trzyma NEXUS.
+    nexus_interview = existing is not None and (
+        is_booked_call(existing)
+        or (
+            existing.event_type == EventType.client_interview
+            and _created_in_nexus(existing)
+        )
     )
     if nexus_interview:
         if ev.get("@removed") or ev.get("isCancelled"):
@@ -1615,7 +1723,7 @@ async def _record_sales_meeting(
         addresses = [a for a in (organizer, *attendees) if a]
         if skip_candidates and await _has_candidate_attendee(db, conn, addresses):
             return
-        await sales_outlook.record(
+        recorded = await sales_outlook.record(
             db,
             sales_outlook.OutlookItem(
                 source=sales_outlook.EVENT_SOURCE,
@@ -1630,6 +1738,24 @@ async def _record_sales_meeting(
                 duration_minutes=duration,
             ),
         )
+        # Transkrypt jest tylko u organizatora, a aplikacja widzi wyłącznie jego
+        # spotkania — to, gdzie handlowiec jest gościem, nie ma czego pobrać.
+        if (
+            recorded
+            and end is not None
+            and not ev.get("isAllDay")
+            and organizer
+            and organizer.strip().lower() == (conn.mailbox_upn or "").strip().lower()
+        ):
+            await sales_transcripts.enqueue(
+                db,
+                ical_uid=ical_uid,
+                graph_event_id=str(ev.get("id")),
+                organizer_user_id=conn.user_id,
+                organizer_upn=conn.mailbox_upn,
+                starts_at=start,
+                ends_at=end,
+            )
 
 
 async def _has_candidate_attendee(

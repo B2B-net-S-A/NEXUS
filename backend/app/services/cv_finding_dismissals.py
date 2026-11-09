@@ -15,6 +15,7 @@ stawki albo kontaktu do klienta, nie ocena treści.
 from __future__ import annotations
 
 import hashlib
+import re
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
@@ -58,6 +59,8 @@ SOURCES = ("qc", "generator", "review")
 NOTE_MAX = 500
 QUOTE_MAX = 300
 LABEL_MAX = 300
+# QC-13 (08.11.2026): ten sam próg co „Inny powód” przy obejściu QC.
+OTHER_MIN_WORDS = 3
 
 
 class DismissError(Exception):
@@ -196,8 +199,11 @@ def validate_reason(
     if allowed is not None and check_key not in allowed:
         raise DismissError("Ten powód nie pasuje do tej uwagi — wybierz inny.")
     clean = " ".join((note or "").split())[:NOTE_MAX] or None
-    if reason == "other" and not clean:
-        raise DismissError("Opisz, dlaczego uwaga jest nieprawdziwa.")
+    if reason == "other" and len(re.findall(r"\w{2,}", clean or "")) < OTHER_MIN_WORDS:
+        raise DismissError(
+            "Przy „Inny powód” napisz co najmniej trzy słowa, dlaczego uwaga jest "
+            "nieprawdziwa."
+        )
     return reason, clean
 
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { useToast } from "@/components/Toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -11,6 +12,7 @@ import {
   useLinkOpportunityContact,
   useSalesContacts,
   type ContactRole,
+  type OpportunityContact,
   type OpportunityDetail,
 } from "@/lib/api/sales";
 
@@ -21,10 +23,11 @@ const ROLE_OPTIONS = Object.entries(CONTACT_ROLE_LABELS).map(([value, label]) =>
 interface OpportunityContactsProps {
   opportunity: OpportunityDetail;
   canEdit: boolean;
+  onCall?: (contact: OpportunityContact) => void;
 }
 
 /** Kto po stronie klienta i w jakiej roli — kontakty z karty firmy dopięte do szansy. */
-export function OpportunityContacts({ opportunity, canEdit }: OpportunityContactsProps) {
+export function OpportunityContacts({ opportunity, canEdit, onCall }: OpportunityContactsProps) {
   const companyContacts = useSalesContacts(opportunity.company.id, "", canEdit);
   const link = useLinkOpportunityContact(opportunity.id);
   const { showError } = useToast();
@@ -52,16 +55,35 @@ export function OpportunityContacts({ opportunity, canEdit }: OpportunityContact
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
-                {(contact.email || contact.phone) && (
+                {contact.do_not_contact_at ? (
                   <p className="text-xs">
-                    {contact.email && (
-                      <a className="text-primary hover:underline" href={`mailto:${contact.email}`}>
-                        {contact.email}
-                      </a>
-                    )}
-                    {contact.email && contact.phone ? " · " : ""}
-                    {contact.phone}
+                    <Badge variant="danger" size="sm">
+                      Nie kontaktować
+                    </Badge>{" "}
+                    <span className="text-muted-foreground">
+                      {[contact.email, contact.phone].filter(Boolean).join(" · ")}
+                    </span>
                   </p>
+                ) : (
+                  (contact.email || contact.phone) && (
+                    <p className="text-xs">
+                      {contact.email && (
+                        <a className="text-primary hover:underline" href={`mailto:${contact.email}`}>
+                          {contact.email}
+                        </a>
+                      )}
+                      {contact.email && contact.phone ? " · " : ""}
+                      {contact.phone && (
+                        <a
+                          className="text-primary hover:underline"
+                          href={`tel:${contact.phone.replace(/\s+/g, "")}`}
+                          onClick={() => onCall?.(contact)}
+                        >
+                          {contact.phone}
+                        </a>
+                      )}
+                    </p>
+                  )
                 )}
               </div>
               {canEdit && (

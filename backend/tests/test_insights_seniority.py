@@ -17,12 +17,15 @@ i nie widać go na ekranie — czyli takie, które bez testu wracają cicho:
    (kandydat, oferta) — import dopisuje wiersz na każde zdarzenie.
 5. **Brak degradacji.** Poziom osiągnięty w oknie, które już minęło, zostaje.
 6. **Każda rola czyta endpoint** (decyzja D7).
+7. **Placement idzie do tej samej osoby co w Insights → Zespół**, nie do tego,
+   kto kliknął „Zatrudniony”.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
@@ -32,6 +35,7 @@ from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
+from app.models.candidate_job_owner import CandidateJobOwner
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -42,6 +46,7 @@ from app.services.insights_seniority import (
     _progress_pct,
     compute_seniority,
 )
+from app.services.kpi_team import compute_team_panel
 
 # Progi testowe świadomie NIŻSZE niż produkcyjne — 3 placementy zamiast 6.
 # Test ma sprawdzać ARYTMETYKĘ okna, nie wysokość progu; przy produkcyjnych
@@ -180,6 +185,59 @@ async def fx_client() -> AsyncClient:
         base_url="http://testserver",
     ) as c:
         yield c
+
+
+async def _seed_clicked_placement(
+    *, verifier_id: int, clicked_by: int, month: int, owner_id: int | None = None
+) -> None:
+    """Para: weryfikuje rekruter, „Zatrudniony” klika ktoś inny (DL, Finanse)."""
+    async with AsyncSessionLocal() as db:
+        client_row = Client(name=f"SnrCli-{uuid.uuid4().hex[:6]}")
+        db.add(client_row)
+        await db.flush()
+        job = Job(
+            title=f"Snr {uuid.uuid4().hex[:6]}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=client_row.id,
+        )
+        candidate = Candidate(
+            name=f"Snr-{uuid.uuid4().hex[:4]}",
+            lastname=f"Path-{uuid.uuid4().hex[:4]}",
+            email=f"snr-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add_all([job, candidate])
+        await db.flush()
+        base = datetime(SEED_YEAR, month, 15, 12, 0, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.verified,
+                    moved_at=base - timedelta(days=5),
+                    moved_by=verifier_id,
+                ),
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=base,
+                    moved_by=clicked_by,
+                ),
+            ]
+        )
+        if owner_id is not None:
+            db.add(
+                CandidateJobOwner(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    owner_user_id=owner_id,
+                    reason="Test przypisania osoby prowadzącej",
+                )
+            )
+        await db.commit()
 
 
 # ── 1. Junior przy zerze ─────────────────────────────────────────────────────
@@ -635,3 +693,89 @@ async def test_envelope_carries_the_rule_so_the_ui_can_write_it_out(
     # nie zgadza się z lejkiem (decyzja D1).
     assert "unattributed_placements" in body["coverage"]
     assert "outside_pool_placements" in body["coverage"]
+
+
+# ── 7. Atrybucja: ta sama osoba co w Insights → Zespół ───────────────────────
+#
+# 05.11.2026: na kopii produkcji rekruter miał w Ścieżce 4 placementy, a w samym
+# październiku w tabeli Zespół 5. Ścieżka szła za `first_moved_by`, czyli za tym,
+# kto kliknął „Zatrudniony”: Finanse kliknęły 7 z 22 placementów od 12.10, DL 10,
+# admin 2, a rekruterzy tylko 3 — i dwóm osobom brakowało przez to awansu.
+
+
+@pytest.mark.asyncio
+async def test_placement_counts_for_the_verifier_not_for_whoever_clicked_hired():
+    recruiter = await _seed_user(UserRole.recruiter, "credited")
+    finance = await _seed_user(UserRole.finance, "clicked")
+    await _seed_clicked_placement(verifier_id=recruiter, clicked_by=finance, month=2)
+
+    _, row = await _row_for(recruiter)
+
+    assert row is not None
+    assert row.total_placements == 1
+    assert row.first_placement_month == f"{SEED_YEAR}-02"
+
+
+@pytest.mark.asyncio
+async def test_recruiter_who_only_clicked_hired_gets_no_placement():
+    verifier = await _seed_user(UserRole.recruiter, "verifier")
+    clicker = await _seed_user(UserRole.recruiter, "clicker")
+    await _seed_clicked_placement(verifier_id=verifier, clicked_by=clicker, month=3)
+
+    _, row = await _row_for(clicker)
+
+    assert row is not None
+    assert row.total_placements == 0
+
+
+@pytest.mark.asyncio
+async def test_assigned_owner_takes_the_placement_like_in_the_team_table():
+    verifier = await _seed_user(UserRole.recruiter, "verifier")
+    owner = await _seed_user(UserRole.recruiter, "owner")
+    lead = await _seed_user(UserRole.delivery_lead, "clicked")
+    await _seed_clicked_placement(
+        verifier_id=verifier, clicked_by=lead, month=4, owner_id=owner
+    )
+
+    _, owner_row = await _row_for(owner)
+    _, verifier_row = await _row_for(verifier)
+
+    assert owner_row.total_placements == 1
+    assert verifier_row.total_placements == 0
+
+
+@pytest.mark.asyncio
+async def test_credit_clicked_by_someone_else_counts_towards_promotion():
+    recruiter = await _seed_user(UserRole.recruiter, "promoted")
+    lead = await _seed_user(UserRole.delivery_lead, "clicked")
+    for month in (1, 2, 3):
+        await _seed_clicked_placement(
+            verifier_id=recruiter, clicked_by=lead, month=month
+        )
+
+    _, row = await _row_for(recruiter)
+
+    assert row.level == "senior"
+    assert row.senior_since == f"{SEED_YEAR}-03"
+
+
+@pytest.mark.asyncio
+async def test_total_matches_team_table_for_the_same_window():
+    recruiter = await _seed_user(UserRole.recruiter, "parity")
+    lead = await _seed_user(UserRole.delivery_lead, "clicked")
+    await _seed_placements(recruiter, [5])
+    await _seed_clicked_placement(verifier_id=recruiter, clicked_by=lead, month=6)
+
+    _, row = await _row_for(recruiter)
+    warsaw = ZoneInfo("Europe/Warsaw")
+    async with AsyncSessionLocal() as db:
+        panel = await compute_team_panel(
+            db,
+            bounds=(
+                datetime(2000, 1, 1, tzinfo=warsaw),
+                datetime(SEED_YEAR + 1, 1, 1, tzinfo=warsaw),
+            ),
+        )
+    team_row = next(r for r in panel.rows if r.user_id == recruiter)
+
+    assert row.total_placements == team_row.placementy == 2

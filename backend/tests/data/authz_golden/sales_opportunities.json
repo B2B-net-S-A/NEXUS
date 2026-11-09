@@ -25,20 +25,28 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "DELETE /api/sales/opportunities/{opportunity_id}/decision-map/{person_key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/owner-candidates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/opportunities/{opportunity_id}/decision-map/{person_key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/calls": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/decision-map": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

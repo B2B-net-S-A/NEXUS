@@ -26,6 +26,14 @@ import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   afterAll,
   beforeAll,
   beforeEach,
@@ -502,6 +510,44 @@ describe("InsightsPlacementAnalysis", () => {
     expect(
       screen.queryByText("Brak placementów w wybranym oknie."),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("BarChart — kontrakt renderowania recharts", () => {
+  const POINTS = [
+    { month: "sty", requests: 12, placements: 3 },
+    { month: "lut", requests: 18, placements: 5 },
+    { month: "mar", requests: 9, placements: 2 },
+  ];
+
+  it("rysuje słupki z niezerową szerokością i wysokością", () => {
+    const { container } = render(
+      <div style={{ width: 800, height: 320 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={POINTS}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="month" />
+            <YAxis />
+            <Bar dataKey="requests" />
+            <Bar dataKey="placements" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>,
+    );
+
+    // Ścieżki, nie grupy: `.recharts-bar-rectangle` powstaje też dla słupka
+    // o zerowej wysokości, więc samo zliczanie grup niczego nie dowodzi.
+    const bars = container.querySelectorAll(".recharts-bar-rectangle path");
+    expect(bars).toHaveLength(2 * POINTS.length);
+    bars.forEach((bar) => {
+      const [, width, height] =
+        bar.getAttribute("d")?.match(/h\s*(-?[\d.]+)\s*v\s*(-?[\d.]+)/) ?? [];
+      expect(Math.abs(Number(width))).toBeGreaterThan(0);
+      expect(Math.abs(Number(height))).toBeGreaterThan(0);
+    });
+    expect(
+      container.querySelector(".recharts-cartesian-grid line"),
+    ).not.toBeNull();
   });
 });
 

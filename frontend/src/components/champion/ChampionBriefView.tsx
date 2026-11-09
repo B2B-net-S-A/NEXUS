@@ -17,7 +17,7 @@
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PencilLine } from "lucide-react";
+import { PencilLine, Users } from "lucide-react";
 
 import { Chips, Fact, stackNames } from "@/components/champion/BriefParts";
 import { ExperienceChips, useChampionProfile } from "@/components/champion/ChampionBriefForRecruiters";
@@ -30,11 +30,17 @@ import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import type { ChampionBlock } from "@/lib/champion-blocks";
+import {
+  responsibilityCount,
+  responsibilityGroups,
+  type ResponsibilityGroup,
+} from "@/lib/champion-responsibilities";
 import { JOB_WORK_MODE_LABEL, seedChampionFromJob } from "@/lib/champion-job-seed";
 import { criticalBriefLine } from "@/lib/critical-skills";
 import { formatBudgetHourly, formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
 import { formatJobDeadline } from "@/lib/job-deadline";
 import { recruitersOf, workingRecruiters, type JobTeamSource } from "@/lib/job-team";
+import { fillSupplierName } from "@/lib/consent-mail";
 import { officeDaysLabel } from "@/lib/office-days";
 import { buildGlossaryLookup } from "@/lib/plain-glossary-lookup";
 import { resolveViewState } from "@/lib/view-state";
@@ -50,6 +56,8 @@ export interface ChampionBriefJob extends JobTeamSource, JobBudgetSource {
   description?: string | null;
   hiring_manager_name?: string | null;
   delivery_lead_user?: { name?: string | null } | null;
+  /** Liczba osób do zatrudnienia (`Job.headcount`). */
+  headcount?: number | null;
 }
 
 export interface ChampionBriefViewProps {
@@ -70,6 +78,8 @@ export interface ChampionBriefViewProps {
    */
   onEditClientTitle?: () => void;
   onEditClientReference?: () => void;
+  /** „Zmień” przy „Liczba osób”: pole edytuje się w „Zespół i ogłoszenie”. */
+  onEditHeadcount?: () => void;
 }
 
 /** Kotwice sekcji edytora (`ChampionProfileEditor`, `id=` na kartach). */
@@ -87,6 +97,7 @@ const SCREENING_PREVIEW = 3;
 
 export function BriefSection({
   title,
+  badge,
   action,
   onEdit,
   children,
@@ -94,6 +105,8 @@ export function BriefSection({
   className,
 }: {
   title: string;
+  /** Znacznik przy tytule, np. „Szukamy 3 osób”. */
+  badge?: ReactNode;
   action?: ReactNode;
   onEdit?: () => void;
   children: ReactNode;
@@ -107,7 +120,10 @@ export function BriefSection({
       aria-label={title}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
+          {badge}
+        </div>
         <div className="flex items-center gap-3">
           {action}
           {onEdit ? (
@@ -164,6 +180,7 @@ export function ChampionBriefView({
   onOpenClient,
   onEditClientTitle,
   onEditClientReference,
+  onEditHeadcount,
 }: ChampionBriefViewProps) {
   const query = useChampionProfile(jobId);
   const plainQuery = usePlainBrief(jobId);
@@ -228,10 +245,7 @@ export function ChampionBriefView({
     .filter(Boolean)
     .join(" · ");
   const projectAbout = profile.project?.about?.trim() ?? "";
-  const responsibilities = (profile.project?.responsibilities ?? "")
-    .split(/\n|;/)
-    .map((line) => line.replace(/^[-•*]\s*/, "").trim())
-    .filter(Boolean);
+  const responsibilities = responsibilityGroups(profile.project?.responsibilities ?? "");
   const experienceCount =
     (profile.experience?.domains?.length ?? 0) +
     (profile.experience?.certifications?.length ?? 0) +
@@ -253,6 +267,19 @@ export function ChampionBriefView({
 
           <BriefSection
             title="Czego szukamy"
+            badge={
+              // Tylko przy kilku osobach (16 ze 185 otwartych rekrutacji, 04.11.2026):
+              // przy każdej rekrutacji znacznik przestałby być zauważany.
+              job.headcount != null && job.headcount > 1 ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground"
+                  data-testid="brief-headcount-badge"
+                >
+                  <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                  Szukamy {job.headcount} osób
+                </span>
+              ) : null
+            }
             onEdit={edit("search")}
             action={
               onOpenManualSearch ? (
@@ -385,6 +412,12 @@ export function ChampionBriefView({
           >
             <dl className="divide-y divide-border/60">
               <Fact
+                label="Liczba osób"
+                value={job.headcount ?? "nie podano"}
+                muted={job.headcount == null}
+                action={<JobFieldEdit label="Liczba osób" onClick={onEditHeadcount} />}
+              />
+              <Fact
                 label="Budżet"
                 value={
                   // Przedział „od–do” z rekrutacji (0420); bez niego — stawka profilu.
@@ -434,7 +467,19 @@ export function ChampionBriefView({
                   Oryginalny opis od klienta
                 </summary>
                 <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-line text-[13px] leading-relaxed text-foreground">
-                  {job.description}
+                  {fillSupplierName(job.description).map((part, index) =>
+                    part.filled ? (
+                      <mark
+                        key={index}
+                        title="W zapytaniu klienta: [Nazwa Dostawcy]"
+                        className="rounded bg-warning-muted px-0.5 text-warning-muted-foreground"
+                      >
+                        {part.value}
+                      </mark>
+                    ) : (
+                      part.value
+                    ),
+                  )}
                 </p>
               </details>
             ) : null}
@@ -487,7 +532,8 @@ export function ChampionBriefView({
  * nie wchodzi się w edycję, żeby doczytać opis). Bez obowiązków ucięty
  * opis rozwija „Cały opis”.
  */
-function ProjectAbout({ about, responsibilities }: { about: string; responsibilities: string[] }) {
+function ProjectAbout({ about, responsibilities }: { about: string; responsibilities: ResponsibilityGroup[] }) {
+  const count = responsibilityCount(responsibilities);
   const [open, setOpen] = useState(false);
   const [clamped, setClamped] = useState(false);
   const aboutRef = useRef<HTMLParagraphElement>(null);
@@ -504,9 +550,7 @@ function ProjectAbout({ about, responsibilities }: { about: string; responsibili
   }, [about, open]);
 
   const label =
-    responsibilities.length > 0
-      ? `${clamped ? "Cały opis i obowiązki" : "Obowiązki"} (${responsibilities.length})`
-      : "Cały opis";
+    count > 0 ? `${clamped ? "Cały opis i obowiązki" : "Obowiązki"} (${count})` : "Cały opis";
 
   return (
     <>
@@ -520,16 +564,19 @@ function ProjectAbout({ about, responsibilities }: { about: string; responsibili
       ) : (
         <p className="text-[13px] text-muted-foreground">Delivery Lead nie opisał jeszcze projektu.</p>
       )}
-      {responsibilities.length > 0 || (about && clamped) ? (
+      {count > 0 || (about && clamped) ? (
         <details className="text-sm" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
           <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">{label}</summary>
-          {responsibilities.length > 0 ? (
-            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-foreground">
-              {responsibilities.map((line, i) => (
-                <li key={`${i}-${line}`}>{line}</li>
-              ))}
-            </ul>
-          ) : null}
+          {responsibilities.map((group, g) => (
+            <div key={`${g}-${group.title ?? ""}`} className="mt-1">
+              {group.title ? <p className="mt-2 text-[13px] font-medium text-foreground">{group.title}</p> : null}
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-5 text-foreground">
+                {group.items.map((line, i) => (
+                  <li key={`${i}-${line}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </details>
       ) : null}
     </>

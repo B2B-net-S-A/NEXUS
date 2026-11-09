@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     Time,
@@ -132,8 +133,7 @@ class Job(Base, TimestampMixin):
     )
 
     # „Czy MY aktywnie prowadzimy tę rekrutację" (migracja 0270) — kolumna
-    # NEXUSA, której sync Traffita NIGDY nie dotyka (patrz
-    # `services/job_column_ownership.py`).
+    # NEXUSA, której sync Traffita nigdy nie dotykał.
     #
     # Nie myl ze `status` wyżej: ten mówi, czy rekrutacja żyje U KLIENTA, i jest
     # lustrem Traffita. Do 0270 oba pytania dzieliły jedną kolumnę, przez co
@@ -187,7 +187,7 @@ class Job(Base, TimestampMixin):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     # 0371: stan pracy nad requestem prowadzony w NEXUSIE (Traffit go nie
-    # nadpisuje — `job_column_ownership.NEXUS_OWNED`): to_review („Do
+    # nadpisywał): to_review („Do
     # przejrzenia”), searching („Szukamy kandydatów”), client_silent („Klient
     # milczy”), finished („Zakończony”). „Mamy championa” NIE jest wartością —
     # to `champion_found_at` przy stanie searching
@@ -346,6 +346,20 @@ class Job(Base, TimestampMixin):
     duplicate_of_job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
+    # 0652: początek bieżącego otwarcia — ustawia „Otwórz ponownie”
+    # (`services/job_opening.py`). NULL = rekrutacja nigdy nie otwarta
+    # ponownie, liczy się cała jej historia.
+    cycle_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 0655: plan koszyków zespołu — ile osób ma szukać w bazie NEXUSA, a ile
+    # na LinkedInie (`services/job_channels.py`). NULL = bez planu.
+    channel_plan_base: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
+    )
+    channel_plan_linkedin: Mapped[Optional[int]] = mapped_column(
+        SmallInteger, nullable=True
+    )
 
     # Foreign keys
     # client_id: enforced NOT NULL od migracji 0120 (2026-05-27). Wcześniej
@@ -417,8 +431,8 @@ class Job(Base, TimestampMixin):
     )
 
     # Przełącznik „Rekrutacja prowadzona w NEXUSIE" (0325, decyzja Artura 17.09.2026).
-    # Gdy true: `import_pipelines` POMIJA ruchy etapów tej oferty, a `_UPSERT_JOB`
-    # nie nadpisuje `title`/`status`/`closed_at`. Kolumna NEXUSA — sync jej nie dotyka.
+    # Gdy true, import Traffita (usunięty 08.11.2026) pomijał ruchy etapów tej
+    # oferty i nie nadpisywał `title`/`status`/`closed_at`. Kolumna NEXUSA.
     managed_in_nexus: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

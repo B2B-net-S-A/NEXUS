@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
+import { planOf } from "@/lib/job-channels";
 import { COLLABORATOR_ROLES } from "@/lib/job-collaborators";
 import {
   assignedByCaption,
@@ -43,6 +44,7 @@ import {
 } from "@/components/ui/popover";
 import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 import { ReassignOwnerV2 } from "@/components/v2/modals/ReassignOwnerV2";
+import { JobChannelBuckets } from "./JobChannelBuckets";
 import { RecruiterChips } from "./RecruiterChips";
 import { useRecruiterActions } from "./useRecruiterActions";
 import {
@@ -53,6 +55,9 @@ import {
 
 /** Pola rekrutacji (`GET /api/jobs/{id}`), z których panel czyta obsadę. */
 export interface JobOwnershipJob extends JobTeamSource, PrioritySource {
+  /** 0655: plan koszyków „Baza” / „LinkedIn”; brak = bez planu. */
+  channel_plan_base?: number | null;
+  channel_plan_linkedin?: number | null;
   primary_owner?: UserBrief | null;
   /**
    * Czy bieżąca osoba przydziela i zdejmuje rekruterów TEJ rekrutacji (rola
@@ -251,22 +256,43 @@ export function JobOwnershipPanel({
 
   const hasActions = canStaff || canAdd || canClaim || canJoin;
 
+  // Koszyki „Baza” / „LinkedIn” (06.11.2026), gdy ktoś pracuje; propozycje
+  // automatu zostają pod spodem w zwykłej liście — to jeszcze nie praca.
+  const showBuckets = working.length > 0;
+  const proposals = people.filter((p) => p.proposed);
+  const canRemove = (person: JobRecruiter) =>
+    !person.proposed && canRemoveRecruiter(person, access);
+
   return (
     <div className="min-w-0 space-y-1.5" data-testid="job-recruiters">
+      {showBuckets ? (
+        <JobChannelBuckets
+          jobId={jobId}
+          working={working}
+          plan={planOf(job)}
+          canStaff={canStaff}
+          canJoin={canJoin}
+          meId={meId}
+          run={run}
+          pending={pending}
+          onRemove={(person) => void remove(person)}
+          canRemove={canRemove}
+        />
+      ) : null}
       <RecruiterChips
-        people={people}
+        people={showBuckets ? proposals : people}
         size="md"
         label="Rekruter"
         caption={caption}
         onRemove={(person) => void remove(person)}
         // Propozycję odrzuca „Odrzuć” obok „Akceptuj” — bez drugiego krzyżyka.
-        canRemove={(person) =>
-          !person.proposed && canRemoveRecruiter(person, access)
-        }
+        canRemove={canRemove}
         proposalActions={proposalActions}
         // Przy poprzednich rekruterach pusty wiersz to stan zamierzony —
         // mówi o nim zdanie niżej, bez bursztynowej plakietki.
-        emptyLabel={previous.length > 0 ? undefined : NO_RECRUITER_LABEL}
+        // Przy koszykach ta lista niesie same propozycje — jej pustka nie
+        // znaczy „Bez rekrutera”.
+        emptyLabel={showBuckets || previous.length > 0 ? undefined : NO_RECRUITER_LABEL}
       />
       {nextStep ? (
         <p className="text-[11px] leading-snug text-muted-foreground">
@@ -303,7 +329,7 @@ export function JobOwnershipPanel({
               Biorę
             </Button>
           ) : null}
-          {canJoin && meId != null ? (
+          {canJoin && meId != null && !showBuckets ? (
             <Button
               type="button"
               size="sm"

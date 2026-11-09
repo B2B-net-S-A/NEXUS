@@ -57,6 +57,7 @@ ENTITY_TYPE_LABELS: dict[str, str] = {
 EVENT_TYPE_LABELS: dict[str, str] = {
     "client.delete": "Usunięcie klienta",
     "client.merge": "Scalenie klientów",
+    "client.registry_number_added": "Dopisanie numeru klienta z faktury KSeF",
     "candidate.delete": "Usunięcie kandydata / kontraktora",
     "order_line.delete": "Usunięcie konsultanta z zamówienia",
     "contract.delete": "Usunięcie kontraktu",
@@ -68,6 +69,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "order.delete": "Usunięcie zamówienia",
     "order_group.delete": "Usunięcie zamówienia MD / kosztowego",
     "user.client_delete_permission": "Zmiana uprawnienia do usuwania klientów",
+    "user.board_report_permission": "Zmiana odbiorcy maila „Podsumowanie Rady”",
     "rbac.role_permissions": "Zmiana uprawnień roli",
     "rbac.user_permissions": "Zmiana uprawnień osoby",
     "job.delete": "Usunięcie rekrutacji",

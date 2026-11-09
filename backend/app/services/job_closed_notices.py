@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import func, select
@@ -44,6 +45,7 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.services.board_stage_badges import board_column_for
+from app.services.job_opening import in_opening
 from app.services.stage_verifier import first_verifier
 
 logger = logging.getLogger(__name__)
@@ -94,7 +96,11 @@ class Recipient:
 
 
 def waiting_cards(
-    stages: Iterable[Any], owners: Optional[dict[int, int]] = None
+    stages: Iterable[Any],
+    owners: Optional[dict[int, int]] = None,
+    *,
+    columns: Optional[Sequence[str]] = NOTIFY_COLUMNS,
+    since: Optional[datetime] = None,
 ) -> list[WaitingCard]:
     """Karty od „CV wysłane” w górę z osobą karty — bez bazy.
 
@@ -104,6 +110,9 @@ def waiting_cards(
     kolejności. ``owners`` = przypisania „Prowadzi” (kandydat → osoba).
     Bieżąca karta = najnowszy wiersz pary (jak Tablica), osoba karty =
     przypisana, potem pierwszy weryfikujący, potem autor najstarszego wiersza.
+    ``columns=None`` = każda karta w toku (bez „Zamkniętych” i „Zatrudnionych”).
+    ``since`` = początek bieżącego otwarcia (``job_opening``): karta, której
+    najnowszy ruch był przed nim, została w poprzednim otwarciu.
     """
     owners = owners or {}
     by_candidate: dict[int, list[Any]] = {}
@@ -113,6 +122,8 @@ def waiting_cards(
     for candidate_id, rows in by_candidate.items():
         rows.sort(key=lambda r: (r.moved_at, r.id))
         latest = rows[-1]
+        if not in_opening(latest.moved_at, since):
+            continue
         column = board_column_for(
             latest.stage_name,
             getattr(latest.stage, "value", latest.stage),
@@ -121,7 +132,10 @@ def waiting_cards(
                 latest.stage_terminal_type, "value", latest.stage_terminal_type
             ),
         )
-        if column not in NOTIFY_COLUMNS:
+        if columns is None:
+            if column in ("closed", "hired"):
+                continue
+        elif column not in columns:
             continue
         verifier = None
         for row in rows:
@@ -157,11 +171,12 @@ def group_recipients(
             )
         )
     order = {column: i for i, column in enumerate(NOTIFY_COLUMNS)}
+    last = len(order)
     recipients = [
         Recipient(
             user_id,
             user_names[user_id],
-            tuple(sorted(rows, key=lambda p: (order[p.column], p.name))),
+            tuple(sorted(rows, key=lambda p: (order.get(p.column, last), p.name))),
         )
         for user_id, rows in people.items()
     ]
@@ -169,7 +184,11 @@ def group_recipients(
 
 
 async def load_recipients(
-    db: AsyncSession, job_id: int, *, exclude_user_id: Optional[int]
+    db: AsyncSession,
+    job_id: int,
+    *,
+    exclude_user_id: Optional[int],
+    columns: Optional[Sequence[str]] = NOTIFY_COLUMNS,
 ) -> list[Recipient]:
     rows = (
         await db.execute(
@@ -192,9 +211,16 @@ async def load_recipients(
     ).all()
     from app.services.pair_owner import owners_for_job  # noqa: PLC0415
 
+    opening_started_at = await db.scalar(
+        select(Job.cycle_started_at).where(Job.id == job_id)
+    )
+
     assigned = await owners_for_job(db, job_id)
     cards = waiting_cards(
-        rows, {cid: owner.owner_user_id for cid, owner in assigned.items()}
+        rows,
+        {cid: owner.owner_user_id for cid, owner in assigned.items()},
+        columns=columns,
+        since=opening_started_at,
     )
     if not cards:
         return []
@@ -245,10 +271,23 @@ def recipients_payload(recipients: Sequence[Recipient]) -> list[dict[str, Any]]:
 
 
 async def active_cards_warning(
-    db: AsyncSession, job_id: int, *, actor_id: Optional[int]
+    db: AsyncSession,
+    job_id: int,
+    *,
+    actor_id: Optional[int],
+    close_reason: Any = None,
+    job: Optional[Job] = None,
 ) -> Optional[dict[str, Any]]:
-    """Treść 409 ``active_cards_warning`` z listą odbiorców albo ``None``."""
+    """Treść 409 ``active_cards_warning`` z listą odbiorców albo ``None``.
+
+    Przy powodzie, który kończy pary u klienta, dochodzi ``client_end``
+    (``job_close_client_cards``): okno pyta, czy je zakończyć.
+    """
     from app.services.job_active_cards import load_active_cards  # noqa: PLC0415
+    from app.services.job_close_client_cards import (  # noqa: PLC0415
+        client_side_cards,
+        preview_payload,
+    )
 
     active = await load_active_cards(db, job_id)
     if not active.total:
@@ -257,6 +296,12 @@ async def active_cards_warning(
     detail["recipients"] = recipients_payload(
         await load_recipients(db, job_id, exclude_user_id=actor_id)
     )
+    if job is not None and close_reason is not None:
+        detail["client_end"] = preview_payload(
+            await client_side_cards(db, job), close_reason
+        )
+        if detail["client_end"] is not None:
+            detail["message"] = active.message(cards_may_end=True)
     return detail
 
 
@@ -272,8 +317,12 @@ def notice_text(
     client_name: Optional[str],
     actor_name: Optional[str],
     reason: Optional[str],
+    ended_ids: frozenset[int] = frozenset(),
 ) -> tuple[str, str]:
-    """Tytuł i treść dzwonka (a więc i maila) dla jednego rekrutera."""
+    """Tytuł i treść dzwonka (a więc i maila) dla jednego rekrutera.
+
+    ``ended_ids`` = pary, które zamknięcie kończy „przez klienta” (08.11.2026).
+    """
     title = f"Rekrutacja zamknięta — daj znać {_people_dative(len(recipient.people))}"
     head = f"{job_title} · {client_name}" if client_name else job_title
     closed = "Zamknięcie"
@@ -286,15 +335,33 @@ def notice_text(
     rest = len(recipient.people) - len(shown)
     if rest:
         names += f" i {rest} innych"
-    message = (
-        f"{head}. {closed}. Twoje osoby nadal są w procesie: {names}. "
-        "Daj im znać — okno „Odrzuć” na Tablicy może wysłać im mail z Twojej skrzynki."
-    )
+    ended = sum(1 for p in recipient.people if p.candidate_id in ended_ids)
+    if ended == len(recipient.people):
+        tail = (
+            f"Twoje osoby: {names}. Ich procesy NEXUS zakończył jako „przez klienta”, "
+            "bez maila do kandydatów. Daj im znać."
+        )
+    elif ended:
+        tail = (
+            f"Twoje osoby: {names}. Część procesów ({ended}) NEXUS zakończył jako "
+            "„przez klienta”, bez maila. Reszta jest dalej w toku. Daj im znać: okno "
+            "„Odrzuć” na Tablicy może wysłać mail z Twojej skrzynki."
+        )
+    else:
+        tail = (
+            f"Twoje osoby nadal są w procesie: {names}. Daj im znać — okno „Odrzuć” "
+            "na Tablicy może wysłać im mail z Twojej skrzynki."
+        )
+    message = f"{head}. {closed}. {tail}"
     return title, message
 
 
 async def notify_closed(
-    db: AsyncSession, job: Job, *, actor_id: Optional[int]
+    db: AsyncSession,
+    job: Job,
+    *,
+    actor_id: Optional[int],
+    ended_ids: frozenset[int] = frozenset(),
 ) -> list[int]:
     """Dzwonek (i mail obowiązkowy z kolejki) do rekruterów osób w toku.
 
@@ -326,6 +393,7 @@ async def notify_closed(
             client_name=client_name,
             actor_name=actor_name,
             reason=reason,
+            ended_ids=ended_ids,
         )
         try:
             async with db.begin_nested():
@@ -344,6 +412,93 @@ async def notify_closed(
         except Exception:  # noqa: BLE001 — dzwonek nie może cofnąć zamknięcia
             logger.exception(
                 "job_closed_notices: dzwonek dla user_id=%s job_id=%s nie powstał",
+                recipient.user_id,
+                job.id,
+            )
+    return sent
+
+
+def cpro_notice_text(
+    recipient: Recipient,
+    *,
+    job_title: str,
+    client_name: Optional[str],
+    request: Optional[str],
+    cpro_reason: Optional[str],
+) -> tuple[str, str]:
+    """Tytuł i treść, gdy rekrutację zamknął mail CPro (02.11.2026)."""
+    at_client = [p for p in recipient.people if p.column in NOTIFY_COLUMNS]
+    earlier = len(recipient.people) - len(at_client)
+    if at_client:
+        title = f"CPro zamknęło rekrutację: daj znać {_people_dative(len(at_client))}"
+    else:
+        title = "CPro zamknęło rekrutację: nie dzwoń już w tej sprawie"
+    head = f"{job_title} · {client_name}" if client_name else job_title
+    number = f"request {request}" if request else "request"
+    parts = [f"{head}. Nordea zamknęła {number} w CPro."]
+    if cpro_reason:
+        parts.append(f"Powód w CPro: {cpro_reason}.")
+    if at_client:
+        shown = at_client[:NAMES_MAX]
+        names = ", ".join(f"{p.name} ({COLUMN_LABELS[p.column]})" for p in shown)
+        rest = len(at_client) - len(shown)
+        if rest:
+            names += f" i {rest} innych"
+        parts.append(f"Twoje osoby, które były u klienta: {names}. Daj im znać.")
+    if earlier:
+        parts.append(
+            f"Pozostałe Twoje osoby w tej rekrutacji: {earlier}. Nie dzwoń już do nich w tej sprawie."
+        )
+    return title, " ".join(parts)
+
+
+async def notify_closed_from_cpro(
+    db: AsyncSession,
+    job: Job,
+    *,
+    request: Optional[str],
+    cpro_reason: Optional[str],
+) -> list[int]:
+    """Dzwonek i mail do każdego rekrutera z kartą w toku (decyzja Artura 02.11).
+
+    Wyjątek od reguły „automaty nie piszą do rekruterów”: klient zamknął request
+    i rekruterzy mają wiedzieć od razu, także ci z osobami w „Nowych”.
+    """
+    from app.services.job_working_title import display_title  # noqa: PLC0415
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    recipients = await load_recipients(db, job.id, exclude_user_id=None, columns=None)
+    client_name = await db.scalar(
+        select(func.coalesce(Client.display_name, Client.name)).where(
+            Client.id == job.client_id
+        )
+    )
+    sent: list[int] = []
+    for recipient in recipients:
+        title, message = cpro_notice_text(
+            recipient,
+            job_title=display_title(job),
+            client_name=client_name,
+            request=request,
+            cpro_reason=cpro_reason,
+        )
+        try:
+            async with db.begin_nested():
+                row = await emit(
+                    db,
+                    user_id=recipient.user_id,
+                    title=title,
+                    message=message,
+                    ntype=NotificationType.job_closed_people_waiting,
+                    related_entity_type="job",
+                    related_entity_id=job.id,
+                    link=f"/jobs/{job.id}",
+                )
+            if row is not None:
+                sent.append(recipient.user_id)
+        except Exception:  # noqa: BLE001 — dzwonek nie może cofnąć zamknięcia
+            logger.exception(
+                "job_closed_notices: dzwonek CPro dla user_id=%s job_id=%s nie powstał",
                 recipient.user_id,
                 job.id,
             )

@@ -28,6 +28,70 @@ from tests.test_board_tasks import _cleanup, _login, _seed_user, _seed_world
 UTC = timezone.utc
 
 
+def _board_days(**over):
+    args = {
+        "moved_at": datetime(2026, 11, 3, 9, 0, tzinfo=UTC),
+        "column": "cv_qc",
+        "qc_status": "passed",
+        "ok_at": datetime(2026, 11, 6, 9, 0, tzinfo=UTC),
+        "today": date(2026, 11, 9),
+    }
+    return queue.board_waiting_workdays(**{**args, **over})
+
+
+def test_board_waiting_workdays_qc_ready_counts_from_ok_at():
+    """U5 (audyt 08.11.2026): karta i pas DL mówią tę samą liczbę dni roboczych.
+
+    QC zdane w piątek 06.11, patrzymy w niedzielę 08.11: zero dni roboczych,
+    choć kalendarzowo to dwa dni („Czeka na Ciebie · 2 dni” na karcie 789167).
+    """
+    moved = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
+    ok_at = datetime(2026, 11, 6, 9, 0, tzinfo=UTC)
+    sunday = date(2026, 11, 8)
+    assert (
+        _board_days(today=sunday)
+        == queue.readiness_of(
+            since=moved, qc_status="passed", ok_at=ok_at, today=sunday
+        ).waiting_workdays
+        == 0
+    )
+
+
+def test_board_waiting_workdays_outside_ready_qc_counts_from_move():
+    # Karta na „Zweryfikowanym” z QC zdanym później: liczy się wejście na etap.
+    assert _board_days(column="verified") == 4
+    # „QC CV” bez zdanego QC: ruch ma rekruter, liczy się wejście do kolumny.
+    assert _board_days(qc_status="failed", ok_at=None) == 4
+
+
+def test_board_waiting_workdays_autofill_days_only_in_new_column():
+    """Termin decyzji o osobie od systemu dotyczy tylko kolumny „Nowi”."""
+    assert _board_days(column="new", autofill_days=7) == 7
+    # Przeciągnięta dalej: ta sama liczba co pas DL, nie dni od wejścia do „Nowych”.
+    assert _board_days(today=date(2026, 11, 8), autofill_days=9) == 0
+    assert _board_days(column="verified", autofill_days=9) == 4
+
+
+@pytest.mark.parametrize("column", ["cv_sent", "client_interview"])
+def test_board_waiting_workdays_client_columns_use_the_client_clock(column):
+    """Wiersz ruchu i „Klient milczy” to jeden zegar: po „Klient odpowiedział” jedna liczba."""
+    responded = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+    assert _board_days(column=column, client_since=responded) == 2
+    # Awaria liczenia ciszy (brak zegara): karta nadal liczy od wejścia na etap.
+    assert _board_days(column=column) == 4
+
+
+def test_board_waiting_workdays_client_clock_only_in_client_columns():
+    responded = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+    assert _board_days(column="verified", client_since=responded) == 4
+
+
+@pytest.mark.parametrize("column", ["hired", "closed"])
+def test_board_waiting_workdays_none_after_the_process_ends(column):
+    """Zatrudniony ani odrzucony na nic nie czeka: bez napisu „czeka N dni”."""
+    assert _board_days(column=column) is None
+
+
 @pytest_asyncio.fixture
 async def api_client():
     from app.core.rate_limit import limiter as _limiter

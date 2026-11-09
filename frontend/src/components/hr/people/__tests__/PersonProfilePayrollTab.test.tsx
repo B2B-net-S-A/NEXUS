@@ -94,16 +94,16 @@ async function renderProfile(config: HrConfig, hash = "") {
 }
 
 // Osoba bez formy w odpowiedzi: słowa neutralne jak B2B (21.10.2026).
-const payrollTab = () => screen.queryByRole("tab", { name: /Płace i wynagrodzenie dodatkowe/ });
+const payrollTab = () => screen.queryByRole("tab", { name: /Rozliczenia i wynagrodzenie dodatkowe/ });
 
-describe("PersonProfile — zakładka „Płace i premie”", () => {
+describe("PersonProfile — zakładka „Rozliczenia i premie”", () => {
   beforeEach(() => {
     mocks.person = null;
     mocks.payrollStatus = 200;
     mocks.payrollCalls = 0;
   });
 
-  it("Kadry bez Płac, płace 404: zakładka zostaje z danymi do rozliczeń", async () => {
+  it("Administracja współpracy bez Rozliczeń, płace 404: zakładka zostaje z danymi do rozliczeń", async () => {
     mocks.payrollStatus = 404;
     await renderProfile(
       withModules(hrConfig({ people_admin: true }), { settlements: true }),
@@ -113,10 +113,10 @@ describe("PersonProfile — zakładka „Płace i premie”", () => {
     expect(payrollTab()).not.toBeNull();
   });
 
-  it("Kadry bez Płac, płace 403: przegląd mówi o braku dostępu", async () => {
+  it("Administracja współpracy bez Rozliczeń, płace 403: przegląd mówi o braku dostępu", async () => {
     mocks.payrollStatus = 403;
     await renderProfile(withModules(hrConfig({ people_admin: true }), { settlements: true }));
-    expect(await screen.findByText("Płace niedostępne dla Ciebie.")).toBeInTheDocument();
+    expect(await screen.findByText("Rozliczenia niedostępne dla Ciebie.")).toBeInTheDocument();
     expect(payrollTab()).not.toBeNull();
   });
 
@@ -134,18 +134,18 @@ describe("PersonProfile — zakładka „Płace i premie”", () => {
     mocks.payrollStatus = 500;
     await renderProfile(hrConfig({ people_admin: true }));
     expect(await screen.findByText("Nie udało się wczytać płac.")).toBeInTheDocument();
-    expect(screen.queryByText("Płace niedostępne dla Ciebie.")).toBeNull();
+    expect(screen.queryByText("Rozliczenia niedostępne dla Ciebie.")).toBeNull();
     expect(payrollTab()).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
     await vi.waitFor(() => expect(mocks.payrollCalls).toBe(2));
   });
 
-  it("przełożony, płace 403, bez danych do rozliczeń: zakładki nie ma", async () => {
+  it("koordynator, płace 403, bez danych do rozliczeń: zakładki nie ma", async () => {
     mocks.payrollStatus = 403;
     await renderProfile(
       withModules(hrConfig({ is_manager: true, direct_reports: 1 }), { settlements: true }),
     );
-    await screen.findByText("Płace niedostępne dla Ciebie.");
+    await screen.findByText("Rozliczenia niedostępne dla Ciebie.");
     expect(payrollTab()).toBeNull();
   });
 });

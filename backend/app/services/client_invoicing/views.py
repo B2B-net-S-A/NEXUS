@@ -27,9 +27,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.client import Client, ClientStatus
 from app.models.client_sales_invoice import ClientSalesInvoice
+from app.services.client_identity import (
+    client_display_name,
+    visible_client_predicates,
+)
 from app.services.client_invoicing import billing, clients, ledger, matching, payments
 from app.services.client_invoicing.billing import BillingRow, money, plain
 from app.services.client_invoicing.ledger import ZERO, Chain, ChainCheck
@@ -105,6 +111,7 @@ def chain_payload(
         "client_name": (names or {}).get(head.client_id) if head.client_id else None,
         "buyer_name": head.buyer_name,
         "buyer_nip": head.buyer_nip,
+        "buyer_foreign_id": head.buyer_foreign_id,
         "corrections": [
             {
                 "id": c.id,
@@ -522,6 +529,38 @@ async def invoice_detail(
     return payload
 
 
+async def buyer_number_view(
+    db: AsyncSession, invoice: ClientSalesInvoice, client_id: int
+) -> dict[str, Any]:
+    """Numer nabywcy względem klienta wybranego w „Przypisz”."""
+
+    check = await clients.check_buyer_number(
+        db, client_id, matching.buyer_number(invoice)
+    )
+    known = await clients.names(
+        db, [cid for cid in (check.client_id, check.owner_id) if cid is not None]
+    )
+    waiting = (
+        await matching.waiting_for_number(db, check.number)
+        if check.state == "add"
+        else 0
+    )
+    waits_itself = (
+        invoice.match_status == "unmatched" and invoice.match_reason == "unknown_buyer"
+    )
+    return {
+        "state": check.state,
+        "number": check.number,
+        "kind": "vat_ue"
+        if invoice.buyer_foreign_id and not invoice.buyer_nip
+        else "nip",
+        "client_name": known.get(check.client_id) if check.client_id else None,
+        "existing": check.existing,
+        "owner_name": known.get(check.owner_id) if check.owner_id else None,
+        "other_waiting": max(waiting - int(waits_itself), 0),
+    }
+
+
 async def assignment_options(
     db: AsyncSession, *, client_id: int, year: int, month: int
 ) -> list[dict[str, Any]]:
@@ -557,11 +596,140 @@ async def assignment_options(
     return out
 
 
+# ── Nieznani nabywcy ─────────────────────────────────────────────────────────
+
+
+def _name_key(name: Optional[str]) -> str:
+    return " ".join((name or "").casefold().split())
+
+
+async def _suggestions_by_name(db: AsyncSession) -> dict[str, list[Client]]:
+    """Klienci po nazwie: prawnej, wyświetlanej i źródłowej, bez nieaktywnych."""
+
+    found: dict[str, dict[int, Client]] = defaultdict(dict)
+    for client in await db.scalars(
+        select(Client).where(
+            *visible_client_predicates(), Client.status != ClientStatus.inactive
+        )
+    ):
+        for name in (client.legal_name, client.display_name, client.name):
+            key = _name_key(name)
+            if key:
+                found[key][client.id] = client
+    return {key: list(by_id.values()) for key, by_id in found.items()}
+
+
+def _suggestion(
+    name: Optional[str], by_name: dict[str, list[Client]]
+) -> Optional[dict[str, Any]]:
+    """Podpowiedź tylko jednoznaczna: dwóch klientów o tej nazwie to nie podpowiedź."""
+
+    matches = by_name.get(_name_key(name), [])
+    if len(matches) != 1:
+        return None
+    client = matches[0]
+    return {
+        "client_id": client.id,
+        "client_name": client_display_name(client),
+        "state": "differs" if (client.nip or "").strip() else "add",
+    }
+
+
+def _number_kind(number: Optional[str]) -> Optional[str]:
+    if number is None:
+        return None
+    return "nip" if number.isdigit() else "vat_ue"
+
+
+def _invoice_period_rows(
+    invoices: Iterable[ClientSalesInvoice],
+) -> tuple[list[dict[str, str]], Optional[date], Optional[date], Optional[str]]:
+    """Sumy netto per waluta, zakres dat i najnowsza nazwa nabywcy."""
+
+    ordered = sorted(invoices, key=lambda invoice: (invoice.issue_date, invoice.id))
+    return (
+        _totals((invoice.currency, invoice.net_amount) for invoice in ordered),
+        ordered[0].issue_date if ordered else None,
+        ordered[-1].issue_date if ordered else None,
+        next(
+            (invoice.buyer_name for invoice in reversed(ordered) if invoice.buyer_name),
+            None,
+        ),
+    )
+
+
+async def unknown_buyers(db: AsyncSession) -> dict[str, Any]:
+    """Kolejka „Nieznani nabywcy”: faktury bez klienta ze wszystkich miesięcy, po numerze."""
+
+    invoices = list(
+        await db.scalars(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.match_status == "unmatched",
+                ClientSalesInvoice.match_reason == "unknown_buyer",
+            )
+        )
+    )
+    by_number: dict[Optional[str], list[ClientSalesInvoice]] = defaultdict(list)
+    for invoice in invoices:
+        by_number[matching.buyer_number(invoice)].append(invoice)
+    by_name = await _suggestions_by_name(db)
+    buyers = []
+    for number, group in by_number.items():
+        totals, first_date, last_date, buyer_name = _invoice_period_rows(group)
+        buyers.append(
+            {
+                "number": number,
+                "kind": _number_kind(number),
+                "buyer_name": buyer_name,
+                "invoices": len(group),
+                "totals": totals,
+                "first_date": _iso(first_date),
+                "last_date": _iso(last_date),
+                "assignable": clients.is_registry_key(number),
+                "suggestion": _suggestion(buyer_name, by_name),
+            }
+        )
+    buyers.sort(key=lambda b: (-b["invoices"], (b["buyer_name"] or "").lower()))
+    return {
+        "buyers": buyers,
+        "summary": {
+            "invoices": len(invoices),
+            "buyers": sum(1 for buyer in buyers if buyer["number"] is not None),
+            "with_suggestion": sum(1 for buyer in buyers if buyer["suggestion"]),
+            "totals": _totals((inv.currency, inv.net_amount) for inv in invoices),
+        },
+    }
+
+
+async def waiting_for_number_view(
+    db: AsyncSession, number: Optional[str]
+) -> dict[str, Any]:
+    """Ramka w formularzu klienta: ile faktur z KSeF czeka na ten numer."""
+
+    invoices = list(
+        await db.scalars(
+            select(ClientSalesInvoice).where(
+                *matching.waiting_for_number_filters(number or "")
+            )
+        )
+    )
+    totals, first_date, last_date, buyer_name = _invoice_period_rows(invoices)
+    return {
+        "number": number,
+        "invoices": len(invoices),
+        "totals": totals,
+        "first_date": _iso(first_date),
+        "last_date": _iso(last_date),
+        "buyer_name": buyer_name,
+    }
+
+
 __all__ = [
     "COST_STATUS_LABELS",
     "KIND_LABELS",
     "ROW_STATUS_LABELS",
     "assignment_options",
+    "buyer_number_view",
     "chain_for",
     "chain_payload",
     "client_summary",
@@ -573,4 +741,6 @@ __all__ = [
     "overdue",
     "row_payload",
     "row_status",
+    "unknown_buyers",
+    "waiting_for_number_view",
 ]

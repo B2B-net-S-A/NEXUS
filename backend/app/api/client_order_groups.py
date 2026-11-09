@@ -707,13 +707,10 @@ async def _restore_offboarded_line(
     Kontrakt wraca razem z linią. Bez tego konsultant zostaje w zakładce
     „Zakończeni" mimo aktywnej linii, a razem z pigułką milczą MRR, rejestr
     umów i skaner wygasania — ta sama klasa awarii, którą naprawiał
-    ``sync_contract_to_live_order`` przy przedłużeniach zamówień.
+    ``sync_contract_to_live_order`` przy przedłużeniach zamówień. Ta decyzja
+    odwołuje datę zakończenia ze sprawy, także gdy to dzisiejsza data i kontrakt
+    jest jeszcze „Kończący się” (reguła FIN-01 chroni plan przed automatem).
     """
-
-    # Import lokalny — `client_orders` sięga po `client_order_groups` w ciele
-    # swoich funkcji, więc import na poziomie modułu domykałby cykl. To jest
-    # ta sama konwencja, tylko w drugą stronę.
-    from app.api.client_orders import _sync_contract_after_order_extension
 
     if group.status not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED):
         raise HTTPException(
@@ -787,8 +784,14 @@ async def _restore_offboarded_line(
     contract_reopened = False
     contract = source.contract
     if contract is not None:
-        contract_reopened = await _sync_contract_after_order_extension(
-            db, source, contract, actor_id=actor_id
+        contract_reopened = await sync_contract_to_live_order(
+            db,
+            contract,
+            order_start=source.start_date,
+            order_end=source.end_date,
+            actor_id=actor_id,
+            today=today,
+            revoked_termination_date=case.effective_date,
         )
     return requested_end_date, contract_reopened
 
@@ -1376,6 +1379,7 @@ async def _group_to_read(
     # osoby zeszły z tej samej umowy.
     md_positions_total: Optional[Decimal] = None
     md_used_total: Optional[Decimal] = None
+    md_adjustment_total: Optional[Decimal] = None
     contract_value_pln: Optional[Decimal] = None
     used_value_pln: Optional[Decimal] = None
     if not group.is_cost_based and not uses_shared_md_budget:
@@ -1391,6 +1395,7 @@ async def _group_to_read(
                 replaced_kind[item.id] = None
         positions = Decimal("0")
         used_sum = Decimal("0")
+        adjustment_sum = Decimal("0")
         value = Decimal("0")
         used_value = Decimal("0")
         for line in lines:
@@ -1419,8 +1424,12 @@ async def _group_to_read(
             budget = line_budget_total(line)
             positions += budget
             value += budget * rate
+            # Korekta idzie tylko z linii, która wnosi budżet: po zamianie
+            # następca dostał pozostałość już po korekcie poprzednika.
+            adjustment_sum += Decimal(str(line.md_manual_adjustment or 0))
         md_positions_total = quantize_md(positions)
         md_used_total = quantize_md(used_sum)
+        md_adjustment_total = quantize_md(adjustment_sum)
         if with_finance:
             contract_value_pln = quantize_money(value)
             used_value_pln = quantize_money(used_value)
@@ -1471,6 +1480,7 @@ async def _group_to_read(
         ),
         md_positions_total=md_positions_total,
         md_used_total=md_used_total,
+        md_adjustment_total=md_adjustment_total,
         contract_value_pln=contract_value_pln,
         used_value_pln=used_value_pln,
         filename=group.filename,
@@ -2159,8 +2169,8 @@ async def _assert_not_on_order_yet(
 def _contract_cooperation_end(contract: Contract) -> Optional[date]:
     """Dzień końca współpracy z kontraktu: zakończonego albo wypowiedzianego.
 
-    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia i
-    przywrócenie (`reopen_contract` go nie czyści), więc samo jego istnienie
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia (powrót
+    bezterminowy czyści go dopiero od 02.11.2026), więc samo jego istnienie
     nie dowodzi wypowiedzenia, a jego wartość bywa datą PIERWSZEGO zakończenia.
     „Zakończ współpracę" zawsze skraca `end_date` do dnia zakończenia, więc
     trwające wypowiedzenie to `end_date <= terminated_at`; umowa przedłużona
@@ -2189,8 +2199,8 @@ def _assert_historical_line_allowed(
     końca udziału w przyszłości zamieniłaby zakończoną linię w obsadę, która
     jeszcze trwa, tylko bez niczyjego nadzoru.
     """
-    # Wyłącznie status `ended`: `terminated_at` przeżywa wznowienie kontraktu
-    # (`reopen_contract` go nie czyści), więc nie dowodzi, że osoba nie pracuje.
+    # Wyłącznie status `ended`: `terminated_at` przeżywa aneks przedłużenia,
+    # więc nie dowodzi, że osoba nie pracuje.
     status_value = getattr(contract.status, "value", contract.status)
     if status_value != ContractStatus.ended.value:
         raise HTTPException(

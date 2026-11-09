@@ -37,17 +37,18 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
   finance: [
     { key: "orders_ending", w: 6, h: 4 },
     { key: "active_contracts", w: 6, h: 2 },
-    { key: "margin_monthly", w: 12, h: 3 },
   ],
   head_of_recruitment: [
     { key: "team_results", w: 8, h: 6 },
     { key: "team_signals", w: 4, h: 6 },
+    { key: "client_response", w: 12, h: 6 },
     { key: "request_board", w: 12, h: 8 },
     { key: "contact_oversight", w: 12, h: 5 },
   ],
   delivery_lead: [
     { key: "my_clients_alerts", w: 8, h: 5 },
     { key: "today_cycle", w: 4, h: 5 },
+    { key: "client_response", w: 12, h: 6 },
     { key: "active_contracts", w: 4, h: 2 },
     { key: "orders_ending_count", w: 4, h: 2 },
     { key: "margin_number", w: 4, h: 2 },
@@ -57,7 +58,6 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
   talent_community_manager: [
     { key: "my_contact_queue", w: 8, h: 5 },
     { key: "today_cycle", w: 4, h: 5 },
-    { key: "my_people", w: 7, h: 4 },
     { key: "my_week", w: 5, h: 2 },
     { key: "request_board_my_category", w: 12, h: 8 },
   ],
@@ -65,7 +65,6 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
     { key: "my_recruitments", w: 8, h: 5 },
     { key: "today_cycle", w: 4, h: 5 },
     { key: "request_board_my_category", w: 12, h: 8 },
-    { key: "my_people", w: 7, h: 3 },
     { key: "my_week", w: 5, h: 3 },
   ],
   // „Pracownik” (17.10.2026). Konto wyłącznie z tą rolą middleware i tak
@@ -260,7 +259,11 @@ export function recommendedTemplates(
  * widzi tylko konto bez zapisu, więc bez tego nowość nie dociera do nikogo
  * (24.09.2026: „Requesty i obłożenie” wdrożone, na 5 pulpitach 0 kafelków).
  */
-export const ANNOUNCED_TILES: TileType[] = ["request_board", "today_cycle"]
+export const ANNOUNCED_TILES: TileType[] = [
+  "client_response",
+  "request_board",
+  "today_cycle",
+]
 
 /** Pierwszy ogłaszany kafelek układu tej roli, którego nie ma na pulpicie. */
 export function announcedTile(

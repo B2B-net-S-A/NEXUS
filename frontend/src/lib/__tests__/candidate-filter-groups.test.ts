@@ -102,6 +102,8 @@ describe("filterGroupCounts", () => {
       location: 0,
       remote: 0,
       history: 0,
+      rejection: 0,
+      skillYears: 0,
       skills: 0,
       availability: 0,
       more: 0,
@@ -122,6 +124,9 @@ describe("filterGroupCounts", () => {
         languages: ["en:B2"],
         status: ["active"],
         qAny: [["spring"], ["react", "vue"]],
+        rejectionKeys: ["t:Po CV"],
+        rejectionBy: ["client"],
+        rejectionWithinMonths: 3,
       }),
       { ...NO_STAGE, stages: ["cv_sent"], movedAfter: "2026-01-01" },
       { required: ["Java"], preferred: [], excluded: ["PHP"] },
@@ -132,6 +137,9 @@ describe("filterGroupCounts", () => {
       remote: 1,
       // 2 rekrutacje + etap + data etapu + kontakt + osoba kontaktu
       history: 6,
+      // powód + kto zakończył + okres
+      rejection: 3,
+      skillYears: 0,
       skills: 2,
       availability: 1,
       // język + status; wszystkie wiersze słów kluczowych stoją na pasku

@@ -18,7 +18,7 @@ from app.core.security import hash_password
 from app.models.app_setting import AppSetting
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
-from app.services.notification_backlog_repair import (
+from scripts.repairs.notification_backlog_repair import (
     TOPICS_REPAIR_MARKER,
     run_topics_backlog_repair,
 )
@@ -95,13 +95,11 @@ async def test_unread_older_than_a_week_is_marked_read_once():
     assert set(receipt.value) == {"done_at", "cutoff", "marked_read", "total"}
 
 
-def test_startup_phase_runs_the_repair_and_commits():
+def test_repair_script_runs_the_repair_and_commits():
     from pathlib import Path
 
-    entrypoint = (Path(__file__).parents[1] / "entrypoint.sh").read_text()
-    start = entrypoint.index('startup_phase "repair-notification-topics-backlog"')
-    phase = entrypoint[start : entrypoint.index("\nPY\n", start)]
-    assert "run_topics_backlog_repair" in phase
-    assert "await db.commit()" in phase
-    # Awaria fazy nie zatrzymuje startu aplikacji.
-    assert '|| echo "notification topics backlog repair skipped; continuing"' in phase
+    script = (
+        Path(__file__).parents[1] / "scripts/repairs/run_repair_notification_topics_backlog.py"
+    ).read_text(encoding="utf-8")
+    assert "run_topics_backlog_repair" in script
+    assert "await db.commit()" in script

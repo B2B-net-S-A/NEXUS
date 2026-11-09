@@ -1,15 +1,15 @@
 """Jedno wejście po politykę dostępu konta: sekcje i uprawnienia razem.
 
 Sekcje Delivery i Finanse wynikają z dziewięciu uprawnień z ekranu, więc
-polityki sekcji nie da się policzyć bez polityki akcji. Ten moduł ładuje obie
-(cztery ograniczone zapytania, bez pamięci procesu — zmiana w panelu działa od
-następnego żądania na każdym workerze) i dołącza do kont ``effective_section_access``
-oraz ``effective_action_access``.
+polityki sekcji nie da się policzyć bez polityki akcji. Ten moduł bierze obie
+z bufora procesu (``policy_cache``: zmiana w panelu działa od następnego żądania,
+drugi proces widzi ją najpóźniej po 30 s) i dołącza do kont
+``effective_section_access`` oraz ``effective_action_access``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -29,6 +29,7 @@ from app.services.action_permissions import (
     effective_action_policy_from_rows,
     serialize_action_access,
 )
+from app.services.policy_cache import policy_snapshot
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -115,12 +116,54 @@ def granted_beyond_roles(
     )
 
 
+def _attach_access(
+    users: Iterable[User],
+    *,
+    section_role_rows: Iterable[RoleSectionPermission],
+    section_overrides: Mapping[int, Iterable[UserSectionOverride]],
+    action_role_rows: Iterable[RoleActionPermission],
+    action_overrides: Mapping[int, Iterable[UserActionOverride]],
+) -> None:
+    for user in users:
+        access = effective_access_from_rows(
+            user,
+            section_role_rows=section_role_rows,
+            section_override_rows=section_overrides.get(user.id, ()),
+            action_role_rows=action_role_rows,
+            action_override_rows=action_overrides.get(user.id, ()),
+        )
+        user.effective_section_access = serialize_section_access(access.sections)
+        user.effective_action_access = serialize_action_access(access.actions)
+
+
 async def resolve_effective_access(db: AsyncSession, users: Iterable[User]) -> None:
     """Dołącz bieżącą politykę (sekcje i akcje) do każdego konta z listy."""
 
     user_list = list(users)
     if not user_list:
         return
+
+    # Powiadomienia wyłączone dla roli (tabela „Kto co dostaje”) — także
+    # administratorowi; czyta je `notification_access`.
+    from app.services.notification_role_mutes import (
+        apply_role_mutes,
+        attach_role_mutes,
+    )
+
+    snapshot = await policy_snapshot(db)
+    if snapshot is not None:
+        _attach_access(
+            user_list,
+            section_role_rows=snapshot.section_role_rows,
+            section_overrides=snapshot.section_overrides,
+            action_role_rows=snapshot.action_role_rows,
+            action_overrides=snapshot.action_overrides,
+        )
+        apply_role_mutes(snapshot.role_mutes, user_list)
+        return
+
+    # Sesja z niezatwierdzonym zapisem polityki czyta przez siebie: widzi
+    # własne wiersze, których bufor jeszcze nie może znać.
     non_admins = [user for user in user_list if not user.has_role(UserRole.admin)]
     role_values = sorted(
         {role.value for user in non_admins for role in user.get_all_roles()}
@@ -171,19 +214,11 @@ async def resolve_effective_access(db: AsyncSession, users: Iterable[User]) -> N
     for row in action_override_rows:
         action_overrides.setdefault(row.user_id, []).append(row)
 
-    for user in user_list:
-        access = effective_access_from_rows(
-            user,
-            section_role_rows=section_role_rows,
-            section_override_rows=section_overrides.get(user.id, []),
-            action_role_rows=action_role_rows,
-            action_override_rows=action_overrides.get(user.id, []),
-        )
-        user.effective_section_access = serialize_section_access(access.sections)
-        user.effective_action_access = serialize_action_access(access.actions)
-
-    # Powiadomienia wyłączone dla roli (tabela „Kto co dostaje”) — także
-    # administratorowi; czyta je `notification_access`.
-    from app.services.notification_role_mutes import attach_role_mutes
-
+    _attach_access(
+        user_list,
+        section_role_rows=section_role_rows,
+        section_overrides=section_overrides,
+        action_role_rows=action_role_rows,
+        action_overrides=action_overrides,
+    )
     await attach_role_mutes(db, user_list)

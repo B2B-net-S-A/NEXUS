@@ -29,6 +29,8 @@ export interface EntryDialogProps {
   entry: TimesheetEntry | null;
   /** Czy wolno wpisać nadgodziny (kartoteka albo Kadry) — serwer i tak sprawdza. */
   allowOvertime: boolean;
+  /** Kartoteka osoby: bez sufitu dnia i bez opisu godzin ponad 8 h. */
+  noHoursLimit?: boolean;
   /** Forma osoby: przy B2B i zleceniu „godziny ponad 8 h” zamiast „nadgodzin”. */
   form?: EmploymentType | null;
   onSave: (payload: EntryPatch & { id?: number }) => Promise<unknown>;
@@ -45,6 +47,7 @@ export function EntryDialog({
   day,
   entry,
   allowOvertime,
+  noHoursLimit = false,
   form,
   onSave,
   onDelete,
@@ -54,7 +57,8 @@ export function EntryDialog({
   const words = employmentTerms(form);
   const { askConfirm, confirmDialog } = useConfirmV2();
   const defaultHours = entry ? entry.hours : Math.max(0, Math.min(8, day.capacity ?? 8) - day.hours);
-  const [hours, setHours] = useState(formatHours(defaultHours || 8));
+  // Dzień bez wolnych godzin: pole puste, bo podpowiedź 8 h dokładała godziny ponad limit.
+  const [hours, setHours] = useState(defaultHours > 0 ? formatHours(defaultHours) : "");
   const [project, setProject] = useState(entry?.project ?? "");
   const [description, setDescription] = useState(entry?.description ?? "");
   const [reason, setReason] = useState(entry?.overtime_reason ?? "");
@@ -79,13 +83,13 @@ export function EntryDialog({
       setError("Opis jest wymagany.");
       return;
     }
-    if (overtime && !allowOvertime && !hoursUnchanged) {
+    if (overtime && !noHoursLimit && !allowOvertime && !hoursUnchanged) {
       setError(
-        `Suma dnia przekroczyłaby 8 h. ${capitalize(words.overtime)} wpisuje osoba z uprawnieniem do ${words.overtime_genitive} albo Kadry.`,
+        `Suma dnia przekroczyłaby 8 h. ${capitalize(words.overtime)} wpisuje osoba z uprawnieniem do ${words.overtime_genitive} albo Administracja współpracy.`,
       );
       return;
     }
-    if (overtime && !hoursUnchanged && reason.trim().length < 5) {
+    if (overtime && !noHoursLimit && !hoursUnchanged && reason.trim().length < 5) {
       setError(`${words.overtime_reason_required} (co najmniej 5 znaków).`);
       return;
     }
@@ -111,7 +115,7 @@ export function EntryDialog({
     if (!entry || !onDelete) return;
     const ok = await askConfirm({
       title: "Usunąć wpis?",
-      description: `${formatWeekdayDayPl(day.date)} · ${formatHours(entry.hours)} h — wpis zniknie z timesheetu.`,
+      description: `${formatWeekdayDayPl(day.date)} · ${formatHours(entry.hours)} h — wpis zniknie z raportu godzin.`,
       confirmLabel: "Usuń",
       variant: "destructive",
     });
@@ -133,8 +137,10 @@ export function EntryDialog({
       onOpenChange={onOpenChange}
       title={`${entry ? "Wpis" : "Nowy wpis"} · ${formatWeekdayDayPl(day.date)}`}
       description={
-        day.capacity != null && day.capacity < 8
-          ? `Pół dnia urlopu — do wpisania ${formatHours(day.capacity)} h.`
+        noHoursLimit
+          ? "Godziny tego dnia bez limitu. Jeden wpis to najwyżej 24 h."
+          : day.capacity != null && day.capacity < 8
+          ? `Pół dnia: ${day.leave?.label.toLowerCase() ?? "nieobecność"} — do wpisania ${formatHours(day.capacity)} h.`
           : "Limit dnia to 8 h razem ze wszystkimi wpisami."
       }
       footer={
@@ -212,7 +218,7 @@ export function EntryDialog({
             Podpowiedź: {hint.text}
           </p>
         ) : null}
-        {overtime ? (
+        {overtime && !noHoursLimit ? (
           <FormField
             label={words.overtime_reason}
             htmlFor="time-entry-reason"
@@ -220,7 +226,7 @@ export function EntryDialog({
             description={
               allowOvertime
                 ? words.overtime_reason_hint
-                : `Nie masz uprawnienia do ${words.overtime_genitive} — popraw godziny albo poproś Kadry.`
+                : `Nie masz uprawnienia do ${words.overtime_genitive} — popraw godziny albo poproś Administrację współpracy.`
             }
           >
             <Input

@@ -157,6 +157,32 @@ describe("interview-cycle — akcje", () => {
     expect(actionForItem(pick, { canManageSlots: false })?.action.type).toBe("pick");
   });
 
+  it("wszystkie terminy minęły: DL dodaje nowe, rekruter nic nie klika (04.11.2026)", () => {
+    const req = {
+      id: 5,
+      status: "awaiting_recruiter" as const,
+      expired: true,
+      slots: [{ start: "2020-06-12T08:00:00Z", end: null }],
+      chosen_index: null,
+      respond_by: null,
+      recruiter_id: 7,
+      created_by: 8,
+      duration_minutes: 60,
+      note: null,
+      event_id: null,
+    };
+    const lapsed = item({ steps: steps({ slots: "overdue" }), slot_request: req });
+    expect(actionForItem(lapsed, { canManageSlots: false })).toBeNull();
+    const dl = actionForItem(lapsed, { canManageSlots: true });
+    expect(dl?.label).toBe("Dodaj nowe");
+    expect(dl?.action).toEqual(expect.objectContaining({ type: "add_slots", request: req }));
+    // Stary wiersz bez kroku „Terminy”: krok „Wybór” też nie otwiera okna wyboru.
+    const onChoice = item({ steps: steps({ slots: "done", choice: "current" }), slot_request: req });
+    expect(actionForItem(onChoice, { canManageSlots: false })).toBeNull();
+    const todo: TodoEntry = { ...PAIR, kind: "slots_expired", priority: 3, due: null, event_id: null, slot_request_id: 5 };
+    expect(actionForTodo(todo, [lapsed])).toEqual(expect.objectContaining({ type: "add_slots", request: req }));
+  });
+
   it("telefon po rozmowie → debrief pod wydarzeniem rozmowy", () => {
     const it0 = item({
       steps: steps({ slots: "done", choice: "done", prep: "done", prep2: "skipped", interview: "done", call: "current" }),

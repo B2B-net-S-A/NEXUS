@@ -119,6 +119,104 @@ async def admin_cases_mail_ingest_loop() -> None:
     )
 
 
+# ── Back office: karty ze źródeł, kroki i eskalacja ─────────────────────────
+BACK_OFFICE_SYNC_INTERVAL_SECONDS = 5 * 60
+
+
+async def back_office_sync_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.back_office.sync import run_once
+
+    result = await run_once(db, today=business_today())
+    return None if result.get("status") == "disabled" else result
+
+
+async def back_office_sync_loop() -> None:
+    if not loops_enabled("back_office_sync"):
+        return
+    beat = loop_heartbeat.register(
+        "back_office_sync",
+        max_silence_seconds=BACK_OFFICE_SYNC_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "back_office_sync",
+        beat,
+        BACK_OFFICE_SYNC_INTERVAL_SECONDS,
+        back_office_sync_job,
+    )
+
+
+# ── Portal konsultanta (02.11.2026) ──────────────────────────────────────────
+CONSULTANT_PORTAL_TRANSCRIPTS_INTERVAL_SECONDS = 10 * 60
+CONSULTANT_PORTAL_RATINGS_INTERVAL_SECONDS = 10 * 60
+CONSULTANT_PORTAL_MAILBOX_INTERVAL_SECONDS = 15 * 60
+
+
+async def consultant_portal_transcripts_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.transcripts import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def consultant_portal_transcripts_loop() -> None:
+    if not loops_enabled("consultant_portal_transcripts"):
+        return
+    beat = loop_heartbeat.register(
+        "consultant_portal_transcripts",
+        max_silence_seconds=CONSULTANT_PORTAL_TRANSCRIPTS_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "consultant_portal_transcripts",
+        beat,
+        CONSULTANT_PORTAL_TRANSCRIPTS_INTERVAL_SECONDS,
+        consultant_portal_transcripts_job,
+    )
+
+
+async def consultant_portal_ratings_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.ratings import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def consultant_portal_ratings_loop() -> None:
+    if not loops_enabled("consultant_portal_ratings"):
+        return
+    beat = loop_heartbeat.register(
+        "consultant_portal_ratings",
+        max_silence_seconds=CONSULTANT_PORTAL_RATINGS_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "consultant_portal_ratings",
+        beat,
+        CONSULTANT_PORTAL_RATINGS_INTERVAL_SECONDS,
+        consultant_portal_ratings_job,
+    )
+
+
+async def consultant_portal_mailbox_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.mailbox import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def consultant_portal_mailbox_loop() -> None:
+    if not loops_enabled("consultant_portal_mailbox"):
+        return
+    beat = loop_heartbeat.register(
+        "consultant_portal_mailbox",
+        max_silence_seconds=CONSULTANT_PORTAL_MAILBOX_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "consultant_portal_mailbox",
+        beat,
+        CONSULTANT_PORTAL_MAILBOX_INTERVAL_SECONDS,
+        consultant_portal_mailbox_job,
+    )
+
+
 # ── Zgody: odpowiedź „approved” mailem (etap 2, 20.10.2026) ─────────────────
 HR_APPROVAL_MAIL_INTERVAL_SECONDS = 2 * 60
 
@@ -174,12 +272,20 @@ async def hr_m365_outbox_loop() -> None:
 
 
 async def hr_m365_reconcile_job(db: AsyncSession) -> dict[str, Any] | None:
-    """Sam pilnuje 07:00 Warszawy i jednego przebiegu dziennie."""
-    from app.services.hr.m365 import reconcile
+    """Sam pilnuje 07:00 Warszawy i jednego przebiegu dziennie. Po udanym
+    przebiegu czyta świeże ``last_error`` i wysyła alarm o skrzynkach poza
+    zakresem aplikacji."""
+    from app.services.hr.m365 import reconcile, scope_alerts
 
     result = await reconcile.run_once(db)
     if result.get("skipped") or result.get("status") == "disabled":
         return None
+    if "failed" not in result:
+        try:
+            result["scope_alerts"] = await scope_alerts.scan_once(db)
+        except Exception:  # noqa: BLE001 — alarm nie psuje wyniku przebiegu
+            logger.exception("hr_m365_reconcile scope alert failed")
+            await db.rollback()
     return result
 
 

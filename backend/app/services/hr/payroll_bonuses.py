@@ -72,7 +72,13 @@ BONUS_MIN = Decimal("0.01")
 BONUS_MAX = Decimal("1000000")
 #: Powody anulowania nadawane przez automaty (automat może je cofnąć).
 AUTO_CANCEL_REASONS: frozenset[str] = frozenset(
-    {"contract_ended", "contract_void", "rule_no_longer_applies"}
+    {
+        "contract_ended",
+        "contract_void",
+        "rule_no_longer_applies",
+        "guarantee",
+        "client_referral",
+    }
 )
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -151,6 +157,8 @@ def bonus_payload(
     with_snapshot: bool,
     today: Optional[date] = None,
 ) -> dict[str, Any]:
+    snapshot = bonus.rule_snapshot or {}
+    from_sheet = bool(snapshot.get("settlement_import"))
     payload: dict[str, Any] = {
         "id": bonus.id,
         "recipient_user_id": bonus.recipient_user_id,
@@ -172,8 +180,14 @@ def bonus_payload(
         "assigned_at": bonus.assigned_at.isoformat() if bonus.assigned_at else None,
         "cancelled_at": bonus.cancelled_at.isoformat() if bonus.cancelled_at else None,
         "cancel_reason": bonus.cancel_reason,
-        "edited": bool((bonus.rule_snapshot or {}).get("edited_amount")),
-        "edited_recipient": bool((bonus.rule_snapshot or {}).get("edited_recipient")),
+        # Import zapisuje znaczniki, żeby automat nie nadpisał arkusza: to nie zmiana.
+        "from_sheet": from_sheet,
+        "edited": bool(snapshot.get("edited_amount"))
+        and (not from_sheet or bool(snapshot.get("amount_edited_after_import"))),
+        "edited_recipient": bool(snapshot.get("edited_recipient"))
+        and (not from_sheet or bool(snapshot.get("recipient_edited_after_import"))),
+        "cancel_ended_on": snapshot.get("ended_on"),
+        "double_bonus_month": (snapshot.get("double_bonus") or {}).get("month"),
     }
     if today is not None and bonus.eligible_on is not None:
         payload["eligible"] = bonus.eligible_on <= today
@@ -270,9 +284,9 @@ def _require_scope(viewer: PayrollViewer, bonus: HrBonus) -> None:
 
 
 MANUAL_PROPOSAL_OWN = (
-    "Własnej propozycji premii nie zatwierdzasz — zatwierdzą ją Płace."
+    "Własnej propozycji premii nie zatwierdzasz — zatwierdzą ją Rozliczenia."
 )
-MANUAL_PROPOSAL_PAYROLL_ONLY = "Premię ręczną od przełożonego zatwierdzają Płace."
+MANUAL_PROPOSAL_PAYROLL_ONLY = "Premię ręczną od koordynatora zatwierdzają Rozliczenia."
 
 
 def approval_refusal(viewer: PayrollViewer, bonus: HrBonus) -> Optional[str]:
@@ -286,7 +300,7 @@ def approval_refusal(viewer: PayrollViewer, bonus: HrBonus) -> Optional[str]:
     if bonus.recipient_user_id == viewer.user_id:
         return "Premii dla siebie nie zatwierdzasz."
     if not viewer.manages_bonuses_of(bonus.recipient_user_id):
-        return "Propozycje zatwierdzają Płace albo przełożony tej osoby."
+        return "Propozycje zatwierdzają Rozliczenia albo koordynator tej osoby."
     if bonus.source == "manual":
         if bonus.proposed_by == viewer.user_id:
             return MANUAL_PROPOSAL_OWN
@@ -321,7 +335,7 @@ async def _change_recipient(
     if recipient_id == bonus.recipient_user_id:
         return None
     if not viewer.payroll:
-        raise PayrollForbidden("Osobę w premii zmieniają Płace.")
+        raise PayrollForbidden("Osobę w premii zmieniają Rozliczenia.")
     if recipient_id == viewer.user_id:
         raise PayrollForbidden("Premii nie przyznajesz sobie.")
     text = (reason or "").strip()
@@ -333,7 +347,7 @@ async def _change_recipient(
         .where(User.id == recipient_id)
     )
     if person is None:
-        raise PayrollNotFound("Ta osoba nie ma kartoteki pracownika.")
+        raise PayrollNotFound("Ta osoba nie ma kartoteki.")
     if not person:
         raise PayrollError("Ta osoba nie ma już aktywnego konta.")
     previous = bonus.recipient_user_id
@@ -341,6 +355,11 @@ async def _change_recipient(
     bonus.rule_snapshot = {
         **snapshot,
         "edited_recipient": True,
+        **(
+            {"recipient_edited_after_import": True}
+            if snapshot.get("settlement_import")
+            else {}
+        ),
         "automat_recipient_user_id": snapshot.get(
             "automat_recipient_user_id", previous
         ),
@@ -359,7 +378,7 @@ async def create_manual(
         raise PayrollForbidden("Premii nie przyznajesz sobie.")
     if not viewer.manages_bonuses_of(data.recipient_user_id):
         raise PayrollForbidden(
-            "Premię ręczną przyznają Płace albo przełożony swojemu człowiekowi."
+            "Premię ręczną przyznają Rozliczenia albo koordynator osobie, z którą współpracuje."
         )
     profile = await db.scalar(
         select(EmployeeProfile.id).where(
@@ -367,7 +386,7 @@ async def create_manual(
         )
     )
     if profile is None:
-        raise PayrollNotFound("Ta osoba nie ma kartoteki pracownika.")
+        raise PayrollNotFound("Ta osoba nie ma kartoteki.")
     validate_manual_period(data.period_year, data.period_month, today)
     await assert_open(db, data.period_year, data.period_month)
     await _assert_contract_exists(db, data.contract_id)
@@ -415,14 +434,14 @@ async def update_bonus(
     if bonus.recipient_user_id == viewer.user_id:
         raise PayrollForbidden("Własnej premii nie zmieniasz.")
     if not viewer.payroll and bonus.proposed_by != viewer.user_id:
-        raise PayrollForbidden("Przełożony zmienia tylko premie, które sam przyznał.")
+        raise PayrollForbidden("Koordynator zmienia tylko premie, które sam przyznał.")
     if bonus.status == "cancelled":
         raise PayrollConflict("Ta premia jest anulowana.")
     # Od 19.10.2026 premia przełożonego to propozycja dla Płac: po zatwierdzeniu
     # kwotę, okres i walutę zmieniają już tylko Płace — inaczej przełożony
     # podniósłby zatwierdzoną kwotę bez ponownej decyzji (audyt 21.10.2026).
     if not viewer.payroll and bonus.status != "proposed":
-        raise PayrollForbidden("Przyznaną premię zmieniają Płace.")
+        raise PayrollForbidden("Przyznaną premię zmieniają Rozliczenia.")
     await assert_open(db, bonus.period_year, bonus.period_month)
 
     before = {
@@ -444,7 +463,7 @@ async def update_bonus(
         if is_automated(bonus):
             raise PayrollError("Premia automatu należy do swojego kontraktu.")
         if not viewer.payroll:
-            raise PayrollForbidden("Placement w premii zmieniają Płace.")
+            raise PayrollForbidden("Placement w premii zmieniają Rozliczenia.")
         await _assert_contract_exists(db, changes["contract_id"])
         bonus.contract_id = changes["contract_id"]
     year = changes.get("period_year", bonus.period_year)
@@ -460,7 +479,16 @@ async def update_bonus(
     if "amount" in changes:
         amount = clean_amount(changes["amount"])
         if amount != bonus.amount and is_automated(bonus):
-            bonus.rule_snapshot = {**(bonus.rule_snapshot or {}), "edited_amount": True}
+            snapshot = bonus.rule_snapshot or {}
+            bonus.rule_snapshot = {
+                **snapshot,
+                "edited_amount": True,
+                **(
+                    {"amount_edited_after_import": True}
+                    if snapshot.get("settlement_import")
+                    else {}
+                ),
+            }
         bonus.amount = amount
     if "currency" in changes:
         bonus.currency = clean_currency(changes["currency"])
@@ -542,7 +570,7 @@ async def cancel_bonus(
     )
     if not (viewer.payroll or own or proposal_for_report):
         raise PayrollForbidden(
-            "Przełożony anuluje tylko premie, które sam przyznał, "
+            "Koordynator anuluje tylko premie, które sam przyznał, "
             "i propozycje automatów dla swoich ludzi."
         )
     if bonus.status == "cancelled":
@@ -557,6 +585,10 @@ async def cancel_bonus(
     await db.flush()
     _audit(db, bonus, actor_id=viewer.user_id, action="bonus_cancelled")
     if was_assigned:
+        # Premia z otwartego miesiąca nie wyszła — dług z gwarancji za nią znika.
+        from app.services.hr import bonus_guarantee  # cykl importów
+
+        await bonus_guarantee.on_bonus_cancelled(db, bonus)
         await _notify(
             db,
             bonus,

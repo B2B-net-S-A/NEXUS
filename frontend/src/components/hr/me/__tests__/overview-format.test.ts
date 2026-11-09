@@ -178,7 +178,7 @@ describe("premie z etapami", () => {
     expect(item.stages.map((s) => [s.label, s.state])).toEqual([
       ["umowa podpisana", "current"],
       ["21 dni", "todo"],
-      ["decyzja Płac", "todo"],
+      ["decyzja Rozliczeń", "todo"],
       ["wypłata", "todo"],
     ]);
     expect(item.estimate).toBe(true);
@@ -189,17 +189,17 @@ describe("premie z etapami", () => {
     expect(item.timeline).toBe("umowa podpisana · start 02.11 · liczy się do ~01.12");
   });
 
-  it("propozycja w trakcie 21 dni i po terminie czekająca na decyzję Płac", () => {
+  it("propozycja w trakcie 21 dni i po terminie czekająca na decyzję Rozliczeń", () => {
     const counting = bonusItemFromRow(bonus(), "2026-10-22");
-    expect(counting.stages.map((s) => s.label)).toEqual(["umowa", "14 z 21 dni", "decyzja Płac", "wypłata"]);
+    expect(counting.stages.map((s) => s.label)).toEqual(["umowa", "14 z 21 dni", "decyzja Rozliczeń", "wypłata"]);
     expect(counting.stages.find((s) => s.state === "current")?.label).toBe("14 z 21 dni");
     expect(counting.when).toBe("od 05.11");
     expect(counting.progress).toBe(67);
     expect(counting.timeline).toBe("14 z 21 dni · liczy się do 05.11");
     const waiting = bonusItemFromRow(bonus({ eligible: true }), "2026-11-10");
-    expect(waiting.stages.find((s) => s.state === "current")?.label).toBe("decyzja Płac");
+    expect(waiting.stages.find((s) => s.state === "current")?.label).toBe("decyzja Rozliczeń");
     expect(waiting.progress).toBe(100);
-    expect(waiting.timeline).toBe("czeka na decyzję Płac");
+    expect(waiting.timeline).toBe("czeka na decyzję Rozliczeń");
   });
 
   it("przyznana: kto i kiedy; po zamknięciu miesiąca — rozliczona", () => {
@@ -304,11 +304,11 @@ describe("„Do zrobienia”", () => {
         : null,
     }) as MonthView;
 
-  it("zamknięte moduły i osoba bez timesheetu — nic do zrobienia", () => {
+  it("zamknięte moduły i osoba bez raportu godzin — nic do zrobienia", () => {
     expect(todoItems(sources())).toEqual([]);
   });
 
-  it("zadanie z linkiem, protokół do podpisu (podpisany pomija) i zaległy timesheet", () => {
+  it("zadanie z linkiem, protokół do podpisu (podpisany pomija) i zaległy raport godzin", () => {
     const items = todoItems(
       sources({
         tasks: [
@@ -334,7 +334,7 @@ describe("„Do zrobienia”", () => {
     expect(items.map((item) => [item.title, item.detail, item.due, item.action])).toEqual([
       ["Przygotuj laptop", "Anna Przykładowa", "do 05.10", "Otwórz"],
       ["Podpisz protokół P/1/2026", "Recepcja · link w mailu", "z 02.10", undefined],
-      [`Wyślij ${timesheetAccusative("uop")} za wrzesień 2026`, "", "termin minął", "Wyślij"],
+      [`Wyślij ${timesheetAccusative("uop")} za wrzesień 2026`, "", "do wysłania", "Wyślij"],
     ]);
     expect(items[0]).toMatchObject({ href: "/people/new/2", overdue: true });
     expect(items[2]).toMatchObject({ tab: "month", overdue: true });
@@ -368,7 +368,7 @@ describe("„Do zrobienia”", () => {
     expect(current(month({ status: "submitted" }))).toEqual([]);
   });
 
-  it("pozycja timesheetu niesie swój rok i miesiąc — klik otwiera ten miesiąc, nie bieżący", () => {
+  it("pozycja raportu godzin niesie swój rok i miesiąc — klik otwiera ten miesiąc, nie bieżący", () => {
     const items = todoItems(
       sources({
         employmentType: "b2b",
@@ -507,14 +507,14 @@ describe("mini-kalendarz miesiąca", () => {
   it("pusty miesiąc i linia braków", () => {
     expect(monthCalendar({ days: [] }, "2026-10-19", true)).toEqual({ offset: 0, days: [] });
     expect(missingLine([], "2026-10-19")).toBeNull();
-    expect(missingLine(["2026-10-19"], "2026-10-19")).toBe("Brakuje dziś (19.10)");
-    expect(missingLine(["2026-10-16"], "2026-10-19")).toBe("Brakuje 16.10");
+    expect(missingLine(["2026-10-19"], "2026-10-19")).toBe("Bez wpisu dziś (19.10)");
+    expect(missingLine(["2026-10-16"], "2026-10-19")).toBe("Bez wpisu 16.10");
     expect(missingLine(["2026-10-15", "2026-10-16", "2026-10-19"], "2026-10-19")).toBe(
-      "Brakuje 3 dni: 15, 16, 19.10",
+      "Bez wpisu 3 dni: 15, 16, 19.10",
     );
     // Dłuższej listy nie wypisujemy — dni są zaznaczone w kalendarzu karty.
     expect(missingLine(["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"], "2026-10-19")).toBe(
-      "Brakuje 4 dni",
+      "Bez wpisu 4 dni",
     );
   });
 

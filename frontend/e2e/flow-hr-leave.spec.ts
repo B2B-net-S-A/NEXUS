@@ -25,7 +25,7 @@ const MARKER = "E2E urlop @stack";
 const REPORT_MARKER = "E2E przerwa @stack";
 
 test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
-  test("pracownik na UoP składa wniosek w „Mój czas”, przełożona akceptuje, pracownik widzi zatwierdzenie", async ({
+  test("osoba na UoP składa wniosek w „Moja współpraca”, koordynatorka akceptuje, osoba widzi zatwierdzenie", async ({
     browser,
   }) => {
     // Dwie osobne sesje przeglądarki i dwa logowania — więcej niż domyślne 30 s.
@@ -42,7 +42,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       const employee = await loginInBrowser(browser, HR_ACCOUNTS.uopEmployee, "/my-time?tab=leave");
       sessions.push(employee);
       // Pierwszy render po logowaniu (sesja, konfiguracja modułów) — z zapasem.
-      await expect(employee.page.getByRole("heading", { name: "Mój czas" })).toBeVisible({
+      await expect(employee.page.getByRole("heading", { name: "Moja współpraca" })).toBeVisible({
         timeout: 30_000,
       });
       await expect(employee.page).toHaveURL(/\/my-time/);
@@ -66,7 +66,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       // Przełożona: „Ludzie → Akceptacje” → „Akceptuj” przy tym wniosku.
       const manager = await loginInBrowser(browser, HR_ACCOUNTS.manager, "/people/approvals");
       sessions.push(manager);
-      await expect(manager.page.getByRole("heading", { name: "Akceptacje" })).toBeVisible({
+      await expect(manager.page.getByRole("heading", { name: "Do potwierdzenia" })).toBeVisible({
         timeout: 30_000,
       });
       await expect(manager.page).toHaveURL(/\/people\/approvals/);
@@ -85,7 +85,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await pendingItem.getByRole("button").click();
       const detail = manager.page.getByRole("region", { name: /^Szczegóły:/ });
       await expect(detail).toContainText(note);
-      await detail.getByRole("button", { name: "Akceptuj" }).click();
+      await detail.getByRole("button", { name: "Potwierdź" }).click();
       await expect(manager.page.getByText("Wniosek zaakceptowany")).toBeVisible();
       await expect(pendingItem).toHaveCount(0);
 
@@ -117,7 +117,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       // Osoba na B2B: „Mój czas → Przerwy” → „Zgłoś przerwę” (zgłoszenie, nie wniosek).
       const contractor = await loginInBrowser(browser, HR_ACCOUNTS.employee, "/my-time?tab=leave");
       sessions.push(contractor);
-      await expect(contractor.page.getByRole("heading", { name: "Mój czas" })).toBeVisible({
+      await expect(contractor.page.getByRole("heading", { name: "Moja współpraca" })).toBeVisible({
         timeout: 30_000,
       });
       await contractor.page.getByRole("button", { name: "Zgłoś przerwę" }).click();
@@ -139,7 +139,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       // Koordynatorka: „Akceptacje” → zgłoszenie do wiadomości, bez „Akceptuj”.
       const manager = await loginInBrowser(browser, HR_ACCOUNTS.manager, "/people/approvals");
       sessions.push(manager);
-      await expect(manager.page.getByRole("heading", { name: "Akceptacje" })).toBeVisible({
+      await expect(manager.page.getByRole("heading", { name: "Do potwierdzenia" })).toBeVisible({
         timeout: 30_000,
       });
       const reported = manager.page.getByRole("list", {
@@ -150,11 +150,11 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await item.first().getByRole("button").click();
       const detail = manager.page.getByRole("region", { name: /^Szczegóły:/ });
       await expect(detail).toContainText(note);
-      await expect(detail.getByRole("button", { name: "Akceptuj" })).toHaveCount(0);
-      await detail.getByRole("button", { name: "Zgłoś kolizję" }).click();
-      const conflict = manager.page.getByRole("dialog", { name: "Zgłoś kolizję z terminem" });
+      await expect(detail.getByRole("button", { name: "Potwierdź" })).toHaveCount(0);
+      await detail.getByRole("button", { name: "Zgłoś uwagę" }).click();
+      const conflict = manager.page.getByRole("dialog", { name: "Zgłoś uwagę do terminu" });
       await conflict.locator("#leave-conflict-note").fill(`Wdrożenie u klienta ${uniqueSuffix()}`);
-      await conflict.getByRole("button", { name: "Zgłoś kolizję" }).click();
+      await conflict.getByRole("button", { name: "Zgłoś uwagę" }).click();
       // Komunikat po zapisie; wiersz zgłoszenia od razu dostaje też dopisek
       // „kolizja zgłoszona · …” (odświeżenie po mutacji), więc szukamy pełnego zdania.
       await expect(
@@ -172,7 +172,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
     }
   });
 
-  test("rola „Pracownik” ląduje w „Mój czas” i nie widzi Płac ani importu z Compassa", async ({
+  test("rola „Osoba” ląduje w „Moja współpraca” i nie widzi Rozliczeń ani importu z Compassa", async ({
     browser,
   }) => {
     test.slow();
@@ -183,7 +183,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       // Po logowaniu formularzem ekran logowania nawiguje dwa razy (cel po
       // zalogowaniu, potem sonda sesji → `/`, które middleware odsyła do
       // „Mój czas”). Najpierw stan końcowy ekranu, dopiero potem adres.
-      await expect(page.getByRole("heading", { name: "Mój czas" })).toBeVisible({
+      await expect(page.getByRole("heading", { name: "Moja współpraca" })).toBeVisible({
         timeout: 30_000,
       });
       await expect(page).toHaveURL(/\/my-time(?:\?|$)/);
@@ -192,16 +192,16 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await expect(page).toHaveURL(/\/my-time(?:\?|$)/);
 
       // Serwer odmawia Płac; ekran mówi o braku uprawnień zamiast pustej listy.
-      await expectStatus(await staffApi.get("/api/hr/payroll/months"), 403, "pracownik → Płace");
+      await expectStatus(await staffApi.get("/api/hr/payroll/months"), 403, "osoba → Rozliczenia");
       await page.goto("/people/payroll");
       await expect(page.getByRole("status").filter({ hasText: "Brak uprawnień" })).toBeVisible();
-      await expect(page.getByText("Płace prowadzi dział Płac.", { exact: false })).toBeVisible();
+      await expect(page.getByText("Rozliczenia prowadzi dział Rozliczeń.", { exact: false })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "Razem" })).toHaveCount(0);
 
       await expectStatus(
         await staffApi.get("/api/hr/admin/import/batches"),
         403,
-        "pracownik → import z Compassa"
+        "osoba → import z Compassa"
       );
       await page.goto("/settings/hr-import");
       await expect(page.getByRole("status").filter({ hasText: "Brak uprawnień" })).toBeVisible();

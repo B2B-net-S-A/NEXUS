@@ -23,11 +23,17 @@ Migracje `0364_application_confirmation`, `0365_order_group_cancel`,
   kolumny + kolumny `candidate_id` bez FK + FK z modeli); konflikt unikalności
   rozstrzygany PER WIERSZ (para z tym samym kluczem → zostaje nowszy wiersz,
   starszy znika, reszta przepięta — nigdy „usuń wszystkie wiersze
-  duplikatu”); `activities`/`notifications`(+link)/`traffit_entity_links`
+  duplikatu”); W `candidate_documents` plik nie znika, a główne CV zostaje przy ocalałym:
+  flagę przejmuje plik duplikatu tylko, gdy ocalały jej nie ma, i pokazuje to podgląd
+  (`primary_cv`), bo data wiersza to data importu, nie wersja CV (05.11.2026).
+  `activities`/`notifications`(+link)/`traffit_entity_links`
   przepinane jawnie. Konflikt pól = wybór człowieka; kontakt duplikatu
   zostaje w `custom_fields.merged_duplicates`. Duplikat z Traffita oddaje
-  ocalałemu `external_id` (inaczej nocny sync go odtworzy); oba z tego samego
-  systemu = 409 `both_external`. Odcisk jak w `contract_merge`. Historia
+  ocalałemu `external_id`; oba z tego samego żywego systemu = 409
+  `both_external`. Oba z Traffita scalają się od 05.11.2026 (decyzja Artura):
+  Traffit wyłączony 14.10.2026, więc nikt nie odtworzy profilu, a blokada
+  dotykała 65 243 z 68 403 profili. Ocalały zostaje przy swoim id, id duplikatu
+  ląduje w `merged_duplicates`. Odcisk jak w `contract_merge`. Historia
   zdarzeń `candidate.merge` bez nazwisk. Skrypt
   `scripts/merge_duplicate_candidates.py` ZOSTAJE (partie Talent Radar,
   własne testy) — do scalania pojedynczych par używaj UI.

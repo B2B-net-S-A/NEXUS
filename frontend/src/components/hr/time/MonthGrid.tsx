@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, type FormEvent } from "react";
-import { Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,15 @@ import { employmentTerms } from "@/lib/hr-employment-terms";
 import { cn } from "@/lib/utils";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 
-import { dayRowTone, formatHours, needsEntry, parseHours, weekGroups, weekTitle } from "./time-format";
+import {
+  dayRowTone,
+  formatHours,
+  needsEntry,
+  overLeaveLimit,
+  parseHours,
+  weekGroups,
+  weekTitle,
+} from "./time-format";
 
 /** Wpis dnia wprost w wierszu: godziny i opis (projekt — w oknie „+”). */
 export interface QuickEntryInput {
@@ -36,6 +44,8 @@ export interface MonthGridProps {
   onQuickSave?: (day: MonthDay, input: QuickEntryInput) => Promise<unknown>;
   /** Opis wpisywany, gdy pole opisu zostanie puste (domyślny opis roli). */
   defaultDescription?: string;
+  /** Akcje przy dniu nieobecności (podgląd akceptującego); `null` = brak. */
+  leaveAction?: (day: MonthDay) => React.ReactNode;
 }
 
 const LOCATION_OPTIONS = [
@@ -70,7 +80,16 @@ function PlaceCell({
     return <span className={CALM_EMPTY}>—</span>;
   }
   if (!onLocationChange) {
-    return <span className="text-xs text-foreground">{LOCATION_LABELS[day.location]}</span>;
+    return (
+      <span className="text-xs text-foreground">
+        {LOCATION_LABELS[day.location]}
+        {day.leave ? (
+          <span className="block text-[11px] text-muted-foreground">
+            pół dnia: {day.leave.label.toLowerCase()}
+          </span>
+        ) : null}
+      </span>
+    );
   }
   return (
     <div className="flex items-center gap-1.5">
@@ -94,10 +113,13 @@ function PlaceCell({
 function QuickEntry({
   day,
   defaultDescription,
+  noHoursLimit = false,
   onSave,
 }: {
   day: MonthDay;
   defaultDescription: string;
+  /** Kartoteka: wpis ponad limit dnia — serwer pilnuje 24 h na jeden wpis. */
+  noHoursLimit?: boolean;
   onSave: (input: QuickEntryInput) => Promise<unknown>;
 }) {
   const capacity = day.capacity ?? 8;
@@ -109,8 +131,9 @@ function QuickEntry({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const value = parseHours(hours);
-    if (value === null || value <= 0 || value > capacity) {
-      setError(`Godziny od 0 do ${formatHours(capacity)}`);
+    const max = noHoursLimit ? 24 : capacity;
+    if (value === null || value <= 0 || value > max) {
+      setError(`Godziny od 0 do ${formatHours(max)}`);
       return;
     }
     setError(null);
@@ -154,6 +177,39 @@ function QuickEntry({
   );
 }
 
+/**
+ * Dni z pół dnia nieobecności i zbyt dużą liczbą godzin, nad siatką: wiersz bywa
+ * poza widokiem, a akceptujący ma to zobaczyć przed decyzją. Bez `onFix` sama informacja.
+ */
+export function LeaveLimitNotice({
+  days,
+  onFix,
+  busy = false,
+}: {
+  days: readonly MonthDay[];
+  onFix?: (day: MonthDay) => void;
+  busy?: boolean;
+}) {
+  if (days.length === 0) return null;
+  return (
+    <div role="status" className="space-y-1.5 rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+      {days.map((day) => (
+        <div key={day.date} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="min-w-0 flex-1">
+            <span className="font-semibold">{formatWeekdayDayPl(day.date)}:</span> pół dnia nieobecności, a wpisane{" "}
+            {formatHours(day.hours)} h. Można najwyżej {formatHours(day.capacity ?? 0)} h.
+          </p>
+          {onFix ? (
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => onFix(day)}>
+              Skróć do {formatHours(day.capacity ?? 0)} h
+            </Button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Siatka miesiąca w tygodniach: jeden wiersz na dzień (miejsce, godziny, projekt, opis). */
 export function MonthGrid({
   view,
@@ -164,6 +220,7 @@ export function MonthGrid({
   locationPending,
   onQuickSave,
   defaultDescription,
+  leaveAction,
 }: MonthGridProps) {
   const standardDescription = employmentTerms(view.employment_type).standard_description;
   const normPerDay = view.totals.working_days > 0 ? view.totals.norm_hours / view.totals.working_days : 8;
@@ -203,6 +260,9 @@ export function MonthGrid({
                 const quick = editable && onQuickSave && needsEntry(day);
                 // Weekend i święto bez wpisów — cienki wiersz, żeby nie rozpychał miesiąca.
                 const thin = !day.working_day && day.entries.length === 0;
+                const sole = day.entries.length === 1 ? day.entries[0] : null;
+                const editableSole = editable && sole && sole.source !== "leave_paid" ? sole : null;
+                const overLimit = overLeaveLimit(day);
                 return (
                   <tr
                     key={day.date}
@@ -233,6 +293,7 @@ export function MonthGrid({
                     {quick && onQuickSave ? (
                       <td colSpan={3} className="px-2 py-1">
                         <QuickEntry
+                          noHoursLimit={view.no_hours_limit}
                           day={day}
                           defaultDescription={defaultDescription ?? standardDescription}
                           onSave={(input) => onQuickSave(day, input)}
@@ -241,8 +302,21 @@ export function MonthGrid({
                     ) : (
                       <>
                         <td className="px-2 py-1.5 text-right tabular-nums">
-                          {day.hours > 0 ? formatHours(day.hours) : <span className={CALM_EMPTY}>—</span>}
-                          {day.overtime_hours > 0 ? (
+                          {editableSole ? (
+                            <button
+                              type="button"
+                              aria-label={`Popraw godziny ${day.date}`}
+                              className="rounded-sm underline decoration-dotted underline-offset-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => onEntryClick?.(day, editableSole)}
+                            >
+                              {formatHours(day.hours)}
+                            </button>
+                          ) : day.hours > 0 ? (
+                            formatHours(day.hours)
+                          ) : (
+                            <span className={CALM_EMPTY}>—</span>
+                          )}
+                          {day.overtime_hours > 0 && !overLimit ? (
                             <span className="mt-0.5 block whitespace-nowrap rounded bg-warning-muted px-1 text-[11px] text-warning-muted-foreground">
                               {/* B2B i zlecenie: „ponad 8 h”, nie „nadgodziny” (21.10.2026). */}
                               +{formatHours(day.overtime_hours)}{" "}
@@ -258,6 +332,12 @@ export function MonthGrid({
                           ))}
                         </td>
                         <td className="px-2 py-1.5">
+                          {day.leave && leaveAction ? leaveAction(day) : null}
+                          {overLimit ? (
+                            <span className="mb-1 inline-block rounded bg-warning-muted px-1.5 text-[11px] text-warning-muted-foreground">
+                              Wpisane {formatHours(day.hours)} h, można {formatHours(day.capacity ?? 0)} h
+                            </span>
+                          ) : null}
                           {day.entries.length === 0 && day.leave?.paid_work ? (
                             <span className="text-xs text-muted-foreground">
                               {standardDescription} · wpisze się{" "}
@@ -291,10 +371,11 @@ export function MonthGrid({
                               <button
                                 key={entry.id}
                                 type="button"
-                                className="block w-full rounded-sm text-left leading-5 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="group flex w-full items-center gap-1.5 rounded-sm text-left leading-5 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 onClick={() => onEntryClick?.(day, entry)}
                               >
-                                {label}
+                                <span className="min-w-0">{label}</span>
+                                <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                               </button>
                             );
                           })}

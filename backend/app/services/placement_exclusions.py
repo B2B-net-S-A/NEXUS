@@ -37,8 +37,7 @@ Gdzie działa:
 * liczniki czytające ``candidate_stages`` wprost —
   ``not_excluded_placement(...)`` (SQLAlchemy).
 
-Wykrywanie dobowe: ``run_detection_safely`` po nocnym imporcie Traffita
-(``tasks/traffit_sync.py``) i przed zamrożeniem wyścigów
+Wykrywanie dobowe: ``run_detection_safely`` przed zamrożeniem wyścigów
 (``tasks/competition_autofreeze.py``). Idempotentne, NIGDY nie zdejmuje
 istniejących wykluczeń.
 """
@@ -61,14 +60,20 @@ SERIES_TZ = "Europe/Warsaw"
 
 REASON_NO_CV = "admin_bulk_no_cv"
 REASON_2025_09_SERIES = "admin_bulk_2025_09_series"
-REASONS: tuple[str, ...] = (REASON_NO_CV, REASON_2025_09_SERIES)
+# 0650 (decyzja Artura 05.11.2026): admin wyklucza parę ręcznie, gdy osoba nie
+# podjęła pracy albo klient zakończył współpracę zaraz po starcie. Jedyny
+# powód, który admin może też zdjąć — reguła wyżej nigdy nie zdejmuje.
+REASON_MANUAL = "manual"
+REASONS: tuple[str, ...] = (REASON_NO_CV, REASON_2025_09_SERIES, REASON_MANUAL)
 REASON_LABELS_PL: dict[str, str] = {
     REASON_NO_CV: (
         "Seria „Zatrudniony” jednego konta (co najmniej "
         f"{SERIES_THRESHOLD} par w dniu) bez etapu „CV wysłane”"
     ),
     REASON_2025_09_SERIES: "Masowe ustawienie „Zatrudniony” 24–25.09.2025",
+    REASON_MANUAL: "Wykluczone ręcznie przez administratora",
 }
+NOTE_MAX_LENGTH = 500
 
 # Dni historycznej serii (decyzja A). Daty, nie ID — reguła wyżej rozpoznaje
 # konto po liczbie zatrudnień, a nie po tym, kim jest.
@@ -202,6 +207,18 @@ TABLE_DDL: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS ix_placement_exclusions_job_id "
     "ON placement_exclusions (job_id)",
+)
+
+_REASONS_SQL = ", ".join(f"'{reason}'" for reason in REASONS)
+
+# 0650: powód ręczny. Osobno od ``TABLE_DDL`` (to zostaje definicją 0343),
+# idempotentne — entrypoint uruchamia je przy każdym starcie.
+REASON_CHECK_DDL: tuple[str, ...] = (
+    "ALTER TABLE placement_exclusions "
+    "DROP CONSTRAINT IF EXISTS ck_placement_exclusions_reason",
+    "ALTER TABLE placement_exclusions "
+    "ADD CONSTRAINT ck_placement_exclusions_reason "
+    f"CHECK (reason IN ({_REASONS_SQL}))",
 )
 
 
@@ -429,6 +446,9 @@ async def list_exclusions(db: AsyncSession) -> list[dict[str, Any]]:
         mover = row.moved_by or (exclusion.details or {}).get("mover_user_id")
         if isinstance(mover, int):
             mover_ids.add(mover)
+        added_by = (exclusion.details or {}).get("added_by")
+        if isinstance(added_by, int):
+            mover_ids.add(added_by)
     names: dict[int, str] = {}
     if mover_ids:
         for uid, user_name, email in (
@@ -467,6 +487,105 @@ async def list_exclusions(db: AsyncSession) -> list[dict[str, Any]]:
                 "series_size": details.get("series_size"),
                 "rule_version": exclusion.rule_version,
                 "detected_at": exclusion.detected_at,
+                "note": details.get("note"),
+                "added_by_name": names.get(details.get("added_by")),
             }
         )
     return out
+
+
+# ── Ręczne wykluczenie (0650) ────────────────────────────────────────────────
+
+
+class ManualExclusionError(Exception):
+    """Odmowa ręcznego wykluczenia — komunikat po polsku dla admina."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+async def add_manual_exclusion(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job_id: int,
+    actor_id: int,
+    note: str,
+) -> int:
+    """Wyklucza parę z etapem „Zatrudniony”. Zwraca id wykluczenia.
+
+    Para bez „Zatrudniony” to pomyłka w numerach, nie placement — odmowa.
+    Wołający commituje.
+    """
+    from app.models.placement_exclusion import PlacementExclusion
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    note = note.strip()
+    if not note:
+        raise ManualExclusionError(422, "Wpisz, dlaczego placement nie ma się liczyć.")
+    first_hired = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+            CandidateStage.stage == PipelineStage.hired,
+        )
+        .order_by(CandidateStage.moved_at, CandidateStage.id)
+        .limit(1)
+    )
+    if first_hired is None:
+        raise ManualExclusionError(
+            422,
+            "Ten kandydat nie ma etapu „Zatrudniony” w tej rekrutacji. "
+            "Sprawdź numer kandydata i numer rekrutacji.",
+        )
+    existing = await db.scalar(
+        select(PlacementExclusion.id).where(
+            PlacementExclusion.candidate_id == candidate_id,
+            PlacementExclusion.job_id == job_id,
+        )
+    )
+    if existing is not None:
+        raise ManualExclusionError(409, "Ten placement jest już wykluczony.")
+    exclusion = PlacementExclusion(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        candidate_stage_id=first_hired,
+        reason=REASON_MANUAL,
+        rule_version=RULE_VERSION,
+        details={"added_by": actor_id, "note": note[:NOTE_MAX_LENGTH]},
+    )
+    db.add(exclusion)
+    await db.flush()
+    return exclusion.id
+
+
+async def remove_manual_exclusion(db: AsyncSession, exclusion_id: int) -> None:
+    """Zdejmuje wykluczenie dodane ręcznie. Wykluczeń z reguły nie zdejmuje.
+
+    Wołający commituje.
+    """
+    from app.models.placement_exclusion import PlacementExclusion
+
+    exclusion = await db.get(PlacementExclusion, exclusion_id)
+    if exclusion is None:
+        raise ManualExclusionError(404, "Nie ma takiego wykluczenia.")
+    if exclusion.reason != REASON_MANUAL:
+        raise ManualExclusionError(
+            409, "Wykluczenia z reguły nie da się zdjąć, tylko dodane ręcznie."
+        )
+    await db.delete(exclusion)
+    await db.flush()
+
+
+async def invalidate_placement_caches() -> None:
+    """Po zmianie listy: Insights i migawka zasługi liczą od nowa."""
+    try:
+        from app.core.cache import cache_invalidate
+
+        await cache_invalidate("analytics:")
+        await cache_invalidate("kpi:credited:")
+    except Exception:  # noqa: BLE001 — cache wygaśnie sam
+        logger.debug("cache invalidation after manual exclusion failed", exc_info=True)

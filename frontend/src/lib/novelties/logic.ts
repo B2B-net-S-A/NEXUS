@@ -242,7 +242,25 @@ export function placeBeside(
     c.left + card.width > target.left &&
     c.top < target.top + target.height &&
     c.top + card.height > target.top;
-  return candidates.find((c) => fits(c) && !overlaps(c)) ?? candidates[0];
+  const chosen = candidates.find((c) => fits(c) && !overlaps(c));
+  if (chosen) return chosen;
+  // Cel prawie na cały ekran: karta wchodzi na cel, ale nigdy poza okno, bo ma
+  // „Rozumiem” i „Przerwij”.
+  return {
+    top: clampTop(candidates[0].top),
+    left: clampLeft(candidates[0].left),
+  };
+}
+
+/** Wspólna część dwóch prostokątów; `null`, gdy się nie stykają. */
+export function intersectRects(a: Rect, b: Rect): Rect | null {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  return right > left && bottom > top
+    ? { top, left, width: right - left, height: bottom - top }
+    : null;
 }
 
 // ── Start w NEXUSIE ──────────────────────────────────────────────────────────
@@ -280,6 +298,8 @@ const START_FREE_PREFIXES = [
   "/login",
   "/onboarding",
   "/settings/nowosci",
+  // Sam odczyt liczb na telefonie; przeklikania Startu i tak robi się na laptopie.
+  "/podglad",
 ];
 
 /** Czy ekran jest dostępny przed zaliczeniem Startu. */

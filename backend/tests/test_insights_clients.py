@@ -262,13 +262,13 @@ async def closed_job_hired_twice() -> AsyncIterator[dict]:
 
 # ── Dostęp: /ranking tylko Rada, /hit-ratio każdy zalogowany ───────────────
 
-BOARD_ROLES = (UserRole.admin, UserRole.finance)
+BOARD_ROLES = (UserRole.admin, UserRole.board)
 NON_BOARD_ROLES = (
+    UserRole.finance,
     # Head of Recruitment nie widzi pieniędzy (decyzja Artura 24.09.2026).
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.recruiter,
-    UserRole.user,
 )
 
 
@@ -286,7 +286,7 @@ async def test_every_role_reaches_hit_ratio(fx_client: AsyncClient, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", BOARD_ROLES)
 async def test_board_roles_reach_ranking(fx_client: AsyncClient, role):
-    """Ranking klientów (MRR, przychody): widok Firma — admin i Finanse (24.09.2026)."""
+    """Ranking klientów (MRR, przychody): widok Firma — admin i Rada (02.11.2026)."""
     _, email, password = await _seed_user(role, "rbac-rank")
     headers = await _login(fx_client, email, password)
 
@@ -314,11 +314,11 @@ async def test_endpoints_require_authentication(fx_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_finance_sees_ranking_amounts_and_hor_is_refused(
+async def test_board_sees_ranking_amounts_and_hor_is_refused(
     fx_client: AsyncClient,
     stale_rate_column_contract: dict,
 ):
-    """Kwoty rankingu: Finanse widzą je bez redakcji, HoR dostaje 403.
+    """Kwoty rankingu: Rada widzi je bez redakcji, HoR dostaje 403.
 
     Decyzja Artura 24.09.2026 — Head of Recruitment nie widzi pieniędzy.
     Do tego dnia ten test pilnował odwrotnej reguły (HoR widział kwoty mimo
@@ -331,7 +331,7 @@ async def test_finance_sees_ranking_amounts_and_hor_is_refused(
     hor_headers = await _login(fx_client, hor_email, hor_password)
     assert (await fx_client.get(RANKING, headers=hor_headers)).status_code == 403
 
-    _, email, password = await _seed_user(UserRole.finance, "money")
+    _, email, password = await _seed_user(UserRole.board, "money")
     headers = await _login(fx_client, email, password)
 
     body = (await fx_client.get(RANKING, headers=headers)).json()
@@ -763,7 +763,6 @@ async def test_hiring_managers_is_open_to_every_logged_in_role(
     for role in (
         UserRole.recruiter,
         UserRole.delivery_lead,
-        UserRole.user,
         UserRole.admin,
     ):
         _, email, password = await _seed_user(role, "hm-rbac")

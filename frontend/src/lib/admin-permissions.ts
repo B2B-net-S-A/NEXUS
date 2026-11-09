@@ -95,7 +95,7 @@ export interface AdminUserPermissions {
   role_permissions: Permission[];
   /** Uprawnienia nadane tej osobie. */
   grants: Permission[];
-  /** Stare wyjątki odbierające uprawnienie — ekran ich nie tworzy. */
+  /** Uprawnienia odebrane tej osobie (pozycja „Odebrane” w oknie). */
   restrictions: Permission[];
   effective: Permission[];
   /** Stare wyjątki sekcji Delivery/Finanse — tylko ograniczają. */
@@ -316,11 +316,11 @@ export function extraPermissionsTitle(keys: readonly string[]): string {
     .join(", ");
 }
 
-// ── „Edytuj użytkownika”: dodatkowe uprawnienia jednej osoby ─────────────────
+// ── „Edytuj użytkownika”: uprawnienia jednej osoby ───────────────────────────
 
 /**
- * Konto przyjmuje dodatkowe uprawnienia, gdy KAŻDA z jego ról jest do nadania:
- * administrator ma wszystko, a `user` i `trainee` nie dostają niczego.
+ * Konto przyjmuje wyjątki, gdy KAŻDA z jego ról jest do nadania: administrator
+ * ma wszystko, a `user` i `trainee` nie dostają niczego.
  */
 export function rolesAcceptGrants(
   snapshot: AdminPermissionsSnapshot,
@@ -333,52 +333,127 @@ export function rolesAcceptGrants(
   return roles.every((role) => byRole.get(role)?.grantable === true);
 }
 
-/** To, co dają wskazane role razem (po zależnościach). */
-export function permissionsOfRoles(
+/** Wiersze zapisane w wybranych rolach, bez tego, co tylko z nich wynika. */
+export function grantedByRoles(
   snapshot: AdminPermissionsSnapshot,
   roles: readonly string[],
 ): Set<Permission> {
   const selected = new Set(roles);
-  return closePermissions(
+  return new Set(
     snapshot.roles
       .filter((entry) => selected.has(entry.role))
       .flatMap((entry) => [...grantedPermissions(entry)]),
   );
 }
 
-export interface ExtraPermissionRow {
+/** To, co dają wskazane role razem (po zależnościach). */
+export function permissionsOfRoles(
+  snapshot: AdminPermissionsSnapshot,
+  roles: readonly string[],
+): Set<Permission> {
+  return closePermissions(grantedByRoles(snapshot, roles));
+}
+
+/** Wyjątek osoby: uprawnienie nadane ponad rolę albo odebrane mimo roli. */
+export type PersonOverride = "manage" | "none";
+export type PersonOverrides = ReadonlyMap<Permission, PersonOverride>;
+
+export function storedPersonOverrides(user: AdminUserPermissions): Map<Permission, PersonOverride> {
+  return new Map<Permission, PersonOverride>([
+    ...(user.grants ?? []).filter(isPermission).map((key) => [key, "manage"] as const),
+    ...(user.restrictions ?? []).filter(isPermission).map((key) => [key, "none"] as const),
+  ]);
+}
+
+/** Lustro resolvera: wiersze ról zastąpione wyjątkami osoby, przed zależnościami. */
+function heldBeforeClosure(
+  roleGranted: ReadonlySet<Permission>,
+  overrides: PersonOverrides,
+): Set<Permission> {
+  const held = new Set(roleGranted);
+  overrides.forEach((access, key) => {
+    if (access === "manage") held.add(key);
+    else held.delete(key);
+  });
+  return held;
+}
+
+export interface PersonPermissionRow {
   key: Permission;
   label: string;
-  /** Nadane osobie albo wymuszone przez inne nadane jej uprawnienie. */
-  checked: boolean;
-  /** Zaznaczone uprawnienia, które wymuszają to — pole jest zablokowane. */
+  /** Wybrane role dają to uprawnienie: „Z roli” / „Odebrane”, inaczej „Brak” / „Nadane”. */
+  fromRole: boolean;
+  /** Osoba będzie je mieć po zapisaniu. */
+  on: boolean;
+  /** Zachowane uprawnienia, które go wymagają — przełącznik jest zablokowany. */
   requiredBy: Permission[];
 }
 
-/** Lista w oknie: wyłącznie uprawnienia, których wybrane role NIE dają. */
-export function extraPermissionRows(
+/** Wszystkie uprawnienia z katalogu w kolejności grup, ze stanem po zmianach w oknie. */
+export function personPermissionRows(
   snapshot: AdminPermissionsSnapshot,
-  roleGiven: ReadonlySet<Permission>,
-  draft: ReadonlySet<Permission>,
+  roleGranted: ReadonlySet<Permission>,
+  overrides: PersonOverrides,
   /** Grupy, których nie pokazujemy (np. „people” przy wyłączonym programie). */
   hiddenGroups: ReadonlySet<string> = new Set(),
-): ExtraPermissionRow[] {
+): PersonPermissionRow[] {
   const labels = new Map(
     snapshot.permissions.map((permission) => [permission.key, permission.label]),
   );
+  const fromRoles = closePermissions(roleGranted);
+  const held = heldBeforeClosure(roleGranted, overrides);
+  const effective = closePermissions(held);
   return snapshot.permission_groups
     .filter((group) => !hiddenGroups.has(group.key))
     .flatMap((group) => group.permissions)
-    .filter((key) => isPermission(key) && !roleGiven.has(key))
-    .map((key) => {
-      const requiredBy = impliedBy(key, draft);
-      return {
-        key,
-        label: labels.get(key) ?? permissionLabel(key),
-        checked: draft.has(key) || requiredBy.length > 0,
-        requiredBy,
-      };
-    });
+    .filter(isPermission)
+    .map((key) => ({
+      key,
+      label: labels.get(key) ?? permissionLabel(key),
+      fromRole: fromRoles.has(key),
+      on: effective.has(key),
+      requiredBy: impliedBy(key, held),
+    }));
+}
+
+/** Przełącza wiersz: wyjątek powstaje tylko wtedy, gdy wybór różni się od wierszy ról. */
+export function setPersonPermission(
+  overrides: PersonOverrides,
+  roleGranted: ReadonlySet<Permission>,
+  key: Permission,
+  on: boolean,
+): Map<Permission, PersonOverride> {
+  const next = new Map(overrides);
+  if (on === roleGranted.has(key)) next.delete(key);
+  else next.set(key, on ? "manage" : "none");
+  return next;
+}
+
+/**
+ * Wyjątki, które coś zmieniają: nadanie tego, co dają role, i odebranie tego,
+ * czego nie dają, są puste. Odebrane, którego wymaga uprawnienie zachowane
+ * w tym samym oknie, też odpada — ekran pokazuje je jako włączone, a serwer
+ * takiego zapisu nie przyjmie (`permission_required_by_kept`).
+ */
+function meaningfulOverrides(
+  overrides: PersonOverrides,
+  roleGranted: ReadonlySet<Permission>,
+): Map<Permission, PersonOverride> {
+  const kept = new Map(
+    [...overrides].filter(([key, access]) => (access === "manage") !== roleGranted.has(key)),
+  );
+  const held = heldBeforeClosure(roleGranted, kept);
+  kept.forEach((access, key) => {
+    if (access === "none" && impliedBy(key, held).length > 0) kept.delete(key);
+  });
+  return kept;
+}
+
+function sameOverrides(left: PersonOverrides, right: PersonOverrides): boolean {
+  return (
+    left.size === right.size &&
+    [...left].every(([key, access]) => right.get(key) === access)
+  );
 }
 
 const SECTION_NAMES: Partial<Record<ProductSection, string>> = {
@@ -392,17 +467,12 @@ const CAP_NAMES: Record<SectionAccess, string> = {
   write: "odczyt i zapis",
 };
 
-/** Stare wyjątki osoby, nazwane słowami; pusta lista = nie ma czego usuwać. */
+/** Stare limity sekcji Delivery/Finanse, nazwane słowami; pusta lista = nie ma czego usuwać. */
 export function legacyLimits(user: AdminUserPermissions): string[] {
-  return [
-    ...(user.restrictions ?? [])
-      .filter(isPermission)
-      .map((key) => `bez uprawnienia ${quoted(permissionLabel(key))}`),
-    ...Object.entries(user.legacy_section_caps ?? {}).map(
-      ([section, access]) =>
-        `${SECTION_NAMES[section as ProductSection] ?? section}: ${CAP_NAMES[access as SectionAccess] ?? access}`,
-    ),
-  ];
+  return Object.entries(user.legacy_section_caps ?? {}).map(
+    ([section, access]) =>
+      `${SECTION_NAMES[section as ProductSection] ?? section}: ${CAP_NAMES[access as SectionAccess] ?? access}`,
+  );
 }
 
 export interface UserPermissionsSave {
@@ -411,51 +481,49 @@ export interface UserPermissionsSave {
   actionChanges: UserPermissionChange[];
 }
 
-function sameSet<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
-  return left.size === right.size && [...left].every((item) => right.has(item));
-}
-
 /**
  * Drugie żądanie zapisu z okna „Edytuj użytkownika” — albo `null`, gdy nie ma
  * czego wysyłać.
  *
- * Uprawnienie, które dają już wybrane role, wraca do `inherit` (nadanie jest
- * zbędne). Samo takie sprzątanie nie wystarcza jednak do zapisu: zmiana
- * uprawnień wylogowuje osobę, więc poprawka nazwiska nie może przy okazji
- * zakończyć jej sesji. Wysyłamy tylko wtedy, gdy administrator coś zaznaczył,
- * zmienił role albo kazał usunąć stare ograniczenia.
+ * Wyjątek, który po wyborach w oknie niczego nie zmienia, wraca do `inherit`.
+ * Samo takie sprzątanie nie wystarcza jednak do zapisu: zmiana uprawnień
+ * wylogowuje osobę, więc poprawka nazwiska nie może przy okazji zakończyć jej
+ * sesji. Wysyłamy tylko wtedy, gdy administrator coś przełączył, zmienił role
+ * albo kazał usunąć stare limity sekcji.
  */
 export function userPermissionsSave({
   response,
   draft,
-  roleGiven,
+  roleGranted,
   rolesChanged,
   removeLegacy,
 }: {
   response: AdminUserPermissionsResponse;
-  draft: ReadonlySet<Permission>;
-  roleGiven: ReadonlySet<Permission>;
+  draft: PersonOverrides;
+  roleGranted: ReadonlySet<Permission>;
   rolesChanged: boolean;
   removeLegacy: boolean;
 }): UserPermissionsSave | null {
-  const stored = new Set((response.user.grants ?? []).filter(isPermission));
-  if (!rolesChanged && !removeLegacy && sameSet(stored, draft)) return null;
-
-  const wanted = new Set([...draft].filter((key) => !roleGiven.has(key)));
-  const actionChanges: UserPermissionChange[] = PERMISSION_KEYS.filter(
-    (key) => stored.has(key) !== wanted.has(key),
-  ).map((key) => ({ action: key, access: wanted.has(key) ? "manage" : "inherit" }));
-
-  const changes: UserSectionPermissionChange[] = [];
-  if (removeLegacy) {
-    const sent = new Set(actionChanges.map((change) => change.action));
-    for (const key of (response.user.restrictions ?? []).filter(isPermission)) {
-      if (!sent.has(key)) actionChanges.push({ action: key, access: "inherit" });
-    }
-    for (const section of Object.keys(response.user.legacy_section_caps ?? {})) {
-      changes.push({ section: section as ProductSection, access: "inherit" });
-    }
+  const stored = storedPersonOverrides(response.user);
+  const wanted = meaningfulOverrides(draft, roleGranted);
+  if (
+    !rolesChanged &&
+    !removeLegacy &&
+    sameOverrides(meaningfulOverrides(stored, roleGranted), wanted)
+  ) {
+    return null;
   }
+
+  const actionChanges: UserPermissionChange[] = PERMISSION_KEYS.filter(
+    (key) => stored.get(key) !== wanted.get(key),
+  ).map((key) => ({ action: key, access: wanted.get(key) ?? "inherit" }));
+
+  const changes: UserSectionPermissionChange[] = removeLegacy
+    ? Object.keys(response.user.legacy_section_caps ?? {}).map((section) => ({
+        section: section as ProductSection,
+        access: "inherit",
+      }))
+    : [];
 
   if (actionChanges.length === 0 && changes.length === 0) return null;
   return { revision: response.revision, changes, actionChanges };

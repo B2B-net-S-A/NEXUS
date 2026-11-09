@@ -85,7 +85,7 @@ describe("/preview/hr-structure", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry bez Płac: drzewo bez formy umowy, kartoteka z konta „do uzupełnienia”", async () => {
+  it("Administracja współpracy bez Rozliczeń: drzewo bez formy umowy, kartoteka z konta „do uzupełnienia”", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-structure?state=hr-only");
     render(<HrStructurePreviewPage />);
@@ -100,7 +100,7 @@ describe("/preview/hr-structure", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Płace: studentka na zleceniu z plakietką „składki od …”", async () => {
+  it("Rozliczenia: studentka na zleceniu z plakietką „składki od …”", async () => {
     window.history.replaceState({}, "", "/preview/hr-structure");
     render(<HrStructurePreviewPage />);
     expect(await screen.findByText("składki od 07.2027")).toBeInTheDocument();

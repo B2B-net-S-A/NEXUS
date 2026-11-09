@@ -5,8 +5,9 @@ on:
   # 2026-09-20 na KAŻDYM PR-ze. Przeniesiony do kolejki merge'ów, bo rachunek
   # i statystyka mówiły to samo: 1 506 min billable przez 5 dni (16–20.09) za
   # 226 przebiegów, z których czerwone były 3. To nie jest wymagany check, więc
-  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce zawiadamia tak samo,
-  # a przy okazji zaczyna bramkować: czerwona grupa nie wchodzi na main.
+  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce też tylko zawiadamia:
+  # kolejka nie czeka na ten workflow, a czerwona grupa i tak wchodzi na main.
+  # Czerwony bieg dociera do PR-a przez `queue-failure-feedback.yml`.
   #
   # `pull_request` wraca tu w dniu, w którym „E2E stack (ci-chromium)" trafi do
   # rulesetu jako wymagany kontekst — wtedy sygnał na PR-ze zaczyna mieć skutek.
@@ -130,12 +131,44 @@ jobs:
             | tee playwright-output.txt
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-results.json
+      # 27.10.2026 #2692 i #2732 zepsuły testy harnessów, kolejka była zielona,
+      # a nocny bieg czerwony przez 5 nocy (#2745). Dlatego harnessy biegną też
+      # w kolejce, ale tylko gdy grupa dotyka frontendu: 259 z 361 grup z 26.10–
+      # 02.11, ok. 5,4 min na grupę. Harnessy to sam frontend, więc zmiana bez
+      # `frontend/` nie ma ich jak zepsuć. `base_sha` to HEAD poprzedniego wpisu
+      # kolejki, więc porównanie widzi zmianę tego wpisu, nie całej grupy.
+      # Niepewna lista plików = bieg, tak jak E2E wtyczki w `ci.yml`.
+      - name: Czy grupa dotyka frontendu?
+        id: preview-scope
+        if: ${{ github.event_name == 'merge_group' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          files=$(gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" \
+            --jq 'if (.files | length) >= 300 then "LIMIT" else .files[].filename end') || files=""
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qx LIMIT; then
+            echo "::warning::Niepewna lista plików grupy — harnessy biegną."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if hit=$(printf '%s\n' "$files" | grep -E '^frontend/|^docker-compose\.e2e\.yml$|^\.github/workflows/e2e\.yml$' | head -1) && [ -n "$hit" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Harnessy: zmieniony $hit"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Grupa nie dotyka frontendu — harnessy pominięte."
+          fi
       - name: Playwright — harnessy /preview/* (preview-chromium)
         # Runda 10 (R10-N10-1): na produkcji harnessy wymagają logowania, więc
         # publiczny projekt `preview-chromium` chodzi tu — na stacku zbudowanym
         # z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`, ze źródeł tego samego commitu.
-        # Nocą i ręcznie; w kolejce merge'ów nie (minuty Actions są płatne).
-        if: ${{ github.event_name != 'merge_group' }}
+        # Nocą, ręcznie i w kolejce przy zmianie frontendu (krok wyżej).
+        if: ${{ github.event_name != 'merge_group' || steps.preview-scope.outputs.run == 'true' }}
         run: |
           set -o pipefail
           npx playwright test --project=preview-chromium --reporter=list \
@@ -177,7 +210,8 @@ jobs:
           .qa/venv/bin/pip install -r qa/requirements.txt
           .qa/venv/bin/python -m pytest qa/tests -q
           mkdir -p .qa/bin qa/reports
-          curl -fsSL --retry 3 https://github.com/grafana/k6/releases/download/v2.2.0/k6-v2.2.0-linux-amd64.tar.gz -o .qa/k6.tar.gz
+          curl -fsSL --retry 6 --retry-delay 15 --retry-all-errors --connect-timeout 20 --max-time 120 \
+            https://github.com/grafana/k6/releases/download/v2.2.0/k6-v2.2.0-linux-amd64.tar.gz -o .qa/k6.tar.gz
           echo 'b5a8003c86f35f5cd5ceef1490312c48e587696c94d998cefc6d7b3b4cb1597d  .qa/k6.tar.gz' | sha256sum -c -
           tar -xzf .qa/k6.tar.gz --strip-components=1 -C .qa/bin
           .qa/bin/k6 version
@@ -247,15 +281,51 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/alert_issue.sh resolve "Nocny E2E na stacku testowym jest czerwony" "Nocny bieg scenariuszy @stack przeszedł."
 
-  playwright:
-    name: Playwright against production
+  e2e-account:
+    # Pusty bieg nie może wyglądać jak sukces: do 04.11.2026 job `playwright` bez
+    # sekretów kończył się na zielono przy 0 z 25 przypadków. Warunku na sekret
+    # nie da się postawić na jobie (`secrets` nie ma w `if` joba), stąd ten krok:
+    # bez konta `playwright` jest `skipped`, czyli szary, a nie zielony.
     # Tylko odczyty na produkcji: projekt `prod-smoke` wyklucza `@stack` i `@writes`.
-    # Po deployu (MON-02) tylko przy włączniku repo — bez konta E2E każdy udany
+    # Po deployu (MON-02) tylko przy włączniku repo. Bez konta E2E każdy udany
     # deploy dawałby czerwony bieg i komentarz w issue, zanim konto w ogóle
     # powstanie. Włącz: `gh variable set E2E_POST_DEPLOY_ENABLED --body true`.
     # Projekt `prod-smoke` bije w PRODUKCJĘ, więc nie ma go w biegu weryfikującym
     # kod przed merge'em (dawniej `pull_request`, od 2026-09-20 `merge_group`).
-    if: ${{ github.event_name != 'merge_group' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && vars.E2E_POST_DEPLOY_ENABLED == 'true')) }}
+    # Ręcznie tylko z maina (jak OPS-N05): hasło konta E2E nie idzie do kodu z gałęzi.
+    name: Konto E2E na produkcji
+    if: ${{ github.event_name != 'merge_group' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && vars.E2E_POST_DEPLOY_ENABLED == 'true')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Czy są sekrety konta?
+        id: check
+        env:
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+        run: |
+          if [ -n "$E2E_USER_EMAIL" ] && [ -n "$E2E_USER_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            # Włącznik włączony, a sekretów brak: to awaria, nie brak testu. Job
+            # `playwright` idzie dalej, kończy się na czerwono i otwiera alarm.
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### E2E produkcja — NIE uruchomiono"
+              echo ""
+              echo "Brak sekretów \`E2E_USER_EMAIL\`/\`E2E_USER_PASSWORD\`, więc job"
+              echo "\`Playwright against production\` jest pominięty: to brak testu, nie sukces."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::E2E produkcja NIE uruchomione — brak E2E_USER_EMAIL/E2E_USER_PASSWORD."
+          fi
+
+  playwright:
+    name: Playwright against production
+    needs: e2e-account
+    if: ${{ needs.e2e-account.outputs.ready == 'true' }}
     runs-on: ubuntu-latest
     # Współbieżność na JOBIE, nie na workflow: pominięty bieg (deploy odroczony,
     # anulowany) nie może anulować trwającego smoke po ostatnim prawdziwym deployu.
@@ -277,19 +347,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run tests
         env:
-          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://nexus.dynaminds.pl' }}
-          E2E_API_URL: ${{ secrets.E2E_API_URL || 'https://api.nexus.dynaminds.pl' }}
+          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://nexus.b2bnetwork.pl' }}
+          E2E_API_URL: ${{ secrets.E2E_API_URL || 'https://api.nexus.b2bnetwork.pl' }}
           E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
-        # Bez E2E_USER_PASSWORD (dedykowane prodowe konto E2E — działanie
-        # operatorskie) bieg nie uruchamia niczego. Harnessy `/preview/*`
-        # (`preview-chromium`) chodzą w jobie `stack`: na produkcji wymagają
-        # logowania od rundy 10 audytu (R10-N10-1).
-        #
-        # WAŻNE: zielony bieg w tym trybie NIE znaczy „E2E przechodzi". Dlatego
-        # bieg WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
-        # „zielone" dało się przeczytać razem z „ile z czego". Przepływy
-        # zapisujące dane są sprawdzane w jobie `stack`, nie na produkcji.
+        # Harnessy `/preview/*` (`preview-chromium`) chodzą w jobie `stack`: na
+        # produkcji wymagają logowania od rundy 10 audytu (R10-N10-1). Przepływy
+        # zapisujące dane też są sprawdzane w jobie `stack`, nie na produkcji.
         run: |
           # Runda 7 (R7-X2-8): bieg idzie przeciw PRODUKCJI, a log Actions
           # publicznego repo widzi każdy. Reporter `list`/`dot`/`line` przy
@@ -298,18 +362,20 @@ jobs:
           # liczby i TYTUŁY nieudanych testów (tytuły pochodzą z naszych spec-ów),
           # bez treści błędu.
           run_pw() {
-            local rc=0
+            local rc=0 summary executed
             PLAYWRIGHT_JSON_OUTPUT_NAME="${RUNNER_TEMP}/pw-results.json" \
               npx playwright test "$@" --reporter=json > /dev/null 2>&1 || rc=$?
-            node -e '
+            summary=$(node -e '
               const fs = require("fs");
               const path = process.argv[1];
               if (!fs.existsSync(path)) { console.log("brak wyników Playwrighta"); process.exit(0); }
               const r = JSON.parse(fs.readFileSync(path, "utf8"));
               const failed = [];
+              let executed = 0;
               const walk = (suite, trail) => {
                 for (const spec of suite.specs || []) {
                   for (const t of spec.tests || []) {
+                    if (t.projectName === "prod-smoke" && t.status !== "skipped") executed += 1;
                     if (t.status === "unexpected" || t.status === "flaky") {
                       failed.push(`${t.status}: [${t.projectName}] ${[...trail, spec.title].join(" › ")}`);
                     }
@@ -321,7 +387,16 @@ jobs:
               const s = r.stats || {};
               console.log(`Playwright: ok=${s.expected ?? 0} fail=${s.unexpected ?? 0} flaky=${s.flaky ?? 0} skipped=${s.skipped ?? 0}`);
               for (const line of failed) console.log(line);
-            ' "${RUNNER_TEMP}/pw-results.json"
+              console.log(`Wykonane przypadki prod-smoke: ${executed}`);
+            ' "${RUNNER_TEMP}/pw-results.json")
+            echo "$summary"
+            executed=$(sed -n 's/^Wykonane przypadki prod-smoke: //p' <<< "$summary")
+            echo "| przypadki wykonane | ${executed:-0} |" >> "$GITHUB_STEP_SUMMARY"
+            # Pominięty setup pomija wszystko i Playwright kończy się kodem 0.
+            if [ "${executed:-0}" -eq 0 ]; then
+              echo "::error::prod-smoke nie wykonał ani jednego przypadku — to nie jest sukces."
+              [ "$rc" -ne 0 ] || rc=1
+            fi
             return "$rc"
           }
 
@@ -333,60 +408,23 @@ jobs:
               | tail -1
           }
           read -r total_cases total_specs <<< "$(count_tests --project=prod-smoke)"
-          total_cases="${total_cases:-0}"; total_specs="${total_specs:-0}"
-
-          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
-            # Smoke po deployu: `prod-smoke`. Brak konta = CZERWONO, nie
-            # „zielony częściowy” — ten bieg istnieje wyłącznie po to, żeby
-            # sprawdzić przepływy po zalogowaniu na wdrożonej wersji.
-            be_sha=$(curl -fsS --max-time 15 "https://api.nexus.dynaminds.pl/api/health" 2>/dev/null | jq -r '.version // "brak"' || echo brak)
-            fe_sha=$(curl -fsSL --max-time 15 "${E2E_BASE_URL%/}/version.json" 2>/dev/null | jq -r '.sha // "brak"' || echo brak)
-            read -r ro_cases ro_specs <<< "$(count_tests --project=prod-smoke)"
-            {
-              echo "### E2E po deployu — \`prod-smoke\`"
-              echo ""
-              echo "| | wartość |"
-              echo "|---|---|"
-              echo "| backend \`/api/health\` | \`${be_sha:0:7}\` |"
-              echo "| frontend \`version.json\` | \`${fe_sha:0:7}\` |"
-              echo "| przypadki \`prod-smoke\` | ${ro_cases:-0} (pliki: ${ro_specs:-0}) |"
-              echo ""
-              echo "Przepływy zapisujące dane (\`@stack\`) są sprawdzane w jobie \`stack\` na PR-ach, nie na produkcji."
-            } >> "$GITHUB_STEP_SUMMARY"
-            if [ -z "$E2E_USER_PASSWORD" ]; then
-              echo "::error::Brak sekretów E2E_USER_EMAIL/E2E_USER_PASSWORD — smoke po deployu nie może sprawdzić przepływów po zalogowaniu."
-              exit 1
-            fi
-            run_pw --project=prod-smoke
-            exit 0
+          be_sha=$(curl -fsS --max-time 15 "${E2E_API_URL%/}/api/health" 2>/dev/null | jq -r '.version // "brak"' || echo brak)
+          fe_sha=$(curl -fsSL --max-time 15 "${E2E_BASE_URL%/}/version.json" 2>/dev/null | jq -r '.sha // "brak"' || echo brak)
+          {
+            echo "### E2E produkcja — \`prod-smoke\` ($GITHUB_EVENT_NAME)"
+            echo ""
+            echo "| | wartość |"
+            echo "|---|---|"
+            echo "| backend \`/api/health\` | \`${be_sha:0:7}\` |"
+            echo "| frontend \`version.json\` | \`${fe_sha:0:7}\` |"
+            echo "| przypadki wylistowane | ${total_cases:-0} (pliki: ${total_specs:-0}) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Tu dociera tylko bieg po deployu: inne zdarzenia zatrzymuje `e2e-account`.
+          if [ -z "$E2E_USER_EMAIL" ] || [ -z "$E2E_USER_PASSWORD" ]; then
+            echo "::error::Brak sekretów E2E_USER_EMAIL/E2E_USER_PASSWORD — smoke po deployu nie może sprawdzić przepływów po zalogowaniu."
+            exit 1
           fi
-
-          if [ -z "$E2E_USER_PASSWORD" ]; then
-            {
-              echo "### E2E produkcja — NIE uruchomiono"
-              echo ""
-              echo "| | wykonane | wszystkie |"
-              echo "|---|---|---|"
-              echo "| pliki spec | 0 | $total_specs |"
-              echo "| przypadki | 0 | $total_cases |"
-              echo ""
-              echo "Brak sekretów \`E2E_USER_EMAIL\`/\`E2E_USER_PASSWORD\`, więc projekt"
-              echo "\`prod-smoke\` (odczyty po zalogowaniu) NIE został uruchomiony."
-              echo "Harnessy \`/preview/*\` sprawdza job \`stack\`."
-              echo "**Zielony wynik tego biegu nie znaczy, że E2E przechodzi.**"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::E2E produkcja NIE uruchomione — 0 z $total_cases przypadków. Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
-          else
-            {
-              echo "### E2E produkcja — prod-smoke"
-              echo ""
-              echo "| | liczba |"
-              echo "|---|---|"
-              echo "| przypadki wylistowane | $total_cases |"
-              echo "| pliki spec | $total_specs |"
-            } >> "$GITHUB_STEP_SUMMARY"
-            run_pw --project=prod-smoke
-          fi
+          run_pw --project=prod-smoke
 
       # Raportu Playwrighta z tego joba NIE wgrywamy (runda 6 audytu): bieg idzie
       # przeciw produkcji, a trace/wideo niosą token konta E2E i odpowiedzi API
@@ -424,7 +462,7 @@ jobs:
           existing=$(gh issue list --repo "$REPO" --state open \
             --search "$marker in:title" --json number --jq '.[0].number // empty' || echo "")
           body=$(printf '%s\n' \
-            "Nocny bieg \`e2e.yml\` (Playwright przeciw https://nexus.dynaminds.pl) nie przeszedł." \
+            "Bieg \`e2e.yml\` (Playwright przeciw https://nexus.b2bnetwork.pl) nie przeszedł." \
             "" \
             "Log: ${RUN_URL}" \
             "" \

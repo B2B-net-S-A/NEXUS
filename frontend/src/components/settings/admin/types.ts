@@ -10,6 +10,8 @@ export interface AdminUser {
   is_active: boolean;
   /** Imienne uprawnienie do usuwania klientów z profilu (0307). */
   can_delete_clients?: boolean;
+  /** Imienne prawo do maila „Podsumowanie Rady” (0631). */
+  receives_board_report?: boolean;
   /** Uprawnienia nadane tej osobie, których nie dają jej role (plakietka „+N”). */
   extra_permissions?: string[];
   activity_count: number;
@@ -29,6 +31,8 @@ export interface UserFormData {
   roles: string[];
   /** Imienne uprawnienie do usuwania klientów (tylko edycja istniejącego konta). */
   can_delete_clients: boolean;
+  /** Imienne prawo do maila „Podsumowanie Rady” (tylko edycja konta). */
+  receives_board_report: boolean;
   /** Odpina tożsamość Microsoft — następne logowanie SSO przypnie nowe konto. */
   clear_microsoft_identity: boolean;
   /**
@@ -50,6 +54,7 @@ export const ROLES = [
   "automation",
   "employee",
   "board",
+  "back_office",
   "user",
 ];
 
@@ -66,6 +71,7 @@ export const EXCLUSIVE_ROLES: readonly string[] = [
   "automation",
   "employee",
   "board",
+  "back_office",
 ];
 
 /**
@@ -92,6 +98,7 @@ export const ROLE_LABELS: Record<string, string> = {
   automation: "Automatyzacje",
   employee: "Konsultant/Kontraktor",
   board: "Rada nadzorcza",
+  back_office: "Back office",
   manager: "Manager",
   client: "Klient",
 };

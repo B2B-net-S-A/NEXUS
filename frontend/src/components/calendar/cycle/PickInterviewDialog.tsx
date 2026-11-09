@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
@@ -24,6 +24,7 @@ import {
   candidateWindowError,
   checkManualPrep,
   dayStrip,
+  DEFAULT_PREP_MINUTES,
   hhmm,
   interviewStart,
   isWindow,
@@ -31,6 +32,7 @@ import {
   manualStart,
   nearestFreeStarts,
   overlaps,
+  PREP_DURATIONS,
   prepDays,
   prepWhen,
   slotPassed,
@@ -90,6 +92,10 @@ export function PickInterviewDialog({
   const [candTo, setCandTo] = useState("");
   const [picks, setPicks] = useState<Record<number, PrepPick | undefined>>({});
   const [manual, setManual] = useState<Record<number, ManualTime | undefined>>({});
+  const [minutes, setMinutes] = useState<Record<1 | 2, number>>({ 1: DEFAULT_PREP_MINUTES, 2: DEFAULT_PREP_MINUTES });
+  // Godzina zaznaczona w chwili zmiany czasu — gdy dłuższy prep się w niej nie
+  // mieści, okno mówi, że zaznaczenie przeskoczyło.
+  const [movedFrom, setMovedFrom] = useState<Record<number, string | undefined>>({});
   const [error, setError] = useState<string | null>(null);
   const requestIds = useRef<Record<number, string>>({});
 
@@ -108,6 +114,8 @@ export function PickInterviewDialog({
     setCandTo("");
     setPicks({});
     setManual({});
+    setMinutes({ 1: DEFAULT_PREP_MINUTES, 2: DEFAULT_PREP_MINUTES });
+    setMovedFrom({});
     setError(null);
     requestIds.current = { 1: newRequestId(), 2: newRequestId() };
   }, [open, request, initialIndex]);
@@ -125,6 +133,8 @@ export function PickInterviewDialog({
           interviewStart: start,
           candidateFrom: candFrom || null,
           candidateTo: candTo || null,
+          prep1Minutes: minutes[1],
+          prep2Minutes: minutes[2],
         }
       : null;
   const suggestions = useQuery({
@@ -132,6 +142,8 @@ export function PickInterviewDialog({
     queryFn: () => prepMeetingsApi.suggestions(params!),
     enabled: open && params != null,
     staleTime: 60_000,
+    // Zmiana czasu odświeża godziny bez znikania całej sekcji.
+    placeholderData: keepPreviousData,
   });
 
   // Nowe podpowiedzi = polecana godzina zaznaczona od razu; wybór ręczny
@@ -148,8 +160,12 @@ export function PickInterviewDialog({
         const otherSpan = scheduledOther ? spanOf(scheduledOther.scheduled_start as string, scheduledOther.minutes) : null;
         const first = p.options.find((o) => !otherSpan || !overlaps(o, otherSpan));
         if (kept?.kind === "none" || kept?.kind === "manual") next[p.prep_no] = kept;
-        else if (kept?.kind === "option" && p.options.some((o) => o.start === kept.start)) next[p.prep_no] = kept;
-        else next[p.prep_no] = first ? { kind: "option", ...first } : undefined;
+        else {
+          // Ta sama godzina dostaje koniec z nowych podpowiedzi — czas prepu mógł się zmienić.
+          const same = kept?.kind === "option" ? p.options.find((o) => o.start === kept.start) : undefined;
+          const option = same ?? first;
+          next[p.prep_no] = option ? { kind: "option", ...option } : undefined;
+        }
       }
       return next;
     });
@@ -303,7 +319,7 @@ export function PickInterviewDialog({
     onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać wyboru.")),
   });
 
-  const canSubmit = index != null && start != null && !submit.isPending;
+  const canSubmit = index != null && start != null && !submit.isPending && !suggestions.isPlaceholderData;
   const primaryLabel =
     prepsEnabled && (toInvite.length > 0 || manualPending)
       ? `Wybierz termin i zaproś na prepy (${toInvite.length})`
@@ -476,7 +492,19 @@ export function PickInterviewDialog({
                   manual={manual[p.prep_no]}
                   span={spans[p.prep_no] ?? null}
                   check={checks[p.prep_no] ?? null}
+                  movedFrom={movedFrom[p.prep_no] ?? null}
+                  refreshing={suggestions.isPlaceholderData}
+                  minutes={minutes[p.prep_no]}
+                  onMinutes={(next) => {
+                    const current = picks[p.prep_no];
+                    setMovedFrom((prev) => ({
+                      ...prev,
+                      [p.prep_no]: current?.kind === "option" ? current.start : undefined,
+                    }));
+                    setMinutes((prev) => ({ ...prev, [p.prep_no]: next }));
+                  }}
                   onPick={(next) => {
+                    setMovedFrom((prev) => ({ ...prev, [p.prep_no]: undefined }));
                     if (next.kind === "manual" && !manual[p.prep_no]) {
                       const days = prepDays(start);
                       const suggested = p.options[0] ? localDay(new Date(p.options[0].start)) : null;
@@ -513,6 +541,10 @@ function PrepPicker({
   manual,
   span,
   check,
+  movedFrom,
+  refreshing,
+  minutes,
+  onMinutes,
   onPick,
   onManual,
 }: {
@@ -525,6 +557,12 @@ function PrepPicker({
   /** Godzina tego prepu (podpowiedź albo wpisana). */
   span: Span | null;
   check: ManualPrepCheck | null;
+  /** Godzina zaznaczona przed zmianą czasu prepu. */
+  movedFrom: string | null;
+  /** Podpowiedzi dla nowego czasu jeszcze się liczą. */
+  refreshing: boolean;
+  minutes: number;
+  onMinutes: (minutes: number) => void;
   onPick: (pick: PrepPick) => void;
   onManual: (next: ManualTime) => void;
 }) {
@@ -543,21 +581,42 @@ function PrepPicker({
           <span className="font-semibold">Prep {prep.prep_no}</span>
           <span className="text-muted-foreground">
             {" "}
-            · {lead}: {who} · Teams {prep.minutes} min
+            · {lead}: {who} · Teams
           </span>
         </div>
-        {prep.calendar === "ok" ? (
-          <span className="rounded-full bg-success-muted px-2 py-0.5 text-xs text-success-muted-foreground">
-            kalendarz sprawdzony
-          </span>
-        ) : prep.calendar === "unavailable" ? (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-            kalendarz niedostępny — godziny bez sprawdzenia
-          </span>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {!prep.scheduled_start && prep.organizer ? (
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              Czas
+              <select
+                value={minutes}
+                onChange={(e) => onMinutes(Number(e.target.value))}
+                aria-label={`Czas Prepu ${prep.prep_no}`}
+                className={cn(INPUT, "font-normal text-foreground")}
+              >
+                {PREP_DURATIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m} min
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {prep.calendar === "ok" ? (
+            <span className="rounded-full bg-success-muted px-2 py-0.5 text-xs text-success-muted-foreground">
+              kalendarz sprawdzony
+            </span>
+          ) : prep.calendar === "unavailable" ? (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              kalendarz niedostępny — godziny bez sprawdzenia
+            </span>
+          ) : null}
+        </div>
       </div>
       {prep.scheduled_start ? (
-        <p className="mt-2 text-xs text-muted-foreground">Już zaplanowany: {prepWhen(prep.scheduled_start)}.</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Już zaplanowany: {prepWhen(prep.scheduled_start)} · {prep.minutes} min. Czas zmienisz przyciskiem „Zmień” w panelu osoby.
+        </p>
       ) : !prep.organizer ? (
         <p className="mt-2 text-xs text-muted-foreground">Rekrutacja nie ma prowadzącego — zaplanuj prep z panelu osoby.</p>
       ) : (
@@ -567,7 +626,12 @@ function PrepPicker({
               Brak wolnej godziny przed rozmową w godzinach kandydata — wpisz inną godzinę albo zaplanuj później.
             </p>
           ) : null}
-          <div role="radiogroup" aria-label={`Godzina Prepu ${prep.prep_no}`} className="mt-2 flex flex-wrap gap-2">
+          <div
+            role="radiogroup"
+            aria-label={`Godzina Prepu ${prep.prep_no}`}
+            aria-busy={refreshing}
+            className={cn("mt-2 flex flex-wrap gap-2", refreshing && "opacity-50")}
+          >
             {prep.options.map((o, i) => {
               const on = pick?.kind === "option" && pick.start === o.start;
               const clash = other != null && overlaps(o, other);
@@ -606,6 +670,12 @@ function PrepPicker({
               Zaplanuję później
             </button>
           </div>
+          {!refreshing && movedFrom && pick?.kind === "option" && pick.start !== movedFrom ? (
+            <p role="status" className="mt-2 rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
+              Prep na {prep.minutes} min nie mieści się w terminie {prepWhen(movedFrom)}, więc zaznaczyliśmy{" "}
+              {prepWhen(pick.start)}. Jeśli godzina była już ustalona z kandydatem, wybierz „Inna godzina…” albo skróć prep.
+            </p>
+          ) : null}
           {isManual && manual ? (
             <ManualPrepTime
               prep={prep}

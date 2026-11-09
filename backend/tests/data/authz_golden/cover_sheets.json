@@ -25,14 +25,17 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/cover-sheet-template": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
-  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet/docx": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/clients/{client_id}/cover-sheet-template": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PUT /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/clients/{client_id}/cover-sheet-template": "PDDPDDDDPPPDDDPDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/cover-sheet-template": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet/docx": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/clients/{client_id}/cover-sheet-template": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PUT /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/clients/{client_id}/cover-sheet-template": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP"
  }
 }

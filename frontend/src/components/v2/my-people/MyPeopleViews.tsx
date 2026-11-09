@@ -20,7 +20,14 @@ import {
   UserPlus,
 } from "lucide-react";
 
+import type { LinkPerson } from "@/lib/api/careerLinks";
 import type { ForJobResponse, ForJobRow, MyPeopleRow, SnoozeReason } from "@/lib/api/myPeople";
+import {
+  linkPersonAppliedAt,
+  linkPersonKey,
+  linkPersonLinkName,
+  linkPersonNow,
+} from "@/lib/career-link-people";
 import { SNOOZE_REASON_LABELS } from "@/lib/api/myPeople";
 import {
   daysAgoLabel,
@@ -30,6 +37,7 @@ import {
   type PeopleGroup,
 } from "@/lib/my-people-summary";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
+import { overBudgetLabel } from "@/lib/fit-badges";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,7 +121,11 @@ export function PersonRowView({ row, actions }: { row: MyPeopleRow; actions: Row
           >
             {row.full_name}
           </Link>
-          {row.source === "pinned" ? (
+          {row.from_link ? (
+            <Badge size="sm" variant="soft">
+              Z Twojego linku
+            </Badge>
+          ) : row.source === "pinned" ? (
             <Pin className="h-3 w-3 text-muted-foreground" aria-label="Przypięty ręcznie" />
           ) : null}
           {row.new_matches > 0 ? (
@@ -288,10 +300,25 @@ function formatDate(iso: string | null): string | null {
   return d.toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function ForJobRowView({ row, actions }: { row: ForJobRow; actions: RowActions }) {
+function ForJobRowView({
+  row,
+  actions,
+  budgetHourly,
+}: {
+  row: ForJobRow;
+  actions: RowActions;
+  budgetHourly: number | null;
+}) {
   const busy = actions.busyIds?.has(row.candidate_id) ?? false;
   const sentHere = formatDate(row.sent_to_client_at);
   const incomplete = row.score == null;
+  // Odznaka, nie blokada — jak w oknie „Kandydaci do dodania”.
+  const overBudget =
+    budgetHourly != null &&
+    row.expected_rate_hourly != null &&
+    row.expected_rate_hourly > budgetHourly
+      ? overBudgetLabel(row.expected_rate_hourly, budgetHourly)
+      : null;
   return (
     <li className="flex items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
       <MatchScoreBadge
@@ -315,6 +342,11 @@ function ForJobRowView({ row, actions }: { row: ForJobRow; actions: RowActions }
             .filter(Boolean)
             .join(" · ") || (incomplete ? "Brak wektora albo spoza najbliższych — wynik niepoliczony." : "")}
         </p>
+        {overBudget ? (
+          <span className="mt-1 mr-1 inline-flex items-center rounded bg-warning-muted px-1.5 py-0.5 text-[11px] font-medium text-warning-muted-foreground">
+            {overBudget}
+          </span>
+        ) : null}
         {row.eligibility ? (
           <span
             className={cn(
@@ -346,11 +378,13 @@ function ForJobRowView({ row, actions }: { row: ForJobRow; actions: RowActions }
 export function ForJobView({ data, actions }: { data: ForJobResponse; actions: RowActions }) {
   const scored = data.rows.filter((r) => r.score != null);
   const rest = data.rows.filter((r) => r.score == null);
+  const budget = data.rate_budget_hourly ?? null;
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
         <BriefcaseBusiness className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
         „{data.job_title}”
+        {budget != null ? ` · budżet ${Math.round(budget)} zł/h` : ""}
         {data.in_job_count > 0
           ? ` · ${data.in_job_count} ${plural(data.in_job_count, "osoba", "osoby", "osób")} z Twojej listy już tu jest`
           : ""}
@@ -367,7 +401,7 @@ export function ForJobView({ data, actions }: { data: ForJobResponse; actions: R
       {scored.length ? (
         <ul className="space-y-0.5">
           {scored.map((row) => (
-            <ForJobRowView key={row.candidate_id} row={row} actions={actions} />
+            <ForJobRowView key={row.candidate_id} row={row} actions={actions} budgetHourly={budget} />
           ))}
         </ul>
       ) : null}
@@ -378,7 +412,7 @@ export function ForJobView({ data, actions }: { data: ForJobResponse; actions: R
           </summary>
           <ul className="mt-1 space-y-0.5">
             {rest.map((row) => (
-              <ForJobRowView key={row.candidate_id} row={row} actions={actions} />
+              <ForJobRowView key={row.candidate_id} row={row} actions={actions} budgetHourly={budget} />
             ))}
           </ul>
         </details>
@@ -390,6 +424,70 @@ export function ForJobView({ data, actions }: { data: ForJobResponse; actions: R
             : "Nikt z Twojej listy nie jest dostępny do tej rekrutacji."}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Zakładka „Z linków” (makieta B, 02.11.2026): oba rodzaje linków, także osoby przed „CV wysłane”. */
+export function FromLinksView({
+  people,
+  onAdd,
+}: {
+  people: readonly LinkPerson[];
+  onAdd?: (row: { candidate_id: number; full_name: string }) => void;
+}) {
+  if (people.length === 0) {
+    return (
+      <div className="px-4 py-10 text-center">
+        <p className="text-sm font-medium text-foreground">Nikt jeszcze nie zgłosił się z Twoich linków</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Trafia tu każdy, kto wyśle CV z Twojego linku ogólnego albo linku do rekrutacji.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="rounded-md bg-primary/5 px-3 py-2 text-xs text-foreground">
+        Osoby, które zgłosiły się z Twoich linków: z ogólnego i z linków do rekrutacji.
+      </p>
+      <ul className="space-y-0.5" data-testid="from-links">
+        {people.map((person) => (
+          <li key={linkPersonKey(person)} className="flex items-start gap-2 rounded-lg px-2 py-2 hover:bg-muted/60">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Link
+                  href={`/candidates/${person.candidate_id}`}
+                  className="truncate text-sm font-medium text-foreground hover:underline"
+                >
+                  {person.full_name}
+                </Link>
+                <Badge size="sm" variant="soft">
+                  {person.kind === "recruiter" ? "link ogólny" : "link do rekrutacji"}
+                </Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Zgłoszenie {linkPersonAppliedAt(person)} · {linkPersonLinkName(person)}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {linkPersonNow(person)} ·{" "}
+                {person.in_my_people ? "także na liście „Z procesów”" : "poza listą „Z procesów”"}
+              </p>
+            </div>
+            {onAdd ? (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => onAdd({ candidate_id: person.candidate_id, full_name: person.full_name })}
+                aria-label={`Dodaj do rekrutacji: ${person.full_name}`}
+                title="Dodaj do rekrutacji"
+              >
+                <UserPlus className="h-4 w-4" aria-hidden />
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

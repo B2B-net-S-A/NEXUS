@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Target } from "lucide-react";
+import { ListFilter, Plus, Target } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { FilterBar } from "@/components/ds/FilterBar";
-import { InlineStats } from "@/components/ds/InlineStats";
-import { KanbanBoard, KanbanCard, KanbanColumn } from "@/components/ds/Kanban";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   Table,
@@ -27,6 +28,7 @@ import {
   usePipelines,
   type Opportunity,
   type OpportunityStatus,
+  type ServiceLine,
   type Stage,
   type OpportunitySort,
 } from "@/lib/api/sales";
@@ -37,13 +39,13 @@ import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
-import { daysLabel, daysSince, formatDealAmount, formatDealNumber } from "./format";
+import { daysSince, formatDealAmount, formatDealNumber } from "./format";
+import { OpportunityBoard } from "./OpportunityBoard";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesSelect } from "./SalesSelect";
+import { boardCounters, hasNoStep } from "./step";
 import { useOwnerFilterOptions } from "./useOwnerFilterOptions";
 
-/** Szansa bez kontaktu dłużej niż tyle dni dostaje ostrzeżenie (Atlas: 14). */
-export const STALE_AFTER_DAYS = 14;
 const NEEDS_ACTION_DAYS = 30;
 
 const STATUS_TONES: Record<OpportunityStatus, "info" | "success" | "neutral"> = {
@@ -83,29 +85,25 @@ export function summarize(items: readonly Opportunity[]): PipelineSummary {
   );
 }
 
-/** Kolumny tablicy: etapy otwarte i wygrana. Przegrane są na liście. */
+/** Kolumny tablicy: wszystkie etapy lejka, także przegrane (jak w Atlasie). */
 export function boardStages(stages: readonly Stage[]): Stage[] {
-  return stages.filter((stage) => stage.outcome !== "lost");
+  const closedLast = (stage: Stage) => (stage.outcome === "open" ? 0 : 1);
+  return [...stages].sort((a, b) => closedLast(a) - closedLast(b) || a.position - b.position);
 }
 
-function OpportunityTile({ item, onOpen }: { item: Opportunity; onOpen: () => void }) {
-  const idle = daysSince(item.last_activity_at ?? item.created_at);
-  return (
-    <KanbanCard onClick={onOpen} aria-label={`${item.company.name} · ${item.title}`}>
-      <p className="font-medium text-foreground">{item.company.name}</p>
-      <p className="text-muted-foreground">{item.title}</p>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span className="tabular-nums text-foreground">{formatDealAmount(item.value, item.currency)}</span>
-        {item.status === "open" && idle !== null && idle > STALE_AFTER_DAYS ? (
-          <span className="text-warning">bez kontaktu {daysLabel(idle)}</span>
-        ) : item.expected_close_date ? (
-          <span>zamknięcie {formatIsoDatePl(item.expected_close_date)}</span>
-        ) : null}
-      </div>
-      {item.owner && <p className="mt-1 text-xs text-muted-foreground">{item.owner.name}</p>}
-    </KanbanCard>
-  );
+/** Dni od ostatniego dotyku; definicję dotyku trzyma backend. */
+export function idleDays(item: Opportunity, now?: number): number | null {
+  return daysSince(item.last_touch_at, now);
 }
+
+export function isWithoutMovement(item: Opportunity, now?: number): boolean {
+  return item.status === "open" && (idleDays(item, now) ?? 0) > NEEDS_ACTION_DAYS;
+}
+
+const MODEL_OPTIONS = (Object.keys(SERVICE_LINE_LABELS) as ServiceLine[]).map((value) => ({
+  value,
+  label: SERVICE_LINE_LABELS[value],
+}));
 
 const SORT_OPTIONS: { value: OpportunitySort; label: string }[] = [
   { value: "updated", label: "Ostatnio zmieniane" },
@@ -128,6 +126,18 @@ export function OpportunitiesView() {
   const ownerParam = Number(searchParams?.get("opiekun") ?? "") || null;
   const sort = (searchParams?.get("sort") ?? "updated") as OpportunitySort;
   const archived = searchParams?.get("archiwum") === "1";
+  const serviceLine = (searchParams?.get("model") as ServiceLine | null) ?? null;
+  const createdFrom = searchParams?.get("od") ?? "";
+  const createdTo = searchParams?.get("do") ?? "";
+  const needsAction = searchParams?.get("bezruchu") === "1";
+  const extraFilters = [
+    serviceLine,
+    createdFrom,
+    createdTo,
+    needsAction,
+    archived,
+    sort !== "updated",
+  ].filter(Boolean).length;
   const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
   const [q, setQ] = useState(searchParams?.get("q") ?? "");
   const [creating, setCreating] = useState(false);
@@ -147,19 +157,27 @@ export function OpportunitiesView() {
       q,
       sort,
       archived,
+      service_line: serviceLine,
+      created_from: createdFrom || null,
+      created_to: createdTo || null,
     },
     Boolean(pipeline),
   );
-  // „Wymaga działania” (Atlas: kolejka po 30 dniach bez ruchu) — filtr na tablicy.
-  const needsAction = searchParams?.get("bezruchu") === "1";
-  const items = useMemo(() => {
+  // „Wymaga działania” (Atlas: kolejka po 30 dniach bez ruchu) to `needsAction` wyżej.
+  const noStepOnly = searchParams?.get("bez_kroku") === "1";
+  const waitingOnly = searchParams?.get("czeka") === "1";
+  const baseItems = useMemo(() => {
     const all = opportunities.data?.items ?? [];
-    if (!needsAction) return all;
-    return all.filter(
-      (item) =>
-        item.status === "open" && (daysSince(item.last_activity_at ?? item.updated_at) ?? 0) > NEEDS_ACTION_DAYS,
-    );
+    return needsAction ? all.filter((item) => isWithoutMovement(item)) : all;
   }, [opportunities.data, needsAction]);
+  const counters = useMemo(() => boardCounters(baseItems), [baseItems]);
+  const items = useMemo(
+    () =>
+      baseItems.filter(
+        (item) => (!noStepOnly || hasNoStep(item)) && (!waitingOnly || (item.status === "open" && item.waiting_for_reply)),
+      ),
+    [baseItems, noStepOnly, waitingOnly],
+  );
   const summary = useMemo(() => summarize(items), [items]);
 
   const writeParam = (key: string, value: string | null) => {
@@ -187,15 +205,15 @@ export function OpportunitiesView() {
             setQ(value);
             writeParam("q", value.trim() || null);
           },
-          placeholder: "Szukaj szansy albo firmy…",
-          ariaLabel: "Szukaj szansy albo firmy",
+          placeholder: "Szansa, firma, NIP…",
+          ariaLabel: "Szukaj szansy, firmy albo NIP",
         }}
         filters={
           <div className="flex flex-wrap items-center gap-2">
             {(pipelines.data?.length ?? 0) > 1 && pipeline && (
               <SalesSelect
                 ariaLabel="Lejek"
-                className="w-44"
+                className="w-28"
                 value={String(pipeline.id)}
                 onValueChange={(value) => {
                   const chosen = pipelines.data?.find((p) => String(p.id) === value);
@@ -206,7 +224,7 @@ export function OpportunitiesView() {
             )}
             <SalesSelect
               ariaLabel="Opiekun"
-              className="w-48"
+              className="w-28"
               value={mine ? "me" : ownerParam ? `acct:${ownerParam}` : ""}
               onValueChange={(value) => {
                 const params = new URLSearchParams(window.location.search);
@@ -220,29 +238,77 @@ export function OpportunitiesView() {
               options={[{ value: "me", label: "Moje" }, ...ownerOptions]}
               anyLabel="Każdy opiekun"
             />
-            <SalesSelect
-              ariaLabel="Sortowanie"
-              className="w-48"
-              value={sort}
-              onValueChange={(value) => writeParam("sort", value && value !== "updated" ? value : null)}
-              options={SORT_OPTIONS}
-            />
-            <Button
-              size="sm"
-              variant={needsAction ? "primary" : "outline"}
-              aria-pressed={needsAction}
-              onClick={() => writeParam("bezruchu", needsAction ? null : "1")}
-            >
-              Bez ruchu &gt; {NEEDS_ACTION_DAYS} dni
-            </Button>
-            <Button
-              size="sm"
-              variant={archived ? "primary" : "outline"}
-              aria-pressed={archived}
-              onClick={() => writeParam("archiwum", archived ? null : "1")}
-            >
-              Archiwum
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant={extraFilters ? "primary" : "outline"}>
+                  <ListFilter className="mr-1 h-4 w-4" aria-hidden />
+                  Filtry{extraFilters ? ` (${extraFilters})` : ""}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="sales-filter-sort">Sortowanie</Label>
+                  <SalesSelect
+                    id="sales-filter-sort"
+                    ariaLabel="Sortowanie"
+                    value={sort}
+                    onValueChange={(value) => writeParam("sort", value && value !== "updated" ? value : null)}
+                    options={SORT_OPTIONS}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="sales-filter-model">Model</Label>
+                  <SalesSelect
+                    id="sales-filter-model"
+                    value={serviceLine ?? ""}
+                    onValueChange={(value) => writeParam("model", value || null)}
+                    options={MODEL_OPTIONS}
+                    anyLabel="Każdy model"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="sales-filter-from">Utworzona od</Label>
+                    <Input
+                      id="sales-filter-from"
+                      type="date"
+                      value={createdFrom}
+                      max={createdTo || undefined}
+                      onChange={(event) => writeParam("od", event.target.value || null)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="sales-filter-to">Utworzona do</Label>
+                    <Input
+                      id="sales-filter-to"
+                      type="date"
+                      value={createdTo}
+                      min={createdFrom || undefined}
+                      onChange={(event) => writeParam("do", event.target.value || null)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant={needsAction ? "primary" : "outline"}
+                    aria-pressed={needsAction}
+                    onClick={() => writeParam("bezruchu", needsAction ? null : "1")}
+                  >
+                    Bez ruchu &gt; {NEEDS_ACTION_DAYS} dni
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={archived ? "primary" : "outline"}
+                    aria-pressed={archived}
+                    onClick={() => writeParam("archiwum", archived ? null : "1")}
+                  >
+                    Archiwum
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Wygranych w tym widoku: {summary.won}.</p>
+              </PopoverContent>
+            </Popover>
             <SegmentedRadio
               size="sm"
               label="Widok"
@@ -255,13 +321,35 @@ export function OpportunitiesView() {
             />
           </div>
         }
+        resultLabel={
+          opportunities.isSuccess && !archived ? (
+            <span className="block whitespace-nowrap text-right text-xs leading-4 tabular-nums">
+              {summary.open} otwartych · {formatDealAmount(summary.value)}
+              <br />
+              <span title="Wartość × prawdopodobieństwo etapu">
+                prognoza {formatDealAmount(summary.weighted)}
+              </span>
+            </span>
+          ) : undefined
+        }
         actions={
           canEdit ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+            <Button size="sm" disabled={!pipeline} onClick={() => setCreating(true)}>
               <Plus className="mr-1 h-4 w-4" aria-hidden /> Szansa
             </Button>
           ) : null
         }
+        chips={[
+          ...(serviceLine
+            ? [{ id: "model", label: `Model: ${SERVICE_LINE_LABELS[serviceLine]}`, onRemove: () => writeParam("model", null) }]
+            : []),
+          ...(createdFrom
+            ? [{ id: "od", label: `Utworzona od ${formatIsoDatePl(createdFrom)}`, onRemove: () => writeParam("od", null) }]
+            : []),
+          ...(createdTo
+            ? [{ id: "do", label: `Utworzona do ${formatIsoDatePl(createdTo)}`, onRemove: () => writeParam("do", null) }]
+            : []),
+        ]}
       />
       {state === "ready" && (opportunities.data?.total ?? 0) > (opportunities.data?.items.length ?? 0) && (
         <p role="status" className="text-xs text-warning">
@@ -269,20 +357,28 @@ export function OpportunitiesView() {
           przejdź do „Moje”, żeby liczby lejka były pełne.
         </p>
       )}
-      {state === "ready" && !archived && (
-        <InlineStats
-          stats={[
-            { id: "open", label: "otwartych szans", value: summary.open },
-            { id: "value", label: "w lejku", value: formatDealAmount(summary.value) },
-            {
-              id: "weighted",
-              label: "prognoza ważona",
-              value: formatDealAmount(summary.weighted),
-              title: "Wartość × prawdopodobieństwo etapu",
-            },
-            { id: "won", label: "wygranych", value: summary.won },
-          ]}
-        />
+      {!archived && (state === "ready" || noStepOnly || waitingOnly) && opportunities.isSuccess && (
+          <p className="whitespace-nowrap text-xs text-muted-foreground">
+            <button
+              type="button"
+              aria-pressed={noStepOnly}
+              title="Otwarte szanse bez zaplanowanego zadania, telefonu ani spotkania"
+              className={noStepOnly ? "font-semibold text-foreground underline" : "hover:text-foreground hover:underline"}
+              onClick={() => writeParam("bez_kroku", noStepOnly ? null : "1")}
+            >
+              {counters.noStep} z {counters.open} bez kroku
+            </button>
+            {" · "}
+            <button
+              type="button"
+              aria-pressed={waitingOnly}
+              title="Ostatni kontakt to mail od klienta, a następnego kroku nie ma"
+              className={waitingOnly ? "font-semibold text-primary underline" : "font-medium text-primary hover:underline"}
+              onClick={() => writeParam("czeka", waitingOnly ? null : "1")}
+            >
+              {counters.waiting} czekają na odpowiedź
+            </button>
+          </p>
       )}
 
       {state === "loading" ? (
@@ -292,9 +388,9 @@ export function OpportunitiesView() {
       ) : state === "empty" ? (
         <EmptyState
           icon={Target}
-          title={q || mine || ownerParam || archived || needsAction ? "Nic nie pasuje do filtrów" : "Nie ma jeszcze szans"}
+          title={q || mine || ownerParam || archived || needsAction || noStepOnly || waitingOnly || extraFilters ? "Nic nie pasuje do filtrów" : "Nie ma jeszcze szans"}
           description={
-            q || mine || ownerParam || archived
+            q || mine || ownerParam || archived || noStepOnly || waitingOnly || extraFilters
               ? "Zmień wyszukiwanie albo pokaż wszystkie szanse."
               : "Dodaj pierwszą szansę — zacznij od firmy w zakładce Firmy."
           }
@@ -307,18 +403,14 @@ export function OpportunitiesView() {
           }
         />
       ) : view === "board" && pipeline ? (
-        <KanbanBoard aria-label="Tablica szans">
-          {boardStages(pipeline.stages).map((stage) => {
-            const column = items.filter((item) => item.stage.id === stage.id);
-            return (
-              <KanbanColumn key={stage.id} title={stage.name} count={column.length}>
-                {column.map((item) => (
-                  <OpportunityTile key={item.id} item={item} onOpen={() => open(item.id)} />
-                ))}
-              </KanbanColumn>
-            );
-          })}
-        </KanbanBoard>
+        <OpportunityBoard
+          pipeline={pipeline}
+          stages={boardStages(pipeline.stages)}
+          items={items}
+          canEdit={canEdit && !archived}
+          showOwner={!mine}
+          refetch={opportunities.refetch}
+        />
       ) : (
         <div className="relative overflow-x-auto">
           <Table className="min-w-[860px]">
@@ -361,7 +453,7 @@ export function OpportunitiesView() {
                   </TableCell>
                   <TableCell>{item.owner?.name ?? "—"}</TableCell>
                   <TableCell>
-                    {formatIsoDatePl(item.last_activity_at)}
+                    {formatIsoDatePl(item.last_touch_at)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -375,6 +467,7 @@ export function OpportunitiesView() {
         <OpportunityFormDialog
           open={creating}
           onOpenChange={setCreating}
+          pipelineId={pipeline?.id}
           onCreated={(opportunity) => open(opportunity.id)}
         />
       )}

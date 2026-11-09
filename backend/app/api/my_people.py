@@ -58,6 +58,7 @@ class MyPeopleRow(BaseModel):
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+    from_link: bool = False
 
 
 class MyPeopleResponse(BaseModel):
@@ -86,8 +87,8 @@ class IdlePerson(BaseModel):
 
 class MyPeopleSummary(BaseModel):
     total: int
+    # Rekrutacje z ostatniej doby z Twoją osobą od progu (licznik w pasku).
     new_matches: int
-    jobs_with_matches: int
     latest_matches: list[UnseenMatch]
     idle_count: int
     idle_top: list[IdlePerson]
@@ -126,6 +127,9 @@ class ForJobResponse(BaseModel):
     # Wektor/dostawca niedostępny — wyniki niepoliczone. Ekran MUSI to
     # powiedzieć zamiast pokazać listę bez liczb jak „nikt nie pasuje".
     degraded: bool = False
+    # Budżet PLN/h rekrutacji (`Job.rate_budget_hourly`) — panel oznacza
+    # osoby ze stawką ponad budżet (07.11.2026: ludzie prosili o to Jarvisa).
+    rate_budget_hourly: float | None = None
 
 
 def _row(r: svc.PersonRow) -> MyPeopleRow:
@@ -217,12 +221,10 @@ async def my_people_summary(
     people = await svc.load_my_people(db, user.id)
     active = people.active
     idle = people.idle
-    new_matches, jobs = await svc.unseen_totals(db, user.id)
     latest = await svc.unseen_matches(db, user.id)
     return MyPeopleSummary(
         total=len(active),
-        new_matches=new_matches,
-        jobs_with_matches=jobs,
+        new_matches=await svc.recent_match_jobs(db, user.id),
         latest_matches=[UnseenMatch(**m) for m in latest],
         idle_count=len(idle),
         # Najkrócej czekający najpierw (`MyPeople.idle`): tych jeszcze da się
@@ -463,4 +465,9 @@ async def my_people_for_job(
         rows=rows,
         in_job_count=len(in_job),
         degraded=degraded,
+        rate_budget_hourly=(
+            float(job.rate_budget_hourly)
+            if job.rate_budget_hourly is not None
+            else None
+        ),
     )

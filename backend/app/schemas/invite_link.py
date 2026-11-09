@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -98,6 +98,8 @@ class CareerLinkResultCounts(BaseModel):
     """Lejek linku w oknie (etap 4 linków, 19.10.2026). ``visits`` = od początku."""
 
     visits: int = 0
+    # W wybranym okresie, z dziennych wejść (0640); ``None`` = od początku.
+    visits_in_period: Optional[int] = None
     applications: int = 0
     new_candidates: int = 0
     existing_candidates: int = 0
@@ -120,8 +122,50 @@ class CareerLinkResultRow(CareerLinkResultCounts):
 class CareerLinkResults(BaseModel):
     # ``None`` = od początku.
     days: Optional[int] = None
+    # Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma.
+    visits_tracked_from: Optional[date] = None
     totals: CareerLinkResultCounts
     links: list[CareerLinkResultRow] = Field(default_factory=list)
+
+
+class CareerLinkPerson(BaseModel):
+    """Jedno zgłoszenie z linku osoby (makieta A, 02.11.2026)."""
+
+    candidate_id: int
+    full_name: str
+    applied_at: datetime
+    was_duplicate: bool = False
+    kind: Literal["job", "recruiter"]
+    slug: Optional[str] = None
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+    current_stage: Optional[str] = None
+    current_job_id: Optional[int] = None
+    current_job_title: Optional[str] = None
+    screening_status: Optional[str] = None
+    screening_outcome: Optional[str] = None
+    in_my_people: bool = False
+
+
+class CareerLinkPeople(BaseModel):
+    # ``None`` = od początku.
+    days: Optional[int] = None
+    total: int = 0
+    truncated: bool = False
+    people: list[CareerLinkPerson] = Field(default_factory=list)
+
+
+class JobTeamLink(BaseModel):
+    """Link rekrutacji w zespole (makieta C, 02.11.2026)."""
+
+    owner_id: int
+    owner_name: str
+    slug: Optional[str] = None
+    label: Optional[str] = None
+    created_at: datetime
+    visits: int = 0
+    applications: int = 0
+    state: Literal["active", "expired", "revoked"]
 
 
 class CareerLinkUpdate(BaseModel):

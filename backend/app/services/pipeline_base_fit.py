@@ -1,5 +1,7 @@
 """Pipeline cards use the full-search evaluator, with process data separate."""
 
+import logging
+
 from sqlalchemy import select
 
 from app.models.candidate import Candidate
@@ -10,6 +12,29 @@ from app.services.full_search_measurement import request_vector
 from app.services.query_adapter import adapt_job_query
 from app.services.request_matching_context import build_request_context
 from app.services.search_telemetry import SearchTelemetry, stage
+
+logger = logging.getLogger(__name__)
+
+
+def _log_stage_timings(job_id, cards, metrics) -> None:
+    """Etapy trasy w logu: 04.11.2026 p50 5,5–10,5 s przy 0,2 s na stagingu."""
+    logger.info(
+        "pipeline_scores_stages",
+        extra={
+            "event_kind": "pipeline_scores_stages",
+            "job_id": job_id,
+            "cards": cards,
+            "stages": {
+                name: {
+                    "calls": value["calls"],
+                    "total_ms": round(value["total_ms"], 1),
+                    "max_ms": round(value["max_ms"], 1),
+                }
+                for name, value in metrics["stages"].items()
+                if value["calls"]
+            },
+        },
+    )
 
 
 async def pipeline_base_fit(db, job, profile):
@@ -52,6 +77,8 @@ async def pipeline_base_fit(db, job, profile):
                 raise
 
         result = await scan_population(population, evaluate, batch_size=256)
+    metrics = telemetry.snapshot()
+    _log_stage_timings(job_id, len(population), metrics)
     return {
         "job_id": job_id,
         "profile_id": profile.id,
@@ -79,6 +106,13 @@ async def pipeline_base_fit(db, job, profile):
             and item.exclusion_reasons
             and item.exclusion_reasons[0] != "eligibility_hidden"
         },
+        # Krytyczne bez śladu, ale z zamiennikiem (mapa wiedzy IT, 07.11.2026):
+        # osoba jest widoczna, karta pyta „FastAPI? zna Flask”.
+        "alternatives": {
+            str(item.candidate_id): item.evidence["critical_alternatives"]
+            for item in result.evaluated
+            if item.eligible and item.evidence.get("critical_alternatives")
+        },
         "counts": result.counts(),
-        "metrics": telemetry.snapshot(),
+        "metrics": metrics,
     }

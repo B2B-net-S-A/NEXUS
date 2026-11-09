@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import type { QcStateView } from "@/lib/cv-qc";
 import {
   MY_MOVE_LABEL,
   cardBadges,
@@ -17,6 +18,7 @@ import {
   type CardBadgeContext,
   compactCardBadge,
   cardShortName,
+  criticalAlternativeBadge,
   criticalGapBadge,
   cvStateBadge,
   dlWaitingStatus,
@@ -122,13 +124,13 @@ describe("odznaki karty — Pipeline v4", () => {
 
   it("„Czeka na DL” w QC CV (u Nordei — akceptacja do Cpro), w kolejce Cpro i w Zweryfikowanym nie", () => {
     const v = item({ stage: "interview", days_in_stage: 1, qc: { status: "passed", blocking_failed: 0 } });
-    expect(labels(v, ctx({ column: "cv_qc" }))).toEqual(["Czeka na DL · 1 dzień"]);
+    expect(labels(v, ctx({ column: "cv_qc" }))).toEqual(["Czeka na DL"]);
     // Niesprawdzone QC: DL jeszcze na nic nie czeka.
     const unchecked = item({ stage: "interview", days_in_stage: 1 });
     expect(labels(unchecked, ctx({ column: "cv_qc" }))).toEqual([]);
     // Od 13.10.2026 u Nordei DL akceptuje osobę do kolejki Cpro.
     const nordea = cardBadges(v, ctx({ column: "cv_qc", cproEnabled: true }));
-    expect(nordea.map((b) => b.label)).toEqual(["Czeka na DL · 1 dzień"]);
+    expect(nordea.map((b) => b.label)).toEqual(["Czeka na DL"]);
     expect(nordea[0].title).toContain("akceptuje osobę do kolejki Cpro");
     // Karta już w kolejce Cpro czeka na osobę od Cpro, nie na DL-a.
     expect(labels(v, ctx({ column: "cv_qc", cproEnabled: true, stageBadge: "cpro" }))).toEqual([]);
@@ -141,11 +143,11 @@ describe("odznaki karty — Pipeline v4", () => {
       client_rate_value: "165.00",
       client_rate_unit: "hourly",
       client_rate_currency: "PLN",
-      days_in_stage: 5,
+      client_silent_workdays: 6,
     });
     expect(labels(sent, ctx({ column: "cv_sent" }))).toEqual([
       "do klienta 165 zł/h",
-      "5 dni bez odpowiedzi",
+      "Klient milczy",
     ]);
   });
 
@@ -211,14 +213,26 @@ describe("odznaki karty — Pipeline v4", () => {
 
 describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
   it("chip QC mówi wynik ostatniej kontroli; brak pola = „nie sprawdzone”", () => {
-    expect(qcChip(item({})).label).toBe("QC nie sprawdzone");
-    expect(qcChip(item({ qc: { status: "passed", blocking_failed: 0 } })).label).toBe("QC ✓");
+    expect(qcChip(item({})).label).toBe("QC: jeszcze nie sprawdzone");
+    expect(qcChip(item({ qc: { status: "passed", blocking_failed: 0 } })).label).toBe("QC: sprawdzone");
+    // QC-11 (08.11.2026): gotowy stan z serwera, front go tylko pokazuje.
+    expect(
+      qcChip(
+        item({
+          qc: {
+            status: "passed",
+            blocking_failed: 0,
+            qc_state: { kind: "verify_roles", n: 3, items: ["Kafka"], text: "QC: wskaż stanowisko · 3", tone: "wait", who: null, hint: "Nikt nie sprawdził" },
+          },
+        }),
+      ),
+    ).toEqual({ label: "QC: wskaż stanowisko · 3", tone: "wait", title: "Nikt nie sprawdził" });
     expect(qcChip(item({ qc: { status: "failed", blocking_failed: 3 } }))).toMatchObject({
       label: "QC: 3 do poprawy",
       tone: "urgent",
     });
     expect(qcChip(item({ qc: { status: "overridden", blocking_failed: 2 } })).label).toBe(
-      "QC przepuszczone",
+      "QC: przepuszczone",
     );
   });
 
@@ -434,7 +448,7 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
     expect(mine).toEqual([
       {
         key: "dl_review",
-        label: "Czeka na Ciebie · 1 dzień",
+        label: "Czeka na Ciebie",
         tone: "wait",
         title: "Przejrzyj CV, wpisz stawkę do klienta i wyślij.",
       },
@@ -449,7 +463,7 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
     expect(cardBadges(ready, ctx({ column: "cv_qc" }))).toEqual([
       {
         key: "dl_review",
-        label: "Czeka na DL · 1 dzień",
+        label: "Czeka na DL",
         tone: "wait",
         title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
       },
@@ -477,44 +491,14 @@ describe("„Do wysłania do klienta” — Delivery Lead tej rekrutacji (13.10.
   it("dni liczą się od gotowości: późniejsze z wejścia do kolumny i zaliczenia QC", () => {
     const waited = (extra: Partial<KanbanItem>, viewerOwnsDlReview = true) =>
       labels(item({ stage: "interview", days_in_stage: 5, ...extra }), ctx({ column: "cv_qc", viewerOwnsDlReview }));
-    // W kolumnie od 5 dni, QC zaliczone przedwczoraj — czeka 2 dni, nie 5.
-    const lateQc = {
+    // U5 (audyt 08.11.2026): plakietka bez liczby — dni robocze liczy serwer
+    // (`waiting_workdays`) i stoją w wierszu ruchu.
+    const ready = {
       moved_at: "2026-09-18T08:00:00Z",
       qc: { status: "passed" as const, blocking_failed: 0, ok_at: "2026-09-21T15:00:00Z" },
     };
-    expect(waited(lateQc)).toEqual(["Czeka na Ciebie · 2 dni"]);
-    expect(waited(lateQc, false)).toEqual(["Czeka na DL · 2 dni"]);
-    // QC zaliczone wcześniej niż wejście do kolumny (karta wróciła po poprawkach).
-    expect(
-      waited({
-        moved_at: "2026-09-22T08:00:00Z",
-        qc: { status: "overridden", blocking_failed: 1, ok_at: "2026-09-19T08:00:00Z" },
-      }),
-    ).toEqual(["Czeka na Ciebie · 1 dzień"]);
-    // Dni kalendarzowe w Warszawie: 22.09 23:30 to „wczoraj”, 23.09 00:30 — „dziś”
-    // (oba zapisy mają w UTC datę 22.09).
-    expect(
-      waited({
-        moved_at: "2026-09-18T08:00:00Z",
-        qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-22T21:30:00Z" },
-      }),
-    ).toEqual(["Czeka na Ciebie · 1 dzień"]);
-    expect(
-      waited({
-        moved_at: "2026-09-18T08:00:00Z",
-        qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-22T22:30:00Z" },
-      }),
-    ).toEqual(["Czeka na Ciebie · dziś"]);
-    // Bez którejś z dat (starszy serwer) zostają dni na etapie.
-    expect(waited({ moved_at: "2026-09-18T08:00:00Z", qc: { status: "passed", blocking_failed: 0 } })).toEqual([
-      "Czeka na Ciebie · 5 dni",
-    ]);
-    expect(
-      waited({ qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-21T15:00:00Z" } }),
-    ).toEqual(["Czeka na Ciebie · 5 dni"]);
-    expect(
-      waited({ moved_at: "2026-09-18T08:00:00Z", qc: { status: "passed", blocking_failed: 0, ok_at: null } }),
-    ).toEqual(["Czeka na Ciebie · 5 dni"]);
+    expect(waited(ready)).toEqual(["Czeka na Ciebie"]);
+    expect(waited(ready, false)).toEqual(["Czeka na DL"]);
   });
 
   it("kolejka „po kolei”: tylko gotowe karty, najdłużej czekające pierwsze", () => {
@@ -553,7 +537,9 @@ describe("odznaka follow-upu (0372) — klient milczy, kto dzwoni do kandydata",
   it("zaległy telefon innej osoby: imię i liczba dni, czerwona odznaka", () => {
     const badges = cardBadges(item({ followup: badge }), ctx({ column: "cv_sent" }));
     const f = badges.find((b) => b.key === "followup");
-    expect(f?.label).toBe("Follow-up: Anna K. · zaległy 2 dni");
+    // U5: liczba dni tylko w dymku, na karcie jedna liczba w wierszu ruchu.
+    expect(f?.label).toBe("Follow-up: Anna K. · zaległy");
+    expect(f?.title).toContain("zaległy 2 dni");
     expect(f?.tone).toBe("urgent");
     expect(f?.title).toContain("w 3 procesach");
   });
@@ -655,7 +641,7 @@ describe("karta na laptopie (04.10.2026)", () => {
   });
 });
 
-describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
+describe("„Nowy · od DD.MM” — osoba świeżo w bazie (13.10.2026, data od 08.11.2026)", () => {
   const fresh = (extra: Partial<KanbanItem> = {}) =>
     item({
       entry_source: "application",
@@ -667,11 +653,11 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
     });
 
   it("w „Nowych” i „Screeningu” po źródle i blokadzie, z datą i autorem w dymku", () => {
-    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · 3 dni"]);
+    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · od 20.09"]);
     expect(labels(fresh(), ctx({ column: "screening" }))).toEqual([
       "Z ogłoszenia",
       "Wolny",
-      "Nowy · 3 dni",
+      "Nowy · od 20.09",
     ]);
     const badge = cardBadges(fresh(), ctx()).find((b) => b.key === "new_in_base");
     expect(badge).toMatchObject({ tone: "info", title: "W bazie od 20.09.2026 · dodał(a) Marta Nowak" });
@@ -680,7 +666,7 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
   });
 
   it("dalsze kolumny jej nie pokazują", () => {
-    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · 3 dni");
+    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · od 20.09");
   });
 
   it("15 dni i więcej — bez pigułki; 14 dni — jeszcze z pigułką", () => {
@@ -688,7 +674,7 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
       "Z ogłoszenia",
       "Wolny",
     ]);
-    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · 14 dni");
+    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · od 09.09");
   });
 
   it("data niedokładna (import z Traffita bez daty u źródła) — bez pigułki", () => {
@@ -726,6 +712,13 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
     expect(cvStateBadge(withCv({ status: "passed", blocking_failed: 0, warnings_count: 2 }), "verified")?.tone).toBe(
       "info",
     );
+    // R1 (07.11.2026): blokujące „sprawdź ręcznie” przy zdanym QC — nie „bez uwag”.
+    expect(
+      label(withCv({ status: "passed", blocking_failed: 0, warnings_count: 0, manual_checks: ["Umiejętności krytyczne"] })),
+    ).toBe("CV gotowe · QC: sprawdź ręcznie (1)");
+    expect(
+      label(withCv({ status: "passed", blocking_failed: 0, warnings_count: 2, manual_checks: ["A", "B"] })),
+    ).toBe("CV gotowe · QC: sprawdź ręcznie (2) · 2 uwagi");
     // Starszy serwer bez `warnings_count` — liczą się same blokujące.
     expect(label(withCv({ status: "passed", blocking_failed: 0 }))).toBe("CV gotowe · QC bez uwag");
     expect(cvStateBadge(withCv({ status: "passed", blocking_failed: 0 }), "verified")?.tone).toBe("ok");
@@ -734,6 +727,17 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
     expect(
       label(item({ auto_cv_ready: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 0 } })),
     ).toBe("CV gotowe · QC bez uwag");
+  });
+
+  it("QC-11: ten sam tekst co chip z serwera, a „do poprawy” bez czerwieni", () => {
+    const state = { kind: "verify_roles", n: 2, items: ["Kafka", "AWS"], text: "QC: wskaż stanowisko · 2", tone: "wait", who: null, hint: "Nikt nie sprawdził opisu w rolach: Kafka, AWS." } satisfies QcStateView;
+    const verify = cvStateBadge(item({ company_cv: true, qc: { status: "passed", blocking_failed: 0, warnings_count: 1, qc_state: state } }), "verified");
+    expect(verify?.label).toBe("CV gotowe · QC: wskaż stanowisko · 2 · 1 uwaga");
+    expect(verify?.title).toBe(state.hint);
+    const toFix = cvStateBadge(item({ company_cv: true, qc: { status: "failed", blocking_failed: 2, qc_state: { ...state, kind: "to_fix", text: "QC: 2 do poprawy", tone: "urgent", hint: null } } }), "verified");
+    expect(toFix?.label).toBe("CV gotowe · QC: 2 do poprawy");
+    expect(toFix?.tone).toBe("wait");
+    expect(toFix?.title).toBe("QC: 2 do poprawy");
   });
 
   it("QC przepuszczone mimo uwag (D6) — „przepuszczone”, nie „do poprawy”", () => {
@@ -762,37 +766,24 @@ describe("stan CV firmowego na karcie (14.10.2026)", () => {
 });
 
 describe("„Czeka u Delivery Leada” w oknie i ramce ruchu (14.10.2026)", () => {
-  it("gotowa karta: od kiedy czeka (od gotowości, kalendarzowo)", () => {
-    expect(
-      dlWaitingStatus(
-        item({
-          moved_at: "2026-09-18T08:00:00Z",
-          qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-20T08:00:00Z" },
-        }),
-        NOW,
-      ),
-    ).toEqual({ ready: true, text: "Czeka u Delivery Leada od 3 dni." });
-    expect(
-      dlWaitingStatus(
-        item({ moved_at: "2026-09-22T08:00:00Z", qc: { status: "overridden", blocking_failed: 1, ok_at: "2026-09-22T09:00:00Z" } }),
-        NOW,
-      ).text,
-    ).toBe("Czeka u Delivery Leada od 1 dnia.");
-    expect(
-      dlWaitingStatus(
-        item({ moved_at: "2026-09-23T06:00:00Z", qc: { status: "passed", blocking_failed: 0, ok_at: "2026-09-23T07:00:00Z" } }),
-        NOW,
-      ).text,
-    ).toBe("Czeka u Delivery Leada od dziś.");
+  it("gotowa karta: od kiedy czeka — dni robocze z serwera (U5, 08.11.2026)", () => {
+    const qc = { status: "passed" as const, blocking_failed: 0, ok_at: "2026-09-20T08:00:00Z" };
+    expect(dlWaitingStatus(item({ qc, waiting_workdays: 3 }))).toEqual({
+      ready: true,
+      text: "Czeka u Delivery Leada od 3 dni rob.",
+    });
+    expect(dlWaitingStatus(item({ qc, waiting_workdays: 1 })).text).toBe("Czeka u Delivery Leada od 1 dnia rob.");
+    expect(dlWaitingStatus(item({ qc, waiting_workdays: 0 })).text).toBe("Czeka u Delivery Leada od dziś.");
+    expect(dlWaitingStatus(item({ qc })).text).toBe("Czeka u Delivery Leada.");
   });
 
   it("QC nie przeszło albo nie biegło — co ma zrobić rekruter", () => {
-    expect(dlWaitingStatus(item({ qc: { status: "failed", blocking_failed: 2 } }), NOW)).toEqual({
+    expect(dlWaitingStatus(item({ qc: { status: "failed", blocking_failed: 2 } }))).toEqual({
       ready: false,
       text: "QC: 2 do poprawy — popraw CV, zanim Delivery Lead je zobaczy.",
     });
-    expect(dlWaitingStatus(item({}), NOW).text).toMatch(/^QC jeszcze nie sprawdzone/);
-    expect(dlWaitingStatus(null, NOW).ready).toBe(false);
+    expect(dlWaitingStatus(item({})).text).toMatch(/^QC jeszcze nie sprawdzone/);
+    expect(dlWaitingStatus(null).ready).toBe(false);
   });
 });
 
@@ -879,5 +870,40 @@ describe("0521: plakietka formularza CV klienta", () => {
         "verified",
       )?.label,
     ).toBe("Formularz: 2 do uzupełnienia");
+  });
+});
+
+describe("„FastAPI? zna Flask” — krytyczne z zamiennikiem (mapa wiedzy IT, 07.11.2026)", () => {
+  it("bez zamienników nie ma plakietki", () => {
+    expect(criticalAlternativeBadge(undefined)).toBeNull();
+    expect(criticalAlternativeBadge({})).toBeNull();
+    expect(criticalAlternativeBadge({ fastapi: [] })).toBeNull();
+  });
+
+  it("pyta o wymaganie i podaje pierwszy zamiennik, w opisie wszystkie", () => {
+    const badge = criticalAlternativeBadge({ fastapi: ["flask", "django"] });
+    expect(badge?.label).toBe("fastapi? zna flask");
+    expect(badge?.title).toMatch(/fastapi: brak, ale zna zamienniki: flask, django/);
+    expect(badge?.title).toMatch(/nie spełnia wymagania krytycznego/);
+  });
+
+  it("kilka wymagań — licznik reszty", () => {
+    expect(criticalAlternativeBadge({ fastapi: ["flask"], kafka: ["rabbitmq"] })?.label).toBe(
+      "fastapi? zna flask +1",
+    );
+  });
+});
+
+
+describe("QC-7 (08.11.2026): „wskaż stanowisko” zostaje u rekrutera", () => {
+  const holding = { status: "passed" as const, blocking_failed: 0, qc_state: { kind: "verify_roles" as const, n: 2, items: ["Kafka"], text: "QC: wskaż stanowisko · 2", tone: "wait" as const, who: null, hint: null } };
+
+  it("nie jest gotowa do wysyłki u Delivery Leada", () => {
+    expect(isReadyForDlSend(item({ qc: holding }), "cv_qc", false)).toBe(false);
+    expect(isReadyForDlSend(item({ qc: { status: "passed", blocking_failed: 0 } }), "cv_qc", false)).toBe(true);
+  });
+
+  it("mówi rekruterowi, co zrobić", () => {
+    expect(dlWaitingStatus(item({ qc: holding })).text).toBe("QC: wskaż stanowisko · 2 — zrób to, zanim Delivery Lead je zobaczy.");
   });
 });

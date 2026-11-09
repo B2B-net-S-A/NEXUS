@@ -233,7 +233,12 @@ export function DecisionPanel({
   };
 
   return (
-    <section aria-label="Premie do decyzji" data-tour="payroll.bonus-decisions" className="overflow-hidden rounded-xl border border-border bg-card">
+    <section
+      aria-label="Premie do decyzji"
+      data-tour="payroll.bonus-decisions"
+      data-help="hr.payroll.decisions"
+      className="overflow-hidden rounded-xl border border-border bg-card"
+    >
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           Premie do decyzji
@@ -366,10 +371,11 @@ export function DecisionPanel({
                       <span className="block text-xs text-muted-foreground">
                         {row.category_label}
                         {row.eligible_on ? ` · termin ${formatDayMonthPl(row.eligible_on)}` : ""}
+                        {row.from_sheet ? " · z arkusza" : ""}
                         {row.edited ? " · kwota poprawiona" : ""}
                         {row.edited_recipient ? " · osoba zmieniona" : ""}
                         {tab === "later" ? ` · wypłata ${String(row.period_month).padStart(2, "0")}.${row.period_year}` : ""}
-                        {!can && open && !mine && row.can_approve === false ? " · zatwierdzi inna osoba z Płac" : ""}
+                        {!can && open && !mine && row.can_approve === false ? " · zatwierdzi inna osoba z Rozliczeń" : ""}
                       </span>
                       {row.flags?.length ? (
                         <span className="mt-1 flex flex-wrap gap-1">
@@ -458,6 +464,7 @@ export function PlacementsStrip({
           type="button"
           onClick={onToggleAssigned}
           aria-expanded={assignedOpen}
+          data-help="hr.payroll.assigned"
           className="text-sm font-medium text-primary underline-offset-2 hover:underline"
         >
           Przyznane w tym miesiącu ({assignedCount}) {assignedOpen ? "‹" : "›"}

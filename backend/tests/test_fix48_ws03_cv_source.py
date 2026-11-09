@@ -33,6 +33,7 @@ def _no_document_db(*, legacy_quarantined: bool) -> AsyncMock:
     db = AsyncMock()
     db.scalars.return_value = Mock(first=Mock(return_value=None))
     db.scalar.return_value = legacy_quarantined
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     return db
 
 
@@ -56,8 +57,8 @@ async def test_quarantined_document_is_never_the_current_cv():
 async def test_outdated_files_are_not_a_successor():
     sql = await _current_cv_sql()
     assert "candidate_documents.outdated_at IS NULL" in sql
-    # Bez heurystyki po nazwie: plik „…B2B…” bywa jedynym CV osoby.
-    assert "b2b" not in sql.lower()
+    # Nazwa „…B2B…” tylko w kolejności, nigdy w filtrze: plik bywa jedynym CV osoby.
+    assert "b2b" not in sql.lower().split("order by")[0]
 
 
 async def test_generator_default_source_follows_the_same_rule():
@@ -67,6 +68,7 @@ async def test_generator_default_source_follows_the_same_rule():
     db.get.return_value = NS(id=2, name="A", lastname="B")
     db.scalars.return_value = Mock(first=Mock(return_value=None))
     db.scalar.return_value = None
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     with pytest.raises(svc.StandaloneGenerationError):
         await svc.load_candidate_generation_source(db, candidate_id=2, stage_id=None)
     sql = _sql(db.scalars.call_args_list[0].args[0])

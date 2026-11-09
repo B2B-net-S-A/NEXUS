@@ -375,9 +375,11 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       hint: full
         ? [
             full.timesheet_required ? (words?.timesheet ?? "raport godzin").toLowerCase() : "bez raportu godzin",
-            full.can_log_overtime
-              ? `z ${payWords.overtime_instrumental}`
-              : `bez ${payWords.overtime_genitive}`,
+            full.no_hours_limit
+              ? "godziny bez limitu"
+              : full.can_log_overtime
+                ? `z ${payWords.overtime_instrumental}`
+                : `bez ${payWords.overtime_genitive}`,
           ].join(" · ")
         : undefined,
     });
@@ -436,7 +438,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       ? [
           {
             value: "payroll" as const,
-            label: `Płace i ${payWords.bonuses}`,
+            label: `Rozliczenia i ${payWords.bonuses}`,
             count: bonuses?.waitingCount ? bonuses.waitingCount : undefined,
           },
         ]
@@ -581,7 +583,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                 </div>
                 {!config.open_modules.payroll || payrollRefused ? (
                   <p className="text-sm text-muted-foreground">
-                    {payrollRefused ? "Płace niedostępne dla Ciebie." : "Moduł płac jest wyłączony."}
+                    {payrollRefused ? "Rozliczenia niedostępne dla Ciebie." : "Moduł rozliczeń jest wyłączony."}
                   </p>
                 ) : payroll.isError ? (
                   <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -640,7 +642,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                   ) : null}
                 </div>
                 {!equipmentVisible ? (
-                  <p className="text-sm text-muted-foreground">Sprzęt widzi recepcja i Kadry.</p>
+                  <p className="text-sm text-muted-foreground">Sprzęt widzi recepcja i Administracja współpracy.</p>
                 ) : !gear ? (
                   <p className="text-sm text-muted-foreground">
                     {equipment.isError ? "Nie udało się wczytać sprzętu." : "Wczytywanie sprzętu…"}
@@ -672,7 +674,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
           ) : (
             <Card className="p-4">
               <p className="text-sm text-muted-foreground">
-                Pełną kartotekę widzą ta osoba, jej przełożony, Kadry i Finanse.
+                Pełną kartotekę widzą ta osoba, jej koordynator, Administracja współpracy i Finanse.
               </p>
             </Card>
           )}
@@ -785,7 +787,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       {activeTab === "time" && full ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="p-4">
-            <CardTitle>Zatrudnienie</CardTitle>
+            <CardTitle>{full?.employment_type === "uop" ? "Zatrudnienie" : "Współpraca"}</CardTitle>
             {/* Forma: osoba, przełożony, admin, Finanse; Kadry bez Płac — bez wiersza
                 (19.10.2026). „Do uzupełnienia” nie zdradza formy, widzą go wszyscy. */}
             {full.employment_type_pending ? (
@@ -800,15 +802,16 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
                 <span className="text-warning-muted-foreground">do uzupełnienia</span>
               </Fact>
             ) : null}
-            <Fact label="Start pracy">{formatIsoDatePl(full.work_start_date)}</Fact>
-            <Fact label="Ostatni dzień pracy">
+            <Fact label={full?.employment_type === "uop" ? "Start pracy" : "Start współpracy"}>{formatIsoDatePl(full.work_start_date)}</Fact>
+            <Fact label={full?.employment_type === "uop" ? "Ostatni dzień pracy" : "Ostatni dzień współpracy"}>
               {full.last_working_day ? formatIsoDatePl(full.last_working_day) : "—"}
             </Fact>
             <Fact label="Domyślnie pracuje">{LOCATION_LABELS[full.default_location]}</Fact>
-            <Fact label={words?.timesheet ?? "Timesheet"}>
+            <Fact label={words?.timesheet ?? "Raport godzin"}>
               {full.timesheet_required ? "tak" : "nie"}
             </Fact>
             <Fact label={capitalize(payWords.overtime)}>{full.can_log_overtime ? "tak" : "nie"}</Fact>
+            <Fact label="Godziny bez limitu">{full.no_hours_limit ? "tak" : "nie"}</Fact>
             {/* Daty Kadr (koniec zwolnienia, „składki od”, staż, ZUS) przełożony
                 dostaje bez kluczy (przegląd 17.10.2026): brak pola w odpowiedzi
                 = brak wiersza, `null` = „brak”. */}

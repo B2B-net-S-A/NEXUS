@@ -27,6 +27,8 @@ const plan: MergePlan = {
   moved_rows: 9,
   conflicts: 1,
   blockers: [],
+  primary_cv: { before: null, after: null, changes: false },
+  cards: [],
   can_apply: true,
   fingerprint: "f".repeat(64),
 };
@@ -57,6 +59,41 @@ describe("candidate merge helpers", () => {
 });
 
 describe("MergePlanView", () => {
+  it("shows which stage stays on a card shared by both profiles", () => {
+    render(
+      <MergePlanView
+        plan={{
+          ...plan,
+          references: [{ table: "recruitment_processes", column: "candidate_id", rows: 1, conflicts: 1, unresolvable: false }],
+          cards: [
+            {
+              job_id: 7,
+              job_title: "Analityk danych",
+              survivor_stage: "cv_sent",
+              survivor_stage_name: "CV Wysłane",
+              duplicate_stage: "screening",
+              duplicate_stage_name: "Screening",
+              result_stage: "cv_sent",
+              result_stage_name: "CV Wysłane",
+              kept: "survivor",
+              restores: true,
+            },
+          ],
+        }}
+        choices={{}}
+        onChoose={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Analityk danych").closest("li");
+    expect(row).toHaveTextContent("Analityk danych: zostaje CV Wysłane (ten profil: CV Wysłane, duplikat: Screening)");
+    expect(screen.getByText(/zostaje proces karty/)).toBeInTheDocument();
+  });
+
+  it("hides the cards section when no recruitment is shared", () => {
+    render(<MergePlanView plan={plan} choices={{}} onChoose={vi.fn()} />);
+    expect(screen.queryByText("Karty w rekrutacjach obu profili")).not.toBeInTheDocument();
+  });
+
   it("renders conflict radios, counters and duplicate-row note", () => {
     const onChoose = vi.fn();
     render(<MergePlanView plan={plan} choices={{}} onChoose={onChoose} />);
@@ -65,6 +102,42 @@ describe("MergePlanView", () => {
     expect(screen.getByText(/Przejdzie na ten profil: 9/)).toBeInTheDocument();
     expect(screen.getByText(/w tym 1 zdublowanych — zostaje nowszy wpis/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("names the primary CV after the merge only when it changes", () => {
+    const file = { document_id: 5, filename: "z-duplikatu.pdf", from_duplicate: true };
+    const { rerender } = render(<MergePlanView plan={plan} choices={{}} onChoose={vi.fn()} />);
+    expect(screen.queryByText(/Główne CV po scaleniu/)).toBeNull();
+
+    rerender(
+      <MergePlanView
+        plan={{ ...plan, primary_cv: { before: null, after: file, changes: true } }}
+        choices={{}}
+        onChoose={vi.fn()}
+      />,
+    );
+    const note = screen.getByRole("status");
+    expect(note).toHaveTextContent("Główne CV po scaleniu: z-duplikatu.pdf (z duplikatu #20). Teraz: brak.");
+
+    rerender(
+      <MergePlanView
+        plan={{ ...plan, primary_cv: { before: file, after: file, changes: false } }}
+        choices={{}}
+        onChoose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/Główne CV po scaleniu/)).toBeNull();
+  });
+
+  it("says both files stay when documents collide", () => {
+    render(
+      <MergePlanView
+        plan={{ ...plan, references: [{ table: "candidate_documents", column: "candidate_id", rows: 2, conflicts: 1, unresolvable: false }] }}
+        choices={{}}
+        onChoose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/w tym 1 zdublowanych — oba pliki zostają/)).toBeInTheDocument();
   });
 
   it("shows blockers as an alert", () => {

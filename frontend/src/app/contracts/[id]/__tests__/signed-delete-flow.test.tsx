@@ -667,6 +667,19 @@ describe("ContractDetailPage — umowa B2B nierozwiązana po zakończeniu", () =
     ).toHaveAttribute("href", "/contracts?status=all&agreement=not_terminated");
   });
 
+  it("po przedłużeniu porozumienie startuje z daty końca, nie z pierwszego zakończenia", async () => {
+    mocks.getContract.mockResolvedValue({
+      data: { ...ended, end_date: "2026-10-26", terminated_at: "2026-10-19" },
+    });
+    renderPage();
+    const reminder = await screen.findByTestId("agreement-not-terminated");
+    const link = within(reminder).getByRole("link", { name: "Przygotuj porozumienie" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("v_termination_date")).toBe("2026-10-26");
+    expect(params.get("v_last_service_date")).toBe("2026-10-26");
+    expect(screen.getByText("26.10.2026")).toBeInTheDocument();
+  });
+
   it("umowa rozwiązana albo zlecenie — bez przypomnienia", async () => {
     mocks.getContract.mockResolvedValue({
       data: {
@@ -686,5 +699,26 @@ describe("ContractDetailPage — umowa B2B nierozwiązana po zakończeniu", () =
     renderPage();
     await screen.findByText("Zakończenie współpracy");
     expect(screen.queryByTestId("agreement-not-terminated")).toBeNull();
+  });
+});
+
+describe("ContractDetailPage — odmowa dostępu to nie awaria", () => {
+  it("403 mówi o braku uprawnień, a nie o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 403 } });
+    renderPage();
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText("Nie udało się wczytać kontraktu.")).toBeNull();
+  });
+
+  it("404 mówi, że rekordu nie ma", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 404 } });
+    renderPage();
+    expect(await screen.findByText("Nie znaleziono")).toBeInTheDocument();
+  });
+
+  it("awaria serwera zostaje komunikatem o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 500 } });
+    renderPage();
+    expect(await screen.findByText("Nie udało się wczytać kontraktu.")).toBeInTheDocument();
   });
 });

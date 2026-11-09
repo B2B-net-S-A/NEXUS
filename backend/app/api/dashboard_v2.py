@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
     AnalyticsCapability,
-    require_capability,
     user_has_capability,
 )
 from app.analytics.periods import Period, PeriodError, resolve_period
@@ -17,7 +16,9 @@ from app.api.section_access import (
     DELIVERY_SECTION_DEPENDENCIES,
     INSIGHTS_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
+    require_section_access_any,
 )
+from app.api.permission_access import CompanyResultsUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.deps import (
     ROLE_DENIED_DETAIL,
@@ -30,6 +31,7 @@ from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.schemas.dashboard_v2 import (
     AdminOpsDashboardResponse,
+    ClientResponseBoard,
     DeliveryLeadDashboardResponse,
     FinanceDashboardResponse,
     HeadOfRecruitmentDashboardResponse,
@@ -46,6 +48,7 @@ from app.schemas.recruitment_operations import (
 from app.schemas.recruitment_activity import (
     RecruitmentActivityDetailResponse,
     RecruitmentActivityMetric,
+    RecruitmentActivityDetailOrder,
     RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
     RecruitmentActivityTeamTotalsResponse,
@@ -69,7 +72,10 @@ from app.services.recruitment_activity import (
     list_recruitment_activity_details,
     team_period_totals,
 )
+from app.services.client_response_metrics import cached_client_response_board
 from app.services.kpi_engine import WARSAW
+from app.services.section_permissions import ProductSection
+from app.services import dashboard_v2_sources as sources
 
 
 def _validate_bounded_month(value: date) -> date:
@@ -106,9 +112,15 @@ HeadOfRecruitmentDashboardUser = Annotated[
         )
     ),
 ]
-FinanceUser = Annotated[
+ClientResponseUser = Annotated[
     User,
-    Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+        )
+    ),
 ]
 RecruitmentOperationsUser = Annotated[
     User,
@@ -120,6 +132,7 @@ RecruitmentOperationsUser = Annotated[
             UserRole.talent_community_manager,
             UserRole.recruiter,
             UserRole.finance,
+            UserRole.back_office,
             # 0446: podgląd pulpitu rekrutacji; „ulubione” (PUT) stoją za
             # bramką zapisu sekcji Pipeline.
             UserRole.automation,
@@ -211,6 +224,33 @@ async def head_of_recruitment_dashboard(
     period: DashboardPeriod,
 ) -> HeadOfRecruitmentDashboardResponse:
     return await build_head_of_recruitment_dashboard(current_user, db, period)
+
+
+@router.get(
+    "/client-response",
+    response_model=ClientResponseBoard,
+    dependencies=[
+        Depends(
+            require_section_access_any(ProductSection.delivery, ProductSection.insights)
+        )
+    ],
+)
+async def client_response_board(
+    current_user: ClientResponseUser,
+    db: Database,
+) -> ClientResponseBoard:
+    """Odpowiedź klienta, pierwsze CV i tabela per klient (kafelek pulpitu).
+
+    Wystarczy jedna z sekcji: Delivery Lead pracuje w Delivery, a HoR w Insights.
+    Do tego rola, a o zakresie decyduje `resolve_scope` (DL widzi wyłącznie
+    klientów ze swojego portfela). Nazwy klientów i liczby CV, bez kwot.
+    """
+    scope = await sources.resolve_scope(current_user, db)
+    sources.require_scope(scope, "recruitment_org", "delivery_clients", "organization")
+    client_ids = (
+        scope.payload.client_ids if scope.payload.kind == "delivery_clients" else None
+    )
+    return await cached_client_response_board(db, client_ids)
 
 
 @router.get(
@@ -335,13 +375,15 @@ async def recruitment_activity_details(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     state: RecruitmentActivityState | None = Query(None),
+    order: RecruitmentActivityDetailOrder = Query("reached"),
 ) -> RecruitmentActivityDetailResponse:
     """Candidate/job rows behind one visible KPI number.
 
     `window=week` = tydzień (od poniedziałku) dnia `day`; `window=range` = dni
     `date_from`–`date_to` włącznie. `scope=unattributed` = kamienie bez osoby
     z zasługą (tylko role z wglądem w zespół). `state` zawęża wiersze do stanu
-    pary „teraz”; liczniki stanów w odpowiedzi liczą cały okres.
+    pary „teraz”; liczniki stanów w odpowiedzi liczą cały okres. `order=term`
+    układa wiersze po terminie rozmowy zamiast po dniu osiągnięcia etapu.
     """
 
     selected_day = day or datetime.now(WARSAW).date()
@@ -361,6 +403,7 @@ async def recruitment_activity_details(
         date_from=date_from,
         date_to=date_to,
         state=state,
+        order=order,
     )
 
 
@@ -445,9 +488,13 @@ async def recruitment_operations_favorite(
     )
 
 
-@router.get("/finance", response_model=FinanceDashboardResponse)
+@router.get(
+    "/finance",
+    response_model=FinanceDashboardResponse,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def finance_dashboard(
-    current_user: FinanceUser,
+    current_user: CompanyResultsUser,
     db: Database,
     period: DashboardPeriod,
     tab: Literal["operations", "executive"] = Query("operations"),

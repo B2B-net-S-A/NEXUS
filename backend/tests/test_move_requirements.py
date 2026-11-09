@@ -98,6 +98,49 @@ def test_qc_column_needs_the_company_cv() -> None:
     assert ready["primary"] == {"kind": "move", "label": "Przesuń na „QC CV”"}
 
 
+def test_qc_column_shows_the_qc_result_without_blocking() -> None:
+    """R1 (07.11.2026): ramka „Następny etap” mówiła „gotowe 1 z 1”, choć karta
+    obok miała „QC: 2 do poprawy”. Wynik QC stoi w liście jako przypomnienie —
+    ruch do „QC CV” dalej przechodzi (bramka QC stoi przed wysyłką)."""
+
+    with_cv = replace(VERIFIED_READY, company_cv=True)
+
+    def qc_item(**facts: object) -> dict:
+        result = build_requirements(replace(with_cv, **facts), "cv_qc")
+        assert result["primary"]["kind"] == "move"
+        return _item(result, "cv_qc_result")
+
+    failed = qc_item(qc_status="failed", qc_blocking_failed=2)
+    assert failed["status"] == "missing" and failed["blocking"] is False
+    assert failed["label"] == "QC CV"
+    assert failed["detail"] == "2 do poprawy"
+    assert failed["action"]["kind"] == "open_qc"
+
+    manual = qc_item(
+        qc_status="passed",
+        qc_manual=("Umiejętności krytyczne są w CV i opisane w rolach",),
+    )
+    assert manual["status"] == "waiting"
+    assert manual["detail"] == "sprawdź ręcznie · 1"
+    assert manual["action"]["kind"] == "open_qc"
+
+    gap = qc_item(qc_status="passed", qc_gaps=("FastAPI",))
+    assert gap["status"] == "waiting"
+    assert gap["detail"] == "kandydat nie ma: FastAPI — zdecyduje Delivery Lead"
+
+    checked = qc_item(qc_status="passed")
+    assert checked["status"] == "ok" and checked["detail"] == "sprawdzone"
+    assert checked["action"] is None
+
+    overridden = qc_item(qc_status="overridden")
+    assert overridden["status"] == "ok"
+    assert overridden["detail"] == "przepuszczone"
+
+    # Bez CV firmowego QC nie ma czego liczyć — zostaje sam brak CV.
+    no_cv = build_requirements(VERIFIED_READY, "cv_qc")
+    assert "cv_qc_result" not in _keys(no_cv)
+
+
 def test_recruiter_hands_the_send_to_the_delivery_lead() -> None:
     facts = replace(
         VERIFIED_READY,
@@ -810,10 +853,13 @@ def test_form_client_gets_a_reminder_instead_of_the_company_cv() -> None:
 
     gaps = build_requirements(replace(FORM_CLIENT, client_form_missing=7), "cv_qc")
     assert _item(gaps, "client_form")["detail"] == "7 pól do uzupełnienia"
-    assert _item(
-        build_requirements(replace(FORM_CLIENT, client_form_missing=2), "cv_qc"),
-        "client_form",
-    )["detail"] == "2 pola do uzupełnienia"
+    assert (
+        _item(
+            build_requirements(replace(FORM_CLIENT, client_form_missing=2), "cv_qc"),
+            "client_form",
+        )["detail"]
+        == "2 pola do uzupełnienia"
+    )
 
     done = build_requirements(replace(FORM_CLIENT, client_form_missing=0), "cv_qc")
     assert _item(done, "client_form")["status"] == "ok"

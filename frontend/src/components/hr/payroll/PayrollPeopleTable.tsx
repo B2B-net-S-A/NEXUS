@@ -54,6 +54,9 @@ type PeopleFilter = "all" | "attention";
  */
 export function PayrollPeopleTable({ people, scope, renderTimesheetAction }: PayrollPeopleTableProps) {
   const payroll = scope === "payroll";
+  // Kolumna „Potrącenie” tylko w miesiącu, w którym ktoś ma zwrot z gwarancji (05.11.2026).
+  const clawbacks =
+    payroll && people.some((p) => (p.lines ?? []).some((l) => Number(l.clawback_total ?? 0) > 0));
   const [filter, setFilter] = useState<PeopleFilter>("all");
   const attention = people.filter(needsAttention);
   const shown = filter === "attention" ? attention : people;
@@ -100,16 +103,25 @@ export function PayrollPeopleTable({ people, scope, renderTimesheetAction }: Pay
                   </>
                 ) : null}
                 <TableHead className={`${CALM_HEAD} text-right`}>Premie</TableHead>
+                {clawbacks ? (
+                  <TableHead className={`${CALM_HEAD} text-right`}>Potrącenie</TableHead>
+                ) : null}
                 {payroll ? <TableHead className={`${CALM_HEAD} text-right`}>Razem</TableHead> : null}
-                <TableHead className={CALM_HEAD}>Timesheet</TableHead>
+                <TableHead className={CALM_HEAD}>Raport godzin</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {shown.map((person) => {
                 const lines = person.lines ?? [];
                 const flagged = needsAttention(person);
+                // Płace: premie przed potrąceniem z gwarancji, potrącenie w osobnej kolumnie.
                 const bonuses = payroll
-                  ? lines.filter((l) => Number(l.bonus_total) > 0)
+                  ? lines
+                      .map((l) => ({
+                        currency: l.currency,
+                        bonus_total: String(Number(l.bonus_total) + Number(l.clawback_total ?? 0)),
+                      }))
+                      .filter((l) => Number(l.bonus_total) > 0)
                   : (person.bonuses ?? []);
                 return (
                   <TableRow key={person.user_id} className={cn(CALM_ROW, flagged && "bg-warning-muted/40")}>
@@ -171,6 +183,15 @@ export function PayrollPeopleTable({ people, scope, renderTimesheetAction }: Pay
                     <TableCell className={`${CALM_AMOUNT} text-sm`}>
                       <Stacked values={bonuses.map((b) => formatMoney(b.bonus_total, b.currency))} />
                     </TableCell>
+                    {clawbacks ? (
+                      <TableCell className={`${CALM_AMOUNT} text-sm text-warning`}>
+                        <Stacked
+                          values={lines
+                            .filter((l) => Number(l.clawback_total ?? 0) > 0)
+                            .map((l) => `−${formatMoney(l.clawback_total, l.currency)}`)}
+                        />
+                      </TableCell>
+                    ) : null}
                     {payroll ? (
                       <TableCell className={`${CALM_AMOUNT} text-sm font-semibold text-foreground`}>
                         <Stacked

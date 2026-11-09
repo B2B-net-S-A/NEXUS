@@ -54,10 +54,21 @@ def test_inflection_and_translation_count_as_present(term: str, text: str) -> No
         ("Java", "JavaScript, TypeScript", "presence"),
         ("Go", "Google Cloud", "presence"),
         ("microservices", "Microsoft 365, Excel", "support"),
+        ("C", "Narzędzia w C++", "support"),
+        ("C", "Usługi w C# i C++17", "presence"),
+        ("F", "Moduły w F#", "presence"),
     ],
 )
 def test_real_gaps_stay_gaps(term: str, text: str, mode: str) -> None:
     assert dz.found_in(text, _req(term), mode=mode) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Sterowniki w C/C++", "Technologie: C++, C, STL", "Programowanie w C."],
+)
+def test_the_letter_c_still_finds_the_c_language(text: str) -> None:
+    assert dz._found(text, _req("C"))
 
 
 def test_every_curated_translation_is_a_valid_keyword() -> None:

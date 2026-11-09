@@ -22,7 +22,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -49,6 +49,14 @@ REPLACEABLE_STATUSES: tuple[ContractStatus, ...] = (
     ContractStatus.active,
     ContractStatus.ending,
     ContractStatus.ended,
+)
+
+_CONTRACT_END_SQL = case(
+    (
+        Contract.status == ContractStatus.ended,
+        func.coalesce(Contract.end_date, Contract.terminated_at),
+    ),
+    else_=Contract.end_date,
 )
 
 # Etykiety źródła wartości przy polu — w kafelku i w kontrakcie.
@@ -146,7 +154,15 @@ async def placement_people(
 
 
 def _contract_end(contract: Contract) -> Optional[date]:
-    return contract.terminated_at or contract.end_date
+    """Koniec na kafelku: `end_date`, a `terminated_at` tylko u zakończonych.
+
+    R8-N13-1: `terminated_at` przeżywa przedłużenie i niesie pierwsze
+    zakończenie. Żywy kontrakt bez daty końca jest bezterminowy — lustro
+    w sortowaniu `_CONTRACT_END_SQL`.
+    """
+    if contract.status == ContractStatus.ended:
+        return contract.end_date or contract.terminated_at
+    return contract.end_date
 
 
 async def replaceable_contracts(
@@ -183,7 +199,7 @@ async def replaceable_contracts(
         stmt = stmt.where(polish_folded_ilike(full_name, needle))
     stmt = stmt.order_by(
         (Contract.status == ContractStatus.active).asc(),
-        func.coalesce(Contract.terminated_at, Contract.end_date).desc().nulls_last(),
+        _CONTRACT_END_SQL.desc().nulls_last(),
         Contract.id.desc(),
     ).limit(limit)
     rows = (await db.execute(stmt)).all()
@@ -241,11 +257,14 @@ async def apply_admin_details(
     fte: Optional[Decimal],
     candidate_id: Optional[int],
     linked: bool,
+    is_client_referral: Optional[bool] = None,
 ) -> None:
-    """Zapis replacementu i FTE w wierszu umowy (walidacja przy generowaniu).
+    """Zapis replacementu, FTE i „wskazany przez klienta” w wierszu umowy.
 
-    Przy umowie powiązanej z rekrutacją oba pola są obowiązkowe. Umowa
-    ręczna (bez rekrutacji) zapisuje to, co przyszło.
+    Przy umowie powiązanej z rekrutacją replacement i FTE są obowiązkowe.
+    „Kandydat wskazany przez klienta” nie: formularz wysyła domyślne „Nie”,
+    a brak pola (``render_payload`` sprzed 0656) zostawia NULL = „Nie”.
+    Umowa ręczna (bez rekrutacji) zapisuje to, co przyszło.
     """
 
     if linked and (is_replacement is None or fte is None):
@@ -279,12 +298,13 @@ async def apply_admin_details(
     row.is_replacement = is_replacement
     row.replaced_contract_id = replaced_contract_id
     row.fte = fte
+    row.is_client_referral = is_client_referral
 
 
 def copy_admin_details_to_contract(
     contract: Contract, row: B2BGeneratedContract
 ) -> list[str]:
-    """Podpis: replacement i FTE z umowy do kontraktu, fill-only.
+    """Podpis: replacement, FTE i „wskazany przez klienta” do kontraktu, fill-only.
 
     Zwraca nazwy uzupełnionych pól (do audytu). Wpisane już w kontrakcie
     wygrywają — kontrakt jest od podpisu źródłem tych danych.
@@ -304,7 +324,66 @@ def copy_admin_details_to_contract(
         ):
             contract.replaced_contract_id = row.replaced_contract_id
             filled.append("replaced_contract_id")
+    if contract.is_client_referral is None and row.is_client_referral is not None:
+        contract.is_client_referral = row.is_client_referral
+        filled.append("is_client_referral")
     return filled
+
+
+#: Pola „Szczegółów administracyjnych” edytowane na kontrakcie po podpisie.
+CONTRACT_ADMIN_FIELDS = ("is_replacement", "replaced_contract_id", "is_client_referral")
+
+
+async def update_contract_admin_details(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    is_replacement: Optional[bool],
+    replaced_contract_id: Optional[int],
+    is_client_referral: Optional[bool],
+) -> dict[str, dict[str, object]]:
+    """Replacement, „za kogo” i „kandydat od klienta” na podpisanym kontrakcie.
+
+    Płace oznaczają zastępstwo przy kontraktach podpisanych przed kafelkiem
+    (decyzja Artura 06.11.2026). Te same reguły co w Generatorze: „Tak” wymaga
+    osoby, osoba nie zastępuje samej siebie. Zwraca zmienione pola
+    ``{pole: {"from": …, "to": …}}`` do audytu (bez commita).
+    """
+
+    if not is_replacement:
+        replaced_contract_id = None
+    elif replaced_contract_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Wskaż w „Replacement za kogo”, kogo zastępuje ta osoba.",
+        )
+    else:
+        replaced = await db.get(Contract, replaced_contract_id)
+        if replaced is None or replaced.status not in REPLACEABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Wskazanego kontraktu nie ma albo nie był zawarty.",
+            )
+        if replaced.id == contract.id or (
+            contract.candidate_id is not None
+            and replaced.candidate_id == contract.candidate_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Osoba nie może być replacementem samej siebie.",
+            )
+    target = {
+        "is_replacement": is_replacement,
+        "replaced_contract_id": replaced_contract_id,
+        "is_client_referral": is_client_referral,
+    }
+    changed: dict[str, dict[str, object]] = {}
+    for field in CONTRACT_ADMIN_FIELDS:
+        before = getattr(contract, field)
+        if before != target[field]:
+            changed[field] = {"from": before, "to": target[field]}
+            setattr(contract, field, target[field])
+    return changed
 
 
 async def notify_pair_owner(

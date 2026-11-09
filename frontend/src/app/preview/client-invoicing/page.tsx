@@ -77,6 +77,10 @@ function prepare(params: URLSearchParams) {
     });
     client.setQueryData(invoicingKeys.toInvoice(year, month), TO_INVOICE);
     client.setQueryData(invoicingKeys.credits, { credits: CREDITS });
+    client.setQueryData(invoicingKeys.unknownBuyers, {
+      buyers: [],
+      summary: { invoices: 0, buyers: 0, with_suggestion: 0, totals: [] },
+    });
     client.setQueryData(invoicingKeys.overdue, {
       invoices: CLIENT_MONTH.invoices.filter((invoice) => invoice.overdue_days > 0),
     });

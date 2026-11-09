@@ -133,6 +133,62 @@ async def test_from_cv_happy_path_creates_candidate(
 
 
 @pytest.mark.asyncio
+async def test_from_cv_header_name_leaves_the_placeholder(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Bez nazwy od modelu profil zostaje z wypełniaczem."""
+    parsed = {
+        **FAKE_PARSED,
+        "first_name": "Senior",
+        "last_name": "Developer",
+        "_name_from_header": ["first_name", "last_name"],
+    }
+    _patch_parser_and_extractor(monkeypatch, parsed)
+    await _cleanup_candidate(parsed["email"])
+
+    files = {"file": ("cv.pdf", _unique_pdf_bytes(), "application/pdf")}
+    resp = await app_client.post(
+        "/api/candidates/from-cv", headers=app_auth_headers, files=files
+    )
+
+    try:
+        assert resp.status_code == 201, resp.text
+        candidate = resp.json()["candidate"]
+        assert (candidate["name"], candidate["lastname"]) == ("Nieznane", "Nieznane")
+    finally:
+        await _cleanup_candidate(parsed["email"])
+
+
+@pytest.mark.asyncio
+async def test_from_cv_form_name_wins_over_the_header_marker(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    parsed = {
+        **FAKE_PARSED,
+        "first_name": "Senior",
+        "last_name": "Developer",
+        "_name_from_header": ["first_name", "last_name"],
+    }
+    _patch_parser_and_extractor(monkeypatch, parsed)
+    await _cleanup_candidate(parsed["email"])
+
+    files = {"file": ("cv.pdf", _unique_pdf_bytes(), "application/pdf")}
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files=files,
+        data={"name": "Janina", "lastname": "Testowa"},
+    )
+
+    try:
+        assert resp.status_code == 201, resp.text
+        candidate = resp.json()["candidate"]
+        assert (candidate["name"], candidate["lastname"]) == ("Janina", "Testowa")
+    finally:
+        await _cleanup_candidate(parsed["email"])
+
+
+@pytest.mark.asyncio
 async def test_from_cv_returns_409_on_duplicate_email(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
@@ -395,3 +451,212 @@ async def test_from_cv_rejects_empty_text(
         files=files,
     )
     assert resp.status_code == 400
+
+
+async def _tombstone_email(email: str) -> None:
+    from app.models.purged_candidate import PurgedCandidate
+    from app.services.candidate_audit import (
+        EMAIL_TOMBSTONE_SOURCE,
+        candidate_email_tombstone,
+    )
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            PurgedCandidate(
+                external_source=EMAIL_TOMBSTONE_SOURCE,
+                external_id_hash=candidate_email_tombstone(email),
+            )
+        )
+        await db.commit()
+
+
+async def _erasure_traces(candidate_id: int) -> list[dict]:
+    from app.models.activity import Activity
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == candidate_id,
+                Activity.action == "recreated_after_erasure",
+            )
+        )
+        return [row.details for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_from_cv_erased_address_asks_the_recruiter_and_force_does_not_skip_it(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Adres z nagrobka: człowiek dostaje pytanie, zgoda zostawia ślad w historii."""
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    _patch_parser_and_extractor(
+        monkeypatch, {**FAKE_PARSED, "email": email, "phone": None}
+    )
+    await _tombstone_email(email)
+    files = {"file": ("cv.pdf", _fake_pdf_bytes(), "application/pdf")}
+
+    for query in ("", "?force=true"):
+        refused = await app_client.post(
+            f"/api/candidates/from-cv{query}", headers=app_auth_headers, files=files
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "candidate_erased"
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(select(Candidate.id).where(Candidate.email == email))
+            is None
+        )
+
+    confirmed = await app_client.post(
+        "/api/candidates/from-cv?confirm_erased=true",
+        headers=app_auth_headers,
+        files=files,
+    )
+    try:
+        assert confirmed.status_code == 201, confirmed.text
+        new_id = confirmed.json()["candidate"]["id"]
+        assert await _erasure_traces(new_id) == [{"via": "screen"}]
+    finally:
+        await _cleanup_candidate(email)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_from_a_portal_scraper_passes_with_a_trace(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Osoba zgłosiła się sama na portalu: profil powstaje, historia to mówi."""
+    from app.services import candidate_claim
+
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    _patch_parser_and_extractor(
+        monkeypatch, {**FAKE_PARSED, "email": email, "phone": None}
+    )
+    monkeypatch.setattr(candidate_claim, "is_integration_request", lambda _r: True)
+    await _tombstone_email(email)
+
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files={"file": ("cv.pdf", _fake_pdf_bytes(), "application/pdf")},
+    )
+    try:
+        assert resp.status_code == 201, resp.text
+        new_id = resp.json()["candidate"]["id"]
+        assert await _erasure_traces(new_id) == [{"via": "self_application"}]
+    finally:
+        await _cleanup_candidate(email)
+
+
+@pytest.mark.asyncio
+async def test_from_cv_address_without_a_tombstone_leaves_no_trace(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    email = f"fresh-{uuid.uuid4().hex[:10]}@example.com"
+    _patch_parser_and_extractor(
+        monkeypatch, {**FAKE_PARSED, "email": email, "phone": None}
+    )
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files={"file": ("cv.pdf", _fake_pdf_bytes(), "application/pdf")},
+    )
+    try:
+        assert resp.status_code == 201, resp.text
+        assert await _erasure_traces(resp.json()["candidate"]["id"]) == []
+    finally:
+        await _cleanup_candidate(email)
+
+
+@pytest.mark.asyncio
+async def test_add_window_erased_address_asks_and_matches_other_case(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    await _tombstone_email(email)
+    payload = {"name": "Anna", "lastname": "Wraca", "email": email.upper()}
+
+    refused = await app_client.post(
+        "/api/candidates", headers=app_auth_headers, json=payload
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "candidate_erased"
+
+    confirmed = await app_client.post(
+        "/api/candidates?confirm_erased=true", headers=app_auth_headers, json=payload
+    )
+    try:
+        assert confirmed.status_code == 201, confirmed.text
+        assert await _erasure_traces(confirmed.json()["id"]) == [{"via": "screen"}]
+    finally:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Candidate, confirmed.json()["id"])
+            if row:
+                await db.delete(row)
+                await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_csv_and_bulk_import_skip_an_erased_address(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    erased = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    fresh = f"fresh-{uuid.uuid4().hex[:10]}@example.com"
+    await _tombstone_email(erased)
+
+    csv_resp = await app_client.post(
+        "/api/import/candidates",
+        files={
+            "file": (
+                "k.csv",
+                f"name,lastname,email\nAnna,Wraca,{erased}\nJan,Nowy,{fresh}\n",
+                "text/csv",
+            )
+        },
+        headers=app_auth_headers,
+    )
+    assert csv_resp.status_code == 200, csv_resp.text
+    body = csv_resp.json()
+    assert (body["imported"], body["skipped"]) == (1, 1)
+    assert "trwale usuni" in next(
+        row["reason"] for row in body["details"] if row["status"] == "skipped"
+    )
+
+    bulk = await app_client.post(
+        "/api/candidates/bulk-import",
+        json=[{"name": "Anna", "lastname": "Wraca", "email": erased.upper()}],
+        headers=app_auth_headers,
+    )
+    assert bulk.status_code == 201, bulk.text
+    assert bulk.json()["created"] == 0
+    assert bulk.json()["items"][0]["status"] == "skipped"
+    assert bulk.json()["items"][0]["reason"] == "candidate_erased"
+
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(select(Candidate.id).where(Candidate.email == erased))
+            is None
+        )
+    await _cleanup_candidate(fresh)
+
+
+@pytest.mark.asyncio
+async def test_add_window_address_with_a_live_owner_is_a_plain_duplicate(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Żywy profil z adresem z nagrobka: zwykły duplikat, bez pytania o powrót."""
+    email = f"erased-{uuid.uuid4().hex[:10]}@example.com"
+    await _tombstone_email(email)
+    async with AsyncSessionLocal() as db:
+        db.add(Candidate(name="Jan", lastname="Zywy", email=email))
+        await db.commit()
+    try:
+        resp = await app_client.post(
+            "/api/candidates",
+            headers=app_auth_headers,
+            json={"name": "Anna", "lastname": "Inna", "email": email},
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == "Kandydat z tym adresem e-mail już istnieje."
+    finally:
+        await _cleanup_candidate(email)

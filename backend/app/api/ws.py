@@ -19,6 +19,8 @@ from sqlalchemy import select
 
 from app.api.candidate_access import user_has_candidate_read
 from app.api.deps import is_trainee_only
+from app.core import process_bus
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import (
     decode_token,
@@ -67,6 +69,10 @@ def _make_key(resource_type: str, resource_id: int) -> ResourceKey:
 def _parse_key(key: ResourceKey) -> Tuple[str, int]:
     rt, rid_str = key.split(":", 1)
     return rt, int(rid_str)
+
+
+_WS_NOTIFY = "ws_notify"
+_WS_BROADCAST = "ws_broadcast"
 
 
 # ── Connection Manager ─────────────────────────────────────────────────────────
@@ -136,6 +142,10 @@ class ConnectionManager:
 
     async def notify_user(self, user_id: int, event: dict) -> None:
         """Send event to all WebSocket connections of a user."""
+        if settings.NEXUS_PROCESS_ROLE == "worker":
+            # Gniazda są w web; rekord powiadomienia jest już w bazie.
+            await process_bus.publish(_WS_NOTIFY, {"user_id": user_id, "event": event})
+            return
         # Kopia: każdy ``await`` niżej oddaje pętlę, a w tym czasie inne
         # zadanie może dopisać albo usunąć gniazdo z żywej listy (R9-N2-8).
         connections = list(self._connections.get(user_id, []))
@@ -179,6 +189,9 @@ class ConnectionManager:
 
     async def broadcast_all(self, event: dict) -> None:
         """Send event to all connected users (e.g., for system-wide alerts)."""
+        if settings.NEXUS_PROCESS_ROLE == "worker":
+            await process_bus.publish(_WS_BROADCAST, {"event": event})
+            return
         for user_id in list(self._connections.keys()):
             await self.notify_user(user_id, event)
 
@@ -365,6 +378,21 @@ class ConnectionManager:
 
 # Singleton manager — imported by other modules to call notify_user/get_viewers
 manager = ConnectionManager()
+
+
+async def _on_ws_notify(data: dict) -> None:
+    # Nadawca też dostaje swoje NOTIFY; w workerze wysłałby je znowu w kółko.
+    if settings.NEXUS_PROCESS_ROLE != "worker":
+        await manager.notify_user(int(data["user_id"]), data["event"])
+
+
+async def _on_ws_broadcast(data: dict) -> None:
+    if settings.NEXUS_PROCESS_ROLE != "worker":
+        await manager.broadcast_all(data["event"])
+
+
+process_bus.subscribe(_WS_NOTIFY, _on_ws_notify)
+process_bus.subscribe(_WS_BROADCAST, _on_ws_broadcast)
 
 
 async def notify_user(user_id: int, event: dict) -> None:

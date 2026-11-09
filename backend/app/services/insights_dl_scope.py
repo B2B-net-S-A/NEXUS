@@ -54,7 +54,7 @@ DL_HEAD_CTE = f"""
 #
 # `opened_at` = data otwarcia rekrutacji u klienta, a gdy jej brak — założenia
 # w NEXUSIE (ta sama reguła co kreator metryk, `custom_metrics/engine.py`).
-# Samo `created_at` to data IMPORTU z Traffita (`_UPSERT_JOB` stempluje NOW()),
+# Samo `created_at` to data IMPORTU z Traffita (import stemplował NOW()),
 # więc 3859 z 4229 rekrutacji „powstało" w maju 2026 i zapytania DL wypadały
 # z każdego innego okna (runda 6 audytu).
 #

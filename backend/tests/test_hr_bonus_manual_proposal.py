@@ -42,13 +42,13 @@ def _bonus(
 
 def test_author_of_manual_proposal_does_not_approve_it() -> None:
     refusal = approval_refusal(_viewer(BOSS), _bonus())
-    assert refusal is not None and "Płace" in refusal
+    assert refusal is not None and "Rozliczenia" in refusal
     assert can_approve(_viewer(BOSS), _bonus()) is False
 
 
 def test_other_manager_does_not_approve_manual_proposal() -> None:
     refusal = approval_refusal(_viewer(OTHER_BOSS), _bonus())
-    assert refusal == "Premię ręczną od przełożonego zatwierdzają Płace."
+    assert refusal == "Premię ręczną od koordynatora zatwierdzają Rozliczenia."
 
 
 def test_payroll_approves_manual_proposal() -> None:

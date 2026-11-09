@@ -68,11 +68,11 @@ export function AudienceFields({
       <legend className="mb-1 text-sm font-medium text-foreground">Kto widzi</legend>
       <div className="flex flex-wrap gap-x-5 gap-y-1.5">
         {row("person", "osoba", personLocked)}
-        {row("payroll", "Płace")}
+        {row("payroll", "Rozliczenia")}
         {row("equipment", "recepcja")}
       </div>
       <p className="text-xs text-muted-foreground">
-        Kadry widzą zawsze. Przełożony nie widzi dokumentów osoby.
+        Administracja współpracy widzi zawsze. Koordynator nie widzi dokumentów osoby.
       </p>
     </fieldset>
   );
@@ -117,7 +117,7 @@ export function UploadDocumentDialog({
       return;
     }
     if (student && !validUntil) {
-      setError("Podaj „ważny do” oświadczenia — od tej daty Płace naliczą składki.");
+      setError("Podaj „ważny do” oświadczenia — od tej daty Rozliczenia naliczą składki.");
       return;
     }
     upload.mutate(
@@ -220,7 +220,7 @@ export function UploadDocumentDialog({
               Oświadczenie o statusie ucznia lub studenta.{" "}
               <span className="text-muted-foreground">
                 Na zleceniu „ważny do” wpisze się w kartotece jako koniec zwolnienia ze składek,
-                a Płace dostaną przypomnienie 30 dni wcześniej.
+                a Rozliczenia dostaną przypomnienie 30 dni wcześniej.
               </span>
             </span>
           </label>

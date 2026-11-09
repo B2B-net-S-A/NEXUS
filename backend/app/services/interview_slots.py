@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_date, local_now
@@ -33,6 +33,8 @@ from app.models.client_interview_slot_request import (
     SLOT_STATUS_AWAITING_RECRUITER,
     SLOT_STATUS_CANCELLED,
     SLOT_STATUS_CONFIRMED,
+    OPEN_SLOT_STATUSES,
+    SLOT_PAST_TOLERANCE,
     ClientInterviewSlotRequest,
 )
 from app.models.job import Job
@@ -399,7 +401,7 @@ def _ensure_slot_ahead(req: ClientInterviewSlotRequest, index: int) -> None:
     w przeszłości (audyt 21.10.2026). Dotyczy wyboru rekrutera, potwierdzenia
     DL-a i „Klient wybrał inny termin”.
     """
-    if _parse(req.slots[index]["start"]) < local_now() - timedelta(minutes=5):
+    if _parse(req.slots[index]["start"]) < local_now() - SLOT_PAST_TOLERANCE:
         raise HTTPException(status_code=422, detail=PAST_SLOT_DETAIL)
 
 
@@ -473,6 +475,7 @@ async def confirm(
         superseded_outlook = await _cancel_outlook_copy(db, superseded)
         superseded.status = EventStatus.cancelled
         await db.flush()
+    await _cancel_same_hour_entries(db, req, event)
 
     req.status = SLOT_STATUS_CONFIRMED
     req.confirmed_at = datetime.now(timezone.utc)
@@ -546,6 +549,20 @@ def mark_client_replied(req: ClientInterviewSlotRequest, *, user_id: int) -> Non
     req.client_reply_pending = False
 
 
+async def drop_client_reply_after_move(db: AsyncSession, event_id: int) -> None:
+    """Rozmowa przełożona: „Odpisz klientowi” podsuwałoby tekst ze starym
+    terminem, a o nowym DL i tak już z klientem pisze (zgłoszenie 04.11.2026).
+    ``client_replied_at`` zostaje puste — nikt tej odpowiedzi nie wysłał."""
+    await db.execute(
+        update(ClientInterviewSlotRequest)
+        .where(
+            ClientInterviewSlotRequest.event_id == event_id,
+            ClientInterviewSlotRequest.client_reply_pending.is_(True),
+        )
+        .values(client_reply_pending=False)
+    )
+
+
 async def change_confirmed_slot(
     db: AsyncSession,
     req: ClientInterviewSlotRequest,
@@ -586,6 +603,7 @@ async def change_confirmed_slot(
         old_outlook = await _cancel_outlook_copy(db, old)
         old.status = EventStatus.cancelled
         await db.flush()
+    await _cancel_same_hour_entries(db, req, event)
     req.event_id = event.id
     # Zmiana przyszła od klienta — DL właśnie z nim pisze.
     mark_client_replied(req, user_id=user_id)
@@ -644,6 +662,25 @@ async def replaceable_interviews(
     if for_update:
         stmt = stmt.with_for_update()
     return list((await db.scalars(stmt)).all())
+
+
+async def _cancel_same_hour_entries(
+    db: AsyncSession, req: ClientInterviewSlotRequest, event: CalendarEvent
+) -> None:
+    """Termin, który para ma już w kalendarzu, to ta sama rozmowa, nie druga.
+
+    Rekruter wpisał rozmowę przy ruchu karty, a chwilę później DL dał wniosek
+    o tę samą godzinę: para miała dwa wpisy, podwójne telefony po rozmowie,
+    a prepy „pominięte” (zgłoszenie 03.11.2026). Przełożenia wybiera DL, ale
+    tu nie ma czego wybierać: zostaje wpis z wniosku z blokadą w Outlooku.
+    Spotkań z Outlooka z uczestnikami nie ruszamy (``replaceable_interviews``).
+    """
+    start = _as_aware(event.start_time)
+    for twin in await replaceable_interviews(db, req, for_update=True):
+        if twin.id != event.id and _as_aware(twin.start_time) == start:
+            await _cancel_outlook_copy(db, twin)
+            twin.status = EventStatus.cancelled
+    await db.flush()
 
 
 async def _cancel_outlook_copy(db: AsyncSession, event: CalendarEvent) -> str:
@@ -742,6 +779,31 @@ def cancel(req: ClientInterviewSlotRequest) -> None:
     if req.status not in (SLOT_STATUS_AWAITING_RECRUITER, SLOT_STATUS_AWAITING_DL):
         raise HTTPException(status_code=409, detail=_status_conflict(req.status))
     req.status = SLOT_STATUS_CANCELLED
+
+
+async def cancel_open_for_pair(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> None:
+    """Karta zamknięta albo już po rozmowie nie ma otwartych terminów (decyzja
+    Artura 04.11.2026).
+
+    Otwarty wniosek zostawał na karcie „Odrzucony” i „Wycofany”: karta mówiła
+    „Wybierz termin”, przyszły termin dawało się wybrać i założyć rozmowę,
+    a po powrocie karty wisiały stare terminy i 409 dla klienta w panelu.
+    Na „Akceptacji” i „Zatrudnionym” dawał zadanie, którego nikt nie miał po co
+    zrobić. Karta, która wróciła, dostaje nowe terminy nowym wnioskiem.
+    """
+    requests = await db.scalars(
+        select(ClientInterviewSlotRequest)
+        .where(
+            ClientInterviewSlotRequest.candidate_id == candidate_id,
+            ClientInterviewSlotRequest.job_id == job_id,
+            ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
+        )
+        .with_for_update()
+    )
+    for req in requests.all():
+        cancel(req)
 
 
 async def slot_owner_recipients(

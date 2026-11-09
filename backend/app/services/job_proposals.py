@@ -43,7 +43,7 @@ Reguły, które łatwo cofnąć „przy okazji":
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Mapping, Optional, Sequence
+from typing import Any, Collection, Iterable, Mapping, Optional, Sequence
 
 from sqlalchemy import and_, case, exists, func, literal, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
@@ -80,6 +80,9 @@ POSTING_SOURCES = ("new_cv", "job_board")
 # listy jej nie bierze — okno liczy wtedy dopasowanie przez `/scores`, a liczba
 # scrapera wraca osobno jako `board_score`.
 NON_CANONICAL_SCORE_SOURCES = ("job_board",)
+# Jedna lista (08.11.2026): wiersz ``job_board`` z wynikiem „Dop.” w ``score``.
+# Stare wiersze niosą tam liczbę scrapera, więc źródło zostaje na liście wyżej.
+DOP_SCALE_KEY = "dop_scale"
 POSTING_RECENT_DAYS = 7
 EXPIRED = "expired"
 # Wygasłe propozycje tracą dowody po tylu dniach od ostatniego przeglądu, który
@@ -203,6 +206,8 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
             out["history"] = clean_history
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True
+    if raw.get(DOP_SCALE_KEY) is True:
+        out[DOP_SCALE_KEY] = True
     return out or None
 
 
@@ -772,7 +777,7 @@ def _globally_blacklisted(candidate_col):
     )
 
 
-def _pair_status():
+def _pair_status(status=JobProposal.status):
     """Status pary z wierszy źródeł: added > dismissed > proposed.
 
     Wiersze ``expired`` nie głosują: para z samych takich wierszy ma status
@@ -780,9 +785,9 @@ def _pair_status():
     w ``WHERE`` (:func:`_live`), żeby nie liczyły się do wyniku ani źródeł.
     """
     return case(
-        (func.bool_or(JobProposal.status == "added"), "added"),
-        (func.bool_or(JobProposal.status == "dismissed"), "dismissed"),
-        (func.bool_or(JobProposal.status == "proposed"), "proposed"),
+        (func.bool_or(status == "added"), "added"),
+        (func.bool_or(status == "dismissed"), "dismissed"),
+        (func.bool_or(status == "proposed"), "proposed"),
         else_=EXPIRED,
     )
 
@@ -792,7 +797,9 @@ def _live():
     return JobProposal.status != EXPIRED
 
 
-def meets_threshold(min_score: float):
+def meets_threshold(
+    min_score: float, source=JobProposal.source, score=JobProposal.score
+):
     """Warunek pary (HAVING): liczy się do liczników, kafla i dzwonka.
 
     Najlepsze 40 (28.10.2026): para wyłącznie z nocnego przeglądu
@@ -803,10 +810,9 @@ def meets_threshold(min_score: float):
     zawsze, bo te źródła mają własne progi albo są decyzją człowieka.
     """
     return or_(
-        func.coalesce(func.bool_or(JobProposal.source != "full_base"), False),
+        func.coalesce(func.bool_or(source != "full_base"), False),
         func.coalesce(
-            func.max(JobProposal.score).filter(JobProposal.source == "full_base")
-            >= min_score,
+            func.max(score).filter(source == "full_base") >= min_score,
             True,
         ),
     )
@@ -963,6 +969,8 @@ class ProposalRow:
     # Najlepsze 40 (28.10.2026): para z samego nocnego przeglądu spod progu —
     # na liście pod separatorem, poza licznikami (:func:`meets_threshold`).
     below_threshold: bool = False
+    # Jedna lista (08.11.2026): plakietki źródła (``single_candidate_list.LABELS``).
+    labels: tuple[str, ...] = ()
 
 
 def _posting_seen_at():
@@ -1049,12 +1057,13 @@ async def list_for_job(
     offset: int = 0,
     now: Optional[datetime] = None,
     min_score: Optional[float] = None,
+    first_ids: Collection[int] = (),
 ) -> tuple[list[ProposalRow], int]:
     """Strona propozycji — jedna pozycja na OSOBĘ, ze złożonymi źródłami.
 
-    Kolejność: przepięcia, potem wynik + punkty historii („znani zespołowi”,
-    07.10.2026) malejąco (brak wyniku na końcu), potem najnowsze, potem id —
-    stabilna między stronami. Pokazywany wynik zostaje bez punktów. ``is_new`` = zaproponowana (albo przywrócona po
+    Kolejność: przepięcia, potem ``first_ids`` (nowi w bazie, 03.11.2026), potem
+    wynik + punkty historii („znani zespołowi”, 07.10.2026) malejąco (brak wyniku
+    na końcu), potem najnowsze, potem id — stabilna między stronami. Pokazywany wynik zostaje bez punktów. ``is_new`` = zaproponowana (albo przywrócona po
     nowym CV) w ciągu ostatnich 24 h; czysto kosmetyczne. Osoby spod progu
     (najlepsze 40, ``below_threshold``) stoją za wszystkimi od progu.
     """
@@ -1097,6 +1106,7 @@ async def list_for_job(
             .order_by(
                 sub.c.is_reassign.desc(),
                 sub.c.below_threshold,
+                sub.c.candidate_id.in_(list(first_ids)).desc(),
                 (sub.c.rank_score + func.coalesce(sub.c.history_points, 0))
                 .desc()
                 .nullslast(),
@@ -1158,6 +1168,36 @@ async def list_for_job(
         for row in page
     ]
     return out, total
+
+
+async def people_on_base_tab(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_ids: Collection[int],
+    posting_since: datetime,
+) -> int:
+    """Ile z tych osób stoi w „Propozycjach z bazy”. Świeże z ogłoszeń mają własną
+    zakładkę (``splitByPostings`` na froncie)."""
+    if not candidate_ids:
+        return 0
+    pairs = _pairs_for_job(
+        job_id, "proposed", _posting_seen_at().label("posting_seen_at")
+    ).subquery()
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(pairs)
+            .where(
+                pairs.c.candidate_id.in_(list(candidate_ids)),
+                or_(
+                    pairs.c.posting_seen_at.is_(None),
+                    pairs.c.posting_seen_at < posting_since,
+                ),
+            )
+        )
+        or 0
+    )
 
 
 @dataclass(frozen=True)

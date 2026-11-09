@@ -16,15 +16,20 @@ import {
 } from "@/components/ui/table";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useDeleteRate, usePersonPayroll, type RateRow } from "@/lib/api/hr-payroll";
+import { useDeleteRate, usePersonPayroll, type BonusRow, type RateRow } from "@/lib/api/hr-payroll";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
 import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { useAuthStore } from "@/store/auth";
 
+import { BonusDeleteDialog } from "./BonusDeleteDialog";
 import { BonusDialog } from "./BonusDialog";
 import { BonusTable } from "./BonusTable";
+import { ClawbackDialog } from "./ClawbackDialog";
+import { assignedBonusActions } from "./payroll-format";
 import { RateDialog } from "./RateDialog";
+import { useCancelBonusRow } from "./useCancelBonusRow";
 
 const SECTION_TITLE =
   "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
@@ -97,15 +102,21 @@ function RatesTable({
 /**
  * Kartoteka osoby → Płace: historia stawek („Nowa stawka od…” dla Płac) i premie.
  * Przełożony dostaje z serwera premie bez stawek; osoba spoza zakresu — nic
- * (sekcja się nie pokazuje).
+ * (sekcja się nie pokazuje). „Zmień” i „Anuluj” jak na ekranie miesiąca; wiersze
+ * są z wielu miesięcy, więc o zamkniętym miesiącu mówi odmowa serwera.
  */
 export function PayrollProfileSection({ userId, name }: { userId: number; name: string }) {
   const payroll = usePersonPayroll(userId);
   const remove = useDeleteRate();
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const cancelRow = useCancelBonusRow(askConfirm);
+  const me = useAuthStore((state) => state.user);
   const [rateOpen, setRateOpen] = useState(false);
   const [bonusOpen, setBonusOpen] = useState(false);
+  const [editing, setEditing] = useState<BonusRow | null>(null);
+  const [deleting, setDeleting] = useState<BonusRow | null>(null);
+  const [clawing, setClawing] = useState<BonusRow | null>(null);
   const state = resolveViewState({
     isLoading: payroll.isLoading,
     isError: payroll.isError,
@@ -134,12 +145,39 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
   const visibleBonuses = (data?.bonuses ?? []).filter(
     (bonus) => bonus.status !== "cancelled" || bonus.cancel_reason === "manual",
   );
+  // Scope „full” ma też sama osoba, ale własnych premii `assignedBonusActions` nie zmienia.
+  const payrollScope = data?.scope === "full";
+
+  const renderBonusActions = (row: BonusRow) => {
+    if (row.status === "cancelled") return null;
+    const actions = assignedBonusActions(row, { open: true, payroll: payrollScope, meId: me?.id });
+    if (!actions.edit && !actions.cancel && !row.can_clawback) return null;
+    return (
+      <div className="flex justify-end gap-1">
+        {row.can_clawback ? (
+          <Button size="sm" variant="ghost" onClick={() => setClawing(row)}>
+            Zwrot z gwarancji
+          </Button>
+        ) : null}
+        {actions.edit ? (
+          <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
+            Zmień
+          </Button>
+        ) : null}
+        {actions.cancel ? (
+          <Button size="sm" variant="quiet" onClick={() => cancelRow(row)}>
+            Anuluj
+          </Button>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     // `#place` — dzwonek Płac „stawka z umowy do przepisania” prowadzi tutaj.
     <Card id="place" className="space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className={SECTION_TITLE}>Płace</h2>
+        <h2 className={SECTION_TITLE}>Rozliczenia</h2>
         {data ? (
           <div className="flex flex-wrap gap-2">
             {data.can_edit_rates ? (
@@ -194,7 +232,12 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
             {visibleBonuses.length === 0 ? (
               <p className="text-sm text-muted-foreground">Brak premii.</p>
             ) : (
-              <BonusTable rows={visibleBonuses} showRecipient={false} minWidth="min-w-[600px]" />
+              <BonusTable
+                rows={visibleBonuses}
+                showRecipient={false}
+                minWidth="min-w-[600px]"
+                renderActions={renderBonusActions}
+              />
             )}
           </section>
         </>
@@ -217,6 +260,26 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
           people={[]}
           fixedPerson={{ user_id: userId, name }}
         />
+      ) : null}
+      {editing ? (
+        <BonusDialog
+          key={editing.id}
+          open
+          onOpenChange={(value) => {
+            if (!value) setEditing(null);
+          }}
+          people={[]}
+          bonus={editing}
+          fullEdit={payrollScope}
+          onDelete={(row) => {
+            setEditing(null);
+            setDeleting(row);
+          }}
+        />
+      ) : null}
+      {deleting ? <BonusDeleteDialog row={deleting} onClose={() => setDeleting(null)} /> : null}
+      {clawing ? (
+        <ClawbackDialog mode="register" bonus={clawing} onClose={() => setClawing(null)} />
       ) : null}
       {confirmDialog}
     </Card>

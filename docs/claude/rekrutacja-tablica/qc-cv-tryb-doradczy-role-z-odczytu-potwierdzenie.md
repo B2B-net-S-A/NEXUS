@@ -56,6 +56,30 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   doradczym i tylko dla niezużytego obejścia; odcisk zmienia się w sesji
   wołającego (bez osobnego commitu). Test na bazie:
   `test_advisory_override_follows_the_cv_until_a_new_blocker_appears`.
+- **„Inny powód” = wskazana blokada + co najmniej trzy słowa (R6, decyzja
+  Artura 07.11.2026).** W 30 dniach 15 z 91 obejść miało powód „x”, „.” albo
+  „dw”. `QcOverrideRequest` liczy słowa (`\w{2,}`,
+  `cv_qc.OVERRIDE_OTHER_MIN_WORDS`, lustro `QC_OVERRIDE_OTHER_MIN_WORDS`),
+  a `about_keys` sprawdza `cv_qc.override_about` na bieżącym przebiegu: przy
+  blokadach z kluczami pozycji bez pasującego klucza — 422. Przebieg obejścia
+  zapisuje `result.override_about`. Minimum znaków nie wraca (losowe litery).
+  Gotowe powody bez zmian. Automat „DL match” zapisuje obejście z kodem
+  `cv_qc.DL_MATCH_OVERRIDE` (`dl_match`), nie `other` — 11 z 91 obejść; tego
+  kodu nie ma w oknie i trasa obejścia go odrzuca. Licząc obejścia rekruterów
+  pod decyzję o `CV_QC_ADVISORY`, pomijaj `dl_match`.
+- **Trzy stany QC wszędzie (R1, decyzja Artura 07.11.2026).** Zdane QC
+  z blokującym sprawdzeniem w stanie `manual` („sprawdź ręcznie”, np. odczyt CV
+  bez opisów ról) było „QC ✓”, choć krytycznych nikt nie sprawdził (139 z 535
+  zdanych par w 30 dniach). `cv_qc.pair_statuses` zwraca `manual_checks` —
+  etykiety blokujących sprawdzeń `manual` najnowszego przebiegu, liczone
+  w bazie (`jsonb_path_query_array`, bez ciągnięcia JSON-a sprawdzeń). Idzie
+  do karty Tablicy (`qc.manual_checks`), zadań pulpitu i kolejki DL
+  (`qc_manual`), kontekstu i kolejki przeglądu DL (`qc_manual`). Napis liczy
+  jedna funkcja `qcStateText`: „QC: sprawdzone”, „QC: sprawdź ręcznie · N”
+  (bursztyn), „QC: N do poprawy”. Uwagi nieblokujące `manual` się nie liczą.
+  Ramka „Następny etap” przed „QC CV” ma wiersz `cv_qc_result` (nie blokuje,
+  `open_qc`) — do 07.11 mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”.
+  Kolejka Cpro bez zmian (osobny model wiersza).
 - **Integracje nie decydują w QC.** Token klienta OAuth (scraper, n8n) działa
   jako konto z rolą operacyjną i przechodzi `ensure_job_membership`, więc
   obejście w trybie doradczym i `…/qc/confirm` odmawiają mu jawnie
@@ -95,6 +119,20 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   zdanie jest wymagane tylko tam, gdzie oryginał OPISUJE umiejętność w opisie
   roli; sama lista technologii albo nazwa stanowiska to informacja
   (`listed_only`) — patrz „QC CV mówi prawdę”.
+- **„Sprawdź ręcznie” ma właściciela (R3, decyzja Artura 07.11.2026).** Przy
+  krytycznej z rolami `unverified` okno QC pokazuje stanowiska oryginału jako
+  przyciski i „Nigdzie — tylko na liście”. `POST …/qc/manual-roles`
+  (`cv_qc.record_manual_roles`, rekruter+ członek rekrutacji, bez integracji)
+  przyjmuje tylko taką krytyczną i role z jej listy (inaczej 422
+  `CV_QC_MANUAL_ROLES_FAILED`) i zapisuje wpis `Activity` kandydata
+  (`MANUAL_ROLES_ACTION`, `details.job_id`, ostatni dla wymagania wygrywa) —
+  bez nowej tabeli. `evaluate` czyta wskazania (`manual_role_checks`) do
+  `QcInput.manual_roles`; `_apply_manual_roles`: wskazana rola liczy się jak
+  rola z opisem (zdanie w CV tej roli = `described`, brak = pozycja do
+  poprawy bez propozycji AI), niewskazana i „nigdzie” = `not_in_original`
+  (zdanie nie jest wymagane — reguła z 13.10). Stan i pozycja niosą `manual`
+  (kto, kiedy), a „Rola po roli” pisze „wskazał(a) X”. Panel w edytorze CV
+  przycisków nie ma (tylko okno QC).
 - **Pozycja niesie dowód:** `evidence` (zdanie z opisu roli, lista technologii
   roli albo nazwa stanowiska) i `evidence_kind`; sprawdzenie niesie `roles`
   („rola po roli”: `described` / `missing` / `listed_only` / `not_in_original`
@@ -117,6 +155,22 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   „potwierdzałby” je wszystkie. Notatka jest o kandydacie: liczy się też
   w innych rekrutacjach i w wyszukiwaniu. Okno pokazuje potwierdzenia
   (`QcResponse.confirmations`), żeby Delivery Lead widział, kto co potwierdził.
+- **Potwierdzenie ma treść, rola jest opcjonalna (decyzja Artura 02.11.2026).**
+  Od 12.10 powstały 153 wpisy, z czego 101 bez treści, a Delivery Lead nie miał
+  czego sprawdzić. `…/qc/confirm` wymaga słów kandydata (`CONFIRM_TEXT_MIN`, odmowa
+  ze zdaniem dla człowieka, nie ze schematu) i przyjmuje `role`: firmę z historii
+  osoby (`confirm_roles`, inna = 422). Notatka to „Potwierdzone z kandydatem: X
+  (Firma) — słowa”; nazwa firmy pozwala generatorowi opisać fakt w tej roli.
+  Obejście „Kandydat potwierdził…” bez zdania zostaje obejściem, ale nie zapisuje
+  potwierdzenia, a okno wymaga zdania. Stare wpisy bez treści dalej liczą się
+  jako źródło w QC: to osobna decyzja, bo zmieniłaby wyniki zapisanych par.
+- **Krok „Z rozmowy do opisu roli” przed generacją (02.11.2026).**
+  `GET/POST …/qc/role-facts`: wymagania „must” z odpowiedzi kandydata
+  (`answers_text`, bez pytań i zdań przeczących), których nie ma w oryginale ani
+  w potwierdzeniach. Wskazanie roli zapisuje taką samą notatkę z cytatem jako
+  treścią (`via: before_generation`). Krok jest opcjonalny, nie blokuje „Generuj”,
+  a przy błędzie odczytu go nie ma. Powód: sam prompt nie podnosi liczby wymagań
+  w opisach ról.
 - **Zmiana reguł liczenia = podbij `cv_qc.QC_VERSION`.** Plakietka na Tablicy
   czyta zapisany przebieg; `cv_qc.recompute_outdated` (zadanie startowe
   `tasks/cv_qc_recompute.py`) przelicza nieudane przebiegi starszej wersji

@@ -4,8 +4,7 @@
  * Covers the happy path of the boolean/semantic search flow:
  *  1. The old /candidates/search address lands on the single candidates list
  *     (22.09.2026) with the search state carried over.
- *  2. The job profile exposes a "Wyszukaj manualnie" tab that pre-fills
- *     filters from job metadata.
+ *  2. The recruitment window exposes the "Szukaj ręcznie" tab.
  *
  * NB: the standalone toolbar entry link on /candidates was removed — it
  * duplicated the in-list "Filtry" panel. The route stays reachable directly
@@ -15,6 +14,8 @@
  * e2e/.auth/state.json (set up by auth.setup.ts).
  */
 import { test, expect } from "@playwright/test";
+
+import { firstJobPath } from "./helpers/first-job";
 
 const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 
@@ -29,27 +30,12 @@ test.describe("Manual CV search V2", () => {
     await expect(page.getByLabel("Szukaj kandydatów")).toHaveValue("python");
   });
 
-  test("job profile exposes 'Szukaj ręcznie' tab of the sources window", async ({ page }) => {
-    // Pick the first job in the list to exercise the window.
-    await page.goto("/jobs");
-    const firstJobLink = page.locator('a[href^="/jobs/"]').first();
-    await firstJobLink.click();
+  test("okno rekrutacji ma zakładkę „Szukaj ręcznie”", async ({ page }) => {
     // 14.10.2026: „Szukaj ręcznie" to zakładka okna „Kandydaci do dodania”
     // (`?win=add&wintab=manual`), nie osobne okno.
-    await page.getByRole("button", { name: /Szukaj ręcznie/ }).first().click();
+    await page.goto(`${await firstJobPath(page)}?win=add&wintab=manual`);
     const manualSearch = page.getByTestId("manual-search-tab");
     await expect(manualSearch).toBeVisible({ timeout: 10_000 });
-    // The embedded view shares the heading with /candidates/search.
-    await expect(
-      page.getByRole("heading", { name: /Wyszukiwanie kandydatów/i }),
-    ).toBeVisible({ timeout: 10_000 });
-    // Bulk-add bar shows up only after a row is selected; the checkbox column
-    // is the differentiator from the standalone view.
-    await page.waitForTimeout(800);
-    const firstCheckbox = page.locator('input[type="checkbox"]').first();
-    if (await firstCheckbox.isVisible()) {
-      await firstCheckbox.check();
-      await expect(page.getByText(/Wybrano/)).toBeVisible({ timeout: 3_000 });
-    }
+    await expect(manualSearch.getByLabel("Szukaj kandydatów")).toBeVisible({ timeout: 10_000 });
   });
 });

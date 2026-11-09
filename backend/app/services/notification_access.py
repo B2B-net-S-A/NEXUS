@@ -47,6 +47,8 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         # 0619: ważne ogłoszenie — odbiorców wybiera rola z ogłoszenia, nie
         # sekcja (pulpit ma każdy, także „Pracownik” i Rada).
         NotificationType.announcement_important,
+        # Rekrutacja własna: odbiorcą jest osoba z procesu, także bez sekcji rekrutacji.
+        NotificationType.own_hiring_update,
     }
 )
 
@@ -55,6 +57,7 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.ai_spend_alert,
         NotificationType.automation_failing,
         NotificationType.teams_prep_scope_missing,
+        NotificationType.hr_m365_scope_missing,
     }
 )
 
@@ -133,6 +136,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.saved_search_reapproval: ProductSection.sourcing,
     # 0338: cykl rozmowy u klienta (terminy od klienta) — sekcja kalendarza.
     NotificationType.interview_slots_requested: ProductSection.pipeline,
+    # 0639: sprawa z panelu klienta pod linkiem z CV.
+    NotificationType.client_panel_request: ProductSection.pipeline,
     NotificationType.interview_slot_chosen: ProductSection.pipeline,
     NotificationType.interview_slot_confirmed: ProductSection.pipeline,
     NotificationType.interview_debrief_saved: ProductSection.pipeline,
@@ -158,6 +163,11 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.b2b_signature_requested: ProductSection.pipeline,
     # 0524: link prowadzi do panelu osoby na Tablicy rekrutacji.
     NotificationType.b2b_agreement_ready: ProductSection.pipeline,
+    # 0649: link prowadzi do panelu osoby albo pulpitu rekrutacji.
+    NotificationType.start_documents: ProductSection.pipeline,
+    NotificationType.start_documents_due: ProductSection.pipeline,
+    NotificationType.start_documents_returned: ProductSection.pipeline,
+    NotificationType.start_documents_reminder: ProductSection.pipeline,
     NotificationType.candidate_rate_change: ProductSection.pipeline,
     NotificationType.candidate_rate_change_task: ProductSection.pipeline,
     NotificationType.request_assignment_changed: ProductSection.pipeline,
@@ -178,15 +188,21 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_ad_nudge: ProductSection.pipeline,
     NotificationType.job_p0_set: ProductSection.pipeline,
     NotificationType.job_p0_requested: ProductSection.pipeline,
+    NotificationType.job_p0_overdue: ProductSection.pipeline,
     # 0617: rekrutacje bez ruchu — link prowadzi na rekrutację.
     NotificationType.job_idle_reminder: ProductSection.pipeline,
     # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.
     NotificationType.job_closed_people_waiting: ProductSection.pipeline,
+    # 0635: zdarzenia CPro — link prowadzi na Tablicę rekrutacji.
+    NotificationType.cpro_candidate_rejected: ProductSection.pipeline,
+    NotificationType.cpro_interview_change: ProductSection.pipeline,
+    NotificationType.cpro_close_needs_decision: ProductSection.pipeline,
     # 0621: link prowadzi na listę „Po osobach, które odeszły”.
     NotificationType.departed_pairs_care: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
-    NotificationType.hired_order_missing: ProductSection.finance,
+    # 0645: Finanse i Back office; „Dodaj zamówienie” prowadzi do Delivery.
+    NotificationType.hired_order_missing: ProductSection.delivery,
     NotificationType.consultant_in_other_recruitment: ProductSection.delivery,
     # 0440: link prowadzi do panelu osoby na Tablicy rekrutacji (sekcja CV).
     NotificationType.cv_ready: ProductSection.pipeline,

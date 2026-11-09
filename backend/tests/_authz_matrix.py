@@ -65,12 +65,13 @@ _PATH_PARAM = re.compile(r"\{([^}:]+)(:[^}]+)?\}")
 
 @dataclass(frozen=True)
 class Persona:
-    """Konto wzorcowe: rola główna, role dodatkowe i uprawnienia nadane osobie."""
+    """Konto wzorcowe: rola główna, role dodatkowe, uprawnienia nadane i odebrane."""
 
     key: str
     role: UserRole
     extra_roles: tuple[UserRole, ...] = ()
     grants: tuple[str, ...] = ()
+    revokes: tuple[str, ...] = ()
 
 
 PERSONAS: tuple[Persona, ...] = (
@@ -134,6 +135,18 @@ PERSONAS: tuple[Persona, ...] = (
     Persona("recruiter+cases", UserRole.recruiter, grants=("cases",)),
     # 0490: „Rada nadzorcza” — tylko odczyt Insights (test_board_role_access.py).
     Persona("board", UserRole.board),
+    # Decyzja właściciela 02.11.2026: uprawnienie odebrane jednej osobie.
+    # Na końcu listy — litery wzorca idą w kolejności person.
+    Persona("finance-finance_module", UserRole.finance, revokes=("finance_module",)),
+    # Umowy klientów bez kwot (04.11.2026): Pracownik z samą listą i plikami.
+    Persona(
+        "employee+client_contracts_view",
+        UserRole.employee,
+        grants=("client_contracts_view",),
+    ),
+    # 0645: „Back office” — zamówienia i umowy bez sekcji Finanse
+    # (test_back_office_role_access.py).
+    Persona("back_office", UserRole.back_office),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma
@@ -207,8 +220,14 @@ def build_user(persona: Persona, *, user_id: int) -> User:
         section_override_rows=[],
         action_role_rows=_action_rows(),
         action_override_rows=[
-            SimpleNamespace(user_id=user_id, action=key, access="manage")
-            for key in persona.grants
+            *(
+                SimpleNamespace(user_id=user_id, action=key, access="manage")
+                for key in persona.grants
+            ),
+            *(
+                SimpleNamespace(user_id=user_id, action=key, access="none")
+                for key in persona.revokes
+            ),
         ],
     )
     user.effective_section_access = serialize_section_access(access.sections)
@@ -293,9 +312,6 @@ def guards_only(app, monkeypatch) -> Iterator[dict[str, User]]:
 
     monkeypatch.setattr(fastapi.routing, "run_endpoint_function", _handler_not_executed)
     monkeypatch.setattr(limiter, "enabled", False)
-    # Wyłącznik rolloutu stoi PRZED bramkami capability — przy „off” każda
-    # trasa analityki kończyłaby się 503 i nie mówiła nic o dostępie.
-    monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "live")
     previous = dict(app.dependency_overrides)
     app.dependency_overrides[deps.get_current_user] = _current_user
     app.dependency_overrides[deps.get_authenticated_user] = _authenticated_user

@@ -108,7 +108,7 @@ beforeEach(() => {
   state.statements = ok<StatementOverview>({ recent: [], unmatched: [unmatched] });
 });
 
-describe("Płace → Przelewy", () => {
+describe("Rozliczenia → Przelewy", () => {
   it("lista dla Finansów: brutto faktury, netto z programu i tylko 4 cyfry rachunku", () => {
     const { container } = render(<PayrollPaymentsTab year={2026} month={10} />);
     expect(screen.getByText("Dla Finansów — zatwierdzone do zapłaty")).toBeInTheDocument();

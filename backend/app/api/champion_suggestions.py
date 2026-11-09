@@ -54,7 +54,7 @@ router = APIRouter(
 # `ensure_champion_job_reader`), plus Finance z odczytem organizacyjnym.
 ChampionSuggestionReadUser = Annotated[
     User,
-    Depends(require_roles(*JOB_EDIT_ROLES, UserRole.finance)),
+    Depends(require_roles(*JOB_EDIT_ROLES, UserRole.finance, UserRole.back_office)),
 ]
 
 

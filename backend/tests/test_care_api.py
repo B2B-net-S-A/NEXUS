@@ -152,7 +152,8 @@ async def _previous_modules():
 @pytest_asyncio.fixture
 async def care_on():
     previous = await _previous_modules()
-    await set_modules({key: True for key in HR_MODULE_KEYS})
+    # Kolejka back office zmienia rytm planu: te testy pilnują rytmu sprzed niej.
+    await set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
     yield
     await set_modules(previous or {key: False for key in HR_MODULE_KEYS})
 
@@ -737,9 +738,64 @@ async def test_review_can_create_a_new_skill_or_dismiss(app_client, care_on) -> 
     duplicate = await app_client.post(
         f"/api/care/skill-review/{items[second.lower()]}/create",
         headers=headers(tcm),
-        json={"canonical_name": first},
+        json={"canonical_name": first, "category": "tools"},
     )
     assert duplicate.status_code == 409
+
+
+async def test_review_create_needs_a_dictionary_category(app_client, care_on) -> None:
+    # Etap 2 słownika (06.11.2026): hasło bez kategorii nie działa w pogrubianiu
+    # CV, QC ani bramce must — kolejka opieki trzyma tę samą regułę co Słownik.
+    tcm = await make_user(UserRole.talent_community_manager)
+    await make_skill("kategoria")  # „tools” jest na liście kategorii słownika
+    contract_id, _ = await make_contract(await make_client())
+    name = f"Bez Kategorii {_tag()}"
+    created = await app_client.post(
+        f"/api/care/contracts/{contract_id}/tech-cards",
+        headers=headers(tcm),
+        json=_card(skill_names=[name]),
+    )
+    assert created.status_code == 201, created.text
+    async with AsyncSessionLocal() as db:
+        review_id = await db.scalar(
+            select(SkillReviewItem.id).where(SkillReviewItem.name_key == name.lower())
+        )
+    url = f"/api/care/skill-review/{review_id}/create"
+
+    queue = (
+        await app_client.get("/api/care/skill-review", headers=headers(tcm))
+    ).json()
+    assert "tools" in queue["categories"]
+    assert {"practice", "domain"} <= set(queue["categories"])
+    assert not [c for c in queue["categories"] if c.startswith("role_")]
+
+    for category, message in (
+        (None, "Wybierz kategorię hasła."),
+        ("   ", "Wybierz kategorię hasła."),
+        ("role_developer", "Nieznana kategoria „role_developer”."),
+        ("zmyslona", "Nieznana kategoria „zmyslona”."),
+    ):
+        body = {"canonical_name": name}
+        if category is not None:
+            body["category"] = category
+        refused = await app_client.post(url, headers=headers(tcm), json=body)
+        assert refused.status_code == 422, (category, refused.text)
+        assert refused.json()["detail"] == message
+
+    async with AsyncSessionLocal() as db:
+        item = await db.get(SkillReviewItem, review_id)
+        assert item.status == "open" and item.skill_id is None
+        assert (
+            await db.scalar(select(Skill.id).where(Skill.canonical_name == name))
+        ) is None
+
+    made = await app_client.post(
+        url, headers=headers(tcm), json={"canonical_name": name, "category": "tools"}
+    )
+    assert made.status_code == 200, made.text
+    async with AsyncSessionLocal() as db:
+        skill = await db.get(Skill, made.json()["skill_id"])
+        assert skill.category == "tools"
 
 
 # ── Mapa klienta ────────────────────────────────────────────────────────────

@@ -5,8 +5,9 @@ import type { Opportunity, OpportunityEvent, Stage } from "@/lib/api/sales";
 import { localInputToIso } from "../ActivityTimeline";
 import { duplicatesFromError } from "../CompanyFormDialog";
 import { daysLabel, daysSince, formatDealAmount, formatDealNumber, safeHref } from "../format";
-import { boardStages, summarize } from "../OpportunitiesView";
+import { boardStages, idleDays, isWithoutMovement, summarize } from "../OpportunitiesView";
 import { describeEvent } from "../OpportunityHistory";
+import { meetingPreview } from "../MeetingsView";
 import { parseAmount, parseRoles, rolesToText } from "../OpportunityFormDialog";
 import { datesNote, period } from "../WhoWeKnowPanel";
 
@@ -23,6 +24,29 @@ const stage = (id: number, outcome: Stage["outcome"]): Stage => ({
 
 const opp = (status: Opportunity["status"], value: string | null, weighted: string | null) =>
   ({ status, value, weighted_value: weighted }) as Opportunity;
+
+describe("Sprzedaż — ostatni dotyk szansy", () => {
+  const NOW = Date.parse("2026-11-09T12:00:00Z");
+  const touched = (status: Opportunity["status"], daysAgo: number) =>
+    ({
+      status,
+      last_touch_at: new Date(NOW - daysAgo * 86_400_000).toISOString(),
+      // Stare pola celowo świeże: kafelek i filtr nie mogą ich czytać.
+      last_activity_at: new Date(NOW).toISOString(),
+      updated_at: new Date(NOW).toISOString(),
+      created_at: new Date(NOW).toISOString(),
+    }) as Opportunity;
+
+  it("kafelek liczy dni od last_touch_at", () => {
+    expect(idleDays(touched("open", 40), NOW)).toBe(40);
+  });
+
+  it("filtr „bez ruchu” bierze otwarte po ponad 30 dniach od dotyku", () => {
+    expect(isWithoutMovement(touched("open", 31), NOW)).toBe(true);
+    expect(isWithoutMovement(touched("open", 30), NOW)).toBe(false);
+    expect(isWithoutMovement(touched("won", 90), NOW)).toBe(false);
+  });
+});
 
 describe("Sprzedaż — kwoty i dni", () => {
   it("wartość szansy bez groszy, pusta jako kreska", () => {
@@ -48,6 +72,13 @@ describe("Sprzedaż — kwoty i dni", () => {
   });
 });
 
+describe("Sprzedaż — spotkania", () => {
+  it("podgląd notatki pomija kreskę z zaproszenia Outlooka i puste linie", () => {
+    expect(meetingPreview("____________\n\nSpotkanie w Teams\n  Dołącz")).toBe("Spotkanie w Teams Dołącz");
+    expect(meetingPreview(null)).toBe("");
+  });
+});
+
 describe("Sprzedaż — tablica szans", () => {
   it("liczy tylko otwarte do lejka, wygrane osobno", () => {
     expect(
@@ -55,8 +86,9 @@ describe("Sprzedaż — tablica szans", () => {
     ).toEqual({ open: 2, value: 100, weighted: 60, won: 1 });
   });
 
-  it("przegrane etapy nie są kolumnami tablicy", () => {
-    expect(boardStages([stage(1, "open"), stage(2, "lost"), stage(3, "won")]).map((s) => s.id)).toEqual([1, 3]);
+  it("tablica ma wszystkie etapy, a zamknięte stoją na końcu w kolejności lejka", () => {
+    const stages = [stage(1, "open"), stage(2, "lost"), stage(3, "won"), stage(4, "open"), stage(5, "lost")];
+    expect(boardStages(stages).map((s) => s.id)).toEqual([1, 4, 2, 3, 5]);
   });
 });
 
@@ -156,6 +188,15 @@ describe("Sprzedaż — historia zmian szansy", () => {
     );
     expect(describeEvent(event({ field: "status", old_value: "open", new_value: "lost" }))).toBe(
       "Status: otwarta → przegrana",
+    );
+  });
+
+  it("spotkanie z Outlooka: temat z wiersza, nigdy samo id", () => {
+    expect(describeEvent(event({ field: "outlook_activity", new_value: "77", new_label: "Warsztat" }))).toBe(
+      "Spotkanie lub mail z Outlooka: — → Warsztat",
+    );
+    expect(describeEvent(event({ field: "outlook_activity", old_value: "77", old_label: null }))).toBe(
+      "Spotkanie lub mail z Outlooka: usunięte z Outlooka → —",
     );
   });
 

@@ -226,11 +226,11 @@ export function missingLine(missing: readonly string[], today: string): string |
   if (missing.length === 0) return null;
   if (missing.length === 1) {
     return missing[0] === today
-      ? `Brakuje dziś (${formatDayMonthPl(today)})`
-      : `Brakuje ${formatDayMonthPl(missing[0])}`;
+      ? `Bez wpisu dziś (${formatDayMonthPl(today)})`
+      : `Bez wpisu ${formatDayMonthPl(missing[0])}`;
   }
-  if (missing.length > MISSING_DAYS_LISTED) return `Brakuje ${missing.length} dni`;
-  return `Brakuje ${missing.length} dni: ${compactDays(missing)}`;
+  if (missing.length > MISSING_DAYS_LISTED) return `Bez wpisu ${missing.length} dni`;
+  return `Bez wpisu ${missing.length} dni: ${compactDays(missing)}`;
 }
 
 // ── Premie ───────────────────────────────────────────────────────────────────
@@ -275,6 +275,8 @@ export interface MyBonusItem {
   progress: number | null;
   /** Linia pod paskiem w „Przeglądzie”: dni, termin, start umowy. */
   timeline: string;
+  /** Miesiąc płac premii; prognoza nie ma go w bazie, więc bierze miesiąc terminu. */
+  period: YearMonth;
 }
 
 /** „Premia rekrutera — placement: Jan Przykładowy (Firma)” → „Jan Przykładowy (Firma)”. */
@@ -343,9 +345,10 @@ export function bonusItemFromRow(
     cancelled: false,
     inTransit: false,
     progress: null,
+    period: { year: row.period_year, month: row.period_month },
   };
   if (row.status === "cancelled") {
-    const reason = cancelReasonLabel(row.cancel_reason, requiredDays);
+    const reason = cancelReasonLabel(row.cancel_reason, requiredDays, row.cancel_ended_on);
     return {
       ...base,
       cancelled: true,
@@ -375,13 +378,13 @@ export function bonusItemFromRow(
   if (placement) {
     const days = beforeDeadline ? daysStage(row.business_days_elapsed, required) : `${required} dni`;
     const facts = row.stages;
-    let labels = ["umowa", days, "decyzja Płac", "wypłata"];
+    let labels = ["umowa", days, "decyzja Rozliczeń", "wypłata"];
     let current = !beforeDeadline ? 2 : (row.business_days_elapsed ?? 0) > 0 ? 1 : 0;
     if (current === 0) labels[0] = "umowa podpisana";
     if (facts) {
       // Pełna ścieżka: pierwszy niespełniony etap jest bieżący. Zamówienie
       // pokazuje start, a termin to dni robocze, nie policzone godziny.
-      labels = ["podpis", "kontrakt", "zamówienie", "start", days, "decyzja Płac", "wypłata"];
+      labels = ["podpis", "kontrakt", "zamówienie", "start", days, "decyzja Rozliczeń", "wypłata"];
       const passed = [facts.signed, facts.contract_active, facts.order, facts.started, !beforeDeadline];
       const firstOpen = passed.indexOf(false);
       current = firstOpen === -1 ? 5 : firstOpen;
@@ -391,19 +394,19 @@ export function bonusItemFromRow(
       ...base,
       inTransit: true,
       stages: stages(labels, current),
-      when: counting ? `od ${formatDayMonthPl(row.eligible_on as string)}` : "czeka na decyzję Płac",
+      when: counting ? `od ${formatDayMonthPl(row.eligible_on as string)}` : "czeka na decyzję Rozliczeń",
       progress: beforeDeadline ? progressPercent(row.business_days_elapsed ?? 0, required) : 100,
       timeline: counting
         ? `${daysStage(row.business_days_elapsed, required)} · liczy się do ${formatDayMonthPl(row.eligible_on as string)}`
-        : "czeka na decyzję Płac",
+        : "czeka na decyzję Rozliczeń",
     };
   }
   return {
     ...base,
     inTransit: true,
-    stages: stages(["propozycja", "decyzja Płac", "wypłata"], 1),
-    when: "czeka na decyzję Płac",
-    timeline: "czeka na decyzję Płac",
+    stages: stages(["propozycja", "decyzja Rozliczeń", "wypłata"], 1),
+    when: "czeka na decyzję Rozliczeń",
+    timeline: "czeka na decyzję Rozliczeń",
   };
 }
 
@@ -414,8 +417,8 @@ export function bonusItemFromForecast(item: BonusForecast): MyBonusItem {
     : `${item.business_days_required} dni`;
   const facts = item.stages;
   const labels = facts
-    ? ["podpis", "kontrakt", "zamówienie", "start", days, "decyzja Płac", "wypłata"]
-    : [item.started ? "umowa" : "umowa podpisana", days, "decyzja Płac", "wypłata"];
+    ? ["podpis", "kontrakt", "zamówienie", "start", days, "decyzja Rozliczeń", "wypłata"]
+    : [item.started ? "umowa" : "umowa podpisana", days, "decyzja Rozliczeń", "wypłata"];
   const firstOpen = facts
     ? [facts.signed, facts.contract_active, facts.order, facts.started].indexOf(false)
     : -1;
@@ -434,6 +437,7 @@ export function bonusItemFromForecast(item: BonusForecast): MyBonusItem {
     cancelled: false,
     inTransit: true,
     progress: progressPercent(item.started ? item.business_days_elapsed : 0, item.business_days_required),
+    period: { year: Number(item.eligible_on.slice(0, 4)), month: Number(item.eligible_on.slice(5, 7)) },
     timeline: item.started
       ? `${daysStage(item.business_days_elapsed, item.business_days_required)} · liczy się do ~${formatDayMonthPl(item.eligible_on)}`
       : `umowa podpisana · start ${formatDayMonthPl(item.start_date)} · liczy się do ~${formatDayMonthPl(item.eligible_on)}`,
@@ -561,7 +565,7 @@ export function todoItems(sources: TodoSources): TodoItem[] {
         key: `ts-${item.id}`,
         title: `Wyślij ${form} za ${monthYearPl(item)}`,
         detail: "",
-        due: "termin minął",
+        due: "do wysłania",
         action: "Wyślij",
         tab: "month",
         month: { year: item.year, month: item.month },

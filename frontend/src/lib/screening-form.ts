@@ -16,6 +16,7 @@ import type {
   RateNotRestoredReason,
   ScreeningFormAnswerOrigin,
   ScreeningFormFieldOrigin,
+  ScreeningFormProfileSave,
   ScreeningFormSave,
   ScreeningFormSaveSheet,
   ScreeningFormState,
@@ -48,6 +49,65 @@ export interface ScreeningFullFormValues extends ScreeningFormValues {
   rate_currency: string;
   /** „Przenieś do „Dlaczego ten kandydat”” — serwer czyści notatkę z arkusza. */
   clear_legacy_notes: boolean;
+  /** Pola zapisywane do profilu; `null` = serwer ich nie pokazuje. */
+  profile: ScreeningProfileFieldValues | null;
+}
+
+export interface ScreeningProfileFieldValues {
+  notice_period: string;
+  notice_period_unit: "days" | "weeks" | "months";
+  max_onsite_days: string;
+  work_mode: "" | "remote" | "hybrid" | "onsite";
+}
+
+type ProfileFieldsState = NonNullable<ScreeningFormState["profile_fields"]>;
+
+/** Najszerszy tryb z profilu: tryby domykają się w dół (hybryda ⇒ też zdalnie). */
+function widestMode(modes: ProfileFieldsState["work_modes"]): ScreeningProfileFieldValues["work_mode"] {
+  if (modes.includes("onsite")) return "onsite";
+  if (modes.includes("hybrid")) return "hybrid";
+  return modes.includes("remote") ? "remote" : "";
+}
+
+const MODES_UP_TO: Record<Exclude<ScreeningProfileFieldValues["work_mode"], "">, ProfileFieldsState["work_modes"]> = {
+  remote: ["remote"],
+  hybrid: ["remote", "hybrid"],
+  onsite: ["remote", "hybrid", "onsite"],
+};
+
+function profileFieldDefaults(state: ScreeningFormState): ScreeningProfileFieldValues | null {
+  const fields = state.profile_fields;
+  if (!fields) return null;
+  return {
+    notice_period: fields.notice_period == null ? "" : String(fields.notice_period),
+    notice_period_unit: fields.notice_period_unit,
+    max_onsite_days: fields.max_onsite_days == null ? "" : String(fields.max_onsite_days),
+    work_mode: widestMode(fields.work_modes),
+  };
+}
+
+/** Pola profilu do zapisu: tylko zmienione. Dni wygrywają z trybem (serwer liczy tryby z dni). */
+function profileChanges(
+  before: ScreeningProfileFieldValues | null,
+  values: ScreeningProfileFieldValues | null,
+): ScreeningFormProfileSave | null {
+  if (!before || !values) return null;
+  const out: ScreeningFormProfileSave = {};
+  const notice = values.notice_period.trim();
+  if (
+    notice !== "" &&
+    (notice !== before.notice_period || values.notice_period_unit !== before.notice_period_unit)
+  ) {
+    out.notice_period = Number(notice);
+    out.notice_period_unit = values.notice_period_unit;
+  }
+  const days = values.max_onsite_days.trim();
+  if (days !== "" && days !== before.max_onsite_days) {
+    out.max_onsite_days = Number(days);
+  } else if (values.work_mode && values.work_mode !== before.work_mode) {
+    out.work_modes = MODES_UP_TO[values.work_mode];
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /** Pola opisowe karty w sekcji „Ocena” — kolejność na ekranie. */
@@ -123,6 +183,7 @@ export function formDefaultsFromState(state: ScreeningFormState): ScreeningFullF
     rate_unit: state.rate?.unit ?? "hourly",
     rate_currency: state.rate?.currency ?? "PLN",
     clear_legacy_notes: false,
+    profile: profileFieldDefaults(state),
   };
 }
 
@@ -161,6 +222,7 @@ export function sheetFromValues(
       kind: row.kind,
       name: row.name,
       status: row.status,
+      note: (row.note ?? "").trim(),
     })),
     overall_fit: values.overall_fit,
     internal_note: anySkipped ? (values.internal_note ?? "").trim() || defaultSkipNote(values.skip_reason) : null,
@@ -266,6 +328,8 @@ export function buildSavePayload(
       }
     : null;
 
+  const profile = profileChanges(defaults.profile, values.profile ?? null);
+
   const payload: ScreeningFormSave = {
     candidate_id: state.candidate_id,
     job_id: state.job_id,
@@ -277,8 +341,9 @@ export function buildSavePayload(
     card,
     rate,
     note_import: noteImport,
+    ...(profile ? { profile } : {}),
   };
-  return { payload, hasChanges: Boolean(sheet || card || rate || noteImport) };
+  return { payload, hasChanges: Boolean(sheet || card || rate || noteImport || profile) };
 }
 
 // ── Stawka na start (D2, 14.10.2026) ─────────────────────────────────────

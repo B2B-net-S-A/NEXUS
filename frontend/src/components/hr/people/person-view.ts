@@ -162,7 +162,7 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
       key: `bonus-${bonus.id}`,
       date,
       title: `${bonus.category_label} · ${formatMoney(bonus.amount, bonus.currency)}`,
-      detail: bonus.status === "assigned" ? "przyznana" : "propozycja — czeka na Płace",
+      detail: bonus.status === "assigned" ? "przyznana" : "propozycja — czeka na Rozliczenia",
       tone: bonus.status === "assigned" ? "success" : "warning",
     });
   }

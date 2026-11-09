@@ -254,6 +254,7 @@ async def store_invoice(
         ksef_acquired_at=acquired_at,
         xml_sha256=xml_sha256,
         buyer_nip=buyer_nip if buyer_nip and len(buyer_nip) == 10 else None,
+        buyer_foreign_id=sales.buyer_foreign_id,
         buyer_name=sales.buyer_name,
         client_id=original.client_id if original is not None else None,
         invoice_number=parsed.invoice_number,
@@ -323,7 +324,11 @@ def _defer(run: _Run, ksef_number: str, acquired: Optional[str], reason: str) ->
         ksef_number,
         {"ksef_number": ksef_number, "acquired_at": acquired, "attempts": 0},
     )
-    entry["attempts"] = int(entry.get("attempts") or 0) + 1
+    # Czekanie na budżet przebiegu to nie nieudana próba: zaległość większa niż
+    # budżet (pierwszy przebieg sprzedaży: 1500+ faktur, 20 pobrań na godzinę)
+    # wygasłaby po dobie, a znacznik jest już za tymi fakturami.
+    if reason != "budget":
+        entry["attempts"] = int(entry.get("attempts") or 0) + 1
     entry["reason"] = reason
     run.counts["deferred"] += 1
 
@@ -515,6 +520,8 @@ async def _execute(
             if isinstance(entry, dict) and numbers.is_valid(entry.get("ksef_number"))
         },
         problems=list(state.get("problems") or []),
+        requests_left=MAX_METADATA_REQUESTS,
+        downloads_left=MAX_DOWNLOADS,
     )
     error: Optional[KsefApiError] = None
     partial = False

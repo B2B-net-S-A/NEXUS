@@ -157,9 +157,9 @@ def validate_shape(
     if leave_type not in allowed_types(employment_type):
         label = "B2B" if employment_type == "b2b" else "umowie zlecenie"
         raise LeavePolicyError(
-            f"Na {label} można wnioskować wyłącznie o urlop wypoczynkowy."
+            f"Na {label} można zgłosić wyłącznie przerwę."
             if for_self
-            else f"Osobie na {label} można wpisać wyłącznie urlop wypoczynkowy."
+            else f"Osobie na {label} można wpisać wyłącznie przerwę."
         )
     if leave_type == "holiday_in_lieu" and employment_type != "uop":
         raise LeavePolicyError(
@@ -470,7 +470,7 @@ assert SUBSTITUTE_VISIBLE_TYPES <= set(LEAVE_TYPES)
 assert not SUBSTITUTE_VISIBLE_TYPES & HEALTH_TYPES
 
 SUBSTITUTE_ACK_ONLY = (
-    "O tej nieobecności decyduje przełożony albo Kadry — w zastępstwie "
+    "O tej nieobecności decyduje koordynator albo Administracja współpracy — w zastępstwie "
     "przyjmujesz ją tylko do wiadomości."
 )
 
@@ -521,14 +521,14 @@ def own_cancel_refusal(
             return None
         return (
             "Ten wniosek dotyczy terminu, który już trwa albo minął — anulować "
-            "albo odrzucić go może przełożony albo Kadry."
+            "albo odrzucić go może koordynator albo Administracja współpracy."
         )
     if status == "approved":
         if start > today:
             return None
         if reported:
-            return "Ten termin już trwa albo minął — anulować go mogą Kadry."
-        return "Ten urlop już trwa albo minął — anulować go może przełożony albo Kadry."
+            return "Ten termin już trwa albo minął — anulować go może Administracja współpracy."
+        return "Ten urlop już trwa albo minął — anulować go może koordynator albo Administracja współpracy."
     return "Ten wniosek jest już zamknięty."
 
 
@@ -571,7 +571,7 @@ def approver_cancel_refusal(
 
 
 FORWARD_OUTSIDE_COMPANY = (
-    "Przekierowanie poczty działa tylko na adres w domenie firmy — "
+    "Kopia poczty działa tylko na adres w domenie firmy — "
     "wybrany zastępca ma adres spoza niej."
 )
 

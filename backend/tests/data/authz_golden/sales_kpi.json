@@ -25,13 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/sales/kpi/targets/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/kpi": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/kpi/targets": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/kpi/targets/company": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/kpi/targets/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/kpi/targets/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/kpi": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/kpi/targets": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/kpi/targets/company": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/kpi/targets/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -215,6 +215,12 @@ class ClientCvRule(Base, TimestampMixin):
         default="justify",
         server_default="justify",
     )
+    # Numer zapytania klienta w nagłówku CV („AML Analyst (43114) – Imię
+    # Nazwisko”), 07.11.2026. Domyślnie nagłówek bez numeru (D2/D4); nazwa
+    # pliku nie zmienia się. Czyta `job_working_title.cv_header_title`.
+    cv_title_with_reference: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Draft edits never replace the published recipe or live client flags.
     draft_payload: Mapped[Optional[dict]] = mapped_column(

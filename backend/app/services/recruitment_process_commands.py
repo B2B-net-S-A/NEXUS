@@ -11,7 +11,7 @@ and commit behaviour.  Commands flush, but never commit.
 
 from __future__ import annotations
 
-from app.services import candidate_claim, client_off_limits
+from app.services import candidate_claim, client_off_limits, interview_slots
 from app.services.operational_tasks import nominal_task_owner
 
 from collections.abc import Iterable
@@ -48,6 +48,7 @@ from app.models.workflow_revision import (
     WorkflowRevision,
     WorkflowRevisionStatus,
 )
+from app.services.move_requirements import sheet_filled
 from app.services.priority_work_policy import (
     PriorityWorkDecision,
     PriorityWorkLocked,
@@ -65,6 +66,19 @@ _TERMINAL_STAGES = {
     PipelineStage.rejected,
     PipelineStage.withdrawn,
 }
+
+# Karta w kolumnie „Zamknięci” albo już po rozmowie u klienta: wniosek o terminy
+# nie ma tu po co czekać (`interview_cycle._CLOSED_STAGES`, `_PAST_INTERVIEW_STAGES`).
+SLOT_REQUEST_ENDING_STAGES = frozenset(
+    {
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+        PipelineStage.acceptance,
+        PipelineStage.negotiation,
+        PipelineStage.onboarding,
+        PipelineStage.hired,
+    }
+)
 
 # Stopnie, które `assignment_milestone_counts` faktycznie zlicza — tylko one
 # mogą unieważnić memo progresu otwarte przez `milestone_counts_scope`.
@@ -400,6 +414,65 @@ async def promote_external_stage_row(
     stage.moved_at = moved_at
     await db.flush()
     return True
+
+
+# Decyzja, którą niesie wiersz etapu. Stawki i odpowiedzi ze screeningu czytelnicy
+# biorą z całej historii pary, więc kopia ich nie powtarza.
+_STAGE_DECISION_COLUMNS = (
+    "stage",
+    "stage_def_id",
+    "moved_by",
+    "rejection_reason_id",
+    "rejection_note",
+    "rejected_by",
+    "rejected_at",
+    "ended_by",
+    "approved_by",
+    "approved_at",
+    "verification_status",
+    "task_assignee_id",
+    "candidate_offer_response",
+    "client_accepted_on",
+    "planned_start_on",
+    "sla_alerted_at",
+)
+
+
+async def restore_stage_after_merge(
+    db: AsyncSession,
+    *,
+    source_stage_id: int,
+    candidate_id: int,
+    job_id: int,
+    moved_at: datetime,
+    default_note: str,
+) -> CandidateStage:
+    """Dopisz kopię wiersza etapu, który po scaleniu profili zostaje na karcie.
+
+    Scalenie to nie ruch karty: bez ``transition_process``, efektów ruchu
+    i powiadomień. Synchronizację procesu woła wołający
+    (``sync_external_observed_process``).
+    """
+
+    source = (
+        await db.execute(
+            select(
+                CandidateStage.notes,
+                *(getattr(CandidateStage, name) for name in _STAGE_DECISION_COLUMNS),
+            ).where(CandidateStage.id == source_stage_id)
+        )
+    ).one()
+    row = CandidateStage(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        moved_at=moved_at,
+        notes=source.notes or default_note,
+        external_source="manual",
+        **{name: getattr(source, name) for name in _STAGE_DECISION_COLUMNS},
+    )
+    db.add(row)
+    await db.flush()
+    return row
 
 
 async def note_external_stage_row(
@@ -782,16 +855,6 @@ async def _create_observed_attempt(
     )
 
 
-def _screening_filled(payload: object) -> bool:
-    """Lustro `pipeline._sheet_filled` dla arkusza screeningu."""
-    if not isinstance(payload, dict) or not payload:
-        return False
-    answers = payload.get("answers")
-    if isinstance(answers, (list, dict)):
-        return len(answers) > 0
-    return any(value not in (None, "", [], {}) for value in payload.values())
-
-
 # Powrót z „Zamkniętych” krótko po zamknięciu poprzedniej próby to ta sama
 # rozmowa z kandydatem — arkusz idzie z nim. Po dłuższej przerwie osoba wraca
 # jako nowa próba i musi przejść screening od nowa (audyt 05.10.2026: osoba
@@ -882,7 +945,7 @@ async def _latest_screening_answers(
         )
     )
     for (answers,) in rows.all():
-        if _screening_filled(answers):
+        if sheet_filled(answers):
             return dict(answers)
     return None
 
@@ -1184,6 +1247,10 @@ async def transition_process(
     ):
         await record_accepted_verification(
             db, stage=stage_row, verifier_user_id=actor_user_id, process=process
+        )
+    if stage_row.stage in SLOT_REQUEST_ENDING_STAGES:
+        await interview_slots.cancel_open_for_pair(
+            db, candidate_id=candidate_id, job_id=job_id
         )
     await db.flush()
     return stage_row

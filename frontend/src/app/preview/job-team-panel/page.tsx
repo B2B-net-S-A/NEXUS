@@ -34,6 +34,7 @@ import {
   type CategoryRecruiter,
 } from "@/lib/api/requestAllocation";
 import { hiringManagerOptionsKey } from "@/lib/hiring-manager";
+import { jobNewProfilesKey, unassignedWorkersKey } from "@/lib/job-channels";
 import type { JobRecruiter } from "@/lib/job-team";
 import { priorityWorkQueryKeys } from "@/lib/priority-work-api";
 import { useAuthStore } from "@/store/auth";
@@ -295,6 +296,9 @@ function seededClient(): QueryClient {
       SEED_FRESH,
     );
     qc.setQueryData(["job-allocation", job.id], null, SEED_FRESH);
+    // Koszyki (06.11.2026): „Pracują bez przypisania” — w harnessie nikt.
+    qc.setQueryData(unassignedWorkersKey(job.id), [], SEED_FRESH);
+    qc.setQueryData(jobNewProfilesKey(job.id), { added: 4, reached_cv: 3 }, SEED_FRESH);
   }
   return qc;
 }

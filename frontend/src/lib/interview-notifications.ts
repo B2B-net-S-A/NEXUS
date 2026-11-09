@@ -15,6 +15,9 @@ export const INTERVIEW_NOTIFICATION_TYPES = [
   "post_interview_t45",
   "post_interview_t2h_escalation",
   "interview_slots_requested",
+  // Rekrutacja własna: terminy i rezygnacje kandydatów, odbiorcą osoba z procesu.
+  "own_hiring_update",
+  "client_panel_request",
   "interview_slot_chosen",
   "interview_slot_confirmed",
   "interview_debrief_saved",

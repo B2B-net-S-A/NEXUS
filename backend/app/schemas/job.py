@@ -391,6 +391,9 @@ class JobResponse(BaseModel):
     recruiters: list[JobRecruiterOut] = []
     # „Poprzedni rekruter” — osoby uśpione przy zejściu z P1 albo zamknięciu.
     previous_recruiters: list[JobPreviousRecruiterOut] = []
+    # 0655: plan koszyków zespołu (ile osób w bazie / na LinkedInie); None = bez planu.
+    channel_plan_base: Optional[int] = None
+    channel_plan_linkedin: Optional[int] = None
     # Aktywne ogłoszenia wklejone ręcznie na portalach (0432); wypełnia lista
     # i `GET /api/jobs/{id}` (`job_ad.publications.for_jobs`).
     ad_publications: list[JobAdPublicationOut] = []
@@ -535,6 +538,9 @@ class JobCollaboratorAdd(BaseModel):
     """Add a collaborator (read-only participant) to a job."""
 
     user_id: int
+    # 0655: koszyk, do którego osoba od razu dołącza („Dołącz do bazy”,
+    # „+ Dodaj do LinkedIna”); brak = bez koszyka.
+    channel: Optional[Literal["base", "linkedin"]] = None
 
 
 class JobCloseRequest(BaseModel):
@@ -547,6 +553,9 @@ class JobCloseRequest(BaseModel):
     # 13.10.2026: zamknięcie przy osobach w toku wymaga potwierdzenia —
     # bez niego trasa odpowiada 409 `active_cards_warning` z liczbami.
     acknowledge_active_cards: bool = False
+    # 08.11.2026: przy `competitor`/`budget` pary u klienta kończą się „przez
+    # klienta” z powodem i bez maila. Decyduje osoba zamykająca w oknie.
+    end_client_cards: bool = False
 
 
 class JobCloseReasonUpdate(BaseModel):

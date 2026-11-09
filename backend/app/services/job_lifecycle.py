@@ -51,6 +51,7 @@ from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.services import champion_view
+from app.services.job_opening import start_new_opening
 from app.services.job_readiness import (
     handoff_blocker_codes,
     job_handoff_blocker_items,
@@ -1023,6 +1024,11 @@ async def save_champion_core(
                 fields_changed=fields_changed,
             ),
         )
+    if "stack" in fields_changed:
+        # QC-10: zmiana wymagań — plakietki pokazują wynik zgodny z bramką.
+        from app.tasks.cv_qc_recompute import schedule_job_recompute
+
+        effects.later(schedule_job_recompute, job_id)
 
     return {
         "job_id": job_id,
@@ -1348,6 +1354,7 @@ async def publish_core(
     *,
     reason: Optional[str] = None,
     sync_status_payload: bool = True,
+    new_opening: bool = True,
 ) -> bool:
     """Status ``published`` (i ponowne otwarcie zamkniętej) — bez commitu.
 
@@ -1355,6 +1362,8 @@ async def publish_core(
     przejrzenia” (lustro zamknięcia) i — jeśli pochodzi z Traffita — do NEXUSA.
     ``sync_status_payload=False`` przy zakładaniu: punktu oferty w Qdrancie
     jeszcze nie ma, status wpisze do niego pierwszy embed (efekt ``embed``).
+    Ponowne otwarcie zaczyna nowe otwarcie (``job_opening``, 05.11.2026);
+    ``new_opening=False`` — przeniesienie z Traffita, ta sama praca.
     """
     from app.services.auto_match_outbox import enqueue_job
     from app.services.client_access import assert_client_assignable
@@ -1372,6 +1381,8 @@ async def publish_core(
         await assert_client_assignable(db, job.client_id)
         job.closed_at = None
         clear_close_choice(job)
+        if new_opening:
+            start_new_opening(job)
         api._take_over_reopened_traffit_job(db, job, current_user)
         if job.work_state == WORK_STATE_FINISHED:
             await set_work_state(
@@ -1381,6 +1392,11 @@ async def publish_core(
                 actor_id=current_user.id,
                 reason="job_reopened",
             )
+    if status_changes:
+        # Zmiana słownika unieważnia wyniki tylko opublikowanych (`invalidate_scores`).
+        from app.services.match_score_cache import mark_stale_for_job
+
+        await mark_stale_for_job(db, job.id)
     job.status = JobStatus.published
     details: Optional[dict] = None
     if reopened or reason:

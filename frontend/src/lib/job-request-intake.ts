@@ -28,6 +28,7 @@ import {
   type RequirementRowForm,
   type RowCriticalInfo,
   type StoredRequirementRow,
+  type CriticalProposal,
 } from "@/lib/requirement-rows";
 import {
   officeDaysFields,
@@ -172,6 +173,13 @@ export interface IntakeForm {
    * nawet w „mile widziane” (serwer dopisuje je do opisu wymagań).
    */
   droppedRequirements: string[];
+  /**
+   * 07.11.2026 (M1): krytyczne zaproponowane z maila — DL zatwierdza
+   * („Zatwierdź krytyczne”); puste po decyzji albo „Zostaw”.
+   */
+  criticalProposal: CriticalProposal[];
+  /** 07.11.2026 (M2): hasła słownika z maila, których nie ma w wierszach — „+ dodaj”. */
+  mailTechnologies: string[];
   remotePolicy: RemotePolicyValue | "";
   onsiteDays: string;
   /** 0407: „w tygodniu” albo „w miesiącu” (miesięcznie tylko hybrydowo). */
@@ -248,6 +256,10 @@ export interface RequestIntakeResponse {
   advisories?: string[];
   /** Audyt 06.10.2026 (N3): wiersze, które nie zmieściły się nawet w „mile widziane”. */
   dropped?: string[];
+  /** 07.11.2026 (M1): krytyczne z lat w mailu albo z tytułu — do zatwierdzenia. */
+  critical_proposal?: CriticalProposal[];
+  /** 07.11.2026 (M2): hasła słownika z maila spoza wierszy. */
+  mail_technologies?: string[];
   start_date: string | null;
   project_about: string | null;
   responsibilities: string | null;
@@ -334,6 +346,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   rateNote: null,
   intakeNotes: [],
   droppedRequirements: [],
+  criticalProposal: [],
+  mailTechnologies: [],
   remotePolicy: "",
   onsiteDays: "",
   onsiteDaysPeriod: "week",
@@ -524,6 +538,14 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     rateNote: intake.rate_note ?? null,
     intakeNotes: intake.advisories ?? [],
     droppedRequirements: intake.dropped ?? [],
+    criticalProposal: Array.isArray(intake.critical_proposal)
+      ? intake.critical_proposal.filter(
+          (item) => typeof item?.label === "string" && typeof item?.reason === "string",
+        )
+      : [],
+    mailTechnologies: Array.isArray(intake.mail_technologies)
+      ? intake.mail_technologies.filter((name) => typeof name === "string")
+      : [],
     remotePolicy: intake.remote_policy ?? "",
     onsiteDays: officeDaysFormValue(
       intake.onsite_days_per_week,
@@ -1175,6 +1197,8 @@ export function restoreIntakeForm(saved: unknown): IntakeForm {
     descriptive: Array.isArray(raw.descriptive) ? raw.descriptive : [],
     intakeNotes: Array.isArray(raw.intakeNotes) ? raw.intakeNotes : [],
     droppedRequirements: Array.isArray(raw.droppedRequirements) ? raw.droppedRequirements : [],
+    criticalProposal: Array.isArray(raw.criticalProposal) ? raw.criticalProposal : [],
+    mailTechnologies: Array.isArray(raw.mailTechnologies) ? raw.mailTechnologies : [],
     disqualifiers: Array.isArray(raw.disqualifiers) ? raw.disqualifiers : [],
     searchExclude: Array.isArray(raw.searchExclude) ? raw.searchExclude : [],
   };

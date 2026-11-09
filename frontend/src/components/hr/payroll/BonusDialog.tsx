@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiErrorMessage } from "@/lib/api-error";
+import { formatMoney } from "@/lib/money";
 import { usePeople } from "@/lib/api/hr";
 import {
   useApproveBonus,
@@ -196,6 +197,9 @@ export function BonusDialog({
       : roster;
 
 
+  const ruleAmount = bonus?.flags?.find((flag) => flag.code === "amount_rule")?.rule_amount;
+  const sheetNote = bonus?.rule_snapshot?.settlement_note as string | undefined;
+
   const recipientName =
     fixedPerson?.name ?? bonus?.recipient_name ?? people.find((p) => String(p.user_id) === personId)?.name;
 
@@ -209,7 +213,7 @@ export function BonusDialog({
           ? bonus.description
           : bonus || fixedPerson
             ? recipientName ?? undefined
-          : "Osoba dostanie powiadomienie bez kwoty — kwotę zobaczy w „Moim czasie”."
+          : "Osoba dostanie powiadomienie bez kwoty — kwotę zobaczy w „Mojej współpracy”."
       }
       footer={
         <>
@@ -249,9 +253,26 @@ export function BonusDialog({
           </ul>
         ) : null}
         {bonus && fullEdit && bonusCalculation(bonus) ? (
-          <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-foreground sm:col-span-2">
-            <strong>Jak policzone:</strong> {bonusCalculation(bonus)}
-          </p>
+          <div className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-foreground sm:col-span-2">
+            <p>
+              <strong>{bonus.from_sheet ? "Reguła:" : "Jak policzone:"}</strong> {bonusCalculation(bonus)}
+            </p>
+            {bonus.from_sheet ? <p>Kwota i osoba są z arkusza Delivery.</p> : null}
+            {sheetNote ? <p className="mt-1">Uwaga z arkusza: {sheetNote}</p> : null}
+            {ruleAmount ? (
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span>
+                  Z arkusza <strong className="tabular-nums">{formatMoney(bonus.amount, bonus.currency)}</strong>
+                </span>
+                <span>
+                  Z reguły <strong className="tabular-nums">{formatMoney(ruleAmount, bonus.currency)}</strong>
+                </span>
+                <Button size="sm" variant="secondary" onClick={() => setAmount(ruleAmount.replace(".", ","))}>
+                  Ustaw kwotę z reguły
+                </Button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
         {(!bonus && !fixedPerson) || (bonus && fullEdit) ? (
           <FormField label="Osoba" htmlFor="bonus-person" className="sm:col-span-2">

@@ -98,6 +98,12 @@ vi.mock("next/dynamic", () => ({
 vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({
   CvGeneratorDialog: () => <div data-testid="generator-dialog" />,
 }));
+vi.mock("@/components/v2/recruitment/ConsentRequestNotice", () => ({
+  ConsentRequestNotice: (props: { moment: string }) => <div data-testid="consent-notice">{props.moment}</div>,
+}));
+vi.mock("@/components/v2/recruitment/ConsentRequestButton", () => ({
+  ConsentRequestButton: () => <button type="button">Poproś kandydata o zgodę</button>,
+}));
 vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
   ConsentAttachButton: (props: Record<string, unknown>) => {
     mocks.consentProps = props;
@@ -279,6 +285,32 @@ beforeEach(() => {
 });
 
 describe("CvToClientCard — brak CV", () => {
+  it("pasek o zgodzie stoi nad „Generuj CV” i ustępuje ramce w otwartym generatorze", async () => {
+    const base = mocks.apiGet.getMockImplementation()!;
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) =>
+      url === "/api/cv-generator/policy"
+        ? Promise.resolve({ data: { managed: true, effective_policy: { requires_rodo_consent_block: true } } })
+        : base(url, config),
+    );
+    renderCard();
+    expect(await screen.findByTestId("consent-notice")).toHaveTextContent("cv");
+    await userEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
+    const frame = await screen.findByTestId("cvgen-consent", {}, { timeout: 3000 });
+    expect(frame).toHaveTextContent("przyjmuje CV tylko ze zgodą kandydata");
+    expect(within(frame).getByRole("button", { name: /Poproś kandydata o zgodę/ })).toBeInTheDocument();
+    expect(within(frame).getByText(/Zrzut zgody kandydata/)).toBeInTheDocument();
+    expect(screen.queryByTestId("consent-notice")).toBeNull();
+  }, 20000);
+
+  it("bez wymogu zgody generator nie ma ramki", async () => {
+    renderCard();
+    await screen.findByText(/Jeszcze nie ma CV do klienta/);
+    await userEvent.click(screen.getByRole("button", { name: /Generuj CV/ }));
+    await screen.findByTestId("cv-generate-panel");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(screen.queryByTestId("cvgen-consent")).toBeNull();
+  });
+
   it("„Generuj CV” rozwija w karcie „Z czego powstało” — bez okna generatora", async () => {
     renderCard();
     expect(await screen.findByText(/Jeszcze nie ma CV do klienta/)).toBeInTheDocument();
@@ -646,7 +678,12 @@ describe("CvToClientCard — CV gotowe", () => {
     expect(screen.getByRole("button", { name: "Otwórz strony CV — Jan Kowalski" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Otwórz i popraw/ })).toBeEnabled();
     expect(screen.getByText(/Zgoda RODO: brak zrzutu/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Poproś kandydata o zgodę/ })).toBeInTheDocument();
     expect(mocks.consentProps).toMatchObject({ generatedId: 5, hasConsent: false, compact: true });
+    // Ramka stoi na górze karty, nad rzeczami do sprawdzenia: przy 1280 × 720 była poza ekranem.
+    expect(
+      screen.getByText(/Zgoda RODO: brak zrzutu/).compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     // Bez zgody serwer i tak odpowie 409 — miniatura nie pyta o PDF.
     await expect(mocks.thumbProps!.load()).rejects.toThrow();
     expect(mocks.apiPost).not.toHaveBeenCalled();

@@ -25,11 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/activities/stats": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/activities/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

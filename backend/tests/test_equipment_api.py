@@ -106,6 +106,11 @@ async def modules_off():
         yield
 
 
+def _worker_name() -> str:
+    # 7 znaków: osiem cyfr z rzędu import plików recepcji wycina jako kod PUK.
+    return "Anna Przykładowa " + _tag()[:7]
+
+
 async def make_people() -> dict[str, User]:
     """Recepcja, Kadry, rekruter, podgląd Delivery, pracownik i admin."""
     async with AsyncSessionLocal() as db:
@@ -114,7 +119,7 @@ async def make_people() -> dict[str, User]:
             "hr": await _user(db, grants=("people_admin",)),
             "recruiter": await _user(db),
             "delivery": await _user(db, grants=("delivery_view",)),
-            "worker": await _user(db, "employee", name="Anna Przykładowa " + _tag()),
+            "worker": await _user(db, "employee", name=_worker_name()),
             "admin": await _user(db, "admin"),
         }
         await db.commit()

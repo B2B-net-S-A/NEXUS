@@ -266,19 +266,9 @@ async def test_delivery_dependency_rejects_recruitment_roles_before_handler() ->
         assert getattr(exc_info.value, "status_code", None) == 403
 
 
-def test_legacy_viewer_keeps_existing_non_delivery_read_surfaces() -> None:
-    assert (
-        section_access_for_roles([UserRole.user], ProductSection.pipeline)
-        is SectionAccess.read
-    )
-    assert (
-        section_access_for_roles([UserRole.user], ProductSection.insights)
-        is SectionAccess.read
-    )
-    assert (
-        section_access_for_roles([UserRole.user], ProductSection.delivery)
-        is SectionAccess.none
-    )
+def test_legacy_viewer_has_no_section() -> None:
+    for section in ProductSection:
+        assert section_access_for_roles([UserRole.user], section) is SectionAccess.none
 
 
 def test_multi_role_policy_is_union_without_finance_side_effect() -> None:
@@ -463,7 +453,6 @@ def test_core_sourcing_pipeline_insights_and_finance_routers_have_section_guard(
     None
 ):
     from app.api import (
-        analytics_v1,
         candidates,
         finance,
         hiring_managers_analytics,
@@ -486,7 +475,6 @@ def test_core_sourcing_pipeline_insights_and_finance_routers_have_section_guard(
         ),
         ProductSection.pipeline: (jobs.router, pipeline.router),
         ProductSection.insights: (
-            analytics_v1.router,
             hiring_managers_analytics.router,
             insights_board.router,
             insights_recruitment.router,
@@ -555,6 +543,20 @@ async def test_shared_search_requires_read_in_at_least_one_section(
             "POST",
             "none",
             "manage",
+            False,
+        ),
+        (
+            "/api/b2b-generator/generated/123/signatures",
+            "POST",
+            "read",
+            "manage",
+            True,
+        ),
+        (
+            "/api/b2b-generator/generated/123/signatures",
+            "POST",
+            "read",
+            "none",
             False,
         ),
         ("/api/b2b-generator/generated/123", "PATCH", "read", "manage", False),

@@ -48,13 +48,13 @@ afterEach(() => {
 });
 
 describe("/preview/hr-approvals — potwierdzenie decyzji", () => {
-  it("po „Akceptuj” toast „Wniosek zaakceptowany”, choć sprawa znika z listy", async () => {
+  it("po „Potwierdź” toast „Wniosek zaakceptowany”, choć sprawa znika z listy", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-approvals");
     render(<HrApprovalsPreviewPage />);
 
     const detail = await screen.findByRole("region", { name: "Szczegóły: Kamil Testowy" });
-    await user.click(within(detail).getByRole("button", { name: "Akceptuj" }));
+    await user.click(within(detail).getByRole("button", { name: "Potwierdź" }));
 
     expect(await screen.findByText("Wniosek zaakceptowany")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Szczegóły: Kamil Testowy" })).toBeNull();

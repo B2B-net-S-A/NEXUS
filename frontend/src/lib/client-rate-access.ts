@@ -20,6 +20,7 @@ const VIEW_ROLES = new Set([
   "delivery_lead",
   "talent_community_manager",
   "finance",
+  "back_office",
 ]);
 
 type UserLike = Parameters<typeof getUserRoles>[0] & (PermissionUser | null | undefined);

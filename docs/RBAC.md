@@ -4,21 +4,23 @@
 
 Od migracji 0410 administrator ustawia na ekranie **Ustawienia → Zespół
 i dostęp → „Osoby i role”** dziewięć uprawnień tak/nie na rolę, a pojedynczej
-osobie może dodać uprawnienie ponad jej rolę („Edytuj użytkownika” →
-„Dodatkowe uprawnienia”). To, co zaznaczone, decyduje na trasie; odmowa nazywa
+osobie może dodać uprawnienie ponad jej rolę albo je odebrać („Edytuj użytkownika”
+→ „Uprawnienia tej osoby”). To, co zaznaczone, decyduje na trasie; odmowa nazywa
 brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 
 | # | Klucz | Nazwa na ekranie | Domyślnie (poza adminem) |
 |---|---|---|---|
-| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, DL, TCM, Automatyzacje |
-| 2 | `clients_edit` | Klienci: dodawanie i edycja | DL |
-| 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | DL, Finanse |
-| 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | DL, TCM |
-| 5 | `b2b_signature_confirmation` | Umowy B2B: oznaczanie jako podpisane | DL, TCM |
+| 1 | `delivery_view` | Klienci, kontrakty i zamówienia: podgląd | Finanse, Back office, DL, TCM, Automatyzacje |
+| 2 | `clients_edit` | Klienci: dodawanie i edycja | DL, Back office |
+| 3 | `contracts_orders_edit` | Kontrakty i zamówienia: tworzenie i edycja | DL, Finanse, Back office |
+| 4 | `contract_status` | Zakończenie współpracy, zmiana statusu kontraktu | DL, TCM, Back office |
+| 5 | `b2b_signature_confirmation` | Umowy B2B: oznaczanie jako podpisane | DL, TCM, Back office |
 | 6 | `recruitment_manage` | Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta | DL |
-| 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, DL |
-| 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse |
+| 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, Back office, DL |
+| 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse, Back office |
 | 9 | `finance_module` | Moduł Finanse | Finanse |
+| + | `orders_work` | Zamówienia: zmiany, PDF-y, import MD | Finanse, Back office (`docs/claude/uprawnienia/rola-back-office-zamowienia-i-umowy.md`) |
+| + | `company_results` | Wyniki firmy: podsumowania przychodu i marży | tylko admin; Rada czyta z tytułu roli (`docs/claude/uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`) |
 
 Źródła prawdy:
 
@@ -46,9 +48,11 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
   odczytu i zwykłych zapisów, granica przypisania dla kwot, plików
   i konsekwentnych zapisów prawnych. Każdy inny posiadacz działa u wszystkich
   klientów.
-- **Uprawnienia osoby tylko dodają.** Żeby komuś coś odebrać, zmienia się
-  uprawnienia roli albo rolę tej osoby. Role Viewer (`user`) i Praktykant nie
-  przyjmują uprawnień; administrator ma wszystkie zawsze.
+- **Uprawnienia osoby dodają i odbierają** (decyzja właściciela 02.11.2026, bo
+  przycięcie jednej osoby wymagało nowej roli). Odebrać można tylko razem z tym,
+  co danego uprawnienia wymaga; inaczej 422 `permission_required_by_kept`.
+  Role Viewer (`user`), Praktykant i Rada nie przyjmują nadań; administrator ma
+  wszystkie zawsze i nie da się mu nic odebrać.
 - **Zmiana uprawnień wylogowuje dotknięte konta** i zostawia wpis w Historii
   zdarzeń („Zmiana uprawnień roli” / „Zmiana uprawnień osoby”).
 - **Odmowa nazywa uprawnienie:** 403 `{"code": "permission_denied",
@@ -75,9 +79,10 @@ imienne „Może usuwać klientów”.
 | Delivery Lead | RW | RW | R | — |
 | Talent Community Manager | RW | RW | R | — |
 | Rekruter | RW | RW | R | — |
-| Viewer `user` (legacy) | R | R | R | — |
+| Viewer `user` (legacy, od 0637 bez sekcji) | — | — | — | — |
 | Praktykant | — | — | — | — |
 | Automatyzacje (`automation`, 0446) | R | R | R | — |
+| Back office (`back_office`, 0645) | RW | RW | R | — |
 
 Rola „Automatyzacje” ma z dziewięciu uprawnień tylko podgląd Delivery, nie ma
 kwot ani modułu Finanse i niczego nie zapisuje na ekranach — opis:

@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/table";
 import { yearMonthFromParams } from "@/components/hr/MyTimeScreen";
 import { TimesheetApprovalsSection } from "@/components/hr/time/TimesheetApprovalsSection";
-import { defaultQueueMonth } from "@/components/hr/time/time-format";
 import {
   CONSENT_RULES_NOTE,
   ConsentDetail,
@@ -55,13 +54,12 @@ import {
   type LeaveStatus,
 } from "@/lib/api/hr-leave";
 import { forwardStillAhead } from "@/lib/api/hr-m365";
-import { useTeamQueue, type QueueStatus } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
-import { formatWeekdayDayPl, monthTitlePl, type YearMonth } from "@/lib/date-pl";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import { personInitials } from "../people/hr-format";
@@ -88,8 +86,6 @@ import {
   substituteAbsent,
   termDays,
   termRows,
-  timesheetSummary,
-  timesheetSummaryText,
   workSummary,
   dayMonthRange,
   type ChipTone,
@@ -250,7 +246,7 @@ function LeaveDetail({
     void askConfirm({
       title: "Zaakceptować wniosek?",
       description: `${name} · ${formatRange(row.start_date, row.end_date)}.`,
-      confirmLabel: "Akceptuj",
+      confirmLabel: "Potwierdź",
       cancelLabel: "Jeszcze nie",
     }).then((ok) => (ok ? approve() : undefined));
     // Raz na wejście z linku; `approve` i `row` są stałe dla tej sprawy (`key`).
@@ -260,7 +256,7 @@ function LeaveDetail({
   const actions =
     item.kind === "decide" ? (
       row.can_decide === false ? (
-        <span className="text-sm text-muted-foreground">do wiadomości — decydują Kadry</span>
+        <span className="text-sm text-muted-foreground">do wiadomości — decyduje Administracja współpracy</span>
       ) : (
         <>
           {/* Zastępca przełożonego tylko decyduje — zmienia przełożony albo Kadry. */}
@@ -273,7 +269,7 @@ function LeaveDetail({
             Odrzuć
           </Button>
           <Button disabled={decide.isPending} onClick={approve}>
-            Akceptuj
+            Potwierdź
           </Button>
         </>
       )
@@ -287,7 +283,7 @@ function LeaveDetail({
         ) : null}
         {row.can_report_conflict ? (
           <Button variant="outline" onClick={() => setConflicting(row)}>
-            Zgłoś kolizję
+            Zgłoś uwagę
           </Button>
         ) : (
           <span className="text-sm text-muted-foreground">do wiadomości</span>
@@ -477,52 +473,6 @@ function LeaveDetail({
   );
 }
 
-const SLICE: Record<QueueStatus, string> = {
-  draft: "bg-muted-foreground/40",
-  missing: "bg-warning",
-  submitted: "bg-info",
-  approved: "bg-success",
-};
-
-/**
- * Podsumowanie statusów timesheetów (pasek złożony + liczby) za miesiąc, od
- * którego otwiera się sekcja „Timesheety” — ta sama kolejka i ten sam klucz
- * zapytania, więc bez drugiego żądania.
- */
-function TimesheetSummary({ config, period }: { config: HrConfig; period: YearMonth }) {
-  const canApprove =
-    config.me.is_admin ||
-    config.me.people_admin ||
-    config.me.timesheets === true ||
-    config.me.is_manager ||
-    (config.me.covering?.length ?? 0) > 0;
-  const queue = useTeamQueue(period.year, period.month, config.open_modules.time && canApprove);
-  if (!queue.isSuccess) return null;
-  const slices = timesheetSummary(queue.data.items);
-  if (slices.length === 0) return null;
-  const total = slices.reduce((sum, slice) => sum + slice.count, 0);
-  const text = timesheetSummaryText(slices);
-  return (
-    <div className="flex flex-wrap items-center gap-3 text-xs" data-testid="timesheet-summary">
-      <span className="font-medium text-foreground">{monthTitlePl(period)}:</span>
-      <div
-        role="img"
-        aria-label={`Timesheety, ${monthTitlePl(period).toLowerCase()}: ${text}`}
-        className="flex h-2 w-[220px] overflow-hidden rounded-full bg-muted"
-      >
-        {slices.map((slice) => (
-          <span
-            key={slice.status}
-            className={SLICE[slice.status]}
-            style={{ width: `${(slice.count / total) * 100}%` }}
-          />
-        ))}
-      </div>
-      <span className="text-muted-foreground">{text}</span>
-    </div>
-  );
-}
-
 const STATUS_FILTERS: { value: LeaveStatus | "all"; label: string }[] = [
   { value: "all", label: "Wszystkie statusy" },
   { value: "pending", label: LEAVE_STATUS_LABELS.pending },
@@ -669,7 +619,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                         row.forward_mail_consent &&
                         forwardStillAhead(row.end_date) ? (
                           <Button size="sm" variant="quiet" onClick={() => setForwardOff(row)}>
-                            Wyłącz przekierowanie
+                            Wyłącz kopię poczty
                           </Button>
                         ) : null}
                         <Button
@@ -716,7 +666,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
         target={forwardOff}
         onClose={(done) => {
           setForwardOff(null);
-          if (done) showToast("Przekierowanie wyłączone — reguła zostanie zamknięta", "success");
+          if (done) showToast("Kopia poczty wyłączona, reguła zostanie zamknięta", "success");
         }}
       />
     </div>
@@ -798,7 +748,7 @@ function ApprovalsInbox({
           state={leaveState as BlockingViewState}
           description={
             leaveState === "forbidden"
-              ? "Nieobecności do decyzji widzą koordynatorzy i Kadry."
+              ? "Nieobecności do decyzji widzą koordynatorzy i Administracja współpracy."
               : "Nie udało się wczytać nieobecności do decyzji — mogą czekać. Spróbuj ponownie za chwilę."
           }
           onRetry={() => pending.refetch()}
@@ -831,7 +781,7 @@ function ApprovalsInbox({
       >
         {chip === "info"
           ? "Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy."
-          : "Nic nie czeka na Twoją decyzję."}
+          : "Nic nie czeka na potwierdzenie."}
         {linkedId !== null && consentsUsed
           ? " Zgoda z linku jest już rozpatrzona albo decyduje o niej ktoś inny."
           : null}
@@ -886,7 +836,7 @@ function ApprovalsInbox({
                   groups.urgent.length > 0 && "border-t border-border/60",
                 )}
               >
-                <h2 className={LABEL}>Do decyzji</h2>
+                <h2 className={LABEL}>Do potwierdzenia</h2>
                 <span
                   className={cn(
                     "rounded-full px-2 py-px text-[11px] font-semibold",
@@ -900,7 +850,7 @@ function ApprovalsInbox({
               </div>
               {groups.decide.length === 0 ? (
                 <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
-                  Nic nie czeka na Twoją decyzję.
+                  Nic nie czeka na potwierdzenie.
                 </p>
               ) : (
                 // Sama lista nieobecności zostaje pod dawną nazwą (e2e, czytniki).
@@ -952,17 +902,16 @@ function ApprovalsInbox({
   );
 }
 
-/** Raporty godzin: podsumowanie miesiąca i kolejka (CSV, ZIP, podgląd osoby). */
+/** Raporty godzin: kolejka miesiąca z filtrem statusu (CSV, ZIP, podgląd osoby). */
 function TimesheetsSection({ config }: { config: HrConfig }) {
   const params = useSearchParams();
   const focusUser = Number(params.get("user"));
   const initialMonth = yearMonthFromParams(params);
   return (
     <section
-      aria-label="Raporty godzin"
+      aria-label="Kolejka raportów godzin"
       className="space-y-3 rounded-xl border border-border bg-card p-4"
     >
-      <TimesheetSummary config={config} period={initialMonth ?? defaultQueueMonth()} />
       <TimesheetApprovalsSection
         config={config}
         initialMonth={initialMonth}
@@ -1035,12 +984,10 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
   });
   const groups = queueGroups({ decide, info, consents: consentRows, today, chip });
 
+  // `access` łączy stan modułów z prawami osoby: to samo zdanie widzi osoba bez
+  // prawa do akceptacji przy działających modułach i każdy przy wyłączonych.
   if (!access.leave && !access.time && !access.consents) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Akceptacje ruszą po włączeniu modułu nieobecności, czasu pracy albo zgód.
-      </p>
-    );
+    return <p className="text-sm text-muted-foreground">Nie masz nic do akceptowania</p>;
   }
 
   const setFilter = (next: { chip: ApprovalsChip; view: ApprovalsView }) => {
@@ -1078,7 +1025,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
             onChange={(value) => setFilter({ chip, view: value })}
             options={[
               { value: "waiting", label: "Czeka" },
-              { value: "decided", label: "Zdecydowane" },
+              { value: "decided", label: "Załatwione" },
             ]}
           />
         ) : null}
@@ -1089,7 +1036,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           stats={[
             {
               id: "scope",
-              label: viewerIsHr || config.me.timesheets ? "zakres" : "mój zespół",
+              label: viewerIsHr || config.me.timesheets ? "zakres" : "moje osoby",
               value: viewerIsHr || config.me.timesheets
                 ? "wszyscy"
                 : countPl(config.me.direct_reports, "osoba", "osoby", "osób"),

@@ -75,9 +75,9 @@ services:
     #    istniejący baseline. Zrzuć liczniki do pliku przed jakimkolwiek resetem.
     #
     # UWAGA przy zmianie: to NIE jest zaproszenie do dokładania workerów uvicorna.
-    # Backend odpala 24 pętle w tle bezwarunkowo i 22 z nich nie mają leader-election,
-    # więc drugi worker = zdublowane maile, alerty i importy. Patrz `entrypoint.sh`
-    # (uvicorn bez --workers) oraz `backend/app/main.py` (rejestr background_tasks).
+    # Pętle w tle biegną w osobnym kontenerze `worker`, ale kilka procesów web ma
+    # własne kopie stanu w pamięci (limiter, słownik). Warunki:
+    # docs/claude/podstawy/web-i-worker-osobno.md
     command:
       - postgres
       - -c
@@ -106,32 +106,13 @@ services:
     # Domyślne /dev/shm w Dockerze to 64MB; przy równoległych zapytaniach Postgres
     # potrafi się o to rozbić ("could not resize shared memory segment").
     shm_size: 1gb
-    # ŚWIADOMIE BEZ `env_file: .env` — to on odtwarzał bazę przy KAŻDYM deployu.
-    #
-    # Coolify wpisuje do `.env` `GIT_SHA` i `BUILT_AT` per deploy. Przy
-    # `env_file` trafiały one do środowiska KONTENERA bazy, więc hash jego
-    # konfiguracji zmieniał się co wdrożenie i `docker compose up -d` odtwarzał
-    # postgresa — mimo że ani obraz, ani `command`, ani wolumen się nie
-    # zmieniły. Start bazy szeregował się wtedy przed startem backendu, stąd
-    # przerwa API rzędu 70 s przy zerowej przerwie frontendu.
-    #
-    # Zmierzone sondą przerwy z `deploy.yml` na trzech kolejnych deployach:
-    #   14e17d11d  API 72 s  · frontend 0 s  · Postgres restartował: TAK
-    #   49fd77b    API 74 s  · frontend 7 s  · Postgres restartował: TAK
-    #   d72f0bd    API 67 s  · frontend 5 s  · Postgres restartował: TAK
-    # `qdrant` nigdy nie miał `env_file` i nie restartuje się — grupa kontrolna.
-    #
-    # Zdjęcie jest bezpieczne, bo `environment:` niżej podaje wszystkie trzy
-    # zmienne postgresowe JAWNIE, przez interpolację compose — a ta czyta `.env`
-    # HOSTA i jest niezależna od `env_file`, które wstrzykuje do kontenera.
-    # `PGDATA` pochodzi z obrazu. Zweryfikowane na produkcji: kontener bazy
-    # widział dokładnie `PGDATA`, `POSTGRES_DB`, `POSTGRES_PASSWORD`,
-    # `POSTGRES_USER` — i nic poza tym z rzeczy, których potrzebuje.
-    #
-    # Efekt uboczny, nie mniej ważny: przy `env_file` kontener bazy trzymał
-    # 33 zmienne z `KEY`/`SECRET`/`TOKEN`/`PASSWORD` w nazwie (klucze modeli
-    # AI, S3 backupu, sekrety Compass, CloudTalk, Fireflies). Baza nie ma
-    # z nimi nic wspólnego. Audyt 18.09.2026.
+    # Bez `env_file: .env`, ale to NIE chroni bazy (pomiar 03.11.2026, Coolify
+    # 4.5.3): Coolify w trybie compose sam dopisuje `.env` każdej usłudze
+    # (`parsers.php`; kontener bazy ma 203 zmienne) i przed `up -d` zatrzymuje
+    # WSZYSTKIE kontenery aplikacji (`ApplicationDeploymentJob.php:887`), więc
+    # baza restartuje się przy każdym wdrożeniu. Założenie z 18.09.2026, że
+    # zdjęcie `env_file` kończy restarty, się nie potwierdziło. Plan wyjścia:
+    # `docs/claude/podstawy/przerwa-przy-wdrozeniu.md`.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nexus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
@@ -192,6 +173,12 @@ services:
       # domyślnych 10 s Dockera. Świadomie KRÓTKO: stary kontener, który czeka
       # na długie żądanie, wydłuża przerwę dla wszystkich pozostałych.
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      # Same żądania HTTP; pętle w tle ma `worker` niżej. Wycofanie bez rewertu:
+      # `NEXUS_BACKEND_PROCESS_ROLE=all` (workflow „Coolify set env” + deploy).
+      # Worker przechodzi wtedy w standby za blokadą lidera.
+      NEXUS_PROCESS_ROLE: ${NEXUS_BACKEND_PROCESS_ROLE:-web}
+      DB_POOL_SIZE: "40"
+      DB_MAX_OVERFLOW: "10"
     # 8 s na żądania + zamknięcie lifespanu (anulowanie pętli w tle, dispose
     # puli). Domyślne 10 s ucinało tę drugą część.
     stop_grace_period: 15s
@@ -247,6 +234,51 @@ services:
       # audyt 22.09 r2 (PROD-01): TYLKO katalog statusu hosta (cron zapisuje
       # tam `backup-volume.json` z zajętością wolumenu kopii) — read-only,
       # bez dostępu do samych dumpów. `/api/health` → `backupVolumePercent`.
+      - /var/lib/nexus-status:/run/nexus-host-status:ro
+    logging: *default-logging
+
+  # Pętle w tle, ten sam obraz co `backend`. Bez domeny, więc Traefik nie kieruje
+  # tu ruchu. `backend` robi migracje; entrypoint workera czeka, aż web odpowie.
+  # Nazwa bez „backend”: skrypty szukają kontenera po prefiksie `backend-ocgkw`.
+  # → docs/claude/podstawy/web-i-worker-osobno.md
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
+    restart: unless-stopped
+    mem_limit: 4g
+    mem_reservation: 1g
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      NEXUS_PROCESS_ROLE: worker
+      WEB_CONCURRENCY: "1"
+      # Razem z backendem 50 + 30 = 80 przy max_connections=100.
+      DB_POOL_SIZE: "15"
+      DB_MAX_OVERFLOW: "15"
+    stop_grace_period: 15s
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      # Worker czeka na migracje backendu: ten sam zapas co tam, plus jego własny start.
+      start_period: 420s
+    volumes:
+      - uploads_data:/tmp/nexus/uploads
       - /var/lib/nexus-status:/run/nexus-host-status:ro
     logging: *default-logging
 

@@ -28,12 +28,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import competition_history
+from app.services.client_interview_terms import PairTerms, load_pair_terms
 from app.services.insights_stage_breakdown import (
     _DEF_MAP_CTE,
     _JOB_FILTER_SQL,
     _KEY_CASE_SQL,
     _load_def_map,
 )
+from app.services.job_opening import in_opening_sql
 from app.services.placement_exclusions import excluded_hired_sql
 
 # Kolumny Tablicy za weryfikacją, w kolejności lejka. Klucze to klucze wierszy
@@ -70,6 +72,9 @@ STAGE_LABELS = {
 
 # Para stoi „długo”, gdy w kolumnie jest dłużej niż tyle dni.
 STALE_DAYS = 10
+# Para starsza to zwykle karta, której nikt nie zamknął, a nie realne czekanie:
+# zdanie o zatorze w Insights → Zespół jej nie liczy (decyzja Artura 05.11.2026).
+RECENT_DAYS = 30
 # Poniżej tylu rozstrzygniętych akceptacji skuteczność nie jest pokazywana.
 MIN_FORECAST_SAMPLE = 10
 
@@ -85,7 +90,8 @@ _COLUMN_CASE_SQL = (
 DEFINITIONS = {
     "columns": (
         "Stan na dziś: pary (kandydat, rekrutacja), których najnowszy etap stoi "
-        "w tej kolumnie Tablicy, w opublikowanych rekrutacjach. Od kiedy — od "
+        "w tej kolumnie Tablicy, w opublikowanych rekrutacjach. Po ponownym "
+        "otwarciu rekrutacji — tylko karty ruszone od otwarcia. Od kiedy — od "
         "wejścia do kolumny."
     ),
     "forecast": (
@@ -118,6 +124,10 @@ def forecast_range(open_count: int, hired: int, resolved: int) -> dict[str, Any]
 async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str, Any]]:
     """Pary w kolumnach za weryfikacją, z wejściem do kolumny i rekrutacją."""
 
+    # Okna zamiast złączeń CTE ze sobą: planer szacował tu 1 wiersz i liczył
+    # weryfikującego osobno w każdym obrocie pętli (05.11.2026: 681 394 razy,
+    # ok. 2 s na każde wywołanie, także dla konta z kilkoma parami). Pierwszy
+    # weryfikujący liczy się raz na parę, w `pairs`.
     job_filter = _JOB_FILTER_SQL.format(col="cs.job_id")
     rows = (
         (
@@ -137,70 +147,70 @@ async def _pairs_now(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                 columned AS (
                   SELECT k.*, {_COLUMN_CASE_SQL} AS col FROM keyed k
                 ),
-                latest AS (
-                  SELECT DISTINCT ON (candidate_id, job_id)
-                         candidate_id, job_id, key, col, moved_at
-                  FROM columned
-                  ORDER BY candidate_id, job_id, moved_at DESC, id DESC
-                ),
-                left_column AS (
-                  SELECT c.candidate_id, c.job_id, max(c.moved_at) AS at
+                with_latest AS (
+                  SELECT c.candidate_id, c.job_id, c.moved_at, c.col,
+                         first_value(c.key) OVER newest AS latest_key,
+                         first_value(c.col) OVER newest AS latest_col
                   FROM columned c
-                  JOIN latest l
-                    ON l.candidate_id = c.candidate_id AND l.job_id = c.job_id
-                  WHERE c.col IS DISTINCT FROM l.col
-                  GROUP BY c.candidate_id, c.job_id
+                  WINDOW newest AS (
+                    PARTITION BY c.candidate_id, c.job_id
+                    ORDER BY c.moved_at DESC, c.id DESC
+                  )
+                ),
+                with_left_at AS (
+                  SELECT w.*,
+                         max(w.moved_at) FILTER (
+                           WHERE w.col IS DISTINCT FROM w.latest_col
+                         ) OVER (PARTITION BY w.candidate_id, w.job_id) AS left_at
+                  FROM with_latest w
+                  WHERE w.latest_col IS NOT NULL
                 ),
                 entered AS (
-                  SELECT c.candidate_id, c.job_id, min(c.moved_at) AS at
-                  FROM columned c
-                  JOIN latest l
-                    ON l.candidate_id = c.candidate_id AND l.job_id = c.job_id
-                   AND c.col = l.col
-                  LEFT JOIN left_column lc
-                    ON lc.candidate_id = c.candidate_id AND lc.job_id = c.job_id
-                  WHERE lc.at IS NULL OR c.moved_at > lc.at
-                  GROUP BY c.candidate_id, c.job_id
+                  SELECT candidate_id, job_id, latest_key AS key, latest_col AS col,
+                         min(moved_at) FILTER (
+                           WHERE col = latest_col
+                             AND (left_at IS NULL OR moved_at > left_at)
+                         ) AS entered_at,
+                         max(moved_at) AS last_moved_at
+                  FROM with_left_at
+                  GROUP BY candidate_id, job_id, latest_key, latest_col
+                ),
+                pairs AS MATERIALIZED (
+                  SELECT e.*,
+                         (
+                           SELECT v.moved_by FROM candidate_stages v
+                           WHERE v.candidate_id = e.candidate_id
+                             AND v.job_id = e.job_id
+                             AND v.stage::text = 'verified'
+                             AND v.moved_by IS NOT NULL
+                           ORDER BY v.moved_at, v.id
+                           LIMIT 1
+                         ) AS verifier_id
+                  FROM entered e
+                  JOIN jobs oj ON oj.id = e.job_id
+                  WHERE e.entered_at IS NOT NULL
+                    -- Karta z poprzedniego otwarcia nie jest „w drodze”
+                    -- (`job_opening`, 05.11.2026).
+                    AND {in_opening_sql("oj", "e.last_moved_at")}
                 )
-                SELECT l.candidate_id, l.job_id, l.key, l.col,
-                       e.at AS entered_at,
+                SELECT p.candidate_id, p.job_id, p.key, p.col, p.entered_at,
                        j.title AS job_title, j.client_id,
                        cl.name AS client_name,
                        dl.name AS delivery_lead_name,
                        concat_ws(' ', cand.name, cand.lastname) AS candidate_name,
-                       (
-                         SELECT v.moved_by FROM candidate_stages v
-                         WHERE v.candidate_id = l.candidate_id
-                           AND v.job_id = l.job_id
-                           AND v.stage::text = 'verified'
-                           AND v.moved_by IS NOT NULL
-                         ORDER BY v.moved_at, v.id
-                         LIMIT 1
-                       ) AS verifier_id
-                FROM latest l
-                JOIN entered e
-                  ON e.candidate_id = l.candidate_id AND e.job_id = l.job_id
-                JOIN jobs j ON j.id = l.job_id
-                JOIN candidates cand ON cand.id = l.candidate_id
+                       p.verifier_id
+                FROM pairs p
+                JOIN jobs j ON j.id = p.job_id
+                JOIN candidates cand ON cand.id = p.candidate_id
                 LEFT JOIN clients cl ON cl.id = j.client_id
                 LEFT JOIN users dl ON dl.id = j.delivery_lead_id
-                WHERE l.col IS NOT NULL
-                  AND (
-                    CAST(:owner_kind AS text) IS NULL
-                    OR (CAST(:owner_kind AS text) = 'delivery_lead'
-                        AND j.delivery_lead_id = :owner_id)
-                    -- Ta sama zasługa co „Mój miesiąc” i wyścigi: pierwszy
-                    -- weryfikujący pary.
-                    OR (CAST(:owner_kind AS text) = 'verifier' AND (
-                      SELECT v.moved_by FROM candidate_stages v
-                      WHERE v.candidate_id = l.candidate_id
-                        AND v.job_id = l.job_id
-                        AND v.stage::text = 'verified'
-                        AND v.moved_by IS NOT NULL
-                      ORDER BY v.moved_at, v.id
-                      LIMIT 1
-                    ) = :owner_id)
-                  )
+                WHERE CAST(:owner_kind AS text) IS NULL
+                  OR (CAST(:owner_kind AS text) = 'delivery_lead'
+                      AND j.delivery_lead_id = :owner_id)
+                  -- Ta sama zasługa co „Mój miesiąc” i wyścigi: pierwszy
+                  -- weryfikujący pary.
+                  OR (CAST(:owner_kind AS text) = 'verifier'
+                      AND p.verifier_id = :owner_id)
                 """
                 ),
                 params,
@@ -222,6 +232,8 @@ async def _resolved_acceptances(
     zamknięcie procesu. Rekrutacja może być już zamknięta — liczy się los pary.
     """
 
+    # Etapy liczone tylko dla par z akceptacją w oknie, bez przeliczania całej
+    # historii (ok. 227 tys. wierszy) przy każdym wywołaniu „Moich osób w drodze”.
     job_filter = _JOB_FILTER_SQL.format(col="cs.job_id")
     row = (
         (
@@ -229,26 +241,26 @@ async def _resolved_acceptances(
                 text(
                     f"""
                 WITH {_DEF_MAP_CTE},
-                keyed AS (
-                  SELECT cs.id, cs.candidate_id, cs.job_id, cs.moved_at, cs.stage,
-                         {_KEY_CASE_SQL} AS key
+                accepted AS MATERIALIZED (
+                  SELECT DISTINCT cs.candidate_id, cs.job_id
                   FROM candidate_stages cs
                   LEFT JOIN def_map m ON m.def_id = cs.stage_def_id
                   WHERE {job_filter}
                     AND {excluded_hired_sql("cs")}
-                ),
-                accepted AS (
-                  SELECT DISTINCT candidate_id, job_id
-                  FROM keyed
-                  WHERE key IN ('acceptance', 'contract_sent', 'contract_signed')
-                    AND moved_at >= :since
+                    AND cs.moved_at >= :since
+                    AND {_KEY_CASE_SQL} IN (
+                      'acceptance', 'contract_sent', 'contract_signed'
+                    )
                 ),
                 latest AS (
-                  SELECT DISTINCT ON (k.candidate_id, k.job_id) k.key
-                  FROM keyed k
-                  JOIN accepted a
-                    ON a.candidate_id = k.candidate_id AND a.job_id = k.job_id
-                  ORDER BY k.candidate_id, k.job_id, k.moved_at DESC, k.id DESC
+                  SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
+                         {_KEY_CASE_SQL} AS key
+                  FROM accepted a
+                  JOIN candidate_stages cs
+                    ON cs.candidate_id = a.candidate_id AND cs.job_id = a.job_id
+                  LEFT JOIN def_map m ON m.def_id = cs.stage_def_id
+                  WHERE {excluded_hired_sql("cs")}
+                  ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
                 )
                 SELECT
                   count(*) FILTER (WHERE key IN ('hired', 'onboarding')) AS hired,
@@ -346,6 +358,10 @@ async def compute_in_flight(
                 "count": len(in_col),
                 "stale_count": sum(1 for a in ages if a > STALE_DAYS),
                 "oldest_days": max(ages) if ages else None,
+                "recent_count": sum(1 for a in ages if a <= RECENT_DAYS),
+                "recent_stale_count": sum(
+                    1 for a in ages if STALE_DAYS < a <= RECENT_DAYS
+                ),
             }
         )
 
@@ -369,28 +385,52 @@ async def compute_in_flight(
             key=lambda a: (-a["days"], a["client_name"] or "", a["job_id"]),
         )
 
-    people = None
+    people: Optional[list[dict[str, Any]]] = None
     if with_people:
         order = {col: i for i, (col, _label, _keys) in enumerate(COLUMNS)}
-        people = sorted(
-            (
+        terms = await load_pair_terms(
+            db,
+            ((p["candidate_id"], p["job_id"]) for p in pairs),
+            today=today,
+        )
+
+        def term_of(p: dict[str, Any]) -> PairTerms:
+            return terms.get((p["candidate_id"], p["job_id"]), PairTerms())
+
+        def sort_key(p: dict[str, Any]) -> tuple[int, bool, float, int, int]:
+            # Najpierw najbliżej placementu; w kolumnie rozmowy przed nami od
+            # najbliższej, dalej — najdłużej czekający.
+            upcoming = term_of(p).next_at
+            return (
+                -order[p["col"]],
+                upcoming is None,
+                upcoming.timestamp() if upcoming else 0.0,
+                -days_in(p),
+                p["candidate_id"],
+            )
+
+        people = []
+        for p in sorted(pairs, key=sort_key):
+            term = term_of(p)
+            people.append(
                 {
                     **common(p),
                     "candidate_id": p["candidate_id"],
                     "candidate_name": p["candidate_name"],
                     "column": p["col"],
+                    "client_interview_at": (
+                        term.interview_at.isoformat() if term.interview_at else None
+                    ),
+                    "start_on": term.start_on.isoformat() if term.start_on else None,
                 }
-                for p in pairs
-            ),
-            # Najpierw najbliżej placementu, w kolumnie — najdłużej czekający.
-            key=lambda x: (-order[x["column"]], -x["days"], x["candidate_id"]),
-        )
+            )
 
     hired, resolved = await _resolved_acceptances(db, params)
     open_count = next(c["count"] for c in columns if c["column"] == "contract")
     return {
         "asof": today.isoformat(),
         "stale_days": STALE_DAYS,
+        "recent_days": RECENT_DAYS,
         "columns": columns,
         "acceptances": acceptances,
         "people": people,

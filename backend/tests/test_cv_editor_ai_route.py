@@ -16,6 +16,7 @@ from sqlalchemy import delete, select
 
 from app.api.cv_editor_ai import (
     COMMAND_TEXT_TOTAL_MAX,
+    AppliedRequest,
     CommandRequest,
     ConfirmFactRequest,
     SelectionRequest,
@@ -39,6 +40,14 @@ BASE = {
     "fragment": "Rozwój usług w **Java 17**",
     "block_text": "Rozwój usług w **Java 17** i Spring Boot.",
 }
+
+
+def test_applied_request_takes_counts_only() -> None:
+    assert AppliedRequest(operations=3, preset="req_duties").operations == 3
+    with pytest.raises(ValidationError):
+        AppliedRequest(operations=0)
+    with pytest.raises(ValidationError):
+        AppliedRequest(operations=command_ai.OPERATIONS_MAX + 1)
 
 
 def test_request_accepts_the_shape_the_editor_sends() -> None:
@@ -254,6 +263,13 @@ def test_command_request_accepts_own_words_or_a_preset() -> None:
     assert preset.command is None
 
 
+@pytest.mark.parametrize("name", sorted(command_ai.PRESETS))
+def test_every_preset_of_the_service_passes_the_route_schema(name: str) -> None:
+    # Przycisk asystenta wysyła nazwę presetu; nazwa znana usłudze, a nie
+    # trasie, kończy się 422 zanim model zostanie wywołany (#3137).
+    assert CommandRequest(preset=name, lines=COMMAND["lines"]).preset == name
+
+
 def test_command_request_carries_the_conversation_and_selection() -> None:
     body = CommandRequest(
         **COMMAND,
@@ -401,6 +417,8 @@ async def test_plan_is_returned_and_the_draft_is_left_alone(
                     "asks": 1,
                     "history": 0,
                     "focus": False,
+                    "question": False,
+                    "reasons": {},
                 }
             ]
             await db.execute(

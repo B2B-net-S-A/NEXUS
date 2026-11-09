@@ -61,3 +61,77 @@ async def test_marked_row_leaves_scope_until_cv_text_changes(app_client):
     assert not await _in_scope(marked)
     assert await _in_scope(stale), "nowy tekst CV wraca do scope'u"
     assert await _in_scope(unmarked)
+
+
+@pytest.mark.asyncio
+async def test_read_of_another_person_leaves_a_review_and_no_facts(
+    app_client, monkeypatch
+):
+    """Na prawdziwej bazie: znacznik do przeglądu jest, faktów nie ma, tekst zostaje."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.services import cv_field_backfill as runner
+    from app.services.candidate_identity_quarantine import (
+        MISMATCH_HELD_EVIDENCE,
+        get_identity_review,
+    )
+
+    class _OkFeature:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def fake_parse(cv_text, *, model, template):
+        return {
+            "first_name": "Ewa",
+            "last_name": "Fikcyjna",
+            "city": "Gdańsk",
+            "skills": ["Python"],
+            "_confidence": {},
+        }
+
+    monkeypatch.setattr(runner, "ai_feature", _OkFeature)
+    monkeypatch.setattr(runner, "parse_cv_with_claude", fake_parse)
+    monkeypatch.setattr(runner, "SLEEP_BETWEEN_CALLS_S", 0)
+
+    text_before = "Doświadczenie innej osoby. " * 20
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Jan",
+            lastname=f"Testowy{uuid.uuid4().hex[:6]}",
+            email=f"bramka-{uuid.uuid4().hex[:8]}@example.com",
+            raw_cv_text=text_before,
+            cv_storage_key=f"cv/{uuid.uuid4().hex}.pdf",
+        )
+        db.add(candidate)
+        await db.commit()
+        candidate_id = candidate.id
+
+    async with AsyncSessionLocal() as db:
+        stats = await runner.backfill_cv_fields(db, candidate_ids=[candidate_id])
+    assert stats["identity_mismatch_held"] == 1
+    assert stats["identity_mismatch_ids"] == [candidate_id]
+
+    async with AsyncSessionLocal() as db:
+        saved = await db.get(Candidate, candidate_id)
+        assert saved.raw_cv_text == text_before, "własne CV nie może stracić tekstu"
+        assert saved.city is None
+        review = await get_identity_review(
+            db,
+            candidate_id=candidate_id,
+            source_kind="legacy_cv",
+            source_id=candidate_id,
+        )
+        assert review is not None and not review.is_quarantined
+        assert review.evidence[MISMATCH_HELD_EVIDENCE] is True
+
+    async with AsyncSessionLocal() as db:
+        again = await runner.backfill_cv_fields(db, candidate_ids=[candidate_id])
+    assert again["processed"] == 0, "kolejny bieg nie płaci za ten sam tekst"

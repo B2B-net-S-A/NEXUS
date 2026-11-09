@@ -110,6 +110,8 @@ def test_finance_gets_contracts_and_the_finance_module() -> None:
         "finance_module",
         # D2 (16.10.2026): Finanse prowadzą stawki pracowników i rozliczenie.
         "payroll",
+        # 04.11.2026: zakładki o zamówieniach poza „Modułem Finanse”.
+        "orders_work",
     }
     assert access.sections[ProductSection.delivery] is SectionAccess.write
     assert access.sections[ProductSection.finance] is SectionAccess.write

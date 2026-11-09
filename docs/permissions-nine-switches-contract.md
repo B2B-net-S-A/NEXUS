@@ -268,7 +268,7 @@ Ciało bez zmian (`revision`, `changes`, `action_changes`).
 
 - `role_permissions` — to, co dają role konta (po zależnościach).
 - `grants` — uprawnienia nadane osobie (`manage` w wyjątkach).
-- `restrictions` — stare wyjątki odbierające (`none`); nowy ekran ich nie tworzy.
+- `restrictions` — uprawnienia odebrane tej osobie (`none`, pozycja „Odebrane”).
 - `legacy_section_caps` — stare wyjątki sekcji Delivery/Finanse (tylko ograniczają).
 - `locked: true` dla admina; `grantable: false` dla ról `user`, `trainee`.
 
@@ -276,11 +276,17 @@ Ciało bez zmian (`revision`, `changes`, `action_changes`).
 
 Ciało bez zmian.
 
-- `action_changes` dla dziewięciu uprawnień: `access` ∈ `manage` | `inherit`.
-  `none` → 422 `{"code": "additive_only"}` (uprawnienia osoby tylko dodają).
+- `action_changes` dla uprawnień z katalogu: `access` ∈ `manage` | `none` |
+  `inherit`. Od 02.11.2026 (decyzja właściciela) admin może odebrać uprawnienie
+  jednej osobie; wcześniej `none` dawało 422 `additive_only`.
+- `none`, a także zmiana przywracająca coś, czego wymaga wiersz `none`, gdy
+  odebrane jest wymagane przez uprawnienie zachowane po tej samej zmianie → 422
+  `{"code": "permission_required_by_kept", "message": …}`.
 - `changes` z sekcją `delivery` / `finance`: wyłącznie `inherit` (zdjęcie starego
   ograniczenia); poziom → 422 `derived_section_access`.
-- Konto `user` / `trainee` → 422 `role_not_grantable`.
+- `manage` dla konta bez roli przyjmującej nadania (`user`, `trainee`, `board`)
+  → 422 `role_not_grantable`; `none` i `inherit` przechodzą.
+- Administrator → 422 `immutable_admin_access`.
 - Wpis w Historii zdarzeń: `rbac.user_permissions`.
 
 ### `GET /api/admin/users`
@@ -306,7 +312,8 @@ Zmiana uprawnień roli albo osoby nadal unieważnia sesje dotkniętych kont
   „Uprawnienia roli”; `rbac.user_permissions`: obiekt „Uprawnienia
   użytkownika”. `details.changes` niesie klucze uprawnień z wartościami
   `from` / `to`; kolumna „powód” — zdanie z nazwami („Włączono: …”, „Nadano: …”,
-  „Usunięto ograniczenie: …”). Wpis powstaje w tej samej transakcji co zmiana.
+  „Odebrano: …”, „Usunięto ograniczenie: …”). Wpis powstaje w tej samej transakcji
+  co zmiana.
 - `role_not_grantable` przy osobie dotyczy NADANIA (`manage`); zdjęcie starego
   ograniczenia (`inherit`) przechodzi dla każdego konta poza adminem.
 

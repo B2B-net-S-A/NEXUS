@@ -54,6 +54,37 @@ const PLAN: MergePlan = {
   moved_rows: 32,
   conflicts: 1,
   blockers: [],
+  cards: [
+    {
+      job_id: 7301,
+      job_title: "Analityk danych",
+      survivor_stage: "cv_sent",
+      survivor_stage_name: "CV Wysłane",
+      duplicate_stage: "screening",
+      duplicate_stage_name: "Screening",
+      result_stage: "cv_sent",
+      result_stage_name: "CV Wysłane",
+      kept: "survivor",
+      restores: true,
+    },
+    {
+      job_id: 7302,
+      job_title: "Programista Java",
+      survivor_stage: "new",
+      survivor_stage_name: "Nowi / Analiza CV",
+      duplicate_stage: "rejected",
+      duplicate_stage_name: "Odrzucony",
+      result_stage: "rejected",
+      result_stage_name: "Odrzucony",
+      kept: "duplicate",
+      restores: true,
+    },
+  ],
+  primary_cv: {
+    before: null,
+    after: { document_id: 501, filename: "CV_przykladowe.pdf", from_duplicate: true },
+    changes: true,
+  },
   can_apply: true,
   fingerprint: "0".repeat(64),
 };
@@ -65,7 +96,7 @@ const BLOCKED: MergePlan = {
   blockers: [
     {
       code: "both_external",
-      message: "Oba profile pochodzą z tego samego systemu zewnętrznego (traffit) — scal je najpierw tam, inaczej nocny import odtworzy usunięty profil.",
+      message: "Oba profile pochodzą z tego samego systemu zewnętrznego (talent_radar) — scal je najpierw tam, inaczej nocny import odtworzy usunięty profil.",
     },
   ],
 };

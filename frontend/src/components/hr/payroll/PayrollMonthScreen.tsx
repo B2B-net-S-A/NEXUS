@@ -27,7 +27,6 @@ import {
   closeConflict,
   payrollPaths,
   useApproveBonus,
-  useCancelBonus,
   useCloseMonth,
   usePayrollMonth,
   type BonusRow,
@@ -41,15 +40,17 @@ import {
 } from "@/lib/api/hr-time";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
-import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl, shiftMonth } from "@/lib/date-pl";
 import { capitalize } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
 import { BonusDeleteDialog } from "./BonusDeleteDialog";
+import { ClawbackDialog } from "./ClawbackDialog";
+import { ClawbacksSection } from "./ClawbacksSection";
 import { SettlementImportDialog } from "./SettlementImportDialog";
 import { BonusTable } from "./BonusTable";
+import { DoubleBonusCard } from "./DoubleBonusCard";
 import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
 import { SymfoniaExportButton } from "./payments/SymfoniaExportButton";
@@ -66,6 +67,7 @@ import {
   ymSegment,
 } from "./payroll-format";
 import { MONTH_VIEW, PAYROLL_MONTH_TABS, payrollMonthTabs } from "./payroll-month-tabs";
+import { useCancelBonusRow } from "./useCancelBonusRow";
 
 /**
  * „Ludzie → Płace → miesiąc”: osoby, premie do decyzji, eksport i zamknięcie.
@@ -84,13 +86,14 @@ export function PayrollMonthScreen({
   const detail = usePayrollMonth(year, month);
   const close = useCloseMonth(year, month);
   const approve = useApproveBonus();
-  const cancel = useCancelBonus();
   const me = useAuthStore((state) => state.user);
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const cancelRow = useCancelBonusRow(askConfirm);
   const [bonusOpen, setBonusOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [deleting, setDeleting] = useState<BonusRow | null>(null);
+  const [clawing, setClawing] = useState<BonusRow | null>(null);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
@@ -132,7 +135,7 @@ export function PayrollMonthScreen({
   const closeMonth = async () => {
     const ok = await askConfirm({
       title: `Zamknąć ${data?.label ?? "miesiąc"}?`,
-      description: `Kwoty zostaną zamrożone, a timesheety tego miesiąca zablokowane.${
+      description: `Kwoty zostaną zamrożone, a raporty godzin tego miesiąca zablokowane.${
         acknowledged ? " Ostrzeżenia z kroku „Kontrola” są potwierdzone." : ""
       } Ponownie otworzyć miesiąc może tylko administrator.`,
       confirmLabel: "Zamknij miesiąc",
@@ -183,46 +186,21 @@ export function PayrollMonthScreen({
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zatwierdzić."), "error"),
     });
 
-  const cancelRow = async (row: BonusRow) => {
-    const proposal = row.status === "proposed";
-    const ok = await askConfirm({
-      title: proposal ? "Odrzucić propozycję premii?" : "Anulować premię?",
-      description: `${row.recipient_name ?? "Osoba"} · ${formatMoney(row.amount, row.currency)}. ${
-        proposal
-          ? row.source === "manual"
-            ? "Propozycja zniknie z decyzji Płac."
-            : "Automat nie zaproponuje jej ponownie."
-          : "Osoba dostanie powiadomienie o anulowaniu (bez kwoty)."
-      }`,
-      confirmLabel: proposal ? "Odrzuć" : "Anuluj premię",
-      cancelLabel: "Zostaw",
-      variant: "destructive",
-    });
-    if (!ok) return;
-    cancel.mutate(
-      { id: row.id },
-      {
-        onSuccess: () => showToast(proposal ? "Propozycja odrzucona" : "Premia anulowana", "success"),
-        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
-      },
-    );
-  };
-
   if (state === "loading") {
     return <p className="p-6 text-sm text-muted-foreground">Wczytywanie miesiąca…</p>;
   }
   if (state !== "ready" || !data) {
     return (
       <div className="space-y-4">
-        <PageHeader title={`Płace · ${label}`} density="compact" />
+        <PageHeader title={`Rozliczenia · ${label}`} density="compact" />
         <PeopleSectionNav config={config} active="payroll" />
         <QueryStateNotice
           state={state === "forbidden" || state === "not_found" ? state : "error"}
           description={
             state === "forbidden"
-              ? "Miesiąc płac widzą Płace i koordynatorzy (godziny i premie swojego zespołu)."
+              ? "Miesiąc rozliczeń widzą Rozliczenia i koordynatorzy (godziny i premie swojego zespołu)."
               : state === "not_found"
-                ? "Moduł Płac nie jest jeszcze włączony."
+                ? "Moduł Rozliczeń nie jest jeszcze włączony."
                 : undefined
           }
           onRetry={() => detail.refetch()}
@@ -252,7 +230,7 @@ export function PayrollMonthScreen({
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`Płace · ${label}`}
+        title={`Rozliczenia · ${label}`}
         description={
           data.status === "closed"
             ? `Miesiąc zamknięty${data.closed_at ? ` ${formatIsoDatePl(data.closed_at)}` : ""} — kwoty zamrożone.`
@@ -278,12 +256,12 @@ export function PayrollMonthScreen({
                 disabled={downloading !== null || !config.open_modules.time}
                 title={
                   config.open_modules.time
-                    ? "Zaakceptowane timesheety miesiąca w jednym pliku."
+                    ? "Potwierdzone raporty godzin miesiąca w jednym pliku."
                     : "Paczka PDF-ów ruszy po włączeniu modułu czasu pracy."
                 }
               >
                 <FileArchive className="h-4 w-4" aria-hidden />
-                {downloading === "zip" ? "Pobieranie…" : "PDF-y timesheetów (ZIP)"}
+                {downloading === "zip" ? "Pobieranie…" : "PDF-y raportów godzin (ZIP)"}
               </Button>
               {config.open_modules.settlements ? (
                 <SymfoniaExportButton year={year} month={month} closed={data.status === "closed"} />
@@ -363,6 +341,7 @@ export function PayrollMonthScreen({
                   )}
                 </div>
               ) : null}
+              <DoubleBonusCard year={year} month={month} open={open} />
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                 <PayoutCard people={data.people} />
                 <DecisionPanel
@@ -473,9 +452,15 @@ export function PayrollMonthScreen({
                   rows={assigned}
                   renderActions={(row) => {
                     const actions = assignedBonusActions(row, { open, payroll, meId: me?.id });
-                    if (!actions.edit && !actions.cancel) return null;
+                    // Zwrot z gwarancji także w zamkniętym miesiącu: premia jest już wypłacona.
+                    if (!actions.edit && !actions.cancel && !row.can_clawback) return null;
                     return (
                       <div className="flex justify-end gap-1">
+                        {row.can_clawback ? (
+                          <Button size="sm" variant="ghost" onClick={() => setClawing(row)}>
+                            Zwrot z gwarancji
+                          </Button>
+                        ) : null}
                         {actions.edit ? (
                           <Button size="sm" variant="ghost" onClick={() => setEditing(row)}>
                             Zmień
@@ -493,6 +478,8 @@ export function PayrollMonthScreen({
               )}
             </section>
           ) : null}
+
+          {payroll ? <ClawbacksSection meId={me?.id} /> : null}
         </>
       )}
 
@@ -530,6 +517,9 @@ export function PayrollMonthScreen({
         />
       ) : null}
       {deleting ? <BonusDeleteDialog row={deleting} onClose={() => setDeleting(null)} /> : null}
+      {clawing ? (
+        <ClawbackDialog mode="register" bonus={clawing} onClose={() => setClawing(null)} />
+      ) : null}
       {reopenOpen ? (
         <ReopenMonthDialog
           open={reopenOpen}

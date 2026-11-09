@@ -25,13 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "DELETE /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/interview-feedback/{feedback_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/interview-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.board_tasks import BoardTaskRow
@@ -167,6 +167,12 @@ class DlReviewContext(BaseModel):
     category_name: Optional[str] = None
     qc_status: str
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): zdane QC, ale tych blokujących sprawdzeń nikt nie
+    # sprawdził („sprawdź ręcznie”).
+    qc_manual: list[str] = Field(default_factory=list)
+    # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
+    qc_gaps: list[str] = Field(default_factory=list)
+    qc_state: Optional[dict] = None
     qc_override: Optional[QcOverrideOut] = None
     can_see_amounts: bool
     can_see_client_rates: bool
@@ -200,6 +206,9 @@ class DlReviewQueueItem(BaseModel):
     stage_id: Optional[int] = None
     since: datetime
     qc_status: Optional[str] = None
+    qc_manual: list[str] = Field(default_factory=list)
+    qc_gaps: list[str] = Field(default_factory=list)
+    qc_state: Optional[dict] = None
     overall_fit: Optional[str] = None
     overall_fit_label: Optional[str] = None
     requirements_met: int

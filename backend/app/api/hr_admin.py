@@ -43,6 +43,7 @@ class ProfileFields(BaseModel):
     default_location: Optional[Location] = None
     timesheet_required: Optional[bool] = None
     can_log_overtime: Optional[bool] = None
+    no_hours_limit: Optional[bool] = None
     job_title: Optional[str] = Field(default=None, max_length=200)
     department: Optional[str] = Field(default=None, max_length=200)
     phone: Optional[str] = Field(default=None, max_length=64)

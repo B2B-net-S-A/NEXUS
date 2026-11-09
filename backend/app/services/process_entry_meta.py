@@ -147,8 +147,14 @@ def _caution(raw: Any) -> Optional[dict]:
     return None
 
 
-def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
-    """Plakietka osoby od systemu — tylko znane pola; cokolwiek innego = ``None``."""
+def autofill_badge(
+    meta: Any, *, waiting_days: Optional[int], in_new_column: bool
+) -> Optional[dict]:
+    """Plakietka osoby od systemu — tylko znane pola; cokolwiek innego = ``None``.
+
+    Termin i prośba o decyzję dotyczą tylko kolumny „Nowi”, jak listy zadań
+    (``autofill_decisions.due_decisions``): przesunięcie dalej też jest decyzją.
+    """
     from app.services.autofill_decisions import decided, decision_due
 
     if not isinstance(meta, dict) or meta.get("kind") != AUTOFILL_KIND:
@@ -156,6 +162,7 @@ def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
     score = meta.get("score")
     if not isinstance(score, (int, float)) or isinstance(score, bool):
         return None
+    days = waiting_days if in_new_column else None
     return {
         "score": int(round(score)),
         "matched_must": _names(meta.get("matched_must")),
@@ -163,8 +170,9 @@ def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
         "rate_known": meta.get("rate_from_hourly") is not None,
         "availability_known": bool(meta.get("availability_date")),
         "decided": decided(meta),
-        "waiting_days": waiting_days,
-        "decision_due": decision_due(waiting_days),
+        "awaiting_decision": in_new_column and not decided(meta),
+        "waiting_days": days,
+        "decision_due": decision_due(days),
         "cautions": [
             c
             for c in (_caution(raw) for raw in (meta.get("cautions") or []))
@@ -214,7 +222,14 @@ def application_screening_entry_meta(
 
 
 def application_screening_badge(meta: Any) -> Optional[dict]:
-    """Plakietka dla frontu — tylko znane pola; cokolwiek innego = ``None``."""
+    """Plakietka dla frontu — tylko znane pola; cokolwiek innego = ``None``.
+
+    07.11.2026: wynik „Sprawdź w CV” przy zgłoszeniu z brakiem „musi mieć”
+    leży pod kluczem ``ai_check`` obok rodzaju wejścia (link, portal), żeby
+    nie gubić plakietki źródła.
+    """
+    if isinstance(meta, dict) and meta.get("kind") != APPLICATION_SCREENING_KIND:
+        meta = meta.get(AI_CHECK_KEY)
     if not isinstance(meta, dict) or meta.get("kind") != APPLICATION_SCREENING_KIND:
         return None
     verdict = meta.get("verdict")
@@ -246,6 +261,29 @@ def application_screening_badge(meta: Any) -> Optional[dict]:
 APPLICATION_LINK_KIND = "application_link"
 LINK_OWNER_KEY = "link_owner_id"
 _LINK_OWNER_KINDS = (APPLICATION_LINK_KIND, APPLICATION_SCREENING_KIND)
+
+
+# „Sprawdź w CV” przy zgłoszeniu z brakiem „musi mieć” (07.11.2026).
+AI_CHECK_KEY = "ai_check"
+
+
+# Aplikacja z formularza portalu (06.11.2026, ``services/portal_application``):
+# plakietka „Z JustJoin.IT” obok „Z Twojego linku”.
+PORTAL_APPLICATION_KIND = "portal_application"
+PORTAL_APPLICATION_PORTALS = ("justjoinit", "rocketjobs", "pracuj")
+
+
+def portal_application_entry_meta(portal: str) -> dict:
+    """Kształt ``entry_meta`` aplikacji z formularza portalu."""
+    return {"kind": PORTAL_APPLICATION_KIND, "portal": portal}
+
+
+def portal_application_portal(meta: Any) -> Optional[str]:
+    """Portal, z którego osoba aplikowała; ``None`` = inne wejście."""
+    if not isinstance(meta, dict) or meta.get("kind") != PORTAL_APPLICATION_KIND:
+        return None
+    portal = meta.get("portal")
+    return portal if portal in PORTAL_APPLICATION_PORTALS else None
 
 
 def application_link_entry_meta(link_owner_id: int) -> dict:

@@ -25,10 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/merge-preview": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/merge": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

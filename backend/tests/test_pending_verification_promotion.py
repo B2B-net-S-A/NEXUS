@@ -28,7 +28,7 @@ from app.models.recruitment_pipeline import (
 )
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
-from app.services.pending_verification_promotion import (
+from scripts.repairs.pending_verification_promotion import (
     run_pending_verification_promotion,
 )
 

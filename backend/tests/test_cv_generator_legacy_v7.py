@@ -10,6 +10,7 @@ for the rest of the suite, so every test here deletes both variables first.
 
 import hashlib
 import json
+import re
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -24,6 +25,7 @@ from app.services.cv_generator_b2b.legacy_v7 import (
     legacy_pipeline_enabled,
     pipeline as legacy,
 )
+from app.services.cv_generator_b2b.legacy_v7 import _helpers
 from app.services.cv_generator_b2b.legacy_v7.prompts import (
     get_prompt as legacy_prompt,
 )
@@ -188,7 +190,8 @@ def test_one_model_call_reads_the_raw_cv_with_the_v7_prompt(defaults):
 def test_frozen_v7_prompt_keeps_the_baseline_instructions():
     prompt = legacy_prompt("pl", False, "tailored")
     assert prompt.startswith("Jesteś ekspertem w analizie CV.")
-    assert "NIE zaniżaj" in prompt
+    assert "Ponad N lat" in prompt
+    assert "do ~30 słów" in prompt
     assert "<source_facts>" not in prompt
     assert legacy_prompt("en", False, "polished").startswith(
         "You are an expert in CV analysis."
@@ -218,11 +221,12 @@ def test_missing_industry_stays_empty_instead_of_a_guessed_it(defaults):
     assert result.render_payload["experience"][0]["industry"] == ""
 
 
-def test_career_headline_uses_the_baseline_rounding(defaults):
-    # 01.2015–07.2019 = 55 months: the baseline rounds to 5, the rebuilt
-    # pipeline floors to 4.
+def test_career_headline_floors_and_says_over(defaults):
+    # 01.2015–07.2019 = 55 months: decyzja z 02.11.2026 — bez zaokrąglania w górę.
     result = _run()
-    assert result.render_payload["why_points"][0].startswith("5 lat doświadczenia")
+    assert result.render_payload["why_points"][0].startswith(
+        "Ponad 4 lata doświadczenia"
+    )
 
 
 def test_overlong_bullets_are_shortened_not_rejected(defaults):
@@ -531,7 +535,7 @@ def test_company_bound_figure_is_recomputed_from_that_companys_roles():
     }
     _fix_scoped_years(data, "pl")
     # Only Zeta's 68 months count (→ 6), never Beta's.
-    assert data["why_points"] == ["6 lat w Test Company Zeta przy testach API"]
+    assert data["why_points"] == ["Ponad 5 lat w Test Company Zeta przy testach API"]
 
 
 def test_scoped_fix_never_adds_years_from_another_role():
@@ -559,10 +563,6 @@ def test_scoped_fix_never_adds_years_from_another_role():
 
 
 def test_ongoing_role_figure_lands_in_document_without_coverage_warning(defaults):
-    from app.services.cv_generator_b2b.legacy_v7._helpers import (
-        _total_experience_years,
-    )
-
     role = {
         "dates": "01.2019 – obecnie",
         "company": "Test Company Alfa",
@@ -574,9 +574,9 @@ def test_ongoing_role_figure_lands_in_document_without_coverage_warning(defaults
         why_points=["6 lat jako Backend Developer"], experience=[role]
     )
     result = _run()
-    expected = _total_experience_years([role])
     point = result.render_payload["why_points"][0]
-    assert point.startswith(f"{expected} ")
+    # Daty liczy kod: nigdy „6 lat” modelu przy roli od 01.2019.
+    assert re.match(r"(Ponad )?[7-9] lat ", point), point
     assert point.endswith("jako Backend Developer")
     assert not any(
         w.startswith("BRAK POKRYCIA") and "why_points" in w for w in result.warnings
@@ -633,7 +633,8 @@ def test_year_only_start_does_not_count_both_boundary_years_in_full(monkeypatch,
 
     monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
     # Źródło: „5 lat doświadczenia”, rola 2021–2026. Do rundy 10 styczeń
-    # 2021 – wrzesień 2026 = 69 miesięcy → 6 lat w nagłówku CV.
+    # 2021 – wrzesień 2026 = 69 miesięcy → 6 lat w nagłówku CV. Rok bez miesiąca
+    # liczy się od lipca: 63 miesiące, więc „Ponad 5” (zasada z 02.11.2026).
     assert _helpers._total_experience_years([{"dates": dates}]) == 5
 
     data = {
@@ -648,7 +649,8 @@ def test_year_only_start_does_not_count_both_boundary_years_in_full(monkeypatch,
         "why_points": ["6 lat doświadczenia jako QA Manual Tester"],
     }
     _helpers._fix_experience_years(data, "pl")
-    assert data["why_points"] == ["5 lat doświadczenia jako QA Manual Tester"]
+    expected = "5 lat" if dates == "2021 - 2026" else "Ponad 5 lat"
+    assert data["why_points"] == [f"{expected} doświadczenia jako QA Manual Tester"]
 
 
 def test_year_only_adjacent_roles_sum_to_the_calendar_difference(monkeypatch):
@@ -791,6 +793,320 @@ def test_presentation_instructions_keep_the_client_role_untranslated():
     assert "Programista Python" not in text
 
 
+# ── Standard 5 punktów „Dlaczego nasz kandydat” (05.11.2026) ─────────────
+
+
+def _standard_data(points):
+    return {
+        "why_points": list(points),
+        "experience": [
+            {"dates": "01.2023 – 12.2025", "company": "Acme", "position": "QA"}
+        ],
+    }
+
+
+FIVE = ["3 lata doświadczenia jako QA", "Specjalizacja: Selenium", "a", "b", "c"]
+
+
+def test_five_points_with_years_need_no_warning():
+    data = _standard_data(FIVE)
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert data["why_points"] == FIVE
+
+
+def test_sixth_point_goes_but_the_last_one_stays():
+    data = _standard_data([*FIVE[:4], "nadmiarowy", "Praca w Scrumie w Acme"])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"] == [*FIVE[:4], "Praca w Scrumie w Acme"]
+    assert any("skrócono" in note for note in notes)
+
+
+def test_fewer_points_are_not_padded_and_the_recruiter_is_told():
+    data = _standard_data(FIVE[:3])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"] == FIVE[:3]
+    assert any("3 z 5" in note for note in notes)
+
+
+def test_client_limit_below_five_is_not_a_shortage():
+    rule = SimpleNamespace(why_points_max=4)
+    data = _standard_data(FIVE[:4])
+    assert _helpers._apply_summary_standard(data, "pl", rule) == []
+
+
+def test_first_point_without_years_is_reported_not_invented():
+    data = _standard_data(["Praca w PwC nad profilami ryzyka", *FIVE[1:]])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"][0] == "Praca w PwC nad profilami ryzyka"
+    assert any("nie podaje lat" in note for note in notes)
+
+
+def test_years_above_all_dates_are_cut_to_the_sum_of_dates():
+    data = _standard_data(["Over 14 years of experience as an SDET", *FIVE[1:]])
+    notes = _helpers._apply_summary_standard(data, "en")
+    assert data["why_points"][0] == "3 years of experience as an SDET"
+    assert any("poprawiono lata" in note for note in notes)
+
+
+def test_lower_years_can_be_tenure_in_the_position_and_stay():
+    data = _standard_data(["1 rok doświadczenia jako QA", *FIVE[1:]])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert data["why_points"][0] == "1 rok doświadczenia jako QA"
+
+
+def test_almost_the_sum_of_dates_is_not_above_it():
+    data = _standard_data(["Blisko 3 lata doświadczenia jako QA", *FIVE[1:]])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+
+
+def test_later_figures_in_the_first_point_are_not_touched():
+    point = "3 lata doświadczenia jako QA, w tym 20 lat w Acme"
+    data = _standard_data([point, *FIVE[1:]])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert data["why_points"][0] == point
+
+
+def test_client_last_point_without_required_topic_is_reported():
+    rule = SimpleNamespace(
+        why_points_max=None,
+        managed_policy={"summary_last_point_terms": ["scrum", "agile"]},
+    )
+    data = _standard_data(FIVE)
+    assert any(
+        "Scrumie/Agile" in n for n in _helpers._apply_summary_standard(data, "pl", rule)
+    )
+    data = _standard_data([*FIVE[:4], "Praca w Scrumie w Acme"])
+    assert _helpers._apply_summary_standard(data, "pl", rule) == []
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        "Profil spełnia wymagania klienta",
+        "Kandydat w pełni odpowiada wymaganiom stanowiska",
+        "Core skills aligned with requirements: process mapping, data flow",
+        "Candidate meets the client's requirements",
+        "Doświadczenie zgodne z wymaganiami klienta",
+    ],
+)
+def test_fit_verdict_leaves_the_summary_and_the_recruiter_is_told(verdict):
+    data = _standard_data([*FIVE[:4], verdict])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert verdict not in data["why_points"]
+    assert any("ocenę dopasowania" in note for note in notes)
+    assert any("4 z 5" in note for note in notes)
+
+
+@pytest.mark.parametrize(
+    "fact",
+    [
+        "Improved process performance 4x while meeting SLA requirements",
+        "Coordinates business and IT stakeholders to align access requirements",
+        "Konfigurował środowiska ERP zgodnie z wymaganiami klientów",
+        "Zbieranie wymagań klienta i analiza procesów",
+        "Experience matching customer records across client databases",
+        "Doświadczenie jako Product Owner - samodzielne przekładanie wymagań na zadania",
+    ],
+)
+def test_facts_about_requirements_stay_in_the_summary(fact):
+    data = _standard_data([*FIVE[:4], fact])
+    assert _helpers._apply_summary_standard(data, "pl") == []
+    assert fact in data["why_points"]
+
+
+def test_labels_with_colon_leave_points_three_to_five_only():
+    data = _standard_data(
+        [
+            "3 lata doświadczenia jako QA",
+            "Specjalizacja: Selenium",
+            "ETL: projektował procesy w hurtowni danych",
+            "Scrum/Agile: served as Scrum Master for four teams",
+            "Wdrożenie testów: 2 lata w Acme",
+        ]
+    )
+    _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"][1] == "Specjalizacja: Selenium"
+    assert data["why_points"][2] == "Projektował procesy w hurtowni danych"
+    assert data["why_points"][3] == "Served as Scrum Master for four teams"
+    assert data["why_points"][4] == "2 lata w Acme"
+
+
+def test_long_text_before_a_colon_is_not_a_label():
+    point = "Projektował procesy w hurtowni danych banku dla trzech zespołów analitycznych: ETL i raporty"
+    data = _standard_data([*FIVE[:2], point, *FIVE[3:]])
+    _helpers._apply_summary_standard(data, "pl")
+    assert data["why_points"][2] == point
+
+
+def _skill_data(*categories, languages=None):
+    return {
+        "skills": [
+            {"label": label, "content": content} for label, content in categories
+        ],
+        "languages": list(languages or []),
+    }
+
+
+def test_work_mode_soft_traits_and_driving_licence_leave_skill_data():
+    data = _skill_data(
+        (
+            "Narzędzia i metodyki:",
+            "Git (GitHub, Bitbucket), Jira, wzorce projektowe, Scrum, praca zdalna",
+        ),
+        ("Additional qualifications:", "Category B driving licence"),
+        ("Professional competencies:", "Time management, adaptability"),
+    )
+    removed = _helpers.clean_skill_sections(data)
+    assert data["skills"] == [
+        {
+            "label": "Narzędzia i metodyki:",
+            "content": "Git (GitHub, Bitbucket), Jira, wzorce projektowe, Scrum",
+        }
+    ]
+    assert "praca zdalna" in removed and "Category B driving licence" in removed
+
+
+def test_spoken_languages_leave_skills_without_getting_lost():
+    data = _skill_data(
+        ("Pozostałe:", "KSeF"),
+        ("Języki obce:", "Polski - ojczysty, Angielski - C1"),
+        languages=["Polski – ojczysty"],
+    )
+    _helpers.clean_skill_sections(data)
+    assert data["skills"] == [{"label": "Pozostałe:", "content": "KSeF"}]
+    assert data["languages"] == ["Polski – ojczysty", "Angielski - C1"]
+
+
+def test_technical_skills_that_mention_a_language_stay():
+    data = _skill_data(
+        ("Regulacje:", "Polish AML/CFT Act, German GwG"),
+        ("Języki programowania:", "Python, SQL"),
+    )
+    assert _helpers.clean_skill_sections(data) == []
+    assert len(data["skills"]) == 2
+
+
+def test_methodology_named_in_the_cv_is_not_lost_from_skills():
+    data = _skill_data(("Narzędzia:", "Git, Jira"))
+    added = _helpers.keep_source_methodologies(
+        data,
+        "Senior Engineer / Scrum master. Umiejętności: Scrum, Kanban, praca zdalna",
+        "pl",
+    )
+    assert added == ["Scrum", "Kanban"]
+    assert data["skills"][-1] == {"label": "Metodyki:", "content": "Scrum, Kanban"}
+
+
+def test_methodology_already_in_skills_or_absent_from_cv_adds_nothing():
+    data = _skill_data(("Metodyki:", "Scrum"))
+    assert (
+        _helpers.keep_source_methodologies(
+            data, "Scrum. Safe working conditions.", "pl"
+        )
+        == []
+    )
+    assert data["skills"] == [{"label": "Metodyki:", "content": "Scrum"}]
+
+
+def test_empty_summary_is_reported():
+    data = _standard_data([])
+    notes = _helpers._apply_summary_standard(data, "pl")
+    assert any("0 z 5" in note for note in notes)
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_states_the_five_point_order_without_the_old_range(language):
+    prompt = legacy_prompt(language, False, "tailored")
+    assert ("DOKŁADNIE 5 punktów" if language == "pl" else "EXACTLY 5 points") in prompt
+    assert ("mniej niż rok" if language == "pl" else "less than a year") in prompt
+    assert (
+        "BEZ OCENY DOPASOWANIA" if language == "pl" else "NO FIT VERDICTS"
+    ) in prompt
+    assert (
+        "Wiedza dziedzinowa i regulacje"
+        if language == "pl"
+        else "Domain knowledge and regulations"
+    ) in prompt
+    assert ("„Pozostałe”" if language == "pl" else '"Other"') in prompt
+    assert "Maksymalnie 3-5" not in prompt
+    assert "At most 3-5" not in prompt
+    assert "3-4 p" not in prompt
+
+
+def _role_points(*points):
+    return {"experience": [{"company": "Acme", "responsibilities": list(points)}]}
+
+
+def test_must_have_points_go_first_by_requirement_order_and_nothing_changes():
+    data = _role_points(
+        "Spotkania z klientem",
+        "Rozwój usług w Kafka",
+        "Praca w Pythonie",
+        "Dokumentacja",
+    )
+    _helpers._must_have_bullets_first(data, ["Python", "Kafka"])
+    assert data["experience"][0]["responsibilities"] == [
+        "Praca w Pythonie",
+        "Rozwój usług w Kafka",
+        "Spotkania z klientem",
+        "Dokumentacja",
+    ]
+
+
+def test_role_without_must_have_keeps_its_order():
+    data = _role_points("Spotkania z klientem", "Dokumentacja")
+    _helpers._must_have_bullets_first(data, ["Python"])
+    assert data["experience"][0]["responsibilities"] == [
+        "Spotkania z klientem",
+        "Dokumentacja",
+    ]
+
+
+def test_no_must_have_list_and_odd_shapes_change_nothing():
+    data = {
+        "experience": [
+            {"responsibilities": None},
+            "tekst",
+            _role_points("x")["experience"][0],
+        ]
+    }
+    _helpers._must_have_bullets_first(data, ["Python"])
+    assert data["experience"][2]["responsibilities"] == ["x"]
+    _helpers._must_have_bullets_first(data, [])
+    assert data["experience"][2]["responsibilities"] == ["x"]
+
+
+def test_generation_orders_role_points_only_for_tailored_mode(defaults):
+    defaults["response"] = _ai_json(
+        experience=[
+            {
+                "dates": "01.2020 – 12.2025",
+                "company": "Acme",
+                "position": "Backend Developer",
+                "responsibilities": ["Spotkania z klientem", "Klastry w Kubernetes"],
+                "technologies": [],
+            }
+        ]
+    )
+    tailored = _run("tailored", champion=_champion())
+    polished = _run("polished", champion=_champion())
+    assert (
+        tailored.render_payload["experience"][0]["responsibilities"][0]
+        == "Klastry w Kubernetes"
+    )
+    assert (
+        polished.render_payload["experience"][0]["responsibilities"][0]
+        == "Spotkania z klientem"
+    )
+
+
+def test_central_standard_no_longer_caps_the_summary_at_four():
+    from app.services.cv_generator_b2b.presentation_title import instructions
+
+    assert "at most four" not in instructions("pl")
+    assert "five evidence-backed summary points" in instructions("en")
+
+
 def _tenure_data(why_point):
     return {
         "why_points": [why_point],
@@ -844,8 +1160,8 @@ def test_role_headline_never_takes_years_from_another_role(monkeypatch):
     monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
     data = _tenure_data("3 lata doświadczenia jako Data Engineer")
     _helpers._fix_experience_years(data, "pl")
-    # Rola Data Engineer od 01.2023 = 45 miesięcy → 4 lata; nigdy 13.
-    assert data["why_points"] == ["4 lata doświadczenia jako Data Engineer"]
+    # Rola Data Engineer od 01.2023 = 45 miesięcy → „Ponad 3”; nigdy 13.
+    assert data["why_points"] == ["Ponad 3 lata doświadczenia jako Data Engineer"]
 
 
 def test_decimal_career_headline_is_replaced_whole(monkeypatch):
@@ -858,7 +1174,7 @@ def test_decimal_career_headline_is_replaced_whole(monkeypatch):
     data = _tenure_data("4.5 years of experience")
     data["experience"] = data["experience"][:1]
     _helpers._fix_experience_years(data, "en")
-    assert data["why_points"] == ["4 years of experience"]
+    assert data["why_points"] == ["Over 3 years of experience"]
 
 
 def _guard_data():
@@ -1250,3 +1566,268 @@ def test_role_order_has_a_ceiling_for_huge_inputs():
 
     texts = [f"{2000 + n % 20} – {2001 + n % 20}" for n in range(ROLES_MAX + 1)]
     assert newest_first(texts) is None
+
+
+# ── Numery w „Dlaczego nasz kandydat” i kategoria „Must-have” (04.11.2026) ──
+
+
+def _normalized(**fields):
+    return legacy._normalize_candidate_data(
+        {"name": "Jan Testowy", **fields}, fallback_name=None
+    )
+
+
+@pytest.mark.parametrize(
+    "points,expected",
+    [
+        (
+            ["1. Ponad 5 lat w konsultingu", "2) Certyfikat CISA", "3. Warsztaty"],
+            ["Ponad 5 lat w konsultingu", "Certyfikat CISA", "Warsztaty"],
+        ),
+        (["- 3.5 roku z Javą", "• Audyty NIST"], ["3.5 roku z Javą", "Audyty NIST"]),
+        (["• 1. Audyty NIST"], ["Audyty NIST"]),
+    ],
+)
+def test_why_points_lose_list_markers_the_template_adds_itself(points, expected):
+    assert _normalized(why_points=points)["why_points"] == expected
+
+
+@pytest.mark.parametrize(
+    "point",
+    [
+        "5 lat jako administrator",
+        "3.5 roku z Javą",
+        "2.5+ years of Go",
+        "10.000 transakcji na sekundę",
+    ],
+)
+def test_why_points_keep_a_number_that_is_a_fact(point):
+    assert _normalized(why_points=[point])["why_points"] == [point]
+
+
+def test_why_points_keep_a_number_that_does_not_follow_the_position():
+    points = ["Ponad 5 lat w konsultingu", "5. miejsce w hackathonie banku"]
+    assert _normalized(why_points=points)["why_points"] == points
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_why_points_example_has_no_numbering(language):
+    schema = legacy_prompt(language, False, "tailored").split('"education"')[0]
+    assert not re.search(r'"\d+\. ', schema)
+
+
+def _skills(*pairs):
+    return {"skills": [{"label": lab, "content": txt} for lab, txt in pairs]}
+
+
+def test_must_have_category_repeating_the_rest_disappears():
+    data = _skills(
+        (
+            "Must-have (zgodne z wymaganiami):",
+            ".NET, C#, React, Microsoft SQL Server (MSSQL), Azure Cosmos DB",
+        ),
+        ("Języki programowania:", "C#, JavaScript, TypeScript"),
+        ("Technologie .NET i backend:", ".NET 4.8, ASP.NET MVC"),
+        ("Frontend:", "React, Vue"),
+        ("Bazy danych:", "MSSQL, Azure Cosmos DB"),
+    )
+    assert legacy.clean_requirement_skill_labels(data, "pl") is True
+    assert [c["label"] for c in data["skills"]] == [
+        "Języki programowania:",
+        "Technologie .NET i backend:",
+        "Frontend:",
+        "Bazy danych:",
+    ]
+
+
+@pytest.mark.parametrize(
+    "language,label", [("pl", "Kluczowe technologie:"), ("en", "Key technologies:")]
+)
+def test_must_have_category_keeps_what_stands_nowhere_else(language, label):
+    data = _skills(
+        ("Must-have:", "C#, RabbitMQ, MassTransit"),
+        ("Języki programowania:", "C#"),
+    )
+    assert legacy.clean_requirement_skill_labels(data, language) is True
+    assert data["skills"] == [
+        {"label": label, "content": "RabbitMQ, MassTransit"},
+        {"label": "Języki programowania:", "content": "C#"},
+    ]
+
+
+def test_must_have_and_nice_to_have_share_one_neutral_category():
+    data = _skills(
+        ("Must-have:", "Kafka, Docker"),
+        ("Nice-to-have:", "Docker, Terraform"),
+        ("Języki:", "Go"),
+    )
+    assert legacy.clean_requirement_skill_labels(data, "pl") is True
+    assert data["skills"] == [
+        {"label": "Kluczowe technologie:", "content": "Kafka, Docker, Terraform"},
+        {"label": "Języki:", "content": "Go"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Must-have technologies:",
+        "Wymagania klienta (posiadane):",
+        "Wymagania:",
+        "Key requirements:",
+    ],
+)
+def test_label_with_nothing_but_requirement_words_is_a_requirement_category(label):
+    data = _skills((label, "Kafka"), ("Kolejki:", "Kafka"))
+    assert legacy.clean_requirement_skill_labels(data, "pl") is True
+    assert data["skills"] == [{"label": "Kolejki:", "content": "Kafka"}]
+
+
+def test_plain_technologies_label_stays():
+    data = _skills(("Technologie:", "Kafka"), ("Umiejętności:", "Docker"))
+    assert legacy.clean_requirement_skill_labels(data, "pl") is False
+
+
+def test_generation_returns_points_and_skills_without_the_reported_defects(defaults):
+    defaults["response"] = _ai_json(
+        why_points=["1. Budowa API w Pythonie", "2. Praca z PostgreSQL"],
+        skills=[
+            {"label": "Must-have (zgodne z wymaganiami):", "content": "Python"},
+            {"label": "Języki programowania:", "content": "Python"},
+        ],
+    )
+    payload = _run("tailored", champion=_champion()).render_payload
+    assert payload["why_points"] == ["Budowa API w Pythonie", "Praca z PostgreSQL"]
+    assert [c["label"] for c in payload["skills"]] == ["Języki programowania:"]
+
+
+def test_java_is_not_treated_as_covered_by_javascript():
+    data = _skills(("Must-have:", "Java"), ("Języki:", "JavaScript"))
+    legacy.clean_requirement_skill_labels(data, "pl")
+    assert data["skills"][0]["content"] == "Java"
+
+
+def test_only_the_requirement_word_leaves_a_label_with_a_real_area():
+    data = _skills(("Must-have / Analytical tools:", "Power BI, Tableau"))
+    assert legacy.clean_requirement_skill_labels(data, "en") is True
+    assert data["skills"] == [
+        {"label": "Analytical tools:", "content": "Power BI, Tableau"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Analiza wymagań:",
+        "Requirements engineering:",
+        "Zarządzanie wymaganiami:",
+        "Języki programowania:",
+    ],
+)
+def test_a_real_area_about_requirements_stays(label):
+    data = _skills((label, "Jira, Confluence"))
+    assert legacy.clean_requirement_skill_labels(data, "pl") is False
+    assert data["skills"] == [{"label": label, "content": "Jira, Confluence"}]
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_forbids_requirement_words_in_skill_labels(language):
+    prompt = legacy_prompt(language, False, "tailored")
+    assert (
+        "NIE używaj w niej słów" if language == "pl" else "do NOT use the words"
+    ) in prompt
+
+
+# ── Bezpiecznik: lata na stanowisku albo w obszarze niższe niż suma dat ─────
+
+_YEARS_SOURCE = "Programista baz danych w Acme i Beta. Technologie: Kafka, Oracle."
+_YEARS_ROLES = [
+    {"dates": "01.2015 - 12.2021", "company": "Acme", "position": "Programista"},
+    {"dates": "01.2008 - 12.2014", "company": "Beta", "position": "Analityk"},
+]
+
+
+def _years_alarms(point, *, roles=_YEARS_ROLES, language="pl"):
+    data = {"why_points": [point], "experience": roles}
+    prefix = "NOT IN SOURCE" if language == "en" else "BRAK POKRYCIA"
+    return [
+        issue
+        for issue in _helpers._fabrication_warnings(data, _YEARS_SOURCE, language)
+        if issue.startswith(prefix)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("point", "language"),
+    [
+        # Te dwa kształty dawały uwagę na Solu w każdym biegu (05.11.2026).
+        ("4 lata doświadczenia jako SQL Developer", "pl"),
+        ("Over 9 years of experience as an SDET", "en"),
+        ("5 lat na stanowisku Senior QA Engineer", "pl"),
+        ("Ponad 5 lat doświadczenia w roli AI Engineer", "pl"),
+        ("3.5 years as a Customer Service Analyst", "en"),
+        ("9 lat komercyjnego doświadczenia jako backend developer w Pythonie", "pl"),
+        ("4 lata doświadczenia w analizie danych", "pl"),
+        ("Ponad 9 lat w bankowości", "pl"),
+        ("Over 9 years in test automation", "en"),
+        ("12 lat w IT, w tym 4 lata jako .NET Developer", "pl"),
+        ("Around 4 years of hands-on experience in IT project management", "en"),
+    ],
+)
+def test_guard_accepts_lower_years_in_position_or_area(point, language):
+    assert _years_alarms(point, language=language) == []
+
+
+@pytest.mark.parametrize(
+    ("point", "language"),
+    [
+        # Więcej niż suma dat (14 lat).
+        ("20 lat doświadczenia jako SQL Developer", "pl"),
+        ("Over 29 years of experience as an SDET", "en"),
+        ("20 lat doświadczenia w analizie danych", "pl"),
+        # Sama liczba, bez stanowiska i obszaru.
+        ("4 lata doświadczenia", "pl"),
+        ("4 years", "en"),
+        # Pojedyncza technologia nie ma pokrycia w datach.
+        ("4 lata w Kafce", "pl"),
+        ("4 lata doświadczenia z Kafką", "pl"),
+        ("4 lata doświadczenia w Oracle Database", "pl"),
+        ("Ponad 4 lata doświadczenia w pracy z Oracle i PL/SQL", "pl"),
+        ("4 years of experience with Playwright", "en"),
+        ("4 years of Go", "en"),
+        ("4 years of Java experience", "en"),
+        ("9 lat jako analityk, w tym 4 lata w Kafce", "pl"),
+        # Firma ma własną poprawkę z dat.
+        ("4 lata w Bank Millennium", "pl"),
+        ("4 years at Nordea", "en"),
+    ],
+)
+def test_guard_still_flags_other_years_claims(point, language):
+    assert len(_years_alarms(point, language=language)) == 1
+
+
+def test_guard_flags_position_years_when_no_dates_can_cover_them():
+    roles = [{"dates": "", "company": "Acme", "position": "Programista"}]
+    assert len(_years_alarms("4 lata jako SQL Developer", roles=roles)) == 1
+
+
+def test_guard_checks_position_years_only_in_why_points():
+    data = {
+        "why_points": [],
+        "experience": [
+            {**_YEARS_ROLES[0], "responsibilities": ["4 lata jako SQL Developer"]},
+            _YEARS_ROLES[1],
+        ],
+    }
+    issues = _helpers._fabrication_warnings(data, _YEARS_SOURCE, "pl")
+    assert any(issue.startswith("BRAK POKRYCIA") for issue in issues)
+
+
+def test_position_years_do_not_silence_other_figures_in_the_point():
+    point = "4 lata jako SQL Developer, zespół 47 osób u wielu klientów"
+    issues = _helpers._fabrication_warnings(
+        {"why_points": [point], "experience": _YEARS_ROLES}, _YEARS_SOURCE, "pl"
+    )
+    assert any("47 osob" in issue for issue in issues)
+    assert any("wielu" in issue for issue in issues)
+    assert not any("'4 lat" in issue for issue in issues)

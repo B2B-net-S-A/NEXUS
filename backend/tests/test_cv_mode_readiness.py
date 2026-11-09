@@ -166,6 +166,7 @@ async def test_worker_matches_mode_readiness_without_notes(
     doc = SimpleNamespace(storage_key=None, file_content=b"test", filename="cv.docx")
     db = AsyncMock()
     db.get.return_value = candidate
+    db.execute.return_value = SimpleNamespace(all=lambda: [])
     db.scalars.side_effect = [
         SimpleNamespace(first=lambda: stage),
         SimpleNamespace(first=lambda: doc),

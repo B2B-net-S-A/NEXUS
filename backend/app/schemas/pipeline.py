@@ -184,9 +184,11 @@ class StageMove(BaseModel):
     client_rate_unit: Optional[RateUnit] = None
     client_rate_currency: Optional[str] = Field(None, max_length=3)
     # Kto zakończył proces (ruch terminalny): kandydat | my | DL | klient.
-    ended_by: Optional[Literal["candidate", "recruiter", "delivery_lead", "client"]] = (
-        None
-    )
+    ended_by: Optional[
+        Literal["candidate", "recruiter", "delivery_lead", "client", "client_silent"]
+    ] = None
+    # QC-8 (08.11.2026): decyzja DL przy luce kandydata w krytycznej — ślad w Activity.
+    gap_decision: Optional[Literal["send_anyway", "return"]] = None
 
     @field_validator("rejection_email_subject")
     @classmethod
@@ -235,6 +237,17 @@ class HiringManagerVetoBrief(BaseModel):
     rejected_at: datetime
     rejection_reason_name: str
     rejection_note: Optional[str] = None
+
+
+class BookedCallSummary(BaseModel):
+    """Otwarty telefon pary na karcie Tablicy."""
+
+    event_id: int
+    start_time: datetime
+    note: Optional[str] = None
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    in_outlook: bool = False
 
 
 class CandidateStageResponse(BaseModel):
@@ -302,6 +315,13 @@ class CandidateStageResponse(BaseModel):
     # rekrutacja, etap nie z importu Traffita) — ta sama definicja co pas
     # „Do wysłania do klienta” (audyt 13.10.2026). `None` = endpoint nie liczy.
     dl_send_counts: Optional[bool] = None
+    # Jedna liczba dni na karcie Tablicy: dni robocze czekania, liczone tak samo
+    # jak pas „Do wysłania do klienta” (`dl_send_queue.board_waiting_workdays`,
+    # audyt U5 08.11.2026). `None` = endpoint nie liczy albo proces się skończył.
+    waiting_workdays: Optional[int] = None
+    # Cisza klienta ponad 5 dni roboczych, ta sama reguła co pas „Czeka na
+    # odpowiedź klienta” (`client_wait.silent_workdays`). `None` = jeszcze nie.
+    client_silent_workdays: Optional[int] = None
     scorecard_done: bool = False
     # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —
@@ -441,6 +461,9 @@ class CandidateStageResponse(BaseModel):
     # osoba się zgłosiła — plakietka „Z Twojego linku” / „Z linku Marty N.”.
     entry_link_owner_id: Optional[int] = None
     entry_link_owner_name: Optional[str] = None
+    # 07.11.2026: aplikacja z formularza portalu — „justjoinit”, „rocketjobs”,
+    # „pracuj” (plakietka „Z JustJoin.IT”); ``None`` = inne wejście.
+    entry_portal: Optional[str] = None
     # …i właściciele innych linków, z których osoba zgłosiła się PONOWNIE, gdy
     # już była w rekrutacji — „Zgłosił się też z Twojego linku”. Karta i
     # blokada prowadzącego bez zmian.
@@ -457,6 +480,8 @@ class CandidateStageResponse(BaseModel):
     claim_user_id: Optional[int] = None
     claim_user_name: Optional[str] = None
     claim_until: Optional[datetime] = None
+    # Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
+    booked_call: Optional[BookedCallSummary] = None
     # Ostatnia osoba, która kliknęła „Biorę”, także po wygaśnięciu blokady —
     # do pierwszej weryfikacji (27.10.2026). Karta i filtr „Kto dodał”.
     taken_by_user_id: Optional[int] = None
@@ -488,6 +513,8 @@ class CandidateStageResponse(BaseModel):
     # 0506: umowa przedwstępna pary — `{id, state, label, tone, detail}`
     # z `services/pre_contracts.badge` (front tylko pokazuje).
     pre_contract: Optional[dict] = None
+    # 0649: dokumenty do startu pary (`services/start_documents.card_badges`).
+    start_docs: Optional[dict] = None
     # Znacznik „Pracuje u nas” (`services/employment_marker.py`); `elsewhere`
     # liczone względem klienta tej rekrutacji. Pulpit „Moje następne kroki”
     # go nie niesie (do 25 tablic w jednej odpowiedzi).
@@ -574,6 +601,10 @@ class KanbanView(BaseModel):
     # (`board_tasks.reviews_as_dl`) — karta w „QC CV” mówi mu „Czeka na Ciebie”.
     # To nie jest prawo wysyłki: to ma każdy z `recruitment_manage`.
     viewer_owns_dl_review: bool = False
+    # Początek bieżącego otwarcia (`job_opening`, 05.11.2026): karta, której
+    # ostatni ruch był wcześniej, jest z poprzedniego otwarcia i nosi etykietę.
+    # `None` — rekrutacja nigdy nie otwarta ponownie.
+    opening_started_at: Optional[datetime] = None
 
 
 class MyNextStepsJob(BaseModel):

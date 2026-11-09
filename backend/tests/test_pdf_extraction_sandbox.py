@@ -7,8 +7,13 @@ strumienie bez limitu, a pdf2image renderował strony w rozmiarze z MediaBox.
 
 from __future__ import annotations
 
+import http.server
+import shutil
+import subprocess
 import sys
+import threading
 import time
+import zipfile
 import zlib
 from types import SimpleNamespace
 
@@ -146,3 +151,148 @@ def test_worker_output_is_capped(tmp_path, monkeypatch, capsys):
     assert cte._worker_main(["pdf", str(tmp_path / "a.pdf")]) == 0
     assert '"xxxx"' in capsys.readouterr().out
     assert cte._worker_main(["rm", "-rf"]) == 2
+
+
+# ── Word przez LibreOffice w procesie odczytu (03.11.2026) ───────────────────
+#
+# Pełny przebieg z prawdziwym LibreOffice'em: jest w obrazie backendu, a lokalnie
+# i w CI bywa go brak, więc testy się wtedy pomijają.
+
+_needs_soffice = pytest.mark.skipif(
+    not shutil.which("soffice"), reason="brak LibreOffice"
+)
+_CV_TEXT = "Doświadczenie zawodowe: analityk biznesowy, SQL, Python, raportowanie. "
+
+
+def _word_with_body(tmp_path, name: str, body: str, rels: str = "") -> str:
+    from docx import Document
+
+    base = tmp_path / f"{name}-base.docx"
+    Document().save(base)
+    with zipfile.ZipFile(base) as archive:
+        parts = {item: archive.read(item) for item in archive.namelist()}
+    xml = parts["word/document.xml"].decode()
+    start = xml.index("<w:body>") + len("<w:body>")
+    parts["word/document.xml"] = (xml[:start] + body + xml[start:]).encode()
+    rels_part = "word/_rels/document.xml.rels"
+    parts[rels_part] = (
+        parts[rels_part]
+        .decode()
+        .replace("</Relationships>", rels + "</Relationships>")
+        .encode()
+    )
+    path = tmp_path / f"{name}.docx"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for item, data in parts.items():
+            archive.writestr(item, data)
+    return str(path)
+
+
+def _textbox_docx(tmp_path) -> str:
+    return _word_with_body(
+        tmp_path,
+        "pole",
+        '<w:p><w:r><w:pict xmlns:v="urn:schemas-microsoft-com:vml">'
+        '<v:shape style="width:450pt;height:300pt"><v:textbox>'
+        "<w:txbxContent><w:p><w:r><w:t>"
+        + _CV_TEXT * 6
+        + "</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>",
+    )
+
+
+@_needs_soffice
+def test_real_docx_with_text_only_in_a_text_box(tmp_path):
+    assert "analityk biznesowy" in cte.extract_text(_textbox_docx(tmp_path), "cv.docx")
+
+
+@_needs_soffice
+def test_real_binary_doc(tmp_path):
+    """Binarny `.doc` robi sam LibreOffice, bo w repo nie trzymamy pliku z Worda."""
+    from docx import Document
+
+    source = tmp_path / "zrodlo.docx"
+    document = Document()
+    document.add_paragraph(_CV_TEXT * 6)
+    document.save(source)
+    subprocess.run(
+        [
+            shutil.which("soffice"),
+            f"-env:UserInstallation=file://{tmp_path}/profile",
+            "--headless",
+            "--convert-to",
+            "doc:MS Word 97",
+            "--outdir",
+            str(tmp_path),
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    path = tmp_path / "zrodlo.doc"
+    assert path.read_bytes().startswith(b"\xd0\xcf\x11\xe0")
+    assert "Doświadczenie zawodowe" in cte.extract_text(str(path), "cv.doc")
+
+
+@pytest.fixture
+def link_server():
+    """Serwer na 127.0.0.1 z listą żądań, czyli miernik SSRF."""
+    hits: list[str] = []
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        do_HEAD = do_GET
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}", hits
+    server.shutdown()
+
+
+@_needs_soffice
+def test_real_conversion_does_not_fetch_links_from_the_file(tmp_path, link_server):
+    """CV z obrazem podlinkowanym pod adres wewnętrzny nie wykonuje żądania (SSRF)."""
+    base_url, hits = link_server
+    url = f"{base_url}/obraz.png"
+    path = _word_with_body(
+        tmp_path,
+        "link",
+        '<w:p><w:r><w:drawing xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+        ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+        ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"'
+        ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" name="p"/><a:graphic>'
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>'
+        '<pic:nvPicPr><pic:cNvPr id="1" name="p"/><pic:cNvPicPr/></pic:nvPicPr>'
+        '<pic:blipFill><a:blip r:link="rIdLink"/></pic:blipFill><pic:spPr><a:xfrm>'
+        '<a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm>'
+        '<a:prstGeom prst="rect"/></pic:spPr></pic:pic></a:graphicData></a:graphic>'
+        "</wp:inline></w:drawing></w:r></w:p>",
+        '<Relationship Id="rIdLink" Type="http://schemas.openxmlformats.org/'
+        'officeDocument/2006/relationships/image" '
+        f'Target="{url}" TargetMode="External"/>',
+    )
+    cte.extract_text(path, "cv.docx")
+    assert hits == []
+
+
+@_needs_soffice
+def test_real_html_saved_as_doc_makes_no_request(tmp_path, link_server):
+    """HTML pod nazwą `.doc`: blokada obrazów nie obejmuje arkusza stylów."""
+    base_url, hits = link_server
+    path = tmp_path / "cv.doc"
+    path.write_text(
+        f'<html><head><link rel="stylesheet" href="{base_url}/css.css"></head>'
+        f'<body><img src="{base_url}/img.png"><p>{_CV_TEXT * 6}</p></body></html>',
+        encoding="utf-8",
+    )
+    text = cte.extract_text(str(path), "cv.doc")
+    assert hits == []
+    assert text == ""

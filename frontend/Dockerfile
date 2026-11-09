@@ -23,6 +23,9 @@ WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_GIT_SHA
+# Coolify w aplikacji z Dockerfile podaje SHA jako SOURCE_COMMIT, a w compose
+# jako NEXT_PUBLIC_GIT_SHA.
+ARG SOURCE_COMMIT
 # Host strony kariery — middleware czyta go z bundla (inline w czasie builda).
 ARG NEXT_PUBLIC_CAREER_HOST
 # Harnessy /preview/* bez logowania — WYŁĄCZNIE stack E2E (docker-compose.e2e.yml).
@@ -34,7 +37,7 @@ ARG NEXT_PUBLIC_NEXUS_ENV
 ARG SENTRY_AUTH_TOKEN
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
-ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
+ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA:-${SOURCE_COMMIT}}
 ENV NEXT_PUBLIC_CAREER_HOST=${NEXT_PUBLIC_CAREER_HOST}
 ENV NEXT_PUBLIC_PREVIEW_PUBLIC=${NEXT_PUBLIC_PREVIEW_PUBLIC}
 ENV NEXT_PUBLIC_NEXUS_ENV=${NEXT_PUBLIC_NEXUS_ENV}
@@ -50,6 +53,11 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=6144
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Harnessy /preview/* to tylko narzędzie nocnego E2E: 119 stron z fikcyjnymi
+# danymi, które na produkcji nikt nie otwiera, a kompilator buduje przy każdym
+# wdrożeniu. Poza stackiem E2E (`NEXT_PUBLIC_PREVIEW_PUBLIC=1`) nie wchodzą do
+# builda; pliki zostają w repo, `next dev` i Vitest ich używają.
+RUN if [ "$NEXT_PUBLIC_PREVIEW_PUBLIC" != "1" ]; then rm -rf src/app/preview; fi
 # DEP-03: `public/version.json` z SHA builda — smoke test deployu porównuje go
 # z oczekiwanym commitem (jak `/api/health.version` dla backendu). Musi powstać
 # PRZED `next build`, bo `public/` jest kopiowane do obrazu jako całość.
@@ -61,7 +69,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_GIT_SHA
-ENV GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
+ARG SOURCE_COMMIT
+ENV GIT_SHA=${NEXT_PUBLIC_GIT_SHA:-${SOURCE_COMMIT}}
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs \

@@ -45,7 +45,15 @@ PRIORITIES: tuple[str, ...] = ("P1", "P2", "P3")
 #: Kolejność kolumn kanbanu; ``done`` i ``closed`` to stany końcowe.
 STATUSES: tuple[str, ...] = ("new", "in_progress", "waiting", "done", "closed")
 TERMINAL_STATUSES: tuple[str, ...] = ("done", "closed")
-SOURCES: tuple[str, ...] = ("manual", "mail", "contract", "lifecycle", "compass_import")
+SOURCES: tuple[str, ...] = (
+    "manual",
+    "mail",
+    "contract",
+    "lifecycle",
+    "compass_import",
+    # 0638: zgłoszenie z portalu konsultanta.
+    "portal",
+)
 RUN_STATUSES: tuple[str, ...] = ("ok", "partial", "error", "disabled")
 
 

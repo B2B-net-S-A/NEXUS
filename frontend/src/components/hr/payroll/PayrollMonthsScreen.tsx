@@ -47,8 +47,8 @@ export function PayrollMonthsScreen({ config }: { config: HrConfig }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Płace"
-        description="Godziny z zaakceptowanych timesheetów × stawka, plus przyznane premie. Zamknięty miesiąc ma zamrożone kwoty."
+        title="Rozliczenia"
+        description="Godziny z potwierdzonych raportów godzin × stawka, plus przyznane premie. Zamknięty miesiąc ma zamrożone kwoty."
         density="compact"
       />
       <PeopleSectionNav config={config} active="payroll" />
@@ -59,9 +59,9 @@ export function PayrollMonthsScreen({ config }: { config: HrConfig }) {
           state={state}
           description={
             state === "forbidden"
-              ? "Płace prowadzi dział Płac. Koordynator widzi godziny i premie zespołu w widoku miesiąca."
+              ? "Rozliczenia prowadzi dział Rozliczeń. Koordynator widzi godziny i premie zespołu w widoku miesiąca."
               : state === "not_found"
-                ? "Moduł Płac nie jest jeszcze włączony."
+                ? "Moduł Rozliczeń nie jest jeszcze włączony."
                 : undefined
           }
           onRetry={() => months.refetch()}
@@ -71,7 +71,7 @@ export function PayrollMonthsScreen({ config }: { config: HrConfig }) {
           Brak miesięcy do pokazania.
         </div>
       ) : (
-        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card" data-help="hr.payroll.months">
           <Table density="compact" className="min-w-[680px]">
             <TableHeader>
               <TableRow>

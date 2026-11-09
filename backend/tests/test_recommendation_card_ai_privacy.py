@@ -14,6 +14,8 @@ import pytest
 from app.services import notes_insights_extractor
 from app.services.cv_generator_b2b import standalone_service as svc
 
+pytestmark = pytest.mark.static
+
 _BACKEND = Path(__file__).resolve().parents[1]
 
 _CARD = (
@@ -243,7 +245,6 @@ def test_screening_form_history_is_read_only_by_people():
         "app/services/screening_fix_requests.py",
         # Scalenie rekrutacji-duplikatów (12.10.2026) zmienia wersjom tylko
         # `job_id` — wartości nie czyta ani nie zwraca.
-        "app/services/job_twin_merge.py",
     }
     reader = re.compile(
         r"screening_form_versions|ScreeningFormVersion"

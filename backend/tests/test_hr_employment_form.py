@@ -93,14 +93,14 @@ def test_overtime_and_bonus_words_follow_the_contract() -> None:
     assert terms("uop")["bonus_new_title"] == "Masz nową premię"
     assert terms("b2b")["bonus_new_title"] == "Masz nowe wynagrodzenie dodatkowe"
     assert bonus_message("uop", "październik 2026") == (
-        "Premia za październik 2026. Szczegóły w „Moim czasie” → Premie."
+        "Premia za październik 2026. Szczegóły w „Mojej współpracy” → Premie."
     )
     assert bonus_message("b2b", "październik 2026", cancelled=True) == (
         "Wynagrodzenie dodatkowe za październik 2026 zostało anulowane. "
-        "Szczegóły w „Moim czasie” → Wynagrodzenie dodatkowe."
+        "Szczegóły w „Mojej współpracy” → Wynagrodzenie dodatkowe."
     )
     assert bonus_message(None, "maj 2026", cancelled=True) == (
-        "Premia za maj 2026 została anulowana. Szczegóły w „Moim czasie” → Premie."
+        "Premia za maj 2026 została anulowana. Szczegóły w „Mojej współpracy” → Premie."
     )
     assert time_fill_hours_error("b2b").endswith(
         "godziny ponad 8 h wpisuje się w dniu, z krótkim opisem."

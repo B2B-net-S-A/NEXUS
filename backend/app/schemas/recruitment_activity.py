@@ -22,6 +22,7 @@ RecruitmentActivityScope = Literal["person", "team"]
 # Lista „Kto się liczy”: osoba, cały zespół albo kamienie bez osoby z zasługą.
 RecruitmentActivityDetailScope = Literal["person", "team", "unattributed"]
 # Gdzie para osoba × rekrutacja jest teraz (najnowszy wiersz etapu pary).
+RecruitmentActivityDetailOrder = Literal["reached", "term"]
 RecruitmentActivityState = Literal[
     "before_client",
     "waiting",
@@ -114,6 +115,10 @@ class RecruitmentActivityDetailItem(RecruitmentActivityModel):
     state_reason: str | None = None
     # W ilu rekrutacjach ta sama osoba liczy się w tym okresie (≥ 1).
     candidate_jobs: int = 1
+    # Reguły: `services/client_interview_terms.py`.
+    client_interview_at: datetime | None = None
+    client_interview_tentative_at: datetime | None = None
+    start_on: date | None = None
 
 
 class RecruitmentActivityDetailResponse(RecruitmentActivityModel):

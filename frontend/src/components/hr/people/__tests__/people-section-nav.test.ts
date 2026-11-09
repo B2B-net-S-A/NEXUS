@@ -15,6 +15,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   equipment: true,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>, open = ALL_ON): HrConfig {
@@ -40,15 +41,15 @@ function config(me: Partial<HrConfig["me"]>, open = ALL_ON): HrConfig {
 const values = (cfg: HrConfig) => peopleSections(cfg).map((link) => link.value);
 
 describe("zakładki obszaru „Ludzie”", () => {
-  it("pracownik bez praw: katalog i kalendarz zespołu", () => {
+  it("osoba bez praw: katalog i kalendarz zespołu", () => {
     expect(values(config({}))).toEqual(["directory", "calendar"]);
   });
 
-  it("przełożony widzi akceptacje", () => {
+  it("koordynator widzi akceptacje", () => {
     expect(values(config({ is_manager: true, direct_reports: 2 }))).toContain("approvals");
   });
 
-  it("„Raporty godzin” + Płace (back office, 28.10.2026): akceptacje i płace bez zespołu", () => {
+  it("„Raporty godzin” + Rozliczenia (back office, 28.10.2026): akceptacje i płace bez zespołu", () => {
     expect(values(config({ timesheets: true, payroll: true }))).toEqual([
       "directory",
       "calendar",
@@ -59,7 +60,7 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(values(config({ payroll: true }))).not.toContain("approvals");
   });
 
-  it("Płace tylko z uprawnieniem", () => {
+  it("Rozliczenia tylko z uprawnieniem", () => {
     expect(values(config({ cases: true }))).not.toContain("payroll");
     expect(values(config({ payroll: true }))).toContain("payroll");
   });
@@ -77,7 +78,7 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(got).toEqual(["directory", "team"]);
   });
 
-  it("Kadry bez kartoteki: katalog (ze Schematem), kalendarz i akceptacje", () => {
+  it("Administracja współpracy bez kartoteki: katalog (ze Schematem), kalendarz i akceptacje", () => {
     expect(values(config({ has_profile: false, people_admin: true }))).toEqual([
       "directory",
       "calendar",
@@ -85,13 +86,13 @@ describe("zakładki obszaru „Ludzie”", () => {
     ]);
   });
 
-  it("„Mój zespół” tylko u przełożonego, zaraz po katalogu", () => {
+  it("„Koordynacja” tylko u koordynatora, zaraz po katalogu", () => {
     const manager = values(config({ is_manager: true, direct_reports: 2 }));
     expect(manager.slice(0, 2)).toEqual(["directory", "team"]);
     expect(values(config({ people_admin: true }))).not.toContain("team");
   });
 
-  it("stała kolejność: Katalog · Mój zespół · Kalendarz · Akceptacje · Płace", () => {
+  it("stała kolejność: Katalog · Koordynacja · Kalendarz · Do potwierdzenia · Rozliczenia", () => {
     expect(values(config({ is_admin: true, is_manager: true, direct_reports: 2 }))).toEqual([
       "directory",
       "team",
@@ -101,14 +102,14 @@ describe("zakładki obszaru „Ludzie”", () => {
     ]);
   });
 
-  it("nie ma już zakładek „Struktura” i „Moje zgody” — Schemat jest w Katalogu, zgody w Moim czasie", () => {
-    const withConsents = { ...ALL_ON, approvals: true };
+  it("nie ma już zakładek „Struktura” i „Moje zgody” — Schemat jest w Katalogu, zgody w Mojej współpracy", () => {
+    const withConsents = { ...ALL_ON, approvals: true, back_office: false };
     const got = values(config({ is_admin: true, people_admin: true }, withConsents));
     expect(got).not.toContain("structure");
     expect(got).not.toContain("consents");
   });
 
-  it("wyłączony moduł „Ludzie” chowa Katalog i Mój zespół", () => {
+  it("wyłączony moduł „Ludzie” chowa Katalog i Koordynacja", () => {
     const off = { ...ALL_ON, people: false };
     const got = values(config({ people_admin: true, is_manager: true }, off));
     expect(got).not.toContain("directory");
@@ -122,18 +123,18 @@ describe("zakładki obszaru „Ludzie”", () => {
 });
 
 describe("zakładki przy module „Zgody” (0483)", () => {
-  const withConsents = { ...ALL_ON, approvals: true };
+  const withConsents = { ...ALL_ON, approvals: true, back_office: false };
   const onlyConsents = Object.fromEntries(
     Object.keys(ALL_ON).map((key) => [key, key === "approvals"]),
   ) as Record<HrModuleKey, boolean>;
 
-  it("Akceptacje przy samych zgodach: przełożony i admin (zatwierdzający), zwykła osoba nie", () => {
+  it("Do potwierdzenia przy samych zgodach: koordynator i admin (zatwierdzający), zwykła osoba nie", () => {
     expect(values(config({ is_manager: true }, onlyConsents))).toContain("approvals");
     expect(values(config({ is_admin: true }, onlyConsents))).toContain("approvals");
     expect(values(config({}, onlyConsents))).not.toContain("approvals");
   });
 
-  it("liczba przy Akceptacjach = wnioski i timesheety + zgody; brak obu = bez liczby", () => {
+  it("liczba przy Do potwierdzenia = wnioski i raporty godzin + zgody; brak obu = bez liczby", () => {
     expect(sectionCount("approvals", { approvals: 2, consents: 3, cases: null })).toBe(5);
     expect(sectionCount("approvals", { approvals: null, consents: 3, cases: null })).toBe(3);
     expect(sectionCount("approvals", { approvals: null, consents: null, cases: null })).toBeUndefined();

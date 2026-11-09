@@ -91,7 +91,9 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { ClientSettlementCard } from "./ClientSettlementCard";
 import { OnboardingPackTab } from "./OnboardingPackTab";
+import { ClientStartDocsPanel } from "@/components/v2/start-docs/ClientStartDocsPanel";
 import { ClientEquipmentProviderField } from "@/components/equipment/ClientEquipmentProviderField";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
@@ -1130,11 +1132,13 @@ export default function ClientDetailPage() {
   // Sprzedaż (27.10.2026): zakładka z powiązaną firmą sprzedaży i jej szansami.
   const canViewSales = hasAnyPermission(user, "sales_view");
   const equipmentOpen = hrConfig?.open_modules.equipment === true;
-  // „Wejście u klienta” — moduł wejścia i odejścia; czyta podgląd Delivery
-  // (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
+  // „Wejście u klienta” — moduł wejścia i odejścia albo włączony panel konsultanta;
+  // czyta podgląd Delivery (Delivery Lead u swoich klientów) i recepcja („Sprzęt”).
   const packOpen =
-    hrConfig?.open_modules.lifecycle === true &&
+    (hrConfig?.open_modules.lifecycle === true || hrConfig?.consultant_panel_on === true) &&
     hasAnyPermission(user, "delivery_view", "equipment");
+  // 0649: lista dokumentów do startu działa bez modułu „Wejście i odejście”.
+  const startDocsOpen = hasAnyPermission(user, "delivery_view");
   // „Faktury” (E8) — moduł faktur do klientów, konto z podglądem kwot klienta.
   const invoicingOpen =
     useInvoicingModule(canViewDeliveryLegal).data?.open === true;
@@ -1332,7 +1336,7 @@ export default function ClientDetailPage() {
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
       (careOpen || tab.key !== "ludzie") &&
-      (packOpen || tab.key !== "wejscie") &&
+      (startDocsOpen || packOpen || tab.key !== "wejscie") &&
       (invoicingOpen || tab.key !== "faktury") &&
       (canViewSales || tab.key !== "sprzedaz"),
   );
@@ -1581,7 +1585,23 @@ export default function ClientDetailPage() {
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
 
-          {packOpen && activeTab === "wejscie" && <OnboardingPackTab clientId={Number(id)} />}
+          {startDocsOpen && activeTab === "wejscie" && (
+            <div className="mb-3">
+              <ClientStartDocsPanel
+                clientId={Number(id)}
+                canEdit={hasAnyPermission(user, "clients_edit")}
+              />
+            </div>
+          )}
+          {packOpen && activeTab === "wejscie" && (
+            <div className="space-y-4">
+              <ClientSettlementCard
+                clientId={Number(id)}
+                canEdit={hasAnyPermission(user, "finance_module")}
+              />
+              <OnboardingPackTab clientId={Number(id)} />
+            </div>
+          )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 

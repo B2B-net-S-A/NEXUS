@@ -120,8 +120,29 @@ Reguły, które łatwo cofnąć:
   niego PO zgłoszeniu w rekrutacji linku (link ogólny: w dowolnej). Kolumna
   „Z linków” w aktywności zespołu (`insights_team_activity`, unikalne osoby
   w oknie) jest POZA „Razem” — Liga, Cele i kredyt weryfikującego bez zmian.
-  Wejścia to `visit_count` od początku istnienia linku (dat wejść nie
-  zapisujemy) — w oknie „Mój link ogólny” podpisane „Wejścia od początku”.
+  Wejścia od początku to `visit_count`; okres liczy się z dziennych zapisów
+  (`candidate_invite_link_visit_days`, 0640), które zaczynają się w dniu
+  wdrożenia, starszych dat nie ma i ekran to mówi.
+- **Kto się zgłosił, zespół, raport i kanały (decyzje Artura 02.11.2026, makiety
+  https://claude.ai/artifact/BcevDUToiG7AGHfgY86T5P):**
+  - „Wyniki” pokazują listę osób: z którego linku, gdzie są teraz, czy są
+    w „Moich ludziach” (`GET /api/me/career-link/people`, to samo źródło i ta sama
+    reguła etapu co lejek), a tabela dzieli link ogólny od linków do rekrutacji.
+  - **Osoba z linku do rekrutacji nie trafia na główną listę „Moi ludzie”** przed
+    wysłaniem CV (lista zostaje listą ludzi, których rekruter dowiózł, a dzwonki
+    o dopasowaniach działają jak dotąd). Widać ją w zakładce „Z linków”; z linku
+    ogólnego jest przypięta od razu i ma na liście plakietkę „Z Twojego linku”
+    (`from_link`). Nie przypinaj osób z linku do rekrutacji automatycznie.
+  - **Cudze wyniki widzą tylko admin, Head of Recruitment i Delivery Lead**
+    (`LinkResultsManager` w `api/deps.py`), bez wyjątku D7: okno „Link do tej
+    rekrutacji” (`GET /api/jobs/{id}/link-results`) i raport „Kto co przyniósł”
+    w „Źródła, portale i linki” (`GET /api/insights/recruitment/link-people`).
+    Reszta ról dalej widzi w raporcie kanały po etykiecie. Rekrutacje są dla Delivery
+    Leada org-wide, więc linki zespołu widzi u każdego klienta.
+  - **Zgłoszenie z linku ma własny kanał źródła** (`career_link_general`,
+    `career_link_job`, 0641), nie `posting`, bo raport nie odróżniał linków od
+    portali. Kto czyta `posting`, żeby rozpoznać zgłoszenie, czyta też te kanały
+    (`candidates.py`, `integration_intake.py`).
 - **Okno „Udostępnij”**: „Kopiuj” i „Otwórz stronę” dopiero, gdy strona działa
   (`live`); wcześniej link można wygenerować, ale nie trafia do schowka
   (kandydat dostałby 404, a LinkedIn zapamiętałby pusty podgląd). Zatwierdzony
@@ -475,3 +496,23 @@ Reguły, które łatwo cofnąć:
   w Google kilka kopii tej samej oferty. JobPosting bez miasta i bez pracy
   zdalnej nie powstaje (Google odrzuca ofertę bez lokalizacji), a
   `TELECOMMUTE` stoi tylko przy `remote`.
+
+## Samo CV (decyzja Artura z 07.11.2026)
+
+Formularz strony kariery ma pole CV, zgody i zwinięte „Dodaj więcej
+(nieobowiązkowe)”. Imienia, nazwiska i e-maila nie ma: `submit_career_apply`
+przyjmuje je jako nieobowiązkowe, a brakujące czyta
+`public_apply.identity_from_cv` — ten sam `parse_cv` co `/from-cv` (model,
+w razie awarii darmowe wyrażenie regularne; e-mail tylko taki, który jest
+w tekście CV). Telefon z CV trafia do profilu.
+
+- **Bez e-maila w CV = 422 na polu `email`** („W CV nie znaleźliśmy adresu
+  e-mail…”), bez zapisu. Formularz pokazuje wtedy pole e-mail. E-mail jest
+  potrzebny do odpowiedzi kandydatowi i do rozpoznania tej samej osoby.
+- **Brak imienia w odczycie = „Nieznane”** (jak `/from-cv`); nie zgadujemy
+  z nagłówka CV — 05.11.2026 naprawialiśmy 21 profili z nazwą ze słów CV.
+- **Pełny formularz z polami nie płaci za odczyt** — odczyt idzie tylko, gdy
+  brakuje imienia, nazwiska albo e-maila.
+- Odpowiedź 201 niesie `first_name` i `email` z CV dla ekranu „Dziękujemy”.
+- **Zgoda na tę rekrutację zostaje obowiązkowa** (decyzja D z 19.10.2026);
+  zmiana tylko po decyzji IOD.

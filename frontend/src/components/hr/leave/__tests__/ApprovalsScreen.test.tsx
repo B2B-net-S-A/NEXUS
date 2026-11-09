@@ -173,7 +173,36 @@ beforeEach(() => {
 });
 afterEach(() => window.history.replaceState({}, "", "/"));
 
-describe("Akceptacje — jedna lista", () => {
+describe("Do potwierdzenia — osoba bez niczego do akceptowania", () => {
+  const screenFor = (config: HrConfig) => {
+    render(
+      <QueryClientProvider client={seed()}>
+        <ApprovalsScreen config={config} />
+      </QueryClientProvider>,
+    );
+  };
+
+  // Zgłoszenie Testera z 03.11.2026: zdanie o włączeniu modułów widziała osoba
+  // bez prawa do akceptacji, choć nieobecności i czas pracy działały.
+  it("moduły działają, a osoba nie ma prawa: nie mówi o włączaniu modułów", () => {
+    const config = hrConfig({ leave_approver: false });
+    expect(config.open_modules.leave && config.open_modules.time).toBe(true);
+    screenFor(config);
+    expect(screen.getByText("Nie masz nic do akceptowania")).toBeInTheDocument();
+    expect(screen.queryByText(/po włączeniu modułu/)).toBeNull();
+  });
+
+  it("moduły wyłączone: to samo zdanie, bo dla tej osoby znaczy to samo", () => {
+    const config = hrConfig({ people_admin: true });
+    screenFor({
+      ...config,
+      open_modules: { ...config.open_modules, leave: false, time: false, approvals: false },
+    });
+    expect(screen.getByText("Nie masz nic do akceptowania")).toBeInTheDocument();
+  });
+});
+
+describe("Do potwierdzenia — jedna lista", () => {
   it("„Wszystko”: pilna zgoda, potem nieobecności i zgody od najstarszych, do wiadomości; bez „Co akceptujesz”", async () => {
     open("");
     expect(screen.queryByRole("radiogroup", { name: "Co akceptujesz" })).toBeNull();
@@ -274,7 +303,7 @@ describe("Akceptacje — jedna lista", () => {
     expect(screen.queryByRole("radiogroup", { name: /zdecydowane/ })).toBeNull();
   });
 
-  it("„Zdecydowane”: historia nieobecności i zgody rozstrzygnięte zamiast „Historii wniosków”", async () => {
+  it("„Załatwione”: historia nieobecności i zgody rozstrzygnięte zamiast „Historii wniosków”", async () => {
     const user = userEvent.setup();
     const client = seed();
     const history: LeaveRequestRow[] = [{ ...PENDING[0], status: "approved", decided_by_name: "Marta Fikcyjna" }];
@@ -294,7 +323,7 @@ describe("Akceptacje — jedna lista", () => {
     open("", client);
     expect(screen.queryByRole("button", { name: "Historia wniosków" })).toBeNull();
 
-    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
+    await user.click(screen.getByRole("radio", { name: "Załatwione" }));
     expect(window.location.search).toBe("?view=decided");
     expect(screen.getByRole("heading", { name: "Nieobecności" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Kamil Testowy/ })).toBeInTheDocument();
@@ -347,7 +376,7 @@ describe("Akceptacje — jedna lista", () => {
     expect(await screen.findByRole("button", { name: /Spróbuj ponownie/ })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/nieobecności do decyzji — mogą czekać/);
     expect(screen.queryByTestId("approvals-empty")).toBeNull();
-    expect(screen.queryByText("Nic nie czeka na Twoją decyzję.")).toBeNull();
+    expect(screen.queryByText("Nic nie czeka na potwierdzenie.")).toBeNull();
   });
 
   it("pusta skrzynka mówi to jednym zdaniem dopiero po udanym wczytaniu", () => {
@@ -356,7 +385,7 @@ describe("Akceptacje — jedna lista", () => {
     client.setQueryData(approvalKeys.list("inbox"), []);
     client.setQueryData(approvalKeys.topups, []);
     open("?tab=consents", client);
-    expect(screen.getByTestId("approvals-empty")).toHaveTextContent("Nic nie czeka na Twoją decyzję.");
+    expect(screen.getByTestId("approvals-empty")).toHaveTextContent("Nic nie czeka na potwierdzenie.");
     expect(chip(/^Zgody/)).toHaveTextContent("0");
   });
 });

@@ -1,6 +1,7 @@
 name: Pas migracji w kolejce
 
-# W kolejce merge'ów najwyżej jeden PR z migracją Alembica naraz (29.10.2026).
+# W kolejce merge'ów najwyżej dwa PR-y z migracją Alembica, drugi na migracji
+# pierwszego (29.10.2026, łańcuch od 02.11.2026).
 # Kolejka buduje grupy jedna na drugiej, więc dwa PR-y z migracją przepiętą na
 # tę samą głowę maina dają w każdej grupie od drugiego dwie głowy: krok
 # „Jedna głowa Alembica” czerwieni je po ~1 min, a razem z nimi każdą grupę
@@ -9,14 +10,18 @@ name: Pas migracji w kolejce
 #
 # Ten workflow po każdej bramce i każdym CI grupy w kolejce uruchamia
 # `.github/scripts/queue_migration_lane.py enforce`:
-#   * pierwszy w kolejce PR z migracją zostaje, następne zdejmuje z kolejki
-#     (zanim ich grupy padną, więc grupy za nimi przebudowują się bez nich);
-#   * uzbrojone (auto-merge) PR-y z migracją poza aktywnym: auto-merge
+#   * pierwszy w kolejce PR z migracją i drugi stojący na nim zostają, reszta
+#     schodzi z kolejki (zanim ich grupy padną, więc grupy za nimi przebudowują
+#     się bez nich); pierwszy bez rodzica (PR przed nim wypadł) też schodzi;
+#   * uzbrojone (auto-merge) PR-y z migracją poza pasem: auto-merge
 #     wyłączony, etykieta `czeka-na-migracje`, komentarz `<!-- migration-lane -->`;
-#   * pusty pas (aktywny scalony, wypadł albo ma czerwone checki) = kolej
-#     najstarszego czekającego: etykieta zdjęta, auto-merge włączony.
-# Przepięcie czekających na nową głowę robi `migration-rechain.yml` po
-# scaleniu migracji; wpuszczanie nowych PR-ów — `auto-enqueue.yml` (`admit`).
+#   * wolne miejsce = kolej najstarszego przepiętego czekającego: etykieta
+#     zdjęta, auto-merge włączony;
+#   * trzeba przepiąć, a na mainie nic się nie zmieniło (PR wypadł z kolejki) =
+#     uruchomienie `migration-rechain.yml` tokenem Actions, bo PAT nie ma
+#     uprawnienia „Actions”, a `workflow_dispatch` działa też z `GITHUB_TOKEN`.
+# Przepięcie robi `migration-rechain.yml` po scaleniu migracji; wpuszczanie
+# nowych PR-ów — `auto-enqueue.yml` (`admit`).
 #
 # `workflow_run` biegnie z definicji i kodu z maina — kod z gałęzi kolejki
 # z tokenem w ręku nie jest tu wykonywany. TOKEN: `QUEUE_BOT_TOKEN` (ten sam
@@ -47,9 +52,12 @@ concurrency:
 
 jobs:
   lane:
-    name: Jeden PR z migracją w kolejce
+    name: Pas migracji
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
     if: >-
       ${{ github.event_name == 'workflow_dispatch'
       || github.event.workflow_run.event == 'merge_group' }}
@@ -58,6 +66,7 @@ jobs:
         with:
           sparse-checkout: .github/scripts
       - name: Pilnuj pasa migracji
+        id: lane
         env:
           GH_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
           REPO: ${{ github.repository }}
@@ -72,3 +81,9 @@ jobs:
             args+=(--dry-run)
           fi
           python3 .github/scripts/queue_migration_lane.py "${args[@]}"
+      - name: Przepnij po wypadnięciu z pasa
+        if: steps.lane.outputs.rechain == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run migration-rechain.yml --repo "$REPO" --ref main -f dry_run=false

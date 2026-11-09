@@ -81,7 +81,7 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
-import { PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
+import { ENTRY_STAGES, PairOwnerCompact, PairOwnerLine, takeLabel } from "@/components/v2/jobs/PairOwnerLine";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -110,6 +110,7 @@ import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { DockClosedReason } from "@/components/v2/jobs/DockClosedReason";
 import { DockAutofillReason } from "@/components/v2/jobs/DockAutofillReason";
+import { PersonConversationBadge } from "@/components/v2/person/PersonConversationBadge";
 import { closedReason } from "@/lib/closed-reason";
 import { useNoteFillAvailable, type NoteFillChannel } from "@/lib/note-fill-channel";
 import type { NextAction } from "@/lib/pipeline-next-action";
@@ -121,6 +122,7 @@ import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { stageCvStatus } from "@/lib/cv-to-client";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
+import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
@@ -145,7 +147,8 @@ import {
 import { useCvQc, type QcResult } from "@/lib/api/cvQc";
 import { formatClientRate } from "@/lib/board-card-badges";
 import { CONTRACT_PANEL_STAGES, DockContractSteps } from "@/components/v2/jobs/DockContractSteps";
-import { countForm, qcWarningsText } from "@/lib/cv-qc";
+import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
+import { qcResultPairState, qcStateText, qcWarningsText } from "@/lib/cv-qc";
 import {
   acceptanceLine,
   acceptanceTitle,
@@ -171,6 +174,7 @@ import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
+import { ScreeningCallControl } from "@/components/v2/recruitment/ScreeningCallControl";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
 import { NewInBasePill, type CandidateInBase } from "@/components/v2/person/PersonInBase";
@@ -482,6 +486,8 @@ export interface PipelineCandidateDockProps {
   onOpenQc?: () => void;
   /** PR 5: „Biorę” z panelu — ta sama blokada 12 h co przycisk na karcie. */
   onTake?: () => void;
+  /** „Biorę” właśnie się zapisuje: drugi klik dostałby 409 „Już prowadzisz”. */
+  taking?: boolean;
   /** PR 6: klient rekrutacji — link do jego zamówień w kroku „Umowa”. */
   clientId?: number | null;
   /**
@@ -512,10 +518,9 @@ export interface PipelineCandidateDockProps {
    */
   hidePrimaryMove?: boolean;
   /**
-   * Panel dzielony (0424): formularz screeningu albo profil przed telefonem
-   * z podglądem obok. „Biorę” i „Nie odebrał” stoją wtedy w profilu przed
-   * telefonem (bez dubla w głowie panelu), a przypięte notatki są zwinięte —
-   * przy 1280×720 każda linia wysokości się liczy.
+   * Panel dzielony (0424): formularz screeningu z podglądem obok. „Nie odebrał”
+   * stoi wtedy w bloku „Co już wiemy”, „Biorę” przy „Prowadzi” (04.11.2026),
+   * a przypięte notatki są zwinięte — przy 1280×720 każda linia wysokości się liczy.
    */
   split?: boolean;
   badgeToggles?: ReadonlyArray<{
@@ -539,29 +544,26 @@ export interface PipelineCandidateDockProps {
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
 
-/** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
-const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
-
 /**
- * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Od 18.10.2026
- * dopisuje nieblokujące uwagi tą samą regułą co plakietka karty
- * (`qcCountsText`), żeby karta i panel mówiły te same liczby.
+ * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Tekst przychodzi
+ * z serwera, ten sam co na karcie (`qc_state`, 09.11.2026). Nieblokujące uwagi
+ * dopisuje ta sama reguła co plakietka karty (`qcCountsText`, 18.10.2026).
  */
 export function earlyQcSentence(
   loading: boolean,
-  result: Pick<QcResult, "passed" | "blocking_failed" | "override"> & { warnings_count?: number } | null,
+  result: Pick<QcResult, "passed" | "blocking_failed" | "override" | "qc_state"> & { warnings_count?: number } | null,
 ): string {
   if (loading) return "QC CV: sprawdzam…";
   if (!result) return "QC CV: nie udało się sprawdzić";
   const warnings = result.warnings_count ?? 0;
   const tail = warnings > 0 ? ` · ${qcWarningsText(warnings)} (nie blokuje)` : "";
-  if (result.passed) {
-    return result.override
-      ? "QC CV: przepuszczone przez Delivery Leada"
-      : `QC CV: bez blokad — można przekazać dalej${tail}`;
-  }
-  const n = result.blocking_failed;
-  return `QC CV: ${countForm(n, ["rzecz", "rzeczy", "rzeczy"])} do poprawy przed wysłaniem${tail}`;
+  return `${qcStateText(qcResultPairState(result))}${tail}`;
+}
+
+/** Kropka przy zdaniu QC: ton stanu z serwera, a bez niego wynik przebiegu. */
+function earlyQcDotClass(result: QcResult): string {
+  const ok = result.qc_state ? ["ok", "info"].includes(result.qc_state.tone) : result.passed;
+  return ok ? "bg-success" : "bg-warning";
 }
 
 function WorkbenchLink({
@@ -903,6 +905,7 @@ export function PipelineCandidateDock({
   onAddClientSlots,
   onOpenQc,
   onTake,
+  taking = false,
   clientId = null,
   onOpenWorkbench,
   badgeToggles = [],
@@ -971,8 +974,9 @@ export function PipelineCandidateDock({
   const interviewBadge = item.interview_badge ?? null;
   const interviewStepState = interviewBadge?.steps?.find((s) => s.key === "interview")?.state;
   const openSlotRequest =
-    interviewBadge?.slot_request?.status === "awaiting_recruiter" ||
-    interviewBadge?.slot_request?.status === "awaiting_dl";
+    !interviewBadge?.slot_request?.expired &&
+    (interviewBadge?.slot_request?.status === "awaiting_recruiter" ||
+      interviewBadge?.slot_request?.status === "awaiting_dl");
   // Para w „Rozmowie u klienta” bez rozmowy w kalendarzu — „Pytania z rozmowy”
   // zapisuje je z datą rozmowy (serwer zakłada odbytą rozmowę).
   const pairQuestionsWithoutEvent =
@@ -1594,15 +1598,15 @@ export function PipelineCandidateDock({
 
   // PR 5 (04.10.2026): w „Nowych” i „Screeningu” pierwsza praca to
   // telefon — „Biorę” i „Nie odebrał” bez wychodzenia z panelu.
+  const canTakeHere =
+    !readOnly && ENTRY_STAGES.has(item.stage ?? "") && item.can_take && item.claim_user_id == null;
+  const headerTake = split && canTakeHere ? onTake : undefined;
   const contactRow =
     !readOnly && ENTRY_STAGES.has(item.stage ?? "") && !split ? (
       <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
-        {onTake && item.can_take && item.claim_user_id == null && (
-          <Button size="sm" variant="outline" onClick={onTake}>
-            <UserPlus className="h-3.5 w-3.5" />{" "}
-            {item.entry_source === "system" && !item.entry_autofill?.decided
-              ? "Dzwonię — biorę na 12 h"
-              : "Biorę — 12 h"}
+        {onTake && canTakeHere && (
+          <Button size="sm" variant="outline" disabled={taking} onClick={onTake}>
+            <UserPlus className="h-3.5 w-3.5" /> {takeLabel(item)}
           </Button>
         )}
         <Button
@@ -1613,6 +1617,11 @@ export function PipelineCandidateDock({
         >
           <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
         </Button>
+        <ScreeningCallControl
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          call={item.booked_call}
+        />
       </div>
     ) : null;
 
@@ -1850,6 +1859,7 @@ export function PipelineCandidateDock({
               >
                 Profil <span aria-hidden="true">↗</span>
               </Link>
+              <PairOwnerCompact item={item} onTake={headerTake} taking={taking} />
             </div>
             {/* Podtytuł: stanowisko · firma · miasto · wynik. Człony, których
                 nie znamy, po prostu nie wchodzą — myślnik w środku listy
@@ -1872,7 +1882,7 @@ export function PipelineCandidateDock({
             {/* 09.10.2026: telefon i e-mail bez wchodzenia w profil. */}
             <PersonContactLine phone={candidate?.phone} email={candidate?.email} personName={fullName} />
             {/* „Prowadzi” (25.10.2026): czyja to osoba w tej rekrutacji. */}
-            <PairOwnerLine item={item} jobId={jobId} />
+            <PairOwnerLine item={item} jobId={jobId} onTake={headerTake} taking={taking} />
           </div>
         </div>
 
@@ -1989,6 +1999,7 @@ export function PipelineCandidateDock({
             z kolumny zamkniętych — także w widoku „Rozwiń”. */}
         <DockClosedReason item={item} />
         <DockAutofillReason item={item} />
+        <PersonConversationBadge candidateId={item.candidate_id} />
         {tabsOpen ? null : factsBlock}
         {item.rate_change && !readOnly ? (
           // 0418: otwarta sprawa zmiany stawki — negocjacja (DL, HoR),
@@ -2017,9 +2028,9 @@ export function PipelineCandidateDock({
                 variant="outline"
                 data-testid="dock-client-accept"
                 onClick={onClientAccept}
-                className="w-full border-success/40 bg-success-muted text-success-muted-foreground hover:bg-success/15 hover:text-success-muted-foreground"
+                className="w-full border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
               >
-                <CircleCheck className="h-3.5 w-3.5" aria-hidden="true" /> Klient zaakceptował
+                Zaznacz akceptację klienta
               </Button>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2208,6 +2219,10 @@ export function PipelineCandidateDock({
             )}
             {/* 04.10.2026: sekcja stoi też poza „Umową” i „Zatrudnionym”, gdy para
                 ma już umowę w Generatorze (wygenerowaną po rozmowie u klienta). */}
+            {/* 0649: nad umową, bo to ona bywa już na zielono, a klient czeka na resztę. */}
+            {CONTRACT_PANEL_STAGES.has(item.stage ?? "") && (
+              <StartDocsCard candidateId={item.candidate_id} jobId={jobId} />
+            )}
             {(CONTRACT_PANEL_STAGES.has(item.stage ?? "") || item.agreement) && (
               <DockContractSteps
                 candidateId={item.candidate_id}
@@ -2310,7 +2325,7 @@ export function PipelineCandidateDock({
             {/* „Ściąga do rozmowy” (29.09.2026): tekst na start, odpowiedzi na
                 pytania kandydata i trzy pytania z profilu — z wyjaśnienia
                 „Po ludzku”. Pusta ściąga się nie renderuje. */}
-            <DockCallCheatsheet jobId={jobId} />
+            <DockCallCheatsheet jobId={jobId} candidateId={item.candidate_id} />
             {screeningQuery.isSuccess ? (
               // Sekcje 4 i 8 Championa — co sprawdzić i na co uważać, zanim
               // rekruter zadzwoni. Zwinięte: dok ma być krótki.
@@ -2430,6 +2445,16 @@ export function PipelineCandidateDock({
                     )}
                   </span>
                 </div>
+                {!brandedFailed && companyBranded?.current_filename ? (
+                  <div className="pl-3.5 text-xs text-muted-foreground">
+                    <CvFileNameRow
+                      stageId={editStageId}
+                      filename={companyBranded.current_filename}
+                      patternFilename={companyBranded.pattern_filename}
+                      readOnly={readOnly}
+                    />
+                  </div>
+                ) : null}
                 {/* Awaria odczytu nie udaje braku CV: bez pobierania i bez „Generuj CV”. */}
                 {!brandedFailed && (canDownloadCompanyCv || !readOnly) ? (
                   <div className="flex flex-wrap gap-1.5 pl-3.5">
@@ -2458,7 +2483,7 @@ export function PipelineCandidateDock({
                     ) : null}
                     {!readOnly ? (
                       stageCv === "ready" ? (
-                        <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
+                        <Button size="sm" variant="outline" data-tour="person.cv.edit" onClick={() => setOpenBranded(true)}>
                           <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj CV
                         </Button>
                       ) : (
@@ -2532,11 +2557,7 @@ export function PipelineCandidateDock({
                       aria-hidden="true"
                       className={cn(
                         "mt-1 h-2 w-2 shrink-0 rounded-full",
-                        qcQuery.isSuccess && qcQuery.data.passed
-                          ? "bg-success"
-                          : qcQuery.isSuccess
-                            ? "bg-warning"
-                            : "bg-muted-foreground",
+                        qcQuery.isSuccess ? earlyQcDotClass(qcQuery.data) : "bg-muted-foreground",
                       )}
                     />
                   )}

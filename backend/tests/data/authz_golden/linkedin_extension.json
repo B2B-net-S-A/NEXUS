@@ -25,22 +25,26 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/extension/connections": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/extension/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/extension/me": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/contacts": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/profile-pdf": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/refresh": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/connect": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/extension/connections/{key_id}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/extension/draft-message": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/lookup": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/lookup-batch": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/extension/connections": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/extension/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/extension/me": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/active-job": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/contacts": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/profile-pdf": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/refresh": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/connect": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/extension/connections/{key_id}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/extension/draft-message": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/lookup": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/lookup-batch": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

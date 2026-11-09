@@ -38,13 +38,28 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   `AUTHZ_GOLDEN_WRITE=1 python -m pytest tests/test_authz_guard_matrix.py`,
   a diff trafia do PR-a. Macierz widzi tylko zależności tras — reguła w środku
   handlera potrzebuje własnego testu.
-- **Uprawnienia osoby tylko dodają** („Edytuj użytkownika” → „Dodatkowe
-  uprawnienia”); API odmawia `none` (422 `additive_only`). Role Viewer
-  i Praktykant nie przyjmują uprawnień — nadanie zapisane wcześniej przestaje
+- **Uprawnienia osoby dodają i odbierają** („Edytuj użytkownika” → „Uprawnienia
+  tej osoby”). Decyzja właściciela 02.11.2026 cofa zasadę z 02.10.2026 „tylko
+  dodają”, bo przycięcie jednej osoby wymagało nowej roli i tak powstały Rada
+  i Automatyzacje. Okno pokazuje cały katalog; każdy wiersz ma dwa stany: „Z roli”
+  / „Odebrane”, gdy uprawnienie daje rola, inaczej „Brak” / „Nadane”. Zapis:
+  `manage`, `none`, a `inherit` zdejmuje wyjątek. Wiersze `none` sprzed tej
+  decyzji to zwykłe „Odebrane”; stare limity sekcji Delivery/Finanse
+  (`legacy_section_caps`) zostają z osobnym „Usuń ograniczenia”.
+  API odmawia 422 `permission_required_by_kept`, gdy odbierane uprawnienie jest
+  wymagane przez inne, które osoba zachowuje po tej samej zmianie: zależności
+  przywróciłyby je przy odczycie, a Historia zdarzeń podałaby „Odebrano”. Ekran
+  blokuje taki wiersz z podpisem „Wymagane przez”. Odebranie działa na bramki
+  uprawnień; to, co „zostaje przy roli” (lista niżej), nie zmienia się.
+  Administratora nie da się ruszyć (`immutable_admin_access`). Role Viewer,
+  Praktykant i Rada nie przyjmują nadań — nadanie zapisane wcześniej przestaje
   działać po zmianie roli (`action_permissions.account_accepts_grants`),
   wiersz zostaje. Zmiana wylogowuje dotknięte konta
   i zostawia wpis w Historii zdarzeń (`rbac.role_permissions`,
   `rbac.user_permissions`).
+- **Rola Back office i `orders_work`** (0645, 04.11.2026): „Moduł Finanse” pociąga
+  `orders_work`, więc jego odebranie zostawia zakładki o zamówieniach.
+  → `rola-back-office-zamowienia-i-umowy.md`
 - **Rola bez wierszy zasiewu** jest liczona funkcją zasiewu z jej zapisanych
   sekcji (start bez migracji nie zamyka Delivery); pierwsza zmiana z ekranu
   zapisuje komplet wierszy. Zasiew: `permission_schema.py` (jedno źródło dla
@@ -102,9 +117,9 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
 
 Decyzje Artura 14.10.2026. Osoba, która podpina procesy firmy pod NEXUSA
 (API integracyjne v1), miała dostać rolę Finanse. Finanse czytają jednak
-wszystko, z każdą stawką i marżą, a uprawnienia osoby tylko dodają, więc tej
-roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
-„Automatyzacje”.
+wszystko, z każdą stawką i marżą, a uprawnienia osoby wtedy tylko dodawały
+(do 02.11.2026), więc tej roli nie dało się przyciąć. Powstała osobna rola
+`automation`, na ekranie „Automatyzacje”.
 
 - **Co widzi:** rekrutacje, Tablicę, kandydatów z CV i notatkami (decyzja:
   „od razu podgląd, jak reszta firmy”), Insights bez imiennych KPI zespołu
@@ -122,9 +137,14 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
   Rola jest w zbiorach ODCZYTU (`READ_ONLY_ROLES` w `candidate_access.py`,
   `RECRUITMENT_READ_ROLES`) i w żadnym zbiorze zapisu ani eksportu. Imienne
   „Może usuwać klientów” jej nie otwiera (`client_deletion.py`). Zapisy robią
-  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”. Jak stary
-  Viewer zostawia tylko własne ślady: przebiegi wyszukiwania, rozmowy
-  z Jarvisem, ustawienia pulpitu i powiadomień.
+  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”. Zostawia tylko
+  własne ślady: przebiegi wyszukiwania, rozmowy z Jarvisem, ustawienia pulpitu
+  i powiadomień.
+- **Bez eksportu także z ekranów, które czyta** (audyt 02.11.2026): rejestr
+  kontraktów, lista klientów i import MD mają `dependencies=NOT_READ_ONLY` na
+  trasie pliku, front chowa przycisk (`mayExportFiles`). Nowa trasa eksportu za
+  `OperationalUser` albo `DeliveryViewUser` potrzebuje tego samego; pilnuje
+  `test_automation_exports_nothing`.
 - **Wyjątek: umowy przedwstępne** (22.10.2026, decyzja Artura, audyt F54) —
   pełny dostęp jak rekruter: odczyt, pliki i akcje, także zapis, z tytułu roli
   (`PRE_CONTRACT_ROLES` w `api/pre_contracts.py`). W panelu osoby sekcja
@@ -134,6 +154,11 @@ roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
 - **Rekrutacje bez członkostwa w zespole** (`_JOB_MEMBERSHIP_BYPASS_ROLES`),
   jak reszta firmy. Poczty M365 nie synchronizuje (`eligible_m365_owner`),
   także konto przerobione z rekrutera.
+- **Viewer (`user`) nie ma żadnej sekcji** (0637, audyt 02.11.2026): rola bez
+  nowych kont przechodziła imienne Insights, a na kopii produkcji z 02.11 nie
+  ma ani jednego konta. Zerowanie biegnie raz (`viewer_role_schema`, znacznik
+  w `app_settings`); rola nie przechodzi niczego ponad „Pracownika”
+  (`tests/test_viewer_role_no_sections.py`).
 - **Rola wyłączna** (jak Finanse, Viewer, Praktykant): CHECK
   `ck_users_exclusive_finance_viewer_roles`, `ensure_exclusive_roles`,
   `_normalized_role_values`, mapowanie grup AAD i `EXCLUSIVE_ROLES` na froncie.

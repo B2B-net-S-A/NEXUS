@@ -80,8 +80,10 @@ from app.models.candidate_source_event import CandidateSourceEvent, SourceChanne
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
+from app.services import candidate_last_rejection as last_rejection
 from app.services import candidate_stage_column as stage_column_filter
 from app.services import note_kinds
+from app.services import review_batch
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
 from app.models.pipeline_template import PipelineStageDef, RejectionReason
@@ -103,6 +105,8 @@ from app.schemas.candidate import (
     CandidateEngagementUpdate,
     ActiveRecruitmentBrief,
     StageMatchBrief,
+    LastRejectionBrief,
+    RejectionFacets,
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
@@ -110,6 +114,7 @@ from app.schemas.candidate import (
     CandidateList,
     CandidateLocationDistance,
     CandidateLocationUpdate,
+    CandidateSkillYears,
     CandidateQuickViewAvailability,
     CandidateQuickViewCandidate,
     CandidateQuickViewCapabilities,
@@ -193,6 +198,7 @@ from app.api.candidate_access import (
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
+    CandidateBulkCvAccess,
     CANDIDATE_WRITE_ROLES,
     NOT_READ_ONLY,
     client_rate_write_allowed,
@@ -214,13 +220,19 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_audit, candidate_hard_delete, client_rate_correction
+from app.services import (
+    candidate_audit,
+    candidate_hard_delete,
+    client_rate_correction,
+    cv_download_policy,
+)
 from app.services.candidate_rate_from import declared_rate_from, rate_summary
 from app.services.stage_client_rate import latest_client_rates
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
 )
+from app.services.client_interview_terms import load_pair_terms
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -233,6 +245,7 @@ from app.services.candidate_location_writer import (
     normalize_candidate_location,
 )
 from app.services.candidate_name_rules import (
+    EMPTY_FIELD_NAME_PHRASES,
     NAME_MARKER_ERROR_TYPE,
     find_name_markers,
     name_marker_message,
@@ -404,6 +417,12 @@ class CandidateFilterSpec(BaseModel):
     # poszerzają wyniku (`candidate_search_predicates.Semantics`).
     hide_unknown_rate: Optional[bool] = None
     hide_unknown_location: Optional[bool] = None
+    # „Lata z technologią” (08.11.2026): `"Java:3"` = Java co najmniej 3 lata
+    # z dat stanowisk w CV (`candidate_search_predicates.skill_years_clauses`).
+    # Osoby z technologią bez lat zostają na końcu, chyba że
+    # `hide_unknown_skill_years` (albo globalne `hide_unknown`).
+    skill_years: Optional[list[str]] = None
+    hide_unknown_skill_years: Optional[bool] = None
     # Brak (v1) = DOKŁADNIE dotychczasowe wyniki listy (na tym stoją alerty
     # zapisanych wyszukiwań). 2 = semantyka wspólna z wyszukiwarką.
     semantics_version: Optional[int] = Field(None, ge=1, le=2)
@@ -431,6 +450,12 @@ class CandidateFilterSpec(BaseModel):
     # zakresu — był / nie był w jakiejkolwiek rekrutacji, nie ma procesu w toku.
     recruitment_client_id: Optional[list[int]] = None
     recruitment_presence: Optional[Literal["never", "ever", "not_in_process"]] = None
+    # „Ostatnie odrzucenie” (06.11.2026, `candidate_last_rejection`): klucze
+    # powodów (`r:…`, `t:…`, `none`), kto zakończył, okres i „Ukryj”.
+    rejection_key: Optional[list[str]] = None
+    rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = None
+    rejection_within_months: Optional[Literal[3, 12]] = None
+    rejection_exclude: Optional[bool] = None
     recently_changed_jobs: Optional[int] = Field(None, ge=1, le=3)
     open_to: Optional[list[str]] = None
     q_all: Optional[list[str]] = None
@@ -1432,7 +1457,20 @@ def _list_semantics(f: CandidateFilterSpec):
         f.hide_unknown,
         hide_unknown_rate=f.hide_unknown_rate,
         hide_unknown_location=f.hide_unknown_location,
+        hide_unknown_skill_years=f.hide_unknown_skill_years,
     )
+
+
+def _list_skill_years(f: CandidateFilterSpec):
+    """Wiersze „technologia:lata” albo 422 po polsku (GET i eksport)."""
+    from app.services import candidate_search_predicates as predicates
+
+    try:
+        return predicates.parse_skill_years(f.skill_years)
+    except predicates.InvalidSkillYears as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def _list_location_places(f: CandidateFilterSpec):
@@ -1483,7 +1521,27 @@ def _unknown_rank_expr(f: CandidateFilterSpec):
         ),
         rate_active=(f.min_rate is not None or f.max_rate is not None)
         and not f.hide_unknown_rate,
+        skill_years_rank=predicates.skill_years_unknown_rank(
+            _list_skill_years(f), _list_semantics(f)
+        ),
     )
+
+
+def _rejection_spec(f: "CandidateFilterSpec") -> last_rejection.RejectionFilter:
+    return last_rejection.RejectionFilter(
+        keys=tuple(k for k in (f.rejection_key or []) if k),
+        who=tuple(f.rejection_by or []),
+        within_months=f.rejection_within_months,
+        exclude=bool(f.rejection_exclude),
+    )
+
+
+_NO_REJECTION_FILTER = {
+    "rejection_key": None,
+    "rejection_by": None,
+    "rejection_within_months": None,
+    "rejection_exclude": None,
+}
 
 
 async def _build_candidate_filtered_query(
@@ -1700,6 +1758,8 @@ async def _build_candidate_filtered_query(
     )
     if experience_clause is not None:
         query = query.where(experience_clause)
+    for skill_years_clause in predicates.skill_years_clauses(_list_skill_years(f), sem):
+        query = query.where(skill_years_clause)
 
     if f.added_by_user_id:
         real_ids = [uid for uid in f.added_by_user_id if uid != 0]
@@ -1741,6 +1801,9 @@ async def _build_candidate_filtered_query(
     recruitment_presence = recruitment_filter.presence_clause(f.recruitment_presence)
     if recruitment_presence is not None:
         query = query.where(recruitment_presence)
+    rejection_clause = await last_rejection.filter_clause(db, _rejection_spec(f))
+    if rejection_clause is not None:
+        query = query.where(rejection_clause)
     if f.recently_changed_jobs in (1, 2, 3):
         cutoff = datetime.now(timezone.utc) - timedelta(
             days=30 * f.recently_changed_jobs
@@ -1788,7 +1851,17 @@ _PL_SORT_SOURCE = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 _PL_SORT_TARGET = "acelnoszzACELNOSZZ"
 # Nazwiska-placeholdery (import Traffita bez imienia/nazwiska). Lista lustrzana
 # do `candidate_identity_quarantine._PLACEHOLDERS`.
-_NAME_SORT_PLACEHOLDERS = ("", "?", "-", "nieznane", "nieznany", "unknown", "n/a", "na")
+_NAME_SORT_PLACEHOLDERS = (
+    "",
+    "?",
+    "-",
+    "nieznane",
+    "nieznany",
+    "unknown",
+    "n/a",
+    "na",
+    *sorted(EMPTY_FIELD_NAME_PHRASES),
+)
 
 
 def _pl_sort_key(column):
@@ -2353,6 +2426,24 @@ async def list_candidates(
             "active location filters only. Never widens the result."
         ),
     ),
+    skill_years: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Years with a technology, repeated `skill:years` (e.g. `Java:3`, at "
+            "most 5, years 1-30). Years come from the CV role/project dates "
+            "(`candidate_skill_usage.months`). People who have the skill but no "
+            "dated role with it stay (`unknown_fields` gets `skill_years`) "
+            "unless `hide_unknown_skill_years` / `hide_unknown`. Rows carry "
+            "`skill_years` with the months and their source."
+        ),
+    ),
+    hide_unknown_skill_years: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` hides people with the skill but no years from CV role "
+            "dates, for the `skill_years` filter only. Never widens the result."
+        ),
+    ),
     semantics_version: Optional[int] = Query(
         None,
         ge=1,
@@ -2445,6 +2536,23 @@ async def list_candidates(
             "`last_talk_preview` (newest note from the „Rozmowy” tab) and "
             "`contact_attempts` (number of „nie odebrał” notes). Two queries "
             "per page; no N+1."
+        ),
+    ),
+    include_last_rejection: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `last_rejection` — the newest "
+            "rejection/withdrawal that is still the state of its (person, "
+            "recruitment) pair: reason key and label, who ended it, note, date, "
+            "recruitment and client. One query per page."
+        ),
+    ),
+    include_rejection_facets: bool = Query(
+        False,
+        description=(
+            "When true, the response carries `rejection_facets`: the last-"
+            "rejection distribution over the WHOLE result, computed without the "
+            "rejection filter itself (keys, who ended it, people without one)."
         ),
     ),
     match_threshold: float = Query(
@@ -2567,6 +2675,29 @@ async def list_candidates(
             "`not_in_process` (no pair whose latest stage is non-terminal on a "
             "non-closed recruitment — the rule of the list's process column). "
             "Combines with the scope filter by AND."
+        ),
+    ),
+    rejection_key: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Last-rejection filter: reason keys — `r:<label>` (NEXUS reason), "
+            "`t:<category>` (Traffit category without a reason) or `none`. OR "
+            "within the list; AND with `rejection_by` and the period."
+        ),
+    ),
+    rejection_by: Optional[list[Literal["client", "us", "candidate"]]] = Query(
+        None, description="Who ended the last rejected process (OR)."
+    ),
+    # `int`, nie `Literal[3, 12]`: parametr zapytania przychodzi jako tekst,
+    # a `Literal` z liczbami go nie zamienia (422 na „3” z adresu).
+    rejection_within_months: Optional[int] = Query(
+        None, description="Last rejection no older than 3 or 12 months (3 | 12)."
+    ),
+    rejection_exclude: Optional[bool] = Query(
+        None,
+        description=(
+            "`true` = hide people whose last rejection matches; people without "
+            "any rejection stay."
         ),
     ),
     recently_changed_jobs: Optional[int] = Query(
@@ -2867,6 +2998,11 @@ async def list_candidates(
     ),
 ):
     _reject_retired_candidate_query(request)
+    # Porcja dnia (07.11.2026): filtry i opis to ręczne wyszukiwanie — 423,
+    # dopóki rekruter nie zrobi minimum. Nazwisko, mail i telefon przechodzą.
+    await review_batch.assert_list_search_allowed(
+        db, current_user, request.query_params
+    )
     _reject_reversed_ranges(
         min_rate=min_rate,
         max_rate=max_rate,
@@ -2874,6 +3010,12 @@ async def list_candidates(
         max_experience=max_experience,
     )
     _reject_invalid_location_places(location_places)
+    _list_skill_years(CandidateFilterSpec(skill_years=skill_years))
+    if rejection_within_months not in (None, *last_rejection.WITHIN_MONTHS):
+        raise HTTPException(
+            status_code=422,
+            detail="rejection_within_months: dozwolone 3 albo 12.",
+        )
     filters = CandidateFilterSpec(
         status=status,
         location=location,
@@ -2898,6 +3040,8 @@ async def list_candidates(
         hide_unknown=hide_unknown,
         hide_unknown_rate=hide_unknown_rate,
         hide_unknown_location=hide_unknown_location,
+        skill_years=skill_years,
+        hide_unknown_skill_years=hide_unknown_skill_years,
         semantics_version=semantics_version,
         remote_policy=remote_policy,
         min_rate=min_rate,
@@ -2921,6 +3065,10 @@ async def list_candidates(
         recruitment_match=recruitment_match,
         recruitment_client_id=recruitment_client_id,
         recruitment_presence=recruitment_presence,
+        rejection_key=rejection_key,
+        rejection_by=rejection_by,
+        rejection_within_months=rejection_within_months,
+        rejection_exclude=rejection_exclude,
         recently_changed_jobs=recently_changed_jobs,
         open_to=open_to,
         q_all=q_all,
@@ -3422,6 +3570,25 @@ async def list_candidates(
     stage_match_by_candidate = await _stage_matches(
         db, await _resolve_stage_filter(db, filters), [c.id for c in items]
     )
+    last_rejection_by_id: dict[int, dict] = {}
+    if include_last_rejection and items:
+        last_rejection_by_id = await last_rejection.page_rows(db, [c.id for c in items])
+    rejection_facets = None
+    if include_rejection_facets:
+        facets_query, _ = await _build_candidate_filtered_query(
+            db,
+            filters.model_copy(update=_NO_REJECTION_FILTER),
+            semantic_pool_ids=pool_ids,
+        )
+        rejection_facets = RejectionFacets(
+            **await last_rejection.facets(
+                db, facets_query.with_only_columns(Candidate.id)
+            )
+        )
+    skill_years_items = _list_skill_years(filters)
+    skill_years_by_id = await search_predicates.skill_years_for_page(
+        db, [c.id for c in items], skill_years_items
+    )
     response_items: list[CandidateResponse] = []
     distance_places = _radius_places(filters)
     for cand in items:
@@ -3467,6 +3634,11 @@ async def list_candidates(
                     "contact_attempts": contact_attempts_by_candidate.get(cand.id, 0),
                 }
             )
+        if include_last_rejection:
+            row = last_rejection_by_id.get(cand.id)
+            payload = payload.model_copy(
+                update={"last_rejection": LastRejectionBrief(**row) if row else None}
+            )
         if include_last_activity:
             payload = payload.model_copy(
                 update={
@@ -3502,7 +3674,22 @@ async def list_candidates(
                             min_experience is not None or max_experience is not None
                         ),
                         rate_active=min_rate is not None or max_rate is not None,
+                        skill_years_unknown=(
+                            list_semantics.skill_years_unknown == "include"
+                            and search_predicates.skill_years_unknown_for(
+                                skill_years_by_id.get(cand.id)
+                            )
+                        ),
                     )
+                }
+            )
+        if skill_years_items:
+            payload = payload.model_copy(
+                update={
+                    "skill_years": [
+                        CandidateSkillYears(**e)
+                        for e in skill_years_by_id.get(cand.id, [])
+                    ]
                 }
             )
         if distance_places:
@@ -3547,6 +3734,7 @@ async def list_candidates(
         ),
         sort_applied=sort_applied,
         known_match_count=known_count,
+        rejection_facets=rejection_facets,
     )
 
 
@@ -4294,11 +4482,32 @@ async def create_candidate(
     data: CandidateCreate,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
+    ),
 ):
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
     _reject_name_markers({"name": data.name, "lastname": data.lastname})
+    # Adres z żywym właścicielem to zwykły duplikat (409 niżej), nie powrót.
+    erased_email = not await find_candidate_by_email(
+        db, data.email
+    ) and await email_was_erased(db, data.email)
+    if erased_email and not confirm_erased:
+        raise erased_email_conflict()
     candidate = await apply_candidate_create(
         db, data, author=WriteAuthor.person(current_user)
     )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=current_user.id, via=VIA_SCREEN
+        )
 
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
@@ -4425,6 +4634,7 @@ async def _assign_candidate_to_job(
         work_channel=PriorityChannel.linkedin,
         entry_source="added_manual",
         claim_for_user_id=user_id,
+        entry_meta={"found_via": "outside_base"},
     )
     db.add(
         Activity(
@@ -4525,7 +4735,13 @@ async def _resolve_invite_source(
         select(CandidateSourceEvent.utm_source)
         .where(
             CandidateSourceEvent.candidate_id == candidate_id,
-            CandidateSourceEvent.channel == SourceChannel.posting,
+            CandidateSourceEvent.channel.in_(
+                (
+                    SourceChannel.posting,
+                    SourceChannel.career_link_general,
+                    SourceChannel.career_link_job,
+                )
+            ),
             CandidateSourceEvent.captured_at
             <= activity.created_at + timedelta(minutes=5),
         )
@@ -5510,7 +5726,15 @@ async def get_candidate_history(
             ).get(candidate_id)
             if badge is not None:
                 interview_badges[job_id] = badge
+    # Termin rozmowy pod etapem, tylko gdy jest przed nami.
+    interview_terms = await load_pair_terms(
+        db, ((candidate_id, job_id) for job_id in client_jobs), today=today
+    )
     for job_id, entry in jobs_map.items():
+        term = interview_terms.get((candidate_id, job_id))
+        entry["client_interview_at"] = (
+            term.next_at.isoformat() if term and term.next_at else None
+        )
         entry["next_action_owner"] = _history_next_action_owner(
             entry,
             latest_columns.get(job_id),
@@ -5885,6 +6109,10 @@ async def remove_candidate_from_recruitment(
     pozostają nietknięte.
     """
     await ensure_job_membership(db, current_user, job_id)
+    # Porcja dnia (07.11.2026): karta z porcji wymaga decyzji, nie usunięcia.
+    await review_batch.assert_removal_allowed(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
     locked_candidate = await db.scalar(
         select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
     )
@@ -6093,6 +6321,9 @@ async def remove_candidate_from_recruitment(
         await reopen_after_quick_undo(
             db, job_id=job_id, candidate_id=candidate_id, entered_at=entered_at
         )
+        from app.services.single_candidate_list import reopen_pool_only
+
+        await reopen_pool_only(db, job_id=job_id, candidate_id=candidate_id)
 
     db.add(
         Activity(
@@ -6394,6 +6625,7 @@ async def reparse_primary_cv(
         document.id,
         document.content_sha256,
         actor_user_id=current_user.id,
+        force_read=True,
     )
     return {"status": "queued", "document_id": document.id}
 
@@ -6434,6 +6666,13 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
+    # Do dziennika to, o co prosił klient: nagłówek pliku Word zawsze jest
+    # `attachment`, a jego podgląd nie może liczyć się jako zapis na dysk.
+    requested_disposition = disposition
     disposition = _safe_document_disposition(media_type, disposition)
 
     candidate_audit.record_candidate_audit(
@@ -6441,7 +6680,7 @@ async def download_candidate_document(
         action=candidate_audit.DOCUMENT_DOWNLOADED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={"doc_id": doc_id, "disposition": disposition},
+        details={"doc_id": doc_id, "disposition": requested_disposition},
     )
     await db.commit()
 
@@ -6529,6 +6768,10 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
     # Presigned URL renderuje się na originie bucketu — ta sama allowlista.
     disposition = _safe_document_disposition(doc.content_type, disposition)
 
@@ -6983,6 +7226,7 @@ from app.services.cv_enrichment import (  # noqa: E402
     _CV_PLACEHOLDER_NAME,
     CvWritePolicy,
     _apply_cv_enrichment,  # noqa: F401 — re-eksport dla testów i starych importów
+    name_part_for_profile,
 )
 from app.services.candidate_language_writer import (  # noqa: E402
     normalize_language_payload,
@@ -6990,6 +7234,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
     ReplacedPrimaryCv,
+    get_identity_review,
     record_detected_identity,
 )
 
@@ -7013,8 +7258,10 @@ async def _parsed_source_is_quarantined(
         source_id=source_id,
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
+        observed_phone=parsed.get("phone"),
         provenance=provenance,
         replaced_primary=replaced_primary,
+        observed_name_from_header=bool(parsed.get("_name_from_header")),
     )
     return review.is_quarantined
 
@@ -7227,13 +7474,22 @@ async def _enrich_candidate_from_document_task(
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
+    force_read: bool = False,
 ) -> None:
-    """Extract and enrich from the still-current primary CV version."""
+    """Extract and enrich from the still-current primary CV version.
+
+    Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
+    ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
+    profilu nie zmieniał nic. `force_read` = człowiek albo narzędzie prosi o nowy
+    odczyt mimo to (`/cv/reparse`, naprawa dokumentów M365).
+    """
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_text_extractor
     from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
+    from app.services.cv_source import quarantined_copy_document_ids
+    from app.services.cv_upload_dedup import profile_holds_read_of_file
 
     async with AsyncSessionLocal() as db:
         temp_path: Optional[str] = None
@@ -7258,6 +7514,38 @@ async def _enrich_candidate_from_document_task(
                 and document.content_sha256 != expected_hash
             ):
                 return
+            if not force_read and profile_holds_read_of_file(
+                candidate.cv_extracted_data,
+                raw_cv_text=candidate.raw_cv_text,
+                content_sha256=document.content_sha256,
+            ):
+                # Plik z kwarantanny musi wrócić przez bramkę tożsamości: to ona
+                # oddaje główne CV poprzedniemu plikowi.
+                review = await get_identity_review(
+                    db,
+                    candidate_id=candidate_id,
+                    source_kind="document",
+                    source_id=document.id,
+                )
+                if review is not None and not review.is_quarantined:
+                    logger.info(
+                        "[cv_enrich] plik już odczytany, bez modelu "
+                        "candidate=%s document=%s",
+                        candidate_id,
+                        document_id,
+                    )
+                    return
+
+            # Ten sam plik co w kwarantannie: odczyt mógłby przejść bramkę jako
+            # `inconclusive` i wpisać cudze dane do profilu. Wraca po zwolnieniu.
+            if document.id in await quarantined_copy_document_ids(db, candidate_id):
+                logger.info(
+                    "[cv_enrich] kopia pliku z kwarantanny, bez odczytu "
+                    "candidate=%s document=%s",
+                    candidate_id,
+                    document_id,
+                )
+                return
 
             content = await _candidate_document_bytes(db, document)
             if not content:
@@ -7267,7 +7555,7 @@ async def _enrich_candidate_from_document_task(
                 handle.write(content)
                 temp_path = handle.name
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text,
+                cv_text_extractor.extract_cv_text,
                 temp_path,
                 document.filename,
             )
@@ -7556,6 +7844,7 @@ async def _extract_uploaded_cv_text(
     """
     import asyncio
 
+    from app.core.log_safety import safe_filename as log_safe_filename
     from app.services import cv_text_extractor
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -7570,7 +7859,7 @@ async def _extract_uploaded_cv_text(
     try:
         try:
             raw_text = await asyncio.to_thread(
-                cv_text_extractor.extract_text, tmp_path, client_filename or ""
+                cv_text_extractor.extract_cv_text, tmp_path, client_filename or ""
             )
         except cv_text_extractor.UnsupportedCvFormat as e:
             raise HTTPException(
@@ -7586,6 +7875,14 @@ async def _extract_uploaded_cv_text(
             pass
 
     if not raw_text or not raw_text.strip():
+        # Bez tego 5 zgłoszeń z portalu (10.2026) nie dało się zdiagnozować: scraper
+        # kasuje pliki, a w logu nie było ani formatu, ani rozmiaru.
+        logger.warning(
+            "[from-cv] brak tekstu: %s, format %s, %d B",
+            log_safe_filename(safe_name),
+            cv_text_extractor.sniff_extension_bytes(content),
+            len(content),
+        )
         raise HTTPException(
             status_code=400,
             detail="Nie udało się odczytać tekstu z pliku CV.",
@@ -7688,6 +7985,14 @@ def _apply_from_cv_overrides(
         # Pusty napis = pole świadomie wyczyszczone: wartość z CV nie wraca
         # (ani do profilu, ani do skanu duplikatów).
         merged[key] = value or None
+    # Wartość z formularza nie pochodzi już z reguły nagłówka CV.
+    from_header = [
+        field
+        for field in merged.pop("_name_from_header", None) or ()
+        if overrides.get(field) is None
+    ]
+    if from_header:
+        merged["_name_from_header"] = from_header
     return merged
 
 
@@ -7706,11 +8011,11 @@ def _cv_preview_response(sha256: str, parsed: dict[str, Any]) -> CandidateCVPrev
 
     def _name(key: str) -> Optional[str]:
         # Dopisek odczytany z CV nie trafia do formularza — zapis tego pola
-        # z dopiskiem dostałby 422 (D6, 13.10.2026).
-        value = _text(key)
-        if value is None:
+        # z dopiskiem dostałby 422 (D6, 13.10.2026). Nazwa z reguły nagłówka też
+        # nie: rekruter zatwierdziłby stanowisko jako nazwisko (05.11.2026).
+        if _text(key) is None:
             return None
-        return strip_name_markers(value)[0] or None
+        return name_part_for_profile(parsed, key) or None
 
     return CandidateCVPreview(
         cv_sha256=sha256,
@@ -7843,6 +8148,7 @@ async def preview_candidate_cv(
     },
 )
 async def create_candidate_from_cv(
+    request: Request,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
@@ -7850,6 +8156,10 @@ async def create_candidate_from_cv(
         default=False,
         description="True pomija sito identycznego pliku i adresu z nagłówka. "
         "Adres e-mail zajęty przez innego kandydata odmawia mimo to.",
+    ),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
     ),
     name: Optional[str] = Form(default=None),
     lastname: Optional[str] = Form(default=None),
@@ -7962,9 +8272,26 @@ async def create_candidate_from_cv(
         if same_person_rows:
             _raise_from_cv_duplicate_conflict(same_person_rows)
 
+    # 3c — adres z nagrobka (decyzja Artura, 03.11.2026): człowiek dostaje
+    # pytanie niezależnie od `force`, bo `force` dotyczy duplikatów. Scraper
+    # portalu nie pyta: osoba zgłosiła się sama, więc zostaje tylko ślad.
+    from app.services import candidate_claim
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
+    from_integration = candidate_claim.is_integration_request(request)
+    erased_email = await email_was_erased(db, parsed.get("email"))
+    if erased_email and not (from_integration or confirm_erased):
+        raise erased_email_conflict()
+
     # 4 — insert and enrich
-    first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
-    last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    first_name = name_part_for_profile(parsed, "first_name") or _CV_PLACEHOLDER_NAME
+    last_name = name_part_for_profile(parsed, "last_name") or _CV_PLACEHOLDER_NAME
     # E-mail w INSERT-cie, nie dopiero w uzupełnianiu z CV (ta sama postać co
     # `_apply_cv_contact_fields`): dwa równoległe zapisy tego samego adresu
     # mijały sprawdzenie wyżej, a drugi padał na unikalnym indeksie przy
@@ -7997,6 +8324,13 @@ async def create_candidate_from_cv(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
         ) from exc
+    if erased_email:
+        record_recreated_after_erasure(
+            db,
+            candidate.id,
+            user_id=current_user.id,
+            via=VIA_SELF_APPLICATION if from_integration else VIA_SCREEN,
+        )
 
     # Permanent, candidate-scoped copy written from the bytes we already hold
     # (legacy `/cv-download` path); no rename of a shared scratch file.
@@ -8555,6 +8889,9 @@ async def download_cv(
     file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
     if file_path is None or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
+    await cv_download_policy.ensure_can_save_file(
+        db, current_user, filename=candidate.cv_filename, content_type=None
+    )
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.CV_DOWNLOADED,
@@ -8591,7 +8928,7 @@ def _bulk_cv_archive_name() -> str:
 @router.post("/bulk-cv-download", dependencies=NOT_READ_ONLY)
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateBulkCvAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download multiple candidate CVs as a single ZIP archive.
@@ -8727,6 +9064,10 @@ async def bulk_import_candidates(
 
     from pydantic import ValidationError
 
+    from app.services.candidate_erasure_leftovers import (
+        ERASED_EMAIL_CODE,
+        email_was_erased,
+    )
     from app.services.candidate_name_rules import has_blacklist_marker
 
     created: list[int] = []
@@ -8797,6 +9138,17 @@ async def bulk_import_candidates(
                         }
                         for error in exc.errors()
                     ],
+                }
+            )
+            continue
+
+        if await email_was_erased(db, item.email):
+            item_results.append(
+                {
+                    "index": index,
+                    "status": "skipped",
+                    "field_errors": field_errors,
+                    "reason": ERASED_EMAIL_CODE,
                 }
             )
             continue

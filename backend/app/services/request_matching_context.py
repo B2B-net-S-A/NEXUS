@@ -176,6 +176,17 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
+    # Słowa wierszy „musi mieć” do oceny (02.11.2026): profil wyżej nie ma
+    # `stack.rows`, a bez nich wiersz liczył samą etykietę. Celowo po odcisku: inny
+    # wariant słowa nie jest zmianą wymagań (`champion_view.without_critical`), więc
+    # gotowy przegląd nie dostaje 409. Bramka czyta tylko `critical_effective`.
+    from app.services.critical_skills import must_evidence_options
+
+    evidence_options = must_evidence_options(job)
+    if evidence_options:
+        values["must_evidence_options"] = {
+            label: list(words) for label, words in evidence_options.items()
+        }
     has_brief = bool(
         values["description"]
         or values["requirements"]

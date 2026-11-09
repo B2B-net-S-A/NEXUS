@@ -149,6 +149,10 @@ function NumberField({
   );
 }
 
+/** Opis ekranu: strona w Ustawieniach i Insights → Zasady. */
+export const TWIN_RULES_INTRO =
+  "Kiedy dwie otwarte rekrutacje są bliźniakami. Zasady działają od razu u wszystkich: na liście „Możliwe bliźniaki”, w kaflu „Otwarte podobne” i w oknie łączenia. „Wymagane” zdejmuje parę z listy propozycji — połączyć ją ręcznie dalej można, okno pokaże ostrzeżenie.";
+
 export function TwinRulesSettings() {
   const query = useTwinRules();
   const save = useSaveTwinRules();

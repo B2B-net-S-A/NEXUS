@@ -1,8 +1,8 @@
 """Pakiet klienta i mail powitalny konsultanta (etap 3, O2, O3, O6).
 
 Prefiks ``/api/client-onboarding`` (wpina koordynator w ``app/main.py``).
-Moduł „Wejście i odejście” (``HrModule.lifecycle``): wyłączony = 404
-(admin przechodzi). Każda trasa ma bramkę ``require_hr_*``.
+Moduł „Wejście i odejście” (``HrModule.lifecycle``) albo włączony panel konsultanta;
+inaczej 404 (admin przechodzi). Każda trasa ma bramkę ``require_hr_*``.
 
 Kto co może (O2, O6):
 
@@ -37,6 +37,7 @@ from app.services.access_scope import (
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.care import access as care_access
+from app.services.consultant_portal import portal_settings
 from app.services.equipment.errors import EquipmentError
 from app.services.hr import client_pack, welcome_mail
 from app.services.hr.modules import HrModule
@@ -62,6 +63,18 @@ def _http(exc: EquipmentError) -> HTTPException:
 # ── Bramki ────────────────────────────────────────────────────────────────────
 
 
+async def _ensure_pack_open(db: AsyncSession, user: User) -> None:
+    """Pakiet i mail działają przy module „Wejście i odejście” albo włączonym panelu.
+
+    Moduł ma zostać wyłączony (decyzja Artura 28.10.2026), a panel konsultanta bierze
+    z pakietu pierwszy dzień i dokumenty.
+    """
+
+    if await portal_settings.load_raw_state(db) != "off":
+        return
+    await ensure_module(db, user, HrModule.lifecycle)
+
+
 def require_hr_onboarding(*permissions: ProductAction):
     """Moduł „Wejście i odejście” włączony i jedno z ``permissions``."""
 
@@ -72,7 +85,7 @@ def require_hr_onboarding(*permissions: ProductAction):
         # Uprawnienie przed modułem: odmowa bez sięgania do bazy (wzorzec
         # dostępu ``authz_golden`` widzi wtedy, kto naprawdę ma wstęp).
         ensure_any_permission(current_user, *permissions)
-        await ensure_module(db, current_user, HrModule.lifecycle)
+        await _ensure_pack_open(db, current_user)
         return current_user
 
     _check.required_permissions = permissions
@@ -89,7 +102,7 @@ def require_hr_welcome_mail_sender():
         ensure_any_permission(current_user, ProductAction.delivery_view)
         if not care_access.is_care_worker(current_user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, SENDER_DENIED)
-        await ensure_module(db, current_user, HrModule.lifecycle)
+        await _ensure_pack_open(db, current_user)
         return current_user
 
     _check.required_permissions = (ProductAction.delivery_view,)
@@ -105,7 +118,7 @@ def require_hr_welcome_mail_admin():
     ) -> User:
         if not current_user.has_role(UserRole.admin):
             raise HTTPException(status.HTTP_403_FORBIDDEN, ADMIN_ONLY)
-        await ensure_module(db, current_user, HrModule.lifecycle)
+        await _ensure_pack_open(db, current_user)
         return current_user
 
     return _check

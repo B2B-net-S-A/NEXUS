@@ -57,7 +57,7 @@ class ServiceScope(str, enum.Enum):
     """Słownik uprawnień kluczy API — celowo WĄSKI i celowo osobny.
 
     Zasada: jeden scope = jedna powierzchnia operacyjna, nazwa ``<zasób>:<akcja>``.
-    Klucz do odpalania syncu Traffita nie ma jak sięgnąć po dane kandydata, bo
+    Klucz do statusu Traffita nie ma jak sięgnąć po dane kandydata, bo
     takiego scope'u po prostu nie ma w tym słowniku — to nie jest kwestia
     ostrożnej konfiguracji, tylko braku istniejącego uprawnienia.
 
@@ -73,7 +73,6 @@ class ServiceScope(str, enum.Enum):
     w guardzie endpointu. Bez migracji — kolumna trzyma stringi, nie enum DB.
     """
 
-    traffit_sync = "traffit:sync"
     traffit_read = "traffit:read"
     ops_snapshot = "ops:snapshot"
     # Eksport kontraktorów dla COMPASSA. Nazwa CELOWO nie brzmi
@@ -144,7 +143,6 @@ class ServiceScope(str, enum.Enum):
     applications_read = "applications:read"
     applications_write = "applications:write"
     insights_read = "insights:read"
-    academy_read = "academy:read"
     # Zdarzenia: kanał zdarzeń (same identyfikatory, bez danych osobowych)
     # i zarządzanie własnymi webhookami konta.
     events_read = "events:read"
@@ -166,7 +164,6 @@ class ServiceScope(str, enum.Enum):
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
-    ServiceScope.traffit_sync: "Uruchamianie synchronizacji Traffit",
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
     ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
@@ -222,7 +219,6 @@ SCOPE_LABELS: dict[ServiceScope, str] = {
         "Zgłoszenia z linku rekrutacji: rozpatrzenie (dołącz, utwórz, odrzuć)"
     ),
     ServiceScope.insights_read: "Insights: raporty i wskaźniki (odczyt)",
-    ServiceScope.academy_read: "Akademia: programy i nabór (odczyt)",
     ServiceScope.events_read: "Zdarzenia: kanał zdarzeń (same identyfikatory)",
     ServiceScope.webhooks_manage: "Webhooki: zarządzanie powiadomieniami konta",
     ServiceScope.absences_read: "Nieobecności — kto i kiedy, bez rodzaju",
@@ -276,7 +272,7 @@ class ServiceAccount(Base, TimestampMixin):
     __table_args__ = (
         # Lustro ``ck_users_roles_array``. Gdyby ``scopes`` przestało być tablicą
         # (ręczny UPDATE, zły import), sprawdzenie uprawnień w Pythonie zrobiłoby
-        # z operatora ``in`` test podciągu — ``"traffit:sync" in "traffit:sync-x"``
+        # z operatora ``in`` test podciągu — ``"traffit:read" in "traffit:read-x"``
         # jest prawdą. Baza odrzuca taki wiersz zamiast pozwolić mu cicho
         # rozszerzyć uprawnienia.
         CheckConstraint(

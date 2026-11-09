@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSelectedLayoutSegment } from "next/navigation";
 import { isCareerHost } from "@/lib/career/host";
 import { api } from "@/lib/api";
-import { isTraineeOnly, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
@@ -16,11 +16,12 @@ import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
 import { useStartGate } from "@/components/novelties/useStartGate";
+import { PREVIEW_PATH } from "@/components/phone-preview/access";
+import { PhonePreviewRedirect } from "@/components/phone-preview/usePhonePreviewRedirect";
 import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { TraineeShell } from "@/components/trainee/TraineeShell";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
@@ -51,10 +52,17 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // `/cv/{token}` — public CV preview. `startsWith("/cv/")` (trailing slash) żeby
   // NIE złapać authed `/cv-generator`.
   const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
+  // `/k/{token}` — panel klienta pod linkiem z CV. Ukośnik na końcu, żeby nie
+  // złapać `/kariera`, `/klienci` i podobnych.
+  const isClientPanelPage = pathname?.startsWith("/k/") ?? false;
+  // `/t/{token}` — wybór terminu rozmowy z maila, bez konta.
+  const isOwnHiringBookingPage = pathname?.startsWith("/t/") ?? false;
   // `/engagement/{token}` — public magic-link engagement page, no internal shell.
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
   // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
   const isProtocolPage = pathname?.startsWith("/protocol/") ?? false;
+  // `/konsultant` — strefa konsultanta: osobna sesja, bez konta pracownika.
+  const isConsultantPortal = pathname === "/konsultant" || (pathname?.startsWith("/konsultant/") ?? false);
   const isExtensionPrivacyPage = pathname === "/wtyczka/prywatnosc";
   // Strona kariery dla kandydatów (`/kariera/*`, host `kariera.dynaminds.pl`).
   // Na hoście kariery middleware PRZEPISUJE adres (`/r/x` → `/kariera/r/x`),
@@ -75,7 +83,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // Hydrate auth from localStorage post-mount (SSR-safe)
   const hydrateAuth = useAuthStore((s) => s.hydrate);
   const hydrated = useAuthStore((s) => s.hydrated);
-  const traineeOnly = useAuthStore((s) => isTraineeOnly(s.user));
   useEffect(() => {
     if (!hydrated) hydrateAuth();
   }, [hydrated, hydrateAuth]);
@@ -149,6 +156,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const startBlocked = useStartGate();
 
   if (isLoginPage) return <>{children}</>;
+  if (pathname === PREVIEW_PATH || pathname?.startsWith(`${PREVIEW_PATH}/`)) return <>{children}</>;
   if (isSharePage) return <>{children}</>;
   if (isApplyPage) return <>{children}</>;
   if (isSignPage) return <>{children}</>;
@@ -157,8 +165,11 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // for unauthenticated visitors.
   if (isRegisterPage) return <>{children}</>;
   if (isCvPreviewPage) return <>{children}</>;
+  if (isClientPanelPage) return <>{children}</>;
+  if (isOwnHiringBookingPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
   if (isProtocolPage) return <>{children}</>;
+  if (isConsultantPortal) return <>{children}</>;
   if (isExtensionPrivacyPage) return <>{children}</>;
   if (isCareerPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
@@ -173,11 +184,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // shell while the redirect above takes effect.
   if (needsOnboarding) return null;
 
-  // Praktykant (0374) ma jeden ekran: cienki pasek zamiast sidebara, bez
-  // palety ⌘K, dzwonka, „Moich ludzi” i Jarvisa (każde z nich pytałoby API,
-  // które praktykantowi odmawia).
-  if (traineeOnly) return <TraineeShell>{children}</TraineeShell>;
-
   // Dokument NIE może się przewijać — przewija się wyłącznie `<main>`.
   // `relative` na roocie i na `<main>` jest nośne: element `absolute` bez
   // pozycjonowanego przodka (`sr-only`, ukryte inputy Radixa) liczy się
@@ -187,6 +193,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // telefonie 100vh jest wyższe niż widoczny obszar.
   return (
     <div className="app-shell-root relative flex h-dvh overflow-hidden bg-background text-foreground">
+      <PhonePreviewRedirect />
       {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
           po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
       <a

@@ -2,7 +2,7 @@
  * Kontrakt dostępu do widoków /insights i adresów sprzed przebudowy.
  *
  * Przebudowa 24.09.2026: pięć widoków. Firma (pieniądze) — WYŁĄCZNIE
- * z uprawnieniem „Moduł Finanse” (domyślnie administrator i Finanse); Head of
+ * z uprawnieniem „Wyniki firmy” (domyślnie administrator); Head of
  * Recruitment domyślnie nie widzi kwot (decyzja Artura). Lustro po stronie API
  * to `BoardReader` na `/api/insights/board` i `/clients/ranking`, który pyta
  * o to samo uprawnienie — inna reguła tutaj niż tam robi split-brain (#1215).
@@ -58,7 +58,7 @@ const user = (
   } as NonNullable<AuthUser>;
 };
 
-const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "raporty"];
+const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "zrodla", "zasady", "wnioski", "raporty"];
 
 describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
@@ -73,6 +73,15 @@ describe("widoki Insights per rola", () => {
       const sees = getVisibleInsightTabIds(user(role)).includes("rytm");
       expect(sees, role).toBe(role === "admin" || role === "head_of_recruitment");
     }
+  });
+
+  it("Wnioski widzą tylko Head of Recruitment i admin, między Źródłami a Raportami (04.11.2026)", () => {
+    for (const role of ALL_ROLES) {
+      const tabs = getVisibleInsightTabIds(user(role));
+      expect(tabs.includes("wnioski"), role).toBe(role === "admin" || role === "head_of_recruitment");
+    }
+    const adminTabs = getVisibleInsightTabIds(user("admin"));
+    expect(adminTabs.indexOf("wnioski")).toBe(adminTabs.indexOf("raporty") - 1);
   });
 
   it("Rada nadzorcza bez widoku w adresie ląduje na Firmie", () => {
@@ -97,12 +106,13 @@ describe("widoki Insights per rola", () => {
     ]);
   });
 
-  it("Firma idzie za uprawnieniem „Moduł Finanse” — domyślnie mają je administrator i Finanse", () => {
-    expect(FIRMA_PERMISSION).toBe("finance_module");
+  it("Firma idzie za uprawnieniem „Wyniki firmy” — domyślnie ma je administrator", () => {
+    expect(FIRMA_PERMISSION).toBe("company_results");
     for (const role of ALL_ROLES) {
       const sees = getVisibleInsightTabIds(user(role)).includes("firma");
-      // Rada nadzorcza (0490) wchodzi rolą, bez „Modułu Finanse”.
-      expect(sees, role).toBe(role === "admin" || role === "finance" || role === "board");
+      // Rada nadzorcza (0490) wchodzi rolą; Finanse pracują na pojedynczych
+      // rekordach (decyzja Artura 02.11.2026).
+      expect(sees, role).toBe(role === "admin" || role === "board");
     }
   });
 
@@ -112,29 +122,25 @@ describe("widoki Insights per rola", () => {
     );
   });
 
-  it("hybryda HoR + Finanse widzi Firmę — rola Finanse ma uprawnienie domyślnie", () => {
+  it("sam „Moduł Finanse” nie otwiera Firmy", () => {
     expect(
-      getVisibleInsightTabIds(
-        user("head_of_recruitment", { roles: ["finance"] }),
-      ),
-    ).toContain("firma");
+      getVisibleInsightTabIds(user("recruiter", { granted: ["finance_module"] })),
+    ).not.toContain("firma");
   });
 
   it.each(["head_of_recruitment", "recruiter", "delivery_lead"])(
-    "%s z nadanym „Modułem Finanse” widzi Firmę",
+    "%s z nadanymi „Wynikami firmy” widzi Firmę",
     (role) => {
       expect(
-        getVisibleInsightTabIds(user(role, { granted: ["finance_module"] })),
+        getVisibleInsightTabIds(user(role, { granted: ["company_results"] })),
       ).toContain("firma");
     },
   );
 
-  it("Finanse z wyłączonym „Modułem Finanse” nie widzą Firmy mimo roli", () => {
+  it("Finanse z nadanymi „Wynikami firmy” widzą Firmę", () => {
     expect(
-      getVisibleInsightTabIds(
-        user("finance", { granted: ["delivery_view", "amounts_view"] }),
-      ),
-    ).not.toContain("firma");
+      getVisibleInsightTabIds(user("finance", { granted: ["company_results"] })),
+    ).toContain("firma");
   });
 
   it("sam podgląd kwot („Stawki i kwoty: podgląd”) nie otwiera Firmy", () => {
@@ -170,28 +176,28 @@ describe("raporty per rola", () => {
   const ids = (role: string, extra = {}) =>
     visibleReports(user(role, extra)).map((r) => r.id);
 
-  it("ranking klientów z kwotami — za uprawnieniem „Moduł Finanse”", () => {
-    // Domyślni posiadacze: administrator i Finanse.
+  it("ranking klientów z kwotami — za uprawnieniem „Wyniki firmy”", () => {
+    // Domyślnie administrator; Rada wchodzi rolą.
     expect(ids("admin")).toContain("ranking-klientow");
-    expect(ids("finance")).toContain("ranking-klientow");
+    expect(ids("finance")).not.toContain("ranking-klientow");
     expect(ids("board")).toContain("ranking-klientow");
     expect(ids("head_of_recruitment")).not.toContain("ranking-klientow");
     expect(ids("recruiter")).not.toContain("ranking-klientow");
-    // Nadane rekruterowi — widzi; wyłączone Finansom — nie widzą.
-    expect(ids("recruiter", { granted: ["finance_module"] })).toContain(
+    // Nadane rekruterowi — widzi; sam „Moduł Finanse” — nie.
+    expect(ids("recruiter", { granted: ["company_results"] })).toContain(
       "ranking-klientow",
     );
-    expect(
-      ids("finance", { granted: ["delivery_view", "amounts_view"] }),
-    ).not.toContain("ranking-klientow");
+    expect(ids("recruiter", { granted: ["finance_module"] })).not.toContain(
+      "ranking-klientow",
+    );
   });
 
   it("dopiski raportów o pieniądzach nazywają uprawnienie i Radę, nie listę ról", () => {
     expect(reportById("ranking-klientow").note).toBe(
-      "uprawnienie „Moduł Finanse” albo Rada nadzorcza",
+      "uprawnienie „Wyniki firmy: podsumowania przychodu i marży” albo Rada nadzorcza",
     );
     expect(reportById("rok-do-roku").note).toBe(
-      "kwoty z uprawnieniem „Moduł Finanse” albo dla Rady nadzorczej",
+      "kwoty z uprawnieniem „Wyniki firmy: podsumowania przychodu i marży” albo dla Rady nadzorczej",
     );
     for (const id of ["ranking-klientow", "rok-do-roku"] as const) {
       expect(reportById(id).note).not.toMatch(/admin i Finanse/);
@@ -327,10 +333,10 @@ describe("resolveInsightsLocation — adresy sprzed 24.09.2026", () => {
     });
   });
 
-  it("kotwica wygrywa z aliasem: #zrodla to raport Źródła", () => {
+  it("kotwica wygrywa z aliasem: #zrodla to zakładka Źródła (03.11.2026)", () => {
     expect(
       resolveInsightsLocation({ tab: "rekrutacja", hash: "#zrodla" }),
-    ).toMatchObject({ tab: "raporty", report: "doplyw", dropHash: true });
+    ).toMatchObject({ tab: "zrodla", dropHash: true });
   });
 
   it("rada#klienci (stary link MRR z DynaReportera) → Firma", () => {

@@ -26,12 +26,11 @@ function user(role: UserRole, extra: Partial<User> = {}): User {
 const keysOf = (u: User) => recommendedTemplates(u).templates.map((t) => t.key);
 
 describe("układ pulpitu dla roli", () => {
-  it("rekruter: moje rekrutacje, „Dziś”, requesty z mojej kategorii, moi ludzie, tydzień", () => {
+  it("rekruter: moje rekrutacje, „Dziś”, requesty z mojej kategorii, tydzień", () => {
     expect(keysOf(user("recruiter"))).toEqual([
       "my_recruitments",
       "today_cycle",
       "request_board_my_category",
-      "my_people",
       "my_week",
     ]);
     expect(roleLayoutLabel(user("recruiter"))).toBe("Rekruter");

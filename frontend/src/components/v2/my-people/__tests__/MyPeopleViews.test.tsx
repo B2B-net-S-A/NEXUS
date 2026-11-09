@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { ForJobResponse } from "@/lib/api/myPeople";
 import { contextFromPath, shouldCloseOnEscape } from "../MyPeoplePanel";
-import { ForJobView, PeopleListView } from "../MyPeopleViews";
+import { ForJobView, FromLinksView, PeopleListView } from "../MyPeopleViews";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -68,6 +68,54 @@ describe("ForJobView", () => {
     );
     expect(screen.getByRole("status").textContent).toContain("nie znaczy, że nikt nie pasuje");
     expect(screen.queryByText("Nikt z Twojej listy nie jest dostępny do tej rekrutacji.")).toBeNull();
+  });
+
+  it("flags a rate above the job budget and stays quiet within it", () => {
+    render(
+      <ForJobView
+        data={{
+          ...base,
+          rate_budget_hourly: 70,
+          rows: [
+            {
+              candidate_id: 5, full_name: "Drogi Test", category_id: null, score: 70,
+              measurement: "measured", eligibility: null, sent_to_client_at: null,
+              last_sent_client_name: null, days_since_last_send: null,
+              expected_rate_hourly: 120, active_processes: 0,
+            },
+            {
+              candidate_id: 6, full_name: "Tani Test", category_id: null, score: 68,
+              measurement: "measured", eligibility: null, sent_to_client_at: null,
+              last_sent_client_name: null, days_since_last_send: null,
+              expected_rate_hourly: 60, active_processes: 0,
+            },
+          ],
+        }}
+        actions={{}}
+      />,
+    );
+    expect(screen.getAllByText("oczekuje +71% ponad budżet")).toHaveLength(1);
+    expect(screen.getByText(/budżet 70 zł\/h/)).toBeTruthy();
+  });
+
+  it("without a job budget no row is flagged", () => {
+    render(
+      <ForJobView
+        data={{
+          ...base,
+          rows: [
+            {
+              candidate_id: 7, full_name: "Bez Budżetu", category_id: null, score: 70,
+              measurement: "measured", eligibility: null, sent_to_client_at: null,
+              last_sent_client_name: null, days_since_last_send: null,
+              expected_rate_hourly: 200, active_processes: 0,
+            },
+          ],
+        }}
+        actions={{}}
+      />,
+    );
+    expect(screen.queryByText(/ponad budżet/)).toBeNull();
   });
 
   it("an unscored row is labelled, never shown as 0", () => {
@@ -163,5 +211,60 @@ describe("PeopleListView", () => {
     expect(onAdd).toHaveBeenCalledWith(
       expect.objectContaining({ candidate_id: 9, employment_marker: marker }),
     );
+  });
+});
+
+describe("FromLinksView", () => {
+  const base = {
+    applied_at: "2026-10-28T09:12:00Z",
+    was_duplicate: false,
+    current_job_id: null,
+    current_job_title: null,
+    screening_status: null,
+    screening_outcome: null,
+  };
+
+  it("pokazuje oba rodzaje linków i to, czy osoba jest na głównej liście", () => {
+    const onAdd = vi.fn();
+    render(
+      <FromLinksView
+        onAdd={onAdd}
+        people={[
+          {
+            ...base,
+            candidate_id: 1,
+            full_name: "Celina Fikcyjna",
+            kind: "job",
+            slug: "java-7kq2",
+            job_id: 101,
+            job_title: "Senior Java Developer",
+            current_stage: "new",
+            in_my_people: false,
+          },
+          {
+            ...base,
+            candidate_id: 2,
+            full_name: "Damian Testowy",
+            kind: "recruiter",
+            slug: "marta-n",
+            job_id: null,
+            job_title: null,
+            current_stage: null,
+            in_my_people: true,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("link do rekrutacji")).toBeInTheDocument();
+    expect(screen.getByText("link ogólny")).toBeInTheDocument();
+    expect(screen.getByText(/Nowy · poza listą/)).toBeInTheDocument();
+    expect(screen.getByText(/W bazie, bez nowej rekrutacji · także na liście/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj do rekrutacji: Celina Fikcyjna" }));
+    expect(onAdd).toHaveBeenCalledWith({ candidate_id: 1, full_name: "Celina Fikcyjna" });
+  });
+
+  it("pusty stan mówi, co się tu pojawi", () => {
+    render(<FromLinksView people={[]} />);
+    expect(screen.getByText("Nikt jeszcze nie zgłosił się z Twoich linków")).toBeInTheDocument();
   });
 });

@@ -43,6 +43,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_auto_match import CandidateMatchOutbox
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
+from app.services import single_candidate_list
 from app.services.must_text_evidence import attach_gate_evidence
 from app.services.auto_match_outbox import auto_match_mode, candidate_revision
 from app.services.auto_match_rules import is_good_match
@@ -57,6 +58,10 @@ _BLOCKING_WARNINGS = frozenset({"active_conflict", "client_excluded"})
 
 class AutoMatchUnavailable(RuntimeError):
     """Wyszukiwanie semantyczne nie odpowiedziało — zdarzenie wraca do kolejki."""
+
+
+class AutoMatchVectorPending(RuntimeError):
+    """Świeże CV nie ma jeszcze wektora — zdarzenie czeka, nie zużywa prób."""
 
 
 @dataclass(frozen=True)
@@ -532,6 +537,109 @@ async def _publish_proposals(
     return counts
 
 
+def pool_rows(
+    scored: Iterable[Scored],
+    stats: dict[int, tuple[int, float]],
+    *,
+    revision: str,
+    run_id: str,
+) -> list[dict]:
+    """Wiersze puli dopełniania z wyników nowego CV (08.11.2026).
+
+    ``stats``: {job_id: (liczba osób w puli, najniższy wynik)}. Rekrutacja bez
+    puli jest pomijana: pula z jedną osobą udawałaby przegląd. Pełna pula
+    przyjmuje tylko osobę lepszą od ostatniej.
+    """
+    from app.services.auto_full_review import AUTOFILL_POOL_SIZE
+
+    rows: list[dict] = []
+    for row in scored:
+        if row.penalties or row.warnings or row.job_id not in stats:
+            continue
+        count, lowest = stats[row.job_id]
+        if count >= AUTOFILL_POOL_SIZE and row.score <= lowest:
+            continue
+        rows.append(
+            {
+                "job_id": row.job_id,
+                "candidate_id": row.candidate_id,
+                "score": row.score,
+                "run_id": run_id,
+                "cv_revision": revision,
+                "evidence": {
+                    "matched_must": list(row.matching_must),
+                    "missing_must": list(row.gap_must),
+                },
+            }
+        )
+    return rows
+
+
+async def _write_pool(
+    db: AsyncSession, *, scored: list[Scored], revision: str, run_id: str
+) -> None:
+    """Dopisz wyniki CV do pul rekrutacji, które już je mają. Dodatek do
+    zdarzenia: błąd zostaje w savepoincie i nie cofa propozycji."""
+    from sqlalchemy import func
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.services.auto_full_review import AUTOFILL_POOL_SIZE
+
+    job_ids = sorted({row.job_id for row in scored})
+    if not job_ids:
+        return
+    try:
+        async with db.begin_nested():
+            stats = {
+                int(job_id): (int(count), float(lowest))
+                for job_id, count, lowest in (
+                    await db.execute(
+                        select(
+                            JobAutofillPool.job_id,
+                            func.count(),
+                            func.min(JobAutofillPool.score),
+                        )
+                        .where(JobAutofillPool.job_id.in_(job_ids))
+                        .group_by(JobAutofillPool.job_id)
+                    )
+                ).all()
+            }
+            rows = pool_rows(scored, stats, revision=revision, run_id=run_id)
+            if not rows:
+                return
+            insert = pg_insert(JobAutofillPool).values(rows)
+            await db.execute(
+                insert.on_conflict_do_update(
+                    index_elements=["job_id", "candidate_id"],
+                    set_={
+                        "score": insert.excluded.score,
+                        "run_id": insert.excluded.run_id,
+                        "cv_revision": insert.excluded.cv_revision,
+                        "evidence": insert.excluded.evidence,
+                    },
+                )
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM job_autofill_pool p USING ("
+                    "  SELECT job_id, candidate_id, row_number() OVER ("
+                    "    PARTITION BY job_id ORDER BY score DESC, candidate_id"
+                    "  ) AS place FROM job_autofill_pool WHERE job_id = ANY(:jobs)"
+                    ") r WHERE p.job_id = r.job_id AND p.candidate_id = r.candidate_id "
+                    "AND r.place > :size"
+                ),
+                {
+                    "jobs": sorted({r["job_id"] for r in rows}),
+                    "size": AUTOFILL_POOL_SIZE,
+                },
+            )
+    except Exception as exc:  # noqa: BLE001 — pula to dodatek, propozycje zostają
+        logger.warning(
+            "[auto_match] pool write failed run=%s: %s", run_id, type(exc).__name__
+        )
+
+
 # Dzienny skrót z nowych CV (`_notify_proposals`) usunięty 06.10.2026 (audyt
 # R3): szedł tylko do `recruiter_id`/`tac_id` i odsyłał do skrzynki, której
 # już nie ma. Propozycje z nowych CV i z nocnego przeglądu zapowiada jeden
@@ -610,7 +718,19 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     candidate = await db.get(Candidate, event.candidate_id)
     if candidate is None:
         return {"skipped": "candidate_missing"}
-    revision = event.profile_revision or candidate_revision(candidate)
+    # Zdarzenie rozmowy powstaje przed odczytem notatek: wersja dopiero teraz.
+    revision = (
+        candidate_revision(candidate)
+        if event.trigger == "conversation"
+        else event.profile_revision or candidate_revision(candidate)
+    )
+    wait = timedelta(minutes=max(0, settings.AUTO_MATCH_VECTOR_WAIT_MINUTES))
+    if datetime.now(timezone.utc) - event.created_at < wait:
+        from app.services.full_search_measurement import vector_ready
+
+        # Przed całą oceną, bo jedno przejście kosztuje ok. minuty pracy.
+        if not await vector_ready(candidate):
+            raise AutoMatchVectorPending(f"wektor kandydata {candidate.id}")
     open_job_ids = [
         int(jid)
         for jid in (
@@ -652,6 +772,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
             [candidate],
             job_inputs.gate_evidence_labels,
             options=job_inputs.gate_options,
+            job_id=job.id,
         )
         kept = apply_dealbreakers([candidate], inputs=job_inputs)
         if not kept.kept:
@@ -729,6 +850,9 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         trigger=event.trigger,
         run_id=run_id,
     )
+    if settings.AUTO_MATCH_WRITE_POOL_ENABLED and auto_match_mode() != "dry_run":
+        await _write_pool(db, scored=scored, revision=revision, run_id=run_id)
+        await single_candidate_list.fill_portal_scores(db, scored)
     await db.commit()
     notified = await _notify(
         db,
@@ -794,7 +918,11 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     )
     job_inputs = search_dealbreaker_inputs(job)
     await attach_gate_evidence(
-        db, eligible, job_inputs.gate_evidence_labels, options=job_inputs.gate_options
+        db,
+        eligible,
+        job_inputs.gate_evidence_labels,
+        options=job_inputs.gate_options,
+        job_id=job.id,
     )
     kept = apply_dealbreakers(eligible, inputs=job_inputs).kept
     revisions = {c.id: candidate_revision(c) for c in candidates}

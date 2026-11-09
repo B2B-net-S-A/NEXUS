@@ -27,13 +27,14 @@ trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
   „Zakończ współpracę", format „[Kto] — [Powód]"); `termination_reason` to
   słownik analityki odejść (inicjatywa konsultanta = rezygnacja). Karta
   „Zaplanowane zakończenie współpracy" na szczegółach kontraktu pokazuje je
-  od chwili wypowiedzenia, nie dopiero w dniu końca (dyskryminator: umowa
-  przywrócona ma `terminated_at`, ale `end_date IS NULL`).
+  od chwili wypowiedzenia, nie dopiero w dniu końca (dyskryminator: wiersz
+  przywrócony przed 02.11.2026 ma `terminated_at`, ale `end_date IS NULL`;
+  od tej daty powrót bezterminowy czyści te pola).
 - **Zakończenie z datą przyszłą NIE daje dziś statusu „Zakończony"** (P0.7):
   umowa pracuje do tej daty (od 23.09.2026 od razu „Kończący się”, także
   gdy datą jest dziś), cron domyka ją dzień po dacie — inaczej osoba
   znikałaby z MRR przed czasem. Szczegóły w sekcji niżej.
-- **Jednorazowa korekta:** `app/services/b2b_end_date_repair.py`, blok
+- **Jednorazowa korekta:** `scripts/repairs/b2b_end_date_repair.py`, blok
   w `entrypoint.sh`, marker `0307_b2b_indefinite_end_date` (paragon: liczby,
   ID, daty) + `repair_details_0307_…` (treść wpisów, poprzednie wartości —
   klucz innego kształtu, publiczny workflow `migration-receipts` go nie

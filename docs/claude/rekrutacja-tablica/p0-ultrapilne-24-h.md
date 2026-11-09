@@ -1,5 +1,5 @@
 # P0 — rekrutacja ultrapilna przez 24 h (27.10.2026)
-<!-- indeks: nakładka p0_until nad jobs.priority (nie enum); ustawia HoR i admin z powodem, DL tej rekrutacji prosi (od 28.10); 24 h / 48 h / do piątku; bez limitu; na górze listy, Daily, requestów; panel na pulpicie i pasek tylko dla zespołu rekrutacji (od 28.10), wiersze jak Daily; dzwonek + mail obowiązkowy do zespołu -->
+<!-- indeks: nakładka p0_until nad jobs.priority (nie enum); ustawia HoR i admin z powodem, DL tej rekrutacji prosi (od 28.10); 24 h / 48 h / do piątku; bez limitu; na górze listy, Daily, requestów; panel na pulpicie i pasek tylko dla zespołu rekrutacji (od 28.10), wiersze jak Daily; dzwonek + mail obowiązkowy do zespołu; po terminie trwa do „Przedłuż” / „Zakończ P0” HoR (od 06.11); liczba P0 w Obłożeniu -->
 
 Prośba Olafa: czerwony przycisk „Omawiane na Daily” na co najmniej 24 h
 i lista takich rekrutacji na pulpicie każdej osoby. Artur rozwinął to
@@ -28,9 +28,8 @@ Makiety: https://claude.ai/artifact/JTKoqosf8yQf61YcrP7dhE.
 
 - **P0 to nakładka z terminem, nie wartość `jobs.priority`** (0525:
   `p0_until`, `p0_reason`, `p0_set_at`, `p0_set_by`). P0 obowiązuje, gdy
-  rekrutacja jest otwarta i `p0_until` jest w przyszłości
-  (`job_p0.is_active` / `active_clause`). Po terminie po prostu przestaje
-  — bez pętli w tle. Priorytet się nie zmienia, więc zespół nie przechodzi
+  rekrutacja jest otwarta i ma `p0_until` (`job_p0.is_active` /
+  `active_clause`). *Od 06.11.2026 termin go nie kończy — sekcja na dole.* Priorytet się nie zmienia, więc zespół nie przechodzi
   do „Poprzedni rekruter” (`apply_priority_transition` nie jest wołane).
   Nie zamieniaj tego na czwartą wartość enumu.
 - Zamknięcie rekrutacji czyści P0 (`job_lifecycle`), ponowne otwarcie go
@@ -46,7 +45,6 @@ Makiety: https://claude.ai/artifact/JTKoqosf8yQf61YcrP7dhE.
   `POST /api/jobs/{id}/p0` `{reason, duration}`,
   `POST /api/jobs/{id}/p0/extend`, `DELETE /api/jobs/{id}/p0`.
   Ślad w Historii zdarzeń: `p0_set`, `p0_extended`, `p0_cleared`.
-- Kolumny P0 są w `NEXUS_OWNED` — Traffit ich nie nadpisuje.
 
 
 ## Propozycje Olafa — decyzje Artura (28.10.2026)
@@ -84,3 +82,52 @@ widziała najpierw trzy cudze, a jej własne chowało się w „I jeszcze 2”.
   „Pokaż wszystkie”. Powód P0 stoi linijką pod tytułem wiersza (także na
   Daily). P0 spoza tablicy requestów (inny stan niż „Szukamy”) albo gdy jej
   zapytanie nie przyszło — zapasowy wiersz jak przed 28.10, panel nie znika.
+
+
+## Na pulpicie pasek jednej linii (audyt 2, wariant A Artura, 08.11.2026)
+
+Panel zajmował 660–960 px przy 1280 × 720 i spychał kolejkę roli na drugi
+ekran (u DL „Do wysłania do klienta” na y = 1158). P0 nadal stoi **nad
+wszystkim**, bez względu na własny układ (decyzja z 27.10), ale w formie
+paska (`P0NowPanel compact` w `CustomDashboard`, 42 px; pas DL na y = 237).
+
+- Pasek: „Pilne u klientów · N”, do 3 P0 z numerem, tytułem, czasem i liczbą
+  wysłanych, licznik reszty, „Pokaż tabelę”. Link w pasku prowadzi na Tablicę.
+- „Pokaż tabelę” rozwija **wszystkie** P0, rekruterzy w wierszu to licznik
+  „12 osób” z nazwiskami w dymku (`RequestBoard recruitersAsCount`). Chipy,
+  usuwanie osoby i akceptacja propozycji zostają na Daily i w kafelku
+  requestów. „+ osoba” jest też w rozwinięciu.
+- Przyciski HoR dla P0 po terminie są w rozwinięciu, w pasku ich nie ma.
+- **Prośby o P0 zostają rozwinięte** pod paskiem: to decyzja do podjęcia.
+- Brak P0 = brak paska. Sama prośba = sama prośba, bez paska.
+- **Daily bez zmian:** pełna tabela, 3 P0 i „Pokaż wszystkie”.
+
+## P0 po terminie czeka na decyzję, liczba P0 w Obłożeniu (06.11.2026)
+
+Prośby Olafa, decyzje Artura z 06.11.2026. Makiety ze stagingu:
+https://claude.ai/artifact/ThCQFa5gGtZF9GiMZgfnHo.
+
+- **Po terminie P0 nie znika samo.** Trwa, dopóki Head of Recruitment albo
+  admin nie wybierze „Przedłuż o 24 h” (po terminie liczone od teraz) albo
+  „Zakończ P0” (`DELETE /api/jobs/{id}/p0`, ślad `p0_cleared` z
+  `{"overdue": true}`). Plakietka zmienia się na przerywaną „P0 · minęło
+  3 h”; przyciski stoją w wierszu Daily, w panelu na pulpicie
+  (`P0OverdueActions`) i w pasku nad rekrutacją. Reszta zespołu widzi, że
+  P0 czeka na decyzję. Rekrutacja zostaje na górze list, w pasku i panelu.
+  Nie wracaj do „po terminie przestaje”, nie zamieniaj na samo
+  przedłużanie się — termin ma dalej znaczyć, że minął.
+- **Bez migracji kolumn:** `is_active` = termin w przyszłości albo termin
+  od `job_p0.CONFIRM_FROM` (06.11 00:00 Warszawa). Starsze terminy
+  skończyły się przed tą regułą i nie wracają (decyzja Artura).
+- **Dzwonek „Termin P0 minął”** (`job_p0_overdue`, 0657, mail obowiązkowy
+  w rodzaju `job_p0`) do Head of Recruitment (bez nich — adminów) i osoby,
+  która ustawiła P0, jeśli dalej może je ustawiać. Pętla
+  `tasks/job_p0_overdue` co 5 min, dzwoni 7:00–20:00; raz na termin
+  (wpis `job_p0_overdue` nie starszy niż `p0_until`). Na stagingu
+  zablokowana (wysyła maile).
+- **Obłożenie** (Daily, „Czeka na Ciebie”): czerwona plakietka z płomieniem
+  i liczbą P0 przy osobie, osoby z największą liczbą P0 na górze, przy
+  równej liczbie kolejność jak dotąd. Liczone na froncie z tej samej
+  tablicy requestów (`p0ByPerson`): P0 także po terminie, osoba pracuje
+  przy rekrutacji, bez propozycji automatu. Po rozwinięciu osoby jej
+  rekrutacje P0 mają znacznik „P0”.

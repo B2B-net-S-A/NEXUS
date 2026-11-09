@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -47,7 +47,8 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.services import critical_events
 from app.services.access_scope import (
     DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     is_delivery_lead_governed,
@@ -68,7 +69,7 @@ from app.services.client_invoicing.ledger import ZERO, check, rows_by_period
 from app.services.client_sales_invoices_schema import REASON_MAX_LENGTH
 from app.services.hr.bank import statements
 from app.services.hr.bank.parsed import StatementError
-from app.services.order_client_identity import normalize_registry_id
+from app.services.order_client_identity import normalize_buyer_number
 from app.services.permission_denial import permission_denied
 
 router = APIRouter(
@@ -78,6 +79,11 @@ finance_router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 ExportFormat = Literal["csv", "xlsx"]
 EARLIEST_PAYMENT = date(2020, 1, 1)
+BUYER_NUMBER_REFUSED = {
+    "same": "Klient ma już ten numer.",
+    "differs": "Klient ma już inny numer. Popraw go w profilu klienta, jeśli jest błędny.",
+    "taken": "Ten numer ma już inny klient.",
+}
 
 
 # ── Wspólne ──────────────────────────────────────────────────────────────────
@@ -165,7 +171,7 @@ async def _export_response(
         for client_id, raw in (
             await db.execute(select(Client.id, Client.nip).where(Client.id.in_(ids)))
         ).all():
-            nips[int(client_id)] = normalize_registry_id(raw or "")
+            nips[int(client_id)] = normalize_buyer_number(raw or "")
     lines = export.table(payload["rows"], period=payload["period"], nips=nips)
     filename = f"{stem}-{payload['period']}"
     if fmt == "xlsx":
@@ -180,6 +186,21 @@ async def _export_response(
 # ── Zakładka klienta (Delivery) ──────────────────────────────────────────────
 
 
+async def _require_invoicing_reader(current_user: AmountsViewUser) -> User:
+    """Kwoty klienta to za mało: Back office nie widzi faktur do klientów.
+
+    Rola ma „Stawki i kwoty: podgląd” u wszystkich klientów, więc sam alias
+    otworzyłby jej też zaległe faktury całej firmy (decyzja Artura 04.11.2026).
+    """
+
+    if current_user.has_role(UserRole.back_office):
+        raise permission_denied(ProductAction.finance_module)
+    return current_user
+
+
+InvoicingReaderUser = Annotated[User, Depends(_require_invoicing_reader)]
+
+
 @router.get("/sales-invoices/module")
 async def module_state(
     current_user: AmountsViewUser, db: AsyncSession = Depends(get_db)
@@ -189,13 +210,14 @@ async def module_state(
     enabled = await module_settings.is_enabled(db)
     return {
         "enabled": enabled,
-        "open": module_settings.open_for(current_user, enabled),
+        "open": not current_user.has_role(UserRole.back_office)
+        and module_settings.open_for(current_user, enabled),
     }
 
 
 @router.get("/sales-invoices/overdue")
 async def overdue_in_scope(
-    current_user: AmountsViewUser, db: AsyncSession = Depends(get_db)
+    current_user: InvoicingReaderUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     """Faktury po terminie u klientów, których kwoty widzi konto (DL — portfel)."""
 
@@ -210,7 +232,7 @@ async def overdue_in_scope(
 @router.get("/{client_id}/invoicing")
 async def client_invoicing(
     client_id: int,
-    current_user: AmountsViewUser,
+    current_user: InvoicingReaderUser,
     db: AsyncSession = Depends(get_db),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
@@ -227,10 +249,28 @@ async def client_invoicing(
     return payload
 
 
+@router.get("/{client_id}/invoicing/waiting-for-number")
+async def client_invoices_waiting_for_number(
+    client_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    number: str = Query(..., min_length=1, max_length=32),
+) -> dict[str, Any]:
+    """Ramka w formularzu klienta: „N faktur z KSeF czeka na ten NIP”.
+
+    Tylko Finanse. Wpisany numer nie jest związany z klientem z adresu, więc
+    Delivery Lead odczytałby nim nazwę i kwoty faktur firmy spoza portfela.
+    """
+
+    await _module_open(db, current_user)
+    await _client_or_404(db, client_id)
+    return await views.waiting_for_number_view(db, normalize_buyer_number(number))
+
+
 @router.get("/{client_id}/invoicing/export")
 async def client_invoicing_export(
     client_id: int,
-    current_user: AmountsViewUser,
+    current_user: InvoicingReaderUser,
     db: AsyncSession = Depends(get_db),
     year: Optional[int] = Query(None, ge=2020, le=2100),
     month: Optional[int] = Query(None, ge=1, le=12),
@@ -271,9 +311,25 @@ class SalesInvoiceAssignIn(BaseModel):
     targets: list[TargetIn] = Field(..., min_length=1, max_length=20)
     year: int = Field(..., ge=2020, le=2100)
     month: int = Field(..., ge=1, le=12)
+    # Numer nabywcy z faktury do klienta, gdy klient nie ma żadnego.
+    save_buyer_number: bool = False
+
+
+class BuyerNumberIn(BaseModel):
+    client_id: int = Field(..., gt=0)
 
 
 class ReasonIn(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=REASON_MAX_LENGTH)
+
+
+class BuyerAssignIn(BaseModel):
+    number: str = Field(..., min_length=1, max_length=32)
+    client_id: int = Field(..., gt=0)
+
+
+class BuyerSkipIn(BaseModel):
+    number: str = Field(..., min_length=1, max_length=32)
     reason: str = Field(..., min_length=1, max_length=REASON_MAX_LENGTH)
 
 
@@ -317,11 +373,21 @@ async def finance_invoices(
     payload = await views.month_view(
         db, year=period[0], month=period[1], client_ids=None, today=business_today()
     )
+    summary = payload["summary"]
+    # Suma netto miesiąca to praktycznie przychód firmy (decyzja Artura
+    # 02.11.2026); klient i faktura zostają.
+    if not has_permission(current_user, ProductAction.company_results):
+        summary = {
+            **summary,
+            "expected": [],
+            "invoiced_net": [],
+            "totals_hidden": True,
+        }
     return {
         "period": payload["period"],
         "module_enabled": enabled,
         "invoices": payload["invoices"],
-        "summary": payload["summary"],
+        "summary": summary,
     }
 
 
@@ -374,6 +440,73 @@ async def finance_credits(
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
     return {"credits": await views.credits_view(db, today=business_today())}
+
+
+@finance_router.get("/unknown-buyers")
+async def finance_unknown_buyers(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Faktury bez klienta ze wszystkich miesięcy, zgrupowane po numerze nabywcy."""
+
+    await _module_open(db, current_user)
+    payload = await views.unknown_buyers(db)
+    # Tak jak suma miesiąca: kwota całej kolejki to dane o przychodzie firmy.
+    if not has_permission(current_user, ProductAction.company_results):
+        payload["summary"] = {
+            **payload["summary"],
+            "totals": [],
+            "totals_hidden": True,
+        }
+    return payload
+
+
+async def _waiting_invoices(db: AsyncSession, number: str) -> list[ClientSalesInvoice]:
+    invoices = await matching.invoices_waiting_for_number(db, number)
+    if not invoices:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Żadna faktura nie czeka już na ten numer."
+        )
+    return invoices
+
+
+@finance_router.post("/unknown-buyers/assign")
+async def finance_unknown_buyer_assign(
+    body: BuyerAssignIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dopisuje numer nabywcy do klienta i od razu wiąże wszystkie jego faktury."""
+
+    await _module_open(db, current_user)
+    await _client_or_404(db, body.client_id)
+    invoice = (await _waiting_invoices(db, body.number))[0]
+    saved = await _save_buyer_number(
+        db, invoice, current_user, client_id=body.client_id
+    )
+    if not saved["saved"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            BUYER_NUMBER_REFUSED.get(saved["state"], "Tego numeru nie można dopisać."),
+        )
+    return {"buyer_number": saved}
+
+
+@finance_router.post("/unknown-buyers/skip")
+async def finance_unknown_buyer_skip(
+    body: BuyerSkipIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Pomija wszystkie czekające faktury nabywcy (np. spoza zamówień), z powodem."""
+
+    await _module_open(db, current_user)
+    invoices = await _waiting_invoices(db, body.number)
+    with _http_errors():
+        for invoice in invoices:
+            await matching.ignore(
+                db, invoice, reason=body.reason, actor_id=current_user.id
+            )
+    return {"skipped": len(invoices)}
 
 
 @finance_router.get("/status")
@@ -503,7 +636,34 @@ async def finance_invoice_options(
         "options": await views.assignment_options(
             db, client_id=target_client, year=period[0], month=period[1]
         ),
+        "buyer_number": await views.buyer_number_view(db, invoice, target_client),
     }
+
+
+async def _save_buyer_number(
+    db: AsyncSession,
+    invoice: ClientSalesInvoice,
+    user: User,
+    *,
+    client_id: Optional[int] = None,
+) -> dict[str, Any]:
+    saved = await matching.save_buyer_number(db, invoice, client_id=client_id)
+    if saved["saved"]:
+        await critical_events.record_executed(
+            db,
+            actor=user,
+            event_type="client.registry_number_added",
+            entity_type="client",
+            entity_id=saved["client_id"],
+            client_id=saved["client_id"],
+            reason=f"Numer {saved['number']} z faktury {invoice.invoice_number}.",
+            details={
+                "invoice_id": invoice.id,
+                "retried": saved["retried"],
+                "matched": saved["matched"],
+            },
+        )
+    return saved
 
 
 @finance_router.post("/{invoice_id}/assign")
@@ -526,7 +686,33 @@ async def finance_invoice_assign(
             period=(body.year, body.month),
             actor_id=current_user.id,
         )
-    return await _detail(db, invoice_id)
+    if not body.save_buyer_number:
+        return await _detail(db, invoice_id)
+    saved = await _save_buyer_number(db, invoice, current_user)
+    return {**await _detail(db, invoice_id), "buyer_number": saved}
+
+
+@finance_router.post("/{invoice_id}/buyer-number")
+async def finance_invoice_buyer_number(
+    invoice_id: int,
+    body: BuyerNumberIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Numer nabywcy do klienta bez przypisania: klient nie ma zamówień w tym miesiącu."""
+
+    await _module_open(db, current_user)
+    invoice = await _invoice_or_404(db, invoice_id)
+    await _client_or_404(db, invoice.client_id or body.client_id)
+    saved = await _save_buyer_number(
+        db, invoice, current_user, client_id=body.client_id
+    )
+    if not saved["saved"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            BUYER_NUMBER_REFUSED.get(saved["state"], "Tego numeru nie można dopisać."),
+        )
+    return {**await _detail(db, invoice_id), "buyer_number": saved}
 
 
 @finance_router.post("/{invoice_id}/ignore")

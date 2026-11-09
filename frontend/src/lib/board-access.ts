@@ -20,6 +20,8 @@ export function isBoardAllowedPath(pathname: string): boolean {
     pathname === PRE_CONTRACTS_PATH ||
     pathname === "/insights" ||
     pathname.startsWith("/insights/") ||
+    pathname === "/podglad" ||
+    pathname.startsWith("/podglad/") ||
     pathname === "/profile" ||
     pathname.startsWith("/profile/") ||
     pathname === "/settings" ||

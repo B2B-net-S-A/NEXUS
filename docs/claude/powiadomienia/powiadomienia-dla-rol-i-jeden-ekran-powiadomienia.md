@@ -85,7 +85,14 @@ wszystkich). Makiety: https://claude.ai/artifact/TRKAAZX3RcB8AA7LVohkT8, raport
   `clean_role_mutes`) — zostawione wyłączenie ucinałoby powiadomienia adminom
   w cudzych testach. Harness `/preview/notification-settings`.
 
-## Alarm o masowym przeglądaniu CV kandydatów (0508, 22.10.2026)
+## Alarm o masowym pobieraniu CV kandydatów (0508, 22.10.2026)
+
+**Samo przeglądanie nie daje alarmu (decyzja Artura 07.11.2026).** Podgląd
+pliku w NEXUSIE to zwykła praca rekrutera; próg „ponad 40 kandydatów
+w godzinę” liczył podglądy i przychodził mailem jako alarm bezpieczeństwa.
+Alarm budzi tylko to, co opuszcza NEXUS: zapis na dysk (pobranie, link do
+pobrania z `disposition=attachment`, paczka ZIP) i eksport. Nie przywracaj
+progu na podglądy ani alarmu „nowe konta” liczonego z samego otwarcia.
 
 **Skąd.** 12.10.2026 dziewięciu kursantów Akademii Sourcera zalogowało się
 pierwszy raz Microsoftem. SSO dawało wtedy rolę Rekruter (od #2339, 19.10,
@@ -95,7 +102,8 @@ zobaczył obcych nazwisk w „Ludziach” 22.10.
 
 **Decyzja Artura 22.10.2026.** Tylko alarm, bez blokady i bez znaku wodnego na
 plikach. Alarm dostają admin i Head of Recruitment (rola główna albo dodatkowa)
-jako dymek w NEXUSIE i mail od razu.
+jako dymek w NEXUSIE i mail od razu. Osoba, której alarm dotyczy, go nie dostaje
+(02.11.2026): przy roli admina albo HoR byłoby to uprzedzenie o sprawdzaniu.
 
 ### Co liczymy
 
@@ -119,24 +127,40 @@ Zdarzenia API integracji mają `user_id` puste i nie są liczone.
 
 | Co | Próg | Nowe konto (< 14 dni) |
 |---|---|---|
-| różnych kandydatów w ostatniej godzinie | > 40 | > 20 |
 | plików na dysk dziś (kalendarz firmy) | > 25 | > 12 |
 | osób w eksportach dziś | > 200 | > 100 |
-| nowe konta otwierające CV w tej samej godzinie | ≥ 3 | — |
+| nowe konta, które dziś zapisały plik kandydata na dysk | ≥ 3 | — |
+
+Liczba przejrzanych kandydatów zostaje w treści alarmu jako kontekst, ale nie
+jest progiem (do 07.11.2026 był nim próg > 40 w godzinę, > 20 dla nowego konta).
 
 Źródło progów to ruch produkcji z 30 dni do 22.10.2026, bez juniorów:
 99. percentyl to 33 kandydatów na godzinę (maksimum 61), na dysk najwyżej 20
-plików dziennie. Te progi dałyby w tych 30 dniach 3 alarmy, wszystkie
-o liczbie kandydatów na godzinę u dwóch najaktywniejszych osób.
+plików dziennie. Wszystkie 3 alarmy z tych 30 dni były za liczbę kandydatów
+na godzinę, czyli za przeglądanie — po 07.11 nie powstałby żaden.
 
-Odtworzenie 12.10 na danych produkcji: o 12:30 alarm „nowe konta naraz”
-(6 kont), o 14:00 alarm za pliki na dysk (20 przy progu 12), o 15:00 alarm
-za liczbę kandydatów (25 w godzinę przy progu 20).
+Odtworzenie 12.10 na danych produkcji: o 14:00 alarm za pliki na dysk (20 przy
+progu 12); 41 plików na dysk z dziewięciu nowych kont daje też alarm „nowe
+konta naraz”.
 
-Zmienne: `DATA_ACCESS_ALERT_HOUR_CANDIDATES`, `…_DAY_DISK_FILES`,
+Zmienne: `DATA_ACCESS_ALERT_DAY_DISK_FILES`,
 `…_DAY_EXPORT_ROWS`, `…_NEW_ACCOUNT_DAYS`, `…_NEW_ACCOUNTS_BURST`,
 `…_INTERVAL_SECONDS` oraz wyłącznik `DATA_ACCESS_ALERTS_ENABLED`. Na produkcji
 zmienia się je wyłącznie workflowem „Coolify set env”.
+
+### Konta serwisowe (klucze API, od 08.11.2026)
+
+Zdarzenia API integracji mają puste `user_id`, więc skaner liczy je osobno na
+konto serwisowe, po `details.via = integration:<slug>`. Próg to > 25 CV i > 200
+osób w eksportach dziennie na konto (`…_SERVICE_DAY_FILES`,
+`…_SERVICE_DAY_EXPORT_ROWS`). Podgląd nie jest progiem, jak u osób, a połowy
+progu dla nowych kont tu nie ma. Tekst CV z API (`GET …/cv-text`) zostawia ślad
+`cv_downloaded` i liczy się jak pobranie, chyba że odpowiedź w kwarantannie nie
+niosła tekstu. Na kopii produkcji z 07.11.2026 żaden klucz nie miał jeszcze
+zdarzeń na kandydatach, więc progi przyjęto jak dla osoby, nie z pomiaru.
+
+Alarm niesie ujemne id konta (`service_entity_id`), bo dedup `emit` nie patrzy
+na `related_entity_type`: konto serwisowe 7 zdusiłoby alarm o osobie 7.
 
 ### Reguły, które łatwo cofnąć
 

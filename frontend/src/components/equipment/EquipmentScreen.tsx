@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, PackageMinus, PackagePlus, Plus } from "lucide-react";
 
-import { EditionLogistics } from "@/components/academy/EditionLogistics";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav, type TabbedNavItem } from "@/components/ds/TabbedNav";
@@ -50,8 +49,7 @@ export type EquipmentTab =
   | "templates"
   | "prices"
   | "import"
-  | "intune"
-  | "academy";
+  | "intune";
 const TABS: EquipmentTab[] = [
   "items",
   "tasks",
@@ -60,7 +58,6 @@ const TABS: EquipmentTab[] = [
   "prices",
   "import",
   "intune",
-  "academy",
 ];
 
 /** Rzadkie zakładki — pod „Więcej” (makieta 19.10.2026). */
@@ -68,7 +65,6 @@ const MORE_TABS: { value: EquipmentTab; label: string }[] = [
   { value: "templates", label: "Wzory protokołów" },
   { value: "prices", label: "Cennik" },
   { value: "intune", label: "Intune" },
-  { value: "academy", label: "Akademia" },
 ];
 
 interface IssueRequest {
@@ -82,7 +78,7 @@ function tabFrom(value: string | null): EquipmentTab | null {
 }
 
 const MODULE_OFF =
-  "Moduł „Sprzęt” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
+  "Moduł „Sprzęt” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Administracja współpracy.";
 const NO_PERMISSION =
   "Sprzęt prowadzi recepcja: ekran widzą osoby z uprawnieniem „Sprzęt” (Ustawienia → Osoby i role).";
 
@@ -240,9 +236,6 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         <ImportTab />
       ) : tab === "intune" ? (
         <IntuneTab isAdmin={config.me.is_admin} onOpenItem={setItemId} />
-      ) : tab === "academy" ? (
-        // Recepcja bez dostępu do /academy: edycje wszystkich programów.
-        <EditionLogistics />
       ) : (
         <ItemsTab
           summary={s}

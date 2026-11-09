@@ -329,3 +329,75 @@ async def test_direct_p0_by_hor_also_closes_a_pending_request():
 
 def test_p0_request_mail_is_the_required_p0_mail():
     assert delivery.notification_kind("job_p0_requested") == delivery.JOB_P0_KIND
+
+
+# --- P0 po terminie czeka na decyzję (prośba Olafa, 06.11.2026) ---------------
+
+AFTER = datetime(2026, 11, 6, 15, 16, tzinfo=timezone.utc)  # 06.11 16:16 w Warszawie
+
+
+def test_p0_after_deadline_stays_active_and_overdue():
+    job = _job(p0_until=AFTER)
+    later = AFTER + timedelta(hours=3)
+    assert job_p0.is_active(job, later)
+    assert job_p0.is_overdue(job, later)
+    assert not job_p0.is_overdue(job, AFTER - timedelta(minutes=1))
+    assert job_p0.fields(job)["is_p0"] is True
+
+
+def test_p0_that_ended_before_the_rule_does_not_come_back():
+    # Decyzja Artura: wracają tylko terminy od 06.11 00:00 (Warszawa).
+    old = _job(p0_until=job_p0.CONFIRM_FROM - timedelta(seconds=1))
+    assert not job_p0.is_active(old, AFTER)
+    assert not job_p0.is_overdue(old, AFTER)
+    assert job_p0.is_active(_job(p0_until=job_p0.CONFIRM_FROM), AFTER)
+
+
+def test_overdue_p0_on_closed_job_is_not_active():
+    assert not job_p0.is_active(_job(p0_until=AFTER, status=JobStatus.closed), AFTER)
+
+
+@pytest.mark.asyncio
+async def test_extend_overdue_p0_counts_24h_from_now():
+    db = _Db()
+    job = _job(p0_until=AFTER)
+    now = AFTER + timedelta(hours=5)
+    await job_p0.extend_p0(db, job, actor_id=11, now=now)
+    assert job.p0_until == now + timedelta(hours=24)
+    assert [a.action for a in db.added] == [job_p0.ACTION_EXTENDED]
+
+
+@pytest.mark.asyncio
+async def test_ending_overdue_p0_leaves_trace_with_overdue_flag():
+    db = _Db()
+    job = _job(p0_until=AFTER)
+    assert await job_p0.clear_p0(db, job, actor_id=11, now=AFTER + timedelta(hours=1))
+    assert job.p0_until is None
+    assert db.added[0].details == {"overdue": True}
+
+
+@pytest.mark.asyncio
+async def test_dl_cannot_request_p0_while_overdue_p0_waits():
+    with pytest.raises(job_p0.P0Error) as exc:
+        await job_p0.request_p0(
+            _Db(),
+            _job(p0_until=AFTER, delivery_lead_id=27),
+            actor_id=27,
+            reason="Klient pyta",
+            now=AFTER + timedelta(hours=1),
+        )
+    assert exc.value.status == 409
+
+
+def test_overdue_bell_is_the_required_p0_mail():
+    assert delivery.notification_kind("job_p0_overdue") == delivery.JOB_P0_KIND
+
+
+def test_overdue_loop_rings_only_7_to_20_warsaw(monkeypatch):
+    from app.tasks import job_p0_overdue as task
+
+    for hour, rings in ((6, False), (7, True), (19, True), (20, False)):
+        monkeypatch.setattr(
+            task, "local_now", lambda h=hour: datetime(2026, 11, 6, h, 30)
+        )
+        assert task.in_ringing_hours() is rings

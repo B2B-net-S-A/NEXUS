@@ -90,6 +90,8 @@ import {
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
+import { useRecruiterOnly } from "@/lib/cv-download-access";
+import { CvDownloadExceptionDialog } from "@/components/v2/files/CvDownloadExceptionDialog";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { countForm } from "@/lib/cv-qc";
 import { cvAiSourcesQueryKey, fetchCvAiSources } from "@/lib/cv-ai-sources";
@@ -130,17 +132,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
+import { ConsentRequestNotice } from "@/components/v2/recruitment/ConsentRequestNotice";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
+import type { CvEditorSourcesProps } from "@/components/v2/cv-editor/CvEditorSources";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
+import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
@@ -353,6 +359,8 @@ export interface CvToClientCardProps {
     stageId: number,
     opts?: { download?: CvDownloadSurface },
   ) => Promise<{ blob: Blob; filename?: string | null }>;
+  /** Oryginał w oknie stron („Pokaż oryginał”). Harness podaje plik z pamięci. */
+  originalLoaders?: CvEditorSourcesProps["loaders"];
 }
 
 /** Bez zgody RODO serwer i tak odpowie 409 — miniatura nie pyta wcale. */
@@ -390,6 +398,7 @@ export function CvToClientCard({
   onOpenPerson,
   lockedAfterSend = false,
   loadStageCvFile = fetchStageCvFile,
+  originalLoaders,
   loadStageCvPdf = fetchStageCvPdf,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
@@ -411,6 +420,8 @@ export function CvToClientCard({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [originalOpen, setOriginalOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
+  const recruiterOnly = useRecruiterOnly();
+  const [exceptionOpen, setExceptionOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   // Liczba stron z miniatury — ważna tylko dla wersji CV, z której pochodzi.
@@ -886,6 +897,14 @@ export function CvToClientCard({
                 {finalized ? `wersja ${branded.version}` : "szkic"}
               </Badge>
               {facts.length > 0 ? <p>{facts.join(" · ")}</p> : null}
+              {branded.current_filename ? (
+                <CvFileNameRow
+                  stageId={cvStageId}
+                  filename={branded.current_filename}
+                  patternFilename={branded.pattern_filename}
+                  readOnly={readOnly}
+                />
+              ) : null}
               {usedFile ? (
                 <p data-testid="cv-source-file" className="[overflow-wrap:anywhere]">
                   Powstało z: <span className="font-medium text-foreground">{usedFile.filename ?? "plik CV"}</span>
@@ -1012,32 +1031,16 @@ export function CvToClientCard({
           onReview={() => openEditor("issues")}
         />
         {readyHint}
-        {state.consentMissing ? (
-          <div
-            role="note"
-            className="flex flex-col items-start gap-2 rounded-md border border-destructive/25 bg-destructive-muted px-2.5 py-2 text-xs text-destructive-muted-foreground"
+        {recruiterOnly && canReplace && branded.from_generator === true ? (
+          <button
+            type="button"
+            data-testid="cv-original-after-generator"
+            data-tour="person.cv.original-after-generator"
+            onClick={() => setExceptionOpen(true)}
+            className="text-left text-xs font-medium text-primary hover:underline"
           >
-            <span>
-              Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
-            </span>
-            {readOnly ? null : state.attached ? (
-              <ConsentAttachButton
-                compact
-                generatedId={state.attached.id}
-                hasConsent={false}
-                onAttached={refresh}
-              />
-            ) : (
-              // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
-              // dokumentu generatora — zgoda idzie na CV etapu.
-              <ConsentAttachButton
-                compact
-                stageCopy={{ candidateId, stageId: cvStageId }}
-                hasConsent={false}
-                onAttached={refresh}
-              />
-            )}
-          </div>
+            Generator źle zrobił CV? Pobierz oryginał
+          </button>
         ) : null}
         {rewriteResult && rewriteResult.stageId === cvStageId && rewriteResult.revision === branded.edit_revision ? (
           // Pasek znika sam, gdy rekruter zapisze dalsze poprawki (makieta „Ekran 4”).
@@ -1169,6 +1172,11 @@ export function CvToClientCard({
           <div className="flex flex-wrap gap-1.5">
             {generateButton("Spróbuj ponownie", true, "sparkles")}
             {useOtherButton}
+            {recruiterOnly ? (
+              <Button size="sm" variant="outline" onClick={() => setExceptionOpen(true)}>
+                <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz oryginał
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1210,6 +1218,15 @@ export function CvToClientCard({
       <div className="space-y-2">
         <AutoCvSkipNotice jobId={jobId} candidateId={candidateId} />
         <p className="text-sm text-foreground">Jeszcze nie ma CV do klienta dla tej rekrutacji.</p>
+        {!readOnly && !generateOpen ? (
+          <ConsentRequestNotice
+            stageId={stageId}
+            candidateId={candidateId}
+            candidateName={candidateName}
+            jobId={jobId}
+            moment="cv"
+          />
+        ) : null}
         {readyHint}
         {!readOnly ? (
           <div className="space-y-1">
@@ -1225,6 +1242,7 @@ export function CvToClientCard({
             <p className="text-[11px] text-muted-foreground">
               Najpierw potwierdzisz plik CV, odpowiedzi ze screeningu i dodatkowe notatki — CV powstaje
               dopiero po „Generuj”, nie samo po ruchu na „Zweryfikowany”.
+              {recruiterOnly ? " Oryginał CV pobierzesz po próbie z generatorem, jeśli wynik będzie zły." : ""}
             </p>
           </div>
         ) : (
@@ -1236,14 +1254,49 @@ export function CvToClientCard({
     );
   }
 
+  const consentFrame = state.kind === "ready" && state.consentMissing ? (
+          <div
+            role="note"
+            className="flex flex-col items-start gap-2 rounded-md border border-destructive/25 bg-destructive-muted px-2.5 py-2 text-xs text-destructive-muted-foreground"
+          >
+            <span>
+              Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
+            </span>
+            {readOnly ? null : (
+              <div className="flex flex-wrap items-start gap-2">
+                <ConsentRequestButton candidateId={candidateId} candidateName={candidateName} jobId={jobId} />
+                {state.attached ? (
+                  <ConsentAttachButton
+                    compact
+                    generatedId={state.attached.id}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                ) : (
+                  // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
+                  // dokumentu generatora — zgoda idzie na CV etapu.
+                  <ConsentAttachButton
+                    compact
+                    stageCopy={{ candidateId, stageId: cvStageId }}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        ) : null;
+
   const original = originalQuery.data;
   return (
     <section
       aria-label="CV do klienta"
       data-testid="cv-to-client-card"
+      data-tour="person.cv.to-client-card"
       className="space-y-3 rounded-xl border border-border bg-card p-3"
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
+      {consentFrame}
       {confirmDialog}
       {cvUpload.confirmDialog}
       <NewCvProgress candidateId={candidateId} jobId={jobId} readOnly={!canUploadCv} />
@@ -1257,6 +1310,9 @@ export function CvToClientCard({
         </p>
       ) : null}
       {body}
+      {recruiterOnly && exceptionOpen ? (
+        <CvDownloadExceptionDialog stageId={cvStageId} open onOpenChange={setExceptionOpen} />
+      ) : null}
       {generateOpen && canReplace ? (
         <CvGeneratePanel
           candidateId={candidateId}
@@ -1351,6 +1407,8 @@ export function CvToClientCard({
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}
           textAlign={normalizeCvAlign(branded?.text_align)}
+          originalStageId={cvStageId}
+          originalLoaders={originalLoaders}
         />
       ) : null}
       {originalOpen ? (

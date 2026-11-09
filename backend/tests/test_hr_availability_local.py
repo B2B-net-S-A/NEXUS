@@ -270,7 +270,7 @@ async def test_only_admin_switches_the_source(app_client) -> None:
     async with AsyncSessionLocal() as db:
         hr = User(
             email=f"avail-hr-{uuid.uuid4().hex[:8]}@example.com",
-            name="Osoba Kadry",
+            name="Osoba Administracja współpracy",
             role=UserRole.recruiter,
             roles=["recruiter"],
             is_active=True,

@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.contract_templates import _contract_vars, render_contract_template
 from app.core.printable_html import (
     AUTOPRINT_HASH,
@@ -138,6 +139,7 @@ from app.services.contract_lifecycle import (
     assert_contract_client_not_deleted,
     assert_transition,
     auto_activate_complete_draft,
+    clear_undone_termination,
     hard_delete_contract,
     move_to_ready_for_signature,
     reopen_contract,
@@ -283,6 +285,7 @@ ContractTerminationRecoveryUser = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.finance,
+            UserRole.back_office,
             UserRole.talent_community_manager,
         )
     ),
@@ -1953,6 +1956,15 @@ def _redact_contract_finance(
     return item
 
 
+def _hide_company_margin(item: Any) -> None:
+    """Lista bez marży dla posiadacza kwot całej firmy bez „Wyników firmy”."""
+    for field in ("margin", "monthly_margin"):
+        if hasattr(item, field):
+            setattr(item, field, None)
+    for member in getattr(item, "group_members", None) or []:
+        member.margin = None
+
+
 # Kolejność członków w zgrupowanym wierszu i rodzeństwa w szczegółach: żywe
 # umowy przed papierowymi, w obrębie statusu najnowsza pierwsza. Dzięki temu
 # chip/oznaczenie pierwszego klienta wskazuje bieżące zatrudnienie.
@@ -2229,6 +2241,15 @@ async def list_contracts(
         # caller can binary-search a hidden rate/margin by watching which rows
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
+    # Marża przy każdym wierszu i ranking po niej to wynik całej firmy (decyzja
+    # Artura 02.11.2026). Stawki zostają; portfel Delivery Leada bez zmian.
+    company_margin_hidden = global_finance and not has_permission(
+        current_user, ProductAction.company_results
+    )
+    if company_margin_hidden:
+        margin_min = None
+        if sort_by == "margin":
+            sort_by = None
     if not global_finance and sort_by in _FINANCE_SORT_KEYS:
         # Ta sama wyrocznia co przy filtrach kwot: kolejność wierszy po ukrytej
         # stawce pozwala ją odtworzyć. Rola bez finansów dostaje kolejność domyślną.
@@ -2422,6 +2443,9 @@ async def list_contracts(
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
+    if company_margin_hidden:
+        for item in items:
+            _hide_company_margin(item)
     return ContractList(
         items=items,
         total=total,
@@ -2597,6 +2621,10 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
+    # Plik z całą firmą to zbiorczy wynik (decyzja Artura 02.11.2026): bez
+    # „Wyników firmy” eksport obejmuje jednego klienta.
+    if client_id is None:
+        ensure_permission(current_user, ProductAction.company_results)
     # Eksport zawiera dane kandydata razem ze stawkami i marżą. Finance ma
     # jawny organization-wide business read; zapis i lifecycle kontraktu nadal
     # pozostają poza tą zależnością.
@@ -2719,14 +2747,17 @@ async def export_placements(
     wb = Workbook()
     ws = wb.active
     ws.title = "Placementy"
-    ws.append(list(placements.PLACEMENT_EXPORT_COLUMNS))
+    # Arkusz roboczy zostaje dla całego okresu, ale bez marży, jeśli konto nie ma
+    # „Wyników firmy” (decyzja Artura 02.11.2026).
+    columns: tuple[str, ...] = placements.PLACEMENT_EXPORT_COLUMNS
+    if not has_permission(current_user, ProductAction.company_results):
+        columns, rows = placements.without_margin_columns(rows)
+    ws.append(list(columns))
     for cell in ws[1]:
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"
     date_columns = [
-        idx + 1
-        for idx, name in enumerate(placements.PLACEMENT_EXPORT_COLUMNS)
-        if name in placements.DATE_COLUMNS
+        idx + 1 for idx, name in enumerate(columns) if name in placements.DATE_COLUMNS
     ]
     for row in rows:
         ws.append(safe_row(row))
@@ -2827,7 +2858,7 @@ def _register_export_row(c: Contract) -> list:
     ]
 
 
-@router.get("/register/export")
+@router.get("/register/export", dependencies=NOT_READ_ONLY)
 async def export_client_register(
     current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
@@ -4439,6 +4470,7 @@ async def apply_contract_update(
         ):
             contract.end_date = None
             updates["end_date"] = None
+            clear_undone_termination(db, contract, actor_id=policy.actor_id)
         # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
         # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
         updates["status"] = contract.status.value
@@ -4591,6 +4623,7 @@ async def apply_contract_update(
                 # zostawiony tutaj zamknąłby wiersz jako „rozwiązany” przy
                 # późniejszym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
                 await undo_contract_termination(db, contract, actor_id=policy.actor_id)
+                clear_undone_termination(db, contract, actor_id=policy.actor_id)
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
     # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
     # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
@@ -4809,6 +4842,7 @@ async def apply_contract_status(
         and contract.end_date is not None
     ):
         contract.end_date = None
+        clear_undone_termination(db, contract, actor_id=policy.actor_id)
     db.add(
         Activity(
             entity_type="contract",

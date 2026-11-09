@@ -28,6 +28,7 @@ import {
   TOPBAR_SEARCH_CLASS,
 } from "./topbar-layout";
 import { P0TopbarButton } from "@/components/v2/jobs/p0/P0TopbarButton";
+import { ReviewBatchTopbarButton } from "@/components/v2/review-batch/ReviewBatchTopbarButton";
 import { NoveltiesTopbarButton } from "@/components/novelties/NoveltiesTopbarButton";
 
 interface Props {
@@ -93,6 +94,8 @@ export function TopbarV2({
       <div className={TOPBAR_ACTIONS_CLASS}>
         {/* P0 — ultrapilne rekrutacje (27.10.2026): u każdego, przed resztą. */}
         <P0TopbarButton />
+        {/* Porcja dnia od Nexusa (07.11.2026): tylko rekruter przed minimum. */}
+        <ReviewBatchTopbarButton />
         {/* Nowości do przeklikania (28.10.2026) — tylko gdy coś czeka. */}
         <NoveltiesTopbarButton />
         {/* Liga Mistrzów: miejsce i punkty kwartału — nie ściska się, cele oddają segmenty. */}

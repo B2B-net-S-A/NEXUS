@@ -40,9 +40,12 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja parse_cv
+from app.services.candidate_name_rules import is_empty_field_name
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services.ai_models import model_chain_for, model_for
+from app.services.cv_common_words import only_common_cv_words
+from app.services.cv_technology_grounding import drop_untraced_technologies
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +115,22 @@ def _extract_linkedin_from_text(cv_text: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
+def _email_is_in_text(email: Any, cv_text: str) -> bool:
+    """Adres od modelu stoi w tekście CV, choćby rozcięty odstępami albo z „(at)”.
+
+    Sklejenie odstępów nie dotyczy samej części lokalnej: sklejone „Anna Testowa”
+    zawiera zmyśloną „annatestowa”. Sama część lokalna też nie wystarcza, bo model
+    dokłada domenę do resztki adresu z OCR („jan45©”).
+    """
+    address = "".join(str(email or "").split()).casefold()
+    local_part, _, domain = address.partition("@")
+    if not (local_part and domain):
+        return False
+    text = (cv_text or "").casefold()
+    squeezed = "".join(text.split())
+    return address in squeezed or (local_part in text and domain in squeezed)
+
+
 def _extract_email_from_text(cv_text: str) -> Optional[str]:
     """Return the first plausible email address in the CV (lowercased)."""
     if not cv_text:
@@ -164,6 +183,9 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
         tokens = [t for t in re.split(r"[\s,]+", line) if t]
         if not 2 <= len(tokens) <= 4:
             continue
+        # Section headings, cities and roles look like a name too (05.11.2026).
+        if only_common_cv_words(tokens):
+            continue
         # Each token must start with an uppercase letter; accept PL diacritics.
         if not all(
             re.match(r"^[A-ZŁŚŻŹĆŃÓĄĘ][\wŁłŚśŻżŹźĆćŃńÓóĄąĘę\-']+$", t) for t in tokens
@@ -171,6 +193,8 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
             continue
         first = tokens[0]
         last = " ".join(tokens[1:])
+        if is_empty_field_name(first) or is_empty_field_name(last):
+            continue
         return first, last
     return None, None
 
@@ -181,9 +205,26 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
     Regex only writes into keys that are currently `None` or missing.
     Sets `_confidence` for regex-filled fields: 0.9 for exact email match,
     0.85 for phone with 9+ digits, 0.6 for name split heuristic.
+
+    A model email that is not in the CV text is dropped first: with a name and no
+    address the model builds one from the name (profile 9772, 3 reads out of 3,
+    05.11.2026), and a message would go to a stranger.
+
+    A name taken from the header is listed in `_name_from_header`, field by field:
+    the identity gate must not treat it as a read, and it does not name a profile
+    (05.11.2026). `_confidence` cannot carry that, because the model scores empty
+    fields too and `setdefault` keeps its 0.0.
     """
     out = dict(parsed)
     confidence = dict(out.get("_confidence") or {})
+
+    for key in ("first_name", "last_name"):
+        if is_empty_field_name(out.get(key)):
+            out[key] = None
+
+    if out.get("email") and not _email_is_in_text(out["email"], cv_text):
+        out["email"] = None
+        confidence.pop("email", None)
 
     if not out.get("email"):
         email = _extract_email_from_text(cv_text)
@@ -199,14 +240,19 @@ def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, 
 
     if not out.get("first_name") or not out.get("last_name"):
         first, last = _split_name_from_header(cv_text)
+        from_header = []
         if first and not out.get("first_name"):
             out["first_name"] = first
             confidence.setdefault("first_name", 0.6)
+            from_header.append("first_name")
         if last and not out.get("last_name"):
             out["last_name"] = last
             confidence.setdefault("last_name", 0.6)
+            from_header.append("last_name")
+        if from_header:
+            out["_name_from_header"] = from_header
 
-    if confidence:
+    if confidence or out.get("_confidence"):
         out["_confidence"] = confidence
     return out
 
@@ -326,6 +372,14 @@ _EDUCATION_LEVELS = frozenset(
     {"secondary", "bachelor", "engineer", "master", "phd", "other"}
 )
 _MAX_TECH_PER_ENTRY = 12
+_MAX_REGULATIONS_PER_ENTRY = 8
+_MAX_SECTORS = 8
+# Kanon `Job.seniority`, żeby poziom kandydata dało się porównać z rekrutacją.
+_SENIORITY_LEVELS = frozenset({"junior", "mid", "senior", "lead", "architect"})
+_SENIORITY_ALIASES = {"regular": "mid", "medior": "mid", "intern": "junior"}
+# Zespół większy niż to nie jest „ludźmi, których prowadził”, tylko liczbą
+# pracowników firmy przepisaną z CV.
+_MAX_TEAM_SIZE = 500
 
 
 def _clean_text(value: Any, limit: int) -> Optional[str]:
@@ -396,10 +450,86 @@ def _normalize_experience(value: Any) -> list[dict[str, Any]]:
         client = _clean_text(item.get("client"), 160)
         if client:
             entry["client"] = client
+        # v9: branża, wielkość zespołu i regulacje stanowiska.
+        sector = _clean_text(item.get("sector"), 80)
+        if sector:
+            entry["sector"] = sector
+        team_size = _clean_team_size(item.get("team_size"))
+        if team_size:
+            entry["team_size"] = team_size
+        regulations = _unique_strings(
+            item.get("regulations"), limit=_MAX_REGULATIONS_PER_ENTRY
+        )
+        if regulations:
+            entry["regulations"] = regulations
         entries.append(entry)
         if len(entries) >= _EXPERIENCE_MAX_ENTRIES:
             break
     return entries
+
+
+def _clean_team_size(value: Any) -> Optional[int]:
+    """Liczba prowadzonych osób 1–500 albo None (bool i ułamki odrzucone)."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        size = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return size if 1 <= size <= _MAX_TEAM_SIZE else None
+
+
+def _clean_seniority(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    level = value.strip().casefold()
+    level = _SENIORITY_ALIASES.get(level, level)
+    return level if level in _SENIORITY_LEVELS else None
+
+
+# Obywatelstwo zostaje tylko z CV, które je nazywa. Model potrafi „wywnioskować”
+# narodowość z imienia albo języka CV, a to byłaby fabrykacja w polu karty
+# rekomendacji, które klient może wymagać.
+_NATIONALITY_CUE_RE = re.compile(
+    r"obywatelstw|narodowo|nationalit|citizenship|staatsangeh|громадянств|гражданств",
+    re.IGNORECASE,
+)
+# Ta sama regulacja pod różnymi nazwami w CV po polsku, angielsku i niemiecku.
+_REGULATION_ALIASES = (frozenset({"gdpr", "rodo", "dsgvo", "rgpd"}),)
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\W_]+", "", text.casefold())
+
+
+def drop_untraced_profile_facts(parsed: dict[str, Any], cv_text: str) -> None:
+    """Usuń regulacje bez śladu w CV i obywatelstwo z CV, które go nie podaje.
+
+    Ten sam powód co `drop_untraced_technologies`: fakt, którego nie ma w pliku,
+    trafiłby do profilu i do karty rekomendacji jako odczytany z CV.
+    """
+    compact_cv = _compact(cv_text or "")
+    nationality = parsed.get("nationality")
+    if nationality and not _NATIONALITY_CUE_RE.search(cv_text or ""):
+        parsed["nationality"] = None
+    for entry in parsed.get("experience") or []:
+        if not isinstance(entry, dict) or not isinstance(
+            entry.get("regulations"), list
+        ):
+            continue
+        kept = []
+        for name in entry["regulations"]:
+            if not isinstance(name, str) or not name.strip():
+                continue
+            key = _compact(name)
+            names = next((g for g in _REGULATION_ALIASES if key in g), {key})
+            # Numer normy wystarcza: „ISO 27001” w CV bywa „ISO/IEC 27001:2013”.
+            number = re.search(r"\d{3,}", name)
+            if any(n and n in compact_cv for n in names) or (
+                number and number.group(0) in compact_cv
+            ):
+                kept.append(name)
+        entry["regulations"] = kept
 
 
 def _normalize_education(value: Any) -> Optional[list[dict[str, Any]]]:
@@ -550,6 +680,24 @@ def _normalize_skill_dates(value: Any) -> Any:
     return output
 
 
+def normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Publiczne wejście `_normalize_cv_output` dla biegów z surowym wynikiem
+    `parse_cv_with_claude` / Batch API (faza nocna, ponowny odczyt bazy)."""
+    return _normalize_cv_output(parsed)
+
+
+def finalize_claude_cv_output(parsed: dict[str, Any], cv_text: str) -> dict[str, Any]:
+    """Wynik Claude'a → ten sam kształt, który `parse_cv` oddaje rekruterowi.
+
+    Kolejność jak w `parse_cv`: LinkedIn i kontakt z regexu tam, gdzie model
+    nic nie dał, potem normalizacja. Bieg przez Batch API woła to po odebraniu
+    odpowiedzi, bo `parse_cv` sam nie wysyła paczek.
+    """
+    return _normalize_cv_output(
+        _apply_contact_fallbacks(_with_linkedin_fallback(parsed, cv_text), cv_text)
+    )
+
+
 def normalize_experience_entries(value: Any) -> list[dict[str, Optional[str]]]:
     """Publiczne wejście dla biegów, które dostają SUROWY wynik `parse_cv_with_claude`.
 
@@ -589,8 +737,12 @@ def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
         technologies = output.get("skills")
     output["technologies"] = _unique_strings(technologies, limit=8)
     output["sectors"] = _unique_strings(
-        output.get("sectors") or output.get("industries"), limit=4
+        output.get("sectors") or output.get("industries"), limit=_MAX_SECTORS
     )
+    if "seniority_level" in output:
+        output["seniority_level"] = _clean_seniority(output.get("seniority_level"))
+    if "nationality" in output:
+        output["nationality"] = _clean_text(output.get("nationality"), 60)
 
     started_at = output.get("current_position_started_at")
     if isinstance(started_at, str):
@@ -660,6 +812,21 @@ def _cv_input_for(template: PromptTemplate, cv_text: str) -> str:
     if template.name == CV_ENRICHMENT.name:
         return _window_cv_text(cv_text, settings.CV_PARSER_INPUT_CHAR_CAP)
     return cv_text[:8000]
+
+
+def _user_content(template: PromptTemplate, cv_input: str) -> list[dict[str, Any]]:
+    """Stałe instrukcje jako blok z cache'em, a CV w osobnym bloku za nim.
+
+    Instrukcje mają ok. 1950 tokenów, a 95% wywołań dzieli mniej niż 5 minut.
+    Znacznik stoi przed CV, bo znacznik za CV płaci za zapis, którego nikt nie
+    odczyta. Dostawcy spoza Anthropic sklejają bloki w ten sam tekst.
+    """
+    slot = "\x00cv\x00"
+    head, tail = template.render(cv_text=slot).split(slot)
+    return [
+        {"type": "text", "text": head, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": cv_input + tail},
+    ]
 
 
 def _max_tokens_for(template: PromptTemplate) -> int:
@@ -770,6 +937,92 @@ def _salvage_truncated_json(raw: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def claude_cv_request_params(
+    cv_text: str, *, model: str, template: PromptTemplate = CV_ENRICHMENT
+) -> dict[str, Any]:
+    """Treść żądania odczytu CV — wspólna dla wywołania na żywo i Batch API.
+
+    Bieg masowy przez Batch API (`cv_reparse_batch`) musi wysłać dokładnie to
+    samo co ścieżka rekrutera, inaczej pomiar na żywo nie mówi nic o biegu.
+    """
+    return {
+        "model": model,
+        # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
+        # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
+        # per stanowisko, projekty, certyfikaty) potrzebuje ~2× więcej.
+        "max_tokens": _max_tokens_for(template),
+        # Claude 5 does adaptive thinking by default; thinking tokens count
+        # toward max_tokens and would truncate this JSON output. On models
+        # where thinking is off by default (Haiku 4.5) `disabled` is a no-op
+        # — the pin only matters when a Claude 5 model is configured.
+        "thinking": {"type": "disabled"},
+        "system": template.system_prompt or "",
+        "messages": [
+            {
+                "role": "user",
+                "content": _user_content(template, _cv_input_for(template, cv_text)),
+            }
+        ],
+    }
+
+
+def parsed_from_claude_message(
+    message: Any, cv_text: str, *, model: str, template: PromptTemplate = CV_ENRICHMENT
+) -> Optional[dict[str, Any]]:
+    """Odpowiedź modelu → surowy wynik odczytu (bez `_normalize_cv_output`).
+
+    Rzuca `json.JSONDecodeError`, gdy odpowiedź nie jest JSON-em i nie da się
+    jej uratować; wołający decyduje, co dalej (fallback albo ponowienie).
+    """
+    # Claude 5 models can lead with a non-text block (e.g. a thinking
+    # block), so content[0].text may be absent/empty — collect every text
+    # block instead of blindly reading content[0].
+    raw = "".join(
+        getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+    )
+    unwrapped = _strip_json_fences(raw)
+    truncated = getattr(message, "stop_reason", None) == "max_tokens"
+    try:
+        data = json.loads(unwrapped)
+    except json.JSONDecodeError:
+        salvaged = _salvage_truncated_json(unwrapped) if truncated else None
+        if salvaged is None:
+            raise
+        data = salvaged
+        data["_truncated"] = True
+        logger.warning(
+            "[cv_parser] truncated JSON salvaged (template=%s v%d, keys=%d)",
+            template.name,
+            template.version,
+            len(data),
+        )
+    if not isinstance(data, dict):
+        return None
+    drop_untraced_technologies(data, cv_text)
+    drop_untraced_profile_facts(data, cv_text)
+    data["_source"] = f"claude:{template.name}:v{template.version}"
+    # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
+    # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w
+    # cv_extracted_data) + log, żeby bieg kalibracyjny mierzył realny
+    # koszt jednostkowy zamiast szacunku.
+    usage = getattr(message, "usage", None)
+    if usage is not None:
+        data["_usage"] = {
+            "model": model,
+            "input_tokens": getattr(usage, "input_tokens", None),
+            "output_tokens": getattr(usage, "output_tokens", None),
+        }
+        logger.info(
+            "[cv_parser] model=%s in=%s out=%s template=%s v%d",
+            model,
+            getattr(usage, "input_tokens", "?"),
+            getattr(usage, "output_tokens", "?"),
+            template.name,
+            template.version,
+        )
+    return data
+
+
 async def _parse_with_claude(
     cv_text: str,
     *,
@@ -803,77 +1056,23 @@ async def _parse_with_claude(
     if not api_key_configured(chosen_model) or not settings.CV_ENRICHMENT_ENABLED:
         return None
     try:
-        user_prompt = template.render(cv_text=_cv_input_for(template, cv_text))
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
         # żeby wielosekundowy round-trip nie blokował jednowątkowego event loopu.
         message = await run_in_threadpool(
             call_claude,
-            model=chosen_model,
             # Bieg masowy na tańszym modelu (F10 = GPT-6 Luna od 22.09.2026) przy
             # przeciążeniu dostawcy schodzi na model parsera CV, a nie od razu
             # do Ollamy/regexu.
             fallback_models=[
-                m for m in (model_for(AIFeatureKey.cv_parser),) if m != chosen_model
+                m for m in model_chain_for(AIFeatureKey.cv_parser) if m != chosen_model
             ],
-            # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
-            # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
-            # per stanowisko, projekty, certyfikaty) potrzebuje ~2× więcej.
-            max_tokens=_max_tokens_for(template),
             **_timeouts_for(template),
-            # Claude 5 does adaptive thinking by default; thinking tokens count
-            # toward max_tokens and would truncate this JSON output. On models
-            # where thinking is off by default (Haiku 4.5) `disabled` is a no-op
-            # — the pin only matters when a Claude 5 model is configured.
-            thinking={"type": "disabled"},
-            system=template.system_prompt or "",
-            messages=[{"role": "user", "content": user_prompt}],
             api_key=settings.ANTHROPIC_API_KEY or None,
+            **claude_cv_request_params(cv_text, model=chosen_model, template=template),
         )
-        # Claude 5 models can lead with a non-text block (e.g. a thinking
-        # block), so content[0].text may be absent/empty — collect every text
-        # block instead of blindly reading content[0].
-        raw = "".join(
-            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+        return parsed_from_claude_message(
+            message, cv_text, model=chosen_model, template=template
         )
-        unwrapped = _strip_json_fences(raw)
-        truncated = getattr(message, "stop_reason", None) == "max_tokens"
-        try:
-            data = json.loads(unwrapped)
-        except json.JSONDecodeError:
-            salvaged = _salvage_truncated_json(unwrapped) if truncated else None
-            if salvaged is None:
-                raise
-            data = salvaged
-            data["_truncated"] = True
-            logger.warning(
-                "[cv_parser] truncated JSON salvaged (template=%s v%d, keys=%d)",
-                template.name,
-                template.version,
-                len(data),
-            )
-        if not isinstance(data, dict):
-            return None
-        data["_source"] = f"claude:{template.name}:v{template.version}"
-        # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
-        # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w
-        # cv_extracted_data) + log, żeby bieg kalibracyjny mierzył realny
-        # koszt jednostkowy zamiast szacunku.
-        usage = getattr(message, "usage", None)
-        if usage is not None:
-            data["_usage"] = {
-                "model": chosen_model,
-                "input_tokens": getattr(usage, "input_tokens", None),
-                "output_tokens": getattr(usage, "output_tokens", None),
-            }
-            logger.info(
-                "[cv_parser] model=%s in=%s out=%s template=%s v%d",
-                chosen_model,
-                getattr(usage, "input_tokens", "?"),
-                getattr(usage, "output_tokens", "?"),
-                template.name,
-                template.version,
-            )
-        return data
     except Exception as e:
         logger.warning(
             "[cv_parser] Claude call failed (template=%s v%d): %s",

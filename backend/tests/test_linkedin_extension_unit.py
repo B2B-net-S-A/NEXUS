@@ -3,12 +3,18 @@ osoby, szkic wiadomości. Dane fikcyjne."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from app.schemas.linkedin_extension import ExperienceItem, ProfileRead
+from app.models.recruitment_pipeline import PipelineStage
+from app.schemas.linkedin_extension import (
+    ContactOut,
+    ExperienceItem,
+    OwnerOut,
+    ProfileRead,
+)
 from app.services import linkedin_extension_auth as auth
 from app.services import linkedin_extension_lookup as lookup
 from app.services import linkedin_message_draft as draft
@@ -172,6 +178,76 @@ def test_resolve_same_name_with_other_link_is_someone_else() -> None:
         by_name,
     )
     assert result.status == "not_found"
+
+
+@pytest.mark.parametrize(
+    ("stage", "is_open", "reason", "label", "kind"),
+    [
+        (PipelineStage.screening, True, None, None, None),
+        (PipelineStage.screening, False, None, "Rekrutacja zamknięta", "job_closed"),
+        (PipelineStage.hired, True, None, None, "hired"),
+        # Etap osoby mówi więcej niż zamknięta rekrutacja.
+        (PipelineStage.hired, False, None, None, "hired"),
+        (PipelineStage.withdrawn, True, None, "Wycofany", "withdrawn"),
+        (PipelineStage.rejected, False, "Inne", "Odrzucony · Inne", "rejected"),
+    ],
+)
+def test_process_closure(
+    stage: PipelineStage,
+    is_open: bool,
+    reason: str | None,
+    label: str | None,
+    kind: str | None,
+) -> None:
+    assert lookup.process_closure(stage, is_open, reason) == (label, kind)
+
+
+# Daty w panelu to kalendarz firmy. 23:45 UTC to już następny dzień w Warszawie:
+# zimą 00:45 (+01:00), latem 01:45 (+02:00).
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        (datetime(2026, 11, 2, 23, 45, tzinfo=timezone.utc), "2026-11-03"),
+        (datetime(2026, 7, 14, 23, 45, tzinfo=timezone.utc), "2026-07-15"),
+    ],
+)
+def test_contact_date_in_json_is_company_calendar(
+    moment: datetime, expected: str
+) -> None:
+    contact = ContactOut(at=moment, channel_label="InMail")
+    serialized = contact.model_dump(mode="json")["at"]
+    # Panel bierze datę z początku ciągu (``formatDate`` w ``view/logic.js``).
+    assert serialized.startswith(f"{expected}T")
+    # To nadal ta sama chwila, więc sortowanie po ``at`` się nie zmienia.
+    assert datetime.fromisoformat(serialized) == moment
+
+
+def test_owner_last_contact_is_company_calendar() -> None:
+    owner = OwnerOut(
+        user_id=1,
+        name="Anna",
+        is_me=False,
+        last_contact_at=datetime(2026, 11, 2, 23, 45, tzinfo=timezone.utc),
+    )
+    assert owner.model_dump(mode="json")["last_contact_at"].startswith("2026-11-03T")
+
+
+def test_rate_as_of_is_company_calendar() -> None:
+    candidate = SimpleNamespace(
+        expected_rate_hourly=150,
+        expected_rate_currency="PLN",
+        rate_from_at=datetime(2026, 10, 31, 23, 30, tzinfo=timezone.utc),
+    )
+    assert lookup.rate_out(candidate).as_of == date(2026, 11, 1)
+
+
+@pytest.mark.asyncio
+async def test_rodo_consent_date_is_company_calendar() -> None:
+    class _Db:
+        async def scalar(self, _stmt):
+            return datetime(2026, 10, 31, 23, 30, tzinfo=timezone.utc)
+
+    assert (await lookup.rodo_out(_Db(), 1)).label == "zgoda z 01.11.2026"
 
 
 def test_job_change_only_when_companies_differ() -> None:

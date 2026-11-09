@@ -115,6 +115,10 @@ SPECS: dict[str, _Spec] = {
         label="Wybierz termin z kandydatem",
         cycle_step="pick",
     ),
+    # Treść wpisał klient, niezweryfikowany: mail mówi tylko, co czeka w panelu.
+    "client_panel_request": _Spec(
+        "Odpowiedz klientowi w panelu", label="Otwórz panel klienta"
+    ),
     "interview_slot_chosen": _Spec(
         "Potwierdź termin u klienta", label="Potwierdź termin", cycle_step="confirm"
     ),
@@ -150,6 +154,22 @@ SPECS: dict[str, _Spec] = {
     "pre_contract": _Spec(
         "Umowa przedwstępna", chip="Umowa przedwstępna", label="Otwórz kandydata"
     ),
+    # Dokumenty do startu: lista dzienna ma liczbę w tytule dzwonka.
+    "start_documents_due": _Spec(
+        "Uzupełnij dokumenty do startu",
+        chip="Dokumenty do startu",
+        use_title=True,
+    ),
+    "start_documents_returned": _Spec(
+        "Popraw dokument do startu",
+        chip="Dokumenty do startu",
+        label="Otwórz kandydata",
+    ),
+    "start_documents_reminder": _Spec(
+        "Delivery Lead prosi o dokumenty do startu",
+        chip="Dokumenty do startu",
+        label="Otwórz kandydata",
+    ),
     "cpro_send_assigned": _Spec("Wyślij CV do klienta", label="Otwórz kandydata"),
     "note_reply": _Spec(
         "Odpowiedź na Twoją notatkę", chip="Notatka", label="Otwórz notatkę"
@@ -162,6 +182,9 @@ SPECS: dict[str, _Spec] = {
     ),
     "job_p0_requested": _Spec(
         "Prośba o P0 do zatwierdzenia", chip="P0", label="Otwórz pulpit"
+    ),
+    "job_p0_overdue": _Spec(
+        "Termin P0 minął — przedłuż albo zakończ", chip="P0", label="Otwórz rekrutację"
     ),
     "job_closed_people_waiting": _Spec(
         "Daj znać swoim osobom",
@@ -192,6 +215,9 @@ SPECS: dict[str, _Spec] = {
     "hire_missing_contract": _Spec("Dodaj umowę", label="Otwórz kandydata"),
     "automation_failing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "teams_prep_scope_missing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
+    "hr_m365_scope_missing": _Spec(
+        "Dopisz osoby do grupy", chip="Awaria", label="Otwórz kartę"
+    ),
     "candidate_data_access_alert": _Spec(
         "Sprawdź alarm", chip="Bezpieczeństwo", label="Sprawdź konta"
     ),
@@ -495,6 +521,7 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+    from app.models.client_panel import ClientPanelRequest
     from app.models.contract import Contract
     from app.models.job import Job
     from app.models.user import User
@@ -513,6 +540,12 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
             )
             values["duration_minutes"] = req.duration_minutes
             values["chosen_index"] = req.chosen_index
+    if entity == "client_panel_request" and entity_id:
+        panel_request = await db.get(ClientPanelRequest, entity_id)
+        if panel_request is not None:
+            if panel_request.candidate_id:
+                refs.setdefault("candidate", panel_request.candidate_id)
+            refs.setdefault("job", panel_request.job_id)
     if entity == "contract" and entity_id:
         contract = await db.get(Contract, entity_id)
         if contract is not None:

@@ -1,11 +1,19 @@
 "use client";
 
+import { useState } from "react";
+
+import { AllClientQuestions } from "@/components/AllClientQuestions";
 import { useClientQuestions } from "@/lib/api/interviewCycle";
 
+/** Tyle pytań w wąskim panelu, reszta z tej rekrutacji pod przyciskiem. */
+const COMPACT_COUNT = 6;
+
 /**
- * Pytania, które klient zadawał poprzednim kandydatom (z debriefów).
+ * Pytania zadane poprzednim kandydatom na rozmowach w TEJ rekrutacji.
  * Po to rekruter zapisuje pytania po rozmowie: następna osoba idzie na prep
- * z listą tego, o co ten klient naprawdę pyta.
+ * z listą tego, o co klient naprawdę pyta na tę rolę (zgłoszenie 02.11.2026:
+ * lista całego klienta mieszała pytania z innych ról). Pełna lista klienta
+ * jest pod przyciskiem i pobiera się dopiero po rozwinięciu.
  *
  * `roomy` — duża strefa podglądu w panelu osoby (09.10.2026): większy tekst
  * i cała pobrana lista zamiast sześciu pozycji.
@@ -20,10 +28,12 @@ export function ClientQuestions({
   roomy?: boolean;
 }) {
   const query = useClientQuestions(jobId);
+  const [showAll, setShowAll] = useState(false);
+  const [showAllHere, setShowAllHere] = useState(false);
   // „Nordea pytał” — nazwa klienta nie ma rodzaju, więc zdanie bez czasownika.
   const heading = clientName
-    ? `Pytania klienta ${clientName} z poprzednich rozmów`
-    : "Pytania klienta z poprzednich rozmów";
+    ? `Pytania klienta ${clientName} z rozmów w tej rekrutacji`
+    : "Pytania klienta z rozmów w tej rekrutacji";
   if (query.isPending) {
     return <p className="text-xs text-muted-foreground">Wczytuję pytania klienta…</p>;
   }
@@ -43,17 +53,48 @@ export function ClientQuestions({
       </div>
       {questions.length === 0 ? (
         <p className={`text-muted-foreground ${text}`}>
-          Jeszcze nic — pytania pojawią się po pierwszym debriefie z tym klientem.
+          Jeszcze nic — pytania pojawią się po pierwszym debriefie w tej rekrutacji.
         </p>
       ) : (
         <ul className={roomy ? "space-y-1.5" : "space-y-1"}>
-          {(roomy ? questions : questions.slice(0, 6)).map((q) => (
+          {(roomy || showAllHere ? questions : questions.slice(0, COMPACT_COUNT)).map((q) => (
             <li key={q.id} className={`text-foreground ${text}`}>
               • {q.text}
             </li>
           ))}
         </ul>
       )}
+      {!roomy && questions.length > COMPACT_COUNT ? (
+        <button
+          type="button"
+          aria-expanded={showAllHere}
+          onClick={() => setShowAllHere((v) => !v)}
+          className={`mt-2 block font-medium text-primary hover:underline ${text}`}
+        >
+          {showAllHere ? "Pokaż mniej" : `Pokaż wszystkie z tej rekrutacji (${questions.length})`}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        data-tour="jobs.client-questions.scope"
+        aria-expanded={showAll}
+        onClick={() => setShowAll((v) => !v)}
+        className={`mt-2 font-medium text-primary hover:underline ${text}`}
+      >
+        {showAll ? "▾" : "▸"} Wszystkie pytania klienta
+      </button>
+      {showAll ? (
+        <div className="mt-2">
+          <AllClientQuestions
+            jobId={jobId}
+            renderQuestion={(q) => (
+              <li key={q.id} className={`text-foreground ${text}`}>
+                • {q.text}
+              </li>
+            )}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

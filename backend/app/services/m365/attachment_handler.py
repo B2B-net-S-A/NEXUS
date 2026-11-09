@@ -502,7 +502,9 @@ async def try_parse_cv(
         source_id=document.id,
         observed_first_name=parsed.get("first_name"),
         observed_last_name=parsed.get("last_name"),
+        observed_phone=parsed.get("phone"),
         provenance="cv_parser:m365",
+        observed_name_from_header=bool(parsed.get("_name_from_header")),
     )
     if review.is_quarantined:
         document.is_primary = False
@@ -562,10 +564,12 @@ async def _extract_and_parse(
 ) -> Optional[tuple[str, dict]]:
     """Tekst i odczyt CV z załącznika albo None (powód w `parse_error`)."""
     from app.services.cv_parser import parse_cv
-    from app.services.cv_text_extractor import extract_text
+    from app.services.cv_text_extractor import extract_cv_text
 
     try:
-        text = await asyncio.to_thread(extract_text, str(abs_path), attachment.filename)
+        text = await asyncio.to_thread(
+            extract_cv_text, str(abs_path), attachment.filename
+        )
         if not text.strip():
             attachment.parse_error = "text_extraction_empty"
             return None
@@ -603,7 +607,8 @@ async def try_create_candidate_from_cv(
     - TEN SAM PLIK leży już w czyimś profilu → CV idzie do tego profilu (bez
       tego ponownie przesłane CV bez e-maila zakładałoby kolejny profil);
     - adres albo plik wskazuje dwa profile → `conflicting_identity`;
-    - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`.
+    - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`, także gdy
+      imię albo nazwisko pochodzi z samego nagłówka i miałby powstać nowy profil.
 
     ``link_email=False`` (runda 6 audytu): kolejne CV z maila, który już
     wskazuje osobę z pierwszego CV — tożsamość z treści TEGO pliku, bez
@@ -694,6 +699,24 @@ async def try_create_candidate_from_cv(
             now,
             identity_proven=identity_proven,
         )
+
+    # Adres z nagrobka (decyzja Artura, 03.11.2026): mail mógł przesłać ktoś
+    # inny, więc automat nie zakłada profilu. `parse_error` zdejmuje załącznik
+    # z kolejki; rekruter może dodać osobę w oknie.
+    from app.services.candidate_erasure_leftovers import (
+        ERASED_EMAIL_CODE,
+        email_was_erased,
+    )
+
+    if await email_was_erased(db, email):
+        attachment.parse_error = ERASED_EMAIL_CODE
+        return None
+
+    # Nazwa z samego nagłówka CV nie nadaje nazwy nowemu profilowi, a automat bez
+    # nazwy go nie zakłada. Do istniejącego profilu CV trafia wyżej, po adresie.
+    if parsed.get("_name_from_header"):
+        attachment.parse_error = "identity_insufficient"
+        return None
 
     from app.models.activity import Activity
 

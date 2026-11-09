@@ -18,6 +18,8 @@ from app.data.review_stamps import GUIDE_STAMPS_REL, guide_drift, orphan_guide_s
 from app.data.review_stamps import GUIDES_HINT as _HINT
 from app.data.screen_guides import REPO_ROOT, SCREEN_KEYS, load_guides
 
+pytestmark = pytest.mark.static
+
 EXPECTED_KEYS = set(SCREEN_KEYS)
 
 

@@ -20,11 +20,14 @@ export const CAPTURE = Object.freeze({
   listItems: ["[role='list'] [role='listitem']", "li", "tr"],
   // Pozycje sekcji (doświadczenie w Recruiterze, stary układ) gdy nie ma separatorów <hr>.
   sectionItems: ["[role='listitem']", "li", "tr"],
-  personLinks: "a[href*='/in/'], a[href*='/talent/profile/'], a[href*='/talent/hire/']",
+  personLinks: "a[href*='/in/'], a[href*='/talent/profile/'], a[href*='/talent/search/profile/'], a[href*='/talent/hire/']",
   // Sekcje doładowują się po przewinięciu: kroki 600 px co 300 ms, razem ≤ 4 s.
   scrollStepPx: 600,
   scrollPauseMs: 300,
   scrollBudgetMs: 4000,
+  // Lista Recruitera: z 25 wierszy na starcie są 3, reszta doładowuje się po
+  // przewinięciu (zmierzone 02.11.2026, ponad 5000 px strony).
+  listScroll: Object.freeze({ scrollStepPx: 1200, scrollPauseMs: 250, scrollBudgetMs: 8000 }),
   maxSections: 40,
   maxListItems: 80,
   maxLinks: 200,
@@ -69,15 +72,16 @@ export const NOISE_LINES = [
   DEGREE,
   PRONOUNS,
   CONNECTIONS,
-  /^(Connect|Message|Follow|Following|Save|Save in Recruiter|More|Pending|Edit|Add section|Resources|Enhance cover image|Open to|Add profile section|Visit my website|View in Sales Navigator)$/i,
-  /^(Nawiąż kontakt|Wiadomość|Obserwuj|Obserwujesz|Zapisz|Więcej|Oczekuje|Edytuj|Dodaj sekcję|Zasoby|Otwarty na|Otwarta na)$/i,
+  /^(Connect|Message|Follow|Following|Save|Save in Recruiter|More|Pending|Edit|Add section|Resources|Enhance cover image|Open to|Open to work|Add profile section|Visit my website|View in Sales Navigator)$/i,
+  /^(Nawiąż kontakt|Wiadomość|Obserwuj|Obserwujesz|Zapisz|Więcej|Oczekuje|Edytuj|Dodaj sekcję|Zasoby|Otwarty na|Otwarta na|Otwarty na pracę|Otwarta na pracę)$/i,
   /^(Show all|Pokaż wszystk|See all|Zobacz wszystk)/i,
   /^(Endorsed by|Potwierdzone przez|Poparte przez)/i,
   /^\d+\s+(endorsements?|potwierdze\w*|rekomendac\w*)$/i,
   /\band \d+ more\b|\bi \d+ (innych|inne)\b/i,
   /\bmutual connections?\b|wspóln\w* kontakt/i,
   /^(Status is|Status:)/i,
-  /^(…|\.\.\.)?\s*(see more|show more|zobacz więcej|pokaż więcej|więcej)$/i,
+  /^(…|\.\.\.)?\s*(see more|show more|zobacz więcej|pokaż więcej|więcej|more)$/i,
+  /Skill Assessment|test umiejętności/i,
   /^(View|Zobacz)\b.*(profile|profil)/i,
   /\bexperiences? (across|at)\b|doświadcze\w* w\b/i,
   /^Verified$|^Zweryfikowan/i,
@@ -235,10 +239,13 @@ export const RESULTS = {
   // „Obecnie: …” w wynikach wyszukiwania i bieżące stanowisko w Recruiterze.
   current: [
     "[data-test-current-position]",
-    "[data-test-history-group='current'] li",
     ".entity-result__summary--2-lines",
     ".entity-result__summary",
   ],
+  // Historia w wierszu Recruitera: grupy bez wartości atrybutu, rodzaj grupy
+  // tylko w tekście („Experience”, „Education”), obecna pozycja pierwsza.
+  historyGroup: "[data-test-history-group]",
+  historyTerm: "[data-test-description-entry-term]",
   // Linki do osób w liście (gdy żaden selektor pozycji nie trafi).
   personLinks: "a[href*='/in/'], a[href*='/talent/profile/'], a[href*='/profile/']",
   itemContainers: "li, tr, article, [data-chameleon-result-urn]",
@@ -246,7 +253,7 @@ export const RESULTS = {
 
 // Teksty, które nie są imieniem, stanowiskiem ani firmą (przyciski, stopnie kontaktu).
 export const NOISE_TEXT = [
-  /^(•\s*)?(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)$/i,
+  /^[·•]?\s*(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)$/i,
   /^(Connect|Message|Follow|Save|Nawiąż kontakt|Wiadomość|Obserwuj|Zapisz|Więcej|More|Pending|Oczekuje)$/i,
   /^(View|Zobacz)\b.*(profile|profil)/i,
   /^(Status is|Status:)/i,

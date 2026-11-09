@@ -19,9 +19,12 @@ cichym refaktorem:
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 _WORKFLOWS = Path(__file__).parents[2] / ".github" / "workflows"
@@ -286,7 +289,9 @@ def test_e2e_stack_job_runs_stack_scenarios_and_fails_on_skips() -> None:
     pre_merge_event = next(
         event for event in ("merge_group", "pull_request") if event in (_triggers(e2e))
     )
-    assert pre_merge_event in prod["if"], (
+    # Warunek zdarzeń stoi na jobie `e2e-account`, od którego zależy `playwright`.
+    assert prod["needs"] == "e2e-account"
+    assert pre_merge_event in e2e["jobs"]["e2e-account"]["if"], (
         "Bieg produkcyjny nie może chodzić w przebiegu weryfikującym kod przed "
         f"merge'em (zdarzenie {pre_merge_event!r})."
     )
@@ -365,8 +370,8 @@ def test_frontend_required_context_always_reports_even_when_skipped() -> None:
 def test_e2e_stack_verifies_the_merge_queue_not_every_pr_push() -> None:
     """226 przebiegów na PR-ach, 3 czerwone, 0 bramek: 1 506 min za sygnał.
 
-    W kolejce ten sam sygnał BLOKUJE wejście na main, czyli po raz pierwszy coś
-    znaczy. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
+    W kolejce też nie blokuje, ale czerwony bieg trafia na PR przez
+    `queue-failure-feedback.yml`. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
     zostanie wymaganym kontekstem rulesetu.
     """
     triggers = _triggers(_load("e2e.yml"))
@@ -475,13 +480,59 @@ def test_manifest_skip_switch_is_limited_to_the_e2e_stack() -> None:
 # ── Audyt 22.09.2026, runda 2 (OPS-N01..N08, REC-03, PROD-04) ─────────────
 
 
+@pytest.mark.parametrize(
+    ("event", "email", "password", "ready"),
+    [
+        ("schedule", "", "", "false"),
+        ("schedule", "konto@example.com", "", "false"),
+        ("workflow_dispatch", "", "", "false"),
+        ("schedule", "konto@example.com", "tajne", "true"),
+        # Włącznik włączony, sekretów brak: `playwright` ma pójść na czerwono.
+        ("workflow_run", "", "", "true"),
+    ],
+)
+def test_e2e_production_without_account_is_skipped_not_green(
+    tmp_path, event: str, email: str, password: str, ready: str
+) -> None:
+    """04.11.2026: nocny job był zielony przy 0 z 25 przypadków. Bez konta
+    `playwright` ma być `skipped`, czyli widoczny jako brak testu."""
+    account = _load("e2e.yml")["jobs"]["e2e-account"]
+    output, summary = tmp_path / "output", tmp_path / "summary"
+    result = subprocess.run(
+        ["bash", "-e", "-c", account["steps"][0]["run"]],
+        env={
+            "PATH": os.environ["PATH"],
+            "GITHUB_EVENT_NAME": event,
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "E2E_USER_EMAIL": email,
+            "E2E_USER_PASSWORD": password,
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"ready={ready}\n"
+    prod = _load("e2e.yml")["jobs"]["playwright"]
+    assert prod["if"] == "${{ needs.e2e-account.outputs.ready == 'true' }}"
+
+
+def test_e2e_production_run_with_zero_executed_cases_fails() -> None:
+    """Pominięty setup pomija wszystko, a Playwright kończy się wtedy kodem 0."""
+    steps = _load("e2e.yml")["jobs"]["playwright"]["steps"]
+    run = next(step["run"] for step in steps if step.get("name") == "Run tests")
+    assert 't.projectName === "prod-smoke" && t.status !== "skipped"' in run
+    assert '"${executed:-0}" -eq 0' in run
+    assert "[ \"$rc\" -ne 0 ] || rc=1" in run
+
+
 def test_e2e_stack_does_not_run_after_deploy() -> None:
     """OPS-N02: stack buduje się ze źródeł, nie z produkcji — bieg po Deploy
     powtarzał kolejkę merge'ów (757 min w 2 dni) i nie mówił nic o prod."""
     stack = _load("e2e.yml")["jobs"]["stack"]
     assert stack["if"] == "${{ github.event_name != 'workflow_run' }}"
-    prod = _load("e2e.yml")["jobs"]["playwright"]
-    assert "workflow_run" in prod["if"], "Po deployu biega `prod-smoke`."
+    account = _load("e2e.yml")["jobs"]["e2e-account"]
+    assert "workflow_run" in account["if"], "Po deployu biega `prod-smoke`."
 
 
 def test_ci_gate_frontend_typecheck_skips_steps_not_the_job_on_prs() -> None:
@@ -659,6 +710,55 @@ def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
     assert "merge_group.base_sha" in commits["env"]["BASE_SHA"]
     assert "pull_request.base.sha" in commits["env"]["BASE_SHA"]
     assert "exit 1" in commits["run"], "Brak zakresu = czerwień, nie cichy pass."
+
+
+_RELEASE_CURL = re.compile(r"curl\b(?:\\\n|[^\n])*")
+
+
+def _release_downloads() -> list[tuple[str, str, str]]:
+    """(workflow, krok, komenda curl) dla każdej binarki z GitHub Releases."""
+    found = []
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job in workflow["jobs"].values():
+            for step in job.get("steps", []):
+                run = step.get("run", "")
+                for command in _RELEASE_CURL.findall(run):
+                    if "/releases/download/" in command:
+                        found.append((path.name, run, command))
+    return found
+
+
+def test_release_binaries_download_with_retries_and_checksum() -> None:
+    """08.11.2026 GitHub Releases zwracał 504 i błędną treść, a `curl -sL` nie
+    ponawiał: grupy kolejki merge'ów padały, PR-y z dobrym kodem czekały
+    2,5 godziny poza kolejką."""
+    downloads = _release_downloads()
+    assert {name for name, _, _ in downloads} >= {
+        "ci-gate.yml",
+        "ci.yml",
+        "e2e.yml",
+    }, "Test przestał widzieć pobrania binarek."
+    for name, run, command in downloads:
+        assert re.search(r"(^|\s)-[a-zA-Z]*f[a-zA-Z]*\s", command), (
+            f"{name}: bez -f treść błędu HTTP ląduje w pliku: {command}"
+        )
+        assert re.search(r"--retry \d", command), f"{name}: brak ponowień: {command}"
+        assert "--retry-all-errors" in command, (
+            f"{name}: samo --retry nie ponawia zerwanego połączenia: {command}"
+        )
+        assert "sha256sum -c" in run, f"{name}: binarka bez weryfikacji sumy."
+
+
+def test_trivy_is_installed_with_retries_instead_of_by_the_action() -> None:
+    """`setup-trivy` z wnętrza akcji pobiera bez naszych ponowień."""
+    steps = _load("ci.yml")["jobs"]["security-scan"]["steps"]
+    names = [step.get("name") for step in steps]
+    assert names.index("Install Trivy") < names.index(
+        "Trivy filesystem scan (deps + Dockerfile misconfig)"
+    )
+    scan = _step(steps, "Trivy filesystem scan (deps + Dockerfile misconfig)")
+    assert scan["with"]["skip-setup-trivy"] is True
 
 
 def test_deploy_waits_for_the_evening_window() -> None:
@@ -856,7 +956,7 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
     wyrzucane po 4–6 razy, bo nikt nie mówił sesji, że PR wypadł."""
     wf = _load("queue-failure-feedback.yml")
     trigger = _triggers(wf)["workflow_run"]
-    assert trigger["workflows"] == ["CI"]
+    assert trigger["workflows"] == ["CI", "E2E (Playwright)"]
     assert trigger["types"] == ["completed"]
     job = wf["jobs"]["feedback"]
     condition = " ".join(str(job["if"]).split())
@@ -868,6 +968,33 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
         "queue_failure_feedback.py"
         in _step(job["steps"], "Status i komentarz na PR-ach z grupy")["run"]
     )
+
+
+def test_preview_harnesses_run_in_queue_when_group_touches_frontend() -> None:
+    """27.10.2026 #2692 i #2732 zepsuły testy harnessów, a krok był w kolejce
+    wyłączony: zielona kolejka, 5 czerwonych nocy (#2745). Filtr ma złapać obie
+    zmiany i odpuścić grupę bez frontendu (102 z 361 grup z 26.10–02.11)."""
+    steps = _load("e2e.yml")["jobs"]["stack"]["steps"]
+    scope = _step(steps, "Czy grupa dotyka frontendu?")
+    assert scope["id"] == "preview-scope"
+    assert "github.event.merge_group.base_sha" in scope["env"]["BASE_SHA"]
+
+    preview = _step(steps, "Playwright — harnessy /preview/* (preview-chromium)")
+    condition = preview["if"]
+    assert "github.event_name != 'merge_group'" in condition
+    assert "steps.preview-scope.outputs.run == 'true'" in condition
+
+    pattern = re.search(r"grep -E '([^']+)'", scope["run"]).group(1)
+    for touched in (
+        "frontend/src/components/v2/request-board/RequestBoardFilters.tsx",  # #2692
+        "frontend/src/components/QueryProvider.tsx",  # #2732
+        "frontend/e2e/responsive-preview.spec.ts",
+        "docker-compose.e2e.yml",
+        ".github/workflows/e2e.yml",
+    ):
+        assert re.search(pattern, touched), touched
+    for untouched in ("backend/app/main.py", "docs/claude/podstawy/ci-gotchas.md"):
+        assert not re.search(pattern, untouched), untouched
 
 
 # ── Runda 6 audytu (26.09.2026) — artefakty biegów przeciw produkcji ──────
@@ -964,7 +1091,7 @@ def test_migration_rechain_probes_the_token_before_checkout() -> None:
     assert "exit 1" not in run, "Zły token = ostrzeżenie, nie czerwony bieg."
     assert steps.index(token) == 0
     for step in steps[1:]:
-        assert step.get("if") == "steps.token.outputs.ok == 'true'", step.get("name")
+        assert "steps.token.outputs.ok == 'true'" in step.get("if", ""), step.get("name")
 
 
 def test_migration_prs_wait_in_the_lane_before_auto_merge() -> None:
@@ -984,6 +1111,10 @@ def test_migration_prs_wait_in_the_lane_before_auto_merge() -> None:
     )
     code = re.search(r"^WAIT_EXIT = (\d+)$", lane_src, re.M).group(1)
     assert f'"$rc" -eq {code}' in run, "Kod „czekaj” w skrypcie i w kroku."
+    # Krok biegnie pod `bash -e`: bez `|| rc=$?` kod inny niż 0 kończy job na
+    # czerwono, zanim `rc` zostanie odczytany, a „wpuszczam jak dawniej” nie działa.
+    admit_line = next(line for line in run.splitlines() if "admit --repo" in line)
+    assert admit_line.rstrip().endswith("|| rc=$?"), admit_line
 
 
 def test_queue_runs_the_migration_lane_after_every_group_check() -> None:
@@ -1005,12 +1136,66 @@ def test_rechain_parks_the_lane_before_pushing() -> None:
     steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
     copy = _step(steps, "Skrypty z maina do katalogu tymczasowego")
     assert ".github/scripts/queue_migration_lane.py" in copy["run"]
-    lane = _step(steps, "Pas migracji (jeden PR z migracją w kolejce)")
+    lane = _step(steps, "Pas migracji przed przepięciem")
     assert lane["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
     assert '"$RUNNER_TEMP/queue_migration_lane.py"' in lane["run"]
     assert steps.index(lane) < steps.index(_step(steps, "Przepnij")), (
         "Najpierw etykiety, potem push — inaczej auto-enqueue wrzuci wszystkich."
     )
+    after = _step(steps, "Pas migracji po przepięciu (kolej następnego)")
+    assert steps.index(after) > steps.index(_step(steps, "Przepnij")), (
+        "Kolej dostaje dopiero przepięty PR, a pusty pas nikt inny nie obudzi."
+    )
+    assert after["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert '"$RUNNER_TEMP/queue_migration_lane.py"' in after["run"]
+    assert "!cancelled()" in after["if"], "Błąd przepięcia jednego PR-a nie wstrzymuje pasa."
+
+
+def test_lane_asks_for_rechain_with_the_actions_token() -> None:
+    """PR wypadł z kolejki, a main się nie zmienił: bez tego nic nie przepnie
+    PR-a, który stał na jego migracji. `QUEUE_BOT_TOKEN` nie ma „Actions”."""
+    job = _load("queue-migration-lane.yml")["jobs"]["lane"]
+    assert job["permissions"]["actions"] == "write"
+    lane = _step(job["steps"], "Pilnuj pasa migracji")
+    step = _step(job["steps"], "Przepnij po wypadnięciu z pasa")
+    assert job["steps"].index(lane) < job["steps"].index(step)
+    assert lane["id"] == "lane"
+    assert step["if"] == "steps.lane.outputs.rechain == 'true'"
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "migration-rechain.yml" in step["run"] and "dry_run=false" in step["run"], (
+        "Ręczny bieg ma domyślnie dry_run=true, czyli nie przepiąłby niczego."
+    )
+    # Bieg przepięcia sam nie woła kolejnego: `enforce` po nim nie czyta `rechain`.
+    rechain = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    assert not any("gh workflow run" in s.get("run", "") for s in rechain)
+
+
+def test_missing_parent_stub_runs_only_on_pull_requests() -> None:
+    """Drugi PR w pasie ma rodzica w PR-ze przed nim. W kolejce zaślepki być nie
+    może: gdy pierwszy wypadnie, czerwona „Jedna głowa” trzyma sierotę poza mainem."""
+    name = "Zaślepka rodzica z PR-a przed tym w pasie"
+    gate = _load("ci-gate.yml")["jobs"]["backend-fast"]["steps"]
+    stub = _step(gate, name)
+    assert stub["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert "--stub-missing-parent" in stub["run"]
+    assert gate.index(stub) < gate.index(_step(gate, "Jedna głowa Alembica"))
+
+    job = _load("ci.yml")["jobs"]["backend-pr-tests"]
+    assert job["if"] == "${{ github.event_name == 'pull_request' }}"
+    sieve = job["steps"]
+    stub = _step(sieve, name)
+    assert "--stub-missing-parent" in stub["run"]
+    assert sieve.index(stub) < sieve.index(_step(sieve, "Apply migrations"))
+
+    for wf in ("ci-gate.yml", "ci.yml"):
+        for job_name, job in _load(wf)["jobs"].items():
+            for step in job.get("steps", []):
+                if "--stub-missing-parent" not in step.get("run", ""):
+                    continue
+                on_pr_only = "pull_request" in step.get("if", "") or (
+                    "== 'pull_request'" in job.get("if", "")
+                )
+                assert on_pr_only, (wf, job_name, step.get("name"))
 
 
 def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:

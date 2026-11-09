@@ -140,6 +140,23 @@ async def create_run(
     return run
 
 
+def _claims_delta(delta: int):
+    """`metrics || {"claims": max(0, claims + delta)}`, tolerant of a missing value."""
+    stored = CandidateSearchRun.metrics[CLAIMS_KEY]
+    previous = case(
+        (
+            func.jsonb_typeof(stored) == "number",
+            stored.astext.cast(Numeric).cast(Integer),
+        ),
+        else_=0,
+    )
+    return func.coalesce(CandidateSearchRun.metrics, literal({}, JSONB)).op("||")(
+        func.jsonb_build_object(
+            literal(CLAIMS_KEY, String), func.greatest(previous + delta, 0)
+        )
+    )
+
+
 def _incremented_claims():
     """`metrics || {"claims": claims + 1}`, tolerant of a missing/foreign value."""
     stored = CandidateSearchRun.metrics[CLAIMS_KEY]
@@ -223,6 +240,44 @@ async def release_run(db, run_id: str, token: str) -> bool:
         .returning(CandidateSearchRun.id)
     )
     return released.scalar_one_or_none() is not None
+
+
+async def yield_run(db, run_id: str, token: str) -> bool:
+    """Oddaj kolejkę ręcznemu przeglądowi (08.11.2026): lease wygasa od razu,
+    a ponowne przejęcie nie liczy się jako nieudana próba (``MAX_CLAIMS``)."""
+    released = await db.execute(
+        update(CandidateSearchRun)
+        .where(
+            CandidateSearchRun.id == run_id,
+            CandidateSearchRun.state == "running",
+            CandidateSearchRun.lease_token == token,
+        )
+        .values(
+            lease_expires_at=datetime.now(timezone.utc),
+            metrics=_claims_delta(-1),
+        )
+        .returning(CandidateSearchRun.id)
+    )
+    return released.scalar_one_or_none() is not None
+
+
+async def manual_run_waiting(db, *, exclude_id: str) -> bool:
+    """Czy w kolejce czeka przegląd ręczny (człowiek czeka na wynik)."""
+    now = datetime.now(timezone.utc)
+    found = await db.scalar(
+        select(CandidateSearchRun.id)
+        .where(
+            CandidateSearchRun.id != exclude_id,
+            CandidateSearchRun.state.in_(ACTIVE_STATES),
+            manual_origin_clause(),
+            or_(
+                CandidateSearchRun.lease_expires_at.is_(None),
+                CandidateSearchRun.lease_expires_at < now,
+            ),
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 async def reap_stalled_runs(db, *, stalled_after: timedelta) -> list[str]:

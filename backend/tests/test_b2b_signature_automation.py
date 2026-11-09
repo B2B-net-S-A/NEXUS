@@ -46,6 +46,7 @@ from app.models.team_structure import (
     DeliveryLeadClientAssignment,
 )
 from app.models.user import User, UserRole
+from tests._confirm_signed import confirm_request
 
 
 CONFIRM_PATH = "/api/b2b-generator/generated/{generated_id}/confirm-fully-signed"
@@ -260,8 +261,8 @@ async def _confirm(
 ):
     return await app_client.post(
         CONFIRM_PATH.format(generated_id=generated_id),
-        json=payload or {},
         headers=headers,
+        **confirm_request(payload),
     )
 
 
@@ -1938,6 +1939,42 @@ async def test_recruiter_confirms_own_contract_outside_the_team(
 
 
 @pytest.mark.asyncio
+async def test_finance_with_the_permission_confirms_any_contract(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie z 04.11.2026: osoba z roli Finanse z imiennym uprawnieniem
+    widziała „Podpis tej umowy oznacza…” przy cudzych umowach. Finanse nie
+    bywają w zespole rekrutacji ani autorem umowy, więc reguła wiersza
+    zostawiała uprawnienie bez skutku. Samo wejście do roli nadal nie daje
+    podpisu (wiersz roli w bazie = ``none``)."""
+    from tests._permission_grants import grant_permissions, role_permission
+
+    admin_id = await _current_admin_id(app_client)
+    headers = await _headers_for_role(app_client, UserRole.finance)
+    user_id = int(headers["X-Test-User-Id"])
+    foreign = await _seed_bound_scenario(created_by=admin_id)
+
+    async with role_permission("finance", "b2b_signature_confirmation", granted=False):
+        denied = await _confirm(app_client, headers, foreign["generated_id"])
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"]["code"] == "action_access_denied"
+
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    item = await _listed(app_client, headers, foreign)
+    assert item["can_confirm_signed"] is True, item["blocked_reason"]
+    assert item["blocked_reason"] is None
+
+    allowed = await _confirm(app_client, headers, foreign["generated_id"])
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(foreign["candidate_id"], foreign["job_id"]) == (
+        1,
+        1,
+        1,
+    )
+
+
+@pytest.mark.asyncio
 async def test_exception_after_flush_rolls_back_entire_confirmation(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],
@@ -2698,14 +2735,15 @@ async def test_signed_file_waits_for_the_signature_and_lands_in_contract_documen
 
     confirmed = await _confirm(app_client, headers, scenario["generated_id"])
     assert confirmed.status_code == 200, confirmed.text
+    # Od 06.11.2026 plik przychodzi razem z potwierdzeniem (obowiązkowy).
     signed_item = await _listed(app_client, headers, scenario)
     assert signed_item["can_attach_signed_file"] is True
-    assert signed_item["signed_document_id"] is None
+    first_doc_id = signed_item["signed_document_id"]
+    assert first_doc_id is not None
 
     attached = await _attach_file(app_client, headers, scenario["generated_id"])
     assert attached.status_code == 200, attached.text
-    first_doc_id = attached.json()["signed_document_id"]
-    assert first_doc_id is not None
+    assert attached.json()["signed_document_id"] == first_doc_id
     async with AsyncSessionLocal() as db:
         row = await db.get(B2BGeneratedContract, scenario["generated_id"])
         doc = await db.get(ContractDocument, first_doc_id)
@@ -2872,8 +2910,8 @@ async def test_signing_day_from_the_dialog_is_stored(
 
     response = await app_client.post(
         CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
-        json={"signed_on": day.isoformat()},
         headers=app_auth_headers,
+        **confirm_request(signed_on=day),
     )
 
     assert response.status_code == 200, response.text
@@ -2905,8 +2943,8 @@ async def test_signing_day_in_the_future_or_before_generation_changes_nothing(
 
     response = await app_client.post(
         CONFIRM_PATH.format(generated_id=scenario["generated_id"]),
-        json={"signed_on": day.isoformat()},
         headers=app_auth_headers,
+        **confirm_request(signed_on=day),
     )
 
     assert response.status_code == 422, response.text

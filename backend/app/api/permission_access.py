@@ -48,9 +48,11 @@ __all__ = [
     "ContractsOrdersEditUser",
     "ContractsOrdersOrAmountsEditUser",
     "DeliveryViewUser",
+    "CompanyResultsUser",
     "FinanceModuleUser",
     "RecruitmentManageUser",
     "SalesEditUser",
+    "ClientContractsViewUser",
     "SalesViewUser",
     "ensure_any_permission",
     "ensure_permission",
@@ -61,6 +63,11 @@ __all__ = [
     "require_permission",
 ]
 
+# Zbiorcze wyniki firmy poza widokiem Firma: bez Rady, bo te trasy nie są jej
+# raportami (`rola-rada-nadzorcza-tylko-insights.md`) — te same liczby ma w Firmie.
+CompanyResultsUser = Annotated[
+    User, Depends(require_permission(ProductAction.company_results))
+]
 # Jeden obiekt zależności na uprawnienie — FastAPI liczy go raz na żądanie.
 DeliveryViewUser = Annotated[
     User, Depends(require_permission(ProductAction.delivery_view))
@@ -82,6 +89,10 @@ AmountsViewUser = Annotated[
 ]
 AmountsEditUser = Annotated[
     User, Depends(require_permission(ProductAction.amounts_edit))
+]
+# Umowy klientów bez kwot (04.11.2026): lista i pliki, bez sekcji Delivery.
+ClientContractsViewUser = Annotated[
+    User, Depends(require_permission(ProductAction.client_contracts_view))
 ]
 # Sprzedaż (Atlas → NEXUS, 26.10.2026): odczyt i zapis sekcji Sprzedaż.
 SalesViewUser = Annotated[User, Depends(require_permission(ProductAction.sales_view))]

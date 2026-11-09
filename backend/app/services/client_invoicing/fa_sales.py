@@ -4,7 +4,8 @@ Kwoty, numer, daty, korekta, pozycje i okres czyta ``services/hr/ksef/fa.py``
 (ten sam bezpieczny parser: bez DTD i encji, bez sieci, limit rozmiaru).
 Tu dochodzi to, czego faktura od osoby nie potrzebowała:
 
-* nabywca — ``Podmiot2/DaneIdentyfikacyjne/NIP`` (polski NIP) i ``Nazwa``,
+* nabywca — ``Podmiot2/DaneIdentyfikacyjne/NIP`` (polski NIP) albo ``KodUE``
+  z ``NrVatUE`` (nabywca z UE, np. fiński bank) i ``Nazwa``,
 * termin płatności — najwcześniejszy ``Platnosc/TerminPlatnosci/Termin``,
 * „Zapłacono” w samej fakturze — ``Platnosc/Zaplacono`` = 1 z ``DataZaplaty``,
 * teksty, w których szukamy numeru zamówienia klienta:
@@ -24,15 +25,20 @@ from typing import Any, Optional
 from lxml import etree
 
 from app.services.hr.ksef import fa
+from app.services.order_client_identity import normalize_buyer_number
 
 MAX_REFS = 20
 REF_MAX_LENGTH = 300
+FOREIGN_ID_MAX_LENGTH = 32
 
 
 @dataclass(frozen=True)
 class SalesInvoice:
     base: fa.ParsedInvoice
     buyer_name: Optional[str]
+    #: Pełny VAT UE nabywcy bez polskiego NIP-u, w postaci ``clients.nip``
+    #: („FI12345678”, „FR1A123456789”).
+    buyer_foreign_id: Optional[str]
     due_date: Optional[date]
     paid_on: Optional[date]
     period: Optional[tuple[int, int]]
@@ -58,6 +64,18 @@ def _date(raw: Optional[str]) -> Optional[date]:
         return date.fromisoformat(raw.strip()[:10])
     except ValueError:
         return None
+
+
+def _foreign_id(buyer: Any) -> Optional[str]:
+    if buyer is None:
+        return None
+    country = " ".join((buyer.findtext("{*}KodUE") or "").split()).upper()
+    number = " ".join((buyer.findtext("{*}NrVatUE") or "").split()).upper()
+    if not country or not number:
+        return None
+    if number.startswith(country):
+        number = number[len(country) :].strip()
+    return normalize_buyer_number(f"{country}{number}")[:FOREIGN_ID_MAX_LENGTH] or None
 
 
 def parse_sales_invoice(xml: bytes) -> SalesInvoice:
@@ -106,6 +124,7 @@ def parse_sales_invoice(xml: bytes) -> SalesInvoice:
     return SalesInvoice(
         base=base,
         buyer_name=buyer_name,
+        buyer_foreign_id=_foreign_id(buyer),
         due_date=min(due_dates) if due_dates else None,
         paid_on=paid_on,
         period=period,

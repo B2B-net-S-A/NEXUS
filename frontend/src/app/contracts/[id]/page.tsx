@@ -12,9 +12,11 @@ import api, {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
+import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { UploadOnlyDocuments } from "@/components/contracts/documents/UploadOnlyDocuments";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
+import { ConsultantPanelCard } from "@/components/hr/onboarding/ConsultantPanelCard";
 import { ContractEntryTab } from "@/components/hr/onboarding/ContractEntryTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
@@ -51,6 +53,7 @@ import {
 } from "@/lib/api";
 import { documentsHref } from "@/lib/b2b-documents";
 import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
+import { contractProjectEnd } from "@/lib/contract-termination";
 import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
@@ -97,6 +100,7 @@ import {
   ContractStatusControl,
   SELECTABLE_CONTRACT_STATUSES,
 } from "@/components/contracts/ContractStatusControl";
+import { ContractAdminDetailsCard } from "@/components/hr/payroll/ContractAdminDetailsCard";
 import { ContractBonusesCard } from "@/components/hr/payroll/ContractBonusesCard";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
@@ -582,7 +586,7 @@ export default function ContractDetailPage() {
   const [error, setError] = useState("");
 
   // Fetch contract
-  const { data: contract, isLoading, isError } = useQuery<ContractDetail>({
+  const { data: contract, isLoading, isError, error: contractError } = useQuery<ContractDetail>({
     queryKey: ["contract", id],
     queryFn: () => contractsApi.get(id).then((r) => r.data),
     enabled: !Number.isNaN(id),
@@ -946,6 +950,8 @@ export default function ContractDetailPage() {
   }
 
   if (isError || !contract) {
+    // Kontrakt spoza zakresu osoby (403) to nie awaria: inny komunikat niż przy 5xx.
+    const contractViewState = resolveViewState({ isLoading: false, isError, error: contractError });
     return (
       <div className="p-6">
         <Link
@@ -954,7 +960,11 @@ export default function ContractDetailPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Wróć do listy
         </Link>
-        <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
+        {contractViewState === "forbidden" || contractViewState === "not_found" ? (
+          <QueryStateNotice state={contractViewState} className="mt-4" />
+        ) : (
+          <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
+        )}
       </div>
     );
   }
@@ -1433,6 +1443,12 @@ export default function ContractDetailPage() {
         </section>
       )}
 
+      {!editing && (
+        <ContractAdminDetailsCard
+          contractId={id}
+          clientName={contract.client_name ?? null}
+        />
+      )}
       {!editing && <ContractBonusesCard contractId={id} />}
 
       {/* Tabs */}
@@ -1535,8 +1551,8 @@ export default function ContractDetailPage() {
             {!editing &&
               ((contract.status === "ended" && contract.termination_reason) ||
                 // `end_date` odróżnia zakończenie zaplanowane od umowy
-                // przywróconej: wskrzeszenie zostawia `terminated_at`, ale
-                // czyści datę końca (umowa znów bezterminowa).
+                // przywróconej przed 02.11.2026: tamte niosą `terminated_at`
+                // bez daty końca (umowa znów bezterminowa).
                 (contract.terminated_at && contract.end_date)) && (
               <div className="rounded-lg border border-destructive/20 bg-destructive-muted p-4">
                 <h2 className="text-sm font-semibold text-destructive-muted-foreground mb-2">
@@ -1569,8 +1585,8 @@ export default function ContractDetailPage() {
                         newType: "termination_agreement",
                         contractId: contract.id,
                         values: {
-                          termination_date: contract.terminated_at ?? contract.end_date ?? "",
-                          last_service_date: contract.terminated_at ?? contract.end_date ?? "",
+                          termination_date: contractProjectEnd(contract) ?? "",
+                          last_service_date: contractProjectEnd(contract) ?? "",
                         },
                       })}
                       className="font-medium text-primary underline-offset-4 hover:underline"
@@ -1604,7 +1620,7 @@ export default function ContractDetailPage() {
                   <ContractAgreementRecordDialog
                     contractId={contract.id}
                     candidateName={contract.candidate_name}
-                    projectEnd={contract.terminated_at ?? contract.end_date ?? null}
+                    projectEnd={contractProjectEnd(contract)}
                     onClose={() => setRecordAgreementOpen(false)}
                   />
                 )}
@@ -2547,10 +2563,16 @@ export default function ContractDetailPage() {
       {/* Tab: Dokumenty */}
       {activeTab === "documents" &&
         (canViewContractDocuments ? (
-          <ContractDocumentsTab
-            contractId={id}
-            readOnly={!canEditContractDocuments}
-          />
+          <div className="space-y-3">
+            {/* 0649: NDA i KRK leżą przy parze, nie w dokumentach kontraktu: węższy dostęp. */}
+            {contract?.candidate_id && contract?.job_id ? (
+              <StartDocsCard candidateId={contract.candidate_id} jobId={contract.job_id} />
+            ) : null}
+            <ContractDocumentsTab
+              contractId={id}
+              readOnly={!canEditContractDocuments}
+            />
+          </div>
         ) : (
           <UploadOnlyDocuments contractId={id} />
         ))}
@@ -2579,10 +2601,13 @@ export default function ContractDetailPage() {
 
       {/* Tab: Wejście (dawniej „Onboarding”): lista wejścia konsultanta, stara lista przy wyłączonym module */}
       {activeTab === "onboarding" && (
-        <ContractEntryTab
-          contractId={id}
-          readOnly={!canEditContract}
-        />
+        <div className="space-y-4">
+          <ConsultantPanelCard contractId={id} />
+          <ContractEntryTab
+            contractId={id}
+            readOnly={!canEditContract}
+          />
+        </div>
       )}
 
       {/* Tab: Sprzęt */}

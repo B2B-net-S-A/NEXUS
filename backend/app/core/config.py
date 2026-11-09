@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     # produkcji bez wyjścia na świat — pętle w tle domyślnie stoją, a HTTP idzie
     # tylko do hostów z listy (`app/core/staging.py`).
     NEXUS_ENV: str = "production"
+    # Pętle w tle tylko w procesie z blokadą doradczą (`core/background_leader.py`).
+    BACKGROUND_LEADER_LOCK_ENABLED: bool = True
+    # Podział pracy między kontenery. `all` = HTTP i pętle w jednym procesie
+    # (domyślnie: testy, staging z gałęzi, wycofanie), `web` = samo HTTP,
+    # `worker` = pętle. → docs/claude/podstawy/web-i-worker-osobno.md
+    NEXUS_PROCESS_ROLE: str = "all"
+    # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
+    NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
     # (po przecinku). Na produkcji bez znaczenia.
     STAGING_EXTRA_ALLOWED_HOSTS: str = ""
@@ -25,8 +33,16 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    # Pula na proces. Web i worker razem muszą się zmieścić w `max_connections`
+    # (100 na produkcji), z zapasem na zrzut bazy i `docker exec`.
+    DB_POOL_SIZE: int = 40
+    DB_MAX_OVERFLOW: int = 20
+
     # Database (PostgreSQL)
     DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
+    # 0 = bez limitu. Wartość dla WWW ustawia `entrypoint.sh` tuż przed uvicornem,
+    # nie env kontenera: `docker exec` ze skryptem ma biec bez limitu.
+    DB_STATEMENT_TIMEOUT_MS: int = 0
 
     # Qdrant (vector store for semantic search)
     # UWAGA: NIE ma tu `QDRANT_API_KEY`. Żadna z 25 konstrukcji `QdrantClient()`
@@ -213,9 +229,12 @@ class Settings(BaseSettings):
     # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
-    # 30.09.2026 (decyzja Artura, audyt wyszukiwania): 3000 — przy pomiarze
-    # pula 2000 obcinała osoby wysłane do klienta w szerokich rolach.
-    MATCH_POOL_SIZE: int = 3000
+    # 2000 = wartość z produkcji, ustawiona po pomiarze z 18.08.2026. Domyślne
+    # 3000 z audytu 30.09 porównywało pulę z 1000, a produkcja miała już 2000.
+    # Pomiar 03.11.2026 (decyzja Artura), 621 wysłanych ze 164 rekrutacji:
+    # 3000 daje w puli 90,8% zamiast 87,8%, ale w top 20 tylko 287 osób zamiast
+    # 286, a `/recommendations` i `/ai-matches` są o 30–40% wolniejsze.
+    MATCH_POOL_SIZE: int = 2000
     # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
     # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
     #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
@@ -317,7 +336,7 @@ class Settings(BaseSettings):
     # i mapowanie błędów — `services/llm_providers.py`.
     OPENAI_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
-    CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+    CLAUDE_MODEL_CV: str = "claude-sonnet-5-5"
     # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
     # rekrutera (upload CV → profil). Do 16.09.2026 Haiku (~$0,004/CV); badanie
@@ -543,6 +562,12 @@ class Settings(BaseSettings):
     AUTO_MATCH_MAX_CANDIDATES_PER_JOB: int = 10
     AUTO_MATCH_JOB_LOOKBACK_DAYS: int = 90
     AUTO_MATCH_INTERVAL_SECONDS: int = 15
+    # Ile minut zdarzenie nowego CV czeka na aktualny wektor (08.11.2026): w 14
+    # dni 34% CV kończyło się bez oceny, bo zdarzenie biegło przed wektorem.
+    # 0 = bez czekania.
+    AUTO_MATCH_VECTOR_WAIT_MINUTES: int = 15
+    # Wynik nowego CV dopisywany do puli dopełniania, bez sufitu rekrutacji.
+    AUTO_MATCH_WRITE_POOL_ENABLED: bool = True
 
     # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
     # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla
@@ -556,7 +581,10 @@ class Settings(BaseSettings):
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # 02.11.2026 (decyzja Artura): 48, bo w pracy jest 187 rekrutacji, a 66 pul
+    # miało ponad 6 dni. Przegląd trwa ok. 5 min, więc okno 01–05 więcej nie
+    # zmieści; pełne pokrycie wymaga przeglądu przyrostowego.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 48
     # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
     # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
@@ -585,6 +613,15 @@ class Settings(BaseSettings):
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60
     # Zdarzenia rekrutacji starsze niż tyle dni nie uruchamiają przeglądu.
     AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS: int = 14
+    # Pierwszy przegląd nowej rekrutacji jeszcze tego samego dnia (07.11.2026,
+    # R6): w dni robocze 7–19 pojedynczo, rekrutacje bez żadnego przeglądu,
+    # najwyżej tyle dziennie. False = pierwszy przegląd dopiero w nocy.
+    # Domyślnie wyłączone: przegląd (4–5 min) idzie w procesie web, który
+    # w dzień ma już wolne trasy; włącza się razem z porcją dnia.
+    AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED: bool = False
+    # 08.11.2026: 10 → 3 na start; automat ustępuje ręcznemu przeglądowi po
+    # każdej paczce (`candidate_search_worker._execute_claimed`).
+    AUTO_FULL_REVIEW_DAYTIME_MAX: int = 3
     # Silnik „System trzyma Nowych na 20” (decyzje Artura 23.10.2026,
     # `services/new_column_autofill.py`): w dni robocze 7–19 dopełnia kolumnę
     # „Nowi” każdej rekrutacji w pracy osobami z puli nocnego przeglądu.
@@ -594,6 +631,26 @@ class Settings(BaseSettings):
     # Bezpiecznik: najwyżej tyle dodań na tick (każde = odczyt CV z magazynu
     # i zapis kopii). Pierwszy przebieg (~2–3 tys. osób) rozkłada się w czasie.
     NEW_COLUMN_AUTOFILL_MAX_PER_TICK: int = 100
+    # Nowi w bazie najpierw (decyzja Artura z 03.11.2026): osoba do 14 dni w bazie,
+    # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
+    # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
+    NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
+    # Porcja dnia (decyzje Artura z 07.11.2026, `services/review_batch.py`):
+    # silnik „Nowych” raz dziennie daje każdej rekrutacji z rekruterem do 20
+    # osób od 65%, dzieli je między rekruterów, a rekruter bez minimum decyzji
+    # (domyślnie 50, ustawia HoR) nie szuka ręcznie (423). Wymaga też
+    # NEW_COLUMN_AUTOFILL_ENABLED. False = silnik jak przed 07.11.
+    REVIEW_BATCH_ENABLED: bool = False
+    # Cel kart od systemu wg tempa rekrutacji i miejsce dla świeżych (decyzje
+    # Artura z 08.11.2026, `services/new_column_autofill.py`): 5, 10 albo 20
+    # czekających kart, poranny przebieg raz dziennie, w dzień tylko gorące.
+    # False = silnik jak dotąd (20 we wszystkich, pełny przebieg co 15 minut).
+    NEW_COLUMN_TEMPO_TARGET_ENABLED: bool = False
+    # Jedna lista kandydatów rekrutacji (decyzja Artura z 08.11.2026,
+    # `services/single_candidate_list.py`): pula i propozycje scalone w jeden
+    # wiersz na osobę, wynik portali na skali „Dop.”, panel z filtrami-plakietkami.
+    # False = dzisiejszy panel z zakładkami i dzisiejsze zapisy.
+    SINGLE_CANDIDATE_LIST_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
@@ -723,15 +780,6 @@ class Settings(BaseSettings):
     # przeliczeń — bez deployu, przez workflow „Coolify set env”.
     CANDIDATE_RATE_FROM_ENABLED: bool = True
 
-    # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
-    # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
-    ACADEMY_INTAKE_ENABLED: bool = True
-    # Praktykant (0374): poranne listy telefonów i powiadomienie o końcu
-    # programu. Bez praktykantów nic nie robi; lista i tak powstaje przy
-    # pierwszym otwarciu ekranu, więc wyłączenie nie zostawia nikogo bez pracy.
-    TRAINEE_CALL_LISTS_ENABLED: bool = True
-    # Godzina (BUSINESS_TZ), od której pętla składa listy danego dnia.
-    TRAINEE_CALL_LISTS_HOUR: int = 5
     # Proponowana akcja bez decyzji dłużej niż tyle minut wygasa.
     JARVIS_ACTION_TTL_MINUTES: int = 15
     # Internet (decyzja 21.09.2026): wyszukiwarka tylko w turze, w której
@@ -1024,6 +1072,11 @@ class Settings(BaseSettings):
     # Rekrutacje bez ruchu (28.10.2026, `services/job_idle.py`): przypomnienia
     # po 14 i 21 dniach, zamknięcie po 28. Kill-switch całości bez redeploya.
     JOB_IDLE_ENABLED: bool = True
+    # Maile CPro od Nordei (02.11.2026, `services/cpro_mail.py`): zamknięcia,
+    # odrzucenia i dzwonki. Kill-switch całości bez redeploya; pojedyncze reguły
+    # wyłącza się w Ustawieniach → CPro. Maile starsze niż data nie są czytane.
+    CPRO_MAIL_ENABLED: bool = True
+    CPRO_MAIL_SINCE: str = "2026-10-12"
 
     # ── Maile do zespołu (07.10.2026) ────────────────────────────────────────
     # Wyłączniki awaryjne pętli; o tym, CO wychodzi, decyduje admin
@@ -1090,11 +1143,7 @@ class Settings(BaseSettings):
     #   • debug-fire-nudge (P1.15) — smoke-test wymuszający emisję nudge'a; w
     #     produkcji dostępny WYŁĄCZNIE przez tę flagę (a i tak nie kasuje logu
     #     dedupe ani nie zwraca tracebacku),
-    #   • cutover analytics (P1.7) — ustawienie legacy/live boundary jest
-    #     zamrożone do czasu readiness manifestu (PR-39); break-glass służy do
-    #     awaryjnego ustawienia w shadow-prep, z audytem.
     KPI_COACH_DEBUG_BREAKGLASS: bool = False
-    ANALYTICS_CUTOVER_BREAKGLASS: bool = False
 
     # ── Recruitment Priority Lock + Carry-over Duty ────────────────────────
     # off     — persist/read the new domain without changing pipeline access,
@@ -1105,19 +1154,6 @@ class Settings(BaseSettings):
     RECRUITMENT_PRIORITY_MODE: str = "off"
     RECRUITMENT_PRIORITY_WORKER_INTERVAL_SECONDS: int = 300
 
-    # ── Analytics v1 (plan 2026-07-16, PR 2) ──────────────────────────────────
-    # Tryb rolloutu:
-    #   off    — router /api/analytics/v1 zwraca 503, zero zmian zachowania,
-    #   shadow — endpointy v1 liczą i logują (porównanie z legacy), stare
-    #            odpowiedzi UI pozostają NIEZMIENIONE,
-    #   live   — v1 jest źródłem aktywnego UI (dopiero po 7 dniach shadow
-    #            + canary per rola; patrz plan §8).
-    # UWAGA: guardy RBAC/capabilities NIE zależą od tego flaga (R0 jest
-    # niewyłączalne) — flag steruje wyłącznie NOWĄ powierzchnią v1.
-    ANALYTICS_V1_MODE: str = "off"
-    # Opcjonalne zawężenie aktywnych modułów v1 (csv, np. "overview,funnel").
-    # Pusta wartość = wszystkie moduły w danym trybie.
-    ANALYTICS_V1_MODULES: str = ""
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
 
@@ -1130,13 +1166,14 @@ class Settings(BaseSettings):
             raise ValueError(f"NEXUS_ENV must be one of {sorted(allowed)}")
         return normalized
 
-    @field_validator("ANALYTICS_V1_MODE")
+    @field_validator("NEXUS_PROCESS_ROLE")
     @classmethod
-    def _validate_analytics_mode(cls, v: str) -> str:
-        allowed = {"off", "shadow", "live"}
-        if v not in allowed:
-            raise ValueError(f"ANALYTICS_V1_MODE must be one of {sorted(allowed)}")
-        return v
+    def _validate_process_role(cls, v: str) -> str:
+        allowed = {"all", "web", "worker"}
+        normalized = v.strip().lower()
+        if normalized not in allowed:
+            raise ValueError(f"NEXUS_PROCESS_ROLE must be one of {sorted(allowed)}")
+        return normalized
 
     @field_validator("RECRUITMENT_PRIORITY_MODE")
     @classmethod
@@ -1290,6 +1327,16 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
+    # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
+    SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
+    # Automat archiwizacji szans w trybie cienia: raz dziennie jedna linia logu,
+    # nic nie zapisuje (``app/tasks/sales_archive_shadow.py``).
+    # Od tego dnia szansa bez kroku świeci się na czerwono, jeśli założono ją albo
+    # ruszono po tej dacie (lejek Sprzedaż). Starsze zostają szare, bo 97% lejka
+    # nie ma kroku i czerwień na wszystkim nic by nie znaczyła.
+    SALES_STEP_RULES_SINCE: date = date(2026, 11, 10)
+    SALES_ARCHIVE_SHADOW_ENABLED: bool = True
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
@@ -1511,59 +1558,13 @@ class Settings(BaseSettings):
     # company" — guards against rebrand false-positives.
     PROXYCURL_COMPANY_FUZZ_THRESHOLD: int = 90
 
-    # ── CloudTalk telephony (Phase CloudTalk.1) ──────────────────────────────
-    # Kill-switch: when False, /api/calls/webhook stays in DRY-RUN (returns 200
-    # with `{"status":"dry-run"}` and never writes to DB), /api/cloudtalk/*
-    # endpoints return 503, sync loop exits immediately. Default OFF until
-    # API_KEY_SECRET is provisioned in Coolify env vault.
-    CLOUDTALK_ENABLED: bool = False
-    # Public part of the API key pair from CloudTalk dashboard
-    # (Settings → API Keys). Used as the Basic Auth username.
-    CLOUDTALK_API_KEY_ID: str = ""
-    # Secret part of the API key pair — shown ONCE by CloudTalk at generation.
-    # Used as the Basic Auth password. Empty in dev — client.from_settings()
-    # raises RuntimeError before any HTTP call when blank.
-    CLOUDTALK_API_KEY_SECRET: str = ""
-    # REST base URL — production default. CloudTalk EU/US share this host.
-    CLOUDTALK_BASE_URL: str = "https://my.cloudtalk.io/api"
-    # Shared secret for HMAC-SHA256 verification of inbound webhooks. The same
-    # value must be configured in CloudTalk dashboard → Integrations → Webhooks
-    # → Signing secret. Generated locally via `openssl rand -hex 32`; not
-    # derived from the API key pair.
-    CLOUDTALK_WEBHOOK_SECRET: str = ""
-    # ── Webhook replay protection (M6-P0.12) ────────────────────────────────
-    # When an inbound webhook carries an ``X-CloudTalk-Timestamp`` header, the
-    # timestamp is folded into the HMAC-signed material and the request is
-    # rejected if the timestamp is outside ±TOLERANCE seconds of now — a
-    # captured request cannot be replayed once it ages past the window.
-    CLOUDTALK_WEBHOOK_TOLERANCE_SECONDS: int = 300
-    # When True the webhook REQUIRES a fresh ``X-CloudTalk-Timestamp`` header
-    # and rejects any request without one (401). Default False so the
-    # integration keeps accepting CloudTalk's legacy body-only signature; flip
-    # True once you confirm your CloudTalk plan sends signed timestamps (see
-    # the CloudTalk activation checklist in CLAUDE.md).
-    CLOUDTALK_WEBHOOK_REQUIRE_TIMESTAMP: bool = False
-    # Background sync loop cadence (Phase 5 — historical backfill + catch-up
-    # after webhook downtime). Clamped to >=300s in the loop.
-    CLOUDTALK_SYNC_INTERVAL_SECONDS: int = 3600
-    # On first sync (or after long downtime) backfill calls from the last N
-    # days. Older calls are skipped — out of scope for the ATS workflow.
-    CLOUDTALK_HISTORICAL_BACKFILL_DAYS: int = 30
-
-    # ── Traffit daily sync (scheduled import) ────────────────────────────────
-    # Keeps Nexus in sync with Traffit: daily incremental delta (updated_at >=
-    # watermark) + weekly full-scan reconcile safety net. The importer is the
-    # same one used for the one-time migration (app/services/traffit/importer.py)
-    # — every write is ON CONFLICT idempotent. Secrets (TRAFFIT_TENANT,
-    # TRAFFIT_CLIENT_ID, TRAFFIT_CLIENT_SECRET, TRAFFIT_THROTTLE_RPS) are read
-    # from the environment by TraffitConfig.from_env() — NOT declared here.
-    #
+    # ── Traffit (archiwum) ───────────────────────────────────────────────
     # WYŁĄCZONY NA STAŁE od 14.10.2026 (decyzja Artura, moduł
-    # `app/services/traffit_retired.py`): `TRAFFIT_SYNC_ENABLED` i
-    # `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED` są zawsze False niezależnie od
-    # env (walidator `_force_traffit_flags_off` niżej), pętla nie startuje,
-    # a POST /api/admin/traffit/* odpowiadają 410. Pola zostają, bo czytają je
-    # zamrożenie wyścigów, analityka i kolejka kontaktów.
+    # `app/services/traffit_retired.py`), kod importu usunięty 08.11.2026.
+    # `TRAFFIT_SYNC_ENABLED` i `CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED` są
+    # zawsze False niezależnie od env (walidator `_force_traffit_flags_off`
+    # niżej). Pola zostają, bo czytają je zamrożenie wyścigów, analityka
+    # i kolejka kontaktów.
 
     # ── COMPASS: dni robocze (decyzja D5) ────────────────────────────────
     # Mianownik wskaznikow „na dzien". Do 2026-08-31 Power Calling dzielil
@@ -1596,6 +1597,14 @@ class Settings(BaseSettings):
     # Microsoft 365 dla urlopów: off = nic nie wychodzi; simulate = dokładne
     # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.
     HR_M365_MODE: str = "off"
+    # Portal konsultanta (02.11.2026). Wyłącznik jest w `app_settings`, tu tylko to,
+    # czego nie ma bez konfiguracji po stronie M365. Puste = odmowa.
+    # Konto wsparcie@: nadawca linków i organizator rozmów.
+    CONSULTANT_PORTAL_MAILBOX: str = ""
+    # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
+    CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # Wspólny numer back office'u pokazywany w panelu. Pusty = panel nie ma wiersza z numerem.
+    CONSULTANT_PORTAL_SUPPORT_PHONE: str = ""
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
     # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
     HR_M365_MAILBOX_ALLOWLIST: str = ""
@@ -1645,12 +1654,27 @@ class Settings(BaseSettings):
     # Token KSeF spółki z uprawnieniem „odczyt faktur” (InvoiceRead). Sekret —
     # tylko przez workflow „Coolify set env”, nigdy w logach.
     KSEF_TOKEN: str = ""
+    # Certyfikat (typ Authentication) i jego klucz prywatny, PEM albo Base64 z PEM:
+    # uwierzytelnienie podpisem XAdES, token zostaje zapasowy. Sekrety — tylko
+    # przez workflow „Coolify set env”, z `value_from_secret`.
+    KSEF_CERTIFICATE: str = ""
+    KSEF_CERTIFICATE_KEY: str = ""
+    KSEF_CERTIFICATE_KEY_PASSWORD: str = ""
     # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
     KSEF_SIMULATE_DIR: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
     # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
     WHITE_LIST_MODE: str = "off"
+    # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
+    # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.
+    # Klucz komunikacji i sekret dają dostęp do danych konta — tylko przez workflow
+    # „Coolify set env”, nigdy w logach. Pusty któryś z czterech = wyłączone.
+    EBI24_MODE: str = "off"
+    EBI24_USER_UUID: str = ""
+    EBI24_ACCOUNT_UUID: str = ""
+    EBI24_COMMUNICATION_KEY: str = ""
+    EBI24_SECRET_PHRASE: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
@@ -1706,6 +1730,17 @@ class Settings(BaseSettings):
     # fladze + client_id/secret/redirect_uri + aktywnym połączeniu.
     PORTAL_JJIT_ENABLED: bool = False
     PORTAL_ROCKETJOBS_ENABLED: bool = False
+    # 06.11.2026 (decyzja Artura): adres = kandydat aplikuje formularzem
+    # portalu (``apply.email``, jedno kliknięcie, CV w panelu pracodawcy),
+    # a import z panelu zakłada kartę w rekrutacji ogłoszenia
+    # (``services/portal_application``). Pusty = jak dotąd link do strony
+    # kariery (``apply.url``). Zmienia go tylko workflow „Coolify set env”.
+    JJIT_APPLY_EMAIL: str = ""
+    # 09.11.2026 (decyzja Artura): telefon kontaktowy na wszystkich ogłoszeniach,
+    # bo ``PUT`` 1EP wymaga pełnego kontaktu z telefonem. Wartość wyłącznie przez
+    # „Coolify set env” z ``value_from_secret`` (repo i logi Actions są publiczne).
+    JJIT_CONTACT_PHONE: str = ""
+    JJIT_CONTACT_NAME: str = "B2B Network"
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""
@@ -1760,121 +1795,16 @@ class Settings(BaseSettings):
         Wartość z env przegrywa zawsze, jak przy `AAD_GROUP_RBAC_ENABLED`: do
         14.10 import wyłączała sama zmienna, którą dało się włączyć z powrotem.
         Flaga „włączona” bez działającego importu kazałaby zamrożeniu wyścigów
-        czekać na znacznik `__daily__`, którego już nie będzie. Testy historii
-        importera ustawiają flagę `monkeypatch.setattr` na żywym obiekcie
-        ustawień, co omija walidator. Szczegóły: `app/services/traffit_retired.py`.
+        czekać na znacznik `__daily__`, którego już nie będzie. Szczegóły:
+        `app/services/traffit_retired.py`.
         """
         return False
 
-    # Skutki uboczne dla etapów przychodzących z importu.
-    #
-    # Import pisze do `candidate_stages` surowym SQL-em (świadomie — warstwa
-    # komend robi ~10 zapytań i 2 blokady na wiersz, w kolejności blokad
-    # NIEZGODNEJ z wsadem, co w przeszłości się zakleszczało). Skutkiem było
-    # to, że automatyzacje pipeline'u dotyczyły 0,4% ruchu. Ten przełącznik
-    # włącza WĄSKI, wsadowy zestaw skutków idempotentnych — nigdy maili
-    # do kandydatów.
-    TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED: bool = False
-    # Background loop wake cadence (how often it checks whether a run is due).
-    # The actual import runs at most once/day (delta) + once/week (full),
-    # gated on the persisted watermark — clamped to >=300s in the loop.
-    TRAFFIT_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
-    # UTC hour at/after which the daily delta is allowed to run (low-traffic
-    # window). The first run after enabling fires immediately regardless.
-    TRAFFIT_SYNC_HOUR_UTC: int = 2
-    # Weekday for the heavy full-scan reconcile (0=Mon … 6=Sun).
-    TRAFFIT_SYNC_FULL_WEEKDAY: int = 6
-    # Overlap window subtracted from the last watermark when computing the
-    # delta cutoff — absorbs clock skew / late-arriving edits. Idempotent
-    # upserts make the overlap harmless.
-    TRAFFIT_SYNC_DELTA_LOOKBACK_HOURS: int = 48
-    # First-ever delta (no watermark yet) looks back this far to catch
-    # everything changed in Traffit since the one-time migration. After that,
-    # the watermark drives the cutoff.
-    TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
-    # Consecutive failures after which ONE source row stops holding back the
-    # delta watermark for every other row (see `_blocking_errors`). The retry
-    # policy is deliberate: keep re-covering a failed record while it might be
-    # transient, then park it explicitly rather than freezing the pipeline.
-    # Measured on prod 2026-07-27: one candidate with a colliding e-mail had
-    # frozen the daily watermark for 7 days, so `traffit=degraded` was permanent
-    # and any NEW failure was invisible behind it. 5 runs ≈ 5 days at the daily
-    # cadence — long enough that a real outage recovers on its own first.
+    # Próg kwarantanny wiersza importu; pole `max_row_attempts` w `/sync/status`.
     TRAFFIT_MAX_ROW_ATTEMPTS: int = 5
-    # How many candidates the full reconcile sweeps for missing files in ONE
-    # run. The sweep visits every Traffit candidate (not just those with no
-    # files at all), which is one /files call each — ~57k at
-    # TRAFFIT_THROTTLE_RPS=5 is ~3.2 h. Budgeted and resumable: the phase
-    # persists an `after_id` cursor and the next run continues from there, and
-    # an operator can close a backlog faster by triggering
-    # POST /api/admin/traffit/sync?mode=full repeatedly.
-    #
-    # The budget is NOT free to raise to "cover everything in one pass", and
-    # not for the obvious reason. A killed run resumes from its cursor, so the
-    # sweep itself loses nothing — but a full run re-scans the UNBUDGETED
-    # phases too (candidates ~57k, pipelines ~185k, activities ~397k) every
-    # time, and those have no per-slice budget to skip. So each extra run costs
-    # a full re-scan of everything else, which argues for a LARGER budget,
-    # while a run still going during the workday is likelier to be killed
-    # mid-sweep by a redeploy, which argues for a smaller one.
-    #
-    # 25k balances the two: the files phase runs ~1.4 h, a whole run lands
-    # around 05:00 UTC (07:00 local) — before pushes to main start — and the
-    # base is covered in ~3 runs instead of ~6. Combined with the nightly
-    # catch-up in `should_run_full`, a backlog closes in about three nights
-    # rather than a month and a half.
-    TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 25000
-    # Delta: kandydaci z Traffita z nazwą CV (`cv_filename`), ale bez żadnego
-    # pobranego dokumentu — dołączani do fazy plików niezależnie od
-    # `updated_at >= run_start`. Bez tego kandydat zaimportowany w biegu, który
-    # deploy zabił przed fazą plików, wypadał z zakresu każdej kolejnej delty
-    # (nowy bieg = nowy `run_start`) i czekał na niedzielny pełny sweep
-    # (prod 22.09.2026: 14 z 50 najnowszych bez pliku po >2 h). Okno w dniach od
-    # utworzenia i sufit na bieg — trwale niepobieralne pliki nie mogą zjadać
-    # każdej delty.
-    TRAFFIT_SYNC_PENDING_FILES_DAYS: int = 14
-    TRAFFIT_SYNC_PENDING_FILES_LIMIT: int = 500
-    # Same idea for the `"? ?"` name-recovery sweep, but a much tighter budget:
-    # every row costs an LLM call, and the selection is NOT self-clearing (a CV
-    # that yields no name stays `"?"`), so an unbounded pass would re-pay for the
-    # same `ORDER BY id` prefix forever and never reach the tail. Budgeted +
-    # resumable via an `after_id` cursor, full reconcile only — delta already
-    # scopes itself to the rows it just touched.
-    TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
-    # Rekrutacja notatek z Traffita (29.09.2026): globalny feed aktywności jej
-    # nie niesie, więc faza aktywności pyta `/employees/{id}/activities` dla
-    # kandydatów z NOWYMI notatkami w biegu. Sufit osób na bieg (5 zapytań/s);
-    # 0 = wyłączone. Resztę domyka naprawa z panelu admina.
-    TRAFFIT_SYNC_NOTE_RECRUITMENT_LIMIT: int = 500
-    # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
-    # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
-    # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
-    TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
-    # Faza `candidates_cv_text`: ile zapisanych CV bez tekstu odczytać w jednym
-    # biegu (ekstrakcja lokalna: pdfplumber/python-docx, OCR tylko dla skanów).
-    TRAFFIT_SYNC_CV_TEXT_LIMIT: int = 1000
 
     # audyt 22.09 r2 (INTG-01/02, INTG-03, DATA-01/PROD-03, REC-01, DATA-03/04,
     # PROD-01) — jeden blok ustawień obszaru „Traffit, automaty, dane".
-    # INTG-01: przerwana próba (deploy w trakcie) wznawia się od faz, których
-    # jeszcze nie skończyła — o ile ta sama `since` i ostatni ślad próby młodszy
-    # niż tyle godzin. Starsza próba = zaczynamy od nowa.
-    TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS: int = 24
-    # INTG-03: delta `pipelines` czyta /recruitment_history od NAJNOWSZYCH
-    # (`id DESC`) i kończy na stronie, na której pojawił się wpis starszy niż
-    # `since` — zamiast pełnego przeglądu ~200 tys. wierszy w każdej delcie.
-    TRAFFIT_PIPELINES_DELTA_TAIL: bool = True
-    # REC-01: przepięcia podobnych rekrutacji dla etapów wstawionych przez import
-    # (99,6% ruchów). Tylko wiersze z ostatnich tylu dni — import historii nie
-    # może przepinać ludzi wysłanych do klienta rok temu.
-    TRAFFIT_IMPORT_REASSIGN_ENABLED: bool = True
-    TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS: int = 7
-    # 08.10.2026 (decyzja Artura): po fazie `pipelines` osoba od Cpro dostaje
-    # jeden dzwonek z mailem o kartach Nordei, które w Traffit nadal stoją
-    # w kolejce „Wysłać do Cpro” (`services/cpro_queue_reminder.py`). Okno =
-    # jak dawno karta mogła wejść do kolejki, żeby jeszcze o niej przypominać.
-    TRAFFIT_CPRO_REMINDER_ENABLED: bool = True
-    TRAFFIT_CPRO_REMINDER_WINDOW_DAYS: int = 7
     # DATA-03/04: retencja kolejek i dzienników automatów (pętla co 6 h).
     QUEUE_RETENTION_ENABLED: bool = True
     QUEUE_RETENTION_INTERVAL_SECONDS: int = 6 * 3600
@@ -1892,6 +1822,9 @@ class Settings(BaseSettings):
     # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
     # + honorowanie wierszy legacy) — patrz app/tasks/notes_insights_sync.py.
     NOTES_INSIGHTS_SYNC_ENABLED: bool = False
+    # Rejestr faktów z rozmów (08.11.2026, wariant A): arkusz i odczyt notatek
+    # zasilają profil, bramkę krytycznych i wynik. False = jak przed zmianą.
+    CONVERSATION_FACTS_ENABLED: bool = False
     # Jak często pętla sprawdza, czy bieg jest należny (clamp >=300 s w pętli);
     # sam bieg jest najwyżej raz dziennie.
     NOTES_INSIGHTS_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
@@ -1955,8 +1888,6 @@ class Settings(BaseSettings):
     # Enables assignment/reassignment/cooldown processing.  Keeping this
     # separate from the read/API gate allows a safe read-only rollout first.
     CANDIDATE_CONTACT_ASSIGNMENT_ENABLED: bool = False
-    # Enables the strict read-only recruitment_history poller.  This still
-    # requires CANDIDATE_CONTACT_ENABLED and valid Traffit read credentials.
     # Od 14.10.2026 zawsze False (Traffit wyłączony, `_force_traffit_flags_off`).
     CANDIDATE_CONTACT_TRAFFIT_INTAKE_ENABLED: bool = False
     # Required cutover boundary for automatic intake.  Rows older than this
@@ -1965,10 +1896,6 @@ class Settings(BaseSettings):
     # Runtime loops clamp unsafe values, so a bad env cannot create a hot loop.
     CANDIDATE_CONTACT_WORKER_INTERVAL_SECONDS: int = 60
     CANDIDATE_CONTACT_WORKER_BATCH_SIZE: int = 100
-    CANDIDATE_CONTACT_TRAFFIT_POLL_INTERVAL_SECONDS: int = 300
-    # The remote query intentionally overlaps the durable tuple cursor.  A
-    # ledger keyed by Traffit history id makes this safe and absorbs clock skew.
-    CANDIDATE_CONTACT_TRAFFIT_OVERLAP_MINUTES: int = 15
 
     # ── Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026) ──────
     # Decyzje Artura: 14 dni kalendarzowych ciszy klienta i braku kontaktu,
@@ -1979,41 +1906,6 @@ class Settings(BaseSettings):
     CANDIDATE_FOLLOWUP_SINCE: date = date(2026, 9, 24)
     CANDIDATE_FOLLOWUP_DAYS: int = 14
     CANDIDATE_FOLLOWUP_RETRY_BUSINESS_DAYS: int = 2
-
-    # ── Traffit bidirectional integration (plan 2026-07-16) ────────────────
-    # Twarde kill-switche środowiskowe. Runtime control w tabeli
-    # `traffit_integration_control` może dodatkowo pauzować kierunek, ale
-    # NIGDY nie może włączyć wyłączonego env gate'a. Bezpieczne defaulty
-    # rolloutu: accept/apply/poll/send OFF; dry-run ON.
-    TRAFFIT_INTEGRATION_ENABLED: bool = False
-    TRAFFIT_WEBHOOK_ACCEPT_ENABLED: bool = False
-    TRAFFIT_INBOUND_APPLY_ENABLED: bool = False
-    TRAFFIT_POLL_ENABLED: bool = False
-    TRAFFIT_OUTBOUND_ENABLED: bool = False
-    TRAFFIT_DRY_RUN: bool = True
-
-    # SHA-256 wysokoentropijnego sekretu osadzonego w URL subskrypcji webhooka.
-    # Plaintext generowany raz, nigdy nie przechowywany w env ani DB. HMAC
-    # konfigurować tylko jeśli tenant potwierdzi podpisywanie.
-    TRAFFIT_INTEGRATION_WEBHOOK_SECRET_HASH: str = ""
-    TRAFFIT_INTEGRATION_WEBHOOK_HMAC_SECRET: str = ""
-
-    # Live streams muszą mieścić się w 15-minutowym SLO widoczności. Workery
-    # clampują niebezpieczne wartości; jeden globalny limiter dla obu kierunków.
-    TRAFFIT_INTEGRATION_POLL_INTERVAL_SECONDS: int = 300
-    TRAFFIT_INTEGRATION_FILE_SWEEP_INTERVAL_SECONDS: int = 600
-    TRAFFIT_INTEGRATION_WORKER_INTERVAL_SECONDS: int = 5
-    TRAFFIT_INTEGRATION_SCHEMA_REFRESH_INTERVAL_SECONDS: int = 86400
-    TRAFFIT_INTEGRATION_FULL_RECONCILE_INTERVAL_SECONDS: int = 604800
-    TRAFFIT_INTEGRATION_DELTA_LOOKBACK_HOURS: int = 48
-    TRAFFIT_INTEGRATION_HISTORY_API_BUDGET_PERCENT: int = 20
-
-    # Retry/leader/tombstone safety controls.
-    TRAFFIT_INTEGRATION_MAX_ATTEMPTS: int = 8
-    TRAFFIT_INTEGRATION_LEASE_TTL_SECONDS: int = 90
-    TRAFFIT_INTEGRATION_LEASE_HEARTBEAT_SECONDS: int = 30
-    TRAFFIT_INTEGRATION_TOMBSTONE_MISSING_STRIKES: int = 2
-    TRAFFIT_INTEGRATION_TOMBSTONE_GRACE_DAYS: int = 7
 
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but
@@ -2083,12 +1975,12 @@ class Settings(BaseSettings):
     INTEGRATION_ALERT_COOLDOWN_HOURS: float = 24.0
 
     # ── Import JJIT/RocketJobs w NEXUS (etap 2) ─────────────────────────────
-    # Sekrety (JJIT_EMAIL, JJIT_PASSWORD, JJIT_TRAFFIT_CLIENT_ID/SECRET) idą z
-    # env jak TRAFFIT_* — NIE są tu deklarowane. Kill-switch przed pętlą;
+    # Sekrety (JJIT_EMAIL, JJIT_PASSWORD) idą z env — NIE są tu deklarowane.
+    # Kill-switch przed pętlą;
     # `false` → job nie startuje, endpoint admina /run nadal działa (ręcznie).
     JJIT_ENABLED: bool = False
-    # Tydzień równoległej obserwacji: dry_run = liczy „nowi/duplikaty/błędy",
-    # nic nie zapisuje w Traffit ani w NEXUS poza raportem runu.
+    # Tydzień równoległej obserwacji: dry_run = liczy „nowi/błędy",
+    # nic nie zapisuje w NEXUS poza raportem runu.
     JJIT_DRY_RUN: bool = True
     JJIT_RUN_HOUR_LOCAL: int = 13
     JJIT_RUN_MINUTE_LOCAL: int = 0
@@ -2161,6 +2053,13 @@ class Settings(BaseSettings):
     # zostaje globalny i bezwzględny („mało MD" ma znaczyć to samo u każdego
     # klienta), a ten jest wczesnym ostrzeżeniem dla klientów z listy wyżej.
     DL_ALERT_MD_BASE_USAGE_PERCENT: float = 80.0
+
+    # ── Licznik użycia obszarów (przegląd najmniejszych dostępów) ───────────
+    # Zbieranie osoba × obszar × dzień. Domyślnie WYŁĄCZONE: to dane o aktywności
+    # pracowników, więc włącza je wyłącznie decyzja Artura (workflow „Coolify set
+    # env”). `docs/claude/uprawnienia/licznik-uzycia-obszarow.md`.
+    ACCESS_USAGE_COUNTER_ENABLED: bool = False
+    ACCESS_USAGE_RETENTION_DAYS: int = 90
 
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):

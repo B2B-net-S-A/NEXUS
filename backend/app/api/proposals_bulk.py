@@ -43,6 +43,7 @@ from app.models.recruitment_pipeline import (
 from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import candidate_claim, client_off_limits
+from app.services import sent_vs_system
 from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -115,6 +116,25 @@ BulkAddSource = Literal[
     "similar_candidates",
 ]
 
+# Skąd osoba dodana ręcznie (porcja dnia, P4): trzy strumienie, żeby odróżnić
+# osoby znalezione wyszukiwarką od reszty ręcznych dodań.
+FoundVia = Literal["search", "outside_base", "proposals"]
+_FOUND_VIA_BY_SOURCE: dict[str, FoundVia] = {
+    "manual_search": "search",
+    "talent_radar": "search",
+    "candidate_list": "search",
+    "quick_add": "search",
+    "full_search": "proposals",
+    "historical": "proposals",
+    "proposal_inbox": "proposals",
+    "recommendation": "proposals",
+    "my_people": "proposals",
+    "jarvis": "proposals",
+    "also_fits": "proposals",
+    "also_manual": "proposals",
+    "similar_candidates": "proposals",
+}
+
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
 _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
     EligibilityReason.blacklisted: "blacklisted",
@@ -161,6 +181,9 @@ class BulkProposalsRequest(BaseModel):
     # the candidate (`emit_pipeline_additions`). Never guessed from history.
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
+    # Dodanie z pliku CV idzie tą samą trasą co „+ Dodaj”, ale to osoba spoza
+    # bazy: mówi o tym sam ekran.
+    found_via: Optional[FoundVia] = None
     # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
     # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`
     # i `also_manual`.
@@ -481,6 +504,11 @@ async def _reassign_sources(
 _PROPOSAL_SOURCES = frozenset(
     {"full_search", "historical", "proposal_inbox", "recommendation"}
 )
+
+
+def _found_via_meta(found_via: Optional[str], source: Optional[str]) -> Optional[dict]:
+    value = found_via or _FOUND_VIA_BY_SOURCE.get(source or "")
+    return {"found_via": value} if value else None
 
 
 def _entry_source_for(source: Optional[str]) -> str:
@@ -820,6 +848,22 @@ async def add_candidates_to_job(
         and entry_source != candidate_claim.ENTRY_REASSIGN,
     )
 
+    # Gdzie osoba stała u systemu, zanim dodał ją człowiek (02.11.2026).
+    system_views = (
+        await sent_vs_system.snapshot_for_add(
+            db,
+            job,
+            [
+                candidates_by_id[cid]
+                for cid in lock_ordered_ids
+                if cid in candidates_by_id and cid not in already_in_job_set
+            ],
+            now=now,
+        )
+        if entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        else {}
+    )
+
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
     with milestone_counts_scope():
@@ -905,7 +949,9 @@ async def add_candidates_to_job(
                 ),
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
-                entry_meta=entry_meta,
+                entry_meta=sent_vs_system.with_system_view(
+                    entry_meta, system_views.get(candidate_id)
+                ),
                 # Propozycje oznacza ta funkcja sama (`mark_proposals`, niżej).
                 mark_proposals=False,
             )
@@ -1044,6 +1090,7 @@ async def propose_candidates_for_job(
     lista, już w tej rekrutacji, weto hiring managera) — pominięci wracają
     w ``skipped`` z tymi samymi powodami. Bez commita (robi to wołający).
     """
+    from app.services import single_candidate_list  # noqa: PLC0415
     from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
     from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
 
@@ -1077,6 +1124,16 @@ async def propose_candidates_for_job(
 
     evidence = job_board_evidence(entry_meta)
     score = entry_meta.get("score") if isinstance(entry_meta, dict) else None
+    # Jedna lista (08.11.2026): wynik „Dop.” dla osób z aktualnym wektorem.
+    dop = await single_candidate_list.dop_scores(
+        db,
+        job,
+        [
+            candidates_by_id[cid]
+            for cid in ordered_ids
+            if cid in candidates_by_id and decisions[cid].assignment_allowed
+        ],
+    )
     rows: list[dict] = []
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
@@ -1110,11 +1167,14 @@ async def propose_candidates_for_job(
                     reason_label=decision.reason,
                 )
             )
+        row_score, row_evidence = single_candidate_list.portal_score(
+            candidate_id, score, evidence, dop
+        )
         rows.append(
             {
                 "candidate_id": candidate_id,
-                "score": score,
-                "evidence": evidence,
+                "score": row_score,
+                "evidence": row_evidence,
                 "cv_revision": candidate_revision(candidate),
             }
         )
@@ -1281,6 +1341,9 @@ async def bulk_add_proposals(
             else _entry_source_for(body.source)
         ),
         claim=not from_integration,
+        entry_meta=(
+            None if from_integration else _found_via_meta(body.found_via, body.source)
+        ),
         # Każde `BulkAddSource` to kliknięcie człowieka; token integracji nie.
         mark_proposals=not from_integration,
     )

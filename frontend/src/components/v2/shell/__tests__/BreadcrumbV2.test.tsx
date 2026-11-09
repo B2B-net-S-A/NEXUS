@@ -71,10 +71,7 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
 
   it.each([
     ["/jobs/review-states", "Porządek w requestach"],
-    ["/academy", "Akademia"],
     ["/settings/competence-team", "Kategorie kompetencji"],
-    ["/trainees", "Praktykanci"],
-    ["/settings/trainee-rules", "Lista telefonów praktykantów"],
   ])("trasy z 23–24.09: %s → %s (nie surowy slug)", (pathname, label) => {
     renderAt(pathname);
     expect(screen.getByText(label)).toBeInTheDocument();
@@ -181,6 +178,21 @@ describe("BreadcrumbV2 — ciasny pasek przy 1280 px (28.10.2026)", () => {
     const last = nav.querySelector<HTMLElement>("[data-crumb]:last-child");
     expect(last).toHaveClass("min-w-0", "max-w-44");
     expect(screen.getByText("Kandydaci").closest("[data-crumb]")).toHaveClass("shrink-0");
+  });
+
+  // Zgłoszenie Testera z 03.11.2026: u rekrutera przy 1280 px zostawało „K.”.
+  // Pusty pierwszy element zajmuje widoczny wiersz, więc okruszek, który nie
+  // mieści się cały, spada do ukrytego, zamiast kurczyć się do jednej litery.
+  it("okruszek, który się nie mieści, chowa się cały: widoczny wiersz trzyma pusty element", async () => {
+    const nav = await navAt("/candidates/171672");
+    const guard = nav.firstElementChild as HTMLElement;
+    expect(guard).not.toHaveAttribute("data-crumb");
+    expect(guard).toHaveAttribute("aria-hidden", "true");
+    expect(guard).toHaveClass("w-0", "h-5");
+    const orders = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")].map((item) =>
+      Number(item.style.order),
+    );
+    expect(Number(guard.style.order)).toBeLessThan(Math.min(...orders));
   });
 
   it("strzałka stoi za okruszkiem, więc po ukryciu początku ścieżka nie zaczyna się od „›”", async () => {

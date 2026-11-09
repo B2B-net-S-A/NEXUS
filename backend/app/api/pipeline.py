@@ -32,10 +32,12 @@ from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
+from app.services import review_batch
 from app.services.client_off_limits import off_limits_badge
 from app.services.process_entry_meta import (
     application_link_owner_id,
     application_screening_badge,
+    portal_application_portal,
     auto_match_badge,
     autofill_badge,
 )
@@ -53,13 +55,14 @@ from app.services.board_stage_badges import (
 )
 from app.services import (
     champion_view,
+    conversation_facts,
     move_requirements,
     rejection_reason_labels,
     screening_fix_requests,
     stage_handoff_recipients,
     stage_remarks,
 )
-from app.services.candidate_added_date import added_to_base
+from app.services.candidate_added_date import AddedToBase, added_to_base
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -137,6 +140,7 @@ from app.services.recruitment_move_policy import (
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
+from app.services import screening_calls
 from app.services.stage_verifier import first_verifier
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
@@ -621,12 +625,7 @@ def _sheet_filled(payload: object) -> bool:
     `bool(dict)` dałby fałszywe „wypełniony" i odznaka „do uzupełnienia"
     znikałaby z karty, na której nikt niczego nie wpisał.
     """
-    if not isinstance(payload, dict) or not payload:
-        return False
-    answers = payload.get("answers")
-    if isinstance(answers, (list, dict)):
-        return len(answers) > 0
-    return any(value not in (None, "", [], {}) for value in payload.values())
+    return move_requirements.sheet_filled(payload)
 
 
 async def _assert_client_rate_not_order_locked(
@@ -2397,6 +2396,31 @@ async def apply_move(
                 is_minimum=False,
                 actor_id=policy.actor_id,
             )
+    if (
+        reason is not None
+        and reason.name.strip() == rejection_reason_labels.EMPLOYED_ELSEWHERE
+    ):
+        from app.services import autofill_withdraw
+
+        change = await autofill_feedback.mark_employed_elsewhere(
+            db, candidate_id=data.candidate_id
+        )
+        if change is not None:
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.AVAILABILITY_CHANGED,
+                user_id=policy.actor_id,
+                entity_id=data.candidate_id,
+                details={
+                    **change,
+                    "source": "employed_elsewhere_rejection",
+                    "job_id": job.id,
+                    "stage_id": stage.id,
+                },
+            )
+        await autofill_withdraw.withdraw_elsewhere(
+            db, candidate_id=data.candidate_id, except_job_id=job.id
+        )
     if rate_rejection and data.rejection_rate_hourly is not None:
         await _record_rejection_rate(
             db,
@@ -2499,6 +2523,17 @@ async def apply_move(
         stage_display_name=stage_display_name,
         extra_details=activity_extra,
     )
+    if data.gap_decision is not None:
+        from app.services.cv_qc import record_gap_decision  # noqa: PLC0415
+
+        await record_gap_decision(
+            db,
+            stage_id=stage.id,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            decision=data.gap_decision,
+            user_id=policy.actor_id,
+        )
     if skipped_requirements:
         db.add(
             Activity(
@@ -3476,6 +3511,7 @@ async def build_kanban_view(
     viewer: Optional[User] = None,
     with_followups: bool = True,
     with_employment: bool = True,
+    with_start_docs: bool = True,
     with_cv_state: bool = True,
     with_other_jobs: bool = True,
     dl_review_memo: Optional[dict[Any, Any]] = None,
@@ -3692,6 +3728,14 @@ async def build_kanban_view(
         and (owner := application_link_owner_id(p.entry_meta)) is not None
     }
     owner_ids |= set(link_owner_by_candidate.values())
+    # Porcja dnia (07.11.2026): „Dla: …” na karcie od systemu.
+    review_owner_by_candidate = {
+        cid: owner
+        for cid, p in v4_processes.items()
+        if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        and (owner := review_batch.owner_of(p.entry_meta)) is not None
+    }
+    owner_ids |= set(review_owner_by_candidate.values())
     # …i ślad ponownego zgłoszenia osoby, która już była w rekrutacji:
     # „Zgłosił się też z Twojego linku” / „Zgłosił się też z linku: Marta”.
     reapplied_link_owners = _reapplied_link_owners(
@@ -3704,6 +3748,7 @@ async def build_kanban_view(
     inactive_claimers = await candidate_claim.inactive_holders(
         db, v4_processes.values()
     )
+    booked_calls = await screening_calls.starts_by_candidate(db, job_id, candidate_ids)
     reassign_job_ids = {
         p.reassign_from_job_id
         for p in v4_processes.values()
@@ -3724,15 +3769,47 @@ async def build_kanban_view(
     board_now = datetime.now(timezone.utc)
     # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
     # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
-    from app.services import autofill_decisions
+    from app.services import (
+        autofill_decisions,
+        job_proposals,
+        known_queue_points,
+        new_column_autofill,
+        review_batch_order,
+    )
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
+    # Premia porcji w kolejności kolumny „Nowi” (S-C4, zero przy wyłączonej porcji).
+    board_budget_hourly = resolve_job_budget_hourly(job)
+    known_queue_facts = await known_queue_points.facts_for(
+        db,
+        job_id=job_id,
+        client_id=job.client_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+        now=board_now,
+    )
+    without_process_ids = await known_queue_points.without_process(
+        db,
+        job_id=job_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+    )
+    has_system_cards = any(
+        p.entry_source == candidate_claim.ENTRY_SYSTEM for p in v4_processes.values()
+    )
     autofill_recruiter_since = (
         (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
-        if any(
-            p.entry_source == candidate_claim.ENTRY_SYSTEM
-            for p in v4_processes.values()
-        )
+        if has_system_cards
         else None
+    )
+    fresh_threshold = (
+        await job_proposals.proposal_threshold(db) if has_system_cards else 0.0
     )
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
@@ -3787,6 +3864,12 @@ async def build_kanban_view(
     from app.services.pre_contracts import kanban_badges  # noqa: PLC0415
 
     pre_contract_badges = await kanban_badges(db, job_id, candidate_ids)
+    # 0649: dokumenty do startu. Klient bez listy to jedno zapytanie.
+    from app.services.start_documents import card_badges  # noqa: PLC0415
+
+    start_docs_badges = (
+        await card_badges(db, job, candidate_ids) if with_start_docs else {}
+    )
     # 0450 (D3): złota plakietka „Champion” na karcie — jedno zapytanie.
     from app.services.job_champions import live_candidate_ids  # noqa: PLC0415
 
@@ -3927,9 +4010,19 @@ async def build_kanban_view(
     # „Do wysłania do klienta” (`dl_send_queue`): kolejka Delivery Leada bierze
     # tylko opublikowane rekrutacje, a etap z importu Traffita nie liczy się do
     # „Czeka na Ciebie” — karta mówi to samo co pas na pulpicie (audyt 13.10.2026).
-    from app.services.dl_send_queue import TRAFFIT_SOURCE
+    from app.services.dl_send_queue import TRAFFIT_SOURCE, board_waiting_workdays
 
     dl_send_job = job.status == JobStatus.published
+    # Kolumna Tablicy każdego etapu — wypełnione niżej, gdy znane są definicje.
+    column_by_def_id: dict[int, str] = {}
+    board_today = business_today()
+    from app.services import client_wait as client_wait_service
+
+    client_clocks = (
+        await client_wait_service.client_clocks_safely(db, job)
+        if job.status != JobStatus.closed
+        else {}
+    )
 
     # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
     rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
@@ -4059,6 +4152,27 @@ async def build_kanban_view(
         )
         payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
         payload["dl_send_counts"] = dl_send_job and e.external_source != TRAFFIT_SOURCE
+        board_column = (
+            column_by_def_id.get(e.stage_def_id) if e.stage_def_id is not None else None
+        ) or board_column_for(None, getattr(e.stage, "value", e.stage))
+        qc_state = payload["qc"] or {}
+
+        def _waiting(autofill_days: Optional[int] = None) -> Optional[int]:
+            return board_waiting_workdays(
+                moved_at=e.moved_at,
+                column=board_column,
+                qc_status=qc_state.get("status"),
+                ok_at=qc_state.get("ok_at"),
+                today=board_today,
+                autofill_days=autofill_days,
+                client_since=client_clock.since if client_clock else None,
+            )
+
+        client_clock = client_clocks.get(e.candidate_id)
+        payload["waiting_workdays"] = _waiting()
+        payload["client_silent_workdays"] = (
+            client_clock.silent_workdays if client_clock else None
+        )
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {
@@ -4126,6 +4240,7 @@ async def build_kanban_view(
         )
         payload["employment_marker"] = employment_markers.get(e.candidate_id)
         payload["pre_contract"] = pre_contract_badges.get(e.candidate_id)
+        payload["start_docs"] = start_docs_badges.get(e.candidate_id)
         payload["other_open_jobs"] = other_open_jobs.get(e.candidate_id) or []
         payload["is_champion"] = e.candidate_id in champion_ids
         v4 = v4_processes.get(e.candidate_id)
@@ -4141,11 +4256,47 @@ async def build_kanban_view(
                         recruiter_since=autofill_recruiter_since,
                         now=board_now,
                     ),
+                    in_new_column=board_column == candidate_claim.NEW_COLUMN,
                 )
                 if v4.entry_source == candidate_claim.ENTRY_SYSTEM
                 else None
             )
+            # Osoba od systemu: ta sama liczba, po której mija termin decyzji.
+            autofill_days = (payload["entry_autofill"] or {}).get("waiting_days")
+            if autofill_days is not None:
+                payload["waiting_workdays"] = _waiting(autofill_days)
+            known_fact = known_queue_facts.get(e.candidate_id)
+            if payload["entry_autofill"] is not None and known_fact is not None:
+                payload["entry_autofill"]["known"] = known_fact.as_dict()
+            if payload["entry_autofill"] is not None:
+                in_base_at, in_base_exact, _ = added_to_base_by_id.get(
+                    e.candidate_id, (None, False, None)
+                )
+                payload["entry_autofill"]["fresh_first"] = (
+                    new_column_autofill.has_fresh_first(
+                        v4.entry_meta,
+                        AddedToBase(at=in_base_at, exact=in_base_exact),
+                        threshold=fresh_threshold,
+                        now=board_now,
+                    )
+                )
+                payload["entry_autofill"]["fresh"] = (
+                    e.candidate_id in without_process_ids
+                )
+                payload["entry_autofill"]["queue_bonus"] = review_batch_order.bonus_for(
+                    (v4.entry_meta or {}).get("availability_status"),
+                    (v4.entry_meta or {}).get("rate_from_hourly"),
+                    (v4.entry_meta or {}).get("rate_currency"),
+                    board_budget_hourly,
+                ).points
+                review_owner = review_owner_by_candidate.get(e.candidate_id)
+                payload["entry_autofill"]["review_owner"] = (
+                    {"id": review_owner, "name": user_name_by_id.get(review_owner)}
+                    if review_owner is not None
+                    else None
+                )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
+            payload["entry_portal"] = portal_application_portal(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id
             )
@@ -4165,6 +4316,16 @@ async def build_kanban_view(
                 payload["reassign_from_reference"] = reassign_refs.get(
                     v4.reassign_from_job_id
                 )
+            booked_call = booked_calls.get(e.candidate_id)
+            if booked_call is not None:
+                payload["booked_call"] = {
+                    "event_id": booked_call.id,
+                    "start_time": booked_call.start_time,
+                    "note": booked_call.description,
+                    "owner_id": booked_call.operational_owner_id,
+                    "owner_name": user_name_by_id.get(booked_call.operational_owner_id),
+                    "in_outlook": bool(booked_call.external_id),
+                }
             claim = candidate_claim.claim_state(v4, inactive_claimers)
             if claim.active(board_now):
                 payload["claim_user_id"] = claim.user_id
@@ -4177,11 +4338,14 @@ async def build_kanban_view(
                 payload["taken_by_user_id"] = claim.user_id
                 payload["taken_by_name"] = user_name_by_id.get(claim.user_id)
             if viewer is not None:
-                payload["can_take"] = candidate_claim.can_take(
-                    v4, viewer, board_now, inactive_claimers
+                payload["can_take"] = (
+                    job.status != JobStatus.closed
+                    and candidate_claim.can_take(
+                        v4, viewer, board_now, inactive_claimers
+                    )
                 )
         elif viewer is not None:
-            payload["can_take"] = True
+            payload["can_take"] = job.status != JobStatus.closed
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
@@ -4267,6 +4431,17 @@ async def build_kanban_view(
             if foreign_ids
             else {}
         )
+        column_by_def_id.update(
+            {
+                sd.id: board_column_for(
+                    sd.name,
+                    sd.legacy_enum_value,
+                    category=sd.category.value if sd.category else None,
+                    terminal_type=sd.terminal_type.value if sd.terminal_type else None,
+                )
+                for sd in [*stage_defs, *foreign_defs.values()]
+            }
+        )
         columns_map, off_template_entries = _bucket_by_stage_def(
             _newest_first(seen.values()), stage_defs, foreign_defs
         )
@@ -4303,6 +4478,7 @@ async def build_kanban_view(
                 render=_stage_resp_with_name,
             ),
             viewer_owns_dl_review=viewer_owns_dl_review,
+            opening_started_at=job.cycle_started_at,
         )
 
     # ── Legacy fallback (no template seeded yet) ──────────────────────────────
@@ -4356,6 +4532,7 @@ async def build_kanban_view(
             render=_stage_resp_with_name,
         ),
         viewer_owns_dl_review=viewer_owns_dl_review,
+        opening_started_at=job.cycle_started_at,
     )
 
 
@@ -4438,6 +4615,7 @@ async def my_next_steps(
                     viewer=current_user,
                     with_followups=False,
                     with_employment=False,
+                    with_start_docs=False,
                     with_cv_state=False,
                     with_other_jobs=False,
                     dl_review_memo=dl_review_memo,
@@ -4742,6 +4920,15 @@ async def submit_stage_screening(
     )
 
     stage.screening_answers = answers.model_dump(mode="json")
+    await conversation_facts.after_sheet_saved(
+        db,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        stage_id=stage.id,
+        raw_checks=stage.screening_answers.get("experience_checks"),
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
     db.add(
         Activity(
             entity_type="candidate_stage",
@@ -5064,6 +5251,13 @@ async def claim_candidate(
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     await ensure_job_membership(db, current_user, job.id)
+    # Tester 05.11.2026: blokada 12 h w zamkniętej rekrutacji nikomu nie służy,
+    # a „Biorę” przepisywało kartę i dzwoniło do poprzedniego rekrutera.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=409,
+            detail="Rekrutacja jest zamknięta — nie można wziąć tej osoby.",
+        )
 
     # Ta sama kolejność blokad co `/move`: kandydat, potem proces.
     locked = await db.scalar(
@@ -5125,6 +5319,7 @@ async def claim_candidate(
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    await screening_calls.follow_claim(db, process=process, user=current_user, now=now)
     # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
     # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
     from app.services.autofill_decisions import record_call

@@ -96,6 +96,8 @@ type RouteAccessRule = {
   required?: Exclude<SectionAccess, "none">;
   /** Dodatkowa, węższa reguła operacyjna obowiązująca także po section grant. */
   enforceRoles?: boolean;
+  /** Podpisany znacznik `fo` (uprawnienie `orders_work`) też otwiera trasę. */
+  alsoOpenedByFinanceOrders?: boolean;
 };
 
 const ROLE_ROUTES: RouteAccessRule[] = [
@@ -146,19 +148,15 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     section: "pipeline",
     enforceRoles: true,
   },
-  // Akademia (0369) = sekcja Pipeline + RecruiterPlus w backendzie.
-  {
-    prefix: "/academy",
-    roles: WITHOUT_READ_ONLY(PIPELINE_OPERATIONAL_ROLES),
-    section: "pipeline",
-    enforceRoles: true,
-  },
   // Moduł „Finanse" — podpisany claim sekcji pozwala także na indywidualny
   // wyjątek, a lista ról zachowuje bezpieczny fallback dla starszych tokenów.
+  // Zakładki o zamówieniach otwiera też podpisany znacznik `fo`: uprawnienie
+  // `orders_work` celowo nie daje sekcji Finanse (Back office, 04.11.2026).
   {
     prefix: "/finance",
     roles: ["admin", "finance"],
     section: "finance",
+    alsoOpenedByFinanceOrders: true,
   },
   // Zamówienia z maila są powierzchnią Delivery; scope rekordu liczy backend.
   { prefix: "/order-mail", roles: DELIVERY_ROLES, section: "delivery" },
@@ -236,6 +234,14 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Dziennik CPro (02.11.2026): odczyt DL, HoR, admin; wyłączniki — backend.
+    prefix: "/settings/cpro",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
     // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
     // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
@@ -247,6 +253,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // Nowości — kto już umie (28.10.2026): imienna lista bez danych domenowych,
   // lustro `HeadOfRecruitmentPlus`.
   { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
+  { prefix: "/settings/jakosc-generatora", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],
@@ -349,6 +356,8 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // ten dostęp w polityce startowej, ale jawny override użytkownika musi móc
   // go odebrać bez pozostawiania bocznego wejścia przez URL.
   { prefix: "/talent-radar", roles: null, section: "sourcing" },
+  // Porcja dnia od Nexusa (07.11.2026) — karty z rekrutacji, sekcja Rekrutacje.
+  { prefix: "/porcja", roles: null, section: "pipeline" },
   {
     prefix: "/sourcing",
     roles: SOURCING_OPERATIONAL_ROLES,
@@ -368,20 +377,8 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
-  // Praktykanci (0374). `/trainee` = lista telefonów TEGO praktykanta — nawet
-  // admin jej nie otwiera (patrzy w panel `/trainees`). Resolver bierze
-  // najdłuższy prefiks, więc `/trainees` nie wpada w regułę `/trainee`.
-  { prefix: "/trainee", roles: ["trainee"], enforceRoles: true },
-  {
-    prefix: "/trainees",
-    roles: ["admin", "head_of_recruitment"],
-    enforceRoles: true,
-  },
-  {
-    prefix: "/settings/trainee-rules",
-    roles: ["admin", "head_of_recruitment"],
-    enforceRoles: true,
-  },
+  // Podgląd liczb na telefonie: te same bramki co Insights, reszta na trasach API.
+  { prefix: "/podglad", roles: INSIGHTS_ROLES, section: "insights" },
   // `/profile`, `/settings` (i każda inna trasa bez wpisu) nie
   // potrzebują osobnej bramki rolowej — deny-by-default już wymaga logowania.
 ];
@@ -452,12 +449,19 @@ const PUBLIC_PATHS = [
   "/apply/",
   "/sign/",
   "/cv/",
+  // Panel klienta pod linkiem z CV: token w adresie, klient nie ma konta.
+  "/k/",
+  // Rekrutacja własna: wybór terminu z linku w mailu.
+  "/t/",
   "/engagement/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
+  // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.
+  "/konsultant/",
   // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
   // nie ma konta (etap 3, O12).
   "/wypis/",
+  "/preview/client-panel",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",
@@ -547,7 +551,7 @@ const PUBLIC_PATHS = [
   // Umowa przedwstępna (0506) — sekcja panelu, lista i kafelek na danych w pamięci.
   "/preview/pre-contracts",
   "/preview/job-portals",
-  "/preview/academy",
+  "/preview/consultant-panel",
   "/preview/request-allocation",
   // Strona „Daily — requesty i obłożenie” (`/jobs/daily`), wariant daily pulpitu.
   "/preview/daily",
@@ -567,8 +571,6 @@ const PUBLIC_PATHS = [
   "/preview/rejection-email",
   // Ustawienia → „Klucze API”: konta serwisowe, klucze, ostatnie zapisy (14.10.2026).
   "/preview/api-keys",
-  // Praktykanci (0374): `/preview/trainee` pokrywa też `/preview/trainees`.
-  "/preview/trainee",
   // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet — fikcja, zero zapytań
   // (strażnik `app/preview/__tests__/hr-harnesses.test.ts`).
   "/preview/hr-dashboard",
@@ -611,15 +613,16 @@ const PUBLIC_PATHS = [
 ];
 
 // Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
-const PUBLIC_EXACT_PATHS = ["/kariera", "/wtyczka/prywatnosc"];
+const PUBLIC_EXACT_PATHS = ["/kariera", "/konsultant", "/wtyczka/prywatnosc"];
 
 /**
  * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza
  * buildem produkcyjnym (`next dev`, vitest) albo przy jawnej fladze builda
  * `NEXT_PUBLIC_PREVIEW_PUBLIC=1` (stack E2E w `docker-compose.e2e.yml`, na nim
- * chodzi nocny `preview-chromium`). Na produkcji wpuszczają tylko po
- * zalogowaniu — do 27.09.2026 każdy bez sesji oglądał nazwiska, klientów
- * i stawki z danych harnessów. Czytane przy wywołaniu (nie stała modułu), żeby
+ * chodzi nocny `preview-chromium`). Do 27.09.2026 każdy bez sesji oglądał
+ * nazwiska, klientów i stawki z danych harnessów. Od 08.11.2026 obraz
+ * produkcyjny w ogóle nie ma tych stron (`frontend/Dockerfile`), a to sprawdzenie
+ * zostaje jako druga warstwa. Czytane przy wywołaniu (nie stała modułu), żeby
  * testy mogły przełączać środowisko; Next wstawia obie wartości przy buildzie.
  */
 function previewHarnessesArePublic(): boolean {
@@ -659,20 +662,6 @@ function careerHostResponse(request: NextRequest): NextResponse {
   return NextResponse.rewrite(url);
 }
 
-/**
- * Trasy dostępne dla praktykanta (0374). Wszystko inne przekierowuje na jego
- * jedyny ekran — nie na /403, bo praktykant nie ma „reszty aplikacji”, do
- * której mógłby trafić przez pomyłkę. `/profile` zostaje (zmiana hasła).
- */
-function isTraineeAllowedPath(pathname: string): boolean {
-  return (
-    pathname === "/trainee" ||
-    pathname.startsWith("/trainee/") ||
-    pathname === "/profile" ||
-    pathname.startsWith("/profile/")
-  );
-}
-
 function resolveAccessRule(pathname: string): RouteAccessRule | undefined {
   // Sortuj po długości prefiksu malejąco — /candidates/123/edit pasuje do /candidates,
   // ale /admin/users pasuje do /admin (a nie do /, gdyby taki był).
@@ -706,10 +695,25 @@ function hasSignedSectionAccess(
 // dostępu do SECRET_KEY; prawdziwa walidacja sygnatury odbywa się po stronie
 // backendu (backend/app/api/deps.py::get_current_user). Tu tylko UX-guard.
 
+// Stara domena aplikacji: od 19.10.2026 API odrzuca jej Origin, więc front wisiał
+// na logowaniu. Pliki z kropką w nazwie omija `matcher` niżej, dlatego wtyczka
+// Outlooka (`/outlook-addin/*`, adres w manifeście) działa pod tą domeną dalej.
+const LEGACY_APP_HOST = "nexus.dynaminds.pl";
+const APP_ORIGIN = "https://nexus.b2bnetwork.pl";
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = requestHost(request.headers);
 
-  if (isCareerHost(requestHost(request.headers))) {
+  // 307, nie 308: przeglądarki nie zapamiętują przekierowania, jak przy karierze niżej.
+  if (host === LEGACY_APP_HOST) {
+    return NextResponse.redirect(
+      new URL(`${APP_ORIGIN}${pathname}${request.nextUrl.search}`),
+      307,
+    );
+  }
+
+  if (isCareerHost(host)) {
     return careerHostResponse(request);
   }
 
@@ -765,16 +769,6 @@ export function middleware(request: NextRequest) {
     normalizeRoles([payload.role as string, ...(payload.roles ?? [])]),
   );
 
-  // Praktykant (rola wyłączna) widzi WYŁĄCZNIE „Telefony na dziś”. Bramka
-  // stoi przed regułami tras: `/jobs` ma go zaprowadzić na jego listę, a nie
-  // na /403. Wymuszona zmiana hasła i tak działa niżej (`/profile` przepuszczamy).
-  if (
-    userRoles.size === 1 &&
-    userRoles.has("trainee") &&
-    !isTraineeAllowedPath(pathname)
-  ) {
-    return NextResponse.redirect(new URL("/trainee", request.url));
-  }
   // „Pracownik” (0456) nie ma pulpitu — strona startowa to „Mój czas”.
   // Pozostałe trasy z sekcjami kończą się jak dotąd na /403.
   if (
@@ -794,7 +788,9 @@ export function middleware(request: NextRequest) {
   ) {
     return NextResponse.redirect(new URL(BOARD_HOME, request.url));
   }
-  if (accessRule?.section && payload.sa) {
+  if (accessRule?.alsoOpenedByFinanceOrders && payload.fo === true) {
+    // Strona pokazuje tylko zakładki o zamówieniach, API pilnuje reszty.
+  } else if (accessRule?.section && payload.sa) {
     if (
       !hasSignedSectionAccess(
         payload.sa,

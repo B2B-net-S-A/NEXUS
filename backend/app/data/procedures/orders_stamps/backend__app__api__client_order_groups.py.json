@@ -1,4 +1,4 @@
 {
-  "sha256": "2ba93700d1683b1df93beee45185e025b852cd163f21ca41c2ee0a31fc8ab9d1",
+  "sha256": "93549a4fe6ab7df934ead669a154fd2ad0f11a4f1dd2988a8f0b826a765bde47",
   "source": "backend/app/api/client_order_groups.py"
 }

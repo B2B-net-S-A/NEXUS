@@ -317,6 +317,7 @@ export function stateOf(
     stale?: boolean;
     publications?: AdPublication[];
     career?: AdCareerState;
+    jjit_api?: JobAdState["jjit_api"];
   } = {},
 ): JobAdState {
   return {
@@ -338,6 +339,8 @@ export function stateOf(
     career: patch.career ?? NO_CAREER_PAGE,
     reminders: null,
     pracuj_request: null,
+    jjit_api: patch.jjit_api ?? null,
+    can_mark_publications: true,
   };
 }
 
@@ -354,6 +357,8 @@ function initial(state: HarnessState): JobAdState {
       career: NO_CAREER_PAGE,
       reminders: null,
       pracuj_request: null,
+      jjit_api: null,
+      can_mark_publications: true,
     };
   }
   if (state === "published") {

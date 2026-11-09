@@ -10,16 +10,17 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
+
+pytestmark = pytest.mark.static
 
 APP = Path(__file__).resolve().parents[1] / "app"
 
-# Jedyne miejsca, które mogą jeszcze wymieniać kolumnę: definicja modelu,
-# zapis importu Traffita (NOT NULL) i lista kolumn należących do NEXUSA.
+# Jedyne miejsce, które może jeszcze wymieniać kolumnę: definicja modelu.
 _ALLOWED = {
     "models/job.py",
-    "services/traffit/importer.py",
-    "services/job_column_ownership.py",
 }
 
 

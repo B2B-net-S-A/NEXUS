@@ -30,6 +30,7 @@ import {
   CV_COMMAND_FOCUS_MAX,
   CV_COMMAND_HISTORY_MAX,
   CV_COMMAND_HISTORY_TEXT_MAX,
+  CV_PROPOSAL_PRESETS,
   networkCommandApi,
   type CvCommandPreset,
   type CvEditorCommandApi,
@@ -58,6 +59,20 @@ export interface AssistantQuestion {
   state: "open" | "busy" | "yes" | "no";
 }
 
+/**
+ * „Dopasuj pod rekrutację” (02.11.2026) i „+ Punkt do podsumowania” (07.11.2026):
+ * propozycje z cytatem czekają na wybór rekrutera.
+ */
+export interface AssistantProposals {
+  operations: CvPlanOperation[];
+  /** Wiersze CV z chwili wysłania wiadomości. */
+  lines: readonly CvLine[];
+  /** Rodzaj prośby, z której są propozycje — do pomiaru przy „Zastosuj”. */
+  preset?: string;
+  selected: number[];
+  state: "open" | "busy" | "done";
+}
+
 export interface AssistantMessage {
   id: number;
   role: "user" | "assistant";
@@ -69,6 +84,7 @@ export interface AssistantMessage {
   /** Słowa nowej treści do przeczytania (kontrola faktów ich nie ocenia). */
   words?: string[];
   question?: AssistantQuestion;
+  proposals?: AssistantProposals;
   /** „Cofnij”: dokument tuż po zmianie — cofnąć wolno, dopóki się nie zmienił. */
   undo?: { after: PMNode; state: "ready" | "done" };
   tone?: "info" | "error";
@@ -87,6 +103,10 @@ export interface CvAssistantController {
   canRewrite: boolean;
   answer: (messageId: number, yes: boolean) => Promise<void>;
   undo: (messageId: number) => void;
+  /** „Dopasuj pod rekrutację”: zaznacz albo odznacz propozycję. */
+  toggleProposal: (messageId: number, operationId: number) => void;
+  /** Nałóż zaznaczone propozycje jedną zmianą z „Cofnij”. */
+  applyProposals: (messageId: number) => Promise<void>;
 }
 
 interface Options {
@@ -108,6 +128,10 @@ const MSG_DRAFT = "Nie udało się założyć nowej wersji CV — nic nie zmieni
 /** Odpowiedź na pytanie: zmiana nic już nie zmienia albo edytor nie umie jej nałożyć. */
 const MSG_IDLE_ONE = "Tej zmiany nie da się już nałożyć na CV — nic nie zmieniłem.";
 const MSG_NOTHING = "Nie znalazłem zmian, które da się zrobić w tym CV.";
+const MSG_NO_PROPOSALS =
+  "Nie mam propozycji z potwierdzeniem w oryginale ani w rozmowie. To CV zostaje bez zmian.";
+const MSG_SUMMARY_POINT =
+  "Propozycja punktu do podsumowania. Pod spodem cytat ze źródła — zastosuj, jeśli pasuje.";
 /** Lista dłuższa niż jedna paczka zmian — reszta nie może przepaść po cichu (15.10.2026). */
 const MSG_TRUNCATED = ` Lista miała więcej zmian, niż asystent robi naraz (${CV_COMMAND_OPERATIONS_MAX}) — sprawdź, czego brakuje, i dopisz to w kolejnej wiadomości.`;
 const MSG_LATE = "Odpowiedź przyszła, gdy CV się zapisywało — nic nie zmieniłem. Napisz jeszcze raz.";
@@ -300,6 +324,7 @@ export function useCvAssistant({
   const applyNow = async (
     lines: readonly CvLine[],
     operations: readonly CvPlanOperation[],
+    preset?: string,
   ): Promise<
     | { after: PMNode; applied: CvPlanOperation[]; idle: number; unsupported: number }
     | { failed: "changed" | "draft" }
@@ -319,6 +344,12 @@ export function useCvAssistant({
     if (!result) return { failed: "idle", idle: idle.length, unsupported: unsupported.length };
     editor.view.dispatch(result.transaction);
     setAssistantHighlight(editor, result.changed);
+    // Ślad do pomiaru poprawek; jego awaria nie dotyczy rekrutera ani zmiany w CV.
+    if (stageId != null) {
+      void api
+        .applied?.(stageId, { preset: preset ?? null, operations: applied.length })
+        ?.catch(() => undefined);
+    }
     return { after: editor.state.doc, applied, idle: idle.length, unsupported: unsupported.length };
   };
 
@@ -376,6 +407,29 @@ export function useCvAssistant({
           push({ role: "assistant", text: result.message ?? MSG_FAILED, tone: "info" });
           return;
         }
+        if (input.preset && CV_PROPOSAL_PRESETS.has(input.preset)) {
+          const usable = result.operations.filter((operation) => canApply(operation, snapshot));
+          if (usable.length === 0) {
+            push({ role: "assistant", text: result.message ?? MSG_NO_PROPOSALS, tone: "info" });
+            return;
+          }
+          push({
+            role: "assistant",
+            text:
+              input.preset === "summary_point"
+                ? MSG_SUMMARY_POINT
+                : `Mam ${usable.length} ${proposalsLabel(usable.length)} pod tę rekrutację. Przy każdej jest cytat ze źródła. Wybierz, co zastosować.`,
+            proposals: {
+              operations: usable,
+              lines: snapshot,
+              preset: input.preset,
+              // Nowe słowa trzeba przeczytać, więc takie zmiany nie są zaznaczone z góry.
+              selected: usable.filter((operation) => operation.new_words.length === 0).map((operation) => operation.id),
+              state: "open",
+            },
+          });
+          return;
+        }
         const now = result.operations.filter((operation) => !operation.ask);
         // Pytanie o zmianę, której edytor i tak nie nałoży, nie ma sensu.
         const asks = result.operations.filter((operation) => operation.ask && canApply(operation, snapshot));
@@ -400,7 +454,7 @@ export function useCvAssistant({
           if (asks.length === 0) nothing(skippedNotes(idleDropped, unsupportedAsks));
           else if (unsupportedAsks > 0) push({ role: "assistant", text: skippedNotes(0, unsupportedAsks), tone: "info" });
         } else {
-          const outcome = await applyNow(snapshot, now);
+          const outcome = await applyNow(snapshot, now, input.preset);
           if (ticket.current !== mine) return;
           if ("failed" in outcome && outcome.failed !== "idle") {
             push({ role: "assistant", text: outcome.failed === "draft" ? MSG_DRAFT : MSG_CHANGED, tone: "error" });
@@ -494,6 +548,54 @@ export function useCvAssistant({
     }
   };
 
+  const toggleProposal: CvAssistantController["toggleProposal"] = (messageId, operationId) => {
+    update(messageId, (current) => {
+      if (!current.proposals || current.proposals.state !== "open") return current;
+      const { selected } = current.proposals;
+      return {
+        ...current,
+        proposals: {
+          ...current.proposals,
+          selected: selected.includes(operationId)
+            ? selected.filter((id) => id !== operationId)
+            : [...selected, operationId],
+        },
+      };
+    });
+  };
+
+  const applyProposals: CvAssistantController["applyProposals"] = async (messageId) => {
+    const proposals = messages.find((item) => item.id === messageId)?.proposals;
+    if (!proposals || proposals.state !== "open" || !enabled || pending || answering) return;
+    const chosen = proposals.operations.filter((operation) => proposals.selected.includes(operation.id));
+    if (chosen.length === 0) return;
+    setAnswering(true);
+    update(messageId, (current) => ({ ...current, proposals: { ...proposals, state: "busy" } }));
+    try {
+      const outcome = await applyNow(proposals.lines, chosen, proposals.preset);
+      if (!("after" in outcome)) {
+        update(messageId, (current) => ({ ...current, proposals: { ...proposals, state: "open" } }));
+        const text = { changed: MSG_CHANGED, draft: MSG_DRAFT, idle: MSG_IDLE_ONE }[outcome.failed];
+        push({ role: "assistant", text, tone: "error" });
+        return;
+      }
+      update(messageId, (current) => ({
+        ...current,
+        proposals: { ...proposals, state: "done" },
+        text: [
+          `Zrobione — ${changesLabel(outcome.applied.length)}, na kartce na zielono.`,
+          skippedNotes(outcome.idle, outcome.unsupported),
+        ]
+          .filter(Boolean)
+          .join(" "),
+        items: outcome.applied.map(describe),
+        undo: { after: outcome.after, state: "ready" },
+      }));
+    } finally {
+      setAnswering(false);
+    }
+  };
+
   const undo: CvAssistantController["undo"] = (messageId) => {
     const message = messages.find((item) => item.id === messageId);
     if (!editor || editor.isDestroyed || !message?.undo || message.undo.state !== "ready") return;
@@ -513,5 +615,7 @@ export function useCvAssistant({
     send,
     answer,
     undo,
+    toggleProposal,
+    applyProposals,
   };
 }

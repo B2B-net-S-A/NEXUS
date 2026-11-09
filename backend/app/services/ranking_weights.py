@@ -301,6 +301,8 @@ async def scoped_profiles(db) -> list[dict]:
 
 
 async def panel_state(db) -> dict:
+    from app.services.known_queue_points import MAX_POINTS, read_points
+
     published, profile, row = await published_panel(db)
     threshold_row = await db.get(AppSetting, THRESHOLD_KEY)
     draft = await read_draft(db)
@@ -330,6 +332,7 @@ async def panel_state(db) -> dict:
         "draft": draft_payload,
         "fixed": {"salary": FIXED_SALARY, "availability": FIXED_AVAILABILITY},
         "limits": {"threshold_min": THRESHOLD_MIN, "threshold_max": THRESHOLD_MAX},
+        "known_points": {**(await read_points(db)).as_dict(), "max": MAX_POINTS},
         "scoped_profiles": await scoped_profiles(db),
         "history": await history(db),
     }

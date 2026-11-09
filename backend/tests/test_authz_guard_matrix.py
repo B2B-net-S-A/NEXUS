@@ -34,6 +34,8 @@ from tests._authz_matrix import (
     write_golden,
 )
 
+pytestmark = pytest.mark.not_static
+
 _PERSONA_INDEX = {persona.key: index for index, persona in enumerate(PERSONAS)}
 # Trasy, o które pyta ``test_matrix_tells_the_roles_apart`` — są w każdym
 # wycinku macierzy, gdy sito dzieli ją między części (AUTHZ_MATRIX_SLICE).
@@ -42,6 +44,8 @@ _PROBES = frozenset(
         "POST /api/contracts",
         "GET /api/admin/section-permissions",
         "GET /api/auth/me",
+        "POST /api/finance/order-changes/checks",
+        "GET /api/finance/results",
     }
 )
 _SLICE = slice_from_env(os.environ.get("AUTHZ_MATRIX_SLICE"))
@@ -115,6 +119,18 @@ def test_matrix_tells_the_roles_apart(matrix) -> None:
         )
         == "P"
     )
+
+    # Uprawnienie odebrane jednej osobie zamyka trasę mimo roli (02.11.2026).
+    finance_module = "GET /api/finance/results"
+    assert _letter(matrix, finance_module, "finance") == "P"
+    assert _letter(matrix, finance_module, "finance-finance_module") == "D"
+
+    # 04.11.2026: zamówienia poza „Modułem Finanse”, a sekcja Finanse zamknięta.
+    orders = "POST /api/finance/order-changes/checks"
+    assert _letter(matrix, orders, "finance-finance_module") == "P"
+    assert _letter(matrix, orders, "back_office") == "P"
+    assert _letter(matrix, orders, "recruiter") == "D"
+    assert _letter(matrix, finance_module, "back_office") == "D"
 
     permissions_panel = "GET /api/admin/section-permissions"
     assert _letter(matrix, permissions_panel, "admin") == "P"

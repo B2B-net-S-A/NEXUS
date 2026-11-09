@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 28.10.2026
+> **Zgodność z systemem sprawdzona:** 08.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -33,6 +33,8 @@ szarym **pasem zamówienia** (numer, typ, okres, liczba osób i uwagi), a pod
 numerem stoi **budżet całego zamówienia** z paskiem — te same liczby co
 w panelu: przy MD „Budżet · wykorzystano · pozostało" (wspólna pula:
 „Wspólna pula: budżet …"), przy kosztowym „Kwota · zafakturowano · pozostało".
+Przy budżecie per osoba „pozostało" obejmuje ręczne korekty MD, tak samo jak
+wiersz osoby, a ich suma stoi obok w dopisku „w tym korekta".
 W wierszach osób kolumna **Zużycie** pokazuje, ile dana osoba wykorzystała na
 tym zamówieniu od jego początku: przy budżecie per osoba przycisk „Zużycie",
 przy wspólnej puli sumę jej MD ze zejść miesięcznych (kolumna „Zostało MD"
@@ -189,9 +191,9 @@ dane z dokumentu od klienta.
 
 Po każdym zatrudnieniu — z podpisu umowy i z ręcznego przestawienia na
 „zatrudniony" — dostajesz w panelu **„Moi klienci"** kartę „Nowy kontraktor —
-uzupełnij zamówienie", a dział Finansów powiadomienie o tym samym. To jedna
+uzupełnij zamówienie", a Finanse i Back office powiadomienie o tym samym. To jedna
 sprawa: gdy zapiszesz zamówienie z datą rozpoczęcia i stawką przychodową,
-karta i powiadomienie Finansów znikają od razu.
+karta i to powiadomienie znikają od razu.
 
 **2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Kliknij jej
 wiersz. W panelu, w sekcji bieżącego zamówienia, numer zamówienia, obie stawki
@@ -241,7 +243,7 @@ godzinę, pod polem pojawia się notka **„Różni się od stawki z rekrutacji 
 sprawdź”**. **Zapisu nic nie blokuje** — klient mógł przyjąć inną stawkę po
 negocjacji. Stawkę do klienta widzą tylko role, które widzą ją w rekrutacji
 (administrator, Head of Recruitment, Delivery Lead, Talent Community Manager,
-Finanse); pozostali widzą samą stawkę kandydata. Bez podglądu kwot klienta
+Finanse, Back office); pozostali widzą samą stawkę kandydata. Bez podglądu kwot klienta
 linii nie ma wcale.
 
 **Po renegocjacji stawki z klientem popraw stawkę do klienta w rekrutacji**
@@ -995,7 +997,10 @@ odczycie to nie awaria — to odmowa zgadywania.
 system obsługuje: w zamówieniach zbiorczych i w edycji zamówienia przyjmowany
 jest wyłącznie `.pdf`, a przy dodawaniu konsultanta i przy przedłużeniu
 pojedynczego zamówienia także `.docx`. O formacie decyduje treść pliku, nie
-jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Odczyt
+jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Plik Word,
+z którego nie da się wyjąć tekstu wprost (stary `.doc`, treść w polach
+tekstowych, skan wklejony do Worda), system zamienia na PDF i czyta jak PDF,
+w tych samych granicach co skany. Odczyt
 korzysta z modułu AI — jeżeli
 administrator go wyłączy albo ustawi miesięczny limit i ten się wyczerpie,
 zobaczysz komunikat „Odczyt AI jest chwilowo niedostępny (…). Wpisz dane
@@ -1502,6 +1507,7 @@ nie samą zakładkę. Karty są pogrupowane:
 | Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje to samo, czego wymaga aktywacja zamówienia: numer zamówienia, data startu, stawka przychodowa i kosztowa, a przy zamówieniu MD liczba MD, przy kosztowym — kwota. Data końca nie jest wymagana (zamówienie bezterminowe jest w porządku) | co 7 dni, dopóki czegoś brakuje |
 | | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie. Nie dotyczy osoby dopisanej do zamówienia zaplanowanego albo szkicu zamówienia MD/kosztowego ani zaplanowanego „Wejdź za konsultanta” — te czekają na swój dzień | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
+| | **[Klient] — faktura bez pozycji zamówienia** | faktura z KSeF czeka na Finanse, a jej pozycja wymienia osobę z kontraktem u tego klienta, która **w miesiącu usługi** nie ma pozycji zamówienia (faktury do 6 miesięcy wstecz). Dopisz pozycję albo sprawdź okres z Finansami | co 7 dni; karta znika sama po przypisaniu faktury albo dopisaniu pozycji |
 | Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach pracy, licząc tylko 8:00–18:00). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
 | | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia. Zakończenie współpracy zamyka kartę sama (to nie jest Twoje „zrobione”); cofnięte zakończenie przywraca ją |

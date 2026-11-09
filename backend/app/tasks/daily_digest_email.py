@@ -4,7 +4,8 @@ Dzień roboczy od 8:00 (`BUSINESS_TZ`, nie później niż 17:00) każda osoba
 z rolą operacyjną dostaje JEDEN mail z tym, co dziś na nią czeka — tą samą
 kolejką co panel „Czeka na Ciebie” na pulpicie
 (`api/board_tasks.build_board_tasks`), plus otwarte sprawy klientów DL
-i terminy rekrutacji w 7 dni. Pusty skrót nie wychodzi.
+i terminy rekrutacji w 7 dni. Osoby z „Sprzedaż: podgląd” dostają też sekcję
+„Mój dzień”, nawet bez roli operacyjnej. Pusty skrót nie wychodzi.
 
 Rezerwacja dnia, postęp wysyłki i ponowienia po restarcie (deploy w trakcie)
 to mechanizm raportów KPI (`tasks/kpi_email_reports._send_report`): wiersz
@@ -30,9 +31,11 @@ from app.models.dl_alert import DL_ALERT_STATUS_NEW, DlAlert
 from app.models.job import Job, JobStatus
 from app.models.user import User, UserRole
 from app.services import daily_digest, loop_heartbeat
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.dl_alerts import client_not_deleted_clause
 from app.services.effective_access import resolve_effective_access
 from app.services.job_team import jobs_worked_by_clause
+from app.services.sales.my_day import load_my_day
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -48,14 +51,15 @@ SEND_UNTIL_HOUR = 17
 CHECK_INTERVAL_SECONDS = 300
 DEADLINE_DAYS = 7
 
-# Kto dostaje skrót — rola główna albo dodatkowa. Admin bez tych ról nie:
-# jego sprawy (awarie) idą mailem natychmiast (`system_failure`).
+# Kto dostaje kolejkę rekrutacji — rola główna albo dodatkowa. Admin bez tych ról
+# nie: jego sprawy (awarie) idą mailem natychmiast (`system_failure`).
 DIGEST_ROLES = (
     UserRole.recruiter,
     UserRole.talent_community_manager,
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 
@@ -78,7 +82,6 @@ async def _recipients(db: AsyncSession) -> list[User]:
                     User.email.is_not(None),
                     # Własny wyłącznik konta (0425, „Moje powiadomienia”).
                     User.daily_digest_email_enabled.is_(True),
-                    reports._has_any_role(DIGEST_ROLES),
                 )
                 .order_by(User.id)
             )
@@ -88,7 +91,7 @@ async def _recipients(db: AsyncSession) -> list[User]:
     )
     for start in range(0, len(users), reports._ACCESS_BATCH):
         await resolve_effective_access(db, users[start : start + reports._ACCESS_BATCH])
-    return with_pipeline_read(users)
+    return [user for user in users if receives_digest(user)]
 
 
 async def recipient_count(db: AsyncSession) -> int:
@@ -108,6 +111,26 @@ def with_pipeline_read(users: list[User]) -> list[User]:
         for u in users
         if section_access_for_user(u, ProductSection.pipeline) >= SectionAccess.read
     ]
+
+
+def _gets_board(user: User) -> bool:
+    return user.has_any_role(*DIGEST_ROLES) and bool(with_pipeline_read([user]))
+
+
+def _gets_sales_day(user: User) -> bool:
+    """Sekcja Sprzedaży: uprawnienie z ekranu, nie rola (handlowcy to często „Pracownicy”).
+
+    Admin bez ról ze skrótu ma „Sprzedaż: podgląd” z samej roli i wyjątek powyżej
+    dalej go dotyczy: nie zaczyna dostawać maila przez nową sekcję.
+    """
+    if user.has_role(UserRole.admin) and not user.has_any_role(*DIGEST_ROLES):
+        return False
+    return has_permission(user, ProductAction.sales_view)
+
+
+def receives_digest(user: User) -> bool:
+    """Reguła odbiorcy skrótu; własny wyłącznik konta wisi na tej samej."""
+    return _gets_board(user) or _gets_sales_day(user)
 
 
 async def _open_client_cases(db: AsyncSession, user_id: int) -> int:
@@ -166,14 +189,20 @@ async def _renewals(db: AsyncSession, user: User, today) -> tuple:
 async def _mail_for(db: AsyncSession, user: User, today) -> Optional[reports._Mail]:
     from app.api.board_tasks import build_board_tasks
 
-    tasks = await build_board_tasks(db, user)
-    is_dl = user.has_any_role(UserRole.delivery_lead)
-    sections = daily_digest.build_sections(
-        tasks,
-        open_client_cases=await _open_client_cases(db, user.id) if is_dl else 0,
-        deadlines=await _deadlines(db, user.id, today),
-        renewals=await _renewals(db, user, today),
-    )
+    sections: list[daily_digest.Section] = []
+    if _gets_board(user):
+        tasks = await build_board_tasks(db, user)
+        is_dl = user.has_any_role(UserRole.delivery_lead)
+        sections += daily_digest.build_sections(
+            tasks,
+            open_client_cases=await _open_client_cases(db, user.id) if is_dl else 0,
+            deadlines=await _deadlines(db, user.id, today),
+            renewals=await _renewals(db, user, today),
+        )
+    if _gets_sales_day(user):
+        sections += daily_digest.sales_sections(
+            await load_my_day(db, user.id, now=local_now())
+        )
     if not sections:
         return None
     subject, text, html = daily_digest.render(user.name or user.email, sections, today)

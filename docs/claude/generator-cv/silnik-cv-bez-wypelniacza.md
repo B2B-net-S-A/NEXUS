@@ -46,7 +46,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   linii pytań (`screening_text_without_questions`).
 - **Branża tylko ze źródła (D1).** Schemat promptu: branża tylko, gdy CV ją
   opisuje; brak = pusty string. `_normalize_candidate_data` nie wpisuje już
-  „IT”; blind drukuje wtedy samo „Firma”.
+  „IT”; blind drukuje wtedy samo „Firma”. Branża nie stoi obok nazwy firmy
+  w dokumencie (decyzja Artura 03.11.2026, po zgłoszeniu z zespołu): szablon
+  HTML doklejał `firma · branża` i przez edytor trafiało to do zatwierdzonego
+  Worda, a Word prosto z generatora drukował samą firmę. Pole `industry`
+  zostaje w danych, bo korzysta z niego blind („Firma z branży X”). Istniejące
+  szkice i zatwierdzone CV zostały bez zmian; branżę kasuje w nich rekruter.
 - **Nagłówek = nazwa roli od klienta (D2).**
   `job_working_title.cv_role_title(title, client_reference, client_names)`
   zdejmuje prefiks klienta (`job_public_profile._strip_client_prefix`), numer
@@ -69,8 +74,8 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   expert”), a gdy człony mają spacje — na „ – ”. Na stagingu zmieniło to 34
   z 207 otwartych rekrutacji, wszystkie Nordei; „Replacement Senior …” bez
   separatora zostaje (to mogłaby być rola „Replacement Planner”).
-  Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
-  `cv_role_title`, nie surowy tytuł.
+  Gdy rekruter zostawi w polu „Stanowisko” podpowiedź, nagłówek bierze
+  `cv_role_title`, nie surowy tytuł (pole: `rekrutacja-tworzenie/trzy-nazwy-rekrutacji.md`).
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami
   klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Rekrutacja
   z bazy idzie zawsze przez `cv_role_title_for_job(db, job)` — to samo
@@ -82,6 +87,20 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   rekrutera → `cv_role_title(job)` → dopiero potem wynik modelu.
   `presentation_title.instructions` każe modelowi przepisać rolę bez zmian.
   QC CV ma porównywać nagłówek z tą samą funkcją (PR 2).
+- **Wyjątek: numer zapytania w nagłówku z reguły klienta (07.11.2026).**
+  Pomiar na kopii produkcji: w rekrutacji „AML Analyst (43114)” 12 CV miało
+  numer dopisany ręcznie. Decyzja Artura: pole reguły CV klienta
+  `cv_title_with_reference` (migracja 0661 + lustro w `entrypoint.sh`,
+  przełącznik „Numer zapytania w nagłówku CV” w `/settings/cv-rules`), dla
+  Nordei włączone w katalogu polityk (`cv_policies.json`, wersja 4).
+  Nagłówek = `cv_header_title(rola, client_reference, True)`: „AML Analyst
+  (43114)”, numer, który już stoi w nazwie, nie wraca drugi raz. Dokłada go
+  `client_rules.apply_header_reference` w obu pipeline'ach PRZED migawką
+  `render_payload`; **nazwa pliku liczy się dalej z samej roli**. Ten sam
+  nagłówek dostaje kopia CV etapu (`detached_copy_settings.job_title`),
+  a QC (`expected_titles`) stawia go pierwszy, więc „Zmień tytuł” wpisuje
+  wersję z numerem, a sama rola dalej jest zgodna. Bez włączonego pola
+  wszystko jak w D2/D4. Testy: `tests/test_cv_title_with_reference.py`.
 - **Lata** (`_helpers._fix_experience_years`, `_fix_scoped_years`):
   - liczba z ułamkiem jest dopasowywana w całości (`4,5 roku` nie daje już
     `4.4 lata`), liczby > 99 to daty i zostają („od 2023 roku”);
@@ -90,6 +109,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   - „N lat doświadczenia jako X” = `min(cała kariera, max(liczba modelu,
     role X))` — kod nigdy nie dopisuje lat z cudzych ról („3 lata jako Data
     Engineer” przy latach w sklepie nie staje się „13 lat”);
+  - **od 02.11.2026 bez zaokrąglania w górę** (decyzja Artura po audycie CV
+    wgrywanych ręcznie, 19 z 67 plików zmieniało tę liczbę, najczęściej w dół):
+    `_tenure_text` pisze pełne lata w dół, a od 3 dodatkowych miesięcy „Ponad N
+    lat” / „Over N years”. To odwraca zasadę „staż nie może być zaniżany”
+    i starą uwagę „5 lat ma być 5, nie ponad 4”. Bezpiecznik fabrykacji dalej
+    czyta zaokrąglone `_total_experience_years` (±1);
   - cała reszta („2 lata w SQL”, „2.5 years combined …”) zostaje, jak
     napisał model.
 - **Notatki dla modelu** (`collect_screening_notes_text`):
@@ -258,3 +283,173 @@ czytają odpowiedzi bez linii `P:` (reguła „pytanie ≠ fakt” wyżej), wię
   „tak/nie” albo zaślepce (`lib/screening-answer-hint.ts`).
 - Testy: `test_cv_generator_b2b_pipeline.py` (sekcja „Odpowiedź, która odsyła
   do pytania”).
+
+## Reguły promptu po audycie CV wgrywanych ręcznie (02.11.2026)
+
+Pomiar: 87 z 319 CV do klienta to pliki przerobione poza NEXUSEM, 79 z nich po
+generacji; raport https://claude.ai/artifact/8GYHqERnTEipVcEVBwdPym (prywatny).
+Zmiany tylko w `legacy_v7/prompts.py` (PL i EN), kod v10 bez zmian:
+
+- **Punkt „Dlaczego nasz kandydat”**: pełne zdanie do ~30 słów pod jedno
+  z najważniejszych wymagań, zamiast „jedna linijka do ~18 słów”. Zakaz punktu
+  wyliczającego wymagania zostaje.
+- **Limity punktów**: starsze role 6 zamiast 4, role sprzed ponad 10 lat 3
+  zamiast 2. W 136 z 331 ról pliki miały więcej punktów niż generator.
+- **Fakt o obecnej pracy** („aktualnie”, „w obecnym projekcie”) wolno przypisać
+  do najnowszej roli. Reszta faktów z rozmowy dalej wymaga nazwy firmy albo
+  projektu w odpowiedzi.
+- **Umiejętności**: pierwsze kategorie nazwane obszarami z wymagań klienta.
+- **Posiadany must-have w opisie roli**: gdy źródło pokazuje użycie w tej roli,
+  punkt ma go nazwać wprost, także gdy stoi już w umiejętnościach.
+- **Bez zmian:** generator nie dopisuje tego, czego nie ma w źródłach.
+
+Pomiar na prawdziwym generatorze (20 par, stare i nowe reguły, bez zapisu):
+słowa w punkcie „Dlaczego” 13,9 → 18,9 (pliki 21), wymagania bez źródła 5 → 5,
+wymagania w całym CV 109 → 110 na 175. Wymagania w opisach ról 76 → 70 (pliki
+85): prompt tego nie podnosi, różnica mieści się w rozrzucie modelu. Od tego
+jest pytanie o rolę przy potwierdzeniu i przed generacją.
+
+## Numery w „Dlaczego nasz kandydat” i kategoria „Must-have” (04.11.2026)
+
+Zgłoszenia z zespołu: punkty „1. …”, „2. …” obok punktorów i pierwsza kategoria
+umiejętności „Must-have (zgodne z wymaganiami)”, która powtarza pozostałe. Prompt
+miał numerowane przykłady w schemacie `why_points`, a od #2876 kazał nazywać
+pierwsze kategorie „obszarami z wymagań klienta”. Na kopii produkcji z 03.11 numerów
+nie ma w żadnym z 3754 CV sprzed przełączenia generatora na Sola (#2965), „Must-have”
+i podobne etykiety są w 5.
+
+- **Prompt `legacy_v7` (wersja 11):** przykłady bez numerów, punkt bez znaków listy,
+  nazwa kategorii to obszar, bez słów „must-have”, „nice-to-have”, „wymagania”.
+- **`_strip_why_markers`** zdejmuje znak listy i numer zgodny z pozycją punktu. Zostają
+  „3.5 roku” i „5. miejsce w hackathonie” na innym miejscu niż piąte.
+- **`clean_requirement_skill_labels`:** kategoria z samą nazwą o wymaganiach znika, a
+  technologia, której nie ma w innych kategoriach (całe słowa, „Java” nie stoi
+  w „JavaScript”), zostaje pod „Kluczowe technologie”. „Must-have / Analytical tools”
+  traci samo słowo. „Analiza wymagań” to prawdziwy obszar i zostaje.
+- Kod v10 bez zmian: jego prompt nie ma numerów ani tej reguły. CV wygenerowane
+  wcześniej nie zmieniają się same.
+
+## Standard 5 punktów „Dlaczego nasz kandydat” (05.11.2026)
+
+Ustalenie zespołu i decyzja Artura zamiast wyboru układu przed generacją. Makiety:
+https://claude.ai/artifact/P6xe6hTbFptKcPsUNk7VAD. Zastępuje limit „3–5 punktów” i układ
+z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, w 84% od 03.11
+(43 CV), a 171 z 481 CV etapu miało tę sekcję poprawioną ręcznie.
+
+- **Układ (`legacy_v7/prompts.py`, wersja 12):** punkt 1 lata doświadczenia na stanowisku,
+  punkt 2 specjalizacja w technologiach, punkty 3–5 po jednym must-have z Championa. Bez
+  Championa albo przy mniej niż trzech potwierdzonych must-have punkty 3–5 opisują
+  doświadczenie najważniejsze dla roli.
+- **Dokładnie 5, ale bez wypełniacza.** Gdy źródła nie dają faktów, punktów jest mniej,
+  a rekruter dostaje uwagę. Limit klienta `why_points_max` dalej wygrywa.
+- **`_apply_summary_standard` domyka w kodzie:** szósty punkt znika przed ostatnim, bo
+  u Nordei ostatni mówi o Scrumie/Agile; lata w punkcie 1 nie przekraczają sumy dat ról; punkt 1
+  bez lat daje uwagę. Niższa liczba zostaje, bo może być stażem na stanowisku.
+- **Nordea:** punkt 5 o pracy w Scrumie/Agile, gdy źródła to potwierdzają
+  (`generator_instructions` w `cv_policies.json`). Bez potwierdzenia zostaje punkt o must-have
+  i uwaga modelu o pominiętej instrukcji. Polityka centralna nie dokłada do każdego CV uwagi
+  „zastosowano instrukcje”.
+- **Bez oceny dopasowania.** Generator nie pisze, że kandydat albo profil spełnia wymagania klienta.
+  Prompt zakazuje tego w całym CV, a `_FIT_VERDICT_RE` usuwa taki punkt z podsumowania i zostawia uwagę.
+  Wzorzec wymaga podmiotu „kandydat, profil, kompetencje”, bo „meeting SLA requirements” i „zgodnie
+  z wymaganiami klientów” to fakty: na 1415 CV szerszy wzorzec dał 1 prawdziwe trafienie.
+- **Punkt 1 przy nowej roli:** poniżej roku na stanowisku podaje lata w pokrewnych rolach. Na Solu
+  kandydat 510795: „Less than 1 year” w 2 z 4 biegów przed zmianą, w 0 z 6 po zmianie.
+- **„At most four” z `presentation_title` zastąpione pięcioma punktami**, a „Dopasuj pod
+  rekrutację” w edytorze zmienia tylko punkty 3–5.
+- **Must-have na górze roli przestawia kod** (`_must_have_bullets_first`, tylko „Pod rekrutację”
+  z Championem): punkty z must-have idą na górę, od najważniejszego wymagania, bez zmiany
+  treści, przed limitem punktów klienta. Prośba w prompcie odpada: podniosła udział ról
+  z must-have na górze tylko z 66% do 73%, a uwagi kontroli w doświadczeniu z 34 do 52.
+- **Testuj na modelu z produkcji** (`CV_B2B_MODEL` bez zmian, Sol), nigdy na Opusie. Pomiar na Solu:
+  12 kandydatów, 48 biegów: 5 punktów w 48, specjalizacja w 48, lata na początku w 46, a 2 razy
+  „Less than 1 year” z uwagą. Nordea ze Scrumem w źródłach 24 z 24, bez źródeł Scrum nie
+  pojawia się (8 z 8). Model zgłaszał pominięcie tylko w 2 z 8, więc uwagę daje kod
+  (`summary_last_point_terms` w katalogu). CV wygenerowane wcześniej nie zmieniają się same.
+- **Niższe lata na stanowisku albo w obszarze to nie fabrykacja** (`_helpers._position_or_area_years_within_dates`,
+  tylko `legacy_v7`, tylko `why_points`). Standard każe pisać staż na stanowisku, a test na Solu
+  dawał „BRAK POKRYCIA” przy „4 lata doświadczenia jako SQL Developer” (11,9 roku z dat) i „Over 14
+  years of experience as an SDET” (23,2 roku), w każdym biegu. Bez uwagi: liczba nie większa niż suma
+  dat ról, stojąca przy „jako”, „as”, „na stanowisku”, „w roli” albo przy obszarze ze zwykłych słów
+  („w analizie danych”, „in test automation”, „w IT”). Uwaga zostaje przy liczbie ponad sumę dat, przy
+  samej liczbie, przy roli bez czytelnych dat, w obowiązkach ról i przy wszystkim z wielką literą po
+  „w” („w Oracle Database”, „w Bank Millennium”), a także przy „z”, „with”, „at” i „of” („4 lata
+  z Kafką”, „4 years of Go”), bo daty ról nie potwierdzają stażu w technologii ani firmie.
+  Bezpiecznik nie sprawdza, czy kandydat naprawdę był na tym stanowisku; to czyta kontrola AI.
+  Pomiar na 3150 CV z kopii produkcji (120 dni): uwag o latach w `why_points` 739 → 295.
+
+## Umiejętności i zdania w punktach 3–5 (06.11.2026)
+
+Zgłoszenie z zespołu: „praca zdalna” wśród metodyk, „Pozostałe: KSeF”, języki obce w umiejętnościach
+przy osobnej sekcji, punkty 3–5 zaczynające się od technologii. Na 1080 CV od 06.10: kategoria
+„Pozostałe/Other” w 147, tryb pracy, cechy osobiste albo prawo jazdy w 87, kategoria miękka w 59.
+Makiety: https://claude.ai/artifact/E3xpCnq7o7PqG8TRHJdMzW
+
+- **Punkty 3–5 to zdania od czasownika** (prompt), a etykietę „X: …” do 5 słów zdejmuje
+  `_drop_why_labels`. Na Solu etykiety miało 44 z 54 punktów, po zmianie 0. Przykład w schemacie
+  z 05.11 („[must-have]: co robił”) sam ją podsuwał. Punkt 2 „Specjalizacja: …” zostaje.
+- **Umiejętności to umiejętności** (prompt reguły 4a i 4b): bez trybu pracy, cech osobistych,
+  prawa jazdy i języków obcych; metodyka to sposób pracy zespołu, wzorce projektowe to praktyka.
+  `clean_skill_sections` usuwa pozycje z zamkniętej listy i kategorie miękkie, a język obcy
+  przenosi do sekcji „Języki”, gdy go tam nie ma. Rekruter dostaje uwagę z listą usuniętych pozycji.
+- **Stała lista nazw kategorii** (4b, PL i EN), najwyżej 8, bez „Pozostałych”. Kategorie
+  z posiadanymi must-have idą pierwsze. Na Solu (9 CV, po 2 biegi): różnych nazw 63 → 24,
+  wszystkie 95 kategorii z listy, pozycji 631 → 642.
+- **Metodyki trafiają do „Metodyk”**, nie są już „tylko kontekstem”. Model i tak gubił Scruma
+  u Scrum Mastera, więc `keep_source_methodologies` dopisuje metodykę, którą oryginał wymienia
+  z nazwy (Scrum, Kanban, SAFe, Agile, PRINCE2, ITIL). Może przez to powstać 9. kategoria.
+- Kod nie przypisuje kategorii sam: słownik NEXUSA obejmuje dziś 35% pozycji z CV.
+
+## Języki w osobnych akapitach (07.11.2026)
+
+Pomiar na kopii produkcji (266 CV zatwierdzonych od 12.10): 14 CV miało
+sekcję języków rozbitą ręcznie z jednej linii „English - B2 · Polish - native”.
+Word (oba renderery) od dawna drukuje każdy język jako osobny punkt, a kartka
+edytora pokazywała jedną linię. `html_export.render_interactive_html` składa
+teraz jeden `<p>` na język; `cv_approved_docx.render_languages` dalej dzieli
+po „ · ” starsze CV. Poziomów (CEFR) kod nie dopisuje. Szkice sprzed zmiany
+zostają, jak były.
+
+## Daty stanowisk jak w oryginale (02.11.2026)
+
+Zgłoszenie rekruterki: koniec pracy 05.2026 stawał się w CV firmowym „obecnie”.
+Pomiar (797 CV z 30 dni, tylko odczyt): 59 z 555 porównywalnych „obecnie” przeczyło
+oryginałowi. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip. Decyzja
+Artura: oryginał wygrywa także wtedy, gdy kandydat mówi w rozmowie co innego. Taką
+zmianę rekruter wpisuje ręcznie w edytorze.
+
+- **Reguła w `services/cv_source_dates.py`.** Różnica liczy się tylko przy pewnym
+  dopasowaniu: w oryginale jeden okres z tym samym początkiem, a do 400 znaków od
+  niego nazwa firmy albo stanowiska. Studia z tym samym początkiem nie zamykają pracy,
+  a inny okres trwający tej samej firmy (złączone awanse) zostawia „obecnie”.
+- **Generator poprawia sam tylko fałszywe „obecnie”** (`restore_experience_dates`,
+  przed kolejnością stanowisk i latami, w `legacy_v7` i `v10`), także zapisane datą:
+  bieżący miesiąc jako koniec przy wcześniejszym końcu w oryginale (próba na prawdziwym
+  generatorze: 11.2026 przy 09.2026). Inna data końca bywa
+  świadomym złączeniem albo podziałem ról („Wcześniejsze projekty”, awanse), więc kod
+  jej nie zmienia. Pomiar: 46 ról poprawionych, wszystkie przejrzane ręcznie.
+- **Prompt `legacy_v7` (wersja 10):** „obecnie” tylko, gdy źródło podaje stanowisko
+  jako trwające, a data końca ze źródła przechodzi bez zmian.
+- **Uwaga QC „Daty stanowisk jak w oryginale”** (`role_dates`, nie blokuje) pokazuje
+  każdą różnicę: fałszywe „obecnie”, odwrotnie i inną datę końca (90 ról na 795 CV).
+  Przycisk „Przywróć daty z oryginału” (`restore_dates`, `role_index`) zmienia jedno
+  stanowisko i nie wchodzi do „Popraw wszystko”. Bez znaczników stanowisk i bez tekstu
+  oryginału sprawdzenie nie dotyczy. `QC_VERSION` bez zmian: zaliczenie jest to samo.
+- CV wygenerowane wcześniej nie zmieniają się same.
+
+Testy: `tests/test_cv_source_dates.py`, sekcja „Daty stanowisk” w `tests/test_cv_qc.py`,
+`CvQcDialog.test.tsx` („Daty stanowisk jak w oryginale”).
+
+## Jednorazowa poprawka CV z nazwą usługi (03.11.2026)
+
+CV powstałe przed #2872 miały nagłówek i plik „usługi programistyczne”. Decyzja Artura:
+wszystkie CV etapu w otwartych rekrutacjach, także zatwierdzone i z etapu „Rozmowa”.
+Krok `cv-service-title-repair` w `entrypoint.sh`, kod `services/cv_service_title_repair.py`.
+
+- Zły nagłówek w szkicu: podmiana w `<h1>` i w pliku. Zły nagłówek w CV zatwierdzonym:
+  zamrożona wersja zostaje, nowy szkic czeka na zatwierdzenie człowieka.
+- Dobry nagłówek: tylko nazwa pliku, także na zamrożonych wersjach, a plik bierze nazwę
+  z nagłówka. Bez ponownego zatwierdzania.
+- Ponad 40 CV krok niczego nie zmienia i nie stawia markera. Stare wartości są
+  w `activities` (`branded_cv_service_title_repair`), paragon ma same liczby.
+- `cv_generated_documents` zostają historią generacji.

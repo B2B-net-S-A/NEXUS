@@ -67,6 +67,7 @@ export type Capability =
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
   | "candidate.document.remove"
+  | "candidate.identity_quarantine.override"
   | "candidate.profile_fact.manage"
   | "candidate.requirement.verify"
   // ── Kuratela portfela klientów ─────────────────────────────────────────────
@@ -89,9 +90,10 @@ export type Capability =
   | "nav.finance"
   // Sprzedaż (Atlas → NEXUS, 26.10.2026) → uprawnienie `sales_view`.
   | "nav.sales"
+  // Umowy klientów (04.11.2026) → uprawnienie `client_contracts_view`.
+  | "nav.client_contracts"
   // ── Praktykanci (0374) ─────────────────────────────────────────────────────
-  | "nav.trainee"
-  | "nav.trainees";
+  | "nav.trainee";
 
 /** Wszystkie role operacyjne — czyli wszyscy POZA read-only viewerem `user`.
  *  Odpowiednik backendowego `OperationalUser` (deps.py). */
@@ -102,6 +104,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ];
 
 /** Role operacyjne plus „Automatyzacje” (0446) — lustro odczytowych zbiorów
@@ -120,6 +123,7 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ];
 
 /**
@@ -171,6 +175,7 @@ const ALL_ROLES: readonly UserRole[] = [
   "recruiter",
   "user",
   "automation",
+  "back_office",
 ];
 
 /**
@@ -236,6 +241,9 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // DELETE /api/candidates/{id}/documents/{doc_id} →
   // CandidateDocumentRemoveAccess (candidate_access.py).
   "candidate.document.remove": DOCUMENT_REMOVERS,
+  // POST /api/candidates/{id}/identity-quarantine/…/override →
+  // CandidateIdentityQuarantineOverrideAccess (candidate_access.py).
+  "candidate.identity_quarantine.override": DOCUMENT_REMOVERS,
   // GET/PUT /api/candidates/{id}/languages + GET/PATCH .../profile-rate →
   // CandidateProfileFactsReadAccess i CandidateProfileFactsWriteAccess
   // (candidate_access.py); OBA = _INTERNAL_OPERATIONAL_ROLES, stąd jeden wpis
@@ -285,14 +293,12 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.finance": BY_PERMISSION_ONLY,
   // → uprawnienie `sales_view` (bez sekcji produktu, jak „Ludzie”).
   "nav.sales": BY_PERMISSION_ONLY,
-  // Praktykant (0374) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
-  // `/api/trainee/today|items/*` przyjmują tylko rolę `trainee` (własna
-  // lista). Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
+  // → uprawnienie `client_contracts_view` (bez sekcji produktu, jak Sprzedaż).
+  "nav.client_contracts": BY_PERMISSION_ONLY,
+  // Praktykant (0374): program i trasy `/api/trainee/*` usunięto 08.11.2026,
+  // rola została. Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
   // wpisów rejestru (świadomie NIE ma jej w `ALL_ROLES`).
   "nav.trainee": ["trainee"],
-  // Panel „Praktykanci” i reguły listy — `/api/trainee/overview|programs|
-  // quality-sample|rules` dla admina i Head of Recruitment.
-  "nav.trainees": ["admin", "head_of_recruitment"],
 };
 
 /**
@@ -342,11 +348,14 @@ export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
   "nav.order_mail": "delivery_view",
   "nav.my_relationships": "delivery_view",
   "nav.contracts": "delivery_view",
-  // /api/finance/* → FinanceModuleUser = „Moduł Finanse”
+  // /finance: zakładki o zamówieniach stoją za `orders_work`, a „Moduł Finanse”
+  // je pociąga, więc jedno uprawnienie opisuje każdego, kto ma tu wejść.
   // (backend/app/api/deps.py).
-  "nav.finance": "finance_module",
+  "nav.finance": "orders_work",
   // /api/sales/* → SalesViewUser = „Sprzedaż: podgląd” (backend/app/api/sales_gates.py).
   "nav.sales": "sales_view",
+  // /api/client-contract-documents → ClientContractsViewUser („Umowy klientów”).
+  "nav.client_contracts": "client_contracts_view",
 };
 
 type SectionRequirement = {
@@ -383,6 +392,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "hm_feedback.record": { section: "pipeline", required: "write" },
   "candidate.document.manage": { section: "sourcing", required: "write" },
   "candidate.document.remove": { section: "sourcing", required: "write" },
+  "candidate.identity_quarantine.override": { section: "sourcing", required: "write" },
   "candidate.profile_fact.manage": { section: "sourcing", required: "write" },
   "candidate.requirement.verify": { section: "sourcing", required: "write" },
   "client.portfolio.manage": { section: "delivery", required: "write" },
@@ -398,7 +408,6 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "nav.contracts": { section: "delivery", required: "read" },
   // `/api/dashboard/v2/recruitment-stats` wymaga Insights (F02).
   "dashboard.recruitment_stats.view": { section: "insights", required: "read" },
-  "nav.finance": { section: "finance", required: "read" },
 };
 
 export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
@@ -420,6 +429,7 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "hm_feedback.record",
   "candidate.document.manage",
   "candidate.document.remove",
+  "candidate.identity_quarantine.override",
   "candidate.profile_fact.manage",
   "candidate.requirement.verify",
   "client.portfolio.manage",

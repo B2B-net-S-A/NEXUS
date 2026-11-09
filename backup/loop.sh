@@ -56,6 +56,18 @@ RETRY_DELAY="${BACKUP_RETRY_DELAY_SECONDS:-900}"
 HEARTBEAT=/tmp/backup-heartbeat
 RUN_MARKER=/tmp/backup-run-started
 
+# `sh` jako PID 1 ignoruje SIGTERM bez własnej pułapki, więc każde wdrożenie
+# czekało na tym kontenerze pełne 30 s `docker stop` i kończyło go SIGKILL-em
+# (zmierzone 03.11.2026). Trwający backup.sh działa na pierwszym planie, więc
+# pułapka nie przerywa go wcześniej niż dotąd robił to SIGKILL.
+trap 'exit 0' TERM INT
+
+# `sleep` w tle z `wait`, bo pułapka czeka na koniec polecenia z pierwszego planu.
+pause() {
+    sleep "$1" &
+    wait $!
+}
+
 # Liveness signal for the compose healthcheck (backup/healthcheck.sh). A
 # detached ticker rather than a touch inside the main loop, because the main
 # loop spends ~24h in a single `sleep` and hours inside a run: without an
@@ -91,7 +103,7 @@ run_backup_with_retries() {
             return 1
         fi
         echo "[backup-loop] attempt ${_attempt}/${RETRIES} failed; retrying in ${RETRY_DELAY}s" >&2
-        sleep "$RETRY_DELAY"
+        pause "$RETRY_DELAY"
         _attempt=$((_attempt + 1))
     done
 }
@@ -121,7 +133,7 @@ while true; do
     [ "$sleep_secs" -le 0 ] && sleep_secs=$(( sleep_secs + 86400 ))
 
     echo "[backup-loop] next run in ${sleep_secs}s"
-    sleep "$sleep_secs"
+    pause "$sleep_secs"
 
     # A failing backup must not kill the scheduler, or one bad night silently
     # ends all future backups -- the container would sit "restarting" or exited
@@ -130,5 +142,5 @@ while true; do
 
     # Guard against drift: if the run finished within the same hour, wait past
     # it so the loop cannot fire twice in one day.
-    sleep 3600
+    pause 3600
 done

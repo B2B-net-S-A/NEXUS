@@ -29,6 +29,18 @@ describe("job-background-events", () => {
     expect(backgroundEventMessage(ev({ kind: "new_cv_proposals", count: 5, trigger: "job_publish" }))).toBe(
       "Po publikacji rekrutacji: 5 propozycji.",
     );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 5, why: "fresh_seat" }))).toBe(
+      "Rano 5 zamian: karty nietknięte od 7 dni ustąpiły osobom nowym w bazie.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 2, why: "batch_reset" }))).toBe(
+      "System wycofał z „Nowych” 2 swoje osoby — porządki przed porcją dnia.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill", count: 3, target: 5 }))).toBe(
+      "System dodał do „Nowych” 3 osoby — kolumna trzyma się na 5.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill", count: 3 }))).toBe(
+      "System dodał do „Nowych” 3 osoby — kolumna trzyma się na 20.",
+    );
     expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 3 }))).toBe(
       "System wycofał z „Nowych” 3 swoje osoby — stawka ponad budżetem.",
     );

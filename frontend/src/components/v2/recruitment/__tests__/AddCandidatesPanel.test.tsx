@@ -67,6 +67,7 @@ const proposalsState = {
   dismiss: (...a: unknown[]) => dismiss(...a),
   dismissing: false,
   status: {
+    newInBaseTotal: 0,
     run: {
       data: undefined as unknown,
       runId: null as string | null,
@@ -699,6 +700,29 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(within(developer).queryByTestId("pick-row-role-mismatch")).toBeNull();
     expect(within(developer).getByText("72%")).toBeTruthy();
     expect(within(developer).getByTestId("pick-row-must-coverage")).toHaveTextContent("musi mieć 9/10");
+  });
+
+  it("osoba, która sama aplikowała na inną rekrutację, ma „Aplikował na: …” (07.11.2026)", async () => {
+    proposalsState.entries = [entry(1, "Ciepła Osoba", ["inbox"], { fitScore: 74 })];
+    factsApi.mockResolvedValue({
+      job_id: 5,
+      items: [
+        {
+          candidate_id: 1, title: "Data Engineer", company: null, years_experience: 5, city: null,
+          max_onsite_days_per_week: null, remote_modes: [], availability_status: null, availability_date: null,
+          expected_rate_hourly: null, expected_rate_currency: null, expected_rate_redacted: false, client_history: null,
+          role_mismatch: null,
+          applied_to: [
+            { job_id: 789186, title: "Data Engineer (ZOB-3155)", applied_at: "2026-11-05T12:00:00Z" },
+            { job_id: 789196, title: "AI Engineer (ZOB-3154)", applied_at: "2026-11-01T12:00:00Z" },
+          ],
+        },
+      ],
+    });
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
+    const chip = await within(list).findByTestId("pick-row-applied-to");
+    expect(chip).toHaveTextContent("Aplikował na: Data Engineer (ZOB-3155) +1");
   });
 
   it("osoba tylko z portalu ogłoszeń: procent NEXUSA z `/scores`, wynik scrapera w dymku; kolejność po procencie NEXUSA (27.10.2026)", async () => {
@@ -1408,6 +1432,32 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect(screen.getByRole("tab", { name: /Propozycje z bazy/ })).toHaveTextContent("Propozycje z bazy· 1");
     });
 
+    it("nowi w bazie stoją w osobnej sekcji nad wyższym wynikiem (03.11.2026)", async () => {
+      const fresh = (id: number, name: string, fitScore: number, at: string) => {
+        const e = entry(id, name, ["inbox"], { sources: ["new_cv"], fitScore });
+        Object.assign(e.detail, { newInBaseAt: at });
+        return e;
+      };
+      const today = new Date().toISOString();
+      proposalsState.entries = [
+        entry(1, "Anna Starsza", ["inbox"], { sources: ["full_base"], fitScore: 95 }),
+        fresh(2, "Bartek Nowy", 71, today),
+        fresh(3, "Celina Nowa", 74, today),
+      ];
+      renderPanel();
+      const list = await screen.findByRole("list", { name: "Propozycje z bazy: nowi w bazie" });
+      expect(within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "Zaznacz Celina Nowa",
+        "Zaznacz Bartek Nowy",
+      ]);
+      expect(screen.getByTestId("proposals-new-in-base")).toHaveTextContent("Nowi w bazie · 2 osoby");
+      expect(within(list).getAllByTestId("pick-row-new-in-base")[0]).toHaveTextContent("Nowy · dziś");
+      const rest = screen.getByRole("list", { name: "Propozycje z bazy" });
+      expect(within(rest).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "Zaznacz Anna Starsza",
+      ]);
+    });
+
     it("bez nikogo od progu lista mówi to wprost, a najlepsi spod progu dalej są", async () => {
       proposalsState.entries = [below(2, "Bartek Spod", 65)];
       renderPanel();
@@ -1494,6 +1544,118 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       await userEvent.click(within(alert).getByRole("button", { name: "Ponów" }));
       await waitFor(() => expect(screen.queryByTestId("hidden-by-critical-error")).toBeNull());
       expect(screen.queryByTestId("hidden-by-critical")).toBeNull();
+    });
+  });
+
+  describe("jedna lista (`single_list`)", () => {
+    const COUNTS = { all: 7, applied: 1, new_in_base: 2, portal: 3, known: 1, similar: 4 };
+
+    beforeEach(() => {
+      countsApi.mockResolvedValue({
+        job_id: 5,
+        days: 7,
+        postings_recent: 3,
+        base: 4,
+        screened_out: 0,
+        not_searchable_must: [],
+        single_list: true,
+      });
+      (proposalsState.status as Record<string, unknown>).labelCounts = COUNTS;
+    });
+
+    function singleEntry(id: number, name: string, labels: string[], sources: string[]) {
+      const made = entry(id, name, ["inbox"], { sources });
+      return { ...made, detail: { ...made.detail, labels } };
+    }
+
+    it("trzy zakładki zamiast pięciu i filtry-plakietki z liczbami", async () => {
+      renderPanel();
+      const group = await screen.findByTestId("single-list-filters");
+      const tabs = within(screen.getByRole("tablist", { name: "Źródło kandydatów" })).getAllByRole("tab");
+      expect(tabs.map((t) => t.textContent)).toEqual(["Kandydaci· 7", "Szukaj w bazie", "Szukaj ręcznie· —"]);
+      expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
+        "Wszyscy7",
+        "Zgłosili się1",
+        "Nowi w bazie2",
+        "Z portali3",
+        "Podobne4",
+        "Znamy1",
+      ]);
+      expect(within(group).getByRole("button", { name: /Wszyscy/ })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("filtr portali i podobnych idzie adresem, pozostałe zostają w panelu", async () => {
+      const { props } = renderPanel();
+      const group = await screen.findByTestId("single-list-filters");
+      await userEvent.click(within(group).getByRole("button", { name: /Z portali/ }));
+      expect(props.onTabChange).toHaveBeenLastCalledWith("postings");
+      await userEvent.click(within(group).getByRole("button", { name: /Podobne/ }));
+      expect(props.onTabChange).toHaveBeenLastCalledWith("similar");
+      await userEvent.click(within(group).getByRole("button", { name: /Znamy/ }));
+      expect(props.onTabChange).toHaveBeenLastCalledWith("base");
+      expect(within(group).getByRole("button", { name: /Znamy/ })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("stary adres „Nowi z ogłoszeń” otwiera listę z filtrem portali i odłożonymi zgłoszeniami", async () => {
+      renderPanel({ tab: "postings" });
+      const group = await screen.findByTestId("single-list-filters");
+      expect(within(group).getByRole("button", { name: /Z portali/ })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("screened-out")).toBeInTheDocument();
+      expect(screen.queryByTestId("hidden-by-critical")).toBeNull();
+    });
+
+    it("„Podobne” zostawia narzędzie przepięć pod listą, ze stopką przepięć bez zaznaczeń", async () => {
+      renderPanel({ tab: "similar" });
+      await screen.findByTestId("single-list-filters");
+      expect(screen.getByTestId("similar-body")).toBeInTheDocument();
+      expect(screen.getByTestId("similar-footer")).toBeInTheDocument();
+    });
+
+    it("wiersze mają plakietki źródła i zostają w kolejności z serwera", async () => {
+      proposalsState.entries = [
+        { ...singleEntry(1, "Niska Portal", ["portal"], ["job_board"]), row: { ...singleEntry(1, "Niska Portal", ["portal"], ["job_board"]).row, fitScore: 71 } },
+        { ...singleEntry(2, "Wysoka Baza", [], ["full_base"]), row: { ...singleEntry(2, "Wysoka Baza", [], ["full_base"]).row, fitScore: 95 } },
+      ];
+      renderPanel();
+      await screen.findByTestId("single-list-filters");
+      await waitFor(() =>
+        expect(screen.getAllByTestId("pick-row-source").map((n) => n.textContent)).toEqual(["Z portalu", "Z bazy"]),
+      );
+      const names = screen.getAllByText(/Niska Portal|Wysoka Baza/).map((n) => n.textContent);
+      expect(names[0]).toContain("Niska Portal");
+    });
+
+    it("osoba zaznaczona w sekcji ukrytych nie liczy się pod innym filtrem", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101]));
+      renderPanel();
+      const section = await screen.findByTestId("hidden-by-critical");
+      await userEvent.click(within(section).getByLabelText("Zaznacz Ukryta Osoba 101"));
+      await waitFor(() => expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 1"));
+      const group = screen.getByTestId("single-list-filters");
+      await userEvent.click(within(group).getByRole("button", { name: /Znamy/ }));
+      await waitFor(() => expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0"));
+    });
+
+    it("sekcja „Ukryci przez musi mieć” działa dalej pod „Wszyscy”", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101]));
+      renderPanel();
+      expect(await screen.findByTestId("hidden-by-critical")).toBeInTheDocument();
+    });
+
+    it("bez flagi zostaje pięć zakładek i żadnych filtrów", async () => {
+      countsApi.mockResolvedValue({
+        job_id: 5,
+        days: 7,
+        postings_recent: 0,
+        base: 0,
+        screened_out: 0,
+        not_searchable_must: [],
+      });
+      renderPanel();
+      await waitFor(() => expect(countsApi).toHaveBeenCalled());
+      const tabs = within(await screen.findByRole("tablist", { name: "Źródło kandydatów" })).getAllByRole("tab");
+      expect(tabs).toHaveLength(5);
+      expect(screen.queryByTestId("single-list-filters")).toBeNull();
     });
   });
 });

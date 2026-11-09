@@ -109,6 +109,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 # 0446: „Automatyzacje” tylko czytają — zapisy zostają przy rolach operacyjnych.
@@ -119,6 +120,7 @@ RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
 )
 
@@ -131,6 +133,7 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 # Terminal lifecycle decisions (hired / rejected / withdrawn). Od 2026-10-02
@@ -152,6 +155,7 @@ RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
@@ -161,6 +165,7 @@ CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 REJECTION_EMAIL_OVERSIGHT_ROLES: tuple[UserRole, ...] = (
@@ -234,6 +239,7 @@ _JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
 )
 

@@ -1,4 +1,4 @@
 {
-  "sha256": "971af66e15ea2d590fd59eb6477fbef1e82dbd50f212038724c0020c9d37e4e9",
+  "sha256": "9fccf6953a1f79d28b7b045e5f307a760f73ee485487a65f83268b1a599fb45c",
   "source": "backend/app/services/order_client_identity.py"
 }

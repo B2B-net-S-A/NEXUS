@@ -9,6 +9,10 @@
  * z rolą rekrutera, także Delivery Lead z tą rolą. Przypisana osoba przejmuje
  * kartę, filtr „Kto dodał”, „Moich ludzi”, dzwonki, Ligę, cele i premię
  * rekrutera. Reguły: docs/claude/rekrutacja-tablica/prowadzi-przypisanie-osoby.md.
+ *
+ * Wiersz mówi to samo co karta (`cardOwner`), także gdy osobę wzięto „Biorę”
+ * (zgłoszenie z 03.11.2026: karta „Maciej · 10 h”, panel „— brak danych”;
+ * makiety: https://claude.ai/artifact/WPR3RnfFTQj8oNsXVfxK9e).
  */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { cardShortName, hoursLeft } from "@/lib/board-card-badges";
 import { formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore, type UserRole } from "@/store/auth";
 
@@ -45,7 +50,27 @@ type OwnerItem = Pick<
   | "added_to_job_by_id"
   | "added_to_job_by_name"
   | "added_to_job_at"
->;
+  | "taken_by_user_id"
+  | "taken_by_name"
+  | "claim_user_id"
+  | "claim_until"
+  | "entry_source"
+  | "entry_autofill"
+> &
+  Partial<Pick<KanbanItem, "stage">>;
+
+/** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
+export const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
+
+export interface PairOwner {
+  id: number | null;
+  name: string | null;
+  detail: string;
+  /** Ile zostało blokady „Biorę”, tylko przy aktywnej. */
+  lock: string | null;
+  /** Karta czeka, aż ktoś ją weźmie: to stan pracy, nie brak danych. */
+  nobody: boolean;
+}
 
 const ROLE_LABEL: Record<string, string> = {
   recruiter: "Rekruter",
@@ -69,14 +94,16 @@ export function mayAssignOwner(roles: readonly UserRole[]): boolean {
   return roles.includes("admin") || roles.includes("head_of_recruitment");
 }
 
-/** Kto prowadzi dziś: przypisany, potem weryfikujący, potem dodający. */
-export function currentOwner(item: OwnerItem): {
-  id: number | null;
-  name: string | null;
-  detail: string;
-} {
+/**
+ * Kto prowadzi dziś, kolejność jak na karcie: przypisany, osoba z „Biorę”,
+ * weryfikujący, dodający. Serwer zdejmuje `taken_by_*` po pierwszej
+ * weryfikacji, więc kolumna nie jest tu potrzebna.
+ */
+export function currentOwner(item: OwnerItem, now: Date = new Date()): PairOwner {
   if (item.owner_name?.trim()) {
     return {
+      lock: null,
+      nobody: false,
       id: item.owner_user_id ?? null,
       name: item.owner_name.trim(),
       detail: [
@@ -88,8 +115,21 @@ export function currentOwner(item: OwnerItem): {
         .join(" · "),
     };
   }
+  if (item.taken_by_name?.trim()) {
+    const lock =
+      item.claim_user_id != null && item.claim_until ? hoursLeft(item.claim_until, now) : null;
+    return {
+      lock,
+      nobody: false,
+      id: item.taken_by_user_id ?? null,
+      name: item.taken_by_name.trim(),
+      detail: `wziął(-ęła) „Biorę”${lock ? ` · blokada jeszcze ${lock}` : ""}`,
+    };
+  }
   if (item.verified_by_name?.trim()) {
     return {
+      lock: null,
+      nobody: false,
       id: item.verified_by_id ?? null,
       name: item.verified_by_name.trim(),
       detail: `zweryfikował(a)${item.verified_at ? ` ${formatDate(item.verified_at)}` : ""}`,
@@ -97,12 +137,79 @@ export function currentOwner(item: OwnerItem): {
   }
   if (item.added_to_job_by_name?.trim()) {
     return {
+      lock: null,
+      nobody: false,
       id: item.added_to_job_by_id ?? null,
       name: item.added_to_job_by_name.trim(),
       detail: `dodał(a)${item.added_to_job_at ? ` ${formatDate(item.added_to_job_at)}` : ""}`,
     };
   }
-  return { id: null, name: null, detail: "brak danych" };
+  if (ENTRY_STAGES.has(item.stage ?? "")) {
+    return {
+      id: null,
+      name: null,
+      detail: item.entry_source === "system" ? "dodał system, nikt jeszcze nie wziął" : "nikt jeszcze nie wziął",
+      lock: null,
+      nobody: true,
+    };
+  }
+  return { id: null, name: null, detail: "brak danych", lock: null, nobody: false };
+}
+
+/** Osoba od systemu (23.10.2026): „Biorę” to decyzja „Dzwonię”, jak na karcie. */
+function isSystemCall(item: Pick<OwnerItem, "entry_source" | "entry_autofill">): boolean {
+  return item.entry_source === "system" && !item.entry_autofill?.decided;
+}
+
+export function takeLabel(item: Pick<OwnerItem, "entry_source" | "entry_autofill">): string {
+  return isSystemCall(item) ? "Dzwonię — biorę na 12 h" : "Biorę — 12 h";
+}
+
+interface TakeProps {
+  /** Podaje dok tylko wtedy, gdy osobę można wziąć, a rząd telefonu jest schowany. */
+  onTake?: () => void;
+  taking?: boolean;
+}
+
+/**
+ * „Biorę” przy „Prowadzi” w panelu z formularzem (prośba rekruterki 04.11.2026):
+ * bez tego przycisku trzeba było wyjść z panelu na kartę. Klasy trzymają
+ * wysokość wiersza, bo głowa panelu nie może skakać między zakładkami.
+ */
+function TakeButton({ item, onTake, taking, short }: TakeProps & { item: OwnerItem; short?: boolean }) {
+  const shortLabel = isSystemCall(item) ? "Dzwonię" : "Biorę";
+  return (
+    <button
+      type="button"
+      onClick={onTake}
+      disabled={taking}
+      aria-label={takeLabel(item)}
+      data-tour="person.owner.take"
+      className="shrink-0 rounded border border-primary/40 px-1.5 text-[11px] font-semibold leading-[14px] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:p-2"
+    >
+      {short ? shortLabel : takeLabel(item)}
+    </button>
+  );
+}
+
+/** „Tryb rozmowy” zwija nagłówek do jednego wiersza: tam wystarcza imię i blokada. */
+export function PairOwnerCompact({ item, onTake, taking }: { item: OwnerItem } & TakeProps) {
+  const owner = currentOwner(item);
+  return (
+    <span
+      className="hidden shrink-0 items-center gap-1 text-[11px] text-muted-foreground [[data-compact]_&]:inline-flex"
+      data-testid="dock-pair-owner-compact"
+      title={owner.detail}
+    >
+      <UserRoundCog className="h-3 w-3 shrink-0" aria-hidden="true" />
+      Prowadzi{" "}
+      <span className="font-semibold text-foreground">
+        {cardShortName(owner.name) ?? (owner.nobody ? "nikt" : "—")}
+      </span>
+      {owner.lock ? ` · ${owner.lock}` : ""}
+      {onTake ? <TakeButton item={item} onTake={onTake} taking={taking} short /> : null}
+    </span>
+  );
 }
 
 function usePeople(enabled: boolean) {
@@ -119,11 +226,17 @@ function usePeople(enabled: boolean) {
   });
 }
 
-export function PairOwnerLine({ item, jobId }: { item: OwnerItem; jobId: number }) {
+export function PairOwnerLine({
+  item,
+  jobId,
+  onTake,
+  taking,
+}: { item: OwnerItem; jobId: number } & TakeProps) {
   const user = useAuthStore((s) => s.user);
   const canAssign = mayAssignOwner(getUserRoles(user));
   const [open, setOpen] = useState(false);
   const owner = currentOwner(item);
+  const ownerLabel = owner.name ?? (owner.nobody ? "nikt" : null);
   const people = usePeople(owner.id != null);
   const inactive =
     owner.id != null && people.data?.some((p) => p.id === owner.id && p.is_active === false);
@@ -134,7 +247,8 @@ export function PairOwnerLine({ item, jobId }: { item: OwnerItem; jobId: number 
         <div className="flex min-w-0 items-center gap-1.5">
           <UserRoundCog className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="shrink-0">Prowadzi</span>
-          <span className="truncate font-semibold text-foreground">{owner.name ?? "—"}</span>
+          <span className="truncate font-semibold text-foreground">{ownerLabel ?? "—"}</span>
+          {onTake ? <TakeButton item={item} onTake={onTake} taking={taking} /> : null}
           {canAssign ? (
             <button
               type="button"
@@ -154,7 +268,7 @@ export function PairOwnerLine({ item, jobId }: { item: OwnerItem; jobId: number 
         <OwnerDialog
           item={item}
           jobId={jobId}
-          currentName={owner.name}
+          currentName={ownerLabel}
           currentInactive={Boolean(inactive)}
           onClose={() => setOpen(false)}
         />

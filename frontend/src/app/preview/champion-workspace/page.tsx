@@ -75,6 +75,7 @@ const JOB_AD: JobAdState = {
   findings: [],
   rendered: null,
   can_copy: true,
+  can_mark_publications: true,
   publications: [
     {
       portal: "pracuj",
@@ -88,6 +89,7 @@ const JOB_AD: JobAdState = {
   career: NO_CAREER_PAGE,
   reminders: null,
   pracuj_request: null,
+  jjit_api: null,
 };
 const isoDay = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);

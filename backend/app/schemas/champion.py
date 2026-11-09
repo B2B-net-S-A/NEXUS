@@ -110,6 +110,9 @@ class ChampionBasics(BaseModel):
     # Termin na dostarczenie kandydatów DO TEJ oferty. Osobno od KPI klienta
     # („mamy 5 dni roboczych"), bo tamto opisuje tempo, a to konkretną datę.
     deadline: Optional[str] = Field(default=None, max_length=100)
+    # Godzina tego terminu `GG:MM` (czas Europe/Warsaw, 02.11.2026). Osobno od
+    # daty jak `jobs.deadline_time`: bramki i alerty liczą po samym dniu.
+    deadline_time: Optional[str] = None
     contract_length: Optional[str] = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
@@ -907,8 +910,10 @@ class ScreeningAnswerItem(BaseModel):
 class ExperienceCheck(BaseModel):
     """„Sprawdź w rozmowie” — pozycja sekcji 4 potwierdzona (albo nie) przez rekrutera.
 
-    Tylko zapis rozmowy: nie zmienia `match_percent`, scoringu ani plakietek
-    (te mówią o śladzie w CV, a to o tym, co kandydat powiedział).
+    Nie zmienia `match_percent` ani plakietek (te mówią o śladzie w CV, a to
+    o tym, co kandydat powiedział). Przy `CONVERSATION_FACTS_ENABLED` zasila
+    rejestr faktów (`services/conversation_facts.py`), a przez niego bramkę
+    i wynik; bez flagi to sam zapis rozmowy.
     """
 
     kind: ExperienceKind = "domains"

@@ -16,7 +16,7 @@ import type {
   TimesheetStatus,
 } from "@/lib/api/hr-payroll";
 import { TIMESHEET_STATUS_LABELS } from "@/lib/api/hr-time";
-import { formatDayMonthPl } from "@/lib/date-pl";
+import { formatDayMonthPl, formatIsoDatePl } from "@/lib/date-pl";
 import { employmentTerms } from "@/lib/hr-employment-terms";
 import { formatMoney } from "@/lib/money";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -123,22 +123,56 @@ export function bonusStateLabel(bonus: Pick<BonusRow, "status" | "eligible" | "e
 export function cancelReasonLabel(
   reason: string | null | undefined,
   requiredDays = 21,
+  endedOn?: string | null,
 ): string | null {
   switch (reason) {
     case "contract_ended":
-      return `kontrakt zakończony przed ${requiredDays}. dniem roboczym`;
+      return endedOn
+        ? `kontrakt zakończony ${formatIsoDatePl(endedOn)}, przed ${requiredDays}. dniem roboczym`
+        : `kontrakt zakończony przed ${requiredDays}. dniem roboczym`;
     case "contract_void":
       return "kontrakt unieważniony";
     case "contract_deleted":
       return "kontrakt usunięty";
     case "rule_no_longer_applies":
       return "zmieniły się warunki premii";
+    case "guarantee":
+      return "zastępstwo w gwarancji: osoba zatrudniona przez tego samego DL odeszła przed rokiem";
+    case "client_referral":
+      return "kandydat wskazany przez klienta: bez premii z placementu";
     case "manual":
-      return "anulowana przez Płace albo koordynatora";
+      return "anulowana przez Rozliczenia albo koordynatora";
     default:
       return null;
   }
 }
+
+/** „200% za cel w listopadzie 2026” — premia z programu 200% (miesiąc „RRRR-MM”). */
+export function doubleBonusNote(month: string): string {
+  const [year, number] = month.split("-").map(Number);
+  if (!year || !number || number < 1 || number > 12) return "200% za cel";
+  return `200% za cel w ${monthLocative(year, number)}`;
+}
+
+/** „listopadzie 2026” — miesiąc po „w”. */
+export function monthLocative(year: number, month: number): string {
+  return `${MONTH_LOCATIVE[month - 1] ?? ""} ${year}`.trim();
+}
+
+const MONTH_LOCATIVE = [
+  "styczniu",
+  "lutym",
+  "marcu",
+  "kwietniu",
+  "maju",
+  "czerwcu",
+  "lipcu",
+  "sierpniu",
+  "wrześniu",
+  "październiku",
+  "listopadzie",
+  "grudniu",
+];
 
 /** Procent paska „X z 21 dni roboczych” (0–100). */
 export function progressPercent(elapsed: number | null | undefined, required: number | undefined): number {
@@ -174,7 +208,7 @@ export function monthStats(detail: PayrollMonthDetail): InlineStat[] {
     { id: "people", label: "osób", value: detail.stats.people },
     {
       id: "approved",
-      label: "timesheetów zaakceptowanych",
+      label: "raportów godzin zaakceptowanych",
       value: detail.stats.timesheets_approved,
     },
     { id: "submitted", label: "czeka na akceptację", value: detail.stats.timesheets_submitted },
@@ -225,7 +259,7 @@ export function assignedBonusActions(
 
 /** Komunikat po dodaniu premii ręcznej: od przełożonego czeka na Płace. */
 export function bonusCreatedToast(created: Pick<BonusRow, "status">): string {
-  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Płac" : "Premia przyznana";
+  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Rozliczeń" : "Premia przyznana";
 }
 
 /** Premie podzielone na sekcje ekranu. */

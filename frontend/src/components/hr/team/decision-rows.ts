@@ -64,7 +64,7 @@ function rowOf(card: DecisionCard, today: string): DecisionRow {
       "propozycja",
       "propozycje",
       "propozycji",
-    )} — decydują Płace`,
+    )} — decydują Rozliczenia`,
   };
 }
 

@@ -28,6 +28,7 @@ import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { RateBudgetBadge, RateBudgetTone } from "@/lib/rate-budget-badge";
 import { cn } from "@/lib/utils";
 
+import { newInBaseDaysText } from "@/lib/added-to-base";
 import { shortChipLabel, type ReasonChipList, type ReasonChipTone } from "./reason-chips";
 
 /** Wiersz listy do zaznaczenia — wspólny dla wszystkich źródeł. */
@@ -48,7 +49,11 @@ export interface PickRow {
   facts?: string | null;
   /** „CV z 2023” — tylko przy znanej dacie wgrania głównego CV. */
   cvBadge?: CvYearBadge | null;
+  /** Nowi w bazie najpierw: dni w bazie osoby z pierwszeństwem na liście. */
+  newInBaseDays?: number | null;
   sourceLabel: string | null;
+  /** Jedna lista: plakietki źródła zamiast jednej etykiety. */
+  sourceLabels?: readonly string[];
   /** Znacznik „Pracuje u nas” — pigułka w rzędzie plakietek. */
   employment?: EmploymentMarker | null;
   warnings: Array<{ key: string; label: string; blocking: boolean }>;
@@ -66,6 +71,11 @@ export interface PickRow {
    * plakietka „Inna rola”, przekreślony procent, miejsce na końcu listy.
    */
   roleMismatch?: { label: string; detail: string } | null;
+  /**
+   * Osoba sama aplikowała na inną rekrutację (07.11.2026) — „Aplikował na: …”.
+   * Kontakt jest ciepły, więc wiersz to mówi wprost.
+   */
+  appliedTo?: { job_id: number; title: string }[] | null;
   /**
    * „musi mieć 4/10” pod procentem — procent to głównie podobieństwo tekstu
    * CV, a ta liczba odróżnia 9/10 od 4/10 (27.10.2026).
@@ -370,6 +380,14 @@ function PickListItem({
               <span className="text-muted-foreground">{row.roleMismatch.detail}</span>
             </p>
           ) : null}
+          {row.appliedTo && row.appliedTo.length > 0 ? (
+            <p className="mt-0.5 text-xs" data-testid="pick-row-applied-to">
+              <span className="rounded bg-primary/10 px-1.5 py-px text-[10.5px] font-semibold text-primary">
+                Aplikował na: {row.appliedTo[0].title}
+                {row.appliedTo.length > 1 ? ` +${row.appliedTo.length - 1}` : ""}
+              </span>
+            </p>
+          ) : null}
           {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
           {row.facts ? (
             <p className="text-xs text-muted-foreground">{row.facts}</p>
@@ -410,10 +428,18 @@ function PickListItem({
           ) : null}
           {added ? row.alsoFits : null}
           {row.extra}
-          {(row.sourceLabel || row.cvBadge || row.employment || row.warnings.length > 0) && (
+          {(row.sourceLabel || row.sourceLabels?.length || row.cvBadge || row.employment || row.newInBaseDays != null || row.warnings.length > 0) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               {/* Poza przyciskiem nazwiska i linią faktów — ich treść
                   jest nazwą dostępną wiersza i tekstem do skanowania. */}
+              {row.newInBaseDays != null ? (
+                <span
+                  data-testid="pick-row-new-in-base"
+                  className="rounded bg-success-muted px-1.5 text-[10.5px] font-semibold text-success-muted-foreground"
+                >
+                  Nowy · {newInBaseDaysText(row.newInBaseDays)}
+                </span>
+              ) : null}
               {row.employment ? <EmploymentPill marker={row.employment} /> : null}
               {row.cvBadge ? <CvBadge badge={row.cvBadge} /> : null}
               {row.sourceLabel && (
@@ -421,6 +447,15 @@ function PickListItem({
                   {row.sourceLabel}
                 </span>
               )}
+              {row.sourceLabels?.map((label) => (
+                <span
+                  key={label}
+                  data-testid="pick-row-source"
+                  className="rounded bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground"
+                >
+                  {label}
+                </span>
+              ))}
               {row.warnings.map((w) => (
                 <span
                   key={w.key}

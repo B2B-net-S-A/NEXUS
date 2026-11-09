@@ -25,6 +25,7 @@ import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type {
   ProposalHistory,
   ProposalInboxItem,
+  ProposalListLabel,
   ProposalReassignFrom,
   ProposalTraineeHandover,
 } from "@/lib/job-proposals-api";
@@ -109,6 +110,10 @@ export interface ProposalDetail {
    * nocny przegląd). Czytaj przez `isBelowThreshold` — inne źródło osoby to znosi.
    */
   belowThreshold?: boolean;
+  /** Nowi w bazie najpierw: data wejścia do bazy osoby z pierwszeństwem na liście. */
+  newInBaseAt?: string | null;
+  /** Jedna lista: plakietki źródła policzone przez serwer. */
+  labels?: ProposalListLabel[];
 }
 
 export interface ProposalEntry {
@@ -138,6 +143,11 @@ export interface MergeProposalsInput {
    */
   dismissedCandidateIds?: Iterable<number>;
   budgetHourly?: number | null;
+  /**
+   * Jedna lista: kolejność ustala serwer (`review_batch_order`), więc osoby ze
+   * skrzynki zostają tam, gdzie je postawił, a pozostałe źródła idą za nimi.
+   */
+  keepInboxOrder?: boolean;
 }
 
 const KNOWN_SOURCES = new Set<string>(Object.keys(PROPOSAL_SOURCE_LABEL));
@@ -393,6 +403,8 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.detail.firstSeenAt ??= item.first_seen_at;
     if (item.posting_recent === true) d.detail.postingRecent = true;
     if (item.below_threshold === true) d.detail.belowThreshold = true;
+    d.detail.newInBaseAt ??= item.new_in_base_at ?? null;
+    if (item.labels) d.detail.labels = item.labels;
     d.detail.postingSeenAt ??= item.posting_seen_at ?? null;
     // Przegląd, który tę osobę zaproponował — telemetria dodania (żywy
     // przegląd użytkownika, jeśli jest, nadpisze go niżej).
@@ -558,7 +570,16 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       detail,
     });
   }
-  return entries.sort(compareProposals);
+  if (!input.keepInboxOrder) return entries.sort(compareProposals);
+  const place = new Map((input.inbox ?? []).map((item, index) => [item.candidate.id, index]));
+  return entries.sort((a, b) => {
+    const pa = place.get(a.row.candidateId);
+    const pb = place.get(b.row.candidateId);
+    if (pa != null && pb != null) return pa - pb;
+    if (pa != null) return -1;
+    if (pb != null) return 1;
+    return compareProposals(a, b);
+  });
 }
 
 /** Etykiety plakietki sprzecznego wymiaru pracy (tylko przypadki ostrzegawcze,

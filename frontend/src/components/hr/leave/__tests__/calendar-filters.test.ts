@@ -17,7 +17,7 @@ const at = (search: string) => new URLSearchParams(search);
 const loc = (search = "") => ({ pathname: "/people/calendar", search });
 
 describe("filtersFromParams", () => {
-  it("domyślnie: koordynator „Mój zespół”, reszta „Wszyscy”, bieżący miesiąc", () => {
+  it("domyślnie: koordynator „Koordynacja”, reszta „Wszyscy”, bieżący miesiąc", () => {
     expect(filtersFromParams(at(""), { isManager: true, today: TODAY })).toEqual({
       scope: "team",
       status: null,
@@ -28,7 +28,7 @@ describe("filtersFromParams", () => {
     expect(filtersFromParams(at(""), { isManager: false, today: TODAY }).scope).toBe("all");
   });
 
-  it("„Mój zespół” u kogoś bez zespołu = „Wszyscy”; dział wygrywa z zakresem", () => {
+  it("„Koordynacja” u kogoś bez zespołu = „Wszyscy”; dział wygrywa z zakresem", () => {
     expect(filtersFromParams(at("?scope=team"), { isManager: false, today: TODAY }).scope).toBe("all");
     expect(
       filtersFromParams(at("?scope=all&dept=Delivery"), { isManager: true, today: TODAY }).scope,
@@ -94,7 +94,7 @@ describe("matchesPerson / inScope", () => {
     expect(matchesPerson(people[1], "rekruter")).toBe(false);
   });
 
-  it("dział zawęża, „Wszyscy” i „Mój zespół” nie", () => {
+  it("dział zawęża, „Wszyscy” i „Koordynacja” nie", () => {
     expect(inScope(people, "dept:Delivery").map((p) => p.user_id)).toEqual([2]);
     expect(inScope(people, "all")).toHaveLength(2);
   });

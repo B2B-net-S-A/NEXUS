@@ -340,7 +340,7 @@ describe("InterviewNotificationsDropdown", () => {
     expect(message).toBe("3 terminy rozmowy u klienta do ustalenia z kandydatem (Analityk danych).");
     expect(options.actionLabel).toBe("Pokaż");
     act(() => options.onAction());
-    expect(await screen.findByRole("heading", { name: "Rozmowy u klienta" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Kalendarz" })).toBeInTheDocument();
   });
 
   it("przypomnienie przed prepem z linkiem Teams prowadzi prosto do spotkania", async () => {
@@ -394,7 +394,7 @@ describe("InterviewNotificationsDropdown", () => {
       window.dispatchEvent(new CustomEvent(OPEN_INTERVIEWS_WINDOW_EVENT));
     });
 
-    expect(await screen.findByText(/Nic nie czeka w sprawie rozmów u klienta/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nic nie czeka w kalendarzu/)).toBeInTheDocument();
   });
 });
 

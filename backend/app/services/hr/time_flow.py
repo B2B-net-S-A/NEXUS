@@ -2,6 +2,7 @@
 
 * szkic → wysłany (co najmniej jeden wpis),
 * wysłany → zaakceptowany (zapis ``pdf_hash``),
+* szkic → zaakceptowany (osoba odeszła, akceptujący potwierdza za nią),
 * wysłany → szkic ze zwrotem (``return_note``; bez martwego ``rejected``),
 * zaakceptowany → wysłany (cofnięcie akceptacji — wiedzą o tym Płace).
 
@@ -28,6 +29,7 @@ from app.services.hr.notify import notify_each
 from app.services.hr.time_access import (
     Actor,
     approval_recipients,
+    left_company,
     users_with_permission,
 )
 from app.services.hr.time_entries import (
@@ -109,10 +111,10 @@ async def _locked_subject(
     timesheet = await lock_timesheet(db, timesheet_id)
     if deciding:
         if timesheet.user_id == actor.user_id:
-            raise TimeForbidden("Własnego timesheetu nie akceptuje się samemu.")
+            raise TimeForbidden("Własnego raportu godzin nie akceptuje się samemu.")
         subject = await people.profile_of(db, timesheet.user_id)
         if subject is None or not actor.can_approve(subject):
-            raise TimeForbidden("Decydujesz tylko o timesheetach swojego zespołu.")
+            raise TimeForbidden("Decydujesz tylko o raportach godzin swojego zespołu.")
     assert_not_locked(timesheet)
     return timesheet
 
@@ -120,10 +122,10 @@ async def _locked_subject(
 async def submit(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesheet:
     timesheet = await lock_timesheet(db, timesheet_id)
     if timesheet.user_id != actor.user_id:
-        raise TimeForbidden("Wysyłasz tylko własny timesheet.")
+        raise TimeForbidden("Wysyłasz tylko własny raport godzin.")
     assert_not_locked(timesheet)
     if timesheet.status != "draft":
-        raise TimeConflict("Ten timesheet jest już wysłany.")
+        raise TimeConflict("Ten raport godzin jest już wysłany.")
     profile = await people.profile_of(db, timesheet.user_id)
     await sync_leave_paid(
         db,
@@ -136,7 +138,7 @@ async def submit(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
         )
     )
     if not count:
-        raise TimeError("Timesheet musi mieć co najmniej jeden wpis.")
+        raise TimeError("Raport godzin musi mieć co najmniej jeden wpis.")
     done = await db.scalar(
         update(Timesheet)
         .where(
@@ -204,7 +206,7 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
         raise TimeConflict(payroll_periods.closed_detail(period.year, period.month))
     if timesheet.status != "submitted":
         raise TimeConflict(
-            "Timesheet został już rozpatrzony albo nie czeka na akceptację. "
+            "Raport godzin został już rozpatrzony albo nie czeka na akceptację. "
             "Odśwież listę."
         )
     pdf_hash = hash_of(await entries_of(db, timesheet.id))
@@ -257,6 +259,69 @@ async def approve(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Times
     return await lock_timesheet(db, timesheet.id)
 
 
+async def confirm_for_person(
+    db: AsyncSession, *, timesheet_id: int, actor: Actor
+) -> Timesheet:
+    """Szkic osoby, która odeszła: akceptujący wysyła i potwierdza za nią.
+
+    Tylko po odejściu, także na zleceniu (decyzja Artura 05.11.2026). Konto
+    osoby jest wyłączone, więc bez dzwonka; ślad mówi, że raportu nie wysłała
+    sama. Cofnięcie jak przy zwykłej akceptacji (``revoke``).
+    """
+
+    period = await _payroll_period_shared(db, timesheet_id)
+    timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
+    if period is not None and period.status == "closed":
+        raise TimeConflict(payroll_periods.closed_detail(period.year, period.month))
+    if timesheet.status != "draft":
+        raise TimeConflict("Ten raport godzin jest już wysłany. Odśwież listę.")
+    profile = await people.profile_of(db, timesheet.user_id)
+    if profile is None or not left_company(profile):
+        raise TimeConflict("Za osobę potwierdzasz tylko raport kogoś, kto już odszedł.")
+    await sync_leave_paid(
+        db, timesheet=timesheet, employment_type=profile.employment_type
+    )
+    entries = await entries_of(db, timesheet.id)
+    if not entries:
+        raise TimeError("Raport godzin musi mieć co najmniej jeden wpis.")
+    done = await db.scalar(
+        update(Timesheet)
+        .where(
+            Timesheet.id == timesheet.id,
+            Timesheet.status == "draft",
+            Timesheet.payroll_locked.is_(False),
+            Timesheet.user_id != actor.user_id,
+        )
+        .values(
+            status="approved",
+            submitted_at=func.now(),
+            approved_by=actor.user_id,
+            approved_at=func.now(),
+            pdf_hash=hash_of(entries),
+            return_note=None,
+            returned_at=None,
+            employment_type=profile.employment_type,
+        )
+        .returning(Timesheet.id)
+    )
+    if done is None:
+        raise TimeConflict(CHANGED_DETAIL)
+    audit.record(
+        db,
+        actor_user_id=actor.user_id,
+        subject_user_id=timesheet.user_id,
+        entity_type="timesheet",
+        entity_id=timesheet.id,
+        action="timesheet_confirmed_for_person",
+        details={
+            "year": timesheet.year,
+            "month": timesheet.month,
+            **actor.cover_details(profile),
+        },
+    )
+    return await lock_timesheet(db, timesheet.id)
+
+
 def clean_return_note(raw: Optional[str]) -> str:
     note = (raw or "").strip()
     if not note:
@@ -273,7 +338,7 @@ async def return_for_fix(
     timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
     if timesheet.status != "submitted":
         raise TimeConflict(
-            "Zwrócić można tylko timesheet, który czeka na akceptację. Odśwież listę."
+            "Zwrócić można tylko raport godzin, który czeka na akceptację. Odśwież listę."
         )
     done = await db.scalar(
         update(Timesheet)
@@ -321,12 +386,57 @@ async def return_for_fix(
     return await lock_timesheet(db, timesheet.id)
 
 
+async def withdraw(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesheet:
+    """Osoba cofa własny wysłany timesheet do szkicu, dopóki nikt go nie przyjął."""
+
+    timesheet = await lock_timesheet(db, timesheet_id)
+    if timesheet.user_id != actor.user_id:
+        raise TimeForbidden("Wycofujesz tylko własny raport godzin.")
+    assert_not_locked(timesheet)
+    if timesheet.status != "submitted":
+        raise TimeConflict("Wycofać można tylko wysłany raport godzin. Odśwież widok.")
+    done = await db.scalar(
+        update(Timesheet)
+        .where(
+            Timesheet.id == timesheet.id,
+            Timesheet.status == "submitted",
+            Timesheet.payroll_locked.is_(False),
+        )
+        .values(status="draft", submitted_at=None)
+        .returning(Timesheet.id)
+    )
+    if done is None:
+        raise TimeConflict(CHANGED_DETAIL)
+    audit.record(
+        db,
+        actor_user_id=actor.user_id,
+        subject_user_id=timesheet.user_id,
+        entity_type="timesheet",
+        entity_id=timesheet.id,
+        action="timesheet_withdrawn",
+        details={"year": timesheet.year, "month": timesheet.month},
+    )
+    words = await _words(db, timesheet.user_id)
+    await _notify(
+        db,
+        user_ids=await approval_recipients(db, timesheet.user_id),
+        title=f"Wycofano do poprawy: {words['timesheet'].lower()}",
+        message=f"{await _name(db, timesheet.user_id)}: "
+        f"{month_label(timesheet.year, timesheet.month)}.",
+        ntype=NotificationType.hr_timesheet_decided,
+        link=approvals_link(timesheet.year, timesheet.month, timesheet.user_id),
+    )
+    return await lock_timesheet(db, timesheet.id)
+
+
 async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesheet:
     """Cofnięcie akceptacji: wraca do „wysłany”; wiedzą o tym osoba i Płace."""
 
     timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
     if timesheet.status != "approved":
-        raise TimeConflict("Cofnąć można tylko zaakceptowany timesheet. Odśwież listę.")
+        raise TimeConflict(
+            "Cofnąć można tylko zaakceptowany raport godzin. Odśwież listę."
+        )
     words = await _words(db, timesheet.user_id)
     profile = await people.profile_of(db, timesheet.user_id)
     # Potwierdzenie godzin zlecenia po terminie wypłaty to dokument z art. 8b —

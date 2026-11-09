@@ -54,7 +54,7 @@ export function MyOverviewTab({ config, person, onOpenTab }: MyOverviewTabProps)
           {timesheets ? (
             <Button variant="outline" size="sm" onClick={() => onOpenTab("month")}>
               <Clock className="mr-1.5 h-4 w-4" aria-hidden />
-              Uzupełnij dzień
+              Dodaj godziny
             </Button>
           ) : null}
           {open.leave ? (

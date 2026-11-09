@@ -33,6 +33,8 @@ Kontrakt: `docs/screening-form-contract.md`, raport: `docs/screening-form-comple
   i `Activity("candidate_claimed")` z tymi samymi szczegółami co trasa `claim_candidate`, potem odświeżenie
   Tablic zespołu). Cudzej aktywnej blokady nie przejmuje (rekruter dostaje 423 jak dotąd, DL/admin/HoR
   zapisują bez przejęcia), własnej nie przedłuża, przywrócenie wersji nikogo nie bierze.
+  Formularz nadal nie ma kroku wstępnego; wolną osobę można wziąć wcześniej przyciskiem przy „Prowadzi”
+  w głowie panelu (04.11.2026, `rekrutacja-tablica/biore-zmienia-osobe-karty.md`).
 - **Stawka na start (D2, 14.10.2026).** Etap bez stawki: pole stawki dostaje — jako zmianę formularza, więc
   zapisuje się z „Zapisz” — najpierw najnowszą stawkę z notatek z dosłownym cytatem (`suggestions_from_notes.
   rate`, tylko PLN i znana jednostka), potem stawkę z karty (`rate_hints.card` + `card_raw`), na końcu „Stawkę

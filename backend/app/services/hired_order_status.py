@@ -131,7 +131,7 @@ async def order_status_for_pairs(
 
 
 async def finance_recipient_ids(db: AsyncSession) -> list[int]:
-    """Aktywni użytkownicy z rolą Finanse (kolumna ról albo rola główna)."""
+    """Aktywni użytkownicy z rolą Finanse albo Back office (kolumna ról albo główna)."""
     return list(
         (
             await db.scalars(
@@ -141,6 +141,8 @@ async def finance_recipient_ids(db: AsyncSession) -> list[int]:
                     or_(
                         User.roles.contains([UserRole.finance.value]),
                         User.role == UserRole.finance,
+                        User.roles.contains([UserRole.back_office.value]),
+                        User.role == UserRole.back_office,
                     ),
                 )
                 .order_by(User.id)

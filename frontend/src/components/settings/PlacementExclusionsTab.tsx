@@ -6,17 +6,20 @@
  * Lista par (kandydat, rekrutacja), których „Zatrudniony" NIE liczy się jako
  * placement w żadnej statystyce: Insights, Rada, KPI, wyścigi, pulpity,
  * raporty, kreator metryk, kampanie, ścieżka rozwoju, Hall of Fame.
- * Powstaje regułą (serwer, `services/placement_exclusions.py`) — ekran
- * tylko pokazuje, niczego nie dodaje ani nie zdejmuje. Historia etapów
- * kandydata zostaje nietknięta.
+ * Większość powstaje regułą (serwer, `services/placement_exclusions.py`).
+ * Od 05.11.2026 (0650) admin wyklucza tu też pojedynczą parę ręcznie, z
+ * powodem — np. osoba nie podjęła pracy — i tylko taką może przywrócić.
+ * Historia etapów kandydata zostaje nietknięta.
  */
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Loader2, Search, ShieldOff } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, Loader2, Search, ShieldOff, Undo2 } from "lucide-react";
 
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { countPl, pluralPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -39,7 +42,11 @@ export interface PlacementExclusionItem {
   series_size: number | null;
   rule_version: number;
   detected_at: string;
+  note?: string | null;
+  added_by_name?: string | null;
 }
+
+export const MANUAL_REASON = "manual";
 
 export interface PlacementExclusionList {
   items: PlacementExclusionItem[];
@@ -140,11 +147,13 @@ export function PlacementExclusionsTab() {
           <h2 className="text-base font-bold text-foreground">Wykluczone placementy</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             Te zatrudnienia nie liczą się jako placement w żadnej statystyce —
-            Insights, Rada, KPI, wyścigi, pulpity i raporty. Historia etapów
-            kandydata zostaje bez zmian. Ekran tylko pokazuje listę.
+            Insights, Rada, KPI, Liga, wyścigi, pulpity i raporty. Historia etapów
+            kandydata zostaje bez zmian.
           </p>
         </div>
       </div>
+
+      {viewState !== "forbidden" && <ManualExclusionForm />}
 
       {viewState === "loading" && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
@@ -276,7 +285,7 @@ function ExclusionGroups({
       <p className="text-xs text-muted-foreground">
         Nowa seria trafia tu sama, gdy jedno konto ustawi etap „Zatrudniony” co najmniej{" "}
         {threshold} parom w jednym dniu, dla par bez etapu „CV wysłane”. Do tego cała
-        masowa seria z 24–25.09.2025.
+        masowa seria z 24–25.09.2025 i pary wykluczone ręcznie.
       </p>
     </>
   );
@@ -292,7 +301,7 @@ function ExclusionRows({ items }: { items: PlacementExclusionItem[] }) {
             <th className="px-3 py-2 font-medium">Rekrutacja</th>
             <th className="px-3 py-2 font-medium whitespace-nowrap">Zatrudniony</th>
             <th className="px-3 py-2 font-medium">Kto ustawił</th>
-            <th className="px-3 py-2 font-medium">Seria</th>
+            <th className="px-3 py-2 font-medium">Seria albo powód</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -313,12 +322,146 @@ function ExclusionRows({ items }: { items: PlacementExclusionItem[] }) {
               <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">{formatDate(item.hired_at)}</td>
               <td className="px-3 py-2.5 text-foreground">{item.moved_by_name ?? "—"}</td>
               <td className="px-3 py-2.5 text-muted-foreground">
-                {item.series_size ? `${countPl(item.series_size, "para", "pary", "par")} w dniu` : "—"}
+                {item.reason === MANUAL_REASON ? (
+                  <ManualReasonCell item={item} />
+                ) : item.series_size ? (
+                  `${countPl(item.series_size, "para", "pary", "par")} w dniu`
+                ) : (
+                  "—"
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Ręczne wykluczenie jednej pary — numery z adresów `/candidates/…` i `/jobs/…`. */
+function ManualExclusionForm() {
+  const queryClient = useQueryClient();
+  const [candidateId, setCandidateId] = useState("");
+  const [jobId, setJobId] = useState("");
+  const [note, setNote] = useState("");
+  const mutation = useMutation({
+    mutationFn: (body: { candidate_id: number; job_id: number; note: string }) =>
+      api.post("/api/admin/placement-exclusions", body),
+    onSuccess: () => {
+      setCandidateId("");
+      setJobId("");
+      setNote("");
+      void queryClient.invalidateQueries({ queryKey: placementExclusionsQueryKey });
+    },
+  });
+  const candidate = Number(candidateId);
+  const job = Number(jobId);
+  const ready =
+    Number.isInteger(candidate) && candidate > 0 && Number.isInteger(job) && job > 0 && note.trim().length > 0;
+
+  return (
+    <form
+      aria-label="Wyklucz placement ręcznie"
+      className="space-y-3 rounded-xl border border-border p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!ready || mutation.isPending) return;
+        mutation.mutate({ candidate_id: candidate, job_id: job, note: note.trim() });
+      }}
+    >
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Wyklucz placement ręcznie</h3>
+        <p className="text-xs text-muted-foreground">
+          Gdy osoba nie podjęła pracy albo klient zakończył współpracę zaraz po starcie. Numery
+          znajdziesz w adresie profilu kandydata i rekrutacji.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Nr kandydata
+          <input
+            inputMode="numeric"
+            value={candidateId}
+            onChange={(event) => setCandidateId(event.target.value.replace(/\D/g, ""))}
+            className="h-9 w-32 rounded-lg border border-input bg-background px-2 text-sm text-foreground"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Nr rekrutacji
+          <input
+            inputMode="numeric"
+            value={jobId}
+            onChange={(event) => setJobId(event.target.value.replace(/\D/g, ""))}
+            className="h-9 w-32 rounded-lg border border-input bg-background px-2 text-sm text-foreground"
+          />
+        </label>
+        <label className="flex min-w-64 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+          Powód
+          <input
+            value={note}
+            maxLength={500}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="np. nie podjął pracy, klient zakończył współpracę"
+            className="h-9 rounded-lg border border-input bg-background px-2 text-sm text-foreground"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={!ready || mutation.isPending}
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          Wyklucz
+        </button>
+      </div>
+      {mutation.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          {apiErrorMessage(mutation.error, "Nie udało się wykluczyć placementu.")}
+        </p>
+      )}
+      {mutation.isSuccess && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Placement wykluczony. Statystyki przeliczą się w ciągu minuty.
+        </p>
+      )}
+    </form>
+  );
+}
+
+function ManualReasonCell({ item }: { item: PlacementExclusionItem }) {
+  const queryClient = useQueryClient();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const mutation = useMutation({
+    mutationFn: () => api.delete(`/api/admin/placement-exclusions/${item.id}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: placementExclusionsQueryKey }),
+  });
+
+  return (
+    <div className="space-y-1">
+      <p className="text-foreground">{item.note ?? "—"}</p>
+      {item.added_by_name && <p className="text-xs">Dodał(a): {item.added_by_name}</p>}
+      <button
+        type="button"
+        disabled={mutation.isPending}
+        onClick={async () => {
+          const ok = await askConfirm({
+            title: "Przywrócić placement?",
+            description: `${item.candidate_name} znów będzie liczony jako placement we wszystkich statystykach.`,
+            confirmLabel: "Przywróć",
+          });
+          if (ok) mutation.mutate();
+        }}
+        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-50"
+      >
+        <Undo2 className="h-3.5 w-3.5" aria-hidden />
+        Przywróć
+      </button>
+      {mutation.isError && (
+        <p role="alert" className="text-xs text-destructive">
+          {apiErrorMessage(mutation.error, "Nie udało się przywrócić placementu.")}
+        </p>
+      )}
+      {confirmDialog}
     </div>
   );
 }

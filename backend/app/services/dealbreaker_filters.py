@@ -309,6 +309,7 @@ def missing_must_skills(
     """
     if not must:
         return []
+    from app.services.conversation_facts import absent_labels, narrow_requirement
     from app.services.must_gate_terms import requirement_with_options
     from app.services.must_text_evidence import evidence_for, text_met_labels
     from app.services.requirement_verification import reviewed_gate_status
@@ -317,6 +318,9 @@ def missing_must_skills(
     cand_skills = candidate_skill_names(candidate)
     evidence = evidence_for(candidate, must)
     text_met: Optional[frozenset[str]] = evidence.met if evidence else None
+    absent = absent_labels(
+        candidate, must, options=options, job_id=verification_job_id
+    ) | (evidence.absent if evidence else frozenset())
     missing = []
     for label in must:
         review = reviewed_gate_status(
@@ -330,7 +334,13 @@ def missing_must_skills(
         if review == "not_met" or (review == "unknown" and include_unknown):
             missing.append(label)
             continue
-        requirement = requirement_with_options(label, options)
+        # „Nie ma” z arkusza bije ślad w CV, ale ustępuje weryfikacji rekrutera.
+        if label in absent:
+            missing.append(label)
+            continue
+        requirement = narrow_requirement(
+            requirement_with_options(label, options), candidate
+        )
         names = requirement.options if requirement else (label,)
         if skill_present(label, cand_skills) or any(
             skill_present(name, cand_skills) for name in names
@@ -338,11 +348,49 @@ def missing_must_skills(
             continue
         if text_met is None:
             # Bez dołączonego dowodu (testy, ścieżki bez bazy) — profil i CV.
-            text_met = text_met_labels(candidate, must, options=options)
+            text_met = text_met_labels(
+                candidate, must, options=options, job_id=verification_job_id
+            )
         if label in text_met:
             continue
         missing.append(label)
     return missing
+
+
+def alternative_hits(candidate, labels: Sequence[str]) -> dict[str, list[str]]:
+    """Dla brakujących wymagań: zamienniki ze słownika, które kandydat ma
+    na liście umiejętności albo w tekście profilu i CV (Flask przy FastAPI)."""
+    from app.services.must_text_evidence import text_met_labels
+    from app.services.scoring_service import candidate_skill_names, skill_present
+    from app.services.skill_normalize import alternative_forms
+
+    cand_skills = None
+    hits: dict[str, list[str]] = {}
+    for label in labels:
+        forms = alternative_forms(label)
+        if not forms:
+            continue
+        if cand_skills is None:
+            cand_skills = candidate_skill_names(candidate)
+        found = [form for form in forms if skill_present(form, cand_skills)]
+        if not found:
+            found = sorted(text_met_labels(candidate, tuple(forms)))
+        if found:
+            hits[label] = found[:3]
+    return hits
+
+
+def _kept_by_alternatives(candidate, missing: Sequence[str]) -> bool:
+    """Osoba zostaje, gdy KAŻDE brakujące wymaganie ma zamiennik; wtedy
+    ``_critical_alternatives`` mówi karcie, o co zapytać."""
+    hits = alternative_hits(candidate, missing)
+    if not hits or set(hits) != set(missing):
+        return False
+    try:
+        candidate._critical_alternatives = hits
+    except AttributeError:  # obiekt bez atrybutów (testy) — decyzja zostaje
+        pass
+    return True
 
 
 def office_days_exceeded(candidate, required_days: Optional[int]) -> bool:
@@ -616,6 +664,16 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         must = eligible_must
     must_ignored = tuple(m for m in declared_must if m not in set(must))
     evidence_labels = _evidence_labels(job, eligible_must)
+    # Słowa wszystkich wierszy „musi mieć” do oceny (02.11.2026). Bramka czyta
+    # dalej tylko swoje: etykiety z `must` mają wyłącznie `critical_options`.
+    critical_options = {
+        **{
+            label: words
+            for label, words in _must_evidence_options(job).items()
+            if label not in set(must)
+        },
+        **critical_options,
+    }
 
     days = getattr(job, "onsite_days_per_week", None)
     office_location = getattr(job, "office_location", None) or getattr(
@@ -671,6 +729,15 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     )
 
 
+def _must_evidence_options(job) -> dict[str, tuple[str, ...]]:
+    from app.services.critical_skills import must_evidence_options
+
+    try:
+        return must_evidence_options(job)
+    except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        return {}
+
+
 def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
     """Technologie must i nice oferty, które da się sprawdzić w CV i notatkach.
 
@@ -682,11 +749,18 @@ def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
 
     try:
         reqs = job_skill_requirements(job)
-        scored = list(reqs.get("must") or []) + list(reqs.get("nice") or [])
+        must_scored = list(reqs.get("must") or [])
+        scored = must_scored + list(reqs.get("nice") or [])
     except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        must_scored = []
         scored = []
     out = list(eligible_must)
     for label in gate_eligible_must_skills(scored):
+        if label not in out:
+            out.append(label)
+    # „Musi mieć” spoza słownika też ma dowód (02.11.2026): szuka własnych słów
+    # (`must_evidence_options`), a bramka i tak czyta wyłącznie swoje etykiety.
+    for label in must_scored:
         if label not in out:
             out.append(label)
     return tuple(out)
@@ -900,14 +974,23 @@ def apply_dealbreakers(
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "no_data"
             continue
-        if must_active and missing_must_skills(
-            candidate,
-            effective_inputs.must_skills,
-            include_unknown=effective_inputs.exclude_unknown_skill_evidence,
-            verification_job_id=effective_inputs.verification_job_id,
-            verification_fingerprint=effective_inputs.verification_fingerprint,
-            options=effective_inputs.gate_options,
-        ):
+        missing = (
+            missing_must_skills(
+                candidate,
+                effective_inputs.must_skills,
+                include_unknown=effective_inputs.exclude_unknown_skill_evidence,
+                verification_job_id=effective_inputs.verification_job_id,
+                verification_fingerprint=effective_inputs.verification_fingerprint,
+                options=effective_inputs.gate_options,
+            )
+            if must_active
+            else []
+        )
+        if missing and _kept_by_alternatives(candidate, missing):
+            # Mapa wiedzy IT (07.11.2026, decyzja Artura): zamiennik nie spełnia
+            # wymagania krytycznego, ale nie ukrywa osoby — zostaje z pytaniem.
+            missing = []
+        if missing:
             from app.services.must_text_evidence import evidence_for, has_any_data
 
             if not has_any_data(

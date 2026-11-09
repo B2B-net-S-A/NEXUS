@@ -31,10 +31,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { consentRequestJobQuery } from "@/components/v2/recruitment/ConsentRequestButton";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api } from "@/lib/api";
 import type { CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
-import type { QcCheck } from "@/lib/api/cvQc";
+import { qcRoleFactsQueryKey, type QcCheck } from "@/lib/api/cvQc";
 import { cvAiSourcesQueryKey, type CvAiSourceFile, type CvAiSources } from "@/lib/cv-ai-sources";
 import { screeningFormQueryKey } from "@/lib/api/screeningForm";
 import type { RecruitmentOption } from "@/lib/cv-generator";
@@ -65,6 +66,9 @@ async function loadStatic(path: string): Promise<{ blob: Blob; filename: string 
 }
 const loadPreviewFile = () => loadStatic(PREVIEW_FILE);
 const loadPreviewPages = () => loadStatic(PREVIEW_PAGES);
+const ORIGINAL_LOADERS = {
+  loadOriginalBlob: () => loadPreviewPages().then((file) => file.blob),
+};
 const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
@@ -298,6 +302,7 @@ function seed(qc: QueryClient) {
     const rows: StageGeneratedCvRow[] = hasCv ? [readyRow(person, "manual")] : [];
     qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, JOB_ID), rows, FRESH);
     qc.setQueryData(stageBrandedQueryKey(person.stageId), branded(person, hasCv), FRESH);
+    qc.setQueryData(qcRoleFactsQueryKey(person.stageId), { facts: [], roles: [] }, FRESH);
     qc.setQueryData(
       ["cv-original", person.stageId],
       {
@@ -318,6 +323,8 @@ function seed(qc: QueryClient) {
     qc.setQueryData(candidateQueryKeys.cvDocuments(person.candidateId), [], FRESH);
     qc.setQueryData(["candidate-generated-cvs", person.candidateId], [], FRESH);
     qc.setQueryData(["central-cv-policy", null, person.stageId, false], {}, FRESH);
+    // Pasek o zgodzie czyta rekrutację z API; harness nie ma klienta z tym wymogiem.
+    qc.setQueryData(consentRequestJobQuery(JOB_ID).queryKey, { client_id: null }, FRESH);
 
     // Panel „Z czego powstało”: proces osoby, pliki CV, źródła dla AI, reguły klienta.
     for (const mode of ["polished", "tailored"]) {
@@ -461,6 +468,7 @@ function Harness() {
               lockedAfterSend={person.variant === "sent"}
               loadStageCvFile={loadPreviewFile}
               loadStageCvPdf={loadPreviewPages}
+              originalLoaders={ORIGINAL_LOADERS}
             />
           </section>
         ))}

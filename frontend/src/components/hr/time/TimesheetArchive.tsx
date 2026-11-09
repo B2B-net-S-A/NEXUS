@@ -53,7 +53,7 @@ export function TimesheetArchive({ onOpenMonth, defaultOpen = false, period }: T
     try {
       await downloadHrFile(
         timePaths.myPdf(item.year, item.month),
-        `timesheet-${item.year}-${String(item.month).padStart(2, "0")}.pdf`,
+        `raport-godzin-${item.year}-${String(item.month).padStart(2, "0")}.pdf`,
       );
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać PDF."), "error");
@@ -73,7 +73,7 @@ export function TimesheetArchive({ onOpenMonth, defaultOpen = false, period }: T
           className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
           aria-hidden
         />
-        Archiwum timesheetów
+        Archiwum raportów godzin
         <span className="text-xs font-normal text-muted-foreground">ostatnie 12 miesięcy</span>
       </button>
       {open ? (
@@ -88,7 +88,7 @@ export function TimesheetArchive({ onOpenMonth, defaultOpen = false, period }: T
           {state === "loading" ? (
             <p className="text-sm text-muted-foreground">Wczytywanie archiwum…</p>
           ) : state === "empty" ? (
-            <p className="text-sm text-muted-foreground">Nie ma jeszcze żadnego timesheetu.</p>
+            <p className="text-sm text-muted-foreground">Nie ma jeszcze żadnego raportu godzin.</p>
           ) : state !== "ready" ? (
             <QueryStateNotice
               state={state === "forbidden" || state === "not_found" ? state : "error"}

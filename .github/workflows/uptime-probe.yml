@@ -12,12 +12,13 @@ permissions:
 
 jobs:
   probe:
-    name: Check nexus.dynaminds.pl health
+    name: Check nexus.b2bnetwork.pl health
     runs-on: ubuntu-latest
     permissions:
       contents: read
       issues: write
-    timeout-minutes: 3
+    # 2 kroki po 3 próby (15 s) i 2 przerwy (20 s) to 170 s, do tego TLS i start.
+    timeout-minutes: 5
     steps:
       - name: Frontend
         id: frontend
@@ -30,8 +31,11 @@ jobs:
           # Sprawdzamy kod PO przekierowaniach; %{url_effective} zostaje w logu na dowód.
           # `\n` w -w jest konieczny: bez niego `read` kończy na EOF ze statusem 1,
           # co przy `set -e` ubija krok mimo poprawnej odpowiedzi.
+          # Ponawianie: restart przy wdrożeniu daje na kilkanaście sekund prawdziwy 503,
+          # a awaria trwa dłużej niż 3 próby co 20 s (#995).
           read -r code final_url < <(curl -sSL -o /dev/null \
-            -w '%{http_code} %{url_effective}\n' --max-time 15 https://nexus.dynaminds.pl/)
+            --retry 2 --retry-delay 20 --retry-all-errors \
+            -w '%{http_code} %{url_effective}\n' --max-time 15 https://nexus.b2bnetwork.pl/)
           echo "frontend_code=$code" >> "$GITHUB_OUTPUT"
           echo "Frontend: HTTP $code (po przekierowaniach: $final_url)"
           if [ "$code" -ne 200 ]; then
@@ -47,13 +51,19 @@ jobs:
           set -euo pipefail
           # Primary: /api/health (standard shape per deployment.md).
           # Fallback: /health (legacy alias, do usunięcia po 7 dniach od merge).
-          body=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health)
+          # Ponawianie jak w kroku Frontend (#995).
+          # `-o` do pliku jest konieczne: curl przy ponowieniu czyści plik, a stdout
+          # nie. Bez tego 503 z pierwszej próby sklejało się ze zdrowym JSON-em
+          # z drugiej i `jq` dawał fałszywy alarm (#3151).
+          body_file=$(mktemp)
+          curl -sS -o "$body_file" --retry 2 --retry-delay 20 --retry-all-errors --max-time 15 https://api.nexus.b2bnetwork.pl/api/health
+          body=$(cat "$body_file")
           echo "body=$body"
           echo "$body" | jq -e '.status != "unhealthy"' > /dev/null
       - name: TLS expiry check
         run: |
           set -euo pipefail
-          for host in nexus.dynaminds.pl api.nexus.dynaminds.pl; do
+          for host in nexus.b2bnetwork.pl api.nexus.b2bnetwork.pl nexus.dynaminds.pl api.nexus.dynaminds.pl; do
             expiry=$(echo | openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null \
               | openssl x509 -noout -enddate | cut -d= -f2)
             echo "$host expires: $expiry"
@@ -271,7 +281,7 @@ jobs:
           # api.nexus.* jest dziś DNS-only, ale zgodność kosztuje jedną flagę.
           body=$(curl -sS --max-time 20 \
             -A "dynaminds-smoke-test/1.0 (+github-actions; Nexus)" \
-            https://api.nexus.dynaminds.pl/api/health || true)
+            https://api.nexus.b2bnetwork.pl/api/health || true)
           if ! printf '%s' "$body" | jq -e 'has("checks")' > /dev/null 2>&1; then
             # Backend nieosiągalny albo bez `.checks` — to jest awaria, którą job
             # `probe` już zgłasza głośno. Tutaj cisza, żeby jedna awaria nie
@@ -465,7 +475,7 @@ jobs:
           FREEZE_WINDOW: "8-18"
         run: |
           set -u
-          live=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health | jq -r '.version // ""' 2>/dev/null || echo "")
+          live=$(curl -sS --max-time 15 https://api.nexus.b2bnetwork.pl/api/health | jq -r '.version // ""' 2>/dev/null || echo "")
           python3 .github/scripts/select_release_sha.py night-check \
             --repo "${{ github.repository }}" --branch main \
             --live "$live" --freeze-window "$FREEZE_WINDOW"

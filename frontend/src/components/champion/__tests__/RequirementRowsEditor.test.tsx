@@ -38,6 +38,7 @@ import {
   OUTSIDE_DICTIONARY_NOTE,
   RequirementRowsEditor,
   type RequirementRowsEditorProps,
+  type RequirementSentGaps,
 } from "@/components/champion/RequirementRowsEditor";
 import { clearSearchMemory, pushRecentSearch } from "@/lib/search-memory";
 import { useAuthStore } from "@/store/auth";
@@ -693,6 +694,98 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
     expect(screen.getAllByText(/Słowo bardzo ogólne|nikt w bazie/)).toHaveLength(2);
   });
 
+  describe("wiersz bez nikogo z wysłanych (02.11.2026)", () => {
+    const gaps = (over: Partial<RequirementSentGaps> = {}): RequirementSentGaps => ({
+      sent: 8,
+      rows: [{ label: "płatności", words: ["płatności"] }],
+      wordsFor: () => null,
+      canAsk: true,
+      asking: false,
+      askError: null,
+      onAsk: vi.fn(),
+      ...over,
+    });
+
+    it("mówi, że to CV i notatki, i pozwala poprosić o słowa", () => {
+      const onAsk = vi.fn();
+      renderEditor({ sentGaps: gaps({ onAsk }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(note).toHaveTextContent("„płatności” nie ma nikt z 8 wysłanych.");
+      expect(note).toHaveTextContent("Ani w CV, ani w notatkach.");
+      fireEvent.click(within(note).getByRole("button", { name: "Podpowiedz słowa" }));
+      expect(onAsk).toHaveBeenCalledTimes(1);
+    });
+
+    it("bez prawa decyzji nie ma przycisku słów, reszta zostaje", () => {
+      renderEditor({ sentGaps: gaps({ canAsk: false }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(within(note).queryByRole("button", { name: "Podpowiedz słowa" })).toBeNull();
+      expect(within(note).getByRole("button", { name: "Do rozmowy" })).toBeInTheDocument();
+    });
+
+    it("słowo dopisuje wariant do tego wiersza", () => {
+      const { onRowsChange } = renderEditor({
+        sentGaps: gaps({ wordsFor: () => [{ word: "payment", hits: 6 }] }),
+      });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(note).toHaveTextContent("W ich CV stoi to innymi słowami:");
+      expect(note).toHaveTextContent("+ lub payment · 6 z 8");
+      fireEvent.click(within(note).getByRole("button", { name: /lub payment/ }));
+      const rows = onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[];
+      expect(rows.find((row) => row.key === "pay")?.words).toEqual(["płatności", "payment"]);
+    });
+
+    it("model nic nie znalazł: pyta o sens wymagania, bez przycisku słów", () => {
+      renderEditor({ sentGaps: gaps({ wordsFor: () => [] }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(note).toHaveTextContent("W ich CV nie ma wspólnego słowa.");
+      expect(within(note).queryByRole("button", { name: "Podpowiedz słowa" })).toBeNull();
+    });
+
+    it("awaria podpowiedzi nie zabiera ostrzeżenia", () => {
+      renderEditor({ sentGaps: gaps({ askError: "Nie udało się przeczytać CV." }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(within(note).getByRole("alert")).toHaveTextContent("Nie udało się przeczytać CV.");
+      expect(within(note).getByRole("button", { name: "Do rozmowy" })).toBeInTheDocument();
+    });
+
+    it("„Do rozmowy” przenosi wiersz, „Zostaw” chowa ostrzeżenie", () => {
+      const onMoveToTalk = vi.fn();
+      const { onRowsChange } = renderEditor({ sentGaps: gaps(), onMoveToTalk });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      fireEvent.click(within(note).getByRole("button", { name: "Do rozmowy" }));
+      expect(onMoveToTalk).toHaveBeenCalledWith({
+        name: "płatności",
+        kind: "skills",
+        level: "must",
+      });
+      expect(
+        (onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[]).map((row) => row.key),
+      ).not.toContain("pay");
+      fireEvent.click(within(note).getByRole("button", { name: "Zostaw" }));
+      expect(screen.queryByTestId("requirement-row-sent-gap")).toBeNull();
+    });
+
+    it("zastępuje ostrzeżenie o rzadkim słowie, jedno na wiersz", () => {
+      mocks.counts = {
+        perRow: { java: 9_000, kafka: 900, pay: 3 },
+        required: 3,
+        critical: undefined,
+        failed: false,
+      };
+      renderEditor({ countEnabled: true, sentGaps: gaps() });
+      expect(screen.getByTestId("requirement-row-sent-gap")).toBeInTheDocument();
+      expect(screen.queryByTestId("requirement-row-rare")).toBeNull();
+    });
+
+    it("mile widziane nie ostrzega", () => {
+      renderEditor({
+        sentGaps: gaps({ rows: [{ label: "kubernetes", words: ["Kubernetes"] }] }),
+      });
+      expect(screen.queryByTestId("requirement-row-sent-gap")).toBeNull();
+    });
+  });
+
   it("rzadkie „musi mieć”: do rozmowy, zostaw, a przy zerze razem — które zawężają", () => {
     mocks.counts = {
       perRow: { java: 9_000, kafka: 7, pay: 0 },
@@ -760,6 +853,81 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
     fireEvent.change(input, { target: { value: "7" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRowsChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("RequirementRowsEditor — rdzeń, który rozlewa wiersz (789198, 07.11.2026)", () => {
+  const PEOPLE: Record<string, number> = { "microsoft*": 21_314, "Dynamics 365": 692 };
+
+  function countByWord() {
+    mocks.get.mockImplementation((url: string, config?: { params?: { q_any_group?: string[] } }) => {
+      if (url !== "/api/candidates") return Promise.resolve({ data: {} });
+      const groups = config?.params?.q_any_group ?? [];
+      const total = groups.length === 1 && groups[0] in PEOPLE ? PEOPLE[groups[0]] : 21_400;
+      return Promise.resolve({ data: { total } });
+    });
+  }
+
+  it("krytyczny wiersz z „microsoft*” ostrzega i „Usuń” zostawia resztę wariantów", async () => {
+    countByWord();
+    const { onRowsChange } = renderEditor({
+      countEnabled: true,
+      rows: [{ key: "d365", words: ["microsoft*", "Dynamics 365"], level: "critical" }],
+    });
+    const note = await screen.findByTestId("requirement-row-broad-variant", {}, { timeout: 3000 });
+    expect(note).toHaveTextContent("„microsoft*” poszerza ten wiersz 31×");
+    expect(note).toHaveTextContent("Krytyczne przepuści");
+    fireEvent.click(within(note).getByRole("button", { name: "Usuń „microsoft*”" }));
+    expect((onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[])[0].words).toEqual([
+      "Dynamics 365",
+    ]);
+  });
+
+  it("rdzeń z gwiazdką nie dostaje podpowiedzi słownika („Dodaj Microsoft 365”)", async () => {
+    countByWord();
+    mocks.post.mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/job-intake/dictionary-hints"
+            ? {
+                can_curate: false,
+                relations: [],
+                hints: ["microsoft*", "Dynamics CRM"].map((word) => ({
+                  word,
+                  kind: "suggest",
+                  proposal_id: null,
+                  word_count: 10,
+                  target: { name: "Microsoft 365", count: 900 },
+                  add_words: [{ name: "Microsoft 365", count: 900 }],
+                  canonical: null,
+                  category: "tools",
+                })),
+              }
+            : {},
+      }),
+    );
+    renderEditor({
+      countEnabled: true,
+      rows: [{ key: "d365", words: ["microsoft*", "Dynamics CRM"], level: "must" }],
+    });
+    const hints = await screen.findAllByTestId("dictionary-hint", {}, { timeout: 3000 });
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).not.toHaveTextContent("microsoft*");
+  });
+
+  it("wiersz bez rdzenia nie pyta o liczby słów osobno", async () => {
+    countByWord();
+    renderEditor({
+      countEnabled: true,
+      rows: [{ key: "mq", words: ["Kafka", "RabbitMQ"], level: "must" }],
+    });
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled(), { timeout: 3000 });
+    const single = mocks.get.mock.calls
+      .filter(([url]) => url === "/api/candidates")
+      .map(([, config]) => (config as { params: { q_any_group?: string[] } }).params.q_any_group ?? [])
+      .filter((groups) => groups.length === 1 && (groups[0] === "Kafka" || groups[0] === "RabbitMQ"));
+    expect(single).toEqual([]);
+    expect(screen.queryByTestId("requirement-row-broad-variant")).toBeNull();
   });
 });
 

@@ -120,6 +120,7 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
   downloadBlob: (...a: unknown[]) => savedFiles(...a),
 }));
 
+import type { QcStateView } from "@/lib/cv-qc";
 import { PipelineCandidateDock, nowSectionForStage, earlyQcSentence } from "@/components/v2/jobs/PipelineCandidateDock";
 import { PersonPanelColumn, PersonPanelSideProvider } from "@/components/v2/person/PersonPanelSide";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -795,6 +796,70 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     );
   });
 
+  describe("„Biorę” przy „Prowadzi” w panelu z formularzem (04.11.2026)", () => {
+    const freeSystemItem = () =>
+      baseItem({ stage: "new", can_take: true, claim_user_id: null, entry_source: "system" });
+
+    it("osobę od systemu bierze się bez wychodzenia z panelu, bez dubla w rzędzie telefonu", async () => {
+      const onTake = vi.fn();
+      const user = userEvent.setup();
+      renderDock({ item: freeSystemItem(), onTake, expanded: true, split: true });
+      const line = await screen.findByTestId("dock-pair-owner");
+      await user.click(within(line).getByRole("button", { name: "Dzwonię — biorę na 12 h" }));
+      expect(onTake).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("dock-contact-row")).toBeNull();
+    });
+
+    it("tryb rozmowy ma krótki przycisk obok imienia", async () => {
+      const onTake = vi.fn();
+      const user = userEvent.setup();
+      renderDock({ item: freeSystemItem(), onTake, expanded: true, split: true });
+      const compact = await screen.findByTestId("dock-pair-owner-compact");
+      const button = within(compact).getByRole("button", { name: "Dzwonię — biorę na 12 h" });
+      expect(button).toHaveTextContent("Dzwonię");
+      await user.click(button);
+      expect(onTake).toHaveBeenCalledTimes(1);
+    });
+
+    it("po decyzji albo przy osobie od człowieka przycisk mówi „Biorę”", async () => {
+      renderDock({
+        item: baseItem({ stage: "screening", can_take: true, claim_user_id: null }),
+        onTake: vi.fn(),
+        expanded: true,
+        split: true,
+      });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).getByRole("button", { name: "Biorę — 12 h" })).toBeTruthy();
+    });
+
+    it("w trakcie zapisu przycisk jest wyłączony: drugi klik dałby 409", async () => {
+      renderDock({ item: freeSystemItem(), onTake: vi.fn(), taking: true, expanded: true, split: true });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).getByRole("button", { name: "Dzwonię — biorę na 12 h" })).toBeDisabled();
+    });
+
+    it.each([
+      ["cudza aktywna blokada", { stage: "new", can_take: false, claim_user_id: 7 }, {}],
+      ["własna blokada", { stage: "new", can_take: false, claim_user_id: 1 }, {}],
+      ["zamknięta rekrutacja (serwer: can_take = false)", { stage: "new", can_take: false, claim_user_id: null }, {}],
+      ["przejęcie cudzej zostaje na karcie", { stage: "new", can_take: true, claim_user_id: 7 }, {}],
+      ["etap po „Screeningu”", { stage: "cv_sent", can_take: true, claim_user_id: null }, {}],
+      ["tylko do odczytu", { stage: "new", can_take: true, claim_user_id: null }, { readOnly: true }],
+    ])("bez przycisku: %s", async (_name, item, props) => {
+      renderDock({ item: baseItem(item), onTake: vi.fn(), expanded: true, split: true, ...props });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).queryByRole("button", { name: /biorę/i })).toBeNull();
+    });
+
+    it("wąski dok ma „Biorę” tylko w rzędzie telefonu", async () => {
+      renderDock({ item: freeSystemItem(), onTake: vi.fn() });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).queryByRole("button", { name: /biorę/i })).toBeNull();
+      const row = await screen.findByTestId("dock-contact-row");
+      expect(within(row).getByRole("button", { name: /biorę na 12 h/ })).toBeTruthy();
+    });
+  });
+
   it("po „Screeningu” panel nie pokazuje wiersza telefonu", async () => {
     renderDock({ item: baseItem({ stage: "cv_sent" }) });
     await screen.findByTestId("dock-facts");
@@ -1396,24 +1461,69 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     // Na „Zweryfikowanym” sekcja CV jest „Teraz” — otwarta od startu.
     renderDock({ item: baseItem({ stage: "verified" }), onOpenQc });
     expect(
-      await screen.findByText("QC CV: 2 rzeczy do poprawy przed wysłaniem"),
+      await screen.findByText("QC: 2 do poprawy"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Otwórz QC" }));
     expect(onOpenQc).toHaveBeenCalledTimes(1);
   });
 
-  // 18.10.2026 (Kalwala, 789131): karta „QC: 2 do poprawy”, panel „1 rzecz” — panel
-  // dopisuje nieblokujące uwagi tą samą regułą co plakietka karty.
+  // 09.11.2026: panel mówił „bez blokad — można przekazać dalej”, karta „QC: wskaż
+  // stanowisko · 2”. Tekst przychodzi z serwera, ten sam co na karcie; uwagi
+  // nieblokujące dopisuje ta sama reguła co plakietka (18.10.2026, Kalwala).
+  const qcState = (kind: QcStateView["kind"], text: string, tone: QcStateView["tone"]): QcStateView => ({
+    kind,
+    n: 2,
+    items: [],
+    text,
+    tone,
+    who: null,
+    hint: null,
+  });
+
+  it("zdanie QC pokazuje stan z serwera, nie liczy z `passed`", () => {
+    expect(
+      earlyQcSentence(false, {
+        passed: true,
+        blocking_failed: 0,
+        override: null,
+        qc_state: qcState("verify_roles", "QC: wskaż stanowisko · 2", "wait"),
+      }),
+    ).toBe("QC: wskaż stanowisko · 2");
+    expect(
+      earlyQcSentence(false, {
+        passed: true,
+        blocking_failed: 0,
+        override: null,
+        qc_state: qcState("candidate_gap", "QC: kandydat nie ma: Kafka", "wait"),
+      }),
+    ).toBe("QC: kandydat nie ma: Kafka");
+  });
+
   it("zdanie QC dopisuje uwagi nieblokujące — te same liczby co karta", () => {
-    expect(earlyQcSentence(false, { passed: false, blocking_failed: 1, warnings_count: 1, override: null })).toBe(
-      "QC CV: 1 rzecz do poprawy przed wysłaniem · 1 uwaga (nie blokuje)",
-    );
-    expect(earlyQcSentence(false, { passed: true, blocking_failed: 0, warnings_count: 3, override: null })).toBe(
-      "QC CV: bez blokad — można przekazać dalej · 3 uwagi (nie blokuje)",
-    );
-    expect(earlyQcSentence(false, { passed: false, blocking_failed: 2, override: null })).toBe(
-      "QC CV: 2 rzeczy do poprawy przed wysłaniem",
-    );
+    expect(
+      earlyQcSentence(false, {
+        passed: false,
+        blocking_failed: 1,
+        warnings_count: 1,
+        override: null,
+        qc_state: qcState("to_fix", "QC: 1 do poprawy", "urgent"),
+      }),
+    ).toBe("QC: 1 do poprawy · 1 uwaga (nie blokuje)");
+    expect(
+      earlyQcSentence(false, {
+        passed: true,
+        blocking_failed: 0,
+        warnings_count: 3,
+        override: null,
+        qc_state: qcState("checked", "QC: sprawdzone", "ok"),
+      }),
+    ).toBe("QC: sprawdzone · 3 uwagi (nie blokuje)");
+  });
+
+  it("odpowiedź starszego wdrożenia bez `qc_state` — sama nazwa statusu", () => {
+    expect(earlyQcSentence(false, { passed: false, blocking_failed: 2, override: null })).toBe("QC: 2 do poprawy");
+    expect(earlyQcSentence(true, null)).toBe("QC CV: sprawdzam…");
+    expect(earlyQcSentence(false, null)).toBe("QC CV: nie udało się sprawdzić");
   });
 
   it("bez CV firmowego dok nie liczy QC", async () => {

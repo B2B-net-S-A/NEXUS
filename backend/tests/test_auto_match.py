@@ -449,7 +449,11 @@ def _m365_inputs(tmp_path):
 
 def _patch_m365(monkeypatch, tmp_path, parsed, duplicates, same_file=()):
     """`duplicates` = profile z tym samym e-mailem; `same_file` = z tym samym plikiem."""
-    from app.services import cv_upload_dedup, dedup_service
+    from app.services import (
+        candidate_erasure_leftovers,
+        cv_upload_dedup,
+        dedup_service,
+    )
     from app.services.m365 import attachment_handler
 
     monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
@@ -469,6 +473,10 @@ def _patch_m365(monkeypatch, tmp_path, parsed, duplicates, same_file=()):
         cv_upload_dedup,
         "_duplicates_by_file_hash",
         AsyncMock(return_value=list(same_file)),
+    )
+    # Atrapa bazy nie zna nagrobków; adres z nagrobka ma własny test.
+    monkeypatch.setattr(
+        candidate_erasure_leftovers, "email_was_erased", AsyncMock(return_value=False)
     )
     parse = AsyncMock()
     monkeypatch.setattr(attachment_handler, "try_parse_cv", parse)
@@ -516,6 +524,31 @@ def _db_that_assigns_id(candidate_id: int):
 
     db.flush.side_effect = _flush
     return db
+
+
+@pytest.mark.asyncio
+async def test_unknown_sender_cv_on_an_erased_address_creates_nothing(
+    monkeypatch, tmp_path
+):
+    """Automat nie zakłada profilu na adres z nagrobka (decyzja Artura 03.11.2026)."""
+    from app.services import candidate_erasure_leftovers
+
+    handler, parse = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {"first_name": "Jan", "last_name": "Nowak", "email": "Wraca@Example.com"},
+        [],
+    )
+    erased = AsyncMock(return_value=True)
+    monkeypatch.setattr(candidate_erasure_leftovers, "email_was_erased", erased)
+    attachment, email = _m365_inputs(tmp_path)
+    db = _db_that_assigns_id(88)
+
+    assert await handler.try_create_candidate_from_cv(db, attachment, email) is None
+    assert attachment.parse_error == "candidate_erased"
+    db.add.assert_not_called()
+    parse.assert_not_awaited()
+    assert erased.await_args.args[1] == "wraca@example.com"
 
 
 @pytest.mark.asyncio
@@ -642,6 +675,54 @@ async def test_unknown_sender_cv_without_contact_creates_nothing(monkeypatch, tm
         is None
     )
     assert attachment.parse_error == "identity_insufficient"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("marked", [["first_name", "last_name"], ["last_name"]])
+async def test_unknown_sender_cv_with_header_name_creates_nothing(
+    monkeypatch, tmp_path, marked
+):
+    handler, _ = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "phone": "600100200",
+            "_name_from_header": marked,
+        },
+        [],
+    )
+    attachment, email = _m365_inputs(tmp_path)
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email)
+        is None
+    )
+    assert attachment.parse_error == "identity_insufficient"
+
+
+@pytest.mark.asyncio
+async def test_unknown_sender_cv_with_header_name_still_links_by_email(
+    monkeypatch, tmp_path
+):
+    # Adres dowodzi osoby, nazwa z nagłówka nie jest tu potrzebna.
+    handler, parse = _patch_m365(
+        monkeypatch,
+        tmp_path,
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "email": "jan@example.com",
+            "_name_from_header": ["first_name", "last_name"],
+        },
+        [{"candidate_id": 42, "match_score": 1.0, "match_reasons": ["email_exact"]}],
+    )
+    attachment, email = _m365_inputs(tmp_path)
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) == 42
+    )
+    assert attachment.parse_error is None
+    parse.assert_awaited_once()
 
 
 @needs_db

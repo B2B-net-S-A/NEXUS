@@ -29,9 +29,11 @@ export function invalidateJobTeam(
 ): void {
   if (jobId == null) {
     void qc.invalidateQueries({ queryKey: ["job"] });
+    void qc.invalidateQueries({ queryKey: ["job-unassigned-workers"] });
   } else {
     void qc.invalidateQueries({ queryKey: ["job", jobId] });
     void qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
+    void qc.invalidateQueries({ queryKey: ["job-unassigned-workers", jobId] });
   }
   void qc.invalidateQueries({ queryKey: ["jobs-v2"] });
   void qc.invalidateQueries({ queryKey: ["jobs-quick-counts"] });

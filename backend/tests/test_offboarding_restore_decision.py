@@ -609,3 +609,260 @@ async def test_manual_consumption_put_after_removal_keeps_pool_non_negative(
     # Pula oddana = max(0, 90 − 100) = 0 → budżet wraca do 90, saldo −10.
     assert source["md_total"] == Decimal("90")
     assert source["md_remaining"] == Decimal("-10")
+
+
+# ── Zakończenie z datą DZIŚ: decyzja człowieka, nie nocny skaner ───────────
+
+
+async def _seed_live_md_line() -> dict:
+    """Aktywny kontrakt B2B z aktywną linią MD — stan PRZED ``/terminate``."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
+    from app.models.contract import Contract, ContractStatus, RateUnit
+
+    suffix = uuid.uuid4().hex[:6]
+    start = business_today() - timedelta(days=200)
+    group_end = business_today() + timedelta(days=120)
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"RestoreTodayClient-{suffix}")
+        db.add(client)
+        await db.flush()
+        candidate = Candidate(
+            name="Test",
+            lastname=f"Consultant-{suffix}",
+            email=f"restore-today-{suffix}@example.com",
+        )
+        db.add(candidate)
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=start,
+            rate_candidate=Decimal("1000.000"),
+            rate_client=Decimal("1320.000"),
+            rate_unit=RateUnit.daily,
+        )
+        db.add(contract)
+        await db.flush()
+        group = ClientOrderGroup(
+            client_id=client.id,
+            order_number=f"RT_{suffix}",
+            start_date=start,
+            end_date=group_end,
+            status=GROUP_STATUS_ACTIVE,
+            order_type=None,
+            is_md_budget_based=False,
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=client.id,
+            contract_id=contract.id,
+            order_group_id=group.id,
+            title=f"Zamówienie {group.order_number}",
+            order_type=None,
+            status=ClientOrderStatus.active,
+            start_date=start,
+            end_date=group_end,
+            md_rate_cost=Decimal("1000.00"),
+            md_rate_revenue=Decimal("1320.00"),
+            rate_unit=RateUnit.daily,
+            billing_hours_per_month=160,
+            currency="PLN",
+            rate_client_currency="PLN",
+            rate_candidate_currency="PLN",
+            md_input_mode="md",
+            md_input_value=Decimal("90"),
+            md_total=Decimal("90"),
+            md_remaining=Decimal("90"),
+        )
+        db.add(line)
+        await db.commit()
+        return {
+            "client_id": client.id,
+            "group_id": group.id,
+            "line_id": line.id,
+            "contract_id": contract.id,
+            "group_end": group_end,
+        }
+
+
+async def _terminate_today_and_open_case(
+    app_client: AsyncClient, app_auth_headers: dict, seed: dict
+) -> dict:
+    """Prawdziwe ``/terminate`` z datą dziś; zwraca seed uzupełniony o sprawę."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+
+    resp = await app_client.post(
+        f"/api/contracts/{seed['contract_id']}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": business_today().isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        case_id = (
+            await db.execute(
+                select(ClientOrderOffboardingCase.id).where(
+                    ClientOrderOffboardingCase.order_id == seed["line_id"]
+                )
+            )
+        ).scalar_one()
+    return {**seed, "case_id": case_id}
+
+
+async def test_restore_on_the_termination_day_brings_the_contract_back(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zakończenie z datą dziś daje „Kończący się” i ``end_date`` = dziś.
+
+    Reguła FIN-01 (zaplanowane zakończenie wygrywa z samym zamówieniem) chroni
+    przed NOCNYM reconcile. Tu decyduje człowiek: „współpraca trwa dalej”. Gdyby
+    kontrakt został „Kończący się”, linia wróciłaby na aktywną, a następnej nocy
+    `_promote_statuses` zakończyłby umowę mimo tej decyzji.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.tasks import contract_alerts
+
+    seed = await _seed_live_md_line()
+    _enable_multi(monkeypatch, seed["client_id"])
+    seed = await _terminate_today_and_open_case(app_client, app_auth_headers, seed)
+
+    before = await _contract_state(seed["contract_id"])
+    assert before == {"status": "ending", "end_date": business_today()}
+
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={
+            "action": "restore",
+            "restore_end_date": seed["group_end"].isoformat(),
+            "expected_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await _line_state(seed["line_id"]))["status"] == "active"
+    assert await _contract_state(seed["contract_id"]) == {
+        "status": "active",
+        "end_date": None,
+    }
+
+    tomorrow = business_today() + timedelta(days=1)
+    monkeypatch.setattr(contract_alerts, "business_today", lambda: tomorrow)
+    async with AsyncSessionLocal() as db:
+        await contract_alerts._promote_statuses(db)
+        await db.commit()
+    assert (await _contract_state(seed["contract_id"]))["status"] == "active"
+    line = await _line_state(seed["line_id"])
+    assert line["status"] == "active"
+    assert line["end_date"] == seed["group_end"]
+
+
+async def test_restore_on_the_termination_day_clears_the_termination_data(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Umowa wraca bezterminowo, więc pola zakończenia opisują to, co cofnięto."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+
+    seed = await _seed_live_md_line()
+    _enable_multi(monkeypatch, seed["client_id"])
+    seed = await _terminate_today_and_open_case(app_client, app_auth_headers, seed)
+
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={
+            "action": "restore",
+            "restore_end_date": seed["group_end"].isoformat(),
+            "expected_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, seed["contract_id"])
+        assert contract.terminated_at is None
+        assert contract.termination_reason is None
+
+
+async def test_restore_does_not_cancel_a_termination_planned_for_another_date(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Decyzja odwołuje datę ze sprawy, nie każde zakończenie tego kontraktu.
+
+    Ktoś przeplanował zakończenie na później, zanim DL rozstrzygnął sprawę:
+    ta data jest nowszym planem, o którym decyzja nic nie mówi (FIN-01).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+
+    seed = await _seed_live_md_line()
+    _enable_multi(monkeypatch, seed["client_id"])
+    seed = await _terminate_today_and_open_case(app_client, app_auth_headers, seed)
+    planned_end = business_today() + timedelta(days=20)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, seed["contract_id"])
+        contract.end_date = planned_end
+        await db.commit()
+
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={
+            "action": "restore",
+            "restore_end_date": seed["group_end"].isoformat(),
+            "expected_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _contract_state(seed["contract_id"]) == {
+        "status": "ending",
+        "end_date": planned_end,
+    }
+
+
+async def test_live_order_alone_does_not_cancel_a_termination_ending_today():
+    """Ta sama data, bez decyzji człowieka: FIN-01 nadal wygrywa z zamówieniem."""
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus
+    from app.services.contract_lifecycle import sync_contract_to_live_order_nightly
+
+    seed = await _seed_live_md_line()
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, seed["contract_id"])
+        contract.status = ContractStatus.ending
+        contract.end_date = today
+        contract.terminated_at = datetime.now(timezone.utc)
+        contract.termination_reason = "project_ended"
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, seed["contract_id"])
+        changed = await sync_contract_to_live_order_nightly(
+            db,
+            contract,
+            order_start=today - timedelta(days=200),
+            order_end=seed["group_end"],
+            today=today,
+        )
+        await db.commit()
+
+    assert changed is False
+    assert await _contract_state(seed["contract_id"]) == {
+        "status": "ending",
+        "end_date": today,
+    }

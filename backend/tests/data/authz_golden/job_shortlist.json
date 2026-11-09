@@ -25,13 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

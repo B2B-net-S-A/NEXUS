@@ -49,13 +49,14 @@ export type SettingsItemId =
   | "prep-review"
   | "kpi-targets"
   | "twin-rules"
+  | "cpro"
   | "novelties"
+  | "cv-generator-quality"
   | "mail"
   | "skills"
   | "skills-review"
   | "job-ad-blocks"
   | "roles"
-  | "trainee-rules"
   | "contracts"
   | "rates"
   | "register-import"
@@ -164,8 +165,16 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
-    id: "hr", area: "team", title: "Kadry", group: "Ludzie w NEXUSIE",
-    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
+    id: "cv-generator-quality", area: "team", title: "Jakość generatora CV", group: "Zespół rekrutacji",
+    description: "Co rekruterzy zgłaszają, gdy pobierają oryginał CV po złym wyniku generatora.",
+    keywords: "generator cv jakosc powody feedback pobieranie oryginal uwagi",
+    route: "/settings/jakosc-generatora",
+    // Lustro `HeadOfRecruitmentPlus` w `api/cv_generator_feedback.py` (decyzja Artura 02.11.2026).
+    gate: { roles: ["admin", "head_of_recruitment"] },
+  },
+  {
+    id: "hr", area: "team", title: "Administracja współpracy", group: "Ludzie w NEXUSIE",
+    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (przerwy, raporty godzin, rozliczenia, sprzęt).",
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
     route: "/settings/hr",
     gate: { permission: "people_admin", hrProgram: true },
@@ -174,7 +183,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
     // „Płace” (Finanse z roli, admin zawsze). Do 17.10 karta była w „Kadrach”,
     // których osoba z samymi „Płacami” nie widziała.
-    id: "payroll", area: "team", title: "Płace", group: "Ludzie w NEXUSIE",
+    id: "payroll", area: "team", title: "Rozliczenia", group: "Ludzie w NEXUSIE",
     description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
     keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
     route: "/settings/payroll",
@@ -185,7 +194,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Kadry i admin, zapis tylko admin (`/api/hr/admin/import`).
     id: "hr-import", area: "team", title: "Import z Compassa", group: "Ludzie w NEXUSIE",
     description: "Paczka eksportu Compassa: sprawdzenie na sucho, zapis wybranych modułów i historia partii.",
-    keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
+    keywords: "import compass paczka kadry urlopy raporty godzin place migracja przelaczenie na sucho",
     route: "/settings/hr-import",
     wide: true,
     gate: { permission: "people_admin", hrProgram: true },
@@ -266,6 +275,18 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     },
   },
   {
+    id: "cpro", area: "rec", title: "CPro (Nordea)", group: "Proces",
+    description: "Zmiany z maili CPro: dziennik, sprawy do ręcznego i wyłączniki automatu.",
+    keywords: "cpro cipro nordea onevms maile zamknięcie odrzucenie automat dziennik",
+    route: "/settings/cpro",
+    // Odczyt DL, HoR, admin w sekcji Pipeline; wyłączniki (HoR, admin) — serwer.
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "pipeline",
+      required: "read",
+    },
+  },
+  {
     id: "kpi-targets", area: "rec", title: "Cele KPI", group: "Proces",
     description: "Cele weryfikacji, rekomendacji i placementów dla ról i osób.",
     keywords: "kpi cele targety wyscig progi weryfikacje placementy precyzja",
@@ -313,16 +334,6 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // `/api/role-profiles` (zapis): admin + Head of Recruitment — ta sama
     // bramka co Słownik umiejętności, obok którego żyje słowniczek „Po ludzku”.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
-  },
-  {
-    id: "trainee-rules", area: "rec", title: "Lista telefonów praktykantów", group: "Proces",
-    description: "Kto trafia na codzienną listę telefonów praktykantów.",
-    keywords: "praktykant praktykanci telefony lista reguly pula stawka dostepnosc",
-    route: "/settings/trainee-rules",
-    // `/api/trainee/rules` = admin + Head of Recruitment (0374).
-    // Ukryte 17.10.2026 razem z panelem „Praktykanci” (decyzja Artura).
-    hidden: true,
-    gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
     id: "contracts", area: "deals", title: "Wzory umów", group: "Wzory i wycena",

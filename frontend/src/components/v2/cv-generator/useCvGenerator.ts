@@ -32,6 +32,7 @@ import {
 
 import {
   advancedNeedsAttention,
+  defaultCvSourceId,
   autoProcessChoice,
   buildGeneratePayload,
   championImportPayload,
@@ -41,6 +42,9 @@ import {
   type CvLanguageChoice,
   type CvProcessingMode,
   type LanguagePolicy,
+  cvFilenamePreview,
+  recruitmentPosition,
+  typedCvPosition,
 } from "./cv-generator-form";
 
 export interface CvCandidateOption {
@@ -150,11 +154,11 @@ export function useCvGenerator({
       (await api.get<CvSourceFile[]>(`/api/cv-generator/candidates/${candidateId}/cv-sources`)).data,
   });
   const sources = useMemo(() => sourcesQuery.data ?? [], [sourcesQuery.data]);
-  // Domyślnie plik główny (albo jedyny); rekruter może wybrać inny.
+  // Domyślnie `defaultCvSourceId`; rekruter może wybrać inny.
   const cvDocumentId =
     sourceChoice != null && sources.some((s) => s.id === sourceChoice)
       ? sourceChoice
-      : (sources.find((s) => s.is_primary)?.id ?? sources[0]?.id ?? null);
+      : defaultCvSourceId(sources);
 
   // Proces wybierany sam — raz na osobę (i na rekrutację, z której otwarto).
   const appliedProcessFor = useRef<string | null>(null);
@@ -232,19 +236,41 @@ export function useCvGenerator({
     setContentModeState(defaultProcessingMode(hasChampion));
   }, [modeKey, hasChampion]);
 
-  // Stanowisko domyślnie z tytułu rekrutacji; numer projektu PKO z rekrutacji.
+  // Stanowisko domyślnie takie, jakie pójdzie do CV; numer projektu PKO z rekrutacji.
+  const positionDefault = recruitment ? recruitmentPosition(recruitment) : "";
   useEffect(() => {
-    setPosition(recruitment?.job_title ?? "");
-  }, [recruitment?.stage_id, recruitment?.job_title]);
+    setPosition(positionDefault);
+  }, [recruitment?.stage_id, positionDefault]);
   const projectRefFromJob = policy?.project_ref ?? null;
   useEffect(() => {
     if (projectRefFromJob) setProjectRef(projectRefFromJob);
   }, [projectRefFromJob]);
 
+  // Nagłówek i plik tak, jak policzy je serwer: wpisane stanowisko bez numeru,
+  // a pusty wpis = stanowisko z rekrutacji.
+  const cvPosition = typedCvPosition(position, recruitment?.job_client_reference) || positionDefault;
+  const personName = blind ? "Kandydat" : (candidate.full_name ?? candidate.name);
+  const headerPreview = !recruitment
+    ? null
+    : !cvPosition
+      ? "Brak stanowiska"
+      : blind
+        ? cvPosition
+        : `${cvPosition} – ${personName}`;
+  const filenamePreview = recruitment
+    ? cvFilenamePreview({
+        pattern: policy?.effective_policy?.filename_pattern ?? activeRule?.filename_pattern,
+        spacesToUnderscores: !!(policy?.effective_policy?.spaces_to_underscores ?? activeRule?.spaces_to_underscores),
+        position: cvPosition,
+        project: projectRefFromJob ?? projectRef,
+        candidateName: personName,
+      })
+    : null;
+
   const projectRefRequired =
     !!policy?.effective_policy?.require_project_ref || !!activeRule?.require_project_ref;
   const projectRefVisible = projectRefRequired || ruleNeedsProjectRef(activeRule) || !!projectRefFromJob;
-  const positionRequired = !!activeRule?.require_position && !recruitment;
+  const positionRequired = (!!activeRule?.require_position && !recruitment) || recruitment?.cv_position === "";
   const consentRequired =
     !!policy?.effective_policy?.requires_rodo_consent_block || !!activeRule?.requires_rodo_consent_block;
   const consentBlocksGeneration = !managed && !!activeRule?.requires_rodo_consent_block;
@@ -464,6 +490,9 @@ export function useCvGenerator({
     setBlind,
     position,
     setPosition,
+    positionDefault,
+    headerPreview,
+    filenamePreview,
     positionRequired,
     projectRef,
     setProjectRef,

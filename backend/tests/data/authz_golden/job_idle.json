@@ -25,10 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/idle": "PDDPDDDDPPPDDDDDPDDDDDDDDD",
-  "POST /api/jobs/{job_id}/idle/snooze": "PDDPDDDDPPPDDDDDPDDDDDDDDD"
+  "GET /api/jobs/{job_id}/idle": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/idle/snooze": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD"
  }
 }

@@ -32,7 +32,6 @@ from app.services.candidate_name_rules import (
     strip_name_markers,
     without_name_markers,
 )
-from app.services.traffit.mappers import traffit_employee_to_candidate
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -176,20 +175,6 @@ def _row(**kw) -> NameMarkerRow:
     return NameMarkerRow(id=1, **{"name": "Jan", "lastname": "Testowy", **kw})
 
 
-@pytest.mark.parametrize("raw,expected", PRODUCTION_MARKERS)
-def test_traffit_payload_maps_to_the_same_name_as_the_repair(raw, expected):
-    """Import nie może przywrócić tego, co zdjęła migracja — i odwrotnie."""
-    for field in ("name", "lastname"):
-        payload = {"id": 7, "name": "Jan", "lastname": "Testowy", "status": "active"}
-        payload[field] = raw
-        mapped = traffit_employee_to_candidate(payload)
-        fix = plan_fix(_row(**{field: raw}))
-        assert fix is not None
-        assert mapped[field] == getattr(fix, field) == expected
-        assert (mapped["status"] == "blacklisted") == (fix.status == "blacklisted")
-        assert mapped["cv_extracted_data"]["traffit_name_marker"] == fix.provenance
-
-
 # ── Plan korekty: najpierw pole, potem tekst ────────────────────────────────
 
 
@@ -305,16 +290,13 @@ def test_migration_0436_runs_the_shared_repair():
     assert "apply_name_marker_repair(op.get_bind())" in source
 
 
-def test_entrypoint_runs_the_repair_and_logs_only_the_summary():
-    source = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-    assert 'startup_phase "repair-candidate-name-markers"' in source
-    block = source.split("run_candidate_name_marker_repair", 1)[1].split("\nPY\n", 1)[0]
+def test_repair_script_logs_only_the_summary():
+    block = (BACKEND / "scripts/repairs/run_repair_candidate_name_markers.py").read_text(
+        encoding="utf-8"
+    )
     assert "summarize_for_log(summary)" in block
     assert "await db.commit()" in block
     assert "await db.rollback()" in block
-    assert source.index('startup_phase "repair-candidate-name-markers"') < (
-        source.index("exec uvicorn app.main:app")
-    )
 
 
 # ── Druga runda z produkcji 20.10.2026 (0481) ───────────────────────────────
@@ -393,9 +375,10 @@ def test_symbol_only_field_gets_the_placeholder():
 def test_manual_split_moves_two_words_from_lastname_when_name_has_no_letters():
     from app.services.candidate_name_marker_repair import plan_manual_fix
 
-    assert plan_manual_fix(
-        "split_from_lastname", "☁", "Szczepan Żuk ☁"
-    ) == ("Szczepan", "Żuk ☁")
+    assert plan_manual_fix("split_from_lastname", "☁", "Szczepan Żuk ☁") == (
+        "Szczepan",
+        "Żuk ☁",
+    )
     # Imię z literą albo nazwisko z innym kształtem — bez zmian.
     assert plan_manual_fix("split_from_lastname", "Jan", "Szczepan Żuk") is None
     assert plan_manual_fix("split_from_lastname", "☁", "Żuk") is None
@@ -426,8 +409,7 @@ def test_migration_0481_runs_the_shared_repair_with_its_own_receipt():
     )
     assert 'revision = "0481_candidate_name_markers_v2"' in source
     assert "apply_name_marker_repair_0481(op.get_bind())" in source
-    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-    assert 'startup_phase "repair-candidate-name-markers-0481"' in entrypoint
+    assert (BACKEND / "scripts/repairs/run_repair_candidate_name_markers_0481.py").exists()
     from app.services.candidate_name_marker_repair import (
         DETAILS_KEY_0481,
         REPAIR_MARKER_0481,

@@ -31,3 +31,24 @@ Makiety i zrzuty: https://claude.ai/artifact/VkHnhBQM4RGSYGYJ4zro4p.
   „Brak uprawnień”. Zakres na ekranie: „wszyscy”.
 - Nowe miejsce, które akceptuje timesheety „za wszystkich”, czyta
   `Actor.approves_everyone`. Nie wpisuj tam znowu samego `people_admin`.
+
+## Raport osoby, która odeszła (decyzja Artura 05.11.2026)
+
+Osoba po odejściu (`employment_status = exited`, konto wyłączone) sama nie wyśle
+raportu, a Płace liczą tylko zatwierdzone. Dlatego akceptujący dopisuje godziny
+w podglądzie i klika „Potwierdź za osobę”
+(`POST /api/hr/time/timesheets/{id}/confirm-for-person`,
+`time_flow.confirm_for_person`).
+
+- Tylko ze szkicu, z co najmniej jednym wpisem, w otwartym miesiącu płac i tylko
+  po odejściu. Osobie, która pracuje, ta trasa daje 409: ona wysyła sama.
+- Działa także na zleceniu. Artur wybrał to świadomie, wiedząc, że przyjęty raport
+  zlecenia to potwierdzenie godzin (art. 8b) i po terminie wypłaty nie da się go
+  cofnąć przez 3 lata (`time_retention.py`).
+- Bez dzwonka do osoby. Ślad: `timesheet_confirmed_for_person` w `hr_audit_events`.
+  Cofnięcie jak przy zwykłej akceptacji.
+- Wpis za osobę po odejściu poza jej współpracą (`employed_on`) dostaje 422. Własne
+  wpisy i wpisy za osoby w pracy zostają bez tej granicy.
+- Na liście akceptacji są tylko osoby z wierszem `timesheets` za ten miesiąc. Kto
+  odszedł i nie ma wiersza, nie pojawia się tam. Tego celowo nie zmieniamy, bo
+  każdy stary miesiąc dostałby wszystkie osoby po odejściu.

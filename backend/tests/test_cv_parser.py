@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -457,11 +457,51 @@ def test_split_name_handles_polish_diacritics():
     assert last == "Żółty"
 
 
+def test_split_name_skips_line_of_common_cv_words():
+    cv = "Doświadczenie Zawodowe\nJan Kowalski\nj@x.com"
+    assert cvp._split_name_from_header(cv) == ("Jan", "Kowalski")
+
+
+def test_split_name_returns_none_when_only_common_cv_words():
+    cv = "Technical Skills\nWORK EXPERIENCE\nWarsaw, Poland"
+    assert cvp._split_name_from_header(cv) == (None, None)
+
+
+def test_split_name_keeps_surname_that_is_also_a_common_word():
+    # Jedno rzadkie słowo wystarcza: odrzucamy tylko linię z samych częstych słów.
+    assert cvp._split_name_from_header("Anna Test\nj@x.com") == ("Anna", "Test")
+    # „Jan” to też skrót stycznia, ale to przede wszystkim imię.
+    assert cvp._split_name_from_header("Jan Test\nj@x.com") == ("Jan", "Test")
+
+
+def test_contact_fallback_leaves_name_empty_when_header_is_only_common_words():
+    parsed = {"first_name": None, "last_name": None, "_confidence": {}}
+    out = cvp._apply_contact_fallbacks(parsed, "Work Experience\nProject Manager")
+    assert out["first_name"] is None
+    assert out["last_name"] is None
+
+
 def test_split_name_returns_none_when_no_capitalized_pair():
     cv = "lorem ipsum\ndolor sit amet"
     first, last = cvp._split_name_from_header(cv)
     assert first is None
     assert last is None
+
+
+def test_apply_contact_fallbacks_drops_empty_field_phrase_from_model():
+    # Model zwracał tekst pustego pola jako imię i nazwisko (27 profili z `?`).
+    cv = "Anna Nowak\nanna@example.com\n"
+    parsed = {"first_name": "Not", "last_name": "Provided"}
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    assert (out["first_name"], out["last_name"]) == ("Anna", "Nowak")
+
+
+def test_apply_contact_fallbacks_leaves_no_name_when_cv_has_none():
+    cv = "Not Provided\n10 years of backend work\n"
+    parsed = {"first_name": "not provided", "last_name": "NOT PROVIDED"}
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    assert not out.get("first_name")
+    assert not out.get("last_name")
 
 
 def test_apply_contact_fallbacks_fills_only_missing_slots():
@@ -484,6 +524,72 @@ def test_apply_contact_fallbacks_fills_only_missing_slots():
     assert out["_confidence"]["first_name"] == 0.95  # LLM-provided preserved
     assert out["_confidence"].get("last_name") == 0.6
     assert out["_confidence"].get("email") == 0.9
+
+
+@pytest.mark.parametrize(
+    ("first_name", "last_name"),
+    [(None, None), ("Jan", None), (None, "Kowalski")],
+)
+def test_name_filled_from_header_is_marked(first_name, last_name):
+    # Pewność 0,6 tego nie niesie: model ustawia `_confidence` także dla pustego
+    # pola, a `setdefault` zostawia jego wartość (na produkcji 26 profili ma 0,0).
+    parsed = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "_confidence": {"first_name": 0.0, "last_name": 0.0},
+    }
+
+    out = cvp._apply_contact_fallbacks(parsed, "Jan Kowalski\njan@example.com")
+
+    assert (out["first_name"], out["last_name"]) == ("Jan", "Kowalski")
+    assert out["_name_from_header"] == [
+        field
+        for field, value in (("first_name", first_name), ("last_name", last_name))
+        if value is None
+    ]
+
+
+def test_only_the_part_taken_from_the_header_is_marked():
+    # 24 odczyty na 57 568 (05.11.2026): model podał jedną część nazwy.
+    out = cvp._apply_contact_fallbacks({"first_name": "Jan"}, "Anna Nowak\n")
+
+    assert (out["first_name"], out["last_name"]) == ("Jan", "Nowak")
+    assert out["_name_from_header"] == ["last_name"]
+
+
+def test_name_from_the_model_is_not_marked():
+    out = cvp._apply_contact_fallbacks(
+        {"first_name": "Jan", "last_name": "Kowalski"}, "Anna Nowak\n"
+    )
+
+    assert "_name_from_header" not in out
+
+
+def test_empty_name_with_no_header_match_is_not_marked():
+    out = cvp._apply_contact_fallbacks({"first_name": None}, "doswiadczenie\n")
+
+    assert out["first_name"] is None
+    assert "_name_from_header" not in out
+
+
+def test_regex_read_marks_the_name_it_took_from_the_header():
+    assert cvp._regex_fallback("Jan Kowalski\n")["_name_from_header"] == [
+        "first_name",
+        "last_name",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_marker_survives_parse_cv_when_the_model_leaves_the_name_empty():
+    with patch.object(
+        cvp,
+        "_parse_with_claude",
+        AsyncMock(return_value={"first_name": None, "last_name": None}),
+    ):
+        out = await cvp.parse_cv("Fikcyjny Inzynier\nPython\n")
+
+    assert (out["first_name"], out["last_name"]) == ("Fikcyjny", "Inzynier")
+    assert out["_name_from_header"] == ["first_name", "last_name"]
 
 
 @pytest.mark.asyncio
@@ -578,3 +684,243 @@ async def test_parse_cv_bills_the_requesting_user(monkeypatch):
     await cvp.parse_cv("cv text", db=object(), user_id=42)
 
     assert seen["user_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_anthropic_call_caches_the_instructions_but_not_the_cv(monkeypatch):
+    """Instrukcje są stałe, a CV inne przy każdym wywołaniu. Znacznik musi stać
+    między nimi, bo znacznik za CV płaci za zapis, którego nikt nie odczyta."""
+    from app.services import claude_client
+    from app.services.llm_prompts import CV_ENRICHMENT
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("TREŚĆ CV {nawias}") is not None
+
+    head, tail = seen["messages"][0]["content"]
+    assert head["cache_control"] == {"type": "ephemeral"}
+    assert "TREŚĆ CV" not in head["text"]
+    assert "cache_control" not in tail
+    assert head["text"] + tail["text"] == CV_ENRICHMENT.template.replace(
+        "{cv_text}", "TREŚĆ CV {nawias}"
+    ).replace("{{", "{").replace("}}", "}")
+
+
+@pytest.mark.asyncio
+async def test_model_outside_anthropic_reads_the_same_whole_prompt(monkeypatch):
+    from app.services import claude_client, llm_providers
+    from app.services.llm_prompts import CV_ENRICHMENT
+
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    monkeypatch.setattr(llm_providers, "api_key_configured", lambda model: True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("cv", model="gpt-6-luna") is not None
+
+    assert llm_providers._flatten_text(
+        seen["messages"][0]["content"], what="test"
+    ) == CV_ENRICHMENT.render(cv_text="cv")
+
+
+@pytest.mark.asyncio
+async def test_parser_uses_the_fallback_declared_in_the_registry(monkeypatch):
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_models, claude_client
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("cv") is not None
+
+    assert seen["fallback_models"] == [
+        m
+        for m in ai_models.model_chain_for(AIFeatureKey.cv_parser)
+        if m != seen["model"]
+    ]
+    assert seen["fallback_models"]
+
+
+# ── technologie bez śladu w CV (audyt modeli 02.11.2026) ─────────────────────
+
+
+@pytest.fixture
+def aliases(monkeypatch):
+    from app.services import scoring_service
+
+    monkeypatch.setattr(scoring_service, "_RODZINY_ALIASOW", None)
+    saved = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({"js": "javascript", "k8s": "kubernetes"})
+    yield
+    scoring_service.set_alias_map(saved)
+
+
+def test_technology_without_a_trace_in_the_cv_is_dropped_everywhere(aliases):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {
+        "skills": [{"name": "Python", "level": "senior"}, {"name": "Sitecore"}],
+        "technologies": ["Python", "Sitecore"],
+        "experience": [{"company": "Acme", "technologies": ["Python", "Sitecore"]}],
+        "projects": [{"name": "X", "technologies": ["Sitecore"]}],
+    }
+
+    dropped = drop_untraced_technologies(parsed, "Programuję w Pythonie od 2015 roku.")
+
+    assert dropped == 1
+    assert parsed["skills"] == [{"name": "Python", "level": "senior"}]
+    assert parsed["technologies"] == ["Python"]
+    assert parsed["experience"][0]["technologies"] == ["Python"]
+    assert parsed["projects"][0]["technologies"] == []
+
+
+@pytest.mark.parametrize(
+    "name,cv_text",
+    [
+        ("JavaScript", "Frontend: JS, HTML."),
+        ("Kubernetes", "Klastry k8s na produkcji."),
+        ("Microsoft Excel", "Zaawansowany Excel."),
+        ("Power BI", "Raporty w PowerBI."),
+        ("Bazy danych", "Projektowanie baz danych."),
+        ("C#", "Backend w C# i .NET."),
+        ("Cloud", "Administracja serwerami."),
+        ("TypeScript", "Frontend: TS, Angular."),
+        ("Git", "Repozytoria na GitLabie."),
+        ("PHP", "Backend w PHP8."),
+        ("ArchUnit", "Testy architektury w ArhUnit."),
+    ],
+)
+def test_other_spelling_of_the_same_technology_stays(aliases, name, cv_text):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {"technologies": [name]}
+
+    assert drop_untraced_technologies(parsed, cv_text) == 0
+    assert parsed["technologies"] == [name]
+
+
+def test_short_name_needs_a_whole_word(aliases):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {"technologies": ["Go", "R"]}
+
+    drop_untraced_technologies(parsed, "Good morning. Warszawa, doświadczenie.")
+
+    assert parsed["technologies"] == []
+
+
+def test_nothing_is_dropped_without_the_alias_map_or_the_cv_text(monkeypatch):
+    from app.services import scoring_service
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    saved = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({})
+    try:
+        parsed = {"technologies": ["JavaScript"]}
+        assert drop_untraced_technologies(parsed, "Frontend: JS.") == 0
+        assert parsed["technologies"] == ["JavaScript"]
+    finally:
+        scoring_service.set_alias_map(saved)
+
+    scoring_service.set_alias_map({"js": "javascript"})
+    try:
+        parsed = {"technologies": ["JavaScript"]}
+        assert drop_untraced_technologies(parsed, "") == 0
+    finally:
+        scoring_service.set_alias_map(saved)
+
+
+def test_malformed_model_output_does_not_break_the_filter(aliases):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {
+        "skills": "Python",
+        "technologies": [None, 7, "Python"],
+        "experience": ["nie obiekt", {"technologies": "Python"}],
+    }
+
+    assert drop_untraced_technologies(parsed, "Python") == 0
+    assert parsed["technologies"] == [None, 7, "Python"]
+
+
+@pytest.mark.asyncio
+async def test_parser_output_passes_through_the_filter(aliases, monkeypatch):
+    from app.services import claude_client
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    monkeypatch.setattr(
+        claude_client,
+        "call_claude",
+        lambda **kwargs: _fake_anthropic_response(
+            {"skills": [{"name": "Python"}, {"name": "Sitecore"}]}
+        ),
+    )
+
+    out = await cvp._parse_with_claude("Programuję w Pythonie.")
+
+    assert [s["name"] for s in out["skills"]] == ["Python"]
+
+
+@pytest.mark.parametrize(
+    ("model_email", "cv_text", "kept"),
+    [
+        ("anna.testowa@example.com", "Kontakt: anna.testowa@example.com", True),
+        ("ANNA.TESTOWA@example.com", "Kontakt: anna.testowa@example.com", True),
+        # Rozcięty odstępami albo zapisany słownie: adres stoi w tekście.
+        ("anna.testowa@example.com", "anna.testowa @ example . com", True),
+        ("anna.testowa@example.com", "anna.testowa (at) example.com", True),
+        # Sklejony z odstępów, rozcięty także w części lokalnej.
+        ("anna.testowa@example.com", "anna . testowa @ example . com", True),
+        # Zmyślony z nazwy: tekst ma nazwisko, a adresu nie ma.
+        ("anna.testowa@gmail.com", "Anna Testowa\nProgramista", False),
+        ("annatestowa@gmail.com", "Anna Testowa\nProgramista", False),
+        # Resztka adresu z OCR: część lokalna jest, a domenę dołożył model.
+        ("jan45@gmail.com", "Kontakt: jan45©\nProgramista", False),
+        ("jan45", "Kontakt: jan45", False),
+    ],
+)
+def test_model_email_must_be_in_cv_text(model_email, cv_text, kept):
+    from app.services.cv_parser import _apply_contact_fallbacks
+
+    parsed = _apply_contact_fallbacks(
+        {"email": model_email, "_confidence": {"email": 0.7}}, cv_text
+    )
+
+    if kept:
+        assert parsed["email"] == model_email
+        assert parsed["_confidence"]["email"] == 0.7
+    else:
+        assert parsed["email"] is None
+        assert "email" not in parsed.get("_confidence", {})
+
+
+def test_made_up_model_email_gives_way_to_address_from_text():
+    from app.services.cv_parser import _apply_contact_fallbacks
+
+    parsed = _apply_contact_fallbacks(
+        {"email": "inny@example.com"}, "Programista\nanna@example.pl"
+    )
+
+    assert parsed["email"] == "anna@example.pl"
+    assert parsed["_confidence"]["email"] == 0.9

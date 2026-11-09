@@ -65,6 +65,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.scheduling import business_today
 from app.core.database import get_db
+from app.services.job_fill import filled_in_opening_sql
 from app.services.insights_dl_scope import (
     CLIENT_DISPLAY_NAME_SQL as _CLIENT_DISPLAY_NAME_SQL,
     CLIENT_VISIBLE_SQL as _CLIENT_VISIBLE_SQL,
@@ -192,13 +193,8 @@ async def insights_delivery_leads(
                     FROM jobs_scoped js
                     WHERE js.status IN ('draft', 'published')
                 ),
-                filled AS (
-                    SELECT fm.job_id, count(*) AS cnt
-                    FROM analytics_first_milestones fm
-                    JOIN open_jobs oj ON oj.id = fm.job_id
-                    WHERE fm.stage = 'hired'
-                    GROUP BY fm.job_id
-                )
+                -- Obsada bieżącego otwarcia (`job_fill`, 05.11.2026).
+                filled AS ({filled_in_opening_sql("SELECT id FROM open_jobs")})
                 SELECT oj.dl_id AS dl_id,
                        count(*) AS open_requests,
                        COALESCE(

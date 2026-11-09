@@ -25,13 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/settings/ai": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/ai/auto-match": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/ai/qc-quality": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/ai/qc-quality/{key}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/ai/alerts/test": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/settings/ai": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/ai/auto-match": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/ai/qc-quality": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/ai/qc-quality/{key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/ai/alerts/test": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

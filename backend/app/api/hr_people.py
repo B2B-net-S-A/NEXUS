@@ -32,6 +32,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.consultant_portal import portal_settings
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
 from app.services.hr import (
@@ -46,6 +47,7 @@ from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_policy import actor_of, can_see_type
 from app.services.hr.leave_calendar import presence_between
 from app.services.hr.modules import HrModule
+from app.services.back_office import access as back_office_access
 from app.services.hr.lifecycle_templates import is_back_office_head
 from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
@@ -65,6 +67,7 @@ async def hr_config(
             "program": False,
             "modules": loaded,
             "open_modules": {key: False for key in loaded},
+            "consultant_panel_on": False,
             "me": {
                 "has_profile": False,
                 "employment_status": None,
@@ -80,17 +83,25 @@ async def hr_config(
                 "leave_approver": False,
                 "has_assigned_cases": False,
                 "back_office_head": False,
+                "back_office_member": False,
+                "back_office_lead": False,
             },
         }
     profile = await people.profile_of(db, current_user.id)
     reports = await people.direct_report_ids(db, current_user.id)
     is_admin = current_user.has_role(UserRole.admin)
+    back_office_viewer = (
+        await back_office_access.load_viewer(db, current_user)
+        if hr_modules.module_open_for(current_user, loaded, "back_office")
+        else None
+    )
     return {
         "program": True,
         "modules": loaded,
         "open_modules": {
             key: hr_modules.module_open_for(current_user, loaded, key) for key in loaded
         },
+        "consultant_panel_on": await portal_settings.load_raw_state(db) != "off",
         "me": {
             "has_profile": profile is not None
             and profile.employment_status != EmploymentStatus.exited,
@@ -117,6 +128,10 @@ async def hr_config(
             ),
             # Head back office edytuje ścieżkę „Konsultant u klienta” (etap 3, O4).
             "back_office_head": await is_back_office_head(db, current_user),
+            "back_office_member": bool(
+                back_office_viewer and back_office_viewer.has_access
+            ),
+            "back_office_lead": bool(back_office_viewer and back_office_viewer.is_lead),
         },
     }
 
@@ -287,9 +302,7 @@ async def get_person(
     return {**payload, "scope": scope}
 
 
-HISTORY_DETAIL = (
-    "Nieobecności i godziny widzą ta osoba, jej koordynator, Kadry i Finanse."
-)
+HISTORY_DETAIL = "Nieobecności i godziny widzą ta osoba, jej koordynator, Administracja współpracy i Finanse."
 
 
 @router.get("/people/{user_id}/history")

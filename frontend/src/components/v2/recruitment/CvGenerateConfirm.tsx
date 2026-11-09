@@ -17,6 +17,8 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { screeningQuestionLabel } from "@/components/v2/screening/ScreeningAnswersList";
+import { useQcRoleFacts, useSaveQcRoleFact } from "@/lib/api/cvQc";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useScreeningFormState } from "@/lib/api/screeningForm";
 import type { CvAiSourceCount, CvAiSourceFile } from "@/lib/cv-ai-sources";
 import {
@@ -28,6 +30,8 @@ import { screeningFormHref, screeningSummaryRows } from "@/lib/screening-summary
 import { cn } from "@/lib/utils";
 
 const ANSWERS_PREVIEW = 4;
+/** Krótszy tekst mieści się w trzech liniach także w wąskim panelu. */
+const WHY_PREVIEW_CHARS = 120;
 
 export interface CvGenerateConfirmProps {
   candidateId: number;
@@ -45,6 +49,10 @@ export interface CvGenerateConfirmProps {
   onConfirm: (next: CvConfirmations) => void;
   left: readonly CvConfirmStep[];
   disabled?: boolean;
+  /** Etap pary: krok „Z rozmowy do opisu roli” czyta jej fakty. */
+  stageId?: number | null;
+  /** Przełącznik „Notatki” w „Z czego powstało”: wyłączony zdejmuje też „Dlaczego ten kandydat”. */
+  notesSourceOn?: boolean;
 }
 
 export function CvGenerateConfirm({
@@ -61,6 +69,8 @@ export function CvGenerateConfirm({
   onConfirm,
   left,
   disabled = false,
+  stageId = null,
+  notesSourceOn = true,
 }: CvGenerateConfirmProps) {
   const chosen = files.find((file) => file.document_id === fileId) ?? null;
   const fileDone = !left.includes("file");
@@ -155,6 +165,9 @@ export function CvGenerateConfirm({
       </ConfirmStep>
 
       <NotesStep
+        candidateId={candidateId}
+        jobId={jobId}
+        notesSourceOn={notesSourceOn}
         done={notesDone}
         noteDraft={noteDraft}
         onNoteDraftChange={onNoteDraftChange}
@@ -163,7 +176,69 @@ export function CvGenerateConfirm({
         onReopen={() => onConfirm({ ...confirmed, notes: null })}
         disabled={disabled}
       />
+
+      <RoleFactsStep stageId={stageId ?? null} disabled={disabled} />
     </div>
+  );
+}
+
+/**
+ * „Z rozmowy do opisu roli” (02.11.2026): generator przenosi fakt z rozmowy do
+ * roli tylko, gdy zna firmę. Krok jest opcjonalny i nie blokuje „Generuj”; bez
+ * wskazania fakt trafia do umiejętności i „Dlaczego nasz kandydat”. Pusta lista
+ * albo błąd odczytu = kroku nie ma, bo to dodatek, nie warunek generacji.
+ */
+function RoleFactsStep({ stageId, disabled }: { stageId: number | null; disabled: boolean }) {
+  const query = useQcRoleFacts(stageId);
+  const save = useSaveQcRoleFact(stageId);
+  const facts = query.data?.facts ?? [];
+  const roles = query.data?.roles ?? [];
+  if (facts.length === 0 || roles.length === 0) return null;
+  return (
+    <section
+      aria-label="Z rozmowy do opisu roli"
+      data-testid="cv-role-facts"
+      className="space-y-2 rounded-lg border border-primary/40 p-2.5"
+    >
+      <div>
+        <p className="text-xs font-semibold text-foreground">Z rozmowy do opisu roli ({facts.length})</p>
+        <p className="text-[11px] text-muted-foreground">
+          Kandydat mówił o tym w rozmowie, a w oryginale tego nie ma. Bez wskazania roli generator użyje tego tylko w
+          umiejętnościach i w „Dlaczego nasz kandydat”.
+        </p>
+      </div>
+      {facts.map((fact) => (
+        <div key={fact.term} className="space-y-1.5 rounded-md border border-border p-2 text-xs">
+          <p className="font-medium text-foreground [overflow-wrap:anywhere]">{fact.term}</p>
+          <p className="border-l-2 border-border pl-2 text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+            „{fact.quote}”
+          </p>
+          <label className="block text-[11px] font-medium">
+            W której roli?
+            <select
+              className="mt-1 h-8 w-full rounded-md border border-input bg-background px-1.5 text-xs font-normal"
+              value=""
+              disabled={disabled || save.isPending}
+              onChange={(event) => {
+                if (event.target.value) save.mutate({ term: fact.term, role: event.target.value });
+              }}
+            >
+              <option value="">Tylko umiejętności</option>
+              {roles.map((company) => (
+                <option key={company} value={company}>
+                  {company}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ))}
+      {save.isError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {apiErrorMessage(save.error, "Nie udało się zapisać roli. Spróbuj ponownie.")}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -281,7 +356,85 @@ function AnswersPreview({ candidateId, jobId, count }: { candidateId: number; jo
   );
 }
 
+/**
+ * „Dlaczego ten kandydat” w kroku notatek (04.11.2026, zgłoszenie zespołu).
+ *
+ * Generator czyta to pole sam (`[Rekomendacja rekrutera]` w
+ * `collect_screening_notes_text`), ale ekran tego nie mówił i rekruterzy
+ * kopiowali tekst z formularza do notatki, więc model dostawał go dwa razy.
+ * Tu tylko odczyt: poprawka idzie przez formularz, bo notatka nie usunęłaby
+ * oryginału ze źródeł generatora.
+ */
+function WhyFromScreening({
+  query,
+  why,
+  candidateId,
+  jobId,
+  notesSourceOn,
+}: {
+  query: ReturnType<typeof useScreeningFormState>;
+  why: string;
+  candidateId: number;
+  jobId: number;
+  notesSourceOn: boolean;
+}) {
+  const [all, setAll] = useState(false);
+  const formHref = screeningFormHref(jobId, candidateId);
+  if (query.isPending) return <p className="text-xs text-muted-foreground">Wczytuję „Dlaczego ten kandydat”…</p>;
+  if (query.isError) {
+    return (
+      <p role="alert" className="text-xs text-destructive-muted-foreground">
+        Nie udało się wczytać „Dlaczego ten kandydat”.{" "}
+        <button type="button" className="font-medium underline" onClick={() => void query.refetch()}>
+          Ponów
+        </button>
+      </p>
+    );
+  }
+  if (!query.isSuccess) return null;
+  if (!why) {
+    return (
+      <div data-testid="cv-notes-why" className="rounded-md bg-warning-muted p-2 text-xs text-warning-muted-foreground">
+        <p className="font-medium">W screeningu nie ma „Dlaczego ten kandydat”</p>
+        <p className="text-[11px]">CV powstanie bez tego uzasadnienia.</p>
+        <Link href={formHref} className="mt-1 inline-block font-medium text-primary hover:underline">
+          Uzupełnij w formularzu
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="cv-notes-why" className="space-y-1 rounded-md bg-muted/60 p-2 text-xs">
+      <p className="font-medium text-foreground">Dlaczego ten kandydat · ze screeningu</p>
+      <p className={cn("whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]", !all && "line-clamp-3")}>{why}</p>
+      <div className="flex flex-wrap gap-x-3">
+        {why.length > WHY_PREVIEW_CHARS ? (
+          <button
+            type="button"
+            aria-expanded={all}
+            className="font-medium text-primary hover:underline"
+            onClick={() => setAll((open) => !open)}
+          >
+            {all ? "Zwiń" : "Pokaż całość"}
+          </button>
+        ) : null}
+        <Link href={formHref} className="font-medium text-primary hover:underline">
+          Popraw w formularzu
+        </Link>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {notesSourceOn
+          ? "AI przeczyta to przy generacji. Nie trzeba tego przepisywać."
+          : "Notatki są wyłączone w „Z czego powstało”, więc AI tego nie przeczyta."}
+      </p>
+    </div>
+  );
+}
+
 function NotesStep({
+  candidateId,
+  jobId,
+  notesSourceOn,
   done,
   noteDraft,
   onNoteDraftChange,
@@ -290,6 +443,9 @@ function NotesStep({
   onReopen,
   disabled,
 }: {
+  candidateId: number;
+  jobId: number;
+  notesSourceOn: boolean;
   done: boolean;
   noteDraft: string;
   onNoteDraftChange: (value: string) => void;
@@ -300,6 +456,8 @@ function NotesStep({
 }) {
   const id = useId();
   const text = noteDraft.trim();
+  const query = useScreeningFormState(candidateId, jobId, true);
+  const why = (query.data?.card?.fields?.recommendation?.raw ?? "").trim();
   return (
     <section
       aria-label="Dodatkowe notatki do CV"
@@ -316,6 +474,7 @@ function NotesStep({
           {done ? (
             <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
               {text ? `„${text.length > 80 ? `${text.slice(0, 80)}…` : text}”` : "nic do dodania"}
+              {why && notesSourceOn ? " · „Dlaczego ten kandydat” też wejdzie do CV" : ""}
             </p>
           ) : null}
         </div>
@@ -333,9 +492,17 @@ function NotesStep({
       </div>
       {done ? null : (
         <>
+          <WhyFromScreening
+            query={query}
+            why={why}
+            candidateId={candidateId}
+            jobId={jobId}
+            notesSourceOn={notesSourceOn}
+          />
+          <p className="text-xs font-medium text-foreground">Coś jeszcze, czego nie ma w screeningu?</p>
           <Textarea
             id={id}
-            rows={3}
+            rows={2}
             value={noteDraft}
             onChange={(event) => onNoteDraftChange(event.target.value)}
             placeholder="To, o co nie było pytania, np. „prowadził migrację Jenkinsa do GitHub Actions”"

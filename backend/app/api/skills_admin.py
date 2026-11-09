@@ -29,9 +29,16 @@ router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 class CreateSkillRequest(BaseModel):
     canonical_name: str = Field(min_length=1, max_length=255)
-    category: Optional[str] = Field(default=None, max_length=64)
+    # Etap 2 słownika (06.11.2026): bez kategorii hasło nie działa w pogrubianiu
+    # CV, QC ani bramce must, więc jest obowiązkowa (lista: `category_choices`).
+    category: str = Field(min_length=1, max_length=64)
     aliases: Optional[list[str]] = None
     from_term_id: Optional[int] = None
+
+
+class UpdateSkillRequest(BaseModel):
+    canonical_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class AddAliasRequest(BaseModel):
@@ -52,11 +59,22 @@ async def list_skills(
     _user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
     q: str = Query("", max_length=100, description="Szukaj po nazwie albo aliasie."),
+    kind: str = Query("all", pattern="^(all|skills|roles)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """Umiejętności z aliasami — przeszukiwalne, stronicowane."""
+    """Umiejętności z aliasami — przeszukiwalne, stronicowane.
+
+    ``kind`` (etap 2): role (`role_*`) to stanowiska, nie umiejętności, więc
+    lista pokazuje je osobno, a wybór hasła do „Zmapuj” szuka bez nich."""
     ids = select(Skill.id)
+    role_clause = func.coalesce(Skill.category, "").like(
+        f"{skill_curation.ROLE_PREFIX}%"
+    )
+    if kind == "roles":
+        ids = ids.where(role_clause)
+    elif kind == "skills":
+        ids = ids.where(~role_clause)
     needle = q.strip().lower()
     if needle:
         pattern = f"%{needle}%"
@@ -87,11 +105,18 @@ async def list_skills(
                 "id": skill.id,
                 "name": skill.canonical_name,
                 "category": skill.category,
+                "is_role": skill_curation.is_role(skill.category),
                 "aliases": sorted(a.alias for a in skill.aliases),
+                # Etap 3a: wariant i to, czy liczy się w tekście CV (QC, strażnik).
+                "alias_details": [
+                    skill_curation.alias_payload(skill, a)
+                    for a in sorted(skill.aliases, key=lambda a: a.alias)
+                ],
             }
             for skill in rows
         ],
         "total": int(total),
+        "categories": await skill_curation.category_choices(db),
     }
 
 
@@ -102,6 +127,10 @@ async def create_skill(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Nowa umiejętność (+ opcjonalne aliasy / z nieznanego terminu)."""
+    if payload.category not in await skill_curation.category_choices(db):
+        raise HTTPException(
+            status_code=422, detail=f"Nieznana kategoria „{payload.category}”."
+        )
     try:
         return await skill_curation.create_skill(
             db,
@@ -113,6 +142,26 @@ async def create_skill(
         )
     except skill_curation.CurationError as exc:
         raise _curation_error(exc) from exc
+
+
+@router.patch("/skills/{skill_id}")
+async def update_skill(
+    skill_id: int,
+    payload: UpdateSkillRequest,
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Popraw nazwę albo kategorię hasła; stara nazwa zostaje aliasem."""
+    try:
+        return await skill_curation.update_skill(
+            db,
+            skill_id,
+            canonical_name=payload.canonical_name,
+            category=payload.category,
+        )
+    except skill_curation.CurationError as exc:
+        status_code = 409 if isinstance(exc, skill_curation.CurationConflict) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/skills/{skill_id}/aliases")
@@ -129,6 +178,96 @@ async def add_alias(
         )
     except skill_curation.CurationError as exc:
         raise _curation_error(exc) from exc
+
+
+class AliasInTextRequest(BaseModel):
+    in_text: Optional[bool] = None
+
+
+@router.patch("/aliases/{alias_id}")
+async def set_alias_in_text(
+    alias_id: int,
+    payload: AliasInTextRequest,
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Czy wariant liczy się w tekście CV (QC i strażnik generatora);
+    ``null`` = reguła domyślna. Etap 3a słownika, 07.11.2026."""
+    try:
+        return await skill_curation.set_alias_in_text(db, alias_id, payload.in_text)
+    except skill_curation.CurationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# ── Mapa wiedzy IT: powiązania haseł (0660, 07.11.2026) ─────────────────────
+# Nocny bieg zatwierdza powiązania sam (decyzja Artura z 07.11.2026); HoR+
+# widzi je tutaj, może wycofać albo dodać ręcznie.
+
+
+class RelationCreateRequest(BaseModel):
+    from_skill_id: int
+    to_skill_id: int
+    kind: str = Field(pattern="^(implies|part_of|alternative|typical)$")
+
+
+def _relation_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/relations")
+async def list_relations(
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+    relation_status: str = Query(
+        "accepted", alias="status", pattern="^(proposed|accepted|rejected)$"
+    ),
+    kind: Optional[str] = Query(
+        None, pattern="^(implies|part_of|alternative|typical)$"
+    ),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    from app.services import skill_relations
+
+    return await skill_relations.list_relations(
+        db, status=relation_status, kind=kind, limit=limit, offset=offset
+    )
+
+
+@router.post("/relations")
+async def create_relation(
+    payload: RelationCreateRequest,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services import skill_relations
+
+    try:
+        return await skill_relations.create_manual(
+            db,
+            from_skill_id=payload.from_skill_id,
+            to_skill_id=payload.to_skill_id,
+            kind=payload.kind,
+            curated_by=getattr(user, "email", None),
+        )
+    except skill_relations.RelationError as exc:
+        raise _relation_error(exc) from exc
+
+
+@router.post("/relations/{relation_id}/withdraw")
+async def withdraw_relation(
+    relation_id: int,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services import skill_relations
+
+    try:
+        return await skill_relations.withdraw(
+            db, relation_id, curated_by=getattr(user, "email", None)
+        )
+    except skill_relations.RelationError as exc:
+        raise _relation_error(exc) from exc
 
 
 @router.get("/unmatched-terms")
@@ -190,6 +329,97 @@ async def ignore_term(
         )
     except skill_curation.CurationError as exc:
         raise _curation_error(exc) from exc
+
+
+# ── Propozycje do słownika (0658) ───────────────────────────────────────────
+# Liczy je co noc model (``services/skill_proposals``); do słownika wchodzi
+# tylko to, co zatwierdzi HoR+ (D7: nic nie mapuje się samo).
+
+
+class AcceptProposalRequest(BaseModel):
+    decision: Optional[str] = Field(default=None, pattern="^(new|alias)$")
+    canonical: Optional[str] = Field(default=None, max_length=200)
+    category: Optional[str] = Field(default=None, max_length=64)
+    target_skill_id: Optional[int] = None
+
+
+def _proposal_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=getattr(exc, "status_code", 422), detail=str(exc))
+
+
+@router.get("/proposals")
+async def list_proposals(
+    _user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+    proposal_status: str = Query(
+        "open", alias="status", pattern="^(open|accepted|rejected)$"
+    ),
+    decision: Optional[str] = Query(None, pattern="^(new|alias|generic|soft|noise)$"),
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """Propozycje od najcięższych (profile + CV + 20 × wymagania), z sumami."""
+    from app.services import skill_proposals
+
+    return await skill_proposals.list_proposals(
+        db, status=proposal_status, decision=decision, q=q, limit=limit, offset=offset
+    )
+
+
+@router.post("/proposals/accept-sure")
+async def accept_sure_proposals(
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zatwierdź pewne: nowe hasła i warianty z pewnością „high”, bez uwag, z kategorią."""
+    from app.services import skill_proposals
+
+    return await skill_proposals.accept_sure(
+        db, curated_by=getattr(user, "email", None)
+    )
+
+
+@router.post("/proposals/{proposal_id}/accept")
+async def accept_proposal(
+    proposal_id: int,
+    user: HeadOfRecruitmentPlus,
+    payload: Optional[AcceptProposalRequest] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zatwierdź propozycję (opcjonalnie z poprawką decyzji, nazwy, kategorii, hasła)."""
+    from app.services import skill_proposals
+
+    body = payload or AcceptProposalRequest()
+    try:
+        return await skill_proposals.accept(
+            db,
+            proposal_id,
+            curated_by=getattr(user, "email", None),
+            decision=body.decision,
+            canonical=body.canonical,
+            category=body.category,
+            target_skill_id=body.target_skill_id,
+        )
+    except skill_proposals.ProposalError as exc:
+        raise _proposal_error(exc) from exc
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(
+    proposal_id: int,
+    user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Odrzuć propozycję — ta rodzina zapisów nie wraca w kolejnych nocach."""
+    from app.services import skill_proposals
+
+    try:
+        return await skill_proposals.reject(
+            db, proposal_id, curated_by=getattr(user, "email", None)
+        )
+    except skill_proposals.ProposalError as exc:
+        raise _proposal_error(exc) from exc
 
 
 # ── Słowniczek „po ludzku” (0403) ───────────────────────────────────────────

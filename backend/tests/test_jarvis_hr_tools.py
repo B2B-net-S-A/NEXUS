@@ -90,6 +90,20 @@ class TestVisibility:
         assert "contract_equipment" in delivery
         assert not {"free_equipment", "reception_tasks", "person_equipment"} & delivery
 
+    def test_person_month_needs_timesheets_or_people_admin(self) -> None:
+        """Miesiąc innej osoby: te same konta, które trasa wpuszcza do każdego
+        (``Actor.approves_everyone``). Same „Płace” i rekruter — nie."""
+
+        assert "person_month" in _offered(permissions={"timesheets"})
+        assert "person_month" in _offered(permissions={"people_admin"})
+        assert "person_month" not in _offered(permissions={"payroll"})
+        assert "person_month" not in _offered(permissions=())
+        recruiter_sections, recruiter_permissions = _persona(UserRole.recruiter)
+        assert "person_month" not in _offered(recruiter_sections, recruiter_permissions)
+        assert "person_month" not in _offered(
+            permissions={"timesheets"}, modules=ALL_MODULES - {"time"}
+        )
+
     def test_reception_sees_the_register(self) -> None:
         reception = _offered(permissions={"equipment"})
         assert {
@@ -240,6 +254,28 @@ _SAMPLES = {
         },
         {},
     ),
+    "person_month": (
+        {
+            "user_id": 5,
+            "name": "Anna Przykładowa",
+            "year": 2092,
+            "month": 3,
+            "deadline": "2092-04-05",
+            "employment_type": "b2b",
+            "timesheet": {"status": "draft", "return_note": "Wizyta u lekarza"},
+            "days": [
+                {
+                    "date": "2092-03-03",
+                    "working_day": True,
+                    "leave": {"full": True, "label": "Zwolnienie lekarskie"},
+                    "entries": [{"id": 1, "description": "Wizyta u lekarza"}],
+                    "attendance_note": "Wizyta u lekarza",
+                }
+            ],
+            "totals": {"work_hours": 120.0, "leave_days": 1.0, "days_missing": 2},
+        },
+        {"user_id": 5},
+    ),
     "free_equipment": (
         {
             "items": [
@@ -376,6 +412,21 @@ def test_my_month_lists_missing_days_and_return_note() -> None:
     assert shaped["timesheet"] == {"status": "nierozpoczęty"}
     returned = TOOLS_BY_NAME["my_month"].shape(*_SAMPLES["my_month"])
     assert returned["timesheet"]["return_note"] == "Popraw piątek"
+
+
+def test_person_month_reads_the_approvals_route_without_notes() -> None:
+    tool = TOOLS_BY_NAME["person_month"]
+    spec = tool.build({"user_id": 5, "year": 2092, "month": 3})
+    assert spec.method == "GET"
+    assert spec.path == "/api/hr/time/team/5/2092/3"
+    with pytest.raises(ValueError):
+        tool.build({"year": 2092, "month": 3})
+    shaped = tool.shape(*_SAMPLES["person_month"])
+    assert shaped["name"] == "Anna Przykładowa"
+    assert shaped["user_id"] == 5
+    assert shaped["timesheet"] == {"status": "draft"}
+    assert shaped["totals"]["work_hours"] == 120.0
+    assert "employment_type" not in shaped
 
 
 def test_free_equipment_filters_go_to_the_register() -> None:

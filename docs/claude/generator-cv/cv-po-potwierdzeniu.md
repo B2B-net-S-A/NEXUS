@@ -47,6 +47,23 @@ i dodatkowych notatek; domyślny plik = kopia „Oryginał CV” rekrutacji.
 - Awaria `…/ai-sources` nie blokuje: lista plików z `cv-sources` generatora,
   krok odpowiedzi mówi „nie udało się sprawdzić”, potwierdzenia działają.
 
+## „Dlaczego ten kandydat” w kroku notatek (04.11.2026)
+
+Zgłoszenie zespołu: przy kroku 3 trzeba wracać do formularza i kopiować tekst.
+Generator czyta to pole sam (`[Rekomendacja rekrutera]` w
+`collect_screening_notes_text`), więc skopiowany tekst szedł do modelu dwa razy.
+Makiety: https://claude.ai/artifact/T9CqD4nNMPGyWoExW2fcjf. Decyzja Artura 04.11:
+wariant A.
+
+- **Krok 3 pokazuje tekst tylko do odczytu** (`WhyFromScreening`) i link do
+  formularza; pole notatek jest na to, czego w screeningu nie ma. Nie wstawiaj
+  tekstu do pola notatki: poprawka w notatce nie usuwa oryginału ze źródeł,
+  więc błąd zostawałby w tekście dla modelu.
+- Przełącznik „Notatki” w „Z czego powstało” zdejmuje też to pole, więc przy
+  wyłączonym krok mówi, że AI tego nie przeczyta.
+- **Okno generatora:** `notes_chars` serwer liczy tylko przy minimum z reguły
+  klienta. Bez minimum okno mówi „są”, nie „0 znaków”.
+
 ## Gotowe CV: „Powstało z”, ramka i „Odrzuć to CV” (PR 2)
 
 - **Generacja zapisuje plik źródłowy** w `render_payload["source_cv"]`

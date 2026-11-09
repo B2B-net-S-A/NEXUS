@@ -146,9 +146,9 @@ WORK_KINDS: tuple[WorkKind, ...] = (
     ),
     WorkKind(
         "reports",
-        "Podwładni",
+        "Osoby w zespole",
         True,
-        "Przejmujący zostaje ich przełożonym w kartotece — wnioski i timesheety "
+        "Przejmujący zostaje ich koordynatorem w kartotece — wnioski i raporty godzin "
         "w toku idą do niego.",
     ),
     WorkKind(
@@ -162,7 +162,7 @@ WORK_KINDS: tuple[WorkKind, ...] = (
         "substitutions",
         "Zastępstwa w urlopach po ostatnim dniu",
         False,
-        "Zastępcę zmienia osoba na urlopie albo Kadry we wniosku.",
+        "Zastępcę zmienia osoba na urlopie albo Administracja współpracy we wniosku.",
     ),
 )
 WORK_KIND_BY_KEY: dict[str, WorkKind] = {kind.key: kind for kind in WORK_KINDS}
@@ -215,7 +215,7 @@ RECEIVER_ERRORS: dict[str, str] = {
     ),
     "receiver_creates_loop": (
         "Przejmujący podlega jednej z tych osób — wybierz kogoś spoza zespołu "
-        "odchodzącego albo z jego bezpośrednich podwładnych."
+        "odchodzącego albo z jego bezpośrednich osób w zespole."
     ),
     "receiver_out_of_scope": (
         "Przejmujący nie ma części tych klientów w portfelu — wybierz head back "
@@ -918,7 +918,7 @@ _RESULT_LABELS: dict[str, str] = {
     "delivery_lead_jobs": "rekrutacje jako Delivery Lead",
     "dl_clients": "klienci",
     "my_people": "„Moi ludzie”",
-    "reports": "podwładni",
+    "reports": "osoby w zespole",
     "care": "opieka nad konsultantami",
 }
 

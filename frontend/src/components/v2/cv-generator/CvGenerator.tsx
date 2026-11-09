@@ -127,7 +127,8 @@ function ContentStep({ g }: { g: CvGeneratorState }) {
         position={g.position}
         onPositionChange={g.setPosition}
         positionRequired={g.positionRequired}
-        positionFromJob={!!g.recruitment && g.position === g.recruitment.job_title}
+        positionFromJob={!!g.recruitment && g.position === g.positionDefault}
+        positionDefault={g.positionDefault}
         projectRef={g.projectRef}
         onProjectRefChange={g.setProjectRef}
         projectRefVisible={g.projectRefVisible}
@@ -163,7 +164,7 @@ function GeneratorSteps({ g }: { g: CvGeneratorState }) {
               onChampionFile={(file) => void g.readChampionFile(file)}
               onChampionError={g.setChampionMessage}
               hasNotes={!!g.recruitment.has_notes}
-              notesChars={g.recruitment.notes_chars ?? 0}
+              notesChars={(g.recruitment.required_notes_min_chars ?? 0) > 0 ? (g.recruitment.notes_chars ?? 0) : null}
               noteDraft={g.noteDraft}
               onNoteDraftChange={g.setNoteDraft}
               sources={g.sources}
@@ -212,7 +213,8 @@ function GeneratorAside({ g }: { g: CvGeneratorState }) {
         loading={g.clientId != null && (g.policyQuery.isPending || false)}
         error={g.policyQuery.isError}
         languageLabel={languageSummary(g.languageChoice, g.languagePolicy)}
-        filename={g.activeRule?.filename_preview ?? g.policy?.effective_policy?.filename_pattern ?? null}
+        filename={g.filenamePreview ?? g.activeRule?.filename_preview ?? g.policy?.effective_policy?.filename_pattern ?? null}
+        headerPreview={g.headerPreview}
         projectRef={g.projectRefFromJob ?? (g.projectRef.trim() || null)}
         projectRefFromJob={!!g.projectRefFromJob}
         consentRequired={g.consentRequired}

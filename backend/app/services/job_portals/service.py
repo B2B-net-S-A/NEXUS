@@ -11,7 +11,10 @@ i woła adapter. Żywe ogłoszenie dostaje ``pending_action``:
 * rekrutacja nieopublikowana → 409;
 * brak ZATWIERDZONEGO opisu publicznego → 409 — do portalu idzie wyłącznie
   biała lista z ``job_public_profile.public_job_payload`` (nigdy klient ani
-  stawka, jak na stronie kariery);
+  stawka, jak na stronie kariery), a na JustJoin.IT/RocketJobs treść okna
+  „Ogłoszenie”, gdy rekrutacja je ma (po kontroli, ``job_ad.portal_content``);
+* ogłoszenie oznaczone jako wiszące na JustJoin.IT → 409 — wklejone ręcznie
+  nie ma naszego ``externalId``, więc ``POST`` kupiłby drugi kredyt;
 * brak aktywnego linku aplikacyjnego rekrutacji → 409 — kandydat z portalu
   aplikuje przez stronę kariery (``/r/<slug>``);
 * braki w ustawieniach ogłoszenia → 422 z listą (kredyt portalu jest płatny,
@@ -37,17 +40,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus
+from app.models.job_ad import JobAd
+from app.models.job_ad_publication import JobAdPublication
 from app.models.job_posting import JobPosting, Portal, PostingStatus
 from app.models.job_public_profile import JobPublicProfile
 from app.services import job_portals
 from app.services.job_portals import jjit_payload
 from app.services.job_portals.base import (
     ADOPTED_EXISTING,
+    JJIT_FAMILY,
     PortalError,
     PortalGone,
     PortalReconnectRequired,
     PostingContent,
 )
+from app.services.job_ad_publication_schema import PORTAL_JJIT
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +98,8 @@ class BuiltContent:
     content: PostingContent
     profile_hash: str
     payload_hash: str
+    # Odcisk treści okna „Ogłoszenie”, gdy to ona poszła na portal.
+    ad_hash: Optional[str] = None
 
 
 def _now() -> datetime:
@@ -145,6 +154,43 @@ def portal_apply_url(link_url: str, portal: Portal, job_id: int) -> str:
     return f"{link_url}{'&' if '?' in link_url else '?'}{query}"
 
 
+async def _build_native_content(
+    db: AsyncSession,
+    job: Job,
+    ad: JobAd,
+    profile: Optional[JobPublicProfile],
+    options: Any,
+) -> BuiltContent:
+    """Treść dla formularza portalu: zakładka JustJoin.IT po kontroli, bez linku.
+
+    ``apply_url`` zostaje pusty, bo ``jjit_payload.apply_method`` wysyła wtedy
+    ``apply.email``. Odcisk opisu publicznego bierze to, co jest (albo pusty),
+    żeby zatwierdzenie strony kariery dalej kolejkowało aktualizację portalu.
+    """
+    from app.services.job_ad import portal_content
+
+    prepared = await portal_content.prepare(db, job, ad)
+    if prepared.blocked:
+        raise PortalRequestError(
+            409,
+            "job_ad_blocked",
+            "W treści są fragmenty, których nie publikujemy — usuń je "
+            "w oknie „Ogłoszenie”.",
+        )
+    content = PostingContent(
+        title=prepared.title,
+        job=prepared.job,
+        apply_url="",
+        options=dict(options or {}),
+    )
+    return BuiltContent(
+        content=content,
+        profile_hash=(profile.approved_hash if profile is not None else "") or "",
+        payload_hash=_hash(prepared.job, "", options),
+        ad_hash=prepared.ad_hash,
+    )
+
+
 async def build_content(
     db: AsyncSession, job: Job, *, portal: Portal, options: Any = None
 ) -> BuiltContent:
@@ -160,6 +206,13 @@ async def build_content(
     profile = await db.scalar(
         select(JobPublicProfile).where(JobPublicProfile.job_id == job.id)
     )
+    ad = await db.get(JobAd, job.id) if portal in JJIT_FAMILY else None
+    # 06.11.2026: formularz portalu (``apply.email``) — kandydat nie widzi
+    # strony kariery, a treść idzie z zakładki JustJoin.IT, więc ani opis
+    # publiczny, ani link kariery nie są warunkiem publikacji.
+    native = ad is not None and jjit_payload.native_apply_enabled()
+    if native:
+        return await _build_native_content(db, job, ad, profile, options)
     status, _default, title = await resolve_status(db, job, profile)
     if profile is None or status != STATUS_APPROVED:
         raise PortalRequestError(
@@ -176,14 +229,28 @@ async def build_content(
             "Rekrutacja nie ma aktywnego linku aplikacyjnego — utwórz link na "
             "stronie kariery; kandydaci z portalu aplikują przez niego.",
         )
-    payload = public_job_payload(
-        job,
-        title=title,
-        link_slug=slug,
-        subtitle=profile.subtitle,
-        about=profile.about,
-        sections=profile.sections,
-    )
+    ad_hash: Optional[str] = None
+    if ad is not None:
+        from app.services.job_ad import portal_content
+
+        prepared = await portal_content.prepare(db, job, ad)
+        if prepared.blocked:
+            raise PortalRequestError(
+                409,
+                "job_ad_blocked",
+                "W treści są fragmenty, których nie publikujemy — usuń je "
+                "w oknie „Ogłoszenie”.",
+            )
+        title, payload, ad_hash = prepared.title, prepared.job, prepared.ad_hash
+    else:
+        payload = public_job_payload(
+            job,
+            title=title,
+            link_slug=slug,
+            subtitle=profile.subtitle,
+            about=profile.about,
+            sections=profile.sections,
+        )
     apply_url = portal_apply_url(job_link_url(slug), portal, job.id)
     content = PostingContent(
         title=title,
@@ -195,6 +262,7 @@ async def build_content(
         content=content,
         profile_hash=profile.approved_hash or "",
         payload_hash=_hash(payload, apply_url, options),
+        ad_hash=ad_hash,
     )
 
 
@@ -279,6 +347,14 @@ async def request_publish(
             "posting_already_live",
             "Ogłoszenie tej rekrutacji na tym portalu już jest publikowane.",
         )
+    if portal in JJIT_FAMILY and await _marked_published(db, job.id):
+        raise PortalRequestError(
+            409,
+            "ad_marked_published",
+            "To ogłoszenie jest oznaczone jako wiszące na JustJoin.IT — druga "
+            "publikacja kupiłaby drugi kredyt. Jeśli już nie wisi, oznacz je "
+            "najpierw „Zdjęte z portalu”.",
+        )
     normalized = jjit_payload.normalize_options(
         options if options is not None else default_listing_options(job)
     )
@@ -312,6 +388,45 @@ async def request_publish(
             "Ogłoszenie tej rekrutacji na tym portalu już jest publikowane.",
         ) from exc
     return posting
+
+
+async def _marked_published(db: AsyncSession, job_id: int) -> bool:
+    return (
+        await db.scalar(
+            select(JobAdPublication.job_id).where(
+                JobAdPublication.job_id == job_id,
+                JobAdPublication.portal == PORTAL_JJIT,
+                JobAdPublication.removed_at.is_(None),
+            )
+        )
+    ) is not None
+
+
+async def live_on_jjit(
+    db: AsyncSession, job_id: int, *, lock: bool = False
+) -> Optional[JobPosting]:
+    return await _live(db, job_id, Portal.justjoinit, lock=lock)
+
+
+async def send_ad_to_jjit(
+    db: AsyncSession, *, job: Job, user_id: int, options: Any = None
+) -> JobPosting:
+    """Okno „Ogłoszenie”: pierwsza publikacja albo aktualizacja żywego ogłoszenia.
+
+    Aktualizacja bez ``options`` zostawia ustawienia z publikacji.
+    """
+    await _ensure_portal_ready(db, Portal.justjoinit)
+    posting = await live_on_jjit(db, job.id, lock=True)
+    if posting is None:
+        return await request_publish(
+            db, job=job, portal=Portal.justjoinit, user_id=user_id, options=options
+        )
+    return await update_options(
+        db,
+        job=job,
+        portal=Portal.justjoinit,
+        options=options if options is not None else posting.options,
+    )
 
 
 async def update_options(
@@ -741,6 +856,9 @@ async def process_one(posting_id: int) -> None:
             now_options = json.dumps(posting.options, sort_keys=True, default=str)
             now_hash = await _approved_hash(db, posting.job_id)
             stale = now_options != sent_options or now_hash != sent_profile_hash
+        # `_apply` zmienia status, a sprzątanie po nieudanej publikacji trzeba
+        # odróżnić od zamknięcia ogłoszenia, które wisiało.
+        was_failed = posting.status == PostingStatus.failed
         _apply(
             posting,
             action,
@@ -748,7 +866,39 @@ async def process_one(posting_id: int) -> None:
             changed=_snapshot(posting) != snapshot,
             stale_content=stale,
         )
+        await _sync_ad_publication(db, posting, action, outcome, was_failed=was_failed)
         await db.commit()
+
+
+async def _sync_ad_publication(
+    db: AsyncSession,
+    posting: JobPosting,
+    action: str,
+    outcome: _Outcome,
+    *,
+    was_failed: bool,
+) -> None:
+    """„Gdzie wisi” w oknie „Ogłoszenie” idzie za wynikiem na JustJoin.IT.
+
+    Sprzątanie po nieudanej publikacji (``was_failed``) niczego nie zdejmuje:
+    oznaczenie mogło w tym czasie dotyczyć ogłoszenia wklejonego ręcznie, które
+    na portalu dalej wisi, a bez oznaczenia okno pozwoliłoby kupić drugi kredyt.
+    """
+    from app.services.job_ad import publications
+
+    if posting.portal != Portal.justjoinit:
+        return
+    if outcome.kind == "gone" or (outcome.kind == "ok" and action == ACTION_CLOSE):
+        if not was_failed:
+            await publications.record_portal_removal(db, posting.job_id)
+    elif outcome.kind == "ok" and outcome.built and outcome.built.ad_hash:
+        await publications.record_portal_send(
+            db,
+            posting.job_id,
+            url=posting.url,
+            hash_=outcome.built.ad_hash,
+            user_id=posting.created_by,
+        )
 
 
 async def _approved_hash(db: AsyncSession, job_id: int) -> str:
@@ -953,6 +1103,13 @@ async def sync_remote_states(limit: int = 20) -> int:
                     if state == "expired":
                         posting.status = PostingStatus.expired
                         posting.expires_at = posting.expires_at or now
+                if (
+                    posting.status != PostingStatus.published
+                    and posting.portal == Portal.justjoinit
+                ):
+                    from app.services.job_ad import publications
+
+                    await publications.record_portal_removal(db, posting.job_id)
             posting.last_synced_at = now
             await db.commit()
     return len(rows)

@@ -20,6 +20,8 @@ i DL z rekruterem uzgadniali godzinę na Teams.
   Okno dostaje zajętość prowadzącego razem z podpowiedziami, a zapis prepu
   sprawdza ją jeszcze raz (``busy_overlap``) — kolizja to ostrzeżenie, nie
   blokada (decyzja Artura).
+* Czas prepu (05.11.2026): rekruter wybiera go z ``PREP_DURATIONS`` osobno dla
+  każdego prepu, a podpowiedzi liczą się dla tej długości.
 """
 
 from __future__ import annotations
@@ -38,6 +40,8 @@ logger = logging.getLogger(__name__)
 Interval = tuple[datetime, datetime]
 
 PREP_MINUTES = 45
+# Te same długości co w oknach „Zaplanuj prep” i „Zmień prep”.
+PREP_DURATIONS = (30, 45, 60, 90)
 STEP_MINUTES = 30
 # Najwcześniej tyle przed startem prepu od teraz — kandydat musi zdążyć
 # odebrać zaproszenie.

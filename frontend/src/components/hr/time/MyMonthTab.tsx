@@ -28,6 +28,7 @@ import {
   useSaveMyEntry,
   useSetAttendance,
   useSubmitMonth,
+  useWithdrawMonth,
   type FillResult,
   type MonthDay,
   type TimesheetEntry,
@@ -42,15 +43,17 @@ import { FillMonthDialog } from "./FillMonthDialog";
 import { TemplatesDialog } from "./TemplatesDialog";
 import { TimesheetArchive } from "./TimesheetArchive";
 import { useUrlMonth } from "./use-url-month";
-import { MonthGrid, type QuickEntryInput } from "./MonthGrid";
+import { LeaveLimitNotice, MonthGrid, type QuickEntryInput } from "./MonthGrid";
 import {
   STATUS_TONE,
   canEditMonth,
   currentYearMonth,
   formatHours,
+  overLeaveLimit,
   queueHoursFill,
   statusLine,
 } from "./time-format";
+import { useLeaveLimitFix } from "./use-leave-limit-fix";
 
 export interface MyMonthTabProps {
   config: HrConfig;
@@ -85,11 +88,13 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   const templates = useMyTemplates(moduleOpen);
   const hint = useDayHint(editor ? editor.day.date : null);
   const save = useSaveMyEntry(period.year, period.month);
+  const fixDay = useLeaveLimitFix(save, (day, entry) => setEditor({ day, entry }));
   const remove = useDeleteMyEntry();
   const attendance = useSetAttendance();
   const fill = useFillMonth(period.year, period.month);
   const copy = useCopyPrevious(period.year, period.month);
   const submit = useSubmitMonth(period.year, period.month);
+  const withdraw = useWithdrawMonth(period.year, period.month);
   const today = warsawToday();
 
   const state = resolveViewState({
@@ -109,7 +114,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     return (
       <p className="rounded-lg border border-border/60 p-5 text-sm text-muted-foreground">
         „Mój miesiąc” ruszy po włączeniu modułu czasu pracy — do tego czasu
-        timesheet prowadzisz w dotychczasowym systemie.
+        raport godzin prowadzisz w dotychczasowym systemie.
       </p>
     );
   }
@@ -176,7 +181,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   const runSubmit = async () => {
     if (!view) return;
     const missing = view.totals.days_missing;
-    const after = `Po wysłaniu poprawki wprowadza ${words.coordinator} albo zwraca ${words.timesheet_accusative} do Ciebie.`;
+    const after = `Dopóki ${words.coordinator} go nie przyjmie, możesz go wycofać i poprawić.`;
     const ok = await askConfirm({
       title: `Wysłać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()} do ${reviewNoun}?`,
       description:
@@ -194,11 +199,24 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     });
   };
 
+  const runWithdraw = async () => {
+    const ok = await askConfirm({
+      title: `Wycofać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()}?`,
+      description: `Wróci do szkicu, a ${words.coordinator} dostanie informację. Po poprawkach wyślij go ponownie.`,
+      confirmLabel: "Wycofaj",
+    });
+    if (!ok) return;
+    withdraw.mutate(undefined, {
+      onSuccess: () => showToast("Wycofano — możesz poprawiać wpisy", "success"),
+      onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wycofać."), "error"),
+    });
+  };
+
   const downloadPdf = async () => {
     try {
       await downloadHrFile(
         timePaths.myPdf(period.year, period.month),
-        `timesheet-${period.year}-${String(period.month).padStart(2, "0")}.pdf`,
+        `raport-godzin-${period.year}-${String(period.month).padStart(2, "0")}.pdf`,
       );
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać PDF."), "error");
@@ -229,6 +247,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         </div>
         {view ? (
           <div className="flex flex-wrap items-center gap-1.5" data-help="hr.my_time.month_actions">
+            {status === "submitted" && !view.timesheet?.payroll_locked ? (
+              <Button variant="outline" size="sm" onClick={runWithdraw} disabled={withdraw.isPending}>
+                Wycofaj i popraw
+              </Button>
+            ) : null}
             {status === "approved" ? (
               <Button variant="outline" size="sm" onClick={downloadPdf}>
                 <Download className="mr-1.5 h-4 w-4" aria-hidden />
@@ -280,11 +303,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
               <p className="min-w-0 flex-1 text-sm text-foreground">
                 <span className="font-semibold">
-                  Brakuje {countPl(view.totals.days_missing, "dnia roboczego", "dni roboczych", "dni roboczych")}.
+                  {countPl(view.totals.days_missing, "dzień", "dni", "dni")} bez wpisu.
                 </span>{" "}
                 <span className="text-muted-foreground">
                   Wpisz dzień w wierszu albo wypełnij puste dni po 8 h opisem „{defaultDescription}” — wpisane
-                  dni, urlopy i święta zostają.
+                  dni, przerwy i święta zostają.
                 </span>
               </p>
               <Button size="sm" onClick={() => setFilling(true)} disabled={fill.isPending}>
@@ -292,6 +315,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
               </Button>
             </div>
           ) : null}
+          <LeaveLimitNotice
+            days={view.days.filter(overLeaveLimit)}
+            onFix={editable ? fixDay : undefined}
+            busy={save.isPending}
+          />
           <MonthGrid
             view={view}
             today={today}
@@ -316,8 +344,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
               </span>
               <span className="text-xs text-muted-foreground">
                 {view.totals.days_missing > 0
-                  ? `brakuje ${countPl(view.totals.days_missing, "dnia roboczego", "dni roboczych", "dni roboczych")}`
-                  : "wszystkie dni robocze wpisane"}
+                  ? `${countPl(view.totals.days_missing, "dzień", "dni", "dni")} bez wpisu`
+                  : "wszystkie dni wpisane"}
                 {view.totals.leave_paid_hours > 0
                   ? ` · ${view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy"} ${formatHours(view.totals.leave_paid_hours)} h`
                   : ""}
@@ -330,7 +358,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
                 className="text-xs text-foreground"
                 title={capitalize(`${words.coordinator} przyjmuje ${words.timesheet_accusative}.`)}
               >
-                {view.approver_name ?? "Kadry"}
+                {view.approver_name ?? "Administracja współpracy"}
               </span>
             </div>
             {editable ? (
@@ -371,6 +399,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           day={editor.day}
           entry={editor.entry}
           allowOvertime={view.can_log_overtime}
+          noHoursLimit={view.no_hours_limit}
           form={view.employment_type}
           templates={templates.data?.items}
           hint={{ text: hint.data?.text ?? null, loading: hint.isLoading }}

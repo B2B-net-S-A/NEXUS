@@ -29,6 +29,7 @@ const meta = {
   rate_known: false,
   availability_known: true,
   decided: false,
+  awaiting_decision: true,
   waiting_days: 3,
   decision_due: true,
 };
@@ -61,7 +62,9 @@ describe("plakietki osoby od systemu", () => {
   });
 
   it("termin decyzji tylko po 2 dniach i z dniami roboczymi", () => {
-    expect(autofillDecisionBadge(meta)?.label).toBe("3 dni bez decyzji");
+    // Liczba stoi raz, w wierszu ruchu (`waiting_workdays`); plakietka mówi stan.
+    expect(autofillDecisionBadge(meta)?.label).toBe("Bez decyzji");
+    expect(autofillDecisionBadge(meta)?.title).toContain("3 dni rob.");
     expect(autofillDecisionBadge({ ...meta, decision_due: false, waiting_days: 1 })).toBeNull();
     expect(autofillDecisionBadge({ ...meta, waiting_days: null })).toBeNull();
     expect(workdaysText(1)).toBe("1 dzień");

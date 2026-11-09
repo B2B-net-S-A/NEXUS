@@ -89,6 +89,8 @@ export interface MonthView {
   employment_type: "uop" | "b2b" | "zlecenie";
   default_location: WorkLocation;
   can_log_overtime: boolean;
+  /** Kartoteka: bez sufitu dnia i bez opisu godzin ponad 8 h. */
+  no_hours_limit?: boolean;
   /** Przełożony z kartoteki (bez niego akceptują Kadry). */
   approver_name: string | null;
   timesheet: TimesheetHeader | null;
@@ -185,6 +187,8 @@ export interface TeamQueueItem {
   overtime_hours: number;
   absence_days: number;
   can_decide: boolean;
+  /** Szkic osoby, która odeszła: akceptujący może wysłać i potwierdzić za nią. */
+  can_confirm_for_person?: boolean;
 }
 
 /** Kolejka „Akceptacji” za miesiąc (`GET /api/hr/time/team/{rok}/{miesiąc}`). */
@@ -479,6 +483,17 @@ export function useSubmitMonth(year: number, month: number) {
   });
 }
 
+/** Osoba cofa własny wysłany raport do szkicu, dopóki nikt go nie przyjął. */
+export function useWithdrawMonth(year: number, month: number) {
+  const invalidate = useInvalidateTime();
+  return useMutation({
+    mutationKey: [...HR_COUNTS_MUTATION_KEY, "timesheet-withdraw"],
+    mutationFn: async () =>
+      (await api.post<TimesheetHeader>(`/api/hr/time/me/${year}/${month}/withdraw`)).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useTeamQueue(year: number, month: number, enabled = true) {
   return useQuery({
     queryKey: timeKeys.team(year, month),
@@ -529,7 +544,7 @@ export function useDeleteTeamEntry() {
   });
 }
 
-export type TimesheetDecision = "approve" | "return" | "revoke";
+export type TimesheetDecision = "approve" | "confirm-for-person" | "return" | "revoke";
 
 export function useDecideTimesheet() {
   const invalidate = useInvalidateTime();

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -274,6 +274,22 @@ class PracujMailPreview(BaseModel):
     rate_error: Optional[str] = None
 
 
+class AdJjitApi(BaseModel):
+    """Publikacja na JustJoin.IT przez API; brak = portal wyłączony, a na nim nic
+    nie wisi (okno działa jak kopiuj-wklej)."""
+
+    # Portal przyjmuje nowe ogłoszenia (flaga + klucz API albo konto).
+    ready: bool
+    # Ostatnie zlecenie tej rekrutacji; ``None`` = jeszcze go nie było.
+    status: Optional[str] = None
+    pending_action: Optional[str] = None
+    last_error: Optional[str] = None
+    options: Optional[dict[str, Any]] = None
+    # 06.11.2026: przy formularzu portalu (``JJIT_APPLY_EMAIL``) kandydat nie
+    # przechodzi przez stronę kariery, więc okno nie każe jej najpierw publikować.
+    career_required: bool = True
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
     career: AdCareerState = Field(default_factory=AdCareerState)
@@ -289,6 +305,9 @@ class JobAdResponse(BaseModel):
     reminders: Optional[AdReminders] = None
     # Ostatni mail do opiekuna Pracuj.pl (27.10.2026).
     pracuj_request: Optional[PracujRequestRead] = None
+    jjit_api: Optional[AdJjitApi] = None
+    # Oznaczanie portali: DL rekrutacji, Head of Recruitment, admin (08.11.2026).
+    can_mark_publications: bool = False
 
 
 class CareerQueueItem(BaseModel):

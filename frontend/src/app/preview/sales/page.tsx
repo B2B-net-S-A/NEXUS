@@ -72,6 +72,12 @@ function opportunity(
     tags: [],
     owner: { id: 7, name: "Anna Przykładowa" },
     last_activity_at: at,
+    last_touch_at: at,
+    next_step: null,
+    overdue_step: null,
+    last_contact: { kind: "email", direction: "out", at },
+    waiting_for_reply: false,
+    step_alarm: false,
     keep_open_until: null,
     archived_at: null,
     created_at: at,
@@ -91,7 +97,16 @@ function prepare() {
   const client = harnessQueryClient();
   client.setQueryData(salesKeys.pipelines, [PIPELINE]);
   client.setQueryData(
-    salesKeys.opportunities({ pipeline_id: 1, owner_id: null, q: "", sort: "updated", archived: false }),
+    salesKeys.opportunities({
+      pipeline_id: 1,
+      owner_id: null,
+      q: "",
+      sort: "updated",
+      archived: false,
+      service_line: null,
+      created_from: null,
+      created_to: null,
+    }),
     { items: ITEMS, total: ITEMS.length },
   );
   // Filtr opiekuna czyta osoby z podsumowania lejka i etykiety z Atlasa — bez żądań.
@@ -106,6 +121,10 @@ function prepare() {
     by_stage: [],
   });
   client.setQueryData(salesKeys.ownerLabels, []);
+  client.setQueryData(salesKeys.ownerCandidates, [
+    { id: 7, name: "Anna Przykładowa" },
+    { id: 8, name: "Jan Testowy" },
+  ]);
   // Pasek „Twoja skrzynka Outlook” w ramie Sprzedaży — fikcyjna podłączona skrzynka.
   client.setQueryData(["m365-connection"], {
     connected: true,

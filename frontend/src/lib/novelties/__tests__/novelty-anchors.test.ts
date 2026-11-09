@@ -13,6 +13,7 @@ import {
   cardCandidate,
   dotNovelties,
   eventForClick,
+  intersectRects,
   pendingCount,
   placeBeside,
   requiredForPath,
@@ -281,6 +282,33 @@ describe("miejsce karty kroku", () => {
       expect(overlaps).toBe(false);
       expect(at.top + card.height).toBeLessThanOrEqual(viewport.height);
     }
+  });
+
+  it("cel prawie na cały ekran: karta zostaje w oknie, choć wchodzi na cel", () => {
+    const at = placeBeside(
+      { top: 20, left: 100, width: 1100, height: 680 },
+      card,
+      viewport,
+    );
+    expect(at.top).toBeGreaterThanOrEqual(0);
+    expect(at.top + card.height).toBeLessThanOrEqual(viewport.height);
+    expect(at.left + card.width).toBeLessThanOrEqual(viewport.width);
+  });
+});
+
+describe("widoczna część kotwicy", () => {
+  const screen = { top: 0, left: 0, width: 1280, height: 650 };
+
+  it("element częściowo pod dolną krawędzią: tylko część na ekranie", () => {
+    expect(
+      intersectRects({ top: 641, left: 850, width: 141, height: 16 }, screen),
+    ).toEqual({ top: 641, left: 850, width: 141, height: 9 });
+  });
+
+  it("element nad oknem (przewinięta lista): nic", () => {
+    expect(
+      intersectRects({ top: -577, left: 440, width: 101, height: 29 }, screen),
+    ).toBeNull();
   });
 });
 

@@ -21,13 +21,14 @@ def _sql(query) -> str:
 async def test_current_cv_query_loads_bytea_and_skips_non_cv_kinds():
     db = AsyncMock()
     db.scalars.return_value = Mock(first=Mock(return_value=None))
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     candidate = NS(id=5, cv_storage_key=None, cv_file_content=None, cv_language=None)
     assert await cv_source.get_current_cv(db, candidate) is None
     sql = _sql(db.scalars.call_args.args[0])
     # undefer: kolumna BYTEA jest w SELECT, nie doczytywana leniwie.
     assert "candidate_documents.file_content" in sql.split("FROM")[0]
     assert "document_kind NOT IN ('certificate', 'cover_letter')" in sql
-    assert "CASE WHEN (candidate_documents.document_kind = 'cv')" in sql
+    assert "candidate_documents.document_kind = 'cv'" in sql.split("ORDER BY")[1]
 
 
 async def test_generation_source_query_loads_bytea_and_skips_non_cv_kinds():
@@ -35,6 +36,7 @@ async def test_generation_source_query_loads_bytea_and_skips_non_cv_kinds():
     db.get.return_value = NS(id=2, name="A", lastname="B")
     db.scalars.return_value = Mock(first=Mock(return_value=None))
     db.scalar.return_value = None
+    db.execute.return_value = Mock(all=Mock(return_value=[]))
     with pytest.raises(svc.StandaloneGenerationError):
         await svc.load_candidate_generation_source(db, candidate_id=2, stage_id=None)
     sql = _sql(db.scalars.call_args_list[0].args[0])

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   startMeasurement: vi.fn(),
   publish: vi.fn(),
   restore: vi.fn(),
+  saveKnownPoints: vi.fn(),
   previewJobs: vi.fn(),
   preview: vi.fn(),
   list: vi.fn(),
@@ -40,10 +41,16 @@ vi.mock("@/store/auth", () => ({
     !!user && roles.some((role) => new Set([user.role, ...(user.roles ?? [])]).has(role)),
 }));
 
+// Porcja dnia ma własne API i testy (`ReviewBatchMinimumBlock`); tu sam panel wag.
+vi.mock("@/components/settings/ranking/ReviewBatchMinimumBlock", () => ({
+  ReviewBatchMinimumBlock: () => null,
+}));
+
 vi.mock("@/lib/api", () => ({
   scoringWeightsApi: {
     panel: mocks.panel,
     saveDraft: mocks.saveDraft,
+    saveKnownPoints: mocks.saveKnownPoints,
     discardDraft: mocks.discardDraft,
     measurement: mocks.measurement,
     startMeasurement: mocks.startMeasurement,
@@ -93,6 +100,32 @@ describe("Ranking kandydatów — panel wag", () => {
     expect(await screen.findByText("Z czego składa się „Dop.” — stan na dziś")).toBeInTheDocument();
     expect(screen.getByText("67%")).toBeInTheDocument();
     expect(screen.getByText("17%")).toBeInTheDocument();
+  });
+
+  it("„Znamy tę osobę”: Head of Recruitment zapisuje punkty od razu, bez szkicu", async () => {
+    mocks.user = HOR;
+    mocks.search = "zakladka=wagi";
+    mocks.saveKnownPoints.mockResolvedValue({ data: panelState() });
+    renderPage();
+    const slider = await screen.findByLabelText("Zweryfikowana u tego klienta");
+    expect(screen.queryByRole("button", { name: "Zapisz punkty" })).not.toBeInTheDocument();
+    fireEvent.change(slider, { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz punkty" }));
+    await waitFor(() =>
+      expect(mocks.saveKnownPoints).toHaveBeenCalledWith({ client: 9, note_recent: 8, note_older: 2 }),
+    );
+    expect(mocks.saveDraft).not.toHaveBeenCalled();
+    expect(screen.getByTestId("ranking-known-points")).toHaveTextContent("w top 20 z 32% do 38%");
+  });
+
+  it("Delivery Lead widzi punkty, ale nie zapisuje", async () => {
+    mocks.user = { ...DL, effective_section_access: { insights: "read" } };
+    mocks.panel.mockResolvedValue({ data: panelState({ can_edit: false }) });
+    mocks.search = "zakladka=wagi";
+    renderPage();
+    const slider = await screen.findByLabelText("Zweryfikowana u tego klienta");
+    fireEvent.change(slider, { target: { value: "9" } });
+    expect(screen.queryByRole("button", { name: "Zapisz punkty" })).not.toBeInTheDocument();
   });
 
   it("Delivery Lead przesuwa suwak dla podglądu, ale nie zapisuje", async () => {

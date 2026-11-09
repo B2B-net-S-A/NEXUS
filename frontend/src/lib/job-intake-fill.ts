@@ -623,6 +623,9 @@ export function applyIntakeRead(
   if (readRows.length > 0) {
     if (filledRows(next.rows).length === 0) {
       next.rows = read.rows;
+      // Propozycje (M1, M2) dotyczą tych wierszy — idą razem z nimi.
+      next.criticalProposal = read.criticalProposal;
+      next.mailTechnologies = read.mailTechnologies;
       mark("rows");
     } else {
       const stored = readRows.map((row) => ({ words: row.words, level: row.level }));

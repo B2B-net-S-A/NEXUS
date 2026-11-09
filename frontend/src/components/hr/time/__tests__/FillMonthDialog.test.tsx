@@ -197,11 +197,11 @@ describe("FillMonthDialog", () => {
 
   it("błąd serwera zostaje w oknie", async () => {
     const onFill = vi.fn(async () => {
-      throw { response: { status: 409, data: { detail: "Miesiąc zamknięty w płacach." } } };
+      throw { response: { status: 409, data: { detail: "Miesiąc zamknięty w rozliczeniach." } } };
     });
     const { onDone } = renderDialog({ onFill });
     fireEvent.click(screen.getByRole("button", { name: "Wypełnij" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Miesiąc zamknięty w płacach.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Miesiąc zamknięty w rozliczeniach.");
     expect(onDone).not.toHaveBeenCalled();
   });
 });

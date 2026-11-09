@@ -34,12 +34,15 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import EmailThreadList from "@/components/emails/EmailThreadList";
+import { ClientInterviewNotes } from "@/components/feedback/ClientInterviewNotes";
 import CandidateChatTab from "@/components/v2/pages/CandidateChatTab";
 import {
   FilePreviewContent,
   downloadDocumentBlob,
+  previewKind,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import {
   candidateQueryKeys,
   candidateViewerScopeKey,
@@ -304,6 +307,17 @@ export function HistoryTab({
       onOpenCard={setOpenCard}
       groupByMonth
       initialVisible={NOTES_FIRST_PAGE}
+      aboveList={
+        activityView === "notes"
+          ? (recruitment) => (
+              <ClientInterviewNotes
+                candidateId={candidateId}
+                recruitments={recruitments}
+                jobFilter={recruitment}
+              />
+            )
+          : undefined
+      }
     />
   );
 
@@ -535,6 +549,7 @@ function CvSidePane({
     );
   }, [documentsQuery.data, cvFilename]);
 
+  const recruiterOnly = useRecruiterOnly();
   const handleDownload = async (doc: CandidateDocument) => {
     try {
       await downloadDocumentBlob(candidateId, doc);
@@ -552,6 +567,7 @@ function CvSidePane({
               <span className="min-w-0 truncate text-sm font-medium text-foreground">
                 {primaryDoc.filename}
               </span>
+              {recruiterOnly && previewKind(primaryDoc) !== "unsupported" ? null : (
               <button
                 type="button"
                 onClick={() => handleDownload(primaryDoc)}
@@ -561,6 +577,7 @@ function CvSidePane({
                 <Download className="h-3.5 w-3.5" />
                 Pobierz
               </button>
+              )}
             </div>
             <FilePreviewContent
               doc={primaryDoc}

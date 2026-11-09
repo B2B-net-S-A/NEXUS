@@ -9,7 +9,7 @@ w tej samej transakcji co status.
 
 Na B2B i zleceniu (etap 2, D5, 17.10.2026) nieobecność jest ZGŁOSZENIEM, nie
 wnioskiem: termin wchodzi od razu (``approved`` bez decydującego, Microsoft 365
-i godziny od razu), koordynator dostaje informację i może zgłosić kolizję
+i godziny od razu), koordynator dostaje informację i może zgłosić uwagę
 (``report_conflict``) — nie akceptuje, nie odrzuca i nie anuluje (to robią
 sama osoba albo Kadry). Od 08.07.2026 PIP sam stwierdza stosunek pracy,
 a akceptacja urlopu przez przełożonego to sygnał podporządkowania. Słowa
@@ -149,11 +149,11 @@ async def is_leave_approver(db: AsyncSession, user: User) -> bool:
 
 REPORT_NOT_DECIDED = (
     "Na B2B i zleceniu nieobecność jest zgłoszeniem — nikt jej nie zatwierdza ani "
-    "nie odrzuca. Jeśli termin koliduje z pracą, zgłoś kolizję."
+    "nie odrzuca. Jeśli termin koliduje z pracą, zgłoś uwagę."
 )
 REPORT_CANCEL_FORBIDDEN = (
-    "Zgłoszenie osoby na B2B albo zleceniu anuluje ona sama albo Kadry — "
-    "koordynator może zgłosić kolizję."
+    "Zgłoszenie osoby na B2B albo zleceniu anuluje ona sama albo Administracja współpracy — "
+    "koordynator może zgłosić uwagę."
 )
 
 
@@ -225,9 +225,7 @@ async def _validate_substitute(
     if substitute is None or not substitute.is_active:
         raise LeavePolicyError("Wybrany zastępca nie ma aktywnego konta.")
     if not await people.has_live_profile(db, substitute_id):
-        raise LeavePolicyError(
-            "Zastępcą może być osoba z kartoteką pracownika w NEXUSIE."
-        )
+        raise LeavePolicyError("Zastępcą może być osoba z kartoteką w NEXUSIE.")
     return substitute
 
 
@@ -972,7 +970,7 @@ async def reject(
         title="Wniosek odrzucony",
         message=(
             f"{format_range(request.start_date, request.end_date)} — "
-            "powód znajdziesz w „Mój czas”."
+            "powód znajdziesz w „Mojej współpracy”."
         ),
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF,
@@ -1218,7 +1216,7 @@ async def set_forward_consent(
     if request.end_date < today:
         raise LeavePolicyError("Ta nieobecność już minęła.")
     if consent and request.substitute_user_id is None:
-        raise LeavePolicyError("Przekierowanie wymaga zastępcy we wniosku.")
+        raise LeavePolicyError("Kopia poczty wymaga zastępcy we wniosku.")
     if consent:
         _assert_forward_target(await db.get(User, request.substitute_user_id))
     if request.forward_mail_consent == consent:
@@ -1247,9 +1245,7 @@ async def set_forward_consent(
     return request
 
 
-ON_BEHALF_REPORT_FORBIDDEN = (
-    "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robią Kadry."
-)
+ON_BEHALF_REPORT_FORBIDDEN = "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robi Administracja współpracy."
 
 
 async def subject_for_on_behalf(
@@ -1260,7 +1256,7 @@ async def subject_for_on_behalf(
     subject, profile = await _subject(db, user_id)
     if subject.id == actor.id:
         raise LeaveForbidden(
-            "Własną nieobecność składasz w „Mój czas” — akceptuje ją ktoś inny."
+            "Własną nieobecność zgłaszasz w „Mojej współpracy” — akceptuje ją ktoś inny."
         )
     if profile.employment_status == "exited":
         raise LeaveNotFound(user_id)

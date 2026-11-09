@@ -68,7 +68,7 @@ type As = (typeof AS)[number];
 
 const STATES = [
   { key: "recruiter", label: "Rekruterka w zastępstwie" },
-  { key: "manager", label: "Przełożona" },
+  { key: "manager", label: "Koordynatorka" },
   { key: "reception", label: "Recepcja" },
   { key: "care", label: "Opieka (Delivery Lead)" },
 ] as const;
@@ -243,7 +243,7 @@ function equipmentTasks(today: string): EquipmentTask[] {
   });
   return [
     task(1, "zwrot", "Zwrot karty SIM po zakończeniu współpracy", shiftDay(today, -6), 6, "Paweł Makietowy"),
-    task(2, "wydanie", "Wydaj zestaw biura — wejście pracownika", shiftDay(today, 5), 0, kacper.name),
+    task(2, "wydanie", "Wydaj zestaw biura — wejście osoby", shiftDay(today, 5), 0, kacper.name),
     task(3, "wydanie", `Zestaw kontraktora — start u klienta ${insurance.name}`, shiftDay(today, 4), 0, "Anna Kontraktorska"),
     task(4, "podpis", "Protokół PZO/TEST/2026/014 czeka na podpis", shiftDay(today, 1), 0, "Anna Kontraktorska"),
     task(5, "zwrot", "Zwrot sprzętu — odejście", shiftDay(today, 14), 0, HR_CAST.tomasz.name),
@@ -317,7 +317,7 @@ export default function HrDashboardPreviewPage() {
     <HrHarnessShell
       client={ready.client}
       title="Pulpit i nieobecni"
-      note={`${viewer.name} (${viewer.jobTitle}). Dane fikcyjne, bez zapytań. Rodzaj nieobecności widzą tylko osoba, przełożony i Kadry.`}
+      note={`${viewer.name} (${viewer.jobTitle}). Dane fikcyjne, bez zapytań. Rodzaj nieobecności widzą tylko osoba, koordynator i Administracja współpracy.`}
       states={STATES}
       current={as}
       param="as"

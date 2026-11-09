@@ -774,6 +774,10 @@ class OrderGroupRead(BaseModel):
     md_used_total: Optional[MdValue] = None
     """Suma zużycia WSZYSTKICH linii — także zastąpionych, bo ich MD zeszły
     z tej samej umowy."""
+    md_adjustment_total: Optional[MdValue] = None
+    """Suma ręcznych korekt linii wnoszących budżet. Pozostało w zamówieniu =
+    ``md_positions_total − md_used_total + md_adjustment_total``, czyli tyle,
+    ile sumują się ``md_remaining`` tych linii."""
 
     contract_value_pln: Optional[MoneyPLN] = None
     used_value_pln: Optional[MoneyPLN] = None

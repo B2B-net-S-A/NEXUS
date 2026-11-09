@@ -254,8 +254,8 @@ async def reversal_available(db: AsyncSession, contract: Contract) -> bool:
     )
     if snapshot is not None:
         return True
-    if contract.terminated_at is None:
-        return False
+    # Bez warunku na `terminated_at`: powrót bezterminowy czyści je od
+    # 02.11.2026, a sprawa o pulę MD czeka dalej.
     return bool(await _pending_cases(db, contract.id))
 
 
@@ -703,6 +703,8 @@ async def build_reversal_plan(
         )
         await _plan_from_snapshot(db, plan, snapshot)
     else:
+        # Świadomie `terminated_at` przed `end_date`: tą datą „Zakończ współpracę”
+        # ucięło zamówienia, a plan szuka ich po niej (`OrderChangeEvent.new_date`).
         terminated_on = contract.terminated_at or (
             pending[0].effective_date if pending else contract.end_date
         )

@@ -25,12 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/board": "PPDDDDDDDDDDDDDDDPDDDDDDDP",
-  "GET /api/insights/board/flows": "PPDDDDDDDDDDDDDDDPDDDDDDDP",
-  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDP",
-  "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDP"
+  "GET /api/insights/board": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/insights/board/flows": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDPDDD",
+  "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDPDDD"
  }
 }

@@ -343,3 +343,67 @@ async def test_timeout_cancels_slow_work_and_checkpoints_incomplete_result(
         assert save.call_args.args[4] == []
         assert save.call_args.kwargs["error_code"] == "TimeoutError"
         assert save.call_args.kwargs["metrics"]["stages"]["batch"]["failed"] == 1
+
+
+def _wire_two_batches(monkeypatch, *, version_trace, manual_waiting):
+    """Przebieg z dwiema paczkami; zwraca mocki zapisu, ustąpienia i końca."""
+    context = build_request_context(make_job(), DEFAULT_PROFILE)
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.get.return_value = SimpleNamespace(
+        request_context=context.as_dict(), metrics={}, version_trace=version_trace
+    )
+    monkeypatch.setattr(worker, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(worker.store, "claim_run", AsyncMock(return_value="lease"))
+    monkeypatch.setattr(worker.store, "save_metrics", AsyncMock())
+    save_batch, finish, yielded = AsyncMock(), AsyncMock(), AsyncMock(return_value=True)
+    monkeypatch.setattr(worker.store, "save_batch", save_batch)
+    monkeypatch.setattr(worker.store, "finish_run", finish)
+    monkeypatch.setattr(worker.store, "yield_run", yielded)
+    monkeypatch.setattr(
+        worker.store, "manual_run_waiting", AsyncMock(return_value=manual_waiting)
+    )
+    monkeypatch.setattr(
+        worker.store,
+        "pending_batch",
+        AsyncMock(
+            side_effect=[[CandidateSnapshot(1, "v1")], [CandidateSnapshot(2, "v1")], []]
+        ),
+    )
+    monkeypatch.setattr(worker, "request_vector", AsyncMock(return_value=[1, 0]))
+    monkeypatch.setattr(worker, "evaluate_batch", AsyncMock(return_value=[]))
+    monkeypatch.setattr(worker, "_notify_search_finished", AsyncMock())
+    from app.services import auto_full_review
+
+    monkeypatch.setattr(auto_full_review, "publish_on_finish", AsyncMock())
+    return save_batch, yielded, finish
+
+
+@pytest.mark.asyncio
+async def test_auto_review_yields_to_a_waiting_manual_review_after_a_batch(
+    monkeypatch,
+):
+    # 08.11.2026: ręczne „Pełne wyszukiwanie” czekało na koniec automatu
+    # (p50 286 s, p90 534 s). Automat oddaje kolejkę po zapisanej paczce.
+    save_batch, yielded, finish = _wire_two_batches(
+        monkeypatch, version_trace={"origin": "auto"}, manual_waiting=True
+    )
+    await worker.execute_run("run")
+    assert save_batch.await_count == 1
+    yielded.assert_awaited_once()
+    finish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trace, waiting", [({"origin": "auto"}, False), (None, True)])
+async def test_review_runs_to_the_end_without_a_reason_to_yield(
+    monkeypatch, trace, waiting
+):
+    # Automat bez czekającego ręcznego i ręczny przegląd nie ustępują nikomu.
+    save_batch, yielded, finish = _wire_two_batches(
+        monkeypatch, version_trace=trace, manual_waiting=waiting
+    )
+    await worker.execute_run("run")
+    assert save_batch.await_count == 2
+    yielded.assert_not_awaited()
+    finish.assert_awaited_once()

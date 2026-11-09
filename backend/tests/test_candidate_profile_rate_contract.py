@@ -12,7 +12,6 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.schemas.candidate import CandidateCreate, CandidateResponse, CandidateUpdate
 from app.schemas.candidate_profile_facts import CandidateProfileRatePatch
 from app.schemas.candidate_search import CandidateSearchRequest
-from app.schemas.candidate_search_v3 import CandidateSearchQueryV3, RateFilter
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
 from app.services.candidate_profile_rate import (
     CandidateProfileRateSchemaError,
@@ -345,20 +344,6 @@ def test_candidate_list_item_carries_the_rate_the_budget_badge_reads(monkeypatch
 def test_search_rejects_every_retired_alias_instead_of_broadening(payload: dict):
     assert (
         _error_type(CandidateSearchRequest, payload) == "candidate_monthly_rate_retired"
-    )
-
-
-def test_v3_rejects_monthly_alias_and_unit_with_domain_code():
-    assert (
-        _error_type(
-            CandidateSearchQueryV3,
-            {"hard_filters": {"salaryExpectation": None}},
-        )
-        == "candidate_monthly_rate_retired"
-    )
-    assert (
-        _error_type(RateFilter, {"unit": "monthly", "max": 20_000})
-        == "candidate_monthly_rate_retired"
     )
 
 

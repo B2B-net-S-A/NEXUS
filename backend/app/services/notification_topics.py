@@ -83,7 +83,11 @@ _JOBS = (
     _T.client_job_opened,
     _T.job_p0_set,
     _T.job_p0_requested,
+    _T.job_p0_overdue,
     _T.job_closed_people_waiting,
+    _T.cpro_candidate_rejected,
+    _T.cpro_interview_change,
+    _T.cpro_close_needs_decision,
     _T.departed_pairs_care,
     _T.job_idle_reminder,
     _T.request_allocation_proposals,
@@ -117,6 +121,11 @@ _CONTRACTS = (
     _T.b2b_signature_requested,
     # Umowę Twojej osoby wygenerował ktoś inny — wyślij ją i pilnuj podpisu.
     _T.b2b_agreement_ready,
+    # Brakuje dokumentów do startu osoby (0649).
+    _T.start_documents,
+    _T.start_documents_due,
+    _T.start_documents_returned,
+    _T.start_documents_reminder,
 )
 
 
@@ -171,7 +180,11 @@ _JOBS_TOAST = (
     _T.client_job_opened,
     _T.job_p0_set,
     _T.job_p0_requested,
+    _T.job_p0_overdue,
     _T.job_closed_people_waiting,
+    _T.cpro_candidate_rejected,
+    _T.cpro_interview_change,
+    _T.cpro_close_needs_decision,
     _T.departed_pairs_care,
     _T.job_idle_reminder,
     _T.request_allocation_proposals,
@@ -209,7 +222,10 @@ def enrich_realtime_event(event: Mapping[str, Any]) -> Mapping[str, Any]:
     except ValueError:
         topic, toast = _P.other, True
     else:
-        topic, toast = topic_for(ntype), ntype in TOAST_TYPES
+        # `force_toast`: przypomnienie o umówionym telefonie ma wyskoczyć, choć
+        # reszta tematu „Kalendarz” tylko podbija licznik.
+        topic = topic_for(ntype)
+        toast = ntype in TOAST_TYPES or data.get("force_toast") is True
     return {**event, "data": {**data, "topic": topic.value, "toast": toast}}
 
 
@@ -219,6 +235,12 @@ def enrich_realtime_event(event: Mapping[str, Any]) -> Mapping[str, Any]:
 # dostałyby różne numery i Postgres odrzuciłby zapytanie (pułapka z czatów).
 _JOB_PATH = "^/jobs/([0-9]{1,9})(?:[/?#]|$)"
 _JOB_PARAM = "[?&]job=([0-9]{1,9})(?:&|#|$)"
+
+
+# Wpisy zbiorcze `stage_stuck_7d` (audyt 08.11.2026, U4): rodzaj encji odróżnia
+# skrót rekrutacji i „bez pracującego rekrutera” od dzwonka o jednej parze.
+STAGE_STUCK_DIGEST_ENTITY = "job"
+STAGE_STUCK_UNSTAFFED_ENTITY = "job_unstaffed"
 
 
 def job_key_expression(model: Any) -> Any:
@@ -234,6 +256,8 @@ def job_key_expression(model: Any) -> Any:
 
 __all__ = [
     "NOTE_NOTIFICATION_TYPES",
+    "STAGE_STUCK_DIGEST_ENTITY",
+    "STAGE_STUCK_UNSTAFFED_ENTITY",
     "TOAST_TYPES",
     "TOPIC_BY_TYPE",
     "NotificationTopic",

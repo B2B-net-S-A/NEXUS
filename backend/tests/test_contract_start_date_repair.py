@@ -24,7 +24,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType
 from app.services import contract_order_sync
-from app.services.contract_start_date_repair import (
+from scripts.repairs.contract_start_date_repair import (
     REPAIR_MARKER,
     run_contract_start_date_repair,
     summarize_for_log,

@@ -25,19 +25,24 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/jobs/{job_id}/link-results": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/me/career-link/people": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

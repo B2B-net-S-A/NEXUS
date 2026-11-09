@@ -39,6 +39,7 @@ from app.services.cv_generator_b2b.champion_builder import (
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
     apply_date_format,
+    apply_header_reference,
     build_filename as build_client_filename,
     rule_reminders,
 )
@@ -51,10 +52,15 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _cap_role_technologies,
     _champion_parse_warnings,
     _date_overlap_warnings,
+    _apply_summary_standard,
     _fabrication_warnings,
+    _must_have_bullets_first,
     _fix_experience_years,
     _fix_scoped_years,
     _normalize_candidate_data,
+    clean_requirement_skill_labels,
+    clean_skill_sections,
+    keep_source_methodologies,
     screening_text_without_questions,
     strip_unsupported_terms,
 )
@@ -70,6 +76,7 @@ from app.services.cv_generator_b2b.legacy_v7.text_extractor import (
 )
 from app.services.cv_generator_b2b.university_names import localize_education
 from app.services.cv_role_order import sort_experience
+from app.services.cv_source_dates import restore_experience_dates
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     CVGeneratorOverloadedError,
@@ -99,7 +106,11 @@ PIPELINE_ID = "legacy_v7"
 # 8 (13.10.2026): bez punktu „Posiada kluczowe technologie…”, pytania ≠ fakty,
 # branża tylko ze źródła, nagłówek bez tłumaczenia.
 # 9 (15.10.2026): polska uczelnia w polskim CV ma polską nazwę.
-PROMPT_VERSION = 9
+# 10 (02.11.2026): „obecnie” tylko, gdy oryginał tak mówi.
+# 11 (04.11.2026): why_points bez numeracji, kategorie umiejętności bez „must-have”.
+# 12 (05.11.2026): standard 5 punktów why_points: lata, specjalizacja, 3 × must-have.
+# 13 (06.11.2026): punkty 3–5 jako zdania, umiejętności bez trybu pracy i języków, stałe kategorie.
+PROMPT_VERSION = 13
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -190,6 +201,7 @@ def run_legacy_generation(
     prepared_source_facts: PreparedSourceFacts | None = None,
     position_fallback: str | None = None,
     instruction: str = "",
+    title_reference: str | None = None,
 ) -> GenerationResult:
     """Same signature and result as ``_run_generation_pipeline``."""
     # ── 1. Extract CV text ───────────────────────────────────────────────
@@ -313,9 +325,24 @@ def run_legacy_generation(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    # Kategoria „Must-have” zdradza pisanie pod ogłoszenie i powtarza resztę
+    # umiejętności (04.11.2026).
+    if clean_requirement_skill_labels(candidate_data, language):
+        logger.info("[cv_b2b][%s] requirement skill labels cleaned", request_id)
+    removed_skills = clean_skill_sections(candidate_data)
+    keep_source_methodologies(candidate_data, cv_text, language)
     # Polska uczelnia w polskim CV po polsku także wtedy, gdy model przepisał
     # angielską nazwę ze źródła (15.10.2026).
     localize_education(candidate_data, language)
+    # Okresy stanowisk jak w oryginale (02.11.2026): przed kolejnością i latami,
+    # które się z nich liczą.
+    restored_dates = restore_experience_dates(candidate_data, cv_text)
+    if restored_dates:
+        logger.info(
+            "[cv_b2b][%s] restored %d role periods from source",
+            request_id,
+            restored_dates,
+        )
     # Stanowiska od najnowszego ustawia kod, nie model (16.10.2026): prompt
     # pozwala „zmieniać kolejność” pod wymagania klienta, a reguła klienta
     # „maks. N stanowisk” niżej bierze pierwsze N z tej listy.
@@ -360,6 +387,10 @@ def run_legacy_generation(
     _fix_experience_years(candidate_data, language)
     # Not part of 2bc6b14f: role/company-bound figures recomputed from dates.
     _fix_scoped_years(candidate_data, language)
+    # Standard 5 punktów: model bywa nieposłuszny, więc kod domyka limit i lata.
+    summary_notes = _apply_summary_standard(candidate_data, language, client_rule)
+    if champion_dto and mode == "tailored":
+        _must_have_bullets_first(candidate_data, champion_dto.must_have)
 
     # Pozycje wzięte z pytań rekrutera albo wymagań klienta, a nie od kandydata,
     # znikają, zanim zobaczą je bezpieczniki, kontrola AI i dokument.
@@ -397,12 +428,20 @@ def run_legacy_generation(
             # Runda 10 (F21): stanowisko wpisane przez rekrutera trafia do
             # nagłówka dosłownie — UI obiecuje „nagłówek i nazwa pliku”.
             candidate_data["presentation_position"] = explicit_position
+    apply_header_reference(candidate_data, client_rule, title_reference)
 
     # ── 4. Anti-fabrication seatbelt + date sanity (warnings only) ───────
     # Linie pytań rekrutera nie są dowodem (13.10.2026).
     answers_text = screening_text_without_questions(model_notes)
     source_text = f"{cv_text}\n{answers_text}"
     guard_warnings = list(question_notes)
+    guard_warnings.extend(summary_notes)
+    if removed_skills:
+        guard_warnings.append(
+            "WERYFIKUJ: usunięto z umiejętności pozycje, które nie są umiejętnościami: "
+            + ", ".join(removed_skills[:8])
+            + "."
+        )
     guard_warnings.extend(_fabrication_warnings(candidate_data, source_text, language))
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))

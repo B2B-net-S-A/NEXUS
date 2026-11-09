@@ -35,6 +35,8 @@ class UserRole(str, enum.Enum):
     - user                — deprecated legacy viewer; no new provisioning
     - trainee             — praktykant (0374): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
+    - back_office         — „Back office” (0645): zamówienia i umowy, kwoty przy
+                            rekordzie, bez sekcji Finanse i Płac; rola wyłączna
     - automation          — „Automatyzacje” (0446): osoba budująca automatyzacje
                             procesów; tylko PODGLĄD rekrutacji, kandydatów,
                             Insights oraz klientów, kontraktów i zamówień bez
@@ -60,6 +62,7 @@ class UserRole(str, enum.Enum):
     # kokpit Firma z kwotami, rok do roku, raporty i zespół imiennie. Żadnego
     # zapisu, kandydatów ani Delivery; nie przyjmuje nadań. Rola wyłączna.
     board = "board"
+    back_office = "back_office"
 
     # Wycofane role (0411) — ALIASY rekrutera, nie osobne role. Etykiety
     # `sourcer` i `tac` zostają w typie `userrole` w Postgresie, więc wiersz
@@ -124,10 +127,10 @@ class User(Base, TimestampMixin):
         CheckConstraint(
             """
             CASE
-                WHEN role::text IN ('finance', 'user', 'trainee', 'automation', 'employee', 'board')
+                WHEN role::text IN ('finance', 'user', 'trainee', 'automation', 'employee', 'board', 'back_office')
                     THEN roles = jsonb_build_array(role::text)
                 ELSE NOT (
-                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation', 'employee', 'board']::text[]
+                    roles ?| ARRAY['finance', 'user', 'trainee', 'automation', 'employee', 'board', 'back_office']::text[]
                 )
             END
             """,
@@ -211,6 +214,12 @@ class User(Base, TimestampMixin):
     # jawnie nie nada w edycji użytkownika. Każda zmiana ląduje w Historii
     # zdarzeń (``critical_events``).
     can_delete_clients: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    # 0631: imienne prawo do maila „Podsumowanie Rady” (decyzja Artura 02.11.2026).
+    # Rada dostaje go z tytułu roli, a rola admin już nie. Zmiana ląduje
+    # w Historii zdarzeń.
+    receives_board_report: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
 
@@ -305,11 +314,9 @@ class User(Base, TimestampMixin):
     )
 
     # ── CloudTalk telephony (Phase CloudTalk.2, migracja 0099) ──────────────
-    # When non-NULL, links this user to a CloudTalk agent. The mapping is set
-    # via POST /api/cloudtalk/agents/{id}/assign (or auto-linked on email match
-    # by /sync-agents). Required for outbound click-to-call (Phase 3) and
-    # webhook user_id resolution (Call.user_id set when webhook payload carries
-    # an agent.id that matches this column).
+    # Link to a CloudTalk agent. The integration was removed on 08.11.2026
+    # (#3184): nothing sets or reads this for calling any more, the column
+    # stays with the historical `calls` rows.
     cloudtalk_agent_id: Mapped[Optional[int]] = mapped_column(
         Integer, unique=True, nullable=True, index=True
     )
@@ -392,7 +399,7 @@ class User(Base, TimestampMixin):
             self.roles = [primary_str] + current
 
     def ensure_exclusive_roles(self) -> None:
-        """Finance, legacy viewer, trainee, automation, employee and board are exclusive."""
+        """Finance, legacy viewer, trainee, automation, employee, board and back office are exclusive."""
 
         role_values = {role.value for role in self.get_all_roles()}
         exclusive = {
@@ -402,6 +409,7 @@ class User(Base, TimestampMixin):
             UserRole.automation.value,
             UserRole.employee.value,
             UserRole.board.value,
+            UserRole.back_office.value,
         }.intersection(role_values)
         if exclusive and len(role_values) != 1:
             role_name = sorted(exclusive)[0]

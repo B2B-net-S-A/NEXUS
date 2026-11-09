@@ -108,13 +108,11 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
         pipeline=SectionAccess.write,
         insights=SectionAccess.read,
     ),
-    UserRole.user: _policy(
-        sourcing=SectionAccess.read,
-        pipeline=SectionAccess.read,
-        insights=SectionAccess.read,
-    ),
-    # 0374: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami
-    # (`/api/trainee/*`, ``TraineeUser``).
+    # 0637: wycofywany Viewer nie ma żadnej sekcji — przechodził imienne Insights,
+    # a na produkcji nie ma już kont tej roli (``viewer_role_schema``).
+    UserRole.user: _policy(),
+    # 0374: praktykant nie ma żadnej sekcji (jego program usunięto 08.11.2026,
+    # rola została).
     UserRole.trainee: _policy(),
     # 0446: „Automatyzacje” — wszędzie tylko odczyt, więc bramka sekcji odmawia
     # każdego zapisu. Delivery „read” to próg zasiewu podglądu Delivery
@@ -131,6 +129,15 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
     # 0490: „Rada nadzorcza” — wyłącznie odczyt Insights. Kwoty kokpitu Firma
     # otwiera rola w ``BoardReader``, nie sekcja Finanse ani ``VIEW_FINANCE``.
     UserRole.board: _policy(insights=SectionAccess.read),
+    # 0645: „Back office” — jak Finanse, ale bez sekcji Finanse. Jej odczyt
+    # nadałby ``VIEW_FINANCE`` (40+ powierzchni); zakładki o zamówieniach stoją
+    # za ``orders_work``, a kwoty przy rekordzie za „Stawki i kwoty: podgląd”.
+    UserRole.back_office: _policy(
+        sourcing=SectionAccess.write,
+        pipeline=SectionAccess.write,
+        delivery=SectionAccess.write,
+        insights=SectionAccess.read,
+    ),
 }
 
 # Backwards-compatible export name. Tests use it as the migration seed contract.
@@ -267,7 +274,7 @@ async def resolve_effective_section_access_for_users(
 
     Sekcje Delivery i Finanse wynikają z uprawnień, więc sekcji nie da się
     policzyć bez akcji — jedno wejście ładuje jedno i drugie
-    (``effective_access.resolve_effective_access``, cztery ograniczone zapytania).
+    (``effective_access.resolve_effective_access``, z bufora procesu).
     """
 
     from app.services.effective_access import resolve_effective_access

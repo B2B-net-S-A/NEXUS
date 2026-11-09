@@ -302,6 +302,10 @@ function queue(team: HarnessPerson[], period: YearMonth, closed: boolean): TeamQ
   const items = team.map((person) => {
     if (!closed) {
       if (person.id === julia.id) return queueItem(person, period, "missing", 0);
+      // Ola w harnessie odeszła: jej szkic domyka akceptujący („Potwierdź za osobę”).
+      if (person.id === ola.id) {
+        return { ...queueItem(person, period, "draft", 72), can_confirm_for_person: true };
+      }
       return queueItem(person, period, "draft", person.id === kamil.id ? norm : 72);
     }
     if (person.id === ewa.id) return queueItem(person, period, "submitted", norm - 8, 0, 1);
@@ -398,22 +402,22 @@ export default function HrApprovalsPreviewPage() {
   if (!ready) return <HrHarnessLoading />;
   const { state, config, timesheetHref } = ready.value;
   const links = [
-    { key: "manager", label: "Przełożona", href: "?" },
-    { key: "timesheets", label: "Timesheety poprzedniego miesiąca", href: timesheetHref },
-    { key: "hr", label: "Kadry" },
-    { key: "covering", label: "W zastępstwie przełożonego" },
+    { key: "manager", label: "Koordynatorka", href: "?" },
+    { key: "timesheets", label: "Raporty godzin poprzedniego miesiąca", href: timesheetHref },
+    { key: "hr", label: "Administracja współpracy" },
+    { key: "covering", label: "W zastępstwie koordynatora" },
   ];
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Ludzie → Akceptacje"
+      title="Ludzie → Do potwierdzenia"
       note="Dane fikcyjne, bez zapytań. Decyzje w podglądzie nie zapisują się (odpowiedź to błąd sieci)."
       states={links}
       current={state}
     >
       <div className="space-y-4">
         <PageHeader
-          title="Akceptacje"
+          title="Do potwierdzenia"
           description="Nieobecności, raporty godzin i zgody do decyzji — w jednej liście."
           density="compact"
         />

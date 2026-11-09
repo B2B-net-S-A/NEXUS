@@ -44,10 +44,10 @@ export type CareerFieldErrors = Partial<Record<CareerField, string>>;
 
 /** Kolejność i etykiety pól w podsumowaniu błędów. */
 const FIELD_ORDER: { field: CareerField; label: string }[] = [
+  { field: "cv", label: "cv" },
   { field: "first_name", label: "imię" },
   { field: "last_name", label: "nazwisko" },
   { field: "email", label: "e-mail" },
-  { field: "cv", label: "cv" },
   { field: "expected_rate_hourly", label: "stawka" },
   { field: "availability_date", label: "dostępność" },
   { field: "city", label: "miasto" },
@@ -80,17 +80,15 @@ function emailDomainProblem(email: string): string | null {
 }
 
 const schema = z.object({
-  first_name: z.string().trim().min(1, "wpisz imię").max(100, "imię jest za długie"),
-  last_name: z
-    .string()
-    .trim()
-    .min(1, "wpisz nazwisko")
-    .max(100, "nazwisko jest za długie"),
+  // 07.11.2026 (decyzja Artura): imię, nazwisko i e-mail czyta serwer z CV.
+  // E-mail pojawia się w formularzu tylko, gdy w CV go nie było.
   email: z
     .string()
     .trim()
-    .min(1, "wpisz adres e-mail")
-    .email("sprawdź adres e-mail — wygląda na niepoprawny"),
+    .max(255, "adres e-mail jest za długi")
+    .refine((v) => v === "" || z.string().email().safeParse(v).success, {
+      message: "sprawdź adres e-mail — wygląda na niepoprawny",
+    }),
   expected_rate_hourly: z
     .string()
     .trim()
@@ -146,7 +144,7 @@ const COPY = {
     alertTag: "[err]",
     required: "// pola z * są wymagane",
     fileTypes: "· pdf/doc/docx · 10\u00a0MB",
-    optToggle: "// opcjonalnie",
+    optToggle: "// dodaj więcej (nieobowiązkowe)",
     optJob: "// opcjonalnie — przyspieszy rozmowę",
     optGeneral: "// opcjonalnie",
     sending: "wysyłanie…",
@@ -160,7 +158,7 @@ const COPY = {
     alertTag: null,
     required: "Pola oznaczone * są wymagane.",
     fileTypes: "· PDF, DOC, DOCX do 10\u00a0MB",
-    optToggle: "Opcjonalnie",
+    optToggle: "Dodaj więcej (nieobowiązkowe): stawka, dostępność, miasto",
     optJob: "Opcjonalnie — przyspieszy rozmowę",
     optGeneral: "Opcjonalnie",
     sending: "Wysyłanie…",
@@ -195,7 +193,8 @@ export function CareerApplyForm({
   const [status, setStatus] = useState<Status>("idle");
   const [cvName, setCvName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [optionalOpen, setOptionalOpen] = useState(true);
+  // 07.11.2026: zwinięte — mniej pól przed „Wyślij” (decyzja Artura).
+  const [optionalOpen, setOptionalOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const utmRef = useRef<Record<string, string>>({});
@@ -225,8 +224,6 @@ export function CareerApplyForm({
 
     const next: CareerFieldErrors = {};
     const parsed = schema.safeParse({
-      first_name: str("first_name"),
-      last_name: str("last_name"),
       email: str("email"),
       expected_rate_hourly: str("expected_rate_hourly"),
       availability_date: str("availability_date"),
@@ -239,7 +236,7 @@ export function CareerApplyForm({
         if (!next[key]) next[key] = issue.message;
       }
     }
-    if (!next.email) {
+    if (!next.email && str("email").trim()) {
       const domain = emailDomainProblem(str("email").trim());
       if (domain) next.email = domain;
     }
@@ -255,9 +252,7 @@ export function CareerApplyForm({
 
     const payload = new FormData();
     payload.set("link_slug", linkSlug);
-    payload.set("first_name", str("first_name").trim());
-    payload.set("last_name", str("last_name").trim());
-    payload.set("email", str("email").trim());
+    if (str("email").trim()) payload.set("email", str("email").trim());
     payload.set("cv", fd.get("cv") as File);
     copyConsents(fd, payload);
     const rate = str("expected_rate_hourly").trim().replace(",", ".");
@@ -282,11 +277,12 @@ export function CareerApplyForm({
         body: payload,
       });
       if (res.status === 201 || res.status === 200) {
+        const done = (await res.json().catch(() => ({}))) as { first_name?: string; email?: string };
         setStatus("idle");
         setErrors({});
         (onSuccess ?? gateSubmit)?.({
-          firstName: str("first_name").trim(),
-          email: str("email").trim(),
+          firstName: (done.first_name ?? "").trim(),
+          email: (done.email ?? str("email")).trim(),
         });
         return;
       }
@@ -409,17 +405,6 @@ export function CareerApplyForm({
         </span>
       )}
 
-      <div className="kr-grid2">
-        {textInput("first_name", "Imię *", { autoComplete: "given-name", required: true })}
-        {textInput("last_name", "Nazwisko *", { autoComplete: "family-name", required: true })}
-      </div>
-      {textInput("email", "E-mail *", {
-        type: "email",
-        autoComplete: "email",
-        inputMode: "email",
-        required: true,
-      })}
-
       <div>
         <span className="kr-label" id={id("cv-label")}>
           CV *
@@ -469,6 +454,16 @@ export function CareerApplyForm({
         {fieldError("cv")}
       </div>
 
+      {/* 07.11.2026: e-mail tylko, gdy serwer nie znalazł go w CV. */}
+      {errors.email ? (
+        textInput("email", "E-mail *", {
+          type: "email",
+          autoComplete: "email",
+          inputMode: "email",
+          required: true,
+        })
+      ) : null}
+
       <button
         type="button"
         className="kr-opt-toggle"
@@ -499,7 +494,6 @@ export function CareerApplyForm({
             min={1}
             max={10000}
             step="any"
-            placeholder="170"
             className="kr-input"
             disabled={busy}
             defaultValue={v.expected_rate_hourly}

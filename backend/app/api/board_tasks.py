@@ -31,7 +31,7 @@ from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from app.services.effective_access import resolve_effective_access
 from app.services import (
     board_flow,
     candidate_followups,
+    screening_calls,
     closing_candidates,
     cpro_sender,
     cv_in_transit,
@@ -108,6 +109,12 @@ class BoardTaskRow(BaseModel):
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
     qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): zdane QC z blokującymi sprawdzeniami „sprawdź ręcznie”.
+    qc_manual: list[str] = Field(default_factory=list)
+    # R2 (07.11.2026): luki kandydata w krytycznych — decyzja Delivery Leada.
+    qc_gaps: list[str] = Field(default_factory=list)
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania.
+    qc_state: Optional[dict] = None
     # Przegląd DL: stan karty rekomendacji; ``None`` = para nie ma karty.
     card_status: Optional[Literal["complete", "partial", "empty"]] = None
     card_missing: int = 0
@@ -410,6 +417,21 @@ class FlowNewRequestRow(BaseModel):
     assigned_by_name: Optional[str] = None
 
 
+class BookedCallRow(BaseModel):
+    """Umówiony telefon na screening w „Czeka na Ciebie” (03.11.2026)."""
+
+    event_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    start_time: datetime
+    note: Optional[str] = None
+    in_outlook: bool = False
+
+
 class FlowPairRow(BaseModel):
     candidate_id: int
     candidate_name: str
@@ -422,6 +444,8 @@ class FlowPairRow(BaseModel):
     # Screening: czego brakuje do „Zweryfikowany” (`sheet`, `rate`).
     # `why_candidate`: rekrutacja bez pytań — brakuje oceny zamiast arkusza.
     missing: list[Literal["sheet", "why_candidate", "rate"]] = []
+    # Umówiony telefon tej osoby — lista „brakuje danych” mówi, kiedy będzie okazja.
+    call_at: Optional[datetime] = None
     # Zweryfikowany: stan QC CV (`passed`, `failed`, `overridden`, `unchecked`).
     qc_status: Optional[str] = None
 
@@ -533,6 +557,7 @@ class BoardTasksResponse(BaseModel):
     # 0372: follow-up z kandydatem, gdy klient milczy — telefony tej osoby
     # (termin do końca jutra) i kandydaci, u których prowadzi proces, a dzwoni
     # ktoś inny.
+    booked_calls: list[BookedCallRow] = []
     followups: list[FollowupRow] = []
     followups_by_others: list[FollowupRow] = []
     # Czy ta osoba może ustawić osobę od Cpro (admin albo DL Nordei) — front
@@ -616,6 +641,9 @@ class CproQueueItem(BaseModel):
     client_rate_currency: Optional[str] = None
     availability: Optional[date] = None
     qc_status: Literal["passed", "failed", "overridden", "unchecked"] = "unchecked"
+    qc_blocking_failed: int = 0
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania.
+    qc_state: Optional[dict] = None
     cv: Optional[CproQueueCv] = None
     # Kto włożył osobę do kolejki i kiedy. Od 13.10.2026 robi to wyłącznie
     # Delivery Lead po akceptacji (``accepted``); wcześniej także rekruter —
@@ -691,7 +719,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
     people_rows = (
         await new_person_setup.load_rows_safely(db) if can_decide_proposals else []
     )
-    # Finanse nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
+    # Finanse i Back office nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
     transit = (
         None
         if _finance_only(current_user)
@@ -720,7 +748,35 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
         if dl_review
         else {}
     )
+    calls = await screening_calls.for_user_safely(db, current_user)
+    flow_out = _flow_block(flow, skip_contract_ids=_agreement_ids(agreements))
+    if flow_out is not None:
+        starts = {(c.candidate_id, c.job_id): c.start_time for c in calls}
+        for row in flow_out.screening:
+            row.call_at = starts.get((row.candidate_id, row.job_id))
+        # „Twoje blokady” proszą o decyzję przed końcem blokady, a umówiony
+        # telefon już nią jest: osoba stoi na liście telefonów.
+        flow_out.claimed = [
+            row
+            for row in flow_out.claimed
+            if (row.candidate_id, row.job_id) not in starts
+        ]
     return BoardTasksResponse(
+        booked_calls=[
+            BookedCallRow(
+                event_id=c.event_id,
+                candidate_id=c.candidate_id,
+                candidate_name=c.candidate_name,
+                job_id=c.job_id,
+                job_title=c.job_title,
+                job_working_title=c.job_working_title,
+                client_name=c.client_name,
+                start_time=c.start_time,
+                note=c.note,
+                in_outlook=c.in_outlook,
+            )
+            for c in calls
+        ],
         followups=followups,
         followups_by_others=followups_by_others,
         cpro_to_send=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_TO_SEND]],
@@ -786,7 +842,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
             if agreements is not None
             else None
         ),
-        flow=_flow_block(flow, skip_contract_ids=_agreement_ids(agreements)),
+        flow=flow_out,
         finance=_finance_block(finance),
         prep_attention=[
             PrepAttentionRow(
@@ -808,7 +864,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
 
 
 def _finance_only(user: User) -> bool:
-    return user.get_all_roles() == {UserRole.finance}
+    return bool(user.get_all_roles() & {UserRole.finance, UserRole.back_office})
 
 
 def _pair(row: board_flow.PairRow) -> FlowPairRow:
@@ -1500,6 +1556,8 @@ async def get_cpro_queue(
             client_rate_currency=rate[2] if rate else None,
             availability=availability.get(t.candidate_id),
             qc_status=t.qc_status or "unchecked",
+            qc_blocking_failed=t.qc_blocking_failed,
+            qc_state=t.qc_state,
             cv=(
                 CproQueueCv(
                     stage_id=cv["stage_id"],

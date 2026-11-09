@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
  * Responsywność — strażnik przed poziomym scrollem całej strony (audyt
@@ -33,6 +33,9 @@ const PAGES = [
   "/preview/candidate-profile?tab=documents",
   "/preview/candidate-profile?tab=documents&role=recruiter",
   "/preview/career-share",
+  "/preview/client-panel",
+  "/preview/client-panel?c=fikc-anna",
+  "/preview/client-panel?manage=1",
   "/preview/sales",
   "/preview/sales?view=list",
   "/preview/champion-profile",
@@ -153,12 +156,6 @@ const PAGES = [
   "/preview/request-allocation?screen=board",
   "/preview/request-allocation?screen=board&as=dl",
   "/preview/talent-radar",
-  "/preview/trainee",
-  "/preview/trainee?state=done",
-  "/preview/trainee?state=handover",
-  "/preview/trainee?state=employment_only",
-  "/preview/trainees",
-  "/preview/trainees?view=rules",
   // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet raportu, każdy stan.
   "/preview/hr-dashboard",
   "/preview/hr-dashboard?as=manager",
@@ -616,6 +613,9 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
   // zostawały 92 px; przy otwartej sprawie zmiany stawki przyciski i pole
   // notatki wypadały poza okno. Teraz w miejscu stoi tylko pasek osoby i pole
   // notatki, reszta przewija się razem — pomiar po zmianie: 393 px.
+  // 27.10.2026 (#2732): Tablica czyta rekrutację z zasianego `["job", id]`, więc
+  // harness zna budżet 95 zł/h i Bartek (125 zł/h) ma pigułkę „Ponad budżet”,
+  // jak na produkcji: rząd pigułek +16 px, 343,5 px to najwyższy pasek osoby.
   test("/preview/job-detail: wąski dok osoby przewija się w całości", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 650 });
     await page.goto("/preview/job-detail");
@@ -630,7 +630,7 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
       await expect(scroll.getByTestId("dock-facts")).toBeVisible();
       await expect(scroll.getByTestId("dock-sections")).toBeAttached();
       const area = await scroll.boundingBox();
-      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(350);
+      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(340);
       const note = await panel.locator('[data-help="jobs.person.note"]').boundingBox();
       expect((note?.y ?? 0) + (note?.height ?? 0), `pole notatki w oknie: ${name}`).toBeLessThanOrEqual(650);
       expect(await pageOverflowPx(page), `poziomy scroll strony: ${name}`).toBeLessThanOrEqual(1);
@@ -786,9 +786,18 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
     await priority.scrollIntoViewIfNeeded();
     const before = await priority.boundingBox();
 
-    await priority.selectOption("p1");
+    // Od #2692 pole to przycisk z oknem zaznaczeń, nie `<select>`. Okno zostaje
+    // otwarte przy zaznaczaniu, Esc zwraca fokus na przycisk.
+    await priority.click();
+    const p1 = page.getByRole("checkbox", { name: "P1 Pilne", exact: true });
+    await p1.click();
     await expect(page).toHaveURL(/rb_prio=p1/);
-    await expect(priority).toHaveValue("p1");
+    await page.keyboard.press("Escape");
+    await expect(p1).toBeHidden();
+    // Radix oddaje fokus przyciskowi chwilę po zniknięciu okna. Pisanie przed tą
+    // chwilą oddałoby litery przyciskowi (człowiek nie zdąży, robot tak).
+    await expect(priority).toBeFocused();
+    await expect(priority).toHaveText("P1 Pilne");
     // Wartość pola idzie przez adres — szybkie pisanie nie może gubić liter.
     const position = tile.getByLabel("Stanowisko", { exact: true });
     await position.pressSequentially("Java Developer", { delay: 30 });
@@ -805,30 +814,59 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
   });
 });
 
+/** „+” cały w oknie i to w niego trafia kliknięcie w środek (nic go nie zasłania). */
+async function expectAddButtonFullyInWindow(page: Page, strip: Locator, label: string): Promise<void> {
+  const add = strip.getByTestId("topbar-add");
+  const box = await add.boundingBox();
+  const windowWidth = page.viewportSize()?.width ?? 0;
+  expect(box?.width ?? 0, `szerokość „+”: ${label}`).toBeGreaterThanOrEqual(32);
+  expect((box?.x ?? 0) + (box?.width ?? 0), `prawa krawędź „+”: ${label}`).toBeLessThanOrEqual(windowWidth);
+  await add.scrollIntoViewIfNeeded();
+  const onTop = await add.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return el === hit || el.contains(hit);
+  });
+  expect(onTop, `„+” klikalny: ${label}`).toBe(true);
+}
+
+/**
+ * Harness przed pomiarem musi być odsłonięty. Treść strony leży w statycznym HTML
+ * w `<div hidden id="S:0">` (granica Suspense z `app/loading.tsx`), a `page.goto`
+ * kończy się na `load`. Gdy szkielet narysuje się przed skryptem odsłaniającym,
+ * React odkłada odsłonięcie do 300 ms po pierwszej klatce: elementy są już
+ * w DOM, ale bez układu, więc `boundingBox()` daje `null`, a `scrollWidth` zero
+ * (08.11.2026, bieg 42513863591). Wszystkie paski są w tej samej granicy.
+ */
+async function gotoKpiTopbar(page: Page): Promise<void> {
+  await page.goto("/preview/kpi-topbar");
+  await expect(page.getByTestId("shell-strip").first()).toBeVisible();
+}
+
 test.describe("górny pasek — licznik celów", () => {
   test("/preview/kpi-topbar: licznik celów nie zgniata wyszukiwarki w oknach laptopów", async ({ page }) => {
     // 13.10.2026: trzy podpisane segmenty przy 1280 px z przypiętym menu
     // i długimi okruszkami zostawiały wyszukiwarce 109 px. Licznik ma chować
-    // całe segmenty, a wyszukiwarka trzymać 220 px. Tego samego dnia przed
+    // całe segmenty, a wyszukiwarka trzymać 200 px (do 04.11.2026: 220 px). Tego samego dnia przed
     // licznikiem stanął przycisk Ligi Mistrzów, który się nie ściska, a trzy
     // przełączniki wyglądu zastąpiło jedno menu „Wygląd”.
     for (const size of WINDOWS_LAPTOP_WINDOWS) {
       await page.setViewportSize(size);
-      await page.goto("/preview/kpi-topbar");
+      await gotoKpiTopbar(page);
       const strips = page.getByTestId("shell-strip");
       await expect(strips).toHaveCount(4);
       for (const strip of await strips.all()) {
         const label = `${await strip.getAttribute("aria-label")} @ ${size.width}`;
         const search = await strip.getByTestId("topbar-search").boundingBox();
-        expect(search?.width ?? 0, `wyszukiwarka: ${label}`).toBeGreaterThanOrEqual(220);
+        expect(search?.width ?? 0, `wyszukiwarka: ${label}`).toBeGreaterThanOrEqual(200);
         const bar = strip.getByTestId("topbar-replica");
         const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
         expect(overflow, `pasek bez przelewu: ${label}`).toBe(0);
         // 28.10.2026: stałe okruszki (178 px) wychodziły z 93-pikselowego pudełka
         // pod wyszukiwarkę. Widoczne okruszki kończą się przed nią, a nazwa
         // na końcu ścieżki zostaje (ustępują całe okruszki od początku) —
-        // o ile ścieżka ma jakiekolwiek miejsce: najciaśniejszy pasek przy
-        // 1280 px zostawia jej 0 px.
+        // o ile mieści się cała (05.11.2026): przy 63 px zostawało „K.”, więc
+        // ścieżka jest wtedy pusta. Skrócić wolno tylko nazwę ponad sufitem 11rem.
         const crumbs = await strip.getByRole("navigation", { name: "Ścieżka" }).evaluate((nav) => {
           const top = nav.getBoundingClientRect().top;
           const items = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")];
@@ -839,11 +877,19 @@ test.describe("górny pasek — licznik celów", () => {
           return {
             right: Math.max(nav.getBoundingClientRect().left, ...visible.map((i) => i.getBoundingClientRect().right)),
             nameShownOrNoRoom:
-              nav.getBoundingClientRect().width < 1 || visible.includes(items[items.length - 1]),
+              nav.getBoundingClientRect().width < 1 ||
+              visible.includes(items[items.length - 1]) ||
+              Math.min(items[items.length - 1].firstElementChild?.scrollWidth ?? 0, 176) >
+                nav.getBoundingClientRect().width,
+            cutToFit: visible.filter((item) => {
+              const text = item.firstElementChild;
+              return text ? text.scrollWidth > text.clientWidth && item.offsetWidth < 176 : false;
+            }).length,
           };
         });
         expect(crumbs.right, `okruszki przed wyszukiwarką: ${label}`).toBeLessThanOrEqual((search?.x ?? 0) + 0.5);
         expect(crumbs.nameShownOrNoRoom, `nazwa na końcu ścieżki widoczna: ${label}`).toBe(true);
+        expect(crumbs.cutToFit, `okruszek nie jest ucięty do litery: ${label}`).toBe(0);
         // Co najmniej jeden cały segment zostaje w pierwszym (widocznym) wierszu.
         const visible = await strip
           .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })
@@ -881,8 +927,46 @@ test.describe("górny pasek — licznik celów", () => {
             }).length;
           });
         expect(glitches, `zawinięte albo wystające segmenty: ${label}`).toBe(0);
+        await expectAddButtonFullyInWindow(page, strip, label);
+        // Bez przelewu „+” stoi na swoim miejscu, a nie na sąsiedzie: `sticky` Chrome
+        // liczy od krawędzi treści paska, więc wcięcie równe `px-*` przesuwało go o 20 px.
+        const gapBeforeAdd = await strip.getByTestId("topbar-add").evaluate((add) => {
+          const previous = add.previousElementSibling?.getBoundingClientRect();
+          return add.getBoundingClientRect().left - (previous?.right ?? 0);
+        });
+        expect(gapBeforeAdd, `„+” nie zachodzi na sąsiada: ${label}`).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+
+  test("/preview/kpi-topbar: „+” zostaje w oknie, gdy pasek się przelewa", async ({ page }) => {
+    // 04.11.2026: na stagingu „+” kończył się na x=1342 przy oknie 1280 px
+    // (Delivery Lead, /jobs/509921). Grupa akcji nie zmieści wszystkiego naraz,
+    // więc reszta przewija się pod przyklejonym przyciskiem.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await gotoKpiTopbar(page);
+    const strip = page.getByTestId("shell-strip-fullest");
+    const bar = strip.getByTestId("topbar-replica");
+    const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, "ten pasek ma się przelewać, inaczej test niczego nie pilnuje").toBeGreaterThan(0);
+    await expectAddButtonFullyInWindow(page, strip, "przed przewinięciem");
+
+    // Żadna ikona nie jest stracona: ostatnia przed „+” da się przewinąć i kliknąć.
+    await bar.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+    await expectAddButtonFullyInWindow(page, strip, "po przewinięciu");
+    const absent = strip.getByRole("button", { name: "Nieobecni dziś (atrapa)" });
+    const reachable = await absent.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return el === hit || el.contains(hit);
+    });
+    expect(reachable, "ostatnia ikona po przewinięciu nie jest zasłonięta").toBe(true);
+
+    // Strona nie dostaje poziomego scrolla od paska.
+    const pageOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(pageOverflow, "przelew strony").toBeLessThanOrEqual(0);
   });
 });
 

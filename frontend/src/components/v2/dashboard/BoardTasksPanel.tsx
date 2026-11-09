@@ -89,6 +89,7 @@ import {
 import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
+import { BookedCallsSection } from "@/components/v2/dashboard/BookedCallsSection";
 import {
   groupCproByJob,
   useBoardTasks,
@@ -108,6 +109,7 @@ import {
   AgreementWaitingSection,
   agreementTasksCount,
 } from "./AgreementTasksSection";
+import { StartDocsTasksSection } from "@/components/v2/start-docs/StartDocsTasks";
 import { BoardFlowOthers, BoardFlowSections, flowWorkCount, hasFlowOthers } from "./BoardFlowSections";
 import { DepartedCareSection, departedCareCount } from "./DepartedCareSection";
 import { BOARD_TASKS_ROWS, Section } from "./BoardTasksSection";
@@ -149,6 +151,8 @@ export interface BoardTasksPanelProps {
   dlSendBand?: boolean;
   /** Kafelek „Do uzupełnienia” stoi na pulpicie — jego list tu nie ma. */
   toCompleteOnGrid?: boolean;
+  /** Kafelek „Moi klienci” stoi na pulpicie — „Zamówienia z maila” są tylko w nim. */
+  orderMailOnGrid?: boolean;
   /** Linia „Przenieś na pulpit” nad listami do uzupełnienia; bez funkcji jej nie ma. */
   onMoveToComplete?: () => void;
   onKeepToComplete?: () => void;
@@ -169,6 +173,7 @@ export function BoardTasksPanel({
   hiddenPanels = NO_HIDDEN_PANELS,
   dlSendBand = false,
   toCompleteOnGrid = false,
+  orderMailOnGrid = false,
   onMoveToComplete,
   onKeepToComplete,
   moveBusy = false,
@@ -192,8 +197,11 @@ export function BoardTasksPanel({
   const data = useMemo(() => {
     if (!query.data) return undefined;
     const visible = withoutHiddenPanels(query.data, hiddenPanels);
-    return toCompleteOnGrid ? withoutToCompleteLists(visible) : visible;
-  }, [query.data, hiddenPanels, toCompleteOnGrid]);
+    const listed = toCompleteOnGrid ? withoutToCompleteLists(visible) : visible;
+    return orderMailOnGrid && listed.flow
+      ? { ...listed, flow: { ...listed.flow, order_mail_review: 0 } }
+      : listed;
+  }, [query.data, hiddenPanels, toCompleteOnGrid, orderMailOnGrid]);
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
   // Osobę od Cpro ustawia admin albo DL Nordei (25.09.2026) — przełącznik
   // stoi u nich także przy pustej kolejce, inaczej martwe konto albo brak
@@ -231,6 +239,7 @@ export function BoardTasksPanel({
   }
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
+  const bookedCalls = data.booked_calls ?? [];
   // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
   // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
   const proposals =
@@ -245,6 +254,7 @@ export function BoardTasksPanel({
     data.cpro_sent.length +
     preps.length +
     followups.length +
+    bookedCalls.length +
     agreementTasksCount(data.agreements) +
     flowWorkCount(data.flow, data.finance) +
     departedCareCount(care.data) +
@@ -442,6 +452,7 @@ export function BoardTasksPanel({
             </li>
           </Section>
         )}
+        <BookedCallsSection rows={bookedCalls} />
         <NewPeopleSection rows={newPeople} />
         {newPeopleFailed ? <NewPeopleFailed /> : null}
         <AllocationProposalsSection
@@ -473,6 +484,7 @@ export function BoardTasksPanel({
         />
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         <AgreementTasksSection tasks={data.agreements} />
+        <StartDocsTasksSection />
         <RateChangesSection rows={data.rate_changes} />
         {transit && transitIsMine ? <CvInTransitSection transit={transit} /> : null}
         <PrepAttentionSection rows={preps} />

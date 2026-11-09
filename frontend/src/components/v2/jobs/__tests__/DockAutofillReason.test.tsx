@@ -9,6 +9,7 @@ const meta = {
   rate_known: false,
   availability_known: false,
   decided: false,
+  awaiting_decision: true,
   waiting_days: 2,
   decision_due: true,
 };
@@ -23,6 +24,26 @@ describe("DockAutofillReason", () => {
     expect(block).toHaveTextContent("✕ AWS");
     expect(block).toHaveTextContent("System nie znał stawki ani dostępności");
     expect(block).toHaveTextContent("Zdecyduj");
+  });
+
+  it("„Znamy tę osobę” rozpisuje punkty, a bez nich bloku nie ma", () => {
+    const { rerender } = render(
+      <DockAutofillReason
+        item={{
+          entry_source: "system",
+          entry_autofill: {
+            ...meta,
+            known: { points: 14, client_points: 6, note_points: 8, verified_at_client: 7, last_note_days: 2 },
+          },
+        }}
+      />,
+    );
+    const block = screen.getByTestId("dock-autofill-known");
+    expect(block).toHaveTextContent("Wyżej w kolejce o 14 pkt");
+    expect(block).toHaveTextContent("+6 zweryfikowana u tego klienta (7×)");
+    expect(block).toHaveTextContent("+8 notatka 2 dni temu");
+    rerender(<DockAutofillReason item={{ entry_source: "system", entry_autofill: meta }} />);
+    expect(screen.queryByTestId("dock-autofill-known")).toBeNull();
   });
 
   it("„Na co uważać” wymienia ostrzeżenia, a bez nich sekcji nie ma", () => {
@@ -50,12 +71,28 @@ describe("DockAutofillReason", () => {
     expect(screen.queryByTestId("dock-autofill-cautions")).toBeNull();
   });
 
+  it("poza „Nowymi” nie prosi o decyzję, a „Od systemu” i powód zostają", () => {
+    const { container } = render(
+      <DockAutofillReason
+        item={{
+          entry_source: "system",
+          entry_autofill: { ...meta, awaiting_decision: false, decision_due: false, waiting_days: null },
+        }}
+      />,
+    );
+    expect(container).toHaveTextContent("Od systemu · 81%");
+    expect(container).toHaveTextContent("✓ Java");
+    expect(container).toHaveTextContent("System nie znał stawki");
+    expect(container).not.toHaveTextContent("bez decyzji");
+    expect(container).not.toHaveTextContent("Zdecyduj");
+  });
+
   it("po decyzji nie prosi o nią, a osoby od ludzi nie dotyczy", () => {
     const { rerender, container } = render(
       <DockAutofillReason
         item={{
           entry_source: "system",
-          entry_autofill: { ...meta, decided: true, decision_due: false, waiting_days: null, rate_known: true, availability_known: true },
+          entry_autofill: { ...meta, decided: true, awaiting_decision: false, decision_due: false, waiting_days: null, rate_known: true, availability_known: true },
         }}
       />,
     );

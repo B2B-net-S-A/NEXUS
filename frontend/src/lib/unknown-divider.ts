@@ -35,17 +35,22 @@ const FIELD_WORDS: Record<string, string> = {
   rate: "stawki",
   location: "miasta",
   experience: "stażu",
+  skill_years: "dat przy technologii",
 };
 
 /** Pola z brakami w wierszach pod kreską, w stałej kolejności. */
 export function unknownFieldsBelow(rows: readonly UnknownRow[], from: number): string[] {
   const seen = new Set<string>();
   for (const row of rows.slice(from)) for (const f of row.unknown_fields ?? []) seen.add(f);
-  return ["rate", "location", "experience"].filter((f) => seen.has(f));
+  return ["rate", "location", "experience", "skill_years"].filter((f) => seen.has(f));
 }
 
 /** „Bez stawki albo miasta w profilu”. */
 export function dividerTitle(fields: readonly string[]): string {
+  // Same braki lat: daty stanowisk są w CV, nie w polach profilu.
+  if (fields.length > 0 && fields.every((f) => f === "skill_years")) {
+    return "Bez dat przy technologii w CV";
+  }
   const words = fields.map((f) => FIELD_WORDS[f]).filter(Boolean);
   return `Bez ${words.length ? words.join(" albo ") : "danych"} w profilu`;
 }
@@ -58,11 +63,12 @@ export function dividerTitle(fields: readonly string[]): string {
 export function hideUnknownPatch(
   fields: readonly string[],
 ): Pick<CandidateFilters, "hideUnknownRate" | "hideUnknownLocation"> &
-  Partial<Pick<CandidateFilters, "hideUnknown">> {
+  Partial<Pick<CandidateFilters, "hideUnknown" | "hideUnknownSkillYears">> {
   return {
     hideUnknownRate: true,
     hideUnknownLocation: true,
     ...(fields.includes("experience") ? { hideUnknown: true } : {}),
+    ...(fields.includes("skill_years") ? { hideUnknownSkillYears: true } : {}),
   };
 }
 

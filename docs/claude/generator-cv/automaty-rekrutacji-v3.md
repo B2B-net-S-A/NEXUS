@@ -45,6 +45,12 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
   ticku od miejsca przerwania (także rekrutacja, przy której skończył się
   limit); rekrutacje z ruchem karty idą przed nim.
+- **E. Nowi w bazie wchodzą pierwsi, także ponad 20 (decyzja Artura 03.11.2026).**
+  Do 5 kart ponad `TARGET`, wyłącznie osobami do 14 dni w bazie, od progu i bez uwag:
+  `rekrutacja-tablica/nowi-w-bazie-najpierw.md`.
+- **E. Cel kart wg tempa i miejsce dla świeżych (decyzja Artura 08.11.2026, flaga
+  `NEW_COLUMN_TEMPO_TARGET_ENABLED`, domyślnie OFF).** 5, 10 albo 20 czekających kart, przebieg
+  rano, w dzień tylko gorące: `rekrutacja-tablica/cel-kart-wg-tempa-i-miejsce-dla-swiezych.md`.
 - **E. Reguły z odrzuceń (decyzje Artura 25.10.2026).** Analiza pierwszego
   dnia: 34 odrzucenia z powodem na 1 557 osób od systemu, z czego 16 to „za
   droga” przy stawce, którą system znał; 31% osób od systemu miało znaną
@@ -178,6 +184,11 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   zapisuje w `entry_meta` `decided_at`/`decided_by`/`decision="call"` na
   stałe — wygaśnięcie blokady 12 h nie przywraca terminu. Przesunięcie dalej
   albo odrzucenie zdejmuje kartę z „Nowych”, więc termin znika sam.
+  Panel osoby trzyma się tej samej reguły (08.11.2026, bo karta z „CV wysłane”
+  pokazywała „5 dni bez decyzji”): poza „Nowymi”, także w „Screeningu”,
+  `autofill_badge` daje `awaiting_decision=false`, `waiting_days=null` i
+  `decision_due=false`. „Od systemu” i powód dodania zostają, a „Zdecyduj” wisi
+  na `awaiting_decision`, nie na `decided`.
   Harness: `/preview/job-detail?autofill=1`.
 - **E. Odrzucenie z powodem (PR 4, 0516, decyzja Artura 23.10.2026).** Ruch na
   „Odrzucony” osoby od systemu, która stoi w „Nowych” albo „Screeningu”
@@ -237,7 +248,11 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   jeden na tydzień, `week_start` = poniedziałek poprzedniego tygodnia) robi
   `run_all_triggers` w pierwszym dniu roboczym tygodnia 8–17; dzwonek
   `autofill_quality_report` do `AUTOFILL_REPORT_RECIPIENT_EMAILS` (bez
-  ustawienia — aktywni admini), tylko gdy w tygodniu coś się działo.
+  ustawienia — aktywni admini), tylko gdy w tygodniu coś się działo. Model
+  woła się poza savepointem, bo `db.commit()` przed modelem zamyka savepoint:
+  do 04.11.2026 zapis raportu padał w każdym ticku, 26.10 i 02.11 poszły 203
+  płatne wywołania i nie powstał żaden raport. Commit na końcu
+  `send_weekly_report` chroni płatny wynik przed awarią dalszych triggerów.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w
@@ -265,8 +280,22 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   więc idzie na początek kolejki. Przegląd bez tych kluczy nie liczy się jako
   nieaktualny. Bump `MUST_GATE_POLICY_VERSION` w ciągu dnia i tak zostawia
   takie przeglądy do najbliższej nocy — wdrażaj go przed oknem 01–05.
+- **A. Inny odcisk requestu ma pierwszeństwo jak zdarzenie** (02.11.2026,
+  `auto_full_review._request_changed_ids`): przed wyborem kolejki automat porównuje
+  odcisk każdej należnej rekrutacji z ostatnim przeglądem (także z wpisu „Praca
+  w tle”, gdy retencja skasowała przegląd); 190 rekrutacji to ok. 0,4 s. Bo przy
+  limicie 48 na noc rekrutacja bez pierwszeństwa czeka do 4 nocy, a 8 ze 187 miało
+  inny odcisk bez zdarzenia. Przyczyny potwierdzone zgodnym hashem na kopii
+  z 02.11: pole spoza list zdarzeń (`hiring_manager_contact_id` w 676343),
+  cotygodniowe przeliczenie podpowiedzi krytycznych z 30.10 (`suggested` w 706641,
+  732527, 732529, 789175, 789176) i nowy wpis w słowniku (SailPoint z 28.10 zmienił
+  krytyczne w 789171: pula zgadzała się z pełnym przeglądem w 20% top 20). Słownika
+  i statystyk nie załatwi żadne zdarzenie rekrutacji, dlatego porównanie, nie
+  dopisywanie pól do `_AUTO_REVIEW_EXTRA_FIELDS`. Rekrutacja bez odcisku nie ma
+  pierwszeństwa z tego powodu. Podbicie wersji reguł daje pierwszeństwo wszystkim
+  naraz; wtedy kolejność rozstrzyga jak dotąd „Szukamy” i wiek przeglądu.
 - **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
-  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (25 od 30.09.2026) łącznie, jeden nowy przegląd na tick,
+  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (48 od 02.11.2026: przy 187 rekrutacjach w pracy to nie jest „co noc wszystkie”, tylko każda co ok. 4 noce) łącznie, jeden nowy przegląd na tick,
   odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
   pominięcie. **Automat ustępuje ludziom**: nie startuje, gdy JAKIKOLWIEK
   przegląd jest w kolejce/w toku, a worker i tak bierze ręczne pierwsze.
@@ -303,12 +332,15 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   (`matched_must`, `missing_must`). Pula przeżywa retencję przeglądu (2 dni) do
   następnego przeglądu tej rekrutacji; przegląd bez wektora jej nie rusza.
   Propozycje bez zmian. Wpis „Praca w tle” niesie `autofill_pool` (liczba).
+  150 to liczba osób PO odrzuceniu innej roli (02.11.2026): wiersze idą paczkami
+  (`_POOL_PAGE`) do `AUTOFILL_POOL_SCAN_LIMIT` (5000) przeglądanych; mniej niż 150
+  = rekrutacja wyczerpała wiersze albo limit.
 - **A. Znani zespołowi wyżej (decyzje Artura 07.10.2026, flaga
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach
   (2,5 × podobieństwo) i za weryfikację gdziekolwiek w ostatnich 90 dniach (3);
-  osoba odrzucona przez tego samego klienta (`ended_by='client'`, bez kolumny —
-  po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
+  osoba jawnie odrzucona przez tego samego klienta (`ended_by='client'`, od
+  03.11.2026 bez pustej kolumny po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
   (same id, etapy, daty; tytuły rozwija `api/job_proposals._history_sources`)
   i zmieniają WYŁĄCZNIE kolejność: `list_for_job` i `compareProposals` sortują
   po wynik + punkty, pokazywany procent bez zmian, bez osobnej sekcji. O tym,
@@ -342,6 +374,19 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `NotificationType.auto_match_proposals` — JEDEN dzienny digest na
   (rekrutacja, odbiorca), link `/jobs/{id}?tab=similar`; kolejne propozycje
   tego dnia PODBIJAJĄ licznik w tym samym wpisie i odznaczają „przeczytane".
+- **B. Świeże CV czeka na wektor, a wynik zasila pulę (08.11.2026, raport
+  https://claude.ai/artifact/HgCGsxN7Nk7ENGpb6iNg2B).** W 14 dni 1 056 z 3 140
+  zdarzeń `cv_upload` nie dostało żadnej oceny, a 469 tylko część, bo ocena
+  ruszała przed wektorem i kończyła się `done`. Zdarzenie młodsze niż
+  `AUTO_MATCH_VECTOR_WAIT_MINUTES` (15, `0` = bez czekania) sprawdza wektor
+  (`full_search_measurement.vector_ready`) i wraca do kolejki za minutę bez
+  zużycia próby (`AutoMatchVectorPending`, `last_error=vector_pending`). Po tym
+  czasie zostaje dawna ścieżka z `result.unmeasured`. Wyniki idą też do
+  `job_autofill_pool` rekrutacji, które już mają pulę, bez sufitu 3 rekrutacji
+  (`_write_pool`, wyłącznik `AUTO_MATCH_WRITE_POOL_ENABLED`): pełna pula
+  przyjmuje tylko osobę lepszą od ostatniej. Sufit zostaje przy propozycjach
+  i dzwonku, bo tam liczy się szum. Scraper dalej woła stare `/recommendations`
+  i zmiana skali czeka na etap jednej listy.
 - **B. Wynik pary = „Dop.” (21.10.2026).** `run_candidate_event` i
   `run_job_event` liczą przez `auto_match_service._canonical_scored`:
   `canonical_fit.score_candidates` z profilem `resolve_active_profile(user_id=None,

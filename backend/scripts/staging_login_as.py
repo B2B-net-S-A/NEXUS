@@ -44,6 +44,10 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.core.config import settings  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
+from app.services.action_permissions import (  # noqa: E402
+    ProductAction,
+    has_permission,
+)
 
 EXIT_NOT_STAGING = 2
 EXIT_NO_USER = 3
@@ -66,6 +70,7 @@ def access_token_for(user: User) -> str:
         roles=[r.value for r in user.get_all_roles()],
         authorization_version=user.authorization_version,
         section_access=user.effective_section_access,
+        finance_orders=has_permission(user, ProductAction.orders_work),
     )
 
 

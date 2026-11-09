@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
 
+import { qcStateText } from "@/lib/cv-qc";
+
+describe("qcStateText: jeden stan z serwera (QC-11, 08.11.2026)", () => {
+  it("pokazuje gotowy tekst z serwera", () => {
+    const qc_state = { kind: "verify_roles", n: 3, items: [], text: "QC: wskaż stanowisko · 3", tone: "wait", who: null, hint: null } as const;
+    expect(qcStateText({ status: "passed", blocking_failed: 0, qc_state: { ...qc_state, items: [] } })).toBe("QC: wskaż stanowisko · 3");
+  });
+
+  it("bez stanu z serwera: sama nazwa statusu", () => {
+    expect(qcStateText({ status: "passed", blocking_failed: 0 })).toBe("QC: sprawdzone");
+    expect(qcStateText({ status: "failed", blocking_failed: 2 })).toBe("QC: 2 do poprawy");
+    expect(qcStateText({ status: "failed", blocking_failed: 0 })).toBe("QC: 1 do poprawy");
+    expect(qcStateText({ status: "overridden", blocking_failed: 1 })).toBe("QC: przepuszczone");
+    expect(qcStateText({ status: "unchecked", blocking_failed: 0 })).toBe("QC: jeszcze nie sprawdzone");
+  });
+});
+
 import { groupCproByJob, type BoardTaskRow } from "@/lib/api/boardTasks";
 import type { QcCheck, QcCvBlock } from "@/lib/api/cvQc";
 import {
@@ -383,11 +400,20 @@ describe("powody obejścia QC", () => {
     ]);
   });
 
-  it("opis wymagany tylko przy „Inny powód”, bez minimum znaków", () => {
+  it("opis wymagany tylko przy „Inny powód”: trzy słowa i wskazana uwaga (R6, 07.11.2026)", () => {
     expect(qcOverrideError(null, "")).toBe("Wybierz powód.");
     expect(qcOverrideError("client_short_cv", "")).toBeNull();
     expect(qcOverrideError("other", "  ")).toBe("Przy „Inny powód” napisz, dlaczego przepuszczasz.");
-    expect(qcOverrideError("other", "ok")).toBeNull();
+    // Lustro `cv_qc.OVERRIDE_OTHER_MIN_WORDS`: „x”, „.”, „dw” to nie powód.
+    expect(qcOverrideError("other", "x")).toMatch(/co najmniej trzy słowa/);
+    expect(qcOverrideError("other", "bo tak")).toMatch(/co najmniej trzy słowa/);
+    expect(qcOverrideError("other", "Klient zna go z projektu")).toBeNull();
+    expect(qcOverrideError("other", "Klient zna go z projektu", { required: true, picked: 0 })).toBe(
+      "Zaznacz, której uwagi dotyczy powód.",
+    );
+    expect(qcOverrideError("other", "Klient zna go z projektu", { required: true, picked: 1 })).toBeNull();
+    // Gotowy powód nie wskazuje uwagi.
+    expect(qcOverrideError("client_short_cv", "", { required: true, picked: 0 })).toBeNull();
     expect(qcOverrideError("other", "x".repeat(901))).toMatch(/najwyżej 900 znaków/);
   });
 });
@@ -602,5 +628,17 @@ describe("taskPendingItem (D4, 17.10.2026)", () => {
       { title: taskTitle(tasks[0]), keys: ["critical_skills|kafka|a", "critical_skills|kafka|b"], labelable: true },
       { title: taskTitle(tasks[1]), keys: ["client_rules|rodo|cv"], labelable: false },
     ]);
+  });
+});
+
+describe("qcOverrideError: „Kandydat potwierdził” wymaga słów kandydata (02.11.2026)", () => {
+  it("krótki albo pusty opis to błąd, a zdanie przechodzi", () => {
+    expect(qcOverrideError("confirmed_in_call", "")).toContain("co dokładnie powiedział");
+    expect(qcOverrideError("confirmed_in_call", "potwierdził")).toContain("co najmniej 15");
+    expect(qcOverrideError("confirmed_in_call", "Używał Dockera w migracji")).toBeNull();
+  });
+
+  it("inne powody dalej nie wymagają opisu", () => {
+    expect(qcOverrideError("requirement_not_applicable", "")).toBeNull();
   });
 });

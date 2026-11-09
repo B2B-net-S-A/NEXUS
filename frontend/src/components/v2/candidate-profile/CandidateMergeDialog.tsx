@@ -128,6 +128,33 @@ export function MergePlanView({
         ) : null}
       </div>
 
+      {plan.primary_cv.changes && plan.primary_cv.after ? (
+        <p role="status" className="rounded-md border border-border bg-muted/40 p-3">
+          <span className="font-medium">Główne CV po scaleniu: </span>
+          <span className="break-words">{plan.primary_cv.after.filename}</span>
+          {plan.primary_cv.after.from_duplicate ? ` (z duplikatu #${plan.duplicate_id})` : ""}.
+          {" "}Teraz: <span className="break-words">{plan.primary_cv.before?.filename ?? "brak"}</span>.
+        </p>
+      ) : null}
+
+      {plan.cards.length > 0 ? (
+        <div className="space-y-1">
+          <p className="font-medium">Karty w rekrutacjach obu profili</p>
+          <ul className="space-y-1">
+            {plan.cards.map((card) => (
+              <li key={card.job_id} className="break-words">
+                <span>{card.job_title ?? `Rekrutacja #${card.job_id}`}</span>
+                {": zostaje "}
+                <span className="font-medium">{card.result_stage_name}</span>
+                <span className="text-muted-foreground">
+                  {" "}(ten profil: {card.survivor_stage_name}, duplikat: {card.duplicate_stage_name})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="space-y-1">
         <p className="font-medium">
           Przejdzie na ten profil: {plan.moved_rows} {plan.moved_rows === 1 ? "rekord" : "rekordów"}
@@ -137,7 +164,13 @@ export function MergePlanView({
             {plan.references.map((r) => (
               <li key={`${r.table}.${r.column}`}>
                 {referenceLabel(r.table)}: {r.rows}
-                {r.conflicts > 0 ? ` (w tym ${r.conflicts} zdublowanych — zostaje nowszy wpis)` : ""}
+                {r.conflicts > 0
+                  ? r.table === "candidate_documents"
+                    ? ` (w tym ${r.conflicts} zdublowanych — oba pliki zostają)`
+                    : r.table === "recruitment_processes"
+                      ? ` (w tym ${r.conflicts} zdublowanych — zostaje proces karty)`
+                      : ` (w tym ${r.conflicts} zdublowanych — zostaje nowszy wpis)`
+                  : ""}
               </li>
             ))}
             {plan.polymorphic.map((p) => (

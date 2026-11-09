@@ -68,20 +68,20 @@ from app.services.section_permissions import ProductSection
 router = APIRouter()
 
 MODULE = HrModule.lifecycle
-ADMIN_DETAIL = "Wejście i odejście prowadzą Kadry."
+ADMIN_DETAIL = "Wejście i odejście prowadzi Administracja współpracy."
 TEMPLATE_EDITOR_DETAIL = (
-    "Ścieżki wejścia i odejścia zmieniają Kadry (zespół wewnętrzny), head back "
+    "Ścieżki wejścia i odejścia zmieniają Administracja współpracy (zespół wewnętrzny), head back "
     "office (konsultant u klienta) i administrator."
 )
 TEMPLATE_AUDIENCE_DETAIL = {
-    "team": "Ścieżki zespołu wewnętrznego zmieniają Kadry i administrator.",
+    "team": "Ścieżki zespołu wewnętrznego zmieniają Administracja współpracy i administrator.",
     "consultant": (
         "Ścieżki konsultanta u klienta zmienia head back office i administrator."
     ),
 }
 ENTRY_WRITER_DETAIL = (
     "Wejście konsultanta prowadzą opiekun kontraktu, Delivery Lead klienta, "
-    "head back office, Kadry i administrator."
+    "head back office, Administracja współpracy i administrator."
 )
 MIRRORED_TASK_DETAIL = (
     "To zadanie recepcja odhacza w Sprzęcie — lista wejścia pokazuje jego stan."
@@ -537,7 +537,7 @@ async def list_cases(
     live: bool = Query(True, description="Tylko szkice i sprawy w toku."),
     audience: Audience = Query(
         "team",
-        description="Zespół wewnętrzny (Kadry) albo wejścia konsultantów przy kontraktach.",
+        description="Zespół wewnętrzny (Administracja współpracy) albo wejścia konsultantów przy kontraktach.",
     ),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -830,7 +830,8 @@ async def update_task(
     case, scope = await _scoped_case(db, task.case_id, current_user)
     if not can_toggle(scope, current_user, task):  # type: ignore[arg-type]
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "To zadanie odhacza jego wykonawca albo Kadry."
+            status.HTTP_403_FORBIDDEN,
+            "To zadanie odhacza jego wykonawca albo Administracja współpracy.",
         )
     if payload.status is not None and task.id in await service.task_mirrors(
         db, case, [task]

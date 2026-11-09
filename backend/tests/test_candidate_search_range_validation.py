@@ -3,7 +3,7 @@
 Do 09.2026 „min 10 / max 2 lat" przechodziło walidację i zwracało wyłącznie
 osoby bez uzupełnionego stażu — rekruter widział setki wyników pod
 niemożliwym filtrem. Reguła ma jedno źródło (`raise_if_range_reversed`)
-dzielone przez schemat legacy i V3.
+w schemacie wyszukiwarki.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from app.schemas.candidate_search import (
     RATE_RANGE_REVERSED_MSG,
     CandidateSearchRequest,
 )
-from app.schemas.candidate_search_v3 import HardFilters
 
 
 def test_reversed_experience_range_is_rejected_with_polish_message() -> None:
@@ -45,13 +44,6 @@ def test_ordered_or_open_ranges_still_validate(low, high) -> None:
     )
     assert request.experience_years_min == low
     assert request.experience_years_max == high
-
-
-def test_v3_hard_filters_mirror_the_rule() -> None:
-    with pytest.raises(ValidationError) as excinfo:
-        HardFilters(experience_years_min=10, experience_years_max=2)
-    assert EXPERIENCE_RANGE_REVERSED_MSG in [e["msg"] for e in excinfo.value.errors()]
-    assert HardFilters(experience_years_min=2, experience_years_max=6)
 
 
 @pytest.mark.asyncio

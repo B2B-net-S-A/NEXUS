@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import type { QcStatus } from "@/lib/api/boardTasks";
-import { QC_STATUS_LABEL } from "@/lib/cv-qc";
+import { qcStateText, type QcStateTone, type QcStateView } from "@/lib/cv-qc";
 
 const QC_BADGE: Record<QcStatus, "success" | "danger" | "warning" | "outline"> = {
   passed: "success",
@@ -9,20 +9,31 @@ const QC_BADGE: Record<QcStatus, "success" | "danger" | "warning" | "outline"> =
   unchecked: "outline",
 };
 
+const TONE_VARIANT: Record<QcStateTone, "success" | "info" | "warning" | "danger" | "outline"> = {
+  ok: "success",
+  info: "info",
+  wait: "warning",
+  urgent: "danger",
+  neutral: "outline",
+};
+
 /** Wynik QC CV pary na liście (przegląd DL, kolejka Cpro). Brak statusu = nic. */
 export function QcStatusBadge({
   row,
+  size = "sm",
 }: {
-  row: { qc_status?: QcStatus | null; qc_blocking_failed?: number | null };
+  row: {
+    qc_status?: QcStatus | null;
+    qc_blocking_failed?: number | null;
+    qc_state?: QcStateView | null;
+  };
+  size?: "sm" | "lg";
 }) {
   if (!row.qc_status) return null;
-  const label =
-    row.qc_status === "failed" && row.qc_blocking_failed
-      ? `QC: ${row.qc_blocking_failed} do poprawy`
-      : QC_STATUS_LABEL[row.qc_status];
+  const state = row.qc_state ?? null;
   return (
-    <Badge size="sm" variant={QC_BADGE[row.qc_status]}>
-      {label}
+    <Badge size={size} variant={state ? TONE_VARIANT[state.tone] : QC_BADGE[row.qc_status]} title={state?.hint ?? undefined}>
+      {qcStateText({ status: row.qc_status, blocking_failed: row.qc_blocking_failed ?? 0, qc_state: state })}
     </Badge>
   );
 }

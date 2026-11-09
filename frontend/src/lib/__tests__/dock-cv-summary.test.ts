@@ -5,7 +5,9 @@ import {
   companyCvStale,
   companyDraftSince,
   dockOriginalCv,
-  newerProfileCv,
+  isNewerThanStageCopy,
+  originalCvFile,
+  otherProfileCv,
   originalCvSentence,
   pairCompanyCv,
   primaryProfileCv,
@@ -195,23 +197,55 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
   it("nowsze CV w profilu: główne CV młodsze od kopii o co najmniej minutę", () => {
     const original = snapshot("2026-10-08T10:00:00Z");
     const newer = doc(7, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" });
-    expect(newerProfileCv(original, [doc(1), newer])?.id).toBe(7);
+    expect(otherProfileCv(original, [doc(1), newer])?.id).toBe(7);
     // Upload z rekrutacji: dokument chwilę przed kopią — bez ramki.
     expect(
-      newerProfileCv(snapshot("2026-10-13T09:00:05Z"), [
-        doc(8, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" }),
+      otherProfileCv(snapshot("2026-10-13T09:00:05Z"), [
+        doc(8, { is_primary: true, filename: "cv.pdf", uploaded_at: "2026-10-13T09:00:00Z" }),
       ]),
     ).toBeNull();
-    expect(newerProfileCv(original, [doc(9, { is_primary: true, uploaded_at: "2026-10-01T09:00:00Z" })])).toBeNull();
+    expect(otherProfileCv(original, [doc(9, { is_primary: true, filename: "cv.pdf", uploaded_at: "2026-10-01T09:00:00Z" })])).toBeNull();
+  });
+
+  it("inne główne CV: plik ze starszą datą niż kopia też daje ramkę (04.11.2026)", () => {
+    const original = snapshot("2026-11-03T10:00:00Z", "auto_create", "stare.pdf");
+    // Import z Traffita: bez sumy, porównanie nazw.
+    const imported = { ...doc(19, { is_primary: true, filename: "CV_07_2026.pdf" }), created_at: "2026-08-11T10:00:00Z" };
+    expect(otherProfileCv(original, [imported])?.id).toBe(19);
+    expect(isNewerThanStageCopy(original, imported)).toBe(false);
+    // Plik bez wskazania głównego zostaje przy porównaniu dat.
+    expect(otherProfileCv(original, [{ ...imported, is_primary: false }])).toBeNull();
+    // Ta sama nazwa bez sumy: nie wiemy, czy to inny plik, decyduje data.
+    expect(otherProfileCv(original, [{ ...imported, filename: "stare.pdf" }])).toBeNull();
+  });
+
+  it("inne główne CV: suma ważniejsza od nazwy i daty (04.11.2026)", () => {
+    const hashed = (sha: string | null) =>
+      dockOriginalCv({
+        snapshot: {
+          has_snapshot: true,
+          original_snapshot_at: "2026-10-08T10:00:00Z",
+          original_cv_filename: "cv.pdf",
+          original_cv_sha256: sha,
+        },
+        snapshotLoading: false,
+        profileDocs: undefined,
+        profileDocsFailed: false,
+      });
+    const file = { ...doc(20, { is_primary: true, filename: "inna-nazwa.pdf", uploaded_at: "2026-10-13T09:00:00Z" }), content_sha256: "aaa" };
+    expect(otherProfileCv(hashed("aaa"), [file])).toBeNull();
+    expect(otherProfileCv(hashed("bbb"), [{ ...file, filename: "cv.pdf", uploaded_at: "2026-10-01T09:00:00Z" }])?.id).toBe(20);
+    expect(originalCvFile(hashed("aaa"), [file])?.id).toBe(20);
+    expect(originalCvFile(hashed("zzz"), [file])).toBeNull();
   });
 
   it("nowsze CV w profilu: liczy się plik, który skopiuje serwer — nie główne CV w TXT", () => {
     const original = snapshot("2026-10-08T10:00:00Z");
     const txt = doc(11, { is_primary: true, filename: "cv.txt", uploaded_at: "2026-10-13T09:00:00Z" });
     const oldPdf = doc(12, { filename: "stare.pdf", uploaded_at: "2026-10-01T09:00:00Z" });
-    expect(newerProfileCv(original, [txt, oldPdf])).toBeNull();
+    expect(otherProfileCv(original, [txt, oldPdf])).toBeNull();
     const newPdf = doc(13, { filename: "nowe.pdf", uploaded_at: "2026-10-12T09:00:00Z" });
-    expect(newerProfileCv(original, [txt, oldPdf, newPdf])?.id).toBe(13);
+    expect(otherProfileCv(original, [txt, oldPdf, newPdf])?.id).toBe(13);
   });
 
   it("nowsze CV w profilu: plik „nieaktualny” nie jest CV do skopiowania (audyt 13.10.2026)", () => {
@@ -220,7 +254,21 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
       ...doc(14, { filename: "cv_2024.pdf", uploaded_at: "2026-10-13T09:00:00Z" }),
       outdated_at: "2026-10-13T09:30:00Z",
     };
-    expect(newerProfileCv(original, [outdated])).toBeNull();
+    expect(otherProfileCv(original, [outdated])).toBeNull();
+  });
+
+  it("nowsze CV w profilu: plik z importu bez daty ustępuje plikowi z datą jak na serwerze (04.11.2026)", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const dated = doc(15, { uploaded_at: "2026-10-01T09:00:00Z" });
+    const imported = { ...doc(16), created_at: "2026-10-13T09:00:00Z" };
+    expect(otherProfileCv(original, [dated, imported])).toBeNull();
+  });
+
+  it("nowsze CV w profilu: między plikami bez daty wygrywa najwyższe id jak na serwerze (04.11.2026)", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const older = { ...doc(17), created_at: "2026-10-13T09:00:00Z" };
+    const higherId = { ...doc(18), created_at: "2026-10-01T09:00:00Z" };
+    expect(otherProfileCv(original, [older, higherId])).toBeNull();
   });
 
   it("nowsze CV w profilu: bez kopii i bez listy plików nie ma czego porównać", () => {
@@ -230,8 +278,8 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
       profileDocs: [doc(1, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" })],
       profileDocsFailed: false,
     });
-    expect(newerProfileCv(profileOnly, [doc(1, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" })])).toBeNull();
-    expect(newerProfileCv(snapshot("2026-10-08T10:00:00Z"), undefined)).toBeNull();
+    expect(otherProfileCv(profileOnly, [doc(1, { is_primary: true, uploaded_at: "2026-10-13T09:00:00Z" })])).toBeNull();
+    expect(otherProfileCv(snapshot("2026-10-08T10:00:00Z"), undefined)).toBeNull();
   });
 
   it("początek szkicu: dokument generatora, potem wybór gotowego CV, potem ostatnia zmiana", () => {
@@ -302,14 +350,14 @@ describe("CV do klienta z kafelka (15.10.2026)", () => {
 
   it("plik „B2B_…” w profilu nie jest „nowszym CV” do skopiowania jako oryginał", () => {
     const original = snapshot("2026-10-08T10:00:00Z");
-    const own = doc(21, { is_primary: true, filename: "Jan_Testowy_CV.pdf", uploaded_at: "2026-10-01T09:00:00Z" });
+    const own = doc(21, { is_primary: true, filename: "cv.pdf", uploaded_at: "2026-10-01T09:00:00Z" });
     const clientCv = doc(22, { filename: "B2B_Tester_Jan_Testowy.docx", uploaded_at: "2026-10-15T09:00:00Z" });
-    expect(newerProfileCv(original, [own, clientCv])).toBeNull();
+    expect(otherProfileCv(original, [own, clientCv])).toBeNull();
     // Stary import bez głównego CV: najnowszym plikiem jest CV do klienta — też bez ramki.
-    expect(newerProfileCv(original, [{ ...own, is_primary: false }, clientCv])).toBeNull();
+    expect(otherProfileCv(original, [{ ...own, is_primary: false }, clientCv])).toBeNull();
     // Nowe CV kandydata dalej wywołuje ramkę.
     const newOwn = doc(23, { is_primary: true, filename: "Jan_Testowy_CV_2026.pdf", uploaded_at: "2026-10-15T10:00:00Z" });
-    expect(newerProfileCv(original, [newOwn, clientCv])?.id).toBe(23);
+    expect(otherProfileCv(original, [newOwn, clientCv])?.id).toBe(23);
   });
 });
 

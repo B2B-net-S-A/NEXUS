@@ -40,6 +40,7 @@ from app.services.action_permissions import (
     ActionAccess,
     ProductAction,
     account_accepts_grants,
+    action_policy_before_closure,
     base_action_policy_from_rows,
     close_named_permissions,
     serialize_action_access,
@@ -78,6 +79,7 @@ _ROLE_LABELS: dict[UserRole, str] = {
     UserRole.automation: "Automatyzacje",
     UserRole.employee: "Konsultant/Kontraktor",
     UserRole.board: "Rada nadzorcza",
+    UserRole.back_office: "Back office",
 }
 
 
@@ -392,7 +394,7 @@ def _user_permission_payload(
         "grants": _in_catalog_order(
             key for key, access in stored.items() if access == ActionAccess.manage.name
         ),
-        # Stare wyjątki odbierające; nowy ekran ich nie tworzy, tylko zdejmuje.
+        # Uprawnienia odebrane tej osobie (na ekranie pozycja „Odebrane”).
         "restrictions": _in_catalog_order(
             key for key, access in stored.items() if access != ActionAccess.manage.name
         ),
@@ -460,12 +462,13 @@ def _user_summary(changes: Mapping[str, Mapping[str, str]]) -> str:
     return _describe(
         [
             ("Nadano", [k for k, c in named.items() if c["to"] == manage]),
+            ("Odebrano", [k for k, c in named.items() if c["to"] == "none"]),
             (
                 "Zdjęto nadanie",
                 [
                     k
                     for k, c in named.items()
-                    if c["to"] != manage and c["from"] == manage
+                    if c["to"] == "inherit" and c["from"] == manage
                 ],
             ),
             (
@@ -473,12 +476,66 @@ def _user_summary(changes: Mapping[str, Mapping[str, str]]) -> str:
                 [
                     k
                     for k, c in named.items()
-                    if c["to"] != manage and c["from"] != manage
+                    if c["to"] == "inherit" and c["from"] != manage
                 ],
             ),
         ],
         _other_changes(changes),
     )
+
+
+def _assert_revocations_hold(
+    target: User,
+    *,
+    stored: Mapping[str, str],
+    changes: Iterable[UserActionPermissionChange],
+    action_role_rows: list[RoleActionPermission],
+    section_role_rows: list[RoleSectionPermission],
+) -> None:
+    """Odmowa, gdy po zmianie zależności przywróciłyby odebrane uprawnienie.
+
+    ``close_named_permissions`` oddaje przy odczycie to, czego wymaga uprawnienie
+    zachowane przez osobę, więc taki zapis nie zmieniłby dostępu, a Historia
+    zdarzeń podałaby „Odebrano”. Stary wiersz, który już dziś nie działa, nie
+    blokuje innych zmian tej osoby — chyba że to on jest tu odbierany.
+    """
+
+    def held(overrides: Mapping[str, str]) -> frozenset[str]:
+        return _granted_keys(
+            action_policy_before_closure(
+                target,
+                action_role_rows,
+                [
+                    UserActionOverride(user_id=target.id, action=action, access=access)
+                    for action, access in overrides.items()
+                ],
+                section_role_rows,
+            )
+        )
+
+    after = dict(stored)
+    requested: set[str] = set()
+    for change in changes:
+        if change.access == "inherit":
+            after.pop(change.action.value, None)
+            continue
+        after[change.action.value] = change.access
+        if change.access == "none":
+            requested.add(change.action.value)
+    held_before, held_after = held(stored), held(after)
+    for key in catalog.KEYS:
+        if after.get(key) != "none":
+            continue
+        required_by = catalog.implied_by(key, held_after)
+        if required_by and (
+            key in requested or not catalog.implied_by(key, held_before)
+        ):
+            raise _unprocessable(
+                "permission_required_by_kept",
+                f"Nie można odebrać „{catalog.label(key)}”: wymaga go "
+                f"{_labels(required_by)}, a ta osoba to zachowuje. "
+                "Odbierz najpierw tamto albo wszystko naraz.",
+            )
 
 
 def _section_event_key(section: str) -> str:
@@ -907,15 +964,6 @@ async def update_user_section_permissions(
         # Stare ograniczenie Delivery/Finansów da się tylko zdjąć.
         if change.section in DERIVED_SECTIONS and change.access != "inherit":
             raise _derived_section_error()
-    if any(
-        change.action in _NAMED and change.access == "none"
-        for change in payload.action_changes
-    ):
-        raise _unprocessable(
-            "additive_only",
-            "Uprawnienia osoby tylko dodają. Żeby coś odebrać, zmień "
-            "uprawnienia roli albo rolę tej osoby.",
-        )
 
     state_row = await _policy_state(db, lock=True)
     admin = await _revalidate_locked_admin(db, admin)
@@ -956,6 +1004,15 @@ async def update_user_section_permissions(
         ).all()
     )
     by_action = {row.action: row for row in action_rows}
+    if any(change.action in _NAMED for change in payload.action_changes):
+        section_role_rows, action_role_rows = await _matrix_rows(db)
+        _assert_revocations_hold(
+            target,
+            stored={row.action: row.access for row in action_rows},
+            changes=payload.action_changes,
+            action_role_rows=action_role_rows,
+            section_role_rows=section_role_rows,
+        )
     before = {row.section: row.access for row in rows}
     before.update({f"action:{row.action}": row.access for row in action_rows})
     event_changes: dict[str, dict[str, str]] = {}

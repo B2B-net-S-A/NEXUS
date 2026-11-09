@@ -595,7 +595,7 @@ async def test_parse_uses_the_requested_model_with_sonnet_fallback(monkeypatch):
     monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
     await m.parse_champion_document("tekst " * 60, model="gpt-5.6-luna")
     assert seen["model"] == "gpt-5.6-luna"
-    assert seen["fallback_models"] == ["claude-sonnet-5"]
+    assert seen["fallback_models"] == ["claude-sonnet-5", "claude-haiku-5-5"]
 
 
 def test_backfill_bundle_keeps_the_last_file_per_recruitment(tmp_path):

@@ -4,7 +4,8 @@ Reguły (Compass, faza 27a/45 + audyt 22.09) i naprawy:
 
 * limit dnia 8 h liczony na SUMĘ wpisów dnia; ponad 8 h (do 16 h) to
   nadgodziny — tylko z prawem (``can_log_overtime`` z kartoteki albo
-  Kadry/admin) i z uzasadnieniem ≥ 5 znaków,
+  Kadry/admin) i z uzasadnieniem ≥ 5 znaków; ``no_hours_limit`` z kartoteki
+  osoby zdejmuje sufit 16 h i obowiązek opisu (jeden wpis nadal ≤ 24 h),
 * nadgodziną jest wpis, który przekracza 8 h SUMY dnia (w Compassie flagę
   liczono z godzin jednego wpisu, więc 5 h + 5 h przechodziło bez
   uzasadnienia),
@@ -38,6 +39,7 @@ from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_range
 from app.services.hr.time_hash import HashEntry, compute_timesheet_hash
 from app.services.hr_time_schema import (
+    ENTRY_MAX_HOURS,
     OVERTIME_MAX_HOURS,
     OVERTIME_REASON_MIN_LENGTH,
     STANDARD_DAY_HOURS,
@@ -45,15 +47,18 @@ from app.services.hr_time_schema import (
 
 STANDARD = Decimal(STANDARD_DAY_HOURS)
 OVERTIME_MAX = Decimal(OVERTIME_MAX_HOURS)
+ENTRY_MAX = Decimal(ENTRY_MAX_HOURS)
+#: Wpis ponad 8 h osoby bez limitu, gdy nic nie dopisała (CHECK wymaga tekstu).
+NO_LIMIT_REASON = "Bez limitu godzin (ustawienie w kartotece)"
 MAX_DESCRIPTION = 2000
 MAX_PROJECT = 200
 MAX_OVERTIME_REASON = 1000
 
 LOCKED_DETAIL = (
-    "Ten miesiąc jest zamknięty w płacach — zmiany wymagają ponownego otwarcia "
-    "miesiąca przez Płace."
+    "Ten miesiąc jest zamknięty w rozliczeniach — zmiany wymagają ponownego otwarcia "
+    "miesiąca przez Rozliczenia."
 )
-CHANGED_DETAIL = "Timesheet zmienił się w międzyczasie. Odśwież widok."
+CHANGED_DETAIL = "Raport godzin zmienił się w międzyczasie. Odśwież widok."
 
 
 def standard_description(employment_type: Optional[str]) -> str:
@@ -161,7 +166,7 @@ async def lock_timesheet(db: AsyncSession, timesheet_id: int) -> Timesheet:
         .execution_options(populate_existing=True)
     )
     if timesheet is None:
-        raise TimeNotFound("Nie ma takiego timesheetu.")
+        raise TimeNotFound("Nie ma takiego raportu godzin.")
     return timesheet
 
 
@@ -288,8 +293,8 @@ def clean_hours(raw: Any) -> Decimal:
         raise TimeError("Godziny muszą być liczbą.") from None
     if not hours.is_finite() or hours <= 0:
         raise TimeError("Godziny muszą być większe od zera.")
-    if hours > OVERTIME_MAX:
-        raise TimeError(f"Maksymalnie {OVERTIME_MAX_HOURS} h na dzień.")
+    if hours > ENTRY_MAX:
+        raise TimeError(f"Jeden wpis to najwyżej {ENTRY_MAX_HOURS} h.")
     if hours != hours.quantize(Decimal("0.01")):
         raise TimeError("Godziny podaje się z dokładnością do 0,01 h.")
     return hours.quantize(Decimal("0.01"))
@@ -314,7 +319,7 @@ def clean_project(raw: Optional[str]) -> Optional[str]:
 def _assert_in_month(timesheet: Timesheet, work_date: date) -> None:
     if (work_date.year, work_date.month) != (timesheet.year, timesheet.month):
         raise TimeError(
-            f"Data {work_date.isoformat()} nie należy do miesiąca tego timesheetu "
+            f"Data {work_date.isoformat()} nie należy do miesiąca tego raportu godzin "
             f"({timesheet.year}-{timesheet.month:02d})."
         )
 
@@ -368,11 +373,19 @@ def _decide_overtime(
     reason: Optional[str],
     work_date: date,
     form: Optional[str],
+    no_limit: bool = False,
 ) -> OvertimeDecision:
     total = other_hours + hours + occupied
     words = terms(form)
     if total <= STANDARD:
         return OvertimeDecision(False, None)
+    if no_limit:
+        text = (reason or "").strip()
+        if len(text) < OVERTIME_REASON_MIN_LENGTH:
+            text = NO_LIMIT_REASON
+        return OvertimeDecision(True, text)
+    if hours > OVERTIME_MAX:
+        raise TimeError(f"Maksymalnie {OVERTIME_MAX_HOURS} h na dzień.")
     if not actor.overtime_allowed:
         if occupied > 0:
             raise TimeError(
@@ -382,7 +395,7 @@ def _decide_overtime(
         raise TimeForbidden(
             f"Suma godzin {work_date.isoformat()} przekroczyłaby {STANDARD_DAY_HOURS} h "
             f"(już wpisane: {_fmt(other_hours)} h). {capitalize(words['overtime'])} "
-            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Kadry."
+            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Administracja współpracy."
         )
     if total > OVERTIME_MAX:
         raise TimeError(
@@ -435,10 +448,10 @@ def assert_editable(timesheet: Timesheet, *, as_approver: bool) -> None:
         return
     if timesheet.status == "approved":
         raise TimeConflict(
-            "Timesheet jest zaakceptowany — poprawka wymaga cofnięcia akceptacji."
+            "Raport godzin jest zaakceptowany — poprawka wymaga cofnięcia akceptacji."
         )
     raise TimeConflict(
-        "Timesheet czeka na akceptację — poprawki wprowadza akceptujący albo "
+        "Raport godzin czeka na akceptację — poprawki wprowadza akceptujący albo "
         "zwraca go do Ciebie."
     )
 
@@ -472,6 +485,7 @@ async def add_entry(
         reason=data.overtime_reason,
         work_date=data.work_date,
         form=subject.employment_type,
+        no_limit=subject.no_hours_limit,
     )
     entry = TimesheetEntry(
         timesheet_id=timesheet.id,
@@ -501,7 +515,7 @@ async def update_entry(
 ) -> TimesheetEntry:
     if entry.source == "leave_paid":
         raise TimeConflict(
-            "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
+            "Ten wpis powstał z płatnego dnia przerwy — zmień albo anuluj zgłoszenie przerwy."
         )
     old_date = entry.work_date
     work_date = changes.get("work_date", entry.work_date)
@@ -534,6 +548,7 @@ async def update_entry(
             reason=changes.get("overtime_reason", entry.overtime_reason),
             work_date=work_date,
             form=subject.employment_type,
+            no_limit=subject.no_hours_limit,
         )
     entry.work_date = work_date
     entry.hours = hours
@@ -569,7 +584,7 @@ async def delete_entry(
 ) -> None:
     if entry.source == "leave_paid":
         raise TimeConflict(
-            "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
+            "Ten wpis powstał z płatnego dnia przerwy — zmień albo anuluj zgłoszenie przerwy."
         )
     # Przyjęte potwierdzenie godzin zlecenia po terminie wypłaty zostaje 3 lata
     # (art. 8c) — trasy i tak edytują tylko szkic, to pilnuje każdej ścieżki.

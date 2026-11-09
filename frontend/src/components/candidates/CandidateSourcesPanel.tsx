@@ -9,6 +9,7 @@ import {
   Megaphone,
   Users,
   Database,
+  Link2,
 } from "lucide-react";
 import {
   candidateSourcesApi,
@@ -29,6 +30,8 @@ const CHANNEL_ICONS: Record<SourceChannel, React.ReactNode> = {
   posting: <Megaphone className="w-3.5 h-3.5" />,
   referral: <Users className="w-3.5 h-3.5" />,
   import_csv: <Database className="w-3.5 h-3.5" />,
+  career_link_general: <Link2 className="w-3.5 h-3.5" />,
+  career_link_job: <Link2 className="w-3.5 h-3.5" />,
 };
 
 function formatDate(iso: string): string {

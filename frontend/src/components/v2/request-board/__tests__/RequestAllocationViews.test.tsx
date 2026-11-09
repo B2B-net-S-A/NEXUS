@@ -466,8 +466,9 @@ describe("RequestBoardView", () => {
       "Bartek Testowy, urlop do 29.09.2026, 1 rekrutacja P1",
     )
     // Pasek: Anna (2 + 1) ma pełny, 1 rekrutacja to jedna trzecia — nie stała 5.
-    expect((annaRow.querySelector(".bg-primary") as HTMLElement).style.width).toMatch(/^66\.6/)
-    expect((celinaRow.querySelector(".bg-primary") as HTMLElement).style.width).toMatch(/^33\.3/)
+    // Bez danych o koszykach cała praca to odcinek „bez koszyka” (06.11.2026).
+    expect((annaRow.querySelector("[data-load-base] + [data-load-linkedin] + span") as HTMLElement).style.width).toMatch(/^66\.6/)
+    expect((celinaRow.querySelector("[data-load-base] + [data-load-linkedin] + span") as HTMLElement).style.width).toMatch(/^33\.3/)
     expect(within(panel).getByText("Obłożenie").parentElement).toHaveTextContent("ObłożenieP1")
     expect(
       within(panel).getByText("Ile rekrutacji P1 w stanie „Szukamy” ma każda osoba w roli „Rekruter”."),
@@ -555,7 +556,7 @@ describe("RequestBoardView — wariant daily", () => {
     render(<Daily />)
     expect(screen.getAllByRole("region", { name: "Zmiany od wczoraj" })).toHaveLength(1)
     expect(screen.getByTestId("changes-since")).toHaveTextContent("od piątku 9:30")
-    expect(screen.queryByRole("link", { name: "Na daily" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Przegląd requestów" })).not.toBeInTheDocument()
 
     const segments = screen.getByRole("group", { name: "Kategorie" })
     const pressed = () =>
@@ -580,7 +581,7 @@ describe("RequestBoardView — wariant daily", () => {
 
   it("kafelek ma link „Na daily”", () => {
     render(<Board />)
-    expect(screen.getByRole("link", { name: "Na daily" })).toHaveAttribute("href", "/jobs/daily")
+    expect(screen.getByRole("link", { name: "Przegląd requestów" })).toHaveAttribute("href", "/jobs/daily")
   })
 })
 
@@ -613,12 +614,46 @@ describe("RequestBoardView — sama tabela (panel P0, 28.10.2026)", () => {
       />,
     )
     expect(screen.queryByRole("heading", { name: "Requesty i obłożenie" })).toBeNull()
-    expect(screen.queryByRole("link", { name: "Na daily" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Przegląd requestów" })).toBeNull()
     expect(screen.queryByRole("button", { name: /Wyczyść filtry/ })).toBeNull()
     expect(screen.getByRole("link", { name: "Kotlin Developer" })).toBeInTheDocument()
     expect(screen.getByTestId("request-row-p0-reason")).toHaveTextContent(
       "„Klient zamyka listę w piątek”",
     )
+  })
+})
+
+describe("RequestBoardView — P0 po terminie (06.11.2026)", () => {
+  it("termin minął po południu dnia firmy — wiersz mówi, że P0 czeka na decyzję", () => {
+    // Regresja: wiersz liczył P0 względem 12:00 dnia firmy, więc P0, które
+    // minęło przed chwilą, plakietka pokazywała jako po terminie, a wiersz nie.
+    const overdueBoard: RequestBoard = {
+      ...board,
+      requests: [
+        {
+          ...board.requests[3],
+          is_p0: true,
+          p0_until: new Date(Date.now() - 60_000).toISOString(),
+          p0_reason: "3 wakaty",
+        },
+      ],
+    }
+    render(
+      <RequestBoardView
+        board={overdueBoard}
+        today={TODAY}
+        filters={EMPTY_FILTERS}
+        onFilters={vi.fn()}
+        canStaff={false}
+        canDecide={false}
+        onAddPerson={vi.fn()}
+        onRemovePerson={vi.fn()}
+        onAcceptProposal={vi.fn()}
+        tableOnly
+      />,
+    )
+    expect(screen.getByTestId("p0-chip")).toHaveAttribute("data-overdue", "true")
+    expect(screen.getByTestId("p0-overdue-waiting")).toHaveTextContent("dopóki Head of Recruitment")
   })
 })
 

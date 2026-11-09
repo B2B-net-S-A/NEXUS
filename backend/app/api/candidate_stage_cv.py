@@ -5,6 +5,7 @@ Faza 2 (PR1) — `original` snapshot:
   GET    /api/candidates/stages/{stage_id}/cv/original/download
   POST   /api/candidates/stages/{stage_id}/cv/original/refresh
   POST   /api/candidates/stages/{stage_id}/cv/original/upload
+  POST   /api/candidates/stages/{stage_id}/cv/original/from-document
          (nowe CV z rekrutacji: główne CV profilu + kopia etapu, 13.10.2026;
          plik nazwany jak CV do klienta → CV do klienta etapu, 15.10.2026)
 
@@ -54,6 +55,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import mimetypes
+import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
@@ -69,6 +72,7 @@ from fastapi import (
     Query,
     Response,
     UploadFile,
+    status,
 )
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
@@ -79,14 +83,16 @@ from app.services.cv_document_assets import (
     CvAssetsError,
 )
 from app.core.http_headers import content_disposition_attachment
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
-from app.services import candidate_audit, cv_editor_issues
-from app.services.cv_download_log import log_cv_download
+from app.services import candidate_audit, cv_download_policy, cv_editor_issues
+from app.services.client_panel import stamp_for_download
+from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_rewrite_merge import MergeResult, merge_rewrite
 from app.services.cv_draft_snapshots import (
@@ -107,19 +113,27 @@ from app.services.cv_document_versions import (
 # A read-only viewer/client could enumerate sequential stage_id values and
 # download every candidate's original + branded CV. Reads now require the
 # same CandidateDocumentAccess capability as the canonical document routes.
-from app.api.candidate_access import CandidateDocumentAccess, CandidateWriteAccess
+from app.api.candidate_access import (
+    NOT_READ_ONLY,
+    CandidateDocumentAccess,
+    CandidateWriteAccess,
+)
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generator_feedback import CvGeneratorFeedback
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.schemas.candidate_stage_cv import (
+    CVFilenameResponse,
+    CVFilenameUpdate,
     CVBrandedConsentAttach,
     CVBrandedFinalize,
     CVBrandedReview,
@@ -171,6 +185,10 @@ from app.services.stage_cv_copy import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Nazwa pliku CV ustawiona ręcznie i nazwa ze wzoru klienta, w metadanych szkicu.
+CV_CUSTOM_FILENAME_KEY = "custom_filename"
+CV_PATTERN_FILENAME_KEY = "pattern_filename"
 router = APIRouter()
 
 
@@ -209,6 +227,7 @@ def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotRespons
         original_cv_language=csv.original_cv_language,
         original_snapshot_at=csv.original_snapshot_at,
         original_snapshot_source=csv.original_snapshot_source,
+        original_cv_sha256=csv.original_cv_sha256,
         download_url=(
             f"/api/candidates/stages/{csv.candidate_stage_id}/cv/original/download"
             if has_snapshot
@@ -371,6 +390,11 @@ async def download_original_cv(
             status_code=404,
             detail="Kandydat nie miał CV w momencie utworzenia rekrutacji.",
         )
+    filename = csv.original_cv_filename or f"cv_stage_{stage_id}.pdf"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=None
+        )
     try:
         content = await load_original_cv_bytes(csv)
     except Exception as exc:  # noqa: BLE001 — storage chwilowo niedostępny
@@ -404,7 +428,10 @@ async def download_original_cv(
     )
     await db.commit()
 
-    filename = csv.original_cv_filename or f"cv_stage_{stage_id}.pdf"
+    return _original_cv_file_response(content, filename)
+
+
+def _original_cv_file_response(content: bytes, filename: str) -> Response:
     media_type, _ = mimetypes.guess_type(filename)
     if not media_type:
         media_type = "application/octet-stream"
@@ -417,6 +444,148 @@ async def download_original_cv(
             "Content-Length": str(len(content)),
         },
     )
+
+
+class GeneratorFeedbackIn(BaseModel):
+    """Co generator zrobił źle: warunek pobrania oryginału po jego wyniku."""
+
+    reasons: list[str] = Field(
+        min_length=1, max_length=len(cv_download_policy.FEEDBACK_REASONS)
+    )
+    detail: Optional[str] = Field(
+        default=None, max_length=cv_download_policy.FEEDBACK_DETAIL_MAX
+    )
+
+    @field_validator("reasons")
+    @classmethod
+    def _known_reasons(cls, value: list[str]) -> list[str]:
+        unknown = set(value) - set(cv_download_policy.FEEDBACK_REASONS)
+        if unknown:
+            raise ValueError("Nieznany powód.")
+        return list(dict.fromkeys(value))
+
+    @field_validator("detail")
+    @classmethod
+    def _clean_detail(cls, value: Optional[str]) -> Optional[str]:
+        cleaned = (value or "").replace("\x00", "").strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def _other_needs_detail(self) -> "GeneratorFeedbackIn":
+        if "other" in self.reasons and not self.detail:
+            raise ValueError("Przy „Inny powód” opisz, co poszło nie tak.")
+        return self
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/original/download-after-generator",
+    dependencies=NOT_READ_ONLY,
+)
+async def download_original_cv_after_generator(
+    stage_id: int,
+    payload: GeneratorFeedbackIn,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Oryginał CV po złym wyniku generatora: jedyna droga dla samej roli rekrutera.
+
+    Wymaga próby z generatorem w tej parze (gotowe CV albo błąd) i zapisuje
+    powody w ``cv_generator_feedback``. Decyzja Artura 02.11.2026.
+    """
+    csv = await _load_csv_for_stage(
+        db, stage_id, current_user, read_access=True, create_missing=True
+    )
+    generation = (
+        await db.execute(
+            select(
+                CvGeneratedDocument.id,
+                CvGeneratedDocument.status,
+                CvGeneratedDocument.client_id,
+                CvGeneratedDocument.client_rule_version,
+                CvGeneratedDocument.content_mode,
+            )
+            .where(
+                CvGeneratedDocument.status.in_(("ready", "failed")),
+                or_(
+                    CvGeneratedDocument.id == csv.generated_document_id,
+                    CvGeneratedDocument.stage_id == stage_id,
+                    and_(
+                        CvGeneratedDocument.candidate_id == csv.candidate_id,
+                        CvGeneratedDocument.job_id == csv.job_id,
+                    ),
+                ),
+            )
+            .order_by(
+                CvGeneratedDocument.created_at.desc(), CvGeneratedDocument.id.desc()
+            )
+            .limit(1)
+        )
+    ).first()
+    if generation is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "generator_attempt_required",
+                "message": "Najpierw wygeneruj CV. Oryginał pobierzesz, jeśli wynik będzie zły.",
+            },
+        )
+
+    try:
+        if snapshot_exists(csv):
+            content = await load_original_cv_bytes(csv)
+            filename = csv.original_cv_filename or f"cv_stage_{stage_id}.pdf"
+        else:
+            content, filename = None, None
+        if content is None:
+            # Etap bez kopii z chwili dodania: to samo główne CV co w podglądzie.
+            from app.services.cv_source import get_current_cv
+
+            candidate = await db.get(Candidate, csv.candidate_id)
+            current = await get_current_cv(db, candidate) if candidate else None
+            content = current.content if current else None
+            filename = current.filename if current else None
+    except Exception as exc:  # noqa: BLE001 — storage chwilowo niedostępny
+        logger.warning(
+            "Oryginał CV stage=%s po generatorze: pobranie nieudane: %s",
+            stage_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się pobrać pliku CV z magazynu. Spróbuj ponownie.",
+        ) from exc
+    if content is None or filename is None:
+        raise HTTPException(status_code=404, detail="Ta osoba nie ma pliku CV.")
+
+    db.add(
+        CvGeneratorFeedback(
+            candidate_stage_id=stage_id,
+            candidate_id=csv.candidate_id,
+            job_id=csv.job_id,
+            client_id=generation.client_id,
+            generated_document_id=generation.id,
+            generation_status=generation.status,
+            client_rule_version=generation.client_rule_version,
+            content_mode=generation.content_mode,
+            reasons=payload.reasons,
+            detail=payload.detail,
+            created_by=current_user.id,
+        )
+    )
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.DOCUMENT_DOWNLOADED,
+        user_id=current_user.id,
+        entity_id=csv.candidate_id,
+        details={
+            "stage_id": stage_id,
+            "endpoint": "stage-cv-original",
+            "disposition": "attachment",
+            "via": "after_generator",
+        },
+    )
+    await db.commit()
+    return _original_cv_file_response(content, filename)
 
 
 @router.post(
@@ -610,6 +779,186 @@ async def upload_original_cv(
     )
 
 
+class OriginalCvFromDocumentIn(BaseModel):
+    document_id: int = Field(ge=1, le=2_147_483_647)
+
+
+async def _document_cv_bytes(db: AsyncSession, document: CandidateDocument) -> bytes:
+    """Bajty wskazanego pliku. Bez schodzenia do innego CV osoby przy awarii magazynu."""
+    if document.storage_key:
+        try:
+            from app.services.object_storage import download_cv
+
+            return await run_in_threadpool(download_cv, document.storage_key)
+        except Exception as exc:  # noqa: BLE001 — zapas w bazie niżej
+            logger.warning(
+                "Oryginał CV z pliku profilu: pobranie nieudane (document=%s): %s",
+                document.id,
+                type(exc).__name__,
+            )
+    content = await db.scalar(
+        select(CandidateDocument.file_content).where(
+            CandidateDocument.id == document.id
+        )
+    )
+    if not content:
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się odczytać tego pliku. Spróbuj za chwilę.",
+        )
+    return bytes(content)
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/original/from-document",
+    response_model=StageCvUploadResponse,
+    dependencies=SOURCING_SECTION_DEPENDENCIES,
+)
+async def set_original_cv_from_document(
+    stage_id: int,
+    payload: OriginalCvFromDocumentIn,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> StageCvUploadResponse:
+    """„Zmień plik” w „CV oryginalnym”: plik z profilu zamiast wgrywania (04.11.2026).
+
+    Skutek jak `upload_original_cv`: główne CV profilu, kopia tego etapu w jednej
+    transakcji, odczyt AI i bramka tożsamości w tle, plan CV do klienta. Plik
+    musi należeć do osoby z tego etapu i być używalnym CV kandydata, bo kopia
+    etapu jest źródłem QC i generatora.
+    """
+    from app.api.candidates import (
+        _after_cv_commit,
+        _primary_cv_before_change,
+    )
+    from app.models.job import Job
+    from app.services.client_cv_upload import (
+        client_filename_pattern,
+        looks_like_client_cv,
+    )
+    from app.services.cv_source import CurrentCV, current_cv_filters_for
+    from app.services.new_cv_company_cv import plan_after_new_cv
+
+    csv_row = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == csv_row.candidate_id).with_for_update()
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
+    document = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.id == payload.document_id,
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego pliku w profilu.")
+    if document.document_kind != CandidateDocumentKind.cv:
+        raise HTTPException(
+            status_code=422,
+            detail="Ten plik nie jest oznaczony jako CV. Zmień jego rodzaj w profilu.",
+        )
+    if document.outdated_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="To CV jest oznaczone jako nieaktualne. Cofnij oznaczenie w profilu.",
+        )
+    if os.path.splitext(document.filename.lower())[1] not in _STAGE_UPLOAD_CV_EXT:
+        raise HTTPException(
+            status_code=415,
+            detail="CV oryginalnym może być tylko plik PDF, DOC albo DOCX.",
+        )
+    job = await db.get(Job, csv_row.job_id)
+    pattern = await client_filename_pattern(db, job.client_id if job else None)
+    if looks_like_client_cv(document.filename, pattern):
+        raise HTTPException(
+            status_code=422,
+            detail="To CV dla klienta, nie CV kandydata. Nie może być CV oryginalnym.",
+        )
+    eligible = await db.scalar(
+        select(CandidateDocument.id).where(
+            CandidateDocument.id == document.id,
+            *await current_cv_filters_for(db, candidate.id),
+        )
+    )
+    if eligible is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ten plik wygląda na CV innej osoby, więc nie może być CV oryginalnym.",
+        )
+
+    content = await _document_cv_bytes(db, document)
+    if (
+        document.is_primary
+        and csv_row.original_cv_sha256 == hashlib.sha256(content).hexdigest()
+    ):
+        # Nic się nie zmienia, więc bez odczytu AI i bez planu CV do klienta.
+        return StageCvUploadResponse(
+            **_build_original_response(csv_row).model_dump(),
+            outcome="original",
+            uploaded_filename=document.filename,
+            stored_in_profile=True,
+            uploaded_document_id=document.id,
+        )
+
+    replaced_primary = await _primary_cv_before_change(db, candidate.id)
+    await db.execute(
+        update(CandidateDocument)
+        .where(
+            CandidateDocument.candidate_id == candidate.id,
+            CandidateDocument.id != document.id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+        .values(is_primary=False)
+    )
+    document.is_primary = True
+    await db.flush()
+    csv = await refresh_original_cv_snapshot(
+        db,
+        stage_id,
+        user_id=current_user.id,
+        current=CurrentCV(
+            content=content,
+            filename=document.filename,
+            language=candidate.cv_language,
+            source="stage_document",
+        ),
+    )
+    plan = await plan_after_new_cv(
+        db, csv_row=csv, document_id=document.id, user_id=current_user.id
+    )
+    await db.commit()
+    await db.refresh(candidate)
+    await db.refresh(document)
+    await db.refresh(csv)
+    await _after_cv_commit(
+        db,
+        background_tasks,
+        candidate=candidate,
+        document=document,
+        actor_user_id=current_user.id,
+        replaced_primary=replaced_primary,
+    )
+    if plan.durable_id is not None:
+        from app.services.cv_generator_b2b.durable_jobs import execute_job
+
+        background_tasks.add_task(execute_job, plan.durable_id)
+    return StageCvUploadResponse(
+        **_build_original_response(csv).model_dump(),
+        outcome="original",
+        uploaded_filename=document.filename,
+        stored_in_profile=True,
+        uploaded_document_id=document.id,
+        company_cv=plan.plan,
+        company_cv_stage_id=plan.stage_id,
+        company_cv_status=plan.status,
+        regenerating_document_id=plan.generated_id,
+    )
+
+
 CLIENT_CV_LOCKED_MESSAGE = (
     "Klient ma już CV tej osoby, więc nie podmieniam go innym. Poprawki zrobisz "
     "w edytorze — zapisze je w historii wersji."
@@ -697,9 +1046,10 @@ async def _upload_client_cv(
       nieprzejrzane auto-CV podmieniamy bez pytania (D2).
 
     W profilu plik zostaje jako „CV dla klientów” (niegłówny, bez odczytu AI)
-    tylko wtedy, gdy osoba ma główne CV. Bez niego najnowszy plik CV staje
-    się „bieżącym CV” (`cv_source.current_cv_ordering`) — źródłem generatora
-    i kopii oryginału — tak jak plik z dysku w karcie (12.10.2026).
+    tylko wtedy, gdy osoba ma główne CV. Bez niego plik może zostać „bieżącym
+    CV” (`cv_source.current_cv_ordering`) — źródłem generatora i kopii
+    oryginału — tak jak plik z dysku w karcie (12.10.2026); od 02.11.2026 tylko
+    gdy osoba nie ma innego pliku rodzaju „cv”.
     """
     import os
 
@@ -713,6 +1063,7 @@ async def _upload_client_cv(
     )
     from app.services import integration_cv
     from app.services.candidate_claim import stage_column
+    from app.services.cv_edit_summary import has_editor_start
 
     imported = await word_to_editor_html(content)
     observed = other_person_name(
@@ -823,6 +1174,7 @@ async def _upload_client_cv(
                 "code": "client_cv_replace_confirm",
                 "message": _replace_question(target),
                 "status": prior_status,
+                "ask_replace_reason": has_editor_start(target.branded_render_metadata),
                 "updated_at": changed.isoformat() if changed else None,
             },
         )
@@ -830,6 +1182,7 @@ async def _upload_client_cv(
         replaced = "confirmed"
     if prior_status == "draft":
         snapshot_draft(db, target, user_id=user_id, reason="replaced")
+    ask_replace_reason = has_editor_start(target.branded_render_metadata)
 
     document = await store_in_profile() if has_primary else None
     sha256 = hashlib.sha256(content).hexdigest()
@@ -863,6 +1216,7 @@ async def _upload_client_cv(
         client_cv_stage_id=target.candidate_stage_id,
         replaced=replaced,
         undo_available=replaced in ("none", "auto_cv"),
+        ask_replace_reason=ask_replace_reason,
         stored_in_profile=document is not None,
     )
 
@@ -1023,6 +1377,8 @@ def _build_branded_response(
         docx_filename=csv.branded_docx_filename
         if csv.branded_status == "finalized"
         else None,
+        current_filename=csv.branded_docx_filename,
+        pattern_filename=metadata.get(CV_PATTERN_FILENAME_KEY),
         edit_revision=csv.edit_revision or 0,
         version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
@@ -1389,9 +1745,24 @@ async def _write_stage_draft(
     Zatwierdzona wersja jest najpierw zamrażana — jej linki i pobrania zostają
     przy starej treści. Bez commitu; wołający trzyma blokadę wiersza.
     """
+    from app.services.cv_edit_summary import REPLACE_KINDS, log_replaced_edits
+
+    kind = REPLACE_KINDS.get(activity_action)
+    if kind is not None:
+        await log_replaced_edits(db, csv=csv, kind=kind, user_id=user_id)
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
+    # Nazwa ustawiona ręcznie zostaje przy nowej wersji CV, a wzór klienta idzie
+    # dalej, żeby dało się do niego wrócić (02.11.2026).
+    custom_filename = (csv.branded_render_metadata or {}).get(CV_CUSTOM_FILENAME_KEY)
+    if custom_filename and filename:
+        metadata = {
+            **metadata,
+            CV_CUSTOM_FILENAME_KEY: custom_filename,
+            CV_PATTERN_FILENAME_KEY: filename,
+        }
+        filename = custom_filename
     csv.generated_document_id = generated_document_id
     csv.branded_from_generator = from_generator
     csv.branded_template_content = template
@@ -1444,6 +1815,7 @@ async def _apply_generated_from_other_job(
     from app.services.candidate_stage_cv_service import detached_copy_settings
     from app.services.cv_approval_provenance import capture_editor_origin
     from app.services.cv_document_assets import default_template
+    from app.services.cv_edit_summary import START_HTML_KEY
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
@@ -1485,6 +1857,9 @@ async def _apply_generated_from_other_job(
             source_job_id=generated.job_id,
             blind_identity_guard=origin["blind_identity_guard"],
             blind_identity_terms=origin["blind_identity_terms"],
+            # Start kopii dla pomiaru poprawek (E3); bez skrótu generacji, bo
+            # kopia ma inny nagłówek niż generacja i nie przejmuje jej kontroli.
+            **{START_HTML_KEY: origin[START_HTML_KEY]},
         ),
         blind=bool(public["blind"]),
         language=public["language"],
@@ -1695,6 +2070,29 @@ async def restore_previous_branded_draft(
 DISCARD_ACTION = "branded_cv_discarded"
 
 
+class CVBrandedReplaceReason(BaseModel):
+    reason: Literal["client_format", "missing_experience", "newer_cv", "other"]
+
+
+@router.post("/candidates/stages/{stage_id}/cv/branded/replace-reason", status_code=204)
+async def record_cv_replace_reason(
+    stage_id: int,
+    payload: CVBrandedReplaceReason,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Pigułka „dlaczego nie CV z generatora” (CV-2). Opcjonalna, tylko pomiar."""
+    from app.services.cv_edit_summary import record_replace_reason
+
+    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    saved = await record_replace_reason(
+        db, csv_id=csv.id, user_id=current_user.id, reason=payload.reason
+    )
+    if not saved:
+        raise HTTPException(404, "Nie ma podmiany CV, do której pasuje ten powód.")
+    await db.commit()
+
+
 @router.post(
     "/candidates/stages/{stage_id}/cv/branded/discard",
     response_model=CVBrandedResponse,
@@ -1719,6 +2117,11 @@ async def discard_branded_cv(
     if csv.branded_status == "none":
         raise HTTPException(409, "Ta rekrutacja nie ma CV do klienta do odrzucenia.")
     await _ensure_client_cv_replaceable(db, csv)
+    from app.services.cv_edit_summary import REPLACE_KINDS, log_replaced_edits
+
+    await log_replaced_edits(
+        db, csv=csv, kind=REPLACE_KINDS[DISCARD_ACTION], user_id=current_user.id
+    )
     snapshot_draft(db, csv, user_id=current_user.id, reason="replaced")
     await _mark_pair_generations_discarded(db, csv)
     _clear_stage_draft(db, csv, user_id=current_user.id, action=DISCARD_ACTION)
@@ -2266,6 +2669,79 @@ DOCX_MEDIA_TYPE = (
 )
 
 
+# Znaki, których nie ma w nazwie pliku na Windowsie, i znaki sterujące.
+_CV_FILENAME_FORBIDDEN = re.compile(r'[\x00-\x1f\x7f\\/:*?"<>|]')
+
+
+def clean_cv_filename(raw: str) -> Optional[str]:
+    """Nazwa pliku CV wpisana przez człowieka: ``nazwa.docx`` albo ``None``."""
+    stem = _CV_FILENAME_FORBIDDEN.sub("", raw)
+    stem = " ".join(stem.split())
+    stem = re.sub(r"\.docx$", "", stem, flags=re.IGNORECASE).strip(" .")
+    return f"{stem}.docx" if stem else None
+
+
+@router.patch(
+    "/candidates/stages/{stage_id}/cv/branded/filename",
+    response_model=CVFilenameResponse,
+)
+async def rename_branded_cv(
+    stage_id: int,
+    payload: CVFilenameUpdate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVFilenameResponse:
+    """Zmień nazwę pliku CV do klienta bez pobierania go (02.11.2026).
+
+    Treść i numer zapisu edytora się nie zmieniają, więc otwarty edytor nie dostaje
+    konfliktu. Przy zatwierdzonym CV nazwa idzie też na bieżącą wersję, bo z niej
+    biorą pobranie i pakiet CV.
+    """
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    if csv.branded_status == "none" or not csv.branded_docx_filename:
+        raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
+    filename = clean_cv_filename(payload.filename)
+    if filename is None:
+        raise HTTPException(422, "Podaj nazwę pliku.")
+    previous = csv.branded_docx_filename
+    metadata = dict(csv.branded_render_metadata or {})
+    pattern = metadata.get(CV_PATTERN_FILENAME_KEY) or previous
+    if filename == pattern:
+        metadata.pop(CV_CUSTOM_FILENAME_KEY, None)
+        metadata.pop(CV_PATTERN_FILENAME_KEY, None)
+    else:
+        metadata[CV_CUSTOM_FILENAME_KEY] = filename
+        metadata[CV_PATTERN_FILENAME_KEY] = pattern
+    csv.branded_docx_filename = filename
+    csv.branded_render_metadata = metadata
+    if csv.branded_status == "finalized":
+        version = await db.scalar(
+            select(CvDocumentVersion).where(
+                CvDocumentVersion.candidate_stage_cv_id == csv.id,
+                CvDocumentVersion.version == csv.branded_version,
+            )
+        )
+        if version is not None:
+            version.docx_filename = filename
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="branded_cv_filename_changed",
+            user_id=current_user.id,
+            details={
+                "candidate_stage_id": csv.candidate_stage_id,
+                "from": previous,
+                "to": filename,
+            },
+        )
+    )
+    await db.commit()
+    return CVFilenameResponse(
+        filename=filename, pattern_filename=metadata.get(CV_PATTERN_FILENAME_KEY)
+    )
+
+
 def draft_docx_filename(csv: CandidateStageCV) -> str:
     """Nazwa pliku Word szkicu CV etapu: „SZKIC_” + nazwa z reguły klienta."""
     return "SZKIC_" + (csv.branded_docx_filename or f"CV_v{csv.branded_version}.docx")
@@ -2318,6 +2794,14 @@ async def preview_branded_docx(
         state="draft",
         version=csv.branded_version,
     )
+    if intent == DOWNLOAD_INTENT:
+        docx = await stamp_for_download(
+            db,
+            job_id=csv.job_id,
+            candidate_id=csv.candidate_id,
+            docx=docx,
+            language=csv.branded_language,
+        )
     return Response(
         content=docx,
         media_type=DOCX_MEDIA_TYPE,
@@ -2535,10 +3019,23 @@ async def download_approved_docx(
         state="approved",
         version=version.version,
     )
+    content = version.docx_content
+    headers = approved_docx_headers(version)
+    if intent == DOWNLOAD_INTENT:
+        content = await stamp_for_download(
+            db,
+            job_id=csv.job_id,
+            candidate_id=csv.candidate_id,
+            docx=content,
+            language=csv.branded_language,
+        )
+        # ETag opisuje zamrożone bajty wersji, a ramka je zmienia.
+        if content is not version.docx_content:
+            headers.pop("ETag", None)
     return Response(
-        content=version.docx_content,
+        content=content,
         media_type=DOCX_MEDIA_TYPE,
-        headers=approved_docx_headers(version),
+        headers=headers,
     )
 
 

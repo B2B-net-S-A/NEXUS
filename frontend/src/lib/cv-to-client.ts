@@ -22,7 +22,7 @@
 
 import type { QcCheck } from "@/lib/api/cvQc";
 import { classifyCvWarnings } from "@/lib/cv-generator";
-import { splitChecks, warningsBeyondQc } from "@/lib/cv-qc";
+import { splitChecks, warningsBeyondQc, cvControlSummary } from "@/lib/cv-qc";
 
 /** Lista wygenerowanych CV pary — prefiks `cv-generated` jak reszta generatora
  *  (dołączenie zgody i nowa generacja unieważniają go hurtem). */
@@ -339,7 +339,13 @@ export interface CvChecksInput {
 export function cvChecksBeforeSending({ checks, warnings, findings }: CvChecksInput): number {
   const split = splitChecks(checks);
   const review = classifyCvWarnings(warnings).review;
-  return split.tasks.length + split.notes.length + warningsBeyondQc(review, checks).kept.length + findings.length;
+  // QC-9: „sprawdź ręcznie” krytycznych liczy się per wymaganie, jak na karcie.
+  const notes = split.notes.reduce(
+    (sum, check) =>
+      sum + (check.key === "critical_skills" && check.status === "manual" ? cvControlSummary([check]).unverified.length || 1 : 1),
+    0,
+  );
+  return split.tasks.length + notes + warningsBeyondQc(review, checks).kept.length + findings.length;
 }
 
 // ── Blok postępu po „Zapisz i przekaż dalej” (14.10.2026, P3) ──────────────

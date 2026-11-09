@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 
+import { isClientCvWordFile } from "@/lib/candidate-files";
+
 import { StatusChip } from "./GeneratorParts";
 import type { ChampionOverride, CvSourceFile } from "./useCvGenerator";
 
@@ -52,7 +54,8 @@ export interface ProcessSourcesProps {
   onChampionFile: (file: File) => void;
   onChampionError: (message: string) => void;
   hasNotes: boolean;
-  notesChars: number;
+  /** Tylko przy minimum z reguły klienta; bez niego serwer znaków nie liczy (`null`). */
+  notesChars: number | null;
   noteDraft: string;
   onNoteDraftChange: (value: string) => void;
   sources: readonly CvSourceFile[];
@@ -133,7 +136,7 @@ export function ProcessSources(props: ProcessSourcesProps) {
         title="Notatki ze screeningu"
         status={
           props.hasNotes ? (
-            <OkChip>{`${props.notesChars.toLocaleString("pl-PL")} znaków`}</OkChip>
+            <OkChip>{props.notesChars == null ? "są" : `${props.notesChars.toLocaleString("pl-PL")} znaków`}</OkChip>
           ) : (
             <StatusChip tone="warn">brak notatek w tej rekrutacji</StatusChip>
           )
@@ -180,7 +183,7 @@ export function ProcessSources(props: ProcessSourcesProps) {
           {props.sources.map((source) => (
             <option key={source.id} value={source.id}>
               {[
-                `${source.filename}${source.is_primary ? " — główny" : props.sources.length === 1 ? " — jedyny plik" : ""}`,
+                `${source.filename}${source.is_primary ? " — główny" : props.sources.length === 1 ? " — jedyny plik" : ""}${isClientCvWordFile(source.filename) ? " — CV dla klienta" : ""}`,
                 formatUploaded(source.uploaded_at),
               ].filter(Boolean).join(" · ")}
             </option>

@@ -59,9 +59,13 @@ import type {
   QcFixAction,
   QcFixesResponse,
   QcItem,
+  QcManualRolesBody,
   QcResult,
+  QcRoleState,
   QcSearch,
 } from "@/lib/api/cvQc";
+import { candidateStageCvApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cvQcQueryKey } from "@/lib/api/cvQc";
 import {
   CV_NOT_EDITABLE_MESSAGE,
@@ -86,6 +90,7 @@ import {
   taskTitle,
   type IssueTarget,
   type QcTask,
+  QC_CONFIRM_TEXT_MIN,
 } from "@/lib/cv-qc";
 import { consentTarget } from "@/lib/cv-editor-issues";
 import { cn, formatDate } from "@/lib/utils";
@@ -125,6 +130,8 @@ export interface ActionContext {
   /** „Potwierdzone z kandydatem” — działa także, gdy CV nie da się edytować. */
   confirm: (body: QcConfirmBody, onSaved?: () => void) => void;
   confirming: boolean;
+  /** Firmy z ról osoby do pola „W której roli?”. */
+  confirmRoles?: string[];
   /** Przewija do sekcji „Propozycje AI” (propozycje ładują się same). */
   requestAiFixes: () => void;
   copyQuestion: (item: QcItem) => void;
@@ -142,6 +149,104 @@ export interface ActionContext {
   /** „Przywróć” przy pominiętej pozycji (id pominięcia). */
   restore: (dismissalId: number) => void;
   restoring: boolean;
+  /**
+   * R3 (07.11.2026): przy „sprawdź ręcznie” krytycznych — wskazanie ról
+   * oryginału. Brak = ten widok nie zapisuje wskazań (np. podgląd).
+   */
+  manualRoles?: (body: QcManualRolesBody, onSaved?: () => void) => void;
+  manualRolesPending?: boolean;
+}
+
+/** Krytyczne z rolami „sprawdź ręcznie” (odczyt bez opisów ról), po kolei. */
+export function manualRoleGroups(check: QcCheck): { requirement: string; roles: string[] }[] {
+  if (check.key !== "critical_skills" || check.status !== "manual") return [];
+  const out = new Map<string, string[]>();
+  for (const role of check.roles ?? []) {
+    if (role.state !== "unverified") continue;
+    out.set(role.requirement, [...(out.get(role.requirement) ?? []), role.role]);
+  }
+  return [...out].map(([requirement, roles]) => ({ requirement, roles }));
+}
+
+/**
+ * „Gdzie oryginał opisuje X?” (R3, 07.11.2026): stanowiska z CV jako
+ * przyciski, „Nigdzie — tylko na liście” jednym kliknięciem. QC tego nie
+ * zgaduje (odczyt bez opisów ról), więc decyduje człowiek, a Delivery Lead
+ * widzi, kto wskazał.
+ */
+function ManualRolePicker({ requirement, roles, ctx }: { requirement: string; roles: string[]; ctx: ActionContext }) {
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [confirmNowhere, setConfirmNowhere] = useState(false);
+  const save = ctx.manualRoles;
+  if (!save) return null;
+  const toggle = (role: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  return (
+    <div
+      role="group"
+      aria-label={`Gdzie oryginał opisuje: ${requirement}`}
+      data-tour="qc.manual-roles"
+      className="space-y-1.5 rounded-md border border-info/30 bg-info-muted/40 px-2.5 py-2 text-sm"
+    >
+      <p className="text-xs text-muted-foreground">
+        Gdzie oryginał opisuje <span className="font-medium text-foreground">{requirement}</span>? Kliknij stanowisko.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {roles.map((role) => (
+          <button
+            key={role}
+            type="button"
+            aria-pressed={picked.has(role)}
+            onClick={() => toggle(role)}
+            className={cn(
+              "rounded-md border px-2 py-0.5 text-xs",
+              picked.has(role)
+                ? "border-primary bg-primary/10 font-semibold text-primary"
+                : "border-border bg-background text-foreground",
+            )}
+          >
+            {role}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          disabled={picked.size === 0 || ctx.manualRolesPending}
+          onClick={() => save({ requirement, roles: roles.filter((r) => picked.has(r)) })}
+        >
+          Zapisz
+        </Button>
+        {confirmNowhere ? (
+          <>
+            <span className="text-xs text-foreground">
+              {requirement} jest tylko na liście technologii, w żadnym stanowisku. Potwierdzasz?
+            </span>
+            <Button size="sm" variant="outline" disabled={ctx.manualRolesPending} onClick={() => save({ requirement, roles: [] })}>
+              Tak, tylko na liście
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmNowhere(false)}>
+              Wróć
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="ghost" disabled={ctx.manualRolesPending} onClick={() => setConfirmNowhere(true)}>
+            Nigdzie — tylko na liście
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function roleStateText(role: QcRoleState): string {
+  const base = QC_ROLE_STATE_LABEL[role.state];
+  return role.manual?.by ? `${base} · wskazał(a) ${role.manual.by}` : base;
 }
 
 const newTab = (ctx: ActionContext) => (ctx.linksInNewTab ? { target: "_blank", rel: "noreferrer" } : {});
@@ -274,6 +379,16 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
           Ułóż od najnowszego
         </Button>
       );
+    case "restore_dates":
+      return (
+        <Button
+          size="sm"
+          disabled={!ctx.editable || ctx.busy}
+          onClick={() => ctx.apply({ action: "restore_dates", role_index: item.role_index ?? undefined }, "Przywrócono daty z oryginału.")}
+        >
+          Przywróć daty z oryginału
+        </Button>
+      );
     case "remove_term":
       return term ? <RemoveTermButton term={term} ctx={ctx} /> : null;
     case "ask_candidate":
@@ -303,6 +418,8 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
           , wgraj zrzut i wygeneruj CV ponownie.
         </span>
       );
+    case "use_older_cv":
+      return <UseOlderCv item={item} ctx={ctx} />;
     case "generate_cv":
       return (
         <GeneratorOpener data={ctx.data}>
@@ -316,6 +433,47 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
     default:
       return null;
   }
+}
+
+/**
+ * QC-4 (08.11.2026): „Użyj tego CV” przy pliku B2B sprzed rekrutacji — wczytuje
+ * plik jako szkic CV tej pary (`select-document`). Jedno kliknięcie wystarcza
+ * (decyzja Artura z audytu); „Wygeneruj nowe” zostaje obok.
+ */
+function UseOlderCv({ item, ctx }: { item: QcItem; ctx: ActionContext }) {
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [pending, setPending] = useState(false);
+  const stageId = ctx.data.stage_id;
+  const documentId = item.document?.document_id;
+  const use = async () => {
+    if (documentId == null) return;
+    setPending(true);
+    try {
+      const { data: state } = await candidateStageCvApi.branded.get(stageId);
+      await candidateStageCvApi.branded.selectDocument(stageId, documentId, state.edit_revision ?? 0);
+      await queryClient.invalidateQueries({ queryKey: cvQcQueryKey(stageId) });
+      showSuccess("Użyto tego CV jako CV firmowego tej rekrutacji.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się użyć tego CV. Spróbuj ponownie."));
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <Button size="sm" disabled={pending || documentId == null} onClick={() => void use()}>
+        Użyj tego CV
+      </Button>
+      <GeneratorOpener data={ctx.data}>
+        {(open) => (
+          <Button size="sm" variant="outline" onClick={open}>
+            Wygeneruj nowe
+          </Button>
+        )}
+      </GeneratorOpener>
+    </span>
+  );
 }
 
 /** Rola z brakiem: na czym w oryginale stoi wymóg opisu i co jest w CV firmowym. */
@@ -351,6 +509,16 @@ function RoleEvidence({ item, ctx, onDismiss }: { item: QcItem; ctx: ActionConte
         <dd>{companyCvRoleState(item)}</dd>
       </dl>
     </li>
+  );
+}
+
+/** Fragment oryginału, gdy ta sama rzecz może stać tam pod inną nazwą. */
+export function SimilarQuote({ item }: { item: QcItem }) {
+  if (!item.similar) return null;
+  return (
+    <p data-testid="qc-similar-quote" className="border-l-2 border-warning pl-2 text-xs text-foreground [overflow-wrap:anywhere]">
+      Oryginał: <q className="italic">{item.similar.quote}</q>
+    </p>
   );
 }
 
@@ -407,31 +575,61 @@ function InfoItems({ items }: { items: QcItem[] }) {
 
 const CONFIRM_TEXT_MAX = 1000;
 
-/** Formularz „Potwierdzone z kandydatem” w karcie treści spoza oryginału. */
+/**
+ * Formularz „Potwierdzone z kandydatem” w karcie treści spoza oryginału.
+ *
+ * Słowa kandydata są obowiązkowe (decyzja Artura 02.11.2026): 101 ze 153 wpisów
+ * było samym kliknięciem, więc Delivery Lead nie miał czego sprawdzić. Rola jest
+ * opcjonalna; dopiero z nią generator opisze fakt przy tej firmie.
+ */
 function ConfirmForm({ term, ctx, onClose }: { term: string; ctx: ActionContext; onClose: () => void }) {
   const [text, setText] = useState("");
+  const [role, setRole] = useState("");
   const fieldId = useId();
+  const roleId = useId();
+  const said = text.trim();
+  const roles = ctx.confirmRoles ?? [];
   return (
     <form
       className="space-y-1.5"
       onSubmit={(event) => {
         event.preventDefault();
-        const said = text.trim();
-        ctx.confirm(said ? { term, text: said } : { term }, onClose);
+        ctx.confirm(role ? { term, text: said, role } : { term, text: said }, onClose);
       }}
     >
       <label htmlFor={fieldId} className="block text-xs font-medium">
-        Co powiedział kandydat? (opcjonalnie)
+        Co dokładnie powiedział kandydat? (wymagane)
       </label>
       <textarea
         id={fieldId}
         className="min-h-16 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
         maxLength={CONFIRM_TEXT_MAX}
+        placeholder="Jego słowami: co robił, gdzie i jak długo. To zdanie zobaczy Delivery Lead."
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
+      {roles.length > 0 ? (
+        <div>
+          <label htmlFor={roleId} className="block text-xs font-medium">
+            W której roli?
+          </label>
+          <select
+            id={roleId}
+            className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+          >
+            <option value="">Nie w konkretnej roli (tylko umiejętności)</option>
+            {roles.map((company) => (
+              <option key={company} value={company}>
+                {company}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm" disabled={ctx.confirming}>
+        <Button type="submit" size="sm" disabled={ctx.confirming || said.length < QC_CONFIRM_TEXT_MIN}>
           {ctx.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
           Zapisz potwierdzenie
         </Button>
@@ -640,7 +838,9 @@ function itemHasAction(item: QcItem): boolean {
     item.fix === "upload_consent" ||
     item.fix === "replace_consent" ||
     item.fix === "generate_cv" ||
-    item.fix === "role_order"
+    item.fix === "use_older_cv" ||
+    item.fix === "role_order" ||
+    item.fix === "restore_dates"
   );
 }
 
@@ -680,6 +880,24 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
       <DismissButton onClick={() => openDismiss(single.key ?? "")} disabled={ctx.dismissing} />
     ) : null;
   const dismissItem = dismissKey ? items.find((item) => item.key === dismissKey) ?? null : null;
+  // „Pod inną nazwą” jednym kliknięciem: cytat z oryginału podaje QC.
+  const sameThingButton = single?.similar ? (
+    <Button
+      size="sm"
+      data-tour="cv-qc.same-thing"
+      disabled={ctx.dismissing}
+      onClick={() =>
+        ctx.dismiss({
+          check_key: check.key,
+          key: single.key ?? "",
+          reason: "other_name",
+          quote: single.similar?.quote,
+        })
+      }
+    >
+      To ta sama rzecz
+    </Button>
+  ) : null;
   const editorButton = ctx.openEditor ? (
     <Button size="sm" variant="outline" onClick={ctx.openEditor}>
       Poprawię w edytorze
@@ -735,7 +953,12 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
   } else if (check.key === "no_unsupported" && first) {
     const term = (first.term ?? name ?? "").trim();
     // Tytuł mówi już, co jest nie tak — niżej tylko, co z tym zrobić.
-    body = (
+    body = first.similar ? (
+      <>
+        <p className="text-xs text-muted-foreground">{first.detail}</p>
+        <SimilarQuote item={first} />
+      </>
+    ) : (
       <>
         <p className="text-xs text-muted-foreground">
           Oryginalne CV, odpowiedzi ze screeningu i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź
@@ -746,12 +969,14 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
     );
     actions = (
       <>
+        {sameThingButton}
         {term ? <RemoveTermButton term={term} ctx={ctx} /> : null}
-        <AskCandidateButtons item={first} ctx={ctx} />
+        {first.similar ? null : <AskCandidateButtons item={first} ctx={ctx} />}
         {term && !confirmOpen ? (
           <Button
             size="sm"
             variant="outline"
+            data-tour="cv-qc.confirm"
             onClick={() => {
               setDismissKey(null);
               setConfirmOpen(true);
@@ -771,14 +996,16 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
       detail || first.searched?.length ? (
         <>
           {detail}
+          <SimilarQuote item={first} />
           <SearchedChips searched={first.searched} />
         </>
       ) : null;
     const where = ctx.locate ? itemTarget(first) : null;
     const action = first.fix ? <ItemAction item={first} ctx={ctx} /> : editorButton;
     actions =
-      action || where ? (
+      action || where || sameThingButton ? (
         <>
+          {sameThingButton}
           {action}
           <LocateButton target={where} ctx={ctx} />
         </>
@@ -823,6 +1050,7 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
   // `useId`: okno QC i panel w edytorze CV bywają otwarte naraz.
   const bodyId = useId();
   const preview = check.status === "fail" || check.status === "manual" ? notePreview(check) ?? check.summary : null;
+  const manualGroups = ctx.manualRoles ? manualRoleGroups(check) : [];
   return (
     <li className="overflow-hidden rounded-lg border border-border">
       <button
@@ -851,6 +1079,13 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
           ) : null}
         </span>
       </button>
+      {manualGroups.length > 0 ? (
+        <div className="space-y-2 border-t border-border px-3 py-2.5">
+          {manualGroups.map((group) => (
+            <ManualRolePicker key={group.requirement} requirement={group.requirement} roles={group.roles} ctx={ctx} />
+          ))}
+        </div>
+      ) : null}
       {open && hasBody ? (
         <div id={bodyId} className="space-y-2 px-3 py-2.5">
           {check.items.map((item, i) => {
@@ -910,7 +1145,7 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
                   <ul className="space-y-0.5 pl-3 text-muted-foreground">
                     {group.roles.map((role, i) => (
                       <li key={i}>
-                        <span className="text-foreground">{role.role}</span> — {QC_ROLE_STATE_LABEL[role.state]}
+                        <span className="text-foreground">{role.role}</span> — {roleStateText(role)}
                       </li>
                     ))}
                   </ul>

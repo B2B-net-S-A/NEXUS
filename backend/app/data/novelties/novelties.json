@@ -1,5 +1,413 @@
 [
   {
+    "id": "daily-p1-bez-cv-nowe-profile",
+    "pr": 3200,
+    "title": "P1 bez CV i nowe profile na Daily",
+    "why": "Przy kategorii widać, ile P1 stoi bez CV od 5 dni roboczych i ile nowych profili doszło w tygodniu. Takie P1 stoją wyżej, a Delivery Lead dostaje dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacje → Daily",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "daily.p1-no-cv"
+  },
+  {
+    "id": "insights-raport-klienci",
+    "pr": 3200,
+    "title": "Raport „Klienci: od CV do zatrudnienia”",
+    "why": "W jednej tabeli widać dla każdego klienta wysłane CV, rozmowy, zatrudnienia, hit ratio i czas do pierwszego CV. Zamknięcia bez powodu stoją osobno i nie obniżają wyniku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Raporty → Klienci i trend",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.reports.klienci"
+  },
+  {
+    "id": "finanse-rozjazdy-nieznani-nabywcy",
+    "pr": 3182,
+    "title": "Rozjazdy stawek i Nieznani nabywcy",
+    "why": "Widać tu, gdzie stawka z kontraktu różni się od zamówienia MD. W „Faktury do klientów” jest też lista „Nieznani nabywcy”: jedno przypisanie dowiązuje wszystkie faktury nabywcy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Rozjazdy stawek",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.rate-divergences"
+  },
+  {
+    "id": "pulpit-pilne-w-jednej-linii",
+    "pr": 3165,
+    "title": "„Pilne u klientów” w jednej linii",
+    "why": "Pilne rekrutacje zajmują na pulpicie jeden pasek, a pod nim od razu stoi Twoja kolejka. Całą tabelę otworzysz przyciskiem „Pokaż tabelę”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Pulpit → pasek „Pilne u klientów”",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.p0-line"
+  },
+  {
+    "id": "stoja-ponad-7-dni-wpis-na-rekrutacje",
+    "pr": 3174,
+    "title": "Jeden wpis o osobach, które stoją ponad 7 dni",
+    "why": "Zamiast osobnego dzwonka o każdej osobie dostajesz raz w tygodniu jeden wpis na rekrutację. Kliknięcie otwiera Tablicę z filtrem „Stoją > 7 dni”. Pojedyncze przypomnienie zostaje tylko po wysłanym CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Górny pasek → Rekrutacje → Stoją > 7 dni",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.added-by"
+  },
+  {
+    "id": "kandydaci-lata-z-technologia",
+    "pr": 3154,
+    "title": "Filtr lat z technologią na liście kandydatów",
+    "why": "Pigułka „Lata” szuka np. Javy co najmniej 3 lata, liczonych z dat stanowisk w CV. Przy osobie widać „Java 6 lat 8 mies.”, a osoby z technologią bez dat w CV są na końcu listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Kandydaci → filtry → „Lata”",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.skill-years-filter"
+  },
+  {
+    "id": "naglowek-liczba-osob",
+    "pr": 3141,
+    "title": "Liczba osób w nagłówku rekrutacji",
+    "why": "Ilu osób szuka klient, widać teraz w nagłówku rekrutacji obok rekrutera. Klik w liczbę z ołówkiem zmienia ją od razu, bez wchodzenia w Profil Championa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek → liczba osób",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.headcount"
+  },
+  {
+    "id": "sprzedaz-kpi-tygodniowe",
+    "pr": 2811,
+    "title": "Sprzedaż: KPI tygodniowe i krzywa WON MRR",
+    "why": "Spotkania, leady i oferty każdego handlowca za 8 tygodni, ze światłami względem celu, i WON netto MRR względem celu firmy. Cele ustawia administrator przyciskiem „Cele”.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Podsumowanie → KPI tygodniowe",
+    "href": "/sales/summary",
+    "dot_anchor": "sales.kpi-weekly"
+  },
+  {
+    "id": "podpis-przejmij-obsluge",
+    "pr": 2741,
+    "title": "„Przejmij obsługę” wysyłki umowy do podpisu",
+    "why": "Gdy osoba, która wysłała umowę do podpisu, jest na urlopie, przejmiesz obsługę jednym kliknięciem. Przypomnienia i kopia umowy pójdą z Twojej skrzynki, a dzwonki do Ciebie.",
+    "tier": "dot",
+    "shipped_on": "2026-10-28",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Przejmij obsługę (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.take-over"
+  },
+  {
+    "id": "biore-przy-prowadzi",
+    "pr": 3004,
+    "title": "„Biorę” przy „Prowadzi” w panelu z formularzem",
+    "why": "Wolną osobę weźmiesz na 12 h bez wychodzenia z panelu. Przy osobie od systemu przycisk mówi „Dzwonię”, a w „Trybie rozmowy” stoi obok imienia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby z formularzem → wiersz „Prowadzi”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.owner.take"
+  },
+  {
+    "id": "zespol-odpowiedz-i-soczewka",
+    "title": "Zakładka Zespół: od razu widać, jak idzie, gdzie stoi i kto",
+    "why": "Na górze zdanie z odpowiedzią i tempo wobec celu. Klik w etap lejka pokazuje jego wykres tygodniami albo miesiącami i osoby. Na dole wszyscy w jednej linii, kto jak daleko doszedł.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Zespół",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.team-lens"
+  },
+  {
+    "id": "dokumenty-do-startu",
+    "title": "Dokumenty do startu: NDA, KRK i reszta w jednym miejscu",
+    "why": "Klient wpuszcza osobę dopiero z kompletem. Karta w panelu osoby mówi, czego brakuje i do kiedy, a jeden przycisk wysyła konsultantowi całą listę z wypełnionym NDA.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {
+      "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"]
+    },
+    "where": "Panel osoby → Dokumenty do startu",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "start-docs.card"
+  },
+  {
+    "id": "zakladka-zasady",
+    "title": "Zakładka „Zasady”: co dziś obowiązuje i kto to zmienił",
+    "why": "Automat przydziału, bliźniaki, wagi rankingu, cele i punkty Ligi w jednym miejscu. Od razu widać wartości i to, czego nikt jeszcze nie zmieniał, a kliknięcie otwiera edycję.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {
+      "roles": ["head_of_recruitment", "admin"]
+    },
+    "where": "Insights → Zasady",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.rules"
+  },
+  {
+    "id": "zatrudniony-nie-szuka-3-miesiace",
+    "title": "„Zatrudniony gdzie indziej” chroni przed kolejnymi kartami",
+    "why": "Po takim odrzuceniu profil dostaje „Nie szuka” na 3 miesiące, a system przestaje dodawać tę osobę do rekrutacji. Ręcznie nadal możesz ją dodać, a datę zmienisz w profilu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3034,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Zatrudniony gdzie indziej",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.employed-elsewhere"
+  },
+  {
+    "id": "zakladka-wnioski",
+    "title": "Zakładka „Wnioski”: co się powtarza i decyzja, co z tym zrobić",
+    "why": "NEXUS pokazuje, co się powtarza w pracy zespołu i odmowach klientów, i pyta o decyzję: tak, nie teraz albo nie. Po 30 dniach widać, czy zmiana pomogła.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "pr": 3042,
+    "audience": { "roles": ["head_of_recruitment", "admin"] },
+    "where": "Insights → Wnioski",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.wnioski"
+  },
+  {
+    "id": "zmien-termin-rozmowy",
+    "title": "„Zmień termin” przy rozmowie u klienta",
+    "why": "Klient przełożył rozmowę? Zmieniasz jej termin wprost w panelu kandydata, tak jak prep. Prepy, telefon i debrief zostają przy tej rozmowie, a rekruter i Delivery Lead dostają powiadomienie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3030,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Kalendarz → nazwisko na karcie → Prepy i rozmowy",
+    "href": "/calendar",
+    "section": "pipeline",
+    "dot_anchor": "calendar.interview.reschedule"
+  },
+  {
+    "id": "pytania-klienta-w-notatkach",
+    "title": "Pytania klienta i notatka po rozmowie są w Notatkach kandydata",
+    "why": "Po odrzuceniu kandydat znika z kalendarza, a pytania klienta zostają na górze jego Notatek, z kopiowaniem. Niżej rozwiniesz pytania z innych rozmów w tej rekrutacji, przed prepem kolejnej osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Profil kandydata → Notatki → Rozmowy",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidate.notes.client-questions",
+    "pr": 3028
+  },
+  {
+    "id": "zmien-plik-cv-oryginalne",
+    "title": "Zmiana pliku CV oryginalnego w panelu osoby",
+    "why": "W zakładce „CV oryginalne” widać teraz nazwę pliku, a „Zmień plik” pozwala obejrzeć inne CV z profilu i ustawić je jako oryginalne. Nie musisz przechodzić do profilu ani wgrywać pliku drugi raz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3025,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Panel osoby → Rozwiń → CV oryginalne",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.cv.change-original"
+  },
+  {
+    "id": "jarvis-zapis-od-razu-z-cofnij",
+    "title": "Jarvis zapisuje od razu, a Ty masz „Cofnij”",
+    "why": "Gdy poprosisz o notatkę, dodanie do rekrutacji albo uśpienie lub przypięcie w „Moich ludziach”, Jarvis robi to od razu. Przez 15 minut cofniesz to jednym kliknięciem na karcie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3019,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Robot Jarvisa w rogu ekranu",
+    "href": "/dashboard",
+    "dot_anchor": "jarvis.mascot.hide"
+  },
+  {
+    "id": "nowi-aplikowali-na-gorze",
+    "title": "W „Nowych” najpierw ci, którzy sami aplikowali",
+    "why": "Osoby ze strony kariery i z JustJoin.IT, które mają wszystkie „musi mieć”, stoją na górze kolumny. Te, którym brakuje krytycznej, czekają zwinięte na dole — rozwiniesz je jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "pr": 3100,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Tablica → kolumna „Nowi”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-applied"
+  },
+  {
+    "id": "aplikacje-z-ogloszenia",
+    "title": "„Aplikacje” — wszyscy, którzy aplikowali na ogłoszenie",
+    "why": "Kafel „Aplikacje” przy źródłach pokazuje każdego, kto aplikował z JustJoin.IT, Pracuj.pl albo strony kariery, z datą i etapem. Przy propozycji widzisz też, na co osoba sama aplikowała.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "pr": 3119,
+    "audience": {"roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Tablica → pasek źródeł → Aplikacje",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.applicants"
+  },
+  {
+    "id": "opublikuj-ogloszenie-jeden-przycisk",
+    "title": "„Opublikuj ogłoszenie” — kilka kanałów jednym przyciskiem",
+    "why": "Zaznaczasz JustJoin.IT, Pracuj.pl i stronę kariery, klikasz raz, a NEXUS prowadzi po kolei: strona od razu, potem kategoria JustJoin.IT, potem stawka w mailu do opiekuna Pracuj.pl.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "pr": 3120,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Rekrutacja → Ogłoszenie → Opublikuj ogłoszenie",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.publish-all"
+  },
+  {
+    "id": "justjoin-aplikacja-do-nowych",
+    "title": "Aplikacje z JustJoin.IT same trafiają do „Nowi”",
+    "why": "Kandydat aplikuje jednym kliknięciem na JustJoin.IT, bez naszej strony kariery. Następnego dnia po imporcie jego karta czeka w „Nowi” tej rekrutacji, także przy ogłoszeniu oznaczonym ręcznie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "pr": 3099,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Rekrutacja → Ogłoszenie → JustJoin.IT",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.jjit.publish"
+  },
+  {
+    "id": "opublikuj-na-justjoin",
+    "title": "„Opublikuj na JustJoin.IT” prosto z NEXUSA",
+    "why": "W oknie ogłoszenia publikujesz na JustJoin.IT bez kopiowania treści. NEXUS sam zapisze link i pokaże, czy ogłoszenie wisi.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 2988,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Rekrutacja → Ogłoszenie → JustJoin.IT",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.jjit.publish"
+  },
+  {
+    "id": "umow-telefon-na-screening",
+    "title": "Umów telefon, gdy kandydat prosi o później",
+    "why": "Zamiast notatki „oddzwonić jutro” wybierasz termin w panelu osoby. NEXUS przypomni 15 minut przed, wpisze blokadę do Twojego Outlooka, a osoba zostanie przy Tobie do terminu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "pr": 2993,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → panel osoby → Umów telefon",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "screening-call.book"
+  },
+  {
+    "id": "wiersz-bez-nikogo-z-wyslanych",
+    "title": "Wymaganie, którego nie ma nikt z wysłanych",
+    "why": "Profil Championa pokazuje „musi mieć”, którego nie ma żadna z wysłanych osób. Możesz dopisać słowo z ich CV albo przenieść wymaganie do rozmowy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "pr": 2925,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Profil Championa → Edytuj wymagania",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.sent-gap.hints"
+  },
+  {
     "id": "wybieram-i-powrot-do-wynikow",
     "title": "„Wybieram” na profilu i powrót do wyników",
     "why": "Przeglądasz osoby z „Szukaj ręcznie” bez gubienia listy — wybrane wracają zaznaczone, a „Dodaj do Nowych” dodaje je jednym kliknięciem.",
@@ -473,6 +881,7 @@
         "head_of_recruitment",
         "talent_community_manager",
         "finance",
+        "back_office",
         "admin"
       ]
     },
@@ -582,7 +991,7 @@
     "why": "Tabela osób w „Aktywności rekrutacyjnej” nie przewija się już w małym okienku: kafelek ma wysokość całej tabeli, a „Na cały ekran” pokazuje wszystkich w jednym oknie.",
     "tier": "dot",
     "shipped_on": "2026-10-30",
-    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "talent_community_manager"]},
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "back_office", "talent_community_manager"]},
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
     "dot_anchor": "dashboard.team-table.fullscreen"
@@ -594,8 +1003,891 @@
     "tier": "dot",
     "shipped_on": "2026-10-30",
     "audience": {"permissions": ["payroll"]},
-    "where": "Ludzie → Płace → Premie do decyzji",
+    "where": "Ludzie → Rozliczenia → Premie do decyzji",
     "href": "/people/payroll",
     "dot_anchor": "payroll.bonus-decisions"
+  },
+  {
+    "id": "moje-wygenerowane-cv",
+    "pr": 3146,
+    "title": "Moje wygenerowane CV w jednym miejscu",
+    "why": "Wszystkie Twoje CV z generatora: data, kandydat, rekrutacja, podgląd i pobranie. Szukasz po nazwisku, kliencie albo stanowisku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Kandydaci → Moje CV",
+    "href": "/candidates/generated-cvs",
+    "section": "sourcing",
+    "dot_anchor": "candidates.my-generated-cvs"
+  },
+  {
+    "id": "sprzedaz-oferty-spotkania-filtry",
+    "title": "Sprzedaż: Oferty, Spotkania i nowe filtry",
+    "why": "Doszły zakładki Oferty i Spotkania. W Szansach przegrane są na tablicy, szukasz też po NIP i filtrujesz po modelu i dacie utworzenia. Kontakt dodasz prosto z zakładki Kontakty.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → zakładki",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "raporty-godzin-filtr-i-cofniecie",
+    "title": "Raporty godzin: filtr statusu i cofnięcie nieobecności",
+    "why": "Chipem pokażesz same raporty do akceptacji, szkice albo zaakceptowane. A gdy ktoś wpisał nieobecność przez pomyłkę, cofniesz ją z podglądu raportu, podając powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead"], "permissions": ["people_admin", "timesheets"]},
+    "where": "Ludzie → Do potwierdzenia → Raporty godzin",
+    "href": "/people/approvals",
+    "dot_anchor": "hr.timesheet-status"
+  },
+  {
+    "id": "sprzedaz-mapa-decyzyjna-edycja",
+    "title": "Mapę decyzyjną poprawisz w NEXUSIE",
+    "why": "W szansach z lejka Fabryki IT dodasz, poprawisz i usuniesz osobę na mapie decyzyjnej. Telefon, mail, LinkedIn i notatka uzupełnią też puste pola jej kontaktu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.decision-map.add"
+  },
+  {
+    "id": "potwierdzenie-ze-slowami-kandydata",
+    "title": "Potwierdzenie ze słowami kandydata",
+    "why": "„Potwierdzone z kandydatem” wymaga teraz zdania: co kandydat powiedział. Możesz wskazać rolę, a generator opisze ten fakt przy tej firmie. Delivery Lead zobaczy to zdanie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "pr": 2891,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "section": "pipeline",
+    "where": "Rekrutacja → QC CV → Potwierdzone z kandydatem",
+    "href": "/jobs",
+    "dot_anchor": "cv-qc.confirm"
+  },
+  {
+    "id": "dopasuj-pod-rekrutacje",
+    "title": "Dopasuj CV pod rekrutację w edytorze",
+    "why": "Zamiast przerabiać CV w czacie kliknij „Dopasuj pod rekrutację”. Dostaniesz propozycje zmian z cytatem z oryginału albo rozmowy, wybierzesz potrzebne i jednym kliknięciem cofniesz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "pr": 2892,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "section": "pipeline",
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw",
+    "href": "/jobs",
+    "dot_anchor": "cv-editor.tailor"
+  },
+  {
+    "id": "asystent-cv-trzy-podpowiedzi",
+    "title": "Asystent CV: punkt do podsumowania, wymagania do obowiązków, rola spoza profilu",
+    "why": "Nad asystentem w edytorze są trzy przyciski do najczęstszych ręcznych poprawek. Punkt do podsumowania dostaje cytat ze źródła, a gdy asystent nic nie zmieni, powie dlaczego.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "pr": 3137,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "section": "pipeline",
+    "where": "Panel osoby → CV → Edytuj CV → Asystent",
+    "href": "/jobs",
+    "dot_anchor": "person.cv.edit"
+  },
+  {
+    "id": "nowi-kolejka-zadzwon-najpierw",
+    "title": "Nowi: „Zadzwoń najpierw” na górze kolejki od systemu",
+    "why": "Najlepsze osoby od systemu stały dotąd na dole kolumny. Teraz pod osobami dodanymi przez zespół widzisz kolejkę od najwyższego wyniku, a pierwszych pięć ma numer.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"permissions": ["recruitment_manage"]},
+    "where": "Rekrutacja → Tablica → kolumna Nowi",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-queue"
+  },
+  {
+    "id": "nowi-w-bazie-najpierw",
+    "title": "Nowi w bazie na początku kolejki",
+    "why": "Osoby do 14 dni w bazie, z wynikiem od progu i krytycznymi, stoją na początku „Zadzwoń najpierw” i „Propozycji z bazy”, także przed wyższym wynikiem. Wchodzą nawet przy pełnych „Nowych”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"permissions": ["recruitment_manage"]},
+    "where": "Rekrutacja → Tablica → kolumna Nowi",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-queue"
+  },
+  {
+    "id": "wyslani-a-system",
+    "title": "Jakość podpowiedzi: czy system pokazał osoby wysłane do klienta",
+    "why": "Widzisz, ile osób wysłanych do klienta system pokazał sam, ile było spoza bazy, a ile znał i minął, oraz w których rekrutacjach mija najwięcej.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"roles": ["head_of_recruitment", "admin"]},
+    "where": "Insights → Jakość podpowiedzi systemu",
+    "href": "/insights/autofill",
+    "section": "insights",
+    "dot_anchor": "insights.sent-vs-system"
+  },
+  {
+    "id": "linki-kto-sie-zglosil",
+    "title": "Linki: kto się zgłosił i gdzie jest teraz",
+    "why": "Twoje linki dawały dotąd same liczby. Teraz widzisz nazwiska osób ze zgłoszeń, a zakładka „Z linków” w „Moich ludziach” zbiera też osoby z linków do rekrutacji, które jeszcze nie mają wysłanego CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Moi ludzie → Z linków",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "my-people.from-links"
+  },
+  {
+    "id": "zmiana-nazwy-pliku-cv",
+    "title": "Nazwa pliku CV: zmienisz ją bez pobierania",
+    "why": "Nazwa pliku CV do klienta stoi teraz na karcie CV i w panelu osoby. Zmienisz ją tam od razu, bez pobierania pliku, a treść CV zostaje bez zmian.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "head_of_recruitment",
+        "delivery_lead",
+        "admin"
+      ]
+    },
+    "where": "Panel osoby → CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.file-name"
+  },
+  {
+    "id": "prosba-o-zgode-przy-screeningu",
+    "title": "O zgodę dla PKO BP poprosisz już przy screeningu",
+    "why": "Prośba o zgodę jest już w screeningu i w generatorze, nie dopiero przy gotowym CV. Zrzut wgrasz przy generowaniu, a ramka pokaże, czy prośba poszła i czy kandydat odpisał.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Panel osoby → Screening",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.consent-notice"
+  },
+  {
+    "id": "prosba-o-zgode-pko",
+    "title": "Prośba o zgodę dla PKO BP gotowa jednym kliknięciem",
+    "why": "„Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata; zrzut bez B2B.net dostanie ostrzeżenie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Panel osoby → CV → Zgoda RODO",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.consent-request"
+  },
+  {
+    "id": "oryginal-cv-po-generatorze",
+    "title": "Oryginał CV pobierzesz po próbie z generatorem",
+    "why": "Z samą rolą rekrutera pliki oglądasz w NEXUSIE. Oryginał CV pobierzesz z karty „CV do klienta”, gdy generator zrobi złe CV, i napiszesz, co było źle. Paczki ZIP już nie ma.",
+    "tier": "process",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → CV do klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "path_prefix": "/jobs",
+    "dot_anchor": "person.cv.to-client-card",
+    "used_anchor": "person.cv.original-after-generator",
+    "steps": [
+      {
+        "anchor": "jobs.list.title",
+        "text": "Otwórz dowolną rekrutację i kartę osoby.",
+        "hint": "Kartę „CV do klienta” znajdziesz w panelu osoby, w zakładce CV. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "person.cv.to-client-card",
+        "text": "Tu najpierw powstaje CV z generatora.",
+        "hint": "Gdy wynik będzie zły, pod CV pojawi się „Generator źle zrobił CV? Pobierz oryginał”. Zaznaczysz, co było źle, i plik się pobierze.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "qc-pod-inna-nazwa",
+    "pr": 2929,
+    "title": "QC pyta: „w oryginale pod inną nazwą?”",
+    "why": "Gdy QC nie znajdzie technologii dosłownie, a w oryginale stoi pokrewna nazwa, pokaże cytat i zapyta, czy to to samo. „To ta sama rzecz” zdejmuje uwagę jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → okno QC",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-qc.same-thing"
+  },
+  {
+    "id": "pytania-klienta-z-tej-rekrutacji",
+    "pr": 2913,
+    "title": "Pytania klienta: najpierw te z tej rekrutacji",
+    "why": "Pod rekrutacją stoją teraz tylko pytania, które padły na rozmowach w tej rekrutacji. Pozostałe nie zniknęły: znajdziesz je pod „Wszystkie pytania klienta”, pogrupowane po rekrutacji.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby i Profil Championa",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.client-questions.scope"
+  },
+  {
+    "id": "zmien-terminy-od-klienta",
+    "pr": 2850,
+    "title": "„Zmień terminy”, gdy klient podał inne",
+    "why": "Klient podał inne terminy rozmowy? Zmienisz je sam, bez czekania na wybór rekrutera, a rekruter dostanie dzwonek z nowymi. Przy dodawaniu nowych terminów pojawi się też „Zastąp otwarte terminy”.",
+    "tier": "dot",
+    "shipped_on": "2026-10-30",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Kalendarz → panel osoby → Terminy od klienta",
+    "href": "/calendar",
+    "section": "pipeline",
+    "dot_anchor": "calendar.slots.change"
+  },
+  {
+    "id": "premie-po-miesiacach",
+    "title": "Premie i wynagrodzenie dodatkowe po miesiącach",
+    "why": "Wybierasz miesiąc i od razu widzisz podstawę, wynagrodzenie dodatkowe albo premie oraz sumę. Lista pokazuje wtedy tylko pozycje z tego miesiąca, a „Wszystkie” wraca do pełnej listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
+    "href": "/my-time",
+    "dot_anchor": "my-time.bonus-months"
+  },
+  {
+    "id": "zakladka-zrodla",
+    "title": "Zakładka „Źródła”: ilu kandydatów z portali i strony kariery",
+    "why": "W jednej tabeli widzisz, ile osób przyszło z Pracuj.pl, JustJoin.IT i RocketJobs oraz z linków kariery, jak daleko doszły i kim są. Klik w liczbę pokazuje osoby, a daty wybierasz dowolnie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Źródła",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.sources"
+  },
+  {
+    "id": "oryginal-obok-cv-firmowego",
+    "title": "Oryginalne CV obok CV firmowego",
+    "why": "Jednym przyciskiem stawiasz oryginał po lewej, obok CV firmowego. Porównasz je przy poprawianiu, w „Jak u klienta” i w oknie stron z karty „CV do klienta”. Drugim kliknięciem go chowasz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → CV → Edytuj CV → Pokaż oryginał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.cv.edit"
+  },
+  {
+    "id": "linki-zespolu-w-rekrutacji",
+    "pr": 2921,
+    "title": "Linki całego zespołu do tej rekrutacji",
+    "why": "W oknie linku aplikacyjnego widzisz, kto z zespołu ma link do tej rekrutacji, skąd się wziął i ile dał wejść oraz zgłoszeń. Rekruter dalej widzi tylko swoje wyniki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Ogłoszenie i link aplikacyjny → Wygeneruj link aplikacyjny",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.team-links"
+  },
+  {
+    "id": "automat-przydzialu-zasady",
+    "pr": 2837,
+    "title": "Zasady automatu przydziału w Ustawieniach",
+    "why": "Dziewięć zasad doboru rekruterów, m.in. P2 i limit na osobę. Obok widać, co zmieni następny przebieg, niżej historia zmian. Zasady działają tylko na nowe przydziały.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Ustawienia → Zespół rekrutacji → Automat przydziału",
+    "href": "/settings/team-structure",
+    "section": "pipeline",
+    "dot_anchor": "settings.team.automat"
+  },
+  {
+    "id": "karta-przed-cv-do-klienta",
+    "pr": 2835,
+    "title": "Karta przed CV wypełnia się sama",
+    "why": "U klienta, który wymaga karty dostawcy, NEXUS wypełnia ją w przeglądzie przed wysyłką i pokazuje, skąd wziął każdą wartość. Sprawdzasz poziom i profil, a „Word” pobiera plik we wzorze klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → przegląd DL → Karta do klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "dl-review.cover-sheet"
+  },
+  {
+    "id": "stanowisko-jak-u-klienta",
+    "pr": 2983,
+    "title": "Pole „Stanowisko” pokazuje to, co dostanie klient",
+    "why": "Generator od razu podaje nagłówek do CV, bez numeru zapytania, i nazwę pliku. Własną nazwę cofniesz przez „Przywróć z rekrutacji”. Gdy rekrutacja nie ma roli, pole trzeba wypełnić.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → CV → generator → Zaawansowane",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.position"
+  },
+  {
+    "id": "powod-z-poprzedniej-rekrutacji",
+    "pr": 2962,
+    "title": "Powód odrzucenia z poprzedniej rekrutacji w panelu osoby",
+    "why": "Zakończona rekrutacja ma w „Wcześniej u nas” własną kartę z powodem odrzucenia lub rezygnacji, nawet bez notatek. Powód widać też w „Co już wiemy”, więc nie musisz wchodzić w profil.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → Notatki i historia → Wcześniej u nas",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.history.earlier"
+  },
+  {
+    "id": "kto-co-przyniosl",
+    "pr": 2942,
+    "title": "Raport „Kto co przyniósł” z linków",
+    "why": "Tabela na osobę: link ogólny osobno od linków do rekrutacji, wejścia w okresie i od początku oraz dalsze etapy. Zgłoszenia z linków liczą się już osobno od ogłoszeń z portali.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Raporty → Źródła, portale i linki",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.link-people"
+  },
+  {
+    "id": "lider-kwartalu-w-wyscigach",
+    "pr": 3081,
+    "title": "Lider Ligi bierze też nagrodę w wyścigu miesiąca",
+    "why": "Lider Ligi Mistrzów kwartału nie jest już wykluczany z wyścigów miesiąca. Nagrodę bierze pierwsza osoba, która spełnia warunki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": {},
+    "where": "Insights → Rywalizacja → Wyścigi miesiąca",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.monthly-races"
+  },
+  {
+    "id": "lista-dokoncz-szkic-requestu",
+    "pr": 3144,
+    "title": "„Dokończ szkic requestu” na liście rekrutacji",
+    "why": "Request został w połowie? Na liście rekrutacji, obok „Nowa rekrutacja”, przycisk z datą otwiera ostatni niedokończony formularz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacje → Dokończ szkic requestu",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.list.unfinished-request"
+  },
+  {
+    "id": "pytania-pod-cv-w-sciadze",
+    "pr": 3078,
+    "title": "Ściąga podpowiada pytania pod CV",
+    "why": "Do 5 opcjonalnych pytań o wymagania, których nie widać w opisie ról w CV. Odpowiedź wpisz w notatce i podaj nazwę firmy: wtedy CV opisze to w tej roli.",
+    "tier": "dot",
+    "shipped_on": "2026-11-05",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → Nowi albo Screening → Ściąga do rozmowy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cheatsheet.cv-questions"
+  },
+  {
+    "id": "premia-200-listopad-grudzien",
+    "pr": 3085,
+    "title": "Do 200%: postęp w miesiącu podpisu",
+    "why": "W listopadzie i grudniu placement podpisany w miesiącu, w którym zrobisz cel, liczy się podwójnie i wypłaca od razu. Karta pokazuje, ile brakuje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead"] },
+    "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
+    "href": "/my-time",
+    "dot_anchor": "my-time.double-bonus"
+  },
+  {
+    "id": "profil-twoje-wygrane",
+    "pr": 3091,
+    "title": "Twoje wygrane w profilu",
+    "why": "Twoje miejsca na podium Ligi i wyścigów widać w profilu, z kwotą. W IV kwartale nagrody są podwójne, a wygrana w wyścigu to premia w wynagrodzeniu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Profil → Twoje wygrane",
+    "href": "/profile",
+    "dot_anchor": "profile.my-wins"
+  },
+  {
+    "id": "podpis-umowy-z-pliku",
+    "pr": 3096,
+    "title": "Podpis umowy B2B: plik i data z podpisu konsultanta",
+    "why": "„Oznacz jako podpisaną” wymaga podpisanego PDF-a. Datę podpisu NEXUS czyta z podpisu konsultanta w pliku. Przy skanie z podpisem odręcznym wpisujesz datę i powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": {
+      "permissions": [
+        "b2b_signature_confirmation"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Oznacz jako podpisaną (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.confirm-signed"
+  },
+  {
+    "id": "premia-200-data-podpisu",
+    "pr": 3096,
+    "title": "Premia 200%: skąd data podpisu i jej poprawka",
+    "why": "Przy każdej osobie widzisz jej umowy z datą podpisu i źródłem. Datę wpisaną przy oznaczeniu bez pliku poprawisz z powodem, a potem przeliczysz wynik miesiąca.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": {
+      "permissions": [
+        "payroll"
+      ]
+    },
+    "where": "Ludzie → Rozliczenia → miesiąc → Premia 200%",
+    "href": "/people/payroll",
+    "dot_anchor": "payroll.double-bonus"
+  },
+  {
+    "id": "zespol-koszyki-baza-linkedin",
+    "pr": 3098,
+    "title": "Baza czy LinkedIn w zespole rekrutacji",
+    "why": "W okienku „Rekruter” zespół stoi w dwóch koszykach: kto szuka w bazie, a kto na LinkedInie. Swój koszyk wybierasz sam, a Head of Recruitment może ustawić, ile osób ma być w każdym.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Rekrutacja → nagłówek → „Rekruter” → Zespół rekrutacji",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.recruiter-team"
+  },
+  {
+    "id": "kandydat-wskazany-przez-klienta",
+    "pr": 3097,
+    "title": "„Kandydat wskazany przez klienta” w umowie",
+    "why": "Gdy klient sam wskazał osobę, a my tylko przepuszczamy ją przez siebie, zaznacz „Tak”. Za taki placement premii nie ma i nie liczy się on do premii 200%.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "talent_community_manager"] },
+    "where": "Generator umów → Szczegóły administracyjne",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.client-referral"
+  },
+  {
+    "id": "szczegoly-administracyjne-kontraktu",
+    "pr": 3097,
+    "title": "Replacement i kandydat od klienta na podpisanym kontrakcie",
+    "why": "Zastępstwo, „za kogo” i kandydata wskazanego przez klienta poprawisz teraz w kontrakcie, z powodem. Premie kontraktu przeliczą się od razu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "permissions": ["payroll"] },
+    "where": "Kontrakt → Szczegóły administracyjne",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.admin-details"
+  },
+  {
+    "id": "kandydaci-ostatnie-odrzucenie",
+    "pr": 3101,
+    "title": "Filtr po powodzie odrzucenia na liście kandydatów",
+    "why": "Pigułka „Odrzucenie” i pasek nad tabelą: z jakiego powodu i kto zakończył ostatni proces osoby. Kliknięciem pokażesz tylko takie osoby albo je ukryjesz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Kandydaci → filtry → „Odrzucenie”",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.rejection-filter"
+  },
+  {
+    "id": "p0-w-oblozeniu",
+    "pr": 3103,
+    "title": "Liczba P0 przy każdej osobie w „Obłożeniu”",
+    "why": "Czerwona plakietka mówi, ile rekrutacji P0 ma osoba. Najbardziej obłożeni P0 stoją na górze listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Daily → Obłożenie",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "daily.load-p0"
+  },
+  {
+    "id": "p0-po-terminie-decyzja",
+    "pr": 3103,
+    "title": "P0 po terminie czeka na Twoją decyzję",
+    "why": "P0 nie znika już samo, gdy minie termin. Plakietka mówi „P0 · minęło …”, a Ty wybierasz „Przedłuż o 24 h” albo „Zakończ P0”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Daily → wiersz z P0 po terminie",
+    "href": "/jobs/daily",
+    "section": "pipeline",
+    "dot_anchor": "p0.overdue-actions"
+  },
+  {
+    "id": "slownik-propozycje",
+    "pr": 3104,
+    "title": "Propozycje do słownika umiejętności",
+    "why": "Co noc NEXUS proponuje nowe hasła i warianty z nazw, których słownik nie zna, i sam zatwierdza te bez wątpliwości. Resztę zatwierdzasz albo pomijasz tutaj.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Ustawienia → Słownik umiejętności → Propozycje",
+    "href": "/settings",
+    "dot_anchor": "skills.proposals"
+  },
+  {
+    "id": "wymagania-slowo-spoza-slownika",
+    "pr": 3104,
+    "title": "Podpowiedź przy wymaganiu, którego słownik nie zna",
+    "why": "Gdy wpiszesz słowo, którego słownik nie zna (np. „mikroserwisy”), pod wierszem zobaczysz, jak ludzie zapisują to w profilach, i jednym kliknięciem dopiszesz warianty do wiersza.",
+    "tier": "dot",
+    "shipped_on": "2026-11-06",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.dictionary-hint"
+  },
+  {
+    "id": "tablica-krytyczne-zamiennik",
+    "pr": 3111,
+    "title": "„FastAPI? zna Flask” zamiast ukrycia osoby",
+    "why": "Gdy kandydatowi brakuje umiejętności krytycznej, ale zna jej zamiennik (np. Flask zamiast FastAPI), NEXUS już go nie ukrywa. Karta pokazuje, o co zapytać w rozmowie, a QC podaje gotowe pytanie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "recruiter"] },
+    "where": "Rekrutacja → Tablica",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.critical-alternative"
+  },
+  {
+    "id": "slownik-powiazania",
+    "pr": 3111,
+    "title": "Słownik wie, co z czego wynika",
+    "why": "Zakładka „Powiązania”: Spring Boot ⇒ Java, GitHub ⇒ Git, Flask ~ FastAPI. Wyszukiwanie, bramka krytycznych i QC liczą je tak samo. Powiązania zatwierdza nocny bieg; tu możesz wycofać błędne.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Ustawienia → Słownik umiejętności → Powiązania",
+    "href": "/settings",
+    "dot_anchor": "skills.relations"
+  },
+  {
+    "id": "wymagania-co-z-czego-wynika",
+    "pr": 3113,
+    "title": "Wymagania podpowiadają, co z czego wynika",
+    "why": "Pod wierszem zobaczysz, że np. „JavaScript” wynika z „React”, a przy krytycznym także zamienniki i ostrzeżenie, gdy coś rzadko stoi w CV (np. Git).",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.relation-hint"
+  },
+  {
+    "id": "odczyt-maila-propozycja-krytycznych",
+    "pr": 3124,
+    "title": "Odczyt maila proponuje krytyczne i technologie z maila",
+    "why": "Po wklejeniu maila: propozycja krytycznych z cytatem (np. „minimum 5 lat z D365”) do zatwierdzenia jednym kliknięciem i technologie z maila, których brakuje w wymaganiach.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead"] },
+    "where": "Nowa rekrutacja → Wymagania",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "requirements.intake-proposals"
+  },
+  {
+    "id": "odpowiedz-klienta-na-pulpicie",
+    "pr": 3171,
+    "title": "Ile CV dostaje odpowiedź klienta",
+    "why": "Procent CV z odpowiedzią klienta w 7 dni roboczych i klienci, którzy milczą najdłużej. Liczy się odpowiedź zapisana w NEXUSIE, więc rozmowę lub odrzucenie odnotuj od razu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    "where": "Pulpit → kafelek „Odpowiedź klienta”",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.client-response"
+  },
+  {
+    "id": "qc-sprawdz-recznie-wskaz-role",
+    "pr": 3128,
+    "title": "„Sprawdź ręcznie” w QC: wskaż stanowisko jednym kliknięciem",
+    "why": "Gdy QC nie umie sprawdzić krytycznej, okno QC pokazuje stanowiska z CV: kliknij to, w którym oryginał ją opisuje, albo „Nigdzie”. Delivery Lead widzi, kto sprawdził.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "recruiter"] },
+    "where": "Tablica → karta osoby → Otwórz QC",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "qc.manual-roles"
+  },
+  {
+    "id": "porcja-dnia-od-nexusa",
+    "pr": 3125,
+    "requires_setting": "REVIEW_BATCH_ENABLED",
+    "title": "Porcja dnia od Nexusa przed ręcznym wyszukiwaniem",
+    "why": "Co rano osoby od Nexusa z Twoich rekrutacji. Przed ręcznym szukaniem zdecyduj o minimum z nich. Start od 10, po zrobionym następnego dnia o 10 więcej, do 50. Nazwisko, telefon i mail działają zawsze.",
+    "tier": "process",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "path_prefix": "/jobs",
+    "dot_anchor": "review-batch.topbar",
+    "used_anchor": "review-batch.to-screening",
+    "steps": [
+      {
+        "anchor": "review-batch.topbar",
+        "text": "Tu widzisz, ile decyzji z porcji zostało do minimum.",
+        "hint": "Kliknij licznik — otworzy się Porcja dnia. Po minimum licznik znika, a wyszukiwanie wraca do jutra, 7:00."
+      },
+      {
+        "anchor": "review-batch.to-screening",
+        "text": "Jedna osoba, jedna decyzja: S — do screeningu, O — odrzuć z powodem (1–8).",
+        "hint": "Wszystko do decyzji jest na karcie: wynik, „musi mieć”, stawka wobec budżetu, dostępność. Pominąć osoby nie można.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "szybkie-poprawki-jezyki-w-liniach",
+    "pr": 3139,
+    "title": "Języki w osobnych liniach jednym kliknięciem",
+    "why": "„Szybkie poprawki” na górze „Do poprawy” rozbijają „English - B2 · Polish - native” na osobne linie „Język – poziom”. Zmianę widzisz przed kliknięciem, nic nie jest dopisywane.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.quick-fixes"
+  },
+  {
+    "id": "moi-ludzie-na-tablicy",
+    "pr": 3143,
+    "title": "„Moi ludzie” na Tablicy rekrutacji",
+    "why": "Twoi ludzie pasujący do rekrutacji, z odznaką „ponad budżet”. Otwiera ich też dzwonek. „?” na karcie znaczy: wynik jeszcze nie policzony, nie zero.",
+    "tier": "dot",
+    "shipped_on": "2026-11-07",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → pasek źródeł → Moi ludzie",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.my-people"
+  },
+  {
+    "id": "tablica-karta-w-trzech-wierszach",
+    "pr": 3172,
+    "title": "Prostsza karta na Tablicy",
+    "why": "Karta ma najwyżej dwie plakietki, resztę pokazuje „+N”, a przy ruchu stoi jedna liczba dni roboczych. Inne źródła są w menu „Szukaj”, „Kto dodał” to ikona w kolumnie „Nowi”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → pasek źródeł → Szukaj",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.search"
+  },
+  {
+    "id": "tablica-czeka-na-odpowiedz-klienta",
+    "pr": 3202,
+    "title": "Czeka na odpowiedź klienta",
+    "why": "Nad Tablicą widać, kto od ponad 5 dni roboczych czeka na klienta. Przypomnienie przygotujesz jednym kliknięciem, a NEXUS nic sam nie wysyła. Na karcie w „CV wysłane” jest przycisk „Co z klientem?”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → pas nad kolumnami",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.client-wait"
+  },
+  {
+    "id": "qc-wskaz-stanowisko-i-luka",
+    "pr": 3204,
+    "title": "QC przed przekazaniem do Delivery Leada",
+    "why": "Niesprawdzona umiejętność krytyczna? Karta zostaje u rekrutera: otwórz QC i wskaż stanowisko. Kandydat jej nie ma? Delivery Lead wybiera: wysłać mimo braku albo wrócić do rekrutera.",
+    "tier": "dot",
+    "shipped_on": "2026-11-08",
+    "audience": { "roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"] },
+    "where": "Rekrutacja → Tablica → kolumna QC CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.card"
+  },
+  {
+    "id": "sprzedaz-spotkania-co-dalej",
+    "pr": 3241,
+    "title": "Spotkania: co dalej przy każdym wierszu",
+    "why": "Spotkanie przypniesz do szansy albo założysz z niego nową jednym kliknięciem. Spotkanie u naszego klienta od razu mówi, do którego Delivery Leada je przekazać.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Spotkania",
+    "href": "/sales/meetings",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-kogo-znamy-najpierw-najwazniejsi",
+    "pr": 3239,
+    "title": "Kogo znamy: najpierw najważniejsi",
+    "why": "Na karcie firmy najpierw widzisz pięć osób, od ról decyzyjnych. Inne nazwy tej firmy z CV dołączysz albo odrzucisz jednym kliknięciem, a liczby się przeliczą.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Firmy → Kogo znamy",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-krok-i-zapis-rozmowy",
+    "pr": 3243,
+    "title": "Szanse: krok, zapis rozmowy, przeciąganie",
+    "why": "Na górze karty widzisz, do kogo zadzwonić i dlaczego. Po rozmowie jednym kliknięciem zapisujesz wynik i ustalasz, co dalej. Karty na tablicy przeciągasz między etapami.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-moj-dzien",
+    "pr": 3243,
+    "title": "Mój dzień w Sprzedaży",
+    "why": "Nowa pierwsza zakładka mówi, co dziś zrobić: spotkania, komu odpisać, zaległe kroki i oferty, które ucichły. Telefon zapiszesz prosto z wiersza, a skrót dostaniesz też rano mailem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Mój dzień",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "insights-termin-rozmowy",
+    "pr": 3249,
+    "title": "Termin rozmowy pod ręką",
+    "why": "W tabeli „W drodze”, na liście osób za liczbami i na profilu kandydata widzisz, kiedy jest rozmowa u klienta, a najbliższe stoją na górze. Przy akceptacjach i placementach widać datę startu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Insights → Mój miesiąc → W drodze",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.in-flight-term"
   }
 ]

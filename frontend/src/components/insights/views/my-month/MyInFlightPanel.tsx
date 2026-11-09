@@ -9,9 +9,11 @@ import {
   insightsApi,
   insightsQueryKeys,
   type InFlightColumn,
+  type InFlightPerson,
   type InFlightScope,
 } from "@/lib/insights-api";
 import { columnOf, daysLabel, forecastSentence } from "@/lib/insights-in-flight";
+import { formatDay, formatTerm, warsawDay, warsawToday } from "@/lib/kpi-who-counts";
 import { SectionError } from "@/components/insights/sections/_shared";
 
 import { Panel, PanelLoading } from "../ViewKit";
@@ -51,6 +53,9 @@ export function MyInFlightPanel({
     );
   }
   const data = query.data;
+  const today = warsawToday();
+  const upcoming = (p: InFlightPerson) =>
+    p.client_interview_at && warsawDay(p.client_interview_at) >= today;
   const people = data.people ?? [];
   const shown = expanded ? people : people.slice(0, VISIBLE_ROWS);
   const accepted = columnOf(data.columns, "contract");
@@ -104,6 +109,7 @@ export function MyInFlightPanel({
                 <th className="py-2 pr-3 font-semibold">Osoba</th>
                 <th className="py-2 pr-3 font-semibold">Rekrutacja · klient</th>
                 <th className="py-2 pr-3 font-semibold">Etap</th>
+                <th data-tour="insights.in-flight-term" className="py-2 pr-3 font-semibold">Termin</th>
                 <th className="py-2 font-semibold">Od kiedy</th>
               </tr>
             </thead>
@@ -123,6 +129,18 @@ export function MyInFlightPanel({
                     ) : null}
                   </td>
                   <td className="py-2 pr-3 text-foreground">{p.stage_label}</td>
+                  <td
+                    className={cn(
+                      "whitespace-nowrap py-2 pr-3 tabular-nums",
+                      upcoming(p) ? "font-medium text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {p.column === "contract" && p.start_on
+                      ? `Start ${formatDay(p.start_on)}`
+                      : p.column === "client_interview" && p.client_interview_at
+                        ? formatTerm(p.client_interview_at)
+                        : "—"}
+                  </td>
                   <td
                     className={cn(
                       "py-2 tabular-nums",

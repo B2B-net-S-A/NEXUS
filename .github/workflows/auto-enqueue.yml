@@ -26,9 +26,10 @@ name: Auto-enqueue
 # PR z TRWAJĄCEJ kolejki (GraphQL `dequeuePullRequest`). Zdjęcie etykiety
 # (`unlabeled`) albo „Ready for review” wrzuca PR z powrotem.
 #
-# PAS MIGRACJI (29.10.2026): w kolejce jest naraz najwyżej jeden PR
-# z migracją Alembica — dwa w jednej grupie dają dwie głowy i wywracają też
-# PR-y bez migracji za nimi (25–28.10: 54 z 54 czerwonych bramek kolejki).
+# PAS MIGRACJI (29.10.2026, łańcuch od 02.11.2026): w kolejce są naraz najwyżej
+# dwa PR-y z migracją Alembica, drugi na migracji pierwszego — dwa na tym samym
+# rodzicu dają w grupie dwie głowy i wywracają też PR-y bez migracji za nimi
+# (25–28.10: 54 z 54 czerwonych bramek kolejki).
 # PR z migracją przed włączeniem auto-merge'a pyta
 # `.github/scripts/queue_migration_lane.py admit` (kopia z MAINA); zajęty pas =
 # etykieta `czeka-na-migracje`, komentarz i bez auto-merge'a. Etykietę zdejmuje
@@ -90,8 +91,10 @@ jobs:
           lane="$RUNNER_TEMP/queue_migration_lane.py"
           if gh api "repos/$REPO/contents/.github/scripts/queue_migration_lane.py?ref=main" \
                 -H "Accept: application/vnd.github.raw" > "$lane" 2>/dev/null; then
-            python3 "$lane" admit --repo "$REPO" --pr "$PR"
-            rc=$?
+            # Krok biegnie pod `bash -e`: bez `|| rc=$?` kod 10 kończył job na
+            # czerwono (02.11.2026), a błąd pasa nie wpuszczał PR-a.
+            rc=0
+            python3 "$lane" admit --repo "$REPO" --pr "$PR" || rc=$?
             if [ "$rc" -eq 10 ]; then
               echo "PR #$PR czeka w pasie migracji — auto-merge zostaje wyłączony."
               exit 0

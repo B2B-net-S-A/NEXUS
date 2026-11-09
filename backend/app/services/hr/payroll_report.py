@@ -13,6 +13,10 @@ Lista osób:
 Konsultanci B2B u klientów nie mają kartotek, więc na listę nie trafiają —
 Compass dokładał do zakładki „all” rolę ``consultant``.
 
+Gwarancja premii DL (0653): ``bonus_total`` jest po potrąceniu długu
+(``bonus_guarantee.month_deductions``), potrącenie stoi w ``clawback_total``,
+a premie przed nim to suma obu. Zamrożone linie niosą to samo.
+
 Osoba na zleceniu ze stawką obowiązującą w miesiącu niższą niż minimum roku
 tego miesiąca (``payroll_rates.mandate_minimum_shortfall`` — ta sama reguła co
 przy zapisie stawki) ma ``minimum_rate``; ``minimum_rate_warnings`` robi z tego
@@ -33,7 +37,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hr_payroll import EmployeeRate, HrBonus, PayrollLine, PayrollPeriod
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
-from app.services.hr import payroll_leave_bridge, payroll_rates, payroll_time_bridge
+from app.services.hr import (
+    bonus_guarantee,
+    payroll_leave_bridge,
+    payroll_rates,
+    payroll_time_bridge,
+)
 from app.services.hr.payroll_periods import get_period, month_end, month_start
 from app.services.hr_foundation_schema import EmploymentStatus
 
@@ -52,6 +61,8 @@ class CurrencyLine:
     hours_amount: Optional[Decimal]
     bonus_total: Decimal
     total: Decimal
+    #: Potrącenie z gwarancji premii DL; ``bonus_total`` jest już po nim.
+    clawback_total: Decimal = ZERO
 
 
 @dataclass(frozen=True)
@@ -71,6 +82,8 @@ class PersonPayroll:
     #: Minimum roku miesiąca, gdy stawka osoby na zleceniu jest od niego niższa
     #: (ostrzeżenie przed zamknięciem); ``None`` = w porządku albo nie dotyczy.
     minimum_rate: Optional[Decimal] = None
+    #: Potrącenia długów z gwarancji w tym miesiącu (zamknięcie je zamraża).
+    clawbacks: tuple[bonus_guarantee.Deduction, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -160,6 +173,7 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
     hours = await payroll_time_bridge.approved_hours(db, year, month)
     statuses = await payroll_time_bridge.timesheet_statuses(db, year, month)
     bonuses = await _bonus_sums(db, year, month)
+    deductions = await bonus_guarantee.month_deductions(db, year, month)
     rates = await rates_on(db, first)
     minimums = await payroll_rates.load_minimum_rates(db)
     leave = await payroll_leave_bridge.leave_days(db, first, last)
@@ -191,12 +205,15 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
         overtime = worked.overtime_hours if worked else ZERO
         rate = rates.get(user_id)
         person_bonuses = bonuses.get(user_id, {})
+        person_clawbacks = tuple(deductions.get(user_id, ()))
+        clawed = bonus_guarantee.deducted_by_currency(person_clawbacks)
         currencies = set(person_bonuses)
         if rate is not None:
             currencies.add(rate.currency)
         lines: list[CurrencyLine] = []
         for currency in sorted(currencies):
-            bonus_total = money(person_bonuses.get(currency, ZERO))
+            clawback = money(clawed.get(currency, ZERO))
+            bonus_total = money(person_bonuses.get(currency, ZERO)) - clawback
             hourly: Optional[Decimal] = None
             hours_amount: Optional[Decimal] = None
             if rate is not None and rate.currency == currency:
@@ -209,6 +226,7 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
                     hours_amount=hours_amount,
                     bonus_total=bonus_total,
                     total=money((hours_amount or ZERO) + bonus_total),
+                    clawback_total=clawback,
                 )
             )
         days = leave.get(user_id)
@@ -238,6 +256,7 @@ async def compute_live(db: AsyncSession, year: int, month: int) -> list[PersonPa
                 )
                 if rate is not None
                 else None,
+                clawbacks=person_clawbacks,
             )
         )
     people.sort(key=lambda p: (p.name.casefold(), p.user_id))
@@ -324,6 +343,7 @@ async def frozen_people(db: AsyncSession, period: PayrollPeriod) -> list[PersonP
                         hours_amount=line.hours_amount,
                         bonus_total=Decimal(line.bonus_total),
                         total=Decimal(line.total),
+                        clawback_total=Decimal(line.clawback_total),
                     )
                     for line in lines
                 ),
@@ -367,6 +387,7 @@ def line_rows(period_id: int, people: list[PersonPayroll]) -> list[dict[str, Any
                     "hourly_rate": line.hourly_rate,
                     "hours_amount": line.hours_amount,
                     "bonus_total": line.bonus_total,
+                    "clawback_total": line.clawback_total,
                     "total": line.total,
                     "paid_leave_days": person.paid_leave_days
                     if carries_hours

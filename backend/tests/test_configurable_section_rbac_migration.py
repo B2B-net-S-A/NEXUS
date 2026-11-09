@@ -22,6 +22,7 @@ ROLES_ADDED_AFTER_0269: dict[str, str] = {
     UserRole.automation.value: "0446_automation_role.py",
     UserRole.employee.value: "0456_hr_access.py",
     UserRole.board.value: "0490_board_role.py",
+    UserRole.back_office.value: "0645_back_office_role.py",
 }
 
 # Migracje, których SQL stoi w module schematu (to samo źródło czyta
@@ -29,6 +30,19 @@ ROLES_ADDED_AFTER_0269: dict[str, str] = {
 MIGRATION_SQL_MODULES: dict[str, str] = {
     "0456_hr_access.py": "app/services/hr_access_schema.py",
     "0490_board_role.py": "app/services/board_role_schema.py",
+    "0645_back_office_role.py": "app/services/back_office_role_schema.py",
+}
+
+# 0637 zeruje sekcje wycofywanego Viewera; zamrożona 0269 nadal zasiewa odczyt.
+SEEDED_BY_0269_THEN_ZEROED: dict[str, dict[str, str]] = {
+    UserRole.user.value: {
+        "sourcing": "read",
+        "pipeline": "read",
+        "delivery": "none",
+        "insights": "read",
+        "finance": "none",
+        "system_admin": "none",
+    },
 }
 
 # Role wycofane w 0411 (sourcer, TAC → rekruter). Zamrożona migracja 0269 nadal
@@ -57,6 +71,7 @@ def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
     }
     for retired in ROLES_RETIRED_AFTER_0269:
         expected[retired] = expected[MERGED_ROLE_VALUE]
+    expected.update(SEEDED_BY_0269_THEN_ZEROED)
     assert migration.ROLE_DEFAULTS == expected
     assert tuple(migration.SECTIONS) == tuple(
         section.value for section in ProductSection

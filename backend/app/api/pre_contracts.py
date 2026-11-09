@@ -109,6 +109,7 @@ PRE_CONTRACT_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
     UserRole.board,
 )
@@ -116,6 +117,7 @@ PRE_CONTRACT_ROLES: tuple[UserRole, ...] = (
 #: nadzorcza jej nie ma, a Automatyzacje mają ją tylko do odczytu.
 _ROLE_GRANTED: tuple[UserRole, ...] = (
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
     UserRole.board,
 )

@@ -68,7 +68,7 @@ def outcome_available(job: Any) -> bool:
 def vacancies_declared(job: Any) -> bool:
     """Czy `headcount` tej rekrutacji ktoś naprawdę zadeklarował.
 
-    Importer wpisuje tam stałą `1` (`_UPSERT_JOB`), a kolumna jest
+    Import Traffita wpisywał tam stałą `1`, a kolumna jest
     `NOT NULL DEFAULT 1` — więc samej wartości nie da się odróżnić od braku.
     Rozstrzyga pochodzenie wiersza. Skutek jest dziś rozległy (4206 z 4229
     rekrutacji), ale dokładnie taki powinien być: `fill_rate` przekraczający

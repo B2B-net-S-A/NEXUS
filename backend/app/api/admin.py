@@ -53,7 +53,6 @@ from app.services.admin_active_decision import latest_admin_active_decision
 from app.services.account_deactivation import deactivate_account
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
-from app.services import trainee_program
 from app.services.user_email import find_user_by_email, normalize_email
 from app.services.critical_events import record_executed
 from app.services.effective_access import (
@@ -78,6 +77,8 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     # Imienne uprawnienie do usuwania klientów (0307).
     can_delete_clients: bool = False
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: bool = False
     # Uprawnienia z ekranu nadane tej osobie ponad to, co dają jej role
     # (plakietka „+N uprawnienie” na liście kont).
     extra_permissions: list[str] = []
@@ -115,6 +116,8 @@ class AdminUserUpdate(BaseModel):
     # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
     # z żadnej roli — nadaje się je konkretnej osobie.
     can_delete_clients: Optional[bool] = None
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: Optional[bool] = None
     # Odpina konto od tożsamości Microsoft (`azure_oid`). SSO odmawia logowania,
     # gdy ten sam adres przychodzi z INNYM `oid` (audyt 24.09.2026) — np. konto
     # odtworzone w Entra; admin świadomie pozwala przypiąć nową tożsamość.
@@ -148,6 +151,7 @@ def _normalized_role_values(
         UserRole.automation.value,
         UserRole.employee.value,
         UserRole.board.value,
+        UserRole.back_office.value,
     }.intersection(values)
     if exclusive and len(values) != 1:
         role_name = sorted(exclusive)[0]
@@ -219,6 +223,7 @@ async def list_users(
             roles=known_roles(u.roles),
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
+            receives_board_report=bool(u.receives_board_report),
             setup_pending_since=u.setup_pending_since,
             extra_permissions=list(
                 granted_beyond_roles(
@@ -299,9 +304,6 @@ async def create_user(
     )
     db.add(user)
     await db.flush()
-    await trainee_program.sync_program_for_roles(
-        db, user.id, before=[], after=roles_list, actor_id=_admin.id
-    )
     # „Ludzie w NEXUSIE”: nowe konto pracownicze dostaje kartotekę (19.10.2026).
     await account_profiles.ensure_profile_on_account(
         db, user, actor_id=_admin.id, source="admin_create"
@@ -337,6 +339,7 @@ async def update_user(
     original_name = user.name
     original_allowed_sections = list(user.allowed_sections or [])
     original_can_delete_clients = bool(user.can_delete_clients)
+    original_receives_board_report = bool(user.receives_board_report)
 
     if data.name is not None:
         user.name = data.name
@@ -353,6 +356,7 @@ async def update_user(
                 UserRole.automation,
                 UserRole.employee,
                 UserRole.board,
+                UserRole.back_office,
             }
             or UserRole.finance.value in original_roles
             or UserRole.user.value in original_roles
@@ -360,6 +364,7 @@ async def update_user(
             or UserRole.automation.value in original_roles
             or UserRole.employee.value in original_roles
             or UserRole.board.value in original_roles
+            or UserRole.back_office.value in original_roles
         ):
             final_roles = [final_primary.value]
         else:
@@ -405,6 +410,8 @@ async def update_user(
         user.is_active = data.is_active
     if data.can_delete_clients is not None:
         user.can_delete_clients = data.can_delete_clients
+    if data.receives_board_report is not None:
+        user.receives_board_report = data.receives_board_report
     if data.clear_microsoft_identity and user.azure_oid:
         previous_oid = user.azure_oid
         user.azure_oid = None
@@ -440,13 +447,6 @@ async def update_user(
         # 0612: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
         # znika z „Nowych osób do ustawienia”.
         user.setup_pending_since = None
-    await trainee_program.sync_program_for_roles(
-        db,
-        user.id,
-        before=original_effective_roles,
-        after=list(user.roles or []),
-        actor_id=_admin.id,
-    )
 
     if entering_finance:
         cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
@@ -553,6 +553,29 @@ async def update_user(
             details={
                 "from": original_can_delete_clients,
                 "to": data.can_delete_clients,
+            },
+        )
+    if (
+        data.receives_board_report is not None
+        and data.receives_board_report != original_receives_board_report
+    ):
+        # Kto dostaje przychód i marżę firmy mailem, jest częścią Historii zdarzeń.
+        await record_executed(
+            db,
+            actor=_admin,
+            event_type="user.board_report_permission",
+            entity_type="user",
+            entity_id=user.id,
+            entity_label=f"{user.name} ({user.email})",
+            reason_code="granted" if data.receives_board_report else "revoked",
+            reason=(
+                "Nadano mail „Podsumowanie Rady”."
+                if data.receives_board_report
+                else "Odebrano mail „Podsumowanie Rady”."
+            ),
+            details={
+                "from": original_receives_board_report,
+                "to": data.receives_board_report,
             },
         )
 
@@ -1106,16 +1129,6 @@ async def resync_aad_groups(
                 )
             )
         user.roles = role_strs
-    # R8-N3-1: bliźniak zapisu ról z panelu i logowania SSO — bez tego awans
-    # przez grupę AAD zostawiał program praktykanta „active”, a ponowne
-    # nadanie roli nie wznawiało zakończonego programu.
-    await trainee_program.sync_program_for_roles(
-        db,
-        user.id,
-        before=previous_effective_roles,
-        after=list(role_strs),
-        actor_id=_admin.id,
-    )
     if onboarding_reset:
         user.profile_completed = False
         user.profile_completed_at = None

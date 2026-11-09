@@ -81,18 +81,18 @@ function renderProfile(person: PersonFull, asHr: boolean) {
   return screen.findByRole("heading", { level: 1, name: /Ola Przykładowa/ });
 }
 
-describe("PersonProfile — pola Kadr", () => {
+describe("PersonProfile — pola Administracji współpracy", () => {
   beforeEach(() => {
     mocks.person = null;
   });
 
-  it("Kadry, zlecenie: koniec zwolnienia i „składki od”; `null` = brak daty", async () => {
+  it("Administracja współpracy, zlecenie: koniec zwolnienia i „składki od”; `null` = brak daty", async () => {
     await renderProfile(olaFull("zlecenie"), true);
     expect(screen.getByText("bez składek do 30.06.2027")).toBeInTheDocument();
     expect(screen.getByText("Składki od")).toBeInTheDocument();
   });
 
-  it("Kadry, zlecenie bez daty końca zwolnienia: „brak daty końca zwolnienia”", async () => {
+  it("Administracja współpracy, zlecenie bez daty końca zwolnienia: „brak daty końca zwolnienia”", async () => {
     await renderProfile(
       { ...olaFull("zlecenie"), contribution_exempt_until: null, contributions_from: null },
       true,
@@ -101,7 +101,7 @@ describe("PersonProfile — pola Kadr", () => {
     expect(screen.queryByText("Składki od")).toBeNull();
   });
 
-  it("przełożony, zlecenie: sam znacznik studenta, bez dat i bez „brak daty”", async () => {
+  it("koordynator, zlecenie: sam znacznik studenta, bez dat i bez „brak daty”", async () => {
     await renderProfile(forManager(olaFull("zlecenie")), false);
     expect(screen.getByText("Uczeń lub student").nextSibling).toHaveTextContent(/^tak$/);
     expect(screen.queryByText(/brak daty końca zwolnienia/)).toBeNull();
@@ -109,14 +109,14 @@ describe("PersonProfile — pola Kadr", () => {
     expect(screen.queryByText("Składki od")).toBeNull();
   });
 
-  it("Kadry, umowa o pracę: staż do urlopu, zaświadczenie ZUS i podpowiedź wymiaru", async () => {
+  it("Administracja współpracy, umowa o pracę: staż do urlopu, zaświadczenie ZUS i podpowiedź wymiaru", async () => {
     await renderProfile(olaFull("uop"), true);
     expect(screen.getByText("Staż do urlopu").nextSibling).toHaveTextContent("12 lat");
     expect(screen.getByText("Zaświadczenie z ZUS").nextSibling).toHaveTextContent("04.05.2026");
     expect(screen.getByText(/Wymiar według stażu \(12 lat\): 26 dni/)).toBeInTheDocument();
   });
 
-  it("Kadry, umowa o pracę bez stażu i zaświadczenia: wiersze z „—”", async () => {
+  it("Administracja współpracy, umowa o pracę bez stażu i zaświadczenia: wiersze z „—”", async () => {
     await renderProfile(
       {
         ...olaFull("uop"),
@@ -130,7 +130,7 @@ describe("PersonProfile — pola Kadr", () => {
     expect(screen.getByText("Zaświadczenie z ZUS").nextSibling).toHaveTextContent("—");
   });
 
-  it("przełożony, umowa o pracę: bez wierszy stażu i zaświadczenia ZUS", async () => {
+  it("koordynator, umowa o pracę: bez wierszy stażu i zaświadczenia ZUS", async () => {
     await renderProfile(forManager(olaFull("uop")), false);
     expect(screen.getAllByText("Forma").length).toBeGreaterThan(0);
     expect(screen.queryByText("Staż do urlopu")).toBeNull();

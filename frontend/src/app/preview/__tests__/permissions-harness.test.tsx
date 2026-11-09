@@ -34,10 +34,10 @@ afterEach(() => {
 });
 
 describe("/preview/permissions", () => {
-  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, szesnaście przełączników", async () => {
+  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, dziewiętnaście przełączników", async () => {
     render(<PermissionsPreviewPage />);
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(16);
+    expect(await screen.findAllByRole("switch")).toHaveLength(19);
     expect(screen.getByRole("button", { name: "Finanse" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -64,25 +64,24 @@ describe("/preview/permissions", () => {
     expect(adapter).not.toHaveBeenCalled();
   });
 
-  it("`?modal=1`: okno osoby z listą tego, czego jej rola nie daje", async () => {
+  it("`?modal=1`: okno osoby z całym katalogiem i stanem każdego uprawnienia", async () => {
     address.search = "modal=1";
     render(<PermissionsPreviewPage />);
 
     expect(
       await screen.findByRole("heading", { name: "Edytuj użytkownika" }),
     ).toBeInTheDocument();
-    const group = screen.getByRole("group", { name: "Dodatkowe uprawnienia" });
-    expect(
-      within(group).getByRole("checkbox", {
-        name: "Kontrakty i zamówienia: tworzenie i edycja",
-      }),
-    ).toBeChecked();
-    // Sześć z grup Delivery i Pieniądze + Kadry, Płace, Sprzęt, Raporty godzin
-    // (TCM ma Sprawy).
-    expect(within(group).getAllByRole("checkbox")).toHaveLength(12);
-    expect(group).toHaveTextContent(
-      "Lista pokazuje tylko to, czego rola Talent Community Manager nie daje.",
-    );
+    const group = screen.getByRole("group", { name: "Uprawnienia tej osoby" });
+    expect(within(group).getAllByRole("radiogroup")).toHaveLength(19);
+    const granted = within(group).getByRole("radiogroup", {
+      name: "Kontrakty i zamówienia: tworzenie i edycja",
+    });
+    expect(within(granted).getByRole("radio", { name: "Nadane" })).toBeChecked();
+    const fromRole = within(group).getByRole("radiogroup", {
+      name: "Zakończenie współpracy, zmiana statusu kontraktu",
+    });
+    expect(within(fromRole).getByRole("radio", { name: "Z roli" })).toBeChecked();
+    expect(group).toHaveTextContent("Rola daje punkt wyjścia.");
     expect(adapter).not.toHaveBeenCalled();
   });
 
@@ -94,11 +93,15 @@ describe("/preview/permissions", () => {
     const row = await screen.findByRole("row", { name: /Oskar Podglądowy/ });
     await user.click(within(row).getByRole("button", { name: "Edytuj" }));
 
-    const group = await screen.findByRole("group", { name: "Dodatkowe uprawnienia" });
+    const group = await screen.findByRole("group", { name: "Uprawnienia tej osoby" });
     await waitFor(() =>
-      expect(group).toHaveTextContent("Stare ograniczenia tej osoby:"),
+      expect(group).toHaveTextContent("Stare ograniczenia tej osoby: Delivery: tylko odczyt."),
     );
     expect(within(group).getByRole("button", { name: "Usuń ograniczenia" })).toBeInTheDocument();
+    const revoked = within(group).getByRole("radiogroup", {
+      name: "Zakończenie współpracy, zmiana statusu kontraktu",
+    });
+    expect(within(revoked).getByRole("radio", { name: "Odebrane" })).toBeChecked();
     expect(adapter).not.toHaveBeenCalled();
   });
 });

@@ -102,10 +102,12 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     ).toEqual([
       // „Ludzie w NEXUSIE” (16.10.2026): „Mój czas”, „Ludzie”, „Sprzęt” —
       // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
-      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
+      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"]],
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
-      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "finance"]],
+      // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
+      // „Umowy klientów” (04.11.2026): tylko z uprawnienia, domyślnie admin.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"]],
       ["Firma", ["insights", "people", "equipment"]],
     ]);
   });
@@ -151,7 +153,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
     expect(groupsOf("admin")).toEqual([
       full[0],
-      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/finance"]],
+      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/client-contracts", "/finance"]],
       full[2],
     ]);
     for (const role of MENU_ROLES) {
@@ -197,6 +199,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/sales",
       "/clients",
       "/contracts",
+      "/client-contracts",
       "/finance",
       "/insights",
     ]);
@@ -210,7 +213,8 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
       // Akademia zdjęta z „Więcej” 17.10.2026.
       ["Codzienna praca", ["Do przedzwonienia"]],
-      ["Dokumenty", ["Generator Umów B2B"]],
+      // „Moje wygenerowane CV” od 07.11.2026.
+      ["Dokumenty", ["Moje wygenerowane CV", "Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
@@ -284,7 +288,7 @@ describe("rejestr nawigacji ↔ rejestr capability", () => {
       ["order-mail", "delivery_view"],
       ["my-relationships", "delivery_view"],
       ["contracts", "delivery_view"],
-      ["finance", "finance_module"],
+      ["finance", "orders_work"],
     ]);
   });
 });
@@ -339,7 +343,13 @@ describe("menu idzie za uprawnieniem, nie za rolą", () => {
     expect(hrefs(granted)).toContain("/finance");
     expect(paletteIds(granted)).toContain("finance");
 
-    const revoked = accessSnapshot("finance", { revoke: ["finance_module"] });
+    // Sam moduł nie zamyka wejścia: zakładki o zamówieniach mają `orders_work`.
+    const onlyOrders = accessSnapshot("back_office");
+    expect(hrefs(onlyOrders)).toContain("/finance");
+
+    const revoked = accessSnapshot("finance", {
+      revoke: ["finance_module", "orders_work"],
+    });
     expect(hrefs(revoked)).not.toContain("/finance");
     expect(paletteIds(revoked)).not.toContain("finance");
     // Kontrakty zostają: „Kontrakty i zamówienia” Finanse mają nadal.
@@ -381,6 +391,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   const SOURCING_OPERATIONAL = [
     "/dashboard",
     "/candidates",
+    // „Moje wygenerowane CV” (07.11.2026) — „Więcej” → „Dokumenty”.
+    "/candidates/generated-cvs",
     "/contracts/b2b-generator",
     // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026,
     // „/cv-generator" 13.10.2026.
@@ -413,6 +425,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       "/finance",
       // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
       "/sales",
+      // Umowy klientów (04.11.2026): bez sekcji produktu, uprawnienie admina.
+      "/client-contracts",
       ...SYSTEM,
     ],
     finance: [
@@ -430,15 +444,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...INSIGHTS,
       ...SYSTEM,
     ],
-    // Legacy viewer (0 kont): Kalendarz i Generator CV zdjęte 22.09.2026 —
-    // backend (RecruitmentReadAccess / CandidateWriteAccess) i tak go odcina.
-    user: [
-      "/dashboard",
-      "/contracts/b2b-generator",
-      "/jobs",
-      "/insights",
-      ...SYSTEM,
-    ],
+    // Wycofywany viewer (0 kont): od 0637 bez żadnej sekcji.
+    user: [...SYSTEM],
     // Praktykant (0374): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
     trainee: [],
   };
@@ -550,9 +557,10 @@ describe("paleta ⌘K ⊆ sidebar", () => {
   });
 
   it("bez `nav.candidates` Talent Radar prowadzi na samodzielną stronę /talent-radar", () => {
-    // Radar jest dla KAŻDEJ roli (19.08), a /candidates tylko dla `nav.candidates`.
+    // Radar jest dla KAŻDEJ roli z sekcją Sourcing (19.08), a /candidates tylko
+    // dla `nav.candidates`. Viewer bez sekcji (0637) nie ma w palecie żadnego.
     expect(hasCapability(userOf("user"), "nav.candidates")).toBe(false);
-    expect(paletteHref("user", "talent-radar")).toBe("/talent-radar");
+    expect(paletteHref("user", "talent-radar")).toBeUndefined();
     expect(paletteHref("user", "candidate-search")).toBeUndefined();
     // Odebrana sekcja Sourcing też odcina /candidates — adres wraca do radaru.
     const noSourcing = {
@@ -606,23 +614,5 @@ describe("Talenty i Targ zdjęte z nawigacji (21.09.2026)", () => {
       expect(hrefs).not.toContain("/talents");
       expect(hrefs).not.toContain("/sourcing/marketplace");
     }
-  });
-});
-
-describe("Akademia i Praktykanci zdjęci z nawigacji (17.10.2026)", () => {
-  const opts = { contactQueueEnabled: true };
-  it("nie ma ich w menu ani w palecie dla żadnej roli, strony dalej istnieją", () => {
-    for (const role of ALL_ROLES) {
-      const user = userOf(role);
-      const hrefs = [
-        ...visibleNavHrefs(user, opts),
-        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
-      ];
-      expect(hrefs).not.toContain("/academy");
-      expect(hrefs).not.toContain("/trainees");
-    }
-    expect(NAV_REGISTRY.map((entry) => entry.href)).toEqual(
-      expect.arrayContaining(["/academy", "/trainees"]),
-    );
   });
 });

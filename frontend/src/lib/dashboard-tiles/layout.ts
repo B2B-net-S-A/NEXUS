@@ -40,7 +40,7 @@ export const PERIOD_LABELS: Record<MetricPeriod, string> = {
 
 export const AUTHOR_LABELS = {
   me: "Moje",
-  team: "Mój zespół",
+  team: "Koordynacja",
   all: "Cała firma",
 } as const;
 

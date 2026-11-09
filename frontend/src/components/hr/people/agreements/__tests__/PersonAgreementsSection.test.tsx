@@ -75,7 +75,7 @@ describe("PersonAgreementsSection", () => {
     expect(screen.queryByText("Umowy")).toBeNull();
   });
 
-  it("403 z serwera (przełożony, sama osoba) chowa sekcję", async () => {
+  it("403 z serwera (koordynator, sama osoba) chowa sekcję", async () => {
     mocks.get.mockRejectedValue(Object.assign(new Error("x"), { response: { status: 403 } }));
     wrap(<PersonAgreementsSection userId={CELINA.id} enabled />, CELINA.id);
     await waitFor(() => expect(mocks.get).toHaveBeenCalled());
@@ -90,7 +90,7 @@ describe("PersonAgreementsSection", () => {
     expect(screen.queryByText("Nie ma jeszcze umów przygotowanych w NEXUSIE.")).toBeNull();
   });
 
-  it("Kadry: umowy z kanałem podpisu i akcją wiersza", () => {
+  it("Administracja współpracy: umowy z kanałem podpisu i akcją wiersza", () => {
     wrap(<PersonAgreementsSection userId={CELINA.id} enabled />, CELINA.id, celinaAgreements());
     expect(screen.getByRole("button", { name: /Nowa umowa albo aneks/ })).toBeTruthy();
     const rows = screen.getAllByRole("row").slice(1);
@@ -101,7 +101,7 @@ describe("PersonAgreementsSection", () => {
     expect(within(rows[2]).getByText("31,40 zł brutto za godzinę")).toBeTruthy();
   });
 
-  it("Płace: te same umowy bez akcji zmieniających", () => {
+  it("Rozliczenia: te same umowy bez akcji zmieniających", () => {
     wrap(<PersonAgreementsSection userId={CELINA.id} enabled />, CELINA.id, celinaAgreements(false));
     expect(screen.queryByRole("button", { name: /Nowa umowa albo aneks/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Wycofaj z podpisu" })).toBeNull();

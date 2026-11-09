@@ -25,14 +25,17 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/screening-form": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/screening-form/joint-context": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/screening-form/question-groups": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/screening-form/versions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/screening-form/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/screening-form": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

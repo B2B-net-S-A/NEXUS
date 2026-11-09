@@ -21,7 +21,7 @@ Import jest idempotentny per (linia, miesiąc): powtórka tego samego miesiąca
 NADPISUJE wcześniejszy wpis konsumpcji i przelicza pozostałość od
 ``md_total``, zamiast odjąć MD po raz drugi.
 
-Dostęp: ``FinanceManageUser`` (admin + rola Finanse). Projekcja wierszy jest
+Dostęp: ``OrdersWorkUser`` (admin, Finanse, Back office). Projekcja wierszy jest
 świadomie wąska — nazwisko przyszło z pliku, który ten użytkownik sam wgrał,
 a poza nim widzi wyłącznie numer zamówienia i klienta, czyli minimum potrzebne
 do rozstrzygnięcia i zafakturowania. Bez identyfikatorów kandydatów, kontraktów
@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app.api.financial_access import FinanceManageUser
+from app.api.deps import OrdersWorkUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -975,7 +975,7 @@ def _ordinary_locked_target_is_valid(
     "/imports", response_model=ImportDetail, status_code=status.HTTP_201_CREATED
 )
 async def create_import(
-    user: FinanceManageUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     period_month: str = Form(...),
@@ -2670,7 +2670,7 @@ async def _detail(
 
 @router.get("/imports", response_model=ImportListResponse)
 async def list_imports(
-    user: FinanceManageUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
     limit: int = 20,
 ):
@@ -2686,7 +2686,7 @@ async def list_imports(
 @router.get("/imports/{import_id}", response_model=ImportDetail)
 async def get_import(
     import_id: int,
-    user: FinanceManageUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
     batch = await db.scalar(
@@ -2704,7 +2704,7 @@ async def get_import(
 async def reprocess_polkomtel_import(
     import_id: int,
     payload: PolkomtelReprocessRequest,
-    user: FinanceManageUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Re-match one stored batch after the Polkomtel SAP-prefix fix.
@@ -2893,7 +2893,7 @@ async def assign_row(
     import_id: int,
     row_id: int,
     payload: AssignRowRequest,
-    user: FinanceManageUser,
+    user: OrdersWorkUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczne rozstrzygnięcie wiersza „Wymaga przypisania"."""

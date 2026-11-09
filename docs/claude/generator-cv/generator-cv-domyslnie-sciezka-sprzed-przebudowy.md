@@ -57,7 +57,7 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   słownik klienta (także wpisy sprzed #1445) trafia do promptu i podmienia
   tekst we wszystkich polach; długie punkty są skracane z „…”; w trybie
   `polished`/`basic` nie ma pogrubień (tylko `tailored` pogrubia MUST/NICE
-  Championa); nagłówek lat zaokrągla sumę przedziałów; strony PDF będące
+  Championa); nagłówek lat liczy sumę przedziałów (od 02.11.2026 pełne lata w dół i „Ponad N”); strony PDF będące
   samym obrazem są pomijane zamiast blokować. Od 13.10.2026 (D1–D3) brak
   branży to pusty string zamiast „IT”, punkt „Posiada kluczowe
   technologie…” jest zakazany, a lata, nagłówek i notatki działają jak

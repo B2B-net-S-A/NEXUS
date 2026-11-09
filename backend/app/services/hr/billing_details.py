@@ -332,7 +332,9 @@ async def update_details(
 
     await require_subject(db, actor, user_id)
     if not can_edit(actor):
-        raise BillingError("Dane do rozliczeń zmieniają Kadry i Płace.", 403)
+        raise BillingError(
+            "Dane do rozliczeń zmieniają Administracja współpracy i Rozliczenia.", 403
+        )
     details = await _locked_or_new(db, user_id)
     fields: list[str] = []
     money_relevant = False
@@ -400,7 +402,9 @@ async def white_list_lookup(
 
     await require_subject(db, actor, user_id)
     if not can_edit(actor):
-        raise BillingError("Białą listę sprawdzają Kadry i Płace.", 403)
+        raise BillingError(
+            "Białą listę sprawdzają Administracja współpracy i Rozliczenia.", 403
+        )
     details = await _locked_or_new(db, user_id)
     if not details.nip:
         raise BillingError("Najpierw wpisz NIP osoby.")
@@ -443,7 +447,10 @@ async def select_white_list_account(
 
     await require_subject(db, actor, user_id)
     if not can_edit(actor):
-        raise BillingError("Rachunek z białej listy wybierają Kadry i Płace.", 403)
+        raise BillingError(
+            "Rachunek z białej listy wybierają Administracja współpracy i Rozliczenia.",
+            403,
+        )
     details = await _locked_or_new(db, user_id)
     if not details.nip:
         raise BillingError("Najpierw wpisz NIP osoby.")

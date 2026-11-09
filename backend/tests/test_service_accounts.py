@@ -148,7 +148,6 @@ class TestScopeVocabulary:
                 "cv",
                 "calendar",
                 "applications",
-                "academy",
             }
         }
         assert personal == {
@@ -165,12 +164,11 @@ class TestScopeVocabulary:
             "calendar:read",
             "applications:read",
             "applications:write",
-            "academy:read",
         }
 
     def test_write_scope_implies_read_scope(self):
         assert implied_scopes(frozenset({"md:write"})) == {"md:write", "md:read"}
-        assert implied_scopes(frozenset({"traffit:sync"})) == {"traffit:sync"}
+        assert implied_scopes(frozenset({"traffit:read"})) == {"traffit:read"}
         # Zapis bez odpowiadającego odczytu w słowniku niczego nie dokłada.
         assert implied_scopes(frozenset({"bogus:write"})) == {"bogus:write"}
 
@@ -201,17 +199,17 @@ class TestScopeVocabulary:
     def test_granted_scopes_fails_closed_on_corrupt_row(self):
         """Uszkodzony wiersz = brak uprawnień, nie test podciągu.
 
-        Gdyby ``scopes`` był stringiem, ``"traffit:sync" in scopes`` byłoby
-        prawdą dla wartości ``"traffit:sync-cokolwiek"``.
+        Gdyby ``scopes`` był stringiem, ``"traffit:read" in scopes`` byłoby
+        prawdą dla wartości ``"traffit:read-cokolwiek"``.
         """
-        account = ServiceAccount(slug="x", name="x", scopes="traffit:sync")
+        account = ServiceAccount(slug="x", name="x", scopes="traffit:read")
         assert account.granted_scopes() == frozenset()
 
         account.scopes = None
         assert account.granted_scopes() == frozenset()
 
-        account.scopes = ["traffit:sync", 42, None]
-        assert account.granted_scopes() == frozenset({"traffit:sync"})
+        account.scopes = ["traffit:read", 42, None]
+        assert account.granted_scopes() == frozenset({"traffit:read"})
 
 
 # ── 2. Pomocnicze: zakładanie konta + klucza przez API ───────────────────────
@@ -264,7 +262,6 @@ async def _account_with_key(
 # ``GET /api/admin/traffit/sync/status`` to konkretny przypadek użycia, który
 # wywołał całą funkcję: endpoint operacyjny odpalany poza przeglądarką.
 TRAFFIT_STATUS = "/api/admin/traffit/sync/status"
-TRAFFIT_SYNC = "/api/admin/traffit/sync"
 
 
 class TestApiKeyAuthorization:
@@ -281,9 +278,9 @@ class TestApiKeyAuthorization:
     async def test_key_without_scope_is_denied(
         self, app_client: AsyncClient, app_auth_headers: dict
     ):
-        """Klucz od uruchamiania syncu nie czyta statusu — scope'y są rozłączne."""
+        """Klucz od migawki nie czyta statusu Traffita — scope'y są rozłączne."""
         _, api_key, _ = await _account_with_key(
-            app_client, app_auth_headers, ["traffit:sync"]
+            app_client, app_auth_headers, ["ops:snapshot"]
         )
         resp = await app_client.get(TRAFFIT_STATUS, headers={"X-API-Key": api_key})
         assert resp.status_code == 403, resp.text
@@ -386,7 +383,7 @@ class TestApiKeyAuthorization:
         scope'y ze sobą i przeżywa odebranie uprawnień do końca swojej godziny.
         """
         account, api_key, _ = await _account_with_key(
-            app_client, app_auth_headers, ["traffit:sync"]
+            app_client, app_auth_headers, ["ops:snapshot"]
         )
         assert (
             await app_client.get(TRAFFIT_STATUS, headers={"X-API-Key": api_key})
@@ -395,7 +392,7 @@ class TestApiKeyAuthorization:
         await app_client.patch(
             f"{ACCOUNTS_URL}/{account['id']}",
             headers=app_auth_headers,
-            json={"scopes": ["traffit:sync", "traffit:read"]},
+            json={"scopes": ["ops:snapshot", "traffit:read"]},
         )
         assert (
             await app_client.get(TRAFFIT_STATUS, headers={"X-API-Key": api_key})
@@ -512,7 +509,7 @@ class TestApiKeyAuthorization:
     ):
         """Odrzucona próba nie może udawać żywej integracji."""
         _, api_key, key = await _account_with_key(
-            app_client, app_auth_headers, ["traffit:sync"]
+            app_client, app_auth_headers, ["ops:snapshot"]
         )
         # 403 (brak scope'u) — uwierzytelnienie przeszło, więc stempel jest OK.
         # Tutaj sprawdzamy ścieżkę z BŁĘDNYM sekretem, gdzie stempla być nie może.
@@ -547,10 +544,10 @@ class TestApiKeyAuthorization:
         KOLEJNOŚCI dwóch operacji w różnych funkcjach.
         """
         _, api_key, key = await _account_with_key(
-            app_client, app_auth_headers, ["traffit:read"]
+            app_client, app_auth_headers, ["ops:snapshot"]
         )
-        # Klucz poprawny, ale bez `traffit:sync` wymaganego przez ten endpoint.
-        resp = await app_client.post(TRAFFIT_SYNC, headers={"X-API-Key": api_key})
+        # Klucz poprawny, ale bez `traffit:read` wymaganego przez ten endpoint.
+        resp = await app_client.get(TRAFFIT_STATUS, headers={"X-API-Key": api_key})
         assert resp.status_code == 403
 
         async with AsyncSessionLocal() as db:
@@ -885,7 +882,7 @@ class TestDatabaseIntegrity:
             with pytest.raises(IntegrityError):
                 await db.execute(
                     text(
-                        "UPDATE service_accounts SET scopes = '\"traffit:sync\"'::jsonb "
+                        "UPDATE service_accounts SET scopes = '\"traffit:read\"'::jsonb "
                         "WHERE id = :id"
                     ),
                     {"id": account.id},

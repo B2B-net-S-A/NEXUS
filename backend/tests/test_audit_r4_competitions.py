@@ -28,6 +28,7 @@ from app.services import competitions
 from app.services import dashboard_v2 as dashboard_v2_service
 from app.services.insights_scoring_config import SCORING_DEFAULTS
 
+
 @pytest.fixture(autouse=True)
 def _periods_are_open(monkeypatch):
     """Od 15.10.2026 okres zamknięty `/current` i `/monthly-races` pokazują
@@ -114,23 +115,14 @@ async def test_my_position_of_unqualified_leader_has_no_place(monkeypatch) -> No
     ]
 
 
-async def test_my_position_in_monthly_race_skips_excluded_and_hides_margin(
+async def test_my_position_in_monthly_race_counts_the_leader_and_hides_margin(
     monkeypatch,
 ) -> None:
-    """Wykluczony lider kwartału nie jest „1.”, a marża/h nie wycieka."""
+    """Lider wyścigu jest „1.” bez wykluczenia, a marża/h nie wycieka."""
     from app.core import cache as cache_module
 
     cache_module._cache.clear()
     ranked = _ranked([(1, 5, True), (2, 3, True), (3, 3, True)])
-    monkeypatch.setattr(
-        competitions,
-        "monthly_race_excluded_user_ids",
-        AsyncMock(
-            return_value=competitions.RaceExclusion(
-                frozenset({1}), "frozen_quarter", "Q3 2026"
-            )
-        ),
-    )
     monkeypatch.setattr(
         competitions,
         "placement_margin_per_hour_by_user",
@@ -145,16 +137,16 @@ async def test_my_position_in_monthly_race_skips_excluded_and_hides_margin(
         competitions, "compute_live", AsyncMock(return_value=deepcopy(ranked))
     )
 
-    excluded = await competitions_api.my_position(
+    leader = await competitions_api.my_position(
         SimpleNamespace(id=1), None, "monthly_placements", "2026-08"
     )
-    assert excluded["rank"] is None and excluded["me"]["excluded"] is True
+    assert leader["rank"] == 1 and leader["me"]["excluded"] is False
 
-    leader = await competitions_api.my_position(
+    runner = await competitions_api.my_position(
         SimpleNamespace(id=2), None, "monthly_placements", "2026-08"
     )
-    assert leader["rank"] == 1
-    for entry in [leader["me"], *leader["context"]]:
+    assert runner["rank"] == 2
+    for entry in [leader["me"], runner["me"], *runner["context"]]:
         assert "margin_per_hour_sum" not in entry
         assert "margin_placements" not in entry
 
@@ -180,7 +172,8 @@ async def test_dashboard_league_podium_skips_unqualified_leader(monkeypatch) -> 
         for idx, entry in enumerate(league["ranked"])
     ]
     assert entries[1].rank is None
-    assert entries[0].prize_pln == competitions.QUARTERLY_PRIZES_PLN[1]
+    # Kwota z bieżącego kwartału (Q4 2026 ma nagrody podwojone, 06.11.2026).
+    assert entries[0].prize_pln == competitions.quarterly_prizes(league["period"])[1]
     assert entries[1].prize_pln is None
 
 
@@ -227,38 +220,6 @@ async def test_quarterly_league_ranks_with_the_snapshot_weights(monkeypatch) -> 
     assert rank.await_args.kwargs["weights"]["placement"] == 111
 
 
-class _Scalar:
-    def __init__(self, value):
-        self._value = value
-
-    def scalar_one_or_none(self):
-        return self._value
-
-    def first(self):
-        return self._value
-
-
-async def test_quarter_leader_exclusion_uses_the_quarter_snapshot(monkeypatch) -> None:
-    """Wykluczenie lidera z wyścigu sierpnia liczy Ligę migawką Q3."""
-    snapshot = {**SCORING_DEFAULTS, "league_min_placements_month2": 7}
-    league_config = AsyncMock(return_value=snapshot)
-    monkeypatch.setattr(competitions, "league_scoring_config", league_config)
-    monkeypatch.setattr(
-        competitions,
-        "get_scoring_config",
-        AsyncMock(side_effect=AssertionError("wykluczenie nie czyta na żywo")),
-    )
-    rank = AsyncMock(return_value=[])
-    monkeypatch.setattr(competitions, "_rank_recruiters_by_points", rank)
-    db = SimpleNamespace(execute=AsyncMock(side_effect=[_Scalar(None), _Scalar(None)]))
-
-    exclusion = await competitions.monthly_race_excluded_user_ids(db, "2026-08")
-
-    assert exclusion.source == "no_qualified_quarter_leader"
-    league_config.assert_awaited_once_with(db, "Q3 2026")
-    assert rank.await_args.kwargs["min_placements"] == 7
-
-
 async def test_autofreeze_snapshots_the_current_quarter_scoring(monkeypatch) -> None:
     from app.tasks import competition_autofreeze
 
@@ -283,7 +244,8 @@ async def test_autofreeze_snapshots_the_current_quarter_scoring(monkeypatch) -> 
     assert league.await_args.args[1] == "Q3 2026"
 
 
-async def test_freezing_a_month_snapshots_its_quarter_scoring(monkeypatch) -> None:
+async def test_freezing_a_month_pays_without_reading_the_league(monkeypatch) -> None:
+    """Wyścig miesięczny nie zależy od Ligi kwartału (od 05.11.2026)."""
     ranked = _ranked([(2, 3, True)])
     monkeypatch.setattr(
         competitions, "compute_live", AsyncMock(return_value=deepcopy(ranked))
@@ -294,13 +256,6 @@ async def test_freezing_a_month_snapshots_its_quarter_scoring(monkeypatch) -> No
     )
     league = AsyncMock(return_value=None)
     monkeypatch.setattr(competitions, "snapshot_league_scoring_config", league)
-    monkeypatch.setattr(
-        competitions,
-        "monthly_race_excluded_user_ids",
-        AsyncMock(
-            return_value=competitions.RaceExclusion(frozenset(), "test", "Q3 2026")
-        ),
-    )
 
     class _Result:
         def scalars(self):
@@ -314,10 +269,40 @@ async def test_freezing_a_month_snapshots_its_quarter_scoring(monkeypatch) -> No
         add=lambda _row: None,
         commit=AsyncMock(),
     )
+    added: list = []
+    db.add = added.append
     await competitions.freeze_competition(
         db, CompetitionType.monthly_placements, "2026-08"
     )
-    assert league.await_args.args[1] == "Q3 2026"
+    league.assert_not_awaited()
+    winners = [a for a in added if a.__class__.__name__ == "CompetitionWinner"]
+    assert [(w.rank, w.user_id) for w in winners] == [(1, 2)]
+
+
+def test_frozen_month_with_old_exclusion_keeps_its_rule() -> None:
+    """Okres zamrożony przed 05.11.2026 pokazuje, jak go rozliczono."""
+    frozen = competitions.FrozenResult(
+        status="frozen",
+        top3=[{"rank": 1, "user_id": 2}],
+        rows=[],
+        ranking=[{"user_id": 1, "metric_value": 5}, {"user_id": 2, "metric_value": 3}],
+        ties=[],
+        excluded_user_ids=[1],
+        exclusion_source="frozen_quarter",
+        exclusion_quarter="Q3 2026",
+        source="nexus",
+        source_note=None,
+    )
+    race = competitions._frozen_race("2026-09", frozen, ["Minimum 2 placementy"])
+    assert race["requirements"][-1] == competitions._LEADER_EXCLUDED_REQUIREMENT
+    assert [e["excluded"] for e in race["ranking"]] == [True, False]
+
+    fresh = competitions._frozen_race(
+        "2026-11",
+        competitions.FrozenResult(**{**frozen.__dict__, "excluded_user_ids": []}),
+        ["Minimum 2 placementy"],
+    )
+    assert fresh["requirements"] == ["Minimum 2 placementy"]
 
 
 def _year() -> int:

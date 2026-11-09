@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from typing import Annotated, Optional
@@ -32,6 +33,9 @@ from app.schemas.client import (
     ClientUpdate,
 )
 from app.services.client_access import assert_client_writable
+from app.services.client_invoicing import clients as invoicing_clients
+from app.services.client_invoicing import matching as invoicing_matching
+from app.services.client_invoicing import settings as invoicing_settings
 from app.services.client_deletion import assess_client_merge_blockers
 from app.services.client_duplicates import (
     duplicate_warning_detail,
@@ -63,6 +67,7 @@ from app.services.contractor_identity import (
     summarize_active_contracts,
 )
 from app.schemas.client_executive_contract import ExecutiveContractBrief
+from app.services.order_client_identity import normalize_buyer_number
 from app.services.representative_order import representative_order
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
@@ -86,6 +91,8 @@ from app.api.deps import AdminUser, OperationalUser
 from app.api.permission_access import ClientsEditUser, permission_denied
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.action_permissions import ProductAction, has_permission
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 _RATE_NOT_PROVIDED = object()
@@ -120,8 +127,8 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
 def _archive_boundary(contract: Contract, today: date) -> date:
     """Dzień zakończenia kontraktu w archiwum: `end_date` → `terminated_at` → dziś.
 
-    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia i
-    przywrócenie (`reopen_contract` go nie czyści), więc umowa zakończona
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia (powrót
+    bezterminowy czyści go dopiero od 02.11.2026), więc umowa zakończona
     ponownie niosła datę PIERWSZEGO zakończenia — stawka, czas trwania i
     przychód liczyły się na nią, choć kolumna „End date" obok pokazuje
     `end_date`. „Zakończ współpracę" zawsze ustawia `end_date <= terminated_at`,
@@ -499,9 +506,17 @@ async def create_client(
         if found:
             raise HTTPException(status_code=409, detail=duplicate_warning_detail(found))
 
+    if data.nip:
+        owner = await invoicing_clients.number_taken_by(db, None, data.nip)
+        if owner is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ten numer ma już {owner}. Wpisz inny albo scal klientów.",
+            )
     client = Client(**data.model_dump())
     db.add(client)
     await db.flush()
+    await _match_invoices_waiting_for_nip(db, client.nip)
     scope = ClientPortfolioScope(
         client_id=client.id,
         category=portfolio_category,
@@ -1090,6 +1105,42 @@ async def get_client_profile(
     return response
 
 
+async def _refuse_taken_nip(
+    db: AsyncSession, client: Client, updates: dict[str, object]
+) -> bool:
+    """Czy NIP się zmienia; numer innego klienta to 409, bo zatrzymałby faktury obu."""
+
+    new_nip = updates.get("nip")
+    if not isinstance(new_nip, str) or new_nip == client.nip:
+        return False
+    if normalize_buyer_number(client.nip or "") == new_nip:
+        # Ten sam numer, inny zapis (myślniki) — porządkujemy bez sprawdzania.
+        return False
+    owner = await invoicing_clients.number_taken_by(db, client.id, new_nip)
+    if owner is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ten numer ma już {owner}. Wpisz inny albo scal klientów.",
+        )
+    return True
+
+
+async def _match_invoices_waiting_for_nip(db: AsyncSession, nip: Optional[str]) -> None:
+    """Nowy NIP klienta: faktury z KSeF tego nabywcy wiążemy od razu, nie w kolejce.
+
+    Moduł faktur jest dodatkiem do zapisu klienta: jego awaria nie cofa formularza,
+    a następny przebieg pętli dopasuje te faktury sam.
+    """
+
+    if not nip or not await invoicing_settings.is_enabled(db):
+        return
+    try:
+        async with db.begin_nested():
+            await invoicing_matching.retry_waiting_for_number(db, nip)
+    except Exception:  # noqa: BLE001
+        logger.exception("Dopasowanie faktur po zmianie NIP-u klienta nie powiodło się")
+
+
 @router.patch("/{client_id}", response_model=AnyClientResponse)
 async def update_client(
     client_id: ClientIdPath,
@@ -1113,6 +1164,7 @@ async def update_client(
         raise HTTPException(
             403, "Ograniczenia CV są zarządzane centralnie w backendzie."
         )
+    nip_changed = await _refuse_taken_nip(db, client, updates)
     for k, v in updates.items():
         setattr(client, k, v)
     db.add(
@@ -1128,6 +1180,8 @@ async def update_client(
     )
     await db.flush()
     await db.refresh(client)
+    if nip_changed:
+        await _match_invoices_waiting_for_nip(db, client.nip)
     # Serializacja jak w get_client — `name` = coalesce(display_name, name).
     # Surowy ORM zwracał tu client.name, więc odpowiedź PATCH po edycji
     # display_name pokazywała starą nazwę (wyglądało jak brak zapisu).
@@ -1259,6 +1313,10 @@ async def _move_client_materials_on_merge(
     from app.models.client_one_pager import ClientOnePager
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.consultant_panel import (
+        ClientOnboardingMaterial,
+        ClientSettlementRule,
+    )
     from app.models.contact import Contact
 
     moved: dict[str, int] = {}
@@ -1286,6 +1344,8 @@ async def _move_client_materials_on_merge(
     ):
         await _repoint(ClientPlaybook, "playbook")
         await _repoint(ClientPlaybookEvent, "playbook_events")
+    await _repoint(ClientOnboardingMaterial, "onboarding_materials")
+    await _repoint(ClientSettlementRule, "settlement_rule")
     await _repoint(Client, "merged_duplicates", Client.merged_into_client_id)
     return moved
 

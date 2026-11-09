@@ -29,6 +29,7 @@ import type { CvReviewFinding } from "@/lib/api/cvEditorIssues";
 import type { QcCheck, QcFix, QcFixAction, QcItem, QcResult, QcTransformApplied } from "@/lib/api/cvQc";
 import { cvOutline, type CvOutline, type CvRole, type CvSectionKey } from "@/lib/cv-editor-blocks";
 import { classifyCvWarnings, isSoftAiReviewWarning, type ClassifiedCvWarning } from "@/lib/cv-generator";
+import { quickFixLabel } from "@/lib/cv-editor-quick-fixes";
 import {
   countForm,
   itemTarget,
@@ -631,6 +632,7 @@ export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending
           const term = (item.term ?? item.requirement ?? "").trim();
           const fixable =
             item.fix === "role_order" ||
+            item.fix === "restore_dates" ||
             (item.fix === "remove_term" && term !== "") ||
             (item.fix === "ai" && (own.length > 0 || fixesPending)) ||
             itemQuickFix(check, item) !== null;
@@ -693,6 +695,8 @@ export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fi
       return "Poprawiono pisownię technologii";
     case "role_order":
       return "Ułożono stanowiska od najnowszego";
+    case "restore_dates":
+      return "Przywrócono daty stanowisk z oryginału";
     case "years":
       return "Lata doświadczenia według historii";
     case "title": {
@@ -703,6 +707,8 @@ export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fi
       return "Usunięto stawkę i kontakt kandydata z CV";
     case "remove_line":
       return `Usunięto: „${action.text}”`;
+    case "languages_lines":
+      return quickFixLabel(action.action);
     case "remove_term":
       return `Usunięto „${action.term}” z CV`;
     case "ai_fix": {

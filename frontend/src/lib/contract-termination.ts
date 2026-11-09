@@ -39,6 +39,17 @@ export function agreementPartyLabel(party: string | null | undefined): string | 
   return AGREEMENT_TERMINATION_PARTIES.find((p) => p.value === party)?.label ?? party;
 }
 
+/**
+ * Dzień końca projektu (R8-N13-1): najpierw `end_date`, bo `terminated_at`
+ * przeżywa przedłużenie i niesie wtedy datę pierwszego zakończenia.
+ */
+export function contractProjectEnd(contract: {
+  end_date?: string | null;
+  terminated_at?: string | null;
+}): string | null {
+  return contract.end_date ?? contract.terminated_at ?? null;
+}
+
 /** Etykieta daty zależy od trybu: złożenie wypowiedzenia vs zawarcie porozumienia. */
 export function signedOnLabel(mode: AgreementTerminationMode | ""): string {
   return mode === "mutual_agreement"

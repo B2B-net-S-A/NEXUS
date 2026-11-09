@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from app.core.scheduling import DEFAULT_TZ
+
+
+def _company_time(moment: datetime) -> datetime:
+    return moment.astimezone(ZoneInfo(DEFAULT_TZ)) if moment.tzinfo else moment
+
+
+# Ta sama chwila z przesunięciem Warszawy. Panel bierze dzień z początku ciągu
+# (``formatDate``), więc z ``…Z`` zapis po północy pokazywał poprzedni dzień.
+# Poprawka po stronie API, bo ZIP-y u zespołu nie aktualizują się same.
+CompanyDatetime = Annotated[datetime, AfterValidator(_company_time)]
 
 # Klucze ``client_off_limits.HOW_LABELS`` + ``skip`` („Nie, to my”).
 OffLimitsHow = Literal[
@@ -79,6 +92,12 @@ class ProfileRead(BaseModel):
     about: Optional[str] = Field(default=None, max_length=5000)
 
 
+class LookupRequest(ProfileRead):
+    """``/lookup``: profil plus rekrutacja z paska „Pracuję nad” (płasko, jak dotąd)."""
+
+    active_job_id: Optional[int] = Field(default=None, ge=1, le=2_147_483_647)
+
+
 class CandidateBrief(BaseModel):
     id: int
     name: str
@@ -99,7 +118,7 @@ class OwnerOut(BaseModel):
     user_id: int
     name: str
     is_me: bool
-    last_contact_at: Optional[datetime] = None
+    last_contact_at: Optional[CompanyDatetime] = None
 
 
 class ProcessOut(BaseModel):
@@ -110,11 +129,12 @@ class ProcessOut(BaseModel):
     recruiter_name: Optional[str] = None
     closed: bool = False
     close_label: Optional[str] = None
-    updated_at: Optional[datetime] = None
+    close_kind: Optional[Literal["hired", "rejected", "withdrawn", "job_closed"]] = None
+    updated_at: Optional[CompanyDatetime] = None
 
 
 class ContactOut(BaseModel):
-    at: datetime
+    at: CompanyDatetime
     user_name: Optional[str] = None
     channel_label: str
     note: Optional[str] = None
@@ -154,6 +174,25 @@ class JobMatchOut(BaseModel):
     score: int
 
 
+class ActiveJobOut(BaseModel):
+    """Otwarta rekrutacja z paska; ``score`` None, gdy nie udało się go policzyć."""
+
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    recruiter_name: Optional[str] = None
+    score: Optional[int] = None
+
+
+class ActiveJobRequest(BaseModel):
+    job_id: int = Field(ge=1, le=2_147_483_647)
+    profile: ProfileRead
+
+
+class ActiveJobResponse(BaseModel):
+    active_job: Optional[ActiveJobOut] = None
+
+
 class LookupResponse(BaseModel):
     status: Literal["found", "not_found", "ambiguous"]
     matched_by: Optional[Literal["linkedin", "name_company"]] = None
@@ -168,6 +207,8 @@ class LookupResponse(BaseModel):
     contractor: Optional[ContractorOut] = None
     job_change: Optional[JobChangeOut] = None
     matches: list[JobMatchOut] = Field(default_factory=list)
+    # None = nie pytano o rekrutację albo jest zamknięta / nie istnieje.
+    active_job: Optional[ActiveJobOut] = None
     usage: UsageOut
 
 

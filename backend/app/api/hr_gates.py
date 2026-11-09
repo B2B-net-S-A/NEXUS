@@ -32,9 +32,11 @@ from app.services.hr import people
 MODULE_DISABLED_DETAIL = "Ten moduł nie jest jeszcze włączony."
 SELF_EDIT_DETAIL = (
     "Swojej kartoteki i puli urlopowej nie zmieniasz sam — poproś inną osobę "
-    "z Kadr albo admina."
+    "z Administracji współpracy albo admina."
 )
-NO_PROFILE_DETAIL = "Nie masz kartoteki w NEXUSIE — poproś Kadry o jej założenie."
+NO_PROFILE_DETAIL = (
+    "Nie masz kartoteki w NEXUSIE — poproś Administrację współpracy o jej założenie."
+)
 
 #: Uprawnienia, z którymi konto bez kartoteki i tak czyta katalog ludzi.
 _DIRECTORY_PERMISSIONS = (
@@ -67,6 +69,24 @@ async def ensure_module(db: AsyncSession, user: User, module: str) -> None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, MODULE_DISABLED_DETAIL)
 
 
+async def _reads_people_directory(db: AsyncSession, user: User) -> bool:
+    if user.has_role(UserRole.admin):
+        return True
+    if any(has_permission(user, p) for p in _DIRECTORY_PERMISSIONS):
+        return True
+    return await people.has_live_profile(db, user.id)
+
+
+async def people_directory_open(db: AsyncSession, user: User) -> bool:
+    """Ta sama reguła co ``require_hr_people_reader()``, bez wyjątku — dla
+    wyszukiwarki globalnej, która zwraca kategorię „Ludzie” obok kandydatów."""
+
+    loaded = await hr_modules.load_modules(db)
+    if not hr_modules.module_open_for(user, loaded, "people"):
+        return False
+    return await _reads_people_directory(db, user)
+
+
 def require_hr_people_reader(module: str = "people"):
     """Katalog ludzi: osoba z kartoteką albo z uprawnieniem z grupy „Ludzie”."""
 
@@ -75,11 +95,7 @@ def require_hr_people_reader(module: str = "people"):
         db: AsyncSession = Depends(get_db),
     ) -> User:
         await ensure_module(db, current_user, module)
-        if current_user.has_role(UserRole.admin):
-            return current_user
-        if any(has_permission(current_user, p) for p in _DIRECTORY_PERMISSIONS):
-            return current_user
-        if await people.has_live_profile(db, current_user.id):
+        if await _reads_people_directory(db, current_user):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, NO_PROFILE_DETAIL)
 
@@ -160,7 +176,7 @@ def require_hr_people_records():
             return current_user
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Kartoteki zmieniają Kadry i Finanse.",
+            "Kartoteki zmieniają Administracja współpracy i Finanse.",
         )
 
     return _check

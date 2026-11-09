@@ -9,6 +9,10 @@ import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCyc
 import { PlanPrepDialog } from "@/components/calendar/cycle/PlanPrepDialog";
 import { Prep2SkipControls } from "@/components/calendar/cycle/Prep2Skip";
 import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
+import {
+  InterviewRescheduleButton,
+  RescheduleInterviewDialog,
+} from "@/components/calendar/cycle/RescheduleInterview";
 import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
 import { PrepReviewDialog } from "@/components/calendar/cycle/PrepReviewDialog";
 import { SlotDecisionDialog } from "@/components/calendar/cycle/SlotDialogs";
@@ -65,13 +69,16 @@ export function DockInterviewCycle({
   const [viewDebrief, setViewDebrief] = useState(false);
   const debrief = badge.debrief ?? null;
   const slotRequest = badge.slot_request ?? null;
-  const canPickSlot = slotRequest?.status === "awaiting_recruiter";
+  const slotsExpired = slotRequest?.expired === true;
+  const canPickSlot = slotRequest?.status === "awaiting_recruiter" && !slotsExpired;
   // Termin potwierdza osoba z prawem do terminów od klienta (ta sama, która je
   // dodaje) — przycisk „Terminy od klienta” jest tym samym sygnałem.
-  const canConfirmSlot = slotRequest?.status === "awaiting_dl" && Boolean(onAddClientSlots);
+  const canConfirmSlot =
+    slotRequest?.status === "awaiting_dl" && !slotsExpired && Boolean(onAddClientSlots);
   // Prep z oceną (także „niedostępna”) — okno mówi, co z niej wynika.
   const reviewedPreps = (badge.preps ?? []).filter((p) => p.review_status != null);
   // „Przełóż” (prep po rozmowie), „Zmień” i „Odwołaj” otwierają to samo okno.
+  const [movingInterview, setMovingInterview] = useState<number | null>(null);
   const [editing, setEditing] = useState<{
     eventId: number;
     prepNo: 1 | 2;
@@ -104,6 +111,9 @@ export function DockInterviewCycle({
       ? [{ eventId: s.event_id, prepNo: (s.key === "prep2" ? 2 : 1) as 1 | 2, at: s.at ?? null }]
       : [],
   );
+  const interviewStep = steps.find((s) => s.key === "interview");
+  const scheduledInterview =
+    interviewStep?.state === "scheduled" && interviewStep.event_id != null ? interviewStep : null;
   // Termin rozmowy bywa dopiero proponowany — okno prepu liczy względem niego.
   const prepInterview =
     scheduledInterviewFromSteps(steps) ??
@@ -130,8 +140,26 @@ export function DockInterviewCycle({
       </div>
       <div className={cn("rounded-md px-2 py-1 font-semibold", TONE[badge.tone])}>{badge.label}</div>
       {steps.length ? <InterviewCycleProgress steps={steps} labels /> : null}
-      {!readOnly && scheduledPreps.length ? (
+      {!readOnly && (scheduledInterview || scheduledPreps.length) ? (
         <ul className="space-y-1" data-testid="dock-scheduled-preps">
+          {scheduledInterview ? (
+            <li
+              key="interview"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-2 py-1"
+            >
+              <span className="font-semibold text-foreground">Rozmowa</span>
+              {scheduledInterview.at ? (
+                <span className="tabular-nums text-muted-foreground">
+                  {formatDayLabel(scheduledInterview.at)}, {formatTime(scheduledInterview.at)}
+                </span>
+              ) : null}
+              <InterviewRescheduleButton
+                className="ml-auto"
+                eventId={scheduledInterview.event_id as number}
+                onEdit={() => setMovingInterview(scheduledInterview.event_id as number)}
+              />
+            </li>
+          ) : null}
           {scheduledPreps.map((p) => (
             <li
               key={p.eventId}
@@ -159,7 +187,7 @@ export function DockInterviewCycle({
         latePrepId ||
         canPickSlot ||
         canConfirmSlot ||
-        (slotsOpen && onAddClientSlots && !slotRequest)) ? (
+        (slotsOpen && onAddClientSlots && (!slotRequest || slotsExpired))) ? (
         <div className="flex flex-wrap gap-2 pt-0.5">
           {canPickSlot ? (
             <button
@@ -208,13 +236,18 @@ export function DockInterviewCycle({
               Zaplanuj Prep {nextPrep}
             </button>
           ) : null}
-          {slotsOpen && onAddClientSlots && !slotRequest ? (
+          {slotsOpen && onAddClientSlots && (!slotRequest || slotsExpired) ? (
             <button
               type="button"
               onClick={onAddClientSlots}
-              className="h-8 rounded-md border border-border bg-card px-3 text-xs font-semibold hover:bg-muted"
+              className={cn(
+                "h-8 rounded-md px-3 text-xs font-semibold",
+                slotsExpired
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "border border-border bg-card hover:bg-muted",
+              )}
             >
-              Terminy od klienta
+              {slotsExpired ? "Dodaj nowe terminy" : "Terminy od klienta"}
             </button>
           ) : null}
         </div>
@@ -305,6 +338,14 @@ export function DockInterviewCycle({
           prepNo={editing.prepNo}
           mode={editing.mode}
           interview={prepInterview}
+        />
+      ) : null}
+      {movingInterview != null ? (
+        <RescheduleInterviewDialog
+          open
+          onOpenChange={(o) => !o && setMovingInterview(null)}
+          eventId={movingInterview}
+          pair={pair}
         />
       ) : null}
       {prepNo ? (

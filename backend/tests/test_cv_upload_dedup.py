@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from types import SimpleNamespace
+from typing import Any, Optional
 
 import pytest
 from httpx import AsyncClient
@@ -23,6 +25,7 @@ from sqlalchemy import delete, select
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+from app.services.cv_upload_dedup import profile_holds_read_of_file
 
 
 def _pdf_bytes(marker: str) -> bytes:
@@ -610,3 +613,181 @@ async def test_candidates_table_stays_clean_after_sieve_rejection():
         assert before == cid
     finally:
         await _cleanup(cid)
+
+
+# Ten sam plik wgrany drugi raz nie płaci za drugi odczyt (03.11.2026).
+# `_store_candidate_document` po tym samym SHA-256 aktualizuje istniejący wiersz,
+# ale zadanie w tle i tak czytało plik modelem: 793 z 7853 odczytów w 30 dni.
+# Testy bez bazy: sesja to atrapa, bo sednem jest to, czy `parse_cv` zostanie
+# wywołane, a nie zapis wyniku.
+
+_SHA = "a" * 64
+_READ_BY_MODEL = "claude:cv_enrichment:v8"
+
+
+def _extracted(**overrides: Any) -> dict[str, Any]:
+    highlights = {"source_hash": _SHA, "extractor_version": _READ_BY_MODEL}
+    highlights.update(overrides.pop("highlights", {}))
+    return {"cv_highlights": highlights, **overrides}
+
+
+def _holds(extracted: Any, *, text: Optional[str] = "CV", sha: Optional[str] = _SHA):
+    return profile_holds_read_of_file(extracted, raw_cv_text=text, content_sha256=sha)
+
+
+class TestProfileHoldsReadOfFile:
+    def test_same_file_read_by_model(self):
+        assert _holds(_extracted()) is True
+
+    def test_older_rich_prompt_counts_too(self):
+        # v8 zmienił tylko wcięcia JSON-a; nowa wersja promptu sama w sobie nie
+        # jest powodem, żeby płacić drugi raz. Odświeżenie: `/cv/reparse`.
+        extracted = _extracted(
+            highlights={"extractor_version": "claude:cv_enrichment:v7"}
+        )
+        assert _holds(extracted) is True
+
+    def test_other_file_is_a_new_read(self):
+        assert _holds(_extracted(highlights={"source_hash": "b" * 64})) is False
+
+    @pytest.mark.parametrize(
+        "version",
+        ["regex", "claude:cv_enrichment:v6", "claude:cv_enrichment_bulk:v2", None],
+    )
+    def test_read_without_full_profile_is_repeated(self, version):
+        # Regex to awaria modelu; starsze odczyty nie niosą pełnego profilu.
+        assert _holds(_extracted(highlights={"extractor_version": version})) is False
+
+    def test_truncated_read_is_repeated(self):
+        assert _holds(_extracted(_truncated=True)) is False
+
+    def test_profile_marked_after_quarantine_is_read_again(self):
+        # Znacznik „wgrane CV nie zasiliło profilu” znika dopiero z odczytem.
+        extracted = _extracted(
+            _identity_quarantine_source={"kind": "document", "id": 1}
+        )
+        assert _holds(extracted) is False
+
+    @pytest.mark.parametrize("text", [None, "", "   "])
+    def test_profile_without_cv_text_is_read(self, text):
+        assert _holds(_extracted(), text=text) is False
+
+    @pytest.mark.parametrize("sha", [None, ""])
+    def test_document_without_hash_is_read(self, sha):
+        assert _holds({"cv_highlights": {"source_hash": sha}}, sha=sha) is False
+
+    @pytest.mark.parametrize(
+        "extracted", [None, {}, {"cv_highlights": None}, {"cv_highlights": "x"}, "x"]
+    )
+    def test_profile_without_marker_is_read(self, extracted):
+        assert _holds(extracted) is False
+
+
+class _ModelCalled(Exception):
+    """Zatrzymuje zadanie w miejscu płatnego wywołania."""
+
+
+class _Session:
+    """Kolejne `scalar` zadania: dokument, kandydat, recenzja tożsamości."""
+
+    def __init__(self, *answers: Any) -> None:
+        self._answers = list(answers)
+
+    async def __aenter__(self) -> "_Session":
+        return self
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        return None
+
+    async def scalar(self, _stmt: Any) -> Any:
+        return self._answers.pop(0)
+
+    async def execute(self, _stmt: Any) -> Any:
+        # Pliki osoby w kwarantannie: żadnego, więc bez porównywania bajtów.
+        return SimpleNamespace(all=lambda: [])
+
+    async def refresh(self, *_a: Any, **_kw: Any) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+@pytest.fixture
+def run_task(monkeypatch):
+    """Zadanie w tle na atrapie sesji; zwraca liczbę wywołań `parse_cv`."""
+    from app.api import candidates as candidates_api
+    from app.services import cv_parser, cv_text_extractor
+
+    calls: list[str] = []
+
+    async def _parse_cv(text: str, **_kw: Any) -> dict:
+        calls.append(text)
+        raise _ModelCalled
+
+    monkeypatch.setattr(cv_parser, "parse_cv", _parse_cv)
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *_a: "Jan Testowy")
+
+    async def _run(*, marker: str = _SHA, review: Any, **task_kwargs: Any) -> int:
+        document = SimpleNamespace(
+            id=2,
+            filename="cv.txt",
+            content_sha256=_SHA,
+            storage_key=None,
+            file_content=b"Jan Testowy",
+        )
+        candidate = SimpleNamespace(
+            id=1,
+            raw_cv_text="Jan Testowy",
+            cv_extracted_data=_extracted(highlights={"source_hash": marker}),
+        )
+        session = _Session(document, candidate, review)
+        monkeypatch.setattr("app.core.database.AsyncSessionLocal", lambda: session)
+        await candidates_api._enrich_candidate_from_document_task(
+            1, 2, _SHA, **task_kwargs
+        )
+        return len(calls)
+
+    return _run
+
+
+_CONFIRMED = SimpleNamespace(is_quarantined=False)
+
+
+async def test_second_upload_of_read_file_does_not_call_the_model(run_task):
+    assert await run_task(review=_CONFIRMED) == 0
+
+
+async def test_reparse_reads_even_when_the_profile_holds_this_file(run_task):
+    assert await run_task(review=_CONFIRMED, force_read=True) == 1
+
+
+async def test_other_file_in_profile_means_a_paid_read(run_task):
+    assert await run_task(marker="b" * 64, review=_CONFIRMED) == 1
+
+
+async def test_file_in_quarantine_goes_through_the_identity_gate(run_task):
+    # Odczyt prowadzi do bramki, która oddaje główne CV poprzedniemu plikowi.
+    review = SimpleNamespace(is_quarantined=True)
+    assert await run_task(review=review) == 1
+
+
+async def test_file_without_identity_review_is_read(run_task):
+    assert await run_task(review=None) == 1
+
+
+async def test_reparse_endpoint_asks_for_a_forced_read():
+    """Bez `force_read` przycisk „ponów odczyt” przestałby cokolwiek robić."""
+    import ast
+    import inspect
+
+    from app.api import candidates as candidates_api
+
+    tree = ast.parse(inspect.getsource(candidates_api.reparse_primary_cv))
+    add_task = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "add_task"
+    )
+    forced = {kw.arg: getattr(kw.value, "value", None) for kw in add_task.keywords}
+    assert forced.get("force_read") is True

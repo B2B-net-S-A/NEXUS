@@ -8,10 +8,11 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
+    CandidateDocumentAccess,
     CandidateIdentityQuarantineOverrideAccess,
     CandidatePIIAccess,
     CandidateWriteAccess,
@@ -31,6 +32,7 @@ from app.services.candidate_identity_quarantine import (
     mark_confirmed_mismatch,
     override_identity_quarantine,
 )
+from app.services.cv_source import quarantined_copy_sources
 
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 
@@ -79,6 +81,23 @@ class IdentityReviewOut(BaseModel):
     override_at: datetime | None = None
 
 
+class DocumentQuarantineOut(BaseModel):
+    """Stan jednego pliku z listy plików profilu.
+
+    `source_document_id` to plik do zwolnienia: ten sam przy oryginale, oryginał
+    przy kopii. `source_removed`: oryginał usunięto z profilu, więc na liście nie
+    ma wiersza z przyciskiem i zwolnienie idzie od kopii.
+    """
+
+    document_id: int
+    state: Literal["quarantined", "copy"]
+    source_document_id: int
+    source_filename: str
+    source_removed: bool
+    manual: bool
+    reviewed_at: datetime
+
+
 def _serialize(row: CandidateSourceIdentityReview) -> IdentityReviewOut:
     # Fingerprints are persisted for deterministic provenance but do not need
     # to cross the API boundary.
@@ -110,6 +129,7 @@ async def _require_source(
     candidate_id: int,
     source_kind: SourceKind,
     source_id: int,
+    allow_removed_document: bool = False,
 ) -> None:
     candidate_exists = await db.scalar(
         select(Candidate.id).where(Candidate.id == candidate_id)
@@ -126,13 +146,15 @@ async def _require_source(
             )
         )
     elif source_kind == "document":
-        exists_row = await db.scalar(
-            select(CandidateDocument.id).where(
-                CandidateDocument.id == source_id,
-                CandidateDocument.candidate_id == candidate_id,
-                CandidateDocument.source_deleted_at.is_(None),
-            )
+        document_stmt = select(CandidateDocument.id).where(
+            CandidateDocument.id == source_id,
+            CandidateDocument.candidate_id == candidate_id,
         )
+        if not allow_removed_document:
+            document_stmt = document_stmt.where(
+                CandidateDocument.source_deleted_at.is_(None)
+            )
+        exists_row = await db.scalar(document_stmt)
     elif source_kind == "legacy_cv":
         # A legacy single-CV source is identified by its owning candidate id.
         exists_row = candidate_exists if source_id == candidate_id else None
@@ -149,7 +171,81 @@ async def _require_source(
             )
         )
     if exists_row is None:
-        raise HTTPException(status_code=404, detail="Candidate source not found")
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono tego pliku w profilu."
+        )
+
+
+@router.get(
+    "/{candidate_id}/identity-quarantine",
+    response_model=list[DocumentQuarantineOut],
+)
+async def list_candidate_document_quarantine(
+    candidate_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[DocumentQuarantineOut]:
+    """Pliki profilu w kwarantannie i ich kopie, dla listy plików.
+
+    Osobno od `GET /documents`, bo kopie wymagają czasem pobrania pliku z magazynu,
+    a tej listy używają też podgląd i panel rekrutacji.
+    """
+    if (
+        await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    rows = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.filename,
+                CandidateDocument.source_deleted_at,
+                CandidateSourceIdentityReview.provenance,
+                CandidateSourceIdentityReview.reviewed_at,
+            )
+            .join(
+                CandidateSourceIdentityReview,
+                and_(
+                    CandidateSourceIdentityReview.candidate_id
+                    == CandidateDocument.candidate_id,
+                    CandidateSourceIdentityReview.source_kind == "document",
+                    CandidateSourceIdentityReview.source_id == CandidateDocument.id,
+                ),
+            )
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                # Ten sam warunek co `source_is_quarantined_clause`, tu po złączeniu.
+                CandidateSourceIdentityReview.decision == "confirmed_mismatch",
+                CandidateSourceIdentityReview.override_at.is_(None),
+            )
+        )
+    ).all()
+    sources = {row.id: row for row in rows}
+
+    def entry(
+        document_id: int, state: Literal["quarantined", "copy"], source_id: int
+    ) -> DocumentQuarantineOut:
+        source = sources[source_id]
+        return DocumentQuarantineOut(
+            document_id=document_id,
+            state=state,
+            source_document_id=source_id,
+            source_filename=source.filename,
+            source_removed=source.source_deleted_at is not None,
+            manual=source.provenance.startswith("manual:"),
+            reviewed_at=source.reviewed_at,
+        )
+
+    copies = await quarantined_copy_sources(db, candidate_id)
+    return [
+        *(
+            entry(row.id, "quarantined", row.id)
+            for row in rows
+            if row.source_deleted_at is None
+        ),
+        *(entry(copy_id, "copy", source_id) for copy_id, source_id in copies.items()),
+    ]
 
 
 @router.get(
@@ -232,11 +328,13 @@ async def override_candidate_source_identity_quarantine(
     current_user: CandidateIdentityQuarantineOverrideAccess,
     db: AsyncSession = Depends(get_db),
 ) -> IdentityReviewOut:
+    # Plik usunięty z profilu dalej trzyma w kwarantannie swoje kopie (#3060).
     await _require_source(
         db,
         candidate_id=candidate_id,
         source_kind=source_kind,
         source_id=source_id,
+        allow_removed_document=True,
     )
     try:
         row = await override_identity_quarantine(
@@ -250,12 +348,17 @@ async def override_candidate_source_identity_quarantine(
     except IdentityQuarantineForbidden as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Identity quarantine override requires admin or head_of_recruitment",
+            detail="Zwolnić plik z kwarantanny może administrator albo Head of Recruitment.",
         ) from exc
-    except (IdentityQuarantineConflict, ValueError) as exc:
+    except IdentityQuarantineConflict as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
+            detail="Ten plik nie jest w kwarantannie. Odśwież listę plików.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Podaj powód zwolnienia, od 3 do 500 znaków.",
         ) from exc
     await db.commit()
     await db.refresh(row)

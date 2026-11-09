@@ -755,6 +755,16 @@ async def test_wyczerpany_budzet_zapytan_przesuwa_znacznik(env, monkeypatch):
     assert {OLA_INVOICE, ANNA_INVOICE, ANNA_CORRECTION} <= saved
 
 
+async def test_czekanie_na_budzet_pobran_nie_wygasza_kolejki(env, monkeypatch):
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "MAX_PENDING_ATTEMPTS", 2)
+    for _ in range(6):
+        await env.run()
+        env.clock.advance(hours=1)
+    saved = {row.ksef_number for row in await env.invoices()}
+    assert {OLA_INVOICE, ANNA_INVOICE, ANNA_CORRECTION} <= saved
+
+
 # ── Po przeglądzie (17/18.10): brutto z KSeF niezgodne z netto i VAT ─────────
 
 

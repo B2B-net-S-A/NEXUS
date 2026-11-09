@@ -67,6 +67,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
+import { GapDecision, type GapChoice } from "@/components/v2/recruitment/dl-review/GapDecision";
 import { requirementFindWords, useRequirementFindWords } from "@/components/champion/use-job-requirements";
 import {
   CvColumn,
@@ -85,6 +86,8 @@ import {
 } from "@/components/v2/recruitment/dl-review/DlMatchSection";
 import { RequirementsColumn } from "@/components/v2/recruitment/dl-review/RequirementsColumn";
 import { ReturnForFixDialog } from "@/components/v2/recruitment/dl-review/ReturnForFixDialog";
+import { CvControlSummary, cvReturnPoints } from "@/components/v2/recruitment/dl-review/CvControlSummary";
+import { useCvQcSummary } from "@/lib/api/cvQc";
 import { ScreeningSummarySection } from "@/components/v2/screening-form/ScreeningSummaryView";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api from "@/lib/api";
@@ -112,6 +115,7 @@ import { hasPermission, permissionLabel } from "@/lib/permissions";
 import {
   HM_ALREADY_INTERVIEWED_REASON,
   loadJobRejectionReasons,
+  reasonFitsEndedBy,
   reasonNeedsDescription,
   WORK_MODE_MISMATCH_REASON,
 } from "@/lib/rejection-reasons";
@@ -414,6 +418,7 @@ export function DlReviewBody({
   const [busy, setBusy] = useState<PendingAction | null>(null);
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
   const [qcStageId, setQcStageId] = useState<number | null>(null);
+  const [gapChoice, setGapChoice] = useState<GapChoice | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnInput, setReturnInput] = useState<{ fields: string[]; remark: string } | null>(null);
   const [cvView, setCvView] = useState<CvView>("company");
@@ -443,6 +448,7 @@ export function DlReviewBody({
     setShowRequirements(false);
     setCvSearch(null);
     setQcStageId(null);
+    setGapChoice(null);
     setRateRaw("");
     setRateUnit("hourly");
     setCurrency("PLN");
@@ -504,6 +510,9 @@ export function DlReviewBody({
   const remarkRaw = context.data?.recruiter_handoff_remark ?? null;
   const handoffRemark = remarkRaw && remarkRaw.text?.trim() ? remarkRaw : null;
   // Karta przesunięta mimo uwag QC — DL widzi to, zanim wyśle CV do klienta.
+  // R5 (07.11.2026): „Kontrola CV” i punkty CV do „Wróć do poprawy” czytają
+  // ten sam wynik QC, który otwiera „Otwórz QC” (wspólny klucz zapytania).
+  const qcResult = useCvQcSummary(task.stage_id ?? null);
   const qcOverride =
     context.data?.qc_status === "overridden" ? (context.data.qc_override ?? null) : null;
 
@@ -527,7 +536,10 @@ export function DlReviewBody({
     staleTime: 5 * 60_000,
   });
   const rejectedReasons = useMemo(
-    () => (reasons.data ?? []).filter((r) => r.applies_to.includes("rejected")),
+    () =>
+      (reasons.data ?? []).filter(
+        (r) => r.applies_to.includes("rejected") && reasonFitsEndedBy(r, "delivery_lead"),
+      ),
     [reasons.data],
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId);
@@ -644,10 +656,14 @@ export function DlReviewBody({
         client_rate_value: clientRate,
         client_rate_unit: rateUnit,
         client_rate_currency: currency,
+        ...(qcGaps.length > 0 ? { gap_decision: "send_anyway" } : {}),
       });
     } else if (action === "return") {
       if (task.return_stage_def_id == null) return;
-      Object.assign(payload, { stage_def_id: task.return_stage_def_id });
+      Object.assign(payload, {
+        stage_def_id: task.return_stage_def_id,
+        ...(qcGaps.length > 0 && gapChoice === "return" ? { gap_decision: "return" } : {}),
+      });
       if (fix) {
         sentRemark = fix.remark;
         if (fix.fields.length > 0) payload.fix_fields = fix.fields;
@@ -739,8 +755,14 @@ export function DlReviewBody({
         interviews: earlierInterviews,
       })) &&
     !(sendEmail && emailState.invalid);
+  const qcGaps = context.data?.qc_gaps ?? task.qc_gaps ?? [];
   const sendReady =
-    canSend && clientRate != null && task.target_stage_def_id != null && matchMissingRate === 0;
+    canSend &&
+    clientRate != null &&
+    task.target_stage_def_id != null &&
+    matchMissingRate === 0 &&
+    // QC-8: przy luce kandydata wysyłka wymaga jawnej decyzji.
+    (qcGaps.length === 0 || gapChoice === "send");
   const canReturn = (canSend || canReject) && task.return_stage_def_id != null;
 
   return (
@@ -827,7 +849,6 @@ export function DlReviewBody({
       <div className={cn("relative grid min-h-0 flex-1 bg-inherit", GRID_CLASS[mode])} data-layout={mode}>
         <CvToolbar
           className={TOOLBAR_CLASS[mode]}
-          task={task}
           view={shownCvView}
           coverSheet={coverSheet != null}
           onViewChange={(view) => {
@@ -843,7 +864,6 @@ export function DlReviewBody({
                 }
               : null
           }
-          onOpenQc={() => setQcStageId(task.stage_id)}
         />
 
         <CvColumn
@@ -924,6 +944,16 @@ export function DlReviewBody({
                   </span>{" "}
                   {handoffRemark.text}
                 </p>
+              ) : null}
+              <CvControlSummary
+                checks={qcResult.data?.checks}
+                state={context.data?.qc_state ?? task.qc_state ?? null}
+                override={qcResult.data?.override ?? null}
+                hideOverrideLine={qcOverride != null}
+                onOpenQc={() => setQcStageId(task.stage_id)}
+              />
+              {canSend && qcGaps.length > 0 ? (
+                <GapDecision gaps={qcGaps} value={gapChoice} onChange={setGapChoice} />
               ) : null}
               <PersonFacts
                 testId="dl-review-person-facts"
@@ -1215,6 +1245,7 @@ export function DlReviewBody({
         optionsLoading={context.isLoading}
         busy={busy === "return"}
         initialRemark={note}
+        cvPoints={cvReturnPoints(qcResult.data?.checks)}
         onConfirm={(input) => {
           setReturnInput(input);
           void move("return", false, input);
@@ -1225,6 +1256,7 @@ export function DlReviewBody({
         open={qcStageId !== null}
         onClose={() => setQcStageId(null)}
         onChanged={refresh}
+        audience="dl"
       />
     </div>
   );

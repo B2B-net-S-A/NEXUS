@@ -18,6 +18,9 @@
  * Pracuj.pl wstawia opiekun konta: DL wysyła mu ogłoszenie mailem z okna
  * `PracujMailDialog` (`&wyslij=opiekun` z maila otwiera je od razu) —
  * `ogloszenie-pracuj-mailem-do-opiekuna.md`.
+ *
+ * JustJoin.IT przy włączonym portalu publikuje DL przez API z okna
+ * `JjitPublishDialog` (03.11.2026) — `ogloszenie-justjoin-przez-api.md`.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -43,7 +46,9 @@ import { cn, formatDate } from "@/lib/utils";
 import { AdChecksPanel } from "./AdChecksPanel";
 import { AdPublications, type AdPublicationsApi } from "./AdPublications";
 import { ChannelReminderLine, SkipChannelDialog, shortName } from "./AdReminderControls";
+import { JjitPublishDialog, type JjitPublishApi } from "./JjitPublishDialog";
 import { PracujMailDialog, type PracujMailApi } from "./PracujMailDialog";
+import { PublishAllPanel, planPublish, publishOptions, type PublishChannel } from "./PublishAllPanel";
 
 export type AdReminderApi = Pick<
   typeof jobAdApi,
@@ -77,6 +82,7 @@ export interface AdChannelsProps {
   onIntentHandled?: () => void;
   reminderApi?: AdReminderApi;
   pracujMailApi?: PracujMailApi;
+  jjitPublishApi?: JjitPublishApi;
 }
 
 export type AdFocusChannel = AdChannel;
@@ -107,8 +113,16 @@ const FOCUS_STEPS: Record<AdFocusChannel, { title: string; steps: string[] }> = 
   },
 };
 
-function FocusSteps({ channel }: { channel: AdFocusChannel }) {
-  const { title, steps } = FOCUS_STEPS[channel];
+const FOCUS_JJIT_API = {
+  title: "Z maila: opublikuj ogłoszenie na JustJoin.IT",
+  steps: [
+    "Przeczytaj treść w zakładce JustJoin.IT (obok) — to ona pójdzie na portal.",
+    "Kliknij „Opublikuj na JustJoin.IT” poniżej i wybierz kategorię.",
+  ],
+};
+
+function FocusSteps({ channel, jjitApi }: { channel: AdFocusChannel; jjitApi: boolean }) {
+  const { title, steps } = channel === "jjit" && jjitApi ? FOCUS_JJIT_API : FOCUS_STEPS[channel];
   return (
     <section
       aria-label={title}
@@ -257,6 +271,7 @@ export function AdChannels({
   onIntentHandled,
   reminderApi = jobAdApi,
   pracujMailApi = jobAdApi,
+  jjitPublishApi = jobAdApi,
 }: AdChannelsProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -266,6 +281,9 @@ export function AdChannels({
   // obietnica `useConfirmV2` rozstrzygała się wtedy na „nie” (staging 27.10).
   const [askingRemind, setAskingRemind] = useState(false);
   const [sendingMail, setSendingMail] = useState(false);
+  const [publishingJjit, setPublishingJjit] = useState(false);
+  // „Opublikuj ogłoszenie” (07.11.2026): okna portali po kolei.
+  const [publishQueue, setPublishQueue] = useState<("jjit" | "pracuj")[]>([]);
   const reminders = state.reminders;
   const view = (channel: AdChannel): AdChannelView | undefined =>
     reminders?.channels.find((c) => c.channel === channel);
@@ -279,6 +297,48 @@ export function AdChannels({
     canManage && career?.state === "missing" && !career.mine && recruiters.length > 0;
   const pracujLive = state.publications.some((p) => p.portal === "pracuj" && !p.removed_at);
   const canSendPracuj = canManage && !jobClosed && !pracujLive;
+  const jjitReady = state.jjit_api?.ready === true;
+  // Formularz JJIT (06.11.2026): kandydat aplikuje na portalu, strona kariery
+  // nie jest warunkiem. Starszy serwer bez pola = jak dotąd.
+  const jjitCareerReason =
+    state.jjit_api?.career_required === false
+      ? null
+      : state.career.status === "none"
+      ? "Najpierw opublikuj na stronie kariery — kandydaci z JustJoin.IT aplikują przez nią."
+      : state.career.status === "outdated"
+        ? "Najpierw zaktualizuj stronę kariery — kandydaci z JustJoin.IT aplikują przez nią."
+        : null;
+
+  const jjitLive =
+    state.publications.some((p) => p.portal === "jjit" && !p.removed_at) ||
+    ["publishing", "published"].includes(state.jjit_api?.status ?? "");
+  const options = publishOptions({
+    career: !jobClosed && !publishBlockedReason && state.career.status === "none",
+    careerNeededForJjit: state.jjit_api?.career_required !== false,
+    jjit:
+      canManage &&
+      !jobClosed &&
+      jjitReady &&
+      !jjitLive &&
+      !publishBlockedReason &&
+      (state.jjit_api?.career_required === false || state.career.status !== "outdated"),
+    pracuj: canSendPracuj && !state.pracuj_request?.waiting,
+  });
+  const openDialog = (next: "jjit" | "pracuj" | undefined) => {
+    if (next === "jjit") setPublishingJjit(true);
+    else if (next === "pracuj") setSendingMail(true);
+  };
+  const startPublish = (selected: PublishChannel[]) => {
+    const plan = planPublish(selected);
+    if (plan.career) onPublishCareer();
+    setPublishQueue(plan.dialogs);
+    openDialog(plan.dialogs[0]);
+  };
+  const nextAfter = (done: "jjit" | "pracuj") => {
+    const rest = publishQueue[0] === done ? publishQueue.slice(1) : [];
+    setPublishQueue(rest);
+    openDialog(rest[0]);
+  };
 
   const apply = (next: JobAdState) => {
     queryClient.setQueryData(jobAdQueryKey(jobId), next);
@@ -339,6 +399,16 @@ export function AdChannels({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reminders, openSkip, askRemind, openSend]);
 
+  const updateJjit = useMutation({
+    mutationFn: () =>
+      jjitPublishApi.publishJjit(jobId, { expected_updated_at: state.ad?.updated_at ?? null }),
+    onSuccess: apply,
+    onError: (err) => {
+      showError(apiErrorMessage(err, "Nie udało się zaktualizować ogłoszenia. Spróbuj ponownie."));
+      void queryClient.invalidateQueries({ queryKey: jobAdQueryKey(jobId) });
+    },
+  });
+
   const busy = locked || skip.isPending || unskip.isPending;
   const reminderLine = (channel: AdChannel) => {
     const v = view(channel);
@@ -359,7 +429,9 @@ export function AdChannels({
       aria-label="Gdzie publikujesz"
       className="flex w-[320px] flex-none flex-col gap-4 overflow-y-auto border-l border-border bg-card px-4 py-3"
     >
-      {focusChannel ? <FocusSteps channel={focusChannel} /> : null}
+      {focusChannel ? (
+        <FocusSteps channel={focusChannel} jjitApi={jjitReady && canManage} />
+      ) : null}
 
       {state.findings.length > 0 ? (
         <AdChecksPanel
@@ -369,6 +441,8 @@ export function AdChannels({
           onRemove={onRemoveFinding}
         />
       ) : null}
+
+      <PublishAllPanel options={options} busy={publishingCareer} onStart={startPublish} />
 
       <div className="flex flex-col gap-2">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -407,10 +481,16 @@ export function AdChannels({
         </h3>
         <p className="text-xs text-muted-foreground">
           {canManage
-            ? "Pracuj.pl wstawia opiekun konta — wyślij mu ogłoszenie mailem. JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."
-            : "Pracuj.pl wstawia opiekun konta po mailu od Delivery Leada. JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."}
+            ? `Pracuj.pl wstawia opiekun konta — wyślij mu ogłoszenie mailem. ${
+                jjitReady
+                  ? "JustJoin.IT publikujesz stąd jednym kliknięciem."
+                  : "JustJoin.IT wklejasz z zakładki i oznaczasz tutaj."
+              }`
+            : state.can_mark_publications
+              ? "Pracuj.pl i JustJoin.IT oznaczasz tutaj po publikacji."
+              : "Pracuj.pl wstawia opiekun konta po mailu od Delivery Leada. JustJoin.IT publikuje Delivery Lead."}
         </p>
-        {/* Po wklejeniu treści na portalu rekruter oznacza to tutaj. */}
+        {/* Oznacza Delivery Lead rekrutacji, Head of Recruitment albo admin. */}
         <AdPublications
           jobId={jobId}
           portals={["pracuj", "jjit"]}
@@ -418,9 +498,23 @@ export function AdChannels({
           jobClosed={jobClosed}
           locked={locked}
           api={api}
-          initialLinkFor={focusChannel === "pracuj" || focusChannel === "jjit" ? focusChannel : null}
+          initialLinkFor={
+            focusChannel === "pracuj" || (focusChannel === "jjit" && !jjitReady)
+              ? focusChannel
+              : null
+          }
           renderExtra={(portal) => reminderLine(portal)}
           onSendPracuj={canSendPracuj ? () => setSendingMail(true) : undefined}
+          jjitActions={
+            canManage && !jobClosed && state.jjit_api
+              ? {
+                  onPublish: () => setPublishingJjit(true),
+                  onUpdate: () => updateJjit.mutate(),
+                  updating: updateJjit.isPending,
+                  blockedReason: publishBlockedReason ?? jjitCareerReason,
+                }
+              : undefined
+          }
         />
       </div>
       <PracujMailDialog
@@ -428,12 +522,31 @@ export function AdChannels({
         jobId={jobId}
         state={state}
         api={pracujMailApi}
-        onClose={() => setSendingMail(false)}
+        onClose={() => {
+          setSendingMail(false);
+          nextAfter("pracuj");
+        }}
         onSent={(next) => {
           apply(next);
           setSendingMail(false);
+          nextAfter("pracuj");
         }}
         onSaved={apply}
+      />
+      <JjitPublishDialog
+        open={publishingJjit}
+        jobId={jobId}
+        state={state}
+        api={jjitPublishApi}
+        onClose={() => {
+          setPublishingJjit(false);
+          nextAfter("jjit");
+        }}
+        onPublished={(next) => {
+          apply(next);
+          setPublishingJjit(false);
+          nextAfter("jjit");
+        }}
       />
       <SkipChannelDialog
         open={skipFor !== null}

@@ -8,7 +8,9 @@
         "clients_edit",
         "contracts_orders_edit",
         "contract_status",
-        "b2b_signature_confirmation"
+        "b2b_signature_confirmation",
+        "client_contracts_view",
+        "orders_work"
       ]
     },
     {
@@ -24,7 +26,8 @@
       "permissions": [
         "amounts_view",
         "amounts_edit",
-        "finance_module"
+        "finance_module",
+        "company_results"
       ]
     },
     {
@@ -57,7 +60,8 @@
         "finance",
         "delivery_lead",
         "talent_community_manager",
-        "automation"
+        "automation",
+        "back_office"
       ]
     },
     {
@@ -68,7 +72,8 @@
         "delivery_view"
       ],
       "default_roles": [
-        "delivery_lead"
+        "delivery_lead",
+        "back_office"
       ]
     },
     {
@@ -80,7 +85,8 @@
       ],
       "default_roles": [
         "delivery_lead",
-        "finance"
+        "finance",
+        "back_office"
       ]
     },
     {
@@ -92,7 +98,8 @@
       ],
       "default_roles": [
         "delivery_lead",
-        "talent_community_manager"
+        "talent_community_manager",
+        "back_office"
       ]
     },
     {
@@ -103,7 +110,8 @@
       "default_roles": [
         "delivery_lead",
         "talent_community_manager",
-        "recruiter"
+        "recruiter",
+        "back_office"
       ]
     },
     {
@@ -124,7 +132,8 @@
       ],
       "default_roles": [
         "finance",
-        "delivery_lead"
+        "delivery_lead",
+        "back_office"
       ]
     },
     {
@@ -135,7 +144,8 @@
         "amounts_view"
       ],
       "default_roles": [
-        "finance"
+        "finance",
+        "back_office"
       ]
     },
     {
@@ -143,7 +153,8 @@
       "label": "Moduł Finanse",
       "group": "money",
       "requires": [
-        "amounts_view"
+        "amounts_view",
+        "orders_work"
       ],
       "default_roles": [
         "finance"
@@ -151,14 +162,14 @@
     },
     {
       "key": "people_admin",
-      "label": "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "label": "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
       "group": "people",
       "requires": [],
       "default_roles": []
     },
     {
       "key": "payroll",
-      "label": "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "label": "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
       "group": "people",
       "requires": [],
       "default_roles": [
@@ -203,6 +214,32 @@
       "group": "people",
       "requires": [],
       "default_roles": []
+    },
+    {
+      "key": "company_results",
+      "label": "Wyniki firmy: podsumowania przychodu i marży",
+      "group": "money",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "client_contracts_view",
+      "label": "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
+      "group": "clients_contracts",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "orders_work",
+      "label": "Zamówienia: zmiany, PDF-y, import MD",
+      "group": "clients_contracts",
+      "requires": [
+        "amounts_view"
+      ],
+      "default_roles": [
+        "finance",
+        "back_office"
+      ]
     }
   ]
 }

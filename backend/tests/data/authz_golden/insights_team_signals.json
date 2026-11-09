@@ -25,11 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDDP",
-  "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDDDDDDDP",
-  "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDDDDDDDP"
+  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD",
+  "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD",
+  "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD"
  }
 }

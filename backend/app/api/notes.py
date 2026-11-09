@@ -44,6 +44,7 @@ from app.services import (
     candidate_claim,
     candidate_rate_from,
     client_rate_notes,
+    conversation_facts,
     note_kinds,
     recommendation_card_import,
     recruitment_rate_hints,
@@ -455,6 +456,7 @@ async def apply_note_create(
     note = Note(**values, author_id=author.user_id)
     db.add(note)
     await db.flush()  # need note.id
+    await conversation_facts.after_note_saved(db, note)
 
     # @mentions — wybiera scope, filtruje self, insert NoteMention rows.
     # Klucz API (bez osoby) nikogo nie oznacza: wzmianka to dzwonek i mail

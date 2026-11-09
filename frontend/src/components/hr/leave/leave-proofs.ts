@@ -20,8 +20,8 @@ export const PROOF_SUGGESTED_TYPES: readonly LeaveType[] = [
 ];
 
 const HINTS: Partial<Record<LeaveType, string>> = {
-  occasional: "Dołącz akt ślubu, urodzenia albo zgonu — Kadry potwierdzą urlop.",
-  childcare: "Dołącz oświadczenie albo akt urodzenia dziecka, jeśli Kadry go nie mają.",
+  occasional: "Dołącz akt ślubu, urodzenia albo zgonu — Administracja współpracy potwierdzi urlop.",
+  childcare: "Dołącz oświadczenie albo akt urodzenia dziecka, jeśli Administracja współpracy go nie ma.",
   blood_donation: "Dołącz zaświadczenie z punktu krwiodawstwa.",
 };
 

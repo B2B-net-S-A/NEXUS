@@ -45,6 +45,7 @@ import {
   jobProposalsKeys,
   PROPOSAL_DISMISS_BULK_MAX,
   type ProposalInboxPage,
+  type ProposalListFilter,
 } from "@/lib/job-proposals-api";
 import {
   countBySource,
@@ -75,6 +76,9 @@ export interface UseJobProposalsOptions {
   readOnly?: boolean;
   /** Podobne projekty i rekomendacje — leniwie, dopiero gdy segment jest otwarty. */
   secondarySourcesEnabled?: boolean;
+  /** Jedna lista: kolejność z serwera i filtr plakietek (`?list=…`). */
+  singleList?: boolean;
+  listFilter?: ProposalListFilter;
 }
 
 export interface AddToJobOptions {
@@ -195,6 +199,8 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     pipelineCandidateIds,
     readOnly = false,
     secondarySourcesEnabled = true,
+    singleList = false,
+    listFilter = "all",
   } = options;
   const queryClient = useQueryClient();
   const { showSuccess, showError, showToast, showActionToast } = useToast();
@@ -244,14 +250,20 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   }, [fullSearch, startRun]);
 
   // ── Skrzynka propozycji ──────────────────────────────────────────────────
-  const inboxKey = jobProposalsKeys.inbox(jobId, INBOX_PAGE);
+  const inboxKey = jobProposalsKeys.inbox(jobId, INBOX_PAGE, listFilter);
   const inbox = useInfiniteQuery({
     queryKey: inboxKey,
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) =>
-      jobProposalsApi.inbox(jobId, { status: "proposed", limit: INBOX_PAGE, offset: pageParam }, signal),
+      jobProposalsApi.inbox(
+        jobId,
+        { status: "proposed", limit: INBOX_PAGE, offset: pageParam, list: listFilter },
+        signal,
+      ),
     getNextPageParam: (last) => last.next_offset ?? undefined,
     staleTime: 30_000,
+    // Jedna lista: przy zmianie filtra stare wiersze i liczby stoją do odpowiedzi.
+    placeholderData: singleList ? (previous) => previous : undefined,
   });
   const inboxItems = useMemo(
     () => inbox.data?.pages.flatMap((p) => p.items) ?? [],
@@ -266,6 +278,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   // serwer liczy dzwonek i kafle.
   const threshold = inbox.data?.pages[0]?.threshold ?? DEFAULT_PROPOSAL_THRESHOLD;
   const inboxHidden = inbox.data?.pages.reduce((n, p) => n + p.hidden_on_page, 0) ?? 0;
+  const newInBaseTotal = inbox.data?.pages[0]?.new_in_base_total ?? 0;
+  const labelCounts = inbox.data?.pages[0]?.label_counts ?? null;
+  // Filtr plakietek zawęża samą skrzynkę: reszta źródeł nie zna tych plakietek.
+  const filtered = listFilter !== "all";
 
   const latestRun = useQuery({
     queryKey: jobProposalsKeys.latestRun(jobId),
@@ -333,17 +349,18 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     () =>
       mergeProposals({
         inbox: inboxItems,
-        run: runUsable && runData ? { runId: runData.run_id, rows: runData.results } : null,
-        similar: similar.data?.candidates,
+        run: !filtered && runUsable && runData ? { runId: runData.run_id, rows: runData.results } : null,
+        similar: !filtered || listFilter === "similar" ? similar.data?.candidates : undefined,
         recommendations:
-          recommendations.data?.status === "ready"
+          !filtered && recommendations.data?.status === "ready"
             ? { items: recommendations.data.candidates, degraded: recommendations.data.degraded }
             : null,
+        keepInboxOrder: singleList,
         pipelineCandidateIds: pipelineIds,
         dismissedCandidateIds: dismissedIds,
         budgetHourly,
       }).filter((e) => !hiddenIds.has(e.row.candidateId)),
-    [inboxItems, runUsable, runData, similar.data, recommendations.data, pipelineIds, dismissedIds, budgetHourly, hiddenIds],
+    [inboxItems, runUsable, runData, similar.data, recommendations.data, pipelineIds, dismissedIds, budgetHourly, hiddenIds, filtered, listFilter, singleList],
   );
   // Liczniki pigułek źródeł ignorują sam filtr źródła — inaczej kliknięcie
   // jednej pigułki zerowałoby pozostałe.
@@ -376,8 +393,8 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   const inboxHasMore = inbox.hasNextPage;
   useEffect(() => {
     if (!countsSettled) return;
-    queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), inboxHasMore ? null : totalProposals);
-  }, [queryClient, jobId, totalProposals, countsSettled, inboxHasMore]);
+    queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), inboxHasMore || filtered ? null : totalProposals);
+  }, [queryClient, jobId, totalProposals, countsSettled, inboxHasMore, filtered]);
   const entries = useMemo(
     () => filterProposals(allEntries, filters, { budgetHourly }),
     [allEntries, filters, budgetHourly],
@@ -601,6 +618,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       settled: countsSettled,
       /** Próg propozycji w % (najlepsze 40: separator „Poniżej N%”). */
       threshold,
+      /** Nowi w bazie najpierw: ile osób ma pierwszeństwo, także na dalszych stronach. */
+      newInBaseTotal,
+      /** Jedna lista: liczby na plakietkach (`null` przed pierwszą odpowiedzią). */
+      labelCounts,
       inbox: {
         total: inboxTotal,
         hidden: inboxHidden,

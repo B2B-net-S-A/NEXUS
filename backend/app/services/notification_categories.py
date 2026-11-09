@@ -102,7 +102,7 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     ),
     NotificationCategory.people: CategoryInfo(
         "Czas i ludzie",
-        "Urlopy i zastępstwa, timesheety, premie, wejścia i odejścia, sprawy administracja@ i sprzęt.",
+        "Nieobecności i zastępstwa, raporty godzin, rozliczenia, wejścia i odejścia, sprawy administracja@ i sprzęt.",
     ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",
@@ -128,6 +128,11 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.b2b_signature_requested: _C.mentions,
     # Ktoś wygenerował umowę Twojej osoby — wyślij ją i pilnuj podpisu (0524).
     _T.b2b_agreement_ready: _C.mentions,
+    # Rekruter i DL mają dokończyć dokumenty osoby — imienne zadanie (0649).
+    _T.start_documents: _C.mentions,
+    _T.start_documents_due: _C.mentions,
+    _T.start_documents_returned: _C.mentions,
+    _T.start_documents_reminder: _C.mentions,
     # 0506: umowa przedwstępna — imienne zadanie (wystaw, podpisz) albo
     # krok umowy, o którą ktoś sam poprosił; obserwowanie wyłącza się w panelu.
     _T.pre_contract: _C.mentions,
@@ -147,6 +152,11 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
     # zadanie (daj im znać), nie do wyciszenia jak przydział.
     _T.job_closed_people_waiting: _C.mentions,
+    # 0635: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
+    # zadanie: napisz do kandydata, potwierdź termin, zdecyduj o zamknięciu.
+    _T.cpro_candidate_rejected: _C.mentions,
+    _T.cpro_interview_change: _C.mentions,
+    _T.cpro_close_needs_decision: _C.mentions,
     # 0621: osoby po rekruterze, który odszedł — imienny obowiązek DL-a.
     _T.departed_pairs_care: _C.mentions,
     # Czat
@@ -184,6 +194,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.job_p0_set: _C.reminders,
     # 0610: Delivery Lead prosi o P0 (do Head of Recruitment).
     _T.job_p0_requested: _C.reminders,
+    # 0657: termin P0 minął — przedłuż albo zakończ (do Head of Recruitment).
+    _T.job_p0_overdue: _C.reminders,
     # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
     _T.job_idle_reminder: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
@@ -198,6 +210,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.post_interview_t45: _C.interviews,
     _T.post_interview_t2h_escalation: _C.interviews,
     _T.interview_slots_requested: _C.interviews,
+    _T.client_panel_request: _C.interviews,
     _T.interview_slot_chosen: _C.interviews,
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,
@@ -230,6 +243,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.also_fits_added: _C.candidates,
     _T.autofill_decisions_due: _C.candidates,
     _T.autofill_quality_report: _C.candidates,
+    _T.own_hiring_update: _C.interviews,
     _T.candidate_search_completed: _C.candidates,
     # Maile z odmową
     _T.rejection_email_scheduled: _C.rejections,
@@ -276,6 +290,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_lifecycle_task: _C.people,
     _T.hr_work_handover: _C.people,
     _T.admin_case_assigned: _C.people,
+    _T.back_office_escalated: _C.people,
+    _T.back_office_assigned: _C.people,
+    _T.portal_low_rating: _C.people,
+    _T.portal_monthly_review: _C.people,
     _T.equipment_task: _C.people,
     _T.equipment_protocol_signed: _C.people,
     _T.equipment_return_reminder: _C.people,
@@ -302,6 +320,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0619: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
     _T.announcement_important: _C.system,
     _T.teams_prep_scope_missing: _C.system,
+    _T.hr_m365_scope_missing: _C.system,
 }
 
 
@@ -358,6 +377,7 @@ _SPLIT_GROUPS: dict[
             _T.client_job_opened,
             _T.job_p0_set,
             _T.job_p0_requested,
+            _T.job_p0_overdue,
             _T.job_idle_reminder,
             _T.request_allocation_proposals,
         ),

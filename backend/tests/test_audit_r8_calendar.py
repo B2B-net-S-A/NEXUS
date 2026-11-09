@@ -571,6 +571,77 @@ async def test_call_after_round_a_is_not_hidden_by_round_b():
         assert gate["interview_pending"] is False
 
 
+async def test_two_entries_of_one_interview_do_not_mark_preps_skipped():
+    """Zgłoszenie 03.11.2026: rozmowa w kalendarzu dwa razy na tę samą godzinę.
+    Po jej starcie bieżący był drugi wpis, a „poprzednia runda” kończyła się
+    o tej samej godzinie, więc oba odbyte prepy dostawały „pominięte”."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.interview_cycle import compute_steps, load_snapshots
+
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(minutes=45)
+    job_id, cand_id, client_id = await _seed_pair()
+    for _ in range(2):
+        await _seed_event(
+            cand_id,
+            job_id,
+            client_id,
+            start,
+            EventType.client_interview,
+            EventStatus.completed,
+        )
+    first = await _seed_event(
+        cand_id, job_id, client_id, start - timedelta(days=4), EventType.prep_call
+    )
+    second = await _seed_event(
+        cand_id, job_id, client_id, start - timedelta(hours=1), EventType.prep_call
+    )
+    async with AsyncSessionLocal() as db:
+        snaps = await load_snapshots(
+            db,
+            [(cand_id, job_id)],
+            window_start=now - timedelta(days=14),
+            window_end=now + timedelta(days=30),
+            now=now,
+        )
+    steps = {
+        s["key"]: s
+        for s in compute_steps(snaps[(cand_id, job_id)], now, call_window_minutes=30)
+    }
+    assert (steps["prep"]["state"], steps["prep"]["event_id"]) == ("done", first)
+    assert (steps["prep2"]["state"], steps["prep2"]["event_id"]) == ("done", second)
+
+
+async def test_prep_after_two_entries_of_one_interview_blocks_a_second_prep():
+    """Spóźniony prep po rozmowie wpisanej dwa razy — ekran każe go przełożyć,
+    więc serwer nie może założyć kolejnego (lustro ``late_preps``)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.prep_meeting import PrepMeeting
+    from app.services.prep_meetings import active_prep
+
+    now = datetime.now(timezone.utc)
+    start = now + timedelta(days=2)
+    job_id, cand_id, client_id = await _seed_pair()
+    for _ in range(2):
+        await _seed_event(cand_id, job_id, client_id, start, EventType.client_interview)
+    late = await _seed_event(
+        cand_id, job_id, client_id, start + timedelta(days=1), EventType.prep_call
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(
+            PrepMeeting(
+                calendar_event_id=late,
+                candidate_id=cand_id,
+                job_id=job_id,
+                prep_no=1,
+                organizer_upn="prowadzacy@example.com",
+            )
+        )
+        await db.commit()
+        found = await active_prep(db, candidate_id=cand_id, job_id=job_id, prep_no=1)
+    assert found is not None and found.calendar_event_id == late
+
+
 async def test_prep_missing_on_screen_means_prep_can_be_scheduled():
     from app.core.database import AsyncSessionLocal
     from app.models.prep_meeting import PrepMeeting

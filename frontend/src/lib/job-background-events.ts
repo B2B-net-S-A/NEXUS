@@ -33,7 +33,9 @@ export interface JobBackgroundEvent {
   eligible?: number | null;
   count?: number | null;
   /** `autofill_withdrawn`: dlaczego system wycofał osoby. */
-  why?: "budget" | "client" | "not_looking" | "far" | (string & {}) | null;
+  why?: "budget" | "client" | "not_looking" | "far" | "batch_reset" | "fresh_seat" | (string & {}) | null;
+  /** `autofill`: cel kolumny w chwili dopełnienia (20 albo cel wg tempa). */
+  target?: number | null;
   trigger?: string | null;
   /** Kod powodu (pominięcie albo awaria). */
   reason?: string | null;
@@ -130,8 +132,11 @@ export function backgroundEventMessage(event: JobBackgroundEvent): string {
         : `${head}.`;
     }
     case "autofill":
-      return `System dodał do „Nowych” ${countPl(event.count ?? 0, "osobę", "osoby", "osób")} — kolumna trzyma się na 20.`;
+      return `System dodał do „Nowych” ${countPl(event.count ?? 0, "osobę", "osoby", "osób")} — kolumna trzyma się na ${event.target ?? 20}.`;
     case "autofill_withdrawn": {
+      if (event.why === "fresh_seat") {
+        return `Rano ${countPl(event.count ?? 0, "zamiana", "zamiany", "zamian")}: karty nietknięte od 7 dni ustąpiły osobom nowym w bazie.`;
+      }
       const people = countPl(event.count ?? 0, "swoją osobę", "swoje osoby", "swoich osób");
       // `why` (28.10.2026): budżet, cały klient albo „Nie szuka pracy”;
       // 29.10.2026: odległość od biura.
@@ -142,7 +147,9 @@ export function backgroundEventMessage(event: JobBackgroundEvent): string {
             ? "„Nie szuka pracy” z innej rekrutacji"
             : event.why === "far"
               ? "mieszkają dalej niż 100 km od biura"
-              : "stawka ponad budżetem";
+              : event.why === "batch_reset"
+                ? "porządki przed porcją dnia"
+                : "stawka ponad budżetem";
       return `System wycofał z „Nowych” ${people} — ${why}.`;
     }
     case "new_cv_proposals": {

@@ -37,7 +37,9 @@ const STATUS: M365Status = {
   },
   secret: { expires_on: "2027-04-30", days_left: 195, state: "ok" },
   custom_oof_mailboxes: [{ user_id: 7, name: "Ewa Własna", last_reconciled_at: null }],
-  mailbox_errors: [{ user_id: 8, name: "Jan Przykładowy", last_error: "forbidden (403)" }],
+  mailbox_errors: [
+    { user_id: 8, name: "Jan Przykładowy", last_error: "forbidden (403)", scope_exempt: false },
+  ],
 };
 
 function operation(overrides: Partial<M365Operation>): M365Operation {
@@ -133,7 +135,7 @@ describe("M365Card", () => {
     expect(await screen.findByLabelText("Tryb: Symulacja")).toBeInTheDocument();
     expect(screen.getByText(/nie trafiają do skrzynek/)).toBeInTheDocument();
     expect(screen.getByText(/Tylko lista próbna: anna.przykladowa@example.com/)).toBeInTheDocument();
-    expect(await screen.findByText("Przekierowanie poczty")).toBeInTheDocument();
+    expect(await screen.findByText("Kopia poczty do zastępcy")).toBeInTheDocument();
     expect(screen.getByText("2.11.2026 – 6.11.2026")).toBeInTheDocument();
     expect(screen.getByText(/Czeka na pierwszy dzień urlopu/)).toBeInTheDocument();
     expect(screen.getByText("Ewa Własna")).toBeInTheDocument();
@@ -197,6 +199,72 @@ describe("M365Card", () => {
     );
     await waitFor(() =>
       expect(showToast).toHaveBeenCalledWith("Operacja wróciła do kolejki", "success"),
+    );
+  });
+
+  it("leaves a 403 mailbox outside the group and shows it as a decision", async () => {
+    mockApi();
+    post.mockResolvedValue({ data: { user_id: 8, scope_exempt: true } });
+    renderCard();
+    const row = (await screen.findByText(/Jan Przykładowy/)).closest("li") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: "Zostaw poza grupą" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/hr/admin/m365/mailboxes/8/scope-exempt", {
+        exempt: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        "NEXUS nie będzie już zgłaszać tej skrzynki",
+        "success",
+      ),
+    );
+  });
+
+  it("offers undo for a mailbox left outside on purpose", async () => {
+    mockApi({
+      status: {
+        ...STATUS,
+        mailbox_errors: [
+          { user_id: 8, name: "Jan Przykładowy", last_error: "forbidden (403)", scope_exempt: true },
+        ],
+      },
+    });
+    post.mockResolvedValue({ data: { user_id: 8, scope_exempt: false } });
+    renderCard();
+    const row = (await screen.findByText(/Jan Przykładowy/)).closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("poza grupą świadomie");
+    expect(within(row).queryByRole("button", { name: "Zostaw poza grupą" })).toBeNull();
+    await userEvent.click(within(row).getByRole("button", { name: "Cofnij" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/hr/admin/m365/mailboxes/8/scope-exempt", {
+        exempt: false,
+      }),
+    );
+  });
+
+  it("does not offer the group decision for other mailbox errors", async () => {
+    mockApi({
+      status: {
+        ...STATUS,
+        mailbox_errors: [
+          { user_id: 8, name: "Jan Przykładowy", last_error: "throttled (429)", scope_exempt: false },
+        ],
+      },
+    });
+    renderCard();
+    const row = (await screen.findByText(/Jan Przykładowy/)).closest("li") as HTMLElement;
+    expect(within(row).queryByRole("button")).toBeNull();
+  });
+
+  it("shows why the decision failed", async () => {
+    mockApi();
+    post.mockRejectedValue({ response: { status: 409, data: { detail: "Skrzynka ma już inny błąd." } } });
+    renderCard();
+    const row = (await screen.findByText(/Jan Przykładowy/)).closest("li") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: "Zostaw poza grupą" }));
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("Skrzynka ma już inny błąd.", "error"),
     );
   });
 

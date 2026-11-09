@@ -68,7 +68,7 @@ describe("hr-m365 labels", () => {
     ).toEqual({
       label: "20.10.2026 · zakończony",
       tone: "success",
-      note: "zaktualizowano 3 z 41 · zostawione zmiany Kadr: 1 · bez konta w Microsoft 365: 2",
+      note: "zaktualizowano 3 z 41 · zostawione zmiany Administracji współpracy: 1 · bez konta w Microsoft 365: 2",
     });
     expect(m365ProfileSyncView(run({ counts: { mode: "simulate", read: 41 } }))).toMatchObject({
       label: "20.10.2026 · symulacja",

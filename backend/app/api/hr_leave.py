@@ -15,7 +15,7 @@ przełącznik modułu w ``app_settings['hr_modules']``.
   z powodem (``POST /approvals/{id}/forward-off``),
 * zgłoszenia z B2B i zlecenia (D5, 17.10.2026): wchodzą od razu, koordynator
   widzi je „do wiadomości” obok kolejki (``reported`` w ``/approvals/pending``)
-  i może zgłosić kolizję (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
+  i może zgłosić uwagę (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
 * załącznik do wniosku (potwierdzenie nieobecności w e-teczce, ``leave_proofs``):
   osoba dołącza, pobiera i usuwa własny plik (``/requests/{id}/proofs``),
   Kadry pobierają (``/approvals/{id}/proofs/{doc}/file``, bramka
@@ -76,8 +76,10 @@ from app.services.permission_denial import ensure_any_permission
 router = APIRouter()
 
 MODULE = HrModule.leave
-APPROVER_DETAIL = "Akceptacje widzą przełożeni i Kadry."
-INTERNAL_DETAIL = "Nieobecności widzą pracownicy firmy."
+APPROVER_DETAIL = (
+    "Listę „Do potwierdzenia” widzą koordynatorzy i Administracja współpracy."
+)
+INTERNAL_DETAIL = "Nieobecności widzą osoby z kartoteką."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak w „Dodaj osobę”).
 _NOT_STAFF = {UserRole.automation, UserRole.user, UserRole.board}
 _MAX_BADGE_USERS = 300

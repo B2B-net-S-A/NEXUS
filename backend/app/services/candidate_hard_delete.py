@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import status
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -49,6 +49,35 @@ class EraseOutcome:
     champion_job_ids: tuple[int, ...]
     teams_to_cancel: tuple[tuple[str, str], ...]
     tokens_revoked: int
+
+
+async def erase_panel_data(db: AsyncSession, candidate_id: int) -> None:
+    """Panel konsultanta trzyma własne kopie adresu i treść zgłoszenia trenera."""
+
+    from app.models.consultant_panel import CpActivation, CpTrainerApplication
+    from app.models.consultant_portal import CpDocument, CpLink, CpSession
+
+    contract_ids = select(Contract.id).where(Contract.candidate_id == candidate_id)
+    await db.execute(delete(CpLink).where(CpLink.contract_id.in_(contract_ids)))
+    await db.execute(delete(CpSession).where(CpSession.contract_id.in_(contract_ids)))
+    await db.execute(
+        delete(CpTrainerApplication).where(
+            CpTrainerApplication.contract_id.in_(contract_ids)
+        )
+    )
+    await db.execute(
+        update(CpDocument)
+        .where(CpDocument.contract_id.in_(contract_ids))
+        .values(sender_email=None)
+    )
+    await db.execute(
+        update(CpActivation)
+        .where(CpActivation.contract_id.in_(contract_ids))
+        .values(
+            email="",
+            deactivated_at=func.coalesce(CpActivation.deactivated_at, func.now()),
+        )
+    )
 
 
 async def erase_candidate(
@@ -170,6 +199,7 @@ async def erase_candidate(
         .where(Contract.candidate_id == candidate_id)
         .values(candidate_email=None, candidate_phone=None)
     )
+    await erase_panel_data(db, candidate_id)
 
     # Odwołanie publicznych linków do WYGENEROWANYCH CV tej osoby. `cv_generated
     # _documents.candidate_id` to `SET NULL`, więc dokument (a z nim

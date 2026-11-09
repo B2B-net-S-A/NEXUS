@@ -152,6 +152,43 @@ def _openai_strict(schema):
     return body["response_format"]["json_schema"]["strict"]
 
 
+@pytest.mark.parametrize(
+    "model,effort",
+    [("gpt-6-luna", "none"), ("gpt-6.1-terra", "none"), ("gpt-6.1-sol", "low")],
+)
+def test_reasoning_effort_is_the_lowest_the_model_accepts(model, effort):
+    """Sol 6.1 odrzuca `none` kodem 400, a najniższy tryb to `low` (sprawdzone 03.11.2026)."""
+    body = build_request(OPENAI, model=model, messages=[], max_tokens=1, kwargs={})
+    assert body["reasoning_effort"] == effort
+    assert "temperature" not in body
+
+
+def test_sol_gets_room_for_reasoning_in_the_token_limit():
+    """Rozumowanie liczy się do limitu: przy 3000 tokenów ucięłoby odpowiedź."""
+    sol = build_request(
+        OPENAI, model="gpt-6.1-sol", messages=[], max_tokens=3000, kwargs={}
+    )
+    luna = build_request(
+        OPENAI, model="gpt-6-luna", messages=[], max_tokens=3000, kwargs={}
+    )
+    assert sol["max_completion_tokens"] == 7000
+    assert luna["max_completion_tokens"] == 3000
+
+
+def test_sol_has_its_own_price():
+    from decimal import Decimal
+
+    from app.services.ai_metering import response_event
+
+    message = parse_response(
+        OPENAI, "gpt-6.1-sol", _openai_payload(prompt=1000, cached=0, completion=100)
+    )
+    message.model = "gpt-6.1-sol"
+    event = response_event("op-sol", message, model="gpt-6.1-sol", latency_ms=1)
+    # (2 × 1000 + 10 × 100) / 1e6
+    assert event["estimated_cost_usd"] == Decimal("0.00300000")
+
+
 def test_strict_mode_only_for_schemas_that_allow_it():
     """AI-02 (audyt 22.09 r2): ``strict: true`` dla zgodnych schematów.
 
@@ -532,6 +569,36 @@ def test_metering_event_carries_the_provider_and_its_own_prices():
     # (0.20 × 1000 + 0.02 × 500 + 1.20 × 100) / 1e6
     assert event["estimated_cost_usd"] == Decimal("0.00033000")
     assert event["price_version"]
+
+
+def test_new_claude_generations_have_their_own_prices():
+    """Bez wpisu Haiku 5.5 nie miałby ceny, a panel kosztów pokazałby zero."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.ai_metering import response_event
+
+    def priced(model):
+        message = SimpleNamespace(
+            id=f"msg-{model}",
+            model=model,
+            stop_reason="end_turn",
+            usage=SimpleNamespace(
+                input_tokens=1000,
+                output_tokens=100,
+                cache_read_input_tokens=1000,
+                cache_creation_input_tokens=1000,
+                cache_creation=SimpleNamespace(ephemeral_1h_input_tokens=0),
+            ),
+        )
+        return response_event("op", message, model=model, latency_ms=1)[
+            "estimated_cost_usd"
+        ]
+
+    # (0.10 × (1000 + 100 + 1250) + 0.50 × 100) / 1e6
+    assert priced("claude-haiku-5-5") == Decimal("0.00028500")
+    # (2 × (1000 + 100 + 1250) + 10 × 100) / 1e6
+    assert priced("claude-sonnet-5-5") == Decimal("0.00570000")
 
 
 def test_openai_cache_write_is_its_own_bucket_priced_at_125_percent():

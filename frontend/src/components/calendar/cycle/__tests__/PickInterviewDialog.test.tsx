@@ -265,6 +265,114 @@ describe("PickInterviewDialog", () => {
     expect(mocks.createPrep).not.toHaveBeenCalled();
   });
 
+  describe("czas prepu", () => {
+    const at = (start: string, minutes: number) => ({
+      start,
+      end: new Date(new Date(start).getTime() + minutes * 60_000).toISOString(),
+    });
+    // Godziny zależne od wybranego czasu: 14:00 mieści najwyżej 60 min.
+    const byMinutes = (p: { prep1Minutes?: number; prep2Minutes?: number }): PrepSuggestions => {
+      const m1 = p.prep1Minutes ?? 45;
+      const m2 = p.prep2Minutes ?? 45;
+      return {
+        enabled: true,
+        preps: [
+          {
+            ...suggestions.preps[0],
+            minutes: m1,
+            options: [
+              ...(m1 <= 60 ? [at("2031-06-11T14:00:00.000Z", m1)] : []),
+              at("2031-06-11T16:00:00.000Z", m1),
+            ],
+          },
+          { ...suggestions.preps[1], minutes: m2, options: [at("2031-06-12T10:30:00.000Z", m2)] },
+        ],
+      };
+    };
+
+    const openWithDurations = async () => {
+      mocks.suggestions.mockImplementation(async (p) => byMinutes(p));
+      const dialog = renderDialog();
+      fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+      await within(dialog).findByLabelText("Czas Prepu 1");
+      return dialog;
+    };
+
+    it("domyślnie 45 min, pola z tą samą listą co inne okna prepu", async () => {
+      const dialog = await openWithDurations();
+      expect(mocks.suggestions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ prep1Minutes: 45, prep2Minutes: 45 }),
+      );
+      const select = within(dialog).getByLabelText("Czas Prepu 2") as HTMLSelectElement;
+      expect(select.value).toBe("45");
+      expect([...select.options].map((o) => o.value)).toEqual(["30", "45", "60", "90"]);
+    });
+
+    it("krótszy prep zachowuje godzinę i wysyła koniec z nowego czasu, drugi prep bez zmian", async () => {
+      const dialog = await openWithDurations();
+      fireEvent.change(within(dialog).getByLabelText("Czas Prepu 1"), { target: { value: "30" } });
+      await waitFor(() =>
+        expect(mocks.suggestions).toHaveBeenLastCalledWith(
+          expect.objectContaining({ prep1Minutes: 30, prep2Minutes: 45 }),
+        ),
+      );
+      const send = await within(dialog).findByRole("button", { name: "Wybierz termin i zaproś na prepy (2)" });
+      await waitFor(() => expect(send).toBeEnabled());
+      fireEvent.click(send);
+
+      await waitFor(() => expect(mocks.createPrep).toHaveBeenCalledTimes(2));
+      expect(mocks.createPrep.mock.calls[0][0]).toMatchObject({
+        prep_no: 1,
+        start: "2031-06-11T14:00:00.000Z",
+        end: "2031-06-11T14:30:00.000Z",
+      });
+      expect(mocks.createPrep.mock.calls[1][0]).toMatchObject({ prep_no: 2, end: "2031-06-12T11:15:00.000Z" });
+      expect(within(dialog).queryByText(/nie mieści się/)).not.toBeInTheDocument();
+    });
+
+    it("dłuższy prep, który się nie mieści: godzina przeskakuje i okno o tym mówi", async () => {
+      const dialog = await openWithDurations();
+      const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+      await waitFor(() => expect(within(prep1).getAllByRole("radio")[0]).toHaveAttribute("aria-checked", "true"));
+      fireEvent.change(within(dialog).getByLabelText("Czas Prepu 1"), { target: { value: "90" } });
+
+      expect(await within(dialog).findByText(/Prep na 90 min nie mieści się/)).toBeInTheDocument();
+      expect(within(prep1).getAllByRole("radio")[0]).toHaveAttribute("aria-checked", "true");
+
+      // Świadomy wybór godziny zdejmuje komunikat.
+      fireEvent.click(within(prep1).getByRole("radio", { name: "Zaplanuję później" }));
+      expect(within(dialog).queryByText(/nie mieści się/)).not.toBeInTheDocument();
+    });
+
+    it("„Inna godzina…” liczy koniec z wybranego czasu", async () => {
+      const dialog = await openWithDurations();
+      fireEvent.change(within(dialog).getByLabelText("Czas Prepu 1"), { target: { value: "60" } });
+      const prep1 = await within(dialog).findByRole("radiogroup", { name: "Godzina Prepu 1" });
+      await waitFor(() =>
+        expect(mocks.suggestions).toHaveBeenLastCalledWith(expect.objectContaining({ prep1Minutes: 60 })),
+      );
+      fireEvent.click(within(prep1).getByRole("radio", { name: "Inna godzina…" }));
+      const manual = within(dialog).getByTestId("prep-1-manual");
+      fireEvent.change(within(manual).getByLabelText("Godzina"), { target: { value: "10:00" } });
+      expect(await within(manual).findByText(/do 11:00 · 60 min/)).toBeInTheDocument();
+    });
+
+    it("prep już zaplanowany pokazuje swoją długość i nie ma pola", async () => {
+      mocks.suggestions.mockResolvedValue({
+        enabled: true,
+        preps: [
+          { ...suggestions.preps[0], scheduled_start: "2031-06-11T14:00:00Z", minutes: 30, options: [] },
+          suggestions.preps[1],
+        ],
+      });
+      const dialog = renderDialog();
+      fireEvent.click(within(dialog).getAllByRole("radio", { name: /.+/ })[0]);
+      expect(await within(dialog).findByText(/· 30 min\. Czas zmienisz/)).toBeInTheDocument();
+      expect(within(dialog).queryByLabelText("Czas Prepu 1")).not.toBeInTheDocument();
+      expect(within(dialog).getByLabelText("Czas Prepu 2")).toBeInTheDocument();
+    });
+  });
+
   it("okno klienta, które już trwa: godzina startu nie jest w przeszłości (audyt 22.10, F36)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2031, 5, 13, 10, 16));

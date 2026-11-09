@@ -210,7 +210,7 @@ function TodoBody({
           <p className="text-[13px]">
             {name} — bez {words.ofOne}
           </p>
-          <p className="text-xs text-muted-foreground">wnioski trafiają do Kadr</p>
+          <p className="text-xs text-muted-foreground">wnioski trafiają do Administracji współpracy</p>
           <Button size="sm" variant="outline" onClick={() => onReassign(person)}>
             Wskaż {words.ofOne}
           </Button>

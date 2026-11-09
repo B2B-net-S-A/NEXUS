@@ -219,7 +219,7 @@ function PayrollTabs({ config }: { config: HrConfig }) {
         tabs={tabs.map((value) => ({ value, label: PAYROLL_TAB_LABELS[value] }))}
         value={tab}
         onValueChange={select}
-        ariaLabel="Płace"
+        ariaLabel="Rozliczenia"
       />
       {tab === "premie" ? <BonusRulesCard /> : null}
       {tab === "stawki" ? <MinimumRatesCard /> : null}
@@ -238,7 +238,7 @@ export function PayrollSettings({ config }: { config: HrConfig }) {
   if (!canEditPayrollSettings(config)) {
     return (
       <div className="p-6 text-muted-foreground">
-        Reguły premii zmienia osoba z uprawnieniem „Płace” albo administrator.
+        Reguły premii zmienia osoba z uprawnieniem „Rozliczenia” albo administrator.
       </div>
     );
   }
@@ -247,18 +247,18 @@ export function PayrollSettings({ config }: { config: HrConfig }) {
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
           <Wallet className="h-5 w-5 text-primary" aria-hidden />
-          Płace
+          Rozliczenia
         </h1>
         <p className="text-sm text-muted-foreground">
           Reguły premii z placementów i z Ligi Mistrzów, minimalna stawka na zleceniu. Stawki
-          i premie osób są w „Ludzie → Płace”.
+          i premie osób są w „Ludzie → Rozliczenia”.
         </p>
       </div>
       {config.open_modules.payroll ? (
         <PayrollTabs config={config} />      ) : (
         <p className="text-sm text-muted-foreground">
           Moduł płac nie jest jeszcze włączony — reguły premii ustawisz po jego włączeniu
-          (Ustawienia → Kadry → „Moduły”).
+          (Ustawienia → Administracja współpracy → „Moduły”).
         </p>
       )}
     </div>

@@ -11,14 +11,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mockParams,
 }));
 
-vi.mock("@/components/RequireSectionAccess", () => ({
-  RequireSectionAccess: ({ children }: { children: React.ReactNode }) => children,
-}));
 vi.mock("@/components/ds/PageHeader", () => ({
   PageHeader: () => null,
 }));
 vi.mock("@/components/ds", () => ({
-  QueryStateNotice: () => null,
+  QueryStateNotice: ({ description }: { description?: string }) => (
+    <p>{description}</p>
+  ),
 }));
 vi.mock("@/components/finance/FinanceResultsTab", () => ({
   FinanceResultsTab: ({ canWrite }: { canWrite: boolean }) => (
@@ -96,7 +95,61 @@ beforeEach(() => {
   });
 });
 
+const backOfficeUser = {
+  ...financeUser,
+  role: "back_office",
+  roles: ["back_office"],
+  effective_section_access: {
+    ...financeUser.effective_section_access,
+    finance: "none",
+  },
+} satisfies User;
+
 describe("FinancePage permissions", () => {
+  it("Back office widzi tylko zakładki o zamówieniach i zaczyna od zmian", async () => {
+    useAuthStore.setState({ user: backOfficeUser });
+
+    render(<FinancePage />);
+
+    expect(
+      await screen.findByRole("tab", { name: /Zmiany w zamówieniach/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Zamówienia PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Import zużycia MD" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Wyniki miesięczne" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Archiwum" })).toBeNull();
+    expect(screen.queryByText("results-read")).toBeNull();
+    expect(screen.queryByText("results-write")).toBeNull();
+  });
+
+  it("Back office nie otworzy Wyników adresem", async () => {
+    useAuthStore.setState({ user: backOfficeUser });
+    window.history.replaceState(null, "", "/finance?view=results");
+
+    render(<FinancePage />);
+
+    expect(
+      await screen.findByRole("tab", { name: /Zmiany w zamówieniach/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("results-read")).toBeNull();
+    expect(screen.queryByText("results-write")).toBeNull();
+  });
+
+  it("rola bez uprawnienia dostaje odmowę, a nie pustą stronę", async () => {
+    useAuthStore.setState({
+      user: {
+        ...backOfficeUser,
+        role: "recruiter",
+        roles: ["recruiter"],
+      },
+    });
+
+    render(<FinancePage />);
+
+    expect(await screen.findByText(/wymaga uprawnienia/)).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Wyniki miesięczne" })).toBeNull();
+  });
+
   it("shows write surfaces for a direct Finance write session", async () => {
     render(<FinancePage />);
 

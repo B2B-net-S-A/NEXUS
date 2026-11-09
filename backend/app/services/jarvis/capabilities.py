@@ -1,6 +1,6 @@
 """„Tyle mogę zrobić za Ciebie” — pusty panel Jarvisa (27.10.2026).
 
-Ludzie nie wiedzieli, że Jarvis przygotuje notatkę, ruch na tablicy albo
+Ludzie nie wiedzieli, że Jarvis doda notatkę, przygotuje ruch na tablicy albo
 debrief, i pisali „siema” albo pytali o przepis. Lista mówi to w ich
 słowach i powstaje z TYCH SAMYCH narzędzi, które ta rola dostaje do modelu
 (``tools_for_user``) — Finanse widzą co innego niż rekruter. Pozycja trafia
@@ -23,10 +23,15 @@ READ: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("zapisy w umowach ramowych", ("search_framework_contracts",)),
     ("liczby: placementy, CV, kontrakty", ("evaluate_metric",)),
     ("urlopy i sprzęt", ("my_leave_balance", "my_equipment")),
+    ("raport godzin osoby za miesiąc", ("person_month",)),
 )
-WRITE: tuple[tuple[str, tuple[str, ...]], ...] = (
+# Zapisy z ``undo``: wykonane od razu, z „Cofnij” na karcie.
+NOW: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("notatka", ("create_note",)),
     ("dodanie do rekrutacji", ("add_candidates_to_job",)),
+    ("uśpienie i przypięcie w „Moich ludziach”", ("snooze_my_person", "pin_my_person")),
+)
+WRITE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("przesunięcie na tablicy", ("move_candidate_stage",)),
     ("debrief po rozmowie", ("save_interview_debrief",)),
     ("spotkanie w kalendarzu", ("create_calendar_event",)),
@@ -47,4 +52,9 @@ def capabilities_for(tool_names: Collection[str]) -> dict[str, list[str]]:
     def pick(rows: tuple[tuple[str, tuple[str, ...]], ...]) -> list[str]:
         return [label for label, tools in rows if names.intersection(tools)]
 
-    return {"read": pick(READ), "write": pick(WRITE), "never": list(NEVER)}
+    return {
+        "read": pick(READ),
+        "now": pick(NOW),
+        "write": pick(WRITE),
+        "never": list(NEVER),
+    }

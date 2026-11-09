@@ -36,8 +36,14 @@ export function settlementLineText(
   } else if (month.rate_missing) {
     parts.push(`${formatHours(month.hours)} h · stawka nie ustawiona`);
   }
-  if (Number(line.bonus_total) > 0) {
-    parts.push(`${words.bonuses} ${formatMoney(line.bonus_total, line.currency)}`);
+  const clawback = Number(line.clawback_total ?? 0);
+  const gross = Number(line.bonus_total) + clawback;
+  if (gross > 0) {
+    parts.push(`${words.bonuses} ${formatMoney(gross, line.currency)}`);
+  }
+  if (clawback > 0) {
+    // Gwarancja premii DL: dług potrąca się z kolejnych premii (05.11.2026).
+    parts.push(`potrącenie z gwarancji −${formatMoney(clawback, line.currency)}`);
   }
   return parts.join(" · ") || `bez godzin i ${words.bonuses_genitive}`;
 }
@@ -118,9 +124,9 @@ export function MySettlementCard({ state, data, form, onRetry }: MySettlementCar
         </ul>
       )}
       <p className="text-xs text-muted-foreground">
-        {settlementBasisNote(form)} Zamknięty miesiąc to linie zamrożone przez Płace. Bieżący liczymy z godzin w „Moim
+        {settlementBasisNote(form)} Zamknięty miesiąc to linie zamrożone przez Rozliczenia. Bieżący liczymy z godzin w „Moim
         miesiącu” (wpisanych albo zaakceptowanych) i bieżącej stawki — zmienia się do zamknięcia,
-        a Płace biorą tylko godziny zaakceptowane.
+        a Rozliczenia biorą tylko godziny potwierdzone.
       </p>
     </Card>
   );

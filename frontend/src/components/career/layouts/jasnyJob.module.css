@@ -1119,3 +1119,8 @@
     transition: none;
   }
 }
+
+/* 07.11.2026: pola opcjonalne zwinięte także na komputerze (CareerApplyForm). */
+.form :global(.kr-opt-fields[data-collapsed="true"]) {
+  display: none;
+}

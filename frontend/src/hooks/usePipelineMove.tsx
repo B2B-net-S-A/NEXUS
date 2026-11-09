@@ -150,6 +150,7 @@ const RATE_EDIT_ROLES = new Set([
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ]);
 
 // Okno „Oznacz jako podpisaną” żyje w module Generatora (6 tys. linii) —

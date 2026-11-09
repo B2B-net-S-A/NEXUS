@@ -43,6 +43,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  ChevronDown,
   Download,
   FileDown,
   History,
@@ -60,13 +61,17 @@ import {
 import { TabbedNav } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { isClientCvWordFile } from "@/lib/candidate-files";
 import { JobRequirementsStrip } from "@/components/champion/JobRequirementsStrip";
 import { JobRequirementsSummary } from "@/components/champion/JobRequirementsSummary";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { useToast } from "@/components/Toast";
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import {
   FilePreviewContent,
   downloadDocumentBlob,
+  previewKind,
   fetchDocumentBlob,
   type CandidateDocument,
   type DocumentSearchRequest,
@@ -87,6 +92,7 @@ import {
   STAGE_CV_ACCEPT,
   StageCvUploadTile,
   cvFileProblem,
+  useOriginalCvFromDocument,
   useStageCvUpload,
   type PreviewCvUpload,
 } from "@/components/v2/person/StageCvUpload";
@@ -103,6 +109,7 @@ import { humanNoteCount } from "@/lib/candidate-notes-view";
 import { stageBrandedQueryKey, stageCvStatus } from "@/lib/cv-to-client";
 import {
   dockOriginalCv,
+  originalCvFile,
   originalCvSentence,
   primaryProfileCv,
   withoutQuarantinedCv,
@@ -239,14 +246,24 @@ function CvTab({
   // wgraniu podgląd pokazuje „CV oryginalne”, czyli właśnie ten plik. Plik
   // „B2B_…” staje się CV do klienta (15.10.2026) — wtedy „CV firmowe”.
   const canUpload = cvUpload != null && stageId != null;
+  // „Zmień plik” (04.11.2026): plik z profilu oglądany w miejscu CV oryginalnego,
+  // zanim ktoś go ustawi. Nic się nie zapisuje do „Ustaw jako CV oryginalne”.
+  const [candidateFileId, setCandidateFileId] = useState<number | null>(null);
   const upload = useStageCvUpload({
     candidateId,
     stageId: stageId ?? 0,
     jobId,
     onUploaded: (kind) => {
       history?.onOpenChange(false);
+      setCandidateFileId(null);
       onSourceChange(kind === "client_cv" ? "company" : "original");
     },
+  });
+  const setFromProfile = useOriginalCvFromDocument({
+    candidateId,
+    stageId: stageId ?? 0,
+    jobId,
+    onChanged: () => setCandidateFileId(null),
   });
   const uploadInputRef = useRef<HTMLInputElement>(null);
   // Te same klucze co dok osoby i karta CV na profilu — odpowiedź jest wspólna.
@@ -308,7 +325,22 @@ function CvTab({
   const docs = docsQuery.data ?? [];
   const [fileId, setFileId] = useState<number | null>(null);
   const selectedFile = docs.find((d) => d.id === fileId) ?? primaryProfileCv(docs) ?? null;
+  const currentFile = originalCvFile(original, ownProfileDocs);
+  // Te same warunki co trasa: bez nieaktualnych, bez kwarantanny, tylko PDF i Word.
+  const replacementFiles = (ownProfileDocs ?? []).filter(
+    (d) => d.id !== currentFile?.id && !d.outdated_at && /\.(pdf|docx?)$/i.test(d.filename),
+  );
+  const candidateFile = (ownProfileDocs ?? []).find((d) => d.id === candidateFileId) ?? null;
+  const confirmOriginalFile = async (doc: CandidateDocument) => {
+    const confirmed = await askConfirm({
+      title: "Ustawić to CV jako oryginalne?",
+      description: `„${doc.filename}” zostanie głównym CV profilu i CV oryginalnym tej rekrutacji, a AI odświeży profil. Dotychczasowe CV zostaje w „Innych plikach”, inne rekrutacje bez zmian.`,
+      confirmLabel: "Ustaw jako CV oryginalne",
+    });
+    if (confirmed) setFromProfile.mutate({ documentId: doc.id, filename: doc.filename });
+  };
 
+  const recruiterOnly = useRecruiterOnly();
   const download = (doc: CandidateDocument, fromSnapshot: boolean) => {
     const run = fromSnapshot && stageId != null
       ? downloadAuthenticatedFile(originalDownloadPath(stageId), doc.filename || "CV")
@@ -394,7 +426,13 @@ function CvTab({
   // Plik pod „Pobierz CV”: oryginał (kopia ze zgłoszenia albo CV z profilu)
   // albo plik zaznaczony w „Innych plikach”; `hint` = skąd jest (dymek, D2).
   let fileDownload: { doc: CandidateDocument; fromSnapshot: boolean; hint: string } | "pending" | null = null;
-  if (source === "original") {
+  if (source === "original" && candidateFile) {
+    fileDownload = {
+      doc: candidateFile,
+      fromSnapshot: false,
+      hint: formatDate(candidateFile.uploaded_at ?? candidateFile.created_at),
+    };
+  } else if (source === "original") {
     const hint = originalCvSentence(original).replace(/^Oryginał CV: /, "");
     if (original.kind === "loading") fileDownload = "pending";
     else if (original.kind === "snapshot" && snapshotDoc) fileDownload = { doc: snapshotDoc, fromSnapshot: true, hint };
@@ -408,7 +446,19 @@ function CvTab({
   }
 
   let body: ReactNode;
-  if (source === "original") {
+  if (source === "original" && candidateFile) {
+    body = (
+      <FilePreviewContent
+        doc={candidateFile}
+        candidateId={candidateId}
+        onDownload={(doc) => download(doc, false)}
+        loadDocumentBlob={loadDocumentBlob}
+        searchRequest={searchRequest}
+        pdfFit="auto"
+        className="min-h-0 flex-1 rounded-lg border border-border"
+      />
+    );
+  } else if (source === "original") {
     if (original.kind === "loading") body = <Loading text="Wczytywanie CV…" />;
     else if (original.kind === "snapshot" && snapshotDoc) {
       body = (
@@ -545,6 +595,7 @@ function CvTab({
               cvStageId={branded.cvStageId}
               revision={branded.query.data?.edit_revision}
               loadStageCvFile={loadStageCvFile}
+              readOnly={!canUpload}
               hideDownload
               fill
               searchable
@@ -629,6 +680,7 @@ function CvTab({
               aria-pressed={!historyOpen && source === option.value}
               onClick={() => {
                 history?.onOpenChange(false);
+                setCandidateFileId(null);
                 onSourceChange(option.value);
               }}
               className={cn(
@@ -661,7 +713,11 @@ function CvTab({
             Historia osoby{history.count > 0 ? ` (${history.count})` : ""}
           </button>
         ) : null}
-        {historyOpen ? null : fileDownload === "pending" ? (
+        {historyOpen ||
+        // Sama rola rekrutera ogląda plik tutaj; oryginał pobierze z karty „CV do klienta”.
+        (recruiterOnly &&
+          fileDownload &&
+          (fileDownload === "pending" || previewKind(fileDownload.doc) !== "unsupported")) ? null : fileDownload === "pending" ? (
           <Button type="button" size="sm" variant="outline" disabled data-testid="preview-cv-download">
             <Download className="h-3.5 w-3.5" aria-hidden />
             Pobierz CV
@@ -773,7 +829,75 @@ function CvTab({
       <div hidden={historyOpen} className="contents">
         {/* D4 (15.10.2026): „Pobierz CV” daje kopię tej rekrutacji — gdy w profilu
             jest nowsze CV, ramka mówi to od razu. Podmiana tylko z prawem wgrania. */}
-        {source === "original" && stageId != null ? (
+        {canUpload && source === "original" && (original.kind === "snapshot" || original.kind === "profile") ? (
+          <div
+            className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs"
+            data-testid="original-cv-file"
+          >
+            {candidateFile ? (
+              <>
+                <p className="min-w-0 truncate text-muted-foreground" title={candidateFile.filename}>
+                  Podgląd: <span className="font-medium text-foreground">{candidateFile.filename}</span> ·{" "}
+                  {formatDate(candidateFile.uploaded_at ?? candidateFile.created_at)}
+                </p>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setCandidateFileId(null)}>
+                    Zostaw obecne
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    loading={setFromProfile.isPending}
+                    onClick={() => void confirmOriginalFile(candidateFile)}
+                  >
+                    <Replace className="h-3.5 w-3.5" aria-hidden />
+                    Ustaw jako CV oryginalne
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p
+                  className="min-w-0 truncate text-muted-foreground"
+                  title={(currentFile?.filename ?? (original.kind === "snapshot" ? original.filename : null)) ?? undefined}
+                >
+                  <span className="font-medium text-foreground">
+                    {currentFile?.filename ?? (original.kind === "snapshot" ? original.filename : null) ?? "CV"}
+                  </span>
+                  {currentFile ? ` · ${formatDate(currentFile.uploaded_at ?? currentFile.created_at)}` : ""}
+                </p>
+                {replacementFiles.length > 0 ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" size="sm" variant="outline" className="shrink-0" data-tour="person.cv.change-original">
+                        Zmień plik
+                        <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-96 max-w-[calc(100vw-2rem)]">
+                      {replacementFiles.map((doc) => (
+                        <DropdownMenuItem
+                          key={doc.id}
+                          disabled={isClientCvWordFile(doc.filename)}
+                          title={doc.filename}
+                          onSelect={() => setCandidateFileId(doc.id)}
+                          className="flex flex-col items-start gap-0"
+                        >
+                          <span className="w-full truncate text-xs font-medium">{doc.filename}</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {formatDate(doc.uploaded_at ?? doc.created_at)}
+                            {isClientCvWordFile(doc.filename) ? " · CV dla klienta, nie CV kandydata" : ""}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
+        {source === "original" && stageId != null && !candidateFile ? (
           <DockCvFreshness
             stageId={stageId}
             original={original}
@@ -1229,7 +1353,7 @@ export function CandidatePreviewPane({
             >
               {stacked ? <PaneHeading>Po ludzku</PaneHeading> : null}
               <PlainBriefBlock jobId={jobId} parts="summary" compact={dual && !cvCollapsed} />
-              <DockCallCheatsheet jobId={jobId} roomy={!dual || cvCollapsed} />
+              <DockCallCheatsheet jobId={jobId} roomy={!dual || cvCollapsed} candidateId={candidateId} />
             </div>
           ) : null}
           {extraTab && shown("extra") ? (

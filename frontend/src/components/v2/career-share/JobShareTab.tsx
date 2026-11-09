@@ -54,6 +54,7 @@ import {
   useShareablePublishedJobs,
   type PublishedJobLite,
 } from "@/lib/api/careerLinks";
+import { JobTeamLinks } from "./JobTeamLinks";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
@@ -776,6 +777,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   busy={themeBusy}
                 />
               ) : null}
+
+              <JobTeamLinks enabled={enabled} jobId={jobId} />
 
               <section className="space-y-3" aria-labelledby="job-link-heading">
                 <h3 id="job-link-heading" className="text-sm font-semibold text-foreground">

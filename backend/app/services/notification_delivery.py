@@ -143,9 +143,12 @@ CATALOG = (
         label="P0 na rekrutacji",
         module="Rekrutacje",
         trigger="Head of Recruitment albo administrator ustawił rekrutacji P0 — "
-        "ultrapilne przez 24 h (48 h albo do piątku), z powodem.",
+        "ultrapilne przez 24 h (48 h albo do piątku), z powodem. Też: Delivery "
+        "Lead prosi o P0 i termin P0 minął (P0 trwa do decyzji).",
         recipient_rule="Rekruterzy pracujący nad rekrutacją i jej Delivery Lead, "
-        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin.",
+        "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin. "
+        "Prośba DL i termin po upływie — Head of Recruitment (termin też osoba, "
+        "która ustawiła P0).",
     ),
     # Mail obowiązkowy (28.10.2026) — `services/job_closed_notices.py`.
     dict(
@@ -154,7 +157,8 @@ CATALOG = (
         module="Rekrutacje",
         trigger="Ktoś zamknął rekrutację, w której Twoje osoby stoją w „CV wysłane”, "
         "„Rozmowie u klienta” albo „Umowie”. Automaty (Traffit, scalanie, "
-        "stare szkice) nie wysyłają.",
+        "stare szkice) nie wysyłają. Gdy rekrutację zamknie mail CPro od Nordei, "
+        "mail dostaje każdy rekruter z kartą w toku.",
         recipient_rule="Rekruter osoby: ten, kto ją zweryfikował, a bez weryfikacji "
         "ten, kto ją dodał; bez osoby, która zamknęła. W mailu: rekrutacja, klient, "
         "powód zamknięcia i lista osób.",
@@ -224,6 +228,15 @@ CATALOG = (
         "obserwują; bez autora zmiany.",
     ),
     dict(
+        id="start_documents",
+        label="Dokumenty do startu",
+        module="Rekrutacje",
+        trigger="Osobie blisko startu albo po terminie brakuje dokumentów "
+        "wymaganych przez klienta. Zbiorczo, raz dziennie.",
+        recipient_rule="Prowadzący osobę, Delivery Lead klienta od 2 dni "
+        "roboczych przed startem, Head of Recruitment w dniu startu.",
+    ),
+    dict(
         id="team_task",
         label="Zadania od zespołu",
         module="Rekrutacje",
@@ -252,18 +265,19 @@ CATALOG = (
         module="System",
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu; "
         "DL albo rekruter jest poza grupą, w której aplikacja zakłada prepy w Teams "
-        "(najwyżej raz dziennie).",
+        "(najwyżej raz dziennie); osoba ma skrzynkę poza zakresem aplikacji „NEXUS Kadry” "
+        "(po uzgadnianiu o 7:00).",
         recipient_rule="Aktywni administratorzy.",
     ),
     # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
     dict(
         id="data_access_alert",
-        label="Masowe przeglądanie CV",
+        label="Masowe pobieranie CV",
         module="System",
-        trigger="Ktoś otworzył pliki ponad 40 kandydatów w godzinę, zapisał na dysk "
-        "ponad 25 plików albo wyeksportował ponad 200 osób w ciągu dnia (konto "
-        "młodsze niż 14 dni — progi o połowę niższe); 3 nowe konta otwierają CV "
-        "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
+        trigger="Ktoś zapisał na dysk ponad 25 plików kandydatów albo wyeksportował "
+        "ponad 200 osób w ciągu dnia (konto młodsze niż 14 dni — progi o połowę "
+        "niższe); 3 nowe konta zapisują CV na dysk tego samego dnia. Samo "
+        "przeglądanie nie daje alarmu. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
     # Mail obowiązkowy (28.10.2026) — `services/announcements.py`.
@@ -283,7 +297,7 @@ CATALOG = (
         module="System",
         trigger="Ktoś zalogował się pierwszy raz przez Microsoft i dostał konto "
         "„Konsultant/Kontraktor”. Zdecyduj, czy to rekruter (rola, kategorie "
-        "kompetencji, przełożony), czy zostaje konsultantem.",
+        "kompetencji, koordynator), czy zostaje konsultantem.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
     # „Ludzie w NEXUSIE” (17.10.2026) — typy `HR_MAIL_TYPES`, treść składa
@@ -299,12 +313,12 @@ CATALOG = (
         "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
         "i konsultant przekazany z opieki do front office, zgoda na wydatek albo premię "
         "poza umową do decyzji i decyzja o niej.",
-        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
-        "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
+        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (koordynator "
+        "albo Administracja współpracy), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
         "przejmujący pracę, wykonawca zadania, "
         "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”, a przy przekazaniu do "
         "front office: head pionu front office, Head of Recruitment i Delivery "
-        "Leadzi, przy zgodzie — przełożony autora albo zatwierdzający z Ustawień. W mailu "
+        "Leadzi, przy zgodzie — koordynator autora albo zatwierdzający z Ustawień. W mailu "
         "nie ma rodzaju nieobecności ani kwot — poza mailem do decydującego o zgodzie "
         "(kwota i „po co”, decyzja Artura 20.10.2026).",
     ),
@@ -313,18 +327,18 @@ CATALOG = (
         id="hr_bonus",
         label="Masz nową premię",
         module="Ludzie",
-        trigger="Płace przyznały, zmieniły albo anulowały Ci premię (na B2B "
+        trigger="Rozliczenia przyznały, zmieniły albo anulowały Ci premię (na B2B "
         "i zleceniu: wynagrodzenie dodatkowe), także premię poza umową po zgodzie.",
         recipient_rule="Osoba, której premia dotyczy. W mailu: za co i za który "
-        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Moim czasie”.",
+        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Mojej współpracy”.",
     ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
         id="daily_digest",
         label="Poranny skrót „Twój dzień w NEXUSIE”",
         module="Pulpit",
-        trigger="Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie”. Pusty skrót nie wychodzi.",
-        recipient_rule="Aktywni rekruterzy, TCM, Delivery Leadzi, Head of Recruitment i Finanse (rola główna albo dodatkowa). Admin bez tych ról — nie.",
+        trigger="Dzień roboczy od 8:00 — to, co czeka na osobę w panelu „Czeka na Ciebie” i w Sprzedaży na ekranie „Mój dzień”. Pusty skrót nie wychodzi.",
+        recipient_rule="Aktywni rekruterzy, TCM, Delivery Leadzi, Head of Recruitment i Finanse (rola główna albo dodatkowa) oraz konta z uprawnieniem „Sprzedaż: podgląd”. Admin bez tych ról — nie.",
     ),
     # Raporty KPI mailem (plan PR3, 23.09.2026) — `tasks/kpi_email_reports.py`.
     dict(
@@ -339,7 +353,7 @@ CATALOG = (
         label="Miesięczne podsumowanie Rady",
         module="Statystyki",
         trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
-        recipient_rule="Aktywne konta z uprawnieniem „Moduł Finanse” albo z rolą „Rada nadzorcza”, z dostępem do sekcji Insights (mail niesie przychód i marżę).",
+        recipient_rule="Aktywne konta z rolą „Rada nadzorcza” oraz osoby z imiennym nadaniem w „Osoby i role”, z dostępem do sekcji Insights (mail niesie zbiorczy przychód i marżę firmy).",
     ),
     # Mail do Rady przy każdym placemencie (decyzja Artura 22.10.2026) —
     # `services/board_placement_alerts.py`, wysyła pętla raportów.
@@ -486,6 +500,7 @@ REQUIRED_KINDS = frozenset(
         "new_person",
         "prep_change",
         "pre_contract",
+        "start_documents",
         "team_task",
         "signature_request",
         "delivery_alert",
@@ -544,6 +559,10 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_lifecycle_task",
     "hr_work_handover",
     "admin_case_assigned",
+    "back_office_escalated",
+    "back_office_assigned",
+    "portal_low_rating",
+    "portal_monthly_review",
     "equipment_task",
     "equipment_protocol_signed",
     "equipment_return_reminder",
@@ -570,6 +589,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
 BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "client_interview": (
         "interview_slots_requested",
+        "client_panel_request",
         "interview_slot_chosen",
         "interview_slot_confirmed",
         "interview_changed",
@@ -579,9 +599,14 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "prep_change": ("prep_candidate_declined", "prep_changed_yours"),
     "client_accepted": ("client_accepted",),
     "pre_contract": ("pre_contract",),
+    "start_documents": (
+        "start_documents_due",
+        "start_documents_returned",
+        "start_documents_reminder",
+    ),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
-    JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
+    JOB_P0_KIND: ("job_p0_set", "job_p0_requested", "job_p0_overdue"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
     DEPARTED_CARE_KIND: ("departed_pairs_care",),
     ANNOUNCEMENT_KIND: ("announcement_important",),
@@ -608,6 +633,7 @@ def _type_kinds() -> dict[str, str]:
         "b2b_signature_requested": "signature_request",
         "automation_failing": "system_failure",
         "teams_prep_scope_missing": "system_failure",
+        "hr_m365_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
         "new_person_signed_in": "new_person",
         "client_job_opened": CLIENT_JOB_KIND,

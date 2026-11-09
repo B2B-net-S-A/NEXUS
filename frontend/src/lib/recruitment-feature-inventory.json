@@ -69,6 +69,22 @@
    "v3_home": "okno Historia i czat"
   },
   {
+   "id": "person.booked-call",
+   "area": "panel",
+   "opis": "Umów telefon: termin screeningu z przypomnieniem, plakietka na karcie, Przełóż i Odwołaj",
+   "file": "components/v2/recruitment/ScreeningCallControl.tsx",
+   "marker": "ScreeningCallControl",
+   "v3_home": "panel osoby → obok „Nie odebrał”"
+  },
+  {
+   "id": "list.unfinished-request",
+   "area": "lista",
+   "opis": "„Dokończ szkic requestu z DD.MM →” w nagłówku listy: najświeższy niedokończony formularz „Nowa rekrutacja” zalogowanej osoby, tylko z uprawnieniem do zakładania rekrutacji (07.11.2026)",
+   "file": "components/v2/jobs/UnfinishedRequestButton.tsx",
+   "marker": "jobs-list-unfinished-request",
+   "v3_home": "lista rekrutacji → nagłówek, obok „Nowa rekrutacja”"
+  },
+  {
    "id": "list.dock",
    "area": "lista",
    "opis": "Dock podglądu rekrutacji",
@@ -192,7 +208,7 @@
   {
    "id": "team.claim-join",
    "area": "naglowek",
-   "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin",
+   "opis": "„Biorę” przy wolnej rekrutacji (dawne „Przejmij rekrutację”) i „Dołącz” przy zajętej — rekruter, sourcer, TAC, Delivery Lead, admin; przy obsadzonej od 06.11.2026 „Dołącz do bazy” / „Dołącz do LinkedIna” w koszykach",
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "joinJob",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
@@ -220,6 +236,30 @@
    "file": "components/v2/jobs/JobOwnershipPanel.tsx",
    "marker": "proposalActions",
    "v3_home": "Profil Championa → Zespół i ogłoszenie → Rekruter"
+  },
+  {
+   "id": "team.channel-buckets",
+   "area": "naglowek",
+   "opis": "Koszyki „Baza” / „LinkedIn” w zespole: kto szuka w bazie NEXUSA, a kto na LinkedInie, „→ Baza” / „→ LinkedIn”, „Bez koszyka”, „Dołącz do bazy / LinkedIna” (06.11.2026)",
+   "file": "components/v2/jobs/JobChannelBuckets.tsx",
+   "marker": "Bez koszyka",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji”"
+  },
+  {
+   "id": "team.channel-plan",
+   "area": "naglowek",
+   "opis": "Plan koszyków: ile osób w bazie i na LinkedInie; pusty koszyk z planem świeci (Head of Recruitment, Delivery Lead, admin)",
+   "file": "components/v2/jobs/JobChannelBuckets.tsx",
+   "marker": "Zapisz plan",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji”"
+  },
+  {
+   "id": "team.unassigned-workers",
+   "area": "naglowek",
+   "opis": "„Pracują bez przypisania”: rekruterzy, którzy w 30 dni ruszali karty, a nie są w zespole — ostrzeżenie zamiast bramki, z „Do bazy” / „Do LinkedIna”",
+   "file": "components/v2/jobs/JobChannelBuckets.tsx",
+   "marker": "Pracują bez przypisania",
+   "v3_home": "fakt „Rekruter” w nagłówku → okienko „Zespół rekrutacji”"
   },
   {
    "id": "team.category",
@@ -453,6 +493,14 @@
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-files",
    "v3_home": "menu „⋯” → Pliki"
+  },
+  {
+   "id": "header.menu-client-panel",
+   "area": "naglowek",
+   "opis": "Panel klienta pod linkiem z CV: włącznik, link, dowody, sprawy od klienta (menu „⋯”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-client-panel",
+   "v3_home": "menu „⋯” → Panel klienta"
   },
   {
    "id": "questions.bank",
@@ -821,7 +869,7 @@
    "id": "list.auto-cv-ready-badge",
    "area": "lista",
    "opis": "Odznaka „CV gotowe w tle” w kolumnie „Następny krok”, gdy na etapie czeka gotowe auto-CV (`auto_cv_ready`)",
-   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "file": "lib/board-card-badges.ts",
    "marker": "CV gotowe w tle",
    "v3_home": "Tablica → karta osoby"
   },
@@ -1046,10 +1094,10 @@
   {
    "id": "board.added-by-filter",
    "area": "naglowek",
-   "opis": "Filtr „Kto dodał” Tablicy: jeden przycisk w nagłówku (od 14.10.2026 w linii źródeł kandydatów; w zwiniętym nagłówku tylko włączony), menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych), „✕” wraca do wszystkich; tylko w adresie `?added_by=` (14.10.2026)",
+   "opis": "Filtr „Kto dodał” Tablicy: ikona w nagłówku kolumny „Nowi” (od 08.11.2026, audyt U3), a włączony także przycisk w linii źródeł z „✕”; menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych); tylko w adresie `?added_by=` (14.10.2026)",
    "file": "components/v2/jobs/AddedByFilter.tsx",
    "marker": "added-by-filter",
-   "v3_home": "nagłówek rekrutacji → trzecia linia, po prawej od „Kandydatów do dodania”"
+   "v3_home": "Tablica → nagłówek kolumny „Nowi”"
   },
   {
    "id": "board.filter-empty-column",
@@ -1204,6 +1252,38 @@
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "ConsentAttachButton",
    "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.consent-request-early",
+   "area": "cv",
+   "opis": "Prośba o zgodę RODO przed powstaniem CV: pasek w screeningu i na karcie bez CV (reguła klienta z wymogiem zgody), znika po dołączeniu zrzutu",
+   "file": "components/v2/recruitment/ConsentRequestNotice.tsx",
+   "marker": "consent-request-notice",
+   "v3_home": "panel → Screening; panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.consent-request-generator",
+   "area": "cv",
+   "opis": "Ramka zgody RODO na górze generatora w karcie: prośba do kandydata i wgranie zrzutu odpowiedzi przed generowaniem",
+   "file": "components/v2/recruitment/CvGeneratePanel.tsx",
+   "marker": "cvgen-consent",
+   "v3_home": "panel → CV → karta „CV do klienta” → Generuj CV"
+  },
+  {
+   "id": "cv.consent-request-status",
+   "area": "cv",
+   "opis": "Stan prośby o zgodę z wątków maili: „Prośba wysłana”, „Kandydat odpisał” (po nadawcy) i przycisk „Poproś ponownie”",
+   "file": "components/v2/recruitment/ConsentRequestButton.tsx",
+   "marker": "consent-request-status",
+   "v3_home": "wszędzie, gdzie jest „Poproś kandydata o zgodę”"
+  },
+  {
+   "id": "cv.preview-consent-frame",
+   "area": "cv",
+   "opis": "Brak zgody RODO w podglądzie CV firmowego (lewa kolumna panelu i przegląd DL): ramka z prośbą i wgraniem zrzutu zamiast samego komunikatu błędu",
+   "file": "components/v2/person/StageCvPreview.tsx",
+   "marker": "dl-review-consent-missing",
+   "v3_home": "panel → CV firmowe; przegląd DL"
   },
   {
    "id": "cv.to-client-sources",
@@ -1384,6 +1464,14 @@
    "v3_home": "Profil Championa → Brief"
   },
   {
+   "id": "champion.brief-headcount",
+   "area": "zlecenie",
+   "opis": "Liczba osób w Briefie: pierwszy wiersz „Warunków”, a przy 2 i więcej osobach znacznik „Szukamy N osób” przy „Czego szukamy” (04.11.2026)",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "brief-headcount-badge",
+   "v3_home": "Profil Championa → Brief"
+  },
+  {
    "id": "champion.request-history",
    "area": "zlecenie",
    "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
@@ -1472,6 +1560,14 @@
    "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy"
   },
   {
+   "id": "header.headcount",
+   "area": "naglowek",
+   "opis": "„Szukamy N osób ✎” za faktem „Rekruter”: liczba osób do zatrudnienia, zmiana w miejscu (to samo pole co Profil Championa › Zespół), bez pełnej edycji rekrutacji sam odczyt (07.11.2026)",
+   "file": "components/v2/jobs/JobHeadcountFact.tsx",
+   "marker": "job-header-headcount",
+   "v3_home": "nagłówek rekrutacji → linia faktów, po „Rekruter” (też Profil Championa › Zespół)"
+  },
+  {
    "id": "header.collapse",
    "area": "naglowek",
    "opis": "„Zwiń nagłówek”: zostaje linia tytułu z priorytetem, statusem i awatarami rekruterów; pamiętane per osoba, domyślnie rozwinięty (14.10.2026)",
@@ -1507,7 +1603,7 @@
   {
    "id": "board.sources-strip",
    "area": "pipeline",
-   "opis": "„Kandydaci do dodania”: cztery źródła z liczbami (Podobne rekrutacje, Nowi z ogłoszeń z 7 dni, Propozycje z bazy, Szukaj w bazie), opis w dymku, „Dodaj ▾” po nazwisku i z pliku CV",
+   "opis": "„Kandydaci do dodania” w jednym rzędzie (U3, 08.11.2026): kafle „Nowi z ogłoszeń” z liczbą, „Moi ludzie”, „Aplikacje”; menu „Szukaj ▾” (Podobne rekrutacje, Propozycje z bazy, Szukaj w bazie) bez liczb, opis pod pozycją; „Dodaj ▾” po nazwisku i z pliku CV",
    "file": "components/v2/jobs/CandidateSourcesStrip.tsx",
    "marker": "candidate-sources-strip",
    "v3_home": "nagłówek rekrutacji → trzecia linia, tylko na Tablicy (do 14.10.2026 osobny pasek nad Tablicą)"
@@ -1720,6 +1816,14 @@
    "file": "components/champion/RequirementRowsEditor.tsx",
    "marker": "RareWordCallout",
    "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · nowa rekrutacja → 2 · Wymagania"
+  },
+  {
+   "id": "champ.sent-gap",
+   "area": "zlecenie",
+   "opis": "Ostrzeżenie pod wierszem „musi mieć”, którego nie ma nikt z co najmniej 3 osób wysłanych do klienta: „Do rozmowy”, „Zostaw” i „Podpowiedz słowa” (model czyta CV wysłanych, słowa z liczbą złapanych osób i osób w bazie); ten sam powód w „Propozycji uporządkowania wymagań” i na pulpicie Delivery Leada (02.11.2026)",
+   "file": "components/champion/RequirementRowCallouts.tsx",
+   "marker": "SentGapCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · pulpit → Wymagania do poprawy"
   },
   {
    "id": "champ.talk-search-word",
@@ -1952,7 +2056,7 @@
   {
    "id": "dl-send.board-card",
    "area": "tablica",
-   "opis": "Karta gotowa do wysyłki w „QC CV”: przycisk „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”) zamiast strzałki (każdy z prawem wysyłki); u Delivery Leada tej rekrutacji „Twój ruch” i plakietka „Czeka na Ciebie · N dni” liczona od zaliczenia QC",
+   "opis": "Karta gotowa do wysyłki w „QC CV”: przycisk „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”) zamiast strzałki (każdy z prawem wysyłki), obok „N dni rob.” z serwera (`waiting_workdays`, U5 08.11.2026); u Delivery Leada tej rekrutacji przycisk wypełniony",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "card-review-send",
    "v3_home": "Tablica → kolumna „QC CV” → karta"
@@ -2068,6 +2172,14 @@
    "file": "components/champion/ChampionTodoStrip.tsx",
    "marker": "ChampionVerificationChecklist",
    "v3_home": "Profil Championa → Brief (na górze)"
+  },
+  {
+   "id": "champion.client-questions-all",
+   "area": "zlecenie",
+   "opis": "Pytania klienta: domyślnie zadane w tej rekrutacji, w zakładce wszystkie pytania klienta po rekrutacjach z wyszukiwarką i archiwum po roli",
+   "file": "components/ChampionClientQuestionsPanel.tsx",
+   "marker": "AllClientQuestions",
+   "v3_home": "Profil Championa → Klient i historia → Pytania klienta"
   },
   {
    "id": "champion.client-tab",
@@ -2198,6 +2310,14 @@
    "v3_home": "Tablica → klik w kartę"
   },
   {
+   "id": "screening-form.take-in-owner-line",
+   "area": "tablica",
+   "opis": "„Biorę” / „Dzwonię” przy wierszu „Prowadzi” w panelu z formularzem, także w „Trybie rozmowy” (04.11.2026): wolną osobę bierze się bez wychodzenia na kartę",
+   "file": "components/v2/jobs/PairOwnerLine.tsx",
+   "marker": "function TakeButton",
+   "v3_home": "Tablica → klik w osobę z „Nowych” / „Screeningu” → nagłówek panelu"
+  },
+  {
    "id": "screening-form.after-cv-sent",
    "area": "formularz screeningu",
    "opis": "Po „CV wysłane” formularz da się poprawić z banerem, że zmiana idzie do DL i do następnego CV firmowego (D8)",
@@ -2216,7 +2336,7 @@
   {
    "id": "cv.editor-fullscreen",
    "area": "cv",
-   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Pokaż oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "Edytor CV do klienta",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw"
@@ -2240,10 +2360,10 @@
   {
    "id": "cv.editor-sources",
    "area": "cv",
-   "opis": "Źródła obok edytora: oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
+   "opis": "Źródła po lewej od kartki, na przycisk (03.11.2026): oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
    "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
    "marker": "Notatki",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Oryginał"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Pokaż oryginał"
   },
   {
    "id": "cv.editor-pages-preview",
@@ -2748,7 +2868,7 @@
   {
    "id": "panel.notes-earlier",
    "area": "panel",
-   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",
+   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem i powodem, także zakończone rekrutacje bez notatek; licznik notatek ludzi na zakładce",
    "file": "components/v2/person/PersonNotesHistory.tsx",
    "marker": "Wcześniej u nas",
    "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
@@ -2820,7 +2940,7 @@
   {
    "id": "screening.before-call-earlier",
    "area": "panel",
-   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”); wynik i powód widać też po zwinięciu",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
    "marker": "Warunki — co już wiemy",
    "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
@@ -2852,10 +2972,10 @@
   {
    "id": "card.new-in-base",
    "area": "tablica",
-   "opis": "Plakietka „Nowy · N dni” na karcie w „Nowych” i „Screeningu” — osoba dodana do bazy w ostatnich 14 dniach",
+   "opis": "„Nowy · N dni” w dymku „+N” karty w „Nowych” i „Screeningu” (od 08.11.2026, wcześniej plakietka) — osoba dodana do bazy w ostatnich 14 dniach",
    "file": "lib/board-card-badges.ts",
    "marker": "new_in_base",
-   "v3_home": "Tablica"
+   "v3_home": "Tablica → karta → dymek „+N”"
   },
   {
    "id": "dock.cv-upload",
@@ -2898,11 +3018,27 @@
    "v3_home": "panel osoby → lewa strefa → CV"
   },
   {
+   "id": "cv-to-client.original-after-generator",
+   "area": "CV do klienta",
+   "opis": "„Generator źle zrobił CV? Pobierz oryginał” dla samej roli rekrutera: okno z powodami, potem plik",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-original-after-generator",
+   "v3_home": "panel osoby → CV → CV do klienta"
+  },
+  {
    "id": "screening-form.preview-cv-download",
    "area": "formularz screeningu",
    "opis": "„Pobierz CV” w pasku źródeł podglądu po „Rozwiń” — pobiera to, co widać (oryginał, zaznaczony plik, CV firmowe jako Word / PDF), i ramka „W profilu jest nowsze CV”",
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "preview-cv-download",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "screening-form.preview-original-cv-change",
+   "area": "formularz screeningu",
+   "opis": "Nazwa pliku i „Zmień plik” w „CV oryginalnym”: plik z profilu w podglądzie, potem „Ustaw jako CV oryginalne” (główne CV profilu i kopia tej rekrutacji)",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "original-cv-file",
    "v3_home": "panel osoby → lewa strefa → CV"
   },
   {
@@ -2996,10 +3132,10 @@
   {
    "id": "board.card-other-jobs",
    "area": "tablica",
-   "opis": "„+N rekrutacja” na karcie w Nowych/Screeningu: osoba czeka też w innej rekrutacji — okienko z listą, „Otwórz kartę” i „Screening razem” (14.10.2026)",
+   "opis": "„+N rekrutacja” w dymku „+N” karty w Nowych/Screeningu (od 08.11.2026, wcześniej na wierzchu): osoba czeka też w innej rekrutacji — okienko z listą, „Otwórz kartę” i „Screening razem” (14.10.2026)",
    "file": "components/v2/pages/kanban-other-jobs-chip.tsx",
    "marker": "card-other-jobs-chip",
-   "v3_home": "Tablica → karta w „Nowych”/„Screeningu”"
+   "v3_home": "Tablica → karta w „Nowych”/„Screeningu” → dymek „+N”"
   },
   {
    "id": "board.sources-row-reasons",
@@ -3073,6 +3209,7 @@
    "marker": "proposals-below-threshold",
    "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy"
   },
+  { "id": "board.sources-single-list", "area": "pozyskiwanie", "opis": "Jedna lista kandydatów za flagą SINGLE_CANDIDATE_LIST_ENABLED: filtry-plakietki (Wszyscy, Zgłosili się, Nowi w bazie, Z portali, Podobne, Znamy) zamiast zakładek „Nowi z ogłoszeń”, „Propozycje z bazy”, „Podobne rekrutacje”; narzędzie przepięć pod filtrem „Podobne”, zgłoszenia odłożone przez AI pod „Zgłosili się” i „Z portali”", "file": "components/v2/recruitment/AddCandidatesPanel.tsx", "marker": "single-list-filters", "v3_home": "okno „Kandydaci do dodania” → Kandydaci" },
   {
    "id": "board.sources-hidden-by-critical",
    "area": "pozyskiwanie",
@@ -3188,7 +3325,7 @@
   {
    "id": "board.client-accept",
    "area": "tablica",
-   "opis": "Akceptacja klienta (D1, 16.10.2026): przycisk „Klient zaakceptował” na karcie w „Rozmowie u klienta” otwiera okno akceptacji (data, planowany start, słowa klienta, debrief, kto dostanie dzwonek); zapis = ruch na etap „Akceptacja” i werdykt „Akceptuje”",
+   "opis": "Akceptacja klienta (D1, 16.10.2026): przycisk „Zaznacz akceptację” (do 06.11.2026 zielony „Klient zaakceptował”, mylony z faktem) na karcie w „Rozmowie u klienta” otwiera okno akceptacji (data, planowany start, słowa klienta, debrief, kto dostanie dzwonek); zapis = ruch na etap „Akceptacja” i werdykt „Akceptuje”",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "card-client-accept",
    "v3_home": "Tablica → karta w „Rozmowie u klienta”"
@@ -3252,7 +3389,7 @@
   {
    "id": "panel.client-accept",
    "area": "panel",
-   "opis": "Panel osoby: „Klient zaakceptował” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
+   "opis": "Panel osoby: „Zaznacz akceptację klienta” na „Rozmowie u klienta”, zielony pasek akceptacji z planowanym startem na „Akceptacji i umowie” i „Cofnij akceptację klienta” w menu „⋯”",
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
    "marker": "Cofnij akceptację klienta",
    "v3_home": "Panel osoby → głowa panelu / menu „⋯”"
@@ -3364,7 +3501,7 @@
   {
    "id": "dashboard.p0-panel",
    "area": "pulpit",
-   "opis": "Stały panel „P0 — ultrapilne teraz” nad kafelkami pulpitu u każdego i na Daily; znika, gdy nie ma P0 (decyzja Artura 27.10.2026)",
+   "opis": "Stały panel „P0 — ultrapilne teraz” nad kafelkami pulpitu u każdego (od 08.11.2026 pasek jednej linii z „Pokaż tabelę”) i pełna tabela na Daily; znika, gdy nie ma P0 (decyzja Artura 27.10.2026)",
    "file": "components/v2/jobs/p0/P0NowPanel.tsx",
    "marker": "p0-now-panel",
    "v3_home": "pulpit → nad kafelkami; Daily → nad tablicą"
@@ -3400,6 +3537,30 @@
    "file": "components/v2/jobs/PipelineCandidateDock.tsx",
    "marker": "dock-cover-sheet-download",
    "v3_home": "panel → Do klienta → Karta (Word)"
+  },
+  {
+   "id": "board.card-two-badges",
+   "area": "tablica",
+   "opis": "Karta w trzech wierszach (U1, 08.11.2026): nazwisko i pierścień; najwyżej dwie plakietki według stałego priorytetu (blokery, ruch z terminem, ostrzeżenia); „+N” z dymkiem z resztą; wiersz ruchu z jedną liczbą dni roboczych i przyciskiem",
+   "file": "lib/board-card-badges.ts",
+   "marker": "cardPrimaryBadges",
+   "v3_home": "Tablica → karta"
+  },
+  {
+   "id": "board.card-known-in-dock",
+   "area": "tablica",
+   "opis": "„U klienta 3×”, „Notatka 9 dni temu”, „Jeszcze bez procesu”: fakty kolejki „Zadzwoń najpierw” przeniesione z karty do dymku „+N” i do panelu osoby (U1, 08.11.2026)",
+   "file": "components/v2/jobs/DockAutofillReason.tsx",
+   "marker": "dock-autofill-known",
+   "v3_home": "panel osoby → powód od systemu; Tablica → karta → dymek „+N”"
+  },
+  {
+   "id": "board.cpro-banner-collapsed",
+   "area": "tablica",
+   "opis": "Baner CPro nad Tablicą zwinięty do jednej linii z „Pokaż”; ukryty po otwarciu i 7 dni po zdarzeniu (U3, 08.11.2026, pamięć w przeglądarce per rekrutacja); nowe zdarzenie pokazuje go znowu",
+   "file": "components/v2/jobs/JobCproBanner.tsx",
+   "marker": "job-cpro-banner-show",
+   "v3_home": "Tablica → nad kolumnami"
   }
  ]
 }

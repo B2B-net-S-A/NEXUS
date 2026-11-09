@@ -16,11 +16,12 @@ Zamknięcie (Płace):
    zleceniu poniżej minimum roku miesiąca, premia z placementu przyznana
    mimo końca kontraktu przed terminem) wymagają
    potwierdzenia (409 ``close_warnings``, potem ``acknowledge_warnings``),
-4. linie zamrożone w ``payroll_lines``, ``payroll_locked`` na timesheetach
+4. linie zamrożone w ``payroll_lines``, potrącenia z gwarancji premii DL
+   w ``hr_bonus_clawback_offsets`` (długi zablokowane przed liczeniem), ``payroll_locked`` na timesheetach
    osób z listy (most ``payroll_time_bridge``), wpis w ``hr_job_runs``
    (bez kwot) i ślad w ``hr_audit_events`` z ``sensitivity='payroll'``.
 
-Ponowne otwarcie: wyłącznie administrator, z powodem; linie znikają (raport
+Ponowne otwarcie: wyłącznie administrator, z powodem; linie i potrącenia znikają (raport
 znów liczy się z danych), timesheety odblokowane, ślad z poprzednimi sumami.
 
 Rozliczenia (etap 4, moduł ``settlements``): zamknięcie zakłada rozliczenie
@@ -48,7 +49,13 @@ from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import HrBonus, PayrollLine
 from app.models.hr_settlement import PayrollSettlement
 from app.models.user import User
-from app.services.hr import audit, payroll_time_bridge, settlements, settlements_rules
+from app.services.hr import (
+    audit,
+    bonus_guarantee,
+    payroll_time_bridge,
+    settlements,
+    settlements_rules,
+)
 from app.services.hr import modules as hr_modules
 from app.services.hr.payroll_errors import PayrollConflict, PayrollError
 from app.services.hr.payroll_periods import (
@@ -86,7 +93,7 @@ def close_warnings(people: list[PersonPayroll]) -> list[dict[str, Any]]:
             {
                 "code": "unapproved_timesheets",
                 "message": (
-                    f"{len(unapproved)} os. bez zatwierdzonego timesheetu — "
+                    f"{len(unapproved)} os. bez zatwierdzonego raportu godzin — "
                     "ich godziny nie wejdą do płac tego miesiąca."
                 ),
                 "count": len(unapproved),
@@ -310,6 +317,8 @@ async def close_month(
             data={"count": pending},
         )
 
+    # Długi z gwarancji pod blokadą: potrącenie liczone niżej trafia do offsetów.
+    await bonus_guarantee.lock_open(db)
     people = await compute_live(db, year, month)
     changed = paid_settlement_changes(people, await _paid_settlements(db, period.id))
     if changed:
@@ -332,6 +341,9 @@ async def close_month(
     rows = line_rows(period.id, people)
     if rows:
         await db.execute(insert(PayrollLine), rows)
+    clawbacks = await bonus_guarantee.freeze_offsets(
+        db, period, [item for p in people for item in p.clawbacks]
+    )
     user_ids = [p.user_id for p in people]
     locked = await payroll_time_bridge.set_payroll_lock(
         db, year, month, user_ids, locked=True
@@ -354,6 +366,7 @@ async def close_month(
         "people": len(people),
         "lines": len(rows),
         "timesheets_locked": locked,
+        "clawbacks": clawbacks,
         "warnings": [w["code"] for w in warnings],
         **({"settlements": created["created"]} if created is not None else {}),
     }
@@ -429,6 +442,7 @@ async def reopen_month(
     user_ids |= await payroll_time_bridge.locked_user_ids(db, year, month)
     cancelled = await settlements.cancel_for_period(db, period, actor_id=actor_id)
     await db.execute(delete(PayrollLine).where(PayrollLine.period_id == period.id))
+    await bonus_guarantee.release_offsets(db, period)
     unlocked = await payroll_time_bridge.set_payroll_lock(
         db, year, month, user_ids, locked=False
     )

@@ -25,15 +25,18 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/client-onboarding/clients/{client_id}/pack": "BBDBBDDDBBBDBBBBDBBBDDDBDD",
-  "GET /api/client-onboarding/clients/{client_id}/pack/welcome-preview": "BBDBBDDDBBBDBBBBDBBBDDDBDD",
-  "GET /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BBDBBDDDBBBDBBBBDBBBDDDDDD",
-  "GET /api/client-onboarding/welcome-mail/switch": "BBDBBDDDBBBDBBBBDBBBDDDDDD",
-  "POST /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BDDBBDDDBBBDBBDDDDDDDDDDDD",
-  "PUT /api/client-onboarding/clients/{client_id}/pack": "BDDBDDDDBBBDDDBDDDDDDDDBDD",
-  "PUT /api/client-onboarding/welcome-mail/switch": "BDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/client-onboarding/clients/{client_id}/pack": "BBDBBDDDBBBDBBBBDBBBDDDBDDBDB",
+  "GET /api/client-onboarding/clients/{client_id}/pack/welcome-preview": "BBDBBDDDBBBDBBBBDBBBDDDBDDBDB",
+  "GET /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB",
+  "GET /api/client-onboarding/welcome-mail/switch": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB",
+  "POST /api/client-onboarding/contracts/{contract_id}/welcome-mail": "BDDBBDDDBBBDBBDDDDDDDDDDDDDDD",
+  "PUT /api/client-onboarding/clients/{client_id}/pack": "BDDBDDDDBBBDDDBDDDDDDDDBDDDDB",
+  "PUT /api/client-onboarding/welcome-mail/switch": "BDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

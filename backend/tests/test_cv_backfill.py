@@ -94,6 +94,13 @@ def _ph_candidate(**kw) -> Candidate:
         ("Zinoviya Oleksiy CV EN.docx", ("Zinoviya", "Oleksiy")),
         ("VugarSuleymanov_CV.docx", ("Vugar", "Suleymanov")),
         ("jan-kowalski.pdf", ("Jan", "Kowalski")),
+        # Stanowisko w nazwie pliku nie jest nazwą osoby, a nazwa za nim tak.
+        ("Business_Analyst_CV.pdf", (None, None)),
+        ("UI_UX_Jan_Kowalski.pdf", ("Jan", "Kowalski")),
+        ("Test_Test.pdf", (None, None)),
+        # Jedno rzadkie słowo albo imię wystarcza.
+        ("Anna_Test.pdf", ("Anna", "Test")),
+        ("Jan_Test.pdf", ("Jan", "Test")),
         # Ambiguous / no usable name — must not guess.
         ("CV_fin.pdf", (None, None)),
         ("resume.pdf", (None, None)),
@@ -122,6 +129,36 @@ def test_question_mark_name_is_overwritten_by_parse():
     assert c.lastname == "Nowak"
     assert c.email == "anna.nowak@example.com"
     assert c.phone == "+48 600 100 200"
+
+
+def test_unknown_name_from_traffit_is_overwritten_by_parse():
+    # 78 profili z Traffita ma `Unknown` / `Unknown` (05.11.2026): to wartość
+    # z pola w Trafficie, nie nazwisko. Sama nazwa nie liczy się też jako ustalona.
+    c = _ph_candidate(name="Unknown", lastname="Unknown")
+    assert cv_backfill._name_resolved(c) is False
+    _apply_cv_enrichment(c, {"first_name": "Anna", "last_name": "Nowak"})
+    assert (c.name, c.lastname) == ("Anna", "Nowak")
+    assert cv_backfill._name_resolved(c) is True
+
+
+@pytest.mark.parametrize(
+    ("name", "lastname"),
+    [
+        ("Not Provided", "Not Provided"),
+        ("Not provided", "Not provided"),
+        ("Not Available", "Not Available"),
+        ("Not", "Provided"),
+        ("Not", "Specified"),
+        ("Not", "Available"),
+    ],
+)
+def test_empty_field_phrase_is_overwritten_by_parse(name, lastname):
+    # 136 profili z Traffita (05.11.2026): to tekst z pustego pola, nie osoba.
+    c = _ph_candidate(name=name, lastname=lastname)
+    assert cv_backfill._name_resolved(c) is False
+    _apply_cv_enrichment(c, {"first_name": "Anna", "last_name": "Nowak"})
+    assert (c.name, c.lastname) == ("Anna", "Nowak")
+    assert cv_backfill._name_resolved(c) is True
 
 
 def test_real_name_is_never_overwritten():
@@ -166,7 +203,25 @@ async def test_enrich_prefers_cv_content_over_filename(monkeypatch):
     assert res["resolved"] is True
 
 
-async def test_enrich_falls_back_to_filename_when_cv_has_no_name(monkeypatch):
+async def test_filename_names_a_profile_only_when_the_file_has_no_text(monkeypatch):
+    c = _ph_candidate(name="?", lastname="?", cv_filename="Adam Haluszczynski CV.docx")
+
+    async def fake_extract(_bytes, _name):
+        return ""  # skan: model nie miał czego przeczytać
+
+    monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)
+
+    res = await enrich_candidate_from_cv_bytes(None, c, b"PK..", c.cv_filename)
+
+    assert c.name == "Adam" and c.lastname == "Haluszczynski"
+    assert res["name_source"] == "filename"
+    assert res["resolved"] is True
+
+
+async def test_filename_does_not_name_a_profile_when_the_text_gave_no_name(monkeypatch):
+    # Model przeczytał tekst i nie znalazł nazwy: 05.11.2026 w 12% takich plików
+    # nazwa z pliku była cudza, a przy 9 profilach z tej ścieżki żadnej nie
+    # potwierdził mail ani LinkedIn.
     c = _ph_candidate(name="?", lastname="?", cv_filename="Adam Haluszczynski CV.docx")
 
     async def fake_extract(_bytes, _name):
@@ -179,9 +234,50 @@ async def test_enrich_falls_back_to_filename_when_cv_has_no_name(monkeypatch):
 
     res = await enrich_candidate_from_cv_bytes(None, c, b"PK..", c.cv_filename)
 
-    assert c.name == "Adam" and c.lastname == "Haluszczynski"
-    assert res["name_source"] == "filename"
-    assert res["resolved"] is True
+    assert (c.name, c.lastname) == ("?", "?")
+    assert res["name_source"] is None
+    assert res["resolved"] is False
+
+
+async def test_header_name_does_not_fill_an_empty_profile(monkeypatch):
+    c = _ph_candidate(name="?", lastname="?", cv_filename="CV_fin.pdf")
+
+    async def fake_extract(_bytes, _name):
+        return "Senior Developer\nPython"
+
+    fake_parse = _fake_parse_cv(
+        {
+            "first_name": "Senior",
+            "last_name": "Developer",
+            "_name_from_header": ["first_name", "last_name"],
+        }
+    )
+
+    monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)
+    monkeypatch.setattr("app.services.cv_parser.parse_cv", fake_parse)
+
+    res = await enrich_candidate_from_cv_bytes(None, c, b"PK..", c.cv_filename)
+
+    assert (c.name, c.lastname) == ("?", "?")
+    assert res["name_source"] is None
+    assert res["resolved"] is False
+    # Odczyt zostaje razem ze znacznikiem, żeby `_names_from_stored_read` go znał.
+    assert c.cv_extracted_data["_name_from_header"] == ["first_name", "last_name"]
+
+
+def test_header_part_is_skipped_and_the_model_part_is_written():
+    c = _ph_candidate(name="?", lastname="?")
+
+    _apply_cv_enrichment(
+        c,
+        {
+            "first_name": "Jan",
+            "last_name": "Developer",
+            "_name_from_header": ["last_name"],
+        },
+    )
+
+    assert (c.name, c.lastname) == ("Jan", "?")
 
 
 async def test_enrich_unresolved_when_no_text_and_unhelpful_filename(monkeypatch):
@@ -397,6 +493,18 @@ async def test_backfill_run_stops_on_quota_refusal(monkeypatch):
     assert (first.name, first.lastname) == ("?", "?")
 
 
+async def test_backfill_selects_every_placeholder_name():
+    db = SimpleNamespace(execute=AsyncMock(return_value=[]))
+
+    await cv_backfill.backfill_missing_names(db, dry_run=True)
+
+    params = db.execute.await_args.args[1]
+    assert {"?", "Nieznane", "Unknown"} <= set(params["placeholders"])
+    assert {"Not", "Provided", "Not Provided", "Not Available"} <= set(
+        params["placeholders"]
+    )
+
+
 # ── ten sam plik CV nie idzie do modelu drugi raz ───────────────────────────
 
 
@@ -433,6 +541,184 @@ async def test_cv_already_read_by_the_model_is_not_read_again(monkeypatch):
     assert entered == []
     assert (c.name, c.lastname) == ("?", "?")
     assert c.cv_extracted_data == {"cv_highlights": _model_stamp(cv)}
+
+
+def _read_candidate(cv: bytes, **kw) -> Candidate:
+    """Profil `?`: model przeczytał plik i zna nazwę, a kolumna jej nie ma."""
+    c = _ph_candidate(
+        cv_filename="CV_fin.pdf",
+        cv_extracted_data={
+            "cv_highlights": _model_stamp(cv),
+            "first_name": "Halina",
+            "last_name": "Kwiatkowska",
+            "_confidence": {"first_name": 0.98, "last_name": 0.98},
+            **kw.pop("extracted", {}),
+        },
+        **kw,
+    )
+    c.raw_cv_text = "HALINA KWIATKOWSKA\nTester manualny"
+    return c
+
+
+async def test_name_from_stored_read_fills_placeholder_without_the_model(monkeypatch):
+    _claude_step_available(monkeypatch)
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv)
+    extracted_before = dict(c.cv_extracted_data)
+
+    async def must_not_extract(_b, _n):
+        raise AssertionError("tekst CV czytany ponownie")
+
+    entered: list = []
+    monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", must_not_extract)
+    monkeypatch.setattr(cv_backfill, "ai_feature", _recording_gate(entered))
+
+    res = await enrich_candidate_from_cv_bytes(
+        _FakeDB(clash=False), c, cv, c.cv_filename
+    )
+
+    assert entered == []
+    assert res["skipped_reason"] == "cv_already_read_by_model"
+    assert res["name_source"] == "stored_read"
+    assert res["resolved"] is True
+    assert (c.name, c.lastname) == ("Halina", "Kwiatkowska")
+    assert c.cv_extracted_data == extracted_before
+
+
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [("Not", "Provided"), ("Not", "Specified"), ("Not Provided", "Not Provided")],
+)
+def test_stored_read_with_empty_field_phrase_gives_no_name(first, last):
+    # „provided” bywa w każdym angielskim CV, więc tekst tego nie odsieje.
+    c = _ph_candidate(name="?", lastname="?")
+    c.cv_extracted_data = {"first_name": first, "last_name": last}
+    c.raw_cv_text = "Not provided. Services provided, not specified."
+    assert cv_backfill._names_from_stored_read(c) == {}
+
+
+async def test_stored_read_never_replaces_a_real_name():
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, name="Jan", lastname="Kowalski")
+
+    await enrich_candidate_from_cv_bytes(_FakeDB(clash=False), c, cv, c.cv_filename)
+
+    assert (c.name, c.lastname) == ("Jan", "Kowalski")
+
+
+@pytest.mark.parametrize(
+    "extracted,raw_text",
+    [
+        # 12 z 287 profili (05.11.2026): nazwiska z odczytu nie ma w tekście CV.
+        pytest.param({}, "Inny tekst CV", id="nazwisko-spoza-tekstu"),
+        pytest.param({}, None, id="bez-tekstu"),
+        pytest.param({"last_name": None}, "Halina", id="samo-imie"),
+        pytest.param({"last_name": "?"}, "Halina ?", id="nazwisko-wypelniacz"),
+    ],
+)
+async def test_stored_read_without_proof_in_the_cv_changes_nothing(extracted, raw_text):
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, extracted=extracted)
+    c.raw_cv_text = raw_text
+
+    res = await enrich_candidate_from_cv_bytes(
+        _FakeDB(clash=False), c, cv, c.cv_filename
+    )
+
+    assert res["name_source"] is None
+    assert (c.name, c.lastname) == ("?", "?")
+
+
+@pytest.mark.parametrize(
+    "extracted",
+    [
+        pytest.param(
+            {"_name_from_header": ["first_name", "last_name"]}, id="znacznik-nagłówka"
+        ),
+        pytest.param({"_name_from_header": ["last_name"]}, id="znacznik-na-części"),
+        # Stare odczyty nie mają znacznika. Model zostawił pole puste (0,0), a kod
+        # je wypełnił, albo w odczycie stoi 0,6 reguły nagłówka.
+        pytest.param(
+            {"_confidence": {"first_name": 0.0, "last_name": 0.0}}, id="pewnosc-0"
+        ),
+        pytest.param(
+            {"_confidence": {"first_name": 0.6, "last_name": 0.6}}, id="pewnosc-0-6"
+        ),
+        pytest.param(
+            {"_confidence": {"first_name": 0.98, "last_name": 0.0}}, id="jedna-czesc"
+        ),
+        pytest.param({"_confidence": None}, id="bez-pewnosci"),
+    ],
+)
+async def test_stored_read_without_the_model_name_changes_nothing(extracted):
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, extracted=extracted)
+
+    res = await enrich_candidate_from_cv_bytes(
+        _FakeDB(clash=False), c, cv, c.cv_filename
+    )
+
+    assert res["name_source"] is None
+    assert (c.name, c.lastname) == ("?", "?")
+
+
+async def test_stored_read_respects_the_manual_lock():
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, extracted={"_manual_override_first_name": True})
+
+    await enrich_candidate_from_cv_bytes(_FakeDB(clash=False), c, cv, c.cv_filename)
+
+    assert (c.name, c.lastname) == ("?", "Kwiatkowska")
+
+
+async def test_stored_read_stops_on_identity_quarantine(monkeypatch):
+    from app.services import candidate_identity_quarantine as quarantine
+
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv)
+
+    class _DB(_FakeDB):
+        add = flush = object()
+
+        async def execute(self, *_a, **_kw):
+            return SimpleNamespace(all=list)
+
+    async def quarantined(*_a, **kw):
+        assert kw["observed_last_name"] == "Kwiatkowska"
+        return SimpleNamespace(is_quarantined=True)
+
+    monkeypatch.setattr(quarantine, "record_detected_identity", quarantined)
+
+    res = await enrich_candidate_from_cv_bytes(_DB(clash=False), c, cv, c.cv_filename)
+
+    assert res["identity_quarantined"] is True
+    assert (c.name, c.lastname) == ("?", "?")
+
+
+@pytest.mark.parametrize("from_header", [True, False])
+async def test_gate_learns_whether_the_name_came_from_the_cv_header(
+    monkeypatch, from_header
+):
+    from app.services import candidate_identity_quarantine as quarantine
+    from app.services.cv_backfill import _identity_quarantined
+
+    class _DB(_FakeDB):
+        add = flush = object()
+
+    seen: dict = {}
+
+    async def fake_record(*_a, **kw):
+        seen.update(kw)
+        return SimpleNamespace(is_quarantined=False)
+
+    monkeypatch.setattr(quarantine, "record_detected_identity", fake_record)
+    parsed = {"first_name": "Fikcyjny", "last_name": "Inzynier"}
+    if from_header:
+        parsed["_name_from_header"] = ["first_name", "last_name"]
+
+    await _identity_quarantined(_DB(clash=False), _ph_candidate(), None, parsed)
+
+    assert seen["observed_name_from_header"] is from_header
 
 
 @pytest.mark.parametrize(

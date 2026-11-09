@@ -25,10 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

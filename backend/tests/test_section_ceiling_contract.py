@@ -21,7 +21,10 @@ Ten test przechodzi po WSZYSTKICH trasach i wymaga jednej z bramek:
 * uprawnienie Sprzedaży (``SalesViewUser`` / ``SalesEditUser`` z
   ``app/api/permission_access.py``): Sprzedaż nie ma sekcji produktu, dostęp
   liczy wyłącznie „Sprzedaż: podgląd” / „Sprzedaż: edycja” (decyzja Artura
-  26.10.2026), więc administrator odbiera ją na ekranie Osoby i role.
+  26.10.2026), więc administrator odbiera ją na ekranie Osoby i role,
+* uprawnienie „Umowy klientów” (``ClientContractsViewUser``): osobny ekran bez
+  sekcji Delivery, żeby lista umów nie otwierała kontraktów i zamówień
+  (decyzja Artura 04.11.2026).
 
 Trasa bez żadnej z nich trafia do ``_SECTIONLESS_ALLOWLIST`` z POWODEM:
 dane wspólne dla każdej sekcji (powiadomienia, słowniki) albo kontrola sekcji
@@ -41,7 +44,14 @@ from app.services.request_semantics import READ_ONLY_POST_ROUTE_TEMPLATES
 from app.services.section_permissions import ProductSection
 from tests._route_introspection import iter_api_routes, iter_dependency_calls
 
-_SALES_PERMISSIONS = {ProductAction.sales_view, ProductAction.sales_edit}
+_SECTIONLESS_PERMISSIONS = {
+    ProductAction.sales_view,
+    ProductAction.sales_edit,
+    ProductAction.client_contracts_view,
+    # Zakładki o zamówieniach: celowo bez sekcji Finanse, bo jej odczyt daje
+    # VIEW_FINANCE (rola Back office, 04.11.2026).
+    ProductAction.orders_work,
+}
 
 _AUTH_CALLS = {"get_current_user", "get_authenticated_user", "require_onboarded_user"}
 
@@ -53,6 +63,8 @@ _SECTION_AWARE_HELPERS = {
     # pre_contracts.py: sekcja „Rekrutacje” (odczyt/zapis wg metody); Finanse,
     # Rada nadzorcza i Automatyzacje z tytułu roli (decyzja Artura 22.10.2026, F54).
     "require_pre_contract_access",
+    # start_documents.py: sekcja „Rekrutacje” (odczyt/zapis wg metody), jak Tablica.
+    "require_start_documents_access",
     # microsoft365.py: skrzynka Outlook — sekcja kandydatów (odczyt) albo
     # uprawnienie „Sprzedaż: podgląd” (skrzynka handlowca, 28.10.2026).
     "require_mailbox_owner",
@@ -60,6 +72,32 @@ _SECTION_AWARE_HELPERS = {
 }
 
 _SECTIONLESS_ALLOWLIST: dict[str, str] = {
+    # ── Rekrutacja własna: dostęp z listy osób w procesie, asystentka może nie mieć sekcji ──
+    **{
+        route: "dostęp wynika z członkostwa w procesie, sprawdza je require_own_hiring_access"
+        for route in (
+            "GET /api/own-hiring/me",
+            "GET /api/own-hiring/applications/{application_id}",
+            "GET /api/own-hiring/assistant-options",
+            "GET /api/own-hiring/board",
+            "GET /api/own-hiring/invitation-preview",
+            "GET /api/own-hiring/new",
+            "GET /api/own-hiring/process",
+            "GET /api/own-hiring/queue",
+            "GET /api/own-hiring/slots",
+            "POST /api/own-hiring/applications/hand-off",
+            "POST /api/own-hiring/applications/invite",
+            "POST /api/own-hiring/applications/reject",
+            "POST /api/own-hiring/applications/{application_id}/contract-outcome",
+            "POST /api/own-hiring/applications/{application_id}/move",
+            "POST /api/own-hiring/applications/{application_id}/no-show",
+            "POST /api/own-hiring/applications/{application_id}/office-outcome",
+            "POST /api/own-hiring/applications/{application_id}/teams-outcome",
+            "POST /api/own-hiring/queue/{application_id}/book",
+            "POST /api/own-hiring/queue/{application_id}/result",
+            "PUT /api/own-hiring/process",
+        )
+    },
     # ── Sesja i własne konto ────────────────────────────────────────────────
     "GET /api/auth/me": "profil zalogowanego — shell aplikacji potrzebuje go przed sekcjami",
     "POST /api/auth/change-password": "zmiana własnego hasła, niezależna od modułów",
@@ -124,6 +162,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "DELETE /api/jarvis/conversations/{conversation_id}": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/actions/{action_id}/confirm": "Jarvis: narzędzia wracają do aplikacji przez trasy z własną bramką sekcji",
     "POST /api/jarvis/actions/{action_id}/reject": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
+    "POST /api/jarvis/actions/{action_id}/undo": "Jarvis: cofnięcie wraca do aplikacji przez trasy z własną bramką sekcji",
     "POST /api/jarvis/conversations/{conversation_id}/cancel": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/ui-events": "Jarvis: telemetria własnych kliknięć (kod ekranu, bez danych domenowych)",
     "POST /api/jarvis/gaps/{gap_id}/report": "Jarvis: „Zgłoś, że tego potrzebuję” na własnej karcie braku (bez danych domenowych)",
@@ -134,13 +173,9 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/novelties/adoption": "panel „kto już umie” — imiennie, kto zaliczył nowość, bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
     "POST /api/novelties/{novelty_id}/remind": "przypomnienie nowości (wraca karta przy kropce), bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
     "GET /api/novelties/start": "Start w NEXUSIE — własny postęp przy przeklikaniach swojej roli, bez danych domenowych; blokuje osobę na każdej sekcji (decyzja Artura 30.10.2026)",
+    "GET /api/cv-generator/feedback/summary": "Ustawienia → „Jakość generatora CV” — zestawienie dla admina i HoR (bramka roli), poza sekcjami jak panel nowości",
     "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
-    "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
-    "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",
-    "POST /api/trainee/items/{item_id}/outcome": "praktykant: wynik telefonu z własnej listy",
-    "GET /api/trainee/items/{item_id}/open-jobs": "praktykant: tytuły otwartych rekrutacji pasujących do osoby z jego listy",
-    "POST /api/trainee/items/{item_id}/handover": "praktykant: propozycja do „Do przejrzenia” dla osoby z jego listy",
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",
 }
@@ -181,7 +216,7 @@ def _classify(route: Any) -> str:
             return "section"
         if "require_hr_" in name:
             return "section"
-        if _SALES_PERMISSIONS & set(getattr(call, "required_permissions", ())):
+        if _SECTIONLESS_PERMISSIONS & set(getattr(call, "required_permissions", ())):
             return "section"
     for call, name in zip(calls, names):
         if "require_roles" in name:

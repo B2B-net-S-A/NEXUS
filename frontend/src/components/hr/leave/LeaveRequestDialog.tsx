@@ -255,7 +255,7 @@ export function LeaveRequestDialog({
       title={onBehalf ? "Wpisz nieobecność za konsultanta/kontraktora" : words.dialog_title}
       description={
         onBehalf
-          ? "Wpis jest od razu zatwierdzony. Zgodę na przekierowanie poczty daje tylko sama osoba."
+          ? "Wpis jest od razu zatwierdzony. Zgodę na kopię poczty do zastępcy daje tylko sama osoba."
           : report
             ? `Zgłoszenie, nie wniosek — ${words.coordinator}${shown ? ` (${shown.approver})` : ""} dostaje informację.`
             : shown && !shown.auto_approved
@@ -286,7 +286,7 @@ export function LeaveRequestDialog({
               }
               description={
                 people.isSuccess && enterable.length === 0
-                  ? "Nie masz osób, którym wpisujesz nieobecność. Osoby na B2B i zleceniu zgłaszają nieobecność same — za nie wpisują Kadry."
+                  ? "Nie masz osób, którym wpisujesz nieobecność. Osoby na B2B i zleceniu zgłaszają nieobecność same — za nie wpisuje Administracja współpracy."
                   : undefined
               }
             >
@@ -431,7 +431,7 @@ export function LeaveRequestDialog({
             <FormField
               label="Załącznik (opcjonalnie)"
               htmlFor="leave-proof"
-              description="Trafi do Twoich dokumentów. Plik widzisz Ty i Kadry — przełożony widzi tylko, że jest."
+              description="Trafi do Twoich dokumentów. Plik widzisz Ty i Administracja współpracy — koordynator widzi tylko, że jest."
             >
               <FileDropZone
                 inputId="leave-proof"
@@ -489,9 +489,9 @@ export function LeaveRequestDialog({
                     className="mt-0.5"
                   />
                   <span>
-                    Przekierowuj kopię poczty do zastępcy na czas{" "}
-                    {form === "b2b" ? "przerwy" : "nieobecności"}. Reguła zniknie sama po
-                    ostatnim dniu.
+                    Wysyłaj zastępcy kopię poczty od osób spoza firmy na czas{" "}
+                    {form === "b2b" ? "przerwy" : "nieobecności"}. Wszystkie maile nadal
+                    trafiają do Twojej skrzynki. Kopie kończą się same po ostatnim dniu.
                   </span>
                 </label>
               ) : null}

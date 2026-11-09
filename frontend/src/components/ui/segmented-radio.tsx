@@ -12,6 +12,8 @@ export interface SegmentedRadioOption<T extends string = string> {
   title?: string;
   /** `id` elementu opisującego opcję (`aria-describedby`). */
   describedBy?: string;
+  /** Kolor opcji wybranej zamiast głównego, np. ostrzegawczy (tylko tokeny). */
+  checkedClassName?: string;
 }
 
 interface SegmentedRadioBaseProps<T extends string> {
@@ -140,7 +142,7 @@ export function SegmentedRadio<T extends string = string>({
               "disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-10",
               SIZE_CLASS[size],
               checked
-                ? "bg-primary text-primary-foreground"
+                ? (option.checkedClassName ?? "bg-primary text-primary-foreground")
                 : "text-foreground hover:bg-accent disabled:hover:bg-transparent",
             )}
           >

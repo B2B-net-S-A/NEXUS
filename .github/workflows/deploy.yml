@@ -145,7 +145,7 @@ on:
   # więc odroczony), a godzinny `uptime-probe` odpala się ok. 4 razy na dobę.
   # 16:23Z = 18:23 latem (zimą 17:23 — jeszcze okno, wdraża slot 17:23Z),
   # kolejne godziny to zapas, 04:23Z (06:23 latem, 05:23 zimą) to ostatnia
-  # szansa przed 08:00, już po nocnym przeglądzie bazy i kopii 02:30Z.
+  # szansa przed 08:00, już po nocnym przeglądzie bazy, przed backupem 06:30Z.
   # Przebieg, który trafi na wdrożoną już wersję, kończy się na koalescencji.
   schedule:
     - cron: "23 16,17,18,19,20,21 * * *"
@@ -701,7 +701,8 @@ jobs:
                 # kolejne kroki smoke.
                 set +e
                 python3 .github/scripts/select_release_sha.py accept \
-                  --repo "${{ github.repository }}" --release "$RELEASE_SHA" --live "$version"
+                  --repo "${{ github.repository }}" --release "$RELEASE_SHA" --live "$version" \
+                  --rebuild-skipped "${{ steps.precheck.outputs.skip == 'true' }}"
                 verdict=$?
                 set -e
                 if [ "$verdict" = "0" ]; then

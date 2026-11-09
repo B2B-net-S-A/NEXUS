@@ -186,7 +186,9 @@ async def remind_one(
 
     validate_period(year, month)
     if user_id == actor.user_id:
-        raise TimeForbidden("Sobie nie przypominasz — raport wysyłasz w „Moim czasie”.")
+        raise TimeForbidden(
+            "Sobie nie przypominasz — raport wysyłasz w „Mojej współpracy”."
+        )
     profile = await people.profile_of(db, user_id)
     if profile is None or not (
         actor.payroll or actor.approves_everyone or actor.can_approve(profile)
@@ -209,7 +211,7 @@ async def remind_one(
         timesheet is None and await payroll_periods.is_closed(db, year, month)
     ):
         raise TimeConflict(
-            "Miesiąc jest zamknięty w płacach — raport jest już rozliczony."
+            "Miesiąc jest zamknięty w rozliczeniach — raport jest już rozliczony."
         )
     status = timesheet.status if timesheet is not None else "draft"
     if status == "approved":
@@ -234,7 +236,7 @@ async def remind_one(
         recipients = [uid for uid in approvers if uid != actor.user_id]
         if not recipients:
             raise TimeConflict(
-                f"{words['timesheet']} czeka na Twoją decyzję — otwórz „Akceptacje”."
+                f"{words['timesheet']} czeka na Twoją decyzję — otwórz „Do potwierdzenia”."
             )
         title = f"Przypomnienie — {words['timesheet_submitted_title']}"
         message = f"{person.name}: {label} czeka na {words['review_noun']}."

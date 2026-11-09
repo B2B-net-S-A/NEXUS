@@ -24,6 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   termination_reversed: "Cofnięto zakończenie (pomyłka)",
   return_after_break: "Powrót po przerwie – utworzono nowy kontrakt",
   contract_reopened: "Przywrócono kontrakt do aktywnych",
+  termination_data_cleared: "Usunięto datę i powód cofniętego zakończenia",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
@@ -51,6 +52,7 @@ const ACTION_LABELS: Record<string, string> = {
   document_deleted: "Usunięto dokument",
   b2b_generated: "Wygenerowano umowę B2B",
   generated_contract_linked: "Powiązano podpisaną umowę B2B z kontraktem",
+  admin_details_changed: "Zmieniono szczegóły administracyjne (replacement, kandydat od klienta)",
   auto_drafted_from_order_mail: "Założono szkic z zamówienia z maila",
   // Ticket 7 (09.2026): techniczne zmiany pól linii zamówienia MD (waluta,
   // jednostka stawki) — historia zamówienia ich nie pokazuje.
@@ -149,6 +151,11 @@ const DETAIL_LABELS: Record<string, string> = {
   period_from: "Okres zlecenia od",
   period_to: "Okres zlecenia do",
   rate_changed: "Zmieniono stawkę",
+  // Szczegóły administracyjne kontraktu (06.11.2026).
+  is_replacement: "Replacement",
+  replaced_contract_id: "Za kogo (kontrakt)",
+  is_client_referral: "Kandydat wskazany przez klienta",
+  reason: "Powód",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -251,7 +258,8 @@ export function contractDetailValue(key: string, value: unknown): string {
       key === "source_order_id" ||
       key === "contract_id" ||
       key === "survivor_contract_id" ||
-      key === "returned_from_contract_id"
+      key === "returned_from_contract_id" ||
+      key === "replaced_contract_id"
     ) {
       return `#${value}`;
     }

@@ -62,7 +62,7 @@ router = APIRouter()
 
 MODULE = HrModule.settlements
 NOT_FOUND = "Nie ma takiego rozliczenia."
-NOT_EDITOR = "Dane do rozliczeń zmieniają Kadry i Płace."
+NOT_EDITOR = "Dane do rozliczeń zmieniają Administracja współpracy i Rozliczenia."
 
 
 # ── Bramki ────────────────────────────────────────────────────────────────────

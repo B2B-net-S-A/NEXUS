@@ -113,6 +113,17 @@ class TestFeatureKeyEnum:
             "linkedin_message_draft",
             # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
             "candidate_ai_assessment",
+            "sales_meeting_summary",
+            "case_triage",
+            "portal_meeting_summary",
+            # 0634: słowa z CV wysłanych do wiersza „musi mieć”.
+            "requirement_word_hints",
+            # 0638: podsumowanie rozmowy z portalu konsultanta.
+            "portal_meeting_summary",
+            # 0651: pytania pod CV w ściądze do rozmowy.
+            "cv_call_questions",
+            # 0658: nocne propozycje do słownika umiejętności.
+            "skill_dictionary_proposals",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

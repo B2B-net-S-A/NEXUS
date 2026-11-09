@@ -104,3 +104,8 @@ export function skeleton() {
 export function spinnerLabel(text) {
   return h("span", { class: "busy" }, h("span", { class: "busy__dot", "aria-hidden": "true" }), text);
 }
+
+/** Fokus na polu po przerysowaniu ekranu, ale nie zabrany pickerowi z paska „Pracuję nad”. */
+export function focusUnlessInWorkbar(el) {
+  if (!el?.ownerDocument?.activeElement?.closest?.("#workbar")) el?.focus();
+}

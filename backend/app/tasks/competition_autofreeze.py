@@ -229,9 +229,8 @@ async def _run_once(today: date | None = None) -> dict:
     results: dict[str, int] = {}
 
     async with AsyncSessionLocal() as db:
-        # Kwartał PRZED miesiącami: wykluczenie lidera kwartału z wyścigu
-        # ostatniego miesiąca kwartału czyta wtedy zamrożonego zwycięzcę
-        # (albo remis czekający na admina), a nie ranking liczony na żywo.
+        # Kwartał przed miesiącami — kolejność bez znaczenia dla wyniku od
+        # 05.11.2026 (lider kwartału nie jest już wykluczany z wyścigów).
         for quarter_period in _catch_up_periods(
             _closed_quarters(today, QUARTERS_LOOKBACK), _quarter_period_end
         ):

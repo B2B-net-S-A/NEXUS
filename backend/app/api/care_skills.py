@@ -26,6 +26,7 @@ from app.services.care import access as care_access
 from app.services.care import skills as care_skills
 from app.services.care import tech_map
 from app.services.care.overview import person
+from app.services import skill_curation
 from app.services.contract_care_schema import NAME_MAX
 
 router = APIRouter()
@@ -89,6 +90,13 @@ async def skill_review(
             for item in items
         ],
         "can_curate": can_curate(current_user),
+        # Lista do „Dodaj do słownika” — ta sama co w Słowniku umiejętności.
+        # TCM decyduje w tej kolejce, a listy z `/api/skills-admin` nie czyta.
+        "categories": (
+            await skill_curation.category_choices(db)
+            if can_curate(current_user)
+            else []
+        ),
     }
 
 
@@ -135,12 +143,23 @@ async def create_review_skill(
     current_user: User = Depends(SkillCurator),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    # Etap 2 słownika (06.11.2026): hasło bez kategorii nie działa w pogrubianiu
+    # CV, QC ani bramce must — ta sama reguła co w Słowniku umiejętności.
+    category = (body.category or "").strip()
+    if not category:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Wybierz kategorię hasła."
+        )
+    if category not in await skill_curation.category_choices(db):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Nieznana kategoria „{category}”."
+        )
     try:
         clients = await care_skills.create_skill(
             db,
             item_id,
             canonical_name=body.canonical_name,
-            category=(body.category or "").strip() or None,
+            category=category,
             actor_id=current_user.id,
             now=local_now(),
         )

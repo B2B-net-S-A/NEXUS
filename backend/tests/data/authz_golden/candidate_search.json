@@ -25,12 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidate-search/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

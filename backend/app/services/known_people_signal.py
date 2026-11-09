@@ -32,6 +32,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services.rejection_reason_labels import CLIENT_NOT_A_VERDICT
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +109,11 @@ async def _rejected_by_client(
 ) -> set[int]:
     """Osoby, które ten sam klient odrzucił (najnowszy wiersz pary).
 
-    Odrzucenie przez klienta = ``ended_by='client'``; wiersze sprzed tej kolumny
-    (``ended_by`` puste) liczą się, gdy osoba była wcześniej wysłana do klienta.
-    Rezygnacja kandydata i odrzucenie przez nas się nie liczą.
+    Tylko jawne odrzucenie, ``ended_by='client'``, jak w ``known_queue_points``.
+    Pusty ``ended_by`` po wysyłce CV to nie odrzucenie: odtworzenie 814 rekrutacji
+    (03.11.2026) dało bez niego R@20 +2,4 pkt i nDCG@10 +1,4 pkt. Rezygnacja
+    kandydata i odrzucenie przez nas też się nie liczą, tak samo koniec procesu
+    bez oceny osoby (``CLIENT_NOT_A_VERDICT``: zamknięty request, klient milczy).
     """
     if client_id is None or not candidate_ids:
         return set()
@@ -119,23 +122,24 @@ async def _rejected_by_client(
             """
             WITH last AS (
               SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-                     cs.candidate_id, cs.job_id, cs.stage::text AS stage, cs.ended_by
+                     cs.candidate_id, cs.job_id, cs.stage::text AS stage, cs.ended_by,
+                     rr.name AS reason
               FROM candidate_stages cs
               JOIN jobs j ON j.id = cs.job_id
+              LEFT JOIN rejection_reasons rr ON rr.id = cs.rejection_reason_id
               WHERE j.client_id = :client AND cs.candidate_id = ANY(:ids)
               ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
             )
             SELECT DISTINCT l.candidate_id FROM last l
-            WHERE l.stage = 'rejected'
-              AND (l.ended_by = 'client'
-                   OR (l.ended_by IS NULL AND EXISTS (
-                         SELECT 1 FROM candidate_stages s2
-                         WHERE s2.candidate_id = l.candidate_id AND s2.job_id = l.job_id
-                           AND s2.stage::text IN ('cv_sent','client_interview',
-                                                  'acceptance','negotiation'))))
+            WHERE l.stage = 'rejected' AND l.ended_by = 'client'
+              AND COALESCE(l.reason, '') <> ALL(CAST(:not_verdict AS text[]))
             """
         ),
-        {"client": client_id, "ids": candidate_ids},
+        {
+            "client": client_id,
+            "ids": candidate_ids,
+            "not_verdict": list(CLIENT_NOT_A_VERDICT),
+        },
     )
     return {int(r) for r in rows.scalars()}
 

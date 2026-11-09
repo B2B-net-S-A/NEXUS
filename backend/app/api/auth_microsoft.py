@@ -67,6 +67,7 @@ from app.services.hr import account_profiles
 from app.services import new_person_setup
 from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.user_email import normalize_email, user_by_email_statement
 
@@ -1046,20 +1047,6 @@ async def callback(
         if authorization_changed:
             user.authorization_version += 1
             user.tokens_valid_after = datetime.now(timezone.utc)
-        if set(prior_effective_roles) != set(role_strs):
-            # Lustro zmiany roli w panelu admina (audyt 24.09.2026): nadanie
-            # roli praktykanta z grupy AAD zakłada program, odebranie go kończy.
-            from app.services import trainee_program
-
-            if user.id is None:
-                await db.flush()
-            await trainee_program.sync_program_for_roles(
-                db,
-                user.id,
-                before=prior_effective_roles,
-                after=list(role_strs),
-                actor_id=None,
-            )
         if entering_finance:
             cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
             db.add(
@@ -1109,6 +1096,7 @@ async def callback(
         roles=[r.value for r in user.get_all_roles()],
         authorization_version=user.authorization_version,
         section_access=user.effective_section_access,
+        finance_orders=has_permission(user, ProductAction.orders_work),
     )
     refresh = create_refresh_token(
         user.id, authorization_version=user.authorization_version

@@ -25,10 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/screening/reassign-context": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/screening/reassign-suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/pipeline/stages/{stage_id}/screening/reassign-context": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/pipeline/stages/{stage_id}/screening/reassign-suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

@@ -109,6 +109,8 @@ class CvRuleSnapshot:
     highlight_terms: tuple[str, ...] = ()
     # „justify” albo „left” — czytają oba renderery Worda (`cv_text_align.py`).
     text_align: str = "justify"
+    # Numer zapytania klienta w nagłówku CV (07.11.2026); nazwa pliku bez zmian.
+    title_with_reference: bool = False
     # Wersja reguły — stemplowana na wygenerowanym CV.
     version: int | None = None
     managed_policy: dict | None = None
@@ -178,6 +180,7 @@ def snapshot_rule(rule: Optional[ClientCvRule]) -> Optional[CvRuleSnapshot]:
         text_align=(
             "left" if getattr(rule, "cv_text_align", None) == "left" else "justify"
         ),
+        title_with_reference=bool(getattr(rule, "cv_title_with_reference", False)),
         filename_pattern=rule.filename_pattern,
         spaces_to_underscores=bool(rule.spaces_to_underscores),
         cv_language=rule.cv_language,
@@ -694,6 +697,25 @@ async def resolve_client_name(db: AsyncSession, client_id: int | None) -> Option
     return (display_name or "").strip() or name
 
 
+def apply_header_reference(
+    candidate_data: dict, rule: Optional[CvRuleSnapshot], reference: Optional[str]
+) -> None:
+    """Numer zapytania w nagłówku CV, gdy reguła klienta go chce (07.11.2026).
+
+    Zmienia tylko ``presentation_position`` (nagłówek); nazwa pliku liczy się
+    z nazwy roli przed tą zmianą. Wołane PRZED migawką ``render_payload``,
+    więc ponowne pobranie i edytor mają ten sam nagłówek.
+    """
+    if not getattr(rule, "title_with_reference", False):
+        return
+    header = str(candidate_data.get("presentation_position") or "").strip()
+    if not header:
+        return
+    from app.services.job_working_title import cv_header_title
+
+    candidate_data["presentation_position"] = cv_header_title(header, reference, True)
+
+
 def rule_reminders(rule: Optional[CvRuleSnapshot]) -> tuple[str, ...]:
     """Wymogi klienta, których generator NIE MOŻE spełnić za rekrutera.
 
@@ -727,9 +749,12 @@ def rule_reminders(rule: Optional[CvRuleSnapshot]) -> tuple[str, ...]:
             "WERYFIKUJ: ten klient oczekuje CV po polsku ORAZ po angielsku — "
             "pamiętaj o wygenerowaniu drugiej wersji językowej."
         )
-    if (rule.generator_instructions or "").strip() or (
-        rule.generator_instructions_en or ""
-    ).strip():
+    # Polityka centralna to nasz stały standard, nie reguła do sprawdzania przy
+    # każdym CV: pominięcie instrukcji model i tak zgłasza osobno.
+    if not rule.managed_policy and (
+        (rule.generator_instructions or "").strip()
+        or (rule.generator_instructions_en or "").strip()
+    ):
         # Model dostał reguły prezentacji klienta i mógł którąś pominąć jako
         # niedozwoloną (dopisywanie faktów). Rekruter ma wiedzieć, że dokument
         # był kształtowany także tymi regułami — i sprawdzić go pod ich kątem.

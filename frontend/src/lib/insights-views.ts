@@ -255,8 +255,6 @@ export interface MyMonthFacts {
   raceLeader?: boolean;
   /** Remis na 1. miejscu (`leader_tie_user_ids`) — lidera wskaże admin. */
   raceLeaderTie?: boolean;
-  /** Jestem liderem kwartału wykluczonym z nagrody miesięcznej. */
-  raceExcluded?: boolean;
 }
 
 /** Zdanie na górze „Mojego miesiąca" — jeden wniosek, bez tabelki. */
@@ -271,14 +269,10 @@ export function myMonthSentence(f: MyMonthFacts): string {
   }
   parts[0] += ".";
   // `raceRank` to pozycja na liście, nie kolejność nagrodowa. Remisu na
-  // 1. miejscu i wykluczonego lidera kwartału nie ogłaszamy jako prowadzenia —
-  // o nagrodzie decyduje regulamin albo admin (audyt 24.09.2026).
+  // 1. miejscu nie ogłaszamy jako prowadzenia — o nagrodzie decyduje
+  // regulamin albo admin (audyt 24.09.2026).
   if (f.raceRank !== null) {
-    if (f.raceExcluded) {
-      parts.push(
-        `Jesteś ${f.raceRank}. w wyścigu placementów — jako lider kwartału nie bierzesz nagrody miesięcznej.`,
-      );
-    } else if (f.raceLeaderTie) {
+    if (f.raceLeaderTie) {
       parts.push(
         `Jesteś ${f.raceRank}. w wyścigu placementów, a na 1. miejscu jest remis — o nagrodzie zdecyduje admin przy zamknięciu miesiąca.`,
       );

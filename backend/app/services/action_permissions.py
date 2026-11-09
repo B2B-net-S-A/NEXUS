@@ -45,6 +45,9 @@ class ProductAction(StrEnum):
     sales_view = "sales_view"
     sales_edit = "sales_edit"
     timesheets = "timesheets"
+    company_results = "company_results"
+    client_contracts_view = "client_contracts_view"
+    orders_work = "orders_work"
 
 
 class ActionAccess(IntEnum):
@@ -76,10 +79,12 @@ _SEEDED_PERMISSIONS = frozenset(ProductAction(key) for key in catalog.SEEDED_KEY
 # migracji 0273 i lustro w entrypoint.sh nadal zasiewają dla TCM „view", więc
 # świeże środowisko wymaga osobnej migracji danych (patrz
 # test_action_permissions_migration.SEED_DIVERGENCE_AFTER_0273). Legacy viewer
-# zostaje przy podglądzie, bo jego sufit Sourcing też jest tylko do odczytu.
+# zostaje przy wierszu „view” bez skutku: od 0637 nie ma sekcji Sourcing, za
+# którą stoi router Generatora.
 _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     UserRole.admin: ActionAccess.manage,
     UserRole.finance: ActionAccess.manage,
+    UserRole.back_office: ActionAccess.manage,
     UserRole.head_of_recruitment: ActionAccess.manage,
     UserRole.delivery_lead: ActionAccess.manage,
     UserRole.talent_community_manager: ActionAccess.manage,
@@ -155,15 +160,25 @@ def has_permission(user: User, permission: ProductAction | str) -> bool:
 
 
 def reads_board_money(user: User) -> bool:
-    """Kwoty kokpitu Rady: uprawnienie „Moduł Finanse” albo rola Rada nadzorcza.
+    """Kwoty kokpitu Rady: uprawnienie „Wyniki firmy” albo rola Rada nadzorcza.
 
     Lustro bramki ``deps.BoardReader`` dla miejsc, które same decydują
-    o redakcji kwot (tabele rok-do-roku) albo o odbiorcach (mail zarządu).
+    o redakcji kwot (tabele rok-do-roku).
     """
 
     return user.has_role(UserRole.board) or has_permission(
-        user, ProductAction.finance_module
+        user, ProductAction.company_results
     )
+
+
+def receives_company_results(user: User) -> bool:
+    """Mail ze zbiorczym przychodem i marżą firmy: Rada i imienne nadanie.
+
+    Decyzja Artura 02.11.2026: ani rola admin, ani „Moduł Finanse” go nie
+    otwierają. Poza Radą dostaje go osoba z ``users.receives_board_report``.
+    """
+
+    return user.has_role(UserRole.board) or bool(user.receives_board_report)
 
 
 def named_permissions_of(user: User) -> frozenset[str]:
@@ -261,16 +276,13 @@ def account_accepts_grants(user: User) -> bool:
     return any(role not in UNGRANTABLE_ROLES for role in user.get_all_roles())
 
 
-def effective_action_policy_from_rows(
+def action_policy_before_closure(
     user: User,
     role_rows: Iterable[RoleActionPermission],
     override_rows: Iterable[UserActionOverride],
     section_rows: Iterable[RoleSectionPermission] = (),
 ) -> dict[ProductAction, ActionAccess]:
-    """Role union, explicit per-user replacement, then permission closure."""
-
-    if user.has_role(UserRole.admin):
-        return {action: ActionAccess.manage for action in ProductAction}
+    """Role union and per-user replacement, before dependencies come back."""
 
     policy = base_action_policy_from_rows(user.get_all_roles(), role_rows, section_rows)
     accepts_grants = account_accepts_grants(user)
@@ -292,7 +304,23 @@ def effective_action_policy_from_rows(
             # nie nadał. Wiersz zostaje — wraca z rolą, która nadania przyjmuje.
             continue
         policy[action] = access
-    return close_named_permissions(policy)
+    return policy
+
+
+def effective_action_policy_from_rows(
+    user: User,
+    role_rows: Iterable[RoleActionPermission],
+    override_rows: Iterable[UserActionOverride],
+    section_rows: Iterable[RoleSectionPermission] = (),
+) -> dict[ProductAction, ActionAccess]:
+    """Role union, explicit per-user replacement, then permission closure."""
+
+    if user.has_role(UserRole.admin):
+        return {action: ActionAccess.manage for action in ProductAction}
+
+    return close_named_permissions(
+        action_policy_before_closure(user, role_rows, override_rows, section_rows)
+    )
 
 
 async def resolve_effective_action_access(

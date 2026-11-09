@@ -3,12 +3,16 @@
 import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { useUrlWriter } from "@/lib/url-selection";
 import {
   Activity,
+  ClipboardCheck,
   FileText,
   Landmark,
   Lock,
+  SlidersHorizontal,
+  Target,
   Trophy,
   UserRound,
   Users,
@@ -31,13 +35,23 @@ import { RaportyView } from "@/components/insights/views/RaportyView";
 import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
 import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
+import { WnioskiView } from "@/components/insights/views/WnioskiView";
+import { ZrodlaView } from "@/components/insights/views/ZrodlaView";
+import { ZasadyView } from "@/components/insights/views/ZasadyView";
+import { holdsCapabilityGrant } from "@/lib/capabilities";
+import { insightsApi, insightsQueryKeys } from "@/lib/insights-api";
+import { hasSectionAccess } from "@/lib/section-access";
+import { RHYTHM_ROLES, RULES_ROLES } from "@/lib/insights-roles";
 
 export type TabId =
+  | "zrodla"
   | "rywalizacja"
   | "moj-miesiac"
   | "zespol"
   | "rytm"
   | "firma"
+  | "wnioski"
+  | "zasady"
   | "raporty";
 
 type TabDef = {
@@ -53,20 +67,19 @@ type TabDef = {
 
 /**
  * Uprawnienie, które otwiera widok Firma (pieniądze firmy: przychód, marża,
- * ranking klientów z kwotami): „Moduł Finanse”.
+ * ranking klientów z kwotami): „Wyniki firmy”.
  *
- * Domyślnie mają je administrator i Finanse. Decyzja Artura z 24.09.2026:
- * Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy — rola
- * sama z siebie tego uprawnienia nie daje, ale administrator może je nadać
+ * Domyślnie ma je tylko administrator (decyzja Artura z 02.11.2026: Finanse
+ * pracują na pojedynczych rekordach). Administrator może je nadać osobie
  * w panelu „Osoby i role”. Lustro po stronie API to `BoardReader`
  * (`backend/app/api/deps.py`) na `/api/insights/board` i `/clients/ranking`,
  * który pyta o to samo uprawnienie; bez tej zgodności front chowałby widok,
  * którego API i tak by nie odmówiło (split-brain z #1215).
  */
-export const FIRMA_PERMISSION: Permission = "finance_module";
+export const FIRMA_PERMISSION: Permission = "company_results";
 
 /**
- * Role, które widzą widok Firma bez „Modułu Finanse”: Rada nadzorcza (0490,
+ * Role, które widzą widok Firma bez tego uprawnienia: Rada nadzorcza (0490,
  * decyzja Artura 21.10.2026) — kwoty kokpitu tak, faktury i zgody modułu
  * Finanse nie. Lustro `_require_board_reader` w `backend/app/api/deps.py`.
  */
@@ -81,8 +94,7 @@ export const PERSONAL_ROLES: UserRole[] = [
   "delivery_lead",
 ];
 
-/** Kto widzi „Rytm dnia” — lustro `VIEWER_ROLES` z `services/work_rhythm.py`. */
-export const RHYTHM_ROLES: UserRole[] = ["head_of_recruitment", "admin"];
+export { RHYTHM_ROLES, RULES_ROLES };
 
 // Pięć widoków zamiast dwóch zakładek z rozdziałami (24.09.2026). Kolejność =
 // kolejność pytań: kto wygrywa → jak mi idzie → jak idzie zespołowi → ile
@@ -95,7 +107,8 @@ const TABS: TabDef[] = [
   // „Rytm dnia” (decyzje Artura 28–29.10.2026): kiedy i jak intensywnie pracują
   // rekruterzy. Na razie tylko Head of Recruitment i admin — lustro
   // `VIEWER_ROLES` w `backend/app/services/work_rhythm.py`.
-  { id: "rytm", label: "Rytm dnia", icon: Activity, roles: RHYTHM_ROLES },
+  // Na pasku krótko, bo przy 1280 px pełna nazwa spychała zakładki pod nagłówek.
+  { id: "rytm", label: "Aktywność", icon: Activity, roles: RHYTHM_ROLES },
   {
     id: "firma",
     label: "Firma",
@@ -104,6 +117,15 @@ const TABS: TabDef[] = [
     permission: FIRMA_PERMISSION,
     alsoRoles: FIRMA_ROLES,
   },
+  // „Źródła” (decyzja Artura 03.11.2026): widok z dostępem do kandydatów, lustro
+  // `CandidatePIIAccess` — `seesSources` niżej.
+  { id: "zrodla", label: "Źródła", icon: Target, roles: null },
+  // „Zasady” (decyzja Artura 05.11.2026): ustawienia, o których się zapomina,
+  // obok liczb, które od nich zależą.
+  { id: "zasady", label: "Zasady", icon: SlidersHorizontal, roles: RULES_ROLES },
+  // „Wnioski” (decyzja Artura 04.11.2026): lustro `VIEWER_ROLES` z
+  // `backend/app/services/insights_wnioski.py`.
+  { id: "wnioski", label: "Wnioski", icon: ClipboardCheck, roles: RHYTHM_ROLES },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
 
@@ -155,7 +177,7 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
   praca: { tab: "raporty", report: "placementy" },
   placementy: { tab: "raporty", report: "placementy" },
   doplyw: { tab: "raporty", report: "doplyw" },
-  zrodla: { tab: "raporty", report: "doplyw" },
+  zrodla: { tab: "zrodla" },
   integracje: { tab: "raporty", report: "doplyw" },
   "podsumowanie-klientow": { tab: "raporty", report: "portfele-dl" },
   portfele: { tab: "raporty", report: "portfele-dl" },
@@ -169,6 +191,10 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 export const DEFAULT_INSIGHTS_TAB: TabId = "rywalizacja";
+
+const seesSources = (user: NonNullable<AuthUser>): boolean =>
+  holdsCapabilityGrant(user, "nav.candidates") &&
+  (hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline"));
 
 export function getDefaultTabForUser(user: AuthUser): TabId {
   // Rada nadzorcza startuje na Firmie (jak `BOARD_HOME`) — 22.10.2026.
@@ -185,6 +211,7 @@ export function getDefaultTabForUser(user: AuthUser): TabId {
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
   const ids = TABS.filter((tab) => {
     if (!user) return true;
+    if (tab.id === "zrodla") return seesSources(user);
     if (tab.permission) {
       return (
         hasPermission(user, tab.permission) ||
@@ -339,16 +366,25 @@ export function InsightsView() {
   };
 
   const firmaVisible = visibleTabIds.includes("firma");
+  // Bez `user` lista zakładek jest pełna („jeszcze nie wiemy”), a licznik to już zapytanie.
+  const wnioskiVisible = Boolean(user) && visibleTabIds.includes("wnioski");
+  const wnioskiQuery = useQuery({
+    queryKey: insightsQueryKeys.wnioski(),
+    queryFn: insightsApi.wnioski,
+    enabled: wnioskiVisible,
+    staleTime: 60_000,
+  });
+  const wnioskiCount = wnioskiQuery.data?.open_count ?? 0;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-8 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-2">
           <h1 className="pb-3 text-2xl font-bold tracking-tight text-foreground">
             Insights
           </h1>
           <nav
-            className="flex max-w-full gap-5 overflow-x-auto"
+            className="flex max-w-full gap-4 overflow-x-auto"
             aria-label="Widoki Insights"
           >
             {visibleTabs.map((tab) => {
@@ -360,16 +396,25 @@ export function InsightsView() {
                   type="button"
                   onClick={() => handleTabChange(tab.id)}
                   className={cn(
-                    "inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 pb-3 text-sm font-semibold transition-colors",
+                    "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 pb-3 text-sm font-semibold transition-colors",
                     active
                       ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
-                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : undefined}
+                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : tab.id === "zrodla" ? "insights.tabs.sources" : tab.id === "wnioski" ? "insights.tabs.wnioski" : tab.id === "zasady" ? "insights.tabs.rules" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
+                  {tab.id === "wnioski" && wnioskiCount > 0 ? (
+                    <span
+                      className="rounded-full bg-primary px-1.5 text-xs font-semibold tabular-nums text-primary-foreground"
+                      aria-label={`Spraw do decyzji: ${wnioskiCount}`}
+                      data-testid="wnioski-tab-count"
+                    >
+                      {wnioskiCount}
+                    </span>
+                  ) : null}
                   {tab.id === "firma" ? (
                     <Lock
                       className="h-3 w-3 opacity-70"
@@ -396,11 +441,15 @@ export function InsightsView() {
       </div>
 
       <div>
+        {location.tab === "zrodla" && <ZrodlaView />}
         {location.tab === "rywalizacja" && <RywalizacjaView />}
         {location.tab === "moj-miesiac" && <MojMiesiacView />}
         {location.tab === "zespol" && <ZespolView />}
         {location.tab === "rytm" && <RytmDniaView />}
         {location.tab === "firma" && <FirmaView />}
+        {/* Przed hydracją lista zakładek jest pełna, a trasa odmawia wszystkim poza dwiema rolami. */}
+        {location.tab === "wnioski" && wnioskiVisible && <WnioskiView />}
+        {location.tab === "zasady" && <ZasadyView />}
         {location.tab === "raporty" && <RaportyView reportId={location.report} />}
       </div>
     </div>

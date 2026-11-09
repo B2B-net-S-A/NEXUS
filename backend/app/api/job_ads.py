@@ -18,7 +18,9 @@
   („Ogłoszenia do nadrobienia”);
 * ``POST /api/jobs/{job_id}/portal-ad/pracuj-mail/preview`` i
   ``POST …/pracuj-mail`` — mail z ogłoszeniem do opiekuna Pracuj.pl ze
-  skrzynki osoby (27.10.2026, ``job_ad.pracuj_mail``).
+  skrzynki osoby (27.10.2026, ``job_ad.pracuj_mail``);
+* ``POST /api/jobs/{job_id}/portal-ad/jjit`` — publikacja albo aktualizacja na
+  JustJoin.IT przez API (03.11.2026, kolejka ``job_portals.service``).
 
 Bramka jak przy opisie publicznym (``career_links``): rola ``RecruiterPlus``
 + sekcja Pipeline (router) + członkostwo w rekrutacji. Front kopiuje wyłącznie
@@ -33,11 +35,13 @@ from typing import Optional
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import HeadOfRecruitmentPlus, OperationalUser, RecruiterPlus
+from app.api.job_portals import PortalListingOptions
 from app.api.recruitment_access import ensure_job_membership, job_scope_clause
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -47,11 +51,13 @@ from app.models.activity import Activity
 from app.models.job_ad_channel_skip import JobAdChannelSkip
 from app.models.job_ad_publication import JobAdPublication
 from app.models.m365 import M365Connection
+from app.models.job_posting import JobPosting, Portal
 from app.models.job_public_profile import JobPublicProfile
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.schemas.job_ad import (
     AdCareerRequest,
+    AdJjitApi,
     AdChannel,
     AdGenerateRequest,
     AdRemindResponse,
@@ -69,6 +75,7 @@ from app.schemas.job_ad import (
     PracujRequestRead,
 )
 from app.schemas.job_ad_publication import AdPortal, AdPublishRequest
+from app.services import job_portals
 from app.services import job_public_profile as jpp
 from app.services.job_ad import (
     career,
@@ -76,12 +83,22 @@ from app.services.job_ad import (
     generate,
     lint,
     material,
+    portal_content,
     pracuj_mail,
     publications,
     reminders,
     render,
 )
+from app.services.job_ad_publication_schema import PORTAL_JJIT
 from app.services.job_ad_reminder_schema import CHANNEL_PRACUJ
+from app.services.job_portals.jjit_payload import native_apply_enabled
+from app.services.job_portals.service import (
+    LIVE_STATUSES,
+    PortalRequestError,
+    live_on_jjit,
+    request_unpublish,
+    send_ad_to_jjit,
+)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -105,9 +122,24 @@ async def _load_job(db: AsyncSession, user: User, job_id: int) -> Job:
 
 
 async def _material(db: AsyncSession, job: Job) -> material.AdMaterial:
-    profile = await db.get(JobPublicProfile, job.id)
-    _default, title = await jpp.public_titles(db, job, profile)
-    return material.build_material(job, title)
+    return await portal_content.ad_material(db, job)
+
+
+async def _can_mark(db: AsyncSession, job: Job, user_id: int) -> bool:
+    user = await db.get(User, user_id)
+    return user is not None and publications.can_mark(user, job)
+
+
+def _require_can_mark(user: User, job: Job) -> None:
+    """Rekruter nie wstawia ogłoszeń na portale (decyzja Artura 08.11.2026)."""
+    if not publications.can_mark(user, job):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Ogłoszenia na portalach prowadzi Delivery Lead tej rekrutacji, "
+                "Head of Recruitment albo admin."
+            ),
+        )
 
 
 async def _response(
@@ -124,30 +156,12 @@ async def _response(
         "career": (await career.career_state(db, job, ad, user_id=user_id)).as_dict(),
         "reminders": await _reminders_panel(db, job.id, user_id),
         "pracuj_request": await _pracuj_request(db, job.id),
+        "jjit_api": await _jjit_api(db, job.id),
+        "can_mark_publications": await _can_mark(db, job, user_id),
     }
     if ad is None:
         return JobAdResponse(**base)
-    all_blocks = await fixed_blocks.load_blocks(db)
-    blocks = all_blocks.for_lang(ad.lang)
-    rendered = render.render_ad(
-        ad.content,
-        ad.tech,
-        mat,
-        blocks,
-        lang=ad.lang,
-        title_suffix=all_blocks.title_suffix,
-    )
-    # Kontrola czyta to, co pójdzie do schowka: pola ogłoszenia, miasto
-    # z rekrutacji, stałe bloki i na końcu komplet wyrenderowanych napisów.
-    findings = lint.lint_ad(
-        ad.content,
-        ad.tech,
-        terms=[mat.city or ""],
-        fixed=[*blocks.offer, *blocks.process, blocks.about],
-        rendered=render.rendered_texts(rendered),
-        client_names=await jpp.client_lint_names(db, job.client_id),
-        person_names=await jpp.person_names(db, job),
-    )
+    rendered, findings = await portal_content.checked_render(db, job, ad, mat)
     return JobAdResponse(
         **base,
         ad={
@@ -165,6 +179,32 @@ async def _response(
         publications=[
             vars(item) for item in await publications.for_job(db, job.id, ad)
         ],
+    )
+
+
+async def _jjit_api(db: AsyncSession, job_id: int) -> Optional[AdJjitApi]:
+    """Stan publikacji przez API. Portal wyłączony, a nic nie wisi = ``None``."""
+    config = job_portals.PortalConfig.from_settings(Portal.justjoinit)
+    ready = await job_portals.resolve_state(db, config) == "ready"
+    posting = await db.scalar(
+        select(JobPosting)
+        .where(JobPosting.job_id == job_id, JobPosting.portal == Portal.justjoinit)
+        .order_by(JobPosting.id.desc())
+        .limit(1)
+    )
+    # Wyłączenie flagi nie chowa ogłoszenia, które wisi: zamykanie działa dalej.
+    if not ready and (posting is None or posting.status not in LIVE_STATUSES):
+        return None
+    career_required = not native_apply_enabled()
+    if posting is None:
+        return AdJjitApi(ready=ready, career_required=career_required)
+    return AdJjitApi(
+        ready=ready,
+        career_required=career_required,
+        status=posting.status.value,
+        pending_action=posting.pending_action,
+        last_error=posting.last_error,
+        options=posting.options,
     )
 
 
@@ -395,11 +435,23 @@ async def mark_ad_published(
     Sama zmiana linku przy aktywnym oznaczeniu niczego nie potwierdza.
     """
     job = await _load_job(db, current_user, job_id)
+    _require_can_mark(current_user, job)
     ad = await db.get(JobAd, job_id)
     if ad is None:
         raise HTTPException(
             status_code=404,
             detail="Najpierw przygotuj ogłoszenie — potem oznaczysz publikację.",
+        )
+    if portal == PORTAL_JJIT and await live_on_jjit(db, job_id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "jjit_api_live",
+                "message": (
+                    "To ogłoszenie NEXUS publikuje na JustJoin.IT sam — nie "
+                    "trzeba go oznaczać."
+                ),
+            },
         )
     try:
         url = publications.clean_url(data.url, portal)
@@ -442,9 +494,17 @@ async def mark_ad_removed(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> JobAdResponse:
-    """Ogłoszenie zdjęte z portalu — wiersz zostaje jako ślad."""
+    """Ogłoszenie zdjęte z portalu — wiersz zostaje jako ślad.
+
+    Ogłoszenie opublikowane przez API zamyka na portalu worker i dopiero on
+    zapisuje zdjęcie; decyduje DL rekrutacji, Head of Recruitment albo admin.
+    """
     job = await _load_job(db, current_user, job_id)
-    if not await publications.mark_removed(
+    _require_can_mark(current_user, job)
+    if portal == PORTAL_JJIT and await live_on_jjit(db, job_id) is not None:
+        await _managed_status(db, current_user, job)
+        await request_unpublish(db, job=job, portal=Portal.justjoinit)
+    elif not await publications.mark_removed(
         db, job_id, portal=portal, user_id=current_user.id
     ):
         raise HTTPException(
@@ -861,6 +921,82 @@ _MAILBOX_MISSING = (
     "Twoja skrzynka Microsoft 365 nie jest podłączona. Podłącz ją w Ustawieniach "
     "→ Moje konto → „Outlook i kalendarz” albo skopiuj treść maila do Outlooka."
 )
+
+
+class AdJjitPublishRequest(BaseModel):
+    # Brak przy aktualizacji = ustawienia z publikacji.
+    options: Optional[PortalListingOptions] = None
+    expected_updated_at: Optional[datetime] = None
+
+
+@router.post("/jobs/{job_id}/portal-ad/jjit", response_model=JobAdResponse)
+async def publish_ad_on_jjit(
+    job_id: int,
+    data: AdJjitPublishRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> JobAdResponse:
+    """Ogłoszenie na JustJoin.IT przez API: publikacja albo aktualizacja żywego.
+
+    Publikuje DL rekrutacji, Head of Recruitment albo admin; tylko otwarta
+    rekrutacja, wersja z ekranu, treść bez znalezisk blokujących. Przy
+    linku do strony kariery (``apply.url``) ta musi wisieć w tej samej wersji;
+    przy formularzu portalu (``JJIT_APPLY_EMAIL``) nie jest potrzebna.
+    Samo zlecenie idzie do kolejki, portal woła worker.
+    """
+    job = await _load_job(db, current_user, job_id)
+    await _managed_status(db, current_user, job)
+    ad = await db.get(JobAd, job_id)
+    if ad is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Najpierw przygotuj ogłoszenie — potem je opublikujesz.",
+        )
+    if data.expected_updated_at != ad.updated_at:
+        raise _changed(
+            "Ktoś w międzyczasie zmienił to ogłoszenie. Wczytałem aktualną "
+            "wersję — przeczytaj ją, zanim opublikujesz."
+        )
+    mat = await _material(db, job)
+    reply = await _response(db, job, ad, mat, user_id=current_user.id)
+    if not reply.can_copy:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_ad_blocked",
+                "message": (
+                    "W treści są fragmenty, których nie publikujemy. Usuń je, "
+                    "zanim opublikujesz ogłoszenie."
+                ),
+            },
+        )
+    # 06.11.2026: przy formularzu portalu kandydat nie przechodzi przez
+    # stronę kariery, więc nie musi ona wisieć (``JJIT_APPLY_EMAIL``).
+    if reply.career.status != career.STATUS_LIVE and not native_apply_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "career_not_live",
+                "message": (
+                    "Najpierw opublikuj to ogłoszenie na stronie kariery — "
+                    "kandydaci z JustJoin.IT aplikują przez nią."
+                ),
+            },
+        )
+    try:
+        await send_ad_to_jjit(
+            db,
+            job=job,
+            user_id=current_user.id,
+            options=data.options.as_dict() if data.options else None,
+        )
+    except PortalRequestError as exc:
+        detail: dict = {"code": exc.code, "message": exc.message}
+        if exc.problems:
+            detail["problems"] = exc.problems
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+    await db.commit()
+    return await _response(db, job, ad, mat, user_id=current_user.id)
 
 
 async def _pracuj_ad(

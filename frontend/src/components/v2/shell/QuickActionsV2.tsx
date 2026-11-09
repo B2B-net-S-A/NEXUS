@@ -21,6 +21,7 @@ import {
   AddMeetingModal,
 } from "@/components/AppShell";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
+import { TOPBAR_ADD_BUTTON_CLASS, TOPBAR_ADD_LABEL_CLASS } from "./topbar-layout";
 
 export type QuickActionModal =
   | "candidate"
@@ -118,9 +119,16 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="primary">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Dodaj</span>
+          <Button
+            size="sm"
+            variant="primary"
+            aria-label="Dodaj"
+            title="Dodaj"
+            className={TOPBAR_ADD_BUTTON_CLASS}
+            data-testid="topbar-add"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            <span className={TOPBAR_ADD_LABEL_CLASS}>Dodaj</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">

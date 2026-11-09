@@ -104,6 +104,8 @@ def test_prep_change_catalog_names_everyone_who_gets_the_mail():
         ("job_p0_set", "P0: ultrapilne do 28.10 10:09", "job", "job_p0"),
         # 28.10.2026: Delivery Lead prosi o P0 — mail do Head of Recruitment.
         ("job_p0_requested", "Marcin K. prosi o P0", "job", "job_p0"),
+        # 06.11.2026: termin P0 minął — Head of Recruitment przedłuża albo kończy.
+        ("job_p0_overdue", "Termin P0 minął — przedłuż albo zakończ", "job", "job_p0"),
         # 28.10.2026: zamknięta rekrutacja z Twoimi osobami od „CV wysłane”.
         (
             "job_closed_people_waiting",
@@ -113,6 +115,13 @@ def test_prep_change_catalog_names_everyone_who_gets_the_mail():
         ),
         # 28.10.2026: ważne ogłoszenie na pulpicie — mail obowiązkowy do odbiorców.
         ("announcement_important", "Piątek: Daily o 9:30", "announcement", "announcement"),
+        # 02.11.2026: sprawa z panelu klienta — do Delivery Leada.
+        (
+            "client_panel_request",
+            "Klient pyta o osobę",
+            "client_panel_request",
+            "client_interview",
+        ),
         ("stage_rule", "CV wysłane: Jan", "candidate_stage", None),
         ("job_chat_message", "Czat", "job", None),
     ],

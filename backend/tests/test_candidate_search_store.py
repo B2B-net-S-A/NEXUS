@@ -259,6 +259,35 @@ async def test_released_lease_is_reclaimed_at_once_and_counted():
 
 
 @pytest.mark.asyncio
+async def test_auto_run_yields_without_using_up_a_claim():
+    """08.11.2026: automat oddaje kolejkę ręcznemu przeglądowi; ponowne
+    przejęcie po ustąpieniu nie zbliża go do ``MAX_CLAIMS``."""
+    async with AsyncSessionLocal() as db:
+        try:
+            user, client = await _actor_and_client(db, "yield")
+            auto = _bare_run(user, client)
+            auto.version_trace = {store.ORIGIN_KEY: store.ORIGIN_AUTO}
+            db.add(auto)
+            await db.flush()
+            token = await store.claim_run(db, auto.id, lease_seconds=300)
+            assert not await store.manual_run_waiting(db, exclude_id=auto.id)
+            manual = _bare_run(user, client, request_fingerprint="d" * 64)
+            db.add(manual)
+            await db.flush()
+            assert await store.manual_run_waiting(db, exclude_id=auto.id)
+            assert not await store.yield_run(db, auto.id, "someone-else")
+            assert await store.yield_run(db, auto.id, token)
+            await db.refresh(auto)
+            assert store.claim_count(auto.metrics) == 0
+            # Lease wygasł od razu: automat wraca do kolejki bez czekania.
+            assert await store.claim_run(db, auto.id)
+            await db.refresh(auto)
+            assert store.claim_count(auto.metrics) == 1
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
 async def test_reaper_fails_only_claimed_runs_without_progress_or_live_lease():
     async with AsyncSessionLocal() as db:
         try:

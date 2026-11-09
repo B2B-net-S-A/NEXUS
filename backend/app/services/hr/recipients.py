@@ -35,7 +35,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import leave_substitute, people
 
 SupervisorKind = Literal["manager", "division_head", "people_admin"]
-PEOPLE_ADMIN_LABEL = "Kadry"
+PEOPLE_ADMIN_LABEL = "Administracja współpracy"
 
 
 @dataclass(frozen=True)

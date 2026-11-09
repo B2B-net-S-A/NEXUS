@@ -72,7 +72,9 @@ export function SendEmailV2({
       <MailboxMissingDialog
         onOpenChange={onOpenChange}
         candidateEmail={candidateEmail}
-        reconnect={Boolean(connection.data?.connected && connection.data?.requires_reconnect)}
+        reconnect={Boolean(connection.data?.requires_reconnect)}
+        defaultSubject={defaultSubject}
+        defaultBody={defaultBody}
       />
     );
   }
@@ -90,14 +92,27 @@ export function SendEmailV2({
   );
 }
 
+/** Program pocztowy dostaje też szkic, inaczej rekruter pisałby go od zera. */
+export function mailtoHref(email: string, subject?: string, body?: string): string {
+  const query = [
+    subject ? `subject=${encodeURIComponent(subject)}` : null,
+    body ? `body=${encodeURIComponent(body)}` : null,
+  ].filter(Boolean);
+  return `mailto:${email}${query.length > 0 ? `?${query.join("&")}` : ""}`;
+}
+
 function MailboxMissingDialog({
   onOpenChange,
   candidateEmail,
   reconnect,
+  defaultSubject,
+  defaultBody,
 }: {
   onOpenChange: (open: boolean) => void;
   candidateEmail: string;
   reconnect: boolean;
+  defaultSubject?: string;
+  defaultBody?: string;
 }) {
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -128,7 +143,7 @@ function MailboxMissingDialog({
         <DialogFooter className="flex-wrap gap-2">
           {candidateEmail ? (
             <Button variant="outline" asChild>
-              <a href={`mailto:${candidateEmail}`}>
+              <a href={mailtoHref(candidateEmail, defaultSubject, defaultBody)}>
                 <Mail className="size-4" />
                 Program pocztowy
               </a>

@@ -107,6 +107,7 @@ import {
   resolveVisibleRecruitmentFocus,
   type CandidateRecruitmentView,
 } from "@/components/v2/pages/candidate-profile-navigation";
+import { formatTerm } from "@/lib/kpi-who-counts";
 import { cn, formatDate } from "@/lib/utils";
 import { JobNameLabel } from "@/components/v2/jobs/JobNameLabel";
 import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
@@ -687,6 +688,11 @@ function ActiveRecruitmentRow({
           <Badge size="sm" variant="neutral">
             {recruitmentStageLabel(job.latest_stage, job.latest_stage_name, candidateStageLabel)}
           </Badge>
+          {job.client_interview_at ? (
+            <span className="mt-0.5 block whitespace-nowrap text-xs tabular-nums text-foreground">
+              Rozmowa: {formatTerm(job.client_interview_at)}
+            </span>
+          ) : null}
         </td>
         <td className="whitespace-nowrap px-3 py-1.5 text-muted-foreground">
           {owner ? capitalize(owner) : "—"}
@@ -1707,6 +1713,7 @@ function RecruitmentCard({
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}
           textAlign={normalizeCvAlign(branded?.text_align)}
+          originalStageId={cvStageId}
         />
       ) : null}
       {!readOnly && openBranded && stageId != null ? (

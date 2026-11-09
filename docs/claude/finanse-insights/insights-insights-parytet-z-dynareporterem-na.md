@@ -26,11 +26,12 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   Nowa treść = najpierw pytanie, na które odpowiada; jeśli nie jest jednym
   z czterech pytań widoków, to jest raport, nie kolejny blok na widoku.
 - **Head of Recruitment NIE widzi pieniędzy (decyzja Artura 24.09.2026).**
-  `BoardReader` = admin + finance (`/board`, `/clients/ranking`, narzędzie
-  Jarvisa `insights_board`); `/board/yoy` stoi na `BoardTrendReader` (+ HoR),
+  `BoardReader` = „Wyniki firmy” albo Rada, bez Finansów od 02.11.2026
+  (`/board`, `/clients/ranking`, narzędzie Jarvisa `insights_board`); `/board/yoy` stoi na `BoardTrendReader` (+ HoR),
   a HoR dostaje odpowiedź przez `without_money` (bez metryk `pln`,
   `margin_pct` i kwot w `component_series`, `money_redacted: true`). Mail
-  zarządu (`kpi_email_reports._BOARD_ROLES`) idzie tylko do admina i Finansów.
+  zarządu idzie tylko do Rady i adminów, bez Finansów (zmiana 02.11.2026:
+  `uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`).
   `/api/competitions/monthly-races` nie oddaje marży/h z rozstrzygania remisu
   (`_MARGIN_EXTRAS`) — do 24.09 widział ją każdy zalogowany.
 - **Tabele osób bez kont administracyjnych** (24.09.2026): Zespół → Ludzie,
@@ -163,6 +164,16 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z widoku `analytics_first_milestones`. `candidate_stages` nie ma unikalności
   na `(candidate_id, job_id, stage)`, a import Traffita dopisuje wiersz na każde
   zdarzenie — liczenie surowych wierszy dubluje powroty na etap.
+- **Każdy etap z zasługą liczy się raz na parę, także między podejściami
+  procesu** (decyzja Artura 05.11.2026, jak D2 dla `hired`). Nowe podejście
+  (`attempt_no + 1`, np. „Przywróć” po odrzuceniu) nie daje drugiej
+  weryfikacji, QC ani rekomendacji, jeśli para była już na tym etapie —
+  także przed 12.10.2026 albo przed oknem procesu. Odrzucona albo czekająca
+  weryfikacja nie jest wejściem pary. Warunek stoi w `classified_stage_ranked`
+  (`VERIFIER_ANCHORED_CTE`). Kopia z 04.11.2026: od 12.10 zdjęło to 11 wierszy
+  (weryfikacje −5, QC −3, rekomendacje −3), zawsze tej samej osobie; np. osoba
+  odrzucona przez DL, dodana ponownie i zweryfikowana 2 minuty później.
+  Kolejność Ligi i zwycięzca wyścigu X bez zmian.
 - **Weryfikacje i rekomendacje też liczymy per para (kandydat, rekrutacja),
   nie per osoba** (decyzja Artura 21.10.2026). Osoba zweryfikowana
   i zarekomendowana w trzech rekrutacjach to trzy weryfikacje i trzy
@@ -236,13 +247,14 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
 - **Wypłata konkursów = `award_order` + zamknięcie okresu (0344, decyzje
   Artura 22.09.2026).** Ekran (`compose_monthly_races`) i `freeze_competition`
   biorą kolejność nagród z JEDNEJ funkcji `award_order`: kwalifikacja →
-  wykluczenie lidera kwartału, do którego należy DANY miesiąc
-  (`monthly_race_excluded_user_ids`: zamrożony zwycięzca kwartału → remis
-  w kwartale czekający na admina, wykluczeni wszyscy remisujący → ranking od
-  początku kwartału do końca tego miesiąca) → remisy
-  (`services/competition_rules.py`). Do 22.09 zamrożenie pomijało wykluczenie
-  i lider Q2 dostał też nagrody miesięczne za maj i czerwiec — te okresy
-  zostały świadomie bez korekty. Remisy: wyścig placementów rozstrzyga suma
+  remisy (`services/competition_rules.py`). **Lider Ligi kwartału bierze
+  nagrodę miesięczną jak każdy (decyzja Artura 05.11.2026)** — wyścigi nie
+  zależą od Ligi. Do 05.11.2026 lider kwartału, do którego należał dany
+  miesiąc, był z wyścigów miesięcznych wykluczony; okresy zamrożone z tą
+  zasadą zostają, jak je wypłacono (`excluded_user_ids` w zamrożeniu, na
+  ekranie plakietka „zasada do 05.11.2026” i dopisek w warunkach). Nie
+  przywracaj wykluczenia w `award_order` ani `compose_monthly_races`.
+  Remisy: wyścig placementów rozstrzyga suma
   marży/h (`fold_money`, stawki z dnia placementu), brak marży albo równość
   co do grosza → admin; wyścig rekomendacji — precyzja, potem wcześniejsza
   ostatnia rekomendacja, bez admina; Liga i liga DL do Q3 2026 — każdy remis
@@ -401,9 +413,17 @@ z Tablicy. Granice to fakty biznesowe (`competition_history.DR_HISTORY_START`
 - **Z widoku liczą:** licznik celów i KPI coach, Mój miesiąc, „Twój tydzień”,
   Zespół (lejek, Ludzie, Do uwagi), „Aktywność rekrutacyjna”, kafle metryk,
   tabela i aktywność zespołu, Firma (etapy, placementy, seria 12 miesięcy),
-  Rok do roku (liczba placementów), Analiza placementów (osoby), Ścieżka
-  rozwoju, Hall of Fame (placementy przed 2026 bez osoby = „nieprzypisane”),
-  kampanie.
+  Rok do roku (liczba placementów), Analiza placementów (osoby), Hall of Fame
+  (placementy przed 2026 bez osoby = „nieprzypisane”), kampanie.
+- **Ścieżka rozwoju liczy z `credited`, jak Zespół → Ludzie** (05.11.2026),
+  przez `CREDITED_FROM_SNAPSHOT_CTE`. Do tego dnia szła za `first_moved_by`, czyli
+  od 12.10 za tym, kto kliknął „Zatrudniony”: Finanse 7 z 22 placementów, DL 10,
+  admin 2, rekruterzy 3. Na kopii produkcji 16 z 22 trafiało do innej osoby niż
+  w tabeli, a dwa konta nie miały awansu junior → senior. Pula Ścieżki to sami
+  rekruterzy, więc zasługa z kliknięcia po prostu wypadała poza nią. Suma Ścieżki
+  ma się zgadzać z tabelą Zespół dla tego samego okna (test w
+  `test_insights_seniority.py`). Hall of Fame i Analiza placementów zostają przy
+  `first_moved_by` (akapit o Hall of Fame wyżej).
 - **Klienci** (Analiza placementów, Rok do roku): z `history_client_placements`
   z własną sumą `client_placements` — przed 12.10 inna tabela DynaReportera niż
   liczba placementów, więc sumy bywają różne; UI to pisze.

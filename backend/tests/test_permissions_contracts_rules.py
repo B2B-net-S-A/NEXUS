@@ -27,6 +27,7 @@ from app.services.section_permissions import ProductSection
 
 ADMIN = UserRole.admin
 FINANCE = UserRole.finance
+BACK_OFFICE = UserRole.back_office
 HOR = UserRole.head_of_recruitment
 LEAD = UserRole.delivery_lead
 TCM = UserRole.talent_community_manager
@@ -265,18 +266,18 @@ async def test_amounts_only_holder_changes_nothing_but_amounts() -> None:
 # Kto przechodzi bramkę przy DOMYŚLNYCH uprawnieniach ról (to, co admin widzi
 # na ekranie po migracji) — jedna trasa na każde uprawnienie.
 DEFAULT_HOLDERS = (
-    (contracts.get_contract, {ADMIN, FINANCE, LEAD, TCM, AUTOMATION}),
+    (contracts.get_contract, {ADMIN, FINANCE, BACK_OFFICE, LEAD, TCM, AUTOMATION}),
     # Decyzja Artura 02.10.2026: Finanse zakładają i edytują kontrakty.
-    (contracts.create_contract, {ADMIN, FINANCE, LEAD}),
-    (contracts.update_contract, {ADMIN, FINANCE, LEAD}),
-    (autenti.send_contract_for_signature, {ADMIN, FINANCE, LEAD}),
+    (contracts.create_contract, {ADMIN, FINANCE, BACK_OFFICE, LEAD}),
+    (contracts.update_contract, {ADMIN, FINANCE, BACK_OFFICE, LEAD}),
+    (autenti.send_contract_for_signature, {ADMIN, FINANCE, BACK_OFFICE, LEAD}),
     # Statusu Finanse nie zmieniają; TCM kończy współpracę — także zbiorczo.
-    (contracts.update_contract_status, {ADMIN, LEAD, TCM}),
-    (contracts.terminate_contract, {ADMIN, LEAD, TCM}),
-    (contracts.bulk_mark_ended, {ADMIN, LEAD, TCM}),
+    (contracts.update_contract_status, {ADMIN, BACK_OFFICE, LEAD, TCM}),
+    (contracts.terminate_contract, {ADMIN, BACK_OFFICE, LEAD, TCM}),
+    (contracts.bulk_mark_ended, {ADMIN, BACK_OFFICE, LEAD, TCM}),
     # TCM czyta rejestr operacyjnie, ale dokumentów ze stawkami nie otwiera.
-    (contracts.list_contract_documents, {ADMIN, FINANCE, LEAD}),
-    (autenti.list_signatures_for_contract, {ADMIN, FINANCE, LEAD}),
+    (contracts.list_contract_documents, {ADMIN, FINANCE, BACK_OFFICE, LEAD}),
+    (autenti.list_signatures_for_contract, {ADMIN, FINANCE, BACK_OFFICE, LEAD}),
 )
 
 

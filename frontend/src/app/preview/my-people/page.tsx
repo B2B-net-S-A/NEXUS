@@ -15,6 +15,7 @@ import {
   EmptyListView,
   ErrorView,
   ForJobView,
+  FromLinksView,
   PeopleListView,
   type RowActions,
 } from "@/components/v2/my-people/MyPeopleViews";
@@ -85,7 +86,6 @@ const ROWS: MyPeopleRow[] = [
 const SUMMARY: MyPeopleSummary = {
   total: 5,
   new_matches: 3,
-  jobs_with_matches: 2,
   latest_matches: [
     { job_id: 11, job_title: "Senior Java Developer", candidate_id: 1, full_name: "Anna Przykładowa", score: 84, created_at: "2026-09-21T08:00:00Z" },
   ],
@@ -161,6 +161,48 @@ export default function MyPeoplePreviewPage() {
             actions={ACTIONS}
           />
         </Frame>
+        <Frame title="Z linków">
+          <FromLinksView
+            onAdd={noop}
+            people={[
+              {
+                candidate_id: 9101,
+                full_name: "Celina Fikcyjna",
+                applied_at: "2026-10-28T09:12:00Z",
+                was_duplicate: false,
+                kind: "job",
+                slug: "senior-java-7kq2",
+                job_id: 101,
+                job_title: "Senior Java Developer",
+                current_stage: "new",
+                current_job_id: 101,
+                current_job_title: "Senior Java Developer",
+                screening_status: null,
+                screening_outcome: null,
+                in_my_people: false,
+              },
+              {
+                candidate_id: 9102,
+                full_name: "Damian Testowy",
+                applied_at: "2026-10-21T14:40:00Z",
+                was_duplicate: true,
+                kind: "recruiter",
+                slug: "marta-n",
+                job_id: null,
+                job_title: null,
+                current_stage: null,
+                current_job_id: null,
+                current_job_title: null,
+                screening_status: null,
+                screening_outcome: null,
+                in_my_people: true,
+              },
+            ]}
+          />
+        </Frame>
+        <Frame title="Z linków — pusto">
+          <FromLinksView people={[]} />
+        </Frame>
         <Frame title="Do tej rekrutacji">
           <ForJobView data={FOR_JOB} actions={{ onAdd: noop }} />
         </Frame>
@@ -207,15 +249,7 @@ export default function MyPeoplePreviewPage() {
           <ErrorView message="Nie udało się wczytać Twojej listy." onRetry={noop} />
         </Frame>
       </div>
-      <MyPeopleBuddyView
-        count={SUMMARY.new_matches}
-        sentences={summarySentences(SUMMARY)}
-        showBubble
-        onOpen={noop}
-        onDismissBubble={noop}
-        onHide={noop}
-        animate={false}
-      />
+      <MyPeopleBuddyView onOpen={noop} />
     </main>
   );
 }

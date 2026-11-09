@@ -24,11 +24,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { ChipField, type ChipCommitSource } from "@/components/v2/filters/AdvancedSearchPopover";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
+import type { SentGapRow, SentGapWord } from "@/lib/requirement-sent-gaps-api";
+import { DictionaryHintCallout } from "@/components/champion/DictionaryHintCallout";
+import { relationHintText } from "@/lib/dictionary-hints";
 import {
+  BroadVariantCallout,
   CityCallout,
   CommentCallout,
   DecisionCallout,
   RareWordCallout,
+  SentGapCallout,
 } from "@/components/champion/RequirementRowCallouts";
 import { statSentence } from "@/lib/critical-skills";
 import {
@@ -53,6 +58,7 @@ import {
   enterRequirements,
   gluedVariants,
   isRareRowCount,
+  sentGapForRow,
   levelBlockedReason,
   parseRequirementEntry,
   requiredOverflowNotice,
@@ -72,7 +78,7 @@ import {
   type RowCriticalState,
   type TalkItem,
 } from "@/lib/requirement-rows";
-import { useRowCounts } from "@/lib/requirement-rows-api";
+import { useDictionaryHints, useRowCounts } from "@/lib/requirement-rows-api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -82,6 +88,17 @@ import { cn } from "@/lib/utils";
  */
 export const OUTSIDE_DICTIONARY_NOTE =
   "Spoza słownika technologii — w propozycjach AI zostają osoby, które mają którekolwiek ze słów tego wiersza w profilu, CV albo notatkach. Szukamy dokładnie tych słów; odmianę łapie początek słowa z gwiazdką, np. „bankow*”.";
+
+export interface RequirementSentGaps {
+  sent: number;
+  rows: readonly SentGapRow[];
+  /** Słowa po wierszu serwera; `null` = jeszcze nie pytano modelu. */
+  wordsFor: (label: string) => readonly SentGapWord[] | null;
+  canAsk: boolean;
+  asking: boolean;
+  askError: string | null;
+  onAsk: () => void;
+}
 
 export interface RequirementRowsEditorProps {
   rows: RequirementRowForm[];
@@ -110,6 +127,8 @@ export interface RequirementRowsEditorProps {
   onMoveToTalk?: (item: TalkItem) => void;
   /** Ile osób zostawiają krytyczne razem (`undefined` = liczę, `null` = nie wiadomo). */
   onCriticalCountChange?: (count: number | null | undefined) => void;
+  /** Wiersze, których nie ma nikt z wysłanych; brak = nie mówimy nic (nowa rekrutacja, harness). */
+  sentGaps?: RequirementSentGaps;
 }
 
 /** Podpowiedzi w wierszu: lista dopiero po wpisaniu tekstu (nie zasłania wiersza niżej). */
@@ -154,6 +173,7 @@ export function RequirementRowsEditor({
   className,
   onMoveToTalk,
   onCriticalCountChange,
+  sentGaps,
 }: RequirementRowsEditorProps) {
   const noCriticalId = useId();
   const shown = useMemo<RequirementRowForm[]>(
@@ -184,6 +204,8 @@ export function RequirementRowsEditor({
   const [entryNote, setEntryNote] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const counts = useRowCounts(shown, exclude, countEnabled && !disabled);
+  // Słowa spoza słownika (06.11.2026): podpowiedź z nocnych propozycji.
+  const dictionaryHints = useDictionaryHints(shown, { enabled: countEnabled && !disabled });
   const criticalCount = criticalRows(shown).length > 0 ? counts.critical : null;
   useEffect(() => {
     onCriticalCountChange?.(criticalCount);
@@ -362,8 +384,16 @@ export function RequirementRowsEditor({
           const countHint = counted ? rowCountHint(counts.perRow[row.key]) : null;
           const rowCount = counts.perRow[row.key];
           const rareKey = `rare:${head}`;
+          const sentGapKey = `sent-gap:${head}`;
+          const sentGap =
+            sentGaps && row.level !== "nice" && !dismissed.has(sentGapKey)
+              ? sentGapForRow(row.words, sentGaps.rows)
+              : null;
+          // Jedno ostrzeżenie na wiersz: dowód z wysłanych mówi więcej niż licznik.
           const rareCount =
-            counted && isRareRowCount(rowCount) && !dismissed.has(rareKey) ? rowCount : null;
+            counted && isRareRowCount(rowCount) && !dismissed.has(rareKey) && !sentGap
+              ? rowCount
+              : null;
           const rowHints = hints.filter((hint) => hint.row === index);
           // Pusty wiersz przyjmuje wymagania. Wypełniony pokazuje same chipy:
           // bez pola kolejne słowo nie stanie się po cichu wariantem — pole
@@ -524,6 +554,35 @@ export function RequirementRowsEditor({
                   onKeep={() => setDismissed((prev) => new Set(prev).add(cityKey))}
                 />
               ) : null}
+              {sentGap && sentGaps ? (
+                <SentGapCallout
+                  word={row.words.join(" lub ")}
+                  gap={{
+                    sent: sentGaps.sent,
+                    words: sentGaps.wordsFor(sentGap.label),
+                    canAsk: sentGaps.canAsk,
+                    asking: sentGaps.asking,
+                    askError: sentGaps.askError,
+                  }}
+                  countEnabled={countEnabled}
+                  onAsk={sentGaps.onAsk}
+                  onAddWord={(word) => setWords(row.key, [...row.words, word])}
+                  onTalk={() => {
+                    remove(row.key);
+                    toTalk(row.words.join(" / "), "skills");
+                  }}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(sentGapKey))}
+                />
+              ) : null}
+              {row.level !== "nice" && !decision && !city && !dismissed.has(`broad:${head}`) ? (
+                <BroadVariantCallout
+                  words={row.words}
+                  critical={row.level === "critical"}
+                  countEnabled={countEnabled && !disabled}
+                  onRemove={(word) => setWords(row.key, row.words.filter((w) => w !== word))}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(`broad:${head}`))}
+                />
+              ) : null}
               {rareCount != null ? (
                 <RareWordCallout
                   word={row.words.join(" lub ")}
@@ -538,6 +597,52 @@ export function RequirementRowsEditor({
                   onKeep={() => setDismissed((prev) => new Set(prev).add(rareKey))}
                 />
               ) : null}
+              {row.words.flatMap((word) =>
+                (dictionaryHints.relationsByWord?.[word.trim().toLowerCase()] ?? []).map((hint) => {
+                  const text = relationHintText(hint, row.level === "critical");
+                  const key = `rel:${hint.kind}:${word.trim().toLowerCase()}`;
+                  if (!text || dismissed.has(key)) return null;
+                  return (
+                    <p
+                      key={key}
+                      role="note"
+                      data-testid="requirement-relation-hint"
+                      data-tour="requirements.relation-hint"
+                      className={cn(
+                        "flex flex-wrap items-center gap-2 px-1 text-xs",
+                        hint.kind === "implied" ? "text-muted-foreground" : "text-warning-muted-foreground",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">{text}</span>
+                      <button
+                        type="button"
+                        className="text-xs underline-offset-2 hover:underline"
+                        onClick={() => setDismissed((prev) => new Set(prev).add(key))}
+                      >
+                        Zostaw
+                      </button>
+                    </p>
+                  );
+                }),
+              )}
+              {row.words.map((word) => {
+                // Rdzeń z gwiazdką to składnia wyszukiwania, nie hasło: przy
+                // „microsoft*” podpowiedź dopisywała „Microsoft 365” (789198).
+                if (word.trim().endsWith("*")) return null;
+                const hint = dictionaryHints.byWord[word.trim().toLowerCase()];
+                const key = `dict:${word.trim().toLowerCase()}`;
+                if (!hint || dismissed.has(key)) return null;
+                return (
+                  <DictionaryHintCallout
+                    key={key}
+                    hint={hint}
+                    rowWords={row.words}
+                    canCurate={dictionaryHints.canCurate}
+                    onAddWords={(words) => setWords(row.key, [...row.words, ...words])}
+                    onKeep={() => setDismissed((prev) => new Set(prev).add(key))}
+                  />
+                );
+              })}
               {countHint ? (
                 <p
                   className="px-1 text-xs text-warning-muted-foreground"

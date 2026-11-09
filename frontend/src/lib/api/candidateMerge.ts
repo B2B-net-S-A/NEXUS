@@ -39,6 +39,33 @@ export interface MergeReference {
   unresolvable: boolean;
 }
 
+// Rekrutacja wspólna dla obu profili. `result_stage` to etap, który zostaje na
+// karcie po scaleniu (reguła `card_after_merge` po stronie serwera).
+export interface MergeCard {
+  job_id: number;
+  job_title: string | null;
+  survivor_stage: string;
+  survivor_stage_name: string;
+  duplicate_stage: string;
+  duplicate_stage_name: string;
+  result_stage: string;
+  result_stage_name: string;
+  kept: MergeChoice;
+  restores: boolean;
+}
+
+export interface MergePrimaryCvFile {
+  document_id: number | null;
+  filename: string;
+  from_duplicate: boolean;
+}
+
+export interface MergePrimaryCv {
+  before: MergePrimaryCvFile | null;
+  after: MergePrimaryCvFile | null;
+  changes: boolean;
+}
+
 export interface MergePlan {
   survivor_id: number;
   duplicate_id: number;
@@ -50,6 +77,8 @@ export interface MergePlan {
   moved_rows: number;
   conflicts: number;
   blockers: { code: string; message: string }[];
+  primary_cv: MergePrimaryCv;
+  cards: MergeCard[];
   can_apply: boolean;
   fingerprint: string;
 }

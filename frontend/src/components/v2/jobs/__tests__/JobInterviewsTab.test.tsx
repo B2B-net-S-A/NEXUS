@@ -9,7 +9,7 @@
  */
 
 import type { ComponentProps } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -252,6 +252,41 @@ describe("JobInterviewsTab", () => {
     await editableForm();
     return select;
   }
+
+  it("głos klienta: powody klienta tak, sprawy osoby nie (04.11.2026)", async () => {
+    const reason = (id: number, name: string, label: string) => ({
+      id,
+      template_id: 1,
+      stage_def_id: null,
+      name,
+      label,
+      order: id,
+      category: "rejected",
+      active: true,
+      disqualifies_person: false,
+      created_at: "",
+      updated_at: "",
+    });
+    templatesGet.mockResolvedValue({
+      data: {
+        stages: [],
+        rejection_reasons: [
+          reason(20, "client_no_reason", "Klient nie podał powodu"),
+          reason(21, "client_chose_other", "Klient wybrał kogoś innego"),
+          reason(22, "no_contact", "Brak kontaktu"),
+          reason(23, "not_looking_for_work", "Nie szuka pracy lub niezainteresowany"),
+        ],
+      },
+    });
+    renderTab();
+    const select = await screen.findByLabelText("Powód (gdy odrzuca)");
+    await within(select).findByRole("option", { name: "Klient nie podał powodu" });
+    expect(within(select).getByRole("option", { name: "Klient wybrał kogoś innego" })).toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: "Brak kontaktu" })).toBeNull();
+    expect(
+      within(select).queryByRole("option", { name: "Nie szuka pracy lub niezainteresowany" }),
+    ).toBeNull();
+  });
 
   it("powód-werdykt o osobie mówi, że weto POWSTANIE — nie że już jest", async () => {
     renderTab();

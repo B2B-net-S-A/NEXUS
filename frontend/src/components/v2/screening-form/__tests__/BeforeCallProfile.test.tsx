@@ -171,8 +171,8 @@ describe("BeforeCallProfile — zwinięty blok nad formularzem (P2, 14.10.2026)"
     );
     await waitFor(() =>
       expect(line(1)).toHaveTextContent(
-        "W bazie od 12.05.2019 · Wcześniej u nas: Analityk systemowy, Bank Przykładowy — Odrzucony · 04.2025 · " +
-          "W innych rekrutacjach: 1",
+        "Odrzucony 04.2025: Klient — za mało integracji · Analityk systemowy, Bank Przykładowy · " +
+          "W bazie od 12.05.2019 · W innych rekrutacjach: 1",
       ),
     );
     expect(screen.getByTestId("before-call-summary").querySelectorAll("p")).toHaveLength(2);
@@ -283,6 +283,48 @@ describe("BeforeCallProfile — co już wiemy przed telefonem", () => {
     const calls = mocks.candidate.mock.calls.length;
     fireEvent.click(within(alert).getByRole("button", { name: "Ponów" }));
     await waitFor(() => expect(mocks.candidate.mock.calls.length).toBe(calls + 1));
+  });
+
+  it.each([
+    ["rejected", null, "Odrzucony 04.2025: bez zapisanego powodu"],
+    ["withdrawn", "Wybrał inną ofertę", "Zrezygnował 04.2025: Wybrał inną ofertę"],
+    ["hired", null, "Zatrudniony 04.2025"],
+  ])("zwinięty blok zaczyna linię od wyniku i powodu (%s)", async (stage, reason, expected) => {
+    respond({
+      history: {
+        jobs: [
+          {
+            job_id: 7,
+            job_title: "Analityk systemowy",
+            job_status: "published",
+            latest_stage: stage,
+            rejection_reason: reason,
+            last_seen: "2025-04-02T09:00:00Z",
+            stages: [],
+          },
+        ],
+      },
+    });
+    wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} onOpenHistory={vi.fn()} />);
+
+    const summary = await screen.findByTestId("before-call-summary");
+    await waitFor(() => expect(summary).toHaveTextContent(expected));
+    const line = within(summary).getByText(expected);
+    expect(line.closest("p")).toHaveClass("line-clamp-2");
+    if (stage === "hired") expect(summary).not.toHaveTextContent("powodu");
+  });
+
+  it("bez zakończonej rekrutacji linia historii zostaje jednowierszowa i bez wyniku", async () => {
+    respond({
+      history: { jobs: [] },
+      detail: { ...DETAIL, added_to_base_at: "2019-05-11T22:00:00Z", added_to_base_exact: true },
+    });
+    wrap(<BeforeCallProfile item={ITEM} jobId={JOB} readOnly={false} onOpenHistory={vi.fn()} />);
+
+    const summary = await screen.findByTestId("before-call-summary");
+    await waitFor(() => expect(summary).toHaveTextContent("W bazie od 12.05.2019"));
+    expect(summary).not.toHaveTextContent(/Odrzucony|powodu/);
+    expect(within(summary).getByText(/W bazie od 12\.05\.2019/).closest("p")).toHaveClass("truncate");
   });
 
   it("„Wcześniej u nas”: ostatnia ZAKOŃCZONA rekrutacja z wynikiem i wcześniejsze notatki z „Pokaż”", async () => {

@@ -10,7 +10,8 @@ Trzy poziomy (``tier``):
 - ``read``  — odczyt; wykonywany od razu, w trakcie tury.
 - ``write`` — zapis odwracalny; model tylko PROPONUJE. Serwer zapisuje
   ``jarvis_actions(status=proposed)``, a wykonanie następuje dopiero po
-  kliknięciu „Zrób to” przez człowieka.
+  kliknięciu „Zrób to” przez człowieka. Wyjątek: narzędzie z ``undo`` wykonuje
+  się od razu w turze, a karta ma „Cofnij” przez ``UNDO_WINDOW_MINUTES``.
 - ``link``  — operacje, których Jarvis nigdy nie wykonuje (usuwanie,
   wypowiedzenia, podpisy, stawki, maile). Narzędzie zwraca link do ekranu,
   na którym człowiek klika sam.
@@ -46,6 +47,9 @@ Tier = Literal["read", "write", "link"]
 # Wynik narzędzia podawany modelowi nie przekracza tylu znaków — dłuższy jest
 # przycinany z jawnym dopiskiem, żeby model wiedział, że widzi fragment.
 MAX_RESULT_CHARS = 6000
+# „Cofnij” przy zapisie wykonanym od razu — tyle samo, co ``quick_undo``
+# dodania do rekrutacji (`DELETE /api/candidates/{id}/recruitments/{job}`).
+UNDO_WINDOW_MINUTES = 15
 MAX_LIST_ITEMS = 20
 MAX_STRING_CHARS = 1500
 
@@ -90,6 +94,12 @@ class JarvisTool:
     hr_module: Optional[str] = None
     # Uprawnienia z ekranu (``ProductAction``) — wystarczy jedno z nich.
     any_permission: tuple[str, ...] = ()
+    # Zapis łatwy do cofnięcia (decyzja Artura 27.10.2026): wykonuje się OD
+    # RAZU w turze, a karta ma „Cofnij” przez ``UNDO_WINDOW_MINUTES``. Funkcja
+    # dostaje args i surową odpowiedź trasy, zwraca wywołania odwrotne.
+    undo: Optional[Callable[[dict[str, Any], Any], list[RequestSpec]]] = field(
+        default=None, repr=False
+    )
 
     def to_anthropic(self) -> dict[str, Any]:
         return {
@@ -523,6 +533,54 @@ def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
     }
 
 
+def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
+    """Liczba okresu + wiersze „kto, gdzie, kiedy, czyja zasługa” bez linków API."""
+    if not isinstance(data, dict):
+        return data
+    rows = []
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        cand = item.get("candidate") or {}
+        job = item.get("job") or {}
+        credited = item.get("credited_user") or {}
+        rows.append(
+            _clean(
+                {
+                    "candidate_id": cand.get("id"),
+                    "candidate": cand.get("name"),
+                    "job_id": job.get("id"),
+                    "job": job.get("working_title") or job.get("title"),
+                    "client": job.get("client_name"),
+                    "credited": credited.get("name"),
+                    "reached_at": item.get("reached_at"),
+                    "state": item.get("state"),
+                }
+            )
+        )
+    total = int(data.get("total") or 0)
+    page = int(data.get("page") or 1)
+    page_size = int(data.get("page_size") or MAX_LIST_ITEMS)
+    return trim(
+        _clean(
+            {
+                # Ta sama liczba co kafel; `total` = wiersze listy, bez tygodniowych
+                # wpisów DynaReportera sprzed 12.10.2026 (`history_total`).
+                "period_total": data.get("period_total"),
+                "history_total": data.get("history_total"),
+                "total": total,
+                "people": data.get("people"),
+                "period_start": data.get("period_start"),
+                "period_end": data.get("period_end"),
+                "scope": data.get("scope"),
+                "page": page,
+                "has_more": page * page_size < total,
+                "items": rows,
+            }
+        )
+    )
+
+
 def _shape_amendment_text(data: Any, _args: dict[str, Any]) -> Any:
     if not isinstance(data, dict):
         return trim(data)
@@ -623,6 +681,7 @@ _CYCLE_TODO_LABELS = {
     "questions_missing": "uzupełnij pytania z rozmowy u klienta (brak terminu w NEXUSIE)",
     "slots_pick": "wybierz termin z propozycji klienta",
     "slots_confirm": "potwierdź termin u klienta",
+    "slots_expired": "wszystkie terminy od klienta minęły — dodaj nowe",
     "prep_missing": "brak przygotowania (prep) przed rozmową",
     "slots_missing": "brak terminów od klienta",
     "prep2_missing": "brak drugiego przygotowania",
@@ -853,8 +912,11 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         name="global_search",
         label="Szukam w całym NEXUSIE",
         description=(
-            "Szybkie wyszukiwanie po nazwie w kandydatach, rekrutacjach, klientach i "
-            "kontaktach (po 5 wyników). Użyj, gdy znasz nazwę, a nie znasz ID."
+            "Szybkie wyszukiwanie po nazwie w kandydatach, rekrutacjach, klientach, "
+            "kontaktach i ludziach z kartoteką (`people`: pracownicy i kontraktorzy "
+            "z kontem NEXUSA, `id` = user_id), po 5 wyników. Polskie znaki nie mają "
+            "znaczenia; kandydata znajdziesz też po numerze telefonu. Użyj, gdy "
+            "znasz nazwę, a nie znasz ID."
         ),
         input_schema=_schema({"query": {**STR, "minLength": 2}}, ("query",)),
         tier="read",
@@ -986,7 +1048,7 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             "Kto z listy „Moi ludzie” pasuje do wskazanej rekrutacji: kanoniczny "
             'wynik dopasowania 0-100 ("niepoliczony" to brak danych, NIE zero), '
             "ostrzeżenia i czy osoba była już wysłana do tego klienta. Osoby już "
-            "w tej rekrutacji są pominięte. Użyj przed zaproponowaniem "
+            "w tej rekrutacji są pominięte. Użyj przed dodaniem przez "
             "`add_candidates_to_job`; `degraded: true` znaczy, że wyniki są "
             "chwilowo niedostępne — powiedz to, nie twierdź, że nikt nie pasuje."
         ),
@@ -1002,13 +1064,49 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="list_notifications",
         label="Czytam powiadomienia",
-        description="Powiadomienia użytkownika (nieprzeczytane najpierw).",
-        input_schema=_schema({"limit": LIMIT}),
+        description=(
+            "Powiadomienia użytkownika (nieprzeczytane najpierw). `topic` zawęża do "
+            "tematów ikon paska: messages (czaty i wzmianki w notatkach — „kto mnie "
+            "oznaczył”), interviews (rozmowy u klienta), cv, my_people, jobs "
+            "(rekrutacje i ruchy kandydatów), contracts, other. `offset` = starsze "
+            "pozycje (kolejna strona)."
+        ),
+        input_schema=_schema(
+            {
+                "limit": LIMIT,
+                "topic": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "messages",
+                            "interviews",
+                            "cv",
+                            "my_people",
+                            "jobs",
+                            "contracts",
+                            "other",
+                        ],
+                    },
+                    "maxItems": 7,
+                },
+                "offset": {"type": "integer", "minimum": 0, "maximum": 500},
+            }
+        ),
         tier="read",
         method="GET",
         path="/api/notifications",
         section=None,
-        build=lambda a: _get("/api/notifications", {"limit": _limit(a)}),
+        build=lambda a: _get(
+            "/api/notifications",
+            _clean(
+                {
+                    "limit": _limit(a),
+                    "topic": [str(t) for t in (a.get("topic") or [])][:7],
+                    "offset": a.get("offset"),
+                }
+            ),
+        ),
         shape=pick_list(
             (
                 "id",
@@ -1835,6 +1933,68 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         shape=as_is,
     ),
     JarvisTool(
+        name="activity_people",
+        label="Sprawdzam, kto się liczy",
+        description=(
+            "Imienna lista za liczbą (jak klik w liczbę lejka w Insights): kogo i w "
+            "jakiej rekrutacji zweryfikowano (verification), polecono klientowi "
+            "(recommendation), zaproszono na rozmowę u klienta (interview), "
+            "zaakceptowano (acceptance) albo zatrudniono (placement) — z datą i osobą, "
+            "która ma zasługę. Okres: jeden dzień (window=day, day), tydzień tego dnia "
+            "(window=week, day), miesiąc tego dnia (window=month, day; bez day bieżący) "
+            "albo dni od–do (window=range, date_from, date_to). Placement nie ma "
+            "window=day: dla jednego dnia podaj window=range. scope=team = cały "
+            "zespół/firma, mine = tylko moje. Pytanie ogólne („ile osób…”, „kto…”) bez "
+            "„ja/moje” → team; „Brak uprawnień” przy team znaczy, że rola nie widzi "
+            "zespołu — podaj wtedy swoje liczby i powiedz to. Na „ile” odpowiadaj "
+            "period_total (liczba z Insights), lista ma total wierszy po 20 na stronę: "
+            "has_more = kolejna strona przez page. Używaj do „ile dziś / w piątek…” "
+            "i „kto…”."
+        ),
+        input_schema=_schema(
+            {
+                "metric": {
+                    "type": "string",
+                    "enum": [
+                        "verification",
+                        "recommendation",
+                        "interview",
+                        "acceptance",
+                        "placement",
+                    ],
+                },
+                "window": {"type": "string", "enum": ["day", "week", "month", "range"]},
+                "day": {**STR, "format": "date"},
+                "date_from": {**STR, "format": "date"},
+                "date_to": {**STR, "format": "date"},
+                "scope": {"type": "string", "enum": ["mine", "team"]},
+                "page": {"type": "integer", "minimum": 1},
+            },
+            ("metric", "window"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/dashboard/v2/recruitment-activity/details",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(
+            "/api/dashboard/v2/recruitment-activity/details",
+            _clean(
+                {
+                    "metric": a.get("metric"),
+                    "window": a.get("window"),
+                    "day": a.get("day"),
+                    "date_from": a.get("date_from"),
+                    "date_to": a.get("date_to"),
+                    "scope": "team" if a.get("scope") == "team" else "auto",
+                    "page": a.get("page"),
+                    "page_size": MAX_LIST_ITEMS,
+                }
+            ),
+        ),
+        shape=_shape_activity_people,
+    ),
+    JarvisTool(
         name="explain_match",
         label="Sprawdzam dopasowanie",
         description=(
@@ -2069,7 +2229,35 @@ def _month_args(args: dict[str, Any]) -> tuple[int, int]:
     return int(year), int(month)
 
 
+_TIMESHEET_KEYS = (
+    "status",
+    "submitted_at",
+    "returned_at",
+    "return_note",
+    "approved_at",
+    "approved_by_name",
+    "payroll_locked",
+)
+
+
 def _shape_my_month(data: Any, _args: dict[str, Any]) -> Any:
+    return _month_summary(data, timesheet_keys=_TIMESHEET_KEYS)
+
+
+def _shape_person_month(data: Any, _args: dict[str, Any]) -> Any:
+    """Miesiąc innej osoby: bez powodu zwrotu (notatka akceptującego), bez
+    rodzaju nieobecności i opisów wpisów — tylko status, sumy i braki."""
+
+    summary = _month_summary(
+        data,
+        timesheet_keys=tuple(k for k in _TIMESHEET_KEYS if k != "return_note"),
+    )
+    if not isinstance(data, dict) or not isinstance(summary, dict):
+        return summary
+    return {**pick(data, ("user_id", "name")), **summary}
+
+
+def _month_summary(data: Any, *, timesheet_keys: tuple[str, ...]) -> Any:
     if not isinstance(data, dict):
         return trim(data)
     from app.core.scheduling import business_today
@@ -2088,18 +2276,7 @@ def _shape_my_month(data: Any, _args: dict[str, Any]) -> Any:
     return trim(
         {
             **pick(data, ("year", "month", "deadline", "approver_name")),
-            "timesheet": pick(
-                timesheet,
-                (
-                    "status",
-                    "submitted_at",
-                    "returned_at",
-                    "return_note",
-                    "approved_at",
-                    "approved_by_name",
-                    "payroll_locked",
-                ),
-            )
+            "timesheet": pick(timesheet, timesheet_keys)
             if isinstance(timesheet, dict)
             else {"status": "nierozpoczęty"},
             "totals": pick(
@@ -2262,7 +2439,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         description=(
             "Saldo urlopu pytającego w roku (domyślnie bieżący): pula, przeniesione, "
             "zatwierdzone, oczekujące i pozostałe dni; dla umowy o pracę także "
-            "urlop na żądanie. Wymaga kartoteki pracownika."
+            "urlop na żądanie. Wymaga kartoteki osoby."
         ),
         input_schema=_schema({"year": _YEAR_ARG}),
         tier="read",
@@ -2275,12 +2452,12 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
     ),
     JarvisTool(
         name="my_leave_requests",
-        label="Sprawdzam Twoje wnioski urlopowe",
+        label="Sprawdzam Twoje nieobecności",
         description=(
             "Wnioski o nieobecność pytającego (najnowsze najpierw): okres, liczba "
             "dni, status (pending, approved, rejected, cancelled), kto zdecydował, "
             "zastępca i czy można jeszcze anulować. Bez rodzaju i notatek — "
-            "szczegóły na ekranie „Mój czas”."
+            "szczegóły na ekranie „Moja współpraca”."
         ),
         input_schema=_schema({}),
         tier="read",
@@ -2295,7 +2472,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         name="my_month",
         label="Sprawdzam Twój miesiąc",
         description=(
-            "„Mój miesiąc” pytającego (domyślnie bieżący): status timesheetu "
+            "„Mój miesiąc” pytającego (domyślnie bieżący): status raportu godzin "
             "(draft, submitted, approved; zwrócony do poprawy = draft z "
             "`returned_at` i powodem w `return_note`), termin wysłania, "
             "akceptujący, suma godzin i nadgodzin, dni robocze bez wpisu do dziś."
@@ -2308,6 +2485,36 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         hr_module="time",
         build=lambda a: _get("/api/hr/time/me/{}/{}".format(*_month_args(a))),
         shape=_shape_my_month,
+    ),
+    JarvisTool(
+        name="person_month",
+        label="Sprawdzam raport godzin osoby",
+        description=(
+            "Raport godzin innej osoby z kontem NEXUSA za miesiąc (domyślnie "
+            "bieżący), po user_id — najpierw ustal id przez global_search "
+            "(kategoria `people`) albo who_is_absent. Zwraca to, co ekran "
+            "„Akceptacje”: status raportu (draft, submitted, approved), termin, "
+            "akceptującego, sumę godzin i nadgodzin, dni robocze bez wpisu do "
+            "dziś. Bez rodzaju nieobecności, opisów wpisów i powodu zwrotu. "
+            "Własny miesiąc to my_month. 404 = osoba nie ma kartoteki w "
+            "„Ludziach” (raportu godzin nie prowadzi)."
+        ),
+        input_schema=_schema(
+            {"user_id": INT, "year": _YEAR_ARG, "month": _MONTH_ARG}, ("user_id",)
+        ),
+        tier="read",
+        method="GET",
+        path="/api/hr/time/team/{user_id}/{year}/{month}",
+        section=None,
+        hr_module="time",
+        # Te same osoby, które trasa wpuszcza do miesiąca każdego (Actor.
+        # approves_everyone; admin ma wszystkie uprawnienia). Przełożony bez
+        # nich czyta swój zespół na ekranie „Akceptacje”.
+        any_permission=("timesheets", "people_admin"),
+        build=lambda a: _get(
+            "/api/hr/time/team/{}/{}/{}".format(_int(a, "user_id"), *_month_args(a))
+        ),
+        shape=_shape_person_month,
     ),
     JarvisTool(
         name="my_equipment",
@@ -2597,10 +2804,11 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="create_note",
         done="Notatka dodana.",
-        label="Przygotowuję notatkę",
+        label="Dodaję notatkę",
         description=(
-            "PROPONUJE dodanie notatki do profilu kandydata (opcjonalnie w kontekście "
-            "rekrutacji). Nic nie zapisuje — użytkownik zatwierdza kartę."
+            "WYKONUJE OD RAZU dodanie notatki do profilu kandydata (opcjonalnie w "
+            "kontekście rekrutacji). Użytkownik może ją cofnąć na karcie przez 15 min. "
+            "Notatka z oznaczeniem @osoby czeka na zatwierdzenie na karcie."
         ),
         input_schema=_schema(
             {
@@ -2629,7 +2837,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=pick_list(("id", "candidate_id", "job_id", "created_at")),
         preview=lambda a: (
-            f"Dodam notatkę do {_who(a)}"
+            f"Notatka w profilu: {_who(a)}"
             + (
                 f" (rekrutacja {_who(a, 'job_id', 'Rekrutacja')})"
                 if a.get("job_id")
@@ -2638,6 +2846,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             + f": „{_short(a.get('content'))}”"
         ),
         detail=lambda a: str(a.get("content") or "")[:4000],
+        undo=lambda _a, data: [RequestSpec("DELETE", f"/api/notes/{int(data['id'])}")],
     ),
     JarvisTool(
         name="move_candidate_stage",
@@ -2727,10 +2936,10 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="add_candidates_to_job",
         done="Dodano do rekrutacji.",
-        label="Przygotowuję dodanie do rekrutacji",
+        label="Dodaję do rekrutacji",
         description=(
-            "PROPONUJE dodanie jednego lub kilku kandydatów do rekrutacji (na pierwszy "
-            "etap szablonu). Nic nie zapisuje bez zgody użytkownika."
+            "WYKONUJE OD RAZU dodanie jednego lub kilku kandydatów do rekrutacji (na "
+            "pierwszy etap szablonu). Użytkownik może je cofnąć na karcie przez 15 min."
         ),
         input_schema=_schema(
             {
@@ -2766,15 +2975,23 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=as_is,
         preview=lambda a: (
-            f"Dodam {len(a.get('candidate_ids') or [])} "
-            f"{'kandydata' if len(a.get('candidate_ids') or []) == 1 else 'kandydatów'} do "
-            f"{_who(a, 'job_id', 'Rekrutacja')}: "
+            f"Dodanie do rekrutacji {_who(a, 'job_id', 'Rekrutacja')}: "
             f"{_names(a, 'candidate_ids', 'Kandydat')}"
         ),
         detail=lambda a: (
             _labelled("Notatka (trafi do profilu każdej z tych osób)", a.get("note"))
             or ""
         ),
+        # `quick_undo`: ta sama ścieżka co „Cofnij” po „+ Dodaj” w oknie
+        # „Kandydaci do dodania” — osoba wraca na listę propozycji.
+        undo=lambda a, data: [
+            RequestSpec(
+                "DELETE",
+                f"/api/candidates/{int(cid)}/recruitments/{_int(a, 'job_id')}",
+                params={"quick_undo": "true"},
+            )
+            for cid in (data.get("added") or [])
+        ],
     ),
     JarvisTool(
         name="create_calendar_event",
@@ -3171,11 +3388,11 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="snooze_my_person",
         done="Osoba uśpiona w „Moich ludziach”.",
-        label="Przygotowuję uśpienie",
+        label="Usypiam",
         description=(
-            "PROPONUJE uśpienie osoby na liście „Moi ludzie” z powodem: found_job "
+            "WYKONUJE OD RAZU uśpienie osoby na liście „Moi ludzie” z powodem: found_job "
             "(znalazła pracę), not_interested (nie jest zainteresowana), no_contact "
-            "(brak kontaktu), other (z notatką). Wybudzić można na liście."
+            "(brak kontaktu), other (z notatką). Użytkownik może cofnąć na karcie."
         ),
         input_schema=_schema(
             {
@@ -3201,18 +3418,21 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=lambda _data, _a: {"ok": True},
         preview=lambda a: (
-            f"Uśpię {_who(a)} w „Moich ludziach” — "
+            f"Uśpienie w „Moich ludziach”: {_who(a)} — "
             f"{_SNOOZE_PL.get(str(a.get('reason')), a.get('reason'))}"
         ),
         detail=lambda a: str(a.get("note") or ""),
+        undo=lambda a, _data: [
+            RequestSpec("DELETE", f"/api/my-people/{_int(a, 'candidate_id')}/snooze")
+        ],
     ),
     JarvisTool(
         name="pin_my_person",
         done="Osoba przypięta do „Moich ludzi”.",
-        label="Przygotowuję przypięcie",
+        label="Przypinam",
         description=(
-            "PROPONUJE przypięcie osoby do listy „Moi ludzie” (także kogoś, kogo "
-            "lista nie wyliczyła sama). Odpiąć można na liście."
+            "WYKONUJE OD RAZU przypięcie osoby do listy „Moi ludzie” (także kogoś, "
+            "kogo lista nie wyliczyła sama). Użytkownik może cofnąć na karcie."
         ),
         input_schema=_schema({"candidate_id": INT}, ("candidate_id",)),
         tier="write",
@@ -3225,7 +3445,10 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             "POST", f"/api/my-people/{_int(a, 'candidate_id')}/pin", json={}
         ),
         shape=lambda _data, _a: {"ok": True},
-        preview=lambda a: f"Przypnę {_who(a)} do „Moich ludzi”",
+        preview=lambda a: f"Przypięcie do „Moich ludzi”: {_who(a)}",
+        undo=lambda a, _data: [
+            RequestSpec("DELETE", f"/api/my-people/{_int(a, 'candidate_id')}/pin")
+        ],
     ),
     JarvisTool(
         name="remember_preference",
@@ -3337,7 +3560,7 @@ SCREENS: dict[str, tuple[str, str]] = {
     "insights": ("/insights", "Insights"),
     "settings": ("/settings", "Ustawienia"),
     "help": ("/help", "Pomoc"),
-    "my_time": ("/my-time", "Mój czas (urlopy, „Mój miesiąc”)"),
+    "my_time": ("/my-time", "Moja współpraca (urlopy, „Mój miesiąc”)"),
     "people": ("/people", "Ludzie"),
     "people_approvals": ("/people/approvals", "Ludzie — akceptacje"),
     "equipment": ("/equipment", "Sprzęt"),

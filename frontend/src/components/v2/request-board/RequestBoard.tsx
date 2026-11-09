@@ -44,6 +44,7 @@ import {
 } from "@/components/v2/jobs/ClientReferenceChip"
 import { JobDeadlineCell } from "@/components/v2/jobs/JobListCells"
 import { useToastIfProvided } from "@/components/v2/jobs/JobNameLabel"
+import { ChannelBadge } from "@/components/v2/jobs/ChannelBadge"
 import { RecruiterChips } from "@/components/v2/jobs/RecruiterChips"
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip"
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2"
@@ -63,7 +64,7 @@ import { formatIsoDatePl } from "@/lib/date-pl"
 import { formatDeadlineShort, shortenPersonName } from "@/lib/job-header-subtitle"
 import { canRemoveRecruiter, removeRecruiter, workingRecruiters } from "@/lib/job-team"
 import { invalidateJobTeam } from "@/lib/job-team-cache"
-import { pluralPl } from "@/lib/plural-pl"
+import { countPl, pluralPl } from "@/lib/plural-pl"
 import {
   EMPTY_FILTERS,
   SCOPE_LABEL,
@@ -71,7 +72,9 @@ import {
   filtersFromParams,
   filtersToParams,
   groupCatValue,
+  groupCvSummary,
   groupRequests,
+  lastCvTitle,
   hasUrlFilters,
   loadSummary,
   nextCategory,
@@ -82,6 +85,7 @@ import {
   type BoardFilters,
   type ShownGroup,
 } from "@/lib/request-board"
+import { boardChannelNotes, newProfilesText, sortByChannel } from "@/lib/job-channels"
 import { automatAssigns, priorityLevelOf } from "@/lib/request-priority"
 import { cn } from "@/lib/utils"
 import { resolveViewState } from "@/lib/view-state"
@@ -90,8 +94,10 @@ import { warsawDateOf } from "@/lib/warsaw-date"
 import { ChangesPanel, LoadPanel } from "./LoadPanel"
 import { RequestBoardFilters } from "./RequestBoardFilters"
 import { P0Chip } from "@/components/v2/jobs/p0/P0Chip"
+import { P0OverdueActions } from "@/components/v2/jobs/p0/P0OverdueActions"
+import { useNow } from "@/components/v2/jobs/p0/useNow"
 import { SetP0Dialog } from "@/components/v2/jobs/p0/SetP0Dialog"
-import { isP0Active } from "@/lib/job-p0"
+import { isP0Active, isP0Overdue } from "@/lib/job-p0"
 import { hasRole, useAuthStore } from "@/store/auth"
 
 // Układ zależy od szerokości KONTENERA, nie okna: ten sam pulpit stoi
@@ -265,6 +271,8 @@ export interface RequestBoardViewProps {
   onClearScope?: () => void
   /** Sama tabela bez nagłówka, filtrów i obłożenia — panel P0 na pulpicie. */
   tableOnly?: boolean
+  /** Rekruterzy w wierszu jako licznik „12 osób” (rozwinięty pasek P0 na pulpicie). */
+  recruitersAsCount?: boolean
 }
 
 export type RequestBoardVariant = "tile" | "daily"
@@ -336,11 +344,32 @@ interface RowProps
     | "onRemovePerson"
     | "onAcceptProposal"
     | "busyKeys"
+    | "recruitersAsCount"
   > {
   request: BoardRequest
   group: ShownGroup
   /** Dzień firmy jako data lokalna — tak liczy termin lista rekrutacji. */
   now: Date
+}
+
+/** Audyt 08.11.2026: B4 (P1 bez CV) i B6 (nowe profile) nad kategorią na Daily. */
+function GroupCvSummary({ rows }: { rows: readonly BoardRequest[] }) {
+  const { quietP1, p1, newProfiles, newProfilesCv } = groupCvSummary(rows)
+  return (
+    <span
+      className="ml-auto text-xs text-muted-foreground"
+      data-testid="request-group-cv-summary"
+      data-tour="daily.p1-no-cv"
+    >
+      {p1 > 0 ? (
+        <span className={quietP1 > 0 ? "font-semibold text-destructive-muted-foreground" : undefined}>
+          P1 bez CV ≥5 dni: {quietP1} z {p1}
+        </span>
+      ) : null}
+      {p1 > 0 && newProfiles > 0 ? " · " : null}
+      {newProfiles > 0 ? `${newProfilesText(newProfiles, newProfilesCv)}` : null}
+    </span>
+  )
 }
 
 function RequestRow({
@@ -355,11 +384,17 @@ function RequestRow({
   onRemovePerson,
   onAcceptProposal,
   busyKeys,
+  recruitersAsCount = false,
 }: RowProps) {
   const toast = useToastIfProvided()
   const [p0DialogOpen, setP0DialogOpen] = useState(false)
-  const p0 = isP0Active(request, now)
-  const people = boardPeople(request)
+  const p0 = isP0Active(request)
+  // 06.11.2026: P0 po terminie trwa do decyzji Head of Recruitment. Zegar,
+  // nie `now` wiersza — to 12:00 dnia firmy, do terminów klienta.
+  const clock = useNow()
+  const overdue = isP0Overdue(request, clock)
+  const people = sortByChannel(boardPeople(request))
+  const channelNotes = boardChannelNotes(request)
   const busy = (person: BoardPerson) =>
     busyKeys?.has(boardPersonKey(request.job_id, person.user_id)) === true
   const categoryShort =
@@ -454,6 +489,9 @@ function RequestRow({
             onOpenChange={setP0DialogOpen}
           />
         ) : null}
+        {overdue ? (
+          <P0OverdueActions jobId={request.job_id} canDecide={canSetP0} className="mt-1" />
+        ) : null}
         {/* Powód P0 (28.10.2026): w samym dymku chipu nikt go nie czytał. */}
         {p0 && request.p0_reason ? (
           <p
@@ -462,6 +500,15 @@ function RequestRow({
           >
             „{request.p0_reason}”
           </p>
+        ) : null}
+        {request.days_without_cv != null ? (
+          <span
+            className="mt-1 inline-flex w-fit items-center rounded-full bg-destructive-muted px-2 py-0.5 text-[11px] font-semibold text-destructive-muted-foreground"
+            title={lastCvTitle(request.last_cv_sent_at)}
+            data-testid="request-no-cv-pill"
+          >
+            Bez CV od {request.days_without_cv} dni rob.
+          </span>
         ) : null}
         {meta.length > 0 && (
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-muted-foreground">
@@ -518,43 +565,74 @@ function RequestRow({
       </div>
       {/* „+ osoba” stoi w tej samej linii co osoby, dopóki się mieści. */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 self-center py-2 pr-4">
-        <RecruiterChips
-          people={people}
-          size="sm"
-          // Lista nie szersza niż kolumna: długie nazwisko obcina się w chipie,
-          // zamiast wypychać tabelę w poziome przewijanie.
-          className="max-w-full"
-          label={`Rekruter: ${request.title}`}
-          onRemove={(person) => onRemovePerson(request, person)}
-          canRemove={(person) =>
-            !busy(person) &&
-            canRemoveRecruiter(person, { canStaff, canDecide, canEdit: false })
-          }
-          proposalActions={(person) =>
-            canDecide ? (
-              <Button
-                size="sm"
-                loading={busy(person)}
-                onClick={() => onAcceptProposal(request, person)}
-                aria-label={`Akceptuj propozycję: ${person.name} — ${request.title}`}
-              >
-                Akceptuj
-              </Button>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">czeka na akceptację</span>
-            )
-          }
-          emptyLabel={
-            request.champion ? (
-              // Mamy championa — nikt już nie szuka, więc brak osoby to nie alarm.
-              <span className="text-muted-foreground">nikt</span>
-            ) : (
-              <span className="rounded-full bg-warning-muted px-2 py-0.5 text-xs font-medium text-warning-muted-foreground">
-                Bez rekrutera
-              </span>
-            )
-          }
-        />
+        {recruitersAsCount && people.length > 0 ? (
+          <span
+            data-testid="request-people-count"
+            className="text-xs font-medium text-foreground"
+            title={people.map((person) => person.name).join(", ")}
+          >
+            {countPl(people.length, "osoba", "osoby", "osób")}
+          </span>
+        ) : (
+          <RecruiterChips
+            people={people}
+            size="sm"
+            // Lista nie szersza niż kolumna: długie nazwisko obcina się w chipie,
+            // zamiast wypychać tabelę w poziome przewijanie.
+            className="max-w-full"
+            label={`Rekruter: ${request.title}`}
+            adornment={(person) =>
+              person.channel ? <ChannelBadge channel={person.channel} iconOnly /> : null
+            }
+            onRemove={(person) => onRemovePerson(request, person)}
+            canRemove={(person) =>
+              !busy(person) &&
+              canRemoveRecruiter(person, { canStaff, canDecide, canEdit: false })
+            }
+            proposalActions={(person) =>
+              canDecide ? (
+                <Button
+                  size="sm"
+                  loading={busy(person)}
+                  onClick={() => onAcceptProposal(request, person)}
+                  aria-label={`Akceptuj propozycję: ${person.name} — ${request.title}`}
+                >
+                  Akceptuj
+                </Button>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">czeka na akceptację</span>
+              )
+            }
+            emptyLabel={
+              request.champion ? (
+                // Mamy championa — nikt już nie szuka, więc brak osoby to nie alarm.
+                <span className="text-muted-foreground">nikt</span>
+              ) : (
+                <span className="rounded-full bg-warning-muted px-2 py-0.5 text-xs font-medium text-warning-muted-foreground">
+                  Bez rekrutera
+                </span>
+              )
+            }
+          />
+        )}
+        {channelNotes.map((note) => (
+          <span
+            key={note}
+            data-testid="request-channel-note"
+            className="rounded-full bg-warning-muted px-2 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
+          >
+            {note}
+          </span>
+        ))}
+        {(request.new_profiles_7d ?? 0) > 0 ? (
+          <span
+            className="text-[11px] text-muted-foreground"
+            data-testid="request-new-profiles"
+            title="Profile założone przez rekrutera pod tę rekrutację w ostatnich 7 dniach, bez portali i poleceń."
+          >
+            {newProfilesText(request.new_profiles_7d ?? 0, request.new_profiles_7d_cv ?? 0)}
+          </span>
+        ) : null}
         {canStaff && !request.champion && (
           <AddPerson
             board={board}
@@ -583,6 +661,7 @@ export function RequestBoardView({
   scopeLabel = null,
   onClearScope,
   tableOnly = false,
+  recruitersAsCount = false,
 }: RequestBoardViewProps) {
   const daily = variant === "daily"
   const { groups, shown, total } = useMemo(
@@ -639,6 +718,7 @@ export function RequestBoardView({
                   <Badge variant={competenceTone(group.slug)}>{group.name}</Badge>
                   <span className="text-sm font-semibold">{group.shownLabel}</span>
                   <span className="text-sm text-muted-foreground">{group.detail}</span>
+                  {daily ? <GroupCvSummary rows={group.rows} /> : null}
                 </div>
                 {group.rows.map((request) => (
                   <RequestRow
@@ -654,6 +734,7 @@ export function RequestBoardView({
                     onRemovePerson={onRemovePerson}
                     onAcceptProposal={onAcceptProposal}
                     busyKeys={busyKeys}
+                    recruitersAsCount={recruitersAsCount}
                   />
                 ))}
               </section>
@@ -703,7 +784,7 @@ export function RequestBoardView({
               href="/jobs/daily"
               className="text-sm font-medium text-primary hover:underline"
             >
-              Na daily
+              Przegląd requestów
             </Link>
           )}
           <Link
@@ -752,7 +833,7 @@ export function RequestBoardView({
             !daily && "@min-[640px]/rboard:grid-cols-2",
           )}
         >
-          <LoadPanel load={board.load} today={today} />
+          <LoadPanel load={board.load} today={today} requests={board.requests} />
           {!daily && <ChangesPanel changes={board.changes} since={board.changes_since} />}
         </aside>
       </div>
@@ -773,11 +854,14 @@ export function RequestBoard({
   scope = "all",
   variant = "tile",
   onlyJobIds,
+  recruitersAsCount = false,
 }: {
   scope?: RequestBoardScope
   variant?: RequestBoardVariant
   /** Sama tabela tych requestów, bez filtrów — panel P0 na pulpicie. */
   onlyJobIds?: ReadonlySet<number>
+  /** Rekruterzy w wierszu jako licznik — rozwinięty pasek P0 na pulpicie. */
+  recruitersAsCount?: boolean
 } = {}) {
   const query = useRequestBoard()
   const pathname = usePathname()
@@ -877,6 +961,7 @@ export function RequestBoard({
         board={board}
         variant={variant}
         tableOnly={onlyJobIds !== undefined}
+        recruitersAsCount={recruitersAsCount}
         scopeLabel={scopeActive && scope !== "all" ? SCOPE_LABEL[scope] : null}
         onClearScope={() => setScopeDismissed(true)}
         today={warsawToday()}

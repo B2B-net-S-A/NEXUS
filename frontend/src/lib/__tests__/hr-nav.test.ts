@@ -15,6 +15,7 @@ const MODULES = {
   equipment: true,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>, open = MODULES): HrConfig {
@@ -41,7 +42,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
   it("wyłączony program ukrywa wszystko, także adminowi z otwartymi modułami", () => {
     const all = Object.fromEntries(Object.keys(MODULES).map((k) => [k, true])) as typeof MODULES;
     const off = { ...config({ is_admin: true, has_profile: true, people_admin: true }, all), program: false };
-    expect(hrNavState(off)).toEqual({ myTime: false, people: false, equipment: false, care: false });
+    expect(hrNavState(off)).toEqual({ myTime: false, people: false, equipment: false, care: false, backOffice: false });
   });
 
   it("bez odczytu konfiguracji wszystko ukryte", () => {
@@ -50,6 +51,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: false,
       equipment: false,
       care: false,
+      backOffice: false,
     });
   });
 
@@ -59,6 +61,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: true,
       equipment: false,
       care: false,
+      backOffice: false,
     });
   });
 
@@ -68,6 +71,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: true,
       equipment: true,
       care: false,
+      backOffice: false,
     });
   });
 
@@ -98,6 +102,15 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
     expect(ids({ has_profile: true })).not.toContain("care");
   });
 
+  it("kolejka back office tylko dla członka zespołu, reszta zostaje przy „Opiece”", () => {
+    const open = { ...MODULES, back_office: true, care: true, cases: true };
+    const member = config({ back_office_member: true }, open);
+    expect(hrNavState(member).backOffice).toBe(true);
+    const outsider = config({ back_office_member: false, cases: true }, open);
+    expect(hrNavState(outsider).backOffice).toBe(false);
+    expect(hrNavState(outsider).care).toBe(true);
+  });
+
   it("wyłączony moduł chowa pozycję mimo kartoteki", () => {
     const off = { ...MODULES, people: false, leave: false, equipment: false, settlements: false };
     expect(hrNavState(config({ has_profile: true }, off))).toEqual({
@@ -105,7 +118,18 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: false,
       equipment: false,
       care: false,
+      backOffice: false,
     });
+  });
+
+  it("„Back office” stoi na szynie, gdy moduł otwarty dla tej osoby", () => {
+    const admin = { role: "admin" as const, roles: ["admin" as const] };
+    const hr = hrNavState(config({ back_office_member: true, is_admin: true }, { ...MODULES, back_office: true, care: true }));
+    const items = visiblePrimaryGroups(admin as never, { contactQueueEnabled: false, hr }).flatMap((group) =>
+      group.items.map((entry) => entry.id),
+    );
+    expect(items).toContain("back-office");
+    expect(items).not.toContain("care");
   });
 
   it("„Pracownik” ma w menu tylko „Mój czas”, „Ludzie” i pozycje systemowe", () => {

@@ -7,8 +7,13 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+import pytest
 
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
+from app.services.client_invoicing import billing, clients, fa_sales
 from app.services.client_invoicing.billing import (
     COST_NOTE,
     BillingLine,
@@ -18,7 +23,15 @@ from app.services.client_invoicing.billing import (
     period_fraction,
 )
 from app.services.client_invoicing.ledger import Chain, check
-from app.services.client_invoicing.matching import Target, decide, numbers_found
+from app.services.client_invoicing.line_gaps import GAP_REASONS
+from app.services.client_invoicing.matching import (
+    REASON_LABELS,
+    RETRY_REASONS,
+    Target,
+    auto_match,
+    decide,
+    numbers_found,
+)
 from app.services.client_invoicing.views import row_status
 from app.services.client_invoicing.payments import (
     OpenInvoice,
@@ -149,6 +162,112 @@ def test_number_and_one_person_amount_links_to_that_person():
         refs=_refs(row),
     )
     assert decision.targets == (Target(order_id=2),)
+
+
+def _one_number_on_two_groups(first_lines, second_lines):
+    """Ten sam numer zamówienia na dwóch grupach klienta (dwa trafione wiersze)."""
+
+    a = _group(10, "445", *first_lines)
+    b = _group(11, "445", *second_lines)
+    return [a, b]
+
+
+def test_number_on_two_groups_and_one_person_amount_links_to_that_person():
+    rows = _one_number_on_two_groups(
+        [_line(1, "10000.00"), _line(2, "12000.00", "Ewa Przykładowa")],
+        [_line(3, "7000.00", "Adam Przykładowy")],
+    )
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+    )
+    assert decision.targets == (Target(order_id=2),)
+    assert decision.method == "order_number"
+
+
+def test_number_on_two_groups_and_two_people_with_that_amount_waits():
+    rows = _one_number_on_two_groups(
+        [_line(1, "12000.00"), _line(2, "9000.00", "Ewa Przykładowa")],
+        [_line(3, "12000.00", "Adam Przykładowy"), _line(4, "5000.00", "Ola Testowa")],
+    )
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
+def test_number_on_two_groups_prefers_a_whole_row_over_a_person():
+    rows = _one_number_on_two_groups(
+        [_line(1, "12000.00"), _line(2, "9000.00", "Ewa Przykładowa")],
+        [_line(3, "7000.00", "Adam Przykładowy"), _line(4, "5000.00", "Ola Testowa")],
+    )
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=rows,
+        refs=_refs(*rows),
+    )
+    assert decision.targets == (Target(group_id=11),)
+
+
+def test_two_equal_whole_rows_are_not_resolved_by_a_person():
+    group = _group(10, "445", _line(1, "12000.00"))
+    periodic = _periodic(20, "445", "12000.00")
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=[group, periodic],
+        refs=_refs(group, periodic),
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
+def test_number_on_two_rows_ignores_a_person_amount_outside_a_group():
+    pool = BillingRow(
+        client_id=1,
+        kind="md",
+        group_id=10,
+        order_id=None,
+        order_number="445",
+        currency="PLN",
+        lines=(
+            BillingLine(
+                order_id=None,
+                consultant="2 os.",
+                basis="md",
+                quantity=Decimal("1"),
+                unit_price=Decimal("1"),
+                net=Decimal("12000.00"),
+                currency="PLN",
+            ),
+            _line(1, "5000.00"),
+        ),
+    )
+    other = _group(11, "445", _line(3, "7000.00", "Adam Przykładowy"))
+    decision = decide(
+        net=Decimal("12000.00"),
+        currency="PLN",
+        texts=["zam 445"],
+        rows=[pool, other],
+        refs=_refs(pool, other),
+    )
+    assert not decision.matched
+    assert decision.reason == "several_orders"
+
+
+def test_several_orders_gets_another_attempt():
+    assert "several_orders" in RETRY_REASONS
 
 
 def test_number_outside_the_month_is_not_guessed():
@@ -407,3 +526,326 @@ def test_credit_without_number_is_only_a_hint_and_unrelated_is_skipped():
         _credit("1230.00", "FS 11/7/2026", currency="EUR"), invoices
     )
     assert foreign.reason == "currency_differs"
+
+
+def _sales_xml(buyer: str) -> bytes:
+    path = (
+        Path(__file__).parent
+        / "data/ksef/sales/9876543210-20261103-A1180C0FFEE1-5C.xml"
+    )
+    return (
+        path.read_text(encoding="utf-8")
+        .replace("<NIP>1111111111</NIP>", buyer)
+        .encode("utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("buyer", "expected"),
+    [
+        ("<KodUE>FI</KodUE><NrVatUE>12345678</NrVatUE>", "FI12345678"),
+        ("<KodUE>fi</KodUE><NrVatUE>FI12345678</NrVatUE>", "FI12345678"),
+        ("<KodUE>DE</KodUE><NrVatUE>123 456 789</NrVatUE>", "DE123456789"),
+        # Numery z literami: nie wolno ich uciąć ani zgubić prefiksu kraju.
+        ("<KodUE>FR</KodUE><NrVatUE>1A123456789</NrVatUE>", "FR1A123456789"),
+        ("<KodUE>FR</KodUE><NrVatUE>FR1B987654321</NrVatUE>", "FR1B987654321"),
+        ("<KodUE>IE</KodUE><NrVatUE>9S99999L</NrVatUE>", "IE9S99999L"),
+        ("<KodUE>AT</KodUE><NrVatUE>U12345678</NrVatUE>", "ATU12345678"),
+        ("<KodUE>AT</KodUE><NrVatUE>ATU12345678</NrVatUE>", "ATU12345678"),
+        ("<KodUE>ES</KodUE><NrVatUE>X1234567L</NrVatUE>", "ESX1234567L"),
+        ("<KodUE>NL</KodUE><NrVatUE>123456789B01</NrVatUE>", "NL123456789B01"),
+        ("<KodUE>CY</KodUE><NrVatUE>12345678L</NrVatUE>", "CY12345678L"),
+        ("<KodUE>EL</KodUE><NrVatUE>123-456-789</NrVatUE>", "EL123456789"),
+        # Kod kraju z faktury decyduje, nawet gdy numer niesie inny prefiks.
+        ("<KodUE>DE</KodUE><NrVatUE>FR1A123456789</NrVatUE>", "DEFR1A123456789"),
+        ("<KodUE>FI</KodUE><NrVatUE>---</NrVatUE>", None),
+        ("<NIP>1111111111</NIP>", None),
+        ("<BrakID>1</BrakID>", None),
+    ],
+)
+def test_buyer_foreign_id_from_invoice(buyer, expected):
+    assert fa_sales.parse_sales_invoice(_sales_xml(buyer)).buyer_foreign_id == expected
+
+
+def test_registry_resolves_foreign_id_and_rejects_unknown():
+    registry = clients.NipRegistry(by_nip={"FI12345678": 7})
+    assert registry.resolve("FI12345678") == (7, None)
+    assert registry.resolve("FI00000000") == (None, "unknown_buyer")
+
+
+def _hourly_row(*people):
+    return BillingRow(
+        client_id=1,
+        kind="periodic",
+        group_id=5,
+        order_id=None,
+        order_number="PO-1",
+        currency="PLN",
+        lines=tuple(
+            BillingLine(
+                order_id=order_id,
+                consultant=name,
+                basis="hours",
+                quantity=Decimal("168"),
+                unit_price=Decimal(price),
+                net=Decimal("168") * Decimal(price),
+                currency="PLN",
+            )
+            for order_id, name, price in people
+        ),
+    )
+
+
+def _decide_person(
+    *people, item_name="ABCD:2026-111111, Jan Przykładowy, usługa", price="150.00"
+):
+    return decide(
+        net=Decimal("24150.00"),
+        currency="PLN",
+        texts=[item_name],
+        rows=[_hourly_row(*people)],
+        refs=[],
+        items=[{"name": item_name, "unit_price": price}],
+    )
+
+
+def test_person_and_unit_price_bind_when_hours_differ():
+    decision = _decide_person(
+        (10, "Jan Przykładowy", "150"), (11, "Ewa Testowa", "150")
+    )
+    assert decision.method == "person"
+    assert decision.targets == (Target(order_id=10),)
+
+
+def test_person_name_order_and_case_do_not_matter():
+    decision = _decide_person(
+        (10, "Jan Przykładowy", "150"), item_name="USŁUGA, PRZYKŁADOWY JAN"
+    )
+    assert decision.targets == (Target(order_id=10),)
+
+
+@pytest.mark.parametrize(
+    ("consultant", "item_name"),
+    [
+        # Faktura po angielsku bez polskich znaków (pomiar 06.11.2026: 5 faktur).
+        ("Łukasz Żółtowski", "Consulting services, Lukasz Zoltowski"),
+        # I odwrotnie: w NEXUSIE bez znaków, na fakturze ze znakami.
+        ("Lukasz Zoltowski", "Usługa, Łukasz Żółtowski"),
+    ],
+)
+def test_person_name_without_polish_letters_still_points_at_the_person(
+    consultant, item_name
+):
+    decision = _decide_person((10, consultant, "150"), item_name=item_name)
+    assert decision.method == "person"
+    assert decision.targets == (Target(order_id=10),)
+
+
+@pytest.mark.parametrize(
+    ("people", "item_name", "price"),
+    [
+        # Inna cena: to może być inna umowa albo błąd, decydują Finanse.
+        (((10, "Jan Przykładowy", "150"),), "Jan Przykładowy", "151.00"),
+        # Sam fragment nazwiska nie wskazuje osoby.
+        (((10, "Jan Przykładowy", "150"),), "Jan Przykładowski", "150.00"),
+        (((10, "Jan Przykładowy", "150"),), "Przykładowy", "150.00"),
+        # Dwie osoby o tym samym nazwisku albo dwa zamówienia jednej osoby.
+        (
+            ((10, "Jan Przykładowy", "150"), (11, "Jan Przykładowy", "150")),
+            "Jan Przykładowy",
+            "150.00",
+        ),
+        # Faktura na dwie osoby naraz.
+        (
+            ((10, "Jan Przykładowy", "150"), (11, "Ewa Testowa", "150")),
+            "Jan Przykładowy, Ewa Testowa",
+            "150.00",
+        ),
+        # Pozycja bez ceny netto (P_9A).
+        (((10, "Jan Przykładowy", "150"),), "Jan Przykładowy", None),
+        # Pula bez osoby i jednowyrazowa nazwa nie wiążą.
+        (((None, "Jan Przykładowy", "150"),), "Jan Przykładowy", "150.00"),
+        (((10, "Jan", "150"),), "Jan Kowalski", "150.00"),
+    ],
+)
+def test_person_rule_refuses_when_not_certain(people, item_name, price):
+    decision = _decide_person(*people, item_name=item_name, price=price)
+    assert decision.matched is False
+    assert decision.reason == "amount_differs"
+
+
+def test_before_correction_item_does_not_point_at_a_person():
+    decision = decide(
+        net=Decimal("24150.00"),
+        currency="PLN",
+        texts=["Jan Przykładowy"],
+        rows=[_hourly_row((10, "Jan Przykładowy", "150"))],
+        refs=[],
+        items=[
+            {
+                "name": "Jan Przykładowy",
+                "unit_price": "150.00",
+                "before_correction": True,
+            }
+        ],
+    )
+    assert decision.matched is False
+
+
+def test_person_rule_does_not_override_order_number():
+    decision = decide(
+        net=Decimal("24150.00"),
+        currency="PLN",
+        texts=["PO-1, Jan Przykładowy"],
+        rows=[_hourly_row((10, "Jan Przykładowy", "150"))],
+        refs=[OrderRef(client_id=1, group_id=5, order_id=None, number="PO-1")],
+        items=[{"name": "PO-1, Jan Przykładowy", "unit_price": "150.00"}],
+    )
+    assert decision.method == "order_number"
+
+
+# ── Numer zamówienia, którego NEXUS nie zna ───────────────────────────────────
+
+
+def _named(net, *order_refs, items=()):
+    """Miesiąc klienta z jednym zamówieniem o numerze 87001111 i kwocie 1000."""
+
+    row = _periodic(5, "87001111", "1000.00")
+    return decide(
+        net=Decimal(net),
+        currency="PLN",
+        texts=list(order_refs),
+        rows=[row],
+        refs=_refs(row),
+        items=items,
+    )
+
+
+@pytest.mark.parametrize(
+    "order_ref",
+    [
+        "PO number: 0087009999",
+        "PO number 87009999, SWE1 contact: Jan Przykładowy jan@example.com",
+        "PO 87009999",
+        "Purchase order 87009999",
+        "Zamówienie nr: ZAM/9/2026/ABC",
+        "numer zamówienia: SAP 4500009999",
+        "Numer zamówienia: zlecenie X/9/26/AB/9/26CD",
+        "Nr zamówienia: 87009999",
+        "Protokół odbioru nr 7 dla zamówienia o numerze: ORD99991",
+        "87009999",
+    ],
+)
+def test_unknown_order_number_is_not_bound_by_amount(order_ref):
+    decision = _named("1000.00", order_ref)
+    assert decision.reason == "unknown_order_number"
+    assert not decision.matched
+
+
+def test_unknown_order_number_is_not_bound_by_person():
+    row = _periodic(5, "87001111", "1000.00")
+    decision = decide(
+        net=Decimal("777.00"),
+        currency="PLN",
+        texts=["PO number: 87009999"],
+        rows=[row],
+        refs=_refs(row),
+        items=[{"name": "Jan Przykładowy", "unit_price": "1"}],
+    )
+    assert decision.reason == "unknown_order_number"
+    assert not decision.matched
+
+
+def test_unknown_order_number_in_an_item_name_blocks_too():
+    row = _periodic(5, "87001111", "1000.00")
+    item_name = "Konsultant Jan Przykładowy, Nr zamówienia 1234/2026, SSGW 100001-1"
+    decision = decide(
+        net=Decimal("1000.00"),
+        currency="PLN",
+        texts=[item_name],
+        rows=[row],
+        refs=_refs(row),
+        items=[{"name": item_name, "unit_price": "1"}],
+    )
+    assert decision.reason == "unknown_order_number"
+    assert not decision.matched
+
+
+def test_known_order_number_still_binds():
+    decision = _named("777.00", "PO number: 0087001111")
+    assert decision.method == "order_number"
+    assert decision.targets == (Target(order_id=5),)
+
+
+def test_known_number_wins_over_a_second_unknown_one():
+    decision = _named("777.00", "PO number: 87009999", "PO number: 87001111")
+    assert decision.method == "order_number"
+
+
+@pytest.mark.parametrize(
+    "order_ref",
+    [
+        "Reference: Jan Przykładowy - application code: L12345 project name: L12345",
+        "Project name ARD2026 security test",
+        "jan.przykladowy2026@example.com",
+        "Nr umowy 12/2026 osoba wystawiająca zamówienie: Anna Przykładowa",
+        "Zamówienie z dnia 12.10.2026 do umowy ramowej z dnia 3 lipca 2024",
+        "Discount, according to the frame agreement - 2,5%",
+        "lipiec 2026",
+        "2026",
+        "PO Box 12345",
+        "po 30 dniach od wystawienia",
+    ],
+)
+def test_digits_outside_an_order_number_do_not_block_the_amount(order_ref):
+    decision = _named("1000.00", order_ref)
+    assert decision.method == "amount"
+    assert decision.targets == (Target(order_id=5),)
+
+
+def test_invoice_without_any_number_binds_by_amount():
+    assert _named("1000.00").method == "amount"
+
+
+def test_unknown_order_number_is_retried_and_explained():
+    assert "unknown_order_number" in RETRY_REASONS
+    assert "unknown_order_number" in REASON_LABELS
+    # Faktura wskazująca osobę bez pozycji dalej alarmuje DL-a.
+    assert "unknown_order_number" in GAP_REASONS
+
+
+@pytest.mark.asyncio
+async def test_auto_match_blocks_by_the_number_written_on_the_invoice(monkeypatch):
+    row = _periodic(5, "87001111", "1000.00")
+
+    async def family(_db, _client_ids):
+        return {1}
+
+    async def billing_rows(_db, **_kwargs):
+        return [row]
+
+    async def order_refs(_db, _members):
+        return _refs(row)
+
+    monkeypatch.setattr(clients, "family", family)
+    monkeypatch.setattr(billing, "billing_rows", billing_rows)
+    monkeypatch.setattr(billing, "order_refs", order_refs)
+    invoice = ClientSalesInvoice(
+        client_id=1,
+        invoice_kind="original",
+        match_status="unmatched",
+        period_year=2026,
+        period_month=7,
+        net_amount=Decimal("1000.00"),
+        currency="PLN",
+        order_refs=["PO number: 87009999"],
+        items=[],
+    )
+
+    decision = await auto_match(AsyncMock(), invoice, registry=object())
+
+    assert decision.reason == "unknown_order_number"
+    assert (invoice.match_status, invoice.match_reason) == (
+        "unmatched",
+        "unknown_order_number",
+    )

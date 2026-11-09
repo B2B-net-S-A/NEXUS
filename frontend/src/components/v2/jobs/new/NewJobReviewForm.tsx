@@ -33,9 +33,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { screeningQuestionHint } from "@/lib/screening-question-hint";
 import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
+import { IntakeRequirementProposals } from "@/components/v2/jobs/new/IntakeRequirementProposals";
 import { TalkChecksPanel } from "@/components/champion/TalkChecksPanel";
 import { addTalkItem, joinLanguage } from "@/lib/champion-experience";
-import type { RowCriticalState, TalkItem } from "@/lib/requirement-rows";
+import {
+  addNiceRows,
+  applyCriticalProposal,
+  type RowCriticalState,
+  type TalkItem,
+} from "@/lib/requirement-rows";
 import type { IntakeOffer, IntakeUnit } from "@/lib/job-intake-fill";
 import { IntakeOfferChip } from "./IntakeOfferChip";
 import {
@@ -67,6 +73,11 @@ import {
   splitCities,
 } from "@/lib/job-request-intake";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
+import {
+  responsibilityCount,
+  responsibilityGroups,
+  responsibilityRows,
+} from "@/lib/champion-responsibilities";
 
 const WORK_MODES: { value: RemotePolicyValue; label: string }[] = [
   { value: "remote", label: "Zdalnie" },
@@ -194,6 +205,14 @@ function FieldOffer({ unit }: { unit?: IntakeUnit }) {
       }}
     />
   );
+}
+
+/** Podpowiedź przy „Obowiązkach”: od 07.11.2026 odczyt daje punkt na obowiązek. */
+function responsibilitiesHint(text: string): string {
+  const count = responsibilityCount(responsibilityGroups(text));
+  if (count < 2) return "opcjonalnie";
+  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) return `${count} punkty`;
+  return `${count} punktów`;
 }
 
 function FieldLabel({
@@ -790,6 +809,26 @@ function ReviewSections({
             <ProvenanceChip basis={basis("requirements")} />
           </div>
           <FieldOffer unit="rows" />
+          <IntakeRequirementProposals
+            rows={form.rows}
+            noCritical={form.noCritical}
+            criticalProposal={form.criticalProposal}
+            mailTechnologies={form.mailTechnologies}
+            onApproveCritical={() =>
+              onChange((f) =>
+                markEdited(
+                  { ...f, rows: applyCriticalProposal(f.rows, f.criticalProposal), criticalProposal: [] },
+                  "requirements",
+                ),
+              )
+            }
+            onNoCritical={() => onChange((f) => ({ ...f, noCritical: true, criticalProposal: [] }))}
+            onDismissCritical={() => onChange((f) => ({ ...f, criticalProposal: [] }))}
+            onAddTechnologies={(names) =>
+              onChange((f) => markEdited({ ...f, rows: addNiceRows(f.rows, names) }, "requirements"))
+            }
+            onDismissTechnologies={() => onChange((f) => ({ ...f, mailTechnologies: [] }))}
+          />
           <RequirementRowsEditor
             rows={form.rows}
             onRowsChange={(rows) => onChange((f) => markEdited({ ...f, rows }, "requirements"))}
@@ -1184,19 +1223,22 @@ function ReviewSections({
           />
           <MissingNote show={isMissing("context")} />
         </div>
-        {form.responsibilities && (
-          <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.resp} hint="opcjonalnie" offerUnit="responsibilities">
-              Obowiązki
-            </FieldLabel>
-            <Textarea
-              id={ids.resp}
-              rows={2}
-              value={form.responsibilities}
-              onChange={(e) => set("responsibilities", e.target.value)}
-            />
-          </div>
-        )}
+        <div className="flex flex-col gap-2">
+          <FieldLabel
+            htmlFor={ids.resp}
+            hint={responsibilitiesHint(form.responsibilities)}
+            offerUnit="responsibilities"
+          >
+            Obowiązki
+          </FieldLabel>
+          <Textarea
+            id={ids.resp}
+            rows={responsibilityRows(form.responsibilities)}
+            value={form.responsibilities}
+            onChange={(e) => set("responsibilities", e.target.value)}
+            placeholder={"np.\n- Analiza wymagań z biznesem\n- Udział w testach"}
+          />
+        </div>
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.selling}

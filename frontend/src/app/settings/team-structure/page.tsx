@@ -22,6 +22,7 @@ import { useUrlWriter } from "@/lib/url-selection"
 import { TabbedNav } from "@/components/ds/TabbedNav"
 import { CompetenceTeamPanel } from "@/components/v2/competence-team/CompetenceTeamPanel"
 import { AllocationRulesPanel } from "@/components/v2/competence-team/AllocationRulesPanel"
+import { ClientWaitAutoCloseBlock } from "@/components/settings/ClientWaitAutoCloseBlock"
 import { usePathname, useSearchParams } from "next/navigation"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -362,7 +363,7 @@ type TeamTab = "kategorie" | "dl" | "automat"
 const TEAM_TABS = [
   { value: "kategorie", label: "Kategorie" },
   { value: "dl", label: "Delivery Leadzi i klienci" },
-  { value: "automat", label: "Automat przydziału" },
+  { value: "automat", label: <span data-tour="settings.team.automat">Automat przydziału</span> },
 ]
 
 export default function AdminTeamStructurePage() {
@@ -468,7 +469,10 @@ export default function AdminTeamStructurePage() {
           {tab === "kategorie" ? (
             <CompetenceTeamPanel />
           ) : tab === "automat" ? (
-            <AllocationRulesPanel />
+            <>
+              <AllocationRulesPanel />
+              <ClientWaitAutoCloseBlock canEdit={canEdit} />
+            </>
           ) : (
             <>
               <DeliveryLeadReportingInfo />

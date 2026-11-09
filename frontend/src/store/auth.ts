@@ -18,6 +18,9 @@ import { hasSectionAccess } from "@/lib/section-access"
 export type UserRole =
   | "admin"
   | "finance"
+  // „Back office” (0645) — rola WYŁĄCZNA: zamówienia i umowy, kwoty przy
+  // rekordzie, bez Wyników miesięcznych i Płac.
+  | "back_office"
   | "head_of_recruitment"
   | "delivery_lead"
   | "talent_community_manager"
@@ -62,6 +65,8 @@ export const ROLE_RANK: Record<UserRole, number> = {
   employee: 0.5,
   // Tylko odczyt Insights — żadna bramka rangowa jej nie przepuszcza.
   board: 0.5,
+  // Jak Finanse: rola rozłączna, bramki rangowe jej nie przepuszczają.
+  back_office: 0,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -76,6 +81,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   automation: "Automatyzacje",
   employee: "Konsultant/Kontraktor",
   board: "Rada nadzorcza",
+  back_office: "Back office",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
@@ -202,9 +208,6 @@ export interface User {
   >
   /** Jawny zakres danych; frontend używa go tylko do UX i query keys. */
   data_scope?: DataScope
-  /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.
-   *  Frontend pyta /api/analytics/v1 tylko przy "live" (fail-closed). */
-  analytics_v1_mode?: string
   /** Zakres klientów Delivery Leada w modułach Delivery (25.09.2026):
    *  "assigned" = tylko klienci z przypisania, "all" = wszyscy; brak dla kont
    *  spoza persony DL. Serwer jest arbitrem — front tylko dopasowuje UX. */
@@ -315,7 +318,7 @@ export function isTraineeOnly(
 /** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
  *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
  *  API odpowiedź) — używamy ``[role]``. */
-type RoleBearingUser = {
+export type RoleBearingUser = {
   role: UserRole
   roles?: readonly UserRole[]
 }
@@ -341,6 +344,14 @@ export function hasRole(
   if (!user) return false
   const userRoles = getUserRoles(user)
   return roles.some((r) => userRoles.includes(r))
+}
+
+/**
+ * „Automatyzacje” (0446) czytają ekrany, ale nie wynoszą danych plikiem —
+ * lustro ``NOT_READ_ONLY`` na trasach eksportu (candidate_access.py).
+ */
+export function mayExportFiles(user: RoleBearingUser | null | undefined): boolean {
+  return !hasRole(user, "automation")
 }
 
 /**
@@ -504,7 +515,7 @@ export function canManageOrderLifecycle(
 
 /**
  * „Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026): Admin,
- * Finanse i Talent Community Manager — lustro `ContractTerminationRecoveryUser`.
+ * Finanse, Back office i Talent Community Manager — lustro `ContractTerminationRecoveryUser`.
  * Delivery Lead świadomie poza: to korekta administracyjna, nie decyzja
  * o obsadzie. Wymagany co najmniej odczyt sekcji Delivery (bramka routera).
  */
@@ -512,7 +523,7 @@ export function canRecoverContractTermination(
   user: Pick<User, "role" | "roles" | "effective_section_access"> | null | undefined
 ): boolean {
   return (
-    hasRole(user, "admin", "finance", "talent_community_manager") &&
+    hasRole(user, "admin", "finance", "back_office", "talent_community_manager") &&
     hasSectionAccess(user, "delivery", "read")
   )
 }

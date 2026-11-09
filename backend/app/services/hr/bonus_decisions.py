@@ -1,8 +1,9 @@
 """Ikona premii w górnym pasku: co czeka na decyzję Płac.
 
 Trzy grupy (decyzje Artura 30.10.2026): premie z podpisanych umów bez uwag, Liga
-i wyścigi, pozycje do sprawdzenia. Wyścig miesięczny zostaje voucherem: potwierdzenie
-to tylko ślad, kto go przekazał, bez przelewu. Etapy premii dla osoby i dzwonek
+i wyścigi, pozycje do sprawdzenia. Wyścig miesięczny spoza ``league_types`` zostaje
+voucherem: potwierdzenie to tylko ślad, kto go przekazał, bez przelewu. Wyścig
+w ``league_types`` to premia w Płacach (decyzja Artura 06.11.2026). Etapy premii dla osoby i dzwonek
 „można naliczyć” też są tutaj.
 """
 
@@ -155,13 +156,18 @@ async def pending_vouchers(db: AsyncSession) -> list[dict[str, Any]]:
     rules = await load_rules(db)
     if rules.automation_since is None:
         return []
+    # Wyścig wypłacany w Płacach (w `league_types`, decyzja Artura 06.11.2026)
+    # dostaje propozycję premii z automatu Ligi — voucher byłby drugą nagrodą.
+    voucher_types = [t for t in VOUCHER_TYPES if t not in rules.league_types]
+    if not voucher_types:
+        return []
     since = rules.automation_since.strftime("%Y-%m")
     confirmed = await _confirmations(db)
     rows = await db.execute(
         select(CompetitionWinner, User.name)
         .join(User, User.id == CompetitionWinner.user_id)
         .where(
-            CompetitionWinner.competition_type.in_(VOUCHER_TYPES),
+            CompetitionWinner.competition_type.in_(voucher_types),
             CompetitionWinner.period >= since,
         )
         .order_by(CompetitionWinner.period, CompetitionWinner.rank)
@@ -261,7 +267,7 @@ async def notify_ready(db: AsyncSession, *, today: date) -> int:
             [bonus.recipient_user_id],
             title=terms(form)["bonus_ready_title"],
             message=(bonus.description or "Placement")
-            + ". Decyzja jest teraz po stronie Płac.",
+            + ". Decyzja jest teraz po stronie Rozliczeń.",
             ntype=NotificationType.hr_bonus_assigned,
             link="/my-time?tab=bonuses",
             related_entity_type="hr_bonus",

@@ -147,7 +147,7 @@ def test_amounts_never_leave_by_mail(message):
     _title, body = hr_mail.mail_text(
         NotificationType.hr_lifecycle_task, "Zadania: wejście — Anna", message
     )
-    assert body == "Masz zadania w sprawie wejścia albo odejścia pracownika."
+    assert body == "Masz zadania w sprawie wejścia albo odejścia osoby."
 
 
 @pytest.mark.parametrize(
@@ -166,8 +166,8 @@ def test_amounts_never_leave_by_mail(message):
         ("hr_leave_substitute", "Zastępstwo", "Zastępujesz: Anna, 20.10–24.10.2026."),
         (
             "hr_timesheet_decided",
-            "Timesheet zaakceptowany",
-            "Timesheet za październik 2026 jest zaakceptowany.",
+            "Raport godzin zaakceptowany",
+            "Raport godzin za październik 2026 jest zaakceptowany.",
         ),
         (
             "hr_work_handover",
@@ -237,7 +237,7 @@ def test_conflict_note_never_goes_by_mail():
         "23.12–31.12.2026 — Jan Przykładowy: wdrożenie u klienta 28.12",
     )
     assert title == "Kolizja z Twoją przerwą w świadczeniu usług"
-    assert "wdrożenie" not in body and "„Moim czasie”" in body
+    assert "wdrożenie" not in body and "„Mojej współpracy”" in body
 
 
 def test_cancel_reason_never_goes_by_mail():
@@ -589,7 +589,7 @@ def test_bonus_text_says_what_for_and_which_month_without_amount(form, event):
     assert title == terms(form)[f"bonus_{event}_title"]
     assert "Rodzaj: za placement." in body
     assert "Miesiąc rozliczenia: listopad 2026." in body
-    assert "„Moim czasie”" in body
+    assert "„Mojej współpracy”" in body
     assert not _AMOUNT_RE.search(title) and not _AMOUNT_RE.search(body)
 
 
@@ -631,7 +631,7 @@ def _bonus_row(user: User, bonus_id: int | None, title: str) -> Notification:
         user_id=user.id,
         notification_type=NotificationType.hr_bonus_assigned,
         title=title,
-        message="Premia za listopad 2026. Szczegóły w „Moim czasie” → Premie.",
+        message="Premia za listopad 2026. Szczegóły w „Mojej współpracy” → Premie.",
         link="/my-time?tab=bonuses",
         related_entity_type="hr_bonus",
         related_entity_id=bonus_id,

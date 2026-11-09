@@ -240,6 +240,7 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
       {row.can_take_over_esign ? (
         <button
           type="button"
+          data-tour="b2b.esign.take-over"
           onClick={() => void onTakeOver()}
           disabled={takeOver.isPending}
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"

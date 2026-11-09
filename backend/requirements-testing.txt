@@ -2,3 +2,4 @@
 hypothesis==6.168.0
 time-machine==3.5.1
 pytest-rerunfailures==16.7
+pytest-xdist==3.8.0

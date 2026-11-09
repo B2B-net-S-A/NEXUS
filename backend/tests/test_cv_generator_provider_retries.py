@@ -23,6 +23,7 @@ from tests.test_cv_generator_provider import (  # noqa: F401 — autouse fixture
 def test_default_retries_run_inside_the_total_budget(monkeypatch):
     monkeypatch.delenv("CV_B2B_MAX_RETRIES", raising=False)
     monkeypatch.delenv("CV_B2B_TOTAL_TIMEOUT", raising=False)
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     call = Mock(return_value="{}")
     monkeypatch.setattr(provider, "call_claude_text", call)
@@ -50,6 +51,7 @@ def test_three_overloads_are_survived_on_the_primary_model(monkeypatch):
 
 def test_an_explicit_env_value_still_wins(monkeypatch):
     monkeypatch.setenv("CV_B2B_MAX_RETRIES", "1")
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     call = Mock(return_value="{}")
     monkeypatch.setattr(provider, "call_claude_text", call)

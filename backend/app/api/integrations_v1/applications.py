@@ -19,7 +19,7 @@ dostaje te same akcje co rekruter (``link``, ``merge``, ``create``,
   z adresem ze zgłoszenia (409 ``not_same_person``), ``create`` nie zakłada
   drugiego profilu z tym adresem (409 ``duplicate_candidate`` z
   ``candidate_id``) — ekran w tej sytuacji zakłada profil bez e-maila;
-* adres osoby usuniętej na jej żądanie (RODO) nie wraca przez ``create``
+* adres trwale usuniętego profilu nie wraca przez ``create``
   (409 ``candidate_erased``, jak ``POST /candidates``);
 * ``reject`` wymaga powodu — trafia do historii zamiast osoby, która odrzuca.
 
@@ -450,7 +450,7 @@ async def resolve_application(
     i weto hiring managera → 409 ``blocked``. Zgłoszenie rozpatrzone wcześniej
     → 409 ``already_resolved``; inny e-mail niż w zgłoszeniu → 409
     ``not_same_person``; create przy istniejącym e-mailu → 409
-    ``duplicate_candidate``; adres osoby usuniętej (RODO) → 409
+    ``duplicate_candidate``; adres trwale usuniętego profilu → 409
     ``candidate_erased``."""
     author = WriteAuthor.service_account(integration_actor(caller))
     resolutions: list[screen.SubmissionResolution] = []

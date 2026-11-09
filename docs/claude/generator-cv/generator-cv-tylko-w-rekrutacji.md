@@ -37,3 +37,17 @@ rekrutacją, bo zespół pracował jeszcze w Traffit).
   ale żaden ekran ich nie woła. Wycięcie ich to osobna decyzja.
 - Harness `/preview/cv-generator`: stany „Proces z Championem”, „Proces bez
   Championa”, „Osoba bez rekrutacji”, „Wynik”, „Rekrutacja — CV do klienta”.
+
+## „Moje wygenerowane CV” wróciło jako lista do odczytu (07.11.2026)
+
+Decyzja Artura z 07.11.2026 po analizie pytań do Jarvisa (20.10 jedna osoba
+dwa razy pytała, gdzie są CV, które wygenerowała). Strona
+`/candidates/generated-cvs` (`MyGeneratedCvs`): data, kandydat, rekrutacja,
+plik z podglądem i „Pobierz”, szukanie i „Pokaż starsze”. Wejście: przycisk
+„Moje CV” w nagłówku listy Kandydaci, „Więcej” → „Dokumenty”, paleta ⌘K.
+
+- Dane z `GET /api/cv-generator/generated?mine=true` — bez nowej trasy.
+- Plik jak w plikach kandydata: CV podpięte w rekrutacji z CV etapu (po QC),
+  reszta z generatora; pobranie zapisuje miejsce `mine`.
+- To nie jest powrót generatora bez procesu: lista niczego nie generuje,
+  nie usuwa i nie udostępnia.

@@ -326,9 +326,16 @@ function Harness() {
       501: pairs.piotr, 502: pairs.anna, 504: pairs.michal, 505: pairs.ewa, 506: pairs.karol, 507: pairs.bartek,
     };
     for (const [id, p] of Object.entries(eventPairs)) {
+      // Rozmowy przed nami mają w panelu „Zmień termin”.
+      const ahead = data.all.agenda.find(
+        (e) => e.kind === "interview" && e.event_id === Number(id) && new Date(e.start) > now,
+      );
       qc.setQueryData(interviewEventQueryKey(Number(id)), {
         id: Number(id), candidate_id: p.candidate_id, job_id: p.job_id,
-        start: at(now, -72), end: at(now, -12), started: true,
+        start: ahead?.start ?? at(now, -72),
+        end: ahead?.end ?? at(now, -12),
+        started: !ahead,
+        can_reschedule: Boolean(ahead),
       });
       qc.setQueryData(rateChangesQueryKey(p.candidate_id, p.job_id), {
         candidate_id: p.candidate_id, job_id: p.job_id,
@@ -482,7 +489,7 @@ function Harness() {
     qc.setQueryData(["calendar-conflicts-summary", fromDate], {});
     qc.setQueryData(["calendar-upcoming"], weekEvents);
     return qc;
-  }, [now]);
+  }, [now, data]);
 
   return (
     <QueryClientProvider client={client}>

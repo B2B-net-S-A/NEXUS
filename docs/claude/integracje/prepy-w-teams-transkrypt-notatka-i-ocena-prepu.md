@@ -70,6 +70,18 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
     bez pól roli i nie może przez to stracić prepu). Zmiana prowadzącego
     składa stanowisko i opis od nowa z Championa (poprawek z okna nie
     zapisujemy, jak dopisku).
+- **Czas prepu w „Umów rozmowę i prepy” (05.11.2026, prośba zespołu, decyzja
+  Artura).** Do tej daty okno zakładało zawsze 45 min, choć „Zaplanuj prep”
+  i „Zmień prep” dawały wybór. Na kopii z 04.11: 31 z 68 prepów przeszło przez to
+  okno, a poza nim 35 z 37 miało 30 min. Teraz każdy prep ma własne pole „Czas”
+  (`PREP_DURATIONS`: 30, 45, 60, 90), a `GET …/preps/suggestions` liczy godziny
+  dla `prep1_minutes` i `prep2_minutes`. Godzina, która przestaje się mieścić,
+  przeskakuje na polecaną i okno mówi o tym zdaniem, bo mogła być już ustalona
+  z kandydatem. **Domyślne 45 min zostaje:** z 51 nagranych prepów żaden nie
+  przekroczył 45 min, a 13 trwało ponad 30 min (mediana 22 min), więc 30 min
+  przekraczałoby plan co czwartemu. Bez pola na dowolną liczbę minut, bo
+  w kalendarzu nie ma prepu dłuższego niż 45 min. `minutes` przy zaplanowanym
+  prepie to jego prawdziwa długość; do tej daty zawsze 45.
 - **Prep po rozmowie u klienta należy do jej rundy** (`PairSnapshot.late_preps`,
   lustro w `prep_meetings.active_prep`, 02.10.2026). Rekruter zaplanował
   Prep 1, zanim DL potwierdził termin rozmowy na dwa dni wcześniej; prep nie

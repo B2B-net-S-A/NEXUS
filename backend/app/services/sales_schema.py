@@ -639,3 +639,114 @@ OUTLOOK_SYNC_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE calendar_events DROP COLUMN IF EXISTS m365_ical_uid",
     "ALTER TABLE emails DROP COLUMN IF EXISTS web_link",
 )
+
+# ── 0628: transkrypty Teams przy spotkaniach handlowców (decyzja Artura 02.11.2026) ──
+# Klucz to ``iCalUId``, a nie aktywność: jedno spotkanie bywa przy kilku firmach,
+# a transkrypt pobieramy raz. Bez FK do ``sales_activities`` z tego samego powodu.
+
+TRANSCRIPT_STATUSES: tuple[str, ...] = (
+    "waiting",
+    "fetched",
+    "missing",
+    "not_online",
+    "forbidden",
+    "error",
+)
+CK_TRANSCRIPT_STATUS = f"status IN ({quoted(TRANSCRIPT_STATUSES)})"
+
+TRANSCRIPTS_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_meeting_transcripts (
+    id BIGSERIAL PRIMARY KEY,
+    ical_uid VARCHAR(255) NOT NULL,
+    organizer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    organizer_upn VARCHAR(320) NOT NULL,
+    graph_event_id VARCHAR(512) NOT NULL,
+    organizer_aad_id VARCHAR(64),
+    join_url VARCHAR(2000),
+    online_meeting_id VARCHAR(512),
+    starts_at TIMESTAMPTZ NOT NULL,
+    ends_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+    fetch_attempts INTEGER NOT NULL DEFAULT 0,
+    next_fetch_at TIMESTAMPTZ,
+    last_error VARCHAR(120),
+    graph_transcript_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    plain_text TEXT,
+    fetched_at TIMESTAMPTZ,
+    summary TEXT,
+    summary_attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_meeting_transcripts_ical UNIQUE (ical_uid),
+    CONSTRAINT ck_sales_meeting_transcripts_status CHECK ({CK_TRANSCRIPT_STATUS})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_meeting_transcripts_queue "
+    "ON sales_meeting_transcripts (next_fetch_at) WHERE next_fetch_at IS NOT NULL",
+)
+
+TRANSCRIPTS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_meeting_transcripts",
+)
+
+
+# ── 0671: inne nazwy firmy z CV (etap P8, 09.11.2026) ─────────────────────
+# Decyzja handlowca przy wariancie nazwy z CV: „Dołącz” (``joined``) doliczamy
+# do „Kogo znamy”, „Nie ta firma” (``rejected``) tylko przestajemy podpowiadać.
+# Cofnięcie kasuje wiersz, bo to decyzja, a nie dane o firmie. Klucz po
+# ``normalize_company_name``, więc jedna decyzja obejmuje każdą pisownię.
+
+COMPANY_ALIAS_STATUSES: tuple[str, ...] = ("joined", "rejected")
+CK_COMPANY_ALIAS_STATUS = f"status IN ({quoted(COMPANY_ALIAS_STATUSES)})"
+
+COMPANY_ALIASES_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_company_aliases (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER NOT NULL REFERENCES sales_companies(id) ON DELETE CASCADE,
+    alias VARCHAR(500) NOT NULL,
+    normalized_alias VARCHAR(500) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_company_aliases_name UNIQUE (company_id, normalized_alias),
+    CONSTRAINT ck_sales_company_aliases_status CHECK ({CK_COMPANY_ALIAS_STATUS})
+)""",
+)
+
+COMPANY_ALIASES_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_company_aliases",
+)
+
+# ── 0672: wynik rozmowy i sprzeciw wobec kontaktu ────────────────────────
+#
+# Wynik zapisany w polu, nie tylko w temacie wpisu, żeby dało się go policzyć.
+# ``sales_contacts`` nie miało dotąd żadnego pola zgody ani sprzeciwu.
+
+CALL_OUTCOMES: tuple[str, ...] = (
+    "connected",
+    "no_answer",
+    "call_back",
+    "wants_offer",
+    "not_now",
+    "do_not_contact",
+)
+CK_ACTIVITY_OUTCOME = f"outcome IS NULL OR outcome IN ({quoted(CALL_OUTCOMES)})"
+
+CALL_OUTCOME_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_activities ADD COLUMN IF NOT EXISTS outcome VARCHAR(20) NULL",
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_activities_outcome') THEN "
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
+    f"CHECK ({CK_ACTIVITY_OUTCOME}); END IF; END $$",
+    "ALTER TABLE sales_contacts ADD COLUMN IF NOT EXISTS "
+    "do_not_contact_at TIMESTAMPTZ NULL",
+    "ALTER TABLE sales_contacts ADD COLUMN IF NOT EXISTS do_not_contact_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+)
+
+CALL_OUTCOME_DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_contacts DROP COLUMN IF EXISTS do_not_contact_by_user_id",
+    "ALTER TABLE sales_contacts DROP COLUMN IF EXISTS do_not_contact_at",
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome",
+    "ALTER TABLE sales_activities DROP COLUMN IF EXISTS outcome",
+)

@@ -61,6 +61,7 @@ export interface ClientCvRule {
   highlight_policy?: CvHighlightPolicy;
   highlight_terms?: string[];
   cv_text_align?: CvTextAlign;
+  cv_title_with_reference?: boolean;
   edit_revision?: number;
   draft_payload?: Partial<ClientCvRulePayload> | null;
   client_id: number;
@@ -123,6 +124,7 @@ export type ClientCvRuleForGeneration = Pick<
   | "require_position"
   | "require_champion"
   | "filename_pattern"
+  | "spaces_to_underscores"
   | "filename_preview"
   | "notes"
   | "generator_instructions"
@@ -150,6 +152,7 @@ export interface ClientCvRulePayload {
   highlight_policy?: CvHighlightPolicy;
   highlight_terms?: string[];
   cv_text_align?: CvTextAlign;
+  cv_title_with_reference?: boolean;
   expected_revision?: number;
   filename_pattern: string | null;
   spaces_to_underscores: boolean;
@@ -293,6 +296,7 @@ export interface CvRuleForm {
   highlight_policy: CvHighlightPolicy;
   highlight_terms: string;
   cv_text_align: CvTextAlign;
+  cv_title_with_reference: boolean;
   filename_pattern: string;
   spaces_to_underscores: boolean;
   cv_language: "" | CvRuleLanguage;
@@ -326,6 +330,7 @@ export function ruleToForm(published: ClientCvRule): CvRuleForm {
     highlight_policy: rule.highlight_policy ?? "technologies",
     highlight_terms: (rule.highlight_terms ?? []).join("\n"),
     cv_text_align: rule.cv_text_align === "left" ? "left" : "justify",
+    cv_title_with_reference: Boolean(rule.cv_title_with_reference),
     filename_pattern: rule.filename_pattern ?? "",
     spaces_to_underscores: rule.spaces_to_underscores,
     cv_language: rule.cv_language ?? "",
@@ -371,6 +376,7 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
     highlight_policy: form.highlight_policy,
     highlight_terms: form.highlight_terms.split("\n").map((term) => term.trim()).filter(Boolean),
     cv_text_align: form.cv_text_align,
+    cv_title_with_reference: form.cv_title_with_reference,
     filename_pattern: form.filename_pattern.trim() || null,
     spaces_to_underscores: form.spaces_to_underscores,
     cv_language: form.cv_language || null,
@@ -454,6 +460,7 @@ export const RULE_FIELD_LABELS: Record<string, string> = {
   highlight_policy: "Zasada pogrubiania",
   highlight_terms: "Wyróżniane technologie",
   cv_text_align: "Wyrównanie tekstu",
+  cv_title_with_reference: "Numer zapytania w nagłówku",
   filename_pattern: "Wzór nazwy pliku",
   spaces_to_underscores: "Podkreślenia zamiast spacji",
   cv_language: "Wymagany język",

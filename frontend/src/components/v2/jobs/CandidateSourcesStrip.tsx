@@ -1,6 +1,9 @@
 "use client";
 
 /**
+ * Od audytu U3 (08.11.2026) w jednym rzędzie: kafle „Nowi z ogłoszeń”, „Moi
+ * ludzie”, „Aplikacje”; reszta źródeł w menu „Szukaj ▾”, bez wielkich liczb.
+ *
  * „Kandydaci do dodania” — trzecia linia nagłówka rekrutacji (14.10.2026,
  * K-D1, makieta https://claude.ai/artifact/DZWUbWtiQLrnzm81RwLvDP). Do tego dnia
  * osobny pasek z kaflami nad Tablicą (02.10.2026): przy 1280×720 razem
@@ -15,9 +18,9 @@
  * Brak liczby to „—”, nigdy zero — zero znaczyłoby „nie ma nikogo”.
  */
 
-import { Fragment, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, FileUp, Plus, UserPlus } from "lucide-react";
+import { ChevronDown, FileUp, Plus, Search, UserPlus } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -25,9 +28,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { JobTwinChip } from "@/components/v2/jobs/twins/JobTwinChip";
+import { JobApplicantsTile } from "@/components/v2/jobs/JobApplicantsTile";
+import { MyPeopleTile } from "@/components/v2/jobs/MyPeopleTile";
 import { OpenSimilarTile } from "@/components/v2/jobs/twins/OpenSimilarTile";
-import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import type { CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { useJobSearchSeed } from "@/components/v2/recruitment/useJobSearchSeed";
 import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
@@ -35,7 +40,6 @@ import type { ManualSearchJob } from "@/lib/job-search-filters";
 import { requirementLabel } from "@/lib/keyword-requirements";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
-import { filtersToApiParams } from "@/lib/url-filters";
 
 /** `number` = policzono, `"loading"` = w toku, `null` = nie wiadomo. */
 export type SourceCount = number | "loading" | null;
@@ -64,11 +68,87 @@ export interface CandidateSourcesStripViewProps {
    * (bliźniaki, 0614). Własne zapytanie i okno, więc poza listą źródeł.
    */
   afterSimilar?: ReactNode;
+  /** Kafel po źródłach — „Aplikacje” (wszyscy aplikujący, 07.11.2026). */
+  afterTiles?: ReactNode;
 }
 
 /** Pozycja menu otwiera okno — po zamknięciu menu, nie w trakcie (fokus). */
 function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
+}
+
+function SourceCountText({ tab, count }: { tab: CandidateSourceTab; count: SourceCount }) {
+  return (
+    <span className="font-bold tabular-nums" data-testid={`source-tile-${tab}-count`}>
+      {count === "loading" ? (
+        <span className="text-muted-foreground" aria-label="liczę">
+          …
+        </span>
+      ) : count === null ? (
+        <span className="text-muted-foreground" aria-label="nie policzono">
+          —
+        </span>
+      ) : (
+        count
+      )}
+    </span>
+  );
+}
+
+/**
+ * Menu „Szukaj ▾” (audyt U3, 08.11.2026): liczby typu 2080 i 6823 nie były do
+ * decyzji, a zajmowały rząd i zawijały pasek na drugą linię przy 1280 px.
+ * Popover, nie `DropdownMenu`, bo kafle „Otwarte podobne” i „Bliźniak” mają
+ * w środku własne okienka, a menu zamknęłoby się razem z nimi.
+ */
+function SourcesSearchMenu({
+  tiles,
+  onOpen,
+  extras,
+}: {
+  tiles: readonly CandidateSourceTile[];
+  onOpen: (tab: CandidateSourceTab) => void;
+  extras?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid="sources-search-menu"
+          data-tour="jobs.sources.search"
+          title="Podobne rekrutacje, propozycje z bazy i wyszukiwanie w bazie"
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
+        >
+          <Search className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          Szukaj
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-1.5" data-testid="sources-search-menu-content">
+        <ul>
+          {tiles.map((tile) => (
+            <li key={tile.tab}>
+              <button
+                type="button"
+                data-testid={`source-tile-${tile.tab}`}
+                onClick={() => {
+                  setOpen(false);
+                  deferMenuAction(() => onOpen(tile.tab));
+                }}
+                className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="block text-[13px] font-semibold text-foreground">{TILE_TITLE[tile.tab]}</span>
+                <span className="block text-xs leading-snug text-muted-foreground">{tile.description}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {extras ? <div className="mt-1 flex flex-wrap items-center gap-1.5 border-t border-border px-1 pt-1.5">{extras}</div> : null}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 /** Sam wygląd — bez zapytań (harness `/preview/job-detail`). */
@@ -78,7 +158,10 @@ export function CandidateSourcesStripView({
   onAddByName,
   onAddFromCv,
   afterSimilar,
+  afterTiles,
 }: CandidateSourcesStripViewProps) {
+  const postings = tiles.find((tile) => tile.tab === "postings");
+  const searched = tiles.filter((tile) => tile.tab !== "postings");
   return (
     <section
       aria-label="Kandydaci do dodania"
@@ -86,38 +169,21 @@ export function CandidateSourcesStripView({
       data-help="jobs.board.sources"
       className="flex min-w-0 flex-wrap items-center gap-1.5"
     >
-      {tiles.map((tile) => (
-        <Fragment key={tile.tab}>
+      {postings ? (
         <button
           type="button"
-          onClick={() => onOpen(tile.tab)}
-          data-testid={`source-tile-${tile.tab}`}
-          data-tour={tile.tab === "search" ? "jobs.sources.search" : undefined}
-          title={tile.description}
+          onClick={() => onOpen(postings.tab)}
+          data-testid={`source-tile-${postings.tab}`}
+          title={postings.description}
           className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
         >
-          {TILE_TITLE[tile.tab]}
-          <span
-            className="font-bold tabular-nums"
-            data-testid={`source-tile-${tile.tab}-count`}
-          >
-            {tile.count === "loading" ? (
-              <span className="text-muted-foreground" aria-label="liczę">
-                …
-              </span>
-            ) : tile.count === null ? (
-              <span className="text-muted-foreground" aria-label="nie policzono">
-                —
-              </span>
-            ) : (
-              tile.count
-            )}
-          </span>
-          <span className="sr-only">— {tile.description}</span>
+          {TILE_TITLE[postings.tab]}
+          <SourceCountText tab={postings.tab} count={postings.count} />
+          <span className="sr-only">— {postings.description}</span>
         </button>
-        {tile.tab === "similar" ? afterSimilar : null}
-        </Fragment>
-      ))}
+      ) : null}
+      {afterTiles}
+      <SourcesSearchMenu tiles={searched} onOpen={onOpen} extras={afterSimilar} />
       {onAddByName || onAddFromCv ? (
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
@@ -207,32 +273,11 @@ export function CandidateSourcesStrip({
     enabled: false,
   });
   const seed = useJobSearchSeed(jobId, job, true);
-  const filtersKey = seed.filters ? JSON.stringify(seed.filters) : "";
-  const searchCount = useQuery({
-    queryKey: ["job-search-base-count", jobId, filtersKey],
-    enabled: seed.ready && seed.hasRows && seed.filters != null,
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-    retry: false,
-    queryFn: async ({ signal }) => {
-      const data = await fetchCandidateListPage<{ total?: unknown }>(
-        // Jawne „najnowsi”: liczba nie zależy od kolejności, a domyślne
-        // „Dopasowanie” kazałoby serwerowi układać całą listę przy każdym
-        // wejściu na rekrutację.
-        filtersToApiParams({ ...seed.filters!, sort: "newest", sortExplicit: true }, 1, {
-          page_size: 1,
-        }),
-        signal,
-      );
-      return typeof data?.total === "number" ? data.total : null;
-    },
-  });
-
   const similarTotal = similarPeopleTotal(similar.data);
-  const proposalCount = (pick: "postings_recent" | "base"): SourceCount => {
-    const fromWindow = visibleSplit.data?.[pick === "base" ? "base" : "postings"];
+  const postingsCount = (): SourceCount => {
+    const fromWindow = visibleSplit.data?.postings;
     if (typeof fromWindow === "number") return fromWindow;
-    return counts.isSuccess ? counts.data[pick] : counts.isError ? null : "loading";
+    return counts.isSuccess ? counts.data.postings_recent : counts.isError ? null : "loading";
   };
   const screenedOut = counts.data?.screened_out ?? 0;
   const words = [...seed.required, ...seed.preferred].slice(0, 2).map(requirementLabel).join(", ");
@@ -243,18 +288,12 @@ export function CandidateSourcesStrip({
   const tiles: CandidateSourceTile[] = [
     {
       tab: "similar",
-      count: !canSeeSimilar
-        ? null
-        : similarTotal
-          ? similarTotal.total
-          : similar.isError || similar.isSuccess
-            ? null
-            : "loading",
+      count: null,
       description: similarTileDescription(similarTotal),
     },
     {
       tab: "postings",
-      count: proposalCount("postings_recent"),
+      count: postingsCount(),
       description:
         screenedOut > 0
           ? `Z ostatnich 7 dni, pasują do tej rekrutacji · ${screenedOut} odłożonych przez AI`
@@ -262,20 +301,12 @@ export function CandidateSourcesStrip({
     },
     {
       tab: "base",
-      count: proposalCount("base"),
+      count: null,
       description: "Wybrane przez nocny przegląd bazy",
     },
     {
       tab: "search",
-      count: !seed.ready
-        ? "loading"
-        : !seed.hasRows
-          ? null
-          : searchCount.isSuccess
-            ? searchCount.data
-            : searchCount.isError
-              ? null
-              : "loading",
+      count: null,
       description: !seed.ready
         ? "Po słowach z Championa"
         : seed.hasRows
@@ -292,6 +323,12 @@ export function CandidateSourcesStrip({
       onOpen={onOpen}
       onAddByName={onAddByName}
       onAddFromCv={onAddFromCv}
+      afterTiles={
+        <>
+          <MyPeopleTile />
+          <JobApplicantsTile jobId={jobId} />
+        </>
+      }
       afterSimilar={
         <>
           <OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />

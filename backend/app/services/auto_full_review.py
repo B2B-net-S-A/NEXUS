@@ -12,7 +12,9 @@ Reguły, które łatwo cofnąć „przy okazji":
   zasila auto-match nowych CV) NOWSZE niż ostatni przegląd automatyczny tej
   rekrutacji — nie „każda opublikowana rekrutacja". Przegląd to ~100–130 MB
   wierszy wyników; przemiatanie wszystkich otwartych rekrutacji co noc
-  zapchałoby wolumen bazy.
+  zapchałoby wolumen bazy. Pierwszeństwo daje też inny odcisk requestu niż przy
+  ostatnim przeglądzie (`_request_changed_ids`, 02.11.2026), bo słownik aliasów
+  i statystyki krytycznych zmieniają go bez zdarzenia.
 * Najwyżej JEDEN przegląd automatyczny na rekrutację na noc (także nieudany —
   awaria nie może zapętlić się w oknie) i `AUTO_FULL_REVIEW_MAX_PER_NIGHT`
   łącznie. Odcisk requestu równy ostatniemu UDANEMU przeglądowi automatycznemu
@@ -230,14 +232,83 @@ def _reviewed_under_older_versions():
     )
 
 
+# Pula z mniej niż tyloma wolnymi osobami (spoza rekrutacji) idzie na początek
+# nocnej kolejki (07.11.2026, R2).
+POOL_LOW_FREE = 40
+
+
+def _pool_running_low():
+    """Rekrutacja ma pulę, ale wolnych osób (spoza rekrutacji) jest mniej niż
+    ``POOL_LOW_FREE``. Bez puli = brak przeglądu — tym zajmuje się wiek."""
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.models.recruitment_pipeline import CandidateStage
+
+    has_pool = exists(
+        select(JobAutofillPool.job_id).where(JobAutofillPool.job_id == Job.id)
+    )
+    free = (
+        select(func.count())
+        .select_from(JobAutofillPool)
+        .where(
+            JobAutofillPool.job_id == Job.id,
+            ~exists(
+                select(CandidateStage.id).where(
+                    CandidateStage.job_id == JobAutofillPool.job_id,
+                    CandidateStage.candidate_id == JobAutofillPool.candidate_id,
+                )
+            ),
+        )
+        .correlate(Job)
+        .scalar_subquery()
+    )
+    return and_(has_pool, free < POOL_LOW_FREE)
+
+
+async def _request_changed_ids(db, due_clauses: tuple) -> list[int]:
+    """Rekrutacje, których dzisiejszy odcisk różni się od ostatniego przeglądu.
+
+    Zdarzenie nie łapie wszystkiego (pomiar 02.11.2026, 8 ze 187 rekrutacji):
+    pole spoza list zdarzeń (`hiring_manager_contact_id`), cotygodniowe
+    przeliczenie podpowiedzi krytycznych i nowy alias w słowniku zmieniają
+    odcisk bez żadnego zapisu w kolejce. Porównanie 190 rekrutacji to ok. 0,4 s.
+    Rekrutacja bez odcisku nie ma z czym się porównać. Wyjątek przy liczeniu
+    kontekstu nie zatrzymuje kolejki, `start_for_job` zapisze awarię tej rekrutacji.
+    """
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    jobs = (await db.scalars(select(Job).where(*due_clauses))).unique().all()
+    changed = []
+    for job in jobs:
+        fingerprint, _reviewed_at = await _last_successful_fingerprint(db, job.id)
+        if fingerprint is None:
+            continue
+        try:
+            profile = await resolve_active_profile(
+                db, user_id=None, client_id=job.client_id
+            )
+            current = build_request_context(job, profile).fingerprint
+        except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje nocy
+            logger.warning(
+                "[auto_full_review] job=%s fingerprint check: %s",
+                job.id,
+                type(exc).__name__,
+            )
+            continue
+        if current != fingerprint:
+            changed.append(job.id)
+    return changed
+
+
 async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> list[int]:
     """Opublikowane rekrutacje w pracy, które tej nocy jeszcze nie miały przeglądu.
 
     Od 30.09.2026 (decyzja Artura) co noc WSZYSTKIE rekrutacje w pracy, nie
     tylko te ze zdarzeniem: nowe CV w bazie nie jest zdarzeniem rekrutacji,
     a do 30.09 propozycje dostawało 5 rekrutacji na noc. Kolejność: najpierw
-    zdarzenie nowsze niż ostatni przegląd albo przegląd pod starą wersją reguł
-    (07.10.2026), potem „Szukamy”, potem najdawniej przeglądane.
+    zdarzenie nowsze niż ostatni przegląd, przegląd pod starą wersją reguł
+    (07.10.2026) albo inny odcisk requestu (02.11.2026), potem „Szukamy”, potem
+    najdawniej przeglądane.
     """
     lookback = now - timedelta(
         days=max(1, int(settings.AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS))
@@ -261,21 +332,24 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
     )
     last_auto = _last_auto_run_at()
     stale_versions = _reviewed_under_older_versions()
+    pool_low = _pool_running_low()
+    due_clauses = (
+        Job.status == JobStatus.published,
+        # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
+        # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
+        Job.work_state.in_(IN_WORK_STATES),
+        # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
+        # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
+        # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
+        # `_author_id`.
+        ~ran_tonight,
+    )
+    request_changed = await _request_changed_ids(db, due_clauses)
     rows = await db.execute(
         select(Job.id)
-        .where(
-            Job.status == JobStatus.published,
-            # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
-            # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
-            Job.work_state.in_(IN_WORK_STATES),
-            # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
-            # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
-            # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
-            # `_author_id`.
-            ~ran_tonight,
-        )
-        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł) pierwsze,
-        # potem „Szukamy kandydatów”,
+        .where(*due_clauses)
+        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł, albo inny
+        # odcisk requestu) pierwsze, potem „Szukamy kandydatów”,
         # potem najdawniej przeglądane.
         .order_by(
             case(
@@ -289,6 +363,10 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
                 # Przegląd pod starą wersją reguł jest nieczytelny (409) — jak
                 # zdarzenie rekrutacji.
                 (stale_versions, 0),
+                (Job.id.in_(request_changed), 0),
+                # 07.11.2026 (R2): pustosząca pula — zespół wziął z niej ludzi,
+                # a request się nie zmienił, więc nic innego jej nie odświeży.
+                (pool_low, 0),
                 else_=1,
             ),
             case((Job.work_state == "searching", 0), else_=1),
@@ -397,6 +475,7 @@ async def start_for_job(db, job_id: int) -> tuple[Optional[str], str]:
     from app.services.request_matching_context import build_request_context
     from app.services.scoring_service import resolve_active_profile
     from app.services.search_eligibility_freshness import eligibility_fingerprint
+    from app.services.skill_taxonomy_loader import loaded_dictionary_version
 
     job = await db.get(Job, job_id)
     if job is None or job.status != JobStatus.published:
@@ -431,6 +510,9 @@ async def start_for_job(db, job_id: int) -> tuple[Optional[str], str]:
         request_context=context.as_dict(),
         version_trace={
             **context.versions,
+            # Tylko ślad, poza odciskiem i kolejką (decyzja Artura z 08.11.2026):
+            # słownik zmienia się prawie co noc, a w odcisku dawałby co rano 409.
+            "skill_dictionary": loaded_dictionary_version(),
             "eligibility_fingerprint": await eligibility_fingerprint(db, job=job),
             store.ORIGIN_KEY: store.ORIGIN_AUTO,
         },
@@ -575,6 +657,9 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
         published = await reconcile_unpublished(db, now=now)
         await db.commit()
     if not in_window(now):
+        day = await _daytime_first_review(now)
+        if day is not None:
+            return {**day, "reconciled": published}
         return {"skipped": "outside_window", "reconciled": published}
     tonight = night_start(now)
     await _nightly_maintenance(tonight, now)
@@ -610,6 +695,103 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
             logger.info("[auto_full_review] job=%s run=%s started", job_id, run_id)
             return {"started": run_id, "job_id": job_id, "reconciled": published}
     return {"skipped": "nothing_due", "reconciled": published}
+
+
+# ── Pierwszy przegląd w dzień (07.11.2026, R6) ──────────────────────────────
+
+# Nowa rekrutacja dostawała przy zapisie tylko szybkie dopasowanie (11–19 osób
+# z `new_cv`), a pełny przegląd bazy (40–1 443 propozycji w rekrutacjach
+# założonych 03–06.11) dopiero w nocy. W pierwszej dobie zespół dodał ręcznie
+# 29 wysłanych osób w okresie 23.10–02.11 i 10 po 03.11. Przegląd jednej
+# rekrutacji trwa 4–5 minut, więc w dzień idzie pojedynczo, tylko dla
+# rekrutacji bez żadnego przeglądu i z dziennym limitem.
+_skipped_today: dict[int, datetime] = {}
+
+
+def daytime_enabled() -> bool:
+    return bool(getattr(settings, "AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED", False))
+
+
+def _in_day_hours(now: datetime) -> bool:
+    from app.core.scheduling import is_business_day
+
+    local = now.astimezone(_tz())
+    return is_business_day(now, settings.BUSINESS_TZ) and 7 <= local.hour < 19
+
+
+def _day_start(now: datetime) -> datetime:
+    local = now.astimezone(_tz())
+    return datetime.combine(local.date(), time.min, tzinfo=_tz()).astimezone(
+        timezone.utc
+    )
+
+
+async def first_review_job_ids(db, *, limit: int = 10) -> list[int]:
+    """Rekrutacje w pracy bez żadnego przeglądu automatycznego, od najstarszej."""
+    rows = await db.execute(
+        select(Job.id)
+        .where(
+            Job.status == JobStatus.published,
+            Job.work_state.in_(IN_WORK_STATES),
+            _last_auto_run_at().is_(None),
+        )
+        .order_by(Job.created_at.asc(), Job.id)
+        .limit(limit)
+    )
+    return [int(job_id) for (job_id,) in rows.all()]
+
+
+async def _daytime_first_review(now: datetime) -> Optional[dict]:
+    """Co najwyżej jeden pierwszy przegląd naraz w godzinach pracy."""
+    from app.core.database import AsyncSessionLocal
+
+    if not daytime_enabled() or not _in_day_hours(now):
+        return None
+    day_start = _day_start(now)
+    for job_id, at in list(_skipped_today.items()):
+        if at < day_start:
+            _skipped_today.pop(job_id, None)
+    async with AsyncSessionLocal() as db:
+        if await _search_busy(db):
+            return {"skipped": "search_active"}
+        cap = max(0, int(getattr(settings, "AUTO_FULL_REVIEW_DAYTIME_MAX", 3)))
+        if (
+            await _started_since(db, day_start)
+            - await _started_in_window_since(db, day_start)
+            >= cap
+        ):
+            return {"skipped": "day_cap"}
+        for job_id in await first_review_job_ids(db):
+            if job_id in _skipped_today:
+                continue
+            try:
+                run_id, reason = await start_for_job(db, job_id)
+            except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje dnia
+                await db.rollback()
+                _skipped_today[job_id] = now
+                await _record_start_failure(db, job_id, type(exc).__name__)
+                continue
+            if run_id is None:
+                await db.rollback()
+                _skipped_today[job_id] = now
+                logger.info("[auto_full_review] day job=%s skipped: %s", job_id, reason)
+                continue
+            await db.commit()
+            logger.info("[auto_full_review] day job=%s run=%s started", job_id, run_id)
+            return {"started": run_id, "job_id": job_id, "daytime": True}
+    return None
+
+
+async def _started_in_window_since(db, since: datetime) -> int:
+    """Przeglądy z nocnego okna od ``since`` — nie liczą się do limitu dnia."""
+    rows = (
+        await db.execute(
+            select(CandidateSearchRun.created_at).where(
+                store.auto_origin_clause(), CandidateSearchRun.created_at >= since
+            )
+        )
+    ).all()
+    return sum(1 for (created,) in rows if in_window(created))
 
 
 # ── Publikacja propozycji ───────────────────────────────────────────────────
@@ -859,6 +1041,33 @@ async def _off_role_ids(
 # poniżej progu propozycji. Zapas ponad 20 na wykluczenia (osoby już
 # w rekrutacji, pominięte propozycje, „Nie szuka pracy”).
 AUTOFILL_POOL_SIZE = 150
+# Inna rola odpada dopiero po odczycie osoby, więc wiersze idą paczkami, aż
+# pula będzie pełna (02.11.2026: w „Python Developer” 137 ze 150 najlepszych to
+# testerzy i z 65 tys. ocenionych zostawało 13 osób). Limit chroni transakcję
+# kończącą przegląd przed czytaniem całej bazy przy rzadkiej roli.
+_POOL_PAGE = 500
+AUTOFILL_POOL_SCAN_LIMIT = 5000
+
+
+async def _in_job_ids(db, job_id: int) -> set[int]:
+    """Osoby, które są albo były w tej rekrutacji (także usunięte z niej).
+    Oprócz osób, które ustąpiły miejsca świeżym: te mogą wrócić (08.11.2026)."""
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services.autofill_withdraw import FRESH_SEAT_REASON
+
+    in_job = await db.scalars(
+        select(CandidateStage.candidate_id)
+        .where(CandidateStage.job_id == job_id)
+        .distinct()
+    )
+    removed = await db.scalars(
+        select(CandidateStageRemoval.candidate_id).where(
+            CandidateStageRemoval.job_id == job_id,
+            CandidateStageRemoval.reason.is_distinct_from(FRESH_SEAT_REASON),
+        )
+    )
+    return {int(c) for c in in_job.all()} | {int(c) for c in removed.all()}
 
 
 async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
@@ -867,7 +1076,8 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
     Ten sam filtr co propozycje (dopuszczony, oceniony, zmierzony), bez progu
     i bez ``is_good_match``. Dowody = same nazwy wymagań, jak w propozycjach.
     Inna rola niż rekrutacja odpada zawsze, także z ≥ 80% „musi mieć” —
-    karta z puli ląduje na tablicy bez człowieka (decyzja Artura 29.10.2026).
+    karta z puli ląduje na tablicy bez człowieka (decyzja Artura 29.10.2026) —
+    a na jej miejsce wchodzą kolejni, do ``AUTOFILL_POOL_SIZE`` osób.
     """
     from sqlalchemy import delete, insert
 
@@ -876,61 +1086,78 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
 
     if run.job_id is None:
         return 0
-    rows = (
-        await db.execute(
-            select(
-                CandidateSearchResult.candidate_id,
-                CandidateSearchResult.fit_score,
-                CandidateSearchResult.evidence,
-            )
-            .where(
-                CandidateSearchResult.run_id == run.id,
-                CandidateSearchResult.state == "evaluated",
-                CandidateSearchResult.eligible.is_(True),
-                CandidateSearchResult.measurement == "measured",
-                CandidateSearchResult.fit_score.is_not(None),
-            )
-            .order_by(
-                CandidateSearchResult.fit_score.desc(),
-                CandidateSearchResult.candidate_id,
-            )
-            .limit(AUTOFILL_POOL_SIZE)
-        )
-    ).all()
-    candidates = {
-        c.id: c
-        for c in (
-            await db.scalars(
-                select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+    job = await db.get(Job, run.job_id)
+    # 07.11.2026 (R2): pula = 150 osób SPOZA rekrutacji. W AML (789163) 118 ze
+    # 150 osób w puli było już w rekrutacji, a 80 ze 185 rekrutacji miało mniej
+    # niż 20 wolnych osób od 70%, więc silnik nie miał kogo dokładać.
+    excluded = await _in_job_ids(db, run.job_id)
+    payload: list[dict] = []
+    scanned = 0
+    while len(payload) < AUTOFILL_POOL_SIZE and scanned < AUTOFILL_POOL_SCAN_LIMIT:
+        page_size = min(_POOL_PAGE, AUTOFILL_POOL_SCAN_LIMIT - scanned)
+        rows = (
+            await db.execute(
+                select(
+                    CandidateSearchResult.candidate_id,
+                    CandidateSearchResult.fit_score,
+                    CandidateSearchResult.evidence,
+                )
+                .where(
+                    CandidateSearchResult.run_id == run.id,
+                    CandidateSearchResult.state == "evaluated",
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "measured",
+                    CandidateSearchResult.fit_score.is_not(None),
+                )
+                .order_by(
+                    CandidateSearchResult.fit_score.desc(),
+                    CandidateSearchResult.candidate_id,
+                )
+                .offset(scanned)
+                .limit(page_size)
             )
         ).all()
-    }
-    off_role = await _off_role_ids(
-        db,
-        await db.get(Job, run.job_id),
-        [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
-        candidates,
-        keep_strong=False,
-    )
-    payload = []
-    for candidate_id, score, evidence in rows:
-        candidate = candidates.get(candidate_id)
-        if candidate is None or candidate_id in off_role:
-            continue
-        requirements = (evidence or {}).get("requirements") or []
-        payload.append(
-            {
-                "job_id": run.job_id,
-                "candidate_id": candidate_id,
-                "score": round(float(score), 2),
-                "run_id": run.id,
-                "cv_revision": candidate_revision(candidate),
-                "evidence": {
-                    "matched_must": _requirement_names(requirements, met=True),
-                    "missing_must": _requirement_names(requirements, met=False),
-                },
-            }
+        scanned += len(rows)
+        candidates = {
+            c.id: c
+            for c in (
+                await db.scalars(
+                    select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+                )
+            ).all()
+        }
+        off_role = await _off_role_ids(
+            db,
+            job,
+            [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
+            candidates,
+            keep_strong=False,
         )
+        for candidate_id, score, evidence in rows:
+            candidate = candidates.get(candidate_id)
+            if (
+                candidate is None
+                or candidate_id in off_role
+                or candidate_id in excluded
+            ):
+                continue
+            requirements = (evidence or {}).get("requirements") or []
+            payload.append(
+                {
+                    "job_id": run.job_id,
+                    "candidate_id": candidate_id,
+                    "score": round(float(score), 2),
+                    "run_id": run.id,
+                    "cv_revision": candidate_revision(candidate),
+                    "evidence": {
+                        "matched_must": _requirement_names(requirements, met=True),
+                        "missing_must": _requirement_names(requirements, met=False),
+                    },
+                }
+            )
+        if len(rows) < page_size:
+            break
+    payload = payload[:AUTOFILL_POOL_SIZE]
     await db.execute(
         delete(JobAutofillPool).where(JobAutofillPool.job_id == run.job_id)
     )

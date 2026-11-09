@@ -71,6 +71,8 @@ export interface PipelineMovePayload {
   expected_state_version?: number;
   acknowledge_eligibility?: boolean;
   task_assignee_id?: number;
+  /** QC-8: decyzja Delivery Leada przy luce kandydata. */
+  gap_decision?: "send_anyway" | "return";
   client_rate_value?: number;
   client_rate_unit?: RateUnit;
   client_rate_currency?: string;

@@ -102,6 +102,7 @@ const FRESH_INTAKE_DAYS = 1;
 export type InterviewPhase =
   | "awaiting_recruiter_pick"
   | "awaiting_dl_confirm"
+  | "slots_expired"
   | "scheduled"
   | "debrief_due"
   | "debriefed";
@@ -138,6 +139,8 @@ function phaseAction(
       return { label: "Wybierz termin rozmowy", tone: "normal", kind: "client" };
     case "awaiting_dl_confirm":
       return { label: "Potwierdź termin u klienta", tone: "normal", kind: "client" };
+    case "slots_expired":
+      return { label: "Terminy minęły — nowe od klienta", tone: "normal", kind: "client" };
     case "scheduled": {
       const day = dayMonth(interviewDate);
       return {
@@ -224,8 +227,8 @@ function ownerFor(
   const phase = item.interview_badge?.phase;
   if (phaseApplies(column, group, phase)) {
     if (RECRUITER_PHASES.has(phase)) return "recruiter";
-    // Termin potwierdza Delivery Lead u klienta — „Delivery” na karcie.
-    if (phase === "awaiting_dl_confirm") return "delivery";
+    // Termin potwierdza i nowe bierze od klienta Delivery Lead — „Delivery” na karcie.
+    if (phase === "awaiting_dl_confirm" || phase === "slots_expired") return "delivery";
   }
   const days = item.days_in_stage ?? 0;
   if (days >= NUDGE_DAYS) return "recruiter";
@@ -418,16 +421,17 @@ export function columnSlaHint(
 
   return {
     left: "SLA: —",
-    right: oldest == null ? null : `najstarszy ${oldest} d`,
+    right: oldest == null ? null : `najstarszy ${oldest} d rob.`,
     rightTone: oldest != null && oldest >= STUCK_DAYS ? "warn" : "normal",
   };
 }
 
-/** Najstarsza karta w kolumnie (dni), albo `null` dla pustej kolumny. */
+/** Najstarsza karta w kolumnie (dni robocze, ta sama liczba co na kartach),
+ *  albo `null` dla pustej kolumny. */
 export function oldestDaysInColumn(column: KanbanColumn): number | null {
   let oldest: number | null = null;
   for (const item of column.items) {
-    const days = item.days_in_stage;
+    const days = item.waiting_workdays;
     if (days == null) continue;
     if (oldest == null || days > oldest) oldest = days;
   }

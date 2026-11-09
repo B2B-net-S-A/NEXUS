@@ -189,13 +189,27 @@ export function splitPersonNotes<T extends PersonNoteLike>(
     if (bucket) bucket.notes.push(note);
     else buckets.set(key, { jobId: noteJobId, notes: [note] });
   }
+  // Zakończona rekrutacja bez notatki też jest historią osoby (03.11.2026): powód
+  // odrzucenia leży w etapie, nie w notatce, a 67% osób z powodem nie miało
+  // w tamtej rekrutacji żadnej notatki, więc tu go nie było.
+  for (const row of outcomes ?? []) {
+    if (row.job_id === jobId) continue;
+    if (!isRecruitmentEnded({ job_status: row.job_status, latest_stage: row.latest_stage })) continue;
+    const key = `job:${row.job_id}`;
+    if (!buckets.has(key)) buckets.set(key, { jobId: row.job_id, notes: [] });
+  }
+  const groupAt = (group: EarlierNotesGroup<T>) =>
+    Math.max(
+      timeOf(group.newestAt) || 0,
+      group.jobId == null ? 0 : timeOf(rowByJob.get(group.jobId)?.last_seen) || 0,
+    );
   const groups = [...buckets.entries()]
     .map(([key, bucket]) =>
       buildGroup(key, bucket.jobId, bucket.notes, bucket.jobId == null ? undefined : rowByJob.get(bucket.jobId)),
     )
-    // Najświeższa rozmowa na górze — także „Bez rekrutacji”, bo notatki
+    // Najświeższe zdarzenie na górze — także „Bez rekrutacji”, bo notatki
     // z Traffita bez powiązania bywają z ostatnich tygodni.
-    .sort((a, b) => (timeOf(b.newestAt) || 0) - (timeOf(a.newestAt) || 0));
+    .sort((a, b) => groupAt(b) - groupAt(a));
 
   const earlierHumanNotes = earlier.filter(isHumanNote);
   const oldest = dateRange(earlierHumanNotes).oldestAt;
@@ -242,15 +256,26 @@ export function dockNotesSummary(split: Pick<PersonNotesSplit<unknown>, "hereHum
 }
 
 /**
- * Podpis grupy: najdalszy etap, powód zakończenia i liczba notatek.
+ * Powód zakończenia do pokazania przy wyniku. Odrzucenie i rezygnacja bez
+ * powodu mówią to wprost; zatrudnienie i zamknięta rekrutacja powodu nie mają.
+ */
+export function outcomeReasonText(
+  outcome: { tone: RecruitmentOutcomeTone } | null,
+  reason: string | null | undefined,
+): string | null {
+  if (reason) return reason;
+  return outcome?.tone === "danger" || outcome?.tone === "warning" ? "bez zapisanego powodu" : null;
+}
+
+/**
+ * Podpis grupy: najdalszy etap i liczba notatek (powód ma osobną linię karty).
  * Wyświetla tylko to, co wiemy z historii — brak wiersza = sama liczba notatek.
  */
 export function groupFactsLine(group: EarlierNotesGroup<unknown>): string {
   const parts: string[] = [];
   if (group.currentStage) parts.push(`w toku: ${group.currentStage}`);
   else if (group.furthest) parts.push(`najdalej: ${group.furthest}`);
-  if (group.rejectionReason) parts.push(`powód: ${group.rejectionReason}`);
-  parts.push(notesCountLabel(group.humanCount));
+  parts.push(group.notes.length === 0 ? "bez notatek" : notesCountLabel(group.humanCount));
   const line = parts.join(" · ");
   return line.charAt(0).toUpperCase() + line.slice(1);
 }

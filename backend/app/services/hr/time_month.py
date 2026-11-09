@@ -23,7 +23,7 @@ from app.services.hr import audit
 from app.services.hr import time_leave_bridge as bridge
 from app.services.hr.leave_policy import type_label
 from app.services.hr.recipients import supervisor_of
-from app.services.hr.time_access import Actor
+from app.services.hr.time_access import Actor, left_company
 from app.services.hr.time_calendar import (
     month_calendar,
     month_range,
@@ -238,6 +238,7 @@ async def month_view(
         "employment_type": subject.employment_type,
         "default_location": subject.default_location,
         "can_log_overtime": subject.can_log_overtime,
+        "no_hours_limit": subject.no_hours_limit,
         "approver_name": None
         if supervisor.kind == "people_admin"
         else supervisor.label,
@@ -281,7 +282,7 @@ async def set_attendance(
     leave = await bridge.leave_days(db, [subject.user_id], day, day)
     if any(item.is_full for item in leave):
         raise TimeError(
-            "W dniu urlopu nie ustawia się miejsca pracy — zmień wniosek urlopowy."
+            "W dniu nieobecności nie ustawia się miejsca — zmień zgłoszenie nieobecności."
         )
     existing = await db.scalar(
         select(AttendanceDay).where(
@@ -445,6 +446,13 @@ async def team_queue(
                     )
                 ),
                 "can_decide": actor.can_approve(profile),
+                "can_confirm_for_person": (
+                    timesheet is not None
+                    and timesheet.status == "draft"
+                    and not timesheet.payroll_locked
+                    and left_company(profile)
+                    and actor.can_approve(profile)
+                ),
             }
         )
         if missing_before is not None:

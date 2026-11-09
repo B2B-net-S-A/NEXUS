@@ -25,9 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/admin/pipeline-inventory": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/admin/pipeline-inventory": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

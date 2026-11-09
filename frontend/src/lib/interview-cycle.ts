@@ -69,6 +69,8 @@ export type SlotRequestStatus =
 export interface SlotRequest {
   id: number;
   status: SlotRequestStatus;
+  /** Wniosek otwarty, ale wszystkie terminy minęły: nic już z niego nie wybierzesz. */
+  expired?: boolean;
   slots: SlotItem[];
   chosen_index: number | null;
   respond_by: string | null;
@@ -303,6 +305,8 @@ export type TodoKind =
   | "slots_confirm"
   /** 0487: rozmowa już w kalendarzu z wyboru rekrutera — DL odpisuje klientowi. */
   | "slots_reply"
+  /** Wszystkie terminy od klienta minęły — DL dodaje nowe (04.11.2026). */
+  | "slots_expired"
   | "prep_missing"
   | "prep2_missing"
   | "prep_late"
@@ -515,6 +519,7 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   slots_pick: "Terminy czekają na kandydata",
   slots_confirm: "Potwierdź termin u klienta",
   slots_reply: "Odpisz klientowi",
+  slots_expired: "Terminy od klienta minęły",
   prep_missing: "Prep 1 bez terminu",
   prep2_missing: "Prep 2 bez terminu",
   prep_late: "Prep po rozmowie u klienta — przełóż",
@@ -531,6 +536,7 @@ export const TODO_ACTIONS: Record<TodoKind, string> = {
   slots_pick: "Wybierz termin",
   slots_confirm: "Potwierdź",
   slots_reply: "Odpisz",
+  slots_expired: "Dodaj nowe",
   prep_missing: "Zaplanuj Prep 1",
   prep2_missing: "Zaplanuj Prep 2",
   prep_late: "Przełóż",
@@ -817,6 +823,7 @@ export type CycleAction =
       /** Brak = „late” (prep po rozmowie u klienta); „edit”/„cancel” z wiersza prepu (17.10.2026). */
       mode?: "late" | "edit" | "cancel";
     }
+  | { type: "reschedule_interview"; pair: PairInfo; eventId: number }
   | { type: "open_event"; eventId: number }
   /** 0482: telefon przed rozmową bez Prepu 2 odbyty. */
   | { type: "precall_done"; pair: PairInfo; skip: Prep2Skip };
@@ -883,6 +890,8 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return item?.slot_request ? { type: "confirm", pair, request: item.slot_request } : null;
     case "slots_reply":
       return item?.slot_request ? { type: "reply", pair, request: item.slot_request } : null;
+    case "slots_expired":
+      return { type: "add_slots", pair, request: item?.slot_request ?? null };
     case "prep_missing":
       return { type: "plan_prep", pair, second: false };
     case "prep2_missing":
@@ -929,9 +938,14 @@ export function actionForItem(
   switch (current.key) {
     case "slots":
       return canManageSlots
-        ? { stepKey: "slots", label: "Dodaj terminy", action: { type: "add_slots", pair } }
+        ? {
+            stepKey: "slots",
+            label: req?.expired ? "Dodaj nowe" : "Dodaj terminy",
+            action: { type: "add_slots", pair, request: req?.expired ? req : null },
+          }
         : null;
     case "choice":
+      if (req?.expired) return null;
       if (req?.status === "awaiting_recruiter") {
         return { stepKey: "choice", label: "Wybierz termin", action: { type: "pick", pair, request: req } };
       }

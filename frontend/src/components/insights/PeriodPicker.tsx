@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -86,6 +86,10 @@ interface Props {
    * jak utrata danych, a jest brakiem funkcji.
    */
   csv?: InsightsCsvExport | null;
+  /** Widok bez danych z DynaReportera (Źródła) nie pokazuje plakietki o nim. */
+  hideHistoryNote?: boolean;
+  /** Widok sam nazywa okres w zdaniu z odpowiedzią (Zespół). */
+  hideCaption?: boolean;
 }
 
 /**
@@ -105,10 +109,32 @@ export function PeriodPicker({
   resolved,
   defaultValue,
   csv,
+  hideHistoryNote = false,
+  hideCaption = false,
 }: Props) {
   const queryClient = useQueryClient();
   const offset = value.offset ?? 0;
-  const isAllTime = value.period === "custom";
+  const isCustom = value.period === "custom";
+  const isAllTime = isCustom && customSpanDays(value) >= INSIGHTS_MAX_CUSTOM_PERIOD_DAYS;
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState(value.date_from ?? "");
+  const [rangeTo, setRangeTo] = useState(value.date_to ?? "");
+  const rangeError =
+    rangeFrom && rangeTo
+      ? rangeFrom > rangeTo
+        ? "Data „od” jest późniejsza niż „do”."
+        : customSpanDays({ ...value, date_from: rangeFrom, date_to: rangeTo }) > INSIGHTS_MAX_CUSTOM_PERIOD_DAYS
+          ? `Najdłuższy zakres to ${INSIGHTS_MAX_CUSTOM_PERIOD_DAYS} dni.`
+          : null
+      : "Wybierz obie daty.";
+  const applyRange = (from: string, to: string) => {
+    onChange({ period: "custom", date_from: from, date_to: to });
+    setRangeOpen(false);
+  };
+  const applyLastDays = (days: number) => {
+    onChange(lastDaysPeriod(days));
+    setRangeOpen(false);
+  };
 
   const shift = (by: number) =>
     onChange({ ...value, offset: offset + by, anchor: undefined });
@@ -146,17 +172,16 @@ export function PeriodPicker({
 
   // Sufit ogłaszamy tylko wtedy, gdy realnie obowiązuje. Ostrzeżenie przy
   // krótszym oknie custom mówiłoby o przycięciu, którego nie było.
-  const cappedAllTime =
-    isAllTime && customSpanDays(value) >= INSIGHTS_MAX_CUSTOM_PERIOD_DAYS;
+  const cappedAllTime = isAllTime;
 
   const canExport = Boolean(csv && csv.rows.length > 0);
-  const beforeNexus = startsBeforeNexus(value, resolved);
+  const beforeNexus = !hideHistoryNote && startsBeforeNexus(value, resolved);
 
   return (
     // Telefon: pasek na całą szerokość, wyrównany do lewej; od `sm` jak dawniej
     // przy prawej krawędzi (audyt 23.09.2026, P1-06).
     <div className="flex w-full min-w-0 flex-col items-stretch gap-1.5 sm:w-auto sm:items-end">
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div className="relative flex flex-wrap items-center gap-2 sm:justify-end">
         <div
           role="group"
           aria-label="Granulacja okresu"
@@ -167,10 +192,10 @@ export function PeriodPicker({
               key={g.id}
               type="button"
               onClick={() => handleGranularity(g.id)}
-              aria-pressed={value.period === g.id}
+              aria-pressed={g.id === "custom" ? isAllTime : value.period === g.id}
               className={cn(
                 "shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3",
-                value.period === g.id
+                (g.id === "custom" ? isAllTime : value.period === g.id)
                   ? "bg-primary text-primary-foreground"
                   : "bg-transparent text-muted-foreground hover:text-foreground",
               )}
@@ -178,7 +203,54 @@ export function PeriodPicker({
               {g.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              setRangeFrom(value.date_from ?? "");
+              setRangeTo(value.date_to ?? "");
+              setRangeOpen((open) => !open);
+            }}
+            aria-expanded={rangeOpen}
+            aria-pressed={isCustom && !isAllTime}
+            className={cn(
+              "shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3",
+              isCustom && !isAllTime
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Zakres dat
+          </button>
         </div>
+
+        {rangeOpen && (
+          <div
+            className="absolute right-0 top-full z-30 mt-1 grid w-72 gap-3 rounded-lg border border-border bg-card p-3 text-left shadow-lg"
+            data-testid="period-range"
+          >
+            <div className="flex gap-1">
+              {[7, 30, 90].map((days) => (
+                <Button key={days} type="button" variant="outline" size="sm" onClick={() => applyLastDays(days)}>
+                  {days} dni
+                </Button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              <label className="grid gap-1">
+                Od
+                <input type="date" aria-label="Data od" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="rounded-md border border-border bg-background px-2 py-1 text-foreground" />
+              </label>
+              <label className="grid gap-1">
+                Do
+                <input type="date" aria-label="Data do" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="rounded-md border border-border bg-background px-2 py-1 text-foreground" />
+              </label>
+            </div>
+            {rangeError && rangeFrom && rangeTo ? <p className="text-xs text-destructive">{rangeError}</p> : null}
+            <Button type="button" size="sm" disabled={Boolean(rangeError)} onClick={() => applyRange(rangeFrom, rangeTo)}>
+              Pokaż
+            </Button>
+          </div>
+        )}
 
         <div className="flex items-center gap-1">
           <button
@@ -186,7 +258,7 @@ export function PeriodPicker({
             onClick={() => shift(-1)}
             // Kotwica nie ma zastosowania do `custom` — backend odrzuca offset
             // razem z jawnym zakresem (422), więc strzałka musi zgasnąć.
-            disabled={isAllTime}
+            disabled={isCustom}
             aria-label="Poprzedni okres"
             className="rounded-md border border-border p-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:p-2.5"
           >
@@ -197,7 +269,7 @@ export function PeriodPicker({
             onClick={() => shift(1)}
             // Przyszły okres jest legalny (half-open liczy okres w toku),
             // ale ruch naprzód z bieżącego nie ma sensu — blokujemy.
-            disabled={isAllTime || offset >= 0}
+            disabled={isCustom || offset >= 0}
             aria-label="Następny okres"
             className="rounded-md border border-border p-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:p-2.5"
           >
@@ -233,11 +305,13 @@ export function PeriodPicker({
         </div>
       </div>
 
-      {caption && (
+      {caption && !hideCaption && (
         <div className="flex flex-col items-start gap-0.5 sm:items-end">
-          <p className="text-xs font-medium text-foreground tabular-nums">
-            {caption.headline}
-          </p>
+          {caption.headline !== caption.range && (
+            <p className="text-xs font-medium text-foreground tabular-nums">
+              {caption.headline}
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground tabular-nums">
             {caption.range} · {caption.timezone}
           </p>
@@ -290,6 +364,19 @@ export function buildAllTimePeriod(
   // mniejszy niż sufit — inaczej okno miałoby 367 dni i wróciłoby 422.
   const from = addDays(to, -(INSIGHTS_MAX_CUSTOM_PERIOD_DAYS - 1));
   return { period: "custom", date_from: ymd(from), date_to: ymd(to) };
+}
+
+/** Ostatnie `days` dni kalendarzowych, licząc dzisiejszy dzień. */
+export function lastDaysPeriod(
+  days: number,
+  now: Date = new Date(),
+): InsightsPeriodParams {
+  const today = zonedCalendarDate(now, INSIGHTS_ANALYTICS_TIMEZONE);
+  return {
+    period: "custom",
+    date_from: ymd(addDays(today, -(days - 1))),
+    date_to: ymd(today),
+  };
 }
 
 /** Długość okna custom w dniach (inclusive, jak liczy backend). 0 = brak dat. */
@@ -500,7 +587,7 @@ function windowFilenameSuffix(
   return `_${ymd(start)}_${ymd(addDays(endExclusive, -1))}`;
 }
 
-function downloadCsv(filename: string, content: string): void {
+export function downloadCsv(filename: string, content: string): void {
   // BOM — bez niego Excel czyta UTF-8 jako windows-1250 i psuje polskie znaki.
   const blob = new Blob([`\uFEFF${content}`], {
     type: "text/csv;charset=utf-8;",

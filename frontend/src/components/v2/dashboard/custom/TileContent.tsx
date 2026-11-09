@@ -40,6 +40,7 @@ import { MyWeekTile } from "./MyWeekTile"
 import { TeamResultsTile } from "./TeamResultsTile"
 import { CalendarTodayBody, MyPeopleBody, NoteBody } from "./SmallTiles"
 import { SystemStatusTile } from "./SystemStatusTile"
+import { ClientResponseTile } from "./ClientResponseTile"
 import { TeamSignalsTile } from "./TeamSignalsTile"
 import { TodayCycleTile } from "./TodayCycleTile"
 import { PreContractsTile } from "./PreContractsTile"
@@ -151,6 +152,8 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       return <TodayCycleTile />
     case "team_signals":
       return <TeamSignalsTile />
+    case "client_response":
+      return <ClientResponseTile />
     case "system_status":
       return <SystemStatusTile />
     case "my_week":

@@ -370,7 +370,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(screen.queryByRole("link", { name: /analityka/i })).not.toBeInTheDocument();
   });
 
-  it("„Moduł Finanse” daje eksport i Analitykę także roli spoza domyślnych", async () => {
+  it("„Moduł Finanse” daje eksport, ale bez Analityki i kolumny marży", async () => {
     signIn("recruiter", {
       effective_action_access: permissionSnapshot("finance_module"),
       effective_section_access: sectionSnapshot(["finance_module"]),
@@ -382,6 +382,20 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     await screen.findByText("Paweł Makietowy");
 
     expect(screen.getByRole("button", { name: /eksport/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /analityka/i })).toBeNull();
+    expect(hasColumn("Stawka przychodowa")).toBe(true);
+    expect(hasColumn("Marża")).toBe(false);
+  });
+
+  it("„Wyniki firmy” dają Analitykę i kolumnę marży", async () => {
+    signIn("recruiter", {
+      effective_action_access: permissionSnapshot("company_results", "amounts_view"),
+      effective_section_access: sectionSnapshot(["company_results", "amounts_view"]),
+    });
+
+    renderList();
+    await screen.findByText("Paweł Makietowy");
+
     expect(screen.getByRole("link", { name: /analityka/i })).toBeInTheDocument();
     expect(hasColumn("Marża")).toBe(true);
   });

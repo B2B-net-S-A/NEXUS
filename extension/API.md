@@ -51,14 +51,14 @@ Starsza wersja w panelu → baner „Jest nowa wersja” z linkiem do `<frontend
 wtedy NEXUS szuka po imieniu, nazwisku i firmie.
 
 ### `POST /api/extension/lookup` (liczy 1 odczyt strony)
-Wejście: `ProfileRead`. Wyjście:
+Wejście: `ProfileRead` plus opcjonalne `active_job_id` (rekrutacja z paska „Pracuję nad”). Wyjście:
 ```json
 {"status": "found | not_found | ambiguous",
  "matched_by": "linkedin | name_company | null",
  "candidate": {"id": 1, "name": "…", "headline": "…", "city": "…", "url": "https://…/candidates/1", "in_nexus_since": "2024-03-02"},
  "ambiguous": [{"id": 2, "name": "…", "company": "…", "url": "…"}],
  "owner": {"user_id": 85, "name": "Katarzyna", "is_me": false, "last_contact_at": "…"},
- "processes": [{"job_id": 1, "job_title": "…", "client_name": "Nordea", "stage_label": "Screening", "recruiter_name": "Katarzyna", "closed": false, "close_label": null, "updated_at": "…"}],
+ "processes": [{"job_id": 1, "job_title": "…", "client_name": "Nordea", "stage_label": "Screening", "recruiter_name": "Katarzyna", "closed": false, "close_label": null, "close_kind": null, "updated_at": "…"}],
  "contacts": [{"at": "…", "user_name": "Katarzyna", "channel_label": "telefon", "note": "…"}],
  "rate": {"label": "150 zł/h B2B", "as_of": "2025-05-01"},
  "rodo": {"status": "valid | expired | none", "label": "zgoda do 03.2027"},
@@ -66,9 +66,23 @@ Wejście: `ProfileRead`. Wyjście:
  "contractor": {"client_name": "Nordea", "end_date": "2027-03-31", "delivery_lead_name": "Michał"},
  "job_change": {"page_company": "Allegro", "nexus_company": "Sabre"},
  "matches": [{"job_id": 763073, "title": "…", "client_name": "Nordea", "recruiter_name": "Katarzyna", "score": 81}],
+ "active_job": {"job_id": 763073, "title": "…", "client_name": "Nordea", "recruiter_name": "Katarzyna", "score": 42},
  "usage": {"reads_today": 35, "reads_limit": 150}}
 ```
 Pola obiektowe mogą być `null`, listy puste. `rate` jest `null`, gdy rola nie widzi stawek.
+Daty to kalendarz firmy (Europe/Warsaw): `at`, `last_contact_at` i `updated_at` mają przesunięcie
+Warszawy (`2026-11-03T00:45:00+01:00`), więc dzień można wziąć z początku ciągu.
+`close_kind` to `hired | rejected | withdrawn | job_closed`, a `null` przy otwartym procesie.
+`close_label` podaje stan z powodem (`Odrzucony · powód`, `Rekrutacja zamknięta`); przy `hired`
+jest `null` i panel pokazuje `stage_label`.
+`matches` ma próg 50%, `active_job` podaje procent zawsze. `active_job.score` jest `null`, gdy
+nie udało się go policzyć (awaria dopasowania nie psuje odpowiedzi). `active_job` jest `null`,
+gdy nie pytano o rekrutację albo jest zamknięta lub nie istnieje; to nie jest błąd.
+
+### `POST /api/extension/active-job` (nie liczy odczytu)
+Wejście: `{"job_id": 763073, "profile": ProfileRead}`. Wyjście: `{"active_job": {…} | null}`, pola jak w `/lookup`.
+Panel woła to po zmianie wyboru na pasku przy już odczytanym profilu: strona LinkedIna
+nie jest czytana ponownie, więc odczyt się nie zużywa.
 
 ### `POST /api/extension/lookup-batch` (liczy 1 odczyt strony)
 Wejście: `{"people": [{"full_name": "…", "public_url": "…|null", "headline": "…", "current_company": "…"}]}` (do 50 osób).

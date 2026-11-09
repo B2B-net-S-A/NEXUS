@@ -48,7 +48,9 @@ async def api_client():
 async def _status(world: dict) -> dict:
     pair = (world["candidate_id"], world["job_id"])
     async with AsyncSessionLocal() as db:
-        return (await qc.pair_statuses(db, [pair]))[pair]
+        out = (await qc.pair_statuses(db, [pair]))[pair]
+    out.pop("qc_state")
+    return out
 
 
 def _send(world: dict) -> dict:
@@ -96,6 +98,35 @@ async def _move(api_client: AsyncClient, world: dict, who: str):
         return await api_client.post(
             "/api/pipeline/move", headers=world[who], json=_send(world)
         )
+
+
+@pytest.mark.asyncio
+async def test_qc_endpoint_says_the_same_state_as_the_board(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Panel osoby i okno QC czytają `qc_state` z `/qc`, karta z `pair_statuses`.
+    Ten sam przebieg ma dać ten sam stan, także po obejściu (09.11.2026)."""
+    world = await _advisory_world(api_client, monkeypatch)
+    pair = (world["candidate_id"], world["job_id"])
+
+    async def both() -> tuple[dict, dict]:
+        with hydrated_taxonomy():
+            resp = await api_client.get(world["qc_url"], headers=world["rec"])
+        assert resp.status_code == 200, resp.text
+        async with AsyncSessionLocal() as db:
+            board = (await qc.pair_statuses(db, [pair]))[pair]["qc_state"]
+        return resp.json()["qc_state"], board
+
+    try:
+        live, board = await both()
+        assert live == board
+        assert live["kind"] != "unchecked"
+
+        await _override(api_client, world, "rec")
+        live, board = await both()
+        assert live == board
+    finally:
+        await _cleanup_advisory(world, world["stage_id"], world["users"])
 
 
 @pytest.mark.asyncio
@@ -252,6 +283,9 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": now,
             "dismissed_blocking": 4,
             "warnings_count": 0,
+            "manual_items": [],
+            "manual_checks": [],
+            "candidate_gaps": [],
         }
         async with AsyncSessionLocal() as db:
             spent = await dismissals.restore_on_card_return(db, cid, jid)
@@ -276,6 +310,9 @@ async def test_card_return_ends_pass_through_dismissals_of_people_without_send_r
             "ok_at": None,
             "dismissed_blocking": 0,
             "warnings_count": 0,
+            "manual_items": [],
+            "manual_checks": [],
+            "candidate_gaps": [],
         }
     finally:
         async with AsyncSessionLocal() as db:

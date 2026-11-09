@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   Briefcase,
   Building2,
+  Contact,
+  Lock,
   Settings,
   Plus,
   Search,
@@ -31,6 +33,7 @@ import {
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasPermission } from "@/lib/permissions";
 import { useHrNavState, useHrProgram } from "@/lib/api/hr";
+import { reviewBatchBlock } from "@/lib/api/reviewBatch";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
@@ -58,6 +61,7 @@ type QuickResult =
       /** Znacznik „Pracuje u nas” — osobny element, nie część podpisu. */
       employment?: EmploymentMarker | null;
     }
+  | { type: "person"; id: number; title: string; subtitle: string | null }
   | { type: "job"; id: number; title: string; subtitle: string | null }
   | { type: "client"; id: number; title: string; subtitle: string | null }
   // Sprzedaż (Atlas → NEXUS): firmy i szanse — w Atlasie ⌘K szukał ich od zawsze.
@@ -82,6 +86,16 @@ interface RawSearchItem {
   industry?: string | null;
 }
 
+/** Wiersz „Ludzie” z `GET /api/search/global` (bramka jak katalog `/api/hr/people`). */
+interface RawPersonHit {
+  id: number;
+  name?: string | null;
+  subtitle?: string | null;
+}
+
+/** Sekcja, której wyników nie ma z powodu odmowy albo awarii, nie braku trafień. */
+type SectionIssue = { kind: "blocked"; message: string } | { kind: "failed" };
+
 export function CommandPaletteV2({
   open,
   onOpenChange,
@@ -96,11 +110,22 @@ export function CommandPaletteV2({
   const canSearchJobs = hasSectionAccess(user, "pipeline");
   const canSearchClients = hasSectionAccess(user, "delivery");
   const canSearchSales = hasPermission(user, "sales_view");
+  const {
+    myTime: hrMyTime,
+    people: hrPeople,
+    equipment: hrEquipment,
+    care: hrCare,
+    backOffice: hrBackOffice,
+  } = useHrNavState(user);
+  const canSearchPeople = hrPeople;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QuickResult[]>([]);
   const [searching, setSearching] = useState(false);
   /** Każde dozwolone zapytanie padło → awaria, NIE „brak wyników" (F-20). */
   const [searchFailed, setSearchFailed] = useState(false);
+  /** 423 porcji albo awaria samych kandydatów: reszta sekcji odpowiada normalnie. */
+  const [candidateIssue, setCandidateIssue] = useState<SectionIssue | null>(null);
+  const [peopleFailed, setPeopleFailed] = useState(false);
 
   // Debounced multi-entity search.
   //
@@ -120,12 +145,15 @@ export function CommandPaletteV2({
       setResults([]);
       setSearching(false);
       setSearchFailed(false);
+      setCandidateIssue(null);
+      setPeopleFailed(false);
       return;
     }
 
     const ctrl = new AbortController();
     let cancelled = false;
     const buckets: Record<QuickResult["type"], QuickResult[]> = {
+      person: [],
       candidate: [],
       job: [],
       client: [],
@@ -135,6 +163,7 @@ export function CommandPaletteV2({
     const flush = () => {
       if (cancelled) return;
       setResults([
+        ...buckets.person,
         ...buckets.candidate,
         ...buckets.job,
         ...buckets.client,
@@ -146,6 +175,8 @@ export function CommandPaletteV2({
     setResults([]);
     setSearching(true);
     setSearchFailed(false);
+    setCandidateIssue(null);
+    setPeopleFailed(false);
 
     const timer = setTimeout(() => {
       // Zapytania wysyłamy WYŁĄCZNIE dla zasobów, do których user ma
@@ -153,6 +184,30 @@ export function CommandPaletteV2({
       // strzelała w /api/candidates i /api/clients tylko po to, żeby dostać
       // 403 połknięte przez `allSettled` — i zobaczyć „Brak wyników".
       const requests: Array<Promise<unknown>> = [];
+      if (canSearchPeople) {
+        requests.push(
+          api
+            .get("/api/search/global", {
+              params: { q: term },
+              signal: ctrl.signal,
+            })
+            .then((res) => {
+              buckets.person = ((res.data?.people ?? []) as RawPersonHit[])
+                .slice(0, 5)
+                .map((p) => ({
+                  type: "person" as const,
+                  id: p.id,
+                  title: p.name ?? `Osoba #${p.id}`,
+                  subtitle: p.subtitle || null,
+                }));
+              flush();
+            })
+            .catch((error: unknown) => {
+              if (!cancelled) setPeopleFailed(true);
+              throw error;
+            }),
+        );
+      }
       if (canSearchCandidates) {
         requests.push(
           api
@@ -181,6 +236,19 @@ export function CommandPaletteV2({
                 employment: c.employment_marker ?? null,
               }));
               flush();
+            })
+            // Jedna sekcja padła, reszta odpowiada: bez tego 423 porcji
+            // wyglądałoby jak „w bazie nie ma nikogo z Javą”. Błąd idzie dalej,
+            // bo `allSettled` niżej liczy z niego awarię wszystkich zapytań.
+            .catch((error: unknown) => {
+              if (cancelled) throw error;
+              const block = reviewBatchBlock(error);
+              setCandidateIssue(
+                block
+                  ? { kind: "blocked", message: block.message }
+                  : { kind: "failed" },
+              );
+              throw error;
             }),
         );
       }
@@ -270,7 +338,15 @@ export function CommandPaletteV2({
       ctrl.abort();
       clearTimeout(timer);
     };
-  }, [query, open, canSearchCandidates, canSearchJobs, canSearchClients, canSearchSales]);
+  }, [
+    query,
+    open,
+    canSearchPeople,
+    canSearchCandidates,
+    canSearchJobs,
+    canSearchClients,
+    canSearchSales,
+  ]);
 
   const go = (href: string) => {
     onOpenChange(false);
@@ -300,19 +376,19 @@ export function CommandPaletteV2({
     () => listedSettingsItems(user, { hrProgram }),
     [user, hrProgram],
   );
-  const {
-    myTime: hrMyTime,
-    people: hrPeople,
-    equipment: hrEquipment,
-    care: hrCare,
-  } = useHrNavState(user);
   const visibleNav = useMemo(
     () =>
       visiblePaletteEntries(
         user,
         {
           contactQueueEnabled: contactFeature.enabled,
-          hr: { myTime: hrMyTime, people: hrPeople, equipment: hrEquipment, care: hrCare },
+          hr: {
+            myTime: hrMyTime,
+            people: hrPeople,
+            equipment: hrEquipment,
+            care: hrCare,
+            backOffice: hrBackOffice,
+          },
         },
         (capability) => can[capability],
       ).map((entry) => ({
@@ -322,7 +398,7 @@ export function CommandPaletteV2({
         icon: entry.icon,
         keywords: entry.paletteKeywords ?? [],
       })),
-    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare],
+    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare, hrBackOffice],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają
@@ -338,6 +414,15 @@ export function CommandPaletteV2({
             navMatches(text, searchTerm),
           ),
         );
+
+  // Gdy padły WSZYSTKIE zapytania, mówi o tym `CommandEmpty`; osobny wiersz
+  // awarii by go zasłonił. Blokada porcji ma własną drogę i zostaje zawsze.
+  const showCandidateIssue =
+    candidateIssue !== null &&
+    (candidateIssue.kind === "blocked" || !searchFailed);
+  const showPeopleFailed = peopleFailed && !searchFailed;
+  const personResults = results.filter((r) => r.type === "person");
+  const otherResults = results.filter((r) => r.type !== "person");
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
@@ -385,7 +470,11 @@ export function CommandPaletteV2({
           </CommandGroup>
         )}
 
-        {query.trim().length >= 2 && (results.length > 0 || matchedNav.length > 0) && (
+        {query.trim().length >= 2 &&
+          (results.length > 0 ||
+            matchedNav.length > 0 ||
+            showCandidateIssue ||
+            showPeopleFailed) && (
           <CommandGroup heading="Asystent">
             <CommandItem value={`jarvis ${query}`} onSelect={() => askJarvis(query)}>
               <Sparkles className="h-4 w-4" />
@@ -394,9 +483,70 @@ export function CommandPaletteV2({
           </CommandGroup>
         )}
 
-        {results.length > 0 && (
+        {(personResults.length > 0 || showPeopleFailed) && (
+          <CommandGroup heading="Ludzie">
+            {personResults.map((r) => (
+              <CommandItem
+                key={`person-${r.id}`}
+                value={`person ${r.id} ${r.title} ${r.subtitle ?? ""}`}
+                onSelect={() => go(`/people/${r.id}`)}
+              >
+                <Contact className="h-4 w-4" />
+                <span className="truncate">{r.title}</span>
+                {r.subtitle && (
+                  <span className="ml-2 text-xs text-muted-foreground truncate">
+                    · {r.subtitle}
+                  </span>
+                )}
+              </CommandItem>
+            ))}
+            {showPeopleFailed && (
+              <CommandItem
+                disabled
+                value="people-failed"
+                className="data-[disabled=true]:opacity-100"
+              >
+                <span className="text-xs text-destructive">
+                  Nie udało się wczytać ludzi
+                </span>
+              </CommandItem>
+            )}
+          </CommandGroup>
+        )}
+
+        {showCandidateIssue && (
+          <CommandGroup heading="Kandydaci">
+            {candidateIssue.kind === "blocked" ? (
+              <CommandItem
+                value="candidates-review-batch-blocked"
+                className="items-start gap-2 border border-warning/40 bg-warning/10 data-[selected=true]:bg-warning/20"
+                onSelect={() => go("/porcja")}
+              >
+                <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 whitespace-normal text-xs">
+                  {candidateIssue.message}
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-primary">
+                  Otwórz porcję →
+                </span>
+              </CommandItem>
+            ) : (
+              <CommandItem
+                disabled
+                value="candidates-failed"
+                className="data-[disabled=true]:opacity-100"
+              >
+                <span className="text-xs text-destructive">
+                  Nie udało się wczytać kandydatów
+                </span>
+              </CommandItem>
+            )}
+          </CommandGroup>
+        )}
+
+        {otherResults.length > 0 && (
           <CommandGroup heading="Wyniki">
-            {results.map((r) => (
+            {otherResults.map((r) => (
               <CommandItem
                 key={`${r.type}-${r.id}`}
                 value={`${r.type} ${r.title} ${r.subtitle ?? ""}`}
@@ -532,6 +682,8 @@ export function navMatches(label: string, term: string): boolean {
 
 function resultHref(r: QuickResult): string {
   switch (r.type) {
+    case "person":
+      return `/people/${r.id}`;
     case "candidate":
       return `/candidates/${r.id}`;
     case "job":

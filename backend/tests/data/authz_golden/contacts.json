@@ -25,13 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPPDBBBBD",
-  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
-  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPDDDDDDD"
+  "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPPDBBBBDPDP",
+  "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPDDDDDDDPDP"
  }
 }

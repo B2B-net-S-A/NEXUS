@@ -37,6 +37,7 @@ from typing import Any, Optional, Protocol, Sequence
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -45,6 +46,7 @@ from app.models.equipment import ConsultantWelcomeMail
 from app.models.user import User
 from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.care.announcement_audience import valid_email
+from app.services.consultant_portal import portal_mail, portal_settings
 from app.services.equipment.errors import EquipmentError
 from app.services.hr import audit, client_pack
 from app.services.hr_lifecycle_schema import KEY_WELCOME_MAIL
@@ -183,6 +185,32 @@ def _documents_line(
     return f"{prefix}: " + "; ".join(_document(item) for item in items) + "."
 
 
+def compose_panel_invite(
+    *,
+    first_name: Optional[str],
+    portal_url: str,
+    owner_name: Optional[str],
+    owner_email: Optional[str],
+) -> tuple[str, str]:
+    """Osoba już pracuje: bez „zaczynasz” i pierwszego dnia, sam panel."""
+
+    lines = [
+        f"Cześć {first_name}," if first_name else "Dzień dobry,",
+        "",
+        "Uruchomiliśmy dla Ciebie panel konsultanta B2B.net.",
+        "Znajdziesz tam stawkę, sposób rozliczenia, materiały, rozmowy z nami i Twoje sprawy: "
+        f"{portal_url}",
+        "Żeby wejść, podaj ten adres e-mail, a wyślemy Ci link do logowania.",
+    ]
+    if owner_name:
+        lines += ["", "Pozdrawiam,", owner_name]
+        if owner_email:
+            lines.append(owner_email)
+    else:
+        lines += ["", "W razie pytań odpisz na tę wiadomość.", "", "Pozdrawiamy"]
+    return "Twój panel konsultanta B2B.net", "\n".join(lines)
+
+
 def compose(
     *,
     first_name: Optional[str],
@@ -192,6 +220,7 @@ def compose(
     documents: Sequence[client_pack.PackItem],
     owner_name: Optional[str],
     owner_email: Optional[str],
+    portal_url: Optional[str] = None,
 ) -> tuple[str, str]:
     """Temat i treść maila z danych kontraktu i pakietu (czysta funkcja)."""
 
@@ -215,6 +244,13 @@ def compose(
     ):
         if line:
             lines.append(line)
+    if portal_url:
+        lines += [
+            "",
+            "Materiały na start, stawkę, rozliczenia, rozmowy i Twoje sprawy znajdziesz "
+            f"w panelu konsultanta: {portal_url}",
+            "Żeby wejść, podaj ten adres e-mail, a wyślemy Ci link do logowania.",
+        ]
     if owner_name:
         lines += [
             "",
@@ -244,8 +280,13 @@ async def _owner(db: AsyncSession, contract_id: int) -> Optional[User]:
     return await db.get(User, user_id) if user_id else None
 
 
-async def draft_for(db: AsyncSession, contract_id: int) -> Draft:
-    """Podgląd maila dla kontraktu z listą braków (blokujących i nie)."""
+async def draft_for(
+    db: AsyncSession, contract_id: int, *, assume_panel_open: bool = False
+) -> Draft:
+    """Podgląd maila dla kontraktu z listą braków (blokujących i nie).
+
+    ``assume_panel_open``: podgląd przed aktywacją pokazuje treść, która wyjdzie po niej.
+    """
 
     contract = await db.get(Contract, contract_id)
     if contract is None:
@@ -306,15 +347,37 @@ async def draft_for(db: AsyncSession, contract_id: int) -> Draft:
             Issue("no_owner", "Kontrakt nie ma opiekuna — mail nie ma podpisu.", False)
         )
     first_name = (candidate.name or "").strip() if candidate else ""
-    subject, body = compose(
-        first_name=first_name or None,
-        client_name=client.name if client else "kliencie",
-        start_date=contract.start_date,
-        first_day=first_day,
-        documents=pack.documents if pack else (),
-        owner_name=owner.name if owner else None,
-        owner_email=owner.email if owner else None,
+    panel_url = (
+        portal_mail.portal_url()
+        if assume_panel_open or (await portal_settings.load(db)).open_for(contract.id)
+        else None
     )
+    started = contract.start_date is not None and contract.start_date < business_today()
+    if panel_url and started:
+        subject, body = compose_panel_invite(
+            first_name=first_name or None,
+            portal_url=panel_url,
+            owner_name=owner.name if owner else None,
+            owner_email=owner.email if owner else None,
+        )
+        # Pakiet i dzień startu nie mają tu znaczenia, więc ich braki nie są brakami.
+        issues = [
+            issue
+            for issue in issues
+            if issue.code not in ("no_pack", "no_contact", "no_start")
+        ]
+    else:
+        subject, body = compose(
+            first_name=first_name or None,
+            client_name=client.name if client else "kliencie",
+            start_date=contract.start_date,
+            first_day=first_day,
+            documents=pack.documents if pack else (),
+            owner_name=owner.name if owner else None,
+            owner_email=owner.email if owner else None,
+            # Link tylko przy panelu otwartym dla tego kontraktu: kod wchodzi ciemno.
+            portal_url=panel_url,
+        )
     name = (
         " ".join(p for p in (candidate.name, candidate.lastname) if p)
         if candidate

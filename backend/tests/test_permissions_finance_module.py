@@ -20,6 +20,7 @@ from datetime import date
 from typing import get_args, get_type_hints
 
 import pytest
+from sqlalchemy import update
 from fastapi import HTTPException
 from httpx import AsyncClient
 from starlette.requests import Request
@@ -38,14 +39,18 @@ from tests.test_insights_board_yoy import BASE_YEAR, YOY_URL, _metric
 
 FM = "finance_module"
 FM_LABEL = "Moduł Finanse"
+ORDERS = "orders_work"
+ORDERS_LABEL = "Zamówienia: zmiany, PDF-y, import MD"
 
 
-def _assert_names_the_permission(detail: object) -> None:
+def _assert_names_the_permission(
+    detail: object, permission: str = FM, label: str = FM_LABEL
+) -> None:
     assert isinstance(detail, dict), detail
     assert detail["code"] == "permission_denied"
-    assert detail["permission"] == FM
-    assert detail["label"] == FM_LABEL
-    assert FM_LABEL in detail["message"]
+    assert detail["permission"] == permission
+    assert detail["label"] == label
+    assert label in detail["message"]
 
 
 # ── Reguły na kontach z dołączoną polityką (bez bazy) ───────────────────────
@@ -72,22 +77,24 @@ def _account(role: UserRole, *permissions: str, insights: str = "read") -> User:
     return user
 
 
-def test_board_mail_goes_to_holders_of_the_permission_who_read_insights() -> None:
+def test_board_mail_skips_the_permission_holders() -> None:
+    """Mail zarządu: Rada i imienne nadanie, nie „Moduł Finanse” (02.11.2026)."""
+    named = _account(UserRole.admin, *catalog.KEYS, insights="write")
+    named.receives_board_report = True
     admin = _account(UserRole.admin, *catalog.KEYS, insights="write")
+    board = _account(UserRole.board)
     finance = _account(UserRole.finance, FM)
-    # Uprawnienie nadane osobie spoza domyślnych ról.
+    # Uprawnienie nadane osobie spoza domyślnych ról też nie otwiera maila.
     granted = _account(UserRole.recruiter, FM)
-    # Rola Finanse z wyłączonym przełącznikiem „Moduł Finanse”.
-    switched_off = _account(UserRole.finance, "amounts_view")
     # Raport niesie liczby z Insights — bez odczytu tej sekcji nie wychodzi.
-    without_insights = _account(UserRole.finance, FM, insights="none")
+    without_insights = _account(UserRole.board, insights="none")
     hor = _account(UserRole.head_of_recruitment, insights="write")
 
     readers = reports._board_readers(
-        [admin, finance, granted, switched_off, without_insights, hor]
+        [named, admin, board, finance, granted, without_insights, hor]
     )
 
-    assert readers == [admin, finance, granted]
+    assert readers == [named, board]
 
 
 async def test_year_on_year_admits_the_permission_or_the_hor_role() -> None:
@@ -145,10 +152,18 @@ async def test_year_on_year_keeps_the_amounts_only_for_holders(monkeypatch) -> N
     limiter_was_enabled = limiter.enabled
     limiter.enabled = False
     try:
-        for holder in (
+        # „Moduł Finanse” wchodzi do tabeli, ale kwoty daje „Wyniki firmy”.
+        for without_money in (
             _account(UserRole.finance, FM),
             _account(UserRole.recruiter, FM),
-            _account(UserRole.head_of_recruitment, FM, insights="write"),
+        ):
+            assert (await read(without_money))["money_redacted"] is True
+        for holder in (
+            _account(UserRole.finance, catalog.COMPANY_RESULTS),
+            _account(UserRole.recruiter, catalog.COMPANY_RESULTS),
+            _account(
+                UserRole.head_of_recruitment, catalog.COMPANY_RESULTS, insights="write"
+            ),
         ):
             full = await read(holder)
             assert "money_redacted" not in full
@@ -200,9 +215,13 @@ async def _seed_user(
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}, user_id
 
 
-def _assert_named_denial(resp) -> None:
+def _assert_named_denial(resp, permission: str = FM, label: str = FM_LABEL) -> None:
     assert resp.status_code == 403, resp.text
-    _assert_names_the_permission(resp.json()["detail"])
+    _assert_names_the_permission(resp.json()["detail"], permission, label)
+
+
+def _assert_orders_denial(resp) -> None:
+    _assert_named_denial(resp, ORDERS, ORDERS_LABEL)
 
 
 CHECKS = "/api/finance/order-changes/checks"
@@ -236,9 +255,10 @@ async def test_granted_recruiter_works_in_the_finance_module(
     day = _far_day(2097, 2099)
     reads = _module_reads(day)
 
-    for path in reads:
+    _assert_orders_denial(await app_client.get(reads[0], headers=headers))
+    for path in reads[1:]:
         _assert_named_denial(await app_client.get(path, headers=headers))
-    _assert_named_denial(
+    _assert_orders_denial(
         await app_client.post(CHECKS, headers=headers, json=_stale_check(day))
     )
 
@@ -266,11 +286,18 @@ async def test_finance_role_without_the_permission_is_refused(
     assert before.json()["can_check"] is True
 
     async with role_permission("finance", FM, granted=False):
-        for path in (*reads, yoy):
+        for path in (*reads[1:], yoy):
             _assert_named_denial(await app_client.get(path, headers=headers))
-        _assert_named_denial(
-            await app_client.post(CHECKS, headers=headers, json=_stale_check(day))
-        )
+        # Zakładki o zamówieniach mają własne uprawnienie (04.11.2026).
+        kept = await app_client.get(reads[0], headers=headers)
+        assert kept.status_code == 200, kept.text
+        assert kept.json()["can_check"] is True
+
+        async with role_permission("finance", ORDERS, granted=False):
+            _assert_orders_denial(await app_client.get(reads[0], headers=headers))
+            _assert_orders_denial(
+                await app_client.post(CHECKS, headers=headers, json=_stale_check(day))
+            )
 
     # Przełącznik wraca — ta sama sesja znowu czyta moduł.
     after = await app_client.get(reads[0], headers=headers)
@@ -293,8 +320,14 @@ async def test_year_on_year_money_follows_the_permission(
         await app_client.get(YOY_URL, headers=recruiter_headers, params=params)
     )
 
-    await grant_permissions(hor_id, FM)
+    # Sam „Moduł Finanse” wpuszcza do tabeli, ale bez kwot (02.11.2026).
     await grant_permissions(recruiter_id, FM)
+    no_money = await app_client.get(YOY_URL, headers=recruiter_headers, params=params)
+    assert no_money.status_code == 200, no_money.text
+    assert no_money.json()["money_redacted"] is True
+
+    await grant_permissions(hor_id, catalog.COMPANY_RESULTS)
+    await grant_permissions(recruiter_id, catalog.COMPANY_RESULTS)
 
     for headers in (hor_headers, recruiter_headers):
         full = await app_client.get(YOY_URL, headers=headers, params=params)
@@ -303,26 +336,25 @@ async def test_year_on_year_money_follows_the_permission(
         assert _metric(full.json(), "margin_monthly_pln")["series"] is not None
 
 
-async def test_board_mail_recipients_come_from_the_saved_policy(
+async def test_board_mail_recipients_are_the_board_and_named_people(
     app_client: AsyncClient,
 ) -> None:
+    _, admin_id = await _seed_user(app_client, "admin")
+    _, named_id = await _seed_user(app_client, "admin")
+    _, board_id = await _seed_user(app_client, "board")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User).where(User.id == named_id).values(receives_board_report=True)
+        )
+        await db.commit()
     _, finance_id = await _seed_user(app_client, "finance")
     _, granted_id = await _seed_user(app_client, "recruiter")
     _, hor_id = await _seed_user(app_client, "head_of_recruitment")
-    _, recruiter_id = await _seed_user(app_client, "recruiter")
-    _, inactive_id = await _seed_user(app_client, "finance", is_active=False)
+    _, inactive_id = await _seed_user(app_client, "admin", is_active=False)
     await grant_permissions(granted_id, FM)
 
-    async def recipient_ids() -> set[int]:
-        async with AsyncSessionLocal() as db:
-            return {user.id for user in await reports._board_recipients(db)}
+    async with AsyncSessionLocal() as db:
+        ids = {user.id for user in await reports._board_recipients(db)}
 
-    ids = await recipient_ids()
-    assert {finance_id, granted_id} <= ids
-    assert not {hor_id, recruiter_id, inactive_id} & ids
-
-    async with role_permission("finance", FM, granted=False):
-        ids = await recipient_ids()
-        # Rola traci raport, nadanie osobie zostaje.
-        assert finance_id not in ids
-        assert granted_id in ids
+    assert {named_id, board_id} <= ids
+    assert not {admin_id, finance_id, granted_id, hor_id, inactive_id} & ids

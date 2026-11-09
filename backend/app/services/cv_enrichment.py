@@ -43,7 +43,11 @@ _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
 # Klucze ``cv_extracted_data`` spoza odczytu CV: fakty z notatek (nocna pętla
 # ``notes_insights_sync``) i pochodzenie rekordu z importu Traffita. Odczyt CV
 # i kwarantanna tożsamości CV ich nie ruszają.
-NON_CV_EXTRACTED_KEYS = ("_notes_insights", "legacy_source")
+NON_CV_EXTRACTED_KEYS = ("_notes_insights", "_conversation_facts", "legacy_source")
+# Znaczniki biegów masowych: „ten tekst CV już przeczytano / wyciągnięto”.
+# Do 07.11.2026 każdy odczyt je gubił (pomiar na 50 CV: `_cv_text_extraction`
+# u 3, `_cv_fields_read_md5` u 1), więc kolejny bieg płacił za ten sam tekst.
+CV_RUN_MARKER_KEYS = ("_cv_text_extraction", "_cv_fields_read_md5", "_cv_reparse")
 
 # Fields an AI parse may author. Everything here is subject to `CvWritePolicy`
 # and to a `_manual_override_<field>` lock.
@@ -219,13 +223,31 @@ def _is_empty_value(value) -> bool:
 # Placeholder names that mean "no real value yet" even though the column is
 # NOT NULL. ``/from-cv`` writes "Nieznane" when the LLM finds no name; the
 # Traffit importer writes "?" when the source record has neither name nor a
-# usable email. Both must be treated as blank so a later CV parse can fill them.
+# usable email; "Unknown" came as-is from Traffit's own name fields (78 profiles,
+# stamp in ``_nexus_identity``, 05.11.2026); the "Not ..." forms are empty-field
+# text (``EMPTY_FIELD_NAME_PHRASES``), spelled as they are stored because the
+# selection in ``backfill_missing_names`` compares exact values. All must be
+# treated as blank so a later CV parse can fill them.
 _CV_PLACEHOLDER_NAME = "Nieznane"
-_CV_PLACEHOLDER_NAMES = frozenset({_CV_PLACEHOLDER_NAME, "?"})
+_CV_PLACEHOLDER_NAMES = frozenset(
+    {
+        _CV_PLACEHOLDER_NAME,
+        "?",
+        "Unknown",
+        "Not",
+        "Provided",
+        "Specified",
+        "Available",
+        "Not Provided",
+        "Not provided",
+        "Not Specified",
+        "Not Available",
+    }
+)
 
 
 def _is_blank_name(value) -> bool:
-    """True when ``value`` is empty/None or a known placeholder ("?", "Nieznane")."""
+    """True when ``value`` is empty/None or a known placeholder (``_CV_PLACEHOLDER_NAMES``)."""
     if value is None:
         return True
     if isinstance(value, str):
@@ -259,6 +281,21 @@ def _provenance_stamp(parsed: dict) -> dict:
     }
 
 
+def name_part_for_profile(parsed: dict, field: str) -> str:
+    """Imię albo nazwisko z odczytu CV, które wolno zapisać w profilu.
+
+    Część z reguły nagłówka (`_name_from_header`) nie nadaje nazwy: to pierwsza
+    linia z wielkich liter, bywa stanowiskiem albo firmą. Pomiar 05.11.2026: tam,
+    gdzie model zna nazwę, reguła podaje obcą w 23% plików, a gdzie model jej nie
+    znalazł, żadnej z 17 nazw nie potwierdził mail ani LinkedIn. Dopisek w imieniu
+    („Jan (CIPP/E)”) znika po cichu (D6, 13.10.2026); pole, które było samym
+    dopiskiem, zostaje puste.
+    """
+    if field in (parsed.get("_name_from_header") or ()):
+        return ""
+    return strip_name_markers(str(parsed.get(field) or "").strip())[0]
+
+
 def _apply_cv_contact_fields(
     candidate: Candidate, parsed: dict, existing_extracted: dict
 ) -> None:
@@ -276,13 +313,11 @@ def _apply_cv_contact_fields(
     def _locked(field: str) -> bool:
         return bool(existing_extracted.get(f"_manual_override_{field}"))
 
-    # Dopisek w imieniu odczytanym z CV („Jan (CIPP/E)”) znika po cichu
-    # (D6, 13.10.2026); pole, które było samym dopiskiem, zostaje puste.
-    first_name = strip_name_markers(str(parsed.get("first_name") or "").strip())[0]
+    first_name = name_part_for_profile(parsed, "first_name")
     if first_name and _is_blank_name(candidate.name) and not _locked("first_name"):
         candidate.name = first_name[:100]
 
-    last_name = strip_name_markers(str(parsed.get("last_name") or "").strip())[0]
+    last_name = name_part_for_profile(parsed, "last_name")
     if last_name and _is_blank_name(candidate.lastname) and not _locked("last_name"):
         candidate.lastname = last_name[:100]
 
@@ -313,6 +348,10 @@ _RICH_EXPERIENCE_KEYS = (
     "employment_type",
     "location",
     "client",
+    # v9 (07.11.2026)
+    "sector",
+    "team_size",
+    "regulations",
 )
 _LEGAL_SUFFIX_RE = re.compile(
     r"\b(sp\.?\s*z\s*o\.?\s*o\.?|s\.?\s*a\.?|sp\.?\s*j\.?|sp\.?\s*k\.?|"
@@ -543,6 +582,9 @@ def _apply_cv_enrichment(
         "certifications",
         "projects",
         "achievements",
+        # v9: tylko pełny odczyt je zbiera, więc słabszy nie może ich skasować.
+        "seniority_level",
+        "nationality",
     )
     if not is_rich_profile_parse(parsed) and policy is CvWritePolicy.FILL_EMPTY:
         # Słabszy odczyt (regex, szablon masowy, nocny backfill) nie kasuje
@@ -578,7 +620,7 @@ def _apply_cv_enrichment(
     # Runda 9 (R9-N8-3): fakty z notatek rekruterów i pochodzenie importu nie
     # pochodzą z CV — nowy odczyt CV nie może ich skasować (do tej pory każde
     # wgranie CV zerowało kartę „Z notatek rekruterów” do nocnego biegu).
-    for key in NON_CV_EXTRACTED_KEYS:
+    for key in (*NON_CV_EXTRACTED_KEYS, *CV_RUN_MARKER_KEYS):
         if key in existing_extracted:
             next_extracted[key] = existing_extracted[key]
     # Merge, never replace: fields this run left alone keep whatever provenance
@@ -588,6 +630,11 @@ def _apply_cv_enrichment(
         provenance[field] = provenance_stamp
     if provenance:
         next_extracted["_field_provenance"] = provenance
+    if "skills" in written_fields:
+        # 08.11.2026: umiejętności z rozmów nie znikają po nowym CV.
+        from app.services.conversation_facts import reapply_after_cv
+
+        reapply_after_cv(candidate, next_extracted)
     candidate.cv_extracted_data = next_extracted
 
     entries = cv_experience_entries(parsed)

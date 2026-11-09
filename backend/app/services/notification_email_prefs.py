@@ -40,7 +40,7 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import (
     ProductAction,
     has_permission,
-    reads_board_money,
+    receives_company_results,
 )
 from app.services.hr.modules import load_modules, module_open_for
 from app.services.hr_foundation_schema import HR_MODULE_KEYS
@@ -131,11 +131,9 @@ def _section_read(user: User, section: ProductSection) -> bool:
 
 
 def _digest(user: User, _: _Context) -> bool:
-    from app.tasks.daily_digest_email import DIGEST_ROLES
+    from app.tasks.daily_digest_email import receives_digest
 
-    return user.has_any_role(*DIGEST_ROLES) and _section_read(
-        user, ProductSection.pipeline
-    )
+    return receives_digest(user)
 
 
 def _dl_review(user: User, ctx: _Context) -> bool:
@@ -276,7 +274,7 @@ def _candidate_bell(ntype: NotificationType) -> Callable[[User, _Context], bool]
 
 def _hire_documents(user: User, _: _Context) -> bool:
     return (
-        user.has_role(UserRole.finance)
+        user.has_any_role(UserRole.finance, UserRole.back_office)
         and user_may_receive_type(user, NotificationType.hired_order_missing)
     ) or (
         user.has_role(UserRole.delivery_lead)
@@ -285,8 +283,10 @@ def _hire_documents(user: User, _: _Context) -> bool:
 
 
 def _board_monthly(user: User, _: _Context) -> bool:
-    # Lustro odbiorców `kpi_email_reports._board_readers` (rola Rada też).
-    return reads_board_money(user) and _section_read(user, ProductSection.insights)
+    # Lustro odbiorców `kpi_email_reports._board_readers`.
+    return receives_company_results(user) and _section_read(
+        user, ProductSection.insights
+    )
 
 
 def _board_placement(user: User, _: _Context) -> bool:
@@ -322,6 +322,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     DEPARTED_CARE_KIND: _candidate_bell(NotificationType.departed_pairs_care),
     JOB_IDLE_KIND: _candidate_bell(NotificationType.job_idle_reminder),
     "pre_contract": _candidate_bell(NotificationType.pre_contract),
+    "start_documents": _candidate_bell(NotificationType.start_documents_due),
     "team_task": _candidate_bell(NotificationType.note_reply),
     "hire_documents": _hire_documents,
     HR_MAIL_KIND: _hr_people,

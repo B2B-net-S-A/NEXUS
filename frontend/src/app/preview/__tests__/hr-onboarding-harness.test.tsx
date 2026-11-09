@@ -76,7 +76,7 @@ describe("/preview/hr-onboarding", () => {
     await user.click(screen.getByRole("button", { name: "Dalej: zadania" }));
 
     expect((await screen.findAllByText(/Wydaj zestaw biura z ewidencji/)).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Check-in z przełożoną — dzień 30").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Check-in z koordynatorką — dzień 30").length).toBeGreaterThan(0);
     expect(
       within(screen.getByRole("region", { name: "Co powstanie" })).queryByText("start nieustalony"),
     ).toBeNull();
@@ -87,7 +87,7 @@ describe("/preview/hr-onboarding", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("sprawa w toku: zatrudnienie i zadania recepcji, IT i przełożonej", async () => {
+  it("sprawa w toku: zatrudnienie i zadania recepcji, IT i koordynatorki", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-onboarding?state=case");
     render(<HrOnboardingPreviewPage />);

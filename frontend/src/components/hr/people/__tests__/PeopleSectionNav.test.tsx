@@ -35,6 +35,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   equipment: true,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
@@ -69,10 +70,10 @@ beforeEach(() => {
 });
 
 describe("liczniki zakładek „Ludzie”", () => {
-  it("pokazuje liczbę przy Akceptacjach po udanym odczycie; Spraw w Ludziach już nie ma", () => {
+  it("pokazuje liczbę przy Do potwierdzenia po udanym odczycie; Spraw w Ludziach już nie ma", () => {
     countsState.current = { isSuccess: true, data: { approvals: 3, consents: null, cases: 0 } };
     render(<PeopleSectionNav config={manager} active="directory" />);
-    expect(tab("Akceptacje")).toHaveTextContent("Akceptacje3");
+    expect(tab("Do potwierdzenia")).toHaveTextContent("Do potwierdzenia3");
     expect(screen.queryByRole("tab", { name: /Sprawy/ })).toBeNull();
     expect(tab("Katalog")).toHaveTextContent(/^Katalog$/);
   });
@@ -81,7 +82,7 @@ describe("liczniki zakładek „Ludzie”", () => {
     // react-query trzyma stare `data` po nieudanym odświeżeniu.
     countsState.current = { isSuccess: false, data: { approvals: 3, consents: null, cases: 1 } };
     render(<PeopleSectionNav config={manager} active="approvals" />);
-    expect(tab("Akceptacje")).toHaveTextContent(/^Akceptacje$/);
+    expect(tab("Do potwierdzenia")).toHaveTextContent(/^Do potwierdzenia$/);
   });
 
   it("„nie dotyczy” (null) to brak liczby", () => {
@@ -104,7 +105,7 @@ describe("liczniki zakładek „Ludzie”", () => {
     expect(parseHrCounts({ approvals: 2, consents: 3, cases: null }).consents).toBe(3);
     expect(() => parseHrCounts({ approvals: 2, consents: -1, cases: null })).toThrow();
     expect(() => parseHrCounts({ approvals: "2", cases: null })).toThrow();
-    expect(() => parseHrCounts({ approvals: 2 })).toThrow();
+    expect(() => parseHrCounts({ approvals: 2, back_office: false })).toThrow();
     expect(() => parseHrCounts(null)).toThrow();
   });
 });

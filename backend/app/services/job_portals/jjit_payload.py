@@ -26,6 +26,8 @@ import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Optional
 
+from app.core.config import settings
+
 BOARD_JJIT = "justjoinit"
 BOARD_ROCKETJOBS = "rocketjobs"
 BOARDS = (BOARD_JJIT, BOARD_ROCKETJOBS)
@@ -234,7 +236,13 @@ def _paragraphs(text: Optional[str]) -> list[str]:
 
 
 def build_body(job: dict[str, Any]) -> str:
-    """HTML ogłoszenia z białej listy; każdy tekst przez ``html.escape``."""
+    """HTML ogłoszenia z białej listy; każdy tekst przez ``html.escape``.
+
+    Z okna „Ogłoszenie” przychodzi gotowy ``body_html``: ten sam, który pokazuje
+    zakładka JustJoin.IT (``job_ad.render``, też po ``html.escape``).
+    """
+    if job.get("body_html"):
+        return str(job["body_html"])
     show = job.get("show") if isinstance(job.get("show"), dict) else {}
     parts: list[str] = []
     subtitle = job.get("subtitle")
@@ -326,6 +334,24 @@ def hybrid_schedule(options: dict[str, Any]) -> Optional[dict[str, int]]:
     return {"officeDays": days, "remoteDays": 5 - days}
 
 
+def native_apply_enabled() -> bool:
+    """Kandydat aplikuje formularzem portalu (``JJIT_APPLY_EMAIL``, 06.11.2026)."""
+    return bool((settings.JJIT_APPLY_EMAIL or "").strip())
+
+
+def apply_method(apply_url: str) -> dict[str, Any]:
+    """``apply`` 1EP: dokładnie jedno z ``url`` / ``email`` (``ApplySharedDto``).
+
+    ``email`` = formularz portalu („internal CV collection system”), bez
+    przejścia na stronę kariery — decyzja Artura 06.11.2026, bo część ludzi
+    odpada na drugim formularzu. Kartę w „Nowi” zakłada wtedy import z panelu.
+    """
+    email = (settings.JJIT_APPLY_EMAIL or "").strip()
+    if email:
+        return {"url": None, "email": email}
+    return {"url": apply_url, "email": None}
+
+
 def content_fields(
     board: str,
     job: dict[str, Any],
@@ -342,7 +368,7 @@ def content_fields(
         "experienceLevel": options["experience_level"],
         "customConsent": None,
         "futureConsent": None,
-        "apply": {"url": apply_url, "email": None},
+        "apply": apply_method(apply_url),
         "requirements": requirements(board, job, skill_ids),
         "languages": None,
         "locations": [
@@ -356,6 +382,19 @@ def content_fields(
         "employmentTypes": employment_types(options),
         "hybridWorkSchedule": hybrid_schedule(options),
     }
+
+
+def new_contact() -> Optional[dict[str, Any]]:
+    """Kontakt nowego ogłoszenia; ``None`` = domyślny z profilu firmy na portalu.
+
+    Pełny obiekt albo wcale: portal sprawdza każde pole osobno, gdy kontakt jest
+    podany („Contact phone is required when contact is provided”).
+    """
+    phone = settings.JJIT_CONTACT_PHONE.strip()
+    email = (settings.JJIT_APPLY_EMAIL or "").strip()
+    if not phone or not email:
+        return None
+    return {"name": settings.JJIT_CONTACT_NAME, "email": email, "phone": phone}
 
 
 def create_body(
@@ -373,7 +412,7 @@ def create_body(
         "jobBoard": board,
         "title": title,
         "informationClause": None,
-        "contact": None,
+        "contact": new_contact(),
         "hiringCompany": None,
         "category": options["category"],
         "payment": payment,
@@ -411,6 +450,25 @@ def _current_locations(current: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _update_contact(contact: Any) -> Any:
+    """Kontakt do ``PUT``: dane z ``GET`` z telefonem z konfiguracji.
+
+    Dokumentacja 1EP: przy ``PUT`` „contact must be provided as a full object”.
+    Produkcja 08.11.2026: portal oddaje kontakt bez telefonu, a potem odrzuca go
+    („Contact phone is required…”) i odrzuca też ``null`` („Contact is required”).
+    Bez ustawionego telefonu idzie to, co oddał portal.
+    """
+    phone = settings.JJIT_CONTACT_PHONE.strip()
+    if not phone:
+        return contact
+    known = contact if isinstance(contact, dict) else {}
+    return {
+        "name": known.get("name") or settings.JJIT_CONTACT_NAME,
+        "email": known.get("email") or (settings.JJIT_APPLY_EMAIL or "").strip(),
+        "phone": phone,
+    }
+
+
 def update_body(
     board: str,
     *,
@@ -429,7 +487,7 @@ def update_body(
     """
     body = content_fields(board, job, options, apply_url=apply_url, skill_ids=skill_ids)
     body["informationClause"] = current.get("informationClause") or ""
-    body["contact"] = current.get("contact")
+    body["contact"] = _update_contact(current.get("contact"))
     body["publicTags"] = current.get("publicTags") or []
     body["categories"] = [{"key": options["category"]}]
     body["expiredAt"] = (

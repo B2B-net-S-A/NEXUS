@@ -228,9 +228,9 @@ function statusOf(item: PacedItem): string | null {
       return PERIOD_CLOSED[item.period];
     case "behind": {
       if (item.unit === "pct") return "Poniżej celu.";
-      if (item.expected === null) return "Poniżej tempa.";
+      if (item.expected === null) return "Poniżej planu.";
       const when = item.period === "day" ? "na tę godzinę" : "na dziś";
-      return `Poniżej tempa (${when}: ${Math.floor(item.expected)}).`;
+      return `Poniżej planu (${when}: ${Math.floor(item.expected)}).`;
     }
     default:
       // Cel 1 (placement miesiąca) nie ma tempa — backend nigdy nie daje mu „behind”.
@@ -268,7 +268,7 @@ function hoursLeftLabel(hours: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   const text = [h > 0 ? `${h} h` : "", m > 0 ? `${m} min` : ""].filter(Boolean).join(" ");
-  return `do końca dnia pracy: ${text}`;
+  return `do końca dnia: ${text}`;
 }
 
 function groupsOf(items: readonly PacedItem[], dayHoursLeft: number | null): KpiPanelGroup[] {

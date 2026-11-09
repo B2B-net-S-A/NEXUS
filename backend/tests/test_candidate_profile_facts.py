@@ -50,6 +50,7 @@ def test_global_profile_fact_writer_role_set_is_explicit_and_complete():
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
         UserRole.finance,
+        UserRole.back_office,
         UserRole.recruiter,
     }
     assert UserRole.user not in CANDIDATE_PROFILE_FACT_WRITE_ROLES

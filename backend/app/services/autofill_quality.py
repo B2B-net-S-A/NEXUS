@@ -197,6 +197,8 @@ async def _worst_jobs(db, since: datetime, until: datetime) -> list[dict]:
 
 async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dict:
     """Liczby okna ``[since, until)`` — wszystko, co pokazuje ekran B2."""
+    from app.services.sent_vs_system import sent_vs_system
+
     system = await _cohort(db, (candidate_claim.ENTRY_SYSTEM,), since, until)
     manual = await _cohort(db, _MANUAL_SOURCES, since, until)
     decided_at = RecruitmentProcess.entry_meta["decided_at"].astext.cast(
@@ -255,6 +257,7 @@ async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dic
         "waiting_now": await _waiting_now(db, now),
         "buckets": [buckets[b] for b in BUCKETS],
         "worst_jobs": await _worst_jobs(db, since, until),
+        "sent_vs_system": await sent_vs_system(db, since=since, until=until),
     }
 
 
@@ -444,13 +447,19 @@ async def _recipients(db) -> list[int]:
 
 
 async def build_report(db, *, week_start: date, now: datetime) -> AutofillQualityReport:
-    """Liczby i propozycje za tydzień od ``week_start``. Bez commitu."""
+    """Liczby, propozycje i zapis raportu za tydzień od ``week_start``.
+
+    Odczyty i zapis są w osobnych savepointach, żeby błąd SQL nie zatruł
+    transakcji ticku. Model jest między nimi, bo ``model_proposals`` commituje
+    sesję, by nie trzymać połączenia na czas wywołania, a commit w savepoincie
+    zamyka go i następny zapis pada (26.10 i 02.11: 203 wywołania, 0 raportów).
+    """
     since = datetime.combine(week_start, time(0), tzinfo=_tz()).astimezone(timezone.utc)
     until = since + timedelta(days=7)
-    data = await summary(db, since=since, until=until, now=now)
-    proposals: list[dict] = []
-    if data["rejected"]:
-        proposals = await model_proposals(db, data, await _notes(db, since, until))
+    async with db.begin_nested():
+        data = await summary(db, since=since, until=until, now=now)
+        notes = await _notes(db, since, until) if data["rejected"] else []
+    proposals = await model_proposals(db, data, notes) if data["rejected"] else []
     from_model = bool(proposals)
     if not proposals:
         proposals = rule_proposals(data)
@@ -460,13 +469,18 @@ async def build_report(db, *, week_start: date, now: datetime) -> AutofillQualit
         proposals=proposals,
         from_model=from_model,
     )
-    db.add(report)
-    await db.flush()
+    async with db.begin_nested():
+        db.add(report)
+        await db.flush()
     return report
 
 
 async def send_weekly_report(db, now: datetime) -> int:
-    """Raport za poprzedni tydzień + dzwonki. Nie commituje — robi to wołający."""
+    """Raport za poprzedni tydzień + dzwonki, zacommitowane razem.
+
+    Commit na końcu, bo wynik modelu jest płatny: awaria dalszego triggera
+    tego ticku cofnęłaby raport i następny tick zapłaciłby za model od nowa.
+    """
     from app.services.notification_triggers import emit
 
     week_start = report_week(now)
@@ -480,8 +494,7 @@ async def send_weekly_report(db, now: datetime) -> int:
     if exists is not None:
         return 0
     try:
-        async with db.begin_nested():
-            report = await build_report(db, week_start=week_start, now=now)
+        report = await build_report(db, week_start=week_start, now=now)
     except IntegrityError:
         return 0  # drugi proces zrobił ten raport chwilę wcześniej
     except Exception:  # noqa: BLE001 — raport nigdy nie psuje ticku
@@ -514,6 +527,7 @@ async def send_weekly_report(db, now: datetime) -> int:
             sent += int(created is not None)
         except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
             logger.exception("autofill_quality: dzwonek nie wyszedł user=%s", user_id)
+    await db.commit()
     return sent
 
 

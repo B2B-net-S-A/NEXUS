@@ -33,6 +33,12 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
+from tests._static_marker import (
+    mark_static_items,
+    may_hold_static_tests,
+    only_static_requested,
+    share_parsed_trees,
+)
 
 
 # ── Zegar: żadnych dat liczonych przy imporcie ──────────────────────────────
@@ -150,6 +156,14 @@ TEST_PASSWORD = "admin123"
 
 
 @pytest.fixture(autouse=True)
+def _fresh_requirement_patterns():
+    """Wzorce wymagań są w cache procesu (W2), a testy podmieniają słownik."""
+    from app.services import dz_review
+
+    dz_review.clear_pattern_cache()
+
+
+@pytest.fixture(autouse=True)
 def _detach_ezdrowie_client_gate(monkeypatch):
     """Odsuń `EZDROWIE_CLIENT_ID` od zakresu, w który trafia `clients.id`.
 
@@ -202,6 +216,19 @@ def _competition_rankings_uncached(monkeypatch):
     from app.api import competitions as competitions_api
 
     monkeypatch.setattr(competitions_api, "_CACHE_TTL_SECONDS", -1)
+
+
+@pytest.fixture(autouse=True)
+def _policy_cache_off(monkeypatch):
+    """Polityka dostępu ma na produkcji 30-sekundowy bufor w procesie.
+
+    Testy na wspólnej bazie dosiewają wiersze polityki z pominięciem sesji
+    (`conn.execute`) i atrapami sesji, a bufor przeniósłby wynik między testami.
+    Zachowanie bufora sprawdza osobno `test_policy_cache.py`.
+    """
+    from app.services import policy_cache
+
+    monkeypatch.setattr(policy_cache, "_CACHE_TTL_SECONDS", -1)
 
 
 @pytest.fixture(autouse=True)
@@ -559,6 +586,13 @@ def _isolate_skill_taxonomy():
     tech_canonicals = set(_sn.TECH_CANONICALS)
     alias_to_canonical = dict(_sn.ALIAS_TO_CANONICAL)
     canonical_to_aliases = {k: list(v) for k, v in _sn.CANONICAL_TO_ALIASES.items()}
+    categories = dict(_sn.CANONICAL_CATEGORY)
+    text_aliases = {k: list(v) for k, v in _sn.TEXT_ALIASES.items()}
+    relations = (
+        {k: set(v) for k, v in _sn.RELATION_IMPLIED_BY.items()},
+        {k: set(v) for k, v in _sn.RELATION_ALTERNATIVES.items()},
+        {k: set(v) for k, v in _sn.RELATION_TYPICAL_BY.items()},
+    )
     try:
         yield
     finally:
@@ -570,11 +604,25 @@ def _isolate_skill_taxonomy():
             _sn.TECH_CANONICALS != tech_canonicals
             or _sn.ALIAS_TO_CANONICAL != alias_to_canonical
             or _sn.CANONICAL_TO_ALIASES != canonical_to_aliases
+            or _sn.CANONICAL_CATEGORY != categories
+            or _sn.TEXT_ALIASES != text_aliases
         ):
             _sn.set_tech_taxonomy(
                 tech_canonicals=tech_canonicals,
                 alias_to_canonical=alias_to_canonical,
                 canonical_to_aliases=canonical_to_aliases,
+                categories=categories,
+                text_aliases=text_aliases,
+            )
+        if (
+            _sn.RELATION_IMPLIED_BY != relations[0]
+            or _sn.RELATION_ALTERNATIVES != relations[1]
+            or _sn.RELATION_TYPICAL_BY != relations[2]
+        ):
+            _sn.set_relations(
+                implied_by=relations[0],
+                alternatives=relations[1],
+                typical_by=relations[2],
             )
 
 
@@ -746,6 +794,11 @@ def _ci_shard_plan() -> tuple[int, int, dict[str, int]] | None:
     return index, count, ci_shard_assignment(files, count, _ci_file_durations())
 
 
+def pytest_configure(config):
+    if only_static_requested(config):
+        share_parsed_trees()
+
+
 def pytest_ignore_collect(collection_path, config):
     """Shard CI nie importuje plików testowych innych shardów.
 
@@ -754,6 +807,13 @@ def pytest_ignore_collect(collection_path, config):
     tracerem pokrycia (``--cov-branch``) sama kolekcja trwała w kolejce
     1:52–3:00 min na shard, lokalnie bez pokrycia 36 s.
     """
+    if (
+        collection_path.suffix == ".py"
+        and collection_path.name.startswith("test_")
+        and only_static_requested(config)
+        and not may_hold_static_tests(collection_path)
+    ):
+        return True
     plan = _ci_shard_plan()
     if plan is None or collection_path.suffix != ".py":
         return None
@@ -851,6 +911,7 @@ def _client_fixture_is_live_server(item) -> bool:
 
 
 def pytest_collection_modifyitems(config, items):
+    mark_static_items(items, pytest.mark.static)
     run_live = os.environ.get("RUN_LIVE_TESTS", "").lower() in ("1", "true", "yes")
     if not run_live:
         skip_live = pytest.mark.skip(

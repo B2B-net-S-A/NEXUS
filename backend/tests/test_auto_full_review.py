@@ -25,6 +25,7 @@ a globalne sondy (`_search_busy`, `_started_since`) są podstawiane.
 
 import uuid
 from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
@@ -45,6 +46,9 @@ from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
 from app.services import auto_full_review as afr
 from app.services import candidate_search_store as store
+from app.services import request_matching_context, scoring_service
+from app.services.request_matching_context import build_request_context
+from app.services.scoring_service import resolve_active_profile
 from app.tasks import candidate_search_retention as retention
 
 
@@ -194,20 +198,33 @@ def _open_gates(monkeypatch, *, busy: bool = False, started: int = 0) -> None:
 # ── okno ────────────────────────────────────────────────────────────────────
 
 
-def test_window_is_half_open_in_business_timezone(monkeypatch):
+@pytest.mark.parametrize(
+    ("clock_utc", "hours_into_night"),
+    [
+        ("2026-10-14T10:00:00+00:00", 3.5),  # zwykła doba
+        ("2026-10-25T10:00:00+00:00", 4.5),  # czas zimowy: noc o godzinę dłuższa
+        ("2027-03-28T10:00:00+00:00", 2.5),  # czas letni: noc o godzinę krótsza
+    ],
+)
+def test_window_is_half_open_in_business_timezone(
+    monkeypatch, clock_utc, hours_into_night
+):
+    """Zegar zamrożony: ``_at`` bierze datę z bieżącej nocy, więc bez tego test
+    sprawdzał zmianę czasu tylko w dniu zmiany. 25.10.2026 padł przez to 17 razy
+    w kolejce merge'ów, a 26.10 przeszedłby znowu."""
+    import time_machine
+
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_START_HOUR", 1)
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 5)
-    assert afr.in_window(_at(1)) and afr.in_window(_at(4))
-    assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
-    assert not afr.in_window(_at(14))
-    # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30. Noc
-    # zmiany czasu na zimowy (ostatnia niedziela października) ma godzinę
-    # więcej, więc granica to 5 h prawdziwego czasu, nie 4.
-    start = afr.night_start(_at(4))
-    assert start <= _at(4) and _at(4) - start < timedelta(hours=5)
-    # Równe godziny = okno zamknięte (wyłącznik bez deployu).
-    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
-    assert not afr.in_window(_at(1))
+    with time_machine.travel(clock_utc, tick=False):
+        assert afr.in_window(_at(1)) and afr.in_window(_at(4))
+        assert not afr.in_window(_at(0)) and not afr.in_window(_at(5))
+        assert not afr.in_window(_at(14))
+        # „Ta noc" zaczyna się o 01:00 lokalnie — także oglądana o 04:30.
+        assert _at(4) - afr.night_start(_at(4)) == timedelta(hours=hours_into_night)
+        # Równe godziny = okno zamknięte (wyłącznik bez deployu).
+        monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 1)
+        assert not afr.in_window(_at(1))
 
 
 @pytest.mark.parametrize(
@@ -275,6 +292,7 @@ async def test_event_makes_the_job_due_once_per_night():
         [run] = await _auto_runs(world["job_id"])
         assert run.created_by == owner_id
         assert run.version_trace["origin"] == "auto"
+        assert "skill_dictionary" in run.version_trace
         assert run.state == "queued"
         async with AsyncSessionLocal() as db:
             # Druga próba tej samej nocy: rekrutacja nie jest już należna…
@@ -1578,9 +1596,16 @@ async def test_third_incomplete_review_with_same_fingerprint_closes_the_topic(
         ] == "n" * 64
 
 
+async def _current_fingerprint(db, job_id: int) -> str:
+    job = await db.get(Job, job_id)
+    profile = await resolve_active_profile(db, user_id=None, client_id=job.client_id)
+    return build_request_context(job, profile).fingerprint
+
+
 async def _auto_run_at(
     world: dict, owner_id: int, created_at: datetime, versions: dict
 ) -> None:
+    """Przegląd sprzed `created_at` z dzisiejszym odciskiem: request bez zmian."""
     async with AsyncSessionLocal() as db:
         db.add(
             CandidateSearchRun(
@@ -1589,7 +1614,7 @@ async def _auto_run_at(
                 client_id=world["client_id"],
                 job_id=world["job_id"],
                 state="complete",
-                request_fingerprint=uuid.uuid4().hex * 2,
+                request_fingerprint=await _current_fingerprint(db, world["job_id"]),
                 request_context={},
                 version_trace={"origin": "auto", **versions},
                 population_size=0,
@@ -1634,6 +1659,104 @@ async def test_review_without_version_stamp_is_not_treated_as_stale():
     async with AsyncSessionLocal() as db:
         due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
     assert due.index(older["job_id"]) < due.index(unstamped["job_id"])
+
+
+async def test_request_changed_without_event_goes_first():
+    """Pomiar 02.11.2026: 8 ze 187 rekrutacji miało inny odcisk niż ostatni
+    przegląd i żadnego zdarzenia. Zapis pola spoza list zdarzeń (w 676343 kontakt
+    `hiring_manager_contact_id`) nie dawał pierwszeństwa, więc rekrutacja czekała
+    do 4 nocy na miejsce w limicie."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    # Niezmieniona czeka dłużej, więc bez sprawdzenia odcisku byłaby pierwsza.
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    await _auto_run_at(changed, owner_id, yesterday, {})
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, changed["job_id"])
+        job.description = "Zmieniony opis bez zdarzenia"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_request_changed_after_retention_of_the_run_goes_first():
+    """Retencja kasuje przegląd po 2 dniach, odcisk zostaje we wpisie „Praca
+    w tle”. Tak było ze wszystkimi 8 rekrutacjami z pomiaru."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type=afr.ACTIVITY_ENTITY,
+                entity_id=changed["job_id"],
+                action="auto_full_review_finished",
+                details={
+                    "run_created_at": yesterday.isoformat(),
+                    "fingerprint": await _current_fingerprint(db, changed["job_id"]),
+                },
+            )
+        )
+        job = await db.get(Job, changed["job_id"])
+        job.description = "Zmieniony opis bez zdarzenia"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_dictionary_edit_without_touching_the_job_goes_first():
+    """Nowy alias zmienia etykiety wymagań bez zapisu w rekrutacji: tak 28.10
+    wpis SailPoint zmienił krytyczne 789171, a pula zgadzała się potem z pełnym
+    przeglądem w 20% top 20. Żadne zdarzenie rekrutacji tego nie złapie."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, changed["job_id"])
+        job.must_skills = [{"name": f"Skrot{tag}", "level": None}]
+        job.champion_profile = {
+            "stack": {"must": [{"name": f"Skrot{tag}"}], "critical": [f"Skrot{tag}"]}
+        }
+        await db.commit()
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    await _auto_run_at(changed, owner_id, yesterday, {})
+    aliases = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({**aliases, f"skrot{tag}": f"pelna nazwa {tag}"})
+    try:
+        async with AsyncSessionLocal() as db:
+            due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    finally:
+        scoring_service.set_alias_map(aliases)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_broken_request_context_does_not_stop_the_queue(monkeypatch):
+    """Rekrutacja, której kontekstu nie da się policzyć, nie blokuje nocy:
+    `start_for_job` zapisze jej awarię, a kolejka idzie dalej."""
+    owner_id, _ = await _user()
+    broken = await _job(owner_id=owner_id, event=False)
+    other = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(broken, owner_id, yesterday, {})
+    await _auto_run_at(other, owner_id, yesterday, {})
+
+    def _boom(job, profile):
+        if job.id == broken["job_id"]:
+            raise ValueError("zepsuty request")
+        return build_request_context(job, profile)
+
+    monkeypatch.setattr(request_matching_context, "build_request_context", _boom)
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert broken["job_id"] in due and other["job_id"] in due
 
 
 # ── Inna rola niż rekrutacja (27.10.2026) ──────────────────────────────────
@@ -1744,6 +1867,84 @@ async def test_analyst_with_a_tool_list_is_not_pooled_for_devsecops(monkeypatch)
     assert pooled == {devops}
 
 
+async def _developer_job_with_ranked_roles(owner_id, positions: list[str]) -> tuple:
+    """Rekrutacja programistyczna i przegląd: pierwsza pozycja ma najlepszy wynik."""
+    world = await _job(owner_id=owner_id, event=False, people=len(positions))
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"Python Developer {uuid.uuid4().hex[:6]}"
+        for cid, position in zip(world["candidate_ids"], positions):
+            (await db.get(Candidate, cid)).cv_extracted_data = {
+                "current_position": position
+            }
+        await db.commit()
+    run_id = await _run_with(
+        world,
+        owner_id,
+        {cid: 90 - i for i, cid in enumerate(world["candidate_ids"])},
+    )
+    return world, run_id
+
+
+async def test_pool_keeps_filling_past_people_from_another_role(monkeypatch):
+    """Pomiar 02.11.2026: w „Python Developer” czołówkę zajęli testerzy
+    automatyzujący i z 65 tys. ocenionych osób w puli zostało 13, więc silnik
+    nie miał z czego utrzymać 20 kart. Pula dobiera dalej, aż ma komplet po
+    odrzuceniu innej roli — dalej nikogo z innej roli nie wpuszcza."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
+    monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id,
+        [
+            "QA Engineer",
+            "Test Automation Engineer",
+            "Python Developer",
+            "Senior QA Engineer",
+            "Software Engineer",
+            "Software Tester",
+            "Backend Developer",
+            "Full Stack Developer",
+        ],
+    )
+    _, _, first, _, second, _, third, _ = world["candidate_ids"]
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 3
+        await db.commit()
+
+    pool = await _pool(world["job_id"])
+    assert [p.candidate_id for p in pool] == [first, second, third]
+
+
+async def test_pool_stops_at_the_scan_limit_with_what_it_found(monkeypatch):
+    """Górny limit przeglądanych wierszy: rekrutacja bez dość osób z tej roli
+    nie czyta całej bazy w transakcji kończącej przegląd."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
+    monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SCAN_LIMIT", 4)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id,
+        [
+            "QA Engineer",
+            "Python Developer",
+            "Test Automation Engineer",
+            "Senior QA Engineer",
+            "Software Engineer",
+        ],
+    )
+    within_limit = world["candidate_ids"][1]
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 1
+        await db.commit()
+
+    assert [p.candidate_id for p in await _pool(world["job_id"])] == [within_limit]
+
+
 async def test_role_history_skips_cards_the_engine_placed_itself():
     """Karty „Nowych” wstawione przez system (`entry_source = "system"`) to nie
     decyzja człowieka — jak karty scrapera nie mówią, kim osoba jest. Bez tego
@@ -1779,3 +1980,140 @@ async def test_role_history_skips_cards_the_engine_placed_itself():
         titles = await history_titles(db, [candidate_id])
 
     assert titles == {candidate_id: ["Analityk Systemowy (ZOB-1)"]}
+
+
+# ── Pula spoza rekrutacji i pierwszy przegląd w dzień (07.11.2026) ───────────
+
+
+async def test_pool_skips_people_already_in_the_job(monkeypatch):
+    """R2: pula to 150 osób SPOZA rekrutacji — w AML 118 ze 150 było już w niej."""
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=5)
+    first, second, third, fourth, fifth = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=first,
+                job_id=world["job_id"],
+                stage=PipelineStage.new,
+                moved_by=owner_id,
+            )
+        )
+        db.add(
+            CandidateStageRemoval(
+                candidate_id=second,
+                job_id=world["job_id"],
+                removed_by=owner_id,
+                stages_snapshot=[],
+            )
+        )
+        await db.commit()
+    run_id = await _run_with(
+        world, owner_id, {first: 95, second: 90, third: 80, fourth: 70, fifth: 60}
+    )
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, run_id, eligible=5)
+        await db.commit()
+    assert [p.candidate_id for p in await _pool(world["job_id"])] == [third, fourth]
+
+
+async def test_pool_running_low_counts_only_people_outside_the_job():
+    from sqlalchemy import select as sa_select
+
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    owner_id, _ = await _user()
+    low = await _job(owner_id=owner_id, event=False, people=3)
+    async with AsyncSessionLocal() as db:
+        for cid in low["candidate_ids"]:
+            db.add(
+                JobAutofillPool(
+                    job_id=low["job_id"], candidate_id=cid, score=80, run_id="r2"
+                )
+            )
+        db.add(
+            CandidateStage(
+                candidate_id=low["candidate_ids"][0],
+                job_id=low["job_id"],
+                stage=PipelineStage.new,
+                moved_by=owner_id,
+            )
+        )
+        await db.commit()
+    empty = await _job(owner_id=owner_id, event=False)
+    async with AsyncSessionLocal() as db:
+        ids = set(
+            (
+                await db.scalars(
+                    sa_select(Job.id).where(
+                        Job.id.in_([low["job_id"], empty["job_id"]]),
+                        afr._pool_running_low(),
+                    )
+                )
+            ).all()
+        )
+    # 2 wolne osoby < 40 → pustosząca pula; bez puli → o kolejności decyduje wiek.
+    assert ids == {low["job_id"]}
+
+
+def _workday_at(hour: int) -> datetime:
+    # Poniedziałek 09.11.2026 w Warszawie.
+    return datetime(2026, 11, 9, hour, 0, tzinfo=ZoneInfo("Europe/Warsaw")).astimezone(
+        timezone.utc
+    )
+
+
+async def test_daytime_first_review_starts_a_new_job_once(monkeypatch):
+    """R6: rekrutacja bez przeglądu dostaje pełny przegląd jeszcze w dzień,
+    pojedynczo i z dziennym limitem."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False)
+
+    async def _only_mine(db, *, limit=10):
+        return [world["job_id"]]
+
+    async def _none(db, since):
+        return 0
+
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED", True)
+    monkeypatch.setattr(afr, "first_review_job_ids", _only_mine)
+    monkeypatch.setattr(afr, "_started_in_window_since", _none)
+    afr._skipped_today.clear()
+
+    _open_gates(monkeypatch, busy=True)
+    assert (await afr.tick(now=_workday_at(10)))["skipped"] == "search_active"
+
+    _open_gates(monkeypatch, started=10)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_DAYTIME_MAX", 10)
+    assert (await afr.tick(now=_workday_at(10)))["skipped"] == "day_cap"
+
+    _open_gates(monkeypatch)
+    try:
+        result = await afr.tick(now=_workday_at(10))
+        assert result.get("daytime") is True and result["job_id"] == world["job_id"]
+        assert len(await _auto_runs(world["job_id"])) == 1
+    finally:
+        await _finish_all(world["job_id"])
+
+    # Po 19:00 i w weekend nic nie startuje w dzień.
+    assert (await afr.tick(now=_workday_at(20)))["skipped"] == "outside_window"
+    saturday = datetime(2026, 11, 7, 10, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
+    assert (await afr.tick(now=saturday.astimezone(timezone.utc)))[
+        "skipped"
+    ] == "outside_window"
+
+
+async def test_first_review_list_skips_jobs_already_reviewed():
+    owner_id, _ = await _user()
+    reviewed = await _job(owner_id=owner_id, event=False, people=1)
+    fresh = await _job(owner_id=owner_id, event=False)
+    await _run_with(reviewed, owner_id, {reviewed["candidate_ids"][0]: 80})
+    async with AsyncSessionLocal() as db:
+        ids = await afr.first_review_job_ids(db, limit=100_000)
+    assert fresh["job_id"] in ids and reviewed["job_id"] not in ids

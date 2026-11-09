@@ -205,6 +205,46 @@ export function rowCountHint(count: number | null | undefined): string | null {
 }
 
 /**
+ * Wariant z gwiazdką, który rozlewa wiersz: w 789198 (07.11.2026) „microsoft*”
+ * obok „Dynamics 365” dawał 21 314 osób zamiast 692, a krytyczny wiersz
+ * przepuszczał każdego z „Microsoft” w CV. Ostrzegamy, gdy jeden rdzeń ma
+ * `BROAD_VARIANT_RATIO` razy więcej osób niż najszersze z pozostałych słów.
+ */
+export const BROAD_VARIANT_RATIO = 5;
+export const BROAD_VARIANT_MIN_PEOPLE = 500;
+
+export interface BroadVariant {
+  word: string;
+  wide: number;
+  narrow: number;
+  ratio: number;
+}
+
+/** Słowa wiersza do policzenia osobno: tylko wiersz z rdzeniem i innym słowem. */
+export function broadVariantWords(words: readonly string[]): string[] {
+  return words.length > 1 && words.some((word) => word.trim().endsWith("*")) ? [...words] : [];
+}
+
+export function broadVariant(
+  words: readonly string[],
+  counts: Readonly<Record<string, number | null | undefined>>,
+): BroadVariant | null {
+  let found: BroadVariant | null = null;
+  for (const word of words) {
+    if (!word.trim().endsWith("*")) continue;
+    const wide = counts[word];
+    const others = words.filter((other) => other !== word).map((other) => counts[other]);
+    if (typeof wide !== "number" || others.length === 0) continue;
+    if (others.some((n) => typeof n !== "number")) continue;
+    const narrow = Math.max(...(others as number[]));
+    if (wide < BROAD_VARIANT_MIN_PEOPLE || wide < BROAD_VARIANT_RATIO * Math.max(narrow, 1)) continue;
+    const ratio = Math.round(wide / Math.max(narrow, 1));
+    if (!found || ratio > found.ratio) found = { word, wide, narrow, ratio };
+  }
+  return found;
+}
+
+/**
  * Poniżej tylu osób w bazie słowo „musi mieć” opisuje wymaganie inaczej, niż
  * ludzie piszą o nim w CV. Pomiar 27.10.2026 na 129 profilach z wierszami:
  * 49 wierszy „musi mieć” miało mniej niż 10 osób („Crisis plans” 0,
@@ -239,6 +279,58 @@ export function setRowLevel(
 ): RequirementRowForm[] {
   if (levelBlockedReason(rows, key, level)) return [...rows];
   return rows.map((row) => (row.key === key ? { ...row, level } : row));
+}
+
+/** Propozycja krytycznego z odczytu maila (M1, 07.11.2026): etykieta wiersza i zdanie z maila. */
+export interface CriticalProposal {
+  label: string;
+  reason: string;
+}
+
+/** Wiersze, których dotyczy propozycja — po pierwszym słowie. */
+export function proposalRowKeys(
+  rows: readonly RequirementRowForm[],
+  proposal: readonly CriticalProposal[],
+): string[] {
+  const labels = new Set(proposal.map((item) => fold(item.label)));
+  return filledRows(rows)
+    .filter((row) => row.level !== "nice" && labels.has(fold(row.words[0] ?? "")))
+    .map((row) => row.key);
+}
+
+/** „Zatwierdź krytyczne”: zaproponowane wiersze dostają poziom krytyczny (limit 3 zostaje). */
+export function applyCriticalProposal(
+  rows: readonly RequirementRowForm[],
+  proposal: readonly CriticalProposal[],
+): RequirementRowForm[] {
+  return proposalRowKeys(rows, proposal).reduce<RequirementRowForm[]>(
+    (acc, key) => setRowLevel(acc, key, "critical"),
+    [...rows],
+  );
+}
+
+/** Technologie z maila (M2), których nie ma jeszcze w żadnym wierszu. */
+export function missingTechnologies(
+  rows: readonly RequirementRowForm[],
+  names: readonly string[],
+): string[] {
+  const have = new Set(filledRows(rows).flatMap((row) => row.words.map(fold)));
+  return names.filter((name, index) => {
+    const key = fold(name);
+    return key && !have.has(key) && names.findIndex((other) => fold(other) === key) === index;
+  });
+}
+
+/** „+ Technologia”: osobne wiersze „mile widziane”, w limicie listy. */
+export function addNiceRows(
+  rows: readonly RequirementRowForm[],
+  names: readonly string[],
+): RequirementRowForm[] {
+  const room = Math.max(0, REQUIRED_ROWS_MAX + NICE_ROWS_MAX - filledRows(rows).length);
+  const added = missingTechnologies(rows, names)
+    .slice(0, room)
+    .map((name) => ({ key: newRowKey(), words: [name], level: "nice" as RequirementLevel }));
+  return [...filledRows(rows), ...added];
 }
 
 /** Poziom nowego wiersza: obowiązkowy, a przy pełnym limicie — „mile widziane”. */
@@ -878,4 +970,72 @@ export function criticalReachWarning(count: number | null | undefined): string |
   return count === 0
     ? "Krytyczne razem nie zostawiają nikogo w bazie — propozycje AI i „Szukaj w bazie” będą puste."
     : `Krytyczne razem zostawiają ${count.toLocaleString("pl-PL")} ${count === 1 ? "osobę" : count < 5 ? "osoby" : "osób"} z bazy — propozycje AI pokażą tylko je.`;
+}
+
+/**
+ * Wiersz bez nikogo z wysłanych, którego dotyczy ten wiersz edytora. Serwer liczy
+ * zapisany profil: gdy Delivery Lead dopisał już słowo, ostrzeżenie czeka na zapis.
+ */
+export function sentGapForRow<T extends { label: string; words: readonly string[] }>(
+  rowWords: readonly string[],
+  gaps: readonly T[],
+): T | null {
+  if (rowWords.length === 0) return null;
+  const fold = (word: string) => word.trim().toLocaleLowerCase("pl");
+  const mine = rowWords.map(fold);
+  return (
+    gaps.find((gap) => {
+      const known = new Set([...gap.words.map(fold), fold(gap.label)]);
+      return mine.every((word) => known.has(word));
+    }) ?? null
+  );
+}
+
+/** Pozycja starej listy „Musi mieć” jako warianty („Kafka lub RabbitMQ”). */
+export function mustItemWords(name: string): string[] {
+  return cleanWords(name.split(" lub "));
+}
+
+/** Stary profil bez wierszy: te same wymagania w trzech polach, które idą razem. */
+export interface LegacyRequirements<T extends { name: string }> {
+  must: readonly T[];
+  requirements: readonly string[][];
+  critical?: string[] | null;
+}
+
+function isRowOfItem(row: readonly string[], name: string): boolean {
+  const fold = (word: string) => word.trim().toLocaleLowerCase("pl");
+  const words = new Set(mustItemWords(name).map(fold));
+  return row.length === words.size && row.every((word) => words.has(fold(word)));
+}
+
+/** „+ lub X”: wariant dochodzi do pozycji, jej wiersza wyszukiwania i krytycznych. */
+export function addLegacyMustVariant<T extends { name: string }>(
+  legacy: LegacyRequirements<T>,
+  name: string,
+  word: string,
+): LegacyRequirements<T> {
+  const next = `${name} lub ${word}`;
+  return {
+    must: legacy.must.map((item) => (item.name === name ? { ...item, name: next } : item)),
+    requirements: legacy.requirements.map((row) => (isRowOfItem(row, name) ? [...row, word] : row)),
+    critical: legacy.critical?.map((label) => (label === name ? next : label)) ?? legacy.critical,
+  };
+}
+
+/**
+ * „Do rozmowy”: pozycja znika z trzech pól. Zdjęcie ostatniej krytycznej wraca do
+ * „nie zdecydowano” (`null`), bo pusta lista znaczyłaby świadome „Brak krytycznych”.
+ */
+export function removeLegacyMustItem<T extends { name: string }>(
+  legacy: LegacyRequirements<T>,
+  name: string,
+): LegacyRequirements<T> {
+  const critical = legacy.critical?.filter((label) => label !== name);
+  return {
+    must: legacy.must.filter((item) => item.name !== name),
+    requirements: legacy.requirements.filter((row) => !isRowOfItem(row, name)),
+    critical:
+      critical && critical.length === 0 && legacy.critical?.length ? null : (critical ?? legacy.critical),
+  };
 }

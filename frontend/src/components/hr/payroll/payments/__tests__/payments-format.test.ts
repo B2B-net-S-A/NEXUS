@@ -38,7 +38,7 @@ describe("Przelewy — słowa i liczby", () => {
 
   it("rachunek: tylko 4 cyfry i źródło; brak = czerwony, uznany spoza listy = ostrzeżenie", () => {
     expect(accountLabel(payableRow())).toEqual({ text: "•• 4521 · biała lista VAT", tone: "success" });
-    expect(accountLabel(mandate).text).toBe("•• 0937 · wpisany przez Kadry");
+    expect(accountLabel(mandate).text).toBe("•• 0937 · wpisany przez Administracja współpracy");
     expect(accountLabel(payableRow({ account_last4: null })).tone).toBe("danger");
     expect(accountLabel(payableRow({ white_list_override: true })).tone).toBe("warning");
   });

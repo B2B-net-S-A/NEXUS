@@ -305,6 +305,10 @@ _CV_TITLE_LEADING = (
     re.compile(r"^\d+\s*[xX]\s+"),
     re.compile(r"^[^:()]{1,60}?_Role:\s*"),
 )
+# Forma odmieniona i z „zakup”: „usług programistycznych”, „Zakup usług Testera”.
+_SERVICE_TITLE = re.compile(
+    r"(?:RFX\s*-\s*)?(?:zakup\s+)?us[łl]ug(?:a|i|ę|y)?(?![^\W\d_])", re.I
+)
 
 
 def cv_role_title(
@@ -331,6 +335,40 @@ def cv_role_title(
     if stripped != raw and not _LETTER.search(role):
         role = _role_without_codes(raw, names)
     return role
+
+
+_HEADER_REFERENCE = re.compile(r"(?:[A-Z]{2,5}-)?\d{3,7}")
+
+
+def cv_header_title(
+    role: Optional[str], client_reference: Optional[str], with_reference: bool
+) -> str:
+    """Nagłówek CV: nazwa roli i — gdy reguła klienta tak chce — numer zapytania.
+
+    07.11.2026: rekruterzy dopisywali numer ręcznie („AML Analyst (43114) –
+    Imię Nazwisko”), więc reguła CV klienta może go włączyć
+    (`client_cv_rules.cv_title_with_reference`). Domyślnie bez numeru (D2/D4).
+    Numer, który już stoi w nazwie, nie jest dopisywany drugi raz. Tylko
+    nagłówek — nazwa pliku ma numer ze wzoru klienta albo nie ma go wcale.
+    """
+    text = _clean(role)
+    # Tylko numer zapytania („43114”, „ZOB-3103”). Kody stanowisk i zgłoszeń
+    # („TP#43288”, „RITM0553762”) D4 celowo zdejmuje z nagłówka.
+    parts = [
+        part
+        for part in client_reference_parts(client_reference)
+        if _HEADER_REFERENCE.fullmatch(part)
+    ]
+    if not with_reference or not text or not parts:
+        return text
+    missing = [
+        part
+        for part in parts
+        if not re.search(
+            rf"(?<![A-Za-z0-9]){re.escape(part)}(?![A-Za-z0-9])", text, re.IGNORECASE
+        )
+    ]
+    return f"{text} ({', '.join(missing)})" if missing else text
 
 
 def _role_without_codes(base: str, names: list[str]) -> str:
@@ -364,21 +402,84 @@ def _role_without_codes(base: str, names: list[str]) -> str:
     return text or base
 
 
+def is_service_title(title: Optional[str]) -> bool:
+    """Czy nazwa od klienta mówi o przedmiocie usługi, a nie o stanowisku.
+
+    PKO od 09.2026: „ZOB-3103 usługi programistyczne”, „usługa analizy
+    systemowej”. „Administrator usług IT” to stanowisko — liczy się początek.
+    """
+    return bool(_SERVICE_TITLE.match(_clean(title)))
+
+
 async def cv_role_title_for_job(db: AsyncSession, job: Any) -> str:
     """:func:`cv_role_title` rekrutacji z bazy — z nazwami i aliasami klienta.
 
-    Jedno wejście dla generatora i kopii CV etapu (plik Word, CV z profilu,
-    CV z innej rekrutacji). Do 15.10.2026 kopia brała surowy ``jobs.title``
+    Jedno wejście dla generatora, kopii CV etapu (plik Word, CV z profilu,
+    CV z innej rekrutacji) i QC. Do 15.10.2026 kopia brała surowy ``jobs.title``
     i u PKO nazwa pliku miała numer zapytania dwa razy
     („ZOB-2949_… (ZOB-2949)_….docx”), a nagłówek kopii — numer zapytania.
+
+    Nazwa będąca przedmiotem usługi ustępuje roli z Championa (02.11.2026):
+    CV miały nagłówek „usługi programistyczne – Imię Nazwisko”.
     """
     from app.services.job_public_profile import _client_names
+    from app.services.prep_role import looks_like_code
 
-    return cv_role_title(
-        job.title,
-        getattr(job, "client_reference", None),
-        await _client_names(db, job.client_id),
+    reference = getattr(job, "client_reference", None)
+    names = await _client_names(db, job.client_id)
+    role = cv_role_title(job.title, reference, names)
+    if is_service_title(role):
+        champion = cv_role_title(
+            champion_view.basics(job).get("role_name"), reference, names
+        )
+        if (
+            champion
+            and not is_service_title(champion)
+            and not looks_like_code(champion)
+        ):
+            return champion
+    return role
+
+
+async def header_reference_enabled(db: AsyncSession, client_id: Optional[int]) -> bool:
+    """Czy reguła CV klienta chce numeru zapytania w nagłówku (07.11.2026).
+
+    Reguła czekająca na synchronizację (503 z polityk centralnych) = nie.
+    """
+    from fastapi import HTTPException
+
+    from app.services.cv_generator_b2b.client_rules import (
+        resolve_client_rule,
+        snapshot_rule,
     )
+
+    try:
+        rule = snapshot_rule(await resolve_client_rule(db, client_id))
+    except HTTPException:
+        return False
+    return bool(getattr(rule, "title_with_reference", False))
+
+
+async def cv_position_for_form(db: AsyncSession, job: Any) -> str:
+    """Stanowisko, które pole „Stanowisko” generatora pokazuje na starcie (03.11.2026).
+
+    Ta sama wartość co w nagłówku CV. Pusty napis, gdy zostałaby nazwa usługi:
+    formularz prosi wtedy o wpisanie stanowiska, zamiast wysłać ją klientowi.
+    """
+    role = await cv_role_title_for_job(db, job)
+    return "" if is_service_title(role) else role
+
+
+def typed_cv_position(value: Optional[str], client_reference: Optional[str]) -> str:
+    """Stanowisko wpisane w generatorze, bez numeru zapytania klienta (03.11.2026).
+
+    Plik PKO ma numer ze wzoru, więc wpisane „ZOB-3103 Senior Developer” dawało
+    „ZOB-3156_ZOB-3103 Senior Developer_…”, a numer stał też w nagłówku. Lustro
+    na froncie: ``typedCvPosition``. Bez liter po wycięciu = pusto, czyli nagłówek
+    z rekrutacji.
+    """
+    text = _clean(_strip_reference(_clean(value), client_reference)).strip(" -–—,/_:")
+    return text if _LETTER.search(text) else ""
 
 
 def _is_role(text: str) -> bool:

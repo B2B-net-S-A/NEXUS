@@ -166,11 +166,19 @@ class NotificationType(str, enum.Enum):
     # bez autora; related_entity=(announcement, id). Mail obowiązkowy
     # (`services/announcements.py`).
     announcement_important = "announcement_important"
+    # 0639 (02.11.2026): klient z panelu pod linkiem z CV zadał pytanie, poprosił
+    # o rozmowę, napisał „nie pasuje” albo zmianę wymagań — do Delivery Leada;
+    # related_entity=(client_panel_request, id). Mail obowiązkowy jak rozmowy.
+    client_panel_request = "client_panel_request"
     # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
     # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
     # dzienna lista do dopisania, tylko admini, mail od razu
     # (`services/teams_prep_scope.py`).
     teams_prep_scope_missing = "teams_prep_scope_missing"
+    # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
+    # grupą zakresu) — lista do dopisania po uzgadnianiu o 7:00, tylko admini,
+    # mail od razu (`services/hr/m365/scope_alerts.py`).
+    hr_m365_scope_missing = "hr_m365_scope_missing"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"
@@ -202,6 +210,13 @@ class NotificationType(str, enum.Enum):
     # kandydata w rekrutacji — dzwonek do prowadzącego (placement, premia
     # i pilnowanie podpisu są jego); related_entity=(b2b_generated_contract, id).
     b2b_agreement_ready = "b2b_agreement_ready"
+    # 0649: dokumenty do startu. `_due` idzie też mailem (blisko startu albo po terminie).
+    start_documents = "start_documents"
+    start_documents_due = "start_documents_due"
+    # Osobne typy, bo `ix_notif_dedup_daily` nie patrzy na rodzaj encji: zwrot
+    # i przypomnienie nie mogą zjadać się nawzajem ani z listą dzienną.
+    start_documents_returned = "start_documents_returned"
+    start_documents_reminder = "start_documents_reminder"
     # 0418: zmiana stawki kandydata w procesie (od „Zweryfikowany”) — informacja
     # dla DL, Head of Recruitment i rekrutera kandydata; related_entity=
     # (candidate_rate_change, id).
@@ -287,6 +302,10 @@ class NotificationType(str, enum.Enum):
     # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
     # osoby czekają” (`services/job_closed_notices.py`).
     job_closed_people_waiting = "job_closed_people_waiting"
+    # 0635: zdarzenia z maili CPro (`services/cpro_mail.py`).
+    cpro_candidate_rejected = "cpro_candidate_rejected"
+    cpro_interview_change = "cpro_interview_change"
+    cpro_close_needs_decision = "cpro_close_needs_decision"
     # 0621 (28.10.2026): rekruter odszedł z firmy (konto wyłączone), a jego
     # osoby w Twoich rekrutacjach domykasz Ty; related_entity=(user, id osoby,
     # która odeszła). Od razu i przypomnienie po 5 dniach roboczych. Mail
@@ -296,6 +315,10 @@ class NotificationType(str, enum.Enum):
     # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
     # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
     job_p0_requested = "job_p0_requested"
+    # 0657 (06.11.2026): termin P0 minął, a P0 trwa do decyzji — do Head of
+    # Recruitment i osoby, która ustawiła P0 („Przedłuż” albo „Zakończ”);
+    # related_entity=(job, id), raz na termin. Mail obowiązkowy jak przy P0.
+    job_p0_overdue = "job_p0_overdue"
     # 0617 (28.10.2026): rekrutacje bez ruchu Delivery Leada — JEDEN wpis
     # dziennie na osobę: DL (14 i 21 dni), Head of Recruitment (21 dni)
     # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).
@@ -341,6 +364,8 @@ class NotificationType(str, enum.Enum):
     # 0518 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu”
     # gotowy — do odbiorców raportu; related_entity=(autofill_quality_report, id).
     autofill_quality_report = "autofill_quality_report"
+    # Rekrutacja własna: odbiorcą jest osoba z procesu, nie sekcja produktu.
+    own_hiring_update = "own_hiring_update"
     # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1, osoba przeszła do
     # poprzednich rekruterów (``recruiter_parked``) albo wróciła na P1 i osoba
     # znowu nad nią pracuje (``recruiter_restored``). Do osób z zespołu poza
@@ -389,6 +414,11 @@ class NotificationType(str, enum.Enum):
     hr_lifecycle_task = "hr_lifecycle_task"
     hr_work_handover = "hr_work_handover"
     admin_case_assigned = "admin_case_assigned"
+    # 0637: kolejka back office'u.
+    back_office_escalated = "back_office_escalated"
+    back_office_assigned = "back_office_assigned"
+    portal_low_rating = "portal_low_rating"
+    portal_monthly_review = "portal_monthly_review"
     equipment_task = "equipment_task"
     equipment_protocol_signed = "equipment_protocol_signed"
     # 0479: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.

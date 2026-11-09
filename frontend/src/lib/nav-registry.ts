@@ -14,15 +14,14 @@ import {
   CalendarClock,
   FileSignature,
   FileText,
-  GraduationCap,
   GitBranch,
   Handshake,
   Heart,
-  Headset,
   HelpCircle,
   Inbox,
   LayoutDashboard,
   Laptop,
+  Lock,
   Lightbulb,
   PhoneCall,
   Radar,
@@ -68,13 +67,15 @@ export type NavBadgeKey =
 
 export type NavFeatureFlag =
   | "contactQueue"
+  | "ownHiring"
   // „Ludzie w NEXUSIE” (16.10.2026): pozycje modułu kadrowego. O widoczności
   // decyduje `/api/hr/config` (przełącznik modułu + kartoteka albo uprawnienie
   // z grupy „Ludzie”) — patrz `hrNavState` w `lib/api/hr.ts`.
   | "hrMyTime"
   | "hrPeople"
   | "hrEquipment"
-  | "hrCare";
+  | "hrCare"
+  | "hrBackOffice";
 
 export type NavSectionKey =
   | "sourcing"
@@ -95,8 +96,10 @@ export type NavUser =
 
 export type NavVisibilityOptions = {
   contactQueueEnabled: boolean;
+  /** Czy ta osoba należy do procesu rekrutacji własnej (po członkostwie, nie roli). */
+  ownHiring?: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
-  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean };
+  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -201,7 +204,8 @@ export const NAV_SECTION_META: readonly NavSectionMeta[] = [
   // Moduł „Finanse". Jedna pozycja, bo `/finance` to jedna strona z zakładkami
   // — osobny link „Import MD" prowadziłby do tej samej trasy i otwierał ją na
   // innej zakładce niż podpowiada etykieta.
-  { key: "finance", title: "Finanse", icon: Wallet, section: "finance" },
+  // Bez sekcji produktu: wejście otwiera też samo `orders_work`, bez sekcji Finanse.
+  { key: "finance", title: "Finanse", icon: Wallet },
   { key: "system", title: "System", icon: Settings },
 ];
 
@@ -273,6 +277,23 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     moreGroup: "daily",
     inPalette: true,
   },
+  // „Moje wygenerowane CV” (07.11.2026, pytania do Jarvisa z 20.10): lista CV
+  // z generatora wygenerowanych przez zalogowaną osobę. Ten sam moduł i te
+  // same role co „Kandydaci”; wejście też z nagłówka listy kandydatów.
+  {
+    id: "my-generated-cvs",
+    moreHint: "Twoje CV z generatora",
+    href: "/candidates/generated-cvs",
+    label: "Moje wygenerowane CV",
+    icon: FileText,
+    section: "sourcing",
+    roles: CANDIDATES_NAV_ROLES,
+    capability: "nav.candidates",
+    placement: "more",
+    moreGroup: "documents",
+    paletteKeywords: ["cv", "wygenerowane", "moje cv", "generator"],
+    inPalette: true,
+  },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
   // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
   {
@@ -311,9 +332,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
     //
     // Od 21.09.2026 radar to tryb ekranu „Kandydaci" (`?mode=request`) i nie
-    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates` (np. viewer
-    // `user`), nie wejdzie na /candidates, więc dla niego adres zostaje
-    // samodzielną stroną /talent-radar (działa dla każdej roli).
+    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates`, nie wejdzie
+    // na /candidates, więc dla niego adres zostaje samodzielną stroną
+    // /talent-radar (działa dla każdej roli).
     id: "talent-radar",
     href: "/talent-radar",
     resolveHref: (user) =>
@@ -445,7 +466,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.
     id: "jobs-daily",
     href: "/jobs/daily",
-    label: "Na daily",
+    label: "Przegląd requestów",
     icon: Briefcase,
     section: "pipeline",
     placement: "primary",
@@ -464,43 +485,6 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     roles: [...CAPABILITY_ROLES["nav.candidates"]],
     placement: "primary",
     inPalette: true,
-  },
-  {
-    // Akademia (0369): nabór do programów szkoleniowych. Backend:
-    // sekcja Pipeline + RecruiterPlus (role operacyjne) — viewer `user` poza.
-    id: "academy",
-    moreHint: "Nabór z ogłoszeń: telefon, spotkanie, zadanie, umowa",
-    href: "/academy",
-    label: "Akademia",
-    icon: GraduationCap,
-    section: "pipeline",
-    roles: [...CAPABILITY_ROLES["nav.candidates"]],
-    placement: "more",
-    moreGroup: "daily",
-    paletteKeywords: ["akademia rekrutera", "nabór", "szkolenie"],
-    // Ukryte z menu i palety 17.10.2026 (decyzja Artura): na razie
-    // z programu nie korzystamy. Strona i API działają dalej — to tylko
-    // zdjęcie wejścia z nawigacji.
-    inSidebar: false,
-    inPalette: false,
-  },
-  {
-    // Praktykanci (0374): postęp programu, próbka jakości, decyzja po
-    // 40 dniach. Backend: `/api/trainee/overview` itd. = admin + HoR.
-    id: "trainees",
-    moreHint: "Listy telefonów, wyniki praktykantów i decyzja po programie",
-    href: "/trainees",
-    label: "Praktykanci",
-    icon: Headset,
-    section: "pipeline",
-    roles: [...CAPABILITY_ROLES["nav.trainees"]],
-    capability: "nav.trainees",
-    placement: "more",
-    moreGroup: "daily",
-    paletteKeywords: ["praktykant", "telefony", "lista telefonów", "program"],
-    // Ukryte z menu i palety 17.10.2026 razem z Akademią (decyzja Artura).
-    inSidebar: false,
-    inPalette: false,
   },
   // Pozycje Delivery i Finansów nie mają listy ról: wejście daje uprawnienie
   // z ekranu Osoby i role — to samo, którego wymaga ich capability (jedna
@@ -617,12 +601,35 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     paletteKeywords: ["sprzedaż", "szanse", "lejek", "firmy", "atlas", "crm"],
     inPalette: true,
   },
+  // Umowy klientów (04.11.2026): lista i pliki, bez sekcji Delivery i bez kwot.
+  {
+    id: "client-contracts",
+    href: "/client-contracts",
+    label: "Umowy klientów",
+    icon: FileText,
+    section: "system",
+    permission: CAPABILITY_PERMISSIONS["nav.client_contracts"],
+    capability: "nav.client_contracts",
+    placement: "primary",
+    paletteKeywords: ["umowy", "umowa ramowa", "aneks", "aneksy", "klienci"],
+    inPalette: true,
+  },
   // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
   // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
   {
+    id: "own-hiring",
+    href: "/rekrutacja-wlasna",
+    label: "Rekrutacja własna",
+    icon: Lock,
+    section: "system",
+    featureFlag: "ownHiring",
+    placement: "primary",
+    inPalette: true,
+  },
+  {
     id: "my-time",
     href: "/my-time",
-    label: "Mój czas",
+    label: "Moja współpraca",
     icon: CalendarClock,
     section: "system",
     featureFlag: "hrMyTime",
@@ -663,6 +670,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     featureFlag: "hrCare",
     placement: "primary",
     paletteKeywords: ["opieka", "konsultanci", "przepięcia", "technologie"],
+    inPalette: true,
+  },
+  // Kolejka spraw back office'u (moduł `back_office`, decyzja Artura 02.11.2026):
+  // przy włączonym module zastępuje pozycję „Opieka nad konsultantami”, a stare
+  // linki `/care` dalej otwierają ten sam ekran.
+  {
+    id: "back-office",
+    href: "/back-office",
+    label: "Back office",
+    icon: HeartHandshake,
+    section: "system",
+    featureFlag: "hrBackOffice",
+    placement: "primary",
+    paletteKeywords: ["opieka", "konsultanci", "sprawy", "kolejka", "premie", "umowy"],
     inPalette: true,
   },
   {
@@ -709,12 +730,12 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "work",
     title: "Praca",
-    ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
+    ids: ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"],
   },
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "care", "finance"],
+    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"],
   },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
@@ -737,6 +758,8 @@ function featureFlagOn(
   switch (flag) {
     case "contactQueue":
       return opts.contactQueueEnabled;
+    case "ownHiring":
+      return opts.ownHiring ?? false;
     case "hrMyTime":
       return opts.hr?.myTime ?? false;
     case "hrPeople":
@@ -744,7 +767,9 @@ function featureFlagOn(
     case "hrEquipment":
       return opts.hr?.equipment ?? false;
     case "hrCare":
-      return opts.hr?.care ?? false;
+      return (opts.hr?.care ?? false) && !opts.hr?.backOffice;
+    case "hrBackOffice":
+      return opts.hr?.backOffice ?? false;
   }
 }
 

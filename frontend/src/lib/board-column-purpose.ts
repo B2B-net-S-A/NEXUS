@@ -17,6 +17,8 @@ export interface ColumnPurposeContext {
   hired?: number | null;
   /** Obsada z rekrutacji; `null` = nie ustawiono. */
   headcount?: number | null;
+  /** Zamknięta rekrutacja: osoby się nie bierze, więc bez wezwania do „Biorę”. */
+  jobClosed?: boolean;
 }
 
 const PURPOSE: Partial<Record<BoardColumnKey, string>> = {
@@ -39,6 +41,7 @@ export function boardColumnPurpose(
   ctx: ColumnPurposeContext = {},
 ): string | null {
   if (!key || key === "closed") return null;
+  if (key === "new" && ctx.jobClosed) return null;
   if (key === "hired") {
     return `Obsada ${ctx.hired ?? "—"} / ${ctx.headcount ?? "—"}`;
   }

@@ -25,11 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/sales/clients/options": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/clients/{client_id}/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/clients/link/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/clients/options": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/clients/{client_id}/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/clients/link/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

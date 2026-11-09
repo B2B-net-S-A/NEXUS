@@ -97,6 +97,30 @@ CHAIN = (
         "0621_pair_departure_care",  # down_revision — przepina rechain_migration.py
         "hr_leave_cpro_schema",
     ),
+    # Kolejka spraw back office'u (02.11.2026).
+    (
+        "0642_back_office",
+        "0641_career_link_channels",  # down_revision — przepina rechain_migration.py
+        "back_office_schema",
+    ),
+    # Portal konsultanta (02.11.2026).
+    (
+        "0643_consultant_portal",
+        "0642_back_office",  # down_revision — przepina rechain_migration.py
+        "consultant_portal_schema",
+    ),
+    # Panel konsultanta: aktywacja, materiały, szablon, trenerzy (05.11.2026).
+    (
+        "0648_consultant_panel",
+        "0647_insight_decisions",  # down_revision — przepina rechain_migration.py
+        "consultant_panel_schema",
+    ),
+    # Gwarancja premii DL: dług i potrącenia (05.11.2026).
+    (
+        "0653_hr_bonus_guarantee",
+        "0652_job_opening_started_at",  # down_revision — przepina rechain_migration.py
+        "hr_bonus_guarantee_schema",
+    ),
 )
 
 

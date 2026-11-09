@@ -343,7 +343,7 @@ async def _notify_new_mismatch(db: AsyncSession, settlement: PayrollSettlement) 
         title="Rozbieżność w rozliczeniu",
         message=(
             f"{name} · {label(period.year, period.month)}: faktura nie zgadza się "
-            "z raportem albo rachunek jest spoza białej listy. Porównanie w Płacach "
+            "z raportem albo rachunek jest spoza białej listy. Porównanie w Rozliczeniach "
             "→ Rozliczenia."
         ),
     )
@@ -661,7 +661,7 @@ async def mark_paid(
         title=f"Rozliczenie: {words.lower()}",
         message=(
             f"{words} rozliczenie za {label(period.year, period.month)}. "
-            "Szczegóły w „Moim czasie” → Rozliczenie."
+            "Szczegóły w „Mojej współpracy” → Rozliczenie."
         ),
         ntype=NotificationType.hr_settlement_paid,
         link=PERSON_LINK,

@@ -15,8 +15,11 @@ której dane właśnie usuwamy. Importer liczy ten sam HMAC dla każdego rekordu
 Od rundy 7 (R7-V2-2) usunięcie stawia też wiersz ``external_source='email'``
 z HMAC-em znormalizowanego adresu (``candidate_email_tombstone``): Traffit
 miewa dwie kartoteki jednej osoby, a nagrobek samego id obejmował jedną.
-Import Traffita i Talent Radar czytają oba rodzaje; zgłoszenie ze strony
-kariery (nowa, dobrowolna zgoda) nagrobków nie czyta.
+Import Traffita i Talent Radar czytają oba rodzaje. Od 03.11.2026 nagrobek
+adresu czytają też pozostałe drogi zakładania profilu: poczta i importy nie
+zakładają, okna pytają człowieka, a samo zgłoszenie osoby (link, kariera,
+portal: nowa, dobrowolna zgoda) przechodzi ze śladem w historii profilu.
+Stoi też po usunięciu duplikatu, więc nie dowodzi prośby osoby.
 
 Scalenie duplikatów (``candidate_merge``) nagrobka NIE stawia: ocalały
 przejmuje ``external_id`` duplikatu, więc rekord źródła dalej ma właściciela.

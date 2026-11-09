@@ -6,7 +6,8 @@
  *
  * Dwa sygnały pod listą stanu CV, widoczne dla osoby, która może wgrać CV:
  * - „W profilu jest nowsze CV” — CV wpadło mailem albo ktoś wgrał je w profilu
- *   lub w innej rekrutacji; „Użyj w tej rekrutacji” podmienia kopię etapu
+ *   lub w innej rekrutacji; „…inne główne CV”, gdy ktoś wskazał starszy plik
+ *   (04.11.2026); „Użyj w tej rekrutacji” podmienia kopię etapu
  *   (`…/cv/original/refresh`, ta sama trasa co dawne „Aktualizuj snapshot”);
  * - „AI czyta nowe CV” — przez kilka minut po wgraniu z rekrutacji.
  *
@@ -22,7 +23,7 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { candidateStageCvApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { newerProfileCv, type DockOriginalCv, type DockProfileCvDoc } from "@/lib/dock-cv-summary";
+import { isNewerThanStageCopy, otherProfileCv, type DockOriginalCv, type DockProfileCvDoc } from "@/lib/dock-cv-summary";
 import { formatDate } from "@/lib/utils";
 
 /** Jak długo po wgraniu pokazujemy „AI czyta nowe CV”. */
@@ -78,9 +79,9 @@ export function DockCvFreshness({
     onError: (error) => showError(apiErrorMessage(error, "Nie udało się podmienić CV w tej rekrutacji.")),
   });
 
-  const newer = newerProfileCv(original, profileDocs);
+  const other = otherProfileCv(original, profileDocs);
   const reading = profileReadPending(uploadedAt, candidate);
-  if (!newer && !reading) return null;
+  if (!other && !reading) return null;
 
   return (
     <div className="space-y-2" data-testid="dock-cv-freshness">
@@ -90,11 +91,13 @@ export function DockCvFreshness({
           Profil: AI czyta nowe CV, odświeży się za około minutę.
         </p>
       ) : null}
-      {newer ? (
+      {other ? (
         <div className="space-y-1.5 rounded-md border border-success/30 bg-success-muted px-2.5 py-2 text-xs text-success-muted-foreground">
           <p>
-            <span className="font-semibold">W profilu jest nowsze CV</span> · {newer.filename} ·{" "}
-            {formatDate(newer.uploaded_at ?? newer.created_at)}
+            <span className="font-semibold">
+              {isNewerThanStageCopy(original, other) ? "W profilu jest nowsze CV" : "W profilu jest inne główne CV"}
+            </span>{" "}
+            · {other.filename} · {formatDate(other.uploaded_at ?? other.created_at)}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {canRefresh ? (
@@ -102,7 +105,7 @@ export function DockCvFreshness({
                 <RefreshCcw className="h-3.5 w-3.5" aria-hidden /> Użyj w tej rekrutacji
               </Button>
             ) : null}
-            <Button size="sm" variant="ghost" onClick={() => onShowProfileCv(newer.id)}>
+            <Button size="sm" variant="ghost" onClick={() => onShowProfileCv(other.id)}>
               Pokaż
             </Button>
           </div>

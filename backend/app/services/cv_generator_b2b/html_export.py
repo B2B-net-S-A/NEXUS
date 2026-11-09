@@ -227,7 +227,9 @@ def render_interactive_html(
     if p.get("languages"):
         sections.append(
             f'<h2 data-cv-section="languages">{_esc(t["languages"])}</h2>'
-            f"<p>{_esc(' · '.join(p.get('languages', [])))}</p>"
+            # 07.11.2026: jeden akapit na język, jak punkty w Wordzie. Jedna
+            # linia z „ · ” na kartce edytora ludzie rozbijali ręcznie.
+            + "".join(f"<p>{_esc(item)}</p>" for item in p.get("languages", []))
         )
 
     if p.get("experience"):
@@ -242,9 +244,7 @@ def render_interactive_html(
                 f'<div class="job" id="exp-{i}">'
                 f'<p class="job-head" data-cv-section="role"><b>{_esc(job.get("position"))}</b> '
                 f'<span class="job-dates">{_esc(job.get("dates"))}</span></p>'
-                f'<p class="job-co" data-cv-section="employer">{_esc(job.get("company"))}'
-                + (f" · {_esc(job.get('industry'))}" if job.get("industry") else "")
-                + "</p>"
+                f'<p class="job-co" data-cv-section="employer">{_esc(job.get("company"))}</p>'
                 + (
                     f'<p class="lbl" data-cv-section="duties_label">{_esc(t["responsibilities"])}</p><ul>{resp}</ul>'
                     if resp

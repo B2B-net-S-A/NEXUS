@@ -25,14 +25,17 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/rate-changes": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/rate-changes/active-processes": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/rate-changes": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/rate-changes/{change_id}/decision": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/rate-changes/{change_id}/negotiation": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/rate-changes/{change_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

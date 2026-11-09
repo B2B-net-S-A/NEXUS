@@ -66,7 +66,7 @@ async def test_recruiter_cannot_read_or_write_the_dictionary(app_client: AsyncCl
     ).status_code == 403
     resp = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Nope {uuid.uuid4().hex[:6]}"},
+        json={"category": "practice", "canonical_name": f"Nope {uuid.uuid4().hex[:6]}"},
         headers=headers,
     )
     assert resp.status_code == 403
@@ -80,7 +80,11 @@ async def test_head_of_recruitment_creates_skill_and_alias(app_client: AsyncClie
     name = f"Skilltest {uuid.uuid4().hex[:8]}"
     created = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": name, "aliases": ["  Alias-A  "]},
+        json={
+            "category": "practice",
+            "canonical_name": name,
+            "aliases": ["  Alias-A  "],
+        },
         headers=headers,
     )
     assert created.status_code == 200, created.text
@@ -108,7 +112,7 @@ async def test_head_of_recruitment_creates_skill_and_alias(app_client: AsyncClie
 
     duplicate = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": name.upper()},
+        json={"category": "practice", "canonical_name": name.upper()},
         headers=headers,
     )
     assert duplicate.status_code == 400
@@ -120,7 +124,7 @@ async def test_admin_maps_and_ignores_unmatched_terms(
     name = f"Maptarget {uuid.uuid4().hex[:8]}"
     created = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": name},
+        json={"category": "practice", "canonical_name": name},
         headers=app_auth_headers,
     )
     skill_id = created.json()["id"]
@@ -173,12 +177,12 @@ async def test_alias_equal_to_another_skills_name_is_refused(
     suffix = uuid.uuid4().hex[:8]
     first = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Langa {suffix}"},
+        json={"category": "practice", "canonical_name": f"Langa {suffix}"},
         headers=app_auth_headers,
     )
     second = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Langb {suffix}"},
+        json={"category": "practice", "canonical_name": f"Langb {suffix}"},
         headers=app_auth_headers,
     )
     assert first.status_code == 200 and second.status_code == 200
@@ -196,7 +200,11 @@ async def test_alias_equal_to_another_skills_name_is_refused(
     # Nowa umiejętność z aliasem równym nazwie istniejącej — odmowa, nic nie powstaje.
     third = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Langc {suffix}", "aliases": [f"langa {suffix}"]},
+        json={
+            "category": "practice",
+            "canonical_name": f"Langc {suffix}",
+            "aliases": [f"langa {suffix}"],
+        },
         headers=app_auth_headers,
     )
     assert third.status_code == 409, third.text
@@ -216,14 +224,18 @@ async def test_skill_name_equal_to_existing_alias_is_refused(
     suffix = uuid.uuid4().hex[:8]
     owner = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Owner {suffix}", "aliases": [f"shared-{suffix}"]},
+        json={
+            "category": "practice",
+            "canonical_name": f"Owner {suffix}",
+            "aliases": [f"shared-{suffix}"],
+        },
         headers=app_auth_headers,
     )
     assert owner.status_code == 200, owner.text
 
     resp = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Shared-{suffix.upper()}"},
+        json={"category": "practice", "canonical_name": f"Shared-{suffix.upper()}"},
         headers=app_auth_headers,
     )
     assert resp.status_code == 409, resp.text
@@ -241,12 +253,16 @@ async def test_term_owned_by_another_skill_is_not_marked_mapped(
     term = f"dup-{suffix}"
     owner = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Tfirst {suffix}", "aliases": [term]},
+        json={
+            "category": "practice",
+            "canonical_name": f"Tfirst {suffix}",
+            "aliases": [term],
+        },
         headers=app_auth_headers,
     )
     other = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Tsecond {suffix}"},
+        json={"category": "practice", "canonical_name": f"Tsecond {suffix}"},
         headers=app_auth_headers,
     )
     assert owner.status_code == 200 and other.status_code == 200
@@ -261,7 +277,11 @@ async def test_term_owned_by_another_skill_is_not_marked_mapped(
 
     created = await app_client.post(
         "/api/skills-admin/skills",
-        json={"canonical_name": f"Tthird {suffix}", "from_term_id": term_id},
+        json={
+            "category": "practice",
+            "canonical_name": f"Tthird {suffix}",
+            "from_term_id": term_id,
+        },
         headers=app_auth_headers,
     )
     assert created.status_code == 409, created.text

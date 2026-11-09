@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -20,7 +21,7 @@ from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
-from app.models.candidate_document import CandidateDocument
+from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import UserRole
@@ -223,6 +224,161 @@ async def test_role_without_candidate_write_is_refused_before_any_write(
             .where(CandidateDocument.candidate_id == cid)
         )
     assert count == 0
+
+
+async def _profile_file(
+    candidate_id: int,
+    filename: str = "Nowsze_CV_07_2026.pdf",
+    *,
+    content: bytes = NEW_PDF,
+    kind: CandidateDocumentKind = CandidateDocumentKind.cv,
+    outdated: bool = False,
+) -> int:
+    """Plik w profilu bez sumy kontrolnej, jak po imporcie z Traffita."""
+    async with AsyncSessionLocal() as db:
+        document = CandidateDocument(
+            candidate_id=candidate_id,
+            filename=filename,
+            file_content=content,
+            document_kind=kind,
+            is_primary=False,
+            size_bytes=len(content),
+            outdated_at=datetime.now(timezone.utc) if outdated else None,
+        )
+        db.add(document)
+        await db.commit()
+        return document.id
+
+
+async def _from_document(
+    client: AsyncClient, headers: dict[str, str], stage_id: int, document_id: int
+):
+    return await client.post(
+        f"/api/candidates/stages/{stage_id}/cv/original/from-document",
+        headers=headers,
+        json={"document_id": document_id},
+    )
+
+
+async def test_file_from_profile_becomes_primary_and_stage_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    cid, sid = await _stage_with_snapshot()
+    other_sid = await _seed_stage(cid, await _seed_job())
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(
+            select(CandidateStage).where(CandidateStage.id == other_sid)
+        )
+        await create_original_cv_snapshot(db, stage)
+        await db.commit()
+    doc_id = await _profile_file(cid)
+
+    res = await _from_document(app_client, app_auth_headers, sid, doc_id)
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["original_cv_filename"] == "Nowsze_CV_07_2026.pdf"
+    assert body["original_snapshot_source"] == "manual_refresh"
+    assert body["original_cv_sha256"] == hashlib.sha256(NEW_PDF).hexdigest()
+    assert body["uploaded_document_id"] == doc_id
+    primary = [d.id for d in await _documents(cid) if d.is_primary]
+    assert primary == [doc_id]
+    download = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/original/download", headers=app_auth_headers
+    )
+    assert download.content == NEW_PDF
+    # Inna rekrutacja osoby mogła już pójść do innego klienta.
+    other = await app_client.get(
+        f"/api/candidates/stages/{other_sid}/cv/original/download",
+        headers=app_auth_headers,
+    )
+    assert other.content == b"%PDF-1.4 OLD"
+
+
+@pytest.mark.parametrize(
+    ("file_kwargs", "expected"),
+    (
+        ({"filename": "B2B_Data_Engineer_Osoba.docx"}, 422),
+        ({"kind": CandidateDocumentKind.other}, 422),
+        ({"outdated": True}, 409),
+        ({"filename": "notatka.txt"}, 415),
+    ),
+)
+async def test_unusable_profile_file_changes_nothing(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    file_kwargs: dict[str, object],
+    expected: int,
+) -> None:
+    cid, sid = await _stage_with_snapshot()
+    doc_id = await _profile_file(cid, **file_kwargs)
+    before = [(d.id, d.is_primary) for d in await _documents(cid)]
+
+    res = await _from_document(app_client, app_auth_headers, sid, doc_id)
+
+    assert res.status_code == expected, res.text
+    assert [(d.id, d.is_primary) for d in await _documents(cid)] == before
+    download = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/original/download", headers=app_auth_headers
+    )
+    assert download.content == b"%PDF-1.4 OLD"
+
+
+async def test_file_of_another_person_is_not_found(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    _, sid = await _stage_with_snapshot()
+    stranger, _ = await _stage_with_snapshot()
+    doc_id = await _profile_file(stranger)
+
+    res = await _from_document(app_client, app_auth_headers, sid, doc_id)
+
+    assert res.status_code == 404, res.text
+
+
+async def test_quarantined_file_cannot_become_the_original(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    from app.models.candidate_source_identity_review import (
+        CandidateSourceIdentityReview,
+    )
+
+    cid, sid = await _stage_with_snapshot()
+    doc_id = await _profile_file(cid)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateSourceIdentityReview(
+                candidate_id=cid,
+                source_kind="document",
+                source_id=doc_id,
+                decision="confirmed_mismatch",
+                provenance="cv_parser:document",
+                detector_version="test",
+                evidence={},
+                reviewed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+    res = await _from_document(app_client, app_auth_headers, sid, doc_id)
+
+    assert res.status_code == 409, res.text
+    assert doc_id not in [d.id for d in await _documents(cid) if d.is_primary]
+
+
+async def test_same_file_again_changes_nothing(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    cid, sid = await _stage_with_snapshot()
+    doc_id = await _profile_file(cid)
+    first = await _from_document(app_client, app_auth_headers, sid, doc_id)
+    assert first.status_code == 200, first.text
+
+    second = await _from_document(app_client, app_auth_headers, sid, doc_id)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["original_snapshot_at"] == first.json()["original_snapshot_at"]
+    assert second.json()["company_cv"] is None
 
 
 async def _stage_copy_of(
@@ -621,6 +777,68 @@ async def test_untouched_auto_cv_is_replaced_without_asking_and_undo_restores_it
     assert [d.filename for d in docs if d.is_primary] == [CLIENT_CV_NAME]
 
 
+async def _replaced_entries(world: dict) -> list[Activity]:
+    from app.services.cv_edit_summary import ACTION
+
+    csv = await _stage_cv(world["stage_id"])
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Activity)
+                    .where(Activity.action == ACTION, Activity.entity_id == csv.id)
+                    .order_by(Activity.id)
+                )
+            ).all()
+        )
+
+
+async def test_replacing_auto_cv_logs_replaced_and_takes_a_reason_afterwards(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    world = await _client_world(stage="verified")
+    await _auto_cv(world)
+
+    res = await _upload_docx(
+        app_client,
+        app_auth_headers,
+        world["stage_id"],
+        _client_docx(marker=uuid.uuid4().hex),
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.json()["ask_replace_reason"] is True
+    (entry,) = await _replaced_entries(world)
+    assert entry.details["status"] == "replaced"
+    assert entry.details["replace_kind"] == "upload"
+    assert "reason" not in entry.details
+
+    url = f"/api/candidates/stages/{world['stage_id']}/cv/branded/replace-reason"
+    saved = await app_client.post(
+        url, headers=app_auth_headers, json={"reason": "newer_cv"}
+    )
+    assert saved.status_code == 204, saved.text
+    (entry,) = await _replaced_entries(world)
+    assert entry.details["reason"] == "newer_cv"
+
+    refused = await app_client.post(
+        url, headers=app_auth_headers, json={"reason": "cokolwiek"}
+    )
+    assert refused.status_code == 422
+
+
+async def test_reason_without_a_replaced_start_is_not_found(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    world = await _client_world()
+    response = await app_client.post(
+        f"/api/candidates/stages/{world['stage_id']}/cv/branded/replace-reason",
+        headers=app_auth_headers,
+        json={"reason": "other"},
+    )
+    assert response.status_code == 404
+
+
 async def test_undo_on_a_card_without_client_cv_empties_it_again(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
@@ -666,6 +884,8 @@ async def test_edited_client_cv_is_replaced_only_after_confirmation(
     detail = asked.json()["detail"]
     assert (detail["code"], detail["status"]) == ("client_cv_replace_confirm", "draft")
     assert "Ta rekrutacja ma już CV do klienta" in detail["message"]
+    # Szkic bez startu generatora: nie ma o co pytać „dlaczego nie generator”.
+    assert detail["ask_replace_reason"] is False
     assert [d.filename for d in await _documents(world["candidate_id"])] == [
         "ewa-cv.pdf"
     ]

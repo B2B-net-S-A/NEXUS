@@ -62,7 +62,7 @@ export function AbsentTodayPanel({ date, items, onNavigate }: AbsentTodayPanelPr
         ))}
       </ul>
       <p className="text-[11px] text-muted-foreground">
-        Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry. Dane z {formatDayMonthPl(date)}.
+        Rodzaj nieobecności widzą tylko osoba, jej koordynator i Administracja współpracy. Dane z {formatDayMonthPl(date)}.
       </p>
     </div>
   );

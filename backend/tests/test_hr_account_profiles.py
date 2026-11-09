@@ -317,7 +317,7 @@ def test_staff_account_rule() -> None:
 @pytest.mark.asyncio
 async def test_integration_profile_cleanup_removes_only_bare_profiles() -> None:
     from app.models.app_setting import AppSetting
-    from app.services.hr import integration_profile_cleanup as cleanup
+    from scripts.repairs import integration_profile_cleanup as cleanup
 
     async with AsyncSessionLocal() as db:
         bare = await _integration_account(db)
@@ -367,13 +367,11 @@ async def test_integration_profile_cleanup_removes_only_bare_profiles() -> None:
         await db.commit()
 
 
-def test_integration_profile_cleanup_runs_at_startup() -> None:
+def test_integration_profile_cleanup_has_a_manual_script() -> None:
     from pathlib import Path
 
-    entrypoint = (Path(__file__).resolve().parents[1] / "entrypoint.sh").read_text(
-        encoding="utf-8"
-    )
-    phase = entrypoint.index('startup_phase "cleanup-integration-profiles"')
-    assert entrypoint.index("run_integration_profile_cleanup(db)", phase) < (
-        entrypoint.index("startup_phase", phase + 1)
-    )
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts/repairs/run_cleanup_integration_profiles.py"
+    ).read_text(encoding="utf-8")
+    assert "run_integration_profile_cleanup(db)" in script

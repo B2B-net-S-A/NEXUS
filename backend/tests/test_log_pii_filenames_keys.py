@@ -164,8 +164,13 @@ def test_text_extractor_failure_logs_have_no_file_name(tmp_path, caplog):
     missing = tmp_path / "abcd1234-Anna_Nowak_CV.pdf"
     with caplog.at_level(logging.INFO):
         assert cv_text_extractor._extract_pdf_native(str(missing)) is None
-        assert cv_text_extractor._extract_docx(str(missing).replace(".pdf", ".docx")) is None
-        assert cv_text_extractor._extract_txt(str(missing).replace(".pdf", ".txt")) is None
+        assert (
+            cv_text_extractor._extract_docx(str(missing).replace(".pdf", ".docx"))
+            is None
+        )
+        assert (
+            cv_text_extractor._extract_txt(str(missing).replace(".pdf", ".txt")) is None
+        )
         assert order_document_text._pdfminer_text(str(missing)) is None
 
     logged = " ".join(r.getMessage() for r in caplog.records)
@@ -219,9 +224,7 @@ _EXEMPT_NAMES = {
     ("api/deps.py", "path"),
     ("main.py", "path"),
     ("services/autenti/client.py", "path"),
-    ("services/cloudtalk/client.py", "path"),
     ("services/jarvis/transport.py", "path"),
-    ("services/traffit/client.py", "path"),
     ("services/b2b_contract_generator/seeder.py", "path"),
 }
 _LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}

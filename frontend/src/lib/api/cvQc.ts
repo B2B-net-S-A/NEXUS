@@ -8,13 +8,15 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import api from "@/lib/api";
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
-import { apiErrorCode } from "@/lib/cv-qc";
+import { apiErrorCode, type QcStateView } from "@/lib/cv-qc";
 
 export type QcCheckStatus = "pass" | "fail" | "manual" | "skip";
 export type QcSeverity = "blocking" | "warning";
 export type QcFixKind =
   | "bold_all"
   | "generate_cv"
+  /** QC-4: plik „…B2B…” sprzed rekrutacji — „Użyj tego CV”. */
+  | "use_older_cv"
   | "upload_consent"
   /** Zrzut zgody nie pasuje do rekrutacji (F37, 27.10.2026) — „Wymień zrzut”. */
   | "replace_consent"
@@ -23,7 +25,9 @@ export type QcFixKind =
   | "ai"
   | "spelling"
   /** „Ułóż od najnowszego” — kolejność stanowisk (16.10.2026). */
-  | "role_order";
+  | "role_order"
+  /** „Przywróć daty z oryginału” — okres stanowiska inny niż w oryginale (02.11.2026). */
+  | "restore_dates";
 
 /** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
 export type QcEvidenceKind = "description" | "technologies" | "title";
@@ -37,9 +41,19 @@ export interface QcSearch {
   quote?: string | null;
 }
 
+/** Kto i kiedy wskazał rolę ręcznie przy „sprawdź ręcznie” (R3, 07.11.2026). */
+export interface QcManualBy {
+  by?: string | null;
+  at?: string | null;
+}
+
 export interface QcItem {
   /** Stały klucz pozycji (sprawdzenie | wymaganie | rola) — od 13.10.2026. */
   key?: string | null;
+  /** R3: pozycja z ręcznego wskazania roli. */
+  manual?: QcManualBy | null;
+  /** R2 (07.11.2026): krytyczna, której kandydat nie ma — decyzja Delivery Leada. */
+  candidate_gap?: boolean;
   requirement?: string | null;
   role?: string | null;
   detail?: string | null;
@@ -51,6 +65,10 @@ export interface QcItem {
   evidence?: string | null;
   evidence_kind?: QcEvidenceKind | null;
   searched?: QcSearch[];
+  /** Fragment oryginału z tą samą rzeczą pod inną nazwą: pytanie zamiast „nie ma”. */
+  similar?: { term: string; quote: string } | null;
+  /** QC-4: plik sprzed rekrutacji, który można użyć jednym kliknięciem. */
+  document?: { document_id: number; filename: string; at: string | null; same_client: boolean } | null;
   /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
   dismissal?: QcDismissal | null;
 }
@@ -80,6 +98,8 @@ export interface QcRoleState {
   requirement: string;
   role: string;
   state: QcRoleStateKind;
+  /** R3 (07.11.2026): stan z ręcznego wskazania roli — kto i kiedy. */
+  manual?: QcManualBy | null;
 }
 
 export interface QcCheck {
@@ -163,15 +183,25 @@ export interface QcResult {
   blocking_failed: number;
   warnings_count: number;
   override: QcOverride | null;
+  /** Gotowy stan pary, ten sam co na karcie (`services/qc_state.py`). */
+  qc_state?: QcStateView | null;
   /** QC doradza, nie blokuje (`CV_QC_ADVISORY`). */
   advisory?: boolean;
   /** Czy TA osoba może przesunąć kartę mimo uwag QC. */
   can_override?: boolean;
   confirmations?: QcConfirmation[];
+  /** Firmy z ról osoby do pola „W której roli?” przy potwierdzeniu. */
+  confirm_roles?: string[];
   run_id: number | null;
   computed_at: string | null;
   cv: QcCv | null;
-  original_cv: { source: "snapshot" | "profile_text" | null; filename: string | null; text: string | null };
+  original_cv: {
+    source: "snapshot" | "profile_text" | null;
+    filename: string | null;
+    text: string | null;
+    snapshot_at?: string | null;
+    newer_profile_cv?: { filename: string; uploaded_at: string } | null;
+  };
   client_request: QcClientRequest;
   checks: QcCheck[];
 }
@@ -209,10 +239,13 @@ export type QcFixAction =
   | { action: "remove_term"; term: string }
   | { action: "spelling" }
   | { action: "role_order" }
+  | { action: "restore_dates"; role_index?: number }
   | { action: "years" }
   | { action: "title" }
   | { action: "strip_client_rules" }
-  | { action: "remove_line"; text: string };
+  | { action: "remove_line"; text: string }
+  // „Szybkie poprawki” edytora (E1, 07.11.2026) — tylko `qc/transform`.
+  | { action: "languages_lines" };
 
 export type QcApplyBody = QcFixAction & { expected_revision?: number };
 
@@ -266,6 +299,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
     // liczy QC od nowa.
     staleTime: 0,
     refetchOnMount: "always",
+  });
+}
+
+/**
+ * Wynik QC do podsumowania obok (R5, 07.11.2026: „Kontrola CV” w przeglądzie
+ * DL). Ten sam klucz co okno QC, ale bez przeliczania przy każdym montowaniu —
+ * przegląd „po kolei” nie liczy QC dwa razy na osobę, a harness z zasianym
+ * wynikiem nie wysyła zapytań.
+ */
+export function useCvQcSummary(stageId: number | null) {
+  return useQuery<QcResult>({
+    queryKey: cvQcQueryKey(stageId ?? 0),
+    queryFn: () => api.get<QcResult>(`/api/pipeline/stages/${stageId}/qc`).then((r) => r.data),
+    enabled: stageId != null,
+    staleTime: 60_000,
   });
 }
 
@@ -352,6 +400,8 @@ export interface QcOverrideBody {
   reason?: string;
   /** Blokady oznaczone „QC się myli” (D4) — klucze pozycji z bieżącego przebiegu. */
   wrong_keys?: string[];
+  /** „Inny powód” (R6, 07.11.2026): blokady, których dotyczy — klucze pozycji. */
+  about_keys?: string[];
 }
 
 /**
@@ -365,12 +415,25 @@ export function useQcOverride(stageId: number | null, onChanged?: () => void) {
 /** Pozycja „spoza oryginału” z listy QC i to, co powiedział kandydat. */
 export interface QcConfirmBody {
   term: string;
-  text?: string;
+  text: string;
+  /** Firma, której dotyczy fakt; bez niej trafia tylko do umiejętności. */
+  role?: string;
 }
 
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
 export function useQcConfirm(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<QcConfirmBody>(stageId, "confirm", onChanged);
+}
+
+/** R3: role oryginału opisujące umiejętność krytyczną; pusta lista = „nigdzie”. */
+export interface QcManualRolesBody {
+  requirement: string;
+  roles: string[];
+}
+
+/** „Sprawdź ręcznie” (R3, 07.11.2026) — serwer zapisuje wskazanie i zwraca świeży wynik QC. */
+export function useQcManualRoles(stageId: number | null, onChanged?: () => void) {
+  return useQcWrite<QcManualRolesBody>(stageId, "manual-roles", onChanged);
 }
 
 /** „To nieprawda”: która pozycja (klucz z wyniku QC) i dlaczego. */
@@ -395,4 +458,37 @@ export function useQcDismiss(stageId: number | null, onChanged?: () => void) {
 /** Przywrócenie pominiętej uwagi — bez ciała, świeży wynik QC w odpowiedzi. */
 export function useQcRestore(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<number>(stageId, (dismissalId) => `dismissals/${dismissalId}/restore`, onChanged, () => undefined);
+}
+
+/** Fakt z rozmowy, którego nie ma w oryginale: krok przed generacją CV. */
+export interface QcRoleFact {
+  term: string;
+  quote: string;
+}
+
+export interface QcRoleFacts {
+  facts: QcRoleFact[];
+  roles: string[];
+}
+
+export const qcRoleFactsQueryKey = (stageId: number) => ["qc-role-facts", stageId] as const;
+
+export function useQcRoleFacts(stageId: number | null) {
+  return useQuery<QcRoleFacts>({
+    queryKey: qcRoleFactsQueryKey(stageId ?? 0),
+    queryFn: ({ signal }) =>
+      api.get<QcRoleFacts>(`/api/pipeline/stages/${stageId}/qc/role-facts`, { signal }).then((r) => r.data),
+    enabled: stageId != null && stageId > 0,
+  });
+}
+
+export function useSaveQcRoleFact(stageId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation<QcRoleFacts, unknown, { term: string; role: string }>({
+    mutationFn: (body) =>
+      api.post<QcRoleFacts>(`/api/pipeline/stages/${stageId}/qc/role-facts`, body).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(qcRoleFactsQueryKey(stageId ?? 0), data);
+    },
+  });
 }

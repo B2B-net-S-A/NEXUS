@@ -4,7 +4,15 @@
   Monitoring są opisane w `docs/uptime-monitoring.md`.
 - **Standard URL:** `/api/health` z full shape `{status, version, deployedAt, checks: {database}}` (Faza 1.B done 2026-04-29, PR #61).
 - **Legacy URL:** `/health` zachowane jako alias (uptime-probe.yml legacy compat).
-- **Implementation:** `app/main.py` (`/api/health` z DB ping z 2s timeout).
+- **Implementation:** `app/main.py` (`/api/health` z DB ping, limit `HEALTH_DB_PING_TIMEOUT_SECONDS` = 8 s).
+- **Limit pingu bazy to 8 s, nie 2 s (od 04.11.2026).** Obejmuje też wypożyczenie
+  połączenia i kolejkę w pętli zdarzeń, więc przy 2 s nasycony backend dostawał 503
+  przy zdrowej bazie (15 razy w 7 minut, 04.11). Odrzucone połączenie daje 503 od
+  razu, zawieszona baza po limicie.
+- **Przeglądarka pyta `/api/health/live`, nie `/api/health` (od 04.11.2026).**
+  Sonda `lib/telemetry-capability.ts` czyta stąd `usageCounter` i `x-request-id`.
+  Po nieudanej próbie czeka minutę: wcześniej każde żądanie karty uruchamiało
+  następną, co w szczycie dawało 151 pełnych `/api/health` na 10 minut.
 - **Compose healthcheck = `/api/health/live`, NIE `/api/health` (od 11.09.2026).**
   `/live` odpowiada, że proces obsługuje żądania — bez bazy, puli, locków i sond
   zewnętrznych. Pełne `/api/health` robi kilkanaście zapytań z timeoutami i przy
@@ -81,5 +89,5 @@
   z powodem (`test_loop_heartbeat.py`). Progi obejmują najdłuższy bieg (Traffit
   full: 12 h ponad interwał).
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`. GitHub uruchamia „godzinowy” cron co 1–6 h, więc to NIE jest sonda dostępności — od tego jest zewnętrzna sonda Grafana Synthetic Monitoring (MON-05). Awaria joba `probe` albo `backup-freshness` z crona otwiera issue (job `alert`), tak jak `health-checks`, restore drill i digest Sentry.
-- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue). Produkcja jest SSO-only (`/api/auth/methods` → `password:false`), więc `/login` nie ma formularza hasła: setup loguje się wtedy przez API i oddaje token sondzie sesji (`e2e/helpers/session.ts`), a adres konta E2E musi być na `PASSWORD_LOGIN_BREAK_GLASS_EMAILS`.
+- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue). Konto, sekrety i odczyt wyniku: `konto-e2e-na-produkcji.md`. Produkcja jest SSO-only (`/api/auth/methods` → `password:false`), więc `/login` nie ma formularza hasła: setup loguje się wtedy przez API i oddaje token sondzie sesji (`e2e/helpers/session.ts`), a adres konta E2E musi być na `PASSWORD_LOGIN_BREAK_GLASS_EMAILS`.
 - **GIT_SHA / BUILT_AT:** SHA pochodzi z tagu obrazu budowanego przez Coolify (`release.sh` → `/app/.nexus-build-sha`, #1524), nie z env `$SOURCE_COMMIT`.

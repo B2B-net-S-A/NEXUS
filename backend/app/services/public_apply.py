@@ -62,6 +62,7 @@ from app.models.candidate_consent import (
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
+from app.models.candidate_source_event import SourceChannel
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -123,6 +124,47 @@ def cv_display_filename(cv: UploadFile) -> str:
 
     name = pathlib.PurePath((cv.filename or "").strip().replace("\\", "/")).name
     return public_share._fit_filename(name or "cv.pdf")
+
+
+# 07.11.2026 (decyzja Artura): na stronie kariery kandydat dołącza samo CV —
+# imię, nazwisko, e-mail i telefon czyta ten sam odczyt co `/from-cv`.
+PLACEHOLDER_NAME = "Nieznane"
+MSG_EMAIL_NOT_IN_CV = (
+    "W CV nie znaleźliśmy adresu e-mail. Wpisz go, żebyśmy mogli odpowiedzieć."
+)
+
+
+async def identity_from_cv(
+    db: Any, content: bytes, filename: Optional[str]
+) -> dict[str, Optional[str]]:
+    """Imię, nazwisko, e-mail i telefon z CV; puste pola = ``None``. Nie rzuca.
+
+    `parse_cv` sam sprawdza, że e-mail naprawdę jest w tekście CV, i ma darmowe
+    wyrażenie regularne, gdy model nie odpowie. Pusty tekst (skan) = ``{}``.
+    """
+    from app.api.candidates import _extract_uploaded_cv_text
+    from app.services.cv_parser import parse_cv
+
+    safe_name = pathlib.PurePath(filename or "cv.pdf").name or "cv.pdf"
+    try:
+        text = await _extract_uploaded_cv_text(
+            content, safe_name=safe_name, client_filename=filename
+        )
+    except Exception as exc:  # noqa: BLE001 — brak tekstu = prośba o e-mail
+        logger.warning("[apply] CV text extraction failed: %s", type(exc).__name__)
+        return {}
+    if not (text or "").strip():
+        return {}
+    try:
+        parsed = await parse_cv(text, db=db)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[apply] CV parse failed: %s", type(exc).__name__)
+        return {}
+    out: dict[str, Optional[str]] = {}
+    for key in ("first_name", "last_name", "email", "phone"):
+        value = parsed.get(key)
+        out[key] = str(value).strip() if value else None
+    return out
 
 
 def field_error(field_name: str, message: str, value: Any = None) -> HTTPException:
@@ -231,6 +273,15 @@ def parse_optional_fields(
             raise field_error("work_mode", "Wybierz tryb pracy z listy.", work_mode)
         out["work_mode"] = raw_mode
     return out
+
+
+def _link_channel(link: CandidateInviteLink) -> SourceChannel:
+    """Kanał zdarzenia źródła: link ogólny albo link do rekrutacji, osobno od portali."""
+    return (
+        SourceChannel.career_link_job
+        if link.job_id is not None
+        else SourceChannel.career_link_general
+    )
 
 
 def link_key(link: CandidateInviteLink) -> str:
@@ -380,9 +431,28 @@ async def submit_application(
         )
         return {"ok": True, "status": "received"}
 
-    candidate = await _create_candidate(
-        db, ref=ref, applicant=applicant, cv=cv, content=content, screening=screening
+    # Nagrobek nie blokuje zgłoszenia: osoba sama wysyła CV i daje nową zgodę.
+    # Zostaje ślad w historii, a dzwonek powtarza go w `_notify_owner`.
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        record_recreated_after_erasure,
     )
+
+    erased_email = await email_was_erased(db, normalized_email)
+    candidate = await _create_candidate(
+        db,
+        ref=ref,
+        applicant=applicant,
+        cv=cv,
+        content=content,
+        screening=screening,
+        erased_before=erased_email,
+    )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=None, via=VIA_SELF_APPLICATION
+        )
     await db.commit()
     candidate_id = candidate.id
 
@@ -395,6 +465,7 @@ async def submit_application(
             related_entity_id=candidate_id,
             target=f"/candidates/{candidate_id}",
             duplicate=False,
+            erased_before=erased_email,
         )
 
     await _confirm_to_applicant(
@@ -453,10 +524,7 @@ async def _record_duplicate_application(
     zamiast procesu wiersz ``application_screenings`` (``pending``); bramki
     twarde (czarna lista, weto HM) sprawdza pętla przy decyzji.
     """
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.api import public_share
     from app.api.application_submissions import (
         _attach_cv_as_document,
@@ -601,7 +669,7 @@ async def _record_duplicate_application(
     db.add(
         CandidateSourceEvent(
             candidate_id=existing.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),
@@ -623,12 +691,10 @@ async def _create_candidate(
     cv: UploadFile,
     content: bytes,
     screening: bool = False,
+    erased_before: bool = False,
 ) -> Candidate:
     from app.api import public_share
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
     from app.services.candidate_claim import link_claim_kwargs
@@ -715,6 +781,7 @@ async def _create_candidate(
             first_name=applicant.first_name,
             last_name=applicant.last_name,
             utm_source=applicant.utm.get("source"),
+            erased_before=erased_before,
         )
     elif link.job_id is not None:
         stage_exists = await db.scalar(
@@ -798,7 +865,7 @@ async def _create_candidate(
     db.add(
         CandidateSourceEvent(
             candidate_id=candidate.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),
@@ -846,8 +913,12 @@ async def _notify_owner(
     blocked_reason: Optional[str] = None,
     extra: Optional[str] = None,
     in_job: Optional[ExistingCard] = None,
+    erased_before: bool = False,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
+
+    ``erased_before`` = TO zgłoszenie założyło profil na adres z nagrobka;
+    kolejne zgłoszenia tej osoby tego zdania już nie powtarzają.
 
     audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
     nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
@@ -906,6 +977,11 @@ async def _notify_owner(
             message += (
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
+            )
+        if erased_before:
+            message += (
+                " Profil z tym adresem był już trwale usunięty; osoba "
+                "zgłosiła się sama."
             )
         if (
             job_id is not None

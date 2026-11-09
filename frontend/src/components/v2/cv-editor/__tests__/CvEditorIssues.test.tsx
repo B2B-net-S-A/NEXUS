@@ -726,7 +726,7 @@ describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
     const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
     setup({ api });
     fireEvent.click(await screen.findByRole("button", { name: "Kandydat to ma" }));
-    const field = screen.getByLabelText("Co powiedział kandydat? (opcjonalnie)");
+    const field = screen.getByLabelText("Co dokładnie powiedział kandydat? (wymagane)");
     fireEvent.change(field, { target: { value: " AWS w projekcie migracji " } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz w notatkach" }));
     await waitFor(() => expect(api.confirm).toHaveBeenCalledWith(STAGE, { term: "AWS", text: "AWS w projekcie migracji" }));
@@ -1242,5 +1242,84 @@ describe("zrzut zgody, którego AI nie potwierdziło (F37, 27.10.2026)", () => {
     const thumb = await screen.findByRole("button", { name: "Pokaż zrzut zgody" });
     expect(thumb).toHaveAttribute("data-stage", String(qcResult().stage_id));
     expect(screen.getByRole("button", { name: "Wgraj zrzut maila" })).toBeInTheDocument();
+  });
+});
+
+describe("„Szybkie poprawki” (E1, 07.11.2026)", () => {
+  const QUICK_CV =
+    '<h2 data-cv-section="languages">LANGUAGES</h2>' +
+    "<p>English - advanced · Russian - basic</p>" +
+    '<h2 data-cv-section="experience">EXPERIENCE</h2>' +
+    "<p>Polish - native · German - B1</p>" +
+    `<p data-cv-section="rodo">${CLAUSE}</p>`;
+
+  function openQuick(content = QUICK_CV): Editor {
+    const element = document.body.appendChild(document.createElement("div"));
+    const editor = new Editor({ element, extensions: cvEditorExtensions(), content: "" });
+    loadCvHtml(editor, content);
+    editors.push(editor);
+    return editor;
+  }
+
+  const SPLIT = "<p>English – advanced</p><p>Russian – basic</p>";
+
+  it("stoi na górze z podglądem zmiany i nakłada poprawkę przez qc/transform jednym cofalnym krokiem", async () => {
+    const api = memoryApi({
+      transform: vi.fn(async (_stage: number, body: QcTransformBody) => ({
+        content_html: body.content_html.replace("<p>English - advanced · Russian - basic</p>", SPLIT),
+        changed: true,
+        applied: [{ action: "languages_lines", count: 1 }],
+        skipped: [],
+      })),
+    });
+    const editor = openQuick();
+    setup({ api, editor });
+    const group = await screen.findByRole("region", { name: "Szybkie poprawki" });
+    expect(group).toHaveTextContent("Szybkie poprawki · 1");
+    // Pierwsza grupa listy — nad blokadami.
+    expect(screen.getAllByRole("region")[0]).toBe(group);
+    // Jeden wiersz: „Zastosuj wszystkie” byłby tym samym przyciskiem drugi raz.
+    expect(within(group).queryByRole("button", { name: /Zastosuj wszystkie/ })).not.toBeInTheDocument();
+    const row = within(group).getByText("Języki w osobnych liniach").closest("li") as HTMLElement;
+    expect(row.querySelector("del")).toHaveTextContent("English - advanced · Russian - basic");
+    expect([...row.querySelectorAll("ins")].map((node) => node.textContent)).toEqual(["English – advanced", "Russian – basic"]);
+
+    const before = editor.getHTML();
+    fireEvent.click(within(row).getByRole("button", { name: "Zmień" }));
+    await waitFor(() => expect(editor.getHTML()).toContain(SPLIT));
+    expect(api.transform).toHaveBeenCalledWith(STAGE, { content_html: before, actions: [{ action: "languages_lines" }], bulk: false });
+    expect(toast.showSuccess).toHaveBeenCalledWith("Języki w osobnych liniach. Ctrl+Z cofa.");
+    const done = await screen.findByRole("region", { name: "Poprawione" });
+    expect(done).toHaveTextContent("Języki w osobnych liniach");
+    // Po poprawce grupa znika; klauzula zgody i akapit spoza sekcji języków bez zmian.
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Szybkie poprawki" })).not.toBeInTheDocument());
+    expect(editor.getHTML()).toContain(CLAUSE);
+    expect(editor.getHTML()).toContain("Polish - native · German - B1");
+    fireEvent.click(within(done).getByRole("button", { name: "Cofnij" }));
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("serwer nie ma czego zmienić: komunikat z serwera, CV bez zmian", async () => {
+    const api = memoryApi({
+      transform: vi.fn(async (_stage: number, body: QcTransformBody) => ({
+        content_html: body.content_html,
+        changed: false,
+        applied: [],
+        skipped: [{ action: "languages_lines", code: "nothing_to_do", message: "Języki już stoją w osobnych liniach." }],
+      })),
+    });
+    const editor = openQuick();
+    const { ensureDraft } = setup({ api, editor });
+    const before = editor.getHTML();
+    fireEvent.click(within(await screen.findByRole("region", { name: "Szybkie poprawki" })).getByRole("button", { name: "Zmień" }));
+    await waitFor(() => expect(toast.showError).toHaveBeenCalledWith("Języki już stoją w osobnych liniach."));
+    expect(editor.getHTML()).toBe(before);
+    // Szkic nie powstaje dla poprawki, która nic nie zmienia.
+    expect(ensureDraft).not.toHaveBeenCalled();
+  });
+
+  it("bez etapu (wynik generatora) nie ma szybkich poprawek — trasa jest per etap", () => {
+    setup({ editor: openQuick(), props: { stageId: undefined } });
+    expect(screen.queryByRole("region", { name: "Szybkie poprawki" })).not.toBeInTheDocument();
   });
 });

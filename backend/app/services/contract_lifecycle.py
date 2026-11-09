@@ -712,6 +712,45 @@ async def reopen_contract(
     from app.services.hr import contract_hooks
 
     await contract_hooks.contract_end_undone(db, contract)
+    clear_undone_termination(db, contract, actor_id=actor_id)
+    return True
+
+
+def clear_undone_termination(
+    db: AsyncSession, contract: Contract, *, actor_id: Optional[int]
+) -> bool:
+    """Umowa wróciła bezterminowo: pola zakończenia opisują to, co cofnięto.
+
+    Zostawione czytało się jak trwające wypowiedzenie: premie anulowały się
+    przez minioną datę, a karta kontraktu pokazywała „Koniec zamówienia”
+    (7 aktywnych kontraktów na kopii z 02.11.2026). Wartości przechodzą do
+    historii kontraktu. Przedłużenie z nową datą końca tu nie trafia:
+    zakończenie obowiązuje dalej, tylko później.
+    """
+    if contract.status != ContractStatus.active or contract.end_date is not None:
+        return False
+    reason = contract.termination_reason
+    previous = {
+        "terminated_at": (
+            contract.terminated_at.isoformat() if contract.terminated_at else None
+        ),
+        "termination_reason": getattr(reason, "value", reason),
+        "termination_lessons": contract.termination_lessons,
+    }
+    if not any(previous.values()):
+        return False
+    contract.terminated_at = None
+    contract.termination_reason = None
+    contract.termination_lessons = None
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="termination_data_cleared",
+            user_id=actor_id,
+            details=previous,
+        )
+    )
     return True
 
 
@@ -740,6 +779,7 @@ async def sync_contract_to_live_order(
     order_end: Optional[date],
     actor_id: Optional[int],
     today: Optional[date] = None,
+    revoked_termination_date: Optional[date] = None,
 ) -> bool:
     """Dopasuj kontrakt do zamówienia, które WŁAŚNIE TRWA. Zwraca True przy zmianie.
 
@@ -765,6 +805,10 @@ async def sync_contract_to_live_order(
     okres zamówienia (VeloBank: 4 z 11 osób na tym samym zamówieniu, w tym
     kontraktor czekający na przedłużenie). Cron pomija ``end_date IS NULL``,
     więc bezterminowa umowa nie jest demotowana „tej samej nocy".
+
+    ``revoked_termination_date`` podaje WYŁĄCZNIE decyzja człowieka: data
+    zakończenia, którą właśnie odwołał („współpraca trwa dalej” w sprawie
+    o pulę MD). Sam fakt, że zamówienie trwa, nigdy jej nie odwołuje.
     """
     # Serialize against terminal-state writers before reading any lifecycle
     # field. A caller may hold an identity-map object loaded before a concurrent
@@ -837,13 +881,23 @@ async def sync_contract_to_live_order(
     # ``ending``, a nocny reconcile wołał tu i zerował datę — wypowiedziana
     # umowa wracała jako bezterminowa (bez offboardingu, dalej w MRR). Umowa
     # już ZAKOŃCZONA (data < dziś) nadal może wrócić NOWYM zamówieniem.
+    #
+    # Reguła chroni plan przed automatem, nie przed decyzją o tym planie:
+    # odwołana data nie jest już planem. Bez tego „współpraca trwa dalej” w dniu
+    # zakończenia zostawiała „Kończący się”, a następnej nocy cron kończył umowę
+    # i domykał przywróconą linię, bez nowej sprawy o pulę. Inna data (ktoś
+    # przeplanował zakończenie po założeniu sprawy) nadal wygrywa.
     # Import lokalny: ``b2b_contract_end_date`` stoi niżej w grafie importów.
     from app.services.b2b_contract_end_date import (
         has_early_termination_amendment,
         is_b2b,
     )
 
-    if contract.end_date is not None and contract.end_date >= today_:
+    if (
+        contract.end_date is not None
+        and contract.end_date >= today_
+        and contract.end_date != revoked_termination_date
+    ):
         manually_terminated = (
             locked_terminated_at is not None or locked_termination_reason is not None
         )

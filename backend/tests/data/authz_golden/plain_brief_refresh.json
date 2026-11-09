@@ -25,9 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module",
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
+  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

@@ -10,6 +10,10 @@ import { clientReferenceParts } from "@/lib/job-names";
 import { cn } from "@/lib/utils";
 
 export const SEGMENT_LABELS: Record<string, string> = {
+  podglad: "Podgląd",
+  dzis: "Dziś",
+  rekrutacje: "Rekrutacje",
+  zespol: "Zespół",
   "talent-radar": "Talent Radar",
   "": "Dashboard",
   candidates: "Kandydaci",
@@ -17,34 +21,53 @@ export const SEGMENT_LABELS: Record<string, string> = {
   clients: "Klienci",
   contacts: "Kontakty",
   contracts: "Kontrakty",
+  "client-contracts": "Umowy klientów",
   wypis: "Wypis",
+  k: "Panel klienta",
+  t: "Wybór terminu",
   talents: "Talenty",
   analytics: "Analityka",
   reports: "Raporty",
   calendar: "Kalendarz",
+  "rekrutacja-wlasna": "Rekrutacja własna",
   // Sprzedaż (Atlas → NEXUS, 26.10.2026).
   sales: "Sprzedaż",
+  "my-day": "Mój dzień",
   companies: "Firmy",
   opportunities: "Szanse",
+  meetings: "Spotkania",
+  offers: "Oferty",
   tasks: "Zadania",
   leads: "Leady",
   summary: "Podsumowanie",
   duplicates: "Duplikaty",
   // „Ludzie w NEXUSIE” (16.10.2026).
-  "my-time": "Mój czas",
+  "my-time": "Moja współpraca",
+  porcja: "Porcja dnia",
   start: "Start w NEXUSIE",
   people: "Ludzie",
   equipment: "Sprzęt",
-  hr: "Kadry",
-  approvals: "Akceptacje",
+  hr: "Administracja współpracy",
+  approvals: "Do potwierdzenia",
   consents: "Moje zgody",
   cases: "Sprawy",
-  payroll: "Płace",
+  payroll: "Rozliczenia",
   structure: "Struktura",
-  team: "Mój zespół",
+  team: "Koordynacja",
   offboarding: "Odejście",
   care: "Opieka",
+  "back-office": "Back office",
   protocol: "Protokół",
+  konsultant: "Strefa konsultanta",
+  wejscie: "Wejście",
+  ocena: "Ocena rozmowy",
+  "na-start": "Na start",
+  rozliczenia: "Rozliczenia",
+  faktury: "Faktury",
+  rozmowy: "Rozmowy",
+  sprzet: "Sprzęt",
+  pomoc: "Pomoc",
+  trener: "Zostań trenerem",
   settings: "Ustawienia",
   templates: "Szablony email",
   admin: "Admin",
@@ -55,6 +78,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   scoring: "Ranking kandydatów",
   "prep-review": "Ocena prepów",
   "twin-rules": "Zasady bliźniaków",
+  cpro: "CPro (Nordea)",
   "pipeline-templates": "Procesy",
   "contract-templates": "Wzory umów",
   compare: "Porównanie",
@@ -70,6 +94,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   sourcing: "Sourcing",
   marketplace: "Targ / Dostępni",
   "bulk-import": "Masowy import CV",
+  "generated-cvs": "Moje wygenerowane CV",
   search: "Wyszukiwanie",
   "contact-queue": "Do przedzwonienia",
   prep: "Przygotowanie do rozmowy",
@@ -110,13 +135,13 @@ export const SEGMENT_LABELS: Record<string, string> = {
   // Ustawień i w nagłówkach stron. Nową stronę dopisz tutaj: test
   // „każdy stały segment…" czyta katalog `app/` i odrzuca slug bez nazwy.
   "403": "Brak dostępu",
-  academy: "Akademia",
   "b2b-register-import": "Rejestr umów z Excela",
   "contract-docs-sharepoint": "Dokumenty kontraktów z SharePointa",
   "competence-team": "Kategorie kompetencji",
   contractors: "Kontraktorzy",
   "kpi-targets": "Cele KPI",
   nowosci: "Nowości — kto już umie",
+  "jakosc-generatora": "Jakość generatora CV",
   "review-states": "Porządek w requestach",
   "strona-kariery": "Strona kariery do uzupełnienia",
   ogloszenia: "Ogłoszenia do nadrobienia",
@@ -124,9 +149,6 @@ export const SEGMENT_LABELS: Record<string, string> = {
   daily: "Daily",
   seeking: "Dostępni kontraktorzy",
   "seeking-contractors": "Dostępni kontraktorzy",
-  trainee: "Telefony na dziś",
-  "trainee-rules": "Lista telefonów praktykantów",
-  trainees: "Praktykanci",
 };
 
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */
@@ -269,6 +291,14 @@ export interface BreadcrumbCrumb {
  * wysokość jednego wiersza, więc nadmiar spada do ukrytego wiersza.
  * `flex-row-reverse` z odwróconym `order` wypełnia wiersz od nazwy na końcu,
  * a DOM (i czytnik ekranu) zostaje w kolejności Dashboard → … → nazwa.
+ *
+ * Gdy nie mieści się nawet nazwa, ścieżka jest pusta (05.11.2026): przy 1280 px
+ * rekruter miał na nią 63 px i widział „K.” albo „Kandy…”, a nazwa ekranu i tak
+ * stoi w treści strony. Pusty element z `order: 0` zajmuje widoczny wiersz, więc
+ * okruszek szerszy od ścieżki spada do ukrytego, zamiast kurczyć się w widocznym.
+ * Margines w procentach daje zapas tylko przy układaniu wiersza (do szerokości
+ * treści się nie wlicza): grupa akcji ściska ścieżkę o ułamek piksela i sam
+ * „Dashboard” przy 77,016 px przy wymaganych 77,031 px spadał do ukrytego.
  */
 export function BreadcrumbTrail({
   crumbs,
@@ -285,14 +315,15 @@ export function BreadcrumbTrail({
         className,
       )}
     >
+      <span aria-hidden="true" className="h-5 w-0 -ml-[1%]" style={{ order: 0 }} />
       {crumbs.map((c, i) => {
         const isLast = i === crumbs.length - 1;
         return (
           // Stałe nazwy sekcji w środku ścieżki się nie kurczą (UAT M03-B09:
-          // „Dash… › Rekr… ›"); skraca się ostatni okruszek i nazwy encji.
-          // Nazwa ma sufit 11rem: dłuższa (pełna nazwa rekrutacji) wypchnęłaby
-          // sekcje do ukrytego wiersza także przy szerokim oknie. Przy 360 px
-          // okruszków to tyle, ile nazwa miała przed 28.10 obok dwóch sekcji.
+          // „Dash… › Rekr… ›"). Nazwa ma sufit 11rem i tylko ponad nim się
+          // skraca: dłuższa (pełna nazwa rekrutacji) wypchnęłaby sekcje do
+          // ukrytego wiersza także przy szerokim oknie. Przy 360 px okruszków
+          // to tyle, ile nazwa miała przed 28.10 obok dwóch sekcji.
           <div
             key={c.href}
             data-crumb

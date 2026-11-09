@@ -9,7 +9,7 @@ import Link from "next/link";
 import { Download, PlugZap, RefreshCw, TriangleAlert } from "lucide-react";
 
 /** Wersja ZIP-a — ta sama co `extension/manifest.json` (pilnuje test). */
-export const EXTENSION_VERSION = "1.0.3";
+export const EXTENSION_VERSION = "1.0.7";
 export const EXTENSION_ZIP_URL = "/wtyczka/nexus-linkedin.zip";
 
 const INSTALL_STEPS: { title: string; body: React.ReactNode }[] = [

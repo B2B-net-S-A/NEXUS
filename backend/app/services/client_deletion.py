@@ -388,7 +388,7 @@ def _configured(
 async def _merge_singleton_conflicts(
     db: AsyncSession, source_id: int, target_id: int
 ) -> Optional[DeletionBlocker]:
-    """Warunki umowy albo karta klienta po OBU stronach scalenia.
+    """Warunki umowy, karta klienta albo szablon rozliczenia po OBU stronach scalenia.
 
     Runda 9 (R9-N4-3): scalenie przenosi kontakty, wiedzę, materiały, warunki
     umowy i kartę klienta na klienta docelowego. Warunki umowy i karta są
@@ -398,11 +398,13 @@ async def _merge_singleton_conflicts(
 
     from app.models.client_contract_terms import ClientContractTerms
     from app.models.client_playbook import ClientPlaybook
+    from app.models.consultant_panel import ClientSettlementRule
 
     items: list[str] = []
     for model, label in (
         (ClientContractTerms, "warunki umowy"),
         (ClientPlaybook, "karta klienta"),
+        (ClientSettlementRule, "sposób rozliczenia konsultantów"),
     ):
         owners = set(
             (
@@ -419,7 +421,7 @@ async def _merge_singleton_conflicts(
         return None
     return DeletionBlocker(
         code="duplicate_singletons",
-        label="Oba rekordy mają własne warunki umowy albo kartę klienta",
+        label="Oba rekordy mają własne warunki umowy, kartę klienta albo sposób rozliczenia",
         count=len(items),
         items=_clip_items(items),
     )

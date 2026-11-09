@@ -16,7 +16,7 @@ import { NextRequest } from "next/server"
 
 import { middleware } from "@/middleware"
 
-const BASE = "https://nexus.dynaminds.pl"
+const BASE = "https://nexus.b2bnetwork.pl"
 
 function makeToken(payload: Record<string, unknown>): string {
   const b64url = (o: unknown) =>
@@ -74,6 +74,27 @@ const validHybridHeadOfRecruitment = makeToken({
 })
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
 const validEmployee = makeToken({ role: "employee", roles: ["employee"], exp: now() + HOUR })
+const backOfficeSections = {
+  sourcing: "write",
+  pipeline: "write",
+  delivery: "write",
+  insights: "read",
+  finance: "none",
+  system_admin: "none",
+}
+const validBackOffice = makeToken({
+  role: "back_office",
+  roles: ["back_office"],
+  sa: backOfficeSections,
+  fo: true,
+  exp: now() + HOUR,
+})
+const backOfficeWithoutOrders = makeToken({
+  role: "back_office",
+  roles: ["back_office"],
+  sa: backOfficeSections,
+  exp: now() + HOUR,
+})
 const validBoard = makeToken({
   role: "board",
   roles: ["board"],
@@ -209,9 +230,15 @@ describe("linki publiczne działają bez tokenu", () => {
     "/share/champion-card/abc123",
     "/sign/abc123",
     "/protocol/abc123",
+    "/konsultant",
+    "/konsultant/wejscie",
+    "/konsultant/ocena",
     "/wypis/abc123",
     "/cv/abc123",
     "/cv/i/abc123",
+    "/k/abc123",
+    "/t/abc123",
+    "/preview/client-panel",
     "/engagement/abc123",
     "/preview/candidates",
     "/preview/candidate-profile",
@@ -279,6 +306,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/client-invoicing",
     "/preview/sales",
     "/preview/job-portals",
+    "/preview/consultant-panel",
     "/preview/request-allocation",
     "/preview/job-team-panel",
     "/preview/plain-brief",
@@ -632,10 +660,11 @@ describe("zawężenia ról nadal obowiązują", () => {
       validRecruiter,
       validHeadOfRecruitment,
       validTalentCommunityManager,
-      validViewer,
     ]) {
       expect(destination("/contracts/b2b-generator", token)).toBe("pass")
     }
+    // 0637: wycofywany Viewer nie ma już sekcji Sourcing.
+    expect(destination("/contracts/b2b-generator", validViewer)).toBe("/403")
   })
 
   it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {
@@ -863,54 +892,11 @@ describe("„Automatyzacje” (0446) — podgląd bez zapisu", () => {
   it.each([
     "/finance",
     "/applications",
-    "/academy",
     "/candidates/contact-queue",
     "/settings/api-keys",
     "/settings/cv-rules",
-    "/trainees",
   ])("%s daje /403", (route) => {
     expect(destination(route, automation)).toBe("/403")
-  })
-})
-
-describe("praktykant (0374) — jeden ekran", () => {
-  const trainee = makeToken({ role: "trainee", roles: ["trainee"], exp: now() + HOUR })
-
-  it("może otworzyć „Telefony na dziś” i profil", () => {
-    expect(destination("/trainee", trainee)).toBe("pass")
-    expect(destination("/profile", trainee)).toBe("pass")
-  })
-
-  it.each(["/", "/dashboard", "/jobs", "/candidates", "/settings", "/help", "/trainees", "/talent-radar"])(
-    "%s przekierowuje na /trainee (nie /403)",
-    (route) => {
-      expect(destination(route, trainee)).toBe("/trainee")
-    },
-  )
-
-  it("wymuszona zmiana hasła nadal wygrywa", () => {
-    const fpcTrainee = makeToken({ role: "trainee", roles: ["trainee"], exp: now() + HOUR, fpc: true })
-    expect(destination("/trainee", fpcTrainee)).toBe("/profile")
-  })
-
-  it("ekran praktykanta jest tylko dla praktykanta — admin i HoR mają panel", () => {
-    expect(destination("/trainee", validAdmin)).toBe("/403")
-    expect(destination("/trainee", validHeadOfRecruitment)).toBe("/403")
-    expect(destination("/trainees", validAdmin)).toBe("pass")
-    expect(destination("/trainees", validHeadOfRecruitment)).toBe("pass")
-    expect(destination("/settings/trainee-rules", validHeadOfRecruitment)).toBe("pass")
-  })
-
-  it("panel i reguły są zamknięte dla pozostałych ról", () => {
-    for (const token of [validRecruiter, validDeliveryLead, validFinance, validViewer]) {
-      expect(destination("/trainees", token)).toBe("/403")
-      expect(destination("/settings/trainee-rules", token)).toBe("/403")
-    }
-  })
-
-  it("harnessy praktykanta są publiczne", () => {
-    expect(destination("/preview/trainee")).toBe("pass")
-    expect(destination("/preview/trainees")).toBe("pass")
   })
 })
 
@@ -1136,5 +1122,91 @@ describe("lista „Umowy przedwstępne” — role z bramki API", () => {
 
   it("Viewer dostaje /403 — API przedwstępnych mu odmawia", () => {
     expect(destination("/jobs/umowy-przedwstepne", validViewer)).toBe("/403")
+  })
+})
+
+describe("„Back office” (0645): /finance otwiera znacznik `fo`, nie sekcja", () => {
+  it("wchodzi na /finance z uprawnieniem do zamówień", () => {
+    expect(destination("/finance", validBackOffice)).toBe("pass")
+  })
+
+  it("bez znacznika zostaje przy /403, mimo sekcji Delivery", () => {
+    expect(destination("/finance", backOfficeWithoutOrders)).toBe("/403")
+    expect(destination("/contracts", backOfficeWithoutOrders)).toBe("pass")
+  })
+
+  it("znacznik nie otwiera innych tras Finansów", () => {
+    expect(destination("/settings/clients-overview", validBackOffice)).toBe("/403")
+    expect(destination("/contracts/analytics", validBackOffice)).toBe("/403")
+  })
+})
+
+// ── Stara domena aplikacji (nexus.dynaminds.pl) ────────────────────────────
+//
+// Decyzja Artura z 05.11.2026. Od 19.10.2026 API odrzuca Origin starej domeny,
+// więc front pod nią wisiał na logowaniu. Linki z maili i CV mają dalej trafiać
+// w to samo miejsce, stąd ścieżka i parametry zostają bez zmian.
+describe("middleware — przekierowanie ze starej domeny", () => {
+  const LEGACY = "nexus.dynaminds.pl"
+
+  function legacyRedirect(
+    path: string,
+    headers: Record<string, string> = { host: LEGACY },
+    init: { method?: string } = {},
+  ) {
+    const res = middleware(
+      new NextRequest(new URL(path, `https://${LEGACY}`), { headers, ...init }),
+    )
+    return { status: res.status, location: res.headers.get("location") }
+  }
+
+  it("główna strona idzie na nową domenę", () => {
+    expect(legacyRedirect("/")).toEqual({
+      status: 307,
+      location: "https://nexus.b2bnetwork.pl/",
+    })
+  })
+
+  it("zachowuje ścieżkę i parametry: link z maila trafia w to samo miejsce", () => {
+    expect(legacyRedirect("/clients/15?tab=zamowienia&order=123").location).toBe(
+      "https://nexus.b2bnetwork.pl/clients/15?tab=zamowienia&order=123",
+    )
+  })
+
+  it("przekierowuje też publiczne linki tokenowe, bez kontroli sesji", () => {
+    for (const path of ["/cv/abc123", "/sign/abc123", "/apply/abc123", "/k/abc123"]) {
+      expect(legacyRedirect(path).location).toBe(`https://nexus.b2bnetwork.pl${path}`)
+    }
+  })
+
+  it("zna host z x-forwarded-host (Traefik) i ignoruje wielkość liter oraz port", () => {
+    expect(
+      legacyRedirect("/login", { host: "frontend:3000", "x-forwarded-host": LEGACY }).location,
+    ).toBe("https://nexus.b2bnetwork.pl/login")
+    expect(legacyRedirect("/login", { host: "NEXUS.DYNAMINDS.PL:443" }).location).toBe(
+      "https://nexus.b2bnetwork.pl/login",
+    )
+  })
+
+  it("podwójny ukośnik nie wyprowadza poza nową domenę", () => {
+    const { location } = legacyRedirect("//evil.example/x")
+    expect(new URL(location as string).hostname).toBe("nexus.b2bnetwork.pl")
+  })
+
+  it("307 zachowuje metodę POST", () => {
+    expect(legacyRedirect("/login", { host: LEGACY }, { method: "POST" }).status).toBe(307)
+  })
+
+  it("nowa domena i inne hosty nie są przekierowywane", () => {
+    const onNew = middleware(
+      new NextRequest(new URL("/login", BASE), { headers: { host: "nexus.b2bnetwork.pl" } }),
+    )
+    expect(onNew.headers.get("location")).toBeNull()
+    const local = middleware(
+      new NextRequest(new URL("/login", "http://localhost:3000"), {
+        headers: { host: "localhost:3000" },
+      }),
+    )
+    expect(local.headers.get("location")).toBeNull()
   })
 })

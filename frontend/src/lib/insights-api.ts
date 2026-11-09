@@ -84,6 +84,10 @@ export interface InFlightColumn {
   /** Ile par stoi w kolumnie dłużej niż `stale_days`. */
   stale_count: number;
   oldest_days: number | null;
+  /** Pary stojące w kolumnie najwyżej `recent_days` dni. */
+  recent_count: number;
+  /** Z nich dłużej niż `stale_days` — to liczy zdanie o zatorze. */
+  recent_stale_count: number;
 }
 
 export interface InFlightAcceptance {
@@ -114,6 +118,19 @@ export interface WeeklyTrendResponse {
   }[];
 }
 
+/** `GET /api/insights/recruitment/monthly-trend` — miesiące kalendarzowe. */
+export interface MonthlyTrendResponse {
+  months: {
+    month_start: string;
+    /** Bieżący miesiąc — jeszcze trwa. */
+    partial: boolean;
+    /** `null` = etapu w tym miesiącu nikt nie prowadził. */
+    counts: WeeklyTrendResponse["weeks"][number]["counts"];
+    /** Tylko miesiąc przecinający 12.10.2026: dni od tej daty, do przejść z akceptacjami. */
+    cutover_counts: WeeklyTrendResponse["weeks"][number]["counts"] | null;
+  }[];
+}
+
 /** Para w „Moje osoby w drodze” (`/in-flight/me`). */
 export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
   column: InFlightColumn["column"];
@@ -121,6 +138,8 @@ export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
   /** `null` = konto bez odczytu sekcji Rekrutacja. */
   candidate_id: number | null;
   candidate_name: string | null;
+  client_interview_at?: string | null;
+  start_on?: string | null;
 }
 
 /** Cele zespołu w Insights + placementy całej firmy w tym miesiącu (jak lejek). */
@@ -131,6 +150,7 @@ export interface TeamGoalsResponse extends MyKpiGoals {
 export interface InFlightResponse {
   asof: string;
   stale_days: number;
+  recent_days: number;
   columns: InFlightColumn[];
   /** `null` = konto bez `view_team_kpi` (lista ma klientów i Delivery Leadów). */
   acceptances: InFlightAcceptance[] | null;
@@ -245,6 +265,36 @@ export interface InviteLinkChannel {
   last_used_at: string | null;
 }
 
+/** Linki na osobę: `visits` w okresie (zapis dzienny), `visits_total` od początku. */
+export interface LinkPeopleRow {
+  user_id: number;
+  name: string;
+  general_link: boolean;
+  job_links: number;
+  visits: number;
+  visits_total: number;
+  applications_general: number;
+  applications_job: number;
+  new_candidates: number;
+  in_process: number;
+  cv_sent: number;
+  hired: number;
+}
+
+export interface LinkPeopleResponse {
+  period: InsightsPeriod;
+  rows: LinkPeopleRow[];
+  totals: {
+    links: number;
+    links_without_visits: number;
+    visits_total: number;
+    visits: number;
+    applications: number;
+  };
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from: string | null;
+}
+
 export interface InviteLinksResponse {
   period: InsightsPeriod;
   channels: InviteLinkChannel[];
@@ -307,6 +357,79 @@ export interface InsightsHiringManagersResponse {
 export interface AvailablePeriodsResponse {
   granularity: "week" | "month" | "quarter";
   periods: Array<{ start: string; milestones: number }>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zakładka „Źródła” — `/api/insights/sources*` (decyzja Artura 03.11.2026).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SourceMetric =
+  | "people"
+  | "applications"
+  | "fresh"
+  | "known"
+  | "in_process"
+  | "verified"
+  | "cv_sent"
+  | "hired";
+
+export type SourceCounts = Record<SourceMetric, number>;
+
+export type SourceKey = "pracuj" | "jjit" | "link_general" | "link_job";
+
+export interface SourceRow extends SourceCounts {
+  source: SourceKey;
+  label: string;
+}
+
+export interface SourcesResponse {
+  period: InsightsPeriod;
+  /** Początek liczenia: okno przycięte do 12.10.2026. */
+  counted_from: string;
+  portals: SourceRow[];
+  portals_total: SourceCounts;
+  career: SourceRow[];
+  career_total: SourceCounts;
+  new_candidates_total: number;
+  new_candidates_without_source: number;
+}
+
+export interface SourceOffersResponse {
+  total: number;
+  rows: Array<SourceCounts & { offer: string }>;
+}
+
+export interface SourceLinksResponse {
+  rows: Array<SourceCounts & { key: number | null; label: string }>;
+}
+
+export interface SourcePeopleFilter {
+  source: SourceKey;
+  metric: SourceMetric;
+  offer?: string;
+  owner_id?: number;
+  job_id?: number;
+}
+
+export interface SourcePerson {
+  candidate_id: number;
+  name: string;
+  applied_at: string;
+  applications: number;
+  offer: string | null;
+  link_owner: string | null;
+  link_job_id: number | null;
+  link_job_title: string | null;
+  stage: string | null;
+  job_id: number | null;
+  job_title: string | null;
+}
+
+export interface SourcePeopleResponse {
+  total: number;
+  /** Zgłoszenia osób z listy: na portalu jedna osoba ma ich kilka. */
+  total_applications: number;
+  rows: SourcePerson[];
 }
 
 function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
@@ -450,7 +573,147 @@ export interface SeniorityRegression {
   thresholds_fingerprint: string;
 }
 
+// Zakładka „Wnioski” — `/api/insights/wnioski*` (decyzje Artura 04.11.2026).
+export type WnioskiState = "approved" | "later" | "rejected";
+export type WnioskiBasis = "today" | "after";
+
+export interface WnioskiCase {
+  key: string;
+  number: string;
+  number_note: string;
+  count: number;
+  sample: number;
+  title: string;
+  why: string;
+  if_yes: string;
+  risk: string;
+  yes_label: string;
+  owner: string;
+  owner_role: string;
+  measure: string;
+  certainty: "Policzone" | "Szacunek";
+  evidence: { label: string; value: string }[];
+}
+
+export interface WnioskiResponse {
+  computed_at: string;
+  counted_from: string;
+  counted_from_label: string;
+  open_count: number;
+  cases: WnioskiCase[];
+  watching: { text: string; value: string }[];
+}
+
+export interface WnioskiReasonsResponse {
+  computed_at: string;
+  counted_from_label: string;
+  total: number;
+  why_out: { key: string; reason: string; today: number; after: number }[];
+  why_out_takeaway: string | null;
+  columns: { key: string; label: string }[];
+  heatmap: { client_id: number | null; client: string; total: number; values: number[] }[];
+  heatmap_takeaway: string | null;
+}
+
+export interface WnioskiPeopleFilter {
+  bucket: string;
+  basis: WnioskiBasis;
+  client_id?: number | null;
+}
+
+export interface WnioskiPerson {
+  candidate_id: number;
+  name: string;
+  rejected_at: string;
+  job_id: number;
+  job_title: string | null;
+  client: string;
+}
+
+export interface WnioskiPeopleResponse {
+  total: number;
+  rows: WnioskiPerson[];
+}
+
+export interface WnioskiCollectedResponse {
+  computed_at: string;
+  statuses: string[];
+  rows: { signal: string; amount: string; today: string; status: string; next: string }[];
+}
+
+export interface WnioskiRuleCohort {
+  hits: number;
+  added: number;
+  refused: number;
+  per_100: number | null;
+}
+
+export interface WnioskiHistoryResponse {
+  approved: {
+    key: string;
+    title: string;
+    number: string;
+    decided_at: string;
+    decided_by: string | null;
+    measure: string;
+    review_on: string | null;
+    measure_now: string | null;
+    change: string | null;
+  }[];
+  deferred: {
+    key: string;
+    title: string;
+    number: string;
+    decided_at: string;
+    decided_by: string | null;
+    state: "later" | "rejected";
+    return_on: string | null;
+    return_count: number | null;
+  }[];
+  rules: {
+    rule: string;
+    since: string;
+    metric: string;
+    before: WnioskiRuleCohort;
+    after: WnioskiRuleCohort;
+    review_on: string;
+    verdict: string | null;
+  }[];
+  rules_takeaway: string | null;
+}
+
 export const insightsApi = {
+  wnioski: () => api.get<WnioskiResponse>("/api/insights/wnioski").then((r) => r.data),
+
+  wnioskiDecide: (key: string, state: WnioskiState) =>
+    api
+      .post<{ key: string; state: WnioskiState }>(
+        `/api/insights/wnioski/${encodeURIComponent(key)}/decision`,
+        { state },
+      )
+      .then((r) => r.data),
+
+  wnioskiHistory: () =>
+    api.get<WnioskiHistoryResponse>("/api/insights/wnioski/history").then((r) => r.data),
+
+  wnioskiReasons: () =>
+    api.get<WnioskiReasonsResponse>("/api/insights/wnioski/reasons").then((r) => r.data),
+
+  wnioskiPeople: (filter: WnioskiPeopleFilter, limit: number) =>
+    api
+      .get<WnioskiPeopleResponse>("/api/insights/wnioski/reasons/people", {
+        params: {
+          bucket: filter.bucket,
+          basis: filter.basis,
+          ...(filter.client_id != null ? { client_id: filter.client_id } : {}),
+          limit,
+        },
+      })
+      .then((r) => r.data),
+
+  wnioskiCollected: () =>
+    api.get<WnioskiCollectedResponse>("/api/insights/wnioski/collected").then((r) => r.data),
+
   recruitmentFunnel: (p: InsightsPeriodParams) =>
     api
       .get<RecruitmentFunnelResponse>("/api/insights/recruitment/funnel", {
@@ -470,6 +733,10 @@ export const insightsApi = {
       .get<TeamGoalsResponse>("/api/insights/recruitment/team-goals")
       .then((r) => r.data),
 
+  monthlyTrend: (months: number) =>
+    api
+      .get<MonthlyTrendResponse>("/api/insights/recruitment/monthly-trend", { params: { months } })
+      .then((r) => r.data),
   weeklyTrend: (weeks: number) =>
     api
       .get<WeeklyTrendResponse>("/api/insights/recruitment/weekly-trend", {
@@ -517,6 +784,40 @@ export const insightsApi = {
           ...periodQuery(p),
           ...(p.limit ? { limit: p.limit } : {}),
         },
+      })
+      .then((r) => r.data),
+
+  /** Kto co przyniósł z linków. Trasa dla admina, Head of Recruitment i Delivery Leada. */
+  sources: (p: InsightsPeriodParams) =>
+    api
+      .get<SourcesResponse>("/api/insights/sources", { params: periodQuery(p) })
+      .then((r) => r.data),
+
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    api
+      .get<SourceOffersResponse>("/api/insights/sources/offers", {
+        params: { ...periodQuery(p), source, limit },
+      })
+      .then((r) => r.data),
+
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    api
+      .get<SourceLinksResponse>("/api/insights/sources/links", {
+        params: { ...periodQuery(p), source },
+      })
+      .then((r) => r.data),
+
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    api
+      .get<SourcePeopleResponse>("/api/insights/sources/people", {
+        params: { ...periodQuery(p), ...filter, limit },
+      })
+      .then((r) => r.data),
+
+  linkPeople: (p: InsightsPeriodParams) =>
+    api
+      .get<LinkPeopleResponse>("/api/insights/recruitment/link-people", {
+        params: periodQuery(p),
       })
       .then((r) => r.data),
 
@@ -689,6 +990,40 @@ export interface InsightsClientRankingRow {
   margin_complete: boolean;
   /** `false` = brak kursu NBP dla nogi przychodu; kwota przychodu niepełna. */
   monthly_revenue_complete: boolean;
+}
+
+export interface InsightsClientFunnelRow {
+  client_id: number;
+  client_name: string;
+  cv_sent: number;
+  client_interviews: number;
+  hires: number;
+  cv_per_hire: number | null;
+  won: number;
+  lost: number;
+  /** Zamknięte bez powodu albo z „Inny” — poza hit ratio, do przejrzenia. */
+  unreviewed: number;
+  hit_ratio: number | null;
+  first_cv_median_days: number | null;
+  first_cv_jobs: number;
+}
+
+export interface InsightsClientFunnelResponse {
+  period: unknown;
+  hit_ratio_since: string;
+  hit_ratio_target_pct: number;
+  clients: InsightsClientFunnelRow[];
+  totals: {
+    clients: number;
+    cv_sent: number;
+    client_interviews: number;
+    hires: number;
+    cv_per_hire: number | null;
+    won: number;
+    lost: number;
+    unreviewed: number;
+    hit_ratio: number | null;
+  };
 }
 
 export interface InsightsClientsRankingResponse {
@@ -1054,9 +1389,17 @@ export interface HitRatioClosuresResponse {
 }
 
 export const insightsQueryKeys = {
+  wnioski: () => ["insights", "wnioski"] as const,
+  wnioskiHistory: () => ["insights", "wnioski", "history"] as const,
+  wnioskiReasons: () => ["insights", "wnioski", "reasons"] as const,
+  wnioskiCollected: () => ["insights", "wnioski", "collected"] as const,
+  wnioskiPeople: (filter: WnioskiPeopleFilter, limit: number) =>
+    ["insights", "wnioski", "people", filter, limit] as const,
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
     ["insights", "clients", "ranking", p] as const,
+  clientsFunnel: (p: InsightsPeriodParams) =>
+    ["insights", "clients", "funnel", p] as const,
   clientsHitRatio: (p: InsightsPeriodParams, o: InsightsHitRatioOptions) =>
     ["insights", "clients", "hit-ratio", p, o] as const,
   deliveryLeads: (p: InsightsPeriodParams) =>
@@ -1069,6 +1412,15 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "team-activity", p, limit ?? null] as const,
   inviteLinks: (p: InsightsPeriodParams) =>
     ["insights", "recruitment", "invite-links", p] as const,
+  linkPeople: (p: InsightsPeriodParams) =>
+    ["insights", "recruitment", "link-people", p] as const,
+  sources: (p: InsightsPeriodParams) => ["insights", "sources", p] as const,
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    ["insights", "sources", "offers", p, source, limit] as const,
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    ["insights", "sources", "links", p, source] as const,
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    ["insights", "sources", "people", p, filter, limit] as const,
   hiringManagers: (p: InsightsPeriodParams) =>
     ["insights", "clients", "hiring-managers", p] as const,
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata
@@ -1084,6 +1436,7 @@ export const insightsQueryKeys = {
   inFlightMe: (scope: InFlightScope) =>
     ["insights", "recruitment", "in-flight", "me", scope] as const,
   teamGoals: () => ["insights", "recruitment", "team-goals"] as const,
+  monthlyTrend: (months: number) => ["insights", "recruitment", "monthly-trend", months] as const,
   weeklyTrend: (weeks: number) =>
     ["insights", "recruitment", "weekly-trend", weeks] as const,
   hitRatioClosures: () => ["insights", "hit-ratio-closures"] as const,
@@ -1117,6 +1470,13 @@ export const insightsBoardApi = {
   clientsRanking: (p: InsightsPeriodParams) =>
     api
       .get<InsightsClientsRankingResponse>("/api/insights/clients/ranking", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  clientsFunnel: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsClientFunnelResponse>("/api/insights/clients/funnel", {
         params: periodQuery(p),
       })
       .then((r) => r.data),

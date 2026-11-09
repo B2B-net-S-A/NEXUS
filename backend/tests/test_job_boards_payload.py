@@ -7,6 +7,8 @@ nic spoza ``public_job_payload`` (klient, stawka), a tekst jest escapowany.
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.job_portals import jjit_payload as p
 
 
@@ -223,6 +225,103 @@ def test_update_body_carries_fields_put_requires():
     assert body["informationClause"] == "Klauzula"
     assert body["contact"]["email"] == "a@b.pl"
     assert body["publicTags"] == [{"key": "x"}]
+
+
+CONTACT_PHONE = "+48 500 100 200"
+
+
+def _update_contact(contact):
+    return p.update_body(
+        "justjoinit",
+        current={"informationClause": "Klauzula", "contact": contact},
+        job=_job(),
+        options=_options(),
+        apply_url="https://x/r/a",
+        skill_ids={},
+    )["contact"]
+
+
+def _create_contact():
+    return p.create_body(
+        "justjoinit",
+        title="T",
+        job=_job(),
+        options=_options(),
+        apply_url="https://x/r/a",
+        skill_ids={},
+        payment={"type": "Code", "id": "K"},
+        external_id="nexus-posting-1",
+    )["contact"]
+
+
+@pytest.mark.parametrize(
+    "contact",
+    [
+        {"name": "A", "email": "a@b.pl"},
+        {"name": "A", "email": "a@b.pl", "phone": None},
+        {"name": "A", "email": "a@b.pl", "phone": "  "},
+    ],
+)
+def test_update_fills_missing_phone_from_config(contact, monkeypatch):
+    """Portal: „Contact phone is required when contact is provided” (08.11.2026)."""
+    monkeypatch.setattr(p.settings, "JJIT_CONTACT_PHONE", f" {CONTACT_PHONE} ")
+
+    assert _update_contact(contact) == {
+        "name": "A",
+        "email": "a@b.pl",
+        "phone": CONTACT_PHONE,
+    }
+
+
+def test_update_without_contact_on_portal_sends_full_object(monkeypatch):
+    """Portal: „Contact is required” — ``PUT`` nie przyjmuje ``null`` (08.11.2026)."""
+    monkeypatch.setattr(p.settings, "JJIT_CONTACT_PHONE", CONTACT_PHONE)
+    monkeypatch.setattr(p.settings, "JJIT_APPLY_EMAIL", "praca@example.com")
+
+    contact = _update_contact(None)
+
+    assert contact["email"] == "praca@example.com"
+    assert contact["phone"] == CONTACT_PHONE
+    assert contact["name"]
+
+
+def test_configured_phone_replaces_the_one_on_portal(monkeypatch):
+    monkeypatch.setattr(p.settings, "JJIT_CONTACT_PHONE", CONTACT_PHONE)
+
+    contact = _update_contact({"name": "A", "email": "a@b.pl", "phone": "1"})
+
+    assert contact["phone"] == CONTACT_PHONE
+
+
+def test_update_without_configured_phone_keeps_portal_contact(monkeypatch):
+    monkeypatch.setattr(p.settings, "JJIT_CONTACT_PHONE", "")
+    contact = {"name": "A", "email": "a@b.pl", "phone": "1"}
+
+    assert _update_contact(contact) == contact
+
+
+def test_new_posting_carries_configured_contact(monkeypatch):
+    monkeypatch.setattr(p.settings, "JJIT_CONTACT_PHONE", CONTACT_PHONE)
+    monkeypatch.setattr(p.settings, "JJIT_APPLY_EMAIL", "praca@example.com")
+
+    contact = _create_contact()
+
+    assert contact["email"] == "praca@example.com"
+    assert contact["phone"] == CONTACT_PHONE
+    assert contact["name"]
+
+
+@pytest.mark.parametrize(
+    ("phone", "email"),
+    [("", "praca@example.com"), (CONTACT_PHONE, ""), ("  ", "  ")],
+)
+def test_new_posting_keeps_portal_default_without_full_contact(
+    phone, email, monkeypatch
+):
+    monkeypatch.setattr(p.settings, "JJIT_CONTACT_PHONE", phone)
+    monkeypatch.setattr(p.settings, "JJIT_APPLY_EMAIL", email)
+
+    assert _create_contact() is None
 
 
 def test_skill_key_keeps_cpp_and_csharp_apart():

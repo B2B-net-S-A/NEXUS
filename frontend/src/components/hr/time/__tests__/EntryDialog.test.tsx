@@ -73,7 +73,7 @@ describe("EntryDialog — poprawka opisu w dniu z nadgodzinami", () => {
     );
   });
 
-  it("przełożony bez prawa do nadgodzin poprawia opis wpisu nadgodzin", async () => {
+  it("koordynator bez prawa do nadgodzin poprawia opis wpisu nadgodzin", async () => {
     const onSave = renderDialog(EXTRA, false);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave).toHaveBeenCalledWith(
@@ -123,8 +123,93 @@ describe("EntryDialog — słowa godzin ponad 8 h według formy", () => {
     openNewEntry("b2b", false);
     fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Godziny ponad 8 h wpisuje osoba z uprawnieniem do godzin ponad 8 h albo Kadry.",
+      "Godziny ponad 8 h wpisuje osoba z uprawnieniem do godzin ponad 8 h albo Administracja współpracy.",
     );
     expect(document.body.textContent).not.toMatch(/nadgodzin/i);
+  });
+});
+
+describe("EntryDialog — godziny bez limitu z kartoteki", () => {
+  function renderNoLimit(allowOvertime = false) {
+    const onSave = vi.fn(async () => undefined);
+    render(
+      <EntryDialog
+        open
+        onOpenChange={() => undefined}
+        day={DAY}
+        entry={null}
+        allowOvertime={allowOvertime}
+        noHoursLimit
+        onSave={onSave}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/Godziny/), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText(/Opis/), { target: { value: "Projekt A" } });
+    return onSave;
+  }
+
+  it("dzień ponad 16 h zapisuje się bez uprawnienia i bez opisu godzin", async () => {
+    const onSave = renderNoLimit();
+    expect(screen.queryByLabelText(/Czego dotyczyły/)).toBeNull();
+    expect(screen.getByText(/bez limitu/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]).toEqual([
+      expect.objectContaining({ hours: 9, overtime_reason: null }),
+    ]);
+  });
+
+  it("bez ustawienia ten sam dzień nadal wymaga prawa do godzin ponad 8 h", async () => {
+    const onSave = vi.fn(async () => undefined);
+    render(
+      <EntryDialog
+        open
+        onOpenChange={() => undefined}
+        day={DAY}
+        entry={null}
+        allowOvertime={false}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/Godziny/), { target: { value: "9" } });
+    fireEvent.change(screen.getByLabelText(/Opis/), { target: { value: "Projekt A" } });
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe("EntryDialog: nowy wpis na dniu bez wolnych godzin", () => {
+  const halfDay = {
+    ...DAY,
+    leave: { full: false, label: "Przerwa w świadczeniu usług" },
+    entries: [BASE],
+    hours: 8,
+    capacity: 4,
+    overtime_hours: 4,
+  } as MonthDay;
+
+  function renderNew(day: MonthDay) {
+    render(
+      <EntryDialog
+        open
+        onOpenChange={() => undefined}
+        day={day}
+        entry={null}
+        allowOvertime
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+  }
+
+  it("pole godzin puste, bo podpowiedź 8 h kończyła się odmową serwera; słowo z formy osoby", () => {
+    renderNew(halfDay);
+    expect(screen.getByLabelText("Godziny")).toHaveValue("");
+    expect(screen.getByText(/Pół dnia: przerwa w świadczeniu usług/)).toBeInTheDocument();
+  });
+
+  it("dzień z wolnymi godzinami podpowiada to, co zostało", () => {
+    renderNew({ ...halfDay, entries: [], hours: 0, overtime_hours: 0 });
+    expect(screen.getByLabelText("Godziny")).toHaveValue("4");
   });
 });

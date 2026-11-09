@@ -75,6 +75,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** Opis ekranu: strona w Ustawieniach i Insights → Zasady. */
+export const PREP_REVIEW_INTRO =
+  "Jak oceniamy Prep 1 i Prep 2 (follow-up) z nagrania w Teams: kryteria i wagi, tematy prowadzącego, skala odpowiedzi kandydata i co trafia do notatki na Prep 2.";
+
 export function PrepReviewSettings() {
   const query = usePrepReviewConfig();
   const publish = usePublishPrepReviewConfig();

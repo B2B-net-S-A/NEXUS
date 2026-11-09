@@ -377,6 +377,7 @@ def _maximal_request() -> CandidateSearchRequest:
         skills_required=["Python"],
         experience_years_min=2,
         experience_years_max=6,
+        skill_years=["Java:3"],
         languages=[LanguageRequirement(code="en", min_level="B2")],
         location_cities=["Kraków"],
         location_countries=["PL"],

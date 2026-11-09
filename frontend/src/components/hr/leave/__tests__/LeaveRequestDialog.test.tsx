@@ -170,6 +170,22 @@ beforeEach(() => {
   mocks.cproSender = false;
 });
 
+describe("LeaveRequestDialog — kopia poczty do zastępcy", () => {
+  it("mówi, że maile zostają w skrzynce, a zastępca dostaje kopię tylko spoza firmy", async () => {
+    const user = userEvent.setup();
+    const dialog = open("self");
+
+    await user.selectOptions(within(dialog).getByLabelText("Zastępca"), "5");
+
+    const consent = within(dialog).getByRole("checkbox");
+    expect(consent).not.toBeChecked();
+    const label = consent.closest("label");
+    expect(label).toHaveTextContent("kopię poczty od osób spoza firmy");
+    expect(label).toHaveTextContent("Wszystkie maile nadal trafiają do Twojej skrzynki");
+    expect(dialog).not.toHaveTextContent(/przekierow/i);
+  });
+});
+
 describe("LeaveRequestDialog — ładunek zapisu i podglądu", () => {
   it("własny wniosek: rodzaj, pół dnia, zastępca, notatka, zgoda na przekierowanie i OOF", async () => {
     const user = userEvent.setup();
@@ -216,7 +232,7 @@ describe("LeaveRequestDialog — ładunek zapisu i podglądu", () => {
     });
   });
 
-  it("wpis za pracownika: bez osoby zablokowany; kilka dni = cały dzień, bez zastępcy i notatki, bez OOF", async () => {
+  it("wpis za osoby: bez osoby zablokowany; kilka dni = cały dzień, bez zastępcy i notatki, bez OOF", async () => {
     const user = userEvent.setup();
     const dialog = open("on_behalf");
 
@@ -336,13 +352,13 @@ describe("LeaveRequestDialog — załącznik do własnego wniosku", () => {
     expect(mocks.attach).not.toHaveBeenCalled();
   });
 
-  it("wpis za pracownika nie ma pola załącznika", () => {
+  it("wpis za osoby nie ma pola załącznika", () => {
     const dialog = open("on_behalf");
     expect(within(dialog).queryByLabelText("Załącznik (opcjonalnie)")).toBeNull();
   });
 });
 
-describe("wpis za pracownika — lista osób (audyt 19.10.2026)", () => {
+describe("wpis za osoby — lista osób (audyt 19.10.2026)", () => {
   it("koordynator samych kontraktorów widzi wyjaśnienie zamiast pustej listy", () => {
     mocks.people = {
       data: [{ user_id: 9, name: "Ola B2B", employment_type: "b2b", department: null, can_enter: false }],

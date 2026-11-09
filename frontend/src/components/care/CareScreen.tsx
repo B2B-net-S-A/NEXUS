@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Megaphone } from "lucide-react";
 
+import { PortalFaqTab } from "@/components/back-office/PortalFaqTab";
+import { QualityTab } from "@/components/back-office/QualityTab";
+import { QueueBoard } from "@/components/back-office/QueueBoard";
+import { ReviewPanel } from "@/components/back-office/ReviewPanel";
+import { TeamsPanel } from "@/components/back-office/TeamsPanel";
+import { TalksTab } from "@/components/back-office/TalksTab";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
@@ -16,7 +22,7 @@ import { listFilterFromParam } from "@/components/work-board/work-board-model";
 import { useCareClients, useCareConsultants } from "@/lib/api/care";
 import { useAnnouncements } from "@/lib/api/care-announcements";
 import { useCareBoard, type CareBoardCard } from "@/lib/api/care-board";
-import type { HrConfig } from "@/lib/api/hr";
+import { casesInCare, type HrConfig } from "@/lib/api/hr";
 import { canSeeSettingsItem, findSettingsItem, settingsItemHref } from "@/lib/settings-registry";
 import { useUrlWriter } from "@/lib/url-selection";
 import { useAuthStore } from "@/store/auth";
@@ -31,7 +37,17 @@ import { ConsultantsPanel, type ConsultantsFilter } from "./ConsultantsPanel";
 import { ConversationDialog } from "./ConversationDialog";
 import { CareTeamPanel } from "./team/CareTeamPanel";
 
-export type CareTab = "todo" | "consultants" | "clients" | "team" | "announcements";
+export type CareTab =
+  | "todo"
+  | "consultants"
+  | "clients"
+  | "team"
+  | "announcements"
+  | "teams"
+  | "review"
+  | "talks"
+  | "quality"
+  | "faq";
 
 export interface CareRoute {
   tab: CareTab;
@@ -76,6 +92,16 @@ export function careRouteFrom(
       return { tab: "team" };
     case "announcements":
       return { tab: "announcements" };
+    case "teams":
+      return { tab: "teams" };
+    case "przeglad":
+      return { tab: "review" };
+    case "talks":
+      return { tab: "talks" };
+    case "quality":
+      return { tab: "quality" };
+    case "faq":
+      return { tab: "faq" };
     case "review": {
       const target = findSettingsItem(canSeeSkills ? "skills" : "skills-review");
       return { tab: "todo", redirect: target ? settingsItemHref(target) : "/settings" };
@@ -96,10 +122,18 @@ export function canSeeTeam(config: Pick<HrConfig, "me">): boolean {
   return Boolean(config.me.back_office_head || config.me.is_admin);
 }
 
+/** Kierownik kolejki: head back office, admin (zastępcy pilnuje serwer przy trasach). */
+function canSeeBackOfficeLead(config: Pick<HrConfig, "me">): boolean {
+  return Boolean(config.me.back_office_lead || config.me.back_office_head || config.me.is_admin);
+}
+
 const TITLE = "Opieka nad konsultantami";
 const DESCRIPTION =
   "Rozmowy, sprawy i decyzje na jednej tablicy; konsultanci ze zdrowiem relacji; wiedza o klientach.";
 const CASES_ONLY_DESCRIPTION = "Sprawy administracja@ na jednej tablicy.";
+const BACK_OFFICE_TITLE = "Back office";
+const BACK_OFFICE_DESCRIPTION =
+  "Kolejka spraw czterech zespołów: każdy bierze swoje, a kierownik widzi całość.";
 
 type FeedbackTarget = Omit<ClientFeedbackDialogProps, "open" | "onOpenChange">;
 
@@ -137,8 +171,22 @@ function CareTabs({ config }: { config: HrConfig }) {
   // Bez roli opieki (same sprawy administracja@, od 22.10.2026 tu zamiast
   // „Ludzie → Sprawy”) jest tylko „Do zrobienia” — reszty serwer i tak odmawia.
   const careRole = canSeeCareBoard(user, config);
+  // Moduł `back_office`: główna zakładka to kolejka zespołów. Stare linki z kartą
+  // albo filtrem kanbanu (`?card=`, `?filter=`) dalej otwierają kanban.
+  const kanbanLink = Boolean(searchParams?.get("card") || searchParams?.get("filter"));
   const teamOpen = canSeeTeam(config);
-  const tab: CareTab = !careRole || (route.tab === "team" && !teamOpen) ? "todo" : route.tab;
+  // Bez miejsca w zespole serwer odmawia kolejce: ta osoba pracuje na kanbanie jak dotąd.
+  const backOffice = config.open_modules.back_office && config.me.back_office_member === true;
+  const leadOpen = backOffice && canSeeBackOfficeLead(config);
+  const leadTab = route.tab === "teams" || route.tab === "review";
+  // Zakładki portalu konsultanta stoją za modułem `back_office`; serwer ma własne bramki.
+  const portalTab = route.tab === "talks" || route.tab === "quality" || route.tab === "faq";
+  const tab: CareTab =
+    (leadTab && leadOpen) || (portalTab && backOffice)
+      ? route.tab
+      : leadTab || portalTab || !careRole || (route.tab === "team" && !teamOpen)
+        ? "todo"
+        : route.tab;
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
@@ -199,8 +247,8 @@ function CareTabs({ config }: { config: HrConfig }) {
   const tabs = [
     {
       value: "todo",
-      label: "Do zrobienia",
-      count: careRole && todoCount.isSuccess ? todoCount.data.cards.length : undefined,
+      label: backOffice ? "Kolejka" : "Do zrobienia",
+      count: !backOffice && careRole && todoCount.isSuccess ? todoCount.data.cards.length : undefined,
     },
     ...(careRole
       ? [
@@ -215,6 +263,19 @@ function CareTabs({ config }: { config: HrConfig }) {
             count: clientsCount.isSuccess ? clientsCount.data.rows.length : undefined,
           },
           ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
+        ]
+      : []),
+    ...(backOffice
+      ? [
+          { value: "talks", label: "Rozmowy" },
+          { value: "quality", label: "Jakość" },
+          { value: "faq", label: "FAQ portalu" },
+        ]
+      : []),
+    ...(leadOpen
+      ? [
+          { value: "teams", label: "Zespoły" },
+          { value: "przeglad", label: "Przegląd" },
         ]
       : []),
   ];
@@ -254,32 +315,42 @@ function CareTabs({ config }: { config: HrConfig }) {
     </div>
   );
 
+  const kanban = (
+    <div data-help="hr.care.board">
+      <WorkBoard
+        scope="care"
+        config={config}
+        initialSelectedKey={cardKey}
+        initialFilter={listFilter}
+        onOpenContract={openContract}
+        onCloseSelected={() => writeParams((params) => params.delete("card"))}
+        onOpenConversation={(id, planItemId) => setTalk({ contractId: id, planItemId: planItemId ?? null })}
+        onOpenFrontOffice={(id) => setFrontOffice(id)}
+        onOpenFeedback={(card) => setFeedback(feedbackTarget(card, false))}
+        onOpenDemand={(card) => setFeedback(feedbackTarget(card, true))}
+      />
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <PageHeader
-        title={TITLE}
-        description={careRole ? DESCRIPTION : CASES_ONLY_DESCRIPTION}
+        title={backOffice ? BACK_OFFICE_TITLE : TITLE}
+        description={backOffice ? BACK_OFFICE_DESCRIPTION : careRole ? DESCRIPTION : CASES_ONLY_DESCRIPTION}
         density="compact"
         actions={careRole ? actions : undefined}
       />
-      <TabbedNav ariaLabel="Opieka nad konsultantami" value={tab} onValueChange={select} tabs={tabs}>
+      <TabbedNav
+        ariaLabel={backOffice ? "Back office" : "Opieka nad konsultantami"}
+        value={tab === "review" ? "przeglad" : tab}
+        onValueChange={select}
+        tabs={tabs}
+      >
         <div className="pt-3">
-          {tab === "todo" ? (
-            <div data-help="hr.care.board">
-              <WorkBoard
-                scope="care"
-                config={config}
-                initialSelectedKey={cardKey}
-                initialFilter={listFilter}
-                onOpenContract={openContract}
-                onCloseSelected={() => writeParams((params) => params.delete("card"))}
-                onOpenConversation={(id, planItemId) => setTalk({ contractId: id, planItemId: planItemId ?? null })}
-                onOpenFrontOffice={(id) => setFrontOffice(id)}
-                onOpenFeedback={(card) => setFeedback(feedbackTarget(card, false))}
-                onOpenDemand={(card) => setFeedback(feedbackTarget(card, true))}
-              />
-            </div>
+          {tab === "todo" && backOffice && !kanbanLink ? (
+            <QueueBoard careStatusBoard={careRole || casesInCare(config) ? kanban : null} />
           ) : null}
+          {tab === "todo" && (!backOffice || kanbanLink) ? kanban : null}
           {tab === "consultants" ? (
             <ConsultantsPanel
               key={route.filter ?? "all"}
@@ -295,7 +366,12 @@ function CareTabs({ config }: { config: HrConfig }) {
           ) : null}
           {tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
           {tab === "team" ? <CareTeamPanel /> : null}
+          {tab === "teams" ? <TeamsPanel /> : null}
+          {tab === "review" ? <ReviewPanel /> : null}
           {tab === "announcements" ? <AnnouncementsTab /> : null}
+          {tab === "talks" ? <TalksTab /> : null}
+          {tab === "quality" ? <QualityTab /> : null}
+          {tab === "faq" ? <PortalFaqTab /> : null}
         </div>
       </TabbedNav>
       <ConsultantCardPanel contractId={contractId} onClose={() => openContract(null)} />
@@ -344,7 +420,7 @@ export function CareScreen() {
   return (
     <HrConfigGate>
       {(config) => (
-        config.open_modules.care ? (
+        config.open_modules.care || config.open_modules.back_office ? (
           <CareTabs config={config} />
         ) : (
           <div className="space-y-4">

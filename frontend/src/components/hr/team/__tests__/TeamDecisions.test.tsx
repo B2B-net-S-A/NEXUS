@@ -178,22 +178,22 @@ function renderLive(server: { team: MyTeam }) {
   return client;
 }
 
-describe("„Do Twojej decyzji”", () => {
-  it("licznik liczy wniosek i timesheet, premia jest do wiadomości bez przycisków i kwoty", () => {
+describe("„Do potwierdzenia”", () => {
+  it("licznik liczy wniosek i raport godzin, premia jest do wiadomości bez przycisków i kwoty", () => {
     renderCards();
-    const heading = screen.getByRole("heading", { name: "Do Twojej decyzji" });
-    expect(heading.parentElement).toHaveTextContent("Do Twojej decyzji· 2");
+    const heading = screen.getByRole("heading", { name: "Do potwierdzenia" });
+    expect(heading.parentElement).toHaveTextContent("Do potwierdzenia· 2");
     const bonus = card("Adam Wzorcowy");
     expect(bonus).toHaveTextContent("do wiadomości");
-    expect(bonus).toHaveTextContent("wynagrodzenie dodatkowe · 1 propozycja — decydują Płace");
+    expect(bonus).toHaveTextContent("wynagrodzenie dodatkowe · 1 propozycja — decydują Rozliczenia");
     expect(bonus).not.toHaveTextContent(/2[\s\u00a0]?000/);
     expect(within(bonus).queryByRole("button")).toBeNull();
   });
 
-  it("wiersze: znacznik rodzaju, imię, podsumowanie, wiek i link do „Akceptacji”", () => {
+  it("wiersze: znacznik rodzaju, imię, podsumowanie, wiek i link do „Do potwierdzenia”", () => {
     renderCards();
-    const section = screen.getByRole("region", { name: "Do Twojej decyzji" });
-    expect(within(section).getByRole("link", { name: "Wszystkie w Akceptacjach →" })).toHaveAttribute(
+    const section = screen.getByRole("region", { name: "Do potwierdzenia" });
+    expect(within(section).getByRole("link", { name: "Wszystkie do potwierdzenia →" })).toHaveAttribute(
       "href",
       "/people/approvals",
     );
@@ -208,14 +208,14 @@ describe("„Do Twojej decyzji”", () => {
     );
     expect(within(leave).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "Odrzuć",
-      "Akceptuj",
+      "Potwierdź",
     ]);
     const timesheet = card("Tomasz Podglądowy");
     expect(timesheet).toHaveTextContent("raport godzin");
     expect(timesheet).toHaveTextContent("październik 2026 · 176 / 176 h");
   });
 
-  it("najwyżej trzy wiersze; reszta jako link do „Akceptacji”", () => {
+  it("najwyżej trzy wiersze; reszta jako link do „Do potwierdzenia”", () => {
     const many: MyTeam = {
       ...TEAM,
       people: [1, 2, 3, 4, 5].map((n) =>
@@ -239,19 +239,19 @@ describe("„Do Twojej decyzji”", () => {
       ),
     };
     renderCards(many);
-    const section = screen.getByRole("region", { name: "Do Twojej decyzji" });
+    const section = screen.getByRole("region", { name: "Do potwierdzenia" });
     expect(within(section).getAllByRole("listitem")).toHaveLength(3);
-    expect(section).toHaveTextContent("Do Twojej decyzji· 5");
-    expect(within(section).getByRole("link", { name: "i jeszcze 2 — w Akceptacjach" })).toHaveAttribute(
+    expect(section).toHaveTextContent("Do potwierdzenia· 5");
+    expect(within(section).getByRole("link", { name: "i jeszcze 2 — w „Do potwierdzenia”" })).toHaveAttribute(
       "href",
       "/people/approvals",
     );
   });
 
-  it("„Akceptuj” przy wniosku woła trasę „Akceptacji”", async () => {
+  it("„Potwierdź” przy wniosku woła trasę „Do potwierdzenia”", async () => {
     const user = userEvent.setup();
     renderCards();
-    await user.click(within(card("Julia Próbna")).getByRole("button", { name: "Akceptuj" }));
+    await user.click(within(card("Julia Próbna")).getByRole("button", { name: "Potwierdź" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/hr/leave/approvals/lv-1/approve", { note: null }),
     );
@@ -274,7 +274,7 @@ describe("„Do Twojej decyzji”", () => {
     );
   });
 
-  it("timesheet: potwierdzenie, potem ta sama trasa co w „Akceptacjach”", async () => {
+  it("raport godzin: potwierdzenie, potem ta sama trasa co w „Do potwierdzenia”", async () => {
     const user = userEvent.setup();
     renderCards();
     const timesheet = card("Tomasz Podglądowy");
@@ -282,11 +282,11 @@ describe("„Do Twojej decyzji”", () => {
       "href",
       "/people/approvals?kind=timesheet",
     );
-    await user.click(within(timesheet).getByRole("button", { name: "Akceptuj" }));
+    await user.click(within(timesheet).getByRole("button", { name: "Potwierdź" }));
     const confirm = await screen.findByRole("dialog");
     expect(confirm).toHaveTextContent("176 / 176 h");
     expect(post).not.toHaveBeenCalled();
-    await user.click(within(confirm).getByRole("button", { name: "Akceptuj" }));
+    await user.click(within(confirm).getByRole("button", { name: "Potwierdź" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/hr/time/timesheets/77/approve", undefined),
     );
@@ -313,7 +313,7 @@ describe("„Do Twojej decyzji”", () => {
     await user.click(within(dialog).getByRole("button", { name: "Odrzuć wniosek" }));
 
     expect(await screen.findByText("Wniosek odrzucony")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Do Twojej decyzji" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Do potwierdzenia" })).toBeNull();
   });
 
   it("akceptacja ostatniej sprawy: toast z `mutateAsync`, choć wiersz znika", async () => {
@@ -327,12 +327,12 @@ describe("„Do Twojej decyzji”", () => {
     await user.click(
       within(await screen.findByText("Julia Próbna").then((el) => el.closest("li")!)).getByRole(
         "button",
-        { name: "Akceptuj" },
+        { name: "Potwierdź" },
       ),
     );
     expect(await screen.findByText("Wniosek zaakceptowany")).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Do Twojej decyzji" })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: "Do potwierdzenia" })).toBeNull(),
     );
   });
 

@@ -31,6 +31,7 @@ import {
 import type { CvCandidateOption } from "@/components/v2/cv-generator/useCvGenerator";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api, type GeneratedCvItem } from "@/lib/api";
+import { qcRoleFactsQueryKey } from "@/lib/api/cvQc";
 import {
   cvToClientIssuesQueryKey,
   cvToClientQcQueryKey,
@@ -128,7 +129,7 @@ function Content({ mode, hasChampion, language, policy, clientName, advancedOpen
       </div>
       <AdvancedOptions
         open={advancedOpen} onOpenChange={noop} blind={false} onBlindChange={noop}
-        position={position} onPositionChange={noop} positionRequired={false} positionFromJob={!!position}
+        position={position} onPositionChange={noop} positionRequired={false} positionFromJob={!!position} positionDefault={position}
         projectRef={projectRefFromJob ?? ""} onProjectRefChange={noop}
         projectRefVisible={!!projectRefFromJob || advancedOpen} projectRefRequired={false} projectRefFromJob={projectRefFromJob}
       />
@@ -387,6 +388,7 @@ function seedCardStates(qc: QueryClient) {
         fresh,
       );
     }
+    qc.setQueryData(qcRoleFactsQueryKey(person.stageId), { facts: [], roles: [] });
     qc.setQueryData(stageBrandedQueryKey(person.stageId), {
       status: person.variant === "none" ? "none" : "draft",
       from_generator: person.variant !== "none" && person.variant !== "copy",

@@ -30,6 +30,7 @@ export type ReportId =
   | "bez-ruchu"
   | "doplyw"
   | "portfele-dl"
+  | "klienci"
   | "zamkniecia-hit-ratio"
   | "ranking-klientow"
   | "rok-do-roku"
@@ -71,12 +72,12 @@ const seesTeam = (user: ReportUser) =>
 // Propozycje AI (30.09.2026): admin i HoR — cała firma, DL — swoje rekrutacje.
 const seesProposalOutcomes = (user: ReportUser) =>
   hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
-// Pieniądze firmy: uprawnienie „Moduł Finanse” (domyślnie administrator
-// i Finanse — decyzja Artura 24.09.2026) albo Rada nadzorcza (0490); lustro
-// `BoardReader` w API.
+// Pieniądze firmy: uprawnienie „Wyniki firmy” (domyślnie administrator —
+// decyzja Artura 02.11.2026) albo Rada nadzorcza (0490); lustro `BoardReader`
+// w API.
 const seesMoney = (user: ReportUser) =>
-  hasPermission(user, "finance_module") || hasRole(user, "board");
-const MONEY_PERMISSION_LABEL = permissionLabel("finance_module");
+  hasPermission(user, "company_results") || hasRole(user, "board");
+const MONEY_PERMISSION_LABEL = permissionLabel("company_results");
 // Rada nadzorcza (decyzja Artura 22.10.2026): raporty-narzędzia pracy zespołu
 // (profile w toku, źródła kandydatów, lista kontrolna zamknięć) jej nie
 // dotyczą — wynik ma na widoku Firma. Zespół widzi je jak dotąd.
@@ -84,12 +85,13 @@ const notBoard = (user: ReportUser) => !hasRole(user, "board");
 
 /**
  * Tabele rok do roku Rady (`GET /api/insights/board/yoy`, `BoardTrendReader`):
- * uprawnienie „Moduł Finanse”, Rada nadzorcza (0490) albo rola Head of
- * Recruitment — ta ostatnia dostaje je BEZ kwot (redaguje serwer).
+ * „Moduł Finanse” i rola Head of Recruitment dostają je BEZ kwot (redaguje
+ * serwer), a „Wyniki firmy” i Rada nadzorcza (0490) — z kwotami.
  */
 export function seesBoardTrend(user: ReportUser | null | undefined): boolean {
   return (
     hasPermission(user, "finance_module") ||
+    hasPermission(user, "company_results") ||
     hasRole(user, "head_of_recruitment", "board")
   );
 }
@@ -206,6 +208,16 @@ export const REPORTS: readonly ReportDef[] = [
     question: "Jak idą rekrutacje i hit ratio u klientów każdego DL?",
     window: "rok",
     defaultPeriod: { period: "year", offset: 0 },
+    note: "bez kwot",
+  },
+  {
+    id: "klienci",
+    group: "Klienci i trend",
+    title: "Klienci: od CV do zatrudnienia",
+    question:
+      "Ile CV, rozmów i zatrudnień daje każdy klient i jak często wygrywamy jego rekrutacje?",
+    window: "kwartał",
+    defaultPeriod: { period: "quarter", offset: 0 },
     note: "bez kwot",
   },
   {

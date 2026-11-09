@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 
+from app.services.cv_edit_summary import START_HTML_KEY
 from app.services.cv_generator_b2b.factual_verification import factual_projection
 
 
@@ -58,6 +59,10 @@ def capture_editor_origin(html: str, generated_payload: dict | None) -> dict:
             )
         ),
         "generated_editor_html_sha256": hashlib.sha256(html.encode()).hexdigest(),
+        # Sama treść startu (E3, 07.11.2026): zatwierdzenie liczy z niej, co
+        # zmienił człowiek, bez odtwarzania rendererem, który od generacji
+        # mógł się zmienić (`services/cv_edit_summary.py`).
+        START_HTML_KEY: html,
         "generation_review_available": isinstance(generation_review, dict)
         and generation_review.get("status") == "verified"
         and generation_review.get("document_sha256") == digest,

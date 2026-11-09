@@ -949,11 +949,32 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
 
   it("pokazuje wynik QC CV i „Otwórz QC” otwiera okno QC dla etapu z kolejki", async () => {
     mockApi();
-    renderPanel(task({ qc_status: "failed", qc_blocking_failed: 3 }));
-    expect(screen.getByText("QC: 3 do poprawy")).toBeTruthy();
+    renderPanel(
+      task({
+        qc_status: "failed",
+        qc_blocking_failed: 3,
+        qc_state: { kind: "to_fix", n: 3, items: [], text: "QC: 3 do poprawy", tone: "urgent", who: null, hint: null },
+      }),
+    );
+    expect(await screen.findByText("· 3 do poprawy")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "QC CV" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: /Otwórz QC/ }));
     expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
+  });
+
+  describe("QC-8: wysyłka z luką kandydata", () => {
+    const send = () => screen.getByRole("button", { name: /Akceptuj/ });
+
+    it("przycisk wysyłki czeka na decyzję, a decyzja jedzie w ruchu", async () => {
+      useAuthStore.setState({ user: { id: 3, role: "delivery_lead", roles: ["delivery_lead"] } } as never);
+      mockApi({ context: { ...CONTEXT, qc_gaps: ["Kafka"] } });
+      renderPanel(task());
+      const choice = await screen.findByRole("radio", { name: "Wysyłam mimo braku: Kafka" });
+      await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+      expect(send()).toBeDisabled();
+      await userEvent.click(choice);
+      expect(send()).toBeEnabled();
+    });
   });
 
   describe("uwaga rekrutera z przekazania (14.10.2026)", () => {
@@ -1330,6 +1351,23 @@ describe("DlReviewPanel — odrzucenie z uzasadnieniem i rozmowa u tego managera
     renderDocxSafely.mockResolvedValue(undefined);
     post.mockResolvedValue({ data: {} });
     loadJobRejectionReasons.mockResolvedValue(REASONS);
+  });
+
+  it("lista DL-a nie ma powodów klienta (04.11.2026)", async () => {
+    loadJobRejectionReasons.mockResolvedValue([
+      ...REASONS,
+      { id: "20", name: "client_no_reason", label: "Klient nie podał powodu", applies_to: ["rejected"], disqualifies_person: false },
+      { id: "21", name: "client_chose_other", label: "Klient wybrał kogoś innego", applies_to: ["rejected"], disqualifies_person: false },
+      { id: "22", name: "no_contact", label: "Brak kontaktu", applies_to: ["rejected"], disqualifies_person: false },
+    ]);
+    mockApi();
+    renderPanel();
+    await userEvent.click(screen.getByRole("button", { name: /^Odrzuć…/ }));
+    const group = screen.getByRole("group", { name: "Odrzucenie przez DL" });
+    const select = await within(group).findByRole("combobox");
+    await within(select).findByRole("option", { name: "Brak kontaktu" });
+    expect(within(select).queryByRole("option", { name: "Klient nie podał powodu" })).toBeNull();
+    expect(within(select).queryByRole("option", { name: "Klient wybrał kogoś innego" })).toBeNull();
   });
 
   it("„Inne” wymaga opisu, a opis jedzie jako notatka ruchu", async () => {

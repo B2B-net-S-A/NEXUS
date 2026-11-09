@@ -71,6 +71,7 @@ from app.services.b2b_esign import service
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_contract_generator import mandate, signed_file
+from app.services.b2b_contract_generator.signed_on_evidence import SignedOnEvidence
 from app.services.b2b_esign.qualified import QualifiedValidator
 from app.services.notification_triggers import emit as emit_notification
 from app.services.cv_pdf_preview import PdfPreviewUnavailable, pdf_from_docx
@@ -1012,19 +1013,23 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
     number = row.contract_number if row else ""
     reason: str | None = None
     try:
+        contractor_signed_at = request.contractor_signed_at
         await confirm_generated_contract_fully_signed(
             generated_id=row_id,
-            # Dzień podpisu = dzień podpisu kontraktora (Warszawa), nie dzień,
-            # w którym umowę podpisał reprezentant firmy.
-            payload=B2BConfirmFullySignedRequest(
-                signed_on=(
-                    business_date(request.contractor_signed_at)
-                    if request.contractor_signed_at
-                    else None
-                )
-            ),
+            payload=B2BConfirmFullySignedRequest(),
             current_user=signer,
             db=db,
+            # Dzień podpisu = dzień podpisu kontraktora (Warszawa), nie dzień,
+            # w którym umowę podpisał reprezentant firmy; źródło `esign` (0654).
+            evidence_for=lambda _row: SignedOnEvidence(
+                source="esign",
+                signed_on=(
+                    business_date(contractor_signed_at)
+                    if contractor_signed_at
+                    else None
+                ),
+                consultant_signed_at=contractor_signed_at,
+            ),
         )
     except HTTPException as exc:
         detail = exc.detail

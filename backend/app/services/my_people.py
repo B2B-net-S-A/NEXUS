@@ -28,13 +28,14 @@ już co innego (konsultant bez projektu).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_category import CandidateCompetenceCategory
@@ -150,6 +151,8 @@ class PersonRow:
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+    # Osoba zgłosiła się z linku właściciela listy (ogólnego albo do rekrutacji).
+    from_link: bool = False
 
 
 def _works_now(marker: Optional[EmploymentMarker]) -> bool:
@@ -475,6 +478,51 @@ def _sort_key(row: PersonRow) -> tuple:
     return (-rank, -sent, row.full_name.lower())
 
 
+async def _from_link_ids(
+    db: AsyncSession, user_id: int, candidate_ids: list[int]
+) -> set[int]:
+    rows = await db.execute(
+        text(
+            "SELECT DISTINCT entity_id FROM activities "
+            "WHERE action = 'applied_via_invite' AND entity_type = 'candidate' "
+            "AND user_id = :uid AND entity_id = ANY(:ids)"
+        ),
+        {"uid": user_id, "ids": candidate_ids},
+    )
+    return {int(cid) for (cid,) in rows.all()}
+
+
+async def my_people_membership(
+    db: AsyncSession, user_id: int, candidate_ids: list[int]
+) -> set[int]:
+    """Kto z podanych jest dziś na liście osoby (także w „Uśpionych”).
+
+    Ta sama reguła co ``load_my_people``, bez liczenia całej listy: wyliczenie
+    z etapów albo ręczna decyzja, czarna lista wyklucza zawsze.
+    """
+    if not candidate_ids:
+        return set()
+    rows = await db.execute(
+        text(
+            _owned_pairs_cte(single_user=True)
+            + """
+            SELECT c.id
+            FROM candidates c
+            WHERE c.id = ANY(:ids)
+              AND c.status::text <> 'blacklisted'
+              AND (
+                  c.id IN (SELECT candidate_id FROM owned)
+                  OR c.id IN (
+                      SELECT candidate_id FROM my_people_overrides WHERE user_id = :uid
+                  )
+              )
+            """
+        ),
+        {"uid": user_id, "ids": candidate_ids},
+    )
+    return {int(cid) for (cid,) in rows.all()}
+
+
 async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     stats = await _pair_stats(db, user_id)
     overrides = {
@@ -508,6 +556,7 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     employment = await load_employment_markers(db, ids, today=today)
     processes = await active_process_counts(db, ids)
     unseen = await _unseen_match_counts(db, user_id)
+    from_link = await _from_link_ids(db, user_id, ids)
 
     rows: list[PersonRow] = []
     for cid in ids:
@@ -538,6 +587,7 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
                 snooze_reason=ov.reason if ov and ov.kind == "snoozed" else None,
                 snoozed_at=ov.created_at if ov and ov.kind == "snoozed" else None,
                 new_matches=unseen.get(cid, 0),
+                from_link=cid in from_link,
             )
         )
     rows.sort(key=_sort_key)
@@ -545,10 +595,23 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     return MyPeople(rows=rows[:MAX_ROWS], truncated=truncated)
 
 
+# Licznik „Moi ludzie” (audyt 08.11.2026, U6): liczba nowych rekrutacji z ostatniej
+# doby. Dawna suma wszystkich nieobejrzanych dopasowań (872) nigdy nie gasła.
+RECENT_MATCH_HOURS = 24
+
+
+def _recent_match_params(user_id: int) -> dict:
+    return {
+        "uid": user_id,
+        "since": datetime.now(timezone.utc) - timedelta(hours=RECENT_MATCH_HOURS),
+        "min_score": settings.MY_PEOPLE_MATCH_MIN_SCORE,
+    }
+
+
 async def unseen_matches(
     db: AsyncSession, user_id: int, *, limit: int = 5
 ) -> list[dict]:
-    """Najnowsze nieobejrzane dopasowania — treść dymka awatara."""
+    """Najnowsze nieobejrzane dopasowania z ostatniej doby, od progu."""
     rows = await db.execute(
         text(
             """
@@ -558,11 +621,12 @@ async def unseen_matches(
             JOIN jobs j ON j.id = m.job_id AND j.status = 'published'
             JOIN candidates c ON c.id = m.candidate_id
             WHERE m.user_id = :uid AND m.seen_at IS NULL
+              AND m.created_at >= :since AND m.score >= :min_score
             ORDER BY m.created_at DESC, m.score DESC NULLS LAST
             LIMIT :limit
             """
         ),
-        {"uid": user_id, "limit": limit},
+        {**_recent_match_params(user_id), "limit": limit},
     )
     return [
         {
@@ -577,22 +641,23 @@ async def unseen_matches(
     ]
 
 
-async def unseen_totals(db: AsyncSession, user_id: int) -> tuple[int, int]:
-    """``(liczba dopasowań, liczba rekrutacji)`` — tylko opublikowane rekrutacje."""
-    row = (
-        await db.execute(
+async def recent_match_jobs(db: AsyncSession, user_id: int) -> int:
+    """Rekrutacje z ostatniej doby z co najmniej 1 osobą od progu dopasowania."""
+    return int(
+        await db.scalar(
             text(
                 """
-                SELECT COUNT(*), COUNT(DISTINCT m.job_id)
+                SELECT COUNT(DISTINCT m.job_id)
                 FROM my_people_job_matches m
                 JOIN jobs j ON j.id = m.job_id AND j.status = 'published'
                 WHERE m.user_id = :uid AND m.seen_at IS NULL
+                  AND m.created_at >= :since AND m.score >= :min_score
                 """
             ),
-            {"uid": user_id},
+            _recent_match_params(user_id),
         )
-    ).one()
-    return int(row[0]), int(row[1])
+        or 0
+    )
 
 
 async def mark_matches_seen(

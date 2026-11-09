@@ -12,6 +12,8 @@ przybywać — kolejka zawiera to, co ekstrakcja zebrała do tego dnia.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -20,7 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.skill import Skill, SkillAlias
-from app.services.skill_taxonomy_loader import refresh_alias_map
+from app.services.skill_normalize import alias_counts_in_text
+from app.services.skill_taxonomy_loader import (
+    bump_dictionary_version,
+    sync_dictionary_version,
+)
 
 
 class CurationError(Exception):
@@ -29,6 +35,135 @@ class CurationError(Exception):
 
 class CurationConflict(CurationError):
     """Nazwa albo alias koliduje z inną umiejętnością (409 w API)."""
+
+
+# ── Kategorie i role (etap 2 słownika, 06.11.2026) ──────────────────────────
+# Kategoria decyduje, czy hasło jest technologią (pogrubianie CV, QC, bramka
+# must), więc nowe hasło bez kategorii działało tylko w połowie. Role
+# (`role_*`) to stanowiska, nie umiejętności: nie przyjmują aliasów i nie są
+# do wyboru przy nowym haśle.
+ROLE_PREFIX = "role_"
+EXTRA_CATEGORIES = ("practice", "domain")
+
+
+def is_role(category: Optional[str]) -> bool:
+    return (category or "").startswith(ROLE_PREFIX)
+
+
+def allowed_categories(categories: Iterable[Optional[str]]) -> set[str]:
+    """Kategorie do wyboru: te ze słownika bez ról + praktyki i wiedza domenowa."""
+    return {c for c in categories if c and not is_role(c)} | set(EXTRA_CATEGORIES)
+
+
+async def category_choices(db: AsyncSession) -> list[str]:
+    used = (await db.scalars(select(Skill.category).distinct())).all()
+    return sorted(allowed_categories(used))
+
+
+async def _check_category(db: AsyncSession, category: Optional[str]) -> str:
+    value = (category or "").strip()
+    if not value:
+        raise CurationError("Wybierz kategorię hasła.")
+    if value not in await category_choices(db):
+        raise CurationError(f"Nieznana kategoria „{value}”.")
+    return value
+
+
+# ── Zapamiętane wyniki dopasowania po zmianie słownika ──────────────────────
+# Klucz pamięci wyników (`scoring_algorithm_version`) nie zależy od treści
+# słownika, a pamięć nie ma TTL: po dodaniu aliasu wynik sprzed zmiany żył dalej.
+# Zmiana hasła dotyczy tylko rekrutacji, które go wymagają (w dowolnym zapisie),
+# więc unieważniamy punktowo te rekrutacje, jak `mark_stale_for_profile`.
+_JOB_VARIANTS = re.compile(r"\s+(?:lub|or)\s+|\s+/\s+", re.IGNORECASE)
+_PARENS = re.compile(r"\s*\([^)]*\)")
+
+
+def _job_name_forms(raw: object) -> set[str]:
+    from app.services.skill_normalize import strip_version
+
+    if not isinstance(raw, str):
+        return set()
+    forms: set[str] = set()
+    for part in _JOB_VARIANTS.split(raw):
+        low = " ".join(part.split()).lower()
+        if not low:
+            continue
+        bare = _PARENS.sub("", low).strip()
+        forms |= {low, bare, strip_version(bare)[0].strip().lower()}
+    forms.discard("")
+    return forms
+
+
+async def skill_forms(db: AsyncSession, skill_ids: Iterable[int]) -> set[str]:
+    """Nazwa i aliasy haseł małymi literami."""
+    ids = sorted(set(skill_ids))
+    if not ids:
+        return set()
+    names = (
+        await db.scalars(select(Skill.canonical_name).where(Skill.id.in_(ids)))
+    ).all()
+    aliases = (
+        await db.scalars(select(SkillAlias.alias).where(SkillAlias.skill_id.in_(ids)))
+    ).all()
+    return {" ".join(n.split()).lower() for n in [*names, *aliases] if n}
+
+
+async def invalidate_scores(db: AsyncSession, forms: Iterable[str]) -> int:
+    """Unieważnia wyniki opublikowanych rekrutacji, których wymagania wymieniają
+    któryś zapis (audyt 2, W4: na kopii 1 305 rekrutacji, z tego 133 opublikowane).
+    Rekrutacja wracająca do publikacji unieważnia swoje wyniki sama
+    (``publish_core``).
+
+    Nie commituje. Zwraca liczbę unieważnionych rekrutacji."""
+    from app.models.job import Job, JobStatus
+    from app.services.match_score_cache import mark_stale_for_jobs
+
+    wanted = {f for f in forms if f}
+    if not wanted:
+        return 0
+    job_ids: list[int] = []
+    for job_id, must, nice in (
+        await db.execute(
+            select(Job.id, Job.must_skills, Job.nice_skills).where(
+                Job.status == JobStatus.published
+            )
+        )
+    ).all():
+        items = [
+            *(must if isinstance(must, list) else []),
+            *(nice if isinstance(nice, list) else []),
+        ]
+        for item in items:
+            name = item.get("name") if isinstance(item, dict) else item
+            if _job_name_forms(name) & wanted:
+                job_ids.append(job_id)
+                break
+    await mark_stale_for_jobs(db, job_ids)
+    return len(job_ids)
+
+
+async def _publish_dictionary_change(db: AsyncSession) -> None:
+    """Nowa wersja słownika w bazie i nowa mapa w tym procesie. Commituje."""
+    await bump_dictionary_version(db)
+    await db.commit()
+    await sync_dictionary_version()
+
+
+async def after_dictionary_change(
+    db: AsyncSession, skill_ids: Iterable[int], extra_forms: Iterable[str] = ()
+) -> int:
+    """Po zatwierdzonej zmianie: najpierw nowa mapa aliasów, potem unieważnienie.
+
+    Kolejność ma znaczenie: wynik policzony między zapisem a odświeżeniem mapy
+    (starą mapą) zostaje unieważniony, a każde przeliczenie po unieważnieniu
+    widzi już nową mapę. Pozostałe procesy przeładują mapę do 60 s później."""
+    await _publish_dictionary_change(db)
+    forms = await skill_forms(db, skill_ids) | {
+        " ".join(f.split()).lower() for f in extra_forms if f
+    }
+    count = await invalidate_scores(db, forms)
+    await db.commit()
+    return count
 
 
 async def _skill_by_id(db: AsyncSession, skill_id: int) -> Skill:
@@ -75,6 +210,11 @@ async def _add_alias(db: AsyncSession, skill_id: int, alias: str) -> bool:
     alias_lc = alias.strip().lower()
     if not alias_lc:
         raise CurationError("Alias nie może być pusty")
+    target = await _skill_by_id(db, skill_id)
+    if is_role(target.category):
+        raise CurationError(
+            f"„{target.canonical_name}” to rola, nie umiejętność — rola nie przyjmuje aliasów."
+        )
     named = await _other_skill_named(db, alias_lc, exclude_skill_id=skill_id)
     if named is not None:
         raise CurationConflict(
@@ -111,7 +251,7 @@ async def map_term_to_skill(
     term.curated_by = curated_by
     term.curated_at = func.now()
     await db.commit()
-    await refresh_alias_map()
+    await after_dictionary_change(db, [skill_id])
     return {"term": term.term, "status": "mapped", "skill_id": skill_id}
 
 
@@ -139,6 +279,35 @@ async def create_skill(
 
     Jeśli ``from_term_id`` podany — oznacz ten unmatched term jako mapped i dodaj
     go jako alias nowego skilla."""
+    skill_id, name = await create_skill_rows(
+        db, canonical_name=canonical_name, category=category, aliases=aliases
+    )
+
+    term_note = None
+    if from_term_id is not None:
+        term = await _term_by_id(db, from_term_id)
+        await _add_alias(db, skill_id, term.term)
+        term.status = "mapped"
+        term.curated_by = curated_by
+        term.curated_at = func.now()
+        term_note = term.term
+
+    await db.commit()
+    await after_dictionary_change(db, [skill_id])
+    return {"id": skill_id, "canonical_name": name, "mapped_term": term_note}
+
+
+async def create_skill_rows(
+    db: AsyncSession,
+    *,
+    canonical_name: str,
+    category: Optional[str] = None,
+    aliases: Optional[list[str]] = None,
+) -> tuple[int, str]:
+    """Nowa umiejętność z aliasami BEZ commita i odświeżenia mapy.
+
+    Dla wołających, którzy zapisują kilka zmian w jednej transakcji
+    (propozycje do słownika, „Zatwierdź pewne”) i odświeżają mapę raz."""
     name = canonical_name.strip()
     if not name:
         raise CurationError("Nazwa kanoniczna nie może być pusta")
@@ -163,19 +332,7 @@ async def create_skill(
 
     for alias in aliases or []:
         await _add_alias(db, skill_id, alias)
-
-    term_note = None
-    if from_term_id is not None:
-        term = await _term_by_id(db, from_term_id)
-        await _add_alias(db, skill_id, term.term)
-        term.status = "mapped"
-        term.curated_by = curated_by
-        term.curated_at = func.now()
-        term_note = term.term
-
-    await db.commit()
-    await refresh_alias_map()
-    return {"id": skill_id, "canonical_name": name, "mapped_term": term_note}
+    return skill_id, name
 
 
 async def add_alias(
@@ -184,5 +341,113 @@ async def add_alias(
     await _skill_by_id(db, skill_id)
     inserted = await _add_alias(db, skill_id, alias)
     await db.commit()
-    await refresh_alias_map()
+    await after_dictionary_change(db, [skill_id])
     return {"skill_id": skill_id, "alias": alias.strip().lower(), "inserted": inserted}
+
+
+async def add_alias_rows(db: AsyncSession, skill_id: int, aliases: list[str]) -> int:
+    """Kilka aliasów naraz BEZ commita; zwraca liczbę nowych.
+
+    Nazwa równa nazwie samej umiejętności jest pomijana (nie jest wariantem)."""
+    skill = await _skill_by_id(db, skill_id)
+    inserted = 0
+    for alias in aliases:
+        if alias.strip().lower() == skill.canonical_name.strip().lower():
+            continue
+        if await _add_alias(db, skill_id, alias):
+            inserted += 1
+    return inserted
+
+
+async def add_aliases(
+    db: AsyncSession,
+    skill_id: int,
+    aliases: list[str],
+    *,
+    curated_by: Optional[str] = None,
+) -> dict:
+    """Kilka aliasów jednej umiejętności w jednej transakcji, mapa odświeżona raz.
+
+    Konflikt któregokolwiek aliasu (należy do innej umiejętności) cofa całość."""
+    inserted = await add_alias_rows(db, skill_id, aliases)
+    await db.commit()
+    await after_dictionary_change(db, [skill_id])
+    return {"skill_id": skill_id, "inserted": inserted}
+
+
+async def update_skill(
+    db: AsyncSession,
+    skill_id: int,
+    *,
+    canonical_name: Optional[str] = None,
+    category: Optional[str] = None,
+) -> dict:
+    """Popraw nazwę albo kategorię hasła (etap 2, np. „nosql” → „NoSQL”).
+
+    Stara nazwa zostaje aliasem, gdy zmienia się coś więcej niż wielkość liter
+    — inaczej profile i wymagania z tym zapisem przestałyby trafiać w hasło.
+    Rola zachowuje swoją kategorię roli albo przechodzi na kategorię z listy."""
+    skill = await _skill_by_id(db, skill_id)
+    old_name = skill.canonical_name
+    if category is not None and category != skill.category:
+        skill.category = await _check_category(db, category)
+    keep_old = False
+    if canonical_name is not None:
+        name = " ".join(canonical_name.split())
+        if not name:
+            raise CurationError("Nazwa kanoniczna nie może być pusta")
+        if name.lower() != old_name.lower():
+            other = await _other_skill_named(
+                db, name.lower(), exclude_skill_id=skill_id
+            )
+            if other is not None:
+                raise CurationConflict(f"Hasło „{other.canonical_name}” już istnieje.")
+            owner = await _alias_owner(db, name.lower())
+            if owner is not None and owner.id != skill_id:
+                raise CurationConflict(
+                    f"„{name}” jest już aliasem umiejętności {owner.canonical_name}."
+                )
+            keep_old = not is_role(skill.category)
+        skill.canonical_name = name
+    await db.flush()
+    if keep_old:
+        await _add_alias(db, skill_id, old_name)
+    await db.commit()
+    count = await after_dictionary_change(db, [skill_id], extra_forms=[old_name])
+    return {
+        "id": skill_id,
+        "canonical_name": skill.canonical_name,
+        "category": skill.category,
+        "jobs_rescored": count,
+    }
+
+
+def alias_payload(skill: Skill, alias: SkillAlias) -> dict:
+    """Wariant na liście Słownika: zapisany znacznik i to, czy wariant liczy
+    się w tekście CV po regule domyślnej (etap 3a)."""
+    return {
+        "id": alias.id,
+        "alias": alias.alias,
+        "in_text": alias.in_text,
+        "counts_in_text": alias_counts_in_text(
+            alias.alias, skill.canonical_name, skill.category, alias.in_text
+        ),
+    }
+
+
+async def set_alias_in_text(
+    db: AsyncSession, alias_id: int, in_text: Optional[bool]
+) -> dict:
+    """Czy wariant liczy się, gdy QC i strażnik generatora szukają wymagania
+    w tekście CV. ``None`` przywraca regułę domyślną. Scoringu to nie zmienia
+    (mapa aliasów zostaje ta sama), więc wyników rekrutacji nie przeliczamy."""
+    alias = await db.get(SkillAlias, alias_id)
+    if alias is None:
+        raise CurationError(f"Alias {alias_id} nie istnieje")
+    skill = await _skill_by_id(db, alias.skill_id)
+    if is_role(skill.category):
+        raise CurationError("Rola nie ma wariantów w tekście CV.")
+    alias.in_text = in_text
+    await db.commit()
+    await _publish_dictionary_change(db)
+    return alias_payload(skill, alias)

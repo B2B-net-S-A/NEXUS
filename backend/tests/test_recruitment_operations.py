@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from datetime import date
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import Integer, column, create_engine, select, table
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 from app.api import dashboard_v2 as dashboard_api
@@ -787,30 +788,59 @@ class _ListResult:
     def all(self) -> list[object]:
         return self._rows
 
+    def one_or_none(self) -> object | None:
+        return self._one
+
+
+def _pipeline_row(
+    candidate_id: int, job_id: int, stage: PipelineStage
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        stage=stage,
+        stage_name=None,
+        stage_category=None,
+        stage_terminal_type=None,
+    )
+
 
 class _ListDb:
     def __init__(self) -> None:
         self.execute_statements: list[object] = []
         self.scalar_statements: list[object] = []
         self._execute_results = [
-            _ListResult(one=SimpleNamespace(total=4, category_total=2)),
             _ListResult(
-                one=SimpleNamespace(
-                    active_candidates=9,
-                    active_favorites=2,
-                    shared_candidates=3,
-                    processes_with_shared_candidates=2,
-                )
+                rows=[
+                    SimpleNamespace(
+                        job_id=1, competence_category_id=7, favorite_candidate_id=101
+                    ),
+                    SimpleNamespace(
+                        job_id=2, competence_category_id=7, favorite_candidate_id=None
+                    ),
+                    SimpleNamespace(
+                        job_id=3, competence_category_id=8, favorite_candidate_id=103
+                    ),
+                ]
+            ),
+            _ListResult(
+                rows=[
+                    _pipeline_row(101, 1, PipelineStage.verified),
+                    _pipeline_row(101, 2, PipelineStage.cv_sent),
+                    _pipeline_row(102, 3, PipelineStage.verified),
+                    # Zatrudniony faworyt liczy się do faworytów, nie do aktywnych.
+                    _pipeline_row(103, 3, PipelineStage.hired),
+                    _pipeline_row(104, 1, PipelineStage.rejected),
+                ]
             ),
             _ListResult(
                 rows=[
                     SimpleNamespace(
-                        competence_category_id=7,
-                        name_pl="Backend",
-                        total=3,
-                        shared_candidates=2,
-                        processes_with_shared_candidates=2,
-                    )
+                        competence_category_id=7, name_pl="Backend", total=2
+                    ),
+                    SimpleNamespace(
+                        competence_category_id=8, name_pl="Frontend", total=1
+                    ),
                 ]
             ),
             _ListResult(rows=[]),
@@ -842,21 +872,28 @@ async def test_summary_and_categories_ignore_item_filters() -> None:
 
     assert response.total == 1
     assert response.summary.model_dump() == {
-        "open_processes": 4,
+        "open_processes": 3,
         "competence_categories": 2,
-        "active_candidates": 9,
-        "processes_without_favorite": 2,
-        "shared_candidates": 3,
+        "active_candidates": 3,
+        "processes_without_favorite": 1,
+        "shared_candidates": 1,
         "processes_with_shared_candidates": 2,
     }
     assert [category.model_dump() for category in response.categories] == [
         {
             "id": 7,
             "name": "Backend",
-            "total": 3,
-            "shared_candidates": 2,
+            "total": 2,
+            "shared_candidates": 1,
             "processes_with_shared_candidates": 2,
-        }
+        },
+        {
+            "id": 8,
+            "name": "Frontend",
+            "total": 1,
+            "shared_candidates": 0,
+            "processes_with_shared_candidates": 0,
+        },
     ]
     summary_sql = str(db.execute_statements[0])
     category_sql = str(db.execute_statements[2])
@@ -872,93 +909,246 @@ async def test_summary_and_categories_ignore_item_filters() -> None:
     assert "jobs.competence_category_id =" in page_sql
 
 
-def test_shared_candidate_read_models_stay_inside_my_work_scope() -> None:
-    user = _user(UserRole.recruiter)
-    scoped_jobs = (
-        select(
-            Job.id.label("job_id"),
-            Job.competence_category_id.label("competence_category_id"),
-            Job.favorite_candidate_id.label("favorite_candidate_id"),
-        )
-        .where(
-            *service._job_filters(
-                user,
-                scope=service._RecruitmentOperationsScope(preset="my-work"),
-            )
-        )
-        .subquery()
+@pytest.mark.asyncio
+async def test_list_reads_the_pipeline_once_for_the_resolved_job_ids() -> None:
+    """04.11.2026: zagnieżdżone read-modele nie kończyły się w ciągu 425 s.
+
+    `status` i `work_state` są w pełni skorelowane, więc planista szacował
+    8 rekrutacji zamiast 185 i wykonywał agregat wewnątrz pętli po każdym
+    wierszu. Zakres ma być listą id, a widok czytany raz, poza zapytaniami
+    o podsumowanie, kategorie i stronę.
+    """
+    db = _ListDb()
+
+    await service.list_recruitment_operations(
+        db,  # type: ignore[arg-type]
+        _user(UserRole.recruiter),
+        preset="my-work",
+        page=1,
+        page_size=50,
+        q=None,
+        category_id=None,
     )
 
-    read_models = service._shared_candidate_read_models(scoped_jobs)
+    statements = [
+        str(
+            statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        for statement in db.execute_statements
+    ]
+    assert [sql.count("analytics_current_pipeline") > 0 for sql in statements] == [
+        False,
+        True,
+        False,
+        False,
+    ]
+    pipeline_sql = statements[1]
+    assert "analytics_current_pipeline.job_id IN (1, 2, 3)" in pipeline_sql
+    assert "SELECT jobs.id" not in pipeline_sql
+
+
+@pytest.mark.asyncio
+async def test_empty_scope_skips_the_pipeline_query() -> None:
+    db = _ListDb()
+    db._execute_results = [
+        _ListResult(rows=[]),
+        _ListResult(rows=[]),
+        _ListResult(rows=[]),
+    ]
+
+    response = await service.list_recruitment_operations(
+        db,  # type: ignore[arg-type]
+        _user(UserRole.recruiter),
+        preset="my-work",
+        page=1,
+        page_size=50,
+        q=None,
+        category_id=None,
+    )
+
+    assert response.summary.open_processes == 0
+    assert response.summary.processes_without_favorite == 0
+    assert len(db.execute_statements) == 3
+    assert not any(
+        "analytics_current_pipeline" in str(statement)
+        for statement in db.execute_statements
+    )
+
+
+def test_scoped_jobs_statement_stays_inside_my_work_scope() -> None:
+    user = _user(UserRole.recruiter)
+    statement = service._scoped_jobs_statement(
+        service._job_filters(
+            user,
+            scope=service._RecruitmentOperationsScope(preset="my-work"),
+        )
+    )
     sql = str(
-        select(read_models.process_counts).compile(
+        statement.compile(
             dialect=postgresql.dialect(),
             compile_kwargs={"literal_binds": True},
         )
     )
 
-    assert "analytics_current_pipeline" in sql
     assert "jobs.status = 'published'" in sql
     assert "jobs.recruiter_id = 11" in sql
     assert "job_collaborators" in sql
-    assert "HAVING count(distinct" in sql
-    assert "rejected" in sql
-    assert "withdrawn" in sql
-    assert "hired" in sql
 
 
 def test_category_shared_candidates_include_cross_category_memberships() -> None:
-    engine = create_engine("sqlite+pysqlite:///:memory:")
-    scoped_fixture = table(
-        "scoped_jobs_fixture",
-        column("job_id", Integer),
-        column("competence_category_id", Integer),
+    scoped_jobs = [
+        SimpleNamespace(job_id=1, competence_category_id=7),
+        SimpleNamespace(job_id=2, competence_category_id=8),
+        SimpleNamespace(job_id=3, competence_category_id=7),
+    ]
+    latest_rows = [
+        service._LatestStage(101, 1, PipelineStage.verified),
+        service._LatestStage(101, 2, PipelineStage.cv_sent),
+        service._LatestStage(102, 3, PipelineStage.verified),
+        service._LatestStage(103, 1, PipelineStage.hired),
+        service._LatestStage(103, 2, PipelineStage.verified),
+    ]
+
+    counts = service._shared_candidate_counts(scoped_jobs, latest_rows)
+
+    assert counts.shared_candidates == 1
+    assert counts.processes_with_shared_candidates == 2
+    assert counts.by_job == {1: 1, 2: 1}
+    assert counts.by_category == {7: (1, 1), 8: (1, 1)}
+
+
+def test_shared_candidates_ignore_inactive_stages_and_group_null_category() -> None:
+    scoped_jobs = [
+        SimpleNamespace(job_id=1, competence_category_id=None),
+        SimpleNamespace(job_id=2, competence_category_id=None),
+        SimpleNamespace(job_id=3, competence_category_id=9),
+    ]
+    latest_rows = [
+        service._LatestStage(201, 1, PipelineStage.verified),
+        service._LatestStage(201, 2, PipelineStage.verified),
+        service._LatestStage(202, 1, PipelineStage.verified),
+        service._LatestStage(202, 3, PipelineStage.rejected),
+        service._LatestStage(203, 2, PipelineStage.withdrawn),
+        service._LatestStage(203, 3, PipelineStage.hired),
+    ]
+
+    counts = service._shared_candidate_counts(scoped_jobs, latest_rows)
+
+    assert counts.shared_candidates == 1
+    assert counts.processes_with_shared_candidates == 2
+    assert counts.by_job == {1: 1, 2: 1}
+    assert counts.by_category == {None: (1, 2)}
+
+
+def _job_row(job_id: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=job_id,
+        title="Rekrutacja",
+        client_id=10,
+        client_name="Klient",
+        competence_category_id=7,
+        competence_category_name="Backend",
+        recruiter_id=11,
+        tac_id=None,
+        delivery_lead_id=None,
+        favorite_candidate_id=None,
     )
-    scoped_jobs = select(
-        scoped_fixture.c.job_id,
-        scoped_fixture.c.competence_category_id,
-    ).subquery()
-    read_models = service._shared_candidate_read_models(scoped_jobs)
 
-    with engine.begin() as connection:
-        connection.exec_driver_sql(
-            "CREATE TABLE scoped_jobs_fixture "
-            "(job_id INTEGER NOT NULL, competence_category_id INTEGER)"
-        )
-        connection.exec_driver_sql(
-            "CREATE TABLE analytics_current_pipeline "
-            "(candidate_id INTEGER NOT NULL, job_id INTEGER NOT NULL, stage TEXT)"
-        )
-        connection.exec_driver_sql(
-            "INSERT INTO scoped_jobs_fixture VALUES (?, ?)",
-            [(1, 7), (2, 8), (3, 7)],
-        )
-        connection.exec_driver_sql(
-            "INSERT INTO analytics_current_pipeline VALUES (?, ?, ?)",
-            [
-                (101, 1, "verified"),
-                (101, 2, "cv_sent"),
-                (102, 3, "verified"),
-                (103, 1, "hired"),
-                (103, 2, "verified"),
-            ],
-        )
-        category_rows = connection.execute(
-            select(
-                read_models.category_counts.c.competence_category_id,
-                read_models.category_counts.c.shared_candidates,
-                read_models.category_counts.c.processes_with_shared_candidates,
-            ).order_by(read_models.category_counts.c.competence_category_id)
-        ).all()
-        process_rows = connection.execute(
-            select(
-                read_models.process_counts.c.job_id,
-                read_models.process_counts.c.shared_candidate_count,
-            ).order_by(read_models.process_counts.c.job_id)
-        ).all()
 
-    assert [tuple(row) for row in category_rows] == [(7, 1, 1), (8, 1, 1)]
-    assert [tuple(row) for row in process_rows] == [(1, 1), (2, 1)]
+class _DetailDb:
+    def __init__(self, results: list[_ListResult]) -> None:
+        self.statements: list[object] = []
+        self._results = results
+
+    async def execute(self, statement: object) -> _ListResult:
+        self.statements.append(statement)
+        return self._results.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_detail_record_counts_shared_candidates_across_the_whole_scope() -> None:
+    db = _DetailDb(
+        [
+            _ListResult(one=_job_row(1)),
+            _ListResult(
+                rows=[
+                    SimpleNamespace(job_id=1, competence_category_id=7),
+                    SimpleNamespace(job_id=2, competence_category_id=8),
+                ]
+            ),
+            _ListResult(
+                rows=[
+                    _pipeline_row(101, 1, PipelineStage.verified),
+                    _pipeline_row(101, 2, PipelineStage.cv_sent),
+                    _pipeline_row(102, 1, PipelineStage.verified),
+                ]
+            ),
+        ]
+    )
+
+    record = await service._load_scoped_job_record(
+        db,  # type: ignore[arg-type]
+        _user(UserRole.recruiter),
+        1,
+        scope=service._RecruitmentOperationsScope(preset="my-work"),
+    )
+
+    assert record.id == 1
+    assert record.shared_candidate_count == 1
+
+
+@pytest.mark.asyncio
+async def test_detail_outside_scope_is_404_before_reading_the_pipeline() -> None:
+    db = _DetailDb([_ListResult(one=None)])
+
+    with pytest.raises(HTTPException) as denied:
+        await service._load_scoped_job_record(
+            db,  # type: ignore[arg-type]
+            _user(UserRole.recruiter),
+            1,
+            scope=service._RecruitmentOperationsScope(preset="my-work"),
+        )
+
+    assert denied.value.status_code == 404
+    assert len(db.statements) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_row_gets_shared_count_and_uses_the_loaded_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _ListDb()
+    db._execute_results[3] = _ListResult(rows=[_job_row(1), _job_row(3)])
+    monkeypatch.setattr(
+        service,
+        "_load_people",
+        AsyncMock(return_value=({}, defaultdict(list))),
+    )
+
+    response = await service.list_recruitment_operations(
+        db,  # type: ignore[arg-type]
+        _user(UserRole.recruiter),
+        preset="my-work",
+        page=1,
+        page_size=50,
+        q=None,
+        category_id=None,
+    )
+
+    by_job = {item.job_id: item for item in response.items}
+    assert by_job[1].shared_candidate_count == 1
+    assert by_job[3].shared_candidate_count == 0
+    # Wiersz strony liczy z odczytu zakresu; odrzucony kandydat 104 nie wchodzi,
+    # a drugiego odczytu widoku nie ma.
+    assert by_job[1].candidate_count == 1
+    assert by_job[3].candidate_count == 2
+    assert not any(
+        "analytics_current_pipeline" in str(statement)
+        for statement in db.execute_statements[3:]
+    )
 
 
 def test_process_mapping_exposes_only_shared_candidate_count() -> None:

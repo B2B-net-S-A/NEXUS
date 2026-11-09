@@ -1,6 +1,7 @@
 import enum
 import logging
 import unicodedata
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Literal, Optional
 
@@ -49,6 +50,7 @@ from app.models.contract import Contract
 from app.services.current_employment import LIVE_CONTRACT_STATUSES
 from app.services.employment_marker import job_client_family
 from app.services.job_close_choice import validate_close_choice
+from app.services.job_opening import start_new_opening
 from app.services.pipeline_latest import latest_stage_ids
 from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.competence_category import UserCompetenceCategory
@@ -127,6 +129,7 @@ from app.api.recruitment_access import (
     user_can_staff_job,
 )
 from app.services.requirement_contract import apply_requirement_source_update
+from app.services import job_channels
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.services.section_permissions import (
     ProductSection,
@@ -196,6 +199,7 @@ from app.services.workforce_availability import (
 from app.services import champion_view
 from app.services import dl_send_queue
 from app.services import new_job_leads
+from app.services.new_profiles import NewProfiles, new_profiles_by_job
 from app.services import job_lifecycle
 from app.services.board_tasks import dl_portfolio_client_ids
 from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
@@ -376,6 +380,19 @@ _LIST_ONLY_STRIPPED_JOB_FIELDS: tuple[str, ...] = (
     # Wyliczany także ze stawki Championa — lista nie jest jego powierzchnią.
     "effective_budget_hourly",
     "effective_budget_hourly_min",
+)
+
+
+# `GET /api/jobs?compact=true`: to, co pokazuje lista rekrutacji w podglądzie na
+# telefonie. 05.11.2026 pełny wiersz (111 pól, m.in. opis i zespół) dawał 21 KB po
+# kompresji na 12 rekrutacji, a ten wycinek 1,6 KB.
+_COMPACT_ROW_FIELDS = (
+    "id",
+    "title",
+    "working_title",
+    "client_name",
+    "deadline",
+    "stage_columns",
 )
 
 
@@ -1327,6 +1344,13 @@ async def list_jobs(
             "client); other viewers get no such key."
         ),
     ),
+    compact: bool = Query(
+        False,
+        description=(
+            "Wiersz tylko z polami `_COMPACT_ROW_FIELDS`, bez opisu i zespołu "
+            "(podgląd na telefonie). Te same filtry, sortowanie i liczby."
+        ),
+    ),
 ):
     from app.models.recruitment_pipeline import CandidateStage
 
@@ -1924,7 +1948,7 @@ async def list_jobs(
             # Imiona championów to dane kandydatów rekrutacji, której ta osoba
             # nie otworzy — wiersz zostaje, osoby nie.
             d["champions"] = []
-        items.append(d)
+        items.append({k: d[k] for k in _COMPACT_ROW_FIELDS if k in d} if compact else d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -2886,6 +2910,7 @@ async def update_job(
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             job_lifecycle.clear_close_choice(job)
+            start_new_opening(job)
             _take_over_reopened_traffit_job(db, job, current_user)
             # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
             # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,
@@ -3245,7 +3270,9 @@ async def close_job(
         # rekruterów, którzy dostaną wiadomość (28.10.2026).
         from app.services.job_closed_notices import active_cards_warning
 
-        warning = await active_cards_warning(db, job.id, actor_id=current_user.id)
+        warning = await active_cards_warning(
+            db, job.id, actor_id=current_user.id, close_reason=choice.reason, job=job
+        )
         if warning is not None:
             raise HTTPException(status_code=409, detail=warning)
 
@@ -3260,9 +3287,27 @@ async def close_job(
     )
     job.duplicate_of_job_id = choice.duplicate_of_job_id
     # Rekruterzy osób od „CV wysłane” w górę dostają dzwonek i mail (28.10.2026).
+    from app.services.job_close_client_cards import (
+        client_side_cards,
+        end_client_cards_after_close,
+        reason_key_for,
+    )
     from app.services.job_closed_notices import notify_closed
 
-    await notify_closed(db, job, actor_id=current_user.id)
+    # 08.11.2026: kończymy pary u klienta dopiero po commicie, ale listę czytamy
+    # teraz, bo dzwonek do rekruterów powstaje przed zmianą kart.
+    ended_ids: frozenset[int] = frozenset()
+    if data.end_client_cards and reason_key_for(choice.reason) is not None:
+        ended_ids = frozenset(await client_side_cards(db, job))
+        closed_job_id, closed_reason = job.id, choice.reason
+        actor = current_user.id
+        effects.add(
+            "end_client_cards",
+            lambda: end_client_cards_after_close(
+                closed_job_id, reason=closed_reason, actor_id=actor
+            ),
+        )
+    await notify_closed(db, job, actor_id=current_user.id, ended_ids=ended_ids)
     await db.commit()
     await db.refresh(job)
     await job_lifecycle.run_post_commit(effects)
@@ -3786,6 +3831,51 @@ async def get_requirement_proposal(
     }
 
 
+@router.get("/{job_id}/requirement-sent-gaps")
+async def get_requirement_sent_gaps(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Wiersze „musi mieć”, których nie ma nikt z wysłanych (na żywo, tylko odczyt)."""
+    from app.services import requirement_cleanup, requirement_sent_gaps
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    try:
+        gaps = await requirement_sent_gaps.compute(db, job)
+    except requirement_sent_gaps.EvidenceUnavailable:
+        # Brak dowodu to brak ostrzeżenia, a nie „nie ma nikt”.
+        logger.warning("requirement sent gaps: brak dowodu dla rekrutacji %s", job_id)
+        gaps = requirement_sent_gaps.SentGaps(sent=0, rows=())
+    return {
+        **gaps.as_dict(),
+        "can_ask_hints": requirement_cleanup.can_decide(current_user, job),
+    }
+
+
+@router.post("/{job_id}/requirement-sent-gaps/word-hints")
+async def post_requirement_word_hints(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Słowa z CV wysłanych do wierszy z zerem (F41). Nic nie zapisuje."""
+    from app.services import requirement_cleanup, requirement_sent_gaps
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not requirement_cleanup.can_decide(current_user, job):
+        raise HTTPException(
+            403,
+            "Słowa podpowiadamy Delivery Leadowi tej rekrutacji albo Head of Recruitment.",
+        )
+    return await requirement_sent_gaps.word_hints(db, job, user_id=current_user.id)
+
+
 async def _locked_proposal(
     db: AsyncSession,
     job_id: int,
@@ -3793,7 +3883,7 @@ async def _locked_proposal(
     profile_hash: str,
     proposal_digest: Optional[str] = None,
 ):
-    from app.services import requirement_cleanup
+    from app.services import requirement_cleanup, requirement_sent_gaps
 
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
@@ -3805,6 +3895,7 @@ async def _locked_proposal(
             "Recruitment.",
         )
     await requirement_cleanup.prepare_counts(db, [job])
+    await requirement_sent_gaps.prepare(db, [job])
     proposal = requirement_cleanup.build_proposal(job)
     if proposal is None:
         raise HTTPException(409, "Wymagania tej rekrutacji nie wymagają już poprawek.")
@@ -5149,6 +5240,7 @@ async def add_candidate_from_history(
         origin_kind=PriorityOriginKind.assigned,
         entry_source="added_manual",
         claim_for_user_id=current_user.id,
+        entry_meta={"found_via": "proposals"},
     )
     db.add(
         Activity(
@@ -5656,6 +5748,136 @@ async def claim_job(
     return await get_job(job_id, current_user, db)
 
 
+class JobChannelPayload(BaseModel):
+    # ``None`` zdejmuje wybór — osoba zostaje w zespole „bez koszyka”.
+    channel: Optional[Literal["base", "linkedin"]] = None
+
+
+class JobChannelPlanPayload(BaseModel):
+    base: Optional[int] = Field(default=None, ge=0, le=job_channels.PLAN_MAX)
+    linkedin: Optional[int] = Field(default=None, ge=0, le=job_channels.PLAN_MAX)
+
+
+class UnassignedWorkerOut(BaseModel):
+    user_id: int
+    name: str
+    cards: int
+
+
+@router.put("/{job_id}/channels/{user_id}", response_model=JobRecruiterOut)
+async def set_recruiter_channel(
+    job_id: int,
+    user_id: int,
+    payload: JobChannelPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Koszyk osoby w zespole: baza NEXUSA albo LinkedIn (0655, 06.11.2026).
+
+    Rekruter przestawia siebie; każdego z zespołu przestawia rola, która
+    przydziela ludzi do rekrutacji (``user_can_staff_job``: Head of
+    Recruitment, Delivery Lead w swoim zakresie, admin). Osoba musi pracować
+    nad rekrutacją (reguła ``job_team``) — propozycja automatu jeszcze nie.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    is_self = user_id == current_user.id and current_user.has_any_role(
+        *_OWNERSHIP_ELIGIBLE_ROLES
+    )
+    if not is_self and not await user_can_staff_job(db, current_user, job):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Koszyk innej osoby zmienia Head of Recruitment albo Delivery Lead.",
+        )
+    team = await recruiters_for_jobs(db, [job_id])
+    person = next((p for p in working(team[job_id]) if p.user_id == user_id), None)
+    if person is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ta osoba nie pracuje nad rekrutacją — najpierw dodaj ją do zespołu.",
+        )
+    await job_channels.set_channel(
+        db, job=job, user_id=user_id, channel=payload.channel, actor_id=current_user.id
+    )
+    await db.commit()
+    return JobRecruiterOut.model_validate(
+        replace(person, channel=payload.channel), from_attributes=True
+    )
+
+
+@router.put("/{job_id}/channel-plan", response_model=JobChannelPlanPayload)
+async def set_channel_plan(
+    job_id: int,
+    payload: JobChannelPlanPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Plan liczby osób w koszykach „Baza” i „LinkedIn” — ta sama bramka co
+    przydział ludzi (``user_can_staff_job``)."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if not await user_can_staff_job(db, current_user, job):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Plan koszyków ustawia Head of Recruitment albo Delivery Lead.",
+        )
+    await job_channels.set_plan(
+        db,
+        job=job,
+        base=payload.base,
+        linkedin=payload.linkedin,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    return JobChannelPlanPayload(
+        base=job.channel_plan_base, linkedin=job.channel_plan_linkedin
+    )
+
+
+@router.get("/{job_id}/new-profiles")
+async def job_new_profiles(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Nowe profile z 7 dni i ile doszło do CV — okienko „Zespół rekrutacji”.
+
+    Definicja: ``services/new_profiles.py``, ta sama co w wierszu Daily."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    counts = (await new_profiles_by_job(db, [job_id])).get(job_id, NewProfiles())
+    return {"added": counts.added, "reached_cv": counts.reached_cv}
+
+
+@router.get("/{job_id}/unassigned-workers", response_model=list[UnassignedWorkerOut])
+async def list_unassigned_workers(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rekruterzy, którzy w ostatnich 30 dniach dodali albo przesunęli karty
+    tej rekrutacji, a nie są w zespole — „pracuje bez przypisania”. Ostrzeżenie,
+    nie bramka (decyzja Artura 06.11.2026, „Kanban bez bramek”)."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    team = await recruiters_for_jobs(db, [job_id])
+    found = await job_channels.unassigned_workers(
+        db, {job_id: [p.user_id for p in working(team[job_id])]}
+    )
+    return [
+        UnassignedWorkerOut(user_id=w.user_id, name=w.name, cards=w.cards)
+        for w in found[job_id]
+    ]
+
+
 @router.get("/{job_id}/collaborators", response_model=list[UserBrief])
 async def list_collaborators(
     job_id: int,
@@ -5743,6 +5965,14 @@ async def add_collaborator(
     added = await add_manual_member(
         db, job_id=job_id, user_id=target.id, actor_id=current_user.id
     )
+    if payload.channel is not None:
+        await job_channels.set_channel(
+            db,
+            job=job,
+            user_id=target.id,
+            channel=payload.channel,
+            actor_id=current_user.id,
+        )
     if (
         added
         and not already_working

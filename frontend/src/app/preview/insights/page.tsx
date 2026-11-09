@@ -200,18 +200,18 @@ function seeded(): QueryClient {
     { user_id: 11, name: "Ola K.", metric_value: 4, rank: 1, excluded: false, role: "recruiter" },
     { user_id: 12, name: "Kuba M.", metric_value: 3, rank: 2, excluded: false, role: "recruiter" },
     { user_id: 1, name: "Anna L.", metric_value: 2, rank: 3, excluded: false, role: "recruiter" },
-    { user_id: 14, name: "Marta W.", metric_value: 2, rank: 4, excluded: true, role: "recruiter" },
+    { user_id: 14, name: "Marta W.", metric_value: 2, rank: 4, excluded: false, role: "recruiter" },
   ];
   const recRanking = PEOPLE.slice(0, 6).map((p, i) => ({
-    user_id: p.id, name: p.name, metric_value: p.r, rank: i + 1, excluded: p.id === 14,
+    user_id: p.id, name: p.name, metric_value: p.r, rank: i + 1, excluded: false,
     role: "recruiter", verifications: p.v, recommendations: p.r, precision_pct: p.prec,
     required_verifications: 64, qualified: p.v >= 64, workdays: 16, per_day: +(p.v / 16).toFixed(1),
     workdays_source: "calendar",
   }));
   const race = (ranking: unknown[]) => ({
     period: currentMonthKey(), days_remaining: 6, prize: { amount_pln: 1500, name: "Nagroda 1 500 zł" },
-    requirements: ["Lider kwartalny wykluczony z nagrody miesięcznej"], ranking,
-    excluded_user_ids: [14], qualified_leader: ranking[0] ?? null, leader_tie_user_ids: [], ...mixed,
+    requirements: ["Minimum 2 placementy do kwalifikacji"], ranking,
+    excluded_user_ids: [], qualified_leader: ranking[0] ?? null, leader_tie_user_ids: [], ...mixed,
   });
   qc.setQueryData(["insights", "monthly-races", "current"], {
     recommendations: race(recRanking),
@@ -324,10 +324,10 @@ function seeded(): QueryClient {
     ],
   };
   const flightCols = (cv_qc: number, cv_sent: number, interview: number, contract: number) => [
-    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: cv_qc, stale_count: 0, oldest_days: cv_qc ? 2 : null },
-    { column: "cv_sent", label: "Czekają na decyzję klienta", count: cv_sent, stale_count: Math.min(3, cv_sent), oldest_days: cv_sent ? 16 : null },
-    { column: "client_interview", label: "Rozmowy u klienta", count: interview, stale_count: 0, oldest_days: interview ? 4 : null },
-    { column: "contract", label: "Akceptacje do domknięcia", count: contract, stale_count: contract ? 1 : 0, oldest_days: contract ? 11 : null },
+    { column: "cv_qc", label: "Czekają na wysyłkę CV", count: cv_qc, recent_count: cv_qc, recent_stale_count: 0, stale_count: 0, oldest_days: cv_qc ? 2 : null },
+    { column: "cv_sent", label: "Czekają na decyzję klienta", count: cv_sent, recent_count: cv_sent, recent_stale_count: Math.min(3, cv_sent), stale_count: Math.min(3, cv_sent), oldest_days: cv_sent ? 16 : null },
+    { column: "client_interview", label: "Rozmowy u klienta", count: interview, recent_count: interview, recent_stale_count: 0, stale_count: 0, oldest_days: interview ? 4 : null },
+    { column: "contract", label: "Akceptacje do domknięcia", count: contract, recent_count: contract, recent_stale_count: contract ? 1 : 0, stale_count: contract ? 1 : 0, oldest_days: contract ? 11 : null },
   ];
   const flightForecast = { hired: 12, resolved: 14, min_sample: 10, since: "2026-10-12", rate_pct: 85.7 };
   const person = (candidate_id: number, candidate_name: string, job_id: number, job_title: string, client_name: string, column: string, stage_label: string, days: number) => ({
@@ -335,7 +335,7 @@ function seeded(): QueryClient {
     column, stage_key: column, stage_label, since: "2026-10-12", days,
   });
   qc.setQueryData(insightsQueryKeys.inFlightMe("mine"), {
-    asof: "2026-10-22", stale_days: 10, columns: flightCols(0, 7, 2, 2), acceptances: null,
+    asof: "2026-10-22", stale_days: 10, recent_days: 30, columns: flightCols(0, 7, 2, 2), acceptances: null,
     people: [
       person(501, "Marek Próbny", 9201, "DevOps Engineer", "Telekom Testowy", "contract", "Umowa wysłana", 11),
       person(502, "Kamil Wzorcowy", 9202, "Senior Java Developer", "Bank Przykładowy", "contract", "Akceptacja", 3),
@@ -348,7 +348,7 @@ function seeded(): QueryClient {
     definitions: { columns: "", forecast: "" },
   });
   qc.setQueryData(insightsQueryKeys.inFlightMe("portfolio"), {
-    asof: "2026-10-22", stale_days: 10, columns: flightCols(3, 18, 5, 4), acceptances: null,
+    asof: "2026-10-22", stale_days: 10, recent_days: 30, columns: flightCols(3, 18, 5, 4), acceptances: null,
     people: [
       person(511, "Marek Próbny", 9201, "DevOps Engineer", "Telekom Testowy", "contract", "Umowa wysłana", 19),
       person(512, "Kamil Wzorcowy", 9202, "Senior Java Developer", "Bank Przykładowy", "contract", "Akceptacja", 3),
@@ -398,7 +398,7 @@ function seeded(): QueryClient {
     company_month_placements: 21,
   });
   qc.setQueryData(insightsQueryKeys.inFlight(), {
-    asof: "2026-10-22", stale_days: 10, columns: flightCols(38, 64, 23, 10),
+    asof: "2026-10-22", stale_days: 10, recent_days: 30, columns: flightCols(38, 64, 23, 10),
     acceptances: [
       { job_id: 9201, job_title: "DevOps Engineer", client_id: 3, client_name: "Telekom Testowy", delivery_lead_name: "Paweł G.", stage_key: "contract_sent", stage_label: "Umowa wysłana", since: "2026-10-03", days: 19 },
       { job_id: 9202, job_title: "Senior Java Developer", client_id: 1, client_name: "Bank Przykładowy", delivery_lead_name: "Kasia B.", stage_key: "acceptance", stage_label: "Akceptacja", since: "2026-10-07", days: 15 },
@@ -410,12 +410,26 @@ function seeded(): QueryClient {
   const trendWeek = (week_start: string, v: number, r: number, i: number, a: number | null, p: number, partial = false) => ({
     week_start, partial, counts: { verified: v, cv_sent: r, client_interview: i, acceptance: a, hired: p },
   });
-  qc.setQueryData(insightsQueryKeys.weeklyTrend(8), {
+  const trendWeeks = {
     weeks: [
       trendWeek("2026-08-31", 88, 34, 12, null, 4), trendWeek("2026-09-07", 95, 31, 14, null, 5),
       trendWeek("2026-09-14", 91, 36, 13, null, 6), trendWeek("2026-09-21", 104, 29, 11, null, 5),
       trendWeek("2026-09-28", 99, 27, 12, null, 7), trendWeek("2026-10-05", 110, 25, 15, null, 6),
       trendWeek("2026-10-12", 118, 26, 14, 9, 7), trendWeek("2026-10-19", 72, 15, 9, 6, 3, true),
+    ],
+  };
+  // Zakładka czyta 26 tygodni do wykresów i 8 do tabeli liczb.
+  qc.setQueryData(insightsQueryKeys.weeklyTrend(26), trendWeeks);
+  qc.setQueryData(insightsQueryKeys.weeklyTrend(8), trendWeeks);
+  const trendMonth = (month_start: string, verified: number, cv_sent: number, client_interview: number, acceptance: number | null, hired: number, partial = false) => ({
+    month_start, partial, cutover_counts: null,
+    counts: { verified, cv_sent, client_interview, acceptance, hired },
+  });
+  qc.setQueryData(insightsQueryKeys.monthlyTrend(12), {
+    months: [
+      trendMonth("2026-07-01", 420, 150, 55, null, 22), trendMonth("2026-08-01", 390, 140, 48, null, 19),
+      trendMonth("2026-09-01", 410, 128, 52, null, 25), trendMonth("2026-10-01", 440, 131, 60, 18, 24),
+      trendMonth("2026-11-01", 72, 15, 9, 6, 3, true),
     ],
   });
   qc.setQueryData(["insights", "recruitment", "funnel", CURRENT_MONTH], monthFunnel);

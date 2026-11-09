@@ -898,6 +898,10 @@ def job_explicit_must_skills(job) -> list[str]:
     return canonical_skill_names(_champion_stack_must_names(job))
 
 
+# Wymaganie z tylu słów to zdanie z opisu, nie nazwa, której szukamy w CV.
+PROSE_REQUIREMENT_WORDS = 4
+
+
 def job_skill_requirements(job) -> dict[str, list[str]]:
     """Shared interpretation for scoring, preview and explicit hard gates."""
     from app.services.requirement_contract import stored_contract, requirement_labels
@@ -918,6 +922,11 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
     stack_must = canonical_skill_names(stack.get("must"))
     stack_nice = canonical_skill_names(stack.get("nice"))
     if must or nice or stack_must or stack_nice:
+        # Kolumna ze zdaniami z opisu klienta, a Champion ma chipy (02.11.2026):
+        # liczymy to, co widzi Delivery Lead. Zdania nigdy nie padają w CV dosłownie,
+        # więc „bardzo dobra znajomość SQL” było brakiem u każdego (27 rekrutacji).
+        if stack_must and any(len(m.split()) >= PROSE_REQUIREMENT_WORDS for m in must):
+            must = stack_must
         must = must or stack_must
         nice = nice or stack_nice
         return {
@@ -1098,19 +1107,25 @@ def candidate_known_skill_names(candidate) -> set[str]:
     „czy WIEMY, co kandydat umie” — kandydat, o którym wiemy tylko tyle, że
     ma tag, jest kandydatem bez danych i musi przejść (polityka `review`).
     """
+    from app.services.conversation_facts import adjust_known_skills
+
     structured = canonical_skill_names(getattr(candidate, "skills", None))
     extracted = getattr(candidate, "cv_extracted_data", None)
     if getattr(candidate, "skills_manually_curated", False) or (
         isinstance(extracted, dict) and extracted.get("_manual_override_skills")
     ):
-        return set(structured)
+        return adjust_known_skills(candidate, set(structured), curated=True)
     cv_skills = _skills_from_cv_extracted(candidate)
     if not cv_skills:
         cv_skills = _skills_from_raw_cv(candidate)
-    return set(
-        structured
-        + canonical_skill_names(getattr(candidate, "verified_tech", None))
-        + canonical_skill_names(cv_skills)
+    return adjust_known_skills(
+        candidate,
+        set(
+            structured
+            + canonical_skill_names(getattr(candidate, "verified_tech", None))
+            + canonical_skill_names(cv_skills)
+        ),
+        curated=False,
     )
 
 
@@ -1175,15 +1190,20 @@ def _canon_skill(s: str) -> str:
     return canon
 
 
-def skill_present(required: str, candidate_skills) -> bool:
+def skill_present(required: str, candidate_skills, *, relations: bool = True) -> bool:
     """True if a required skill is present among the candidate's skills, using
-    exact match plus tolerant canonicalization for common name variants."""
+    exact match plus tolerant canonicalization for common name variants.
+    ``relations=False`` skips IT-knowledge relations (direct evidence only)."""
     from app.services.requirement_contract import alternatives
 
     options = alternatives(required)
     if len(options) > 1:
         return any(
-            skill_present(ALIAS_MAP.get(option.lower(), option), candidate_skills)
+            skill_present(
+                ALIAS_MAP.get(option.lower(), option),
+                candidate_skills,
+                relations=relations,
+            )
             for option in options
         )
     if required in candidate_skills:
@@ -1191,7 +1211,9 @@ def skill_present(required: str, candidate_skills) -> bool:
     from app.services.skill_normalize import implied_forms
 
     wanted = {_canon_skill(required)}
-    wanted.update(_canon_skill(form) for form in implied_forms(required))
+    wanted.update(
+        _canon_skill(form) for form in implied_forms(required, relations=relations)
+    )
     return any(_canon_skill(c) in wanted for c in candidate_skills)
 
 

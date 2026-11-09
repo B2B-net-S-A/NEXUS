@@ -473,8 +473,8 @@ export function PersonWorkbenchTabs({
       case "interviews":
         return (
           <>
-            {/* D6: przy rozmowach po lewej CV i pytania, które ten klient
-                zadawał poprzednim kandydatom. */}
+            {/* D6: przy rozmowach po lewej CV i pytania zadane poprzednim
+                kandydatom w tej rekrutacji. */}
             <PersonSidePreview
               candidateId={candidateId}
               jobId={jobId}

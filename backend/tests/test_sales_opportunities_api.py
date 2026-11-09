@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
 from app.core.database import AsyncSessionLocal
-from app.models.sales import SalesContact
+from app.models.sales import SalesContact, SalesOpportunity
 from tests.test_sales_companies_api import _headers, _user
 
 COMPANIES = "/api/sales/companies"
@@ -236,3 +237,97 @@ async def test_editing_without_breakdown_keeps_the_value(app_client) -> None:
         )
     ).json()
     assert Decimal(recomputed["value"]) == Decimal("30000")
+
+
+async def _list(app_client, user, **params) -> set[int]:
+    resp = await app_client.get(URL, params=params, headers=_headers(user))
+    assert resp.status_code == 200, resp.text
+    return {item["id"] for item in resp.json()["items"]}
+
+
+async def _opportunity_id(app_client, user, company_id: int, **fields) -> int:
+    resp = await app_client.post(
+        URL,
+        json={"company_id": company_id, "title": "Szansa", **fields},
+        headers=_headers(user),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_search_finds_opportunity_by_company_nip_only_for_digits(
+    app_client,
+) -> None:
+    rep = await _user("sales_edit")
+    nip = str(uuid.uuid4().int)[:10]
+    company = await app_client.post(
+        COMPANIES,
+        json={"name": f"Firma NIP {uuid.uuid4().hex[:8]}", "nip": nip},
+        headers=_headers(rep),
+    )
+    assert company.status_code == 201, company.text
+    opp = await _opportunity_id(app_client, rep, company.json()["id"])
+
+    assert await _list(app_client, rep, q=nip) == {opp}
+    # Z myślnikami, jak na fakturze.
+    assert await _list(app_client, rep, q=f"{nip[:3]}-{nip[3:6]}-{nip[6:]}") == {opp}
+    # Fraza z literami nie szuka po cyfrach NIP-u, bo „10CLOUDS” znajdowałoby „10”.
+    assert opp not in await _list(app_client, rep, q=f"{nip[:4]}X")
+
+
+@pytest.mark.asyncio
+async def test_filters_by_model_and_created_day_in_company_calendar(app_client) -> None:
+    rep = await _user("sales_edit")
+    company_id = await _company(app_client, rep)
+    core = await _opportunity_id(
+        app_client, rep, company_id, service_line="core_solutions"
+    )
+    leasing = await _opportunity_id(
+        app_client, rep, company_id, service_line="bodyleasing"
+    )
+    # 23:30 UTC 31.12 to już 01.01 w Warszawie.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(SalesOpportunity, core)
+        row.created_at = datetime(2025, 12, 31, 23, 30, tzinfo=timezone.utc)
+        row = await db.get(SalesOpportunity, leasing)
+        row.created_at = datetime(2025, 12, 31, 22, 30, tzinfo=timezone.utc)
+        await db.commit()
+
+    scope = {"company_id": company_id}
+    assert await _list(app_client, rep, service_line="core_solutions", **scope) == {
+        core
+    }
+    assert await _list(app_client, rep, created_from="2026-01-01", **scope) == {core}
+    assert await _list(app_client, rep, created_to="2025-12-31", **scope) == {leasing}
+    assert (
+        await _list(
+            app_client, rep, created_from="2026-01-02", created_to="2026-01-03", **scope
+        )
+        == set()
+    )
+    bad = await app_client.get(
+        URL, params={"service_line": "nieznany"}, headers=_headers(rep)
+    )
+    assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_offers_only_lists_opportunities_on_the_offer_stage(app_client) -> None:
+    rep = await _user("sales_edit")
+    company_id = await _company(app_client, rep)
+    stages = await _stages(app_client, rep)
+    lead = await _opportunity_id(app_client, rep, company_id)
+    sent = await _opportunity_id(app_client, rep, company_id)
+    moved = await app_client.post(
+        f"{URL}/{sent}/move",
+        json={"stage_id": stages["offer-sent"]},
+        headers=_headers(rep),
+    )
+    assert moved.status_code == 200, moved.text
+
+    found = await _list(
+        app_client, rep, company_id=company_id, offers_only="true", limit=2000
+    )
+    assert found == {sent}
+    assert lead in await _list(app_client, rep, company_id=company_id)

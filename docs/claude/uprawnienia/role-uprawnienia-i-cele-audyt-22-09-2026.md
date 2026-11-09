@@ -40,7 +40,7 @@ Reguły, które łatwo cofnąć:
 - **Wyścig miesięczny (1500 zł)**: weryfikacje/dzień i precyzja czytane z celów
   KPI; minimum placementów = `insights_scoring_config.monthly_race_min_placements`
   (2, świadomie wyżej niż cel).
-- **KPI rozmów milczy przy `CLOUDTALK_ENABLED=false`.** Raport PowerCalling
+- **KPI rozmów milczy bez telefonii (`kpi_catalog.TELEPHONY_AVAILABLE`, CloudTalk usunięty 08.11.2026).** Raport PowerCalling
   11:45 i `GET /api/reports/power-calling` usunięte 23.09.2026 (do 22.09 HoR
   dostawał codziennie tabelę „0/15 ❌"); typ `powercalling_kpi` zostaje dla
   historycznych powiadomień.

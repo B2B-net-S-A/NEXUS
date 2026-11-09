@@ -7,6 +7,16 @@ export const PAGE_KINDS = Object.freeze({
   UNSUPPORTED: "unsupported",
 });
 
+/** Projekt Recruitera z adresu („hire/555”); poza projektem wspólny kontekst pracy. */
+export function workContext(url) {
+  try {
+    const m = new URL(url).pathname.match(/^\/talent\/hire\/([^/]+)/);
+    return m ? `hire/${m[1]}` : "global";
+  } catch {
+    return "global";
+  }
+}
+
 /**
  * @param {string | undefined} url
  * @returns {{kind: string, source?: string, key?: string}}
@@ -25,14 +35,15 @@ export function detectPage(url) {
   const inMatch = p.match(/^\/in\/([^/]+)/);
   if (inMatch) return { kind: PAGE_KINDS.PROFILE, key: `in/${inMatch[1].toLowerCase()}` };
 
-  if (/^\/talent\/profile\/[^/]+/.test(p) || /^\/talent\/hire\/[^/]+\/.*\/profile\/[^/]+/.test(p)) {
+  if (/^\/talent\/(profile|search\/profile)\/[^/]+/.test(p) || /^\/talent\/hire\/[^/]+\/.*\/profile\/[^/]+/.test(p)) {
     const id = p.match(/\/profile\/([^/]+)/)[1];
     return { kind: PAGE_KINDS.RECRUITER_PROFILE, key: `talent/${id}` };
   }
   if (/^\/search\/results\/people\/?/.test(p)) {
     return { kind: PAGE_KINDS.SEARCH_RESULTS, source: "search", key: `${p}${u.search}` };
   }
-  if (/^\/talent\/hire\/[^/]+\/discover\/recruiterSearch/.test(p)) {
+  // /talent/search = główna wyszukiwarka Recruitera (pole na górze każdej strony).
+  if (/^\/talent\/search\/?$/.test(p) || /^\/talent\/hire\/[^/]+\/discover\/recruiterSearch/.test(p)) {
     return { kind: PAGE_KINDS.SEARCH_RESULTS, source: "recruiter_search", key: `${p}${u.search}` };
   }
   if (/^\/talent\/hire\/[^/]+\/manage(\/|$)/.test(p)) {

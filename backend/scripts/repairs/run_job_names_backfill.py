@@ -1,0 +1,27 @@
+"""Jednorazowa naprawa `job-names-backfill`, do 08.11.2026 krok w `entrypoint.sh`.
+
+Znacznik w `app_settings` na produkcji: `job_names_backfill_0380` (2026-09-25).
+Drugi przebieg sam kończy się na znaczniku. Uruchomienie: `python -m scripts.repairs.run_job_names_backfill`.
+"""
+# Trzy nazwy rekrutacji (0380, 25.09.2026) — jednorazowo: tytuł dla rekrutera
+# (składany z Championa, a bez niego z tytułu i must-have) i numer u klienta
+# (tylko jednoznaczny ZOB z tytułu albo numeru) dla istniejących rekrutacji.
+# Reguła jest w Pythonie: `app/services/job_working_title.py`. Rusza wyłącznie
+# puste pola; marker w `app_settings` + advisory lock → drugi start kończy się
+# od razu. Log: same liczby.
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_working_title import fill_missing_job_names
+
+async def fill():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await fill_missing_job_names(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"job names backfill: {receipt or 'nothing to do'}")
+
+asyncio.run(fill())

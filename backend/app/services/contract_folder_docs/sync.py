@@ -27,6 +27,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.process_lock import cross_process_lock
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_doc_sharepoint import ContractDocSpItem
@@ -113,7 +114,9 @@ async def run_sync(db: AsyncSession) -> Optional[SyncStats]:
     folderu albo pierwszego pobrania — nie ma od czego zacząć."""
     if _SYNC_LOCK.locked():
         return None
-    async with _SYNC_LOCK:
+    async with _SYNC_LOCK, cross_process_lock("contract_folder_docs") as owned:
+        if not owned:
+            return None
         return await _run_sync_locked(db)
 
 

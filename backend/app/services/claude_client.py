@@ -184,19 +184,21 @@ def _apply_thinking_default(kwargs: dict[str, Any]) -> None:
         kwargs.pop("thinking")
 
 
-def _apply_system_cache(kwargs: dict[str, Any]) -> None:
+def _apply_system_cache(kwargs: dict[str, Any], ttl: str | None = None) -> None:
     """Oznacz prompt systemowy do cache'owania (`cache_control: ephemeral`).
 
     Statyczne instrukcje bywają dłuższe niż dane, a płaci się za nie przy
-    każdym wywołaniu. Do tej pory robił to wyłącznie generator CV.
+    każdym wywołaniu. `ttl="1h"` kosztuje 2× wejścia zamiast 1,25× przy zapisie,
+    więc ma sens tylko przy odstępach 5–60 minut między wywołaniami.
     """
     system = kwargs.get("system")
     if isinstance(system, str) and system.strip():
+        cache_control = {"type": "ephemeral", **({"ttl": ttl} if ttl else {})}
         kwargs["system"] = [
             {
                 "type": "text",
                 "text": system,
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": cache_control,
             }
         ]
 
@@ -218,6 +220,13 @@ def _supports_sampling(model: str) -> bool:
 def _sdk_request_kwargs(call_kwargs: dict[str, Any], *, model: str) -> dict[str, Any]:
     """Copy caller arguments; preserve supported settings and unrelated body keys."""
     sdk_kwargs = {k: v for k, v in call_kwargs.items() if k not in _SAMPLING_PARAMS}
+    # Sonnet 5.5 odrzuca `disabled` kodem 400, a `between_tools` przyjmuje tylko
+    # on. Wołający zostają przy `disabled`, a tu tłumaczymy to per model, także
+    # przy zejściu na fallback.
+    if model.startswith("claude-sonnet-5-5") and sdk_kwargs.get("thinking") == {
+        "type": "disabled"
+    }:
+        sdk_kwargs["thinking"] = {"type": "between_tools"}
     extra_body = dict(call_kwargs.get("extra_body") or {})
     if _supports_sampling(model):
         extra_body = {
@@ -255,6 +264,16 @@ def _record_health(
         pass
 
 
+def record_batch_message_usage(message: Any, *, model: str) -> None:
+    """Dolicz tokeny odpowiedzi z Message Batches API do aktywnej operacji AI.
+
+    Paczka nie przechodzi przez `call_claude`, więc ta sama telemetria
+    (licznik operacji, `ai_provider_calls` z wyceną −50%) idzie tędy.
+    Wołać wewnątrz `ai_feature(...)`.
+    """
+    _record_tokens(message, model=model, batch=True)
+
+
 def _record_tokens(
     message: Any,
     *,
@@ -262,6 +281,7 @@ def _record_tokens(
     latency_ms: int = 0,
     inference_geo: str = "global",
     standard_pricing: bool = True,
+    batch: bool = False,
 ) -> None:
     """Dolicz tokeny udanego wywołania do zadeklarowanej operacji (nigdy nie rzuca).
 
@@ -288,6 +308,7 @@ def _record_tokens(
                 latency_ms=latency_ms,
                 inference_geo=inference_geo,
                 standard_pricing=standard_pricing,
+                batch=batch,
             )
             if not persist_response(event):
                 context.pending_responses.append(event)
@@ -535,6 +556,7 @@ def call_claude(
     max_retries: int | None = None,
     fallback_models: Sequence[str] | None = None,
     cache_system: bool = False,
+    cache_system_ttl: str | None = None,
     raise_on_truncation: bool = False,
     stream_response: bool = False,
     total_timeout: float | None = None,
@@ -565,6 +587,7 @@ def call_claude(
             na inną rodzinę ratuje generację, zamiast wywalać ją w całości.
             Błąd 4xx nie kaskaduje — każdy model odrzuciłby go tak samo.
         cache_system: oznacz prompt systemowy do cache'owania.
+        cache_system_ttl: czas życia tego cache'u, np. ``"1h"``; domyślnie 5 minut.
         raise_on_truncation: zamień ``stop_reason=max_tokens`` w
             ``ClaudeTruncated``. Domyślnie ``False``, bo trzy ścieżki mają
             własną naprawę uciętego JSON-a — patrz `_call_one_model`.
@@ -582,7 +605,7 @@ def call_claude(
 
     _apply_thinking_default(kwargs)
     if cache_system:
-        _apply_system_cache(kwargs)
+        _apply_system_cache(kwargs, cache_system_ttl)
 
     # max_retries=0 — własna polityka SDK jest wyłączona, żeby nie nakładała
     # się na backoff niżej; jawny timeout ucina zawieszoną próbę.

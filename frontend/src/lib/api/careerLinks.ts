@@ -171,6 +171,8 @@ export interface CareerLinkState {
 
 /** Lejek linku w oknie (etap 4 linków). `visits` = od początku istnienia linku. */
 export interface LinkResultCounts {
+  /** W wybranym okresie, z dziennych wejść; `null` = od początku. */
+  visits_in_period?: number | null;
   visits: number;
   applications: number;
   new_candidates: number;
@@ -196,12 +198,52 @@ export interface LinkResultRow extends LinkResultCounts {
 export interface LinkResults {
   /** `null` = od początku. */
   days: number | null;
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from?: string | null;
   totals: LinkResultCounts;
   links: LinkResultRow[];
 }
 
 /** 30, 90 albo 0 (= od początku). */
 export type LinkResultsPeriod = 30 | 90 | 0;
+
+/** Link rekrutacji w zespole: czyj, skąd się wziął i co przyniósł. */
+export interface JobTeamLink {
+  owner_id: number;
+  owner_name: string;
+  slug: string | null;
+  label: string | null;
+  created_at: string;
+  visits: number;
+  applications: number;
+  state: "active" | "expired" | "revoked";
+}
+
+/** Jedno zgłoszenie z linku osoby: kto, z którego linku i gdzie jest teraz. */
+export interface LinkPerson {
+  candidate_id: number;
+  full_name: string;
+  applied_at: string;
+  was_duplicate: boolean;
+  kind: "job" | "recruiter";
+  slug: string | null;
+  job_id: number | null;
+  job_title: string | null;
+  current_stage: string | null;
+  current_job_id: number | null;
+  current_job_title: string | null;
+  screening_status: string | null;
+  screening_outcome: string | null;
+  in_my_people: boolean;
+}
+
+export interface LinkPeople {
+  /** `null` = od początku. */
+  days: number | null;
+  total: number;
+  truncated: boolean;
+  people: LinkPerson[];
+}
 
 export interface SlugAvailability {
   available: boolean;
@@ -228,6 +270,10 @@ export const shareableJobQueryKey = (jobId: number) =>
   ["career-share", "job", jobId] as const;
 export const linkResultsQueryKey = (days: LinkResultsPeriod) =>
   ["career-link", "results", days] as const;
+export const linkPeopleQueryKey = (days: LinkResultsPeriod) =>
+  ["career-link", "people", days] as const;
+export const jobTeamLinksQueryKey = (jobId: number) =>
+  ["career-link", "job-team", jobId] as const;
 export const slugAvailabilityQueryKey = (slug: string) =>
   ["career-link", "slug-available", slug] as const;
 
@@ -319,6 +365,16 @@ export const careerLinksApi = {
       status: typeof d.status === "string" ? d.status : undefined,
     };
   },
+  getLinkPeople: async (days: LinkResultsPeriod): Promise<LinkPeople> => {
+    const res = await api.get("/api/me/career-link/people", { params: { days } });
+    return res.data as LinkPeople;
+  },
+
+  getJobTeamLinks: async (jobId: number): Promise<JobTeamLink[]> => {
+    const res = await api.get(`/api/jobs/${jobId}/link-results`);
+    return res.data as JobTeamLink[];
+  },
+
   getLinkResults: async (days: LinkResultsPeriod): Promise<LinkResults> => {
     const res = await api.get("/api/me/career-link/results", { params: { days } });
     return res.data as LinkResults;
@@ -473,6 +529,22 @@ export function useLinkResults(enabled: boolean, days: LinkResultsPeriod) {
     queryKey: linkResultsQueryKey(days),
     queryFn: () => careerLinksApi.getLinkResults(days),
     enabled,
+  });
+}
+
+export function useLinkPeople(enabled: boolean, days: LinkResultsPeriod) {
+  return useQuery({
+    queryKey: linkPeopleQueryKey(days),
+    queryFn: () => careerLinksApi.getLinkPeople(days),
+    enabled,
+  });
+}
+
+export function useJobTeamLinks(enabled: boolean, jobId: number | null) {
+  return useQuery({
+    queryKey: jobTeamLinksQueryKey(jobId ?? 0),
+    queryFn: () => careerLinksApi.getJobTeamLinks(jobId as number),
+    enabled: enabled && jobId != null,
   });
 }
 

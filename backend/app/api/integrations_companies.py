@@ -65,38 +65,38 @@ pretending to be complete.
 
 import logging
 import re
+from collections.abc import Sequence
+from datetime import date
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import String, and_, bindparam, func, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
-# Reused deliberately: duplicating the JSONB predicates would create a second
-# source of truth for tricky SQL that has already been debugged once (see the
-# `end IS NULL` vs `experience[0]` note in candidates.py).
-from app.api.candidates import (
-    _current_company_predicate,
-    _past_company_predicate,
-)
 from app.api.oauth_token import ClientPrincipal, require_scope
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.core.database import get_db
+from app.core.scheduling import business_date, business_today
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.client_directory import ClientAlias
 from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
+from app.services.candidate_added_date import added_to_base
 from app.services.contract_service import placed_contract_clause
 from app.services.company_names import (
     entry_says_current as _entry_says_current,
     normalize_company_name,
 )
+from app.services.company_people_rank import cv_is_stale, is_decision_role
 from app.services.experience_end import is_current_end
+from app.services.polish_ilike import contains_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,14 @@ class MatchedPerson(BaseModel):
     phone: Optional[str] = None
     linkedin: Optional[str] = None
     profile_url: Optional[str] = None
+    # Pola panelu Sprzedaży (P8). CRM ich nie dostaje: ``_CRM_EXCLUDE`` niżej.
+    added_at: Optional[date] = None
+    decision_role: bool = False
+    cv_stale: bool = False
+
+
+# Kontrakt API dla CRM zostaje taki, jak był.
+_CRM_EXCLUDE = {"people": {"__all__": {"added_at", "decision_role", "cv_stale"}}}
 
 
 class MatchedClient(BaseModel):
@@ -239,7 +247,34 @@ def _candidate_columns():
         Candidate.linkedin_current_company,
         Candidate.linkedin_current_title,
         Candidate.linkedin_current_started_at,
+        Candidate.created_at,
+        Candidate.source_created_at,
     )
+
+
+def _company_prefilter(names: list[str]):
+    """Kandydaci z którąś z nazw w LinkedInie albo w dowolnym wpisie CV.
+
+    Jeden ``LIKE ANY`` na wszystkie nazwy, bo każda nazwa jako osobny ``EXISTS``
+    to osobne rozwijanie JSONB: 14 wariantów trwało 38,2 s przy budżecie 8 s,
+    ``LIKE ANY`` 1,08 s (kopia produkcji, 09.11.2026). To zbiór tych samych wpisów
+    co „obecny” LUB „przeszły” razem. O relacji decyduje ``_match_experience``.
+    """
+    patterns = [
+        contains_pattern(name.lower())
+        for name in dict.fromkeys(n.strip() for n in names)
+        if name
+    ]
+    return text(
+        "(lower(coalesce(candidates.linkedin_current_company, '')) LIKE ANY(:names) "
+        "OR EXISTS ("
+        "SELECT 1 FROM jsonb_array_elements("
+        "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
+        "THEN candidates.experience ELSE '[]'::jsonb END"
+        ") AS e(elem) "
+        "WHERE lower(coalesce(elem->>'company', '')) LIKE ANY(:names)"
+        "))"
+    ).bindparams(bindparam("names", value=patterns, type_=ARRAY(String)))
 
 
 def _experience_entries(candidate: Candidate) -> list[dict[str, Any]]:
@@ -333,18 +368,24 @@ def _to_person(
     title = None
     if entry is not None:
         title = entry.get("role") or entry.get("title") or None
+    title = title or candidate.linkedin_current_title
+    added = added_to_base(candidate.created_at, candidate.source_created_at, None).at
+    added_at = business_date(added) if added is not None else None
     return MatchedPerson(
         candidate_id=candidate.id,
         name=candidate.name,
         lastname=candidate.lastname,
         relationship=relationship,
-        title=title or candidate.linkedin_current_title,
+        title=title,
         company_matched=(entry or {}).get("company"),
         period=period,
         email=candidate.email,
         phone=candidate.phone,
         linkedin=candidate.linkedin,
         profile_url=_profile_url(candidate.id),
+        added_at=added_at,
+        decision_role=is_decision_role(title),
+        cv_stale=cv_is_stale(added_at, business_today()),
     )
 
 
@@ -479,8 +520,28 @@ async def _client_known_names(db: AsyncSession, client_id: int) -> list[str]:
     return [label for label in (*row, *aliases) if label]
 
 
+async def _client_by_id(db: AsyncSession, client_id: int) -> Optional[MatchedClient]:
+    """Klient z ręcznego powiązania karty; scalony albo usunięty już się nie liczy."""
+    row = (
+        await db.execute(
+            select(Client.id, Client.name, Client.display_name).where(
+                Client.id == client_id,
+                Client.merged_into_client_id.is_(None),
+                Client.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    return MatchedClient(id=row.id, name=row.display_name or row.name) if row else None
+
+
 async def lookup_company_people(
-    db: AsyncSession, payload: CompanyPeopleRequest, *, limit: Optional[int] = None
+    db: AsyncSession,
+    payload: CompanyPeopleRequest,
+    *,
+    limit: Optional[int] = None,
+    extra_names: Sequence[str] = (),
+    priority_order: bool = False,
+    linked_client_id: Optional[int] = None,
 ) -> CompanyPeopleResponse:
     """Osoby z bazy przy firmie — wspólne dla CRM (OAuth) i Sprzedaży w NEXUSIE.
 
@@ -488,8 +549,13 @@ async def lookup_company_people(
     ``/companies/people``; wołający decyduje o dopisaniu dat w tle.
     ``limit`` ponad ``payload.limit`` jest dla wewnętrznych wołających (lista
     wszystkich osób „bez dat” do uzupełnienia), nie dla API.
+
+    Trzy dodatki dla Sprzedaży, celowo poza ciałem żądania CRM:
+    ``extra_names`` to nazwy dołączone na karcie firmy (poza limitem 10 nazw),
+    ``priority_order`` układa grupy od ról decyzyjnych i najświeżej dodanych,
+    ``linked_client_id`` to ręczne powiązanie, które ma pierwszeństwo przed nazwą.
     """
-    raw_names = [n.strip() for n in payload.names if n and n.strip()]
+    raw_names = [n.strip() for n in (*payload.names, *extra_names) if n and n.strip()]
     if not raw_names:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -516,6 +582,8 @@ async def lookup_company_people(
             canonical_by_raw=canonical_by_raw,
             canonical_names=canonical_names,
             limit=limit or payload.limit,
+            priority_order=priority_order,
+            linked_client_id=linked_client_id,
         )
     except DBAPIError as exc:
         if not _is_statement_timeout(exc):
@@ -539,6 +607,7 @@ async def lookup_company_people(
 @router.post(
     "/companies/people",
     response_model=CompanyPeopleResponse,
+    response_model_exclude=_CRM_EXCLUDE,
     summary="People from the NEXUS base connected to a company",
 )
 # Every call scans candidates through the JSONB predicates, so the scope check
@@ -610,6 +679,8 @@ async def _lookup_company_people(
     canonical_by_raw: dict[str, str],
     canonical_names: set[str],
     limit: int,
+    priority_order: bool = False,
+    linked_client_id: Optional[int] = None,
 ) -> CompanyPeopleResponse:
     """The bounded lookup itself — every query below runs under the timeout."""
     # Transaction-local: resets on commit/rollback, never leaks to the pool.
@@ -617,7 +688,11 @@ async def _lookup_company_people(
         select(func.set_config("statement_timeout", str(_STATEMENT_TIMEOUT_MS), True))
     )
 
-    client = await _resolve_client(db, canonical_names, _normalize_nip(payload.nip))
+    client = None
+    if linked_client_id is not None:
+        client = await _client_by_id(db, linked_client_id)
+    if client is None:
+        client = await _resolve_client(db, canonical_names, _normalize_nip(payload.nip))
     capped = False
 
     # A resolved client widens the CV match to all its names: people who list
@@ -700,12 +775,7 @@ async def _lookup_company_people(
             await db.execute(
                 select(Candidate)
                 .options(_candidate_columns())
-                .where(
-                    or_(
-                        _current_company_predicate(name_list),
-                        _past_company_predicate(name_list),
-                    )
-                )
+                .where(_company_prefilter(name_list))
                 .order_by(Candidate.id)
                 .limit(_PREFILTER_ROW_CAP + 1)
             )
@@ -768,7 +838,22 @@ async def _lookup_company_people(
             reported.add(candidate.id)
 
     order = {"via_us": 0, "current": 1, "past": 2, "unknown": 3}
-    people.sort(key=lambda p: (order[p.relationship], p.lastname or "", p.name or ""))
+    if priority_order:
+        # Przed cięciem do `limit`, żeby rola decyzyjna z końca alfabetu nie odpadła.
+        people.sort(
+            key=lambda p: (
+                order[p.relationship],
+                not p.decision_role,
+                p.added_at is None,
+                -(p.added_at.toordinal() if p.added_at else 0),
+                p.lastname or "",
+                p.name or "",
+            )
+        )
+    else:
+        people.sort(
+            key=lambda p: (order[p.relationship], p.lastname or "", p.name or "")
+        )
 
     truncated = capped or len(people) > limit
     return CompanyPeopleResponse(

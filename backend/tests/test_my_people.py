@@ -443,7 +443,6 @@ async def test_summary_counts_unseen_matches_and_seen_clears_them(app_client):
     }
     body = (await app_client.get("/api/my-people/summary", headers=headers)).json()
     assert body["new_matches"] == 1
-    assert body["jobs_with_matches"] == 1
     assert body["latest_matches"][0]["job_id"] == job_id
 
     resp = await app_client.post(
@@ -452,6 +451,82 @@ async def test_summary_counts_unseen_matches_and_seen_clears_them(app_client):
     assert resp.json() == {"updated": 1}
     body = (await app_client.get("/api/my-people/summary", headers=headers)).json()
     assert body["new_matches"] == 0
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_summary_counts_recent_recruitments_from_threshold(app_client):
+    """Licznik w pasku: rekrutacje z doby od progu, nie suma dopasowań (U6)."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+    from app.models.my_people import MyPeopleJobMatch
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        me = await _user(db)
+        two_people, below, stale, seen = [await _job(db) for _ in range(4)]
+        first, second = await _candidate(db), await _candidate(db)
+        rows = [
+            (two_people, first, 81, now - timedelta(hours=2), None),
+            (two_people, second, 90, now - timedelta(hours=3), None),
+            (below, first, 69.5, now - timedelta(hours=2), None),
+            (stale, first, 95, now - timedelta(hours=25), None),
+            (seen, first, 95, now - timedelta(hours=1), now),
+        ]
+        for job, cand, score, created, seen_at in rows:
+            db.add(
+                MyPeopleJobMatch(
+                    user_id=me.id,
+                    job_id=job.id,
+                    candidate_id=cand.id,
+                    score=score,
+                    created_at=created,
+                    seen_at=seen_at,
+                )
+            )
+        await db.commit()
+        uid = me.id
+        two_people_id = two_people.id
+
+    headers = {
+        "Authorization": f"Bearer {create_access_token(subject=uid, role='recruiter')}"
+    }
+    body = (await app_client.get("/api/my-people/summary", headers=headers)).json()
+    assert body["new_matches"] == 1
+    assert {m["job_id"] for m in body["latest_matches"]} == {two_people_id}
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_for_job_returns_hourly_budget(app_client):
+    """Panel porównuje stawkę osoby z budżetem rekrutacji (07.11.2026)."""
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+
+    async with AsyncSessionLocal() as db:
+        me = await _user(db)
+        job = await _job(db)
+        job.rate_budget_hourly = Decimal("70.00")
+        await db.commit()
+        uid, job_id = me.id, job.id
+
+    headers = {
+        "Authorization": f"Bearer {create_access_token(subject=uid, role='recruiter')}"
+    }
+    body = (
+        await app_client.get(f"/api/my-people/for-job/{job_id}", headers=headers)
+    ).json()
+    assert body["rate_budget_hourly"] == 70.0
+
+
+def test_for_job_response_has_budget_field():
+    from app.api.my_people import ForJobResponse
+
+    assert "rate_budget_hourly" in ForJobResponse.model_fields
+    empty = ForJobResponse(job_id=1, job_title="X", rows=[], in_job_count=0)
+    assert empty.rate_budget_hourly is None
 
 
 def test_router_is_mounted():

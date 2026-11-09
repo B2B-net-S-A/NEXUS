@@ -23,7 +23,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { canCustomizeBoardPanel } from "@/lib/dashboard-panels";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
-import { getUserRoles, type User, type UserRole } from "@/store/auth";
+import { getUserRoles, hasRole, type User, type UserRole } from "@/store/auth";
 
 export type TileCategory =
   | "my_work"
@@ -390,6 +390,27 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
       ),
     ),
   },
+  client_response: {
+    type: "client_response",
+    label: "Odpowiedź klienta",
+    description:
+      "Procent CV z odpowiedzią klienta w 7 dniach roboczych, czas do pierwszego CV i tabela: który klient nie odpowiada.",
+    category: "team",
+    defaultSize: { w: 12, h: 6 },
+    minSize: { w: 6, h: 4 },
+    ownChrome: false,
+    // Lustro bramek `GET /api/dashboard/v2/client-response`: rola i jedna z sekcji.
+    availability: both(
+      (user) =>
+        hasSectionAccess(user, "delivery") || hasSectionAccess(user, "insights")
+          ? { ok: true }
+          : { ok: false, reason: "Wymaga dostępu do Delivery albo Insights" },
+      needsRole(
+        ["admin", "head_of_recruitment", "delivery_lead"],
+        "Dla Head of Recruitment, Delivery Leadów i administratora",
+      ),
+    ),
+  },
   team_signals: {
     type: "team_signals",
     label: "Gdzie stoi",
@@ -469,7 +490,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   },
   hr_my_time: {
     type: "hr_my_time",
-    label: "Mój czas",
+    label: "Moja współpraca",
     description: "Ile urlopu zostało, najbliższy urlop i godziny wpisane w tym miesiącu.",
     category: "people",
     defaultSize: { w: 6, h: 3 },
@@ -480,7 +501,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   hr_approvals: {
     type: "hr_approvals",
     label: "Do akceptacji",
-    description: "Wnioski urlopowe i timesheety, które czekają na Twoją decyzję.",
+    description: "Zgłoszenia i raporty godzin do potwierdzenia.",
     category: "people",
     defaultSize: { w: 4, h: 3 },
     minSize: { w: 3, h: 2 },
@@ -895,12 +916,12 @@ export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability 
       if (!open.leave && !open.time) return "hidden";
       return me.has_profile
         ? OK
-        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założą ją Kadry" };
+        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założy ją Administracja współpracy" };
     case "hr_approvals":
       if (!open.leave && !open.time) return "hidden";
       return me.is_admin || me.people_admin || me.timesheets === true || me.is_manager
         ? OK
-        : { ok: false, reason: "Dla koordynatorów i Kadr" };
+        : { ok: false, reason: "Dla koordynatorów i Administracji współpracy" };
     case "equipment_tasks":
       return open.equipment ? OK : "hidden";
     case "care_mine":
@@ -927,9 +948,16 @@ export function templateAvailability(
   if (gate === "hidden") return { ok: false, reason: "Moduł „Ludzi w NEXUSIE” jest wyłączony" };
   if (!gate.ok) return gate;
   if (template.metricSection === "finance") {
-    // Kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”, nie za rolą.
-    // U KOGO konto widzi kwoty (Delivery Lead: u swoich klientów), liczy serwer
-    // przy każdym zapytaniu metryki.
+    // Całą firmę liczy „Wyniki firmy”. Bez niego kwoty ma tylko Delivery Lead,
+    // u swoich klientów (liczy serwer przy każdym zapytaniu metryki) — lustro
+    // `custom_metrics/engine.source_denial`.
+    if (hasPermission(user, "company_results")) return { ok: true };
+    if (!hasRole(user, "delivery_lead")) {
+      return {
+        ok: false,
+        reason: `Wymaga uprawnienia „${permissionLabel("company_results")}”`,
+      };
+    }
     return hasPermission(user, "amounts_view")
       ? { ok: true }
       : {

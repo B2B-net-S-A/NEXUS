@@ -38,6 +38,9 @@ services:
       - postgres
       - -c
       - shared_buffers=2GB
+      # Backendy sesji na gałęziach dzielą ten serwer: 02.11.2026 osiem wyczerpało domyślne 100.
+      - -c
+      - max_connections=200
       - -c
       - work_mem=16MB
       - -c
@@ -110,7 +113,7 @@ services:
     mem_limit: 4g
     env_file:
       - .env.staging.local
-    environment:
+    environment: &backend-environment
       NEXUS_ENV: staging
       # SSH clone uses a new nexus_staging_* DB. The bootstrap/offsite default
       # remains nexus; select the successfully restored DB before starting app.
@@ -145,7 +148,12 @@ services:
       CLOUDTALK_ENABLED: "false"
       AUTENTI_ENABLED: "false"
       JJIT_ENABLED: "false"
+      # JustJoin.IT w oknie „Ogłoszenie” jak na produkcji. Publikacji nie będzie:
+      # `job_portal_worker` stoi, a host portalu jest poza listą wyjścia.
+      PORTAL_JJIT_ENABLED: "true"
       PROXYCURL_ENABLED: "false"
+      # Moduł „Ludzie” widoczny jak na produkcji, pętle zatrzymane wierszem niżej.
+      HR_PROGRAM_ENABLED: "true"
       HR_LOOPS_ENABLED: "false"
       SELF_REGISTRATION_ENABLED: "false"
       PASSWORD_LOGIN_ENABLED: "true"
@@ -153,6 +161,41 @@ services:
       SENTRY_DSN: ""
       SENTRY_ENVIRONMENT: staging
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      NEXUS_PROCESS_ROLE: ${NEXUS_BACKEND_PROCESS_ROLE:-web}
+      # Ranking jak na produkcji, bo wnioski ze stagingu idą do decyzji Artura.
+      # Trzy pierwsze wchodzą do stempla `ranker_version`; bez nich wyniki różniły
+      # się do 22 pkt. Reszta zmienia pulę i kolejność, a stempla nie, więc ich
+      # rozjazdu strażnik `scripts/staging_ranking_parity.py` nie zobaczy.
+      # `MATCH_POOL_SIZE` to ta sama wartość co domyślna w `config.py`; wpis zostaje,
+      # żeby pomiar drugiej puli (`-e MATCH_POOL_SIZE=...`) miał jedno miejsce odniesienia.
+      CHAMPION_MATCH_SIGNALS_ENABLED: ${CHAMPION_MATCH_SIGNALS_ENABLED:-true}
+      CHAMPION_SENIORITY_PENALTY_ENABLED: ${CHAMPION_SENIORITY_PENALTY_ENABLED:-true}
+      SKILL_ALIAS_EXTENDED_ENABLED: ${SKILL_ALIAS_EXTENDED_ENABLED:-true}
+      HYBRID_POOL_ENABLED: ${HYBRID_POOL_ENABLED:-true}
+      KNOWN_PEOPLE_BOOST_ENABLED: ${KNOWN_PEOPLE_BOOST_ENABLED:-true}
+      KEYWORD_SEARCH_FOLDED_FTS: ${KEYWORD_SEARCH_FOLDED_FTS:-true}
+      MATCH_POOL_SIZE: ${MATCH_POOL_SIZE:-2000}
+      # Reszta `_SCORING_CACHE_INPUTS`: wartość z produkcji zapisuje co noc
+      # `scripts/staging/nightly_sync.py` w `.env.staging-flags.local`. Bez tego
+      # pliku obowiązuje wartość domyślna z `config.py`. Przełączniki integracji
+      # wyżej są na sztywno, więc nocna kopia flag ich nie włączy.
+      CHAMPION_AVAILABILITY_FALLBACK_ENABLED:
+      CHAMPION_AVAILABILITY_CONFLICT_ENABLED:
+      AI_SCORING_CONTRACT_V2:
+      AI_SCORING_SKILL_RECENCY:
+      VOYAGE_MODEL:
+      SEMANTIC_CALIBRATION_GAMMA:
+      SCORE_UNKNOWN_NEUTRAL_FRACTION:
+      AI_TEXT_SCHEMA_V2:
+      AI_TEXT_SCHEMA_V3:
+      QDRANT_COLLECTION:
+      SCORE_RENORMALIZE_UNSCORED_LAYERS:
+      CV_PASSAGES_ENABLED:
+      # Listy klientów, też z produkcji i przez ten sam plik: decydują, co widać
+      # na karcie klienta. Bez nich stare zamówienia bez `order_type` są ukryte.
+      MULTI_CONSULTANT_ORDER_CLIENT_IDS:
+      COST_ORDER_CLIENT_IDS:
+      EXTENDED_ORDER_ALERT_CLIENT_IDS:
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:
@@ -167,6 +210,37 @@ services:
       retries: 3
       start_interval: 2s
       start_period: 600s
+    logging: *default-logging
+
+  # Pętle w tle osobno, jak na produkcji (`docs/claude/podstawy/web-i-worker-osobno.md`).
+  # Na stagingu i tak biegną tylko te z `STAGING_ALLOWED_TASKS`.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-staging}
+        BUILT_AT: ${BUILT_AT:-staging}
+    restart: unless-stopped
+    mem_limit: 4g
+    env_file:
+      - .env.staging.local
+    environment:
+      <<: *backend-environment
+      NEXUS_PROCESS_ROLE: worker
+      WEB_CONCURRENCY: "1"
+    volumes:
+      - uploads_data:/tmp/nexus/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      start_period: 720s
     logging: *default-logging
 
   frontend:

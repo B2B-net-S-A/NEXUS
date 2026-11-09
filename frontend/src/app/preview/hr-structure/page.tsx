@@ -75,7 +75,7 @@ const STATE_KEYS = ["tree", "hr-only", "empty", "big"] as const;
 
 const STATES = [
   { key: "tree", label: "Drzewo z pionami" },
-  { key: "hr-only", label: "Kadry bez Płac (bez formy)" },
+  { key: "hr-only", label: "Administracja współpracy bez Rozliczeń (bez formy)" },
   { key: "empty", label: "Bez kartotek" },
   { key: "big", label: "44 osoby bez pionu" },
 ] as const;
@@ -128,7 +128,7 @@ export default function HrStructurePreviewPage() {
     <HrHarnessShell
       client={ready.client}
       title="Ludzie → Katalog: Schemat"
-      note="Dane fikcyjne, bez zapytań. Zmiana przełożonego działa od razu; Microsoft 365 i head pionu tylko podpowiadają."
+      note="Dane fikcyjne, bez zapytań. Zmiana koordynatora działa od razu; Microsoft 365 i head pionu tylko podpowiadają."
       states={STATES}
       current={state}
     >

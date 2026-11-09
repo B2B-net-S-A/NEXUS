@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Users } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -18,6 +18,7 @@ import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { ContactCreateDialog } from "./ContactCreateDialog";
 import { ContactEditDialog } from "./ContactEditDialog";
 
 const PAGE = 50;
@@ -37,6 +38,7 @@ export function ContactsDirectory() {
   const archived = searchParams?.get("archiwum") === "1";
   const offset = Math.max(0, Number(searchParams?.get("od") ?? 0) || 0);
   const [editing, setEditing] = useState<SalesContact | null>(null);
+  const [creating, setCreating] = useState(false);
   const contacts = useSalesContacts(null, q, true, { executives, archived, limit: PAGE, offset });
   const items = contacts.data?.items ?? [];
   const total = contacts.data?.total ?? 0;
@@ -89,6 +91,13 @@ export function ContactsDirectory() {
             </Button>
           </>
         }
+        actions={
+          canEdit ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="mr-1 h-4 w-4" aria-hidden /> Kontakt
+            </Button>
+          ) : null
+        }
         resultCount={contacts.isSuccess ? total : undefined}
       />
       {state === "loading" ? (
@@ -99,7 +108,7 @@ export function ContactsDirectory() {
         <EmptyState
           icon={Users}
           title="Nic nie pasuje do wyszukiwania"
-          description="Zmień wyszukiwanie albo filtry. Kontakty dodajesz w karcie firmy."
+          description="Zmień wyszukiwanie albo filtry."
         />
       ) : (
         <>
@@ -183,6 +192,7 @@ export function ContactsDirectory() {
           )}
         </>
       )}
+      {creating && <ContactCreateDialog onClose={() => setCreating(false)} />}
       {editing && (
         <ContactEditDialog
           contact={editing}

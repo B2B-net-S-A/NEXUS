@@ -26,7 +26,8 @@ export type HrModuleKey =
   | "cases"
   | "equipment"
   | "settlements"
-  | "approvals";
+  | "approvals"
+  | "back_office";
 
 export type EmploymentType = "uop" | "b2b" | "zlecenie";
 export type EmploymentStatus =
@@ -44,6 +45,8 @@ export interface HrConfig {
   modules: Record<HrModuleKey, boolean>;
   /** Moduły otwarte dla tej osoby (admin widzi wszystkie). */
   open_modules: Record<HrModuleKey, boolean>;
+  /** Panel konsultanta włączony: pakiet klienta działa też bez modułu wejścia. */
+  consultant_panel_on?: boolean;
   me: {
     has_profile: boolean;
     employment_status: EmploymentStatus | null;
@@ -62,6 +65,10 @@ export interface HrConfig {
     has_assigned_cases?: boolean;
     /** Head back office — edytuje ścieżkę wejścia „Konsultant u klienta” (O4). */
     back_office_head?: boolean;
+    /** Zespół kolejki back office'u albo kierownik (moduł `back_office`, 02.11.2026). */
+    back_office_member?: boolean;
+    /** Kierownik kolejki: head back office, zastępca, admin. */
+    back_office_lead?: boolean;
     /** Kogo osoba zastępuje dziś (przełożony na urlopie z nią jako zastępcą). */
     covering?: { manager_user_id: number; manager_name: string; until: string; reports: number }[];
   };
@@ -129,6 +136,7 @@ export interface PersonFull extends PersonCard {
   last_working_day: string | null;
   timesheet_required: boolean;
   can_log_overtime: boolean;
+  no_hours_limit?: boolean;
   division?: Division | null;
   /** Uczeń/student na zleceniu bez składek ZUS do `contribution_exempt_until` (D8). */
   student_contribution_exempt?: boolean;
@@ -174,6 +182,7 @@ export interface ProfileFields {
   default_location?: WorkLocation;
   timesheet_required?: boolean;
   can_log_overtime?: boolean;
+  no_hours_limit?: boolean;
   job_title?: string | null;
   department?: string | null;
   phone?: string | null;
@@ -215,13 +224,14 @@ export const HR_MODULE_LABELS: Record<HrModuleKey, string> = {
   people: "Ludzie (katalog i kartoteka)",
   leave: "Urlopy i zastępstwa",
   time: "Mój miesiąc (obecność i godziny)",
-  payroll: "Płace i premie",
+  payroll: "Rozliczenia i premie",
   lifecycle: "Wejście i odejście",
   care: "Opieka nad konsultantami",
   cases: "Sprawy administracja@",
   equipment: "Sprzęt i protokoły",
   settlements: "Rozliczenia zespołu",
   approvals: "Zgody na wydatki i premie poza umową",
+  back_office: "Back office: kolejka spraw zespołów",
 };
 
 /** Klucze zapytań „Ludzi” — wszystkie moduły HR mają wspólny korzeń `["hr"]`. */
@@ -497,6 +507,8 @@ export interface HrNavState {
   people: boolean;
   equipment: boolean;
   care: boolean;
+  /** Moduł `back_office` otwarty: pozycja „Back office” zastępuje „Opiekę”. */
+  backOffice: boolean;
 }
 
 /**
@@ -537,7 +549,9 @@ export function casesInCare(
 }
 
 export function hrNavState(config: HrConfig | undefined, careRole = false): HrNavState {
-  if (!config?.program) return { myTime: false, people: false, equipment: false, care: false };
+  if (!config?.program) {
+    return { myTime: false, people: false, equipment: false, care: false, backOffice: false };
+  }
   const { me, open_modules: open } = config;
   const anyHrRight =
     me.people_admin || me.payroll || me.equipment || me.cases || me.timesheets === true;
@@ -547,6 +561,8 @@ export function hrNavState(config: HrConfig | undefined, careRole = false): HrNa
     equipment: open.equipment && (me.equipment || me.is_admin),
     // Role opieki albo same sprawy administracja@ (`casesInCare`).
     care: open.care && (careRole || casesInCare(config)),
+    // Kolejka tylko dla członka zespołu (serwer: `BackOfficeMember`); reszta zostaje przy „Opiece”.
+    backOffice: open.back_office && me.back_office_member === true,
   };
 }
 

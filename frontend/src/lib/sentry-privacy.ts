@@ -2,7 +2,7 @@ import type { Event, Stacktrace } from '@sentry/nextjs'
 
 const safeTags = new Set(['api_failure', 'api_status', 'api_method', 'api_path', 'operation', 'failure_kind', 'terminal', 'sampling_policy', 'integration', 'job', 'react_error_code'])
 const safeIdentifier = /^[a-zA-Z0-9_./:{} -]{1,180}$/
-const capabilityPath = /(\/(?:cv|sign|apply|engagement|share|share-token|champion-card|champion-share|public\/[\w-]+)\/)[^/]+/gi
+const capabilityPath = /(\/(?:k|cv|sign|apply|engagement|share|share-token|champion-card|champion-share|public\/[\w-]+)\/)[^/]+/gi
 
 /** Keep only React's numeric diagnostic, never decoder URLs or their arguments. */
 export function reactErrorCode(message: unknown): string | undefined {

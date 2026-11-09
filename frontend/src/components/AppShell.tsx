@@ -36,10 +36,16 @@ import type {
   ClientTeamResponse,
 } from "@/lib/api";
 import { useCapability } from "@/hooks/useCapability";
+import { totalsText } from "@/components/clients/invoicing/invoicing-format";
+import { useWaitingForNumber } from "@/lib/api/client-invoicing";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { nipProblem, normalizedNip } from "@/lib/nip";
+import { countPl } from "@/lib/plural-pl";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { editableTagText, structuredTagLabels } from "@/lib/candidate-tags";
+import { formatDeadlineTime } from "@/lib/job-deadline";
 import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
-import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { emailFieldError } from "@/lib/email-field-error";
 import { nameFieldErrors, type NameFieldErrors } from "@/lib/name-field-error";
 import {
@@ -58,6 +64,8 @@ import {
   type CandidateCvPreview,
   type CvFormField,
 } from "@/lib/add-candidate-cv";
+import { ERASED_CANDIDATE_CONFIRM, erasedCandidateMessage } from "@/lib/erased-candidate";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { ExistingCandidateNotice } from "@/components/v2/candidates/ExistingCandidateNotice";
 import { ExistingClientNotice } from "@/components/clients/ExistingClientNotice";
@@ -1007,6 +1015,7 @@ export function AddCandidateModal({
   onCreated?: (candidateId: number, fullName?: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1179,7 +1188,11 @@ export function AddCandidateModal({
    * jako jawne "") i reszta formularza w polu `candidate`. Serwer waliduje
    * całość przed odczytem i zapisem, więc błąd nie zostawia połowy kandydata.
    */
-  const saveFromCv = async (file: File, force: boolean): Promise<number> => {
+  const saveFromCv = async (
+    file: File,
+    force: boolean,
+    confirmErased: boolean,
+  ): Promise<number> => {
     const fd = new FormData();
     fd.append("file", file);
     for (const [key, value] of fromCvFormEntries(fromCvOverrides(form, cvKnown))) {
@@ -1194,8 +1207,9 @@ export function AddCandidateModal({
       ),
     );
     if (Object.keys(extra).length > 0) fd.append("candidate", JSON.stringify(extra));
+    const params = [force && "force=true", confirmErased && "confirm_erased=true"].filter(Boolean);
     const created = await api.post(
-      `/api/candidates/from-cv${force ? "?force=true" : ""}`,
+      `/api/candidates/from-cv${params.length ? `?${params.join("&")}` : ""}`,
       fd,
       // Bez odczytu w pamięci serwera (np. po wdrożeniu) zapis czyta CV modelem.
       { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
@@ -1207,7 +1221,7 @@ export function AddCandidateModal({
   // Ramka dotyczy e-maila, który jest w polu TERAZ — nie wyniku sprzed poprawki.
   const existingNow = currentKey === checkedKey ? existing : null;
 
-  const saveCandidate = async () => {
+  const saveCandidate = async (confirmErased = false) => {
     if (cvReading) { setError("Poczekaj, aż skończymy czytać CV."); return; }
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError(""); setEmailError(null);
@@ -1217,8 +1231,15 @@ export function AddCandidateModal({
       // Ten sam e-mail = ta sama osoba: zamiast zapisu jest ramka z akcjami.
       if (hit) return;
       const createdId = cvFile
-        ? await saveFromCv(cvFile, cvForced)
-        : Number((await api.post("/api/candidates", candidateFormToPayload(form)))?.data?.id);
+        ? await saveFromCv(cvFile, cvForced, confirmErased)
+        : Number(
+            (
+              await api.post(
+                `/api/candidates${confirmErased ? "?confirm_erased=true" : ""}`,
+                candidateFormToPayload(form),
+              )
+            )?.data?.id,
+          );
       const noteSaved = Number.isFinite(createdId)
         ? await saveCandidateFormNote(createdId, form.notes)
         : !form.notes.trim();
@@ -1230,6 +1251,10 @@ export function AddCandidateModal({
       );
       onClose();
     } catch (err: any) {
+      if (erasedCandidateMessage(err)) {
+        if (await askConfirm(ERASED_CANDIDATE_CONFIRM)) await saveCandidate(true);
+        return;
+      }
       const emailMsg = emailFieldError(err);
       const nameMsgs = nameFieldErrors(err);
       const conflictMatches = duplicateMatchesFromConflict(err);
@@ -1400,6 +1425,7 @@ export function AddCandidateModal({
 
   return (
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
+      {confirmDialog}
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {cvUploader}
         {error && <ErrorBanner error={error} />}
@@ -1595,6 +1621,7 @@ interface JobFormData {
   rate_budget_hourly_min: string;
   priority: string;
   deadline: string;
+  deadline_time: string;
   recruiter_id: string;
   // Owner requestu (TAC) + Delivery Lead. Jedyny TAC klienta może być
   // podpowiedziany; przy kilku równorzędnych TAC-ach wybór musi być jawny.
@@ -1631,6 +1658,7 @@ function jobToForm(j: any): JobFormData {
     rate_budget_hourly_min: j.rate_budget_hourly_min ? String(j.rate_budget_hourly_min) : "",
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
+    deadline_time: formatDeadlineTime(j.deadline_time) ?? "",
     // „Poprzedni rekruter” (14.10.2026) nie prowadzi — pole zostaje puste.
     recruiter_id: j.recruiter_id && !ownerIsPrevious(j) ? String(j.recruiter_id) : "",
     tac_id: j.tac_id ? String(j.tac_id) : "",
@@ -1790,7 +1818,23 @@ function JobFormFields({
           onRequestPublish={onRequestPublish}
         />
         <FieldGroup label="Deadline">
-          <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
+          <div className="flex gap-2">
+            <Input
+              type="date"
+              aria-label="Deadline"
+              value={form.deadline}
+              onChange={e => onChange("deadline", e.target.value)}
+              className="w-0 min-w-0 flex-1"
+            />
+            <Input
+              type="time"
+              aria-label="Godzina terminu"
+              disabled={!form.deadline}
+              value={form.deadline ? form.deadline_time : ""}
+              onChange={e => onChange("deadline_time", e.target.value)}
+              className="w-28 shrink-0"
+            />
+          </div>
         </FieldGroup>
       </div>
       <FieldGroup label="Opis">
@@ -2123,6 +2167,9 @@ export function EditJobModal({
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
         rate_budget_hourly_min: form.rate_budget_hourly_min ? Number(form.rate_budget_hourly_min) : null,
         deadline: form.deadline || undefined,
+        // Godzina istnieje tylko przy dacie (422 bez niej). Pusta data w tym
+        // oknie niczego nie czyści (`undefined` wyżej), więc godzina też milczy.
+        ...(form.deadline ? { deadline_time: form.deadline_time || null } : {}),
         // „— bez rekrutera —” przy rekrutacji, która miała rekrutera = jawny
         // `null`: serwer zdejmuje go jak „Zdejmij”. Do 14.10.2026 szło
         // `undefined`, pole wypadało z PATCH-a i rekruter wracał po odświeżeniu.
@@ -2264,11 +2311,13 @@ interface ClientFormData {
   nda_signed: boolean;
   contract_type: string;
   notes: string;
+  nip: string;
+  legal_name: string;
 }
 
 const EMPTY_CLIENT: ClientFormData = {
   name: "", industry: "", website: "", address: "", status: "prospect",
-  nda_signed: false, contract_type: "", notes: "",
+  nda_signed: false, contract_type: "", notes: "", nip: "", legal_name: "",
 };
 
 function clientToForm(c: any): ClientFormData {
@@ -2281,10 +2330,12 @@ function clientToForm(c: any): ClientFormData {
     nda_signed: c.nda_signed ?? false,
     contract_type: c.contract_type ?? "",
     notes: c.notes ?? "",
+    nip: c.nip ?? "",
+    legal_name: c.legal_name ?? "",
   };
 }
 
-function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, showNotes = true }: {
+function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, showNotes = true, showLegal = false, legalSlot }: {
   form: ClientFormData;
   onChange: (k: keyof ClientFormData, v: string) => void;
   onCheckbox: (k: keyof ClientFormData, v: boolean) => void;
@@ -2295,7 +2346,12 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, sho
       podgląd”). Konto bez niego nie dostaje ich z API — puste pole wyglądałoby
       jak brak notatek i kusiło do nadpisania. */
   showNotes?: boolean;
+  /** NIP i nazwa prawna: te same dane prawne co notatki, ale dopiero od zapisu klienta. */
+  showLegal?: boolean;
+  /** Ramka pod numerem (formularz edycji): ile faktur z KSeF czeka na ten NIP. */
+  legalSlot?: React.ReactNode;
 }) {
+  const nipError = form.nip ? nipProblem(form.nip) : null;
   return (
     <>
       <FieldGroup label="Nazwa firmy" required={nameRequired}>
@@ -2326,6 +2382,27 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, sho
       <FieldGroup label="Strona WWW">
         <Input type="url" value={form.website} onChange={e => onChange("website", e.target.value)} placeholder="https://firma.pl" />
       </FieldGroup>
+      {showLegal && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <FieldGroup label="NIP">
+              <Input
+                value={form.nip}
+                onChange={e => onChange("nip", e.target.value)}
+                placeholder="np. 111-111-11-11 albo FI12345678"
+                maxLength={32}
+                inputMode="text"
+                aria-invalid={nipError ? true : undefined}
+              />
+              {nipError && <p role="alert" className="mt-1 text-xs text-destructive">{nipError}</p>}
+            </FieldGroup>
+            <FieldGroup label="Nazwa prawna">
+              <Input value={form.legal_name} onChange={e => onChange("legal_name", e.target.value)} placeholder="Acme Spółka z o.o." maxLength={255} />
+            </FieldGroup>
+          </div>
+          {legalSlot}
+        </div>
+      )}
       <FieldGroup label="Typ kontraktu">
         <Input value={form.contract_type} onChange={e => onChange("contract_type", e.target.value)} placeholder="B2B / Umowa..." />
       </FieldGroup>
@@ -2347,6 +2424,27 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true, sho
         <span className="text-sm text-foreground dark:text-muted-foreground">NDA podpisane</span>
       </label>
     </>
+  );
+}
+
+/** Ramka w formularzu edycji: faktury z KSeF, które dopasują się po zapisaniu tego NIP-u. */
+function KsefWaitingForNip({ clientId, number }: { clientId: number; number: string }) {
+  const debounced = useDebouncedValue(number, 350);
+  const valid = debounced.trim() !== "" && nipProblem(debounced) === null;
+  const waiting = useWaitingForNumber(clientId, normalizedNip(debounced), valid);
+  const result = waiting.data;
+  if (!valid || !result || result.invoices === 0) return null;
+  return (
+    <p className="rounded-md border border-border bg-muted/50 p-3 text-sm text-foreground">
+      <strong className="font-medium">
+        {countPl(result.invoices, "faktura z KSeF czeka", "faktury z KSeF czekają", "faktur z KSeF czeka")} na ten NIP.
+      </strong>{" "}
+      {result.first_date && result.last_date
+        ? `${formatIsoDatePl(result.first_date)}–${formatIsoDatePl(result.last_date)}, `
+        : ""}
+      {totalsText(result.totals)} netto
+      {result.buyer_name ? `, nabywca ${result.buyer_name}` : ""}. Po zapisaniu trafią do tego klienta.
+    </p>
   );
 }
 
@@ -2378,6 +2476,7 @@ export function AddClientModal({
 
   const save = async (acknowledgeDuplicate: boolean) => {
     if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
+    if (nipProblem(form.nip)) { setError(nipProblem(form.nip) ?? ""); return; }
     setSaving(true); setError("");
     try {
       await api.post(
@@ -2391,6 +2490,8 @@ export function AddClientModal({
           nda_signed: form.nda_signed,
           contract_type: form.contract_type || undefined,
           notes: form.notes || undefined,
+          nip: form.nip.trim() ? normalizedNip(form.nip) : undefined,
+          legal_name: form.legal_name.trim() || undefined,
         },
         {
           params: {
@@ -2412,7 +2513,7 @@ export function AddClientModal({
     <Modal title="Dodaj firmę" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
+        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} showLegal />
         {sameName ? (
           <ExistingClientNotice
             clients={sameName}
@@ -2440,6 +2541,8 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
   // — dirty-check decyduje, czy w ogóle wysyłamy display_name.
   const [initialName] = useState<string>(() => clientToForm(client).name);
   const [initialNotes] = useState<string>(() => clientToForm(client).notes);
+  const [initialNip] = useState<string>(() => clientToForm(client).nip);
+  const [initialLegalName] = useState<string>(() => clientToForm(client).legal_name);
   // Odpowiedź bez pola `notes` = projekcja bez danych prawnych klienta.
   const notesVisible = client?.notes !== undefined;
   const [saving, setSaving] = useState(false);
@@ -2466,6 +2569,19 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
       if (notesVisible && form.notes !== initialNotes) {
         payload.notes = form.notes || null;
       }
+      // Tak samo NIP i nazwa prawna: stary wpis tekstowy w polu NIP przejdzie
+      // nietknięty, walidacja rusza dopiero, gdy ktoś go zmieni.
+      if (notesVisible && form.nip !== initialNip) {
+        if (nipProblem(form.nip)) {
+          setError(nipProblem(form.nip) ?? "");
+          setSaving(false);
+          return;
+        }
+        payload.nip = form.nip.trim() ? normalizedNip(form.nip) : null;
+      }
+      if (notesVisible && form.legal_name !== initialLegalName) {
+        payload.legal_name = form.legal_name.trim() || null;
+      }
       // Edycja nazwy pisze do sync-odpornego `display_name` — Traffit nadpisuje
       // `name` przy każdym daily sync, a wyświetlanie i tak robi
       // coalesce(display_name, name). Wysyłamy TYLKO gdy pole faktycznie
@@ -2487,7 +2603,15 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
     <Modal title={`Edytuj: ${client.name}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} showNotes={notesVisible} />
+        <ClientFormFields
+          form={form}
+          onChange={onChange}
+          onCheckbox={onCheckbox}
+          nameRequired={false}
+          showNotes={notesVisible}
+          showLegal={notesVisible}
+          legalSlot={<KsefWaitingForNip clientId={client.id} number={form.nip} />}
+        />
         {/* Reguły CV mają WŁASNĄ tabelę i własny zapis — celowo poza payloadem
             PATCH klienta i poza `ClientFormFields`, który jest współdzielony
             z oknem DODAWANIA klienta. Zakładanie reguł przy tworzeniu firmy

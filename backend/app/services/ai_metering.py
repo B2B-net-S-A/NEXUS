@@ -22,7 +22,7 @@ from sqlalchemy.engine import make_url
 from app.models.ai_metering import AIOperation, AIProviderCall
 
 logger = logging.getLogger(__name__)
-PRICE_VERSION = "multi-provider-2026-09-22"
+PRICE_VERSION = "multi-provider-2026-11-02"
 
 # Cennik wyszukiwarki Anthropic (`web_search_*`): 10 USD / 1000 wyszukiwań.
 WEB_SEARCH_USD_PER_REQUEST = Decimal("0.01")
@@ -39,6 +39,7 @@ WEB_SEARCH_USD_PER_REQUEST = Decimal("0.01")
 #   i zgłasza go w `prompt_tokens_details.cache_write_tokens` — czwórka
 #   (wejście, wyjście, odczyt, zapis). Do 22.09 zapis szedł po stawce wejścia.
 _PRICES = {
+    "claude-sonnet-5-5": (2, 10),
     "claude-sonnet-5": (2, 10),
     "claude-sonnet-4-6": (3, 15),
     "claude-sonnet-4-5": (3, 15),
@@ -48,12 +49,20 @@ _PRICES = {
     "claude-opus-4-5": (5, 25),
     "claude-opus-5": (5, 25),
     "claude-haiku-4-5": (1, 5),
+    # Do 100 tys. tokenów promptu; powyżej 0,50/2,50, czego NEXUS nie wysyła.
+    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50")),
     # https://developers.openai.com/api/docs/models/gpt-6-luna (verified 2026-09-22)
     "gpt-6-luna": (
         Decimal("0.10"),
         Decimal("0.50"),
         Decimal("0.01"),
         Decimal("0.125"),
+    ),
+    "gpt-6.1-sol": (
+        Decimal("2.00"),
+        Decimal("10.00"),
+        Decimal("0.20"),
+        Decimal("2.50"),
     ),
     "gpt-5.6-luna": (
         Decimal("0.20"),
@@ -84,7 +93,13 @@ def response_event(
     latency_ms: int,
     inference_geo: str = "global",
     standard_pricing: bool = True,
+    batch: bool = False,
 ) -> dict:
+    """Zdarzenie odpowiedzi z wyceną; ``batch`` = Message Batches API (−50%).
+
+    Cennik Batch API Anthropic: połowa stawek wejścia i wyjścia
+    (https://platform.claude.com/docs/en/build-with-claude/batch-processing).
+    """
     usage = getattr(message, "usage", None)
     actual_model = getattr(message, "model", None) or model
     message_id = getattr(message, "id", None)
@@ -159,6 +174,8 @@ def response_event(
             ) / 1_000_000
         if inference_geo == "us":
             cost *= Decimal("1.1")
+        if batch:
+            cost *= Decimal("0.5")
         # Wyszukiwanie w internecie (narzędzie serwerowe Anthropic, Jarvis 0330)
         # jest płatne OSOBNO od tokenów: 10 USD za 1000 wyszukiwań.
         server = getattr(usage, "server_tool_use", None)

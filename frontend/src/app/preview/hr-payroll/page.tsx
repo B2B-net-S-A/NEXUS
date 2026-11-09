@@ -42,15 +42,15 @@ const STATE_KEYS = ["month", "team", "months"] as const;
 type State = (typeof STATE_KEYS)[number];
 
 const STATES = [
-  { key: "month", label: "Płace: zamknięcie miesiąca" },
-  { key: "team", label: "Przełożona (bez stawek, D2)" },
+  { key: "month", label: "Rozliczenia: zamknięcie miesiąca" },
+  { key: "team", label: "Koordynatorka (bez stawek, D2)" },
   { key: "months", label: "Lista miesięcy" },
 ] as const;
 
 const NOTES: Record<State, string> = {
-  month: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Płace; do kwot wchodzą tylko zaakceptowane godziny.",
-  team: "Dane fikcyjne, bez zapytań. Ogląda przełożona bez Płac: godziny i premie zespołu, bez stawek (D2).",
-  months: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Płace.",
+  month: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Rozliczenia; do kwot wchodzą tylko zaakceptowane godziny.",
+  team: "Dane fikcyjne, bez zapytań. Ogląda koordynatorka bez Rozliczeń: godziny i premie zespołu, bez stawek (D2).",
+  months: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Rozliczenia.",
 };
 
 function prepare(params: URLSearchParams) {
@@ -68,7 +68,21 @@ function prepare(params: URLSearchParams) {
     payrollKeys.month(scene.year, scene.month),
     closingDetail(scene, team ? "team" : "payroll"),
   );
-  if (!team) client.setQueryData(payrollKeys.months, monthsList(scene));
+  if (!team) {
+    client.setQueryData(payrollKeys.months, monthsList(scene));
+    // Zwroty z gwarancji premii DL: pusta lista, sekcja się nie pokazuje (bez zapytania).
+    client.setQueryData(payrollKeys.clawbacks, []);
+  }
+  // Premia 200%: miesiąc harnessu poza programem — karta się nie pokazuje, bez żądań.
+  client.setQueryData(payrollKeys.doubleBonus(scene.year, scene.month), {
+    year: scene.year,
+    month: scene.month,
+    in_program: false,
+    final: false,
+    recruiters: [],
+    dls: [],
+    stored: null,
+  });
   return { user: viewer, client, value: { state, config, scene } };
 }
 
@@ -79,7 +93,7 @@ export default function HrPayrollPreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Ludzie → Płace"
+      title="Ludzie → Rozliczenia"
       note={NOTES[state]}
       states={STATES}
       current={state}

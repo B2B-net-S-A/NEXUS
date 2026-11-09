@@ -156,6 +156,7 @@ _ACTION_LABELS_PL: dict = {
     "cv_file_downloaded": "pobrał(a) plik CV",
     "cv_selection_ai": "poprosił(a) AI o propozycję do fragmentu CV",
     "cv_command_ai": "poprosił(a) AI o plan zmian w CV",
+    "cv_command_applied": "zastosował(a) plan zmian AI w CV",
     "hired": "zatrudnił(a)",
     "candidate_added": "dodał(a) kandydata",
     "screening_done": "przeprowadził(a) screening",
@@ -219,9 +220,16 @@ async def get_activity_feed(
     i surowe ``details`` — nie dla roli ``user`` (guard OperationalUser).
     """
     # Load activities with user join
-    query = select(Activity, User.name.label("user_name")).outerjoin(
-        User,
-        Activity.user_id == User.id,
+    from app.services.cv_edit_summary import ACTION as CV_EDIT_SUMMARY_ACTION
+
+    # Pomiar poprawek CV (E3) dubluje „zatwierdzenie CV” — to liczby, nie zdarzenie.
+    query = (
+        select(Activity, User.name.label("user_name"))
+        .outerjoin(
+            User,
+            Activity.user_id == User.id,
+        )
+        .where(Activity.action != CV_EDIT_SUMMARY_ACTION)
     )
     query = await apply_activity_feed_scope(query, current_user, db)
     query = query.order_by(desc(Activity.created_at)).limit(limit)

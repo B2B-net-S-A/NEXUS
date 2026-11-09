@@ -49,16 +49,16 @@ export function peopleSections(config: HrConfig): PeopleSectionLink[] {
   const links: PeopleSectionLink[] = [];
   if (open.people) links.push({ value: "directory", label: "Katalog", href: "/people" });
   if (open.people && me.is_manager) {
-    links.push({ value: "team", label: "Mój zespół", href: "/people/team" });
+    links.push({ value: "team", label: "Koordynacja", href: "/people/team" });
   }
   if (open.leave && staff) {
     links.push({ value: "calendar", label: "Kalendarz", href: "/people/calendar" });
   }
   if (((open.leave || open.time) && approver) || (open.approvals && (me.is_manager || me.is_admin))) {
-    links.push({ value: "approvals", label: "Akceptacje", href: "/people/approvals" });
+    links.push({ value: "approvals", label: "Do potwierdzenia", href: "/people/approvals" });
   }
   if (open.payroll && (me.payroll || me.is_admin)) {
-    links.push({ value: "payroll", label: "Płace", href: "/people/payroll" });
+    links.push({ value: "payroll", label: "Rozliczenia", href: "/people/payroll" });
   }
   return links;
 }

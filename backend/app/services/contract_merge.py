@@ -217,6 +217,9 @@ _KNOWN_CONTRACT_FKS = {
     # (``placement_bonus_assigned_twice``), resztę rozstrzyga
     # ``_resolve_child_duplicates``. Premie ręczne przechodzą bez zmian.
     ("hr_bonuses", "contract_id"),
+    # Gwarancja premii DL (0653): dług wisi na premii (``bonus_id``), kontrakt to
+    # tylko odnośnik — bez unikatu, idzie za kontraktem zachowanym.
+    ("hr_bonus_clawbacks", "contract_id"),
     ("invoices", "contract_id"),
     ("notes", "contract_id"),
     # „Do przepięcia”: jeden aktywny wpis na kontrakt i powód (indeks
@@ -224,6 +227,21 @@ _KNOWN_CONTRACT_FKS = {
     ("redeploy_queue_items", "contract_id"),
     # Karty technologiczne — historia rozmów u klienta, przenoszona w całości.
     ("tech_cards", "contract_id"),
+    # Kolejka back office: ``source_key`` zostaje, więc karta duplikatu zamknie się
+    # przy następnym przebiegu, a karta zachowanego kontraktu powstanie sama.
+    ("bo_cards", "contract_id"),
+    # Portal konsultanta przenoszony w całości; ten sam plik dwóch duplikatów
+    # łączy ``_resolve_child_duplicates``.
+    ("cp_documents", "contract_id"),
+    ("cp_links", "contract_id"),
+    ("cp_meetings", "contract_id"),
+    ("cp_ratings", "contract_id"),
+    ("cp_sessions", "contract_id"),
+    ("cp_sms_codes", "contract_id"),
+    # Panel konsultanta: jeden wiersz na kontrakt, nadmiar usuwa
+    # ``_resolve_child_duplicates``.
+    ("cp_activations", "contract_id"),
+    ("cp_trainer_applications", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -264,6 +282,8 @@ _MERGEABLE_FIELDS = (
     "notice_period_months",
     # Wymiar etatu z umowy (0524) — puste ← wypełnione, różnica to decyzja.
     "fte",
+    # Kandydat wskazany przez klienta (0656) — puste ← wypełnione.
+    "is_client_referral",
     "target_rate_min",
     "target_rate_max",
     "project_code",
@@ -3000,6 +3020,7 @@ _AUTOMATION_KEY_RE = re.compile(
 # wiersz (zrobiony, pominięty, zatwierdzony) wygrywa z otwartym, bo niesie
 # decyzję człowieka; remis — wiersz kontraktu zachowanego, potem najniższe id.
 _PLAN_ITEM_RANK = {"done": 0, "skipped": 1, "open": 2}
+_PORTAL_DOCUMENT_RANK = {"paid": 0, "accepted": 1, "received": 2, "rejected": 3}
 _REDEPLOY_RANK = {"in_progress": 0, "open": 1}
 _EQUIPMENT_TASK_RANK = {"zrobione": 0, "anulowane": 1, "otwarte": 2}
 _PLACEMENT_BONUS_RANK = {"assigned": 0, "proposed": 1, "cancelled": 2}
@@ -3174,7 +3195,9 @@ async def _resolve_child_duplicates(
       na wielkość liter) łączą się w jeden: folder zachowanego (a bez niego
       najstarszy) dostaje pliki pozostałych, te są kasowane. Własna nazwa
       „Zamówień” przegranych znika — zostaje nazwa zachowanego albo domyślna.
-      Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”.
+      Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”,
+    * ``cp_activations`` i ``cp_trainer_applications`` — jeden wiersz na kontrakt:
+      zostaje wiersz zachowanego (aktywacja: aktywna przed wyłączoną), reszta jest kasowana.
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3250,6 +3273,74 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["contract_care_plan_items_duplicates_removed"] = len(losers)
+
+    if ("cp_documents", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, kind, period_year, period_month, sha256, status "
+            "FROM cp_documents WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (
+                row["kind"],
+                int(row["period_year"]),
+                int(row["period_month"]),
+                row["sha256"],
+            ),
+            rank=_PORTAL_DOCUMENT_RANK,
+            survivor_id=survivor_id,
+        )
+        if losers:
+            # Ten sam plik na dysku (nazwa to skrót): znika tylko zdublowany wiersz.
+            await db.execute(
+                text("DELETE FROM cp_documents WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_documents_duplicates_removed"] = len(losers)
+
+    if ("cp_activations", "contract_id") in present:
+        # Aktywny panel wygrywa z wyłączonym. Adres sprawdza potem ``portal_settings``.
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, "
+            "CASE WHEN deactivated_at IS NULL THEN 'active' ELSE 'off' END AS status "
+            "FROM cp_activations WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: "panel",
+            rank={"active": 0, "off": 1},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM cp_activations WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_activations_duplicates_removed"] = len(losers)
+
+    if ("cp_trainer_applications", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, 'sent' AS status FROM cp_trainer_applications "
+            "WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: "application",
+            rank={"sent": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM cp_trainer_applications WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_trainer_applications_duplicates_removed"] = len(losers)
 
     if ("redeploy_queue_items", "contract_id") in present:
         rows = await _child_rows(

@@ -25,11 +25,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.pair_filter import in_pairs
 
 # Pola karty, które klient może dołożyć do minimum (karta klienta, D3) — jedno
 # wejście dla modułów spoza listy czytelników kart rekomendacji.
+from app.services import qc_state
 from app.services.recommendation_card_rules import CLIENT_EXTRA_FIELDS
 
 from app.services.board_stage_badges import (
@@ -66,16 +69,32 @@ def column_label(column: str, *, nordea: bool = False) -> str:
     return COLUMN_LABEL.get(column, column)
 
 
+def check_has_content(item: Mapping[str, Any]) -> bool:
+    """Sprawdzenie doświadczenia: rozstrzygnięty status albo notatka."""
+    return (item.get("status") or "unknown") != "unknown" or bool(
+        str(item.get("note") or "").strip()
+    )
+
+
 def sheet_filled(payload: object) -> bool:
-    """Czy arkusz screeningu ma treść — lustro `_sheet_filled` w `api/pipeline`.
+    """Czy arkusz screeningu jest zapisany — pozycje odpowiedzi albo sprawdzenie.
 
     `ScreeningAnswers` zapisuje domyślnie `{"answers": [], ...}`, więc samo
-    `bool(dict)` dałoby fałszywe „wypełniony".
+    `bool(dict)` dałoby fałszywe „wypełniony". W rekrutacji bez pytań arkusz
+    bywa samym sprawdzeniem doświadczenia (pusta lista odpowiedzi) — zapis
+    formularza go przyjmuje (`sheet_has_content`), więc odczyt musi go widzieć.
+    Bramka „Zweryfikowany” czyta `sheet_answered`.
     """
 
     if not isinstance(payload, dict) or not payload:
         return False
     answers = payload.get("answers")
+    if isinstance(answers, list):
+        checks = payload.get("experience_checks")
+        if isinstance(checks, list) and any(
+            isinstance(item, Mapping) and check_has_content(item) for item in checks
+        ):
+            return True
     if isinstance(answers, (list, dict)):
         return len(answers) > 0
     return any(value not in (None, "", [], {}) for value in payload.values())
@@ -153,6 +172,13 @@ class PairFacts:
     client_form_missing: Optional[int] = None
     qc_status: str = "unchecked"
     qc_blocking_failed: int = 0
+    # R1 (07.11.2026): blokujące sprawdzenia, których QC nie umiało sprawdzić
+    # („sprawdź ręcznie”) — przebieg „przechodzi”, ale nikt tego nie sprawdził.
+    qc_manual: tuple[str, ...] = ()
+    # R2 (07.11.2026): krytyczne, których kandydat nie ma — decyzja DL.
+    qc_gaps: tuple[str, ...] = ()
+    # QC-11 (08.11.2026): gotowy stan QC do pokazania (`services/qc_state.py`).
+    qc_state: Optional[dict] = None
     client_rate: bool = False
     # Użytkownik może wysłać CV do klienta (uprawnienie „Rekrutacje:
     # zakładanie, zamykanie, wysyłka CV do klienta”).
@@ -667,6 +693,35 @@ def _client_form_item(column: str, f: PairFacts) -> _Item:
     )
 
 
+def _qc_result_item(column: str, f: PairFacts) -> _Item:
+    """Wynik QC CV przed przekazaniem Delivery Leadowi (R1, 07.11.2026).
+
+    Przypomnienie, nie bramka: do „QC CV” przekazuje się także z uwagami
+    (tryb doradczy), a bramka QC stoi przed wysyłką. Ramka „Następny etap”
+    mówiła „gotowe 1 z 1” przy karcie z „QC: 2 do poprawy”. Tekst to ten sam
+    słownik co na karcie (`qc_state`, QC-11).
+    """
+
+    state = f.qc_state or qc_state.describe(
+        status=f.qc_status,
+        blocking_failed=f.qc_blocking_failed,
+        manual_items=f.qc_manual,
+        candidate_gaps=f.qc_gaps,
+    )
+    detail = state["text"].removeprefix("QC: ")
+    kind = state["kind"]
+    open_qc = _action("open_qc", "Otwórz QC", f.stage_id)
+    if kind == qc_state.TO_FIX:
+        return _Item(column, "cv_qc_result", "QC CV", MISSING, False, detail, open_qc)
+    if kind in (qc_state.CHECKED, qc_state.CHECKED_MANUALLY, qc_state.OVERRIDDEN):
+        return _Item(column, "cv_qc_result", "QC CV", OK, False, detail)
+    if kind == qc_state.CANDIDATE_GAP:
+        detail = f"{detail} — zdecyduje Delivery Lead"
+    if kind == qc_state.UNCHECKED:
+        detail = "QC jeszcze nie policzone"
+    return _Item(column, "cv_qc_result", "QC CV", WAITING, False, detail, open_qc)
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if f.client_form and column == "cv_qc":
@@ -709,7 +764,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             ),
         ]
     if column == "cv_qc":
-        return [
+        items = [
             _Item(
                 column,
                 "company_cv",
@@ -722,6 +777,9 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                 else _action("generate_cv", "Wygeneruj teraz", sid),
             )
         ]
+        if f.company_cv:
+            items.append(_qc_result_item(column, f))
+        return items
     if column == "cv_sent":
         qc_ok = f.qc_status in QC_OK_STATUSES
         # Osoba już w kolejce Cpro przeszła QC przy wejściu do niej — serwer
@@ -1075,7 +1133,7 @@ async def company_cv_refs(
                 CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
             )
             .where(
-                tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(wanted),
+                in_pairs(CandidateStage.candidate_id, CandidateStage.job_id, wanted),
                 CandidateStageCV.branded_status.in_(("draft", "finalized")),
                 CandidateStageCV.branded_draft_html.is_not(None),
             )
@@ -1107,9 +1165,11 @@ async def company_cv_refs(
                     CvGeneratedDocument.id,
                 )
                 .where(
-                    tuple_(
-                        CvGeneratedDocument.candidate_id, CvGeneratedDocument.job_id
-                    ).in_(missing),
+                    in_pairs(
+                        CvGeneratedDocument.candidate_id,
+                        CvGeneratedDocument.job_id,
+                        missing,
+                    ),
                     CvGeneratedDocument.status == "ready",
                     CvGeneratedDocument.render_payload.is_not(None),
                     # „Odrzuć to CV” (audyt 22.10, F64): nie jest już CV pary.
@@ -1144,6 +1204,7 @@ async def company_cv_refs(
             document_cv_ambiguous,
             document_cv_conditions,
             pick_document_cv,
+            rows_from_job,
         )
 
         candidate_ids = sorted({c for c, _ in missing})
@@ -1167,6 +1228,7 @@ async def company_cv_refs(
                 (doc_id, filename, uploaded_at, created_at)
             )
         client_names: dict[int, Optional[str]] = {}
+        job_created: dict[int, Any] = {}
         job_ids = sorted({j for c, j in missing if c in by_candidate})
         if job_ids:
             for job_id, display_name, name in (
@@ -1177,8 +1239,16 @@ async def company_cv_refs(
                 )
             ).all():
                 client_names[job_id] = display_name or name
+            job_created = dict(
+                (
+                    await db.execute(
+                        select(Job.id, Job.created_at).where(Job.id.in_(job_ids))
+                    )
+                ).all()
+            )
         for cand, job in missing:
-            rows = by_candidate.get(cand, [])
+            # Plik starszy niż rekrutacja nie jest jej CV (`rows_from_job`).
+            rows = rows_from_job(by_candidate.get(cand, []), job_created.get(job))
             doc_id = pick_document_cv(rows, client_names.get(job))
             if doc_id is not None:
                 out[(cand, job)] = {
@@ -1514,6 +1584,9 @@ async def load_pair_facts(
         client_form_missing=form_state.missing if form_state else None,
         qc_status=qc.get("status") or "unchecked",
         qc_blocking_failed=int(qc.get("blocking_failed") or 0),
+        qc_manual=tuple(qc.get("manual_checks") or ()),
+        qc_gaps=tuple(qc.get("candidate_gaps") or ()),
+        qc_state=qc.get("qc_state"),
         client_rate=client_rate,
         is_client_sender=has_permission(user, ProductAction.recruitment_manage),
         skips_fill_gates=skips_fill_gates(user),
@@ -1545,6 +1618,7 @@ __all__ = [
     "answer_has_content",
     "build_requirements",
     "card_screening_state",
+    "check_has_content",
     "column_label",
     "company_cv_refs",
     "deal_breaker_hits",
