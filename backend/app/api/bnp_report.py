@@ -169,7 +169,9 @@ async def _bands_from_contract(db: AsyncSession, client_id: int) -> list[RateBan
     for amendment, text in rows:
         if amendment is not None:
             amendments.setdefault(amendment, []).append(text)
-    parsed = parse_rate_annex(agreement, [" ".join(parts) for parts in amendments.values()])
+    parsed = parse_rate_annex(
+        agreement, [" ".join(parts) for parts in amendments.values()]
+    )
     return [RateBand(None, row.role, row.minimum, row.maximum) for row in parsed]
 
 
@@ -212,7 +214,8 @@ async def _load_report(
                 RejectionReason.name.label("rejection_reason"),
             )
             .outerjoin(
-                RejectionReason, RejectionReason.id == CandidateStage.rejection_reason_id
+                RejectionReason,
+                RejectionReason.id == CandidateStage.rejection_reason_id,
             )
             .where(CandidateStage.job_id.in_(list(events)))
             .order_by(CandidateStage.moved_at, CandidateStage.id)
@@ -396,15 +399,21 @@ async def update_job_fields(
     """Braki raportu zapisują się w rekrutacji, żeby kolejny miesiąc miał je gotowe."""
     await _ensure_report_client(db, current_user, client_id)
     job = await db.scalar(
-        select(Job).where(Job.id == job_id, Job.client_id == client_id).with_for_update()
+        select(Job)
+        .where(Job.id == job_id, Job.client_id == client_id)
+        .with_for_update()
     )
     if job is None:
         raise HTTPException(404, "Nie znaleziono rekrutacji tego klienta.")
     fields = data.model_fields_set
     if "start" in fields:
         if data.start is None or data.start > business_today():
-            raise HTTPException(422, "Data startu nie może być pusta ani z przyszłości.")
-        job.opened_at = datetime.combine(data.start, time(12), tzinfo=ZoneInfo(DEFAULT_TZ))
+            raise HTTPException(
+                422, "Data startu nie może być pusta ani z przyszłości."
+            )
+        job.opened_at = datetime.combine(
+            data.start, time(12), tzinfo=ZoneInfo(DEFAULT_TZ)
+        )
     if "client_reference" in fields:
         job.client_reference = (data.client_reference or "").strip() or None
     seniority_changed = "seniority" in fields and job.seniority != data.seniority
@@ -436,7 +445,9 @@ async def save_rate_bands(
     await _ensure_report_client(db, current_user, client_id)
     for band in data.bands:
         if band.minimum > band.maximum:
-            raise HTTPException(422, f"Rola „{band.role}”: minimum większe niż maksimum.")
+            raise HTTPException(
+                422, f"Rola „{band.role}”: minimum większe niż maksimum."
+            )
     existing = {
         card.role.lower(): card
         for card in await db.scalars(
@@ -457,7 +468,9 @@ async def save_rate_bands(
     for band in data.bands:
         card = existing.get(band.role.lower())
         if card is None:
-            card = RateCard(client_id=client_id, role=band.role, rate_unit=RateUnit.hourly)
+            card = RateCard(
+                client_id=client_id, role=band.role, rate_unit=RateUnit.hourly
+            )
             db.add(card)
             existing[band.role.lower()] = card
         card.currency = "PLN"
@@ -466,5 +479,7 @@ async def save_rate_bands(
     try:
         await db.flush()
     except IntegrityError as exc:
-        raise HTTPException(409, "Widełki zapisał przed chwilą ktoś inny. Odśwież okno.") from exc
+        raise HTTPException(
+            409, "Widełki zapisał przed chwilą ktoś inny. Odśwież okno."
+        ) from exc
     return {"saved": len(data.bands)}

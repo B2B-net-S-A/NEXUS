@@ -65,7 +65,9 @@ _SENIORITY_WORDS: dict[str, Seniority] = {
     "senior": Seniority.senior,
     "lead": Seniority.lead,
 }
-_SENIORITY_RE = re.compile(r"\b(junior|regular|medium|mid|senior|lead)\b", re.IGNORECASE)
+_SENIORITY_RE = re.compile(
+    r"\b(junior|regular|medium|mid|senior|lead)\b", re.IGNORECASE
+)
 # Lookbehind zamiast \b: tytuły bywają pisane „Software Developer_RITM123”.
 _RITM_RE = re.compile(r"(?<![a-z0-9])RITM\d+\b", re.IGNORECASE)
 _RFP_RE = re.compile(r"(?<![a-z0-9])RFP[ _-]?(\d+)\b", re.IGNORECASE)
@@ -335,7 +337,9 @@ def propose_band(
             if any(_has_words(text, word) for word in words):
                 return by_name.get(name)
         return None
-    matches = [band for name, band in by_name.items() if name and _has_words(text, name)]
+    matches = [
+        band for name, band in by_name.items() if name and _has_words(text, name)
+    ]
     return max(matches, key=lambda band: len(band.role), default=None)
 
 

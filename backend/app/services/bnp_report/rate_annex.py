@@ -21,7 +21,9 @@ class ParsedBand:
 
 _ANNEX_HEADER_RE = re.compile(r"Stawki\.?\s+minimalna\s+maksymalna", re.IGNORECASE)
 _HOURLY_ROW_RE = re.compile(r"(\d{2,4})\s+(\d{2,4})\s+godz\s+\d{2,5}")
-_ANNEX_END_RE = re.compile(r"Strona\s+\d+\s+z\s+\d+|Załącznik\s+nr\s+\d+", re.IGNORECASE)
+_ANNEX_END_RE = re.compile(
+    r"Strona\s+\d+\s+z\s+\d+|Załącznik\s+nr\s+\d+", re.IGNORECASE
+)
 _HEADER_NOISE_RE = re.compile(
     r"^.*(?:Rozliczenie\s+za\s+MD\s+netto\s+PLN|stawka\s+netto)\s*(?:PLN\s*)*",
     re.IGNORECASE | re.DOTALL,
@@ -100,7 +102,9 @@ def _md_rows(text: str) -> list[ParsedBand]:
     return rows
 
 
-def parse_rate_annex(agreement_text: str, amendment_texts: list[str]) -> list[ParsedBand]:
+def parse_rate_annex(
+    agreement_text: str, amendment_texts: list[str]
+) -> list[ParsedBand]:
     """Widełki w zł/h: wiersze załącznika i role dopisane aneksami."""
     rows = _hourly_rows(agreement_text)
     known = {row.role.lower() for row in rows}

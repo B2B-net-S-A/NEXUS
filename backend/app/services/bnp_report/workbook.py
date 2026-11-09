@@ -83,7 +83,9 @@ def _write_headers(sheet: Worksheet, headers: Sequence[str], width: int = 12) ->
         cell = sheet.cell(row=1, column=column, value=header)
         cell.fill = _HEADER_FILL
         cell.font = _HEADER_FONT
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=True
+        )
         sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.row_dimensions[1].height = 62
     sheet.freeze_panes = "A2"
@@ -112,7 +114,9 @@ def _put(
         cell.fill = _MISSING_FILL
 
 
-def _formula(sheet: Worksheet, reference: str, formula: str, number_format: str = "") -> None:
+def _formula(
+    sheet: Worksheet, reference: str, formula: str, number_format: str = ""
+) -> None:
     sheet[reference] = formula
     if number_format:
         sheet[reference].number_format = number_format
@@ -171,7 +175,12 @@ def _fill_full_row(sheet: Worksheet, n: int, row: ReportRow) -> None:
     _formula(sheet, f"R{n}", f'=IF(H{n}>0,N{n}/H{n},"")', _RATIO_FORMAT)
     _formula(sheet, f"W{n}", f'=IF(OR(U{n}="",V{n}=""),"",AVERAGE(U{n}:V{n}))')
     _formula(sheet, f"Z{n}", f'=IF(OR(X{n}="",Y{n}=""),"",AVERAGE(X{n}:Y{n}))')
-    _formula(sheet, f"AA{n}", f'=IF(OR(Z{n}="",W{n}=""),"",(Z{n}-W{n})/W{n})', _PERCENT_FORMAT)
+    _formula(
+        sheet,
+        f"AA{n}",
+        f'=IF(OR(Z{n}="",W{n}=""),"",(Z{n}-W{n})/W{n})',
+        _PERCENT_FORMAT,
+    )
     _formula(sheet, f"AB{n}", f'=IF(OR(V{n}="",X{n}=""),"",X{n}-V{n})')
     _formula(sheet, f"AC{n}", f'=IF(AB{n}="","",AB{n}/V{n})', _PERCENT_FORMAT)
 
