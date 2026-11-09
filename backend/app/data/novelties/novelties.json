@@ -1815,5 +1815,19 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "jobs.board.card"
+  },
+  {
+    "id": "sprzedaz-kogo-znamy-najpierw-najwazniejsi",
+    "pr": 3239,
+    "title": "Kogo znamy: najpierw najważniejsi",
+    "why": "Na karcie firmy najpierw widzisz pięć osób, od ról decyzyjnych. Inne nazwy tej firmy z CV dołączysz albo odrzucisz jednym kliknięciem, a liczby się przeliczą.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Firmy → Kogo znamy",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.tabs"
   }
 ]
