@@ -9,7 +9,11 @@ plakietek i trzy różne liczby dni.
 ## Karta
 
 - **Wiersz 1:** numer kolejki, imię i nazwisko w jednej linii (pełne w dymku),
-  inicjały właściciela (kto, kiedy i dlaczego: dymek), pierścień.
+  pod nimi imię właściciela (kto, kiedy i dlaczego: dymek), pierścień obok.
+  Imię zamiast inicjałów od 09.11.2026, po zgłoszeniu Delivery Leada: kółko 16 px
+  z czcionką 7 px było nieczytelne. Decyzja Artura z makiet (wariant A): karta
+  o 5 px wyższa przy 1280 × 720, plakietki bez zmian. Nie wstawiaj imienia do
+  wiersza plakietek (ucina je) ani obok nazwiska (zostają 3–4 litery kandydata).
 - **Wiersz 2:** najwyżej dwie plakietki z `cardPrimaryBadges`
   (`lib/board-card-badges.ts`). Reszta idzie do „+N”: dymek (natywny `title`)
   i okienko po kliknięciu z pełną treścią i przyciskami (QC, Scorecard,
