@@ -42,7 +42,14 @@ ZONE = ZoneInfo(DEFAULT_TZ)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    """„Teraz” w strefie firmy, żeby ``_now() - timedelta(days=n)`` cofało o n dni kalendarza.
+
+    Odejmowanie dni od chwili w UTC przy zmianie czasu przesuwa wynik o godzinę,
+    a tuż przed północą przenosi go na inny dzień firmy (09.11.2026, 23:16:
+    oferta „sprzed 20 dni” wyszła sprzed 19).
+    """
+
+    return local_now()
 
 
 def _day_start() -> datetime:
@@ -51,6 +58,19 @@ def _day_start() -> datetime:
 
 def _noon(day: date) -> datetime:
     return datetime.combine(day, time(12), tzinfo=ZONE)
+
+
+def _still_today(share: float) -> datetime:
+    """Chwila między „teraz” a końcem dnia firmy (``share`` z tego, co zostało).
+
+    Spotkanie na „teraz + 1 h” po 23:00 wypada już jutro i znika z dzisiejszych
+    (kolejka merge'ów 09.11.2026, 23:16), a test, który potrzebuje spotkania
+    jeszcze przed nami, nie może wziąć południa.
+    """
+
+    now = local_now()
+    end = datetime.combine(now.date(), time.max, tzinfo=ZONE)
+    return now + (end - now) * share
 
 
 def _days_with_gap(gap: int) -> date:
@@ -202,7 +222,7 @@ async def test_meetings_today_are_mine_and_one_per_event(app_client) -> None:
     other = await _user("sales_view")
     first = await _company("Kopia A")
     second = await _company("Kopia B")
-    when = _now() + timedelta(hours=1)
+    when = _noon(business_today())
     uid = uuid.uuid4().hex
     for company in (first, second):
         await _activity(
@@ -238,7 +258,7 @@ async def test_meetings_today_are_mine_and_one_per_event(app_client) -> None:
 async def test_manual_meetings_without_external_id_stay_separate(app_client) -> None:
     rep = await _user("sales_view")
     company = await _company()
-    when = _now() + timedelta(minutes=30)
+    when = _noon(business_today())
     for subject in ("Pierwsze", "Drugie"):
         await _activity(
             kind="meeting",
@@ -256,7 +276,7 @@ async def test_cancelled_automatic_and_other_days_are_not_todays_meetings(
 ) -> None:
     rep = await _user("sales_view")
     company = await _company()
-    today = _now() + timedelta(minutes=5)
+    today = _noon(business_today())
     for subject, when in (
         ("Canceled: Omówienie", today),
         ("Anulowano: Omówienie", today),
@@ -959,7 +979,7 @@ async def test_prep_covers_the_nearest_meeting(app_client) -> None:
         company_id=near,
         occurred_at=_now() - timedelta(days=4),
     )
-    soon = _now() + timedelta(minutes=20)
+    soon = _still_today(1 / 3)
     meeting = await _activity(
         kind="meeting",
         subject="Rozmowa",
@@ -977,7 +997,7 @@ async def test_prep_covers_the_nearest_meeting(app_client) -> None:
         external_id=uuid.uuid4().hex,
         company_id=far,
         created_by_user_id=rep.id,
-        occurred_at=_now() + timedelta(minutes=40),
+        occurred_at=_still_today(2 / 3),
     )
     prep = (await _day(app_client, rep))["prep"]
     assert prep["activity_id"] == meeting
@@ -1000,7 +1020,7 @@ async def test_prep_does_not_offer_opportunity_when_one_is_open(app_client) -> N
         external_id=uuid.uuid4().hex,
         company_id=company,
         created_by_user_id=rep.id,
-        occurred_at=_now() + timedelta(minutes=20),
+        occurred_at=_still_today(1 / 2),
     )
     assert (await _day(app_client, rep))["prep"]["can_create_opportunity"] is False
 
