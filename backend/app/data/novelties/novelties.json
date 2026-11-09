@@ -1929,5 +1929,24 @@
     "href": "/calendar",
     "section": "pipeline",
     "dot_anchor": "prep.organizer-calendar"
+  },
+  {
+    "id": "zastepca-dostaje-prace",
+    "pr": 3262,
+    "title": "Zastępca dostaje Twoją pracę",
+    "why": "W czasie nieobecności osoba wpisana tutaj dostaje powiadomienia o Twojej bieżącej pracy i widzi Twoje zadania. NEXUS ostrzeże, gdy nie może przejąć Twojej roli.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Moja współpraca → Przerwy → Kto przejmie bieżące sprawy",
+    "href": "/my-time",
+    "dot_anchor": "leave.substitute"
   }
 ]
