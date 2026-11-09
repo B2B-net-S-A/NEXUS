@@ -1133,6 +1133,28 @@ def test_queue_runs_the_migration_lane_after_every_group_check() -> None:
     assert "queue_migration_lane.py" in step["run"] and "enforce" in step["run"]
 
 
+def test_lane_wakes_when_a_migration_pr_enters_or_leaves_the_queue() -> None:
+    """09.11.2026: #3262 wypadł po limicie czasu, więc żadne CI grupy nie skończyło
+    się po jego wypadnięciu. `enforce` nie ruszył, a #3265 wrócił do kolejki bez rodzica."""
+    wf = _load("queue-migration-lane.yml")
+    trigger = _triggers(wf)["pull_request_target"]
+    assert set(trigger["types"]) == {"enqueued", "dequeued", "labeled"}
+    assert trigger["branches"] == ["main"]
+    assert trigger["paths"] == ["backend/alembic/versions/**"], (
+        "Bez filtra każdy PR w kolejce to dwa biegi na próżno."
+    )
+    job = wf["jobs"]["lane"]
+    assert "pull_request_target" in job["if"]
+    assert "github.event.label.name == 'czeka-na-migracje'" in job["if"], (
+        "Etykieta od `admit` ma zlecić przepięcie, inne etykiety nic nie zmieniają."
+    )
+    checkout = job["steps"][0]
+    assert "actions/checkout" in checkout["uses"]
+    assert "ref" not in checkout.get("with", {}), (
+        "Tu jest token z zapisem: kod musi być z maina, nie z gałęzi PR-a."
+    )
+
+
 def test_rechain_parks_the_lane_before_pushing() -> None:
     steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
     copy = _step(steps, "Skrypty z maina do katalogu tymczasowego")

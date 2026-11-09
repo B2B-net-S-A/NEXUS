@@ -326,6 +326,17 @@ class ChainTest(unittest.TestCase):
         self.assertIsNone(plan.active)
         self.assertTrue(plan.rechain)
 
+    def test_both_dropped_at_once_asks_for_rechain_without_any_queue_entry(self):
+        """Stan z 09.11.2026 po 18:25: nikt nie jest w kolejce ani uzbrojony."""
+        plan = QML.plan_lane(
+            [
+                pr(3262, parent="0673_own", tail="0674_x"),
+                pr(3265, parent="0674_x", tail="0675_y", fresh=False, orphan=True),
+            ]
+        )
+        self.assertEqual(plan.lane, ())
+        self.assertTrue(plan.rechain)
+
     def test_orphan_waiting_on_the_lane_member_is_not_lost(self):
         plan = QML.plan_lane(
             [self.a(), pr(2, waiting=True, parent="0634_a", fresh=False, orphan=True)]
@@ -509,6 +520,50 @@ class AdmitTest(unittest.TestCase):
             pr(2, queue=2, armed=True, parent="0634_a", tail="0635_b"),
         ]
         self.assertEqual(QML.admit([*lane, pr(3, parent="0635_b")], 3), 1)
+
+    def test_orphan_without_its_parent_in_the_lane_is_refused(self):
+        """09.11.2026: #3262 wypadł, a #3265 stojący na jego migracji wrócił sam."""
+        first = pr(3262, healthy=False, parent="0673_own", tail="0674_on_behalf")
+        orphan = pr(
+            3265,
+            armed=True,
+            parent="0674_on_behalf",
+            tail="0675_rate",
+            fresh=False,
+            orphan=True,
+        )
+        self.assertIsNotNone(QML.admit([first, orphan], 3265))
+        self.assertIsNotNone(QML.admit([orphan], 3265), "Rodzica nie ma nigdzie.")
+
+    def test_orphan_behind_its_queued_parent_still_enters(self):
+        first = pr(1, queue=1, armed=True, tail="0634_a")
+        second = pr(2, parent="0634_a", fresh=False, orphan=True)
+        self.assertIsNone(QML.admit([first, second], 2))
+
+    def test_admit_parks_the_orphan_so_the_rechain_can_start(self):
+        """Etykieta budzi `queue-migration-lane.yml`, a ten zleca przepięcie."""
+        versions = "backend/alembic/versions/"
+        fake = FakeGh(
+            [
+                [
+                    node(3262, files=(versions + "0674_x.py",), checks="FAILURE"),
+                    node(3265, files=(versions + "0675_y.py",), armed=True),
+                ]
+            ],
+            main_files="0673_own.py\n",
+            blobs={
+                "0673_own.py": source("0673_own", "0672_m"),
+                "0674_x.py": source("0674_x", "0673_own"),
+                "0675_y.py": source("0675_y", "0674_x"),
+            },
+        )
+        code = quiet(QML.admit_pr, "o/r", 3265, dry_run=False, run=fake)
+        self.assertEqual(code, QML.WAIT_EXIT)
+        self.assertIn(
+            ("pr", "merge", "3265", "--repo", "o/r", "--disable-auto"), fake.calls
+        )
+        self.assertTrue(any("labels[]=czeka-na-migracje" in c for c in fake.calls))
+        self.assertFalse(any("--squash" in c for c in fake.calls))
 
 
 class ActionsTest(unittest.TestCase):
