@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
@@ -14,6 +14,15 @@ import {
 export interface CvBrowserPerson {
   id: number;
   name: string;
+}
+
+/** „Dodaj do Nowych” w oknie CV z „Szukaj ręcznie” — ta sama akcja co wiersz listy. */
+export interface CvBrowserAddToJob {
+  jobTitle: string;
+  readOnly: boolean;
+  addedIds: ReadonlySet<number>;
+  addingIds: ReadonlySet<number>;
+  add: (candidateId: number) => void;
 }
 
 interface Loaded {
@@ -36,6 +45,7 @@ export function CandidateCvBrowser({
   onOpened,
   onLoadingChange,
   onAssign,
+  addToJob,
   focusPerson,
 }: {
   people: readonly CvBrowserPerson[];
@@ -46,6 +56,8 @@ export function CandidateCvBrowser({
   onLoadingChange?: (candidateId: number | null) => void;
   /** „Przypisz do rekrutacji” — bez niego (okno rekrutacji) przycisku nie ma. */
   onAssign?: (person: CvBrowserPerson) => void;
+  /** Okno rekrutacji: rekrutacja jest znana, więc przycisk dodaje od razu. */
+  addToJob?: CvBrowserAddToJob;
   /** Po zamknięciu: fokus na wiersz ostatnio oglądanej osoby; `false` = domyślnie. */
   focusPerson?: (candidateId: number) => boolean;
 }) {
@@ -104,10 +116,18 @@ export function CandidateCvBrowser({
   // Okno zamyka się z `loaded = null`, a fokus wraca dopiero po animacji.
   const lastShownId = useRef<number | null>(null);
   if (shown) lastShownId.current = shown.id;
-  const index = shown ? people.findIndex((p) => p.id === shown.id) : -1;
-  const prev = index > 0 ? people[index - 1] : null;
-  const next = index >= 0 && index < people.length - 1 ? people[index + 1] : null;
+  // W „Szukaj ręcznie” dodana osoba znika z odświeżonych wyników. Bez zamrożenia
+  // kolejności z chwili otwarcia licznik i strzałki traciłyby oglądaną osobę.
+  const frozenPeople = useRef<readonly CvBrowserPerson[] | null>(null);
+  if (!current) frozenPeople.current = null;
+  else frozenPeople.current ??= people;
+  const order = addToJob ? (frozenPeople.current ?? people) : people;
+  const index = shown ? order.findIndex((p) => p.id === shown.id) : -1;
+  const prev = index > 0 ? order[index - 1] : null;
+  const next = index >= 0 && index < order.length - 1 ? order[index + 1] : null;
   const busy = loadingId !== null;
+  const shownAdded = Boolean(shown && addToJob?.addedIds.has(shown.id));
+  const shownAdding = Boolean(shown && addToJob?.addingIds.has(shown.id));
 
   useEffect(() => {
     if (!loaded) return;
@@ -174,7 +194,7 @@ export function CandidateCvBrowser({
                 className="border-x border-border px-2 text-xs tabular-nums text-muted-foreground"
                 aria-live="polite"
               >
-                {busy ? "Wczytuję…" : index >= 0 ? `Osoba ${index + 1} z ${people.length}` : "Osoba"}
+                {busy ? "Wczytuję…" : index >= 0 ? `Osoba ${index + 1} z ${order.length}` : "Osoba"}
               </span>
               <button
                 type="button"
@@ -189,6 +209,25 @@ export function CandidateCvBrowser({
                 <ChevronRight className="h-4 w-4" aria-hidden />
               </button>
             </div>
+            {addToJob ? (
+              <button
+                type="button"
+                disabled={addToJob.readOnly || shownAdded || shownAdding}
+                onClick={() => addToJob.add(shown.id)}
+                title={`Dodaj do „Nowych” w „${addToJob.jobTitle}”`}
+                aria-label={
+                  shownAdded ? `${shown.name} — dodano do Nowych` : `Dodaj ${shown.name} do Nowych`
+                }
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-primary/5 disabled:hover:text-primary"
+              >
+                {shownAdded ? (
+                  <Check className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                )}
+                {shownAdded ? "Dodano" : shownAdding ? "Dodaję…" : "Dodaj do Nowych"}
+              </button>
+            ) : null}
             {onAssign ? (
               <button
                 type="button"

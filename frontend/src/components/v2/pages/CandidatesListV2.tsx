@@ -3332,6 +3332,17 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                   employment: items.find((c) => c.id === person.id)?.employment_marker,
                 })
         }
+        addToJob={
+          embed
+            ? {
+                jobTitle: embed.jobTitle,
+                readOnly: Boolean(embed.readOnly),
+                addedIds,
+                addingIds,
+                add: (candidateId) => void addToEmbedJob([candidateId]),
+              }
+            : undefined
+        }
         focusPerson={(candidateId) => focusCandidateRow(candidateId)}
       />
 
