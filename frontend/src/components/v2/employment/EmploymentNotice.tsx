@@ -188,6 +188,7 @@ export function EmploymentPopoverPill({
       <PopoverTrigger asChild>
         <button
           type="button"
+          data-tour="person.no-call"
           className={cn(
             "inline-flex max-w-full rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             className,
