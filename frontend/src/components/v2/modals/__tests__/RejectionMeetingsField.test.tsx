@@ -59,6 +59,13 @@ describe("RejectionMeetingsField", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("odpowiedź bez listy nie wywraca okna", async () => {
+    http.get.mockResolvedValue({ data: {} });
+    const onChange = vi.fn();
+    wrap(<RejectionMeetingsField jobId={5} candidateId={6} onChange={onChange} />);
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith({ cancel: [], ask: [] }));
+  });
+
   it("awaria odczytu mówi, że trzeba sprawdzić Kalendarz", async () => {
     http.get.mockRejectedValue(new Error("x"));
     wrap(<RejectionMeetingsField jobId={5} candidateId={6} onChange={vi.fn()} />);

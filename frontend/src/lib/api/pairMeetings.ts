@@ -34,7 +34,8 @@ export async function fetchPairMeetings(jobId: number, candidateId: number): Pro
   const { data } = await api.get<PairMeeting[]>(
     `/api/interview-cycle/pairs/${jobId}/${candidateId}/meetings`,
   )
-  return data
+  // Granica z API: odpowiedź bez listy nie może wywrócić okna zamknięcia karty.
+  return Array.isArray(data) ? data : []
 }
 
 /** „pon 09.11, 15:00” w kalendarzu firmy. */
