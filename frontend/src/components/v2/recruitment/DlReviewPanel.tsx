@@ -147,7 +147,7 @@ import {
   rateText,
   type ClientRateUnit,
 } from "@/lib/person-facts";
-import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
+import { contractAvailability, contractDateText } from "@/lib/contract-availability";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
 import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
@@ -615,7 +615,7 @@ export function DlReviewBody({
     qvAvailability?.available_from,
   );
   const profileAvailability = contractAvail
-    ? `${contractAvailabilityText(contractAvail)} · z kontraktu`
+    ? `${contractDateText(contractAvail)} · z kontraktu`
     : availabilityText(
         qvAvailability
           ? {

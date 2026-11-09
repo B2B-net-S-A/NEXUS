@@ -227,6 +227,11 @@ from app.services import (
     cv_download_policy,
 )
 from app.services.candidate_rate_from import declared_rate_from, rate_summary
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.services.stage_client_rate import latest_client_rates
 from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
@@ -1542,6 +1547,26 @@ _NO_REJECTION_FILTER = {
     "rejection_within_months": None,
     "rejection_exclude": None,
 }
+
+
+def _reject_ending_soon_without_delivery(
+    employment: Optional[list[str]], user: Any
+) -> None:
+    """Filtr „Kończy u nas w ciągu 60 dni” tylko z dostępem do Delivery.
+
+    Decyzja Artura z 09.11.2026: osobami kończącymi zamówienie zajmuje się
+    osobny dział, a rekruterowi lista takich osób podsuwa telefony do ludzi
+    z aktywnym zamówieniem.
+    """
+    if (
+        employment
+        and "ending_soon" in employment
+        and section_access_for_user(user, ProductSection.delivery) < SectionAccess.read
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Filtr „Kończy u nas w ciągu 60 dni” jest dostępny tylko w Delivery.",
+        )
 
 
 async def _build_candidate_filtered_query(
@@ -2998,6 +3023,7 @@ async def list_candidates(
     ),
 ):
     _reject_retired_candidate_query(request)
+    _reject_ending_soon_without_delivery(employment, current_user)
     # Porcja dnia (07.11.2026): filtry i opis to ręczne wyszukiwanie — 423,
     # dopóki rekruter nie zrobi minimum. Nazwisko, mail i telefon przechodzą.
     await review_batch.assert_list_search_allowed(

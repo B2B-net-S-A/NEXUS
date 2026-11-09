@@ -998,13 +998,13 @@ describe("osoba pracująca u nas — dostępność i stawka z umowy (15.10.2026)
       "proposal",
     );
 
-    expect(screen.getByText("od 01.12.2026")).toBeInTheDocument();
+    expect(screen.getByText("Aktywne zamówienie")).toBeInTheDocument();
     expect(screen.queryByText("od 01.09.2026")).toBeNull();
     const dot = screen.getByRole("button", { name: /Źródło: Z kontraktu/ });
     expect(dot).toHaveAttribute("data-origin-tone", "contract");
     await user.click(dot);
     expect(
-      await screen.findByText(/W profilu: od 01\.09\.2026 — wcześniej niż koniec pracy/),
+      await screen.findByText(/Z kontraktu: aktywne zamówienie/),
     ).toBeInTheDocument();
   });
 
@@ -1073,7 +1073,7 @@ describe("osoba pracująca u nas — dostępność i stawka z umowy (15.10.2026)
       "proposal",
     );
 
-    expect(screen.getByText("Bez daty końca zamówienia")).toBeInTheDocument();
+    expect(screen.getByText("Aktywne zamówienie")).toBeInTheDocument();
     expect(screen.queryByText(/01\.09\.2026/)).toBeNull();
   });
 });

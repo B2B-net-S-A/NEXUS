@@ -20,6 +20,7 @@ from app.services.employment_marker import (
     ContractRow,
     OrderRow,
     build_markers,
+    contracts_with_current_order,
     marker_client_ids,
     order_end_by_contract,
     rows_from_candidate,
@@ -424,3 +425,63 @@ def test_returning_needs_front_office_handoff_and_never_attrition_risk():
     assert returning_contract_ids({11}, [(11, "open", "project_end")]) == {11}
     # Przekazanie, ale wpis już zamknięty — nie.
     assert returning_contract_ids({10}, [(10, "done", "project_end")]) == set()
+
+
+# ── ławka: umowa bez trwającego zamówienia (09.11.2026) ──
+
+
+def _order(contract_id: int = 10, *, finished: bool = False) -> OrderRow:
+    return OrderRow(
+        contract_id=contract_id,
+        end_date=date(2026, 9, 30),
+        ending=False,
+        md_open=False,
+        finished=finished,
+    )
+
+
+def test_current_order_contracts_skip_finished_orders():
+    assert contracts_with_current_order(
+        [_order(10), _order(11, finished=True)]
+    ) == {10}
+
+
+def test_marker_without_order_data_says_nothing_about_the_bench():
+    assert build_markers([_contract()], today=TODAY)[1].no_current_order is False
+
+
+def test_marker_with_only_finished_or_no_orders_is_on_the_bench():
+    marker = build_markers(
+        [_contract()], today=TODAY, current_order_contracts=set()
+    )[1]
+
+    assert marker.no_current_order is True
+
+
+def test_marker_with_a_current_order_is_not_on_the_bench():
+    marker = build_markers(
+        [_contract()], today=TODAY, current_order_contracts={10}
+    )[1]
+
+    assert marker.no_current_order is False
+
+
+def test_second_contract_with_an_order_keeps_the_person_off_the_bench():
+    marker = build_markers(
+        [_contract(), _contract(contract_id=11, client_id=101, client_name="Drugi")],
+        today=TODAY,
+        current_order_contracts={11},
+    )[1]
+
+    assert marker.no_current_order is False
+
+
+def test_future_contract_alone_is_not_the_bench():
+    marker = build_markers(
+        [_contract(start_date=TODAY + timedelta(days=20))],
+        today=TODAY,
+        current_order_contracts=set(),
+    )[1]
+
+    assert marker.phase == "starting"
+    assert marker.no_current_order is False

@@ -127,8 +127,7 @@ describe("TalentRadarResults — eligibility", () => {
       />,
     );
 
-    expect(screen.getByText("Pracuje u tego klienta")).toBeInTheDocument();
+    expect(screen.getAllByText("Aktywne zamówienie · nie dzwoń")).toHaveLength(2);
     expect(screen.queryByTestId("tr-eligibility-1")).not.toBeInTheDocument();
-    expect(screen.getByText("Pracuje u nas · Bank Przykładowy")).toBeInTheDocument();
   });
 });

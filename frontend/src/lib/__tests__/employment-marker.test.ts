@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   employedCountLabel,
+  markerCallHint,
   markerDetails,
   markerLabel,
   markerTone,
@@ -27,136 +28,111 @@ function marker(overrides: Partial<EmploymentMarker> = {}): EmploymentMarker {
   return { phase: "working", source: "contract", elsewhere: null, clients: [client()], ...overrides };
 }
 
-describe("markerLabel", () => {
-  it("pracuje: klient i koniec zamówienia", () => {
+describe("markerLabel (decyzja 09.11.2026: bez daty, polecenie dla rekrutera)", () => {
+  it("trwające zamówienie: „nie dzwoń”, bez daty i bez klienta", () => {
     expect(markerLabel(marker({ clients: [client({ order_end_date: "2026-12-31" })] }))).toBe(
-      "Pracuje u nas · Bank Przykładowy · do 31.12.2026",
+      "Aktywne zamówienie · nie dzwoń",
     );
+    expect(markerLabel(marker())).toBe("Aktywne zamówienie · nie dzwoń");
   });
 
-  it("pracuje bez daty końca: sam klient", () => {
-    expect(markerLabel(marker())).toBe("Pracuje u nas · Bank Przykładowy");
-  });
-
-  it("kończy: data stoi zaraz po nagłówku", () => {
-    expect(
-      markerLabel(
-        marker({
-          phase: "ending",
-          clients: [client({ phase: "ending", order_end_date: "2026-11-30", client_name: "Telekom Przykładowy" })],
-        }),
-      ),
-    ).toBe("Kończy u nas 30.11.2026 · Telekom Przykładowy");
-  });
-
-  it("zaczyna: data startu", () => {
-    expect(
-      markerLabel(
-        marker({ phase: "starting", clients: [client({ phase: "starting", starts_on: "2026-11-01" })] }),
-      ),
-    ).toBe("Zaczyna u nas 01.11.2026 · Bank Przykładowy");
-  });
-
-  it("dwóch klientów: nazwy bez daty", () => {
-    expect(
-      markerLabel(
-        marker({
-          clients: [
-            client({ order_end_date: "2026-12-31" }),
-            client({ client_id: 101, client_name: "Ubezpieczenia Przykładowe", phase: "ending", order_end_date: "2026-10-20" }),
-          ],
-        }),
-      ),
-    ).toBe("Pracuje u nas · Bank Przykładowy, Ubezpieczenia Przykładowe");
-  });
-
-  it("więcej niż dwóch klientów albo wąskie miejsce: liczba", () => {
-    const three = marker({
-      clients: [client(), client({ client_id: 101, client_name: "B" }), client({ client_id: 102, client_name: "C" })],
-    });
-    expect(markerLabel(three)).toBe("Pracuje u nas · 3 klientów");
-    expect(
-      markerLabel(marker({ clients: [client(), client({ client_id: 101, client_name: "B" })] }), {
-        clients: "count",
-      }),
-    ).toBe("Pracuje u nas · 2 klientów");
-  });
-
-  it("przyszły start u drugiego klienta nie wchodzi do nagłówka „pracuje”", () => {
-    expect(
-      markerLabel(
-        marker({
-          clients: [client(), client({ client_id: 101, client_name: "Nowy", phase: "starting", starts_on: "2026-11-01" })],
-        }),
-      ),
-    ).toBe("Pracuje u nas · Bank Przykładowy");
-  });
-
-  it("krótka wersja: bez klienta, data bez roku", () => {
+  it("koniec zamówienia blisko i klient tej rekrutacji mówią to samo", () => {
     const ending = marker({
       phase: "ending",
       clients: [client({ phase: "ending", order_end_date: "2026-11-30" })],
     });
-    expect(markerLabel(ending, { clients: "none", date: "short" })).toBe("Kończy u nas 30.11");
-    expect(markerLabel(marker({ clients: [client({ order_end_date: "2026-12-31" })] }), { clients: "none" })).toBe(
-      "Pracuje u nas · do 31.12.2026",
-    );
-    expect(markerLabel(marker(), { clients: "none" })).toBe("Pracuje u nas");
+    expect(markerLabel(ending)).toBe("Aktywne zamówienie · nie dzwoń");
+    expect(markerLabel(marker({ elsewhere: false }))).toBe("Aktywne zamówienie · nie dzwoń");
   });
 
-  it("klient rekrutacji: „u tego klienta”, bez nazwy", () => {
-    expect(markerLabel(marker({ elsewhere: false }))).toBe("Pracuje u tego klienta");
+  it("umowa z przyszłym startem też „nie dzwoń”", () => {
     expect(
-      markerLabel(marker({ elsewhere: false, clients: [client({ order_end_date: "2026-12-31" })] })),
-    ).toBe("Pracuje u tego klienta · do 31.12.2026");
-    // U innego klienta zostaje zwykły znacznik z nazwą.
-    expect(markerLabel(marker({ elsewhere: true }))).toBe("Pracuje u nas · Bank Przykładowy");
+      markerLabel(marker({ phase: "starting", clients: [client({ phase: "starting", starts_on: "2026-11-01" })] })),
+    ).toBe("Zaczyna u nas · nie dzwoń");
   });
 
-  it("klient bez nazwy: numer; bez klienta: sam nagłówek", () => {
-    expect(markerLabel(marker({ clients: [client({ client_name: null })] }))).toBe("Pracuje u nas · Klient #100");
-    expect(markerLabel(marker({ clients: [client({ client_id: null, client_name: null })] }))).toBe(
-      "Pracuje u nas",
-    );
+  it("karta Tablicy: samo polecenie", () => {
+    expect(markerLabel(marker(), { short: true })).toBe("Nie dzwoń");
+    expect(markerLabel(marker({ phase: "starting" }), { short: true })).toBe("Nie dzwoń");
+  });
+
+  it("ławka: bez zakazu", () => {
+    expect(markerLabel(marker({ no_current_order: true }))).toBe("Bez aktywnego zamówienia");
+    expect(markerLabel(marker({ no_current_order: true }), { short: true })).toBe("Bez zamówienia");
+  });
+
+  it("przekazana do front office: „Wraca na rynek”, bez zakazu", () => {
+    const back = marker({ returns_to_market: true, returns_to_market_on: "2026-11-30" });
+    expect(markerLabel(back)).toBe("Wraca na rynek 30.11");
+    expect(markerLabel(back, { short: true })).toBe("Wraca na rynek 30.11");
   });
 });
 
 describe("markerTone", () => {
-  it("faza wyznacza kolor, klient rekrutacji zawsze ostrzega", () => {
-    expect(markerTone(marker())).toBe("success");
-    expect(markerTone(marker({ phase: "ending" }))).toBe("warning");
-    expect(markerTone(marker({ phase: "starting" }))).toBe("info");
-    expect(markerTone(marker({ elsewhere: false }))).toBe("warning");
+  it("zakaz na czerwono, ławka neutralnie, powrót na rynek informacyjnie", () => {
+    expect(markerTone(marker())).toBe("danger");
+    expect(markerTone(marker({ phase: "ending" }))).toBe("danger");
+    expect(markerTone(marker({ phase: "starting" }))).toBe("danger");
+    expect(markerTone(marker({ elsewhere: false }))).toBe("danger");
+    expect(markerTone(marker({ no_current_order: true }))).toBe("neutral");
+    expect(markerTone(marker({ returns_to_market: true }))).toBe("info");
+  });
+});
+
+describe("markerCallHint", () => {
+  it("mówi, kto zajmuje się końcem zamówienia, i nie podaje daty", () => {
+    const hint = markerCallHint(marker({ clients: [client({ order_end_date: "2026-12-31" })] }));
+    expect(hint).toContain("Nie dzwoń");
+    expect(hint).toContain("osobny dział");
+    expect(hint).not.toMatch(/\d{2}\.\d{2}/);
+  });
+
+  it("ławka i przyszły start mają własne zdanie", () => {
+    expect(markerCallHint(marker({ no_current_order: true }))).toContain("żadnego trwającego zamówienia");
+    expect(markerCallHint(marker({ phase: "starting" }))).toContain("jeszcze się nie zaczęła");
   });
 });
 
 describe("markerDetails", () => {
-  it("wiersz na klienta: zamówienie i Delivery Lead", () => {
-    expect(
-      markerDetails(
-        marker({
-          clients: [
-            client({ order_end_date: "2026-12-31", delivery_lead_name: "Karol Wzorcowy" }),
-            client({ client_id: 101, client_name: "Nowy", contract_id: 11, phase: "starting", starts_on: "2026-11-01" }),
-          ],
-        }),
-      ),
-    ).toEqual([
+  const two = marker({
+    clients: [
+      client({ order_end_date: "2026-12-31", delivery_lead_name: "Karol Wzorcowy" }),
+      client({ client_id: 101, client_name: "Nowy", contract_id: 11, phase: "starting", starts_on: "2026-11-01" }),
+    ],
+  });
+
+  it("rekruter: klient i Delivery Lead, bez dat", () => {
+    expect(markerDetails(two)).toEqual([
       {
         key: "100:10",
-        title: "Pracuje u nas · Bank Przykładowy",
-        detail: "Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy",
+        title: "Aktywne zamówienie · nie dzwoń · Bank Przykładowy",
+        detail: "Delivery Lead: Karol Wzorcowy",
         contractId: 10,
       },
-      { key: "101:11", title: "Zaczyna u nas · Nowy", detail: "Start 01.11.2026", contractId: 11 },
+      { key: "101:11", title: "Zaczyna u nas · nie dzwoń · Nowy", detail: "", contractId: 11 },
+    ]);
+  });
+
+  it("dostęp do Delivery: daty zostają", () => {
+    expect(markerDetails(two, { showDates: true }).map((line) => line.detail)).toEqual([
+      "Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy",
+      "Start 01.11.2026",
     ]);
   });
 
   it("umowa bez końca zamówień: „Zamówienie bez daty końca”, nic o ręcznym oznaczeniu ani etapie", () => {
     // 17.10.2026: znacznik daje tylko umowa w Kontraktach.
-    const [line] = markerDetails(marker({ clients: [client({ delivery_lead_name: "Karol Wzorcowy" })] }));
+    const [line] = markerDetails(marker({ clients: [client({ delivery_lead_name: "Karol Wzorcowy" })] }), {
+      showDates: true,
+    });
     expect(line.detail).toBe("Zamówienie bez daty końca · Delivery Lead: Karol Wzorcowy");
     expect(line.detail).not.toMatch(/ręcznie|Zatrudniony/);
+  });
+
+  it("ławka: bez zakazu w nagłówku", () => {
+    expect(markerDetails(marker({ no_current_order: true }))[0].title).toBe(
+      "Bez aktywnego zamówienia · Bank Przykładowy",
+    );
   });
 });
 

@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   availabilityContractNote,
   contractAvailability,
-  contractAvailabilityCountdown,
   contractAvailabilityOrigin,
   contractAvailabilityText,
+  contractDateText,
   hidesAvailabilityStatus,
 } from "@/lib/contract-availability";
 import type { EmploymentMarker } from "@/lib/employment-marker";
@@ -36,36 +36,35 @@ describe("contractAvailability", () => {
     const a = contractAvailability(marker(), "2026-09-01", TODAY);
 
     expect(a).toMatchObject({ kind: "date", date: "2026-12-01", basis: "contract" });
-    expect(contractAvailabilityText(a!)).toBe("od 01.12.2026");
-    expect(contractAvailabilityText(a!, "short")).toBe("od 01.12");
-    const origin = contractAvailabilityOrigin(a!);
-    expect(origin.tone).toBe("contract");
-    expect(origin.text).toContain("dzień po końcu zamówienia w Bank Przykładowy (30.11.2026)");
-    expect(origin.text).toContain("W profilu: od 01.09.2026");
+    expect(contractDateText(a!)).toBe("od 01.12.2026");
+    expect(contractDateText(a!, "short")).toBe("od 01.12");
   });
 
-  it("takes a later date the candidate gave", () => {
+  it("recruiter screens say the order is active, with no date", () => {
+    const a = contractAvailability(marker(), "2026-09-01", TODAY);
+
+    expect(contractAvailabilityText(a!)).toBe("Aktywne zamówienie");
+    expect(contractAvailabilityText(a!, "short")).toBe("aktywne zamówienie");
+    const origin = contractAvailabilityOrigin(a!);
+    expect(origin.tone).toBe("contract");
+    expect(origin.text).toBe("Z kontraktu: aktywne zamówienie w Bank Przykładowy. Nie dzwoń z nowym projektem.");
+  });
+
+  it("a later date from the candidate does not reveal the order end", () => {
     const a = contractAvailability(marker(), "2026-12-15", TODAY);
 
     expect(a).toMatchObject({ kind: "date", date: "2026-12-15", basis: "profile" });
-    expect(contractAvailabilityOrigin(a!).tone).toBe("notes");
-  });
-
-  it("counts days in the ending phase", () => {
-    const a = contractAvailability(
-      marker({ phase: "ending", free_from: "2026-11-01" }),
-      null,
-      TODAY,
-    );
-
-    expect(contractAvailabilityCountdown(a!)).toBe("za 17 dni");
+    expect(contractAvailabilityText(a!)).toBe("Aktywne zamówienie");
+    expect(contractAvailabilityOrigin(a!).text).not.toContain("30.11");
   });
 
   it("says when orders already ended and the contract goes on", () => {
     const a = contractAvailability(marker({ free_from: "2026-10-01" }), null, TODAY);
 
     expect(a).toMatchObject({ kind: "date", ordersEnded: true, workEnd: "2026-09-30" });
-    expect(contractAvailabilityText(a!)).toBe("Zamówienia skończyły się 30.09.2026");
+    expect(contractDateText(a!)).toBe("Zamówienia skończyły się 30.09.2026");
+    expect(contractAvailabilityText(a!)).toBe("Bez aktywnego zamówienia");
+    expect(contractAvailabilityText(a!, "short")).toBe("bez zamówienia");
   });
 
   it("has no date without an order end", () => {
@@ -75,9 +74,19 @@ describe("contractAvailability", () => {
       TODAY,
     );
 
-    expect(contractAvailabilityText(a!)).toBe("Bez daty końca zamówienia");
-    expect(contractAvailabilityText(a!, "short")).toBe("bez daty końca");
-    expect(contractAvailabilityOrigin(a!).text).toContain("termin zna Delivery");
+    expect(contractDateText(a!)).toBe("Bez daty końca zamówienia");
+    expect(contractAvailabilityText(a!)).toBe("Aktywne zamówienie");
+  });
+
+  it("a contract with no order at all is not an active order", () => {
+    const a = contractAvailability(
+      marker({ free_from: null, free_from_basis: "no_end_date", no_current_order: true }),
+      null,
+      TODAY,
+    );
+
+    expect(contractAvailabilityText(a!)).toBe("Bez aktywnego zamówienia");
+    expect(contractAvailabilityOrigin(a!).text).toContain("bez trwającego zamówienia");
   });
 
   it("names the start of a future contract", () => {
@@ -92,7 +101,8 @@ describe("contractAvailability", () => {
       TODAY,
     );
 
-    expect(contractAvailabilityText(a!)).toBe("Zaczyna u nas 03.11.2026");
+    expect(contractDateText(a!)).toBe("Zaczyna u nas 03.11.2026");
+    expect(contractAvailabilityText(a!)).toBe("Zaczyna u nas");
   });
 
   it("stays out of the way without a live contract", () => {

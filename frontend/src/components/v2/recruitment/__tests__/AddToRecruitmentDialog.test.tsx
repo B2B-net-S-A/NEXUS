@@ -148,7 +148,7 @@ describe("AddToRecruitmentDialog", () => {
 
       const notice = screen.getByRole("note");
       expect(notice).toHaveTextContent("1 z 3 osób pracuje u nas");
-      expect(notice).toHaveTextContent("Anna Przykładowa — pracuje u nas · Bank Przykładowy · do 31.12.2026");
+      expect(notice).toHaveTextContent("Anna Przykładowa — aktywne zamówienie · nie dzwoń");
       expect(notice).not.toHaveTextContent("Spoza wyboru");
 
       fireEvent.click(screen.getByRole("button", { name: /Wybierz Java Developer/ }));
@@ -183,7 +183,7 @@ describe("AddToRecruitmentDialog", () => {
     it("jedna osoba: pełne szczegóły i bez przycisku, który zostawiłby pusty wybór", () => {
       renderDialog({ candidateIds: [5], employed: [anna], subject: "Anna Przykładowa" });
 
-      expect(screen.getByRole("note")).toHaveTextContent("Anna Przykładowa pracuje u nas · Bank Przykładowy");
+      expect(screen.getByRole("note")).toHaveTextContent("Anna Przykładowa: aktywne zamówienie · nie dzwoń · Bank Przykładowy");
       expect(screen.queryByRole("button", { name: /Dodaj bez/ })).toBeNull();
     });
 

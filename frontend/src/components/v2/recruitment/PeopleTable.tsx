@@ -264,7 +264,6 @@ function ProposalNameCell({ row }: { row: ProposalPersonRow }) {
       {row.employment ? (
         <EmploymentPill
           marker={row.employment}
-          label={{ clients: "none", date: "short" }}
           className="shrink-0"
         />
       ) : null}

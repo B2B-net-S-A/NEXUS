@@ -436,18 +436,18 @@ describe("PipelineCandidateDock", () => {
     });
 
     // Bez nazwy klienta — głowa panelu nie może rosnąć (zapas na treść pod nią).
-    const pill = screen.getByRole("button", { name: "Pracuje u nas · do 31.12" });
+    const pill = screen.getByRole("button", { name: "Aktywne zamówienie · nie dzwoń" });
     expect(screen.queryByRole("note")).toBeNull();
 
     await user.click(pill);
     const notice = screen.getByRole("note");
-    expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
-    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+    expect(notice).toHaveTextContent("Aktywne zamówienie · nie dzwoń · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Delivery Lead: Karol Wzorcowy");
   });
 
   it("bez znacznika głowa panelu nie ma pigułki zatrudnienia", () => {
     renderDock();
-    expect(screen.queryByRole("button", { name: /Pracuje u nas/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Aktywne zamówienie/ })).toBeNull();
   });
 
   it("zakładka Screening otwiera Screening Championa przez onOpenScreening", async () => {

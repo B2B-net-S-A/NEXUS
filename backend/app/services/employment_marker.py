@@ -150,6 +150,15 @@ def order_end_by_contract(rows: Iterable[OrderRow]) -> dict[int, date]:
     return out
 
 
+def contracts_with_current_order(rows: Iterable[OrderRow]) -> set[int]:
+    """Umowy z zamówieniem, które trwa albo jest zaplanowane (09.11.2026).
+
+    Zamówienie skończone to zamknięte albo z datą końca w przeszłości; aktywna
+    linia MD z budżetem pracuje po dacie, więc się liczy (``_order_finished``).
+    """
+    return {row.contract_id for row in rows if not row.finished}
+
+
 def _earliest(*days: Optional[date]) -> Optional[date]:
     known = [day for day in days if day is not None]
     return min(known) if known else None
@@ -257,6 +266,7 @@ def _marker(
     *,
     free_from: Optional[date] = None,
     free_from_basis: Optional[EmploymentFreeFromBasis] = None,
+    no_current_order: bool = False,
 ) -> EmploymentMarker:
     phases = {client.phase for client in clients}
     phase: EmploymentPhase = (
@@ -279,6 +289,7 @@ def _marker(
         clients=clients,
         free_from=free_from,
         free_from_basis=free_from_basis,
+        no_current_order=no_current_order,
     )
 
 
@@ -289,8 +300,13 @@ def build_markers(
     order_ends: Optional[Mapping[int, date]] = None,
     leads: Optional[Mapping[int, str]] = None,
     job_client_ids: Optional[Collection[int]] = None,
+    current_order_contracts: Optional[Collection[int]] = None,
 ) -> dict[int, EmploymentMarker]:
-    """Znaczniki osób z żywą umową u nas; osoba bez umowy nie ma wpisu."""
+    """Znaczniki osób z żywą umową u nas; osoba bez umowy nie ma wpisu.
+
+    ``current_order_contracts`` = umowy z trwającym albo zaplanowanym
+    zamówieniem; ``None`` = zamówień nie wczytano, więc nic nie wiemy o ławce.
+    """
     order_ends = order_ends or {}
     leads = leads or {}
 
@@ -302,11 +318,20 @@ def build_markers(
     out: dict[int, EmploymentMarker] = {}
     for candidate_id, clients in by_candidate.items():
         free_from, basis = contract_free_from(clients)
+        started = [client for client in clients if client.phase != "starting"]
         out[candidate_id] = _marker(
             _one_per_client(clients),
             job_client_ids,
             free_from=free_from,
             free_from_basis=basis,
+            no_current_order=(
+                current_order_contracts is not None
+                and bool(started)
+                and all(
+                    client.contract_id not in current_order_contracts
+                    for client in started
+                )
+            ),
         )
     return out
 
@@ -522,13 +547,13 @@ async def _load_contract_rows(
     ]
 
 
-async def load_order_ends(
+async def load_order_rows(
     db: AsyncSession, contract_ids: Iterable[int], *, today: date
-) -> dict[int, date]:
-    """Koniec łańcucha zamówień dla umów — jedno wąskie zapytanie, bez stawek."""
+) -> list[OrderRow]:
+    """Zamówienia umów do reguły znacznika — jedno wąskie zapytanie, bez stawek."""
     ids = sorted({int(cid) for cid in contract_ids})
     if not ids:
-        return {}
+        return []
     ending = order_ending_without_continuation(
         today,
         date.max,
@@ -557,7 +582,7 @@ async def load_order_ends(
             )
         )
     ).all()
-    return order_end_by_contract(
+    return [
         OrderRow(
             contract_id=row.contract_id,
             end_date=row.end_date,
@@ -566,7 +591,14 @@ async def load_order_ends(
             finished=bool(row.finished),
         )
         for row in rows
-    )
+    ]
+
+
+async def load_order_ends(
+    db: AsyncSession, contract_ids: Iterable[int], *, today: date
+) -> dict[int, date]:
+    """Koniec łańcucha zamówień dla umów."""
+    return order_end_by_contract(await load_order_rows(db, contract_ids, today=today))
 
 
 async def client_delivery_leads(
@@ -614,7 +646,7 @@ async def markers_from_rows(
     """Doczytuje zamówienia i Delivery Leadów tylko, gdy jest po co."""
     if not contracts:
         return {}
-    order_ends = await load_order_ends(
+    order_rows = await load_order_rows(
         db,
         (
             row.contract_id
@@ -627,9 +659,10 @@ async def markers_from_rows(
     markers = build_markers(
         contracts,
         today=today,
-        order_ends=order_ends,
+        order_ends=order_end_by_contract(order_rows),
         leads=leads,
         job_client_ids=job_client_ids,
+        current_order_contracts=contracts_with_current_order(order_rows),
     )
     returning = await load_returning_contract_ids(
         db, (row.contract_id for row in contracts)
@@ -761,10 +794,12 @@ __all__ = [
     "build_markers",
     "client_delivery_leads",
     "contract_free_from",
+    "contracts_with_current_order",
     "ending_soon_exists",
     "job_client_family",
     "load_employment_markers",
     "load_order_ends",
+    "load_order_rows",
     "load_returning_contract_ids",
     "returning_contract_ids",
     "mark_returning",

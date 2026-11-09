@@ -33,6 +33,8 @@ import {
   AVAILABILITY_CHOICES,
   availabilityChoiceFor,
 } from "@/lib/candidate-availability-choice";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 import {
   CANDIDATE_STATUS_OPTIONS,
   OPEN_TO_OPTIONS,
@@ -1069,13 +1071,15 @@ function AvailabilityChoiceField({
 }) {
   const current = availabilityChoiceFor(filters);
   const labelId = useId();
+  // „Kończy u nas w ciągu 60 dni” tylko z Delivery (09.11.2026); serwer odmawia tak samo.
+  const canSeeEnding = useAuthStore((state) => hasSectionAccess(state.user, "delivery"));
   return (
     <div className="space-y-1.5">
       <p id={labelId} className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         Czy można go teraz zaproponować?
       </p>
       <div role="radiogroup" aria-labelledby={labelId} className="space-y-0.5">
-        {AVAILABILITY_CHOICES.map((choice) => {
+        {AVAILABILITY_CHOICES.filter((choice) => choice.id !== "ending_soon" || canSeeEnding).map((choice) => {
           const checked = current === choice.id;
           return (
             <button

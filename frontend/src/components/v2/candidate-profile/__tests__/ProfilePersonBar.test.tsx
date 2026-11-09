@@ -95,7 +95,7 @@ describe("ProfilePersonBar — tożsamość i pigułki (E1, D4, 13.10.2026)", ()
       },
     });
     expect(screen.queryByText("Szuka aktywnie")).toBeNull();
-    expect(screen.getByText(/Pracuje u nas/)).toBeInTheDocument();
+    expect(screen.getByText(/Aktywne zamówienie/)).toBeInTheDocument();
   });
 
   it("czarna lista nie jest pigułką w pasku — mówi o niej baner pod paskiem (17.10.2026)", () => {

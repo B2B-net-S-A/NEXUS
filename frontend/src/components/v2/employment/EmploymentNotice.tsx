@@ -7,6 +7,7 @@ import { EMPLOYMENT_DOT_TONE, EmploymentPill } from "@/components/ds/EmploymentM
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   employedCountLabel,
+  markerCallHint,
   markerDetails,
   markerLabel,
   markerTone,
@@ -22,11 +23,11 @@ export const ASK_DELIVERY_HINT = "Przed wysłaniem profilu zapytaj Delivery.";
 export const ADD_ANYWAY_HINT =
   "Dodanie jest możliwe. Przed wysłaniem CV do klienta uzgodnij to z Delivery Leadem.";
 
-type FrameTone = EmploymentMarkerTone | "neutral";
+type FrameTone = EmploymentMarkerTone | "success";
 
 const FRAME_TONE: Record<FrameTone, string> = {
   success: "border-success/20 bg-success-muted/40",
-  warning: "border-warning/25 bg-warning-muted/50",
+  danger: "border-destructive/25 bg-destructive/10",
   info: "border-info/20 bg-info-muted/40",
   neutral: "border-border bg-muted/40",
 };
@@ -71,7 +72,7 @@ export function EmploymentNotice({
       className={cn("rounded-lg border px-3 py-2 text-xs", FRAME_TONE[tone ?? markerToneValue], className)}
     >
       <ul className="flex flex-col gap-1.5">
-        {markerDetails(marker).map((line) => (
+        {markerDetails(marker, { showDates: canOpenContract }).map((line) => (
           <li key={line.key} className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="flex min-w-0 items-start gap-1.5 font-semibold text-foreground">
@@ -83,7 +84,7 @@ export function EmploymentNotice({
                   )}
                 />
                 <span className="min-w-0 break-words">
-                  {personName ? `${personName} ${lowerFirst(line.title)}` : line.title}
+                  {personName ? `${personName}: ${lowerFirst(line.title)}` : line.title}
                 </span>
               </p>
               {line.detail ? <p className="mt-0.5 text-muted-foreground">{line.detail}</p> : null}
@@ -194,13 +195,17 @@ export function EmploymentPopoverPill({
         >
           <EmploymentPill
             marker={marker}
-            label={{ clients: "none", date: "short" }}
             className="whitespace-nowrap"
           />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-80 max-w-[calc(100vw-1rem)] p-2">
-        <EmploymentNotice marker={marker} tone="neutral" className="border-0 bg-transparent px-1 py-1" />
+        <EmploymentNotice
+          marker={marker}
+          hint={markerCallHint(marker)}
+          tone="neutral"
+          className="border-0 bg-transparent px-1 py-1"
+        />
       </PopoverContent>
     </Popover>
   );

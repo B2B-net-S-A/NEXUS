@@ -699,14 +699,14 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
     ).closest("[data-kanban-card]") as HTMLElement;
     // Data bez roku — karta ma ~176 px; pełna treść jest w dymku i w opisie.
     expect(within(employed).getByTestId("card-employment")).toHaveTextContent(
-      "Pracuje u nas · Bank Przykładowy · do 31.12",
+      "Nie dzwoń",
     );
     expect(within(employed).getByTestId("card-warning-client_nda")).toHaveTextContent("NDA z klientem");
     const description = document.getElementById(
       screen.getByRole("link", { name: "Anna Przykładowa" }).getAttribute("aria-describedby") ?? "",
     );
     expect(description).toHaveTextContent(
-      "Ostrzeżenie: NDA z klientem. Pracuje u nas · Bank Przykładowy · do 31.12.2026.",
+      "Ostrzeżenie: NDA z klientem. Aktywne zamówienie · nie dzwoń.",
     );
 
     const other = screen
