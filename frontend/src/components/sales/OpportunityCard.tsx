@@ -95,7 +95,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const canEdit = hasPermission(user, "sales_edit");
   const { askConfirm, confirmDialog } = useConfirmV2();
   const { showError, showSuccess } = useToast();
-  const [losing, setLosing] = useState(false);
+  const [losingStage, setLosingStage] = useState<Stage | null>(null);
   const [editing, setEditing] = useState(false);
   const [linking, setLinking] = useState(false);
   const [reason, setReason] = useState("");
@@ -156,7 +156,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
               Edytuj
             </Button>
             {data.status === "open" && lostStage && (
-              <Button size="sm" variant="outline" onClick={() => setLosing(true)}>
+              <Button size="sm" variant="outline" onClick={() => setLosingStage(lostStage)}>
                 Przegrana
               </Button>
             )}
@@ -215,7 +215,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
                       const target = stages.find((stage) => String(stage.id) === value);
                       if (!target || target.id === data.stage.id) return;
                       if (target.outcome === "lost") {
-                        setLosing(true);
+                        setLosingStage(target);
                         return;
                       }
                       moveTo(target.id);
@@ -266,22 +266,24 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
       {editing && data && (
         <OpportunityFormDialog open={editing} onOpenChange={setEditing} opportunity={data} />
       )}
-      {losing && lostStage && (
+      {losingStage && (
         <AppModal
-          open={losing}
-          onOpenChange={setLosing}
-          title="Przegrana szansa"
+          open
+          onOpenChange={(open) => {
+            if (!open) setLosingStage(null);
+          }}
+          title={`Zamknij szansę: ${losingStage.name}`}
           size="sm"
           footer={
             <>
-              <Button variant="outline" onClick={() => setLosing(false)}>
+              <Button variant="outline" onClick={() => setLosingStage(null)}>
                 Anuluj
               </Button>
               <Button
                 loading={move.isPending}
                 onClick={() => {
-                  moveTo(lostStage.id, reason.trim() || undefined);
-                  setLosing(false);
+                  moveTo(losingStage.id, reason.trim() || undefined);
+                  setLosingStage(null);
                   setReason("");
                 }}
               >

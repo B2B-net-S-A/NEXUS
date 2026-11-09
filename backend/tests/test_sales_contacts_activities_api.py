@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import update
 
+from app.core.database import AsyncSessionLocal
+from app.models.sales import SalesOpportunity
+from app.models.user import User
 from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_opportunities_api import _company
 
@@ -147,6 +151,156 @@ async def test_tasks_buckets_and_only_author_deletes(app_client) -> None:
         f"{ACTIVITIES}/{late['id']}", headers=_headers(rep)
     )
     assert deleted.status_code == 204
+
+
+async def _opportunity_of(app_client, owner) -> dict:
+    company_id = await _company(app_client, owner)
+    resp = await app_client.post(
+        OPPS,
+        json={"company_id": company_id, "title": "Szansa opiekuna"},
+        headers=_headers(owner),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def _task(app_client, author, **fields) -> dict:
+    resp = await app_client.post(
+        ACTIVITIES,
+        json={"kind": "task", "subject": "Oddzwonić", **fields},
+        headers=_headers(author),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_task_on_opportunity_goes_to_its_owner_not_the_author(
+    app_client,
+) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    opp = await _opportunity_of(app_client, owner)
+
+    task = await _task(app_client, author, opportunity_id=opp["id"])
+
+    assert task["assignee"]["id"] == owner.id
+    assert task["author"]["id"] == author.id
+    owner_tasks = (
+        await app_client.get(f"{ACTIVITIES}/tasks", headers=_headers(owner))
+    ).json()
+    assert [t["id"] for t in owner_tasks["items"]] == [task["id"]]
+    author_tasks = (
+        await app_client.get(f"{ACTIVITIES}/tasks", headers=_headers(author))
+    ).json()
+    assert author_tasks == {"items": [], "total": 0}
+
+
+@pytest.mark.asyncio
+async def test_call_with_due_date_on_opportunity_goes_to_its_owner(app_client) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    opp = await _opportunity_of(app_client, owner)
+    due = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    call = await app_client.post(
+        ACTIVITIES,
+        json={
+            "kind": "call",
+            "opportunity_id": opp["id"],
+            "subject": "Telefon",
+            "due_at": due,
+        },
+        headers=_headers(author),
+    )
+
+    assert call.status_code == 201, call.text
+    assert call.json()["assignee"]["id"] == owner.id
+
+
+@pytest.mark.asyncio
+async def test_explicit_assignee_wins_over_opportunity_owner(app_client) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    chosen = await _user("sales_edit")
+    opp = await _opportunity_of(app_client, owner)
+
+    task = await _task(
+        app_client, author, opportunity_id=opp["id"], assignee_user_id=chosen.id
+    )
+
+    assert task["assignee"]["id"] == chosen.id
+
+
+@pytest.mark.asyncio
+async def test_task_without_opportunity_stays_with_the_author(app_client) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    company_id = await _company(app_client, owner)
+
+    task = await _task(app_client, author, company_id=company_id)
+
+    assert task["assignee"]["id"] == author.id
+
+
+@pytest.mark.asyncio
+async def test_task_on_opportunity_without_owner_stays_with_the_author(
+    app_client,
+) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    opp = await _opportunity_of(app_client, owner)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(SalesOpportunity)
+            .where(SalesOpportunity.id == opp["id"])
+            .values(owner_user_id=None)
+        )
+        await db.commit()
+
+    task = await _task(app_client, author, opportunity_id=opp["id"])
+
+    assert task["assignee"]["id"] == author.id
+
+
+@pytest.mark.asyncio
+async def test_task_on_opportunity_of_inactive_owner_stays_with_the_author(
+    app_client,
+) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    opp = await _opportunity_of(app_client, owner)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User).where(User.id == owner.id).values(is_active=False)
+        )
+        await db.commit()
+
+    task = await _task(app_client, author, opportunity_id=opp["id"])
+
+    assert task["assignee"]["id"] == author.id
+
+
+@pytest.mark.asyncio
+async def test_cleared_assignee_on_opportunity_task_returns_to_its_owner(
+    app_client,
+) -> None:
+    owner = await _user("sales_edit")
+    author = await _user("sales_edit")
+    chosen = await _user("sales_edit")
+    opp = await _opportunity_of(app_client, owner)
+    task = await _task(
+        app_client, author, opportunity_id=opp["id"], assignee_user_id=chosen.id
+    )
+
+    patched = await app_client.patch(
+        f"{ACTIVITIES}/{task['id']}",
+        json={"assignee_user_id": None},
+        headers=_headers(author),
+    )
+
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["assignee"]["id"] == owner.id
 
 
 async def _meeting(app_client, user, company_id: int, **fields) -> int:

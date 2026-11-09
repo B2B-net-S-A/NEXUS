@@ -29,6 +29,8 @@ interface OpportunityFormDialogProps {
   company?: Ref;
   /** Edycja istniejącej szansy (firmy i etapu tu nie zmieniamy). */
   opportunity?: OpportunityDetail;
+  /** Lejek oglądanej tablicy; brak = lejek domyślny. */
+  pipelineId?: number;
   onCreated?: (opportunity: OpportunityDetail) => void;
 }
 
@@ -72,6 +74,7 @@ export function OpportunityFormDialog({
   onOpenChange,
   company,
   opportunity,
+  pipelineId,
   onCreated,
 }: OpportunityFormDialogProps) {
   const fixedCompany = opportunity?.company ?? company;
@@ -135,7 +138,7 @@ export function OpportunityFormDialog({
       return;
     }
     create.mutate(
-      { company_id: picked.id, ...fields },
+      { company_id: picked.id, pipeline_id: pipelineId, ...fields },
       {
         onSuccess: (opportunity) => {
           showSuccess("Dodano szansę. Uzupełniamy daty osób z tej firmy w tle.");
