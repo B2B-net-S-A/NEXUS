@@ -532,9 +532,9 @@ export function AgreementAdminDetailsCard({
                   : undefined
               }
             >
-              Replacement
+              Replacement / gwarancja
             </FieldLabel>
-            <div className="flex gap-2" role="group" aria-label="Replacement">
+            <div className="flex gap-2" role="group" aria-label="Replacement / gwarancja">
               {[true, false].map((option) => (
                 <Button
                   key={String(option)}
@@ -650,7 +650,7 @@ export function AgreementAdminDetailsCard({
                     : undefined
                 }
               >
-                Replacement za kogo
+                Replacement / gwarancja za kogo
               </FieldLabel>
               <ReplacedPicker
                 candidateId={candidateId}
@@ -667,7 +667,7 @@ export function AgreementAdminDetailsCard({
           <p className="text-xs text-destructive" role="alert">
             Uzupełnij{" "}
             {value.isReplacement && !value.replaced
-              ? "„Replacement za kogo”"
+              ? "„Replacement / gwarancja za kogo”"
               : "replacement i wymiar FTE"}{" "}
             — bez tego nie wygenerujesz umowy.
           </p>

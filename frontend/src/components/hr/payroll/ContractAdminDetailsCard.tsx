@@ -136,7 +136,7 @@ function EditDialog({ details, clientName, onClose }: EditDialogProps) {
     >
       <div className="grid gap-4">
         <YesNoField
-          label="Replacement"
+          label="Replacement / gwarancja"
           value={isReplacement}
           onChange={(value) => {
             setIsReplacement(value);
@@ -146,7 +146,7 @@ function EditDialog({ details, clientName, onClose }: EditDialogProps) {
         {isReplacement ? (
           <div>
             <p className="mb-1.5 text-sm font-medium text-foreground">
-              Replacement za kogo
+              Replacement / gwarancja za kogo
             </p>
             <ReplacedPicker
               candidateId={details.candidate_id}
@@ -251,7 +251,7 @@ export function ContractAdminDetailsCard({
       </div>
       <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
         <div className="flex gap-2">
-          <dt className="text-muted-foreground">Replacement:</dt>
+          <dt className="text-muted-foreground">Replacement / gwarancja:</dt>
           <dd className="text-foreground">
             {yesNo(details.is_replacement)}
             {details.is_replacement && details.replaced

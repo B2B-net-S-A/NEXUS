@@ -38,6 +38,12 @@ w trzech miejscach.
 
 ## Replacement i FTE
 
+Pole na ekranach nazywa się „Replacement / gwarancja” (decyzja Artura 09.11.2026).
+Płace rozróżniają zastępstwo u tego samego klienta od gwarancji Delivery Leada,
+czyli następnej osoby po kimś, kogo ten DL zatrudnił i kto odszedł przed rokiem,
+także u innego klienta. Automat zna tylko to pole, więc gwarancję też się nim
+zaznacza; „za kogo” pozwala szukać we wszystkich kontraktorach.
+
 - Obowiązkowe **przy umowie z rekrutacją** (`/render`, `/mandate/render`,
   `/rerender`: 422 bez nich). Umowa ręczna bez rekrutacji zapisuje to, co
   przyszło. W schemacie pola są opcjonalne (`AgreementAdminDetails`), bo

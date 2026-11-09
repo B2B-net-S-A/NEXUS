@@ -133,7 +133,7 @@ describe("AgreementAdminDetailsCard", () => {
     expect(
       screen.getAllByText("Uzupełni się po wybraniu rekrutacji"),
     ).toHaveLength(2);
-    expect(inGroup("Replacement").getByRole("button", { name: "Tak" })).toBeDisabled();
+    expect(inGroup("Replacement / gwarancja").getByRole("button", { name: "Tak" })).toBeDisabled();
     expect(
       inGroup("Kandydat wskazany przez klienta").getByRole("button", {
         name: "Tak",
@@ -163,7 +163,7 @@ describe("AgreementAdminDetailsCard", () => {
       }),
     );
     expect(
-      inGroup("Replacement").getByRole("button", { name: "Nie" }),
+      inGroup("Replacement / gwarancja").getByRole("button", { name: "Nie" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
       inGroup("Kandydat wskazany przez klienta").getByRole("button", {
@@ -211,8 +211,8 @@ describe("AgreementAdminDetailsCard", () => {
     renderCard({ onValue });
     await screen.findByText("Zofia Przykładowa");
 
-    await user.click(inGroup("Replacement").getByRole("button", { name: "Nie" }));
-    expect(screen.queryByText("Replacement za kogo")).not.toBeInTheDocument();
+    await user.click(inGroup("Replacement / gwarancja").getByRole("button", { name: "Nie" }));
+    expect(screen.queryByText("Replacement / gwarancja za kogo")).not.toBeInTheDocument();
     expect(onValue).toHaveBeenLastCalledWith({
       isReplacement: false,
       replaced: null,
@@ -245,7 +245,7 @@ describe("AgreementAdminDetailsCard", () => {
     renderCard();
     await screen.findByText("Anna Przykładowa");
 
-    await user.click(inGroup("Replacement").getByRole("button", { name: "Tak" }));
+    await user.click(inGroup("Replacement / gwarancja").getByRole("button", { name: "Tak" }));
     await user.click(screen.getByRole("combobox"));
     expect(
       await screen.findByText("zakończony 31.08.2026"),
@@ -288,7 +288,7 @@ describe("AgreementAdminDetailsCard", () => {
     ).toBeInTheDocument();
     // Replacement zostaje nietknięty.
     expect(
-      inGroup("Replacement").getByRole("button", { name: "Nie" }),
+      inGroup("Replacement / gwarancja").getByRole("button", { name: "Nie" }),
     ).toHaveAttribute("aria-pressed", "true");
   });
 });

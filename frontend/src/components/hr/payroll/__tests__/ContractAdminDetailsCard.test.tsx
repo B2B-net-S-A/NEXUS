@@ -110,7 +110,7 @@ describe("ContractAdminDetailsCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Zmień" }));
     const dialog = screen.getByRole("dialog");
     fireEvent.click(
-      within(within(dialog).getByRole("group", { name: "Replacement" })).getByRole(
+      within(within(dialog).getByRole("group", { name: "Replacement / gwarancja" })).getByRole(
         "button",
         { name: "Tak" },
       ),

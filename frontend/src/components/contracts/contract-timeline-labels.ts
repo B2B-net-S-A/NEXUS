@@ -152,7 +152,7 @@ const DETAIL_LABELS: Record<string, string> = {
   period_to: "Okres zlecenia do",
   rate_changed: "Zmieniono stawkę",
   // Szczegóły administracyjne kontraktu (06.11.2026).
-  is_replacement: "Replacement",
+  is_replacement: "Replacement / gwarancja",
   replaced_contract_id: "Za kogo (kontrakt)",
   is_client_referral: "Kandydat wskazany przez klienta",
   reason: "Powód",
