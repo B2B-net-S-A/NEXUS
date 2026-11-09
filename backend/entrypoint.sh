@@ -4103,7 +4103,7 @@ END $$""",
     # w każdej iteracji (zero maili do offline'owych userów).
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "
     "email_send_started_at TIMESTAMPTZ NULL",
-    # Powiadomienie u zastępcy pamięta, za kogo przyszło (0674).
+    # Powiadomienie u zastępcy pamięta, za kogo przyszło (0675).
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS on_behalf_of_user_id "
     "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
     # Tryb obróbki treści CV (migracja 0202_cv_content_mode). Pipeline zapisuje

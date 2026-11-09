@@ -473,7 +473,7 @@ class Notification(Base, TimestampMixin):
         ForeignKey("users.id"), nullable=False, index=True
     )
 
-    # Wiersz przyszedł do zastępcy: osoba, do której był adresowany (0674).
+    # Wiersz przyszedł do zastępcy: osoba, do której był adresowany (0675).
     on_behalf_of_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

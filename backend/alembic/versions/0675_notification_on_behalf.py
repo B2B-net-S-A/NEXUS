@@ -1,15 +1,15 @@
 """Powiadomienie u zastępcy pamięta, za kogo przyszło.
 
-Revision ID: 0674_notification_on_behalf
-Revises: 0673_own_hiring
+Revision ID: 0675_notification_on_behalf
+Revises: 0674_job_client_rate_card
 
 Lustro w ``entrypoint.sh``.
 """
 
 from alembic import op
 
-revision = "0674_notification_on_behalf"
-down_revision = "0673_own_hiring"
+revision = "0675_notification_on_behalf"
+down_revision = "0674_job_client_rate_card"
 branch_labels = None
 depends_on = None
 
