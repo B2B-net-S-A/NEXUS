@@ -54,9 +54,20 @@ czy dowieziemy, gdzie się zatyka, kto.
 
 Decyzja Artura z 05.11.2026: junior 1, senior 2, ekspert 3 placementy miesięcznie.
 Cel zespołu to suma celów osób. Cele są wpisami osobowymi w „Cele KPI”
-(`user_kpi_targets`), bo poziomu nie da się brać ze Ścieżki rozwoju: osoby
-nowe w NEXUSIE, które Artur uznaje za ekspertów, mają tam poziom junior.
+(`user_kpi_targets`). Osoby przyjęte jako eksperci mają wpis ręczny, a Ścieżka
+rozwoju pokazuje im poziom z celu (cel 2 = Senior, 3 = Expert, `level_floors`;
+tylko ekran, dziennik poziomów i automat liczą z samych placementów).
 Domyślne 1 z `kpi_catalog.py` zostaje dla juniorów. Nowy ekspert ma pełny cel od
 razu, także wstecz, bo cel osoby nie ma historii (decyzja Artura). Cele
 weryfikacji i rekomendacji zostają jednakowe dla każdego (też jego decyzja), mimo
 że w październiku wyszło 46% i 54% celu.
+
+**Awans podnosi cel sam** (decyzja Artura z 09.11.2026, `services/kpi_level_targets.py`,
+przebieg dobowy w pętli dziennika Ścieżki). Senior: 6 placementów w 6 miesięcy
+albo 12 w 12, także 6 w jednym miesiącu. Expert: 12 w 6 albo 24 w 12, liczone od
+miesiąca po awansie na Seniora. Poziom bierzemy na koniec poprzedniego miesiąca,
+więc cel rośnie od miesiąca po awansie, choć Ścieżka pokazuje awans od razu. Cel
+tylko rośnie: wyższy wpis ręczny zostaje, wpis 0 to świadome wyłączenie. Zmiana
+ma w historii celów autora „Automat: Ścieżka rozwoju”. Automat czeka, aż wynik
+miesiąca z programu 200% będzie zapisany, bo premia czyta cel bieżący także za
+miesiąc miniony. Ponowne „Przelicz wynik” po awansie widzi już wyższy cel.
