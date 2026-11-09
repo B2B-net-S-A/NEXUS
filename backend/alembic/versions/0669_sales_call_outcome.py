@@ -1,7 +1,7 @@
 """Sprzedaż: wynik rozmowy w aktywności i sprzeciw wobec kontaktu.
 
-Revision ID: 0668_sales_call_outcome
-Revises: 0667_drop_abandoned_tables
+Revision ID: 0669_sales_call_outcome
+Revises: 0668_cortex_first_seen_not_null
 
 DDL w ``app/services/sales_schema.py``; ``entrypoint.sh`` wpina tę samą listę.
 """
@@ -10,8 +10,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0668_sales_call_outcome"
-down_revision = "0667_drop_abandoned_tables"
+revision = "0669_sales_call_outcome"
+down_revision = "0668_cortex_first_seen_not_null"
 branch_labels = None
 depends_on = None
 
