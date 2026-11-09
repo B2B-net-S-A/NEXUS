@@ -43,6 +43,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_auto_match import CandidateMatchOutbox
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
+from app.services import single_candidate_list
 from app.services.must_text_evidence import attach_gate_evidence
 from app.services.auto_match_outbox import auto_match_mode, candidate_revision
 from app.services.auto_match_rules import is_good_match
@@ -851,6 +852,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
     )
     if settings.AUTO_MATCH_WRITE_POOL_ENABLED and auto_match_mode() != "dry_run":
         await _write_pool(db, scored=scored, revision=revision, run_id=run_id)
+        await single_candidate_list.fill_portal_scores(db, scored)
     await db.commit()
     notified = await _notify(
         db,

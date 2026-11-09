@@ -3,9 +3,7 @@
 Definicje jak w pulpicie sprzedaży Atlasa (``src/services/sales_dashboard_service.py``):
 wartość = ``value`` (MRR + jednorazowa, tak jak zapisuje ją cykl życia),
 ważona = wartość × prawdopodobieństwo / 100, szansa „bez ruchu” = ostatni
-dotyk starszy niż 14 dni. Ostatni dotyk to późniejsza z dat: najnowsza
-aktywność szansy (``occurred_at``, a bez niej ``created_at``) i
-``last_activity_at``; bez żadnej z nich — ``updated_at``.
+dotyk (``services/sales/touch.py``) starszy niż 14 dni.
 
 Okres liczymy w kalendarzu firmy (``business_today``), po
 ``expected_close_date`` w przedziale [początek, koniec).
@@ -19,16 +17,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sales import (
-    SalesActivity,
     SalesOpportunity,
     SalesPipeline,
     SalesPipelineStage,
 )
 from app.models.user import User
+from app.services.sales.touch import last_touch_at
 
 STALE_DAYS = 14
 Period = Literal["all", "quarter", "next_quarter"]
@@ -98,21 +96,6 @@ async def build_summary(
     today: date,
     now: datetime,
 ) -> Summary:
-    last_activity = (
-        select(
-            SalesActivity.opportunity_id.label("opportunity_id"),
-            func.max(
-                func.coalesce(SalesActivity.occurred_at, SalesActivity.created_at)
-            ).label("touched_at"),
-        )
-        .where(SalesActivity.opportunity_id.is_not(None))
-        .group_by(SalesActivity.opportunity_id)
-        .subquery()
-    )
-    last_touch = func.coalesce(
-        func.greatest(last_activity.c.touched_at, SalesOpportunity.last_activity_at),
-        SalesOpportunity.updated_at,
-    )
     rows = (
         await db.execute(
             select(
@@ -123,10 +106,7 @@ async def build_summary(
                 SalesOpportunity.mrr_value,
                 SalesOpportunity.probability,
                 SalesOpportunity.expected_close_date,
-                last_touch.label("last_touch"),
-            )
-            .outerjoin(
-                last_activity, last_activity.c.opportunity_id == SalesOpportunity.id
+                last_touch_at(now).label("last_touch"),
             )
             .outerjoin(User, User.id == SalesOpportunity.owner_user_id)
             .where(
@@ -169,7 +149,7 @@ async def build_summary(
         value = Decimal(row.value or 0)
         weighted = value * row.probability / 100
         mrr = Decimal(row.mrr_value or 0)
-        stale = row.last_touch is None or row.last_touch < stale_before
+        stale = row.last_touch < stale_before
 
         owner = owner_row(row.owner_user_id, row.name)
         owner.open += 1

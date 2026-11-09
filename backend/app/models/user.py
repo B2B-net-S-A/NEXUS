@@ -314,11 +314,9 @@ class User(Base, TimestampMixin):
     )
 
     # ── CloudTalk telephony (Phase CloudTalk.2, migracja 0099) ──────────────
-    # When non-NULL, links this user to a CloudTalk agent. The mapping is set
-    # via POST /api/cloudtalk/agents/{id}/assign (or auto-linked on email match
-    # by /sync-agents). Required for outbound click-to-call (Phase 3) and
-    # webhook user_id resolution (Call.user_id set when webhook payload carries
-    # an agent.id that matches this column).
+    # Link to a CloudTalk agent. The integration was removed on 08.11.2026
+    # (#3184): nothing sets or reads this for calling any more, the column
+    # stays with the historical `calls` rows.
     cloudtalk_agent_id: Mapped[Optional[int]] = mapped_column(
         Integer, unique=True, nullable=True, index=True
     )

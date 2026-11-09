@@ -10,8 +10,7 @@ odszukać ani podpisać linkiem.
 Wzoru zwrotu recepcja nie miała — protokół zwrotu ma ten sam nagłówek
 i strony zamienione miejscami, a w tabeli stan przy zwrocie zamiast ceny.
 
-Szablony w ``app/templates/equipment`` są WYNIKIEM tego modułu (jak
-``scripts/build_academy_templates.py`` dla Akademii)::
+Szablony w ``app/templates/equipment`` są WYNIKIEM tego modułu::
 
     python -m app.services.equipment.protocol_template
 

@@ -32,9 +32,9 @@ Cztery decyzje, które trzymają ten moduł uczciwym:
    dowozić" żyje w liczniku bieżącego okna, który spada do zera i jest
    widoczny obok.
 
-3. **Konta-widma odcina `users.is_active IS TRUE`.** Import Traffita zakłada
+3. **Konta-widma odcina `users.is_active IS TRUE`.** Import Traffita zakładał
    niedopasowanych operatorów jako konta z `is_active=False`
-   (`app/services/traffit/importer.py:1427`) i przypisuje im historyczny
+   i przypisywał im historyczny
    ruch. Bez tego filtra reguła „N placementów w oknie" awansowałaby konta,
    za którymi nie stoi żaden pracownik, i wypisywała je z imienia i nazwiska
    obok realnego zespołu. To był bloker decyzji D6 — NIE zdejmuj tego filtra

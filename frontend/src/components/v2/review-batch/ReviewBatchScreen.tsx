@@ -66,6 +66,54 @@ function AddMore({ jobId, title, count }: { jobId: number; title: string; count:
   );
 }
 
+/**
+ * Pusta kolejka przy niezrobionym minimum: cała porcja poszła na „Do screeningu”,
+ * więc wyszukiwanie dalej zwraca 423. Lista przychodzi w statusie, a jego awaria
+ * ma własny komunikat, więc nie może tu wyglądać jak brak osób.
+ */
+function QueueEmpty({ data }: { data: ReviewBatchStatus }) {
+  if (data.met) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
+        Porcja przejrzana. Nowa porcja przyjdzie w następny dzień roboczy o 7:00.
+      </p>
+    );
+  }
+  const addMore = data.team_jobs.some((job) => job.pending === 0)
+    ? ` Możesz też użyć „Dodaj ${data.more_cards ?? 20} kolejnych od Nexusa” w sekcji „Przejrzane do końca”.`
+    : "";
+  const items = data.open_today_screenings ?? [];
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
+        Nie masz teraz osób do przejrzenia, a minimum nie jest jeszcze zrobione.{addMore}
+      </p>
+    );
+  }
+  return (
+    <section className="space-y-2" data-testid="review-batch-open-today">
+      <h2 className="text-sm font-semibold">Do domknięcia na Tablicy</h2>
+      <p className="text-sm text-muted-foreground">
+        Do minimum brakuje {data.remaining} decyzji. Screening liczy się po zapisaniu
+        wyniku, odrzucenie z powodem od razu.{addMore}
+      </p>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {items.map((item) => (
+          <li key={`${item.job_id}-${item.candidate_id}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <Link
+              href={`/jobs/${item.job_id}?candidate=${item.candidate_id}`}
+              className="min-w-0 flex-1 truncate hover:underline"
+            >
+              {item.name}
+            </Link>
+            <span className="min-w-0 truncate text-muted-foreground">{item.job_title}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function ReviewBatchScreen() {
   const queryClient = useQueryClient();
   const status = useReviewBatchStatus();
@@ -131,16 +179,14 @@ export function ReviewBatchScreen() {
 
       {next ? (
         <ReviewBatchCard key={next.process_id} item={next} onDecided={onDecided} />
-      ) : queue.isLoading ? (
-        <div className="text-sm text-muted-foreground">Ładowanie osób…</div>
       ) : queue.isError ? (
         <div className="text-sm text-destructive" role="alert">
           {apiErrorMessage(queue.error, "Nie udało się wczytać osób z porcji.")}
         </div>
+      ) : !queue.isSuccess ? (
+        <div className="text-sm text-muted-foreground">Ładowanie osób…</div>
       ) : (
-        <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
-          Porcja przejrzana. Nowa porcja przyjdzie w następny dzień roboczy o 7:00.
-        </p>
+        <QueueEmpty data={data} />
       )}
 
       {data.jobs.length > 0 ? (

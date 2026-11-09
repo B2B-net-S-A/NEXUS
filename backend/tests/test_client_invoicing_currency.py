@@ -22,6 +22,11 @@ from app.models.client_order_group import (
 )
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.contract import RateUnit
+from app.models.md_consumption import (
+    IMPORT_ROW_APPLIED,
+    MdConsumptionImport,
+    MdConsumptionImportRow,
+)
 from app.services.client_invoicing import matching
 from app.services.client_invoicing.billing import billing_rows
 from app.services.client_invoicing.matching import Target, auto_match
@@ -302,6 +307,89 @@ async def test_shared_pool_without_breakdown_needs_one_eur_rate():
     assert row.currency == "EUR"
     (line,) = row.lines
     assert line.net is None
+
+
+async def _import_rows(group_id: int, rows: list[tuple[int, str]]) -> None:
+    """Zastosowane wiersze importu MD za październik: (linia, MD)."""
+
+    async with AsyncSessionLocal() as db:
+        batch = MdConsumptionImport(period_month="2026-10", filename="md.xlsx")
+        db.add(batch)
+        await db.flush()
+        db.add_all(
+            MdConsumptionImportRow(
+                import_id=batch.id,
+                row_number=number,
+                consultant_name="Osoba z arkusza",
+                md_reported=Decimal(md),
+                status=IMPORT_ROW_APPLIED,
+                matched_order_id=line_id,
+                matched_group_id=group_id,
+            )
+            for number, (line_id, md) in enumerate(rows, start=1)
+        )
+        await db.commit()
+
+
+async def _imported_pool(client_id: int, number: str, md: str, rows: list[str]):
+    """Pula z importu bez ``breakdown``; wiersze importu po kolei na osoby."""
+
+    group_id, line_ids = await _foreign_group(
+        client_id,
+        number,
+        people=[
+            ("Ala", "Pulowa", "1100.500", None, "300", "EUR"),
+            ("Ola", "Pulowa", "1100.500", None, "300", "EUR"),
+        ],
+    )
+    await _pool(group_id, md, None)
+    await _import_rows(group_id, list(zip(line_ids, rows)))
+    return group_id, line_ids
+
+
+async def test_shared_pool_from_import_is_billed_per_person():
+    """Ta sama reguła co ekran zamówienia: podział z wierszy importu."""
+
+    seed = await fx.seed_month()
+    _group, (first, second) = await _imported_pool(
+        seed.other_client_id, "POOL-4", "18", ["10", "8"]
+    )
+    row = await _row(seed.other_client_id, "POOL-4")
+    assert [(line.order_id, line.net) for line in row.lines] == [
+        (first, Decimal("3000.00")),
+        (second, Decimal("2400.00")),
+    ]
+
+
+async def test_import_rows_not_adding_up_stay_one_pool_line():
+    """Suma wierszy inna niż zejście puli: osobom nie przypisujemy tych liczb."""
+
+    seed = await fx.seed_month()
+    await _imported_pool(seed.other_client_id, "POOL-5", "18", ["10", "7"])
+    row = await _row(seed.other_client_id, "POOL-5")
+    (line,) = row.lines
+    assert (line.order_id, line.net) == (None, Decimal("5400.00"))
+
+
+async def test_person_invoice_binds_to_import_split_when_number_is_on_two_groups():
+    """Numer na dwóch grupach, kwota jednej osoby z miesiąca z importu."""
+
+    seed = await fx.seed_month()
+    _group, (first, _second) = await _imported_pool(
+        seed.other_client_id, "90000033", "18", ["10", "8"]
+    )
+    other, (third,) = await _foreign_group(
+        seed.other_client_id,
+        "90000033",
+        people=[("Iga", "Pulowa", "1100.500", None, "220", "EUR")],
+    )
+    await _pool(other, "5", [{"order_id": third, "md": "5"}])
+
+    decision = await _match(
+        _invoice("3000.00", suffix="33", refs=["PO 90000033"], currency="EUR")
+    )
+    assert decision.targets == (Target(order_id=first),)
+    assert decision.method == "order_number"
 
 
 async def test_invoices_stuck_on_currency_get_another_try():

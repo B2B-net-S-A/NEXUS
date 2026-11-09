@@ -84,6 +84,39 @@ def test_gate_and_form_share_one_answer_rule() -> None:
     assert form_rules.answer_has_content is move_requirements.answer_has_content
 
 
+def _check(status: str = "unknown", note: str = "") -> dict:
+    return {"kind": "domains", "name": "Bankowość", "status": status, "note": note}
+
+
+@pytest.mark.parametrize(
+    ("check", "filled"),
+    [
+        (_check("confirmed"), True),
+        (_check("not_confirmed"), True),
+        (_check(note="pytał o projekt"), True),
+        (_check(), False),
+        (_check(note="   "), False),
+        ("nie-słownik", False),
+    ],
+)
+def test_empty_answers_with_a_check_read_as_saved_but_not_answered(
+    check, filled: bool
+) -> None:
+    """Zapis (`sheet_has_content`) i odczyt (`sheet_filled`) liczą arkusz tak
+    samo, a bramka dalej chce odpowiedzi."""
+    sheet = {"answers": [], "experience_checks": [check], "overall_fit": "fit"}
+    assert move_requirements.sheet_filled(sheet) is filled
+    assert form_rules.sheet_has_content(sheet) is filled
+    assert move_requirements.sheet_answered(sheet) is False
+
+
+def test_a_check_does_not_answer_a_sheet_in_the_old_shape() -> None:
+    """`sheet_answered` oddaje starszy kształt regule `sheet_filled` — sprawdzenie
+    nie może tą drogą przejść bramki."""
+    sheet = {"answers": {}, "experience_checks": [_check("confirmed")]}
+    assert move_requirements.sheet_answered(sheet) is False
+
+
 def test_screening_requirement_with_questions_needs_an_answer() -> None:
     facts = move_requirements.PairFacts(
         from_column="screening",

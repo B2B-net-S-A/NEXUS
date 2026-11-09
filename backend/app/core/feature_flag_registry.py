@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="SINGLE_CANDIDATE_LIST_ENABLED",
+        purpose="Jedna lista kandydatów zamiast zakładek, portale na skali „Dop.”; włącza tylko Artur.",
+        decided=date(2026, 11, 8),
+        expires=date(2027, 1, 7),
+    ),
+    FeatureFlag(
         name="NEW_COLUMN_TEMPO_TARGET_ENABLED",
         purpose="Cel kart w „Nowych” wg tempa rekrutacji i miejsce dla świeżych; włącza tylko Artur.",
         decided=date(2026, 11, 8),

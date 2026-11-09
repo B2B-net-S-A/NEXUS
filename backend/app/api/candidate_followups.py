@@ -137,7 +137,7 @@ class FollowupOutcomeIn(BaseModel):
     outcome: Literal["connected", "changed", "no_answer", "callback"]
     note: Optional[str] = Field(default=None, max_length=4000)
     callback_on: Optional[date] = None
-    # Id z POST /api/cloudtalk/initiate-call, nigdy dopasowanie po numerze.
+    # Id wiersza `calls` (zakładał go usunięty CloudTalk), nigdy dopasowanie po numerze.
     call_id: Optional[int] = Field(default=None, ge=1)
     # `changed`: co z każdym procesem — klucz to id rekrutacji.
     processes: dict[int, Literal["interested", "withdrawing"]] = {}

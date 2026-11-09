@@ -295,8 +295,8 @@ $$;
 # (``{"content":"<div>Toruń…","state":…}``) — Traffit wysyła ``content``
 # jako NAPIS z JSON-em w środku, a promocja brała go w całości. Profil
 # rozpakowuje to przy wyświetlaniu, ale wyszukiwanie widziało ``ń``
-# zamiast „ń”. Tę funkcję woła promocja notatek (``traffit/importer.py``),
-# indeks notatek i jednorazowa naprawa w pętli uzupełniania.
+# zamiast „ń”. Tę funkcję woła indeks notatek
+# i jednorazowa naprawa w pętli uzupełniania.
 NOTE_UNWRAP_FUNCTION = "note_unwrap_json"
 NOTE_UNWRAP_FUNCTION_DDL = f"""
 CREATE OR REPLACE FUNCTION {NOTE_UNWRAP_FUNCTION}(c text)

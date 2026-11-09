@@ -229,6 +229,63 @@ async def test_own_active_claim_cannot_be_extended(api_client):
         await _cleanup([cand_id], job_id)
 
 
+async def test_closed_job_refuses_the_claim_and_hides_the_button(api_client):
+    """Tester 05.11.2026: zamknięta rekrutacja pokazywała aktywne „Biorę”,
+    a serwer zakładał blokadę 12 h. Po ponownym otwarciu wszystko wraca."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id, dl_id))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    dl_h = await _login(api_client, dl_email, dl_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(RecruitmentProcess)
+                .where(RecruitmentProcess.job_id == job_id)
+                .values(claimed_until=datetime.now(timezone.utc) - timedelta(hours=1))
+            )
+            await db.execute(
+                update(Job).where(Job.id == job_id).values(status=JobStatus.closed)
+            )
+            await db.commit()
+        before = await _process(cand_id, job_id)
+
+        for headers in (other_h, dl_h):
+            take = await api_client.post(
+                "/api/pipeline/claim",
+                headers=headers,
+                json={"candidate_id": cand_id, "job_id": job_id},
+            )
+            assert take.status_code == 409, take.text
+            assert "zamknięt" in take.json()["detail"]
+            card = await _fetch_card(api_client, headers, job_id, cand_id)
+            assert card["can_take"] is False
+
+        after = await _process(cand_id, job_id)
+        assert after.claimed_by_user_id == before.claimed_by_user_id
+        assert after.claimed_until == before.claimed_until
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job).where(Job.id == job_id).values(status=JobStatus.published)
+            )
+            await db.commit()
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card["can_take"] is True
+        take = await api_client.post(
+            "/api/pipeline/claim",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id},
+        )
+        assert take.status_code == 200, take.text
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
 async def test_claim_of_a_deactivated_account_binds_nobody(api_client):
     """Runda 8 (R8-N8-7): blokada konta nieaktywnego nie daje 423."""
     owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)

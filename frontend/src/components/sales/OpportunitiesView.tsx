@@ -93,8 +93,17 @@ export function boardStages(stages: readonly Stage[]): Stage[] {
   return [...stages].sort((a, b) => closedLast(a) - closedLast(b) || a.position - b.position);
 }
 
+/** Dni od ostatniego dotyku; definicję dotyku trzyma backend. */
+export function idleDays(item: Opportunity, now?: number): number | null {
+  return daysSince(item.last_touch_at, now);
+}
+
+export function isWithoutMovement(item: Opportunity, now?: number): boolean {
+  return item.status === "open" && (idleDays(item, now) ?? 0) > NEEDS_ACTION_DAYS;
+}
+
 function OpportunityTile({ item, onOpen }: { item: Opportunity; onOpen: () => void }) {
-  const idle = daysSince(item.last_activity_at ?? item.created_at);
+  const idle = idleDays(item);
   return (
     <KanbanCard onClick={onOpen} aria-label={`${item.company.name} · ${item.title}`}>
       <p className="font-medium text-foreground">{item.company.name}</p>
@@ -174,10 +183,7 @@ export function OpportunitiesView() {
   const items = useMemo(() => {
     const all = opportunities.data?.items ?? [];
     if (!needsAction) return all;
-    return all.filter(
-      (item) =>
-        item.status === "open" && (daysSince(item.last_activity_at ?? item.updated_at) ?? 0) > NEEDS_ACTION_DAYS,
-    );
+    return all.filter((item) => isWithoutMovement(item));
   }, [opportunities.data, needsAction]);
   const summary = useMemo(() => summarize(items), [items]);
 
@@ -318,7 +324,7 @@ export function OpportunitiesView() {
         }
         actions={
           canEdit ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+            <Button size="sm" disabled={!pipeline} onClick={() => setCreating(true)}>
               <Plus className="mr-1 h-4 w-4" aria-hidden /> Szansa
             </Button>
           ) : null
@@ -433,7 +439,7 @@ export function OpportunitiesView() {
                   </TableCell>
                   <TableCell>{item.owner?.name ?? "—"}</TableCell>
                   <TableCell>
-                    {formatIsoDatePl(item.last_activity_at)}
+                    {formatIsoDatePl(item.last_touch_at)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -447,6 +453,7 @@ export function OpportunitiesView() {
         <OpportunityFormDialog
           open={creating}
           onOpenChange={setCreating}
+          pipelineId={pipeline?.id}
           onCreated={(opportunity) => open(opportunity.id)}
         />
       )}

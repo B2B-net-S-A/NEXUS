@@ -72,6 +72,7 @@ function opportunity(
     tags: [],
     owner: { id: 7, name: "Anna Przykładowa" },
     last_activity_at: at,
+    last_touch_at: at,
     keep_open_until: null,
     archived_at: null,
     created_at: at,

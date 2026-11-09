@@ -1452,7 +1452,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   },
   "nav.trainee": {
     productDecision:
-      "Trasy praktykanta (/api/trainee/today|items/*) przyjmują tylko rolę trainee — bramka w api/trainee.py, bez aliasu w deps.py.",
+      "Program praktykanta usunięty z kodu 08.11.2026; rola trainee zostaje i jest wyłączna, bez aliasu w deps.py.",
   },
 };
 

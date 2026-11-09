@@ -499,19 +499,20 @@ async def test_summary_counts_open_value_weighted_and_stale(app_client) -> None:
     )
     now = datetime.now(timezone.utc)
     await _add(
+        # Bez ``company_id``: aktywność firmy byłaby dotykiem też szans b i d.
         SalesActivity(
             kind="call",
-            company_id=company.id,
             opportunity_id=c,
             subject="Świeży telefon",
             occurred_at=now - timedelta(days=2),
         )
     )
     async with AsyncSessionLocal() as db:
-        # b i d bez ruchu od miesiąca; c stary, ale ma świeżą aktywność.
+        # b i d bez ruchu od miesiąca; c stary, ale ma świeżą aktywność. Dotyk ma
+        # dolną granicę w ``created_at``, a ``updated_at`` dotykiem nie jest.
         await db.execute(
             text(
-                "UPDATE sales_opportunities SET updated_at = now() - interval '30 days' "
+                "UPDATE sales_opportunities SET created_at = now() - interval '30 days' "
                 "WHERE id = ANY(:ids)"
             ),
             {"ids": [b, c, d]},

@@ -97,7 +97,6 @@ export const SCOPE_GROUPS: readonly ScopeGroupDefinition[] = [
     id: "ops",
     title: "Operacyjne",
     scopes: [
-      "traffit:sync",
       "traffit:read",
       "ops:snapshot",
       "contractors:read",

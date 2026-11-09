@@ -72,6 +72,8 @@ STALE_WORKDAYS = 3
 # Kolumny Tablicy po końcu procesu — lustro `_COLUMN_BY_ENUM`.
 HIRED_COLUMN = "hired"
 CLOSED_COLUMN = "closed"
+#: Kolumny, w których czeka się na klienta; dni liczy zegar ciszy z `client_wait`.
+CLIENT_COLUMNS = ("cv_sent", "client_interview")
 
 
 @dataclass(frozen=True)
@@ -160,13 +162,16 @@ def board_waiting_workdays(
     ok_at: Optional[datetime],
     today: date,
     autofill_days: Optional[int] = None,
+    client_since: Optional[datetime] = None,
 ) -> Optional[int]:
     """Liczba dni na karcie Tablicy (`waiting_workdays`, audyt U5 08.11.2026).
 
     Karta gotowa w „QC CV” liczy od ``ready_since``, tak jak pas „Do wysłania
     do klienta” i „Twoje CV w drodze”, więc dla tej samej osoby wszędzie stoi
     ta sama liczba. Osoba od systemu w „Nowych” ma liczbę terminu decyzji
-    (``autofill_days``). Pozostałe karty liczą od wejścia na etap, a po końcu
+    (``autofill_days``). Karta u klienta liczy z zegara ciszy (``client_since``,
+    `client_wait.client_clocks`), tak jak „Klient milczy” i pas „Czeka na
+    odpowiedź klienta”. Pozostałe karty liczą od wejścia na etap, a po końcu
     procesu nikt już nie czeka (``None``).
     """
 
@@ -174,6 +179,8 @@ def board_waiting_workdays(
         return None
     if column == NEW_COLUMN and autofill_days is not None:
         return autofill_days
+    if column in CLIENT_COLUMNS and client_since is not None:
+        return waiting_workdays(client_since, today)
     if column == CV_QC_COLUMN:
         state = readiness_of(
             since=moved_at, qc_status=qc_status, ok_at=ok_at, today=today

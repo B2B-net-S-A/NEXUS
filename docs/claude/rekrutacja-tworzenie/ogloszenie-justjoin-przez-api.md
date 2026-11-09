@@ -30,8 +30,12 @@ front `components/v2/job-ad/JjitPublishDialog.tsx`, karta w `AdPublications`
   „Oznacz jako opublikowane”, zmiany linku, „Zaktualizowane na portalu” i „Zdjęte z portalu”
   na obu portalach, także w zamkniętej rekrutacji. Oznaczenie rekrutera blokowało DL-owi
   publikację (409 `ad_marked_published`). Kopiowanie treści i stronę kariery rekruter ma dalej.
-- **`PUT` odsyła kontakt z `GET` tylko z telefonem** (`_contact_with_phone`). Portal oddaje
-  kontakt bez telefonu, a przy aktualizacji go odrzuca (produkcja, 08.11.2026).
+- **Kontakt ogłoszenia ma telefon z `JJIT_CONTACT_PHONE`** (decyzja Artura 09.11.2026,
+  `_update_contact`, `new_contact`). `PUT` wymaga pełnego obiektu: portal oddaje kontakt
+  bez telefonu, a potem odrzuca i ten kontakt, i `null` (produkcja, 08.11.2026). Nowe
+  ogłoszenie dostaje `JJIT_CONTACT_NAME`, `JJIT_APPLY_EMAIL` i ten telefon; bez kompletu
+  zostaje `null`, czyli domyślny kontakt z profilu firmy. Numer ustawia tylko „Coolify set
+  env” z `value_from_secret`, bo repo i logi Actions są publiczne.
 - **Strona kariery musi wisieć w tej samej wersji** (409 `career_not_live`) —
   tylko w trybie linku (`apply.url`). Przy `JJIT_APPLY_EMAIL` (formularz
   portalu, od 06.11.2026) nie jest warunkiem:

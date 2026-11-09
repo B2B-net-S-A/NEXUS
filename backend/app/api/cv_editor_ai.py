@@ -192,6 +192,8 @@ class CommandRequest(BaseModel):
             "more_requirements",
             "proofread",
             "tailor",
+            "summary_point",
+            "drop_offprofile_role",
         ]
     ] = None
     command: Optional[str] = Field(default=None, max_length=cv_command_ai.COMMAND_MAX)

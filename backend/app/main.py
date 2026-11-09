@@ -786,7 +786,10 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
-    from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
+    from app.tasks.keyword_corpus_backfill import (
+        keyword_corpus_backfill_loop,
+        keyword_corpus_readiness_loop,
+    )
     from app.tasks.note_kind_backfill import note_kind_backfill_loop
     from app.tasks.requirement_row_counts import requirement_row_counts_loop
     from app.tasks.cv_qc_recompute import cv_qc_recompute_loop
@@ -805,6 +808,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
+    from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -956,6 +960,9 @@ async def lifespan(app: FastAPI):
             "keyword_corpus_backfill": asyncio.create_task(
                 keyword_corpus_backfill_loop()
             ),
+            "keyword_corpus_readiness": asyncio.create_task(
+                keyword_corpus_readiness_loop()
+            ),
             "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
             # „Wymagania do poprawy” (rare_word, 27.10.2026): liczby osób wierszy
             # otwartych rekrutacji co godzinę do pamięci — pulpit ich nie liczy.
@@ -1013,6 +1020,8 @@ async def lifespan(app: FastAPI):
             # Finanse → Braki (0308): zamówienie zakończone bez następcy. Biegnie
             # po północy w Warszawie; kill-switch ORDER_GAPS_ENABLED przed pętlą.
             "order_gaps": asyncio.create_task(order_gaps_loop()),
+            # Sprzedaż: tryb cienia automatu archiwizacji, sam odczyt i linia logu.
+            "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
