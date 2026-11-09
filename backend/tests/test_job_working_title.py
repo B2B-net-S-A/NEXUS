@@ -21,7 +21,6 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.cv_generator_b2b.client_rules import build_filename
-from app.services.job_column_ownership import NEXUS_OWNED
 from app.services.job_working_title import (
     client_reference_for_title,
     compose_working_title,
@@ -76,10 +75,6 @@ def test_migration_is_chained_and_mirrored() -> None:
     for statement in module.ADD_COLUMNS:
         assert "IF NOT EXISTS" in statement
         assert _collapse(statement) in entrypoint
-
-
-def test_new_columns_are_never_written_by_the_traffit_sync() -> None:
-    assert {"client_reference", "working_title", "working_title_auto"} <= NEXUS_OWNED
 
 
 def test_reference_from_title_only_when_unambiguous() -> None:

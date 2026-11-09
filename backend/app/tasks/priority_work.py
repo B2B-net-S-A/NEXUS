@@ -289,7 +289,7 @@ async def _persist_worker_error(exc: Exception) -> None:
 
 async def priority_work_loop() -> None:
     """Lifespan task. State lives in PostgreSQL, so restarts are harmless."""
-    # Kill-switch sprawdzany RAZ, przed pętlą (jak w cloudtalk_sync). Przy mode=off
+    # Kill-switch sprawdzany RAZ, przed pętlą. Przy mode=off
     # sweep i tak nie generuje alertów, ale przedtem co 300 s robił pełny skan
     # RecruitmentProcess + SELECT ... FOR UPDATE na singletonie — czyli całą pracę
     # przed sprawdzeniem trybu. Tryb siedzi w `Settings` (czytanym przy starcie

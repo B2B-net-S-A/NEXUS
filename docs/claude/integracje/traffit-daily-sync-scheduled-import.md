@@ -108,7 +108,7 @@ ruszysz albo włączysz ponownie.
   (`POST /api/admin/traffit/transfer`), które flagi nie czyta.
 - **Co stanęło razem z importem:** archiwizacja rekrutacji z Traffita po fazie
   `jobs`, poranne przypomnienie o kolejce Cpro liczone z importu
-  (`cpro_queue_reminder` — karty przesuwane w NEXUSIE dają zwykły dzwonek),
+  (kod usunięty 08.11.2026 — karty przesuwane w NEXUSIE dają zwykły dzwonek),
   dociąganie tekstu, imion i pól z CV pobranych z Traffita
   (`candidates_cv_text`, `candidates_enrich_names`, `candidates_cv_fields`).
 - **Co działa bez zmian:** pozostałe nocne zadania (dopasowania, wnioski
@@ -223,7 +223,7 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
   - `_UPSERT_JOB` nie nadpisuje `title`/`status`/`closed_at` przełączonej oferty
     (CASE jak `recruiter_id`↔`is_open`) i nie unieważnia wtedy wymagań (tytuł się nie
     zmienia). `deadline`/`opened_at`/`client_id`… nadal DOPEŁNIAJĄ puste pola
-    (COALESCE), `custom_fields` scala JSONB. Kolumny flagi są w `NEXUS_OWNED`;
+    (COALESCE), `custom_fields` scala JSONB. Kolumny flagi należały do NEXUSA;
   - `POST /api/jobs/{id}/manage-in-nexus` (`RecruiterPlus` + członkostwo sprawdzane PO
     odczycie oferty — brak oferty = 404; wyłączenie tylko admin / Delivery Lead = 403
     dla reszty; rekrutacja spoza Traffita = 409; idempotentne) — OSOBNA trasa, nie
