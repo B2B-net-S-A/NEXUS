@@ -64,7 +64,7 @@ sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.
 - **Flaga `SALES_SIGNALS_ENABLED` domyślnie wyłączona** (rejestr flag). Wyłączona:
   pętla stoi, ekrany nie pokazują sygnałów ani punktów. Trasa przyjęcia raportu działa
   zawsze, bo bez biegu nie ma tokenu.
-- **Próba przed włączeniem:** ustaw `GROK_BOT_WEBHOOK_URL` i `_KEY` workflowem „Coolify
+- **Próba przed włączeniem** (instrukcja rutyny i kroki: `docs/sales-grok-bot-setup.md`): ustaw `GROK_BOT_WEBHOOK_URL` i `_KEY` workflowem „Coolify
   set env”, potem w kontenerze backendu
   `python -m scripts.sales_signals_run --kind signals --company-ids <3 id>` i sprawdź,
   czy bieg przeszedł na `received` bez klikania zgody w bocie.

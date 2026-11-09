@@ -31,16 +31,27 @@ async def require_signal_run_token(
     x_run_token: Annotated[Optional[str], Header()] = None,
     db: AsyncSession = Depends(get_db),
 ) -> SalesSignalRun:
-    """Własne poświadczenie trasy: token biegu, zablokowany wiersz biegu."""
+    """Własne poświadczenie trasy: token biegu, zablokowany wiersz biegu.
 
-    run = await db.get(SalesSignalRun, run_id, with_for_update=True)
-    if run is None or not signals.token_matches(
-        run, x_run_token, datetime.now(timezone.utc)
-    ):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail=signals.INVALID_TOKEN_DETAIL
+    Zły token kończy się 401 przed limitem ``@limiter.limit`` (zależność biegnie
+    przed treścią trasy), ale nie zakłada blokady: token ma 256 bitów, więc
+    zgadywanie to tylko obciążenie, a nie obejście.
+    """
+
+    # Najpierw tani odczyt bez blokady: zły token nie trzyma blokady wiersza biegu,
+    # który czeka na prawdziwy raport. Blokada i ponowne sprawdzenie dopiero dla
+    # pasującego tokenu, żeby dwa równoległe raporty nie przeszły oba.
+    now = datetime.now(timezone.utc)
+    run = await db.get(SalesSignalRun, run_id)
+    if run is not None and signals.token_matches(run, x_run_token, now):
+        run = await db.get(
+            SalesSignalRun, run_id, with_for_update=True, populate_existing=True
         )
-    return run
+        if run is not None and signals.token_matches(run, x_run_token, now):
+            return run
+    raise HTTPException(
+        status.HTTP_401_UNAUTHORIZED, detail=signals.INVALID_TOKEN_DETAIL
+    )
 
 
 @router.post("/runs/{run_id}")

@@ -442,6 +442,23 @@ def callback_url(run_id: int) -> str:
     return f"{base}/api/integrations/sales-signals/runs/{run_id}"
 
 
+def feedback_from_rows(rows: Any) -> dict[str, Any]:
+    """Powody odrzuceń i znane linki dla bota.
+
+    Powód idzie tylko z listy ``REJECT_REASONS``: API przyjmuje dowolny tekst, a to,
+    co trafia do bota, wychodzi poza UE, więc wpis z nazwiskiem albo telefonem nie
+    może tam wyjść.
+    """
+
+    rejected = [
+        {"ref": cid, "title": title, "reason": reason}
+        for cid, title, _url, status, reason in rows
+        if status == "dismissed" and reason in REJECT_REASONS
+    ][:50]
+    seen_urls = sorted({url for _cid, _t, url, _s, _r in rows if url})[:200]
+    return {"rejected": rejected, "seen_urls": seen_urls}
+
+
 async def _feedback(db: AsyncSession, company_ids: list[int]) -> dict[str, Any]:
     """Powody odrzuceń i znane adresy: bot nie powtarza tego, co już mamy."""
 
@@ -462,13 +479,7 @@ async def _feedback(db: AsyncSession, company_ids: list[int]) -> dict[str, Any]:
             .limit(300)
         )
     ).all()
-    rejected = [
-        {"ref": cid, "title": title, "reason": reason}
-        for cid, title, _url, status, reason in rows
-        if status == "dismissed" and reason
-    ][:50]
-    seen_urls = sorted({url for _cid, _t, url, _s, _r in rows if url})[:200]
-    return {"rejected": rejected, "seen_urls": seen_urls}
+    return feedback_from_rows(rows)
 
 
 def webhook_body(

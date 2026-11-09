@@ -281,3 +281,18 @@ async def test_briefing_runs_at_most_hourly(monkeypatch) -> None:
         local=local,
     )
     assert started == [("briefing", [1, 2])]
+
+
+def test_feedback_sends_only_listed_reasons_never_free_text() -> None:
+    rows = [
+        (1, "Fuzja", "https://e.com/1", "dismissed", "Już wiemy"),
+        (1, "Program", "https://e.com/2", "dismissed", "nie odbiera, tel. 600 100 200"),
+        (2, "Nowy CTO", "https://e.com/3", "new", None),
+    ]
+    feedback = signals.feedback_from_rows(rows)
+    assert feedback["rejected"] == [{"ref": 1, "title": "Fuzja", "reason": "Już wiemy"}]
+    assert feedback["seen_urls"] == [
+        "https://e.com/1",
+        "https://e.com/2",
+        "https://e.com/3",
+    ]
