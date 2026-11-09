@@ -1,15 +1,15 @@
 """Rekrutacja własna: proces, zgłoszenia, rezerwacje i historia.
 
-Revision ID: 0665_own_hiring
-Revises: 0664_dl_alert_invoice_no_line
+Revision ID: 0670_own_hiring
+Revises: 0669_drop_embedding_queue_trg
 """
 
 from alembic import op
 
 from app.services.own_hiring import schema as own_hiring_schema
 
-revision = "0665_own_hiring"
-down_revision = "0664_dl_alert_invoice_no_line"
+revision = "0670_own_hiring"
+down_revision = "0669_drop_embedding_queue_trg"
 branch_labels = None
 depends_on = None
 
