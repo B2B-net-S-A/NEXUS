@@ -102,7 +102,9 @@ async def _opportunity(
     primary_contact_id: Optional[int] = None,
 ) -> int:
     pipeline_id, stage_id = await _stage(stage)
-    created = _now() - timedelta(days=age_days)
+    # Południe dnia sprzed ``age_days`` dni: o 23:00 w Warszawie „teraz minus 20 dni”
+    # wypadało przez zmianę czasu na inny dzień kalendarza firmy (19 zamiast 20).
+    created = _noon(business_today() - timedelta(days=age_days)) if age_days else _now()
     async with AsyncSessionLocal() as db:
         opportunity = SalesOpportunity(
             company_id=company_id,
@@ -204,7 +206,10 @@ async def test_meetings_today_are_mine_and_one_per_event(app_client) -> None:
     other = await _user("sales_view")
     first = await _company("Kopia A")
     second = await _company("Kopia B")
-    when = _now() + timedelta(hours=1)
+    # Dziś w kalendarzu firmy o każdej porze biegu („za godzinę” o 23:30 to już jutro).
+    when = min(
+        _now() + timedelta(hours=1), _day_start() + timedelta(hours=23, minutes=59)
+    )
     uid = uuid.uuid4().hex
     for company in (first, second):
         await _activity(
