@@ -4238,6 +4238,13 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     } as never);
   });
 
+  it("kolumna „Nowi” nie ma własnego filtra, bo filtr działa na całą Tablicę (09.11.2026)", async () => {
+    renderFiltered(ADDED_BY_ALL);
+    await screen.findByRole("link", { name: "Adam Nowak" });
+    expect(screen.queryByTestId("added-by-column-filter")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Kto dodał:/ })).toBeNull();
+  });
+
   const ADDERS: Record<number, string> = { 7: "Tomasz Rybak", 8: "Paulina Wrona" };
   const person = (id: number, stage: string, name: string, lastname: string, by: number | null) => ({
     id: 900 + id,

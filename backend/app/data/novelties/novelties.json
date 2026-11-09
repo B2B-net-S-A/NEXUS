@@ -770,6 +770,25 @@
     "dot_anchor": "dashboard.announcements"
   },
   {
+    "id": "kto-dodal-na-pasku-rekrutacji",
+    "pr": 3257,
+    "title": "Filtr „Kto dodał” nad całą Tablicą",
+    "why": "Filtr osób stoi teraz na pasku rekrutacji, po prawej, a nie przy kolumnie „Nowi”, bo działa na wszystkie kolumny. Po zwinięciu nagłówka znajdziesz go jako ikonę obok trzech kropek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → Kto dodał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.added-by"
+  },
+  {
     "id": "kto-dodal-po-biore",
     "title": "„Biorę” przenosi kartę na Ciebie, a filtr „Kto dodał” to widzi",
     "why": "Osoby wzięte „Biorę” pokazują na karcie Ciebie i są w filtrze „Kto dodał → Ty”, także po 12 godzinach. Na dużej Tablicy szybko znajdziesz swoich ludzi do telefonu.",
