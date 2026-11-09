@@ -78,6 +78,7 @@ from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from app.core.printable_html import printable_document
 from app.models.cv_document_version import CvDocumentVersion
+from app.services.candidate_identity_quarantine import stage_copy_identity_doubt
 from app.services.cv_document_assets import (
     generated_assets,
     CvAssetsError,
@@ -368,7 +369,9 @@ async def get_original_cv(
             job_id=job_id,
             has_snapshot=False,
         )
-    return _build_original_response(csv)
+    response = _build_original_response(csv)
+    response.identity_doubt = await stage_copy_identity_doubt(db, csv)
+    return response
 
 
 @router.get("/candidates/stages/{stage_id}/cv/original/download")

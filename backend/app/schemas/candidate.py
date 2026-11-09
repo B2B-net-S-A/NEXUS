@@ -1170,6 +1170,9 @@ class CandidateDocumentOut(BaseModel):
     uploaded_by_name: Optional[str] = None
     outdated_at: Optional[datetime] = None
     outdated_by_name: Optional[str] = None
+    # Model przeczytał w pliku inną osobę, a wyroku nie ma. Uzupełnia handler,
+    # podgląd CV ostrzega wtedy rekrutera.
+    identity_doubt: bool = False
 
     model_config = {"from_attributes": True}
 

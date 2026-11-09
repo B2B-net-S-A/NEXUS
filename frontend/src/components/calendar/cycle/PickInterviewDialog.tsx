@@ -5,6 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { Loader2 } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { PrepBusyStrip } from "@/components/calendar/cycle/PrepBusyStrip";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { interviewCycleApi } from "@/lib/api/interviewCycle";
@@ -23,7 +24,6 @@ import {
 import {
   candidateWindowError,
   checkManualPrep,
-  dayStrip,
   DEFAULT_PREP_MINUTES,
   hhmm,
   interviewStart,
@@ -723,7 +723,6 @@ function ManualPrepTime({
 }) {
   const days = prepDays(interviewStart);
   const busy = prep.calendar === "ok" ? (prep.busy ?? []) : null;
-  const strip = busy ? dayStrip(manual.day, busy, span) : null;
   const who = prep.organizer?.name ?? "prowadzącego";
   const nearest =
     busy && check?.busy && span
@@ -769,58 +768,14 @@ function ManualPrepTime({
         </span>
       </div>
 
-      {strip ? (
-        <div>
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="font-semibold">Kalendarz: {who}</span>
-            <span className="flex items-center gap-3 text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <span aria-hidden="true" className="h-2.5 w-3 rounded-sm bg-muted-foreground/40" />
-                zajęte
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span aria-hidden="true" className="h-2.5 w-3 rounded-sm bg-primary" />
-                ten prep
-              </span>
-            </span>
-          </div>
-          <div
-            role="img"
-            aria-label={`Zajętość: ${who}, ${manual.day}`}
-            className="relative h-7 overflow-hidden rounded border border-border bg-card"
-          >
-            {strip.busy.map((b, i) => (
-              <span
-                key={i}
-                className="absolute inset-y-0.5 rounded-sm bg-muted-foreground/40"
-                style={{ left: `${b.left}%`, width: `${b.width}%` }}
-              />
-            ))}
-            {strip.chosen ? (
-              <span
-                className={cn(
-                  "absolute inset-y-0.5 rounded-sm",
-                  check?.busy || check?.blocks.length ? "bg-warning ring-2 ring-warning-muted-foreground" : "bg-primary",
-                )}
-                style={{ left: `${strip.chosen.left}%`, width: `${strip.chosen.width}%` }}
-              />
-            ) : null}
-          </div>
-          <div className="relative mt-1 h-4 text-[11px] text-muted-foreground">
-            {strip.ticks.map((t, i) => (
-              <span
-                key={t.label}
-                className="absolute"
-                style={{
-                  left: `${t.left}%`,
-                  transform: i === 0 ? "none" : i === strip.ticks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
-                }}
-              >
-                {t.label}
-              </span>
-            ))}
-          </div>
-        </div>
+      {busy ? (
+        <PrepBusyStrip
+          who={who}
+          day={manual.day}
+          busy={busy}
+          chosen={span}
+          clash={Boolean(check?.busy || check?.blocks.length)}
+        />
       ) : null}
 
       {check?.blocks.length ? (

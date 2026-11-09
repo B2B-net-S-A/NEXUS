@@ -920,6 +920,7 @@ def test_every_alert_issue_can_also_be_closed_by_a_green_run() -> None:
             "NEXUS health checks unhealthy",
             "NEXUS niedostępny (sonda GitHub)",
             "Kopia off-site NEXUS nieświeża lub niekompletna",
+            "Certyfikat TLS NEXUS wygasa",
         ],
         "backup-drill.yml": ["NEXUS backup drill nie przechodzi"],
         "sentry-daily-monitor.yml": ["NEXUS dzienny monitor Sentry nie działa"],

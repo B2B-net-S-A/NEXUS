@@ -795,10 +795,12 @@ describe("strona rekrutacji — filtr „Kto dodał” (14.10.2026, D2–D3)", (
     expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it("bez parametru: Tablica dostaje filtr „wszyscy”, a nagłówek nie ma przycisku (ikona w kolumnie „Nowi”, U3)", async () => {
+  it("bez parametru: Tablica dostaje filtr „wszyscy”, a pasek rekrutacji ma stały przycisk bez „✕”", async () => {
     renderPage();
     await waitFor(() => expect(seen.kanban?.addedBy).toEqual({ kind: "all" }));
-    expect(screen.queryByTestId("added-by-trigger")).toBeNull();
+    expect(await screen.findByTestId("added-by-trigger")).toHaveTextContent("Kto dodał:wszyscy");
+    expect(screen.getByTestId("job-header-sources-row")).toContainElement(screen.getByTestId("added-by-trigger"));
+    expect(screen.queryByTestId("added-by-clear")).toBeNull();
   });
 });
 

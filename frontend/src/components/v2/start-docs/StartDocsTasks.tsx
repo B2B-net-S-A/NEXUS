@@ -19,7 +19,9 @@ import {
   useMineStartDocs,
   type MineStartDocRow,
 } from "@/lib/api/start-documents";
+import { hasSectionAccess } from "@/lib/section-access";
 import { startLine } from "@/lib/start-docs-format";
+import { hasRole, useAuthStore, type User } from "@/store/auth";
 
 const ROWS = 6;
 export const REMIND_NOT_SENT = "Dziś rekruter już dostał przypomnienie, drugiego nie wysyłam.";
@@ -46,8 +48,28 @@ function ListFailure({ error, onRetry }: { error: unknown; onRetry: () => void }
   );
 }
 
+/** Lustro `require_start_documents_access`: bez tego każdy ekran kont spoza rekrutacji dokłada 403. */
+function canSeeMineStartDocs(user: User | null): boolean {
+  return (
+    !hasRole(user, "user") &&
+    hasRole(
+      user,
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "talent_community_manager",
+      "recruiter",
+    ) &&
+    hasSectionAccess(user, "pipeline", "read")
+  );
+}
+
+function useMyStartDocs() {
+  return useMineStartDocs(useAuthStore((state) => canSeeMineStartDocs(state.user)));
+}
+
 export function useStartDocsCount(): number {
-  return useMineStartDocs().data?.items.length ?? 0;
+  return useMyStartDocs().data?.items.length ?? 0;
 }
 
 function RemindButton({ row }: { row: MineStartDocRow }) {
@@ -76,7 +98,7 @@ function RemindButton({ row }: { row: MineStartDocRow }) {
 }
 
 export function StartDocsTasksSection() {
-  const query = useMineStartDocs();
+  const query = useMyStartDocs();
   const [all, setAll] = useState(false);
   const rows = query.data?.items ?? [];
   if (query.isError) {
@@ -172,7 +194,7 @@ export function StartDocsTasksSection() {
 
 /** Góra okienka „Umowy”. */
 export function StartDocsTopbarBlock({ onNavigate }: { onNavigate?: () => void }) {
-  const query = useMineStartDocs();
+  const query = useMyStartDocs();
   const rows = query.data?.items ?? [];
   if (query.isError) {
     return <ListFailure error={query.error} onRetry={() => void query.refetch()} />;

@@ -255,6 +255,39 @@ describe("CandidatePreviewPane", () => {
     expect(screen.getByRole("button", { name: "CV oryginalne" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  describe("CV, które może należeć do innej osoby (09.11.2026)", () => {
+    const doubtful = [{ ...PROFILE_DOCS[0], identity_doubt: true }, PROFILE_DOCS[1]];
+
+    it("ostrzega, gdy oryginałem jest wątpliwy plik z profilu", async () => {
+      mocks.get.mockResolvedValue({ data: doubtful });
+      mocks.original.mockResolvedValue({ data: { has_snapshot: false } });
+      mount();
+      expect(await screen.findByTestId("cv-identity-doubt")).toHaveTextContent("może należeć do innej osoby");
+    });
+
+    it("ostrzega przy kopii etapu, gdy serwer tak ją ocenił", async () => {
+      mocks.original.mockResolvedValue({
+        data: { has_snapshot: true, original_cv_filename: "CV_ze_zgloszenia.pdf", original_snapshot_at: "2026-10-01T08:00:00Z", identity_doubt: true },
+      });
+      mount();
+      expect(await screen.findByTestId("cv-identity-doubt")).toBeInTheDocument();
+    });
+
+    it("nie ostrzega przy innym pliku i przy CV firmowym", async () => {
+      mocks.get.mockResolvedValue({ data: doubtful });
+      mount();
+      await screen.findByTestId("file-preview");
+      expect(screen.queryByTestId("cv-identity-doubt")).not.toBeInTheDocument();
+    });
+
+    it("„Inne pliki” ostrzegają przy wybranym wątpliwym pliku", async () => {
+      mocks.get.mockResolvedValue({ data: doubtful });
+      mount();
+      fireEvent.click(await screen.findByRole("button", { name: /Inne pliki/ }));
+      expect(await screen.findByTestId("cv-identity-doubt")).toBeInTheDocument();
+    });
+  });
+
   it("bez kopii ze zgłoszenia oryginałem jest główne CV z profilu", async () => {
     mocks.original.mockResolvedValue({ data: { has_snapshot: false } });
     mount();

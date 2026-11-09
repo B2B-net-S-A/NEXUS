@@ -163,9 +163,13 @@ async def set_user_target(
     user_id: int,
     kpi_id: str,
     target_value: Optional[int],
-    actor: User,
+    actor: Optional[User],
+    actor_name: Optional[str] = None,
 ) -> EditResult:
-    """Ustaw (albo zdejmij `None`) osobisty cel. Commit robi wołający."""
+    """Ustaw (albo zdejmij `None`) osobisty cel. Commit robi wołający.
+
+    Bez ``actor`` zapisuje automat, który przedstawia się w ``actor_name``.
+    """
     canonical = _known_kpi(kpi_id)
     _check_value(target_value, canonical)
     subject = await db.get(User, user_id)
@@ -203,8 +207,8 @@ async def set_user_target(
                 kpi_id=canonical,
                 action="reset" if target_value is None else "set",
                 changes={"target_value": {"from": previous, "to": target_value}},
-                actor_user_id=actor.id,
-                actor_name=_actor_name(actor),
+                actor_user_id=actor.id if actor else None,
+                actor_name=_actor_name(actor) if actor else actor_name,
             )
         )
     await db.flush()

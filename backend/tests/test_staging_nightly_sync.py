@@ -99,6 +99,15 @@ def test_flag_file_contains_only_allowed_names_and_simple_values():
     ]
 
 
+def test_query_adapter_follows_production():
+    # Adapter jest poza `_SCORING_CACHE_INPUTS`, a przy włączonym zmienia stempel
+    # i kolejność. 09.11.2026 produkcja liczyła już innym `ranker_version` niż staging.
+    assert (
+        sync.flag_lines({"QUERY_ADAPTER_ENABLED": True}, ALLOWED)
+        == "QUERY_ADAPTER_ENABLED=true\n"
+    )
+
+
 @pytest.mark.parametrize(
     "value", ["a b", "x\nTRAFFIT_SYNC_ENABLED=true", "$(id)", None, ["a"], "x" * 65]
 )

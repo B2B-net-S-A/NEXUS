@@ -191,6 +191,9 @@ services:
       QDRANT_COLLECTION:
       SCORE_RENORMALIZE_UNSCORED_LAYERS:
       CV_PASSAGES_ENABLED:
+      # Adapter wektora zapytania, poza `_SCORING_CACHE_INPUTS`. Włączony zmienia
+      # kolejność i stempel `ranker_version`.
+      QUERY_ADAPTER_ENABLED:
       # Listy klientów, też z produkcji i przez ten sam plik: decydują, co widać
       # na karcie klienta. Bez nich stare zamówienia bez `order_type` są ukryte.
       MULTI_CONSULTANT_ORDER_CLIENT_IDS:

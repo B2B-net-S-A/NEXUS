@@ -9,6 +9,7 @@ vi.mock("@/components/Toast", () => ({ useToast: () => ({ showSuccess: vi.fn(), 
 
 import {
   CandidateCvBrowser,
+  type CvBrowserAddToJob,
   type CvBrowserPerson,
 } from "@/components/v2/candidates/CandidateCvBrowser";
 
@@ -36,10 +37,14 @@ const people: CvBrowserPerson[] = [
 function Harness({
   start,
   onAssign,
+  addToJob,
+  list = people,
   onOpened = vi.fn(),
 }: {
   start: CvBrowserPerson;
   onAssign?: (person: CvBrowserPerson) => void;
+  addToJob?: CvBrowserAddToJob;
+  list?: readonly CvBrowserPerson[];
   onOpened?: (person: CvBrowserPerson) => void;
 }) {
   const [current, setCurrent] = useState<CvBrowserPerson | null>(start);
@@ -47,11 +52,12 @@ function Harness({
     <>
       <span data-testid="current">{current?.id ?? "zamknięte"}</span>
       <CandidateCvBrowser
-        people={people}
+        people={list}
         current={current}
         onChange={setCurrent}
         onOpened={onOpened}
         onAssign={onAssign}
+        addToJob={addToJob}
       />
     </>
   );
@@ -63,6 +69,78 @@ beforeEach(() => {
   apiGet.mockImplementation((url: string) => {
     const id = Number(url.match(/candidates\/(\d+)\//)?.[1]);
     return Promise.resolve({ data: [cv(id)] });
+  });
+});
+
+function addToJob(overrides: Partial<CvBrowserAddToJob> = {}): CvBrowserAddToJob {
+  return {
+    jobTitle: "Programista Java",
+    readOnly: false,
+    addedIds: new Set(),
+    addingIds: new Set(),
+    add: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe("CandidateCvBrowser — dodawanie w „Szukaj ręcznie”", () => {
+  it("„Dodaj do Nowych” dodaje oglądaną osobę i zostawia okno otwarte", async () => {
+    const job = addToJob();
+    render(<Harness start={people[1]} addToJob={job} />);
+
+    const button = await screen.findByRole("button", { name: "Dodaj Tomasz Nowicki do Nowych" });
+    expect(button).toHaveAttribute("title", "Dodaj do „Nowych” w „Programista Java”");
+    fireEvent.click(button);
+
+    expect(job.add).toHaveBeenCalledExactlyOnceWith(2);
+    expect(screen.getByTestId("current").textContent).toBe("2");
+  });
+
+  it("osoba już dodana ma „Dodano” i nie da się jej dodać drugi raz", async () => {
+    const job = addToJob({ addedIds: new Set([1]) });
+    render(<Harness start={people[0]} addToJob={job} />);
+
+    const button = await screen.findByRole("button", { name: "Marta Kowalczyk — dodano do Nowych" });
+    expect(button).toBeDisabled();
+    expect(button.textContent).toBe("Dodano");
+  });
+
+  it("w trakcie dodawania i w trybie tylko do odczytu przycisk jest nieaktywny", async () => {
+    const { unmount } = render(
+      <Harness start={people[0]} addToJob={addToJob({ addingIds: new Set([1]) })} />,
+    );
+    const adding = await screen.findByRole("button", { name: "Dodaj Marta Kowalczyk do Nowych" });
+    expect(adding).toBeDisabled();
+    expect(adding.textContent).toBe("Dodaję…");
+    unmount();
+
+    render(<Harness start={people[0]} addToJob={addToJob({ readOnly: true })} />);
+    expect(await screen.findByRole("button", { name: "Dodaj Marta Kowalczyk do Nowych" })).toBeDisabled();
+  });
+
+  it("po zniknięciu dodanej osoby z wyników licznik i strzałki zostają", async () => {
+    const job = addToJob();
+    const { rerender } = render(<Harness start={people[1]} addToJob={job} list={people} />);
+    expect(await screen.findByText("Osoba 2 z 3")).toBeTruthy();
+
+    // Odświeżona lista nie ma już dodanej osoby (`recruitment_match=not_assigned`).
+    rerender(
+      <Harness
+        start={people[1]}
+        addToJob={job}
+        list={people.filter((person) => person.id !== 2)}
+      />,
+    );
+
+    expect(screen.getByText("Osoba 2 z 3")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Następna osoba: Ewa Zielińska" }));
+    expect(await screen.findByText("CV-3.txt")).toBeTruthy();
+  });
+
+  it("bez kontekstu rekrutacji przycisku dodawania nie ma", async () => {
+    render(<Harness start={people[0]} />);
+    expect(await screen.findByText("CV-1.txt")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /do Nowych/ })).toBeNull();
   });
 });
 

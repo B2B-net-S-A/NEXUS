@@ -104,6 +104,19 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
   miesiąca zmienia dopiero „Przelicz wynik”.
 - Prognoza „w drodze” (`my_settlement.bonus_forecast`) go pomija.
 
+## Godziny premii DL od listopada 2026 (decyzja Artura 09.11.2026)
+
+- Każdy DL ma premię 10% × marża/h × 160 h (`hr_bonus_rules.dl_default_hours`,
+  Ustawienia → Rozliczenia → „Godziny premii DL”). Wyjątek osoby zostaje w `dl_hours`.
+  `monthly_hours` (168) dalej liczy system indywidualny rekrutera.
+- Bez daty „od kiedy”: automat przelicza tylko propozycje, a przyznane premie
+  z października zostają. Dodatkowa premia DL ma kwotę głównej premii DL.
+- Dodatkową premię u Nordei dostaje drugi DL za placementy pierwszego, nigdy odwrotnie
+  (`extra_dl` z listą klientów).
+- Przy premii z umową w „Premie do decyzji” jest „Popraw datę podpisu”: karta 200%
+  pokazuje tylko umowy podpisane w miesiącu programu, więc data wpisana błędnie
+  poza programem nie miała gdzie zostać poprawiona.
+
 ## Poza zakresem (nie dopisuj „przy okazji”)
 
 - Następca rekrutera, który odszedł: premia rekrutera nikomu (decyzja 05.11.2026).

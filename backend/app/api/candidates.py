@@ -6443,11 +6443,13 @@ async def _documents_with_people(
     if user_ids:
         rows = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
         names = {row.id: row.name for row in rows}
+    doubts = await document_identity_doubt_ids(db, documents)
     out: list[CandidateDocumentOut] = []
     for document in documents:
         item = CandidateDocumentOut.model_validate(document)
         item.uploaded_by_name = names.get(document.uploaded_by or 0)
         item.outdated_by_name = names.get(document.outdated_by or 0)
+        item.identity_doubt = document.id in doubts
         out.append(item)
     return out
 
@@ -7260,6 +7262,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
     ReplacedPrimaryCv,
+    document_identity_doubt_ids,
     get_identity_review,
     record_detected_identity,
 )

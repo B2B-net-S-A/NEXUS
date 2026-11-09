@@ -278,6 +278,43 @@ describe("DecisionPanel", () => {
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Premia zatwierdzona", "success"));
   });
 
+  it("„Popraw datę podpisu” jest w menu premii z umową i otwiera okno z obecną datą", () => {
+    renderPanel([
+      bonus({
+        signature: {
+          contract_id: 9,
+          signed_on: "2026-10-30",
+          signed_source: "manual",
+          agreement: {
+            generated_contract_id: 41,
+            contract_number: "1/2026",
+            signed_on_source: "manual",
+            signed_on_reason: null,
+            set_by_name: null,
+            marked_by_name: "Osoba Przykładowa",
+            marked_at: null,
+            consultant_signed_at: null,
+            has_signed_file: false,
+          },
+        },
+      }),
+      bonus({ id: 2, description: "Bez umowy" }),
+    ]);
+    const open = (name: RegExp) => {
+      const trigger = screen.getByRole("button", { name });
+      fireEvent.keyDown(trigger, { key: "Enter" });
+    };
+    open(/Decyzja: Bez umowy/);
+    expect(screen.queryByRole("menuitem", { name: "Popraw datę podpisu" })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+    const [first] = screen.getAllByRole("button", { name: /^Decyzja:/ });
+    fireEvent.keyDown(first, { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Popraw datę podpisu" }));
+    expect(screen.getByRole("dialog", { name: "Popraw datę podpisu" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Data podpisu konsultanta")).toHaveValue("2026-10-30");
+  });
+
   it("„Zaznacz wszystkie” odznacza i zaznacza; bez zaznaczenia przycisk nieaktywny", () => {
     renderPanel([bonus(), bonus({ id: 2, amount: "529.20" })]);
     const panel = screen.getByRole("region", { name: "Premie do decyzji" });

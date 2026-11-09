@@ -33,6 +33,7 @@
  "routes": {
   "GET /api/interview-cycle/prep-quality": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/interview-cycle/preps/options": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/interview-cycle/preps/organizer-busy": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/interview-cycle/preps/suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",

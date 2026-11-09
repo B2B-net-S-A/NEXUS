@@ -71,7 +71,7 @@ import {
   ManagedInTraffitNotice,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
-import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import { AddedByCompactFilter, AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
 import { JobP0Strip } from "@/components/v2/jobs/p0/JobP0Strip";
 import { JobHeadcountFact } from "@/components/v2/jobs/JobHeadcountFact";
@@ -884,12 +884,12 @@ export default function JobDetailPage() {
       .then(() => showSuccess("Skopiowano link do rekrutacji."))
       .catch(() => showError("Nie udało się skopiować linku."));
   };
-  // Filtr „Kto dodał”: wybiera się go ikoną w nagłówku kolumny „Nowi”; włączony
-  // stoi w linii źródeł, a w zwiniętym nagłówku w linii tytułu (audyt U3).
-  const addedByButton =
-    showBoard && addedByMenuOptions ? (
-      <AddedByFilterButton options={addedByMenuOptions} value={addedBy} onChange={setAddedBy} />
-    ) : undefined;
+  // Filtr „Kto dodał” działa na całą Tablicę, więc stoi na pasku rekrutacji,
+  // a po zwinięciu nagłówka jako sama ikona (09.11.2026).
+  const addedByProps =
+    showBoard && addedByMenuOptions
+      ? { options: addedByMenuOptions, value: addedBy, onChange: setAddedBy }
+      : null;
   const recruiterFact = (compact: boolean) => (
     <JobRecruiterFact
       jobId={jobId}
@@ -1023,11 +1023,11 @@ export default function JobDetailPage() {
             />
           ) : undefined
         }
-        sourcesTrailing={addedBy.kind !== "all" ? addedByButton : undefined}
+        sourcesTrailing={addedByProps ? <AddedByFilterButton {...addedByProps} /> : undefined}
         collapsed={headerCollapsed}
         onToggleCollapsed={toggleHeaderCollapsed}
-        // Zwinięty nagłówek nie chowa WŁĄCZONEGO filtra Tablicy.
-        collapsedExtras={addedBy.kind !== "all" ? addedByButton : undefined}
+        // Zwinięty nagłówek nie chowa filtra Tablicy.
+        collapsedExtras={addedByProps ? <AddedByCompactFilter {...addedByProps} /> : undefined}
         presence={
           <ActiveViewers
             resourceType="job"

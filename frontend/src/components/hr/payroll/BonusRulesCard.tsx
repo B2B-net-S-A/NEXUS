@@ -49,6 +49,7 @@ interface RulesForm {
   tier3: string;
   dlPercent: string;
   monthlyHours: string;
+  dlDefaultHours: string;
   businessDays: string;
   since: string;
   leagueTypes: string[];
@@ -82,6 +83,7 @@ export function formFromRules(rules: BonusRules): RulesForm {
     tier3: plain(rules.recruiter_tier_amounts[2]),
     dlPercent: plain(rules.dl_percent),
     monthlyHours: String(rules.monthly_hours),
+    dlDefaultHours: rules.dl_default_hours ? String(rules.dl_default_hours) : "",
     businessDays: String(rules.eligible_business_days),
     since: rules.automation_since ?? "",
     leagueTypes: rules.league_types,
@@ -131,6 +133,11 @@ export function rulesPayload(
   if (!Number.isInteger(hours) || hours < 1 || !Number.isInteger(days) || days < 1) {
     return { ok: false, error: "Godziny w miesiącu i dni robocze to liczby całkowite większe od zera." };
   }
+  const dlHoursText = form.dlDefaultHours.trim();
+  const dlDefaultHours = dlHoursText ? Number(dlHoursText) : null;
+  if (dlDefaultHours !== null && (!Number.isInteger(dlDefaultHours) || dlDefaultHours < 1)) {
+    return { ok: false, error: "Godziny premii DL to liczba całkowita większa od zera albo puste pole." };
+  }
   const tcm = form.tcmAmount.trim() ? parseAmount(form.tcmAmount) : "";
   if (tcm === null || (tcm !== "" && Number(tcm) <= 0)) {
     return { ok: false, error: "Stałą premię TCM podaj jako kwotę (np. 1000) albo zostaw puste pole." };
@@ -160,6 +167,7 @@ export function rulesPayload(
       recruiter_tier_amounts: [t1, t2, t3],
       dl_percent: percent,
       monthly_hours: hours,
+      dl_default_hours: dlDefaultHours,
       eligible_business_days: days,
       automation_since: form.since || null,
       league_types: form.leagueTypes,
@@ -200,7 +208,7 @@ export function bonusExample(form: RulesForm, marginText: string): BonusExample 
   const values = [form.boundLow, form.boundHigh, form.tier1, form.tier2, form.tier3, form.dlPercent].map(
     parseAmount,
   );
-  const hours = Number(form.monthlyHours);
+  const hours = Number(form.dlDefaultHours.trim() || form.monthlyHours);
   if (margin === null || values.some((value) => value === null) || !Number.isFinite(hours)) return null;
   const [low, high, t1, t2, t3, percent] = (values as string[]).map(Number);
   const m = Number(margin);
@@ -353,6 +361,7 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {field("dlPercent", "Premia DL (% marży)", "rules-dl-percent")}
         {field("monthlyHours", "Godzin w miesiącu", "rules-hours", "Marża/h × tyle godzin.")}
+        {field("dlDefaultHours", "Godziny premii DL", "rules-dl-default-hours", "Każdy DL. Puste = godziny w miesiącu.")}
         {field("businessDays", "Dni robocze do terminu", "rules-days", "Start + tyle dni roboczych.")}
         <FormField
           label="Automat od daty startu"
