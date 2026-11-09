@@ -413,6 +413,7 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
         <Button
           size="sm"
           variant="outline"
+          data-tour="client-projects.previous-month"
           onClick={() => {
             const { from, to } = previousMonth();
             setOpened({ from, to });
