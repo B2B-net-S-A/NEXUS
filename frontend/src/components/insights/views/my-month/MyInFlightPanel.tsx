@@ -109,7 +109,7 @@ export function MyInFlightPanel({
                 <th className="py-2 pr-3 font-semibold">Osoba</th>
                 <th className="py-2 pr-3 font-semibold">Rekrutacja · klient</th>
                 <th className="py-2 pr-3 font-semibold">Etap</th>
-                <th className="py-2 pr-3 font-semibold">Termin</th>
+                <th data-tour="insights.in-flight-term" className="py-2 pr-3 font-semibold">Termin</th>
                 <th className="py-2 font-semibold">Od kiedy</th>
               </tr>
             </thead>

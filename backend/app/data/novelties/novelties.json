@@ -1871,5 +1871,23 @@
     "where": "Sprzedaż → Mój dzień",
     "href": "/sales/my-day",
     "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "insights-termin-rozmowy",
+    "pr": 3249,
+    "title": "Termin rozmowy pod ręką",
+    "why": "W tabeli „W drodze”, na liście osób za liczbami i na profilu kandydata widzisz, kiedy jest rozmowa u klienta, a najbliższe stoją na górze. Przy akceptacjach i placementach widać datę startu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Insights → Mój miesiąc → W drodze",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.in-flight-term"
   }
 ]
