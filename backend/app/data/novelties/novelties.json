@@ -1960,5 +1960,22 @@
     "section": "pipeline",
     "dot_anchor": "review-batch.to-screening",
     "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "projekty-klienta-data-otwarcia",
+    "pr": 3265,
+    "title": "Procesy klienta z wybranego miesiąca",
+    "why": "W Projektach klienta zawęzisz listę po dacie otwarcia, a „Poprzedni miesiąc” pokaże aktywne i zamknięte razem. U BNP jest tu też raport miesięczny do pobrania w Excelu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "delivery_lead"
+      ]
+    },
+    "where": "Klienci → karta klienta → Projekty",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client-projects.previous-month"
   }
 ]

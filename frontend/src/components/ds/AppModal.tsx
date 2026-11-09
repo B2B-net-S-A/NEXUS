@@ -11,13 +11,14 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type AppModalSize = "sm" | "md" | "lg" | "xl";
+type AppModalSize = "sm" | "md" | "lg" | "xl" | "2xl";
 
 const sizeClasses: Record<AppModalSize, string> = {
   sm: "max-w-[24rem]",
   md: "max-w-lg",
   lg: "max-w-2xl",
   xl: "max-w-5xl",
+  "2xl": "max-w-[1200px]",
 };
 
 export interface AppModalProps {

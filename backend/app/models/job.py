@@ -330,6 +330,10 @@ class Job(Base, TimestampMixin):
     # odpalany w `entrypoint.sh` przy KAŻDYM starcie kontenera — czyli znacznik
     # syncu, nie datę zamknięcia. Teraz importer mapuje `closing_date` ze
     # źródła, a backfill został usunięty.
+    # Rola z karty stawek klienta (widełki z umowy ramowej) wskazana w raporcie.
+    client_rate_card_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("rate_cards.id", ondelete="SET NULL"), nullable=True
+    )
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )

@@ -3,7 +3,7 @@
   "guide": "jobs.list",
   "sources": {
     "frontend/src/components/v2/jobs/JobsFilterBar.tsx": "d8fba8ba79677395736bb9c9ca7b65e4174b0420a20160227330ebb3d836c4d8",
-    "frontend/src/components/v2/pages/JobsListV2.tsx": "59793d0107417358f241f327b4a5817f92de1486091bd0efd1010ae1a1081776",
+    "frontend/src/components/v2/pages/JobsListV2.tsx": "cb5e89c8d7eb23642a4569d005409f0396e223bd2c057d1db0a5b4861e2f9842",
     "frontend/src/lib/request-stage.ts": "7855b8d99d4a20e881ac3e47b7c109ef177ca0c63f638b00e893204a090280a1"
   }
 }
