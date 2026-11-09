@@ -331,8 +331,9 @@ class EmailAttachment(Base, TimestampMixin):
     cv_parse_attempted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True)
     )
+    # CASCADE jak w bazie (0146): załącznik z CV znika razem z kandydatem.
     parsed_candidate_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True
     )
     parse_error: Mapped[Optional[str]] = mapped_column(Text)
 

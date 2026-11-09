@@ -3103,6 +3103,26 @@ END $$""",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS source_ref VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
+    # 0668: lustro samego ADD COLUMN zostawiło NULL w każdym wierszu, a model ma
+    # NOT NULL z domyślną. Tekst taki sam jak w migracji (test tego pilnuje).
+    """DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'cortex_unmatched_terms'
+              AND column_name = 'first_seen_at'
+              AND is_nullable = 'YES'
+        ) THEN
+            ALTER TABLE cortex_unmatched_terms
+                ALTER COLUMN first_seen_at SET DEFAULT now();
+            UPDATE cortex_unmatched_terms
+                SET first_seen_at = last_seen_at
+                WHERE first_seen_at IS NULL;
+            ALTER TABLE cortex_unmatched_terms
+                ALTER COLUMN first_seen_at SET NOT NULL;
+        END IF;
+    END $$""",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_by VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_at TIMESTAMPTZ",
     """CREATE TABLE IF NOT EXISTS cortex_extraction_runs (
@@ -11093,6 +11113,52 @@ async def finalize():
         )
 
 asyncio.run(finalize())
+PY
+
+# 0669: triggery martwej kolejki embedding_index_queue (rewert #713 zostawił je
+# w bazie, nic ich nie czyta). Tabela i funkcja zostają, decyzja Artura z
+# 08.11.2026. DROP TRIGGER prosi o ACCESS EXCLUSIVE nawet przy IF EXISTS, więc
+# krok najpierw sprawdza pg_trigger, a na czystej bazie nie dotyka tabel.
+# Awaria jest MIĘKKA: trigger dalej tylko dopisuje do kolejki, następny start ponowi.
+startup_phase "embedding-queue-triggers"
+python - <<'PY' || echo "embedding queue triggers: krok nieudany; continuing"
+import asyncio
+
+from sqlalchemy import text
+
+from app.core.database import engine
+
+_DROPS = (
+    (
+        "trg_candidates_embedding_index",
+        "DROP TRIGGER IF EXISTS trg_candidates_embedding_index ON candidates",
+    ),
+    (
+        "trg_jobs_embedding_index",
+        "DROP TRIGGER IF EXISTS trg_jobs_embedding_index ON jobs",
+    ),
+)
+
+
+async def main():
+    for trigger, statement in _DROPS:
+        try:
+            async with engine.begin() as conn:
+                present = await conn.scalar(
+                    text("SELECT 1 FROM pg_trigger WHERE tgname = :name"),
+                    {"name": trigger},
+                )
+                if not present:
+                    continue
+                await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                await conn.execute(text(statement))
+            print(f"embedding queue triggers: zdjęty {trigger}")
+        except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
+            print(f"embedding queue triggers: {trigger} pominięty -> {exc!r}")
+    await engine.dispose()
+
+
+asyncio.run(main())
 PY
 
 # 0282: mirror signature policy for installations with an orphaned Alembic
