@@ -103,7 +103,7 @@ def test_migration_reads_the_shared_module() -> None:
     ).read_text(encoding="utf-8")
     assert "for stmt in schema.TRANSCRIPTS_DDL:" in transcripts
     assert "*_sales_schema.TRANSCRIPTS_DDL," in entry
-    aliases = (ROOT / "alembic/versions/0665_sales_company_aliases.py").read_text(
+    aliases = (ROOT / "alembic/versions/0668_sales_company_aliases.py").read_text(
         encoding="utf-8"
     )
     assert "for stmt in schema.COMPANY_ALIASES_DDL:" in aliases
