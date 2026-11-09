@@ -48,10 +48,8 @@ w trzech miejscach.
   produkcji). „Za kogo”: kontraktorzy klienta, najpierw ci, którzy odeszli,
   potem cały NEXUS (`GET /api/b2b-generator/replacement-options`, bez kwot).
   Osoba nie może zastępować samej siebie (422).
-- **Gwarancja** (decyzje Artura 26.10 i 05.11.2026): gdy kontrakt osoby zastąpionej
-  trwał krócej niż rok i zatrudnił ją ten sam DL, za placement-zastępstwo premia
-  DL się nie należy. Rekruter gwarancji nie ma. Automat premii liczy to od
-  05.11.2026 (`ludzie/premia-200-tcm-gwarancja.md`).
+- **Replacement nie wpływa na premie** (decyzja Artura 09.11.2026). Gwarancja DL
+  to zwrot premii na minus, `ludzie/gwarancja-premii-dl.md`.
 - **FTE** 1 / 0,75 / 0,5 / 0,25, domyślnie 1 — rekrutacja nie ma pola FTE
   (pełny etat ma 4495 z 4495 rekrutacji). Premia „po 168 h” przy FTE < 1
   przychodzi później: termin = start + 21 / FTE dni roboczych (decyzja Artura
@@ -101,5 +99,5 @@ w trzech miejscach.
   kontraktu (pola „przed → po” i powód) i w `hr_audit_events`
   (`sensitivity='payroll'`).
 - Zapis od razu uzgadnia premie kontraktu
-  (`placement_bonuses.on_admin_details_changed`): gwarancja DL anuluje premię
-  DL z powodem `guarantee`, kandydat od klienta — wszystkie z `client_referral`.
+  (`placement_bonuses.on_admin_details_changed`): kandydat od klienta anuluje
+  wszystkie z powodem `client_referral`.

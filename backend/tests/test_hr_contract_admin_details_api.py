@@ -68,7 +68,7 @@ async def _same_dl_replacement() -> tuple[dict, dict]:
 
 
 @pytest.mark.asyncio
-async def test_replacement_with_reason_drops_dl_bonus_by_guarantee(app_client) -> None:
+async def test_replacement_with_reason_keeps_dl_bonus(app_client) -> None:
     replaced, world = await _same_dl_replacement()
     await _reconcile(world["contract"])
     assert (await _bonuses(world["contract"]))["dl"].status == "proposed"
@@ -95,8 +95,8 @@ async def test_replacement_with_reason_drops_dl_bonus_by_guarantee(app_client) -
         "replaced_contract_id",
     ]
     found = await _bonuses(world["contract"])
-    assert found["dl"].status == "cancelled"
-    assert found["dl"].cancel_reason == "guarantee"
+    # Zastępstwo nie wpływa na premie (decyzja 09.11.2026).
+    assert found["dl"].status == "proposed"
     assert found["recruiter"].status == "proposed"
     async with AsyncSessionLocal() as db:
         activity = await db.scalar(
