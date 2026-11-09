@@ -263,6 +263,7 @@ async def _sync_connection_locked(
                     await sales_transcripts.resolve_join_urls(db, gc, conn.user_id)
             if scope.sales:
                 await _sales_catch_up(db, conn)
+                await _settle_sales_meetings(db, conn)
 
         await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
@@ -1018,6 +1019,16 @@ def _addresses_of(recipients) -> list[str]:
         for r in (recipients or [])
         if isinstance(r, dict) and r.get("address")
     ]
+
+
+async def _settle_sales_meetings(db: AsyncSession, conn: M365Connection) -> None:
+    """Spotkania przypięte do szans, które minęły od ostatniego przebiegu."""
+    try:
+        async with db.begin_nested():
+            await sales_outlook.settle_pinned_meetings(db)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
+        logger.exception("m365 conn %s: pinned sales meetings failed", conn.id)
 
 
 async def _sales_catch_up(db: AsyncSession, conn: M365Connection) -> None:
