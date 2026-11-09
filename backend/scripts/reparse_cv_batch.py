@@ -71,7 +71,9 @@ async def _collect(
         lambda: list(client.messages.batches.results(batch_id))
     )
     async with AsyncSessionLocal() as db:
-        await reparse.apply_batch_results(db, results, model=model, stats=stats)
+        await reparse.apply_batch_results(
+            db, results, model=model, stats=stats, batch_id=batch_id
+        )
 
 
 async def _run(args: argparse.Namespace) -> None:

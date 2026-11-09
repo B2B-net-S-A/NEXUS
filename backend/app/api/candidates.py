@@ -6312,6 +6312,9 @@ async def remove_candidate_from_recruitment(
         await reopen_after_quick_undo(
             db, job_id=job_id, candidate_id=candidate_id, entered_at=entered_at
         )
+        from app.services.single_candidate_list import reopen_pool_only
+
+        await reopen_pool_only(db, job_id=job_id, candidate_id=candidate_id)
 
     db.add(
         Activity(

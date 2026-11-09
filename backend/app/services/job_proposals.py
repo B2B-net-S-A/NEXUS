@@ -80,6 +80,9 @@ POSTING_SOURCES = ("new_cv", "job_board")
 # listy jej nie bierze — okno liczy wtedy dopasowanie przez `/scores`, a liczba
 # scrapera wraca osobno jako `board_score`.
 NON_CANONICAL_SCORE_SOURCES = ("job_board",)
+# Jedna lista (08.11.2026): wiersz ``job_board`` z wynikiem „Dop.” w ``score``.
+# Stare wiersze niosą tam liczbę scrapera, więc źródło zostaje na liście wyżej.
+DOP_SCALE_KEY = "dop_scale"
 POSTING_RECENT_DAYS = 7
 EXPIRED = "expired"
 # Wygasłe propozycje tracą dowody po tylu dniach od ostatniego przeglądu, który
@@ -203,6 +206,8 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
             out["history"] = clean_history
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True
+    if raw.get(DOP_SCALE_KEY) is True:
+        out[DOP_SCALE_KEY] = True
     return out or None
 
 
@@ -772,7 +777,7 @@ def _globally_blacklisted(candidate_col):
     )
 
 
-def _pair_status():
+def _pair_status(status=JobProposal.status):
     """Status pary z wierszy źródeł: added > dismissed > proposed.
 
     Wiersze ``expired`` nie głosują: para z samych takich wierszy ma status
@@ -780,9 +785,9 @@ def _pair_status():
     w ``WHERE`` (:func:`_live`), żeby nie liczyły się do wyniku ani źródeł.
     """
     return case(
-        (func.bool_or(JobProposal.status == "added"), "added"),
-        (func.bool_or(JobProposal.status == "dismissed"), "dismissed"),
-        (func.bool_or(JobProposal.status == "proposed"), "proposed"),
+        (func.bool_or(status == "added"), "added"),
+        (func.bool_or(status == "dismissed"), "dismissed"),
+        (func.bool_or(status == "proposed"), "proposed"),
         else_=EXPIRED,
     )
 
@@ -792,7 +797,9 @@ def _live():
     return JobProposal.status != EXPIRED
 
 
-def meets_threshold(min_score: float):
+def meets_threshold(
+    min_score: float, source=JobProposal.source, score=JobProposal.score
+):
     """Warunek pary (HAVING): liczy się do liczników, kafla i dzwonka.
 
     Najlepsze 40 (28.10.2026): para wyłącznie z nocnego przeglądu
@@ -803,10 +810,9 @@ def meets_threshold(min_score: float):
     zawsze, bo te źródła mają własne progi albo są decyzją człowieka.
     """
     return or_(
-        func.coalesce(func.bool_or(JobProposal.source != "full_base"), False),
+        func.coalesce(func.bool_or(source != "full_base"), False),
         func.coalesce(
-            func.max(JobProposal.score).filter(JobProposal.source == "full_base")
-            >= min_score,
+            func.max(score).filter(source == "full_base") >= min_score,
             True,
         ),
     )
@@ -963,6 +969,8 @@ class ProposalRow:
     # Najlepsze 40 (28.10.2026): para z samego nocnego przeglądu spod progu —
     # na liście pod separatorem, poza licznikami (:func:`meets_threshold`).
     below_threshold: bool = False
+    # Jedna lista (08.11.2026): plakietki źródła (``single_candidate_list.LABELS``).
+    labels: tuple[str, ...] = ()
 
 
 def _posting_seen_at():

@@ -4708,6 +4708,7 @@ headerAction={
  cproEnabled,
  hired: totalCountByColId.get(entry.key) ?? entry.col.count,
  headcount: workbenchContext?.headcount ?? null,
+ jobClosed: closedJob != null,
  })}
  {...(boardLabelByColId.has(entry.key)
  ? { titleOverride: boardLabelByColId.get(entry.key) }

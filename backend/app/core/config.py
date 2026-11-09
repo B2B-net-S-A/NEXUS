@@ -646,6 +646,11 @@ class Settings(BaseSettings):
     # czekających kart, poranny przebieg raz dziennie, w dzień tylko gorące.
     # False = silnik jak dotąd (20 we wszystkich, pełny przebieg co 15 minut).
     NEW_COLUMN_TEMPO_TARGET_ENABLED: bool = False
+    # Jedna lista kandydatów rekrutacji (decyzja Artura z 08.11.2026,
+    # `services/single_candidate_list.py`): pula i propozycje scalone w jeden
+    # wiersz na osobę, wynik portali na skali „Dop.”, panel z filtrami-plakietkami.
+    # False = dzisiejszy panel z zakładkami i dzisiejsze zapisy.
+    SINGLE_CANDIDATE_LIST_ENABLED: bool = False
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
@@ -1724,6 +1729,11 @@ class Settings(BaseSettings):
     # (``services/portal_application``). Pusty = jak dotąd link do strony
     # kariery (``apply.url``). Zmienia go tylko workflow „Coolify set env”.
     JJIT_APPLY_EMAIL: str = ""
+    # 09.11.2026 (decyzja Artura): telefon kontaktowy na wszystkich ogłoszeniach,
+    # bo ``PUT`` 1EP wymaga pełnego kontaktu z telefonem. Wartość wyłącznie przez
+    # „Coolify set env” z ``value_from_secret`` (repo i logi Actions są publiczne).
+    JJIT_CONTACT_PHONE: str = ""
+    JJIT_CONTACT_NAME: str = "B2B Network"
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""

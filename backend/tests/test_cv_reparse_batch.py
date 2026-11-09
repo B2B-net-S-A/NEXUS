@@ -103,7 +103,7 @@ def wired(monkeypatch):
     return calls
 
 
-def _apply(candidate, result, digest=None):
+def _apply(candidate, result, digest=None, batch_id=None):
     """Skrót tak jak w paczce: z `custom_id`, czyli tylko jego początek."""
     if digest is None:
         _, digest = reparse.parse_custom_id(
@@ -118,6 +118,7 @@ def _apply(candidate, result, digest=None):
             result=result,
             model="claude-haiku-5-5",
             stats=stats,
+            batch_id=batch_id,
         )
     )
     return stats
@@ -199,6 +200,33 @@ def test_failed_response_returns_to_scope_once(wired):
     marker = candidate.cv_extracted_data["_cv_reparse"]
     assert (marker["outcome"], marker["attempts"]) == ("failed", reparse.MAX_ATTEMPTS)
     assert not wired["ingest"]
+
+
+def test_collecting_the_same_batch_again_is_not_another_attempt(wired):
+    """08.11.2026: 594 CV wypadło z zakresu po drugim `collect` tej samej paczki.
+
+    Licznik ma liczyć płatne próby. Ten sam wynik z innej paczki to nowa próba,
+    więc porównanie samego skrótu i wyniku zdjęłoby limit i płacilibyśmy co bieg.
+    """
+    candidate = _candidate()
+    bad = SimpleNamespace(type="errored")
+
+    _apply(candidate, bad, batch_id="msgbatch_1")
+    _apply(candidate, bad, batch_id="msgbatch_1")
+    assert candidate.cv_extracted_data["_cv_reparse"]["attempts"] == 1
+
+    _apply(candidate, bad, batch_id="msgbatch_2")
+    marker = candidate.cv_extracted_data["_cv_reparse"]
+    assert (marker["outcome"], marker["attempts"]) == ("failed", reparse.MAX_ATTEMPTS)
+
+
+def test_marker_from_before_batch_ids_counts_the_next_batch(wired):
+    """Znaczniki sprzed poprawki nie mają id paczki: każda paczka to nowa próba."""
+    candidate = _candidate()
+    bad = SimpleNamespace(type="errored")
+    _apply(candidate, bad)
+    _apply(candidate, bad, batch_id="msgbatch_1")
+    assert candidate.cv_extracted_data["_cv_reparse"]["attempts"] == 2
 
 
 def test_invalid_json_is_a_failure_not_a_crash(wired):
@@ -384,6 +412,26 @@ def test_write_error_marks_the_cv_so_the_next_run_does_not_pay_again(
     assert stats.errors == 1
     marker = candidate.cv_extracted_data["_cv_reparse"]
     assert (marker["outcome"], marker["attempts"]) == ("failed", 1)
+
+    asyncio.run(
+        reparse.apply_batch_results(
+            _CommittingDb(candidate),
+            [_entry(candidate, _ok())],
+            model="claude-haiku-5-5",
+            stats=stats,
+            batch_id="msgbatch_1",
+        )
+    )
+    asyncio.run(
+        reparse.apply_batch_results(
+            _CommittingDb(candidate),
+            [_entry(candidate, _ok())],
+            model="claude-haiku-5-5",
+            stats=stats,
+            batch_id="msgbatch_1",
+        )
+    )
+    assert candidate.cv_extracted_data["_cv_reparse"]["attempts"] == 2
 
 
 def test_broken_result_stream_still_commits_written_rows(wired):
