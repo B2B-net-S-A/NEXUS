@@ -66,9 +66,11 @@ function rateLine(item: ReviewBatchItem): string | null {
 export function ReviewBatchCard({
   item,
   onDecided,
+  hideJob = false,
 }: {
   item: ReviewBatchItem;
   onDecided: () => void;
+  hideJob?: boolean;
 }) {
   const move = usePipelineMoveCore({ jobId: item.job_id });
   const { rejectionReasons } = useJobPipelineTemplate(item.job_id);
@@ -163,9 +165,11 @@ export function ReviewBatchCard({
       <div className="rounded-lg border border-border bg-card p-4 space-y-3">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-xs text-muted-foreground truncate">
-              {item.job_title} · {item.job_id}
-            </div>
+            {hideJob ? null : (
+              <div className="text-xs text-muted-foreground truncate">
+                {item.job_title} · {item.job_id}
+              </div>
+            )}
             <h2 className="text-lg font-semibold leading-tight">
               <Link
                 href={`/candidates/${item.candidate_id}`}
@@ -246,7 +250,7 @@ export function ReviewBatchCard({
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Screening liczy się do minimum po wpisaniu wyniku albo ruchu dalej (do 2 dni roboczych). Odrzucenie z powodem liczy się od razu.
+          „Do screeningu” i odrzucenie z powodem liczą się od razu. Wynik screeningu wpisz w 2 dni robocze, inaczej wyszukiwanie znów się zablokuje.
         </p>
         </>
       ) : (

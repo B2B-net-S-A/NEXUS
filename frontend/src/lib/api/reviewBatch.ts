@@ -22,6 +22,8 @@ export interface ReviewBatchOpenScreening {
   job_title: string
   candidate_id: number
   name: string
+  /** Minęły 2 dni robocze bez wyniku: blokuje wyszukiwanie. */
+  overdue?: boolean
 }
 
 export interface ReviewBatchStatus {
@@ -39,8 +41,10 @@ export interface ReviewBatchStatus {
   blocks?: boolean
   /** „Do screeningu” z ostatnich 2 dni roboczych, jeszcze bez wyniku. */
   open_screenings?: number
-  /** Przy niezrobionym minimum: dzisiejsze niedomknięte „Do screeningu” z porcji. */
+  /** Własne „Do screeningu” bez wyniku (zakładka „Do domknięcia”). */
   open_today_screenings?: ReviewBatchOpenScreening[]
+  /** Ile z nich jest po terminie; dopóki > 0, wyszukiwanie stoi. */
+  overdue_screenings?: number
   jobs: ReviewBatchJob[]
   team_jobs: ReviewBatchJob[]
   /** Ile osób dokłada „Dodaj kolejnych”: 20 w porcji, 10 przy celu wg tempa. */
@@ -225,17 +229,18 @@ export function invalidateReviewBatch(queryClient: QueryClient): void {
 /** Odpowiedź serwera to blokada porcji (423 `REVIEW_MINIMUM_PENDING`). */
 export function reviewBatchBlock(
   error: unknown,
-): { message: string; remaining: number; required: number } | null {
+): { message: string; remaining: number; required: number; overdue: number } | null {
   const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
     ?.response
   if (response?.status !== 423) return null
   const detail = response.data?.detail as
-    | { code?: string; message?: string; remaining?: number; required?: number }
+    | { code?: string; message?: string; remaining?: number; required?: number; overdue?: number }
     | undefined
   if (!detail || detail.code !== REVIEW_BATCH_BLOCK_CODE) return null
   return {
     message: detail.message ?? "Najpierw porcja od Nexusa.",
     remaining: Number(detail.remaining ?? 0),
     required: Number(detail.required ?? 0),
+    overdue: Number(detail.overdue ?? 0),
   }
 }

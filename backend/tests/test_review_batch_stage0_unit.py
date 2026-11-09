@@ -1,5 +1,6 @@
 """Etap 0 porcji dnia (audyt 08.11.2026) — logika bez bazy."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -138,26 +139,26 @@ def test_card_below_custom_min_score_is_not_in_batch():
 
 
 def test_rejection_counts_when_it_happened():
-    assert rb.counted_at_for("rejected", NOW, [], []) == NOW
+    assert rb.closed_at_for("rejected", NOW, [], []) == NOW
 
 
-def test_screening_without_follow_up_does_not_count():
-    assert rb.counted_at_for("screening", NOW, [], []) is None
+def test_screening_without_follow_up_is_not_closed():
+    assert rb.closed_at_for("screening", NOW, [], []) is None
 
 
 def test_going_back_to_screening_is_not_closing():
     later = [("screening", NOW + timedelta(hours=1))]
-    assert rb.counted_at_for("screening", NOW, later, []) is None
+    assert rb.closed_at_for("screening", NOW, later, []) is None
 
 
 def test_saved_screening_closes_at_save_time():
     saved = NOW + timedelta(hours=3)
-    assert rb.counted_at_for("screening", NOW, [], [saved]) == saved
+    assert rb.closed_at_for("screening", NOW, [], [saved]) == saved
 
 
 def test_screening_saved_before_the_move_counts_at_the_move():
     saved = NOW - timedelta(minutes=5)
-    assert rb.counted_at_for("screening", NOW, [], [saved]) == NOW
+    assert rb.closed_at_for("screening", NOW, [], [saved]) == NOW
 
 
 def test_minimum_reached_at_is_the_nth_decision():
@@ -341,7 +342,7 @@ def _open_s(pid: int, *, own_batch: bool) -> rb.Decision:
         user_id=7,
         stage="screening",
         moved_at=NOW,
-        counted_at=None,
+        closed_at=None,
         own_batch=own_batch,
     )
 
@@ -356,7 +357,7 @@ def test_open_screening_outside_own_batch_does_not_hold_the_minimum():
             user_id=7,
             stage="rejected",
             moved_at=NOW,
-            counted_at=NOW,
+            closed_at=NOW,
             own_batch=True,
         )
         for pid in (1, 2, 3)
@@ -364,24 +365,71 @@ def test_open_screening_outside_own_batch_does_not_hold_the_minimum():
     counts = rb.summarize_day(
         [*rejected, _open_s(4, own_batch=False)], NOW - timedelta(hours=1)
     )
-    assert counts.done == 3
-    assert counts.open_today == 0
+    # S na cudzej albo starej karcie też jest dziś decyzją, ale nie zaległością.
+    assert counts.done == 4
     assert counts.open_cards == ()
     # Licznik „do domknięcia” dalej pokazuje każde niedomknięte S.
     assert counts.open_screenings == 1
 
 
-def test_open_screenings_from_own_batch_still_hold_the_minimum():
-    """10×S z porcji: done 0, open_today 10, więc required zostaje 10."""
+def test_screening_counts_toward_the_minimum_at_once():
+    """Decyzja Artura z 09.11.2026: 10×S z porcji to 10 decyzji."""
     decisions = [_open_s(pid, own_batch=True) for pid in range(1, 11)]
     counts = rb.summarize_day(decisions, NOW - timedelta(hours=1))
-    assert counts.done == 0
-    assert counts.open_today == 10
+    assert counts.done == 10
+    assert counts.closed_today == 0
     assert [d.process_id for d in counts.open_cards] == list(range(1, 11))
 
 
-def test_open_screening_from_yesterday_is_not_listed_for_today():
+def test_open_screening_from_yesterday_is_not_todays_decision():
     old = _open_s(1, own_batch=True)
     counts = rb.summarize_day([old], NOW + timedelta(hours=1))
-    assert counts.open_today == 0 and counts.open_cards == ()
+    assert counts.done == 0
+    assert [d.process_id for d in counts.open_cards] == [1]
     assert counts.open_screenings == 1
+
+
+def test_open_screening_past_the_window_is_overdue():
+    card = _open_s(1, own_batch=True)
+    counts = rb.summarize_day([card], NOW + timedelta(days=5), NOW + timedelta(hours=1))
+    assert counts.overdue_cards == (card,)
+    assert counts.open_screenings == 1
+
+
+def test_open_screening_inside_the_window_is_not_overdue():
+    card = _open_s(1, own_batch=True)
+    counts = rb.summarize_day([card], NOW + timedelta(days=1), NOW - timedelta(hours=1))
+    assert counts.overdue_cards == ()
+
+
+def test_someone_elses_old_screening_is_not_overdue_nor_shown():
+    card = _open_s(1, own_batch=False)
+    counts = rb.summarize_day([card], NOW + timedelta(days=5), NOW + timedelta(hours=1))
+    assert counts.overdue_cards == ()
+    assert counts.open_screenings == 0
+
+
+def test_screening_in_a_closed_job_is_not_overdue():
+    card = replace(_open_s(1, own_batch=True), job_in_work=False)
+    counts = rb.summarize_day([card], NOW + timedelta(days=5), NOW + timedelta(hours=1))
+    assert counts.overdue_cards == () and counts.open_cards == ()
+
+
+def test_closed_decision_is_counted_for_level_on_the_closing_day():
+    card = replace(_open_s(1, own_batch=True), closed_at=NOW + timedelta(days=1))
+    counts = rb.summarize_day([card], NOW + timedelta(hours=20))
+    assert counts.closed_today == 1 and counts.done == 0
+
+
+def test_block_message_for_overdue_only_names_the_screenings():
+    status = rb.BatchStatus(
+        enabled=True,
+        applies=True,
+        minimum=10,
+        done_today=10,
+        pending=0,
+        required=10,
+        met=False,
+        overdue_screenings=3,
+    )
+    assert "3 screeningów po terminie" in rb._block_message(status)

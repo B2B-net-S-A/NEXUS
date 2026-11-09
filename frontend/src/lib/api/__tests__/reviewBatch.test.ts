@@ -21,6 +21,7 @@ describe("reviewBatchBlock", () => {
       message: "Najpierw porcja od Nexusa: zostało 38 z 50 decyzji.",
       remaining: 38,
       required: 50,
+      overdue: 0,
     });
   });
 

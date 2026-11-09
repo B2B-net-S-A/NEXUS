@@ -49,7 +49,7 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
 - **Telefon po rozmowie = istniejące wyzwalacze `post_interview_*`**, poszerzone
   o `client_interview` (`_POST_INTERVIEW_EVENT_TYPES`). Dla rozmowy u klienta:
   strona KANDYDATA (dzwoni rekruter, nie zbiera feedbacku klienta), odbiorca =
-  właściciel wydarzenia, link `/calendar?cycle=c-j&debrief=<id>` (ekran otwiera
+  osoba, która zweryfikowała kandydata, a bez niej właściciel wydarzenia, link `/calendar?cycle=c-j&debrief=<id>` (ekran otwiera
   okno debriefu). `calendar_auto_complete` też kończy `client_interview`.
   Okno na agendzie: `POST_INTERVIEW_CALL_WINDOW_MINUTES` (30).
 - **Debrief = `InterviewFeedback(candidate_side)` pod wydarzeniem rozmowy**
@@ -135,3 +135,21 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   (`debrief_missing`, decyzja Artura 04.11.2026), nie czerwone „Zadzwoń”. Nikt już
   do tej osoby nie dzwoni, a ekran „Rozmowy u klienta” takiej pary nie pokazuje.
   „Zapisz debrief” zostaje w doku, bo pytania klienta mają wartość dla następnych.
+- **Telefon po rozmowie należy do osoby, która zweryfikowała kandydata** (decyzja
+  Artura 09.11.2026). Rekruterka przypisana do rekrutacji dostawała na ekranie cudzego
+  kandydata, a weryfikująca nie miała zadania jako swojego. `PairSnapshot.verifier_id`
+  (`stage_verifier.verifier_ids`, tylko aktywne konto), bez niego właściciel rozmowy.
+  Zadania `call_now` i `debrief_overdue` widzi telefonujący, właściciel rozmowy i widok
+  DL (`jobs`). Rekruter z `jobs.recruiter_id` dostaje parę w „mine” tylko wtedy, gdy
+  `default_recruiter_ids` wskazuje właśnie jego. **Nie używaj `default_recruiter_ids` do
+  telefonu:** zwraca właściciela procesu, który bywa DL-em.
+- **Zamknięta karta nie dostaje przypomnień T+15/T+45** (`_card_closed`).
+- **Spotkania przy zamknięciu karty** (decyzja Artura 09.11.2026): okno rezygnacji
+  i odrzucenia pokazuje spotkania przed nami, domyślnie do odwołania
+  (`RejectionMeetingsField`, `GET …/pairs/{job}/{candidate}/meetings`). Po ruchu front
+  woła `POST …/meetings/close`: karta musi być zamknięta, a wołający to osoba, która
+  ją zamknęła, albo admin/HoR (`pair_meetings.ensure_can_close`). Odwołuje ta sama
+  `cancel_event_effects` co Tydzień, po jednym spotkaniu, więc odmowa Outlooka przy
+  jednym nie cofa reszty ani zamknięcia. Klienta NEXUS nie powiadamia i okno mówi to
+  wprost. Zaproszenie z Outlooka bez bliźniaka o tej samej godzinie = prośba dzwonkiem
+  do prowadzącego (`ask_to_cancel`). Przy kilku osobach naraz listy nie ma.

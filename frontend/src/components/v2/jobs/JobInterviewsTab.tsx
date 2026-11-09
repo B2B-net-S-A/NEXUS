@@ -42,6 +42,7 @@ import {
   type HiringManagerFeedback,
   type HiringManagerFeedbackList,
 } from "@/lib/api";
+import { closePairMeetings, type PairMeetingsChoice } from "@/lib/api/pairMeetings";
 import { expectedStateVersionOf } from "@/lib/pipeline-version-conflict";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import { itemFullName } from "@/lib/pipeline-flow";
@@ -331,6 +332,7 @@ export function JobInterviewsTab({
       emailText?: RejectionEmailText | null;
       workMode?: RejectionWorkModeChoice | null;
       rate?: RejectionRateChoice | null;
+      meetings?: PairMeetingsChoice | null;
     }) =>
       moveCore.send(
         {
@@ -357,7 +359,7 @@ export function JobInterviewsTab({
           fallbackMessage: "Nie udało się zapisać",
         },
       ),
-    onSuccess: (outcome) => {
+    onSuccess: (outcome, vars) => {
       if (!outcome.ok) {
         if (outcome.refusal.kind === "version_conflict") setPendingTerminal(null);
         return;
@@ -365,6 +367,10 @@ export function JobInterviewsTab({
       setPendingTerminal(null);
       // Mail odrzucenia („Cofnij wysyłkę”) ogłasza rdzeń ruchu.
       showSuccess("Zapisano decyzję.");
+      void closePairMeetings(jobId, vars.item.candidate_id, vars.meetings, {
+        showSuccess,
+        showError,
+      });
     },
     onError: (e) => {
       showError(extractErrorMsg(e) || "Nie udało się zapisać");
@@ -508,6 +514,7 @@ export function JobInterviewsTab({
           // Runda 10 (R10-V2-1): ta sama reguła dostępności maila co na
           // Tablicy (kod etapu albo kolumna), nie sama kategoria kolumny.
           emailAvailable={rejectionEmailAvailableFrom(pendingTerminal.entry.col)}
+          meetingsPair={{ jobId, candidateId: pendingTerminal.entry.item.candidate_id }}
           emailPreview={{
             jobId,
             people: [
@@ -532,6 +539,7 @@ export function JobInterviewsTab({
             workMode,
             _autofill,
             rate,
+            meetings,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -544,6 +552,7 @@ export function JobInterviewsTab({
               emailText,
               workMode,
               rate,
+              meetings,
             })
           }
         />

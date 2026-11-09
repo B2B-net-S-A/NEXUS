@@ -18,6 +18,8 @@ import {
  DialogTitle,
 } from"@/components/ui/dialog";
 import { Button } from"@/components/ui/button";
+import { RejectionMeetingsField } from "@/components/v2/modals/RejectionMeetingsField";
+import type { PairMeetingsChoice } from "@/lib/api/pairMeetings";
 import { FormField } from"@/components/ui/form-field";
 import { Textarea } from"@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from"@/components/ui/radio-group";
@@ -126,7 +128,9 @@ interface Props {
  autofill?: AutofillFeedbackChoice | null,
  /** „Za wysokie oczekiwania finansowe” (26.10.2026): ile osoba teraz chce;
   *  `null` przy innym powodzie, kilku osobach albo pustym polu. */
- rate?: RejectionRateChoice | null
+ rate?: RejectionRateChoice | null,
+ /** Spotkania tej osoby do odwołania po zamknięciu karty (09.11.2026). */
+ meetings?: PairMeetingsChoice | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -148,6 +152,8 @@ interface Props {
   *  osoby od razu do następnej łatwo pomylić osoby — okno to ostatnie
   *  miejsce, gdzie to widać. */
  subject?: { name: string; stageLabel?: string | null } | null;
+ /** Jedna osoba: para, której spotkania pokazać do odwołania (09.11.2026). */
+ meetingsPair?: { jobId: number; candidateId: number } | null;
  /** Okno otwarte z panelu osoby: kogo panel pokaże po potwierdzeniu.
   *  `null` — to ostatnia osoba, panel się zamknie. Bez propu (kilka osób,
   *  karta, przeciągnięcie) okno niczego nie zapowiada. */
@@ -201,6 +207,7 @@ export function RejectionV2({
  initialNotes = null,
  agreement = null,
  subject = null,
+ meetingsPair = null,
  nextPerson,
  championNotice = null,
  emailPreview = null,
@@ -213,6 +220,7 @@ export function RejectionV2({
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
  const initialNotesRef = React.useRef(initialNotes);
+ const [meetingsChoice, setMeetingsChoice] = useState<PairMeetingsChoice | null>(null);
  useEffect(() => {
  initialNotesRef.current = initialNotes;
  }, [initialNotes]);
@@ -393,7 +401,8 @@ export function RejectionV2({
  ? { maxOnsiteDays: officeDays, saveToProfile: saveWorkMode }
  : null,
  autofillChoice,
- rateChoice
+ rateChoice,
+ meetingsChoice
  );
  return;
  }
@@ -416,7 +425,9 @@ export function RejectionV2({
  cancelAgreementId,
  emailText,
  null,
- autofillChoice
+ autofillChoice,
+ null,
+ meetingsChoice
  );
  };
 
@@ -460,6 +471,13 @@ export function RejectionV2({
  </DialogHeader>
 
  <DialogBody>
+{meetingsPair && open ? (
+ <RejectionMeetingsField
+ jobId={meetingsPair.jobId}
+ candidateId={meetingsPair.candidateId}
+ onChange={setMeetingsChoice}
+ />
+ ) : null}
  <div className="space-y-3">
  {terminalType === "rejected" && (
  <FormField label="Kto kończy?" required>
