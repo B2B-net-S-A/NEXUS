@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Briefcase, FileText, Upload } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
+import { Briefcase, FileText, Target, Upload } from "lucide-react";
 import {
   Dialog,
   DialogBody,
@@ -29,11 +31,20 @@ import {
   radarOfficeDaysError,
 } from "@/components/talent-radar/run-criteria";
 import type { TalentRadarInitialRequest } from "@/components/talent-radar/TalentRadarWorkspace";
+import { apiErrorMessage } from "@/lib/api-error";
+import { dutySearchApi } from "@/lib/duty-search-api";
 
 /** Poniżej tego progu opis roli nie niesie sygnału (lustro radaru). */
 export const REQUEST_TEXT_MIN_LENGTH = 30;
 
 type Source = TalentRadarInitialRequest["source"];
+/**
+ * „Cel projektu” (09.11.2026): „Kto już to robił” — wyszukiwanie po tym, co
+ * osoba ma zrobić, gdy nie znamy technologii krytycznych. Zakładka w tym oknie,
+ * a nie przycisk w nagłówku listy (decyzja Artura: przycisk łamał nagłówek
+ * przy 1280 px). Reguła: `docs/claude/kandydaci-wyszukiwanie/kto-juz-to-robil-wyszukiwanie-po-celu.md`.
+ */
+type Kind = "request" | "goal";
 
 interface SourceTile {
   value: Source;
@@ -72,6 +83,9 @@ export function RequestSearchDialog({
   initialText = "",
 }: RequestSearchDialogProps) {
   const user = useAuthStore((s) => s.user);
+  const router = useRouter();
+  const [kind, setKind] = useState<Kind>("request");
+  const [goalText, setGoalText] = useState("");
   const canUseJobs = hasSectionAccess(user, "pipeline", "read");
   const tiles = canUseJobs ? SOURCE_TILES : SOURCE_TILES.filter((t) => t.value !== "job");
   const baseId = useId();
@@ -98,10 +112,16 @@ export function RequestSearchDialog({
 
   const budgetError = radarBudgetError(budget);
   const officeDaysError = radarOfficeDaysError(officeDays);
-  const needsClient = source !== "job";
+  const needsClient = kind === "goal" || source !== "job";
   const showCity = officeDays.trim() !== "" && Number(officeDays) > 0;
 
   const problem: string | null = (() => {
+    if (kind === "goal") {
+      if (goalText.trim().length < REQUEST_TEXT_MIN_LENGTH) {
+        return `Opisz, co osoba ma zrobić (min. ${REQUEST_TEXT_MIN_LENGTH} znaków).`;
+      }
+      return client ? null : "Wybierz klienta.";
+    }
     if (source === "text" && text.trim().length < REQUEST_TEXT_MIN_LENGTH) {
       return `Wklej treść requestu (min. ${REQUEST_TEXT_MIN_LENGTH} znaków).`;
     }
@@ -112,9 +132,21 @@ export function RequestSearchDialog({
     return null;
   })();
 
+  const startGoal = useMutation({
+    mutationFn: () => dutySearchApi.start({ client_id: client?.id, goal: goalText.trim() }),
+    onSuccess: (started) => {
+      onOpenChange(false);
+      router.push(`/candidates?mode=goal&run=${encodeURIComponent(started.run_id)}`);
+    },
+  });
+
   const submit = () => {
     setTouched(true);
     if (problem) return;
+    if (kind === "goal") {
+      startGoal.mutate();
+      return;
+    }
     onSubmit({
       source,
       text: source === "text" ? text.trim() : undefined,
@@ -135,10 +167,63 @@ export function RequestSearchDialog({
         <DialogHeader>
           <DialogTitle>Szukaj z requestu</DialogTitle>
           <DialogDescription>
-            Przemielimy całą bazę pod request klienta — bez zakładania rekrutacji.
+            {kind === "goal"
+              ? "Opisz, co osoba ma zrobić. AI znajdzie, kto już robił coś takiego, i pokaże cytat z CV."
+              : "Przemielimy całą bazę pod request klienta — bez zakładania rekrutacji."}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="max-h-[65dvh] space-y-5 overflow-y-auto">
+          <div role="tablist" aria-label="Rodzaj wyszukiwania" className="inline-flex rounded-md border border-border p-0.5">
+            {(
+              [
+                { value: "request", label: "Request klienta", icon: FileText },
+                { value: "goal", label: "Cel projektu", icon: Target },
+              ] as const
+            ).map((item) => {
+              const Icon = item.icon;
+              const active = kind === item.value;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`request-kind-${item.value}`}
+                  onClick={() => {
+                    setKind(item.value);
+                    setTouched(false);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4" aria-hidden />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {kind === "goal" && (
+            <div className="space-y-1.5">
+              <Label htmlFor={`${baseId}-goal`}>Co osoba ma zrobić?</Label>
+              <Textarea
+                id={`${baseId}-goal`}
+                value={goalText}
+                onChange={(e) => setGoalText(e.target.value)}
+                rows={6}
+                maxLength={6000}
+                placeholder="Np. „Mamy 40 aplikacji na VMware w serwerowni klienta. Trzeba je przenieść do AWS, przygotować sieć i konta, a na koniec wyłączyć data center”. Obowiązki, cel, skala, branża — zwykłym językiem."
+              />
+              <p className="text-xs text-muted-foreground">
+                AI rozpisze cel na rzeczy do sprawdzenia w CV, przeczyta ok. 100 najbliższych CV i podzieli je na
+                „robił to / bardzo blisko / ma klocki”. Trwa 1,5–2 min, limit 10 wyszukiwań dziennie.
+              </p>
+            </div>
+          )}
+
+          {kind === "request" && (
           <fieldset className="space-y-2">
             <legend className="mb-2 text-sm font-medium text-foreground">
               Skąd bierzemy wymagania?
@@ -173,8 +258,9 @@ export function RequestSearchDialog({
               })}
             </div>
           </fieldset>
+          )}
 
-          {source === "text" && (
+          {kind === "request" && source === "text" && (
             <div className="space-y-1.5">
               <Label htmlFor={`${baseId}-text`}>Treść requestu</Label>
               <Textarea
@@ -187,7 +273,7 @@ export function RequestSearchDialog({
               />
             </div>
           )}
-          {source === "file" && (
+          {kind === "request" && source === "file" && (
             <div className="space-y-1.5">
               <Label htmlFor={`${baseId}-file`}>Plik profilu Championa</Label>
               <input
@@ -202,7 +288,7 @@ export function RequestSearchDialog({
               </p>
             </div>
           )}
-          {source === "job" && (
+          {kind === "request" && source === "job" && (
             <div className="space-y-1.5">
               <JobPicker value={job} onChange={setJob} />
               <p className="text-xs text-muted-foreground">
@@ -219,6 +305,7 @@ export function RequestSearchDialog({
                 </Label>
                 <TalentRadarClientPicker value={client} onChange={setClient} />
               </div>
+              {kind === "request" && (
               <div className="space-y-1.5">
                 <Label htmlFor={`${baseId}-budget`}>Budżet (zł/h)</Label>
                 <Input
@@ -232,6 +319,8 @@ export function RequestSearchDialog({
                 />
                 {budgetError && <p className="text-xs text-destructive">{budgetError}</p>}
               </div>
+              )}
+              {kind === "request" && (
               <div className="space-y-1.5">
                 <Label htmlFor={`${baseId}-days`}>Dni w biurze</Label>
                 <Input
@@ -246,7 +335,8 @@ export function RequestSearchDialog({
                 />
                 {officeDaysError && <p className="text-xs text-destructive">{officeDaysError}</p>}
               </div>
-              {showCity && (
+              )}
+              {kind === "request" && showCity && (
                 <div className="space-y-1.5">
                   <Label htmlFor={`${baseId}-city`}>Miasto biura</Label>
                   <Input
@@ -261,13 +351,20 @@ export function RequestSearchDialog({
             </div>
           )}
 
+          {kind === "request" && (
           <p className="text-xs text-muted-foreground">
             Resztę (umiejętności, staż, miasto) odczytamy z treści. W następnym kroku
             możesz je poprawić.
           </p>
+          )}
           {touched && problem && (
             <p role="alert" className="text-sm text-destructive">
               {problem}
+            </p>
+          )}
+          {startGoal.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {apiErrorMessage(startGoal.error, "Nie udało się uruchomić wyszukiwania.")}
             </p>
           )}
         </DialogBody>
@@ -275,7 +372,9 @@ export function RequestSearchDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Anuluj
           </Button>
-          <Button onClick={submit}>Dalej: sprawdź wymagania</Button>
+          <Button onClick={submit} disabled={startGoal.isPending}>
+            {kind === "goal" ? "Szukaj, kto już to robił" : "Dalej: sprawdź wymagania"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

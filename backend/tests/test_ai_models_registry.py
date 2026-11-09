@@ -176,6 +176,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_call_questions: ("F44", "claude-sonnet-5-5"),
     # F45 — 06.11.2026: nocne propozycje do słownika umiejętności.
     AIFeatureKey.skill_dictionary_proposals: ("F45", "gpt-6.1-sol"),
+    # F46/F47 — 09.11.2026: „Kto już to robił” (rozbicie celu, ocena CV z cytatem).
+    AIFeatureKey.duty_search_plan: ("F46", "claude-sonnet-5"),
+    AIFeatureKey.duty_search_judge: ("F47", "gpt-6-luna"),
 }
 
 

@@ -380,7 +380,9 @@ export type BulkAddSource =
   // 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” (wskazana ręcznie).
   | "also_manual"
   // 22.10.2026: zakładka „Podobni” na profilu kandydata.
-  | "similar_candidates";
+  | "similar_candidates"
+  // 09.11.2026: „Kto już to robił” (wyszukiwanie po celu i obowiązkach).
+  | "duty_search";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];

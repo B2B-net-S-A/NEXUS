@@ -67,6 +67,8 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
 | F44 | cv_call_questions                | claude-sonnet-5-5 (z 5)  |
 | F45 | skill_dictionary_proposals       | gpt-6.1-sol (z Sonnet 5.5)|
+| F46 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
+| F47 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -563,6 +565,24 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "klasyfikacja nazw spoza słownika: próba na 400 rodzinach na Solu podniosła pokrycie "
         "must-have z 46% do 56% i P@5 z 0,103 do 0,117. Dodatek: nic nie wchodzi do słownika "
         "bez zatwierdzenia HoR+, awaria modelu zostawia wczorajsze propozycje.",
+    ),
+    AIFeatureKey.duty_search_plan: ModelChoice(
+        default=SONNET_5,
+        env_vars=("DUTY_SEARCH_PLAN_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F46 (decyzja Artura 09.11.2026, POZA badaniem 16.09). „Kto już to robił”: "
+        "rozbicie celu projektu na zdolności, sygnały pośrednie i przykładowe akapity CV — ten sam "
+        "model co podpowiedź słów do wymagań (F41). Prototyp na stagingu 09.11 (6 celów): 25-32 s "
+        "na rozbicie. Dodatek: bez rozbicia wyszukiwanie idzie samym wektorem celu.",
+    ),
+    AIFeatureKey.duty_search_judge: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("DUTY_SEARCH_JUDGE_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F47 (decyzja Artura 09.11.2026, POZA badaniem 16.09). Ocena CV względem celu "
+        "z dosłownym cytatem — to samo zadanie „znajdź i zacytuj” co „Oceń z AI” (F39). Prototyp "
+        "na stagingu 09.11: ok. 100 CV w 42-50 s przy 8 wątkach, przy celach opisowych top 10 "
+        "trafnych 2->10 (Jira) i 6->10 (AWS). Dodatek: awaria modelu = komunikat, nie pusta lista.",
     ),
 }
 

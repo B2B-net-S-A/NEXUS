@@ -51,6 +51,10 @@ class StagingEgressBlocked(ConnectionError):
 # zrobione na stagingu nie trafiają do wyszukiwania.
 STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
     {
+        # „Kto już to robił”: przebieg startuje wyłącznie człowiek klikający
+        # na stagingu, pusta kolejka nic nie robi; bez pętli nie da się
+        # przeklikać funkcji przed PR-em (wołania AI przepuszcza zapora).
+        "duty_search",
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",

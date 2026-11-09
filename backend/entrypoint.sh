@@ -355,6 +355,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
     # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'duty_search_plan'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'duty_search_judge'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
     # 0651: pytania pod CV w ściądze do rozmowy (Sonnet 5.5).
@@ -1258,6 +1260,16 @@ except Exception as _ai_assessment_err:  # noqa: BLE001
     print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
     _CANDIDATE_AI_ASSESSMENT_DDL = []
 
+# „Kto już to robił” (migracja 0676) — JEDNO źródło z migracją
+# (`app/services/duty_search_schema.py`).
+try:
+    from app.services import duty_search_schema as _duty_search_schema
+
+    _DUTY_SEARCH_DDL = list(_duty_search_schema.TABLE_DDL)
+except Exception as _duty_search_err:  # noqa: BLE001
+    print(f"duty search DDL unavailable: {_duty_search_err!r}")
+    _DUTY_SEARCH_DDL = []
+
 # Powody „co generator zrobił źle” (0636,
 # `app/services/cv_generator_feedback_schema.py`).
 try:
@@ -1513,6 +1525,7 @@ _COLUMN_STATEMENTS = [
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
     *_CANDIDATE_AI_ASSESSMENT_DDL,
+    *_DUTY_SEARCH_DDL,
     *_CV_GENERATOR_FEEDBACK_DDL,
     *_DEPARTURE_CARE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
@@ -8015,6 +8028,15 @@ _DATA_STATEMENTS = [
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
+    # 0676: seed kluczy AI „Kto już to robił” (rozbicie celu i ocena CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'duty_search_plan', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'duty_search_plan')",
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'duty_search_judge', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'duty_search_judge')",
     # 0637: seed klucza AI rozdzielania spraw back office'u.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'case_triage', TRUE, 0, now(), now() "

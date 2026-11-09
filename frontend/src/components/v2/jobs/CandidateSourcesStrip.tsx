@@ -19,6 +19,7 @@
  */
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, FileUp, Plus, Search, UserPlus } from "lucide-react";
 
@@ -70,6 +71,11 @@ export interface CandidateSourcesStripViewProps {
   afterSimilar?: ReactNode;
   /** Kafel po źródłach — „Aplikacje” (wszyscy aplikujący, 07.11.2026). */
   afterTiles?: ReactNode;
+  /**
+   * „Kto już to robił” (09.11.2026) — wyszukiwanie po obowiązkach z Championa
+   * (`docs/claude/kandydaci-wyszukiwanie/kto-juz-to-robil-wyszukiwanie-po-celu.md`).
+   */
+  dutyHref?: string;
 }
 
 /** Pozycja menu otwiera okno — po zamknięciu menu, nie w trakcie (fokus). */
@@ -105,10 +111,12 @@ function SourcesSearchMenu({
   tiles,
   onOpen,
   extras,
+  dutyHref,
 }: {
   tiles: readonly CandidateSourceTile[];
   onOpen: (tab: CandidateSourceTab) => void;
   extras?: ReactNode;
+  dutyHref?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -144,6 +152,24 @@ function SourcesSearchMenu({
               </button>
             </li>
           ))}
+          {dutyHref ? (
+            <li>
+              <Link
+                href={dutyHref}
+                onClick={() => setOpen(false)}
+                data-testid="source-tile-duties"
+                className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+                  Kto już to robił
+                  <span className="rounded bg-primary/10 px-1 text-[10px] font-semibold uppercase text-primary">nowe</span>
+                </span>
+                <span className="block text-xs leading-snug text-muted-foreground">
+                  Po obowiązkach z Championa — AI czyta CV i pokazuje cytat, także gdy CV nazywa to inaczej
+                </span>
+              </Link>
+            </li>
+          ) : null}
         </ul>
         {extras ? <div className="mt-1 flex flex-wrap items-center gap-1.5 border-t border-border px-1 pt-1.5">{extras}</div> : null}
       </PopoverContent>
@@ -159,6 +185,7 @@ export function CandidateSourcesStripView({
   onAddFromCv,
   afterSimilar,
   afterTiles,
+  dutyHref,
 }: CandidateSourcesStripViewProps) {
   const postings = tiles.find((tile) => tile.tab === "postings");
   const searched = tiles.filter((tile) => tile.tab !== "postings");
@@ -183,7 +210,7 @@ export function CandidateSourcesStripView({
         </button>
       ) : null}
       {afterTiles}
-      <SourcesSearchMenu tiles={searched} onOpen={onOpen} extras={afterSimilar} />
+      <SourcesSearchMenu tiles={searched} onOpen={onOpen} extras={afterSimilar} dutyHref={dutyHref} />
       {onAddByName || onAddFromCv ? (
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
@@ -323,6 +350,7 @@ export function CandidateSourcesStrip({
       onOpen={onOpen}
       onAddByName={onAddByName}
       onAddFromCv={onAddFromCv}
+      dutyHref={`/candidates?mode=goal&job=${jobId}`}
       afterTiles={
         <>
           <MyPeopleTile />

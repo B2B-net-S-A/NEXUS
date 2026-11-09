@@ -82,6 +82,7 @@ from app.api import (
     search,
 )
 from app.api import candidate_search, requirement_verifications
+from app.api import duty_search as duty_search_api
 from app.api import activities
 from app.api import integrations_runs as integrations_runs_api
 from app.api import admin_integrations as admin_integrations_api
@@ -848,6 +849,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.auto_full_review import auto_full_review_loop
     from app.tasks.new_column_autofill import new_column_autofill_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
+    from app.tasks.duty_search_worker import duty_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
     from app.tasks.application_screening import application_screening_loop
@@ -903,6 +905,8 @@ async def lifespan(app: FastAPI):
             "cv_source_cleanup": asyncio.create_task(cv_source_cleanup_loop()),
             "cv_version_maps": asyncio.create_task(cv_version_map_loop()),
             "candidate_search": asyncio.create_task(candidate_search_loop()),
+            # 0676: „Kto już to robił” — kolejka wyszukiwań po celu projektu.
+            "duty_search": asyncio.create_task(duty_search_loop()),
             # 7 dni, ale najnowszy przegląd z wynikami na (autor, rekrutacja/
             # request) zostaje (decyzja 10.09). Kill-switch sprawdzany PRZED pętlą.
             "candidate_search_retention": asyncio.create_task(
@@ -2049,6 +2053,7 @@ app.include_router(recommendations.router, prefix="/api", tags=["recommendations
 app.include_router(cv_match_preview.router, prefix="/api", tags=["recommendations"])
 app.include_router(talent_radar.router, prefix="/api", tags=["talent-radar"])
 app.include_router(candidate_search.router, prefix="/api", tags=["candidate-search"])
+app.include_router(duty_search_api.router, prefix="/api", tags=["duty-search"])
 app.include_router(
     requirement_verifications.router, prefix="/api", tags=["candidate-search"]
 )
