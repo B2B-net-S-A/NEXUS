@@ -201,3 +201,29 @@ web — jeden przegląd naraz, ~3 min.
   nowy kanał operacyjny: logika w `scripts/`, w komendzie tylko argumenty.
 - **Surowy SQL (`text()`) musi przejść `PREPARE`** — `= ANY(:ids)`, nie
   rozwijane `IN :ids` (strażnik `test_raw_sql_prepares`).
+
+### Zwykłe słowa w requeście nie są umiejętnościami (09.11.2026)
+
+Pomiar wyszukiwania „po celu projektu”: wklejone obowiązki z tytułem
+„Password-less Access …” dawały must „LeSS” i „Microsoft Access”, a „Oracle
+Stabilization Project …” — „Microsoft Project”. Słownik zna te słowa jako nazwy,
+a must z prozy (gałąź tytułu i `classify_requirements` w `job_skill_requirements`)
+brał je dosłownie i ważyły w warstwie umiejętności.
+
+- Proza requestu i rekrutacji czyta słownik przez `request_alias_pattern()`
+  (`is_request_mention`), ostrzej niż CV i notatki (`is_technology_mention`
+  bez zmian). Zwykłe słowo z `COMMON_WORD_ALIASES` liczy się tylko napisane
+  jak nazwa: access, project, office, teams, word, exchange, outlook nigdy
+  same (liczy się „MS Access”, „Microsoft Project”), LeSS/SAFe/SOLID z co
+  najmniej dwiema wielkimi literami, Swift z wielkiej. Słowo małą literą
+  doklejone myślnikiem („password-less”, „privileged-access”, „non-docker”)
+  to końcówka złożenia; „PL-Linux” zostaje.
+- Ta sama reguła w „W mailu są też” na `/jobs/new` (`mail_technologies`):
+  tekst po `fold` nie ma wielkich liter, więc słowo sprawdza się w oryginale.
+  `keyword_suggest` to inna funkcja (dokładne dopasowanie wpisanego zapytania)
+  i zostaje bez zmian. Bramka krytycznych bez zmian (czyta tylko wybór DL-a).
+- Zmiana unieważnia pamięć wyników (`alias_mention_contract`). Nowe słowo do
+  listy = dowód z danych (ile razy i w jakim kontekście), bo każde wpisane
+  słowo przestaje działać napisane zwyczajnie.
+- Pomiar 20 ostatnich rekrutacji na stagingu: 5 zmienionych, wszystkie
+  usunięte pozycje to zwykłe słowa, nic nie doszło (opis PR-a).

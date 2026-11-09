@@ -44,3 +44,7 @@ słownik w pamięci i tekst maila.
 - Pomiar 07.11 (staging, model z produkcji): propozycja krytycznych = wybór DL
   w 3 z 4 rekrutacji, w których DL je wybrał; „W mailu są też” podsuwa 10
   z technologii, które DL dopisał ręcznie (789180: 4, 789198: 5, 789191: 1).
+- **Zwykłe słowa (09.11.2026):** „W mailu są też” nie podsuwa haseł z
+  `COMMON_WORD_ALIASES` („access”, „LeSS” z „password-less”, „solid
+  understanding”), gdy mail nie pisze ich nigdzie jak nazwy. Reguła i lista:
+  `kandydaci-wyszukiwanie/talent-radar-wklejasz-request-ranking-bazy-bez.md`.

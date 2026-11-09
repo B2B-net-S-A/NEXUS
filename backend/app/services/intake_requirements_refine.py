@@ -96,6 +96,14 @@ def _pattern(needle: str) -> re.Pattern[str]:
     return re.compile(r"(?<![0-9a-z])" + re.escape(needle) + r"(?![0-9a-z])")
 
 
+@lru_cache(maxsize=64)
+def _common_word_re(word: str) -> re.Pattern[str]:
+    """Słowo w oryginalnym tekście, z grupą jak we wzorcu słownika."""
+    return re.compile(
+        r"(?<![A-Za-z0-9_])(" + re.escape(word) + r")(?![A-Za-z0-9_])", re.IGNORECASE
+    )
+
+
 def _positions(word: str, folded: str) -> list[int]:
     needle = _fold(word.rstrip("*"))
     if len(needle) < 2:
@@ -254,7 +262,11 @@ def mail_technologies(request_text: str, rows: list[dict[str, Any]]) -> list[str
     Propozycja do kliknięcia, nic nie dopisuje się samo. 789198: model wziął
     10 wierszy, a DL dopisał ręcznie m.in. Dataverse, Jenkins, Terraform i OAuth."""
     from app.services.keyword_suggest import catalog
-    from app.services.scoring_service import POLISH_WORD_ALIASES
+    from app.services.scoring_service import (
+        COMMON_WORD_ALIASES,
+        POLISH_WORD_ALIASES,
+        is_request_mention,
+    )
     from app.services.skill_normalize import (
         GATE_TECH_CATEGORIES,
         TECH_CATEGORIES,
@@ -263,6 +275,17 @@ def mail_technologies(request_text: str, rows: list[dict[str, Any]]) -> list[str
 
     folded = _fold(request_text)
     covered = _row_covers(rows)
+    # Zwykłe słowo („access”, „less”, „solid”) liczy się tylko, gdy mail pisze
+    # je gdzieś jak nazwę (MS Access, LeSS, SOLID). Tekst po `fold` nie ma
+    # wielkich liter, więc sprawdzamy oryginał (09.11.2026).
+    plain = {
+        word
+        for word in COMMON_WORD_ALIASES
+        if not any(
+            is_request_mention(request_text, m)
+            for m in _common_word_re(word).finditer(request_text)
+        )
+    }
     spans: list[tuple[int, int, int, str]] = []
     for entry in catalog():
         category = entry.category or ""
@@ -278,6 +301,7 @@ def mail_technologies(request_text: str, rows: list[dict[str, Any]]) -> list[str
             and _fold(alias) not in POLISH_WORD_ALIASES
             and alias_counts_in_text(alias, entry.label, category, None)
         ]
+        forms = [form for form in forms if _fold(form) not in plain]
         # CV-owe technologie najpierw, potem narzędzia i standardy, na końcu praktyki.
         rank = (
             0
