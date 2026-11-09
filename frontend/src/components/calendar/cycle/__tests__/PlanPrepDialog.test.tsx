@@ -12,11 +12,22 @@ const mocks = vi.hoisted(() => ({
   followup: [] as unknown[],
   // Pola stanowiska i opisu roli (26.10.2026); pusty obiekt = starszy serwer.
   role: {} as Record<string, unknown>,
+  // Kalendarz prowadzącego (09.11.2026).
+  busy: {
+    isPending: false,
+    isError: false,
+    data: { calendar: "ok", busy: [] },
+  } as { isPending: boolean; isError: boolean; data?: { calendar: string; busy: { start: string; end: string }[] } },
+  busyCalls: [] as { organizerId: number | null; day: string | null }[],
 }));
 
 vi.mock("@/lib/api/prepMeetings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/prepMeetings")>()),
   prepMeetingsApi: { create: mocks.create },
+  usePrepOrganizerBusy: (params: { organizerId: number | null; day: string | null }) => {
+    mocks.busyCalls.push(params);
+    return mocks.busy;
+  },
   usePrepOptions: () => ({
     isPending: false,
     isError: false,
@@ -306,5 +317,66 @@ describe("PlanPrepDialog — stanowisko i opis roli (26.10.2026)", () => {
     fireEvent.click(screen.getByText("Zaplanuj w Teams"));
     await waitFor(() => expect(mocks.create).toHaveBeenCalled());
     expect(mocks.create.mock.calls[0][0]).not.toHaveProperty("role_description");
+  });
+});
+
+describe("PlanPrepDialog — kalendarz prowadzącego przed zapisem", () => {
+  const DAY = "2031-06-11";
+  const setStart = (time: string) =>
+    fireEvent.change(screen.getByLabelText("Termin"), { target: { value: `${DAY}T${time}` } });
+  const span = (from: string, to: string) => ({
+    start: new Date(`${DAY}T${from}:00`).toISOString(),
+    end: new Date(`${DAY}T${to}:00`).toISOString(),
+  });
+  const respond = (calendar: string, busy: { start: string; end: string }[] = []) => {
+    mocks.role = {};
+    mocks.busyCalls.length = 0;
+    mocks.busy = { isPending: false, isError: false, data: { calendar, busy } };
+  };
+  const future = () => ({
+    start: new Date(`${DAY}T15:00:00`).toISOString(),
+    end: new Date(`${DAY}T16:00:00`).toISOString(),
+  });
+
+  it("pokazuje dzień wybranego prowadzącego, gdy termin jest wolny", () => {
+    respond("ok", [span("09:00", "10:00")]);
+    renderDialog(future());
+    setStart("11:00");
+    expect(mocks.busyCalls.at(-1)).toMatchObject({ organizerId: 5, day: DAY });
+    expect(screen.getByRole("img", { name: `Zajętość: Delivery Lead, ${DAY}` })).toBeInTheDocument();
+    expect(screen.queryByTestId("prep-organizer-clash")).toBeNull();
+  });
+
+  it("termin na zajętym ostrzega jeszcze przed zapisem", () => {
+    respond("ok", [span("09:00", "10:00")]);
+    renderDialog(future());
+    setStart("09:30");
+    expect(screen.getByTestId("prep-organizer-clash")).toHaveTextContent("Delivery Lead ma wtedy zajęte");
+  });
+
+  it("zmiana prowadzącego pyta o kalendarz nowej osoby", () => {
+    respond("ok");
+    mocks.role = {
+      team: [
+        { id: 5, name: "Delivery Lead" },
+        { id: 6, name: "Druga Osoba" },
+      ],
+    };
+    renderDialog(future());
+    fireEvent.change(screen.getByLabelText("Prowadzi (organizator spotkania)"), { target: { value: "6" } });
+    // Atrapa `usePrepOptions` składa `data` przy każdym renderze, więc okno
+    // wraca potem do podpowiedzi; liczy się, że zapytało o nową osobę.
+    expect(mocks.busyCalls.some((c) => c.organizerId === 6)).toBe(true);
+  });
+
+  it.each([
+    ["kalendarz nieczytelny", { isPending: false, isError: false, data: { calendar: "unavailable", busy: [] } }],
+    ["błąd zapytania", { isPending: false, isError: true, data: undefined }],
+  ])("%s: mówi, że kalendarza nie widać, zamiast pokazać wolny dzień", (_name, state) => {
+    respond("ok");
+    mocks.busy = state;
+    renderDialog(future());
+    expect(screen.getByTestId("prep-organizer-unknown")).toHaveTextContent("Kalendarza osoby Delivery Lead nie widać");
+    expect(screen.queryByTestId("prep-busy-strip")).toBeNull();
   });
 });

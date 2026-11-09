@@ -27,8 +27,9 @@ właściciel wydarzenia z ``calendar_access``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field, model_validator
@@ -52,6 +53,7 @@ from app.api.recruitment_access import (
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.scheduling import DEFAULT_TZ
 from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -472,6 +474,12 @@ class PrepSuggestionsOut(BaseModel):
     preps: list[PrepSuggestion]
 
 
+class PrepOrganizerBusyOut(BaseModel):
+    # Znaczenia jak w ``PrepSuggestion.calendar``.
+    calendar: Literal["ok", "unavailable", "off"]
+    busy: list[PrepOptionTime] = Field(default_factory=list)
+
+
 def _hhmm(value: Optional[str]) -> Optional[time]:
     if not value:
         return None
@@ -608,6 +616,60 @@ async def prep_suggestions(
             )
         )
     return PrepSuggestionsOut(enabled=enabled, preps=out)
+
+
+@router.get(
+    "/interview-cycle/preps/organizer-busy", response_model=PrepOrganizerBusyOut
+)
+async def prep_organizer_busy(
+    current_user: CalendarWriteAccess,
+    candidate_id: int = Query(...),
+    job_id: int = Query(...),
+    organizer_id: int = Query(...),
+    day: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> PrepOrganizerBusyOut:
+    """Zajętość wybranego prowadzącego w jednym dniu (okno „Zaplanuj Prep”).
+
+    09.11.2026: planujący poznawał zajętość prowadzącego dopiero z odmowy przy
+    zapisie. ``/preps/suggestions`` zna tylko podpowiadanych prowadzących, a tu
+    można wybrać każdego z zespołu. Lista dozwolonych jest ta sama co
+    w ``/preps/options``, żeby trasa nie była podglądem cudzych kalendarzy.
+    Zwraca same przedziały, bez tytułów spotkań.
+    """
+    await ensure_job_membership(db, current_user, job_id)
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji.")
+    suggested = await prep_meetings.suggestion_summary(
+        db, job=job, candidate_id=candidate_id
+    )
+    allowed = {
+        *await list_job_member_ids(db, job_id),
+        *[uid for uid in suggested.values() if uid],
+    }
+    if organizer_id not in allowed:
+        raise HTTPException(
+            status_code=422,
+            detail="Prep prowadzi ktoś z zespołu tej rekrutacji.",
+        )
+    organizer = (await _active_users(db, {organizer_id})).get(organizer_id)
+    if organizer is None:
+        raise HTTPException(status_code=422, detail="Organizator jest nieaktywny.")
+    if not prep_meetings.app_only_ready():
+        return PrepOrganizerBusyOut(calendar="off")
+    zone = ZoneInfo(DEFAULT_TZ)
+    blocks = await prep_availability.busy_blocks(
+        [organizer.email] if organizer.email else [],
+        start=datetime.combine(day, time.min, tzinfo=zone),
+        end=datetime.combine(day + timedelta(days=1), time.min, tzinfo=zone),
+    )
+    known = blocks.get((organizer.email or "").strip().lower())
+    if known is None:
+        return PrepOrganizerBusyOut(calendar="unavailable")
+    return PrepOrganizerBusyOut(
+        calendar="ok", busy=[PrepOptionTime(start=s, end=e) for s, e in known]
+    )
 
 
 @router.post(

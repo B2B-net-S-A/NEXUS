@@ -1908,5 +1908,26 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.in-flight-term"
+  },
+  {
+    "id": "kalendarz-prowadzacego-w-prepie",
+    "pr": 3256,
+    "title": "Kalendarz prowadzącego przy planowaniu prepu",
+    "why": "Planując prep, od razu widzisz zajęte godziny osoby, która go poprowadzi, bez tytułów spotkań. Termin na zajętym ostrzega jeszcze przed zapisem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "talent_community_manager",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Kalendarz → panel osoby → Zaplanuj prep",
+    "href": "/calendar",
+    "section": "pipeline",
+    "dot_anchor": "prep.organizer-calendar"
   }
 ]
