@@ -1121,38 +1121,18 @@ class CalendarEventCancelResponse(BaseModel):
     outlook: str
 
 
-@router.post(
-    "/calendar/events/{event_id}/cancel",
-    response_model=CalendarEventCancelResponse,
-)
-async def cancel_event(
-    event_id: int,
-    current_user: CalendarWriteAccess,
-    db: AsyncSession = Depends(get_db),
-):
-    """Odwołaj wydarzenie: w Outlooku (gdy stamtąd pochodzi) i w NEXUSIE.
+async def cancel_event_effects(
+    db: AsyncSession, event: CalendarEvent, actor: User
+) -> str:
+    """Odwołanie w Outlooku i w NEXUSIE, bez commita. Bramkę stawia wołający.
 
-    Do 09.2026 jedyną akcją było „Usuń", które kasowało sam wiersz: spotkanie
-    w Outlooku zostawało, uczestnicy nie dostawali odwołania, a najbliższa
-    synchronizacja odtwarzała wpis. Odwołanie zostawia wiersz ze statusem
-    `cancelled` — z feedbackiem i historią — i jest idempotentne.
+    Błąd Outlooka (502) leci przed jakąkolwiek zmianą wydarzenia. Zwraca stan
+    Outlooka dla odpowiedzi trasy.
     """
     from app.models.m365 import M365Connection
     from app.services.m365.calendar import cancel_graph_event
     from app.services.m365.graph_client import GraphRequestError
     from app.services.m365.oauth import M365ReauthRequired
-
-    event = await _load_mutable_event(
-        db,
-        event_id,
-        current_user,
-        forbidden_detail="Brak uprawnień do odwołania tego wydarzenia",
-    )
-    if event.status == EventStatus.cancelled:
-        return CalendarEventCancelResponse(
-            event=await _event_response(db, event, current_user),
-            outlook="already_cancelled",
-        )
 
     outlook = "not_applicable"
     from app.services.followup_meetings import app_only_meeting_for_event
@@ -1181,7 +1161,7 @@ async def cancel_event(
         prep_row = await prep_for_event(db, event.id)
         if prep_row is not None:
             await prep_notifications.notify_prep_change(
-                db, actor=current_user, prep=prep_row, event=event, kind="cancelled"
+                db, actor=actor, prep=prep_row, event=event, kind="cancelled"
             )
     elif _is_outlook_event(event):
         conn = (
@@ -1227,7 +1207,7 @@ async def cancel_event(
             candidate_id=event.candidate_id,
             job_id=event.job_id,
             event_id=event.id,
-            actor_user_id=current_user.id,
+            actor_user_id=actor.id,
             occurred_at=datetime.now(timezone.utc),
         )
     event.status = EventStatus.cancelled
@@ -1235,16 +1215,48 @@ async def cancel_event(
         await screening_calls.release_hold(db, event, datetime.now(timezone.utc))
     if _upcoming(event.start_time):
         await notify_client_interview_change(
-            db, actor=current_user, event=event, kind="cancelled"
+            db, actor=actor, event=event, kind="cancelled"
         )
     record_calendar_audit(
         db,
         action=CALENDAR_EVENT_CANCELLED,
-        user_id=current_user.id,
+        user_id=actor.id,
         event_id=event.id,
-        override=user_is_override(current_user),
+        override=user_is_override(actor),
         details={"outlook": outlook},
     )
+    return outlook
+
+
+@router.post(
+    "/calendar/events/{event_id}/cancel",
+    response_model=CalendarEventCancelResponse,
+)
+async def cancel_event(
+    event_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Odwołaj wydarzenie: w Outlooku (gdy stamtąd pochodzi) i w NEXUSIE.
+
+    Do 09.2026 jedyną akcją było „Usuń", które kasowało sam wiersz: spotkanie
+    w Outlooku zostawało, uczestnicy nie dostawali odwołania, a najbliższa
+    synchronizacja odtwarzała wpis. Odwołanie zostawia wiersz ze statusem
+    `cancelled` — z feedbackiem i historią — i jest idempotentne.
+    """
+    event = await _load_mutable_event(
+        db,
+        event_id,
+        current_user,
+        forbidden_detail="Brak uprawnień do odwołania tego wydarzenia",
+    )
+    if event.status == EventStatus.cancelled:
+        return CalendarEventCancelResponse(
+            event=await _event_response(db, event, current_user),
+            outlook="already_cancelled",
+        )
+
+    outlook = await cancel_event_effects(db, event, current_user)
     await db.commit()
     await db.refresh(event)
     return CalendarEventCancelResponse(

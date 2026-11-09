@@ -72,10 +72,12 @@ async def team_view(db: AsyncSession, *, now: datetime) -> dict:
     good = 0
     measured = 0
     for user in users:
-        counts = rb.summarize_day(decisions.get(user.id, []), since)
+        counts = rb.summarize_day(
+            decisions.get(user.id, []), since, rb.close_window_start()
+        )
         cards = [] if user.id in absent else await rb._own_cards(db, user.id, now=now)
         minimum = levels.level_of(stored, user.id, value.minimum)
-        required = min(minimum, counts.done + len(cards) + counts.open_today)
+        required = min(minimum, counts.done + len(cards))
         reached = minimum_reached_at(counts.counted_times, required)
         local = reached.astimezone(zone) if reached is not None else None
         if user.id not in absent and required > 0:

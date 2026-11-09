@@ -40,7 +40,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.calendar import move_client_interview
+from app.api.calendar import cancel_event_effects, move_client_interview
 from app.api.calendar_access import user_can_mutate_event, user_can_view_event
 from app.api.candidate_access import user_has_candidate_read
 from app.api.recruitment_access import (
@@ -82,6 +82,7 @@ from app.services.client_questions_asked import (
     questions_asked_in_job,
 )
 from app.services.interview_cycle import load_overview
+from app.services import pair_meetings as pair_meetings_service
 from app.services.interview_slot_requests import (
     SlotsAlreadyOpen,
     after_slot_request_commit,
@@ -1397,6 +1398,114 @@ async def _ensure_pair_writer(
     )
     if not _is_owner(user, recruiter):
         await ensure_job_membership(db, user, job_id)
+
+
+class PairMeetingOut(BaseModel):
+    event_id: int
+    kind: str
+    title: str
+    start: datetime
+    host: Optional[str] = None
+    cancellable: bool
+
+
+class PairMeetingsClose(BaseModel):
+    cancel_event_ids: list[int] = Field(default_factory=list, max_length=20)
+    ask_event_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+class PairMeetingFailure(BaseModel):
+    event_id: int
+    title: str
+    detail: str
+
+
+class PairMeetingsClosed(BaseModel):
+    cancelled: list[int]
+    asked: list[int]
+    failed: list[PairMeetingFailure]
+
+
+@router.get(
+    "/interview-cycle/pairs/{job_id}/{candidate_id}/meetings",
+    response_model=list[PairMeetingOut],
+)
+async def pair_meetings(
+    job_id: int,
+    candidate_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[PairMeetingOut]:
+    """Spotkania przed nami, które zostałyby po zamknięciu karty."""
+    await _ensure_pair_writer(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
+    rows = await pair_meetings_service.upcoming(
+        db,
+        candidate_id=candidate_id,
+        job_id=job_id,
+        now=datetime.now(timezone.utc),
+    )
+    return [PairMeetingOut(**row.as_dict()) for row in rows]
+
+
+@router.post(
+    "/interview-cycle/pairs/{job_id}/{candidate_id}/meetings/close",
+    response_model=PairMeetingsClosed,
+)
+async def close_pair_meetings(
+    job_id: int,
+    candidate_id: int,
+    body: PairMeetingsClose,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> PairMeetingsClosed:
+    """Odwołanie spotkań zaraz po zamknięciu karty przez tę samą osobę.
+
+    Decyzja Artura z 09.11.2026: kto zamyka kartę, ten odwołuje spotkania,
+    także cudze prepy. Każde spotkanie osobno: odmowa Outlooka przy jednym nie
+    cofa pozostałych ani zamknięcia karty.
+    """
+    await pair_meetings_service.ensure_can_close(
+        db, current_user, candidate_id=candidate_id, job_id=job_id
+    )
+    now = datetime.now(timezone.utc)
+    rows = {
+        row.event_id: row
+        for row in await pair_meetings_service.upcoming(
+            db, candidate_id=candidate_id, job_id=job_id, now=now
+        )
+    }
+    cancelled: list[int] = []
+    failed: list[PairMeetingFailure] = []
+    for event_id in dict.fromkeys(body.cancel_event_ids):
+        row = rows.get(event_id)
+        if row is None or not row.cancellable:
+            continue
+        event = await db.get(CalendarEvent, event_id)
+        try:
+            await cancel_event_effects(db, event, current_user)
+        except HTTPException as exc:
+            failed.append(
+                PairMeetingFailure(
+                    event_id=event_id, title=row.title, detail=str(exc.detail)
+                )
+            )
+            continue
+        await db.commit()
+        cancelled.append(event_id)
+    asked: list[int] = []
+    for event_id in dict.fromkeys(body.ask_event_ids):
+        row = rows.get(event_id)
+        if row is None or row.cancellable:
+            continue
+        event = await db.get(CalendarEvent, event_id)
+        if await pair_meetings_service.ask_to_cancel(
+            db, event, actor=current_user, job_id=job_id, row=row
+        ):
+            asked.append(event_id)
+    await db.commit()
+    return PairMeetingsClosed(cancelled=cancelled, asked=asked, failed=failed)
 
 
 class DebriefFromTextIn(BaseModel):

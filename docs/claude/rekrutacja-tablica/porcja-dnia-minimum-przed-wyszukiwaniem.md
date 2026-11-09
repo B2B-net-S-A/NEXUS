@@ -30,8 +30,8 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
   następnym przebiegu i od razu przestaje być nimi blokowana (`_own_cards`).
   Na karcie Tablicy: „Dla: …” (`cardOwner`, rola `review`).
 - **Decyzja** = wyjście karty od systemu z „Nowych” przez tę osobę
-  (`decided_today`, sekcja „Etap 0”): odrzucenie z powodem od razu, screening po
-  domknięciu, z ekranu porcji albo z Tablicy. Pomijania nie ma.
+  (`decided_today`, sekcja „Etap 0”): odrzucenie z powodem i „Do screeningu” od
+  razu (sekcja „Zaliczenie od razu”), z ekranu porcji albo z Tablicy. Pomijania nie ma.
 - **Minimum** (domyślnie 10 od 08.11.2026, wcześniej 50; `app_settings['review_batch']`,
   ustawia HoR i admin w „Ranking kandydatów → Wagi”). Kto ma w porcji mniej, przegląda całą porcję:
   `required = min(minimum, decyzje dziś + czekające)`.
@@ -47,7 +47,9 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
 - **Kolejność przeglądu narzuca serwer** (`review_queue`): rekrutacje na zmianę
   (P0, potem priorytet), w każdej od najlepszej osoby. Inaczej 50 łatwych
   odrzuceń z jednej rekrutacji odblokowałoby wyszukiwanie.
-- **Ekran `/porcja`** (`ReviewBatchScreen`, `ReviewBatchCard`): jedna osoba,
+- **Ekran `/porcja`** (`ReviewBatchScreen`, `ReviewBatchCard`): po lewej zakładki
+  „Do decyzji”, „Do domknięcia”, „Rekrutacje”, po prawej `CandidatePreviewPane`
+  (CV, Wymagania, Po ludzku), nad kartą zdanie „po ludzku” o rekrutacji. Osoba,
   wynik, „musi mieć” ✓/?, stawka wobec budżetu, „Aktywnie szuka”, uwagi.
   S = „Do screeningu”, O = „Odrzuć”, 1–8 = powód, R = „z profilu”/„po rozmowie”,
   Enter = odrzuć. Ruch przez `usePipelineMoveCore`, odrzucenie bez maila do
@@ -100,7 +102,7 @@ zostaniemy przy 50 do odwołania”.
   transakcja co plan dnia, więc restart nie podnosi drugi raz). Pierwsze przeliczenie
   zakłada stan i nikogo nie podnosi: dni sprzed włączenia porcji się nie liczą.
 - **Blokada zostaje po stronie dostępnych kart:** `required = min(poziom, decyzje +
-  czekające + dzisiejsze otwarte S)`. Kto przy poziomie 50 ma w porcji 30 osób,
+  czekające)`. Kto przy poziomie 50 ma w porcji 30 osób,
   przegląda 30 i wyszukiwanie wraca. Poziom ustawiony przez HoR w „Minimum” jest
   podłogą (`level_of`).
 - **Gdzie widać:** „Zobacz zespół dziś” (kolumna „Poziom”), `/porcja` po minimum.
@@ -118,18 +120,15 @@ Włączenie to decyzja Artura z 08.11 (sekcja „Narastanie minimum”).
   `_NEW_STAGES`). Ruch screening → CV nie jest decyzją: na kopii 155 z 772 par
   liczonych wcześniej to były takie ruchy. Karta, która wróciła do „Nowych”, też
   nie jest decyzją.
-- **„Do screeningu” liczy się po domknięciu** (`counted_at_for`): ruch dalej albo
+- **Domknięcie „Do screeningu”** (`closed_at_for`; do 09.11.2026 warunek zaliczenia
+  do minimum, teraz termin i narastanie): ruch dalej albo
   zapisany screening (`Activity screening_answered`; tabela `screening_notes`
   stoi pusta) w ciągu `SCREENING_CLOSE_DAYS` = 2 dni roboczych. Liczy się w dniu
-  domknięcia, odrzucenie z powodem od razu. Bez tego przesunięcie całej porcji na
-  screening odblokowywało wyszukiwanie po kilku minutach. Dzisiejsze niedomknięte S
-  z własnej porcji (właściciel i `in_batch`, `Decision.own_batch`) zostają w
-  `required`, inaczej porcja wyzerowana klawiszem S dawała `met`, i tej karty nie da
-  się dziś usunąć z rekrutacji (409 `REVIEW_CARD_NEEDS_DECISION`). S na starszej albo
-  cudzej karcie nie cofa zrobionego minimum i taką kartę można zdjąć z rekrutacji.
-- **Pusta kolejka przy `met=false`** (cała porcja na S): `/porcja` pokazuje
-  `open_today_screenings` z linkami do Tablicy zamiast „Porcja przejrzana”. Wyjścia to
-  zapis screeningu, odrzucenie i „Dodaj kolejnych”.
+  domknięcia, odrzucenie z powodem od razu. Niedomkniętego S z własnej porcji
+  (właściciel i `in_batch`, `Decision.own_batch`) nie da się usunąć z rekrutacji
+  (409 `REVIEW_CARD_NEEDS_DECISION`). Starszą albo cudzą kartę można zdjąć.
+- **Zakładka „Do domknięcia”** pokazuje `open_today_screenings` (wszystkie własne S
+  bez wyniku, także starsze) z linkiem do screeningu. Po terminie otwiera się sama.
 - **Kolejność jak na Tablicy** (`review_batch_order.order_cards`, lustro
   `orderNewColumn`): nowi w bazie od progu, bez uwag z miejscem co 5., z ostrzeżeniem,
   z brakiem krytycznej, po sumie wyniku, „znamy” i premii. Tego samego klucza używa
@@ -186,6 +185,25 @@ Testy: `test_review_batch_stage0.py`, `test_review_batch_stage0_unit.py`.
 - **Karty z rekrutacji zamkniętej albo wstrzymanej nie blokują** (`_own_cards`).
 - **Pełne przeszukanie bazy pod rekrutację** (`candidate-search/runs` z `job_id`,
   zakładka „Propozycje z bazy”) zostaje otwarte: to praca z propozycjami systemu.
+
+## Zaliczenie od razu (decyzja Artura 09.11.2026)
+
+Pierwszego dnia porcji rekruterka dała 11 razy „Do screeningu”, nie miała jeszcze
+żadnej rozmowy i licznik stał na 0 z 10, a odrzucenie zaliczało się od razu.
+Artur wybrał „samo kliknięcie”, świadomie odwracając ustalenie P5 z audytu 08.11.
+
+- **Do minimum dnia liczy się sam ruch** (`Decision.moved_at`), także „Do screeningu”.
+- **Termin domknięcia:** własne S bez wyniku starsze niż `SCREENING_CLOSE_DAYS` (2 dni
+  robocze, `close_window_start`) to zaległość: `overdue_screenings`, `met=false`,
+  423 z polem `overdue`, aż ktoś wpisze wynik, przesunie dalej albo odrzuci. Szukamy
+  `DEBT_LOOKBACK_DAYS` wstecz. Karta z rekrutacji zamkniętej albo wstrzymanej zaległością
+  nie jest (`job_in_work`).
+- **Narastanie minimum do 50 liczy tylko domknięte decyzje** (`closed_at`), więc samo
+  klikanie nie podnosi poziomu.
+- **Do pilnowania:** kolumna niedomkniętych w „Zobacz zespół dziś”. Skoro 10 kliknięć
+  odblokowuje wyszukiwanie w kilka minut, hamulcem jest tylko termin.
+
+Testy: `test_review_batch_stage0.py`, `test_review_batch_stage0_unit.py`.
 
 ## Wyjątek od „Kanban bez bramek”
 

@@ -255,6 +255,8 @@ class PairSnapshot:
     late_preps: list[EventRef] = field(default_factory=list)
     # Rozmowy bez Prepu 2 (0482) po id rozmowy — każda runda ma własny wpis.
     prep2_skips: dict[int, SkipRef] = field(default_factory=dict)
+    # Kto zweryfikował kandydata: to on dzwoni po rozmowie u klienta (09.11.2026).
+    verifier_id: Optional[int] = None
 
     def for_preps(self) -> "PairSnapshot":
         """Migawka rundy, do której robi się prepy (najbliższa przyszła
@@ -751,13 +753,21 @@ def compute_todos(
             }
         )
 
-    if iv is not None and pair.debrief is None:
+    # Decyzja Artura z 09.11.2026: dzwoni osoba, która zweryfikowała kandydata,
+    # a bez niej właściciel rozmowy. Rekruter przypisany tylko do rekrutacji
+    # dostawał na ekranie telefon do cudzego kandydata.
+    caller = (pair.verifier_id or iv.owner_id) if iv is not None else None
+    if (
+        iv is not None
+        and pair.debrief is None
+        and (caller is None or is_dl_view or caller in me or iv.owner_id in me)
+    ):
         end = _interview_end(iv)
         deadline = end + timedelta(minutes=call_window_minutes)
         if end <= now <= deadline:
-            add("call_now", due=deadline, event_id=iv.id, owner_id=iv.owner_id)
+            add("call_now", due=deadline, event_id=iv.id, owner_id=caller)
         elif deadline < now:
-            add("debrief_overdue", due=deadline, event_id=iv.id, owner_id=iv.owner_id)
+            add("debrief_overdue", due=deadline, event_id=iv.id, owner_id=caller)
 
     # 04.11.2026: terminy, które minęły, nie dają „Wybierz termin” ani „Potwierdź”
     # (kończyły się 422 i wisiały bez końca, interfejs nie ma anulowania).
@@ -986,6 +996,18 @@ async def _scope_pairs(
     from app.models.recruitment_process import RecruitmentProcess
 
     owners = sorted(operational_owner_ids(user))
+    # Weryfikujący dostaje telefon po rozmowie, więc jej para musi być w „mine”,
+    # także gdy karta poszła już dalej niż „Rozmowa z klientem”.
+    verified_event = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == CalendarEvent.candidate_id,
+            CandidateStage.job_id == CalendarEvent.job_id,
+            CandidateStage.stage == PipelineStage.verified,
+            CandidateStage.moved_by.in_(owners),
+        )
+        .exists()
+    )
 
     def in_scope(job_col, mine):
         """„mine” = własne pary; „jobs” = pary moich rekrutacji ORAZ własne.
@@ -1014,9 +1036,15 @@ async def _scope_pairs(
         CalendarEvent.start_time <= window_end,
         in_scope(
             CalendarEvent.job_id,
-            func.coalesce(
-                CalendarEvent.operational_owner_id, CalendarEvent.created_by
-            ).in_(owners),
+            or_(
+                func.coalesce(
+                    CalendarEvent.operational_owner_id, CalendarEvent.created_by
+                ).in_(owners),
+                and_(
+                    CalendarEvent.event_type == EventType.client_interview,
+                    verified_event,
+                ),
+            ),
         ),
     )
     for cid, jid in (await db.execute(ev_q.limit(MAX_PAIRS))).all():
@@ -1093,7 +1121,6 @@ async def _scope_pairs(
         )
         .exists()
     )
-    my_job = latest.c.job_id.in_(select(Job.id).where(Job.recruiter_id.in_(owners)))
     stage_q = select(latest.c.candidate_id, latest.c.job_id).where(
         latest.c.stage == PipelineStage.client_interview,
         # Runda 8 (R8-N9-5): import Traffita dopisuje etap „Rozmowa z klientem”
@@ -1101,13 +1128,31 @@ async def _scope_pairs(
         # bez „Brak terminów od klienta” dla nich. Pary z wydarzeniami
         # i wnioskami o terminy (źródła wyżej) zostają bez zmian.
         latest.c.job_id.in_(select(Job.id).where(Job.status == JobStatus.published)),
+    )
+    my_work = stage_q.where(
         in_scope(
             latest.c.job_id,
-            or_(latest.c.moved_by.in_(owners), owned_process, verified_by_me, my_job),
-        ),
+            or_(latest.c.moved_by.in_(owners), owned_process, verified_by_me),
+        )
     )
-    for cid, jid in (await db.execute(stage_q.limit(MAX_PAIRS))).all():
+    for cid, jid in (await db.execute(my_work.limit(MAX_PAIRS))).all():
         pairs.add((cid, jid))
+    # Rekruter przypisany do rekrutacji dostaje parę tylko wtedy, gdy jest jej
+    # rekruterem (09.11.2026). Bez tego widział cudzych kandydatów z całej
+    # rekrutacji, a zgłoszenie z 20.10.2026 dotyczyło par bez innego rekrutera.
+    my_job = stage_q.where(
+        latest.c.job_id.in_(select(Job.id).where(Job.recruiter_id.in_(owners)))
+    )
+    only_job = [
+        (cid, jid)
+        for cid, jid in (await db.execute(my_job.limit(MAX_PAIRS))).all()
+        if (cid, jid) not in pairs
+    ]
+    if only_job:
+        from app.services.interview_slots import default_recruiter_ids
+
+        chosen = await default_recruiter_ids(db, only_job)
+        pairs.update(pair for pair in only_job if chosen.get(pair) in set(owners))
     return pairs
 
 
@@ -1486,6 +1531,23 @@ async def load_overview(
 
         for key, rid in (await default_recruiter_ids(db, no_interview)).items():
             snaps[key].recruiter_id = rid
+    with_interview = [key for key, snap in snaps.items() if snap.interview is not None]
+    if with_interview:
+        from app.services.stage_verifier import verifier_ids
+
+        verifiers = await verifier_ids(db, with_interview)
+        active = set(
+            (
+                await db.scalars(
+                    select(User.id).where(
+                        User.id.in_(set(verifiers.values())), User.is_active.is_(True)
+                    )
+                )
+            ).all()
+        )
+        for key, verifier in verifiers.items():
+            if verifier in active:
+                snaps[key].verifier_id = verifier
     is_dl_view = scope != "mine"
     from app.services.workforce_availability import operational_owner_ids
 

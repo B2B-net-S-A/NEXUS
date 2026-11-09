@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -17,22 +18,31 @@ import {
   type ReviewBatchStatus,
 } from "@/lib/api/reviewBatch";
 
+import { usePlainBrief } from "@/lib/api/plainKnowledge";
+import { cn } from "@/lib/utils";
+
 import { ReviewBatchCard } from "./ReviewBatchCard";
+
+// pdf.js i docx-preview nie mogą wejść do chunku ekranu; ten sam podgląd co w screeningu.
+const CandidatePreviewPane = dynamic(
+  () =>
+    import("@/components/v2/screening-form/CandidatePreviewPane").then(
+      (m) => m.CandidatePreviewPane,
+    ),
+  { ssr: false, loading: () => <p className="p-4 text-xs text-muted-foreground">Ładowanie CV…</p> },
+);
 
 /**
  * Ekran „Porcja dnia” (makiety M5, M7, M9; decyzje Artura z 07.11.2026).
  * Rano system daje każdej rekrutacji z rekruterem do 20 osób i dzieli je
  * w zespole. Dopóki rekruter nie podejmie minimum decyzji, ręczne
  * wyszukiwanie zwraca 423. Kolejność narzuca serwer: rekrutacje na zmianę,
- * w każdej od najlepszej osoby.
+ * w każdej od najlepszej osoby. Od 09.11.2026 CV i wymagania stoją obok
+ * decyzji, a zakładka „Do domknięcia” zbiera screeningi bez wyniku.
  */
 
-function progressLabel(status: ReviewBatchStatus): string {
-  return `${Math.min(status.done_today, status.required)} / ${status.required}`;
-}
-
-function screeningsLabel(count: number): string {
-  return `${count} ${pluralPl(count, "screening", "screeningi", "screeningów")} do domknięcia`;
+function screeningsCount(count: number): string {
+  return `${count} ${pluralPl(count, "screeningu", "screeningów", "screeningów")}`;
 }
 
 function AddMore({ jobId, title, count }: { jobId: number; title: string; count: number }) {
@@ -66,12 +76,17 @@ function AddMore({ jobId, title, count }: { jobId: number; title: string; count:
   );
 }
 
-/**
- * Pusta kolejka przy niezrobionym minimum: cała porcja poszła na „Do screeningu”,
- * więc wyszukiwanie dalej zwraca 423. Lista przychodzi w statusie, a jego awaria
- * ma własny komunikat, więc nie może tu wyglądać jak brak osób.
- */
+/** Pusta kolejka: porcja przejrzana albo czekają screeningi po terminie. */
 function QueueEmpty({ data }: { data: ReviewBatchStatus }) {
+  const overdue = data.overdue_screenings ?? 0;
+  if (overdue > 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
+        Nie masz nowych osób. Wyszukiwanie wróci po domknięciu {screeningsCount(overdue)} po
+        terminie: zakładka „Do domknięcia”.
+      </p>
+    );
+  }
   if (data.met) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
@@ -79,38 +94,11 @@ function QueueEmpty({ data }: { data: ReviewBatchStatus }) {
       </p>
     );
   }
-  const addMore = data.team_jobs.some((job) => job.pending === 0)
-    ? ` Możesz też użyć „Dodaj ${data.more_cards ?? 20} kolejnych od Nexusa” w sekcji „Przejrzane do końca”.`
-    : "";
-  const items = data.open_today_screenings ?? [];
-  if (items.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
-        Nie masz teraz osób do przejrzenia, a minimum nie jest jeszcze zrobione.{addMore}
-      </p>
-    );
-  }
   return (
-    <section className="space-y-2" data-testid="review-batch-open-today">
-      <h2 className="text-sm font-semibold">Do domknięcia na Tablicy</h2>
-      <p className="text-sm text-muted-foreground">
-        Do minimum brakuje {data.remaining} decyzji. Screening liczy się po zapisaniu
-        wyniku, odrzucenie z powodem od razu.{addMore}
-      </p>
-      <ul className="divide-y divide-border rounded-lg border border-border">
-        {items.map((item) => (
-          <li key={`${item.job_id}-${item.candidate_id}`} className="flex items-center gap-3 px-3 py-2 text-sm">
-            <Link
-              href={`/jobs/${item.job_id}?candidate=${item.candidate_id}`}
-              className="min-w-0 flex-1 truncate hover:underline"
-            >
-              {item.name}
-            </Link>
-            <span className="min-w-0 truncate text-muted-foreground">{item.job_title}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <p className="text-sm text-muted-foreground" data-testid="review-batch-empty">
+      Nie masz teraz osób do przejrzenia, a minimum nie jest jeszcze zrobione. Kolejne osoby
+      dobierzesz w zakładce „Rekrutacje”.
+    </p>
   );
 }
 
@@ -147,82 +135,205 @@ export function ReviewBatchScreen() {
       </div>
     );
   }
+  return <BatchWorkspace data={data} queue={queue} onDecided={onDecided} />;
+}
+
+type BatchTab = "decide" | "close" | "jobs";
+
+function progressHint(data: ReviewBatchStatus, open: number): string {
+  const overdue = data.overdue_screenings ?? 0;
+  if (overdue > 0 && data.remaining === 0) {
+    return `Wyszukiwanie wróci po domknięciu ${screeningsCount(overdue)} po terminie. Wpisz wynik albo odrzuć z powodem.`;
+  }
+  if (!data.met) {
+    return `Zdecyduj o ${data.required} osobach, zanim zaczniesz szukać ręcznie. „Do screeningu” i odrzucenie liczą się od razu. Osobę spoza bazy dodasz zawsze.`;
+  }
+  return open > 0
+    ? `Minimum zrobione. ${open} ${pluralPl(open, "osoba czeka", "osoby czekają", "osób czeka")} na wynik screeningu: bez wyniku w 2 dni robocze wyszukiwanie znów się zablokuje.`
+    : "Minimum zrobione. Wyszukiwanie ręczne działa do następnego dnia roboczego, 7:00.";
+}
+
+/** Skąd licznik ma taką wartość i co odblokuje wyszukiwanie. */
+function BatchProgress({ data }: { data: ReviewBatchStatus }) {
+  const open = data.open_screenings ?? 0;
+  const done = Math.min(data.done_today, data.required);
+  const cells = Array.from({ length: data.required }, (_, index) => index < done);
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-card px-3 py-2">
+      <h1 className="text-base font-semibold">Porcja dnia</h1>
+      <div className="flex items-center gap-2">
+        <div className="flex gap-0.5" aria-hidden="true">
+          {cells.map((cell, index) => (
+            <span
+              key={index}
+              className={cn("h-2.5 w-4 rounded-sm", cell ? "bg-primary" : "bg-muted")}
+            />
+          ))}
+        </div>
+        <span className="text-sm font-semibold tabular-nums" data-testid="review-batch-progress">
+          {done} z {data.required}
+        </span>
+      </div>
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">{progressHint(data, open)}</p>
+      <span
+        className={cn(
+          "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+          data.met ? "bg-success/15 text-success" : "bg-warning/15 text-warning",
+        )}
+      >
+        {data.met ? "Wyszukiwanie działa" : "Wyszukiwanie zablokowane"}
+      </span>
+    </div>
+  );
+}
+
+function JobContext({ jobId, title }: { jobId: number; title: string }) {
+  const brief = usePlainBrief(jobId);
+  const oneLiner = brief.data?.one_liner ?? null;
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2" data-testid="review-job-context">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rekrutacja</span>
+        <Link href={`/jobs/${jobId}`} target="_blank" className="text-xs text-primary hover:underline">Otwórz</Link>
+      </div>
+      <div className="text-sm font-semibold leading-snug">{title}</div>
+      {oneLiner ? <p className="mt-1 text-xs leading-snug text-muted-foreground">{oneLiner}</p> : null}
+    </div>
+  );
+}
+
+function BatchWorkspace({
+  data,
+  queue,
+  onDecided,
+}: {
+  data: ReviewBatchStatus;
+  queue: ReturnType<typeof useReviewBatchQueue>;
+  onDecided: () => void;
+}) {
+  const [tab, setTab] = useState<BatchTab>(
+    (data.overdue_screenings ?? 0) > 0 ? "close" : "decide",
+  );
+  const [picked, setPicked] = useState(0);
   const next = queue.data?.items?.[0] ?? null;
+  const open = data.open_today_screenings ?? [];
+  const selected = open[Math.min(picked, Math.max(open.length - 1, 0))] ?? null;
+  const preview =
+    tab === "decide" && next
+      ? { candidateId: next.candidate_id, jobId: next.job_id, stageId: next.stage_id, budget: next.budget_hourly }
+      : tab === "close" && selected
+        ? { candidateId: selected.candidate_id, jobId: selected.job_id, stageId: null, budget: null }
+        : null;
+  const tabs: { value: BatchTab; label: string; count: number }[] = [
+    { value: "decide", label: "Do decyzji", count: data.pending },
+    { value: "close", label: "Do domknięcia", count: open.length },
+    { value: "jobs", label: "Rekrutacje", count: data.team_jobs.length },
+  ];
 
   return (
-    <div className="mx-auto max-w-3xl p-4 sm:p-6 space-y-4">
-      <PageHeader
-        title="Porcja dnia od Nexusa"
-        density="compact"
-        description={
-          data.met
-            ? `Minimum zrobione. Wyszukiwanie ręczne odblokowane do następnego dnia roboczego, 7:00.${
-                data.minimum < 50 && data.done_today >= data.minimum
-                  ? ` Następnego dnia roboczego minimum to ${Math.min(data.minimum + 10, 50)}.`
-                  : ""
-              }`
-            : `Zdecyduj o ${data.required} osobach, zanim zaczniesz szukać ręcznie. Osobę spoza bazy dodasz zawsze.`
-        }
-        actions={
-          <span
-            className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary tabular-nums"
-            data-testid="review-batch-progress"
-          >
-            {progressLabel(data)}
-            {data.required < data.minimum ? "" : " minimum"} · {data.pending} w porcji
-            {data.open_screenings ? ` · ${screeningsLabel(data.open_screenings)}` : ""}
-          </span>
-        }
-      />
-
-      <p className="text-xs text-muted-foreground">Ta sama kolejność co w kolumnie „Nowi” na Tablicy.</p>
-
-      {next ? (
-        <ReviewBatchCard key={next.process_id} item={next} onDecided={onDecided} />
-      ) : queue.isError ? (
-        <div className="text-sm text-destructive" role="alert">
-          {apiErrorMessage(queue.error, "Nie udało się wczytać osób z porcji.")}
-        </div>
-      ) : !queue.isSuccess ? (
-        <div className="text-sm text-muted-foreground">Ładowanie osób…</div>
-      ) : (
-        <QueueEmpty data={data} />
-      )}
-
-      {data.jobs.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold">Czeka na Ciebie</h2>
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {data.jobs.map((job) => (
-              <li key={job.job_id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <Link href={`/jobs/${job.job_id}`} className="min-w-0 flex-1 truncate hover:underline">
-                  {job.p0 ? <span className="mr-1 font-semibold text-destructive">P0</span> : null}
-                  {job.title}
-                </Link>
-                <span className="tabular-nums text-muted-foreground">{job.pending}</span>
-              </li>
+    <div className="flex min-h-0 flex-col gap-2 p-3 lg:h-[calc(100dvh-4rem)]">
+      <BatchProgress data={data} />
+      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+        <div className="flex w-full shrink-0 flex-col gap-2 overflow-y-auto pr-1 lg:w-[390px]">
+          <div className="flex gap-1 rounded-lg bg-muted/50 p-1" role="tablist">
+            {tabs.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.value}
+                onClick={() => setTab(item.value)}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1 text-xs font-medium",
+                  tab === item.value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                {item.label} <span className="tabular-nums opacity-70">{item.count}</span>
+              </button>
             ))}
-          </ul>
-        </section>
-      ) : null}
+          </div>
 
-      {data.team_jobs.some((j) => j.pending === 0) ? (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold">Przejrzane do końca</h2>
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {data.team_jobs
-              .filter((j) => j.pending === 0)
-              .map((job) => (
-                <li key={job.job_id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+          {tab === "decide" ? (
+            next ? (
+              <>
+                <JobContext jobId={next.job_id} title={next.job_title} />
+                <ReviewBatchCard key={next.process_id} item={next} onDecided={onDecided} hideJob />
+              </>
+            ) : queue.isError ? (
+              <div className="text-sm text-destructive" role="alert">
+                {apiErrorMessage(queue.error, "Nie udało się wczytać osób z porcji.")}
+              </div>
+            ) : !queue.isSuccess ? (
+              <div className="text-sm text-muted-foreground">Ładowanie osób…</div>
+            ) : (
+              <QueueEmpty data={data} />
+            )
+          ) : null}
+
+          {tab === "close" ? (
+            <ul className="divide-y divide-border rounded-lg border border-border bg-card" data-testid="review-batch-open-today">
+              {open.map((item, index) => {
+                const active = selected === item;
+                return (
+                  <li key={`${item.job_id}-${item.candidate_id}`} className={cn("px-3 py-2", active && "bg-primary/5")}>
+                    <button type="button" onClick={() => setPicked(index)} className="block w-full text-left">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        <span className="min-w-0 truncate">{item.name}</span>
+                        {item.overdue ? (
+                          <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                            po terminie
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">{item.job_title}</span>
+                    </button>
+                    {active ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Button size="sm" asChild>
+                          <Link href={`/jobs/${item.job_id}?candidate=${item.candidate_id}`}>Otwórz screening</Link>
+                        </Button>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+
+          {tab === "jobs" ? (
+            <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+              {data.team_jobs.map((job) => (
+                <li key={job.job_id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
                   <Link href={`/jobs/${job.job_id}`} className="min-w-0 flex-1 truncate hover:underline">
+                    {job.p0 ? <span className="mr-1 font-semibold text-destructive">P0</span> : null}
                     {job.title}
                   </Link>
-                  <AddMore jobId={job.job_id} title={job.title} count={status.data?.more_cards ?? 20} />
+                  {job.pending > 0 ? (
+                    <span className="tabular-nums text-muted-foreground">{job.pending}</span>
+                  ) : (
+                    <AddMore jobId={job.job_id} title={job.title} count={data.more_cards ?? 20} />
+                  )}
                 </li>
               ))}
-          </ul>
-        </section>
-      ) : null}
+            </ul>
+          ) : null}
+        </div>
+
+        <div className="hidden min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card p-2 lg:flex">
+          {preview ? (
+            <CandidatePreviewPane
+              key={`${preview.jobId}-${preview.candidateId}`}
+              candidateId={preview.candidateId}
+              jobId={preview.jobId}
+              stageId={preview.stageId}
+              budgetHourly={preview.budget}
+              className="min-h-0 flex-1"
+            />
+          ) : (
+            <p className="m-auto text-sm text-muted-foreground">Wybierz osobę, żeby zobaczyć jej CV i wymagania.</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

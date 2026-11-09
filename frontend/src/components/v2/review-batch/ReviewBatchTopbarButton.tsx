@@ -13,7 +13,11 @@ import { useReviewBatchStatus } from "@/lib/api/reviewBatch";
 export function ReviewBatchTopbarButton() {
   const { data } = useReviewBatchStatus();
   if (!data?.enabled || !data.applies || data.met) return null;
-  const label = `Porcja od Nexusa: ${Math.min(data.done_today, data.required)} z ${data.required} decyzji`;
+  const overdue = data.overdue_screenings ?? 0;
+  const label =
+    overdue > 0 && data.remaining === 0
+      ? `Screeningi po terminie: ${overdue}`
+      : `Porcja od Nexusa: ${Math.min(data.done_today, data.required)} z ${data.required} decyzji`;
   return (
     <Link
       href="/porcja"
