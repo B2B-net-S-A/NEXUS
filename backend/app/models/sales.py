@@ -227,6 +227,13 @@ class SalesContact(Base, TimestampMixin):
     #: Ostatni zapis importu z Atlasa; ``updated_at > synced_at`` = zmienione w NEXUSIE.
     synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: 0665: osoba nie życzy sobie kontaktu (wynik rozmowy „Nie kontaktować”).
+    do_not_contact_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    do_not_contact_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
 
 
 class SalesOpportunity(Base, TimestampMixin):
@@ -380,6 +387,7 @@ class SalesActivity(Base, TimestampMixin):
         CheckConstraint(
             schema.CK_ACTIVITY_DIRECTION, name="ck_sales_activities_direction"
         ),
+        CheckConstraint(schema.CK_ACTIVITY_OUTCOME, name="ck_sales_activities_outcome"),
         Index(
             "ux_sales_activities_external_ref",
             "external_ref",
@@ -438,6 +446,8 @@ class SalesActivity(Base, TimestampMixin):
     web_link: Mapped[Optional[str]] = mapped_column(String(2000))
     direction: Mapped[Optional[str]] = mapped_column(String(3))
     duration_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+    #: 0665: wynik rozmowy zapisanej z karty szansy (``CALL_OUTCOMES``).
+    outcome: Mapped[Optional[str]] = mapped_column(String(20))
 
 
 class SalesMeetingTranscript(Base, TimestampMixin):

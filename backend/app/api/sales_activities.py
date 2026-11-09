@@ -14,6 +14,7 @@ w Atlasie: synchronizacja przypina je do firmy, nie do szansy.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
@@ -36,6 +37,8 @@ from app.models.sales import (
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
+from app.services.sales.next_step import not_system_entry
+from app.services.sales.timeline import Scope, merge_duplicates
 
 router = APIRouter()
 
@@ -45,6 +48,8 @@ EDIT_AUTHOR_ONLY_DETAIL = "Aktywność poprawia jej autor albo administrator."
 #: Maile i spotkania z Outlooka (Microsoft Graph) — ``external_source`` z Atlasa.
 COMPANY_MAIL_SOURCE_PATTERN = "msgraph-%"
 MEETING_PREVIEW_CHARS = 300
+#: Oś firmy i szansy: największa firma na kopii z 08.11 ma mniej wpisów.
+TIMELINE_LIMIT = 500
 OUTLOOK_EVENT_SOURCE = "msgraph-event"
 TRANSCRIPT_NOT_FOUND_DETAIL = "To spotkanie nie ma transkryptu."
 
@@ -109,6 +114,8 @@ class ActivityOut(BaseModel):
     web_link: Optional[str] = None
     direction: Optional[str] = None
     duration_minutes: Optional[int] = None
+    #: Wynik rozmowy zapisanej z karty szansy (``CALL_OUTCOMES``).
+    outcome: Optional[str] = None
     #: Mail albo spotkanie firmy dołożone do osi szansy (``with_company_mail``).
     from_company: bool = False
 
@@ -116,6 +123,24 @@ class ActivityOut(BaseModel):
 class TaskList(BaseModel):
     items: list[ActivityOut]
     total: int
+
+
+class TimelineItem(ActivityOut):
+    scope: Scope
+    #: Skąd wpis: po sklejeniu duplikatów może być kilka źródeł.
+    sources: list[str]
+
+
+class TimelineCounts(BaseModel):
+    all: int
+    opportunity: int
+    company: int
+    other_opportunity: int
+
+
+class TimelineOut(BaseModel):
+    items: list[TimelineItem]
+    counts: TimelineCounts
 
 
 class MeetingOut(ActivityOut):
@@ -203,6 +228,7 @@ def _out(row, now: datetime, *, from_company: bool = False) -> ActivityOut:
         web_link=activity.web_link,
         direction=activity.direction,
         duration_minutes=activity.duration_minutes,
+        outcome=activity.outcome,
         from_company=from_company,
     )
 
@@ -337,6 +363,65 @@ async def list_activities(
         )
         for row in rows
     ]
+
+
+@router.get("/timeline", response_model=TimelineOut)
+async def opportunity_timeline(
+    opportunity_id: int,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=TIMELINE_LIMIT, ge=1, le=TIMELINE_LIMIT),
+) -> TimelineOut:
+    """Oś szansy i jej firmy: skąd jest wpis, jedno zdarzenie w jednym wierszu."""
+
+    company_id = await db.scalar(
+        select(SalesOpportunity.company_id).where(SalesOpportunity.id == opportunity_id)
+    )
+    if company_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Nie ma takiej szansy.")
+    rows = (
+        await db.execute(
+            _base_query()
+            .where(
+                or_(
+                    SalesActivity.opportunity_id == opportunity_id,
+                    SalesActivity.company_id == company_id,
+                ),
+                not_system_entry(),
+            )
+            .order_by(
+                func.coalesce(
+                    SalesActivity.occurred_at, SalesActivity.created_at
+                ).desc(),
+                SalesActivity.id.desc(),
+            )
+            .limit(limit)
+        )
+    ).all()
+    now = datetime.now(timezone.utc)
+    by_id = {row.SalesActivity.id: row for row in rows}
+    items = [
+        TimelineItem(
+            **{
+                **_out(by_id[entry.activity.id], now).model_dump(),
+                "body": entry.body,
+                "web_link": entry.web_link,
+            },
+            scope=entry.scope(opportunity_id),
+            sources=entry.sources,
+        )
+        for entry in merge_duplicates([row.SalesActivity for row in rows])
+    ]
+    tally = Counter(item.scope for item in items)
+    return TimelineOut(
+        items=items,
+        counts=TimelineCounts(
+            all=len(items),
+            opportunity=tally["opportunity"],
+            company=tally["company"],
+            other_opportunity=tally["other_opportunity"],
+        ),
+    )
 
 
 @router.get("/tasks", response_model=TaskList)

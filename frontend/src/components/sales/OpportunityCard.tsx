@@ -20,15 +20,20 @@ import {
   useOpportunity,
   usePipelines,
   useSalesCompany,
+  useSalesContacts,
+  type CallOutcome,
   type OpportunityDetail,
+  type DecisionMapEntry,
+  type SalesContact,
   type Stage,
 } from "@/lib/api/sales";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 
-import { ActivityTimeline } from "./ActivityTimeline";
+import { CallLogPanel } from "./CallLogPanel";
+import { ChangeOwnerDialog, NextStepDialog, type CallPerson } from "./CallLogDialogs";
 import { FilesSection } from "./FilesSection";
 import { formatDealAmount } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
@@ -37,6 +42,10 @@ import { OpportunityContacts } from "./OpportunityContacts";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { OpportunityHistory } from "./OpportunityHistory";
 import { SalesShell } from "./SalesShell";
+import { OpportunityStepBar } from "./OpportunityStepBar";
+import { OpportunityTimelineCard } from "./OpportunityTimeline";
+import { PurchasingProcessPanel } from "./PurchasingProcessPanel";
+import { callQueue } from "./step";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 import { SalesMotionPanel } from "./SalesMotionPanel";
 
@@ -81,11 +90,56 @@ function Details({ opportunity }: { opportunity: OpportunityDetail }) {
   );
 }
 
+function personLabel(name: string, role?: string | null): string {
+  const label = role ? `${name}, ${role}` : name;
+  return label.length > 44 ? `${label.slice(0, 43).trimEnd()}…` : label;
+}
+
+/** Kogo można wybrać w zapisie rozmowy: mapa, kontakty szansy, reszta firmy, bez sprzeciwów. */
+function callPeople(
+  data: OpportunityDetail | undefined,
+  map: readonly DecisionMapEntry[],
+  company: readonly SalesContact[],
+): CallPerson[] {
+  if (!data) return [];
+  const taken = new Set(map.map((entry) => entry.nexus_contact_id).filter(Boolean));
+  const fromMap: CallPerson[] = map
+    .filter((entry) => !entry.do_not_contact)
+    .map((entry) => ({
+      value: `map:${entry.key}`,
+      label: personLabel(entry.name, entry.role_in_company),
+      name: entry.name,
+      person_key: entry.key,
+    }));
+  const contacts = [...data.contacts, ...company].filter((contact) => {
+    if (taken.has(contact.id) || contact.do_not_contact_at) return false;
+    taken.add(contact.id);
+    return true;
+  });
+  return [
+    ...fromMap,
+    ...contacts.map((contact) => ({
+      value: `contact:${contact.id}`,
+      label: personLabel(contact.full_name, contact.title),
+      name: contact.full_name,
+      contact_id: contact.id,
+    })),
+  ];
+}
+
 interface OpportunityCardProps {
   opportunityId: number;
 }
 
-/** Karta szansy (M1): etap, wygrana/przegrana, „Kogo znamy”, kontakty, historia. */
+function cardDescription({ stage, value, currency }: OpportunityDetail): string {
+  return Number(value ?? 0) > 0 ? `${stage.name} · ${formatDealAmount(value, currency)}` : stage.name;
+}
+
+function cardTitle({ company, title }: OpportunityDetail): string {
+  return title.toLowerCase().startsWith(company.name.toLowerCase()) ? title : `${company.name} · ${title}`;
+}
+
+/** Karta szansy w kolejności pracy: krok i zapis rozmowy na górze, oś firmy i szansy, potem reszta. */
 export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const opportunity = useOpportunity(opportunityId);
   const pipelines = usePipelines();
@@ -99,14 +153,26 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const [editing, setEditing] = useState(false);
   const [linking, setLinking] = useState(false);
   const [reason, setReason] = useState("");
+  const [logPerson, setLogPerson] = useState<string | null>(null);
+  const [afterCall, setAfterCall] = useState<{ outcome: Exclude<CallOutcome, "do_not_contact">; person: string | null } | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [changingOwner, setChangingOwner] = useState(false);
+  const [reached, setReached] = useState<readonly string[]>([]);
   const data = opportunity.data;
   const company = useSalesCompany(data?.company.id ?? 0);
+  const logOpen = logPerson !== null;
+  const companyContacts = useSalesContacts(data?.company.id ?? null, "", logOpen);
   const needsClientLink = data?.status === "won" && company.isSuccess && !company.data.client;
   const stages: Stage[] =
     pipelines.data?.find((pipeline) => pipeline.id === data?.pipeline_id)?.stages ?? [];
   const wonStage = stages.find((stage) => stage.outcome === "won");
   const lostStage = stages.find((stage) => stage.outcome === "lost" && stage.key === "lost") ??
     stages.find((stage) => stage.outcome === "lost");
+
+  const map = data?.atlas_motion?.it_factory?.decision_map ?? [];
+  const queue = callQueue(map).filter((entry) => !reached.includes(entry.key));
+  const people = callPeople(data, map, companyContacts.data?.items ?? []);
+  const openLog = (value?: string) => setLogPerson(value ?? (queue[0] ? `map:${queue[0].key}` : (people[0]?.value ?? "")));
 
   const state = resolveViewState({
     isLoading: opportunity.isLoading,
@@ -141,11 +207,20 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
     });
   };
 
+  const canChangeOwner = data?.owner == null || data.owner.id === user?.id || hasRole(user, "admin");
+  const contactsPanel = data ? (
+    <OpportunityContacts
+      opportunity={data}
+      canEdit={canEdit}
+      onCall={canEdit ? (contact) => openLog(`contact:${contact.id}`) : undefined}
+    />
+  ) : null;
+
   return (
     <SalesShell
       hideNav
-      title={data ? `${data.company.name} · ${data.title}` : "Szansa"}
-      description={data ? `${data.stage.name} · ${formatDealAmount(data.value, data.currency)}` : undefined}
+      title={data ? cardTitle(data) : "Szansa"}
+      description={data ? cardDescription(data) : undefined}
       actions={
         data && canEdit ? (
           <div className="flex flex-wrap gap-2">
@@ -192,18 +267,59 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
             )}
           </div>
         )}
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        {/* Zapis rozmowy mieszka w przyklejonym obszarze, żeby był pod ręką także po przewinięciu. */}
+        {data.status === "open" && (
+          <div className="sticky top-0 z-20 space-y-2 bg-background">
+            <OpportunityStepBar
+              opportunity={data}
+              queue={queue}
+              canEdit={canEdit}
+              canChangeOwner={canChangeOwner}
+              onPlan={() => setPlanning(true)}
+              onLog={() => openLog()}
+              onOwner={() => setChangingOwner(true)}
+            />
+            {logOpen && (
+              <CallLogPanel
+                key={logPerson}
+                opportunityId={data.id}
+                people={people}
+                initialPerson={logPerson}
+                onSaved={(outcome, person) => {
+                  setLogPerson(null);
+                  if (outcome === "do_not_contact") {
+                    showSuccess("Zapisano sprzeciw przy tej osobie.");
+                    return;
+                  }
+                  if (outcome !== "no_answer" && person?.person_key) {
+                    const key = person.person_key;
+                    setReached((current) => [...current, key]);
+                  }
+                  setAfterCall({ outcome, person: person?.name ?? null });
+                }}
+                onClose={() => setLogPerson(null)}
+              />
+            )}
+          </div>
+        )}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_23.75rem]">
+          <div className="min-w-0">
+            <OpportunityTimelineCard opportunityId={data.id} canEdit={canEdit} />
+          </div>
           <div className="min-w-0 space-y-4">
             <SalesMotionPanel
               opportunityId={data.id}
               motion={data.atlas_motion}
               mapEnabled={data.decision_map_enabled}
               canEdit={canEdit}
+              queue={queue}
+              onCall={canEdit ? (entry) => openLog(`map:${entry.key}`) : undefined}
             />
-            <WhoWeKnowPanel companyId={data.company.id} companyName={data.company.name} />
-            <ActivityTimeline opportunityId={data.id} withCompanyMail />
-          </div>
-          <div className="space-y-4">
+            {map.length === 0 && contactsPanel}
+            {/* Lista bywa długa (setki osób), a etap, pliki i historia są pod nią. */}
+            <div className="max-h-[26rem] overflow-y-auto rounded-lg">
+              <WhoWeKnowPanel companyId={data.company.id} companyName={data.company.name} />
+            </div>
             <Card className="space-y-3 p-4">
               <div className="space-y-1">
                 <Label htmlFor="sales-opp-stage">Etap</Label>
@@ -242,7 +358,8 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
                 </Link>
               </p>
             </Card>
-            <OpportunityContacts opportunity={data} canEdit={canEdit} />
+            {map.length > 0 && contactsPanel}
+            <PurchasingProcessPanel motion={data.atlas_motion} />
             <FilesSection owner={{ opportunity_id: data.id }} />
             {data.description && (
               <Card className="p-4">
@@ -262,6 +379,21 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
           company={data.company}
           current={company.data.client}
         />
+      )}
+      {afterCall && data && (
+        <NextStepDialog
+          key={`${afterCall.outcome}-${afterCall.person}`}
+          opportunityId={data.id}
+          outcome={afterCall.outcome}
+          personName={afterCall.person}
+          onClose={() => setAfterCall(null)}
+        />
+      )}
+      {planning && data && (
+        <NextStepDialog opportunityId={data.id} outcome={null} personName={null} onClose={() => setPlanning(false)} />
+      )}
+      {changingOwner && data && (
+        <ChangeOwnerDialog opportunityId={data.id} owner={data.owner} onClose={() => setChangingOwner(false)} />
       )}
       {editing && data && (
         <OpportunityFormDialog open={editing} onOpenChange={setEditing} opportunity={data} />

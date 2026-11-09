@@ -1327,6 +1327,10 @@ class Settings(BaseSettings):
     SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
     # Automat archiwizacji szans w trybie cienia: raz dziennie jedna linia logu,
     # nic nie zapisuje (``app/tasks/sales_archive_shadow.py``).
+    # Od tego dnia szansa bez kroku świeci się na czerwono, jeśli założono ją albo
+    # ruszono po tej dacie (lejek Sprzedaż). Starsze zostają szare, bo 97% lejka
+    # nie ma kroku i czerwień na wszystkim nic by nie znaczyła.
+    SALES_STEP_RULES_SINCE: date = date(2026, 11, 10)
     SALES_ARCHIVE_SHADOW_ENABLED: bool = True
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,

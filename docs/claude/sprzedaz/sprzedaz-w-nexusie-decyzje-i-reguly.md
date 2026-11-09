@@ -263,3 +263,35 @@ poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo
 kanał przetargów, eksport CSV (najpierw limit i dziennik odczytów), „Kogo
 możemy dać od ręki” (Talent Radar na rolach), metryka „nowi klienci na
 spotkaniach” z KPI Atlasa.
+
+## Krok, zapis rozmowy i przeciąganie (decyzje Artura 09.11.2026)
+
+- **Jedna definicja kroku: `services/sales/next_step.py`**, obok `touch.py`. Krok to
+  najbliższe otwarte zadanie albo telefon z terminem od początku dzisiejszego dnia firmy
+  (przy szansie albo przy firmie bez szansy) lub przyszłe, nieodwołane spotkanie firmy.
+  „Po terminie” jest osobno i liczy tylko zaległości tej szansy. Telefon bez terminu
+  (import historii) krokiem nie jest.
+- **Ostatni kontakt** bierze chwilę dotyku z `touch.py`, bez zadań i bez wpisów
+  systemowych Pipedrive („This deal was converted to a lead”, wizyty na stronie).
+- **Czerwień tylko po wdrożeniu:** `SALES_STEP_RULES_SINCE`, lejek Sprzedaż, szansa
+  założona albo ruszona (własna aktywność, zdarzenie z historii) od tej daty. Mail do
+  samej firmy szansy nie budzi. Reszta zostaje szara, bo bez tego czerwone byłoby
+  prawie wszystko.
+- **Zapis rozmowy:** `POST /api/sales/opportunities/{id}/calls`, wynik w
+  `sales_activities.outcome`, żeby dało się go policzyć. Krok zakłada osobno okno
+  „Co dalej i kiedy” zwykłym zadaniem, a zadanie dostaje opiekun szansy.
+- **„Nie kontaktować”:** `sales_contacts.do_not_contact_at`; osoba z mapy bez kontaktu
+  ma flagę na wpisie mapy, bo mapa nie zakłada kontaktów. Numer i mail przestają być
+  klikalne, kolejny wpis rozmowy dostaje 409. Cofnięcia sprzeciwu na ekranie nie ma.
+- **Oś firmy i szansy:** `GET /api/sales/activities/timeline`. Jedno zdarzenie jeden
+  wiersz (`services/sales/timeline.py`): spotkania firmy do 15 minut od siebie,
+  podsumowanie Fireflies do 3 godzin po spotkaniu, ta sama treść tego samego dnia
+  (cała, ucięta kopia też się liczy), a dwa maile tylko o tym samym temacie, bo wiele
+  zaczyna się tym samym nagłówkiem adresatów.
+  Otwartego zadania się nie skleja, bo zniknęłoby „Zrobione”.
+- **Przeciąganie** tylko między etapami bez wyniku, przez `/move`; wygraną i przegraną
+  zamyka karta. „Cofnij” tylko, gdy oba etapy, źródłowy i docelowy, leżą przed
+  linią `qualifies`, bo powrót na tę linię ustawiłby `qualified_at` i zawyżył KPI.
+- **Zmiana opiekuna** wybiera z `GET /api/sales/opportunities/owner-candidates`: aktywne
+  konta z „Sprzedaż: edycja”. `GET /api/users` odpada, bo handlowcy bywają „Pracownikami”,
+  a ta rola dostaje na niej 403; filtr lejka zna tylko osoby z otwartą szansą.

@@ -49,6 +49,8 @@ const OPPORTUNITY = {
   archived_at: null,
   company: { id: 3, name: "Firma" },
   stage: SALES_STAGES[0],
+  contacts: [],
+  atlas_motion: null,
   roles: [],
   value: null,
   currency: "PLN",
@@ -61,6 +63,7 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useMoveOpportunity: () => ({ mutate: move, isPending: false }),
   useArchiveOpportunity: () => ({ mutate: vi.fn(), isPending: false }),
   useSalesCompany: () => ({ data: undefined, isSuccess: false }),
+  useSalesContacts: () => ({ data: undefined, isSuccess: false }),
   useOpportunities: () => ({
     data: { items: [], total: 0 },
     isLoading: false,
@@ -128,7 +131,7 @@ vi.mock("../SalesShell", () => ({
     </div>
   ),
 }));
-vi.mock("../ActivityTimeline", () => ({ ActivityTimeline: () => null }));
+vi.mock("../OpportunityTimeline", () => ({ OpportunityTimelineCard: () => null }));
 vi.mock("../FilesSection", () => ({ FilesSection: () => null }));
 vi.mock("../LinkClientDialog", () => ({ LinkClientDialog: () => null }));
 vi.mock("../OpportunityContacts", () => ({ OpportunityContacts: () => null }));

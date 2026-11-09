@@ -106,6 +106,8 @@ class ContactOut(BaseModel):
     archived_at: Optional[datetime]
     created_at: datetime
     companies: list[ContactCompanyOut] = Field(default_factory=list)
+    #: Osoba nie życzy sobie kontaktu (zapis rozmowy „Nie kontaktować”).
+    do_not_contact_at: Optional[datetime] = None
 
 
 class ContactList(BaseModel):

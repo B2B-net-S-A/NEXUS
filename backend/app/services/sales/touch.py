@@ -50,7 +50,7 @@ def not_cancelled() -> list[ColumnElement[bool]]:
     return [subject.not_ilike(f"{prefix}%") for prefix in CANCELLED_PREFIXES]
 
 
-def _touched_at() -> ColumnElement[Any]:
+def touched_at() -> ColumnElement[Any]:
     """Chwila dotyku aktywności; NULL, gdy aktywność dotykiem nie jest."""
 
     activity = SalesActivity
@@ -77,7 +77,7 @@ def _touched_at() -> ColumnElement[Any]:
 
 
 def _latest_touch(scope: ColumnElement[bool], now: datetime) -> Any:
-    touched = _touched_at()
+    touched = touched_at()
     return (
         select(func.max(touched))
         .where(scope, touched < now)

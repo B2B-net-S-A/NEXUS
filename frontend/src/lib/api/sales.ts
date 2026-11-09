@@ -183,6 +183,18 @@ export interface OpportunityRole {
   skills?: string[];
 }
 
+export interface OpportunityStep {
+  kind: "task" | "call" | "meeting";
+  at: string;
+  subject: string | null;
+}
+
+export interface OpportunityLastContact {
+  kind: "call" | "email" | "meeting" | "note";
+  direction: "in" | "out" | null;
+  at: string;
+}
+
 export interface Opportunity {
   id: number;
   title: string;
@@ -214,6 +226,14 @@ export interface Opportunity {
   last_activity_at: string | null;
   /** Ostatni dotyk (definicja w backendzie: services/sales/touch.py). */
   last_touch_at: string;
+  /** Krok, zaległość i ostatni kontakt: definicja w services/sales/next_step.py. */
+  next_step: OpportunityStep | null;
+  overdue_step: OpportunityStep | null;
+  last_contact: OpportunityLastContact | null;
+  /** Klient napisał ostatni, a kroku nie ma. */
+  waiting_for_reply: boolean;
+  /** Brak kroku na szansie założonej albo ruszonej po wdrożeniu zasad. */
+  step_alarm: boolean;
   keep_open_until: string | null;
   archived_at: string | null;
   created_at: string;
@@ -227,6 +247,8 @@ export interface OpportunityContact {
   email: string | null;
   phone: string | null;
   role: ContactRole | null;
+  /** Osoba nie życzy sobie kontaktu: numer i mail nie są klikalne. */
+  do_not_contact_at: string | null;
 }
 
 export type DecisionOurRole =
@@ -253,6 +275,8 @@ export interface DecisionMapEntry {
   nexus_contact_id?: number | null;
   /** Pola, których wpis nie ma, pokazane z kontaktu tej osoby. */
   from_contact?: DecisionFromContactField[];
+  /** Sprzeciw wobec kontaktu: z kontaktu albo z samego wpisu na mapie. */
+  do_not_contact?: boolean;
 }
 
 export type DecisionFromContactField = "email" | "phone" | "linkedin_url" | "notes";
@@ -375,6 +399,8 @@ export interface ContactCompanyLink {
 }
 
 export interface SalesContact {
+  /** Osoba nie życzy sobie kontaktu: numer i mail nie są klikalne. */
+  do_not_contact_at?: string | null;
   id: number;
   company_id: number | null;
   company_name: string | null;
@@ -432,8 +458,40 @@ export interface Activity {
   web_link: string | null;
   direction: "in" | "out" | null;
   duration_minutes: number | null;
+  /** Wynik rozmowy zapisanej z karty szansy. */
+  outcome?: CallOutcome | null;
   /** Mail albo spotkanie firmy dołożone do historii szansy. */
   from_company: boolean;
+}
+
+export type CallOutcome =
+  | "connected"
+  | "no_answer"
+  | "call_back"
+  | "wants_offer"
+  | "not_now"
+  | "do_not_contact";
+
+export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
+  connected: "Dodzwoniłem",
+  no_answer: "Brak odpowiedzi",
+  call_back: "Oddzwonić",
+  wants_offer: "Prosi o ofertę",
+  not_now: "Nie teraz",
+  do_not_contact: "Nie kontaktować",
+};
+
+export type TimelineScope = "opportunity" | "company" | "other_opportunity";
+
+export interface TimelineItem extends Activity {
+  scope: TimelineScope;
+  /** Skąd wpis: po sklejeniu duplikatów może być kilka źródeł. */
+  sources: string[];
+}
+
+export interface OpportunityTimeline {
+  items: TimelineItem[];
+  counts: Record<TimelineScope | "all", number>;
 }
 
 export interface ActivityInput {
@@ -491,10 +549,12 @@ export const salesKeys = {
   contacts: (companyId: number | null, q: string, extra?: Record<string, unknown>) =>
     ["sales", "contacts", companyId, q, extra ?? {}] as const,
   activities: (scope: ActivityScope) => ["sales", "activities", scope] as const,
+  timeline: (opportunityId: number) => ["sales", "activities", "timeline", opportunityId] as const,
   tasks: (filters: TaskFilters) => ["sales", "tasks", filters] as const,
   summary: (pipelineId: number | null, period: SummaryPeriod) =>
     ["sales", "summary", pipelineId, period] as const,
   ownerLabels: ["sales", "owner-labels"] as const,
+  ownerCandidates: ["sales", "owner-candidates"] as const,
   companyDuplicates: ["sales", "company-duplicates"] as const,
 };
 
@@ -696,6 +756,32 @@ export function useMoveOpportunity() {
   });
 }
 
+export interface CallLogInput {
+  opportunity_id: number;
+  outcome: CallOutcome;
+  contact_id?: number;
+  person_key?: string;
+  note?: string;
+}
+
+/** Wynik rozmowy z karty szansy; „Nie kontaktować” zapisuje też sprzeciw. */
+export function useLogCall() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ opportunity_id, ...payload }: CallLogInput) =>
+      (
+        await api.post<OpportunityDetail>(
+          `/api/sales/opportunities/${opportunity_id}/calls`,
+          payload,
+        )
+      ).data,
+    // Bez czekania na przeładowanie karty: okno „Co dalej” ma się otworzyć od razu.
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+}
+
 export function useArchiveOpportunity(id: number) {
   const invalidate = useInvalidateSales();
   return useMutation({
@@ -863,6 +949,20 @@ export function useSalesActivities(scope: ActivityScope, enabled = true) {
     queryFn: async () =>
       (await api.get<Activity[]>("/api/sales/activities", { params: clean({ ...scope }) })).data,
     enabled: enabled && Boolean(scope.company_id || scope.opportunity_id),
+  });
+}
+
+/** Wspólna oś szansy i firmy: etykieta skąd wpis, duplikaty sklejone po stronie serwera. */
+export function useOpportunityTimeline(opportunityId: number, enabled = true) {
+  return useQuery({
+    queryKey: salesKeys.timeline(opportunityId),
+    queryFn: async () =>
+      (
+        await api.get<OpportunityTimeline>("/api/sales/activities/timeline", {
+          params: { opportunity_id: opportunityId },
+        })
+      ).data,
+    enabled: enabled && Number.isFinite(opportunityId) && opportunityId > 0,
   });
 }
 
@@ -1231,6 +1331,17 @@ export function useSalesSummary(pipelineId: number | null, period: SummaryPeriod
 export interface OwnerLabel {
   label: string;
   companies: number;
+}
+
+const OWNER_CANDIDATES_STALE_MS = 5 * 60_000;
+
+/** Komu można przekazać szansę: aktywne konta z „Sprzedaż: edycja”. */
+export function useOwnerCandidates() {
+  return useQuery({
+    queryKey: salesKeys.ownerCandidates,
+    queryFn: async () => (await api.get<Ref[]>("/api/sales/opportunities/owner-candidates")).data,
+    staleTime: OWNER_CANDIDATES_STALE_MS,
+  });
 }
 
 export function useOwnerLabels(enabled = true) {
