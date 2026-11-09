@@ -375,3 +375,17 @@ osoby, paska postępu i blokady za brak skrzynki celowo nie ma.
   Pusty skrót nie wychodzi.
 - **Rama:** tytuł i zakładki w jednym rzędzie od 1280 px, opis i akcje w niskiej linii
   pod spodem. Karta firmy i szansy bez zakładek zostają przy `PageHeader`.
+
+## Porządek po imporcie: lista Zadania (09.11.2026)
+
+- **Lista „Zadania” nie pokazuje sierot** (`services/sales/task_scope.py`): otwartej
+  pozycji przy szansie wygranej, przegranej albo w archiwum. Na kopii z 08.11 to było
+  134 ze 174. Pozycja przy firmie bez szansy zostaje. Zakładka „Zrobione” bez zmian.
+- **`scripts/sales_cleanup.py`** zamyka pozycje z importu przypisane do wskazanego konta
+  i bez przypisania, a szanse po opiekunie, który odszedł, przekazuje przez
+  `services/sales/history.py`. Domyślnie na sucho (`READ ONLY`). `--apply` wymaga licznika
+  z biegu na sucho (`--expect-close`) i tylko po „tak” Artura. Nie rusza etapu, statusu
+  ani archiwum szans.
+- **Zamknięcie datą `created_at`, nie „teraz”**, bo zrobione zadanie jest dotykiem szansy
+  i firmy (`touch.py`), a sprzątanie nie jest pracą handlowca. Na kopii z 08.11 data „teraz”
+  przesunęłaby dotyk 2 otwartych szans. Gdy dotyk miałby się przesunąć, `--apply` odmawia.
