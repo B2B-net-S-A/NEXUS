@@ -482,6 +482,9 @@ async def test_detected_identity_passes_outside_phone_to_the_decision(
     clear = AsyncMock(return_value={"cleared_fields": 0, "tombstoned_languages": 0})
     monkeypatch.setattr(quarantine, "get_identity_review", no_review)
     monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", clear)
+    monkeypatch.setattr(
+        quarantine, "_phone_on_other_profile", AsyncMock(return_value=False)
+    )
     candidate = SimpleNamespace(
         id=11,
         name="Jan",
@@ -504,6 +507,100 @@ async def test_detected_identity_passes_outside_phone_to_the_decision(
     assert review.decision == "inconclusive"
     assert review.evidence["profile_phone_other_form"] is True
     clear.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_phone_of_several_profiles_proves_nothing_about_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pomiar 09.11.2026: numer z 5 profili trzymał cudze CV poza kwarantanną."""
+
+    async def no_review(*_args, **_kwargs):
+        return None
+
+    clear = AsyncMock(return_value={"cleared_fields": 0, "tombstoned_languages": 0})
+    monkeypatch.setattr(quarantine, "get_identity_review", no_review)
+    monkeypatch.setattr(quarantine, "_clear_quarantined_cv_projection", clear)
+    monkeypatch.setattr(quarantine, "_purge_candidate_summary_cache", AsyncMock())
+    monkeypatch.setattr(quarantine.candidate_audit, "record_candidate_audit", _noop)
+    monkeypatch.setattr(
+        quarantine, "_phone_on_other_profile", AsyncMock(return_value=True)
+    )
+    candidate = SimpleNamespace(
+        id=11,
+        name="Jan",
+        lastname="Testowy",
+        phone="600100200",
+        cv_extracted_data=None,
+    )
+
+    review = await quarantine.record_detected_identity(
+        _NewReviewDB(candidate),  # type: ignore[arg-type]
+        candidate=candidate,  # type: ignore[arg-type]
+        source_kind="document",
+        source_id=22,
+        observed_first_name="Piotr",
+        observed_last_name="Malinowski",
+        observed_phone="+48 600 100 200",
+        provenance="cv_parser:document",
+    )
+
+    assert review.decision == "confirmed_mismatch"
+    assert review.evidence["profile_phone_other_form"] is False
+
+
+_NAMES_DIFFER = {
+    "candidate_identity_complete": True,
+    "observed_identity_complete": True,
+    "first_name_match": False,
+    "last_name_match": False,
+    "shared_name_word": False,
+    "similar_name_part": False,
+    "similar_name_sound": False,
+    "same_letters_other_split": False,
+    "name_order_swapped": False,
+    "observed_name_from_header": False,
+    "profile_phone_other_form": False,
+}
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {**_NAMES_DIFFER, quarantine.MISMATCH_HELD_EVIDENCE: True},
+        {**_NAMES_DIFFER, "profile_phone_other_form": True},
+    ],
+)
+def test_file_naming_someone_else_raises_a_doubt(evidence: dict) -> None:
+    assert quarantine.review_names_another_person("inconclusive", evidence)
+
+
+@pytest.mark.parametrize(
+    "difference",
+    [
+        {"first_name_match": True},
+        {"last_name_match": True},
+        {"shared_name_word": True},
+        {"similar_name_part": True},
+        {"similar_name_sound": True},
+        {"same_letters_other_split": True},
+        {"name_order_swapped": True},
+        {"observed_name_from_header": True},
+        {"observed_identity_complete": False},
+        {"candidate_identity_complete": False},
+    ],
+)
+def test_same_name_in_another_form_or_a_weak_read_raises_no_doubt(
+    difference: dict,
+) -> None:
+    assert not quarantine.review_names_another_person(
+        "inconclusive", {**_NAMES_DIFFER, **difference}
+    )
+
+
+@pytest.mark.parametrize("decision", ["confirmed_match", "confirmed_mismatch"])
+def test_a_decided_file_is_not_a_doubt(decision: str) -> None:
+    assert not quarantine.review_names_another_person(decision, _NAMES_DIFFER)
 
 
 @pytest.mark.asyncio

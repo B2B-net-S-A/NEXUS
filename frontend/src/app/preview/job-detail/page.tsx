@@ -129,7 +129,7 @@ import {
   peopleInProgress,
   type AddedByFilter,
 } from "@/lib/board-added-by";
-import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import { AddedByCompactFilter, AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { useAuthStore } from "@/store/auth";
 
 import {
@@ -2063,13 +2063,11 @@ function JobDetailHarness() {
                         collapsed={headerCollapsed}
                         onToggleCollapsed={() => setHeaderCollapsed((value) => !value)}
                         collapsedExtras={
-                          addedBy.kind !== "all" ? (
-                            <AddedByFilterButton
-                              options={addedByMenuOptions}
-                              value={addedBy}
-                              onChange={setAddedBy}
-                            />
-                          ) : undefined
+                          <AddedByCompactFilter
+                            options={addedByMenuOptions}
+                            value={addedBy}
+                            onChange={setAddedBy}
+                          />
                         }
                         presence={
                           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">

@@ -1,5 +1,5 @@
 # Karta na Tablicy w trzech wierszach, jedna liczba dni i nagłówek w jednym rzędzie (08.11.2026)
-<!-- indeks: audyt 2, tezy U1 U3 U5, `cardPrimaryBadges`, „+N”, `waiting_workdays`, „Szukaj ▾”, „Kto dodał” w kolumnie „Nowi”, baner CPro zwinięty -->
+<!-- indeks: audyt 2, tezy U1 U3 U5, `cardPrimaryBadges`, „+N”, `waiting_workdays`, „Szukaj ▾”, „Kto dodał” na pasku rekrutacji, baner CPro zwinięty -->
 
 Decyzja Artura z 08.11.2026 („2 plakietki + „+N””), audyt 2:
 https://claude.ai/artifact/VXHZFJQZQbNRXAVGzNfdCu. Przy 1280 × 720 rekruter
@@ -60,9 +60,14 @@ ma, zostaje ikona screeningu, resztę daje klik w kafelek i panel osoby.
   Szukaj w bazie, „Otwarte podobne”, bliźniak) bez liczb, z opisem pod pozycją.
   Liczby 2080 i 6823 nie były do decyzji. Menu to popover, nie `DropdownMenu`,
   bo w środku kafle mają własne okienka.
-- „Kto dodał” to ikona w nagłówku kolumny „Nowi” (`AddedByColumnFilter`).
-  Włączony filtr dodatkowo stoi w linii źródeł z „✕”, a w zwiniętym nagłówku
-  w linii tytułu. Działa na wszystkie kolumny, jak dotąd.
+- „Kto dodał” stoi na stałe po prawej w linii źródeł (`AddedByFilterButton`,
+  wysokość kafli obok), a włączony pokazuje wybór, „N z M” i „✕”. Decyzja Artura
+  z makiet z 09.11.2026 (wariant A): filtr działa na wszystkie kolumny, a ikona
+  w nagłówku kolumny „Nowi” (08.11.2026) wyglądała jak filtr samych „Nowych”.
+  Nie wracaj z nim do kolumny.
+- W zwiniętym nagłówku filtr to sama ikona obok „⋯” (`AddedByCompactFilter`),
+  podświetlona przy włączonym filtrze, a „Profil Championa” skraca się do ikony.
+  Pełny przycisk w linii tytułu przy 1280 px wchodził pod „Tablicę” i na status.
 - `JobCproBanner` zwinięty do jednej linii z „Pokaż”; po otwarciu i 7 dni po
   najnowszym zdarzeniu CPro znika (pamięć w przeglądarce per rekrutacja), nowe
   odrzucenie pokazuje go znowu. „Zmień powód” i „Otwórz ponownie” są też w „⋯”.

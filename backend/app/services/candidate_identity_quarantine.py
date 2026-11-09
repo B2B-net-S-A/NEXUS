@@ -19,13 +19,13 @@ import hmac
 import logging
 import re
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any, Literal
 
-from sqlalchemy import exists, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -886,6 +886,113 @@ def _fingerprint(first: str, last: str) -> str:
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
+async def stage_copy_identity_doubt(db: AsyncSession, copy: Any) -> bool:
+    """Czy kopia CV etapu to plik z profilu, który może należeć do innej osoby.
+
+    Kopia nie ma id dokumentu, a pliki z Traffita zwykle nie mają sumy, więc
+    łączymy po sumie albo po nazwie pliku. Fałszywe ostrzeżenie jest tańsze
+    niż ocena osoby po cudzym CV.
+    """
+
+    keys = []
+    if copy.original_cv_sha256:
+        keys.append(CandidateDocument.content_sha256 == copy.original_cv_sha256)
+    if copy.original_cv_filename:
+        keys.append(CandidateDocument.filename == copy.original_cv_filename)
+    if not keys:
+        return False
+    documents = (
+        await db.scalars(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == copy.candidate_id,
+                CandidateDocument.source_deleted_at.is_(None),
+                or_(*keys),
+            )
+        )
+    ).all()
+    return bool(await document_identity_doubt_ids(db, documents))
+
+
+async def _phone_on_other_profile(db: AsyncSession, candidate: Any) -> bool:
+    """Czy ten numer ma też inny profil.
+
+    Numer wspólny dla kilku osób (firma pośrednicząca, pomyłka przy imporcie) nie
+    mówi, czyje jest CV. Pomiar 09.11.2026: numer z 5 profili trzymał cudzy plik
+    poza kwarantanną. Skan tabeli jest rzadki, bo bramka woła to tylko po
+    `profile_phone_in_other_form`.
+    """
+
+    key = _normalize_phone(candidate.phone)
+    if not key:
+        return False
+    digits = func.regexp_replace(Candidate.phone, "[^0-9]", "", "g")
+    other = await db.scalar(
+        select(Candidate.id)
+        .where(Candidate.id != candidate.id, func.right(digits, len(key)) == key)
+        .limit(1)
+    )
+    return other is not None
+
+
+_SAME_NAME_SIGNALS = (
+    "first_name_match",
+    "last_name_match",
+    "shared_name_word",
+    "similar_name_part",
+    "similar_name_sound",
+    "same_letters_other_split",
+    "name_order_swapped",
+)
+
+
+def review_names_another_person(decision: str, evidence: dict[str, Any]) -> bool:
+    """Plik bez wyroku, w którym model przeczytał inną osobę niż w profilu.
+
+    Nazwa z nagłówka CV bywa stanowiskiem, a inna forma tej samej nazwy to ta sama
+    osoba, więc żadne z nich nie daje ostrzeżenia. Sam telefon zgodny z profilem
+    nie zdejmuje ostrzeżenia: zdejmuje tylko kwarantannę automatyczną.
+    """
+
+    return (
+        decision == "inconclusive"
+        and evidence.get("candidate_identity_complete") is True
+        and evidence.get("observed_identity_complete") is True
+        and not evidence.get("observed_name_from_header")
+        and not any(evidence.get(signal) for signal in _SAME_NAME_SIGNALS)
+    )
+
+
+async def document_identity_doubt_ids(
+    db: AsyncSession, documents: Sequence[CandidateDocument]
+) -> set[int]:
+    """Id plików z listy, które mogą należeć do innej osoby."""
+
+    if not documents:
+        return set()
+    rows = await db.execute(
+        select(
+            CandidateSourceIdentityReview.source_id,
+            CandidateSourceIdentityReview.decision,
+            CandidateSourceIdentityReview.evidence,
+        ).where(
+            CandidateSourceIdentityReview.candidate_id.in_(
+                {document.candidate_id for document in documents}
+            ),
+            CandidateSourceIdentityReview.source_kind == "document",
+            CandidateSourceIdentityReview.source_id.in_(
+                [document.id for document in documents]
+            ),
+            CandidateSourceIdentityReview.decision == "inconclusive",
+            CandidateSourceIdentityReview.override_at.is_(None),
+        )
+    )
+    return {
+        row.source_id
+        for row in rows
+        if review_names_another_person(row.decision, row.evidence or {})
+    }
+
+
 def evaluate_identity_match(
     *,
     candidate_first_name: Any,
@@ -1141,14 +1248,15 @@ async def record_detected_identity(
     )
     if locked_candidate is None:
         raise IdentityQuarantineConflict("Candidate no longer exists")
+    phone_other_form = profile_phone_in_other_form(
+        locked_candidate, observed_phone
+    ) and not await _phone_on_other_profile(db, locked_candidate)
     result = evaluate_identity_match(
         candidate_first_name=locked_candidate.name,
         candidate_last_name=locked_candidate.lastname,
         observed_first_name=observed_first_name,
         observed_last_name=observed_last_name,
-        profile_phone_other_form=profile_phone_in_other_form(
-            locked_candidate, observed_phone
-        ),
+        profile_phone_other_form=phone_other_form,
     )
     mismatch = result.decision == "confirmed_mismatch"
     result = IdentityMatchResult(

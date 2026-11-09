@@ -300,6 +300,20 @@ export const prepSuggestionsQueryKey = (p: PrepSuggestionsParams) =>
     p.prep2Minutes ?? null,
   ] as const;
 
+export interface PrepOrganizerBusy {
+  /** ok — z kalendarza; unavailable — NEXUS go nie widzi; off — prepy w Teams wyłączone. */
+  calendar: "ok" | "unavailable" | "off";
+  busy: { start: string; end: string }[];
+}
+
+export interface PrepOrganizerBusyParams {
+  candidateId: number | null;
+  jobId: number | null;
+  organizerId: number | null;
+  /** Dzień `RRRR-MM-DD` w strefie firmy. */
+  day: string | null;
+}
+
 export const prepOptionsQueryKey = (candidateId: number, jobId: number) =>
   ["interview-cycle", "preps", "options", candidateId, jobId] as const;
 export const prepQueryKey = (eventId: number) =>
@@ -336,6 +350,12 @@ export const prepMeetingsApi = {
           ...(p.prep1Minutes ? { prep1_minutes: p.prep1Minutes } : {}),
           ...(p.prep2Minutes ? { prep2_minutes: p.prep2Minutes } : {}),
         },
+      })
+      .then((r) => r.data),
+  organizerBusy: (candidateId: number, jobId: number, organizerId: number, day: string) =>
+    api
+      .get<PrepOrganizerBusy>("/api/interview-cycle/preps/organizer-busy", {
+        params: { candidate_id: candidateId, job_id: jobId, organizer_id: organizerId, day },
       })
       .then((r) => r.data),
   create: (body: PrepCreateInput) =>
@@ -378,6 +398,22 @@ export function usePrepOptions(candidateId: number | null, jobId: number | null)
     queryKey: prepOptionsQueryKey(candidateId ?? 0, jobId ?? 0),
     queryFn: () => prepMeetingsApi.options(candidateId as number, jobId as number),
     enabled: candidateId != null && jobId != null,
+    staleTime: 60_000,
+  });
+}
+
+/** Zajętość prowadzącego w wybranym dniu; bez kompletu parametrów nie pyta. */
+export function usePrepOrganizerBusy({ candidateId, jobId, organizerId, day }: PrepOrganizerBusyParams) {
+  return useQuery({
+    queryKey: ["interview-cycle", "preps", "organizer-busy", candidateId, jobId, organizerId, day],
+    queryFn: () =>
+      prepMeetingsApi.organizerBusy(
+        candidateId as number,
+        jobId as number,
+        organizerId as number,
+        day as string,
+      ),
+    enabled: candidateId != null && jobId != null && organizerId != null && day != null,
     staleTime: 60_000,
   });
 }

@@ -63,6 +63,23 @@ beforeEach(() => {
 });
 
 describe("CVOriginalPreviewModal — powody pustego okna (audyt B19)", () => {
+  it("ostrzega, gdy kopia CV może należeć do innej osoby", async () => {
+    mocks.getOriginal.mockResolvedValue({
+      data: { has_snapshot: true, candidate_id: 7, original_cv_filename: "cv.docx", identity_doubt: true },
+    });
+    renderModal();
+    expect(await screen.findByTestId("cv-identity-doubt")).toHaveTextContent("może należeć do innej osoby");
+  });
+
+  it("bez wątpliwości nie ostrzega", async () => {
+    mocks.getOriginal.mockResolvedValue({
+      data: { has_snapshot: true, candidate_id: 7, original_cv_filename: "cv.docx", identity_doubt: false },
+    });
+    renderModal();
+    await waitFor(() => expect(mocks.getOriginal).toHaveBeenCalled());
+    expect(screen.queryByTestId("cv-identity-doubt")).not.toBeInTheDocument();
+  });
+
   it("403 mówi o braku dostępu do rekrutacji, nie o awarii", async () => {
     mocks.getOriginal.mockRejectedValue(httpError(403));
     renderModal();

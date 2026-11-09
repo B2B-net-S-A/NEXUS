@@ -85,6 +85,8 @@ export interface CandidateDocument {
   outdated_at?: string | null;
   outdated_by_name?: string | null;
   content_sha256?: string | null;
+  /** Model przeczytał w pliku inną osobę, a człowiek jeszcze nie rozstrzygnął. */
+  identity_doubt?: boolean;
 }
 
 export function formatFileSize(bytes: number | null): string {

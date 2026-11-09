@@ -67,12 +67,27 @@ Decyzja Artura: przycisk w oknie + ślad + przejście między osobami.
   pliku. Przycisk otwiera ten sam panel co „Rekrutacja” w wierszu
   (`QuickAssignV2`) i zamyka okno CV, bo panel to Sheet (z-50), a okno to
   Dialog (z-110) — panel byłby pod spodem. W oknie rekrutacji („Szukaj
-  ręcznie”) przycisku nie ma — tam wiersz ma własne „Dodaj”.
+  ręcznie”) stoi zamiast niego „Dodaj do Nowych” (niżej, 09.11.2026).
 - Obejrzane CV ma w wierszu ✓ (godzina w dymku), ostatnio oglądany wiersz pasek
   z lewej. Pamięć karty (`readCvSeen` / `markCvSeen` w `lib/search-memory.ts`,
   sessionStorage), nie serwer. Bez plakietki z napisem: przy 1280 px ścinała
   nazwisko. Otwarcie CV nie zapisuje `lastOpenedId` listy (plakietka „Ostatnio
   otwarta” zostaje dla powrotu z profilu).
+
+## „Dodaj do Nowych” w oknie CV z „Szukaj ręcznie” (09.11.2026)
+
+Zgłoszenie rekrutera: przy ręcznym szukaniu okno CV nie miało przycisku
+dodania i trzeba było je zamykać, żeby kliknąć „Dodaj” w wierszu. Decyzja
+Artura: wariant A z makiet, jeden przycisk w nagłówku.
+
+- Przycisk woła to samo co „Dodaj” w wierszu (`addToEmbedJob`, źródło
+  `manual_search`, „Dodani teraz” z „Cofnij”). Okno zostaje otwarte, bo to
+  dalej przegląd kolejnych CV. Nie przypinaj tu `QuickAssignV2`: rekrutacja
+  jest znana, a panel zamykałby okno.
+- Dodana osoba znika z odświeżonych wyników (`recruitment_match=not_assigned`),
+  więc `CandidateCvBrowser` przy `addToJob` trzyma kolejność osób z chwili
+  otwarcia. Bez tego licznik „Osoba 7 z 50” i strzałki traciły oglądaną osobę.
+- Tryb tylko do odczytu i trwające dodawanie: przycisk nieaktywny, jak w wierszu.
 
 ## „Szukaj w CV” także w CV firmowym (23.10.2026)
 

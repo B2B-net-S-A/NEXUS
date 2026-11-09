@@ -1094,10 +1094,10 @@
   {
    "id": "board.added-by-filter",
    "area": "naglowek",
-   "opis": "Filtr „Kto dodał” Tablicy: ikona w nagłówku kolumny „Nowi” (od 08.11.2026, audyt U3), a włączony także przycisk w linii źródeł z „✕”; menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych); tylko w adresie `?added_by=` (14.10.2026)",
+   "opis": "Filtr „Kto dodał” Tablicy: stały przycisk po prawej w linii źródeł, włączony z „N z M” i „✕”, po zwinięciu nagłówka ikona obok „⋯” (09.11.2026); menu z liczbą osób w toku (Wszyscy, Ty, inne osoby, Brak danych); tylko w adresie `?added_by=` (14.10.2026)",
    "file": "components/v2/jobs/AddedByFilter.tsx",
    "marker": "added-by-filter",
-   "v3_home": "Tablica → nagłówek kolumny „Nowi”"
+   "v3_home": "Tablica → pasek rekrutacji, linia źródeł"
   },
   {
    "id": "board.filter-empty-column",

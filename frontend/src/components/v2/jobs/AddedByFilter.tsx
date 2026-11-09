@@ -2,7 +2,9 @@
 
 /**
  * Filtr „Kto dodał” Tablicy rekrutacji (14.10.2026, D2): jeden przycisk
- * w nagłówku rekrutacji, nie pasek filtrów (ten zdjęliśmy 02.10.2026). To samo
+ * w pasku rekrutacji, nie pasek filtrów (ten zdjęliśmy 02.10.2026). Stoi nad
+ * kolumnami, bo działa na całą Tablicę; ikona w kolumnie „Nowi” (08.11.2026)
+ * wyglądała jak filtr samych „Nowych”. To samo
  * menu otwiera etykieta kolejki w panelu osoby, bo w widoku „Rozwiń” Tablica
  * jest zasłonięta. Logika i napisy: `lib/board-added-by.ts`.
  */
@@ -85,8 +87,8 @@ export function AddedByMenuContent({
   );
 }
 
-/** Ikona filtra w nagłówku kolumny „Nowi” (audyt U3, 08.11.2026). */
-export function AddedByColumnFilter({ options, value, onChange }: AddedByMenuProps) {
+/** Sama ikona w zwiniętym nagłówku rekrutacji, gdzie pełny przycisk się nie mieści (09.11.2026). */
+export function AddedByCompactFilter({ options, value, onChange }: AddedByMenuProps) {
   const active = value.kind !== "all";
   const label = `Kto dodał: ${addedByChoiceLabel(value, options)}`;
   return (
@@ -95,14 +97,14 @@ export function AddedByColumnFilter({ options, value, onChange }: AddedByMenuPro
         <Button
           type="button"
           size="icon-sm"
-          variant="ghost"
-          className={cn("h-6 w-6 shrink-0", active && "bg-primary/10 text-primary")}
+          variant="outline"
+          className={cn(active && "border-primary/40 bg-primary/10 text-primary")}
           aria-label={label}
           title={label}
-          data-testid="added-by-column-filter"
+          data-testid="added-by-compact-filter"
           data-tour="jobs.board.added-by"
         >
-          <ListFilter className="h-3.5 w-3.5" aria-hidden="true" />
+          <ListFilter className="h-4 w-4" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <AddedByMenuContent options={options} value={value} onChange={onChange} />
@@ -125,13 +127,15 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
             type="button"
             size="sm"
             variant="outline"
-            className={cn("gap-1.5", active && "border-primary/40 bg-primary/10")}
+            // `h-7` jak kafle źródeł obok: nagłówek nie rośnie, Tablica nie traci miejsca.
+            className={cn("h-7 gap-1.5", active && "border-primary/40 bg-primary/10")}
             aria-label={
               active
                 ? `${prefix}: ${choice}. Widać ${visible} z ${total} osób.`
                 : `${prefix}: ${choice}`
             }
             data-testid="added-by-trigger"
+            data-tour="jobs.board.added-by"
           >
             <span className="font-normal text-muted-foreground">{prefix}:</span>
             <span className="font-semibold">{choice}</span>
@@ -150,6 +154,7 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
           type="button"
           size="icon-sm"
           variant="ghost"
+          className="h-7 w-7"
           onClick={() => onChange(ADDED_BY_ALL)}
           aria-label="Pokaż wszystkich (wyłącz filtr „Kto dodał”)"
           data-testid="added-by-clear"

@@ -217,7 +217,6 @@ import {
 } from "@/components/v2/pages/kanban-shared";
 import { OtherJobsChip, otherJobsChipLabel, showsOtherJobsChip } from "@/components/v2/pages/kanban-other-jobs-chip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AddedByColumnFilter } from "@/components/v2/jobs/AddedByFilter";
 import { useJointScreeningIntent } from "@/store/joint-screening";
 import {
  CV_SENT_STAGE,
@@ -4042,15 +4041,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const queueColumnName = queueCol
  ? boardLabelByColId.get(colId(queueCol)) ?? columnLabel(queueCol)
  : null;
- // `useMemo`: `headerAction` idzie przez `memo` kolumny „Nowi”, zwykle największej.
- const addedByColumnFilter = useMemo(
- () =>
- onAddedByChange ? (
- <AddedByColumnFilter options={addedByMenuOptions} value={addedBy} onChange={onAddedByChange} />
- ) : null,
- [addedByMenuOptions, addedBy, onAddedByChange]
- );
- // Bez flagi `tempo.enabled` nagłówek nie dostaje drugiego rzędu; `useMemo` jak wyżej.
+ // Bez flagi `tempo.enabled` nagłówek nie dostaje drugiego rzędu; `useMemo`, bo idzie przez `memo` kolumny „Nowi”.
  const tempo = useNewColumnTempo(jobId).data;
  const newColumnTempo = useMemo(
  () => (tempo?.enabled ? <NewColumnTempo jobId={jobId} readOnly={readOnly} tempo={tempo} /> : null),
@@ -4659,9 +4650,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  : null
  }
 headerAction={
- boardKeyByColId.get(entry.key) === "new" ? (
- addedByColumnFilter
- ) : boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
+ boardKeyByColId.get(entry.key) === "cv_qc" && !cproQueueColIds.has(entry.key) && canReviewAsDl && (totalCountByColId.get(entry.key) ?? entry.col.count) >= 2 && !readOnly ? (
  <Button
  type="button"
  size="sm"

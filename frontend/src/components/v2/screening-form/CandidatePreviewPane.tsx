@@ -86,6 +86,7 @@ import {
   usePersonPanelSideSectionActive,
   usePersonPreviewCollapse,
 } from "@/components/v2/person/PersonPanelSide";
+import { CvIdentityDoubtNotice } from "@/components/v2/person/CvIdentityDoubtNotice";
 import { StageCvPreview } from "@/components/v2/person/StageCvPreview";
 import {
   CvFileDropTarget,
@@ -331,6 +332,11 @@ function CvTab({
     (d) => d.id !== currentFile?.id && !d.outdated_at && /\.(pdf|docx?)$/i.test(d.filename),
   );
   const candidateFile = (ownProfileDocs ?? []).find((d) => d.id === candidateFileId) ?? null;
+  // Kopię etapu ocenia serwer, bo plik z Traffita zwykle nie ma sumy.
+  const identityDoubt =
+    source === "original" && !candidateFile && snapshotQuery.data?.has_snapshot
+      ? snapshotQuery.data.identity_doubt === true
+      : (source === "original" ? (candidateFile ?? currentFile) : source === "files" ? selectedFile : null)?.identity_doubt === true;
   const confirmOriginalFile = async (doc: CandidateDocument) => {
     const confirmed = await askConfirm({
       title: "Ustawić to CV jako oryginalne?",
@@ -897,6 +903,7 @@ function CvTab({
             )}
           </div>
         ) : null}
+        {identityDoubt ? <CvIdentityDoubtNotice candidateId={candidateId} /> : null}
         {source === "original" && stageId != null && !candidateFile ? (
           <DockCvFreshness
             stageId={stageId}

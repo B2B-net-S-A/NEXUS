@@ -412,7 +412,9 @@ function JobsTable({
               <TableCell className="overflow-hidden md:w-full md:min-w-[200px] md:max-w-0 max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
                 {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
                     osobnej kolumny. */}
-                <div className="flex min-w-0 items-center gap-1.5">
+                {/* `flex-wrap` i `basis-32` przy nazwie: przy 1280 px „P0 · minęło 17 h”
+                    z numerem zajmowały całą kolumnę i nazwa znikała. */}
+                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 {isP0Active(job) ? (
                   <P0Chip until={job.p0_until} reason={job.p0_reason} />
                 ) : (
@@ -435,7 +437,7 @@ function JobsTable({
                 />
                 {/* Pełny tytuł roboczy w dymku stoi na opakowaniu: `title` na
                     samym linku przejąłby w Chrome jego nazwę dostępną. */}
-                <span className="block min-w-0 truncate" title={jobDisplayTitle(job)}>
+                <span className="block min-w-0 flex-1 basis-32 truncate" title={jobDisplayTitle(job)}>
                 {/* `can_open === false`: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}

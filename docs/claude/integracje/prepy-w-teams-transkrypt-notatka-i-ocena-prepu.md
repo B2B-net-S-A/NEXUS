@@ -82,6 +82,18 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   przekraczałoby plan co czwartemu. Bez pola na dowolną liczbę minut, bo
   w kalendarzu nie ma prepu dłuższego niż 45 min. `minutes` przy zaplanowanym
   prepie to jego prawdziwa długość; do tej daty zawsze 45.
+- **Kalendarz prowadzącego w „Zaplanuj Prep” (09.11.2026, zgłoszenie rekrutera).**
+  Do tej daty okno nie pokazywało zajętości: planujący dowiadywał się o niej
+  z odmowy 409 po kliknięciu, a pasek miało tylko „Umów rozmowę i prepy”,
+  i to wyłącznie dla podpowiadanych prowadzących. Teraz pasek dnia
+  (`PrepBusyStrip`, wspólny dla obu okien) idzie za wybranym prowadzącym
+  i terminem: `GET …/preps/organizer-busy` (`calendar`, `busy`, same przedziały
+  bez tytułów, ta sama aplikacja co zapis). Pytać można tylko o osoby z listy
+  `/preps/options` (zespół i podpowiedzi, inaczej 422), bo trasa nie może być
+  podglądem kalendarza dowolnej osoby z firmy. Kalendarz nieczytelny albo błąd
+  zapytania to zdanie „nie widać”, nigdy pusty dzień wyglądający na wolny.
+  Ostrzeżenie przed zapisem nie zastępuje sprawdzenia przy zapisie
+  (`busy_overlap`, „Zapisz mimo to”).
 - **Prep po rozmowie u klienta należy do jej rundy** (`PairSnapshot.late_preps`,
   lustro w `prep_meetings.active_prep`, 02.10.2026). Rekruter zaplanował
   Prep 1, zanim DL potwierdził termin rozmowy na dwa dni wcześniej; prep nie

@@ -9,9 +9,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { startDocsApi, usePairAction } from "@/lib/api/start-documents";
+import { useAuthStore, type User } from "@/store/auth";
 
 import { StartDocsCard } from "../StartDocsCard";
-import { StartDocsTasksSection, StartDocsTopbarBlock } from "../StartDocsTasks";
+import { StartDocsTasksSection, StartDocsTopbarBlock, useStartDocsCount } from "../StartDocsTasks";
 
 const get = vi.fn();
 const post = vi.fn();
@@ -101,10 +102,22 @@ function renderTasks(node: React.ReactNode) {
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
 }
 
+function signIn(fields: Partial<User>) {
+  useAuthStore.setState({
+    user: {
+      id: 1,
+      role: "recruiter",
+      effective_section_access: { pipeline: "write" },
+      ...fields,
+    } as User,
+  });
+}
+
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
   put.mockReset();
+  signIn({});
 });
 
 describe("StartDocsCard", () => {
@@ -339,5 +352,66 @@ describe("Pulpit i pasek", () => {
     await waitFor(() => expect(get).toHaveBeenCalled());
     expect(container.querySelector('[data-testid="start-docs-tasks"]')).toBeNull();
     expect(container.querySelector('[data-testid="start-docs-topbar"]')).toBeNull();
+  });
+});
+
+describe("Bez zapytania dla kont spoza bramki /mine", () => {
+  const countWrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+  );
+
+  it.each([
+    ["Finanse", { role: "finance", effective_section_access: { pipeline: "read" } }],
+    ["Back office", { role: "back_office", effective_section_access: { pipeline: "none" } }],
+    ["Automatyzacje", { role: "automation", effective_section_access: { pipeline: "read" } }],
+    ["rola user obok rekrutera", { role: "recruiter", roles: ["recruiter", "user"] }],
+    ["rekruter z sekcją wyłączoną wyjątkiem", { effective_section_access: { pipeline: "none" } }],
+  ] as [string, Partial<User>][])("%s: licznik 0, żadnego żądania", async (_label, fields) => {
+    signIn(fields);
+    get.mockRejectedValue({ response: { status: 403 } });
+    const { result } = renderHook(() => useStartDocsCount(), { wrapper: countWrapper });
+    const { container } = renderTasks(
+      <>
+        <StartDocsTasksSection />
+        <StartDocsTopbarBlock />
+      </>,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(result.current).toBe(0);
+    expect(get).not.toHaveBeenCalled();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("przed załadowaniem profilu też nie pyta", async () => {
+    useAuthStore.setState({ user: null });
+    const { result } = renderHook(() => useStartDocsCount(), { wrapper: countWrapper });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(result.current).toBe(0);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["admin"],
+    ["head_of_recruitment"],
+    ["delivery_lead"],
+    ["talent_community_manager"],
+    ["recruiter"],
+  ] as [User["role"]][])("%s: pyta i liczy swoje sprawy", async (role) => {
+    signIn({ role });
+    get.mockResolvedValue({ data: { role: "recruiter", items: [mineRow] } });
+    const { result } = renderHook(() => useStartDocsCount(), { wrapper: countWrapper });
+    await waitFor(() => expect(result.current).toBe(1));
+    expect(get).toHaveBeenCalledWith("/api/start-documents/mine");
+  });
+
+  it("Finanse z drugą rolą rekrutera przechodzą bramkę", async () => {
+    signIn({ role: "finance", roles: ["finance", "recruiter"] });
+    get.mockResolvedValue({ data: { role: "recruiter", items: [mineRow] } });
+    const { result } = renderHook(() => useStartDocsCount(), { wrapper: countWrapper });
+    await waitFor(() => expect(result.current).toBe(1));
   });
 });

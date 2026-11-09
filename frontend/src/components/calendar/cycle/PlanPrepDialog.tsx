@@ -6,6 +6,7 @@ import { Video } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
+import { PrepBusyStrip } from "@/components/calendar/cycle/PrepBusyStrip";
 import { PrepPeoplePicker } from "@/components/calendar/cycle/PrepPeoplePicker";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -15,8 +16,10 @@ import {
   isPrepSlotBusy,
   prepMeetingsApi,
   usePrepOptions,
+  usePrepOrganizerBusy,
 } from "@/lib/api/prepMeetings";
 import { candidateLabel, pairContext, type PairInfo } from "@/lib/interview-cycle";
+import { overlaps } from "@/lib/interview-pick";
 import {
   looksLikeRoleCode,
   renderInvitationPreview,
@@ -179,6 +182,27 @@ export function PlanPrepDialog({
   const hasRoleText = roleText.trim() !== "";
   const roleIncluded = roleKnown && withRole && hasRoleText;
   const roleFindings = roleTextEdit == null ? (options.data?.role_description_findings ?? []) : [];
+
+  // Kalendarz prowadzącego przed zapisem (09.11.2026): do tej daty planujący
+  // poznawał zajętość dopiero z odmowy 409 po kliknięciu „Zaplanuj w Teams”.
+  const day = /^\d{4}-\d{2}-\d{2}T/.test(start) ? start.slice(0, 10) : null;
+  const organizerBusy = usePrepOrganizerBusy({
+    candidateId: pair.candidate_id,
+    jobId: pair.job_id,
+    organizerId: open && options.data?.enabled ? organizerId : null,
+    day,
+  });
+  const busyBlocks = organizerBusy.data?.calendar === "ok" ? organizerBusy.data.busy : null;
+  const chosen = useMemo(() => {
+    const from = new Date(start);
+    if (Number.isNaN(from.getTime())) return null;
+    return {
+      start: from.toISOString(),
+      end: new Date(from.getTime() + duration * 60_000).toISOString(),
+    };
+  }, [start, duration]);
+  const organizerClash = Boolean(busyBlocks && chosen && busyBlocks.some((b) => overlaps(chosen, b)));
+  const organizerLabel = organizerName || "prowadzącego";
 
   const beforeInterview =
     !interview || interview.tentative || new Date(start) < new Date(interview.start);
@@ -371,6 +395,32 @@ export function PlanPrepDialog({
               </select>
             </div>
           </div>
+          {organizerId != null && day ? (
+            busyBlocks ? (
+              <PrepBusyStrip
+                who={organizerLabel}
+                day={day}
+                busy={busyBlocks}
+                chosen={chosen}
+                clash={organizerClash}
+              />
+            ) : organizerBusy.isPending ? (
+              <p className="text-xs text-muted-foreground">Sprawdzam kalendarz…</p>
+            ) : (
+              <p data-testid="prep-organizer-unknown" className="text-xs text-muted-foreground">
+                Kalendarza osoby {organizerLabel} nie widać — nie sprawdzimy, czy ma wtedy wolne.
+              </p>
+            )
+          ) : null}
+          {organizerClash ? (
+            <p
+              role="status"
+              data-testid="prep-organizer-clash"
+              className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              {organizerLabel} ma wtedy zajęte. Wybierz inną godzinę albo zapisz, jeśli to uzgodnione.
+            </p>
+          ) : null}
           {startInPast ? (
             <p
               role="status"

@@ -6867,6 +6867,7 @@ export interface CVOriginalSnapshot {
   original_snapshot_source: string | null;
   original_cv_sha256?: string | null;
   download_url: string | null;
+  identity_doubt?: boolean;
 }
 
 export type CVBrandedStatus = "none" | "draft" | "finalized";

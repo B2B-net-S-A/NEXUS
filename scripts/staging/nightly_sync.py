@@ -49,12 +49,14 @@ NIGHTLY_DB = re.compile(r"nexus_staging_nightly_(\d{8})\Z")
 DATE_DIR = re.compile(r"\d{8}\Z")
 KEEP_COPIES = 2
 
-# Poza stemplem `ranker_version`, a zmieniają pulę i kolejność.
+# Poza `_SCORING_CACHE_INPUTS`, a zmieniają pulę i kolejność. Adapter zapytania wchodzi
+# do stempla `ranker_version` dopiero włączony, więc bez niego staging liczy inaczej.
 RANKING_POOL_FLAGS = (
     "HYBRID_POOL_ENABLED",
     "KNOWN_PEOPLE_BOOST_ENABLED",
     "KEYWORD_SEARCH_FOLDED_FTS",
     "MATCH_POOL_SIZE",
+    "QUERY_ADAPTER_ENABLED",
 )
 # Listy klientów decydują, co widać na karcie klienta. 03.11.2026 bez pierwszej z nich
 # staging pokazywał 8 zamówień klienta zamiast 50, bo chował stare bez `order_type`.

@@ -59,5 +59,12 @@ Voyage i Anthropic, bramka jak pobranie PDF-a. Raport:
   `client_amendment_id` zamiast `framework_contract_id`, dlatego podmiana pliku
   umowy nie kasuje jego wektorów. Narzędzie `read_contract_amendment`, trasa
   `…/amendments/{id}/text` z tą samą bramką co pobranie pliku aneksu.
+- **Daty z kartoteki to nie umowa (01.11.2026, rozmowa na produkcji):** `list_clients`
+  niesie `effective_date` i `expiry_date`, więc na „do kiedy obowiązuje umowa z Nordeą”
+  Jarvis odpowiadał datą z katalogu (inną niż w aneksie) i pytał, czy sprawdzić aneksy. Pytanie o okres i datę zawarcia idzie do umowy i aneksów
+  bez dopytywania, a `note` stoi przy konkretnym dokumencie: mLeasing ma ostrzeżenie
+  o piśmie ręcznym przy umowie i przy aneksie, a Jarvis przenosił je tylko na aneks.
+  Test pilnuje treści instrukcji, nie zachowania modelu: po zmianie sekcji UMOWY
+  przejdź te pytania w prawdziwej rozmowie.
 - Poza zakresem: PDF-y zamówień, umowy kontraktorów, plakietka stanu odczytu
   w zakładce „Umowy”.

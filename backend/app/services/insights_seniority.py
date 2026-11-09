@@ -56,6 +56,7 @@ Cztery decyzje, które trzymają ten moduł uczciwym:
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
@@ -84,6 +85,13 @@ LEVEL_EXPERT = "expert"
 
 # Kolejność ścieżki — używana do wyznaczenia „następnego poziomu".
 LEVEL_ORDER: tuple[str, ...] = (LEVEL_JUNIOR, LEVEL_SENIOR, LEVEL_EXPERT)
+
+# Miesięczny cel placementów na poziomie (decyzja Artura 05.11.2026).
+LEVEL_PLACEMENT_TARGETS: dict[str, int] = {
+    LEVEL_JUNIOR: 1,
+    LEVEL_SENIOR: 2,
+    LEVEL_EXPERT: 3,
+}
 
 # Klucze w `insights_scoring_config`. Defaulty w kodzie, jak w
 # `kpi_panel.py:54-56` — brak wiersza w konfiguracji nie może oznaczać
@@ -344,16 +352,22 @@ def _expert_rules(t: SeniorityThresholds) -> tuple[tuple[int, int], ...]:
     )
 
 
+def _after_promotion(counts: dict[int, int], senior_since: int) -> dict[int, int]:
+    """Placementy, które liczą się do eksperta: od miesiąca po awansie."""
+    return {m: n for m, n in counts.items() if m > senior_since}
+
+
 def _resolve_levels(
     counts: dict[int, int], thresholds: SeniorityThresholds
 ) -> tuple[str, int | None, int | None]:
     """Poziom + miesiące obu awansów. Zegar eksperta kotwiczony na seniorze.
 
-    Ekspert liczy się WYŁĄCZNIE z placementów od miesiąca awansu na seniora
-    w górę — tak jak w oryginale. Bez tej kotwicy jedna dobra passa kupuje oba
-    awanse naraz: kto zrobił 12 placementów w sześć miesięcy, spełnia w tym
-    samym oknie regułę seniora i eksperta, więc „ścieżka rozwoju" przestaje
-    być ścieżką i staje się jednym progiem z dwiema nazwami.
+    Ekspert liczy się WYŁĄCZNIE z placementów od miesiąca PO awansie na seniora
+    (decyzja Artura 09.11.2026: seniorem jest się od następnego miesiąca). Bez
+    tej kotwicy jedna dobra passa kupuje oba awanse naraz: kto zrobił 12
+    placementów w sześć miesięcy, spełnia w tym samym oknie regułę seniora
+    i eksperta, więc „ścieżka rozwoju" przestaje być ścieżką i staje się
+    jednym progiem z dwiema nazwami.
 
     Zwracamy trójkę zamiast samego poziomu, bo obie daty są potrzebne dalej:
     `senior_since` do przycięcia licznika postępu, a obie do wiersza, który
@@ -367,8 +381,9 @@ def _resolve_levels(
     if senior_since is None:
         return LEVEL_JUNIOR, None, None
 
-    after_senior = {m: n for m, n in counts.items() if m >= senior_since}
-    expert_since = _first_qualifying_month(after_senior, _expert_rules(thresholds))
+    expert_since = _first_qualifying_month(
+        _after_promotion(counts, senior_since), _expert_rules(thresholds)
+    )
     if expert_since is None:
         return LEVEL_SENIOR, senior_since, None
     return LEVEL_EXPERT, senior_since, expert_since
@@ -484,13 +499,22 @@ _PLACEMENTS_SQL = (
 
 
 async def compute_seniority(
-    db: AsyncSession, *, as_of: date, thresholds: SeniorityThresholds
+    db: AsyncSession,
+    *,
+    as_of: date,
+    thresholds: SeniorityThresholds,
+    level_floors: Mapping[int, str] | None = None,
 ) -> SeniorityResult:
     """Ścieżka rozwoju całej puli na dzień ``as_of``.
 
     ``as_of`` odcina placementy PÓŹNIEJSZE — dzięki temu odpowiedź jest
     deterministyczna i daje się odtworzyć („jak to wyglądało na koniec
     kwartału"), a testy nie zależą od dnia uruchomienia.
+
+    ``level_floors`` to poziom wynikający z osobistego celu: ktoś przyjęty jako
+    ekspert nie ma jeszcze placementów, a ekran ma go pokazać jako Experta.
+    Podaje go tylko ekran. Dziennik i automat celów patrzą na poziom z samych
+    placementów, bo zdjęcie celu nie jest cofnięciem atrybucji.
     """
     population = (
         (await db.execute(text(_POPULATION_SQL), {"roles": list(SENIORITY_PATH_ROLES)}))
@@ -549,16 +573,17 @@ async def compute_seniority(
     for user_id, (name, role) in pool.items():
         counts = per_user.get(user_id, {})
         level, senior_since, expert_since = _resolve_levels(counts, thresholds)
+        floor = level_floors.get(user_id) if level_floors else None
+        if floor is not None and LEVEL_ORDER.index(floor) > LEVEL_ORDER.index(level):
+            level = floor
         in_senior = _window_sum(counts, current_month, thresholds.senior_window_months)
         # Licznik do EKSPERTA liczy się z tej samej puli, z której liczy się
-        # awans — czyli od miesiąca awansu na seniora w górę. Pokazanie tu
+        # awans — czyli od miesiąca po awansie na seniora. Pokazanie tu
         # surowej sumy okna dawałoby liczbę WIĘKSZĄ niż ta, którą system
         # faktycznie porównuje z progiem: pasek stałby wyżej niż prawda,
         # a „brakuje 2" nie zgadzałoby się z kolumną obok.
         expert_pool = (
-            counts
-            if senior_since is None
-            else {m: n for m, n in counts.items() if m >= senior_since}
+            counts if senior_since is None else _after_promotion(counts, senior_since)
         )
         in_expert = _window_sum(
             expert_pool, current_month, thresholds.expert_window_months

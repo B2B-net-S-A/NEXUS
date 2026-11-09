@@ -268,6 +268,18 @@ describe("JobsListV2 — prosty wiersz listy", () => {
     );
   });
 
+  it("długa plakietka przed nazwą przenosi nazwę do drugiej linii zamiast ściskać ją do zera", async () => {
+    mockJobsResponse([jobRow(FULL_ROW)]);
+    renderJobs();
+
+    const link = await screen.findByRole("link", { name: "Programista Python" });
+    const titleBox = link.parentElement as HTMLElement;
+    // Przy 1280 px kolumna ma 205 px, a plakietka „P0 · minęło 17 h” i numer zajmują
+    // niemal całość. `basis-32` trzyma nazwie 128 px, więc to ona schodzi niżej.
+    expect(titleBox).toHaveClass("min-w-0", "flex-1", "basis-32");
+    expect(titleBox.parentElement).toHaveClass("flex-wrap");
+  });
+
   it("klik w numer u klienta kopiuje cały numer i nie otwiera rekrutacji", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

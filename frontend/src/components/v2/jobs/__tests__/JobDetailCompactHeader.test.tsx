@@ -451,6 +451,26 @@ describe("JobDetailCompactHeader — priorytet, rekruter, źródła i „Zwiń�
     expect(screen.getByTestId("job-header-facts")).not.toContainElement(row);
   });
 
+  it("zwinięty nagłówek: filtr obok przycisku „Zwiń”, zakładka Championa skrócona do ikony (09.11.2026)", () => {
+    renderHeader({
+      collapsed: true,
+      onToggleCollapsed: vi.fn(),
+      collapsedExtras: <span data-testid="slot-filter" />,
+    });
+    expect(screen.getByTestId("job-header-collapse").parentElement).toContainElement(
+      screen.getByTestId("slot-filter"),
+    );
+    const tab = screen.getByTestId("open-champion-profile");
+    expect(tab).toHaveAttribute("title", "Profil Championa");
+    expect(tab).toHaveAccessibleName(expect.stringContaining("Profil Championa"));
+    expect(within(tab).getByText("Profil Championa")).toHaveClass("sr-only");
+  });
+
+  it("zwinięty nagłówek bez filtra zostawia pełną zakładkę Championa", () => {
+    renderHeader({ collapsed: true, onToggleCollapsed: vi.fn() });
+    expect(within(screen.getByTestId("open-champion-profile")).getByText("Profil Championa")).not.toHaveClass("sr-only");
+  });
+
   it("bez źródeł (np. „Profil Championa”) trzeciej linii nie ma", () => {
     renderHeader();
     expect(screen.queryByTestId("job-header-sources-row")).toBeNull();
@@ -484,7 +504,9 @@ describe("JobDetailCompactHeader — priorytet, rekruter, źródła i „Zwiń�
     expect(screen.queryByTestId("slot-recruiter")).toBeNull();
     const title = screen.getByTestId("job-header-title");
     expect(title.parentElement).toContainElement(screen.getByTestId("slot-recruiter-compact"));
-    expect(title.parentElement).toContainElement(screen.getByTestId("slot-filter"));
+    expect(screen.getByTestId("job-header-collapse").parentElement).toContainElement(
+      screen.getByTestId("slot-filter"),
+    );
   });
 
   it("bez obsługi zwijania nie ma przycisku „Zwiń”", () => {

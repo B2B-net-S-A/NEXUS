@@ -132,7 +132,7 @@ interface JobDetailCompactHeaderProps {
    */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
-  /** W zwiniętym nagłówku: włączony filtr „Kto dodał”, żeby nie był ukryty. */
+  /** W zwiniętym nagłówku: ikona filtra „Kto dodał” obok przycisku „Zwiń”. */
   collapsedExtras?: ReactNode;
   presence?: ReactNode;
   /** Aktywny widok: „Tablica" albo „Profil Championa" (`people` = lista „Do przejrzenia"). */
@@ -236,6 +236,7 @@ interface ViewTabProps {
   onViewChange: (view: JobDetailView) => void;
   href?: string;
   testId: string;
+  title?: string;
   children: ReactNode;
 }
 
@@ -244,7 +245,7 @@ interface ViewTabProps {
  * i Ctrl/Cmd+klik zostają przeglądarce (nowa karta), zwykły klik przełącza
  * widok w miejscu, bez przeładowania strony.
  */
-function ViewTab({ view, activeView, onViewChange, href, testId, children }: ViewTabProps) {
+function ViewTab({ view, activeView, onViewChange, href, testId, title, children }: ViewTabProps) {
   const className = cn(
     "inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors pointer-coarse:h-9",
     activeView === view
@@ -260,6 +261,7 @@ function ViewTab({ view, activeView, onViewChange, href, testId, children }: Vie
         aria-current={ariaCurrent}
         data-testid={testId}
         className={className}
+        title={title}
       >
         {children}
       </button>
@@ -276,6 +278,7 @@ function ViewTab({ view, activeView, onViewChange, href, testId, children }: Vie
       aria-current={ariaCurrent}
       data-testid={testId}
       className={className}
+      title={title}
     >
       {children}
     </a>
@@ -363,6 +366,9 @@ export function JobDetailCompactHeader({
     clientReference ? `nr u klienta ${clientReference}` : null,
     referenceNumber ? `nasz nr ${referenceNumber}` : null,
   ].filter(Boolean);
+  // Przy 1280 px zwinięta linia nie mieści ikony filtra obok pełnej zakładki:
+  // przyciski wchodziły na status i pod „Tablicę”.
+  const compactChampionTab = collapsed && Boolean(collapsedExtras);
   const hasAdding = Boolean(onAddByName || onAddFromCv || onStartFullReview || onOpenMyPeople);
 
   return (
@@ -405,7 +411,6 @@ export function JobDetailCompactHeader({
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">{badges}</div>
           ) : null}
           {collapsed ? recruiterCompact : null}
-          {collapsed ? collapsedExtras : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -433,9 +438,10 @@ export function JobDetailCompactHeader({
               onViewChange={onViewChange}
               href={viewHref?.("champion")}
               testId="open-champion-profile"
+              title={compactChampionTab ? "Profil Championa" : undefined}
             >
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-              Profil Championa
+              <span className={compactChampionTab ? "sr-only" : undefined}>Profil Championa</span>
               {missing != null ? (
                 <Badge variant="warning" size="sm" className="tabular-nums">
                   brakuje {missing}
@@ -699,6 +705,7 @@ export function JobDetailCompactHeader({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {collapsed ? collapsedExtras : null}
           {onToggleCollapsed ? (
             <Button
               type="button"
