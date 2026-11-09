@@ -1829,5 +1829,19 @@
     "where": "Sprzedaż → Spotkania",
     "href": "/sales/meetings",
     "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-krok-i-zapis-rozmowy",
+    "pr": 3243,
+    "title": "Szanse: krok, zapis rozmowy, przeciąganie",
+    "why": "Na górze karty widzisz, do kogo zadzwonić i dlaczego. Po rozmowie jednym kliknięciem zapisujesz wynik i ustalasz, co dalej. Karty na tablicy przeciągasz między etapami.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse",
+    "href": "/sales",
+    "dot_anchor": "sales.tabs"
   }
 ]
