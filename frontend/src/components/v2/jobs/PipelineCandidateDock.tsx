@@ -1454,7 +1454,7 @@ export function PipelineCandidateDock({
     candidate?.availability_date ?? item.availability_date,
   );
   const availabilityLabel = contractAvail
-    ? `${contractAvailabilityText(contractAvail)} · z kontraktu`
+    ? contractAvailabilityText(contractAvail)
     : availabilityText(
         candidate
           ? {

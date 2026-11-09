@@ -45,7 +45,7 @@ https://claude.ai/artifact/QekWy3zx3pXNEKDKQmikf6, raport:
 - **Znacznik niczego nie blokuje** (jak konflikty z klientem od 17.09.2026)
   i nie niesie kwot, więc widzi go każda rola operacyjna. „Kontrakt ›” w ramce
   tylko z dostępem do sekcji Delivery.
-- **Rekruter widzi przez znacznik klienta, koniec zamówienia i Delivery Leada**
+- ~~Od 09.11.2026 nieaktualne, patrz sekcja „Rekruter widzi nie dzwoń”.~~ **Rekruter widzi przez znacznik klienta, koniec zamówienia i Delivery Leada**
   także bez dostępu do zamówień w Delivery, a filtr „Kończy u nas w ciągu 60
   dni” daje mu taką listę dla całej bazy. To cel znacznika (makiety 1–4 i 6
   zatwierdzone przez Artura), nie przeciek. Znacznik nie niesie i nie może
@@ -315,3 +315,29 @@ bez umowy i 1 ręczny wpis straciły znacznik.
   obok dzwonka „konsultant w innej rekrutacji”, po commicie, best-effort.
   Podpis w Generatorze tworzy umowę przed ruchem, więc nie dzwoni.
 
+## Rekruter widzi „nie dzwoń”, nie datę (09.11.2026)
+
+Zgłoszenie rekrutera: plakietka „Pracuje u tego klienta · do 31.12” wyglądała
+jak termin dostępności, więc zadzwonił z nowym projektem do osoby, której
+zamówienie miało być przedłużone. Na kopii produkcji z 09.11 kontynuację miało
+156 z 212 zamówień okresowych zakończonych od 1.05. Decyzja Artura: osobami
+kończącymi zamówienie zajmuje się osobny dział (Targ, ławka), rekruterowi
+wystarczy informacja, że zamówienie trwa i że ma nie dzwonić. Makiety:
+https://claude.ai/artifact/CJvsrpZRhEyEm3X1hjECiu. Ta sekcja zastępuje punkt
+reguły z 12.10 o tym, że rekruter widzi koniec zamówienia.
+
+- **Plakietka zależy od ekranu, nie od roli**, bo są konta z rolą DL i rekrutera
+  naraz. `markerLabel`: „Aktywne zamówienie · nie dzwoń”, „Zaczyna u nas · nie
+  dzwoń”, „Bez aktywnego zamówienia” (`no_current_order`, bez zakazu), „Wraca
+  na rynek DD.MM” (przekazanie z opieki, bez zakazu). Karta Tablicy: samo „Nie
+  dzwoń”. Niczego nie blokuje, numer zostaje widoczny.
+- **Data tylko z dostępem do Delivery:** `markerDetails(…, { showDates })`, czyli
+  ramka i dymek. Przegląd DL czyta `contractDateText`.
+- **`contractAvailabilityText`** to tekst na ekranach rekrutera, bez daty
+  („Aktywne zamówienie”). Termin z datą ma `contractDateText`. Serwer dalej liczy
+  `free_from` i ocenę dopasowania bez zmian.
+- **`no_current_order`** (serwer, `build_markers`): każda rozpoczęta żywa umowa
+  jest bez zamówienia trwającego ani zaplanowanego. Bez wczytanych zamówień
+  (`current_order_contracts=None`) zostaje `False`.
+- **Filtr „Kończy u nas w ciągu 60 dni”** tylko z dostępem do Delivery: opcja
+  znika z paska filtrów, a `employment=ending_soon` bez dostępu to 403.

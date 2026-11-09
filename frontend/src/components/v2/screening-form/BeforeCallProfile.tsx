@@ -205,7 +205,7 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
     detail?.availability_date ?? item.availability_date,
   );
   const availabilityValue = contractAvail
-    ? `${contractAvailabilityText(contractAvail)} · z kontraktu`
+    ? contractAvailabilityText(contractAvail)
     : availabilityText(
     detail
       ? {

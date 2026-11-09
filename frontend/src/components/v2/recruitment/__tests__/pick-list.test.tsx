@@ -50,14 +50,14 @@ describe("PickList — znacznik „Pracuje u nas”", () => {
 
     const [employed, other] = screen.getAllByRole("listitem");
     expect(
-      within(employed).getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026"),
+      within(employed).getByText("Aktywne zamówienie · nie dzwoń"),
     ).toBeInTheDocument();
     // Nazwa dostępna przycisku to samo nazwisko — po niej szukają testy i czytnik.
     expect(within(employed).getByRole("button", { name: "Anna Przykładowa" })).toBeInTheDocument();
     expect(within(employed).getByText("Java Developer · 8 lat dośw. · Warszawa")).toBeInTheDocument();
     // Znacznik niczego nie blokuje: osobę da się zaznaczyć.
     expect(within(employed).getByRole("checkbox", { name: "Zaznacz Anna Przykładowa" })).toBeEnabled();
-    expect(within(other).queryByText(/Pracuje u nas/)).toBeNull();
+    expect(within(other).queryByText(/Aktywne zamówienie/)).toBeNull();
   });
 });
 

@@ -215,7 +215,7 @@ describe("availabilityLabelFor", () => {
     };
     expect(
       availabilityLabelFor({ availability_date: "2026-09-01", employment_marker }, today),
-    ).toBe("od 01.12.2026");
+    ).toBe("Aktywne zamówienie");
     expect(
       availabilityLabelFor(
         {
@@ -224,7 +224,7 @@ describe("availabilityLabelFor", () => {
         },
         today,
       ),
-    ).toBe("Bez daty końca zamówienia");
+    ).toBe("Aktywne zamówienie");
   });
   it("status bez daty; `unknown` i brak pól to null", () => {
     expect(availabilityLabelFor({ availability_status: "open_to_offers" }, today)).toBe("Otwarty na oferty");

@@ -412,7 +412,7 @@ describe("BeforeCallProfile — osoba pracująca u nas (15.10.2026)", () => {
     } as unknown as KanbanItem;
     wrap(<BeforeCallProfile item={item} jobId={JOB} readOnly={false} onOpenHistory={vi.fn()} />);
 
-    expect(await screen.findAllByText(/od 01\.12\.2026 · z kontraktu/)).not.toHaveLength(0);
+    expect(await screen.findAllByText(/Aktywne zamówienie/)).not.toHaveLength(0);
     expect(screen.queryByText(/Otwarty na oferty/)).toBeNull();
   });
 });

@@ -109,7 +109,6 @@ import { notesAvailabilityOrigin } from "@/lib/notes-facts";
 import {
   availabilityContractNote,
   contractAvailability,
-  contractAvailabilityCountdown,
   contractAvailabilityOrigin,
   contractAvailabilityText,
   type ContractAvailability,
@@ -2037,9 +2036,7 @@ export function CandidateProfileFactsBar({
     candidate.availability_date,
   );
   const contractAvailLabel = contractAvail
-    ? [contractAvailabilityText(contractAvail), contractAvailabilityCountdown(contractAvail)]
-        .filter(Boolean)
-        .join(" · ")
+    ? contractAvailabilityText(contractAvail)
     : null;
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;

@@ -59,32 +59,16 @@ export interface EmploymentMarker {
    */
   returns_to_market?: boolean;
   returns_to_market_on?: string | null;
+  /** Żywa umowa bez trwającego ani zaplanowanego zamówienia (09.11.2026). */
+  no_current_order?: boolean;
 }
 
-export type EmploymentMarkerTone = "success" | "warning" | "info";
-
-const HEADLINE: Record<EmploymentPhase, string> = {
-  working: "Pracuje u nas",
-  ending: "Kończy u nas",
-  starting: "Zaczyna u nas",
-};
-
-const SAME_CLIENT_HEADLINE: Record<EmploymentPhase, string> = {
-  working: "Pracuje u tego klienta",
-  ending: "Kończy u tego klienta",
-  starting: "Zaczyna u tego klienta",
-};
+export type EmploymentMarkerTone = "danger" | "neutral" | "info";
 
 function clientName(client: EmploymentMarkerClient): string | null {
   const name = client.client_name?.trim();
   if (name) return name;
   return client.client_id != null ? `Klient #${client.client_id}` : null;
-}
-
-/** Klienci, o których mówi nagłówek: przy „pracuje” bez tych z przyszłym startem. */
-function headlineClients(marker: EmploymentMarker): EmploymentMarkerClient[] {
-  if (marker.phase === "working") return marker.clients.filter((c) => c.phase !== "starting");
-  return marker.clients.filter((c) => c.phase === marker.phase);
 }
 
 function shortDate(iso: string): string {
@@ -93,48 +77,40 @@ function shortDate(iso: string): string {
 }
 
 export interface MarkerLabelOptions {
-  /** `names` (domyślnie): do dwóch nazw, powyżej liczba; `count`: liczba od dwóch; `none`: bez klienta. */
-  clients?: "names" | "count" | "none";
-  date?: "full" | "short";
+  /** Karta Tablicy (~170 px): samo polecenie. */
+  short?: boolean;
 }
 
-/** Tekst pigułki, np. „Pracuje u nas · Bank · do 31.12.2026”. */
+/**
+ * Tekst pigułki (decyzja Artura 09.11.2026): rekruter dostaje informację, czy
+ * może dzwonić, bez daty końca. Końcem zamówień zajmuje się osobny dział,
+ * a „do 31.12” czytano jak termin dostępności.
+ */
 export function markerLabel(marker: EmploymentMarker, options: MarkerLabelOptions = {}): string {
-  const sameClient = marker.elsewhere === false;
-  const clients = headlineClients(marker);
-  const single = clients.length === 1 ? clients[0] : null;
-  const formatDate = options.date === "short" ? shortDate : formatIsoDatePl;
-
-  let headline = (sameClient ? SAME_CLIENT_HEADLINE : HEADLINE)[marker.phase];
-  let tail: string | null = null;
-  if (single) {
-    if (marker.phase === "working" && single.order_end_date) {
-      tail = `do ${formatDate(single.order_end_date)}`;
-    } else if (marker.phase === "ending" && single.order_end_date) {
-      headline = `${headline} ${formatDate(single.order_end_date)}`;
-    } else if (marker.phase === "starting" && single.starts_on) {
-      headline = `${headline} ${formatDate(single.starts_on)}`;
-    }
-  }
-
-  let who: string | null = null;
-  const mode = sameClient ? "none" : (options.clients ?? "names");
-  if (mode !== "none") {
-    const names = clients.map(clientName).filter((name): name is string => name !== null);
-    if (names.length === 1) {
-      who = names[0];
-    } else if (names.length > 2 || (mode === "count" && names.length > 1)) {
-      who = `${names.length} ${pluralPl(names.length, "klienta", "klientów", "klientów")}`;
-    } else if (names.length === 2) {
-      who = names.join(", ");
-    }
-  }
-  return [headline, who, tail].filter(Boolean).join(" · ");
+  const returning = returnsToMarketLabel(marker);
+  if (returning) return returning;
+  if (marker.no_current_order) return options.short ? "Bez zamówienia" : "Bez aktywnego zamówienia";
+  if (options.short) return "Nie dzwoń";
+  return marker.phase === "starting" ? "Zaczyna u nas · nie dzwoń" : "Aktywne zamówienie · nie dzwoń";
 }
 
 export function markerTone(marker: EmploymentMarker): EmploymentMarkerTone {
-  if (marker.elsewhere === false || marker.phase === "ending") return "warning";
-  return marker.phase === "starting" ? "info" : "success";
+  if (marker.returns_to_market) return "info";
+  return marker.no_current_order ? "neutral" : "danger";
+}
+
+/** Zdanie w dymku pigułki: dlaczego taka plakietka i kto się tym zajmuje. */
+export function markerCallHint(marker: EmploymentMarker): string {
+  if (marker.returns_to_market) {
+    return "Opieka przekazała osobę do front office. Po końcu pracy u nas szuka nowego projektu.";
+  }
+  if (marker.no_current_order) {
+    return "Osoba ma umowę, ale żadnego trwającego zamówienia. Takimi osobami zajmuje się osobny dział.";
+  }
+  if (marker.phase === "starting") {
+    return "Umowa podpisana, praca jeszcze się nie zaczęła. Nie dzwoń z nowym projektem.";
+  }
+  return "Nie dzwoń do tej osoby z nowym projektem. Końcem zamówień i powrotem na rynek zajmuje się osobny dział.";
 }
 
 /** Osoba już u nas pracuje (umowa od przyszłego miesiąca jeszcze się nie liczy). */
@@ -176,22 +152,35 @@ export interface MarkerDetailLine {
   contractId: number | null;
 }
 
-/** Wiersze ramki: jeden na klienta, z końcem zamówienia i Delivery Leadem. */
-export function markerDetails(marker: EmploymentMarker): MarkerDetailLine[] {
+/**
+ * Wiersze ramki: jeden na klienta, z Delivery Leadem. Daty widzi tylko osoba
+ * z dostępem do Delivery (`showDates`), rekruterowi są niepotrzebne.
+ */
+export function markerDetails(
+  marker: EmploymentMarker,
+  { showDates = false }: { showDates?: boolean } = {},
+): MarkerDetailLine[] {
   return marker.clients.map((client, index) => {
     const name = clientName(client);
     const parts: string[] = [];
-    if (client.phase === "starting") {
-      if (client.starts_on) parts.push(`Start ${formatIsoDatePl(client.starts_on)}`);
-    } else if (client.order_end_date) {
-      parts.push(`Zamówienie do ${formatIsoDatePl(client.order_end_date)}`);
-    } else {
-      parts.push("Zamówienie bez daty końca");
+    if (showDates) {
+      if (client.phase === "starting") {
+        if (client.starts_on) parts.push(`Start ${formatIsoDatePl(client.starts_on)}`);
+      } else if (client.order_end_date) {
+        parts.push(`Zamówienie do ${formatIsoDatePl(client.order_end_date)}`);
+      } else {
+        parts.push("Zamówienie bez daty końca");
+      }
     }
     if (client.delivery_lead_name) parts.push(`Delivery Lead: ${client.delivery_lead_name}`);
+    const headline = marker.no_current_order
+      ? "Bez aktywnego zamówienia"
+      : client.phase === "starting"
+        ? "Zaczyna u nas · nie dzwoń"
+        : "Aktywne zamówienie · nie dzwoń";
     return {
       key: `${client.client_id ?? "x"}:${client.contract_id ?? index}`,
-      title: [HEADLINE[client.phase], name].filter(Boolean).join(" · "),
+      title: [headline, name].filter(Boolean).join(" · "),
       detail: parts.join(" · "),
       contractId: client.contract_id ?? null,
     };

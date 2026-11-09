@@ -1016,8 +1016,8 @@ describe("usePipelineMove — ruch zbiorczy", () => {
       React.act(() => controls.requestMove(item, b.fresh, hired));
       const confirmButton = await screen.findByRole("button", { name: "Potwierdź zatrudnienie" });
       const notice = screen.getByRole("note");
-      expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
-      expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+      expect(notice).toHaveTextContent("Aktywne zamówienie · nie dzwoń · Bank Przykładowy");
+      expect(notice).toHaveTextContent("Delivery Lead: Karol Wzorcowy");
 
       // Sam sposób podpisania nie wystarcza — potrzebna jest też odpowiedź.
       fireEvent.click(screen.getByRole("radio", { name: "Umowa o pracę" }));
