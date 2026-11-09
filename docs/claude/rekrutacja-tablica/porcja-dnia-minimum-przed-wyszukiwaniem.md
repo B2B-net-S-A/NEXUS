@@ -126,7 +126,7 @@ Włączenie to decyzja Artura z 08.11 (sekcja „Narastanie minimum”).
   z własnej porcji (właściciel i `in_batch`, `Decision.own_batch`) zostają w
   `required`, inaczej porcja wyzerowana klawiszem S dawała `met`, i tej karty nie da
   się dziś usunąć z rekrutacji (409 `REVIEW_CARD_NEEDS_DECISION`). S na starszej albo
-  cudzej karcie nie cofa zrobionego minimum.
+  cudzej karcie nie cofa zrobionego minimum i taką kartę można zdjąć z rekrutacji.
 - **Pusta kolejka przy `met=false`** (cała porcja na S): `/porcja` pokazuje
   `open_today_screenings` z linkami do Tablicy zamiast „Porcja przejrzana”. Wyjścia to
   zapis screeningu, odrzucenie i „Dodaj kolejnych”.
