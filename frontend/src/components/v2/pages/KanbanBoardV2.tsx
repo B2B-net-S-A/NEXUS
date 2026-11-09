@@ -149,6 +149,7 @@ import {
  CARD_BADGE_TONE_CLASS,
  cardPrimaryBadges,
  cardStageBadge,
+ nextPersonWaitText,
  stageSinceText,
  waitingWorkdaysText,
  type CardBadge,
@@ -4105,12 +4106,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const at = boardOrder.indexOf(candidateId);
  const nextId = (at >= 0 ? inColumn.find((id) => boardOrder.indexOf(id) > at) : undefined) ?? inColumn[0];
  const next = byCandidate.get(nextId) as KanbanItem;
- const days = next.days_in_stage;
  return {
  candidateId: nextId,
  name: itemFullName(next),
- detail:
- days == null ? null : days <= 0 ? "czeka od dziś" : days === 1 ? "czeka 1 dzień" : `czeka ${days} dni`,
+ detail: nextPersonWaitText(next.waiting_workdays),
  };
  },
  [cols, boardOrder, columnByItemId]

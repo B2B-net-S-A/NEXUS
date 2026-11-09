@@ -291,7 +291,7 @@ describe("columnSlaHint", () => {
   it("bez SLA screening zachowuje się jak każda inna kolumna", () => {
     expect(columnSlaHint(screeningCol, { oldestDays: 8 })).toEqual({
       left: "SLA: —",
-      right: "najstarszy 8 d",
+      right: "najstarszy 8 d rob.",
       rightTone: "warn",
     });
   });
@@ -299,7 +299,7 @@ describe("columnSlaHint", () => {
   it("kolumna wejściowa mówi wprost, że nikt tu nie mierzy SLA", () => {
     expect(columnSlaHint(intakeCol, { slaDays: 5, oldestDays: 6 })).toEqual({
       left: "SLA: —",
-      right: "najstarszy 6 d",
+      right: "najstarszy 6 d rob.",
       rightTone: "normal",
     });
   });
@@ -320,9 +320,10 @@ describe("oldestDaysInColumn", () => {
   it("bierze maksimum i ignoruje karty bez wieku", () => {
     const populated = col({
       items: [
-        item({ id: 1, days_in_stage: 2 }),
-        item({ id: 2, days_in_stage: undefined }),
-        item({ id: 3, days_in_stage: 11 }),
+        // Dni robocze z serwera — ta sama liczba co na kartach; kalendarzowe nie liczą się.
+        item({ id: 1, waiting_workdays: 2, days_in_stage: 40 }),
+        item({ id: 2, waiting_workdays: null, days_in_stage: 90 }),
+        item({ id: 3, waiting_workdays: 11, days_in_stage: 15 }),
       ],
     });
     expect(oldestDaysInColumn(populated)).toBe(11);
@@ -331,7 +332,7 @@ describe("oldestDaysInColumn", () => {
   it("pusta kolumna (i kolumna bez wieku) zwraca null, nie zero", () => {
     expect(oldestDaysInColumn(col())).toBeNull();
     expect(
-      oldestDaysInColumn(col({ items: [item({ days_in_stage: undefined })] })),
+      oldestDaysInColumn(col({ items: [item({ waiting_workdays: undefined })] })),
     ).toBeNull();
   });
 });
