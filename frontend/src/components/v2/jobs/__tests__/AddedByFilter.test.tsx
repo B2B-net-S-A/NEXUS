@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import { AddedByCompactFilter, AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
 import { ADDED_BY_ALL, addedByOptions, type AddedByFilter } from "@/lib/board-added-by";
 
 const person = (candidate_id: number, by: number | null, name: string | null = null) => ({
@@ -67,5 +67,35 @@ describe("AddedByFilterButton — „Kto dodał” w nagłówku rekrutacji (D2)"
     await userEvent.click(screen.getByTestId("added-by-trigger"));
     const viewer = await screen.findByTestId("added-by-option-user:7");
     expect(viewer).toHaveAttribute("data-disabled");
+  });
+});
+
+describe("AddedByCompactFilter — ikona w zwiniętym nagłówku (09.11.2026)", () => {
+  function renderIcon(value: AddedByFilter = ADDED_BY_ALL) {
+    const onChange = vi.fn<(filter: AddedByFilter) => void>();
+    render(<AddedByCompactFilter options={OPTIONS} value={value} onChange={onChange} />);
+    return { onChange };
+  }
+
+  it("podpis mówi, co jest wybrane, a menu zmienia filtr", async () => {
+    const { onChange } = renderIcon();
+    const icon = screen.getByRole("button", { name: "Kto dodał: wszyscy" });
+    await userEvent.click(icon);
+    await userEvent.click(within(screen.getByTestId("added-by-menu")).getByText(/Ty/));
+    expect(onChange).toHaveBeenCalledWith({ kind: "user", userId: 7 });
+  });
+
+  it("włączony filtr widać na samej ikonie", () => {
+    renderIcon({ kind: "user", userId: 7 });
+    expect(screen.getByRole("button", { name: "Kto dodał: Ty" })).toHaveClass("bg-primary/10");
+  });
+});
+
+describe("AddedByFilterButton — na stałe w pasku rekrutacji (09.11.2026)", () => {
+  it("niesie kotwicę nowości i ma wysokość kafli źródeł", () => {
+    renderButton();
+    const trigger = screen.getByTestId("added-by-trigger");
+    expect(trigger).toHaveAttribute("data-tour", "jobs.board.added-by");
+    expect(trigger).toHaveClass("h-7");
   });
 });
