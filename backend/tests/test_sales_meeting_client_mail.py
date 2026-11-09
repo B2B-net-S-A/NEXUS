@@ -24,6 +24,7 @@ from app.models.sales import SalesActivity, SalesMeetingTranscript, SalesOpportu
 from app.services.m365 import sender as m365_sender
 from app.services.m365.graph_client import GraphRequestError
 from app.services.sales import meeting_client_mail as service
+from app.services.sales import outlook_activities as outlook
 from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_meeting_decisions import _activity, _firm, _opportunity, _tag
 from tests.test_sales_outlook_sync import _candidate
@@ -368,9 +369,81 @@ async def test_candidate_address_is_refused_even_for_admin(app_client, graph) ->
     )
 
     assert resp.status_code == 422
-    assert address in resp.json()["detail"]
+    # Odmowa nie wymienia adresu: wpisywanie nie sprawdza, kto jest w bazie.
+    assert address not in resp.json()["detail"]
+    assert "kandydatów" in resp.json()["detail"]
     assert graph.calls == []
     assert (await _transcript(uid)).client_mail_request_id is None
+
+
+@pytest.mark.asyncio
+async def test_candidate_check_runs_only_for_the_organizer(app_client, graph) -> None:
+    rep = await _user("sales_edit")
+    colleague = await _user("sales_edit")
+    await _mailbox(colleague)
+    address = f"kandydat-{_tag()}@example.pl"
+    await _candidate(address)
+    activity_id, _uid = await _meeting(rep, await _firm(), attendees=[])
+
+    foreign = await app_client.post(
+        _send_url(activity_id), json=_payload([address]), headers=_headers(colleague)
+    )
+    missing = await app_client.post(
+        _send_url(999_999_999), json=_payload([address]), headers=_headers(colleague)
+    )
+
+    assert foreign.status_code == 403
+    assert missing.status_code == 404
+    assert address not in foreign.text + missing.text
+    assert graph.calls == []
+
+
+@pytest.mark.asyncio
+async def test_sync_copy_from_sent_items_keeps_the_full_body(app_client, graph) -> None:
+    rep = await _user("sales_edit")
+    await _mailbox(rep)
+    domain = f"{_tag()}.example.pl"
+    company_id = await _firm(domain=domain)
+    opp = await _opportunity(app_client, rep, company_id)
+    activity_id, _uid = await _meeting(
+        rep, company_id, attendees=[], opportunity_id=opp["id"]
+    )
+    body = "Dziękujemy za spotkanie.\nUstalenia:\n- demo w piątek\n" + "x" * 400
+    sent = await app_client.post(
+        _send_url(activity_id),
+        json=_payload([f"klient@{domain}"], body=body),
+        headers=_headers(rep),
+    )
+    assert sent.status_code == 200, sent.text
+    async with AsyncSessionLocal() as db:
+        internet_id = (await db.get(SalesActivity, sent.json()["id"])).external_id
+
+    async with AsyncSessionLocal() as db:
+        await outlook.record(
+            db,
+            outlook.OutlookItem(
+                source=outlook.EMAIL_SOURCE,
+                external_id=internet_id,
+                owner_user_id=rep.id,
+                owner_address=rep.email,
+                addresses=[rep.email, f"klient@{domain}"],
+                subject="Podsumowanie spotkania",
+                preview="Dziękujemy za spotkanie. Ustalenia: - demo",
+                occurred_at=datetime.now(timezone.utc),
+                direction="out",
+            ),
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(SalesActivity).where(SalesActivity.external_id == internet_id)
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].body == body
+    assert rows[0].opportunity_id == opp["id"]
 
 
 @pytest.mark.asyncio

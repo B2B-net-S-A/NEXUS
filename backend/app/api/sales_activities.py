@@ -72,6 +72,10 @@ OUTLOOK_EVENT_SOURCE = "msgraph-event"
 #: Pierwszy blok listy spotkań: dziś i najbliższy tydzień.
 MEETING_SOON_DAYS = 7
 TRANSCRIPT_NOT_FOUND_DETAIL = "To spotkanie nie ma transkryptu."
+CLIENT_MAIL_CANDIDATE_DETAIL = (
+    "Wśród adresatów jest osoba z bazy kandydatów. Podsumowań z Sprzedaży do "
+    "kandydatów nie wysyłamy: usuń ten adres."
+)
 CLIENT_MAIL_ORGANIZER_DETAIL = (
     "Podsumowanie dla klienta wysyła organizator spotkania albo administrator."
 )
@@ -1067,6 +1071,9 @@ async def send_meeting_client_summary(
 ) -> ActivityOut:
     """Wyślij podsumowanie klientowi ze swojej skrzynki i zapisz mail na osi szansy."""
 
+    # Najpierw organizator albo admin: odpowiedź o adresach kandydatów nie może
+    # trafić do kogoś, kto tego spotkania nie wysyła.
+    await _client_mail_meeting(db, activity_id, current_user)
     addresses: list[str] = []
     invalid: list[str] = []
     for value in payload.to:
@@ -1088,14 +1095,11 @@ async def send_meeting_client_summary(
             detail="Mail musi mieć temat i treść.",
         )
     # Bramka kandydatów zostaje: ta ścieżka nie pisze do osób z bazy kandydatów.
-    candidates = await meeting_client_mail.candidate_addresses(db, addresses)
-    if candidates:
+    # Bez wymieniania adresów, żeby wpisywanie nie sprawdzało, kto jest w bazie.
+    if await meeting_client_mail.candidate_addresses(db, addresses):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Te adresy są w bazie kandydatów, a podsumowania z Sprzedaży do "
-                f"kandydatów nie wysyłamy: {', '.join(sorted(candidates))}."
-            ),
+            detail=CLIENT_MAIL_CANDIDATE_DETAIL,
         )
     connection = await _own_connection(db, current_user.id)
     mailbox = meeting_client_mail.mailbox_state(connection)

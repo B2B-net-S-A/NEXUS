@@ -320,7 +320,9 @@ kolumny 0676 przy `sales_meeting_transcripts`.
   `scopes_granted` dostaje 409 z prośbą o ponowne połączenie.
 - **Adresaci domyślnie:** uczestnicy z `calendar_events.attendees` bez naszych domen
   i bez właściciela skrzynki (`matcher.external_addresses`); da się ich zmienić.
-- **Bez wysyłki do adresów z bazy kandydatów, także dla admina (422).** Ta ścieżka
+- **Bez wysyłki do adresów z bazy kandydatów, także dla admina (422).** Najpierw
+  bramka organizatora (403/404), potem adresy, a odmowa ich nie wymienia: inaczej każdy
+  z „Sprzedaż: edycja” sprawdzałby wpisywaniem, kto jest w bazie kandydatów. Ta ścieżka
   używa `GraphClient(..., sales_ok=True)`, żeby wysłać ze skrzynki handlowca bez dostępu
   do kandydatów; bramka kandydatów z `m365/sender.py` zostaje nietknięta, a korespondencja
   z kandydatem i tak nie idzie na oś firmy.
@@ -332,7 +334,8 @@ kolumny 0676 przy `sales_meeting_transcripts`.
   i `internetMessageId`, więc kopia z folderu Wysłane z synchronizacji skleja się z nim
   (ten sam klucz co `ux_sales_activities_outlook`). Spotkanie przypięte idzie do swojej
   szansy, spotkanie firmy do karty, z której wysłano (tylko szansa tej samej firmy).
-  Synchronizacja nadpisuje potem treść podglądem z Graph; pełny mail jest w Outlooku.
+  Synchronizacja nie skraca treści: podgląd z Graph nie zastępuje dłuższej treści maila
+  (`outlook_activities.record`).
 
 ## Poza zakresem (świadomie)
 
