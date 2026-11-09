@@ -49,7 +49,7 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   (`services/company_people_rank.py`, bez stażu, praktyk i juniorów), potem
   najświeżej dodani do bazy. Przy osobie dodanej ponad 3 lata temu znacznik
   „CV sprzed 3 lat”. Nowe pola idą tylko do Sprzedaży (`_CRM_EXCLUDE`).
-- **„Inne nazwy z CV” na karcie**, tabela `sales_company_aliases` (0669):
+- **„Inne nazwy z CV” na karcie**, tabela `sales_company_aliases` (0671):
   „Dołącz” (`joined`) dolicza nazwę do osób i szukania klienta, „Nie ta firma”
   (`rejected`) tylko przestaje podpowiadać, „Cofnij” kasuje decyzję. Zapis
   `SalesEditUser`. Nazwy dołączone czyta serwer (`extra_names`), poza limitem

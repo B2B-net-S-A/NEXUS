@@ -689,7 +689,7 @@ TRANSCRIPTS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0669: inne nazwy firmy z CV (etap P8, 09.11.2026) ─────────────────────
+# ── 0671: inne nazwy firmy z CV (etap P8, 09.11.2026) ─────────────────────
 # Decyzja handlowca przy wariancie nazwy z CV: „Dołącz” (``joined``) doliczamy
 # do „Kogo znamy”, „Nie ta firma” (``rejected``) tylko przestajemy podpowiadać.
 # Cofnięcie kasuje wiersz, bo to decyzja, a nie dane o firmie. Klucz po
