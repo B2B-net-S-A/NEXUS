@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import bindparam, or_, select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.workforce_availability import operational_owner_ids
 
@@ -183,24 +183,24 @@ _SQL = text(
              ORDER BY p.moved_at DESC, p.id DESC
              LIMIT 1
       ) p ON TRUE
-     WHERE l.moved_by IN :owner_ids
-        OR p.moved_by IN :owner_ids
-        OR j.recruiter_id IN :owner_ids
+     WHERE l.moved_by = ANY(:owner_ids)
+        OR p.moved_by = ANY(:owner_ids)
+        OR j.recruiter_id = ANY(:owner_ids)
         OR EXISTS (
             SELECT 1 FROM recruitment_processes rp
              WHERE rp.candidate_id = l.candidate_id
                AND rp.job_id = l.job_id
-               AND rp.owner_user_id IN :owner_ids
+               AND rp.owner_user_id = ANY(:owner_ids)
         )
         OR EXISTS (
             SELECT 1 FROM candidate_stages v
              WHERE v.candidate_id = l.candidate_id
                AND v.job_id = l.job_id
                AND v.stage = 'verified'
-               AND v.moved_by IN :owner_ids
+               AND v.moved_by = ANY(:owner_ids)
         )
     """
-).bindparams(bindparam("owner_ids", expanding=True))
+)
 
 
 def _value(raw: object) -> Optional[str]:
