@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import literal_column, select
+from sqlalchemy import literal_column, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,11 +88,27 @@ def _clean(value: str) -> str:
     return " ".join(part for part in text.replace("\n", " ").split(" ") if part)
 
 
+MAX_URL = 1000
+
+
 def _required_url(value: str) -> str:
     url = http_url(value)
     if not url:
         raise ValueError("Wymagany adres http(s) źródła.")
+    # Długość dopiero po dopisaniu „https://” do gołej domeny: kolumna ma 1000 znaków.
+    if len(url) > MAX_URL:
+        raise ValueError("Adres źródła jest za długi.")
     return url
+
+
+def _required_text(value: str) -> str:
+    """``min_length`` liczy przed czyszczeniem, więc pusty wynik sprawdzamy tutaj:
+    inaczej CHECK tytułu w bazie zwraca 500 i przepada cały raport."""
+
+    cleaned = _clean(value)
+    if not cleaned:
+        raise ValueError("Pole nie może być puste.")
+    return cleaned
 
 
 class ReportSignal(BaseModel):
@@ -112,7 +128,12 @@ class ReportSignal(BaseModel):
     def _url(cls, value: str) -> str:
         return _required_url(value)
 
-    @field_validator("title", "summary", "why_now")
+    @field_validator("title")
+    @classmethod
+    def _title(cls, value: str) -> str:
+        return _required_text(value)
+
+    @field_validator("summary", "why_now")
     @classmethod
     def _text(cls, value: str) -> str:
         return _clean(value)
@@ -128,15 +149,12 @@ class ReportPoint(BaseModel):
     @field_validator("text")
     @classmethod
     def _text(cls, value: str) -> str:
-        cleaned = _clean(value)
-        if not cleaned:
-            raise ValueError("Punkt nie może być pusty.")
-        return cleaned
+        return _required_text(value)
 
     @field_validator("url")
     @classmethod
     def _url(cls, value: Optional[str]) -> Optional[str]:
-        return http_url(value) if value else None
+        return _required_url(value) if value else None
 
 
 class ReportBriefing(BaseModel):
@@ -541,7 +559,9 @@ async def start_run(
         run, token, [rows[cid] for cid in sorted(rows)], await _feedback(db, list(rows))
     )
     await db.commit()
+    run_id = run.id
     headers = {"Authorization": f"Bearer {settings.GROK_BOT_WEBHOOK_KEY}"}
+    error: Optional[str] = None
     try:
         if client is None:
             async with httpx.AsyncClient(timeout=20.0) as own:
@@ -553,16 +573,21 @@ async def start_run(
                 settings.GROK_BOT_WEBHOOK_URL, json=body, headers=headers
             )
         response.raise_for_status()
+    except httpx.TimeoutException:
+        # Nie wiadomo, czy bot dostał zlecenie: bieg zostaje otwarty z tokenem,
+        # a bez raportu zamknie go ``expire_runs`` po terminie tokenu.
+        logger.warning("sales_signals run=%s kind=%s webhook timeout", run_id, kind)
     except httpx.HTTPStatusError as exc:
-        run.status, run.token_hash = "failed", None
-        run.error = f"webhook HTTP {exc.response.status_code}"
+        error = f"webhook HTTP {exc.response.status_code}"
     except httpx.HTTPError as exc:
-        run.status, run.token_hash = "failed", None
-        run.error = f"webhook {type(exc).__name__}"[:255]
-    await db.commit()
+        error = f"webhook {type(exc).__name__}"[:255]
+    if error is not None:
+        await _close_open_run(db, run_id, status="failed", error=error)
+        logger.warning("sales_signals run=%s kind=%s failed: %s", run_id, kind, error)
+    await db.refresh(run)
     logger.info(
         "sales_signals run=%s kind=%s firms=%d status=%s",
-        run.id,
+        run_id,
         kind,
         len(rows),
         run.status,
@@ -570,29 +595,40 @@ async def start_run(
     return run
 
 
+async def _close_open_run(
+    db: AsyncSession, run_id: int, *, status: str, error: str
+) -> bool:
+    """Zamknij bieg tylko, gdy wciąż czeka: raport przyjęty w międzyczasie wygrywa."""
+
+    result = await db.execute(
+        update(SalesSignalRun)
+        .where(SalesSignalRun.id == run_id, SalesSignalRun.status == "started")
+        .values(status=status, token_hash=None, error=error)
+    )
+    await db.commit()
+    return bool(result.rowcount)
+
+
 async def expire_runs(db: AsyncSession, *, now: datetime) -> int:
     """Bieg bez raportu po terminie tokenu: ``expired`` i ostrzeżenie w logu."""
 
-    runs = (
-        (
-            await db.execute(
-                select(SalesSignalRun).where(
-                    SalesSignalRun.status == "started",
-                    SalesSignalRun.token_expires_at < now,
-                )
+    rows = (
+        await db.execute(
+            update(SalesSignalRun)
+            .where(
+                SalesSignalRun.status == "started",
+                SalesSignalRun.token_expires_at < now,
             )
+            .values(status="expired", token_hash=None, error="brak raportu")
+            .returning(SalesSignalRun.id, SalesSignalRun.kind)
         )
-        .scalars()
-        .all()
-    )
-    for run in runs:
-        run.status, run.token_hash, run.error = "expired", None, "brak raportu"
+    ).all()
+    await db.commit()
+    for run_id, kind in rows:
         logger.warning(
-            "sales_signals run=%s kind=%s expired without report", run.id, run.kind
+            "sales_signals run=%s kind=%s expired without report", run_id, kind
         )
-    if runs:
-        await db.commit()
-    return len(runs)
+    return len(rows)
 
 
 # ── „Mój dzień”: nowe sygnały osoby ──────────────────────────────────────

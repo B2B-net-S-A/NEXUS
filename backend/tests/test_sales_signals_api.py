@@ -286,3 +286,83 @@ async def test_sales_reads_need_sales_view(app_client) -> None:
         "/api/sales/signals/latest-run", headers=_headers(stranger)
     )
     assert resp.status_code == 403
+
+
+def _transport(handler):
+    import httpx
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.asyncio
+async def test_webhook_timeout_keeps_run_open_and_error_never_overwrites_report(
+    monkeypatch,
+) -> None:
+    import httpx
+
+    monkeypatch.setattr(settings, "GROK_BOT_WEBHOOK_URL", "https://bot.example/hook")
+    monkeypatch.setattr(settings, "GROK_BOT_WEBHOOK_KEY", "test-key")
+    company = await _company(f"Webhook {uuid.uuid4().hex[:8]}")
+
+    def timeout(_request):
+        raise httpx.ReadTimeout("slow")
+
+    async with AsyncSessionLocal() as db:
+        run = await signals.start_run(
+            db, "signals", [company], client=_transport(timeout)
+        )
+        run_id = run.id
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(SalesSignalRun, run_id)
+        assert (stored.status, stored.token_hash is not None) == ("started", True)
+
+    # Bot odpowiada szybciej niż kończy się webhook, a webhook potem pada.
+    async def report_then_fail(request):
+        body = __import__("json").loads(request.content)
+        async with AsyncSessionLocal() as other:
+            fresh = await other.get(SalesSignalRun, body["run_id"])
+            await signals.ingest(
+                other,
+                fresh,
+                signals.RunReport(checked_firms=1),
+                now=datetime.now(timezone.utc),
+            )
+            await other.commit()
+        return httpx.Response(503)
+
+    async with AsyncSessionLocal() as db:
+        run = await signals.start_run(
+            db, "signals", [company], client=_transport(report_then_fail)
+        )
+        second_id = run.id
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(SalesSignalRun, second_id)).status == "received"
+
+    def refused(_request):
+        return httpx.Response(503)
+
+    async with AsyncSessionLocal() as db:
+        run = await signals.start_run(
+            db, "signals", [company], client=_transport(refused)
+        )
+        third_id = run.id
+    async with AsyncSessionLocal() as db:
+        third = await db.get(SalesSignalRun, third_id)
+        assert (third.status, third.error, third.token_hash) == (
+            "failed",
+            "webhook HTTP 503",
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_expiry_closes_only_open_runs(app_client) -> None:
+    company = await _company(f"Wygasanie {uuid.uuid4().hex[:8]}")
+    past = datetime.now(timezone.utc) - timedelta(minutes=1)
+    open_id, _ = await _run([company], token_expires_at=past)
+    done_id, _ = await _run([company], token_expires_at=past, status="received")
+    async with AsyncSessionLocal() as db:
+        assert await signals.expire_runs(db, now=datetime.now(timezone.utc)) >= 1
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(SalesSignalRun, open_id)).status == "expired"
+        assert (await db.get(SalesSignalRun, done_id)).status == "received"

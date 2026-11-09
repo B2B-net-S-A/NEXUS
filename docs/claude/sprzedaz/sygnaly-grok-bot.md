@@ -16,9 +16,14 @@ sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.
   `sales_signal_runs` z listą firm i SHA-256 jednorazowego tokenu, potem webhook
   bota (`GROK_BOT_WEBHOOK_URL`, nagłówek `Authorization: Bearer GROK_BOT_WEBHOOK_KEY`).
   Bieg jest zapisany przed wywołaniem webhooka, bo bot może odpowiedzieć szybciej niż
-  NEXUS skończy żądanie.
+  NEXUS skończy żądanie. **Zmiana stanu biegu tylko warunkowo** (`status = 'started'`
+  w `UPDATE`): błąd webhooka ani wygaśnięcie nie nadpiszą przyjętego raportu.
+  Timeout webhooka zostawia bieg otwarty z tokenem (nie wiadomo, czy bot dostał
+  zlecenie), błąd HTTP zamyka go jako `failed`. Nieudany przegląd w poniedziałek
+  pętla ponawia po godzinie.
 - **Do bota idą tylko nazwy i domeny firm** (`webhook_body`), plus powody odrzuceń
-  i znane już linki. Żadnych osób, CV, kontaktów ani NIP-ów: komputery bota stoją
+  wyłącznie z listy `REJECT_REASONS` (API przyjmuje dowolny tekst, a ten mógłby mieć
+  nazwisko albo telefon) i znane już linki. Żadnych osób, CV, kontaktów ani NIP-ów: komputery bota stoją
   w USA, bez regionu UE.
 - **Bot odsyła jeden raport** na `POST /api/integrations/sales-signals/runs/{id}`
   z nagłówkiem `X-Run-Token`. Token działa dla jednego biegu, raz, najwyżej 2 godziny.
@@ -27,7 +32,8 @@ sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.
   (marker w `tests/test_route_authz_contract.py`).
 - **Raport to dane niezaufane**, bo bot czyta cudze strony: `extra=forbid` (pola osób
   nie istnieją), limity długości, tylko linki http(s), najwyżej 50 sygnałów i 4 punkty
-  na firmę, firma tylko z listy biegu, znaki sterujące wycięte. Żadnych automatycznych
+  na firmę, firma tylko z listy biegu, znaki sterujące wycięte. Tytuł i punkt puste
+  po czyszczeniu oraz link dłuższy niż kolumna po dopisaniu `https://` to 422, nie 500. Żadnych automatycznych
   działań poza zapisem leada i punktów.
 
 ## Sygnał → lead

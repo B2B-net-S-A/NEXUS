@@ -218,9 +218,12 @@ def _patch(monkeypatch, started: list) -> None:
     async def modes(_db, company_ids, **_k):
         return {cid: "first_call" for cid in company_ids}
 
+    class _Run:
+        status = "started"
+
     async def start(_db, kind, company_ids, **_k):
         started.append((kind, list(company_ids)))
-        return object()
+        return _Run()
 
     monkeypatch.setattr(loop.signals, "expire_runs", zero)
     monkeypatch.setattr(loop.signals, "start_run", start)
@@ -296,3 +299,37 @@ def test_feedback_sends_only_listed_reasons_never_free_text() -> None:
         "https://e.com/2",
         "https://e.com/3",
     ]
+
+
+@pytest.mark.parametrize("title", ["   ", "​", "\n\t"])
+def test_title_empty_after_cleaning_is_a_422_not_a_500(title: str) -> None:
+    with pytest.raises(ValidationError):
+        _report(signals=[_signal(title=title)])
+
+
+def test_bare_domain_longer_than_column_after_scheme_is_rejected() -> None:
+    long_url = "e.com/" + "a" * 990  # 996 znaków, z „https://” ponad 1000
+    with pytest.raises(ValidationError):
+        _report(signals=[_signal(url=long_url)])
+
+
+@pytest.mark.asyncio
+async def test_failed_webhook_does_not_count_as_this_weeks_review(monkeypatch) -> None:
+    started: list = []
+    _patch(monkeypatch, started)
+
+    class _Failed:
+        status = "failed"
+
+    async def start(_db, kind, company_ids, **_k):
+        started.append((kind, list(company_ids)))
+        return _Failed()
+
+    monkeypatch.setattr(loop.signals, "start_run", start)
+    monday = datetime(2026, 11, 16, 7, 5, tzinfo=WARSAW)
+    now = monday.astimezone(timezone.utc)
+    done = await loop.tick(
+        _Db({"signals": None, "briefing": now}), now=now, local=monday
+    )
+    assert ("signals", [1, 2]) in started
+    assert done["signals"] == 0

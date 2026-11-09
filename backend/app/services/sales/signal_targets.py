@@ -62,8 +62,13 @@ async def recently_sent(db: AsyncSession, *, now: datetime) -> set[int]:
     return {int(cid) for ids in runs.scalars() for cid in ids}
 
 
-async def new_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
+async def new_company_ids(
+    db: AsyncSession, *, now: datetime, exclude: Iterable[int] = ()
+) -> list[int]:
+    """Firmy wysłane w ostatnich 24 h odpadają w zapytaniu, przed limitem."""
+
     since = now - NEW_WITHIN
+    skip = sorted(set(exclude))
     lead_companies = select(SalesLead.company_id.label("company_id")).where(
         SalesLead.company_id.is_not(None),
         SalesLead.created_at >= since,
@@ -83,6 +88,7 @@ async def new_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
         .where(
             SalesCompanyBriefing.company_id.is_(None),
             SalesCompany.archived_at.is_(None),
+            *([union.c.company_id.notin_(skip)] if skip else []),
         )
         .order_by(union.c.company_id.desc())
         .limit(MAX_BRIEFING_FIRMS * 2)

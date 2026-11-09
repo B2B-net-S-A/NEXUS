@@ -13,7 +13,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -27,14 +27,27 @@ logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 15 * 60
 BRIEFING_EVERY = timedelta(hours=1)
+RETRY_FAILED_AFTER = timedelta(hours=1)
 SIGNALS_HOUR = 7
 REFRESH_HOUR, REFRESH_MINUTE = 7, 30
 
 
-async def _last_start(db: AsyncSession, kind: str) -> datetime | None:
+async def _last_start(db: AsyncSession, kind: str, *, now: datetime) -> datetime | None:
+    """Ostatni start biegu; nieudany liczy się tylko przez godzinę, potem ponowienie."""
+
     return await db.scalar(
-        select(func.max(SalesSignalRun.started_at)).where(SalesSignalRun.kind == kind)
+        select(func.max(SalesSignalRun.started_at)).where(
+            SalesSignalRun.kind == kind,
+            or_(
+                SalesSignalRun.status != "failed",
+                SalesSignalRun.started_at >= now - RETRY_FAILED_AFTER,
+            ),
+        )
     )
+
+
+def _started(run: object) -> bool:
+    return getattr(run, "status", None) == "started"
 
 
 def _monday_start(local: datetime) -> datetime:
@@ -52,22 +65,23 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
     }
     is_monday = local.weekday() == 0
     if is_monday and local.hour >= SIGNALS_HOUR:
-        last = await _last_start(db, "signals")
+        last = await _last_start(db, "signals", now=now)
         if last is None or last < _monday_start(local):
             ids = await targets.pilot_company_ids(db)
-            if ids and await signals.start_run(db, "signals", ids, now=now):
+            if ids and _started(await signals.start_run(db, "signals", ids, now=now)):
                 done["signals"] = len(ids)
 
-    last = await _last_start(db, "briefing")
+    last = await _last_start(db, "briefing", now=now)
     if last is None or last <= now - BRIEFING_EVERY:
         skip = await targets.recently_sent(db, now=now)
-        candidates = await targets.new_company_ids(db, now=now)
+        candidates = await targets.new_company_ids(db, now=now, exclude=skip)
         if is_monday and (local.hour, local.minute) >= (REFRESH_HOUR, REFRESH_MINUTE):
             candidates += await targets.refresh_company_ids(db, now=now)
         ids = targets.pick(candidates, skip=skip, limit=targets.MAX_BRIEFING_FIRMS)
         if ids:
             modes = await targets.modes_for(db, ids, now=now)
-            if await signals.start_run(db, "briefing", ids, now=now, modes=modes):
+            run = await signals.start_run(db, "briefing", ids, now=now, modes=modes)
+            if _started(run):
                 done["briefing"] = len(ids)
     return done
 
