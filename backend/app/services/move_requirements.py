@@ -25,8 +25,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.pair_filter import in_pairs
 
 # Pola karty, które klient może dołożyć do minimum (karta klienta, D3) — jedno
 # wejście dla modułów spoza listy czytelników kart rekomendacji.
@@ -1131,7 +1133,7 @@ async def company_cv_refs(
                 CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
             )
             .where(
-                tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(wanted),
+                in_pairs(CandidateStage.candidate_id, CandidateStage.job_id, wanted),
                 CandidateStageCV.branded_status.in_(("draft", "finalized")),
                 CandidateStageCV.branded_draft_html.is_not(None),
             )
@@ -1163,9 +1165,11 @@ async def company_cv_refs(
                     CvGeneratedDocument.id,
                 )
                 .where(
-                    tuple_(
-                        CvGeneratedDocument.candidate_id, CvGeneratedDocument.job_id
-                    ).in_(missing),
+                    in_pairs(
+                        CvGeneratedDocument.candidate_id,
+                        CvGeneratedDocument.job_id,
+                        missing,
+                    ),
                     CvGeneratedDocument.status == "ready",
                     CvGeneratedDocument.render_payload.is_not(None),
                     # „Odrzuć to CV” (audyt 22.10, F64): nie jest już CV pary.
