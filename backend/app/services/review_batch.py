@@ -1352,13 +1352,15 @@ async def assert_removal_allowed(
                 ),
             },
         )
-    # Dzisiejsze niedomknięte S trzyma wymagane minimum: usunięcie karty po
-    # klawiszu S zerowałoby je tak samo jak usunięcie z „Nowych”.
+    # Dzisiejsze niedomknięte S z własnej porcji trzyma wymagane minimum: usunięcie
+    # karty po klawiszu S zerowałoby je tak samo jak usunięcie z „Nowych”. Starsza
+    # albo cudza karta minimum nie trzyma, więc można ją zdjąć.
     since = day_start(now)
     decisions = (await _decisions(db, [user.id], now=now)).get(user.id, [])
     if any(
         d.job_id == job_id
         and d.candidate_id == candidate_id
+        and d.own_batch
         and d.counted_at is None
         and d.moved_at >= since
         for d in decisions

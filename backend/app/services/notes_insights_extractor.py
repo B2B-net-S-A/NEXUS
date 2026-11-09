@@ -37,7 +37,7 @@ from app.core.terminal_failure import terminal_operation
 from app.models.candidate import Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
-from app.services import note_kinds
+from app.services import conversation_facts, note_kinds
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.ai_models import fallbacks_for, model_for
 
@@ -593,7 +593,7 @@ def apply_insights(
         or getattr(candidate, "skills_manually_curated", False)
     ):
         stats["locked_skills"] = 1
-    elif evidenced:
+    elif evidenced and not conversation_facts.enabled():
         names = [
             s.get("name") for s in evidenced if isinstance(s, dict) and s.get("name")
         ]

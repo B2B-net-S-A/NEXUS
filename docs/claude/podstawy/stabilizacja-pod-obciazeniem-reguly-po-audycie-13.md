@@ -40,7 +40,8 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   jednego połączenia. To dane do decyzji o puli i procesach (F06) — zanim
   zmienisz `pool_size`/`max_overflow`, spójrz na nie. Połączenia mają
   `application_name=nexus-backend` w `pg_stat_activity`. Od 04.11.2026 także
-  `gc_gen2_count`, `gc_gen2_ms_sum` i `gc_gen2_ms_max`.
+  `gc_gen2_count`, `gc_gen2_ms_sum` i `gc_gen2_ms_max`, od 09.11.2026 `cpu_pct`
+  (wątki procesu razem, w pierwszym oknie `None`) i `rss_mb` (bieżące, bez `/proc` `None`).
 - **Wolna trasa to zwykle liczba zapytań razy kolejka w pętli, nie wolny SQL**
   (pomiar 04.11.2026). Główny wątek płaci ok. 1,4 ms CPU za zapytanie; przy
   220–346 zapytaniach/s to 30–47% rdzenia (zmierzone 32–49%), a baza zajmuje ok. 25%.

@@ -1043,6 +1043,11 @@ export const candidateFactsApi = {
         { params: { limit: Math.min(5, Math.max(1, limit)) } },
       )
       .then((response) => response.data),
+  /** Blok „Z rozmów”: rejestr faktów o osobie ze źródłem i datą. */
+  getConversationFacts: (candidateId: number) =>
+    api
+      .get<ConversationFactsResponse>(`/api/candidates/${candidateId}/conversation-facts`)
+      .then((response) => response.data),
   /** Fakty z notatek rekruterów obok stanu profilu (czysty odczyt). */
   getNotesFacts: (candidateId: number) =>
     api
@@ -1098,6 +1103,26 @@ export interface CandidateWorkModeResult {
   candidate_id: number;
   remote_modes: WorkMode[];
   max_onsite_days_per_week: number | null;
+}
+
+export interface ConversationFact {
+  id: number;
+  kind: "skill" | "domain" | "certification" | "regulation";
+  value: string;
+  status: "confirmed" | "absent";
+  source: "sheet" | "note_ai";
+  noted_at: string;
+  job_id: number | null;
+  job_title: string | null;
+  author_name: string | null;
+  evidence: string | null;
+  job_only: boolean;
+}
+
+export interface ConversationFactsResponse {
+  candidate_id: number;
+  enabled: boolean;
+  facts: ConversationFact[];
 }
 
 export interface CandidateNotesFacts {

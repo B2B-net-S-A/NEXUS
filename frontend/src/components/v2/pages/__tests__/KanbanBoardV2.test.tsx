@@ -862,7 +862,7 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
 
     renderBoard();
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
-    // Awatar właściciela: brak danych mówi o sobie w dymku.
+    // Imię właściciela: brak danych mówi o sobie w dymku.
     expect(candidate.closest("[data-kanban-card]")?.querySelector('[data-testid="card-owner"]')?.getAttribute("title")).toContain(
       "Brak danych o osobie dodającej",
     );
@@ -1929,6 +1929,7 @@ function defaultB2BColumns() {
       lastname: `${name.slice(0, 6)}${i}`,
       // Dwa dni na etapie → „Umów screening"; dziewięć → zaległość.
       days_in_stage: i === 0 ? 2 : 9,
+      waiting_workdays: i === 0 ? 2 : 9,
       added_to_job_by_name: "Katarzyna Nowak",
     })),
   })) as never;
@@ -2026,11 +2027,26 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
 
     const verifiedRow = screen.getByTitle(/^Zweryfikował\(a\): Olga Weryfikująca/);
     expect(verifiedRow.title).toContain("Dodano do rekrutacji przez: Piotr Szkicowy");
-    expect(within(verifiedRow).getByText("OW")).toBeInTheDocument();
+    expect(within(verifiedRow).getByText("Olga")).toBeInTheDocument();
 
     const screeningCard = screen.getByText("Jan Wrócił").closest("[data-kanban-card]") as HTMLElement;
-    expect(within(screeningCard).getByTestId("card-owner")).toHaveTextContent("PS");
-    expect(within(screeningCard).queryByText("OW")).toBeNull();
+    expect(within(screeningCard).getByTestId("card-owner")).toHaveTextContent("Piotr");
+    expect(within(screeningCard).queryByText("Olga")).toBeNull();
+  });
+
+  it("karta pisze imię właściciela zamiast inicjałów, a pełne nazwisko zostaje w dymku (09.11.2026)", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[1] = {
+      ...columns[1],
+      items: [{ id: 7301, candidate_id: 8301, stage: "screening", name: "Jan", lastname: "Testowy", days_in_stage: 1, added_to_job_by_name: "Piotr Szkicowy" }],
+    };
+    renderBoard(columns as never);
+
+    const card = (await screen.findByText("Jan Testowy")).closest("[data-kanban-card]") as HTMLElement;
+    const owner = within(card).getByTestId("card-owner");
+    expect(owner).toHaveTextContent(/^Piotr$/);
+    expect(owner.title).toContain("Piotr Szkicowy");
+    expect(within(card).queryByText("PS")).toBeNull();
   });
 
   it("nawigator doku idzie po kolumnie otwartej osoby, karty od góry — także z etapów złożonych w kolumnę", async () => {
@@ -2641,8 +2657,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     // pełna informacja o SLA (bez karty klienta — „SLA: —") w dymku.
     const intake = container.querySelector('[data-column-sla="def:300"]');
     expect(intake).toHaveTextContent("Przejrzyj, zadzwoń, kliknij „Biorę”");
-    expect(intake).toHaveTextContent("najstarszy 9 d");
-    expect(intake).toHaveAttribute("title", "SLA: — · najstarszy 9 d");
+    expect(intake).toHaveTextContent("najstarszy 9 d rob.");
+    expect(intake).toHaveAttribute("title", "SLA: — · najstarszy 9 d rob.");
     // Po weryfikacji następna jest QC CV — nie „→ CV do klienta" (błąd sprzed v5).
     const verified = container.querySelector('[data-column-sla="def:302"]');
     expect(verified).toHaveTextContent("Stawka ✓ → przygotuj CV do QC");
@@ -4153,9 +4169,9 @@ describe("KanbanBoardV2 — panel osoby: przekazanie dalej, następna w kolumnie
                 stage_def_id: 11,
                 count: 3,
                 items: [
-                  { id: 701, candidate_id: 7, name: "Michał", lastname: "Zieliński", stage: "new", days_in_stage: 1 },
-                  { id: 702, candidate_id: 8, name: "Anna", lastname: "Wiśniewska", stage: "new", days_in_stage: 3 },
-                  { id: 703, candidate_id: 9, name: "Ola", lastname: "Ostatnia", stage: "new", days_in_stage: 0 },
+                  { id: 701, candidate_id: 7, name: "Michał", lastname: "Zieliński", stage: "new", days_in_stage: 1, waiting_workdays: 1 },
+                  { id: 702, candidate_id: 8, name: "Anna", lastname: "Wiśniewska", stage: "new", days_in_stage: 3, waiting_workdays: 3 },
+                  { id: 703, candidate_id: 9, name: "Ola", lastname: "Ostatnia", stage: "new", days_in_stage: 0, waiting_workdays: 0 },
                 ],
               },
             ] as never}
@@ -4176,7 +4192,7 @@ describe("KanbanBoardV2 — panel osoby: przekazanie dalej, następna w kolumnie
     );
     const stub = await screen.findByTestId("person-workbench-stub");
     expect(stub).toHaveAttribute("data-note-fill", "yes");
-    const next = within(stub).getByRole("button", { name: "następna w Nowych: Anna Wiśniewska · czeka 3 dni" });
+    const next = within(stub).getByRole("button", { name: "następna w Nowych: Anna Wiśniewska · czeka 3 dni rob." });
     fireEvent.click(next);
     await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "8"));
     // Za ostatnią osobą — pierwsza od góry, nie ona sama.
@@ -4188,7 +4204,7 @@ describe("KanbanBoardV2 — panel osoby: przekazanie dalej, następna w kolumnie
     await waitFor(() => expect(screen.getByTestId("person-workbench-stub")).toHaveAttribute("data-candidate", "9"));
     expect(
       within(screen.getByTestId("person-workbench-stub")).getByRole("button", {
-        name: "następna w Nowych: Michał Zieliński · czeka 1 dzień",
+        name: "następna w Nowych: Michał Zieliński · czeka 1 dzień rob.",
       }),
     ).toBeTruthy();
   });

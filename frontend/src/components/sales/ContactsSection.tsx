@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -135,18 +136,29 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
                 {title && <p className="text-xs text-muted-foreground">{title}{here?.role ? ` · ${here.role}` : ""}</p>}
               </div>
               <div className="flex flex-wrap gap-x-3 text-xs">
-                {contact.email && (
-                  <a className="text-primary hover:underline" href={`mailto:${contact.email}`}>
-                    {contact.email}
-                  </a>
-                )}
-                {(contact.phone || contact.mobile_phone) && (
-                  <a
-                    className="text-primary hover:underline"
-                    href={`tel:${contact.phone ?? contact.mobile_phone}`}
-                  >
-                    {contact.phone ?? contact.mobile_phone}
-                  </a>
+                {contact.do_not_contact_at ? (
+                  <span className="text-muted-foreground">
+                    <Badge variant="danger" size="sm">
+                      Nie kontaktować
+                    </Badge>{" "}
+                    {[contact.email, contact.phone ?? contact.mobile_phone].filter(Boolean).join(" · ")}
+                  </span>
+                ) : (
+                  <>
+                    {contact.email && (
+                      <a className="text-primary hover:underline" href={`mailto:${contact.email}`}>
+                        {contact.email}
+                      </a>
+                    )}
+                    {(contact.phone || contact.mobile_phone) && (
+                      <a
+                        className="text-primary hover:underline"
+                        href={`tel:${contact.phone ?? contact.mobile_phone}`}
+                      >
+                        {contact.phone ?? contact.mobile_phone}
+                      </a>
+                    )}
+                  </>
                 )}
                 {canEdit && (
                   <button

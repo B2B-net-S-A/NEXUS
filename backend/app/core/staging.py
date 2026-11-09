@@ -70,6 +70,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "competition_autofreeze",
         "dl_portal_expiry",
         "index_outbox",
+        "sales_archive_shadow",
     }
 )
 
@@ -121,6 +122,7 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "job_deadline_alerts",
         "job_idle",
         "client_wait",
+        "own_hiring",
         "job_p0_overdue",
         "skill_proposals",
         "cpro_mail",

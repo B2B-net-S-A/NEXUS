@@ -3,7 +3,7 @@
 // Lustro `backend/app/api/sales_*.py`. Odczyt wymaga „Sprzedaż: podgląd”, zapis
 // „Sprzedaż: edycja”; opiekuna zmienia obecny opiekun albo admin (403 z API).
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -183,6 +183,18 @@ export interface OpportunityRole {
   skills?: string[];
 }
 
+export interface OpportunityStep {
+  kind: "task" | "call" | "meeting";
+  at: string;
+  subject: string | null;
+}
+
+export interface OpportunityLastContact {
+  kind: "call" | "email" | "meeting" | "note";
+  direction: "in" | "out" | null;
+  at: string;
+}
+
 export interface Opportunity {
   id: number;
   title: string;
@@ -212,6 +224,16 @@ export interface Opportunity {
   tags: string[];
   owner: Ref | null;
   last_activity_at: string | null;
+  /** Ostatni dotyk (definicja w backendzie: services/sales/touch.py). */
+  last_touch_at: string;
+  /** Krok, zaległość i ostatni kontakt: definicja w services/sales/next_step.py. */
+  next_step: OpportunityStep | null;
+  overdue_step: OpportunityStep | null;
+  last_contact: OpportunityLastContact | null;
+  /** Klient napisał ostatni, a kroku nie ma. */
+  waiting_for_reply: boolean;
+  /** Brak kroku na szansie założonej albo ruszonej po wdrożeniu zasad. */
+  step_alarm: boolean;
   keep_open_until: string | null;
   archived_at: string | null;
   created_at: string;
@@ -225,6 +247,8 @@ export interface OpportunityContact {
   email: string | null;
   phone: string | null;
   role: ContactRole | null;
+  /** Osoba nie życzy sobie kontaktu: numer i mail nie są klikalne. */
+  do_not_contact_at: string | null;
 }
 
 export type DecisionOurRole =
@@ -251,6 +275,8 @@ export interface DecisionMapEntry {
   nexus_contact_id?: number | null;
   /** Pola, których wpis nie ma, pokazane z kontaktu tej osoby. */
   from_contact?: DecisionFromContactField[];
+  /** Sprzeciw wobec kontaktu: z kontaktu albo z samego wpisu na mapie. */
+  do_not_contact?: boolean;
 }
 
 export type DecisionFromContactField = "email" | "phone" | "linkedin_url" | "notes";
@@ -373,6 +399,8 @@ export interface ContactCompanyLink {
 }
 
 export interface SalesContact {
+  /** Osoba nie życzy sobie kontaktu: numer i mail nie są klikalne. */
+  do_not_contact_at?: string | null;
   id: number;
   company_id: number | null;
   company_name: string | null;
@@ -430,8 +458,40 @@ export interface Activity {
   web_link: string | null;
   direction: "in" | "out" | null;
   duration_minutes: number | null;
+  /** Wynik rozmowy zapisanej z karty szansy. */
+  outcome?: CallOutcome | null;
   /** Mail albo spotkanie firmy dołożone do historii szansy. */
   from_company: boolean;
+}
+
+export type CallOutcome =
+  | "connected"
+  | "no_answer"
+  | "call_back"
+  | "wants_offer"
+  | "not_now"
+  | "do_not_contact";
+
+export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
+  connected: "Dodzwoniłem",
+  no_answer: "Brak odpowiedzi",
+  call_back: "Oddzwonić",
+  wants_offer: "Prosi o ofertę",
+  not_now: "Nie teraz",
+  do_not_contact: "Nie kontaktować",
+};
+
+export type TimelineScope = "opportunity" | "company" | "other_opportunity";
+
+export interface TimelineItem extends Activity {
+  scope: TimelineScope;
+  /** Skąd wpis: po sklejeniu duplikatów może być kilka źródeł. */
+  sources: string[];
+}
+
+export interface OpportunityTimeline {
+  items: TimelineItem[];
+  counts: Record<TimelineScope | "all", number>;
 }
 
 export interface ActivityInput {
@@ -460,6 +520,10 @@ export interface MatchedPerson {
   phone: string | null;
   linkedin: string | null;
   profile_url: string | null;
+  /** Dzień dodania do bazy (kalendarz firmy), „RRRR-MM-DD”. */
+  added_at: string | null;
+  decision_role: boolean;
+  cv_stale: boolean;
 }
 
 export interface CompanyPeople {
@@ -473,6 +537,33 @@ export interface CompanyPeople {
     updated?: number;
     finished_at?: string;
   } | null;
+  /** Prawda tylko po udanym zapisie odczytu listy osób w dzienniku. */
+  read_logged: boolean;
+  own_company: boolean;
+}
+
+export type AliasStatus = "joined" | "rejected";
+
+export interface AliasDecision {
+  id: number;
+  name: string;
+  status: AliasStatus;
+}
+
+export interface AliasVariant {
+  key: string;
+  name: string;
+  people: number;
+  current: number;
+}
+
+export interface CompanyAliases {
+  decisions: AliasDecision[];
+  suggestions: AliasVariant[];
+  other_count: number;
+  other_min: number;
+  other_max: number;
+  own_cards: { id: number; name: string; current: number }[];
 }
 
 export const salesKeys = {
@@ -489,11 +580,14 @@ export const salesKeys = {
   contacts: (companyId: number | null, q: string, extra?: Record<string, unknown>) =>
     ["sales", "contacts", companyId, q, extra ?? {}] as const,
   activities: (scope: ActivityScope) => ["sales", "activities", scope] as const,
+  timeline: (opportunityId: number) => ["sales", "activities", "timeline", opportunityId] as const,
   tasks: (filters: TaskFilters) => ["sales", "tasks", filters] as const,
   summary: (pipelineId: number | null, period: SummaryPeriod) =>
     ["sales", "summary", pipelineId, period] as const,
   ownerLabels: ["sales", "owner-labels"] as const,
+  ownerCandidates: ["sales", "owner-candidates"] as const,
   companyDuplicates: ["sales", "company-duplicates"] as const,
+  myDay: ["sales", "my-day"] as const,
 };
 
 function clean(params: Record<string, unknown>): Record<string, string> {
@@ -560,6 +654,75 @@ export function useCompanyGroupPeople(id: number, enabled = true) {
   });
 }
 
+export type MyDaySectionKey = "meetings" | "reply" | "overdue" | "offers";
+
+export interface MyDayPerson {
+  id: number;
+  name: string;
+  title: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export interface MyDayRow {
+  key: string;
+  section: MyDaySectionKey;
+  company: Ref;
+  opportunity: { id: number; title: string } | null;
+  activity_id: number | null;
+  kind: "task" | "call" | null;
+  subject: string | null;
+  at: string;
+  days: number;
+  amount: string | null;
+  currency: string;
+  open_opportunities: number;
+  duration_minutes: number | null;
+  web_link: string | null;
+  do_not_contact: boolean;
+  person: MyDayPerson | null;
+  people_without_phone: MyDayPerson[];
+}
+
+export interface MyDayPrepEntry {
+  kind: ActivityKind;
+  direction: "in" | "out" | null;
+  at: string;
+  subject: string | null;
+  /** Dni kalendarzowe (kalendarz firmy) od tego wpisu. */
+  days: number;
+}
+
+export interface MyDayPrep {
+  activity_id: number;
+  company: Ref;
+  subject: string | null;
+  at: string;
+  duration_minutes: number | null;
+  open_opportunities: number;
+  can_create_opportunity: boolean;
+  history: MyDayPrepEntry[];
+  contacts: MyDayPerson[];
+}
+
+export interface MyDay {
+  today: string;
+  counts: Record<MyDaySectionKey | "older_tasks", number>;
+  meetings: MyDayRow[];
+  reply: MyDayRow[];
+  overdue: MyDayRow[];
+  offers: MyDayRow[];
+  prep: MyDayPrep | null;
+}
+
+/** Kolejka „Mój dzień” zalogowanej osoby. */
+export function useMyDay() {
+  return useQuery({
+    queryKey: salesKeys.myDay,
+    queryFn: async () => (await api.get<MyDay>("/api/sales/my-day")).data,
+  });
+}
+
 export function useCompanyPeople(id: number, enabled = true) {
   return useQuery({
     queryKey: salesKeys.companyPeople(id),
@@ -567,6 +730,41 @@ export function useCompanyPeople(id: number, enabled = true) {
       (await api.get<CompanyPeople>(`/api/sales/companies/${id}/people`)).data,
     enabled: enabled && Number.isFinite(id) && id > 0,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCompanyAliases(id: number, enabled = true) {
+  return useQuery({
+    queryKey: [...salesKeys.companyPeople(id), "aliases"] as const,
+    queryFn: async () =>
+      (await api.get<CompanyAliases>(`/api/sales/companies/${id}/people/aliases`)).data,
+    enabled: enabled && Number.isFinite(id) && id > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Klucz listy osób obejmuje też nazwy z CV i grupę, więc liczby się przeliczają. */
+function useInvalidateCompanyPeople(id: number) {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: salesKeys.companyPeople(id) });
+}
+
+export function useDecideCompanyAlias(id: number) {
+  const invalidate = useInvalidateCompanyPeople(id);
+  return useMutation({
+    mutationFn: async (payload: { name: string; status: AliasStatus }) =>
+      (await api.post<AliasDecision>(`/api/sales/companies/${id}/people/aliases`, payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUndoCompanyAlias(id: number) {
+  const invalidate = useInvalidateCompanyPeople(id);
+  return useMutation({
+    mutationFn: async (aliasId: number) => {
+      await api.delete(`/api/sales/companies/${id}/people/aliases/${aliasId}`);
+    },
+    onSuccess: invalidate,
   });
 }
 
@@ -691,6 +889,52 @@ export function useMoveOpportunity() {
         })
       ).data,
     onSuccess: invalidate,
+  });
+}
+
+export interface CallLogInput {
+  opportunity_id: number;
+  outcome: CallOutcome;
+  contact_id?: number;
+  person_key?: string;
+  note?: string;
+}
+
+/** Wynik rozmowy z karty szansy; „Nie kontaktować” zapisuje też sprzeciw. */
+export function useLogCall() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ opportunity_id, ...payload }: CallLogInput) =>
+      (
+        await api.post<OpportunityDetail>(
+          `/api/sales/opportunities/${opportunity_id}/calls`,
+          payload,
+        )
+      ).data,
+    // Bez czekania na przeładowanie karty: okno „Co dalej” ma się otworzyć od razu.
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+}
+
+export interface CompanyCallInput {
+  company_id: number;
+  outcome: CallOutcome;
+  contact_id?: number;
+  note?: string;
+}
+
+/** Wynik rozmowy przy firmie bez szansy (zaległe zadanie założone przy samej firmie). */
+export function useLogCompanyCall() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ company_id, ...payload }: CompanyCallInput) => {
+      await api.post(`/api/sales/companies/${company_id}/calls`, payload);
+    },
+    onSuccess: () => {
+      void invalidate();
+    },
   });
 }
 
@@ -864,6 +1108,20 @@ export function useSalesActivities(scope: ActivityScope, enabled = true) {
   });
 }
 
+/** Wspólna oś szansy i firmy: etykieta skąd wpis, duplikaty sklejone po stronie serwera. */
+export function useOpportunityTimeline(opportunityId: number, enabled = true) {
+  return useQuery({
+    queryKey: salesKeys.timeline(opportunityId),
+    queryFn: async () =>
+      (
+        await api.get<OpportunityTimeline>("/api/sales/activities/timeline", {
+          params: { opportunity_id: opportunityId },
+        })
+      ).data,
+    enabled: enabled && Number.isFinite(opportunityId) && opportunityId > 0,
+  });
+}
+
 export interface TaskFilters {
   scope: "mine" | "team";
   bucket: TaskBucket;
@@ -885,15 +1143,33 @@ export function useSalesTasks(filters: TaskFilters) {
   });
 }
 
+export type MeetingDecision = "linked" | "client" | "internal" | "create" | "pin" | "choose" | "company_only";
+
+export interface MeetingOpportunityOption {
+  id: number;
+  title: string;
+  stage_name: string;
+  value: string | null;
+  currency: string;
+}
+
 export interface Meeting extends Activity {
   /** Stan transkryptu Teams; `null` — spotkanie poza kolejką (gość, historia, Atlas). */
   transcript_status: "waiting" | "fetched" | "missing" | "not_online" | "forbidden" | "error" | null;
   transcript_summary: string | null;
+  /** Co handlowiec ma zrobić z tym spotkaniem (kolumna „Co dalej”). */
+  decision: MeetingDecision;
+  timing: "soon" | "past" | "later";
+  can_unpin: boolean;
+  open_opportunities: MeetingOpportunityOption[];
+  client_name: string | null;
+  delivery_lead: string | null;
 }
 
 export interface MeetingList {
   items: Meeting[];
   total: number;
+  counts: { pin: number; create: number; upcoming: number };
 }
 
 export interface MeetingTranscript {
@@ -902,12 +1178,24 @@ export interface MeetingTranscript {
   plain_text: string;
 }
 
+export interface MeetingDraft {
+  company: Ref;
+  occurred_at: string | null;
+  duration_minutes: number | null;
+  suggested_title: string;
+  attendees_known: boolean;
+  people: { id: number; name: string; title: string | null; attended: boolean }[];
+}
+
 export interface MeetingFilters {
   q?: string;
   linked?: "opportunity" | "company";
   has_transcript?: boolean;
   date_from?: string;
   date_to?: string;
+  mine?: boolean;
+  queue?: "pin" | "create";
+  upcoming?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -918,6 +1206,54 @@ export function useSalesMeetings(filters: MeetingFilters) {
     queryFn: async () =>
       (await api.get<MeetingList>("/api/sales/activities/meetings", { params: clean({ ...filters }) }))
         .data,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMeetingDraft(activityId: number) {
+  return useQuery({
+    queryKey: ["sales", "meetings", activityId, "draft"] as const,
+    queryFn: async () =>
+      (await api.get<MeetingDraft>(`/api/sales/activities/${activityId}/opportunity-draft`)).data,
+  });
+}
+
+export function usePinActivity() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: { activityId: number; opportunityId: number }) =>
+      (
+        await api.post<Activity>(`/api/sales/activities/${input.activityId}/pin`, {
+          opportunity_id: input.opportunityId,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUnpinActivity() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (activityId: number) =>
+      (await api.delete<Activity>(`/api/sales/activities/${activityId}/pin`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useCreateOpportunityFromMeeting() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: {
+      activityId: number;
+      title: string;
+      service_line: ServiceLine;
+      contact_ids: number[];
+    }) => {
+      const { activityId, ...payload } = input;
+      return (await api.post<{ id: number; title: string }>(`/api/sales/opportunities/from-activity/${activityId}`, payload))
+        .data;
+    },
+    onSuccess: invalidate,
   });
 }
 
@@ -1229,6 +1565,17 @@ export function useSalesSummary(pipelineId: number | null, period: SummaryPeriod
 export interface OwnerLabel {
   label: string;
   companies: number;
+}
+
+const OWNER_CANDIDATES_STALE_MS = 5 * 60_000;
+
+/** Komu można przekazać szansę: aktywne konta z „Sprzedaż: edycja”. */
+export function useOwnerCandidates() {
+  return useQuery({
+    queryKey: salesKeys.ownerCandidates,
+    queryFn: async () => (await api.get<Ref[]>("/api/sales/opportunities/owner-candidates")).data,
+    staleTime: OWNER_CANDIDATES_STALE_MS,
+  });
 }
 
 export function useOwnerLabels(enabled = true) {

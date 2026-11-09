@@ -1,5 +1,5 @@
 # Outlook handlowców w Sprzedaży — bieżąca poczta i kalendarz (decyzja Artura 28.10.2026)
-<!-- indeks: skrzynka handlowca bez dostępu do kandydatów, zakres skrzynki sales_ok, dopasowanie po kontakcie i domenie, deduplikacja internetMessageId/iCalUId, odwołane spotkania, emails.web_link -->
+<!-- indeks: skrzynka handlowca bez dostępu do kandydatów, zakres skrzynki sales_ok, dopasowanie po kontakcie i domenie, deduplikacja internetMessageId/iCalUId, odwołane spotkania, emails.web_link, przypięcie do szansy, szansa ze spotkania, bramka klienta -->
 
 „Tak, jak w Atlasie”: maile i spotkania handlowca z kontaktami firm są
 widoczne dla każdego z „Sprzedaż: podgląd” — na osi firmy i (przez
@@ -43,7 +43,7 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
   ma `sensitivity` przy wiadomości, dodanie go do `$select` zepsułoby sync;
   Atlas też patrzył tylko na kategorie) i spotkanie prywatne/poufne
   (`sensitivity`). Oznaczone później znikają (tylko wiersze synchronizacji
-  NEXUSA).
+  NEXUSA); przypięte do szansy zostają bez treści (sekcja o przypięciu niżej).
 - **Korespondencja z kandydatem nie idzie na oś firmy** (przegląd
   bezpieczeństwa 28.10.2026): mail z `candidate_id` i spotkanie z kandydatem
   wśród uczestników — dla skrzynek z dostępem do kandydatów (admin), bo
@@ -67,5 +67,50 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
   synchronizacja przechodzi maile z ostatnich 30 dni już zapisane w NEXUSIE
   (`SALES_CATCH_UP_KEY`).
 
+## Przypięcie do szansy i ekran Spotkania (09.11.2026)
+
+Synchronizacja przypina aktywność do firmy. Do szansy przypina handlowiec
+przy wierszu w Sprzedaż → Spotkania, bo tylko on wie, której szansy dotyczy
+spotkanie. Logika: `services/sales/meeting_decisions.py`, `client_gate.py`.
+
+- **Trasy** za `SalesEditUser`: `POST` i `DELETE /api/sales/activities/{id}/pin`
+  (mail i spotkanie z Outlooka, otwarta szansa tej samej firmy) oraz
+  `POST /api/sales/opportunities/from-activity/{id}` (tylko spotkanie).
+  Odczyt `GET …/{id}/opportunity-draft` za `SalesViewUser`.
+- **`last_activity_at` dostaje datę spotkania, nie kliknięcia**, i nigdy się nie
+  cofa. Przyszłe spotkanie zmienia je dopiero, gdy się odbędzie: robi to `record()`,
+  a spotkanie, które po prostu minęło, `settle_pinned_meetings` po każdym przebiegu
+  skrzynki z dostępem do Sprzedaży, bo delta Graph nie oddaje czegoś, co się nie zmieniło.
+- **Poprzednia data leży w historii** (`field = 'last_activity_at'`), bo przy
+  części szans z Atlasa nie wynika z aktywności. Cofnięcie bierze późniejszą
+  z poprzedniej daty i świeższej pracy przy szansie.
+- **`record()` nie zdejmuje przypięcia.** `forget()` przy oznaczeniu jako prywatne
+  nie kasuje wiersza przypiętego: czyści temat, treść i link, a transkrypt usuwa,
+  żeby prywatne nie zostało widoczne. Odwołane przyszłe spotkanie znika także
+  przypięte, bo się nie odbyło. Historia szansy (`field = 'outlook_activity'`) trzyma
+  id aktywności, a temat czyta z wiersza, bo zapisany temat zostałby tam po
+  oznaczeniu jako prywatne. Nie wpisuj do historii tematu ani treści z Outlooka.
+- **Bramka klienta przy szansie ze spotkania:** firma powiązana z klientem albo
+  o nazwie lub aliasie klienta (ta sama reguła co `is_existing_client`) dostaje
+  409 z nazwą Delivery Leada. Pozostałe ścieżki zakładania szansy jej nie mają.
+- **Nasza spółka to nie klient do przekazania.** Jest w `clients` (projekty
+  wewnętrzne, bez Delivery Leada) i ma kartę w Sprzedaży (`OWN_COMPANY_KEY`), więc
+  bez tego wyjątku spotkania przy niej dostawały fałszywe „zgłoś do Heada”. Wiersz ma
+  stan „Spotkanie wewnętrzne”, a próba założenia szansy kończy się 409.
+- **Firma w oknie jest tylko do odczytu,** bo przypiąć można wyłącznie do szansy
+  firmy tej aktywności.
+- **Lista:** jedno spotkanie to jeden wiersz (`external_id`), najpierw kopia
+  przypięta, potem firma, przy której jest co zrobić (nie nasza spółka ani klient
+  NEXUSA), a wśród nich ta z otwartą szansą. Para z importu Atlasa (nagranie przy
+  szansie i wydarzenie z kalendarza o tej samej firmie, minucie i temacie) też
+  jest jednym wierszem, inaczej spotkanie już przy szansie wisi w kolejce.
+  Kolejność: dziś i 7 dni naprzód, przeszłe, dalsza przyszłość, bo tam lądują
+  błędne daty. Podgląd notatki jest w dymku tematu, żeby przy 1280 × 720 weszło
+  około 11 wierszy; podsumowanie transkryptu zostaje pod tematem.
+- **„Przypisanie” i zakres dat są pod przyciskiem „Filtry”,** bo przy 1280 × 720
+  nie mieszczą się w rzędzie z czterema przełącznikami.
+
 Testy: `backend/tests/test_sales_outlook_sync.py`,
-`frontend/src/components/sales/__tests__/sales-mailbox-status.test.ts`.
+`backend/tests/test_sales_meeting_decisions.py`,
+`frontend/src/components/sales/__tests__/sales-mailbox-status.test.ts`,
+`frontend/src/components/sales/__tests__/sales-meetings.test.tsx`.

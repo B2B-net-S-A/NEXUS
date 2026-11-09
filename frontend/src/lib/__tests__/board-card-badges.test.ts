@@ -641,7 +641,7 @@ describe("karta na laptopie (04.10.2026)", () => {
   });
 });
 
-describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
+describe("„Nowy · od DD.MM” — osoba świeżo w bazie (13.10.2026, data od 08.11.2026)", () => {
   const fresh = (extra: Partial<KanbanItem> = {}) =>
     item({
       entry_source: "application",
@@ -653,11 +653,11 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
     });
 
   it("w „Nowych” i „Screeningu” po źródle i blokadzie, z datą i autorem w dymku", () => {
-    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · 3 dni"]);
+    expect(labels(fresh(), ctx())).toEqual(["Z ogłoszenia", "Wolny", "Nowy · od 20.09"]);
     expect(labels(fresh(), ctx({ column: "screening" }))).toEqual([
       "Z ogłoszenia",
       "Wolny",
-      "Nowy · 3 dni",
+      "Nowy · od 20.09",
     ]);
     const badge = cardBadges(fresh(), ctx()).find((b) => b.key === "new_in_base");
     expect(badge).toMatchObject({ tone: "info", title: "W bazie od 20.09.2026 · dodał(a) Marta Nowak" });
@@ -666,7 +666,7 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
   });
 
   it("dalsze kolumny jej nie pokazują", () => {
-    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · 3 dni");
+    expect(labels(fresh(), ctx({ column: "verified" }))).not.toContain("Nowy · od 20.09");
   });
 
   it("15 dni i więcej — bez pigułki; 14 dni — jeszcze z pigułką", () => {
@@ -674,7 +674,7 @@ describe("„Nowy · N dni” — osoba świeżo w bazie (13.10.2026)", () => {
       "Z ogłoszenia",
       "Wolny",
     ]);
-    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · 14 dni");
+    expect(labels(fresh({ candidate_added_at: "2026-09-09T10:00:00Z" }), ctx())).toContain("Nowy · od 09.09");
   });
 
   it("data niedokładna (import z Traffita bez daty u źródła) — bez pigułki", () => {

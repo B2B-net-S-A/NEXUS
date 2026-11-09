@@ -42,6 +42,8 @@ AUTO_MATCH_TRIGGERS = (
     "public_apply",
     "job_publish",
     "manual",
+    # Zapis arkusza albo notatki rozmowy (08.11.2026).
+    "conversation",
 )
 AUTO_MATCH_STATUSES = ("pending", "processing", "done", "failed", "dead", "skipped")
 AUTO_MATCH_DECISIONS = (

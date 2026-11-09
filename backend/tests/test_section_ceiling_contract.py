@@ -72,6 +72,32 @@ _SECTION_AWARE_HELPERS = {
 }
 
 _SECTIONLESS_ALLOWLIST: dict[str, str] = {
+    # ── Rekrutacja własna: dostęp z listy osób w procesie, asystentka może nie mieć sekcji ──
+    **{
+        route: "dostęp wynika z członkostwa w procesie, sprawdza je require_own_hiring_access"
+        for route in (
+            "GET /api/own-hiring/me",
+            "GET /api/own-hiring/applications/{application_id}",
+            "GET /api/own-hiring/assistant-options",
+            "GET /api/own-hiring/board",
+            "GET /api/own-hiring/invitation-preview",
+            "GET /api/own-hiring/new",
+            "GET /api/own-hiring/process",
+            "GET /api/own-hiring/queue",
+            "GET /api/own-hiring/slots",
+            "POST /api/own-hiring/applications/hand-off",
+            "POST /api/own-hiring/applications/invite",
+            "POST /api/own-hiring/applications/reject",
+            "POST /api/own-hiring/applications/{application_id}/contract-outcome",
+            "POST /api/own-hiring/applications/{application_id}/move",
+            "POST /api/own-hiring/applications/{application_id}/no-show",
+            "POST /api/own-hiring/applications/{application_id}/office-outcome",
+            "POST /api/own-hiring/applications/{application_id}/teams-outcome",
+            "POST /api/own-hiring/queue/{application_id}/book",
+            "POST /api/own-hiring/queue/{application_id}/result",
+            "PUT /api/own-hiring/process",
+        )
+    },
     # ── Sesja i własne konto ────────────────────────────────────────────────
     "GET /api/auth/me": "profil zalogowanego — shell aplikacji potrzebuje go przed sekcjami",
     "POST /api/auth/change-password": "zmiana własnego hasła, niezależna od modułów",

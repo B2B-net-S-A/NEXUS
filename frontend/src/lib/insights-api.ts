@@ -138,6 +138,8 @@ export interface InFlightPerson extends Omit<InFlightAcceptance, "stage_key"> {
   /** `null` = konto bez odczytu sekcji Rekrutacja. */
   candidate_id: number | null;
   candidate_name: string | null;
+  client_interview_at?: string | null;
+  start_on?: string | null;
 }
 
 /** Cele zespołu w Insights + placementy całej firmy w tym miesiącu (jak lejek). */

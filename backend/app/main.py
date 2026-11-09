@@ -262,6 +262,7 @@ from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
+from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
@@ -302,6 +303,8 @@ from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
 from app.api import public_client_panel as public_client_panel_api
+from app.api import own_hiring as own_hiring_api
+from app.api import public_own_hiring as public_own_hiring_api
 from app.api import client_panel as client_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
@@ -808,6 +811,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
+    from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -819,6 +823,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cpro_mail import cpro_mail_loop
     from app.tasks.client_wait import client_wait_loop
+    from app.tasks.own_hiring import own_hiring_loop
     from app.tasks.job_idle import job_idle_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
@@ -997,6 +1002,7 @@ async def lifespan(app: FastAPI):
             "job_idle": asyncio.create_task(job_idle_loop()),
             # 08.11.2026: pary bez odpowiedzi klienta — zamknięcie po 30 dniach, za wyłącznikiem.
             "client_wait": asyncio.create_task(client_wait_loop()),
+            "own_hiring": asyncio.create_task(own_hiring_loop()),
             # 06.11.2026: P0 po terminie trwa do decyzji — dzwonek do Head of Recruitment.
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
@@ -1019,6 +1025,8 @@ async def lifespan(app: FastAPI):
             # Finanse → Braki (0308): zamówienie zakończone bez następcy. Biegnie
             # po północy w Warszawie; kill-switch ORDER_GAPS_ENABLED przed pętlą.
             "order_gaps": asyncio.create_task(order_gaps_loop()),
+            # Sprzedaż: tryb cienia automatu archiwizacji, sam odczyt i linia logu.
+            "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
@@ -2011,6 +2019,16 @@ app.include_router(
     tags=["client-panel"],
 )
 app.include_router(
+    public_own_hiring_api.router,
+    prefix="/api/public/own-hiring",
+    tags=["public-own-hiring"],
+)
+app.include_router(
+    own_hiring_api.router,
+    prefix="/api/own-hiring",
+    tags=["own-hiring"],
+)
+app.include_router(
     pipeline_templates.router,
     prefix="/api/pipeline-templates",
     tags=["pipeline-templates"],
@@ -2226,6 +2244,7 @@ app.include_router(
     sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
 )
 app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
+app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
     sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]
@@ -3597,6 +3616,12 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
     from app.models.client_cover_sheet_template import ClientCoverSheetTemplate
+    from app.models.own_hiring import (
+        OwnHiringApplication,
+        OwnHiringBooking,
+        OwnHiringEvent,
+        OwnHiringProcess,
+    )
     from app.models.client_panel import (
         ClientPanel,
         ClientPanelCandidate,
@@ -3644,6 +3669,7 @@ async def api_health_deep_check():
     from app.models.sales import (
         SalesActivity,
         SalesCompany,
+        SalesCompanyAlias,
         SalesMeetingTranscript,
         SalesOpportunity,
         SalesPipelineStage,
@@ -3923,6 +3949,11 @@ async def api_health_deep_check():
         ("client_panel_candidates", ClientPanelCandidate),
         ("client_panel_requests", ClientPanelRequest),
         ("client_panel_views", ClientPanelView),
+        # Rekrutacja własna: brak tabeli = 500 na Tablicy i pod linkiem z zaproszenia.
+        ("own_hiring_processes", OwnHiringProcess),
+        ("own_hiring_applications", OwnHiringApplication),
+        ("own_hiring_bookings", OwnHiringBooking),
+        ("own_hiring_events", OwnHiringEvent),
         # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
@@ -3947,6 +3978,8 @@ async def api_health_deep_check():
         # 0623: cele i KPI tygodniowe handlowców.
         ("sales_targets", SalesTarget),
         ("sales_meeting_transcripts", SalesMeetingTranscript),
+        # 0671: inne nazwy firmy z CV — bez tabeli pada pas w „Kogo znamy”.
+        ("sales_company_aliases", SalesCompanyAlias),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),

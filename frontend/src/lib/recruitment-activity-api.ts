@@ -69,6 +69,8 @@ export interface RecruitmentActivitySummaryResponse {
   comparisons: RecruitmentActivityComparison[]
 }
 
+export type RecruitmentActivityDetailOrder = "reached" | "term"
+
 export interface RecruitmentActivityDetailItem {
   candidate: { id: number; name: string; href: string }
   job: {
@@ -90,6 +92,12 @@ export interface RecruitmentActivityDetailItem {
   state_reason?: string | null
   /** W ilu rekrutacjach ta sama osoba liczy się w tym okresie. */
   candidate_jobs?: number
+  /** Termin rozmowy z kalendarza: najbliższa runda, a gdy żadnej przed nami — ostatnia. */
+  client_interview_at?: string | null
+  /** Termin jeszcze niepotwierdzony (otwarty wniosek o terminy). */
+  client_interview_tentative_at?: string | null
+  /** Start współpracy: data z kontraktu, a bez kontraktu planowany start z akceptacji. */
+  start_on?: string | null
 }
 
 export interface RecruitmentActivityDetailResponse {
@@ -168,6 +176,8 @@ export interface RecruitmentActivityDetailFilters extends RecruitmentActivityFil
   /** Kamienie bez osoby z zasługą (tylko role z wglądem w zespół). */
   unattributed?: boolean
   state?: RecruitmentActivityState | null
+  /** `term` = układ po terminie rozmowy zamiast po dniu osiągnięcia etapu. */
+  order?: RecruitmentActivityDetailOrder
   page?: number
   pageSize?: number
 }
@@ -185,6 +195,7 @@ export async function getRecruitmentActivityDetails(
           ? { date_from: filters.dateFrom, date_to: filters.dateTo }
           : {}),
         ...(filters.state ? { state: filters.state } : {}),
+        ...(filters.order === "term" ? { order: "term" } : {}),
         metric: filters.metric,
         window: filters.window,
         page: filters.page ?? 1,

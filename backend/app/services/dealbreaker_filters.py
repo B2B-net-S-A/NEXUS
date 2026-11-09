@@ -309,6 +309,7 @@ def missing_must_skills(
     """
     if not must:
         return []
+    from app.services.conversation_facts import absent_labels, narrow_requirement
     from app.services.must_gate_terms import requirement_with_options
     from app.services.must_text_evidence import evidence_for, text_met_labels
     from app.services.requirement_verification import reviewed_gate_status
@@ -317,6 +318,9 @@ def missing_must_skills(
     cand_skills = candidate_skill_names(candidate)
     evidence = evidence_for(candidate, must)
     text_met: Optional[frozenset[str]] = evidence.met if evidence else None
+    absent = absent_labels(
+        candidate, must, options=options, job_id=verification_job_id
+    ) | (evidence.absent if evidence else frozenset())
     missing = []
     for label in must:
         review = reviewed_gate_status(
@@ -330,7 +334,13 @@ def missing_must_skills(
         if review == "not_met" or (review == "unknown" and include_unknown):
             missing.append(label)
             continue
-        requirement = requirement_with_options(label, options)
+        # „Nie ma” z arkusza bije ślad w CV, ale ustępuje weryfikacji rekrutera.
+        if label in absent:
+            missing.append(label)
+            continue
+        requirement = narrow_requirement(
+            requirement_with_options(label, options), candidate
+        )
         names = requirement.options if requirement else (label,)
         if skill_present(label, cand_skills) or any(
             skill_present(name, cand_skills) for name in names
@@ -338,7 +348,9 @@ def missing_must_skills(
             continue
         if text_met is None:
             # Bez dołączonego dowodu (testy, ścieżki bez bazy) — profil i CV.
-            text_met = text_met_labels(candidate, must, options=options)
+            text_met = text_met_labels(
+                candidate, must, options=options, job_id=verification_job_id
+            )
         if label in text_met:
             continue
         missing.append(label)

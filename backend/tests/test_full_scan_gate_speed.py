@@ -141,7 +141,7 @@ def _batch_fixture(monkeypatch, *, seen, attach):
 async def test_full_scan_scores_evidence_only_for_people_past_the_gate(monkeypatch):
     seen, attached = {}, []
 
-    async def attach(_db, candidates, labels, *, options=None):
+    async def attach(_db, candidates, labels, *, options=None, job_id=None):
         attached.append(([c.id for c in candidates], labels))
 
     candidate, context = _batch_fixture(monkeypatch, seen=seen, attach=attach)
@@ -159,7 +159,7 @@ async def test_board_scoring_of_hidden_people_keeps_full_evidence_at_the_gate(
 ):
     seen, attached = {}, []
 
-    async def attach(_db, candidates, labels, *, options=None):
+    async def attach(_db, candidates, labels, *, options=None, job_id=None):
         attached.append(labels)
 
     candidate, context = _batch_fixture(monkeypatch, seen=seen, attach=attach)

@@ -377,6 +377,41 @@ async def test_card_moved_to_screening_today_cannot_be_removed(batch_on):
         )
 
 
+async def _assert_removable_after_screening(
+    job_id: int, cid: int, user_id: int
+) -> None:
+    await _move(job_id, cid, PipelineStage.screening, user_id)
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        await rb.assert_removal_allowed(db, user, candidate_id=cid, job_id=job_id)
+
+
+async def test_old_card_moved_to_screening_today_can_be_removed(batch_on):
+    """Starsza karta nie jest porcją, więc jej S nie trzyma minimum."""
+    a = await _user()
+    world = await _world(1, recruiters=[a])
+    await _pool(world["job_id"], {world["ids"][0]: 90})
+    [old] = await _fill(world["job_id"])
+    await _rewrite_process(
+        world["job_id"], old, opened_at=_now() - timedelta(days=rb.MAX_AGE_DAYS + 3)
+    )
+
+    await _assert_removable_after_screening(world["job_id"], old, a)
+
+
+async def test_someone_elses_card_moved_to_screening_today_can_be_removed(batch_on):
+    a = await _user()
+    b = await _user()
+    world = await _world(1, recruiters=[a])
+    await _pool(world["job_id"], {world["ids"][0]: 90})
+    [cid] = await _fill(world["job_id"])
+    await _rewrite_process(
+        world["job_id"], cid, entry_meta={"score": 90, rb.OWNER_KEY: b}
+    )
+
+    await _assert_removable_after_screening(world["job_id"], cid, a)
+
+
 async def test_card_in_cpro_column_with_new_enum_is_not_in_batch(batch_on):
     """Etap „Wysłać do Cpro” ma enum ``new``, ale na Tablicy to inna kolumna:
     rekruter nie może takiej karty odrzucić z porcji (422 ruchu) i stałaby

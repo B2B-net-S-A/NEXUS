@@ -414,6 +414,7 @@ async def _gate_and_dealbreakers(
         inputs.gate_evidence_labels,
         options=inputs.gate_options,
         only=evidence_only,
+        job_id=inputs.verification_job_id,
     )
     db_res = await _apply_dealbreakers_yielding(
         dealbreakable,

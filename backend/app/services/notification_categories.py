@@ -243,6 +243,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.also_fits_added: _C.candidates,
     _T.autofill_decisions_due: _C.candidates,
     _T.autofill_quality_report: _C.candidates,
+    _T.own_hiring_update: _C.interviews,
     _T.candidate_search_completed: _C.candidates,
     # Maile z odmową
     _T.rejection_email_scheduled: _C.rejections,

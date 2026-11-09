@@ -12,7 +12,6 @@ komplet z bazy DynaReportera (zrzut 15.10.2026) w JEDNEJ transakcji:
   ratio (po `report_month`; kwot DynaReporter nie prowadził, nie ruszamy ich);
 * `dr_board_placement_clients` — placementy klientów w miesiącu;
 * `dr_kpi_delivery_lead` — miesięczne wpisy Delivery Leadów;
-* `dr_delivery_lead_client_assignments` — klienci Delivery Leadów.
 
 Wejście na stdin (JSON, bez nazwisk — repo i logi są publiczne)::
 
@@ -208,9 +207,6 @@ async def _state(db) -> dict[str, Any]:
             "SELECT count(*) FROM dr_kpi_delivery_lead WHERE report_month < :month",
             {"month": cut.replace(day=1)},
         ),
-        "dr_delivery_lead_client_assignments": await _scalar(
-            db, "SELECT count(*) FROM dr_delivery_lead_client_assignments"
-        ),
     }
 
 
@@ -249,7 +245,6 @@ async def run(payload: dict[str, Any], *, apply: bool) -> dict[str, Any]:
                     {b["report_month"] for b in parsed["board_clients"]}
                 ),
                 "dr_kpi_delivery_lead": len(parsed["dl_kpi"]),
-                "dr_delivery_lead_client_assignments": len(parsed["dl_assignments"]),
             },
             "placements_by_month": _by_month(parsed["placements"], "placement_date"),
             "board_placements_by_month": _by_month(
@@ -355,18 +350,6 @@ async def run(payload: dict[str, Any], *, apply: bool) -> dict[str, Any]:
                          open_requests, open_vacancies)
                     VALUES (:user_id, :report_month, :requests, :placements,
                             :vacancies, :open_requests, :open_vacancies)
-                    """
-                ),
-                row,
-            )
-        await db.execute(text("DELETE FROM dr_delivery_lead_client_assignments"))
-        for row in parsed["dl_assignments"]:
-            await db.execute(
-                text(
-                    """
-                    INSERT INTO dr_delivery_lead_client_assignments
-                        (delivery_lead_user_id, client_id, is_head)
-                    VALUES (:delivery_lead_user_id, :client_id, :is_head)
                     """
                 ),
                 row,

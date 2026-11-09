@@ -232,6 +232,7 @@ from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
 )
+from app.services.client_interview_terms import load_pair_terms
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -5725,7 +5726,15 @@ async def get_candidate_history(
             ).get(candidate_id)
             if badge is not None:
                 interview_badges[job_id] = badge
+    # Termin rozmowy pod etapem, tylko gdy jest przed nami.
+    interview_terms = await load_pair_terms(
+        db, ((candidate_id, job_id) for job_id in client_jobs), today=today
+    )
     for job_id, entry in jobs_map.items():
+        term = interview_terms.get((candidate_id, job_id))
+        entry["client_interview_at"] = (
+            term.next_at.isoformat() if term and term.next_at else None
+        )
         entry["next_action_owner"] = _history_next_action_owner(
             entry,
             latest_columns.get(job_id),

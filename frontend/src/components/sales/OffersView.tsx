@@ -83,7 +83,7 @@ export function OffersView() {
                   <TableCell>{item.service_line ? SERVICE_LINE_LABELS[item.service_line] : "—"}</TableCell>
                   <TableCell className={CALM_AMOUNT}>{formatDealNumber(item.value)}</TableCell>
                   <TableCell>{item.owner?.name ?? "—"}</TableCell>
-                  <TableCell>{formatIsoDatePl(item.last_activity_at)}</TableCell>
+                  <TableCell>{formatIsoDatePl(item.last_touch_at)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

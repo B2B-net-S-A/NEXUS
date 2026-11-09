@@ -138,7 +138,7 @@ async def _finish(
     await db.commit()
     await rate_change.send_pending_emails(outcome.emails)
     cache_invalidated = True
-    if outcome.sheet_changed:
+    if outcome.sheet_changed or outcome.profile_changed:
         cache_invalidated = await _mark_stale(db, candidate_id)
     # Rollback po nieudanym oznaczeniu wygasza obiekty sesji — świeży odczyt.
     candidate = await db.get(Candidate, candidate_id, populate_existing=True)

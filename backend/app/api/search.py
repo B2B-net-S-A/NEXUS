@@ -1082,6 +1082,9 @@ async def advanced_candidate_search(
             order_cols.extend([Candidate.lastname.asc(), Candidate.name.asc()])
         else:
             order_cols.append(Candidate.updated_at.desc())
+        # Przy remisie kolejność wybierałby plan zapytania, a każda strona ma
+        # inny `OFFSET + LIMIT`: ta sama osoba trafiałaby na dwie strony.
+        order_cols.append(Candidate.id.asc())
         base = base.order_by(*order_cols)
 
         base = base.offset((body.page - 1) * body.page_size).limit(body.page_size)

@@ -72,6 +72,20 @@ def test_board_waiting_workdays_autofill_days_only_in_new_column():
     assert _board_days(column="verified", autofill_days=9) == 4
 
 
+@pytest.mark.parametrize("column", ["cv_sent", "client_interview"])
+def test_board_waiting_workdays_client_columns_use_the_client_clock(column):
+    """Wiersz ruchu i „Klient milczy” to jeden zegar: po „Klient odpowiedział” jedna liczba."""
+    responded = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+    assert _board_days(column=column, client_since=responded) == 2
+    # Awaria liczenia ciszy (brak zegara): karta nadal liczy od wejścia na etap.
+    assert _board_days(column=column) == 4
+
+
+def test_board_waiting_workdays_client_clock_only_in_client_columns():
+    responded = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+    assert _board_days(column="verified", client_since=responded) == 4
+
+
 @pytest.mark.parametrize("column", ["hired", "closed"])
 def test_board_waiting_workdays_none_after_the_process_ends(column):
     """Zatrudniony ani odrzucony na nic nie czeka: bez napisu „czeka N dni”."""

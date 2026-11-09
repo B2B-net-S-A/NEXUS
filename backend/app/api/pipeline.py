@@ -55,6 +55,7 @@ from app.services.board_stage_badges import (
 )
 from app.services import (
     champion_view,
+    conversation_facts,
     move_requirements,
     rejection_reason_labels,
     screening_fix_requests,
@@ -624,12 +625,7 @@ def _sheet_filled(payload: object) -> bool:
     `bool(dict)` dałby fałszywe „wypełniony" i odznaka „do uzupełnienia"
     znikałaby z karty, na której nikt niczego nie wpisał.
     """
-    if not isinstance(payload, dict) or not payload:
-        return False
-    answers = payload.get("answers")
-    if isinstance(answers, (list, dict)):
-        return len(answers) > 0
-    return any(value not in (None, "", [], {}) for value in payload.values())
+    return move_requirements.sheet_filled(payload)
 
 
 async def _assert_client_rate_not_order_locked(
@@ -4022,8 +4018,8 @@ async def build_kanban_view(
     board_today = business_today()
     from app.services import client_wait as client_wait_service
 
-    client_silence = (
-        await client_wait_service.silent_workdays_safely(db, job)
+    client_clocks = (
+        await client_wait_service.client_clocks_safely(db, job)
         if job.status != JobStatus.closed
         else {}
     )
@@ -4169,10 +4165,14 @@ async def build_kanban_view(
                 ok_at=qc_state.get("ok_at"),
                 today=board_today,
                 autofill_days=autofill_days,
+                client_since=client_clock.since if client_clock else None,
             )
 
+        client_clock = client_clocks.get(e.candidate_id)
         payload["waiting_workdays"] = _waiting()
-        payload["client_silent_workdays"] = client_silence.get(e.candidate_id)
+        payload["client_silent_workdays"] = (
+            client_clock.silent_workdays if client_clock else None
+        )
         card = card_by_candidate.get(e.candidate_id)
         payload["card"] = (
             {
@@ -4920,6 +4920,15 @@ async def submit_stage_screening(
     )
 
     stage.screening_answers = answers.model_dump(mode="json")
+    await conversation_facts.after_sheet_saved(
+        db,
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        stage_id=stage.id,
+        raw_checks=stage.screening_answers.get("experience_checks"),
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
     db.add(
         Activity(
             entity_type="candidate_stage",

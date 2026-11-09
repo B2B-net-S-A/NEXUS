@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import and_, delete, exists, func, literal_column, or_, select
+from sqlalchemy import and_, delete, exists, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,8 +37,11 @@ from app.models.sales import (
     SalesCompanyContact,
     SalesMeetingTranscript,
     SalesContact,
+    SalesOpportunity,
 )
 from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS, external_addresses
+from app.services.sales import history
+from app.services.sales_schema import OpportunityEventKind
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,12 @@ EVENT_SOURCE = "msgraph-event"
 #: Domena wspólna dla większej liczby firm (grupa, duplikaty) nie wskazuje firmy.
 MAX_DOMAIN_COMPANIES = 3
 _BODY_LIMIT = 2000
+LAST_ACTIVITY_FIELD = "last_activity_at"
+#: Temat wiersza przypiętego do szansy, gdy w Outlooku stał się prywatny.
+PRIVATE_SUBJECTS = {
+    EVENT_SOURCE: "Spotkanie oznaczone jako prywatne",
+    EMAIL_SOURCE: "Mail oznaczony jako prywatny",
+}
 
 #: Domena z pola, które bywa adresem strony („https://www.firma.pl/”). To samo
 #: wyrażenie stoi w indeksie ``ix_sales_companies_mail_domain`` — dlatego tekst,
@@ -203,6 +212,42 @@ def _done_at(item: OutlookItem, now: datetime) -> Optional[datetime]:
     return None
 
 
+def raise_last_activity(
+    db: AsyncSession,
+    opportunity: SalesOpportunity,
+    when: datetime,
+    *,
+    user_id: Optional[int],
+) -> None:
+    """Odbyte spotkanie to ślad pracy: data szansy idzie tylko w przód.
+
+    Poprzednia wartość zostaje w historii, bo cofnięcie przypięcia z niej wraca.
+    """
+
+    moment = when.astimezone(timezone.utc)
+    previous = opportunity.last_activity_at
+    if previous is not None and previous >= moment:
+        return
+    history.record(
+        db,
+        opportunity_id=opportunity.id,
+        user_id=user_id,
+        kind=OpportunityEventKind.updated,
+        field=LAST_ACTIVITY_FIELD,
+        old_value=history.as_text(previous),
+        new_value=history.as_text(moment),
+    )
+    opportunity.last_activity_at = moment
+
+
+async def _note_meeting_held(
+    db: AsyncSession, activity: SalesActivity, when: datetime
+) -> None:
+    opportunity = await db.get(SalesOpportunity, activity.opportunity_id)
+    if opportunity is not None:
+        raise_last_activity(db, opportunity, when, user_id=None)
+
+
 async def record(db: AsyncSession, item: OutlookItem) -> int:
     """Zapisz albo odśwież aktywność przy każdej dopasowanej firmie. Zwraca ich liczbę."""
 
@@ -263,14 +308,44 @@ async def record(db: AsyncSession, item: OutlookItem) -> int:
             if row.duration_minutes is None:
                 row.duration_minutes = item.duration_minutes
             continue
+        newly_held = done_at is not None and row.done_at != done_at
         row.subject = subject
         row.body = body
         row.occurred_at = item.occurred_at
         row.done_at = done_at
+        if newly_held and row.opportunity_id is not None:
+            await _note_meeting_held(db, row, done_at)
         row.duration_minutes = item.duration_minutes
         if row.contact_id is None:
             row.contact_id = contact_id
     return len(companies)
+
+
+async def settle_pinned_meetings(db: AsyncSession) -> int:
+    """Przypięte spotkania, które już się odbyły: zrobione i ślad pracy na szansie.
+
+    Delta Graph oddaje tylko zmiany, a spotkanie, które po prostu minęło, zmianą
+    nie jest, więc ``record`` go nie zobaczy. Wywołujący robi commit.
+    """
+
+    activities = (
+        await db.scalars(
+            select(SalesActivity)
+            .where(
+                SalesActivity.external_source == EVENT_SOURCE,
+                SalesActivity.external_ref.is_(None),
+                SalesActivity.opportunity_id.is_not(None),
+                SalesActivity.done_at.is_(None),
+                SalesActivity.occurred_at <= datetime.now(timezone.utc),
+            )
+            .order_by(SalesActivity.id)
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    for activity in activities:
+        activity.done_at = activity.occurred_at
+        await _note_meeting_held(db, activity, activity.occurred_at)
+    return len(activities)
 
 
 async def forget(
@@ -286,6 +361,10 @@ async def forget(
     nie odbyło (przeszłe zostaje historią). Bez tej flagi (wiadomość albo
     spotkanie oznaczone w Outlooku jako prywatne) znika też przeszłe, ale tylko
     to, co zapisała synchronizacja NEXUSA — historii z Atlasa nie ruszamy.
+
+    Wiersz przypięty do szansy nie znika przy oznaczeniu jako prywatne, bo to
+    decyzja handlowca: traci treść, a przypięcie i ślad pracy zostają. Odwołane
+    przyszłe spotkanie znika także przypięte, bo nie doszło do skutku.
     """
 
     conditions = [
@@ -301,16 +380,26 @@ async def forget(
         )
     else:
         conditions.append(SalesActivity.external_ref.is_(None))
+        await db.execute(
+            update(SalesActivity)
+            .where(*conditions, SalesActivity.opportunity_id.is_not(None))
+            .values(subject=PRIVATE_SUBJECTS[source], body=None, web_link=None)
+        )
+        conditions.append(SalesActivity.opportunity_id.is_(None))
     result = await db.execute(delete(SalesActivity).where(*conditions))
     if source == EVENT_SOURCE:
         # Spotkanie zniknęło z każdej firmy (odwołane, prywatne): transkrypt też.
+        # Wiersz bez treści, który został przy szansie, transkryptu nie trzyma.
+        remaining = [
+            SalesActivity.external_source == source,
+            SalesActivity.external_id == external_id,
+        ]
+        if not upcoming_only:
+            remaining.append(SalesActivity.external_ref.is_not(None))
         await db.execute(
             delete(SalesMeetingTranscript).where(
                 SalesMeetingTranscript.ical_uid == external_id,
-                ~exists().where(
-                    SalesActivity.external_source == source,
-                    SalesActivity.external_id == external_id,
-                ),
+                ~exists().where(*remaining),
             )
         )
     return int(result.rowcount or 0)

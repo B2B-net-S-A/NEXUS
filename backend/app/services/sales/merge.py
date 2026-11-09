@@ -23,6 +23,7 @@ from app.services.sales_schema import OpportunityEventKind
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
+    SalesCompanyAlias,
     SalesCompanyContact,
     SalesContact,
     SalesFile,
@@ -138,6 +139,31 @@ async def merge_companies(
             field="company_id",
             old_value=str(source_id),
             new_value=str(target_id),
+        )
+    # Decyzje o nazwach z CV idą za firmą; docelowa zostaje przy swojej.
+    aliases = (
+        await db.execute(
+            select(SalesCompanyAlias).where(SalesCompanyAlias.company_id == source_id)
+        )
+    ).scalars()
+    alias_rows = [
+        {
+            "company_id": target_id,
+            "alias": row.alias,
+            "normalized_alias": row.normalized_alias,
+            "status": row.status,
+            "created_by_user_id": row.created_by_user_id,
+        }
+        for row in aliases
+    ]
+    if alias_rows:
+        await db.execute(
+            insert(SalesCompanyAlias).values(alias_rows).on_conflict_do_nothing()
+        )
+        await db.execute(
+            SalesCompanyAlias.__table__.delete().where(
+                SalesCompanyAlias.company_id == source_id
+            )
         )
     for model in (SalesActivity, SalesFile, SalesLead):
         await db.execute(

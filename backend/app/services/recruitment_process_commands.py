@@ -48,6 +48,7 @@ from app.models.workflow_revision import (
     WorkflowRevision,
     WorkflowRevisionStatus,
 )
+from app.services.move_requirements import sheet_filled
 from app.services.priority_work_policy import (
     PriorityWorkDecision,
     PriorityWorkLocked,
@@ -854,16 +855,6 @@ async def _create_observed_attempt(
     )
 
 
-def _screening_filled(payload: object) -> bool:
-    """Lustro `pipeline._sheet_filled` dla arkusza screeningu."""
-    if not isinstance(payload, dict) or not payload:
-        return False
-    answers = payload.get("answers")
-    if isinstance(answers, (list, dict)):
-        return len(answers) > 0
-    return any(value not in (None, "", [], {}) for value in payload.values())
-
-
 # Powrót z „Zamkniętych” krótko po zamknięciu poprzedniej próby to ta sama
 # rozmowa z kandydatem — arkusz idzie z nim. Po dłuższej przerwie osoba wraca
 # jako nowa próba i musi przejść screening od nowa (audyt 05.10.2026: osoba
@@ -954,7 +945,7 @@ async def _latest_screening_answers(
         )
     )
     for (answers,) in rows.all():
-        if _screening_filled(answers):
+        if sheet_filled(answers):
             return dict(answers)
     return None
 

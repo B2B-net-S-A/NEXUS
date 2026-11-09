@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Iterable
+
+from app.api.cv_qc import QcResponse
+from app.services.cv_qc import qc_state_of_checks
 from app.services.qc_state import CONSENT_MANUAL_ITEM, describe
 
 
@@ -96,3 +100,140 @@ def test_unchecked() -> None:
         "QC: jeszcze nie sprawdzone",
         "neutral",
     )
+
+
+# Ten sam stan z bieżącego wyniku QC (`run_qc`): panel osoby i okno QC mówiły
+# „bez blokad”, kiedy karta mówiła „wskaż stanowisko” (09.11.2026).
+
+
+def _critical(*roles: dict, info: Iterable[dict] = ()) -> dict:
+    return {
+        "key": "critical_skills",
+        "label": "Umiejętności krytyczne opisane",
+        "status": "pass",
+        "severity": "blocking",
+        "items": [],
+        "roles": list(roles),
+        "info": list(info),
+    }
+
+
+def _blocker(requirement: str) -> dict:
+    return {
+        "key": "must_in_roles",
+        "label": "Wymagania opisane",
+        "status": "fail",
+        "severity": "blocking",
+        "items": [{"requirement": requirement}],
+    }
+
+
+def test_checks_passed_is_checked() -> None:
+    state = qc_state_of_checks([_critical()], has_override=False)
+    assert state["kind"] == "checked"
+
+
+def test_checks_unverified_role_is_not_checked() -> None:
+    state = qc_state_of_checks(
+        [
+            _critical(
+                {"requirement": "Kafka", "state": "unverified"},
+                {"requirement": "Kafka", "state": "unverified"},
+                {"requirement": "AWS", "state": "unverified"},
+            )
+        ],
+        has_override=False,
+    )
+    assert state["kind"] == "verify_roles"
+    assert state["text"] == "QC: wskaż stanowisko · 2"
+
+
+def test_checks_candidate_gap_names_the_requirement() -> None:
+    state = qc_state_of_checks(
+        [_critical(info=[{"requirement": "Kafka", "candidate_gap": True}])],
+        has_override=False,
+    )
+    assert state["text"] == "QC: kandydat nie ma: Kafka"
+
+
+def test_checks_manual_role_names_the_person() -> None:
+    state = qc_state_of_checks(
+        [
+            _critical(
+                {
+                    "requirement": "Kafka",
+                    "state": "described",
+                    "manual": {"by": "Anna K."},
+                }
+            )
+        ],
+        has_override=False,
+    )
+    assert state["text"] == "QC: sprawdzone ręcznie · Anna K."
+
+
+def test_checks_consent_from_file_is_named() -> None:
+    state = qc_state_of_checks(
+        [
+            {
+                "key": "client_rules",
+                "label": "Reguły klienta",
+                "status": "manual",
+                "severity": "blocking",
+                "items": [],
+            }
+        ],
+        has_override=False,
+    )
+    assert state["text"] == "QC: obejrzyj zgodę RODO"
+
+
+def test_checks_failed_counts_things_to_fix() -> None:
+    state = qc_state_of_checks([_blocker("Kafka")], has_override=False)
+    assert state["kind"] == "to_fix" and state["items"] == ["Kafka"]
+
+
+def test_checks_failed_with_override_is_overridden() -> None:
+    state = qc_state_of_checks([_blocker("Kafka")], has_override=True)
+    assert state["kind"] == "overridden"
+
+
+def test_checks_override_does_not_hide_a_clean_pass() -> None:
+    state = qc_state_of_checks([_critical()], has_override=True)
+    assert state["kind"] == "checked"
+
+
+def test_checks_override_on_unverified_roles_is_overridden() -> None:
+    state = qc_state_of_checks(
+        [_critical({"requirement": "Kafka", "state": "unverified"})],
+        has_override=True,
+    )
+    assert state["kind"] == "overridden"
+
+
+def test_checks_dismissed_blocker_is_overridden() -> None:
+    check = {**_critical(), "dismissed_items": [{"requirement": "Kafka"}]}
+    assert qc_state_of_checks([check], has_override=False)["kind"] == "overridden"
+
+
+def test_checks_older_cv_keeps_the_file_name() -> None:
+    state = qc_state_of_checks(
+        [
+            {
+                "key": "cv_present",
+                "label": "CV sprzed tej rekrutacji",
+                "status": "manual",
+                "severity": "blocking",
+                "items": [
+                    {"document": {"filename": "cv.docx", "at": "2026-10-01T10:00:00"}}
+                ],
+            }
+        ],
+        has_override=False,
+    )
+    assert state["kind"] == "older_cv"
+    assert "cv.docx" in state["hint"]
+
+
+def test_qc_response_carries_the_state() -> None:
+    assert "qc_state" in QcResponse.model_fields

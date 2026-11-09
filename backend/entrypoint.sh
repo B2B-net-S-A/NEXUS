@@ -177,6 +177,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'back_office'",
     # „Ludzie w NEXUSIE” (0457): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'own_hiring_update'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_cancelled'",
@@ -1197,6 +1198,16 @@ except Exception as _autofill_pool_err:  # noqa: BLE001
     print(f"autofill pool DDL unavailable: {_autofill_pool_err!r}")
     _AUTOFILL_POOL_DDL = []
 
+# Rejestr faktów z rozmów (migracja 0670) — JEDNO źródło z migracją
+# (`app/services/conversation_facts_schema.py`).
+try:
+    from app.services import conversation_facts_schema as _conversation_facts_schema
+
+    _CONVERSATION_FACTS_DDL = list(_conversation_facts_schema.TABLE_DDL)
+except Exception as _conversation_facts_err:  # noqa: BLE001
+    print(f"conversation facts DDL unavailable: {_conversation_facts_err!r}")
+    _CONVERSATION_FACTS_DDL = []
+
 # Powody odrzucenia osób od systemu (migracja 0516) — JEDNO źródło z migracją
 # (`app/services/autofill_feedback_schema.py`).
 try:
@@ -1293,6 +1304,15 @@ except Exception as _client_panel_schema_err:  # noqa: BLE001
     print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
     _CLIENT_PANEL_DDL = []
 
+# Rekrutacja własna — JEDNO źródło z migracją (`app/services/own_hiring/schema.py`).
+try:
+    from app.services.own_hiring import schema as _own_hiring_schema
+
+    _OWN_HIRING_DDL = list(_own_hiring_schema.TABLE_DDL)
+except Exception as _own_hiring_schema_err:  # noqa: BLE001
+    print(f"own hiring schema unavailable: {_own_hiring_schema_err!r}")
+    _OWN_HIRING_DDL = []
+
 # Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
 # i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
 try:
@@ -1313,6 +1333,10 @@ try:
         *_sales_schema.OUTLOOK_SYNC_DDL,
         # 0628: transkrypty Teams przy spotkaniach handlowców.
         *_sales_schema.TRANSCRIPTS_DDL,
+        # 0671: inne nazwy firmy z CV („Kogo znamy”).
+        *_sales_schema.COMPANY_ALIASES_DDL,
+        # 0672: wynik rozmowy i sprzeciw wobec kontaktu.
+        *_sales_schema.CALL_OUTCOME_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
@@ -1483,6 +1507,7 @@ _COLUMN_STATEMENTS = [
     *_RANKING_WEIGHT_CHANGES_DDL,
     *_PREP_REVIEW_CONFIG_DDL,
     *_AUTOFILL_POOL_DDL,
+    *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
@@ -1929,12 +1954,8 @@ _COLUMN_STATEMENTS = [
        ADD COLUMN IF NOT EXISTS token_ct TEXT""",
     """CREATE INDEX IF NOT EXISTS ix_candidate_invite_links_token_sha256
        ON candidate_invite_links (token_sha256)""",
-    # signature_links.token_sha256 + engagement_declaration_tokens.token_sha256
-    # — hash-at-rest v2 (migracja 0182). Bez tego mint v2 wywala UndefinedColumn.
-    """ALTER TABLE signature_links
-       ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
-    """CREATE INDEX IF NOT EXISTS ix_signature_links_token_sha256
-       ON signature_links (token_sha256)""",
+    # engagement_declaration_tokens.token_sha256 — hash-at-rest v2 (migracja
+    # 0182). Bez tego mint v2 wywala UndefinedColumn.
     """ALTER TABLE engagement_declaration_tokens
        ADD COLUMN IF NOT EXISTS token_sha256 VARCHAR(64)""",
     """CREATE INDEX IF NOT EXISTS ix_engagement_declaration_tokens_token_sha256
@@ -3105,6 +3126,26 @@ END $$""",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS source_ref VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
+    # 0668: lustro samego ADD COLUMN zostawiło NULL w każdym wierszu, a model ma
+    # NOT NULL z domyślną. Tekst taki sam jak w migracji (test tego pilnuje).
+    """DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'cortex_unmatched_terms'
+              AND column_name = 'first_seen_at'
+              AND is_nullable = 'YES'
+        ) THEN
+            ALTER TABLE cortex_unmatched_terms
+                ALTER COLUMN first_seen_at SET DEFAULT now();
+            UPDATE cortex_unmatched_terms
+                SET first_seen_at = last_seen_at
+                WHERE first_seen_at IS NULL;
+            ALTER TABLE cortex_unmatched_terms
+                ALTER COLUMN first_seen_at SET NOT NULL;
+        END IF;
+    END $$""",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_by VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_at TIMESTAMPTZ",
     """CREATE TABLE IF NOT EXISTS cortex_extraction_runs (
@@ -7113,6 +7154,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
+    *_OWN_HIRING_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
@@ -7133,6 +7175,14 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,
     *_SKILL_RELATIONS_TABLE_DDL,
+    # 0667: 70 porzuconych tabel bez modelu. Przywrócenie którejś ze zrzutu
+    # wymaga usunięcia jej stąd, bo następny start skasowałby ją ponownie.
+    "ALTER TABLE IF EXISTS dr_przetargi_allocations DROP CONSTRAINT IF EXISTS dr_przetargi_allocations_consultant_id_fkey",
+    "ALTER TABLE IF EXISTS dr_sourcer_category_assignments DROP CONSTRAINT IF EXISTS dr_sourcer_category_assignments_category_id_fkey",
+    "DROP TABLE IF EXISTS _alembic_backup_pre_heal, client_norm_bak_calendar, client_norm_bak_clients, client_norm_bak_contacts, client_norm_bak_drdl, client_norm_bak_drpd, client_norm_bak_jobs, client_norm_bak_knowledge, dr_przetargi_mrr_backup, nordea_merge_bak_calendar, nordea_merge_bak_clients, nordea_merge_bak_contacts, nordea_merge_bak_dl, nordea_merge_bak_drdl, nordea_merge_bak_drplace, nordea_merge_bak_jobs, nordea_merge_bak_knowledge, nordea_merge_bak_notif, nordea_merge_bak_reqdocs, nordea_merge_bak_tac, users_backup_2026_05_18, users_cleanup_backup_2026_05_18",
+    "DROP TABLE IF EXISTS dr_about_calendar, dr_about_career_paths, dr_about_clients_partners, dr_about_contacts, dr_about_faq, dr_about_feedback, dr_about_glossary, dr_about_links, dr_about_org_chart, dr_about_positions, dr_about_procedures, dr_about_templates, dr_about_training, dr_about_values, dr_alerts, dr_api_key_audit_log, dr_api_keys, dr_applied_migrations, dr_competence_categories, dr_consultant_group_assignments, dr_consultant_rate_history, dr_consultants, dr_data_audit_log, dr_delivery_lead_client_assignments, dr_group_monthly_costs, dr_monthly_mrr_data, dr_mrr_import_history, dr_project_cost_groups, dr_project_monthly_costs, dr_project_other_cost_items, dr_przetargi_mrr, dr_system_config, dr_tac_linkedin_farming",
+    "DROP TABLE IF EXISTS ai_budget_reservations, ai_call_ledger, ai_eval_cases, ai_eval_labels, ai_eval_outputs, ai_eval_runs, ai_eval_sets, ai_provider_compliance, ai_rollout_events, ai_rollout_observations, ai_rollout_reports, ai_rollout_state, ai_routing_activation_log, ai_routing_state",
+    "DROP TABLE IF EXISTS signature_links",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -11087,6 +11137,52 @@ async def finalize():
         )
 
 asyncio.run(finalize())
+PY
+
+# 0669: triggery martwej kolejki embedding_index_queue (rewert #713 zostawił je
+# w bazie, nic ich nie czyta). Tabela i funkcja zostają, decyzja Artura z
+# 08.11.2026. DROP TRIGGER prosi o ACCESS EXCLUSIVE nawet przy IF EXISTS, więc
+# krok najpierw sprawdza pg_trigger, a na czystej bazie nie dotyka tabel.
+# Awaria jest MIĘKKA: trigger dalej tylko dopisuje do kolejki, następny start ponowi.
+startup_phase "embedding-queue-triggers"
+python - <<'PY' || echo "embedding queue triggers: krok nieudany; continuing"
+import asyncio
+
+from sqlalchemy import text
+
+from app.core.database import engine
+
+_DROPS = (
+    (
+        "trg_candidates_embedding_index",
+        "DROP TRIGGER IF EXISTS trg_candidates_embedding_index ON candidates",
+    ),
+    (
+        "trg_jobs_embedding_index",
+        "DROP TRIGGER IF EXISTS trg_jobs_embedding_index ON jobs",
+    ),
+)
+
+
+async def main():
+    for trigger, statement in _DROPS:
+        try:
+            async with engine.begin() as conn:
+                present = await conn.scalar(
+                    text("SELECT 1 FROM pg_trigger WHERE tgname = :name"),
+                    {"name": trigger},
+                )
+                if not present:
+                    continue
+                await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                await conn.execute(text(statement))
+            print(f"embedding queue triggers: zdjęty {trigger}")
+        except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
+            print(f"embedding queue triggers: {trigger} pominięty -> {exc!r}")
+    await engine.dispose()
+
+
+asyncio.run(main())
 PY
 
 # 0282: mirror signature policy for installations with an orphaned Alembic

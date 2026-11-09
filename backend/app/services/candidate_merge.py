@@ -1061,7 +1061,7 @@ async def _stamp_academy_reapplied(
 ) -> None:
     """Wykluczony wiersz wygrał z nowszym zgłoszeniem — zostaw ślad powrotu.
 
-    Lustro naboru (``services/academy.py``): osoba odrzucona, która aplikuje
+    Tak robił nabór Akademii (usunięty 08.11.2026): osoba odrzucona, która aplikuje
     ponownie, dostaje tylko ``reapplied_at`` (najpóźniejsze zgłoszenie).
     """
     await db.execute(

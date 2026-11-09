@@ -120,6 +120,7 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
   downloadBlob: (...a: unknown[]) => savedFiles(...a),
 }));
 
+import type { QcStateView } from "@/lib/cv-qc";
 import { PipelineCandidateDock, nowSectionForStage, earlyQcSentence } from "@/components/v2/jobs/PipelineCandidateDock";
 import { PersonPanelColumn, PersonPanelSideProvider } from "@/components/v2/person/PersonPanelSide";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -1460,24 +1461,69 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     // Na „Zweryfikowanym” sekcja CV jest „Teraz” — otwarta od startu.
     renderDock({ item: baseItem({ stage: "verified" }), onOpenQc });
     expect(
-      await screen.findByText("QC CV: 2 rzeczy do poprawy przed wysłaniem"),
+      await screen.findByText("QC: 2 do poprawy"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Otwórz QC" }));
     expect(onOpenQc).toHaveBeenCalledTimes(1);
   });
 
-  // 18.10.2026 (Kalwala, 789131): karta „QC: 2 do poprawy”, panel „1 rzecz” — panel
-  // dopisuje nieblokujące uwagi tą samą regułą co plakietka karty.
+  // 09.11.2026: panel mówił „bez blokad — można przekazać dalej”, karta „QC: wskaż
+  // stanowisko · 2”. Tekst przychodzi z serwera, ten sam co na karcie; uwagi
+  // nieblokujące dopisuje ta sama reguła co plakietka (18.10.2026, Kalwala).
+  const qcState = (kind: QcStateView["kind"], text: string, tone: QcStateView["tone"]): QcStateView => ({
+    kind,
+    n: 2,
+    items: [],
+    text,
+    tone,
+    who: null,
+    hint: null,
+  });
+
+  it("zdanie QC pokazuje stan z serwera, nie liczy z `passed`", () => {
+    expect(
+      earlyQcSentence(false, {
+        passed: true,
+        blocking_failed: 0,
+        override: null,
+        qc_state: qcState("verify_roles", "QC: wskaż stanowisko · 2", "wait"),
+      }),
+    ).toBe("QC: wskaż stanowisko · 2");
+    expect(
+      earlyQcSentence(false, {
+        passed: true,
+        blocking_failed: 0,
+        override: null,
+        qc_state: qcState("candidate_gap", "QC: kandydat nie ma: Kafka", "wait"),
+      }),
+    ).toBe("QC: kandydat nie ma: Kafka");
+  });
+
   it("zdanie QC dopisuje uwagi nieblokujące — te same liczby co karta", () => {
-    expect(earlyQcSentence(false, { passed: false, blocking_failed: 1, warnings_count: 1, override: null })).toBe(
-      "QC CV: 1 rzecz do poprawy przed wysłaniem · 1 uwaga (nie blokuje)",
-    );
-    expect(earlyQcSentence(false, { passed: true, blocking_failed: 0, warnings_count: 3, override: null })).toBe(
-      "QC CV: bez blokad — można przekazać dalej · 3 uwagi (nie blokuje)",
-    );
-    expect(earlyQcSentence(false, { passed: false, blocking_failed: 2, override: null })).toBe(
-      "QC CV: 2 rzeczy do poprawy przed wysłaniem",
-    );
+    expect(
+      earlyQcSentence(false, {
+        passed: false,
+        blocking_failed: 1,
+        warnings_count: 1,
+        override: null,
+        qc_state: qcState("to_fix", "QC: 1 do poprawy", "urgent"),
+      }),
+    ).toBe("QC: 1 do poprawy · 1 uwaga (nie blokuje)");
+    expect(
+      earlyQcSentence(false, {
+        passed: true,
+        blocking_failed: 0,
+        warnings_count: 3,
+        override: null,
+        qc_state: qcState("checked", "QC: sprawdzone", "ok"),
+      }),
+    ).toBe("QC: sprawdzone · 3 uwagi (nie blokuje)");
+  });
+
+  it("odpowiedź starszego wdrożenia bez `qc_state` — sama nazwa statusu", () => {
+    expect(earlyQcSentence(false, { passed: false, blocking_failed: 2, override: null })).toBe("QC: 2 do poprawy");
+    expect(earlyQcSentence(true, null)).toBe("QC CV: sprawdzam…");
+    expect(earlyQcSentence(false, null)).toBe("QC CV: nie udało się sprawdzić");
   });
 
   it("bez CV firmowego dok nie liczy QC", async () => {
