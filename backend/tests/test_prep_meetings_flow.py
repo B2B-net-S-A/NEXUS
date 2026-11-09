@@ -1500,3 +1500,84 @@ async def test_suggestions_report_the_real_length_of_a_scheduled_prep(
     assert prep1["scheduled_start"] is not None
     assert prep1["minutes"] == 30
     assert prep1["options"] == []
+
+
+async def _organizer_busy(client: AsyncClient, headers, job_id, cand_id, organizer_id):
+    return await client.get(
+        "/api/interview-cycle/preps/organizer-busy",
+        headers=headers,
+        params={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "organizer_id": organizer_id,
+            "day": "2031-06-11",
+        },
+    )
+
+
+async def _user_email(user_id: int) -> str:
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        return user.email.lower()
+
+
+async def test_organizer_busy_shows_the_chosen_person(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Okno „Zaplanuj Prep” (09.11.2026): planujący widzi zajętość prowadzącego
+    przed zapisem, bez tytułów spotkań."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    block = (
+        datetime(2031, 6, 11, 9, 0, tzinfo=timezone.utc),
+        datetime(2031, 6, 11, 10, 30, tzinfo=timezone.utc),
+    )
+    graph.busy[await _user_email(dl_id)] = [block]
+
+    response = await _organizer_busy(app_client, rec_h, job_id, cand_id, dl_id)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["calendar"] == "ok"
+    assert [
+        (datetime.fromisoformat(b["start"]), datetime.fromisoformat(b["end"]))
+        for b in body["busy"]
+    ] == [block]
+    assert set(body["busy"][0]) == {"start", "end"}
+
+
+async def test_organizer_busy_says_when_the_calendar_cannot_be_read(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Nieczytelny kalendarz to „unavailable”, nigdy pusty dzień wyglądający
+    na wolny."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+
+    response = await _organizer_busy(app_client, rec_h, job_id, cand_id, dl_id)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"calendar": "unavailable", "busy": []}
+
+
+async def test_organizer_busy_refuses_someone_who_cannot_lead(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """Endpoint nie jest podglądem kalendarza dowolnej osoby z firmy."""
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola R")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia L")
+    outsider_id, _ = await _user(UserRole.delivery_lead, "Spoza Zespołu")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    graph.busy[await _user_email(outsider_id)] = [
+        (
+            datetime(2031, 6, 11, 9, 0, tzinfo=timezone.utc),
+            datetime(2031, 6, 11, 10, 0, tzinfo=timezone.utc),
+        )
+    ]
+
+    response = await _organizer_busy(app_client, rec_h, job_id, cand_id, outsider_id)
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Prep prowadzi ktoś z zespołu tej rekrutacji."
