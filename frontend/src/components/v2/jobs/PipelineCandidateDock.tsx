@@ -448,6 +448,9 @@ export interface PipelineCandidateDockProps {
   /** Osoba właśnie zamknięta z panelu (poza kolejnością Tablicy): zamiast
    *  napisu „Panel osoby” — „Wróć do kolejki” do osoby, która była następna. */
   onReturnToQueue?: () => void;
+  /** Etap osoby, gdy jest inny niż kolejka z napisu obok „Wróć do kolejki”.
+   *  Bez niego nazwa kolejki po ruchu czyta się jak stary etap (09.11.2026). */
+  stageOutsideQueue?: string | null;
   /** Wiersz „co dalej" policzony przez tablicę (`nextActionFor`). */
   nextAction?: NextAction | null;
   /** Pierwszy DOZWOLONY etap po bieżącym — główna akcja doku. */
@@ -890,6 +893,7 @@ export function PipelineCandidateDock({
   closedNotice = null,
   onReturnToQueue,
   queueLabel = null,
+  stageOutsideQueue = null,
   addedByMenu,
   queueEnd = null,
   nextAction,
@@ -1744,12 +1748,24 @@ export function PipelineCandidateDock({
               <button
                 type="button"
                 onClick={onReturnToQueue}
+                title="Wróć do kolejki"
+                aria-label="Wróć do kolejki"
                 className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1 py-0.5 font-semibold text-primary hover:bg-accent pointer-coarse:p-2"
               >
-                Wróć do kolejki
+                {/* Przy etapie obok rząd 345 px (dok, 1280 × 720) ucinał i etap, i kolejkę. */}
+                {stageOutsideQueue ? "Wróć" : "Wróć do kolejki"}
                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
               {queueTag}
+              {stageOutsideQueue ? (
+                <span
+                  data-testid="dock-current-stage"
+                  title={`Etap osoby: ${stageOutsideQueue}`}
+                  className="min-w-0 truncate"
+                >
+                  teraz: <span className="font-semibold text-foreground">{stageOutsideQueue}</span>
+                </span>
+              ) : null}
             </>
           ) : (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">

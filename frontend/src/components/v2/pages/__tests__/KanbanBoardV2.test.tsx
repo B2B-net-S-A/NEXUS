@@ -4411,6 +4411,26 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     expect(within(panel).getAllByText("Cezary Mróz").length).toBeGreaterThan(0);
   });
 
+  it("po ruchu obok nazwy kolejki stoi etap osoby, bez przeładowania; w kolejce go nie ma", async () => {
+    const { rerender } = renderFiltered(ADDED_BY_ALL);
+    const panel = await openPerson("Beata Lis");
+    expect(within(panel).queryByTestId("dock-current-stage")).toBeNull();
+
+    rerender(boardColumns([ADAM, CEZARY, DOROTA, EMIL], [FILIP, { ...BEATA, id: 1942, stage: "screening" }]));
+    await waitFor(() => expect(within(panel).getByTestId("dock-current-stage")).toHaveTextContent("teraz: Screening"));
+    // Nazwa kolejki zostaje (D1–D5): to dokąd prowadzi „Wróć do kolejki”.
+    expect(within(panel).getByTestId("dock-queue-label")).toHaveTextContent("Nowi");
+  });
+
+  it("osoba schowana filtrem stoi w tym samym etapie: bez napisu o etapie", async () => {
+    const { rerender } = renderFiltered(ADDED_BY_ALL);
+    const panel = await openPerson("Emil Bąk");
+
+    rerender(boardColumns(), { kind: "user", userId: 7 });
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "Wróć do kolejki" })).toBeInTheDocument());
+    expect(within(panel).queryByTestId("dock-current-stage")).toBeNull();
+  });
+
   it("ta sama osoba otwarta z nowej kolumny (po zamknięciu panelu albo z karty) przenosi tam kolejkę", async () => {
     const { rerender } = renderFiltered(ADDED_BY_ALL, boardColumns([ADAM, BEATA, CEZARY], [FILIP]));
     let panel = await openPerson("Beata Lis");

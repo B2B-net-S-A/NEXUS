@@ -77,6 +77,13 @@ wszystkie D1–D5, wdrażaj”.
   filtrem): panel zostaje na niej, zamiast licznika „Wróć do kolejki ›” —
   po odrzuceniu do osoby, która przejęła panel, inaczej do pierwszej osoby,
   która stała za nią i nadal jest w kolejce (`returnToQueueTarget`).
+- **Napis obok licznika to nazwa kolejki, nie etap osoby.** Po ruchu zostaje
+  stara kolumna, bo tam prowadzi „Wróć do kolejki”. Żeby nie czytano go jak
+  starego etapu (Tester 09.11.2026), gdy etap osoby jest inny niż kolejka,
+  za nazwą stoi „teraz: <etap>” (`stageOutsideQueue`), a przycisk skraca się
+  do „Wróć ›” (nazwa dla czytnika i podpowiedź bez zmian), bo w rzędzie
+  345 px przy 1280 × 720 inaczej ucinały się obie nazwy. Osoba schowana
+  filtrem stoi w tym samym etapie, więc napisu nie dostaje.
 - **Przejście po odrzuceniu** (wyżej) bierze tę
   samą kolejkę: następna osoba z tej kolumny i z tym filtrem. Po ostatniej
   panel się zamyka z „To była ostatnia osoba w kolejce „Nowi”.”; okno

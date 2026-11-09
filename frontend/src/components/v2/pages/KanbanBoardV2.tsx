@@ -4752,6 +4752,7 @@ headerAction={
  closedNotice={dockClosedNotice}
  onReturnToQueue={returnToQueueItem ? () => openDock(returnToQueueItem) : undefined}
  queueLabel={queueLabel}
+ stageOutsideQueue={dockItemColLabel !== queueColumnName ? dockItemColLabel : null}
  addedByMenu={
  onAddedByChange
  ? { options: addedByMenuOptions, value: addedBy, onChange: onAddedByChange }

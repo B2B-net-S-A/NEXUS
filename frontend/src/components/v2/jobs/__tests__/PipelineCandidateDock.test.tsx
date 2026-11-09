@@ -659,6 +659,24 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(screen.getByTestId("dock-queue-label")).toHaveTextContent("Screening");
   });
 
+  it("etap spoza kolejki stoi przy „Wróć do kolejki”", () => {
+    renderDock({
+      position: null,
+      total: 2,
+      onReturnToQueue: vi.fn(),
+      queueLabel: "Nowi",
+      stageOutsideQueue: "Screening",
+    });
+    expect(screen.getByTestId("dock-current-stage")).toHaveTextContent("teraz: Screening");
+    // Krótszy napis przycisku, ta sama nazwa dla czytnika i podpowiedź.
+    expect(screen.getByRole("button", { name: "Wróć do kolejki" })).toHaveAttribute("title", "Wróć do kolejki");
+  });
+
+  it("w kolejce etapu spoza kolejki nie ma", () => {
+    renderDock({ position: 1, total: 2, queueLabel: "Nowi", stageOutsideQueue: "Screening" });
+    expect(screen.queryByTestId("dock-current-stage")).toBeNull();
+  });
+
   it("koniec kolejki: pasek z „Od pierwszej”, „Wszyscy (N)” i „Dalej” (D4)", async () => {
     const user = userEvent.setup();
     const onFirst = vi.fn();
