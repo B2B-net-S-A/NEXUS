@@ -196,7 +196,11 @@ async def evaluate_batch(
         )
         if not score_excluded:
             await attach_gate_evidence(
-                db, kept, inputs.gate_evidence_labels, options=inputs.gate_options
+                db,
+                kept,
+                inputs.gate_evidence_labels,
+                options=inputs.gate_options,
+                job_id=inputs.verification_job_id,
             )
     visible = {candidate.id for candidate in kept}
     rescored = (

@@ -43,7 +43,7 @@ _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
 # Klucze ``cv_extracted_data`` spoza odczytu CV: fakty z notatek (nocna pętla
 # ``notes_insights_sync``) i pochodzenie rekordu z importu Traffita. Odczyt CV
 # i kwarantanna tożsamości CV ich nie ruszają.
-NON_CV_EXTRACTED_KEYS = ("_notes_insights", "legacy_source")
+NON_CV_EXTRACTED_KEYS = ("_notes_insights", "_conversation_facts", "legacy_source")
 # Znaczniki biegów masowych: „ten tekst CV już przeczytano / wyciągnięto”.
 # Do 07.11.2026 każdy odczyt je gubił (pomiar na 50 CV: `_cv_text_extraction`
 # u 3, `_cv_fields_read_md5` u 1), więc kolejny bieg płacił za ten sam tekst.
@@ -630,6 +630,11 @@ def _apply_cv_enrichment(
         provenance[field] = provenance_stamp
     if provenance:
         next_extracted["_field_provenance"] = provenance
+    if "skills" in written_fields:
+        # 08.11.2026: umiejętności z rozmów nie znikają po nowym CV.
+        from app.services.conversation_facts import reapply_after_cv
+
+        reapply_after_cv(candidate, next_extracted)
     candidate.cv_extracted_data = next_extracted
 
     entries = cv_experience_entries(parsed)

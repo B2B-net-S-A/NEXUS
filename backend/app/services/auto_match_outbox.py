@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services import conversation_facts
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +60,16 @@ def candidate_revision(candidate) -> str:
 
     Ta sama funkcja dla zdarzeń od strony kandydata i rekrutacji — dwie różne
     wersje tego samego profilu pozwalałyby dodać ponownie kogoś, kogo rekruter
-    usunął z procesu.
+    usunął z procesu. Fakty z rozmów (08.11.2026) są częścią wersji: po
+    arkuszu albo notatce para ocenia się na nowo, a odrzucone osoby i tak
+    zatrzymują bramki dodawania.
     """
+    base = _cv_revision(candidate)
+    facts = conversation_facts.revision(candidate)
+    return f"{base[:49]}+{facts}" if facts else base
+
+
+def _cv_revision(candidate) -> str:
     extracted = candidate.cv_extracted_data
     highlights = extracted.get("cv_highlights") if isinstance(extracted, dict) else None
     source_hash = (
@@ -70,6 +79,16 @@ def candidate_revision(candidate) -> str:
         return str(source_hash)[:64]
     parsed_at = candidate.cv_parsed_at
     return f"parsed:{parsed_at.isoformat()}"[:64] if parsed_at else "unparsed"
+
+
+def conversation_reading_needed(event) -> bool:
+    """Zdarzenie po notatce: najpierw odczyt tej osoby, potem przeliczenie."""
+    return (
+        event.trigger == "conversation"
+        and (event.profile_revision or "").startswith("note:")
+        and conversation_facts.enabled()
+        and bool(getattr(settings, "NOTES_INSIGHTS_SYNC_ENABLED", False))
+    )
 
 
 async def enqueue_candidate(

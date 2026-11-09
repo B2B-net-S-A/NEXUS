@@ -55,6 +55,7 @@ import {
   screeningConfirmedSkills,
   splitRecruitments,
 } from "./profile-helpers";
+import { ConversationFactsSection } from "./ConversationFactsSection";
 import { SectionError, SectionHeading, unwrapNoteContent } from "./profile-shared";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload historii i notatek jest luźno typowany */
@@ -105,6 +106,7 @@ export function ProfileTab({ candidate, readOnly, recruitments, notes, onNavigat
         <RecentRolesSection candidate={candidate} onNavigate={onNavigate} />
       </div>
       <TopSkillsSection candidate={candidate} onNavigate={onNavigate} />
+      <ConversationFactsSection candidateId={Number(candidate.id)} />
       <NowSection
         candidateId={Number(candidate.id)}
         readOnly={readOnly}

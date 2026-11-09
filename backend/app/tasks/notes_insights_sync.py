@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select, text
@@ -34,6 +34,7 @@ from app.core.process_lock import cross_process_lock
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services import conversation_facts
 from app.services.candidate_notes_facts import NOTES_CHANGED_AT_KEY, clear_notes_facts
 from app.services.contract_availability import load_contract_history
 from app.services.notes_insights_extractor import (
@@ -234,10 +235,21 @@ async def _select_outdated_candidates(limit: int, exclude: set[int]) -> list[int
     return out[:limit]
 
 
+def _noted_at(day: Optional[date]) -> datetime:
+    """Dzień najnowszej notatki wejścia jako chwila faktu z odczytu."""
+    if day is None:
+        return datetime.now(timezone.utc)
+    return datetime.combine(day, time(12), tzinfo=timezone.utc)
+
+
 async def _clear_facts(db, cand: Candidate) -> None:
     """Wyczyść fakty z notatek (i stawkę wpisaną przez notatki) z audytem."""
     from app.services.match_score_cache import mark_stale_for_candidate
 
+    if conversation_facts.enabled():
+        await conversation_facts.retire_note_facts(
+            db, candidate=cand, now=datetime.now(timezone.utc)
+        )
     had_date = cand.availability_date is not None
     rate_audit = clear_notes_facts(cand)
     if rate_audit is not None:
@@ -267,13 +279,8 @@ def _account_error_status(exc: BaseException) -> Optional[int]:
     return status if status in _ACCOUNT_ERROR_STATUSES else None
 
 
-async def run_notes_insights_sync() -> dict[str, Any]:
-    """Jeden bieg: selekcja przeterminowanych → ekstrakcja → zapis. Zwraca statystyki."""
-    from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
-    from app.services.match_score_cache import mark_stale_for_candidate
-
-    limit = max(1, int(settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT))
-    stats: dict[str, Any] = {
+def _empty_stats() -> dict[str, Any]:
+    return {
         "status": "ok",
         "selected": 0,
         "extracted": 0,
@@ -292,6 +299,178 @@ async def run_notes_insights_sync() -> dict[str, Any]:
         "quota_blocked": 0,
         "upgrade_selected": 0,
     }
+
+
+async def _extract_candidate(
+    cid: int, stats: dict[str, Any], touched: list[int]
+) -> bool:
+    """Odczyt notatek jednej osoby. ``True`` = dalszy bieg nie ma sensu (limit, konto)."""
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    try:
+        async with AsyncSessionLocal() as db:
+            rows = await load_note_rows(db, cid)
+            fingerprint = notes_fingerprint(rows)
+            cand = (
+                await db.execute(select(Candidate).where(Candidate.id == cid))
+            ).scalar_one_or_none()
+            if cand is None:
+                return False
+            # Bez idiomu `or {}` — cv_extracted_data na prodzie bywa listą
+            # (guard-test test_no_caller_reintroduces_the_or_dict_idiom).
+            prior = (
+                cand.cv_extracted_data.get("_notes_insights")
+                if isinstance(cand.cv_extracted_data, dict)
+                else None
+            )
+            if isinstance(prior, dict) and prior.get("_input_hash") == fingerprint:
+                stats["skipped_same_fingerprint"] += 1
+                return False
+            blob = build_notes_blob(rows)
+            if len(blob) < MIN_BLOB_CHARS:
+                # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
+                # treści — `stamp_no_content` zachowałby fakty z usuniętej.
+                # 0412 (decyzja Artura 03.10.2026: nic nie znika): fakty
+                # kandydata, któremu po odfiltrowaniu szumu nie została
+                # żadna czytelna notatka, ZOSTAJĄ — stempel ich nie rusza.
+                if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
+                    await _clear_facts(db, cand)
+                # Stempel bez AI — inaczej klasa "no_content" wraca do
+                # selekcji każdego dnia i zjada cały budżet biegu
+                # (prod, pierwszy bieg: selected=300, skipped_short=299).
+                stamp_no_content(cand, fingerprint=fingerprint)
+                await db.commit()
+                stats["skipped_short"] += 1
+                return False
+            try:
+                async with ai_feature(db, AIFeatureKey.notes_extraction):
+                    await db.commit()  # release quota/config reads before AI
+                    parsed = await extract_insights(blob)
+            except AIQuotaExceeded:
+                stats["quota_blocked"] += 1
+                stats["status"] = "quota_blocked"
+                return True
+            except Exception as exc:
+                status = _account_error_status(exc)
+                if status is None:
+                    raise
+                # Brak środków / zły klucz odrzuci KAŻDEGO kandydata tak samo.
+                # 25.09.2026: saldo DeepSeek −0,01 USD dawało 402 ~1000 razy
+                # na noc, każde jako osobne zdarzenie Sentry. Jedno wystarczy.
+                logger.warning(
+                    "notes-insights: dostawca AI odrzuca konto (HTTP %s) — "
+                    "bieg zatrzymany, ponowię przy następnym",
+                    status,
+                )
+                stats["errors"] += 1
+                stats["status"] = "provider_unavailable"
+                stats["provider_error"] = f"HTTP {status}"
+                return True
+            # Refresh after the remote call, then lock only the local write.
+            # A recruiter may have changed skills/rate while Claude worked.
+            cand = await db.scalar(
+                select(Candidate)
+                .where(Candidate.id == cid)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+            if cand is None:
+                return False
+            days = notes_days(rows)
+            row_stats = apply_insights(
+                cand,
+                parsed,
+                fingerprint=fingerprint,
+                as_of=days.availability,
+                latest_note_day=days.latest,
+                # „Od zaraz” ze screeningu sprzed umowy nie daje
+                # „Szuka aktywnie” (S2, 15.10.2026).
+                contracts=await load_contract_history(db, cid),
+            )
+            if conversation_facts.enabled():
+                added = await conversation_facts.record_note_facts(
+                    db,
+                    candidate=cand,
+                    parsed=parsed,
+                    note_id=rows[0][0] if rows else None,
+                    noted_at=_noted_at(days.latest),
+                    notes_read=fingerprint,
+                )
+                if added:
+                    row_stats["skills_added"] = added
+                    row_stats["changed"] = 1
+            # Języki z notatek tylko dopisują brakujące (07.10.2026) —
+            # w savepoincie: błąd zapisu języków nie cofa faktów kandydata
+            # (flush PRZED savepointem — inaczej rollback zabrałby i je).
+            await db.flush()
+            try:
+                async with db.begin_nested():
+                    added = await fill_languages_from_notes(db, cid, parsed)
+            except Exception:  # noqa: BLE001
+                logger.exception("notes-insights: języki padły dla id=%s", cid)
+                added = 0
+            if added:
+                row_stats["languages_added"] = added
+                row_stats["changed"] = 1
+            if row_stats.get("rate_audit"):
+                from app.services import candidate_audit
+
+                candidate_audit.record_candidate_audit(
+                    db,
+                    action=candidate_audit.PROFILE_RATE_CHANGED,
+                    user_id=None,
+                    entity_id=cid,
+                    details=row_stats["rate_audit"],
+                )
+            for key in (
+                "changed",
+                "skills_added",
+                "rate_written",
+                "rate_updated",
+                "onsite_days_filled",
+                "remote_modes_filled",
+                "avail_date_filled",
+                "avail_date_cleared",
+                "languages_added",
+            ):
+                stats[key] += row_stats.get(key, 0)
+            if row_stats.get("changed"):
+                touched.append(cid)
+                await mark_stale_for_candidate(db, cid)
+            await db.commit()
+            stats["extracted"] += 1
+    except Exception:  # noqa: BLE001 — jeden kandydat nie zabija biegu
+        logger.exception("notes-insights: ekstrakcja padła dla id=%s", cid)
+        stats["errors"] += 1
+    return False
+
+
+async def _reindex(touched: list[int]) -> None:
+    from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
+
+    if touched:
+        async with AsyncSessionLocal() as db:
+            await record_bulk_reindex(db, CANDIDATE, touched)
+            await db.commit()
+
+
+async def extract_candidate_now(candidate_id: int) -> dict[str, Any]:
+    """Odczyt notatek jednej osoby zaraz po rozmowie, nie w nocy (08.11.2026).
+
+    Te same reguły co nocny bieg, razem z odciskiem: notatki bez zmian nie
+    wołają modelu.
+    """
+    stats = _empty_stats()
+    touched: list[int] = []
+    await _extract_candidate(candidate_id, stats, touched)
+    await _reindex(touched)
+    return stats
+
+
+async def run_notes_insights_sync() -> dict[str, Any]:
+    """Jeden bieg: selekcja przeterminowanych → ekstrakcja → zapis. Zwraca statystyki."""
+    limit = max(1, int(settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT))
+    stats = _empty_stats()
     stale = await _select_stale_candidates(limit)
     upgrade = await _select_outdated_candidates(
         max(0, int(settings.NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT)), set(stale)
@@ -302,134 +481,10 @@ async def run_notes_insights_sync() -> dict[str, Any]:
     touched: list[int] = []
 
     for cid in stale:
-        try:
-            async with AsyncSessionLocal() as db:
-                rows = await load_note_rows(db, cid)
-                fingerprint = notes_fingerprint(rows)
-                cand = (
-                    await db.execute(select(Candidate).where(Candidate.id == cid))
-                ).scalar_one_or_none()
-                if cand is None:
-                    continue
-                # Bez idiomu `or {}` — cv_extracted_data na prodzie bywa listą
-                # (guard-test test_no_caller_reintroduces_the_or_dict_idiom).
-                prior = (
-                    cand.cv_extracted_data.get("_notes_insights")
-                    if isinstance(cand.cv_extracted_data, dict)
-                    else None
-                )
-                if isinstance(prior, dict) and prior.get("_input_hash") == fingerprint:
-                    stats["skipped_same_fingerprint"] += 1
-                    continue
-                blob = build_notes_blob(rows)
-                if len(blob) < MIN_BLOB_CHARS:
-                    # Runda 10 (R10-N6-2): usunięto notatkę, a reszta nie niesie
-                    # treści — `stamp_no_content` zachowałby fakty z usuniętej.
-                    # 0412 (decyzja Artura 03.10.2026: nic nie znika): fakty
-                    # kandydata, któremu po odfiltrowaniu szumu nie została
-                    # żadna czytelna notatka, ZOSTAJĄ — stempel ich nie rusza.
-                    if isinstance(prior, dict) and prior.get(NOTES_CHANGED_AT_KEY):
-                        await _clear_facts(db, cand)
-                    # Stempel bez AI — inaczej klasa "no_content" wraca do
-                    # selekcji każdego dnia i zjada cały budżet biegu
-                    # (prod, pierwszy bieg: selected=300, skipped_short=299).
-                    stamp_no_content(cand, fingerprint=fingerprint)
-                    await db.commit()
-                    stats["skipped_short"] += 1
-                    continue
-                try:
-                    async with ai_feature(db, AIFeatureKey.notes_extraction):
-                        await db.commit()  # release quota/config reads before AI
-                        parsed = await extract_insights(blob)
-                except AIQuotaExceeded:
-                    stats["quota_blocked"] += 1
-                    stats["status"] = "quota_blocked"
-                    break
-                except Exception as exc:
-                    status = _account_error_status(exc)
-                    if status is None:
-                        raise
-                    # Brak środków / zły klucz odrzuci KAŻDEGO kandydata tak samo.
-                    # 25.09.2026: saldo DeepSeek −0,01 USD dawało 402 ~1000 razy
-                    # na noc, każde jako osobne zdarzenie Sentry. Jedno wystarczy.
-                    logger.warning(
-                        "notes-insights: dostawca AI odrzuca konto (HTTP %s) — "
-                        "bieg zatrzymany, ponowię przy następnym",
-                        status,
-                    )
-                    stats["errors"] += 1
-                    stats["status"] = "provider_unavailable"
-                    stats["provider_error"] = f"HTTP {status}"
-                    break
-                # Refresh after the remote call, then lock only the local write.
-                # A recruiter may have changed skills/rate while Claude worked.
-                cand = await db.scalar(
-                    select(Candidate)
-                    .where(Candidate.id == cid)
-                    .execution_options(populate_existing=True)
-                    .with_for_update()
-                )
-                if cand is None:
-                    continue
-                days = notes_days(rows)
-                row_stats = apply_insights(
-                    cand,
-                    parsed,
-                    fingerprint=fingerprint,
-                    as_of=days.availability,
-                    latest_note_day=days.latest,
-                    # „Od zaraz” ze screeningu sprzed umowy nie daje
-                    # „Szuka aktywnie” (S2, 15.10.2026).
-                    contracts=await load_contract_history(db, cid),
-                )
-                # Języki z notatek tylko dopisują brakujące (07.10.2026) —
-                # w savepoincie: błąd zapisu języków nie cofa faktów kandydata
-                # (flush PRZED savepointem — inaczej rollback zabrałby i je).
-                await db.flush()
-                try:
-                    async with db.begin_nested():
-                        added = await fill_languages_from_notes(db, cid, parsed)
-                except Exception:  # noqa: BLE001
-                    logger.exception("notes-insights: języki padły dla id=%s", cid)
-                    added = 0
-                if added:
-                    row_stats["languages_added"] = added
-                    row_stats["changed"] = 1
-                if row_stats.get("rate_audit"):
-                    from app.services import candidate_audit
+        if await _extract_candidate(cid, stats, touched):
+            break
 
-                    candidate_audit.record_candidate_audit(
-                        db,
-                        action=candidate_audit.PROFILE_RATE_CHANGED,
-                        user_id=None,
-                        entity_id=cid,
-                        details=row_stats["rate_audit"],
-                    )
-                for key in (
-                    "changed",
-                    "skills_added",
-                    "rate_written",
-                    "rate_updated",
-                    "onsite_days_filled",
-                    "remote_modes_filled",
-                    "avail_date_filled",
-                    "avail_date_cleared",
-                    "languages_added",
-                ):
-                    stats[key] += row_stats.get(key, 0)
-                if row_stats.get("changed"):
-                    touched.append(cid)
-                    await mark_stale_for_candidate(db, cid)
-                await db.commit()
-                stats["extracted"] += 1
-        except Exception:  # noqa: BLE001 — jeden kandydat nie zabija biegu
-            logger.exception("notes-insights: ekstrakcja padła dla id=%s", cid)
-            stats["errors"] += 1
-
-    if touched:
-        async with AsyncSessionLocal() as db:
-            await record_bulk_reindex(db, CANDIDATE, touched)
-            await db.commit()
+    await _reindex(touched)
     if stats["errors"] and stats["status"] == "ok":
         stats["status"] = "partial"
     return stats

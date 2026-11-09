@@ -752,6 +752,9 @@ from app.models.jarvis import (  # noqa: F401
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401
 from app.models.job_autofill_pool import JobAutofillPool  # noqa: F401
+from app.models.candidate_conversation_fact import (  # noqa: F401
+    CandidateConversationFact,
+)
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
 from app.models.candidate_job_owner import (  # noqa: F401

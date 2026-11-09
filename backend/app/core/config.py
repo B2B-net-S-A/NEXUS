@@ -1818,6 +1818,9 @@ class Settings(BaseSettings):
     # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
     # + honorowanie wierszy legacy) — patrz app/tasks/notes_insights_sync.py.
     NOTES_INSIGHTS_SYNC_ENABLED: bool = False
+    # Rejestr faktów z rozmów (08.11.2026, wariant A): arkusz i odczyt notatek
+    # zasilają profil, bramkę krytycznych i wynik. False = jak przed zmianą.
+    CONVERSATION_FACTS_ENABLED: bool = False
     # Jak często pętla sprawdza, czy bieg jest należny (clamp >=300 s w pętli);
     # sam bieg jest najwyżej raz dziennie.
     NOTES_INSIGHTS_SYNC_CHECK_INTERVAL_SECONDS: int = 1800

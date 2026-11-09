@@ -57,6 +57,7 @@ from sqlalchemy import (
     and_,
     case,
     cast,
+    false,
     func,
     literal,
     literal_column,
@@ -278,7 +279,19 @@ def skill_match(skill: str, sem: Optional[Semantics] = None) -> ColumnElement:
             func.lower(func.btrim(rows.c.skill)).in_(needles)
         )
     )
-    return or_(match, screening)
+    # 08.11.2026: rejestr rozmów. Oba silniki czytają ten jeden predykat. Wersja
+    # v1 (alerty) zostaje bez zmian, tak jak gałąź powyżej.
+    from app.services import conversation_facts as facts
+
+    if not facts.enabled():
+        return or_(match, screening)
+    terms = Candidate.cv_extracted_data[facts.PROJECTION_KEY]
+    confirmed = terms["confirmed"].has_any(cast(needles, ARRAY(String)))
+    absent = terms["absent"].has_any(cast(needles, ARRAY(String)))
+    return and_(
+        or_(match, screening, func.coalesce(confirmed, false())),
+        not_(func.coalesce(absent, false())),
+    )
 
 
 def split_pipe_group(value: str) -> list[str]:

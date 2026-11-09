@@ -403,16 +403,16 @@ def test_is_due_daily_schedule(monkeypatch):
 
 def test_run_stats_include_onsite_days_filled():
     """`onsite_days_filled` musi być zainicjalizowany w `stats` ORAZ wymieniony
-    w krotce agregującej `row_stats` do `stats` w `run_notes_insights_sync` —
+    w krotce agregującej `row_stats` do `stats` w `_extract_candidate` —
     brak jednego z dwóch miejsc jest ciszej niż się wydaje: `stats[key] += ...`
     bez initu wywala `KeyError` (crash pierwszego kandydata z tym statem),
     a init bez wpisu w krotce agregującej daje statystykę zamrożoną na 0 na
     zawsze — bez crasha, więc bez szans, że ktoś to zauważy."""
     import inspect
 
-    from app.tasks.notes_insights_sync import run_notes_insights_sync
+    from app.tasks.notes_insights_sync import _empty_stats, _extract_candidate
 
-    source = inspect.getsource(run_notes_insights_sync)
+    source = inspect.getsource(_empty_stats) + inspect.getsource(_extract_candidate)
     assert source.count("onsite_days_filled") == 2
 
 

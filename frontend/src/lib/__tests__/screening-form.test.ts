@@ -647,3 +647,66 @@ describe("rateNotRestoredMessage", () => {
     ).toMatch(/zarządza Delivery Lead/);
   });
 });
+
+describe("arkusz: dopisek przy wymaganiu i pola profilu (08.11.2026)", () => {
+  const profileState = () =>
+    formState({
+      profile_fields: {
+        notice_period: 1,
+        notice_period_unit: "months",
+        max_onsite_days: null,
+        work_modes: ["remote"],
+      },
+    });
+
+  it("dopisek jedzie w ładunku arkusza", () => {
+    const state = formState();
+    const values = {
+      ...formDefaultsFromState(state),
+      experience_checks: [
+        { kind: "skills" as const, name: "Kafka", label: "Kafka", level: "must" as const, status: "confirmed" as const, note: " 3 lata " },
+      ],
+    };
+    const sheet = sheetFromValues(FORM_QUESTIONS, values);
+    expect(sheet.experience_checks).toEqual([
+      { kind: "skills", name: "Kafka", status: "confirmed", note: "3 lata" },
+    ]);
+  });
+
+  it("niezmienione pola profilu nie tworzą zapisu", () => {
+    const state = profileState();
+    const plan = buildSavePayload(state, formDefaultsFromState(state));
+    expect(plan.payload.profile).toBeUndefined();
+    expect(plan.hasChanges).toBe(false);
+  });
+
+  it("zapisuje tylko zmienione, dni wygrywają z trybem", () => {
+    const state = profileState();
+    const values = formDefaultsFromState(state);
+    const plan = buildSavePayload(state, {
+      ...values,
+      profile: { ...values.profile!, max_onsite_days: "2", work_mode: "onsite" },
+    });
+    expect(plan.payload.profile).toEqual({ max_onsite_days: 2 });
+    expect(plan.hasChanges).toBe(true);
+  });
+
+  it("sam tryb pracy domyka się w dół", () => {
+    const state = profileState();
+    const values = formDefaultsFromState(state);
+    const plan = buildSavePayload(state, { ...values, profile: { ...values.profile!, work_mode: "hybrid" } });
+    expect(plan.payload.profile).toEqual({ work_modes: ["remote", "hybrid"] });
+  });
+
+  it("wyczyszczony okres wypowiedzenia nie kasuje wartości w profilu", () => {
+    const state = profileState();
+    const values = formDefaultsFromState(state);
+    const plan = buildSavePayload(state, { ...values, profile: { ...values.profile!, notice_period: "" } });
+    expect(plan.payload.profile).toBeUndefined();
+  });
+
+  it("bez flagi pól nie ma", () => {
+    const state = formState({ profile_fields: null });
+    expect(formDefaultsFromState(state).profile).toBeNull();
+  });
+});

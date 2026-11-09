@@ -94,7 +94,12 @@ from app.models.job_autofill_pool import JobAutofillPool
 from app.models.job_proposal import JobProposal
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import autofill_withdraw, candidate_claim, single_candidate_list
+from app.services import (
+    autofill_withdraw,
+    candidate_claim,
+    conversation_facts,
+    single_candidate_list,
+)
 from app.services.board_stage_badges import board_column_for
 from app.services.candidate_added_date import (
     AddedToBase,
@@ -472,9 +477,12 @@ async def ranked_picks(
             .order_by(both.c.score.desc(), both.c.candidate_id)
         )
     ).all()
+    blocked = await conversation_facts.blocked_for_job(
+        db, job_id, sorted({row[0] for row in rows})
+    )
     best: dict[int, Pick] = {}
     for candidate_id, score, run_id, evidence in rows:
-        if candidate_id in best:
+        if candidate_id in best or candidate_id in blocked:
             continue  # wiersze idą od najlepszego wyniku — pierwszy wygrywa
         evidence = evidence or {}
         best[candidate_id] = Pick(
