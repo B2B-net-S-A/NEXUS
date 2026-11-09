@@ -19,13 +19,16 @@ const move = vi.hoisted(() => ({
 vi.mock("@/hooks/usePipelineMoveCore", () => ({
   usePipelineMoveCore: () => ({ send: move.send, dialogs: null }),
 }));
+const template = vi.hoisted(() => {
+  const defaultReasons = [
+    { id: "41", label: "Nie spełnia wymagań technicznych", name: "Nie spełnia wymagań technicznych", applies_to: ["rejected"] },
+    { id: "43", label: "Nie akceptuje trybu pracy (biuro / hybryda)", name: "work_mode_mismatch", applies_to: ["rejected"] },
+    { id: "49", label: "Inne", name: "Inne (rejected)", applies_to: ["rejected"] },
+  ];
+  return { defaultReasons, reasons: defaultReasons };
+});
 vi.mock("@/hooks/useJobPipelineTemplate", () => ({
-  useJobPipelineTemplate: () => ({
-    rejectionReasons: [
-      { id: "41", label: "Nie spełnia wymagań technicznych", name: "Nie spełnia wymagań technicznych", applies_to: ["rejected"] },
-      { id: "49", label: "Inne", name: "Inne", applies_to: ["rejected"] },
-    ],
-  }),
+  useJobPipelineTemplate: () => ({ rejectionReasons: template.reasons }),
 }));
 
 const item: ReviewBatchItem = {
@@ -50,7 +53,27 @@ const item: ReviewBatchItem = {
 
 beforeEach(() => {
   move.send.mockClear();
+  template.reasons = template.defaultReasons;
 });
+
+/** Lustro 422 z `POST /api/pipeline/move` dla powodu z szablonu (api/pipeline.py). */
+function serverRefusal(payload: Record<string, unknown>): string | null {
+  const reason = template.reasons.find((r) => r.id === payload.rejection_reason_id);
+  const days = payload.work_mode_max_onsite_days;
+  if (reason?.name === "work_mode_mismatch" && days == null) return "Podaj, ile dni w biurze";
+  if (reason?.name !== "work_mode_mismatch" && days != null) return "Dni tylko przy trybie pracy";
+  if (reason?.label === "Inne" && !String(payload.notes ?? "").trim()) return "Opisz powód";
+  return null;
+}
+
+async function rejectWithKey(key: string): Promise<Record<string, unknown>> {
+  render(<ReviewBatchCard item={item} onDecided={() => {}} />);
+  fireEvent.keyDown(window, { key: "o" });
+  fireEvent.keyDown(window, { key });
+  fireEvent.keyDown(window, { key: "Enter" });
+  await vi.waitFor(() => expect(move.send).toHaveBeenCalled());
+  return (move.send.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+}
 
 describe("ReviewBatchCard", () => {
   it("pokazuje powód dopasowania bez otwierania profilu", () => {
@@ -103,6 +126,65 @@ describe("ReviewBatchCard", () => {
     const [payload] = move.send.mock.calls[0] as unknown as [Record<string, unknown>];
     expect(payload.autofill_reason).toBe("not_looking");
     expect(String(payload.autofill_not_looking_until)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("ReviewBatchCard: każdy powód zapisuje się jednym klawiszem", () => {
+  it.each(["2", "3", "4", "5", "6", "7"])("klawisz %s przechodzi walidację serwera", async (key) => {
+    expect(serverRefusal(await rejectWithKey(key))).toBeNull();
+  });
+
+  it("„Język” (bez odpowiednika w szablonie) idzie jako „Inne” z nazwą powodu w opisie", async () => {
+    expect(await rejectWithKey("5")).toMatchObject({
+      rejection_reason_id: "49",
+      notes: "Język",
+      autofill_reason: "language",
+    });
+  });
+
+  it("„Lokalizacja / tryb” bez znanych dni nie mówi nic o trybie pracy na profilu", async () => {
+    const payload = await rejectWithKey("3");
+    expect(payload).toMatchObject({
+      rejection_reason_id: "49",
+      notes: "Lokalizacja lub tryb pracy",
+      autofill_reason: "location_mode",
+    });
+    expect(payload.work_mode_max_onsite_days).toBeUndefined();
+  });
+
+  it("znane dni w biurze idą z powodem „Nie akceptuje trybu pracy” i trafiają na profil", async () => {
+    const user = userEvent.setup();
+    render(<ReviewBatchCard item={item} onDecided={() => {}} />);
+    fireEvent.keyDown(window, { key: "o" });
+    fireEvent.keyDown(window, { key: "3" });
+    await user.click(screen.getByRole("button", { name: /Znam liczbę dni w biurze/ }));
+    await user.click(screen.getByRole("radio", { name: "Do 2 dni" }));
+    await user.click(screen.getByTestId("review-reject-confirm"));
+    await vi.waitFor(() => expect(move.send).toHaveBeenCalled());
+    const [payload] = move.send.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(payload).toMatchObject({
+      rejection_reason_id: "43",
+      work_mode_max_onsite_days: 2,
+      work_mode_save_to_profile: true,
+      autofill_reason: "location_mode",
+    });
+    expect(payload.notes).toBeUndefined();
+    expect(serverRefusal(payload)).toBeNull();
+  });
+
+  it("szablon bez powodu „tryb pracy”: nie pyta o dni i idzie jako „Inne”", async () => {
+    template.reasons = template.defaultReasons.filter((r) => r.name !== "work_mode_mismatch");
+    const payload = await rejectWithKey("3");
+    expect(screen.queryByRole("button", { name: /Znam liczbę dni w biurze/ })).not.toBeInTheDocument();
+    expect(payload).toMatchObject({ rejection_reason_id: "49", notes: "Lokalizacja lub tryb pracy" });
+    expect(serverRefusal(payload)).toBeNull();
+  });
+
+  it("szablon bez odpowiednika „Za junior”: spada na „Inne”, a opis i tak jest", async () => {
+    expect(await rejectWithKey("2")).toMatchObject({
+      rejection_reason_id: "49",
+      notes: "Za mało doświadczenia",
+    });
   });
 });
 

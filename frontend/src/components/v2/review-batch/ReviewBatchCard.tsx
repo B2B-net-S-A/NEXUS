@@ -6,11 +6,13 @@ import { Check, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { RejectionWorkModeField } from "@/components/v2/modals/RejectionWorkModeField";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 import {
   autofillMoveFields,
+  autofillReasonLabel,
   notLookingUntil,
   NOT_LOOKING_DEFAULT_MONTHS,
   templateReasonFor,
@@ -18,6 +20,7 @@ import {
   type AutofillReason,
 } from "@/lib/autofill-feedback";
 import { knownFactLabels } from "@/lib/new-column-queue";
+import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,6 +48,36 @@ export function rejectMissing(reason: AutofillReason | null, note: string): stri
     return reason === "missing_skill" ? "Napisz, której umiejętności brakuje." : "Opisz powód.";
   }
   return "";
+}
+
+/**
+ * Powód z szablonu i opis dla `/api/pipeline/move` (09.11.2026): klawisze 3 i 5
+ * kończyły się 422. „Nie akceptuje trybu pracy” wymaga dni w biurze, a przy
+ * „Lokalizacji / trybie” z profilu ich nie znamy, więc bez dni idzie „Inne”:
+ * domyślne „Tylko zdalnie” zapisałoby na profilu nieprawdę. „Inne” bez opisu
+ * serwer odrzuca, więc opisem jest nazwa powodu, jak w oknie odrzucenia.
+ */
+function templateMoveFields<T extends { id: string; name?: string; label: string }>(
+  reason: AutofillReason,
+  note: string,
+  officeDays: number | null,
+  saveWorkMode: boolean,
+  templates: T[],
+) {
+  const template = templateReasonFor(
+    reason === "location_mode" && officeDays === null ? "other" : reason,
+    templates,
+  );
+  const written = reason === "missing_skill" ? `Brak: ${note.trim()}` : note.trim();
+  const labelled =
+    reason !== "missing_skill" && reason !== "other" && reasonNeedsDescription(template);
+  return {
+    rejection_reason_id: template?.id || undefined,
+    notes: (labelled ? [autofillReasonLabel(reason), written].filter(Boolean).join(". ") : written) || undefined,
+    ...(template?.name?.trim() === WORK_MODE_MISMATCH_REASON && officeDays !== null
+      ? { work_mode_max_onsite_days: officeDays, work_mode_save_to_profile: saveWorkMode }
+      : {}),
+  };
 }
 
 /** Dlaczego osoba stoi na tym miejscu; `null`, gdy decyduje sam wynik. */
@@ -78,9 +111,19 @@ export function ReviewBatchCard({
   const [reason, setReason] = useState<AutofillReason | null>(null);
   const [learnedFrom, setLearnedFrom] = useState<AutofillLearnedFrom>("profile");
   const [note, setNote] = useState("");
+  /** `null` — rekruter nie zna dni w biurze (domyślnie). */
+  const [officeDays, setOfficeDays] = useState<number | null>(null);
+  const [saveWorkMode, setSaveWorkMode] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const missing = useMemo(() => rejectMissing(reason, note), [reason, note]);
+  const templates = useMemo(
+    () => rejectionReasons.filter((r) => r.applies_to?.includes("rejected")),
+    [rejectionReasons],
+  );
+  const canAskOfficeDays =
+    reason === "location_mode" &&
+    templates.some((r) => r.name?.trim() === WORK_MODE_MISMATCH_REASON);
   const rate = rateLine(item);
   const order = orderLine(item);
   const overBudget =
@@ -102,19 +145,13 @@ export function ReviewBatchCard({
   const reject = useCallback(async () => {
     if (busy || missing || !reason) return;
     setBusy(true);
-    const template = templateReasonFor(
-      reason,
-      rejectionReasons.filter((r) => r.applies_to?.includes("rejected")),
-    );
     const outcome = await move.send(
       {
         candidate_id: item.candidate_id,
         job_id: item.job_id,
         stage: "rejected",
         send_rejection_email: false,
-        rejection_reason_id: template?.id || undefined,
-        notes:
-          reason === "missing_skill" ? `Brak: ${note.trim()}` : note.trim() || undefined,
+        ...templateMoveFields(reason, note, officeDays, saveWorkMode, templates),
         ...autofillMoveFields({
           reason,
           learnedFrom,
@@ -127,7 +164,7 @@ export function ReviewBatchCard({
     );
     setBusy(false);
     if (outcome.ok) onDecided();
-  }, [busy, missing, reason, rejectionReasons, move, item, note, learnedFrom, onDecided]);
+  }, [busy, missing, reason, templates, move, item, note, officeDays, saveWorkMode, learnedFrom, onDecided]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -296,6 +333,30 @@ export function ReviewBatchCard({
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               placeholder={reason === "missing_skill" ? "Której umiejętności brakuje?" : "Opisz powód"}
+            />
+          ) : null}
+          {canAskOfficeDays ? (
+            <button
+              type="button"
+              aria-pressed={officeDays !== null}
+              onClick={() => setOfficeDays((days) => (days === null ? 0 : null))}
+              className={cn(
+                "rounded border px-1.5 py-0.5 text-xs",
+                officeDays !== null ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
+              )}
+            >
+              Znam liczbę dni w biurze, które akceptuje
+            </button>
+          ) : null}
+          {canAskOfficeDays && officeDays !== null ? (
+            <RejectionWorkModeField
+              job={null}
+              several={false}
+              days={officeDays}
+              onDaysChange={setOfficeDays}
+              saveToProfile={saveWorkMode}
+              onSaveToProfileChange={setSaveWorkMode}
+              inset={false}
             />
           ) : null}
           <div className="flex items-center gap-2 text-xs">

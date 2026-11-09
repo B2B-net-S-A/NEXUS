@@ -55,7 +55,11 @@ decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
   Enter = odrzuć. Ruch przez `usePipelineMoveCore`, odrzucenie bez maila do
   kandydata, z powodem dla systemu (`autofill_*`) i powodem z szablonu.
   „Brak umiejętności” i „Inne” wymagają opisu (trafia do `notes` i
-  `autofill_feedback.note`).
+  `autofill_feedback.note`). Powód bez odpowiednika w szablonie idzie jako
+  „Inne” z nazwą powodu w opisie (`templateMoveFields`, inaczej 422).
+  „Lokalizacja / tryb” też: „Nie akceptuje trybu pracy” (dni w biurze i zapis
+  na profilu) idzie tylko po „Znam liczbę dni w biurze”, bo z samego profilu
+  dni nie znamy, a domyślne „Tylko zdalnie” zapisałoby na nim nieprawdę.
 - **„Dodaj 20 kolejnych”** (`POST /api/review-batch/jobs/{id}/more`): tylko
   rekruter rekrutacji, gdy jego część porcji w niej jest przejrzana. Nowe osoby
   trafiają do klikającego.
