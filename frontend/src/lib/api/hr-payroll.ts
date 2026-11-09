@@ -110,6 +110,8 @@ export interface BonusRow {
   /** Osoba zmieniona ręcznie przez Płace (automat jej nie nadpisuje). */
   edited_recipient?: boolean;
   flags?: BonusFlag[];
+  /** Płace, premia z placementu: dzień podpisu umowy do „Popraw datę podpisu”. */
+  signature?: Omit<DoubleBonusContract, "label"> | null;
   stages?: BonusStageFacts;
   /** Tylko dla Płac: reguły i liczby, z których wyszła kwota. */
   rule_snapshot?: Record<string, unknown>;
@@ -325,6 +327,8 @@ export interface BonusRules {
   recruiter_tier_amounts: [string, string, string];
   dl_percent: string;
   monthly_hours: number;
+  /** Godziny premii każdego DL-a; `null` = `monthly_hours`. Wyjątki w `dl_hours`. */
+  dl_default_hours?: number | null;
   eligible_business_days: number;
   currency: Currency;
   extra_dl: ExtraDlRule[];

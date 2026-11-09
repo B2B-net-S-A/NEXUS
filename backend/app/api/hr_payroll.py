@@ -255,6 +255,7 @@ class RulesIn(BaseModel):
     recruiter_tier_amounts: Optional[list[Decimal]] = Field(default=None, max_length=3)
     dl_percent: Optional[Decimal] = None
     monthly_hours: Optional[int] = None
+    dl_default_hours: Optional[int] = None
     eligible_business_days: Optional[int] = None
     extra_dl: Optional[list[ExtraDlIn]] = Field(default=None, max_length=50)
     dl_hours: Optional[list[DlHoursIn]] = Field(default=None, max_length=50)
@@ -343,6 +344,7 @@ async def _bonus_list(
         else {}
     )
     with_clawback = await bonus_guarantee.live_by_bonus(db, [b.id for b in bonuses])
+    signatures = await _bonus_signatures(db, bonuses) if viewer.payroll else {}
     return [
         {
             **payroll_bonuses.bonus_payload(
@@ -353,6 +355,7 @@ async def _bonus_list(
             "contract_ended_early": bonus.id in ended_early,
             "flags": flags.get(bonus.id, []),
             "has_clawback": bonus.id in with_clawback,
+            "signature": signatures.get(bonus.contract_id),
             # „Zwrot z gwarancji”: Płace, przyznana premia DL, nie własna (05.11.2026).
             "can_clawback": viewer.payroll
             and bonus.status == "assigned"
@@ -362,6 +365,36 @@ async def _bonus_list(
         }
         for bonus in bonuses
     ]
+
+
+async def _bonus_signatures(
+    db: AsyncSession, bonuses: list[HrBonus]
+) -> dict[int, dict[str, Any]]:
+    """Płace: dzień podpisu umowy przy premii z placementu, do „Popraw datę podpisu”.
+
+    Karta 200% pokazuje tylko umowy podpisane w miesiącu programu, więc data wpisana
+    błędnie poza programem nie miała gdzie zostać poprawiona (06.11.2026).
+    """
+
+    ids = {
+        b.contract_id
+        for b in bonuses
+        if b.contract_id is not None and b.source == placement_bonuses.SOURCE
+    }
+    if not ids:
+        return {}
+    agreements = await double_bonus.signed_agreements(db, ids)
+    dates = await double_bonus.signed_dates(db, agreements)
+    return {
+        contract_id: {
+            "contract_id": contract_id,
+            "signed_on": dates[contract_id][0].isoformat(),
+            "signed_source": dates[contract_id][1],
+            "agreement": agreement,
+        }
+        for contract_id, agreement in agreements.items()
+        if contract_id in dates
+    }
 
 
 async def _later_and_missing(

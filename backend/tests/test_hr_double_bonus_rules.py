@@ -18,6 +18,8 @@ from app.services.hr.bonus_rules import (
     DEFAULT_RULES,
     BonusRulesError,
     DoubleBonusRule,
+    dl_bonus,
+    dl_hours_for,
     fixed_amount_for,
     parse_rules,
     rule_amount,
@@ -218,3 +220,22 @@ def test_own_rows_hide_per_contract_margin() -> None:
     assert rows[0]["contracts"] == [{"contract_id": 5}]
     # Ocena w pamięci podręcznej zostaje nietknięta.
     assert evaluation["recruiters"][0]["contracts"][0]["margin_per_hour"] == "52.40"
+
+
+def test_dl_default_hours_apply_to_every_dl_with_person_exception_first() -> None:
+    rules = parse_rules(
+        {"dl_default_hours": 160, "dl_hours": [{"user_id": 5, "hours": 120}]}
+    )
+    assert dl_hours_for(1, rules) == 160
+    assert dl_hours_for(5, rules) == 120
+    assert dl_bonus(Decimal("46"), rules, dl_user_id=1) == Decimal("736.00")
+    # Rekruter w systemie indywidualnym zostaje przy godzinach miesiąca.
+    assert rules.monthly_hours == 168
+    assert parse_rules(rules_payload(rules)) == rules
+
+
+def test_dl_default_hours_empty_means_monthly_hours_and_bad_value_is_refused() -> None:
+    assert dl_hours_for(1, parse_rules({"dl_default_hours": None})) == 168
+    assert dl_hours_for(1, parse_rules({"dl_default_hours": ""})) == 168
+    with pytest.raises(BonusRulesError, match="Godziny premii DL"):
+        parse_rules({"dl_default_hours": 0})
