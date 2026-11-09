@@ -30,9 +30,12 @@ Wycofanie: ``LANE_DEPTH = 1``; następne przepięcie wraca PR-y na głowę maina
 Komendy:
 
 * ``admit --pr N`` — z ``auto-enqueue.yml`` przed ``gh pr merge --auto``.
-  Kod 0 = wpuść, ``WAIT_EXIT`` = PR zaparkowany (etykieta, komentarz).
-* ``enforce`` — z ``queue-migration-lane.yml`` (po bramce i CI grup
-  w kolejce) i z ``migration-rechain.yml`` (przed przepięciem i po nim):
+  Kod 0 = wpuść, ``WAIT_EXIT`` = PR zaparkowany (etykieta, komentarz). PR bez
+  rodzica też czeka, nawet przy pustym pasie: etykieta budzi ``enforce``,
+  a ten zleca przepięcie.
+* ``enforce`` — z ``queue-migration-lane.yml`` (po bramce i CI grup w kolejce,
+  a także gdy PR z migracją wchodzi do kolejki, wypada z niej albo dostaje
+  ``czeka-na-migracje``) i z ``migration-rechain.yml`` (przed przepięciem i po nim):
   zdejmuje z kolejki nadmiarowe PR-y z migracją, parkuje uzbrojone, daje
   kolej następnemu. Gdy trzeba przepiąć, a main się nie zmienił, wypisuje
   ``rechain=true`` do ``$GITHUB_OUTPUT``.
@@ -58,6 +61,7 @@ WAIT_LABEL = "czeka-na-migracje"
 HOLD_LABEL = "wstrzymaj"
 MARKER = "<!-- migration-lane -->"
 WAIT_EXIT = 10
+NO_PARENT = 0  # wynik ``admit``: rodzica nie ma ani na mainie, ani w pasie
 UNHEALTHY_CHECKS = {"FAILURE", "ERROR"}
 LANE_DEPTH = 2
 REVISION_RE = re.compile(
@@ -248,14 +252,16 @@ def plan_lane(prs: list[Pr], depth: int = LANE_DEPTH) -> Plan:
 
 
 def admit(prs: list[Pr], number: int, depth: int = LANE_DEPTH) -> int | None:
-    """Numer PR-a, który zajmuje pas, albo ``None`` = ``number`` może wejść."""
+    """Numer PR-a, który zajmuje pas, ``NO_PARENT`` albo ``None`` = może wejść."""
     me = next((p for p in prs if p.number == number), None)
     if me is None:
         return None
     others = [p for p in prs if p.number != number]
     plan = plan_lane(others, depth)
     if not plan.lane:
-        return None
+        # 09.11.2026: pusty pas nie znaczy wolnej drogi. #3265 stał na migracji
+        # #3262, który wypadł z kolejki, więc grupa miała dwie głowy.
+        return NO_PARENT if me.orphan else None
     last = next(p for p in others if p.number == plan.lane[-1])
     free = len(plan.lane) < depth
     if free and last.queue_position is not None and stacked_on(me, last):
@@ -560,8 +566,11 @@ def admit_pr(repo: str, number: int, dry_run: bool, run: Gh = gh) -> int:
             Actions(repo, prs, dry_run, run).unlabel(number)
         print(f"#{number}: pas migracji wolny — wpuszczam.")
         return 0
-    print(f"#{number}: pas migracji zajmuje #{active} — PR czeka.")
-    Actions(repo, prs, dry_run, run).park(number, active, dequeue=False)
+    if active == NO_PARENT:
+        print(f"#{number}: rodzica migracji nie ma na mainie ani w pasie — PR czeka.")
+    else:
+        print(f"#{number}: pas migracji zajmuje #{active} — PR czeka.")
+    Actions(repo, prs, dry_run, run).park(number, active or None, dequeue=False)
     return WAIT_EXIT
 
 
