@@ -1330,6 +1330,9 @@ class Settings(BaseSettings):
     # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
     # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
     SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
+    # Automat archiwizacji szans w trybie cienia: raz dziennie jedna linia logu,
+    # nic nie zapisuje (``app/tasks/sales_archive_shadow.py``).
+    SALES_ARCHIVE_SHADOW_ENABLED: bool = True
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.

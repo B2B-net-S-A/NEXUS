@@ -70,6 +70,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "competition_autofreeze",
         "dl_portal_expiry",
         "index_outbox",
+        "sales_archive_shadow",
     }
 )
 
