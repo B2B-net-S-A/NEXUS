@@ -520,6 +520,10 @@ export interface MatchedPerson {
   phone: string | null;
   linkedin: string | null;
   profile_url: string | null;
+  /** Dzień dodania do bazy (kalendarz firmy), „RRRR-MM-DD”. */
+  added_at: string | null;
+  decision_role: boolean;
+  cv_stale: boolean;
 }
 
 export interface CompanyPeople {
@@ -533,6 +537,33 @@ export interface CompanyPeople {
     updated?: number;
     finished_at?: string;
   } | null;
+  /** Prawda tylko po udanym zapisie odczytu listy osób w dzienniku. */
+  read_logged: boolean;
+  own_company: boolean;
+}
+
+export type AliasStatus = "joined" | "rejected";
+
+export interface AliasDecision {
+  id: number;
+  name: string;
+  status: AliasStatus;
+}
+
+export interface AliasVariant {
+  key: string;
+  name: string;
+  people: number;
+  current: number;
+}
+
+export interface CompanyAliases {
+  decisions: AliasDecision[];
+  suggestions: AliasVariant[];
+  other_count: number;
+  other_min: number;
+  other_max: number;
+  own_cards: { id: number; name: string; current: number }[];
 }
 
 export const salesKeys = {
@@ -699,6 +730,41 @@ export function useCompanyPeople(id: number, enabled = true) {
       (await api.get<CompanyPeople>(`/api/sales/companies/${id}/people`)).data,
     enabled: enabled && Number.isFinite(id) && id > 0,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCompanyAliases(id: number, enabled = true) {
+  return useQuery({
+    queryKey: [...salesKeys.companyPeople(id), "aliases"] as const,
+    queryFn: async () =>
+      (await api.get<CompanyAliases>(`/api/sales/companies/${id}/people/aliases`)).data,
+    enabled: enabled && Number.isFinite(id) && id > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Klucz listy osób obejmuje też nazwy z CV i grupę, więc liczby się przeliczają. */
+function useInvalidateCompanyPeople(id: number) {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: salesKeys.companyPeople(id) });
+}
+
+export function useDecideCompanyAlias(id: number) {
+  const invalidate = useInvalidateCompanyPeople(id);
+  return useMutation({
+    mutationFn: async (payload: { name: string; status: AliasStatus }) =>
+      (await api.post<AliasDecision>(`/api/sales/companies/${id}/people/aliases`, payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUndoCompanyAlias(id: number) {
+  const invalidate = useInvalidateCompanyPeople(id);
+  return useMutation({
+    mutationFn: async (aliasId: number) => {
+      await api.delete(`/api/sales/companies/${id}/people/aliases/${aliasId}`);
+    },
+    onSuccess: invalidate,
   });
 }
 

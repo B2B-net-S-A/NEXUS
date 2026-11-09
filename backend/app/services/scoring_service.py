@@ -1107,19 +1107,25 @@ def candidate_known_skill_names(candidate) -> set[str]:
     „czy WIEMY, co kandydat umie” — kandydat, o którym wiemy tylko tyle, że
     ma tag, jest kandydatem bez danych i musi przejść (polityka `review`).
     """
+    from app.services.conversation_facts import adjust_known_skills
+
     structured = canonical_skill_names(getattr(candidate, "skills", None))
     extracted = getattr(candidate, "cv_extracted_data", None)
     if getattr(candidate, "skills_manually_curated", False) or (
         isinstance(extracted, dict) and extracted.get("_manual_override_skills")
     ):
-        return set(structured)
+        return adjust_known_skills(candidate, set(structured), curated=True)
     cv_skills = _skills_from_cv_extracted(candidate)
     if not cv_skills:
         cv_skills = _skills_from_raw_cv(candidate)
-    return set(
-        structured
-        + canonical_skill_names(getattr(candidate, "verified_tech", None))
-        + canonical_skill_names(cv_skills)
+    return adjust_known_skills(
+        candidate,
+        set(
+            structured
+            + canonical_skill_names(getattr(candidate, "verified_tech", None))
+            + canonical_skill_names(cv_skills)
+        ),
+        curated=False,
     )
 
 

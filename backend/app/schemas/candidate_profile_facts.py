@@ -425,6 +425,27 @@ class CandidateNotesFactApply(BaseModel):
     expected_profile_rate_version: Optional[int] = Field(default=None, ge=0)
 
 
+class ConversationFactItem(BaseModel):
+    id: int
+    kind: str
+    value: str
+    status: str
+    source: str
+    noted_at: datetime
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+    author_name: Optional[str] = None
+    evidence: Optional[str] = None
+    # Zdanie bez odpowiednika w słowniku liczy się tylko w swojej rekrutacji.
+    job_only: bool
+
+
+class ConversationFactsResponse(BaseModel):
+    candidate_id: int
+    enabled: bool
+    facts: list[ConversationFactItem] = Field(default_factory=list)
+
+
 class CandidateWorkModeUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

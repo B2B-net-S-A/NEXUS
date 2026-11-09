@@ -689,6 +689,34 @@ TRANSCRIPTS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
+# ── 0671: inne nazwy firmy z CV (etap P8, 09.11.2026) ─────────────────────
+# Decyzja handlowca przy wariancie nazwy z CV: „Dołącz” (``joined``) doliczamy
+# do „Kogo znamy”, „Nie ta firma” (``rejected``) tylko przestajemy podpowiadać.
+# Cofnięcie kasuje wiersz, bo to decyzja, a nie dane o firmie. Klucz po
+# ``normalize_company_name``, więc jedna decyzja obejmuje każdą pisownię.
+
+COMPANY_ALIAS_STATUSES: tuple[str, ...] = ("joined", "rejected")
+CK_COMPANY_ALIAS_STATUS = f"status IN ({quoted(COMPANY_ALIAS_STATUSES)})"
+
+COMPANY_ALIASES_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_company_aliases (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER NOT NULL REFERENCES sales_companies(id) ON DELETE CASCADE,
+    alias VARCHAR(500) NOT NULL,
+    normalized_alias VARCHAR(500) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_company_aliases_name UNIQUE (company_id, normalized_alias),
+    CONSTRAINT ck_sales_company_aliases_status CHECK ({CK_COMPANY_ALIAS_STATUS})
+)""",
+)
+
+COMPANY_ALIASES_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_company_aliases",
+)
+
 # ── 0672: wynik rozmowy i sprzeciw wobec kontaktu ────────────────────────
 #
 # Wynik zapisany w polu, nie tylko w temacie wpisu, żeby dało się go policzyć.

@@ -31,8 +31,11 @@
   "back_office"
  ],
  "routes": {
+  "DELETE /api/sales/companies/{company_id}/people/aliases/{alias_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/{company_id}/people": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/{company_id}/people/aliases": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/{company_id}/people/group": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/people/aliases": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/companies/{company_id}/people/dates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
