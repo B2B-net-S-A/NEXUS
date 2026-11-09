@@ -3101,6 +3101,26 @@ END $$""",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
     "ALTER TABLE cortex_skill_facts ADD COLUMN IF NOT EXISTS source_ref VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
+    # 0668: lustro samego ADD COLUMN zostawiło NULL w każdym wierszu, a model ma
+    # NOT NULL z domyślną. Tekst taki sam jak w migracji (test tego pilnuje).
+    """DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'cortex_unmatched_terms'
+              AND column_name = 'first_seen_at'
+              AND is_nullable = 'YES'
+        ) THEN
+            ALTER TABLE cortex_unmatched_terms
+                ALTER COLUMN first_seen_at SET DEFAULT now();
+            UPDATE cortex_unmatched_terms
+                SET first_seen_at = last_seen_at
+                WHERE first_seen_at IS NULL;
+            ALTER TABLE cortex_unmatched_terms
+                ALTER COLUMN first_seen_at SET NOT NULL;
+        END IF;
+    END $$""",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_by VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_at TIMESTAMPTZ",
     """CREATE TABLE IF NOT EXISTS cortex_extraction_runs (
