@@ -6,7 +6,7 @@ z rozmów zapisują się automatycznie, bez potwierdzania. Przycisku „Potwierd
 z makiet nie budujemy. Flaga `CONVERSATION_FACTS_ENABLED`, domyślnie false;
 false = zachowanie sprzed zmiany, a trasa `conversation-facts` zwraca `enabled: false`.
 
-- **Źródłem prawdy jest tabela `candidate_conversation_facts`** (migracja 0668,
+- **Źródłem prawdy jest tabela `candidate_conversation_facts`** (migracja 0670,
   DDL w `services/conversation_facts_schema.py`, lustro w `entrypoint.sh`). Wiersz:
   osoba, rodzaj (skill, domain, certification, regulation), wartość, status
   (confirmed, absent), źródło (sheet, note_ai), etap lub notatka, rekrutacja, autor,

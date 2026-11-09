@@ -1,4 +1,4 @@
-"""Rejestr faktów z rozmów (0668) — DDL w ``services/conversation_facts_schema.py``."""
+"""Rejestr faktów z rozmów (0670) — DDL w ``services/conversation_facts_schema.py``."""
 
 from datetime import datetime
 from typing import Optional

@@ -1,4 +1,4 @@
-"""DDL rejestru faktów z rozmów — JEDNO źródło dla migracji 0668 i siatki
+"""DDL rejestru faktów z rozmów — JEDNO źródło dla migracji 0670 i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 Jeden wiersz to jeden fakt o osobie z jednego źródła: umiejętność, branża,
