@@ -48,6 +48,7 @@ from app.schemas.recruitment_operations import (
 from app.schemas.recruitment_activity import (
     RecruitmentActivityDetailResponse,
     RecruitmentActivityMetric,
+    RecruitmentActivityDetailOrder,
     RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
     RecruitmentActivityTeamTotalsResponse,
@@ -374,13 +375,15 @@ async def recruitment_activity_details(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     state: RecruitmentActivityState | None = Query(None),
+    order: RecruitmentActivityDetailOrder = Query("reached"),
 ) -> RecruitmentActivityDetailResponse:
     """Candidate/job rows behind one visible KPI number.
 
     `window=week` = tydzień (od poniedziałku) dnia `day`; `window=range` = dni
     `date_from`–`date_to` włącznie. `scope=unattributed` = kamienie bez osoby
     z zasługą (tylko role z wglądem w zespół). `state` zawęża wiersze do stanu
-    pary „teraz”; liczniki stanów w odpowiedzi liczą cały okres.
+    pary „teraz”; liczniki stanów w odpowiedzi liczą cały okres. `order=term`
+    układa wiersze po terminie rozmowy zamiast po dniu osiągnięcia etapu.
     """
 
     selected_day = day or datetime.now(WARSAW).date()
@@ -400,6 +403,7 @@ async def recruitment_activity_details(
         date_from=date_from,
         date_to=date_to,
         state=state,
+        order=order,
     )
 
 

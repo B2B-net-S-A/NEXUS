@@ -303,6 +303,7 @@ function daysBetween(from: string, to: string): number {
 export function stateText(
   item: RecruitmentActivityDetailItem,
   today: string,
+  options: { withTerm?: boolean } = {},
 ): { label: string; tone: WhoCountsTone } | null {
   const state = item.state ?? null
   if (!state) return null
@@ -321,8 +322,12 @@ export function stateText(
         tone,
       }
     }
-    case "at_client":
-      return { label: AT_CLIENT_STAGES[item.state_stage ?? ""] ?? "U klienta", tone }
+    case "at_client": {
+      const label = AT_CLIENT_STAGES[item.state_stage ?? ""] ?? "U klienta"
+      return options.withTerm && item.state_stage === "client_interview" && item.client_interview_at
+        ? { label: `${label} · ${formatTerm(item.client_interview_at)}`, tone }
+        : { label, tone }
+    }
     case "hired":
       return { label: since ? `Zatrudnienie ${dayMonth(since)}` : "Zatrudnienie", tone }
     case "rejected_by_client":
@@ -375,6 +380,84 @@ export function formatTime(iso: string): string {
     minute: "2-digit",
     timeZone: "Europe/Warsaw",
   }).format(new Date(iso))
+}
+
+const SHORT_WEEKDAY = new Intl.DateTimeFormat("pl-PL", {
+  weekday: "short",
+  timeZone: "Europe/Warsaw",
+})
+
+/** „śr 11.11, 10:00” w kalendarzu firmy. */
+export function formatTerm(iso: string): string {
+  const weekday = SHORT_WEEKDAY.format(new Date(iso)).replace(".", "")
+  return `${weekday} ${dayMonth(warsawDay(iso))}, ${formatTime(iso)}`
+}
+
+export type InterviewTermKind = "today" | "upcoming" | "past" | "tentative" | "none"
+
+export interface InterviewTerm {
+  kind: InterviewTermKind
+  label: string
+  hint: string | null
+}
+
+/** Komórka „Termin rozmowy”: potwierdzony termin, propozycja albo brak. */
+export function interviewTerm(
+  item: RecruitmentActivityDetailItem,
+  today: string,
+): InterviewTerm {
+  const at = item.client_interview_at
+  const tentative = item.client_interview_tentative_at
+  // Para zamknięta: termin jest historią, nawet gdy wypada dziś albo później.
+  const closed = item.state === "rejected_by_client" || item.state === "ended"
+  if (at) {
+    const days = daysBetween(today, warsawDay(at))
+    if (closed) {
+      return { kind: "past", label: formatTerm(at), hint: days >= 0 ? "proces zakończony" : null }
+    }
+    if (days === 0) return { kind: "today", label: `Dziś, ${formatTime(at)}`, hint: null }
+    if (days > 0) {
+      return {
+        kind: "upcoming",
+        label: formatTerm(at),
+        hint: days === 1 ? "jutro" : `za ${days} dni`,
+      }
+    }
+    // Po minionej rundzie otwarta propozycja mówi o następnej.
+    if (!tentative) return { kind: "past", label: formatTerm(at), hint: null }
+  }
+  if (tentative) return { kind: "tentative", label: formatTerm(tentative), hint: "do potwierdzenia" }
+  return { kind: "none", label: "Brak terminu", hint: null }
+}
+
+/**
+ * Układ „po terminie”: kolejność daje serwer (`order=term`), tu tylko podział
+ * na grupy według tego, co pokazuje komórka terminu.
+ */
+export function groupByTerm(
+  items: readonly RecruitmentActivityDetailItem[],
+  today: string,
+): WhoCountsDay[] {
+  const groups: Record<"upcoming" | "past" | "none", WhoCountsDay> = {
+    upcoming: { day: "upcoming", label: "Przed nami", items: [] },
+    past: { day: "past", label: "Termin minął", items: [] },
+    none: { day: "none", label: "Bez terminu w kalendarzu", items: [] },
+  }
+  for (const item of items) {
+    const { kind } = interviewTerm(item, today)
+    groups[kind === "none" || kind === "past" ? kind : "upcoming"].items.push(item)
+  }
+  return Object.values(groups).filter((group) => group.items.length > 0)
+}
+
+/** „6.11, 14:53”: kiedy etap wpisano, pod osobą, która to zrobiła. */
+export function formatReached(iso: string): string {
+  return `${dayMonth(warsawDay(iso))}, ${formatTime(iso)}`
+}
+
+/** „3.11.2026” bez przesunięć strefy — `start_on` to sama data. */
+export function formatDay(day: string): string {
+  return `${dayMonth(day)}.${day.slice(0, 4)}`
 }
 
 const ROLE_SHORT: Record<string, string> = {
