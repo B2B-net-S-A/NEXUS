@@ -139,7 +139,9 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   i przypisanie zadania. Opiekun i przypisanie zadania są tylko uzupełniane
   (`COALESCE`), nigdy kasowane.
 - **Zadanie przy szansie należy do opiekuna szansy** (reguła Atlasa, liczona
-  przy imporcie). Lista „Zadania” obejmuje też telefony z terminem.
+  przy imporcie i przy zapisie w NEXUSIE, `_default_assignee`). Jawne
+  przypisanie wygrywa; bez szansy albo bez aktywnego opiekuna zadanie zostaje
+  u autora. Lista „Zadania” obejmuje też telefony z terminem.
 - **Opiekun z Atlasa bez konta = `owner_label`.** Etykietę przypisuje do konta
   admin (Firmy → „Opiekunowie z Atlasa”); nazwisk nie ma w kodzie ani w logach.
 - **Osoba w kilku firmach**: `sales_company_contacts` (rola, stanowisko,

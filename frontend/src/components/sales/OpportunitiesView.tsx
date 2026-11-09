@@ -324,7 +324,7 @@ export function OpportunitiesView() {
         }
         actions={
           canEdit ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+            <Button size="sm" disabled={!pipeline} onClick={() => setCreating(true)}>
               <Plus className="mr-1 h-4 w-4" aria-hidden /> Szansa
             </Button>
           ) : null
@@ -453,6 +453,7 @@ export function OpportunitiesView() {
         <OpportunityFormDialog
           open={creating}
           onOpenChange={setCreating}
+          pipelineId={pipeline?.id}
           onCreated={(opportunity) => open(opportunity.id)}
         />
       )}

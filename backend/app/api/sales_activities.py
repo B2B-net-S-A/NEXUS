@@ -248,6 +248,26 @@ async def _check_links(db: AsyncSession, fields: dict) -> None:
             )
 
 
+async def _default_assignee(
+    db: AsyncSession, opportunity_id: Optional[int], author_id: int
+) -> int:
+    """Zadanie przy szansie należy do jej opiekuna (decyzja Artura 28.10.2026).
+
+    Bez szansy albo bez aktywnego opiekuna zostaje u autora: na koncie
+    nieaktywnym nikt by go nie zobaczył.
+    """
+
+    if opportunity_id is not None:
+        owner_id = await db.scalar(
+            select(User.id)
+            .join(SalesOpportunity, SalesOpportunity.owner_user_id == User.id)
+            .where(SalesOpportunity.id == opportunity_id, User.is_active.is_(True))
+        )
+        if owner_id is not None:
+            return owner_id
+    return author_id
+
+
 @router.get("", response_model=list[ActivityOut])
 async def list_activities(
     current_user: SalesViewUser,
@@ -555,9 +575,12 @@ async def create_activity(
     for key, value in fields.items():
         setattr(activity, key, value.strip() if isinstance(value, str) else value)
     if open_item:
-        # Zadanie albo telefon z terminem: trafia na listę zadań autora,
-        # jeśli nikt inny nie jest wskazany.
-        activity.assignee_user_id = activity.assignee_user_id or current_user.id
+        # Zadanie albo telefon z terminem: jawne przypisanie wygrywa, potem
+        # opiekun szansy, potem autor.
+        activity.assignee_user_id = (
+            activity.assignee_user_id
+            or await _default_assignee(db, payload.opportunity_id, current_user.id)
+        )
         if payload.done:
             activity.done_at = now
     else:
@@ -598,7 +621,9 @@ async def update_activity(
         and activity.done_at is None
         and activity.assignee_user_id is None
     ):
-        activity.assignee_user_id = current_user.id
+        activity.assignee_user_id = await _default_assignee(
+            db, activity.opportunity_id, current_user.id
+        )
     await db.commit()
     return await _load(db, activity_id)
 
