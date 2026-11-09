@@ -61,7 +61,7 @@ describe("candidate-row-format", () => {
     expect(availabilityCellText(row)).toBe("aktywne zamówienie");
     expect(availabilityCellSecondLine(row)).toEqual({
       text: "z kontraktu · Bank Przykładowy",
-      title: expect.stringContaining("W profilu: od 01.09.2026"),
+      title: "Z kontraktu: aktywne zamówienie w Bank Przykładowy. Nie dzwoń z nowym projektem.",
     });
   });
 
