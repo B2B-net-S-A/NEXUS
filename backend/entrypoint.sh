@@ -11113,6 +11113,52 @@ async def finalize():
 asyncio.run(finalize())
 PY
 
+# 0669: triggery martwej kolejki embedding_index_queue (rewert #713 zostawił je
+# w bazie, nic ich nie czyta). Tabela i funkcja zostają, decyzja Artura z
+# 08.11.2026. DROP TRIGGER prosi o ACCESS EXCLUSIVE nawet przy IF EXISTS, więc
+# krok najpierw sprawdza pg_trigger, a na czystej bazie nie dotyka tabel.
+# Awaria jest MIĘKKA: trigger dalej tylko dopisuje do kolejki, następny start ponowi.
+startup_phase "embedding-queue-triggers"
+python - <<'PY' || echo "embedding queue triggers: krok nieudany; continuing"
+import asyncio
+
+from sqlalchemy import text
+
+from app.core.database import engine
+
+_DROPS = (
+    (
+        "trg_candidates_embedding_index",
+        "DROP TRIGGER IF EXISTS trg_candidates_embedding_index ON candidates",
+    ),
+    (
+        "trg_jobs_embedding_index",
+        "DROP TRIGGER IF EXISTS trg_jobs_embedding_index ON jobs",
+    ),
+)
+
+
+async def main():
+    for trigger, statement in _DROPS:
+        try:
+            async with engine.begin() as conn:
+                present = await conn.scalar(
+                    text("SELECT 1 FROM pg_trigger WHERE tgname = :name"),
+                    {"name": trigger},
+                )
+                if not present:
+                    continue
+                await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                await conn.execute(text(statement))
+            print(f"embedding queue triggers: zdjęty {trigger}")
+        except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
+            print(f"embedding queue triggers: {trigger} pominięty -> {exc!r}")
+    await engine.dispose()
+
+
+asyncio.run(main())
+PY
+
 # 0282: mirror signature policy for installations with an orphaned Alembic
 # bookmark. Reuse the migration only when the schema/policy is missing; a
 # normal restart must never recreate user overrides or increment the revision.
