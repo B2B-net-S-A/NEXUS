@@ -13,6 +13,7 @@ import { reviewBatchBlock } from "@/lib/api/reviewBatch";
 export function ReviewBatchBlockedNotice({ error }: { error: unknown }) {
   const block = reviewBatchBlock(error);
   if (!block) return null;
+  const overdueOnly = block.overdue > 0 && block.remaining === 0;
   return (
     <div
       className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm space-y-2"
@@ -21,17 +22,19 @@ export function ReviewBatchBlockedNotice({ error }: { error: unknown }) {
     >
       <div className="flex items-center gap-2 font-semibold">
         <Lock className="h-4 w-4" aria-hidden="true" />
-        Najpierw porcja od Nexusa: zostało {block.remaining} z {block.required} decyzji.
+        {overdueOnly
+          ? `Najpierw domknij screeningi po terminie: ${block.overdue}.`
+          : `Najpierw porcja od Nexusa: zostało ${block.remaining} z ${block.required} decyzji.`}
       </div>
       <p className="text-muted-foreground">
-        Wyszukiwanie ręczne wróci po minimum. Konkretną osobę znajdziesz po imieniu
+        Wyszukiwanie ręczne wróci {overdueOnly ? "po wpisaniu wyników albo odrzuceniu" : "po minimum"}. Konkretną osobę znajdziesz po imieniu
         i nazwisku, telefonie albo mailu, a osobę spoza bazy dodasz zawsze.
       </p>
       <Link
         href="/porcja"
         className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
       >
-        Przejrzyj teraz
+        {overdueOnly ? "Domknij screeningi" : "Przejrzyj teraz"}
       </Link>
     </div>
   );

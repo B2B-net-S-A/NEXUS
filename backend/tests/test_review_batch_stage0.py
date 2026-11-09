@@ -190,13 +190,13 @@ async def test_card_moved_back_to_new_is_not_a_decision(batch_on):
     await _move(world["job_id"], cid, PipelineStage.new, a)
     async with AsyncSessionLocal() as db:
         counts = await rb.day_counts(db, a, now=_now())
-    assert counts.done == 0 and counts.open_today == 0
+    assert counts.done == 0
 
 
-# ── P5: „Do screeningu” dopiero po domknięciu ───────────────────────────────
+# ── „Do screeningu” zalicza od razu, termin domknięcia (decyzja z 09.11) ────
 
 
-async def test_rejection_counts_at_once_and_screening_waits(batch_on):
+async def test_rejection_and_screening_both_count_at_once(batch_on):
     a = await _user()
     world = await _world(2, recruiters=[a])
     await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
@@ -206,13 +206,11 @@ async def test_rejection_counts_at_once_and_screening_waits(batch_on):
     await _move(world["job_id"], second, PipelineStage.screening, a)
 
     status = await _status(a)
-    assert status.done_today == 1 and status.open_screenings == 1
-    # Karta przesunięta na screening nie obniża wymaganego minimum.
-    assert status.required == 2 and status.met is False
+    assert status.done_today == 2 and status.open_screenings == 1
+    assert status.required == 2 and status.met is True
 
 
-async def test_screening_of_whole_batch_does_not_unlock(batch_on):
-    """Bez tego rekruter z 2 kartami wciska S dwa razy i ma required = 0."""
+async def test_screening_of_whole_batch_unlocks_until_the_deadline(batch_on):
     a = await _user()
     world = await _world(2, recruiters=[a])
     await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
@@ -220,7 +218,45 @@ async def test_screening_of_whole_batch_does_not_unlock(batch_on):
     for cid in added:
         await _move(world["job_id"], cid, PipelineStage.screening, a)
     status = await _status(a)
-    assert status.pending == 0 and status.required == 2 and status.met is False
+    assert status.pending == 0 and status.required == 2 and status.met is True
+    assert status.overdue_screenings == 0
+
+
+async def _age_batch_screening(job_id: int, cid: int, user: int) -> None:
+    """S z własnej porcji sprzed okna domknięcia."""
+    old = rb.close_window_start() - timedelta(hours=2)
+    await _rewrite_process(job_id, cid, opened_at=old - timedelta(hours=1))
+    async with AsyncSessionLocal() as db:
+        stage = (
+            await db.scalars(
+                select(CandidateStage).where(
+                    CandidateStage.job_id == job_id,
+                    CandidateStage.candidate_id == cid,
+                )
+            )
+        ).one()
+        stage.moved_at = old - timedelta(hours=1)
+        await db.commit()
+    await _move(job_id, cid, PipelineStage.screening, user, at=old)
+
+
+async def test_overdue_screening_blocks_again_until_closed(batch_on):
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    late, fresh = await _fill(world["job_id"])
+    await _age_batch_screening(world["job_id"], late, a)
+    await _move(world["job_id"], fresh, PipelineStage.rejected, a)
+
+    status = await _status(a)
+    assert status.overdue_screenings == 1 and status.met is False
+    assert status.remaining == 0
+    row = next(r for r in status.open_today_screenings if r.candidate_id == late)
+    assert row.overdue is True
+
+    await _move(world["job_id"], late, PipelineStage.verified, a)
+    status = await _status(a)
+    assert status.overdue_screenings == 0 and status.met is True
 
 
 async def _rewrite_process(job_id: int, cid: int, **changes) -> None:
@@ -253,7 +289,7 @@ async def test_old_card_moved_on_the_board_does_not_block_again(batch_on):
     await _move(world["job_id"], old, PipelineStage.screening, a)
 
     status = await _status(a)
-    assert status.done_today == 1 and status.required == 1 and status.met is True
+    assert status.done_today == 2 and status.met is True
     assert status.open_today_screenings == ()
 
 
@@ -270,7 +306,8 @@ async def test_screening_of_someone_elses_card_does_not_hold_my_minimum(batch_on
     await _move(world["job_id"], cid, PipelineStage.screening, a)
 
     status = await _status(a)
-    assert status.required == 0 and status.met is True
+    assert status.required == 1 and status.met is True
+    assert status.open_today_screenings == ()
 
 
 async def test_status_lists_todays_open_screenings_from_own_batch(batch_on):
@@ -283,7 +320,7 @@ async def test_status_lists_todays_open_screenings_from_own_batch(batch_on):
 
     status = await _status(a)
 
-    assert status.pending == 0 and status.required == 2 and status.met is False
+    assert status.pending == 0 and status.met is True
     assert {row.candidate_id for row in status.open_today_screenings} == set(added)
     row = status.as_dict()["open_today_screenings"][0]
     assert row["job_id"] == world["job_id"] and row["job_title"] and row["name"]
@@ -295,7 +332,8 @@ async def test_screening_closed_by_saved_form_counts(batch_on):
     await _pool(world["job_id"], {world["ids"][0]: 90})
     [cid] = await _fill(world["job_id"])
     stage_id = await _move(world["job_id"], cid, PipelineStage.screening, a)
-    assert (await _status(a)).done_today == 0
+    before = await _status(a)
+    assert before.done_today == 1 and before.open_screenings == 1
     async with AsyncSessionLocal() as db:
         db.add(
             Activity(
@@ -321,8 +359,8 @@ async def test_screening_closed_by_next_move_counts(batch_on):
     assert (await _status(a)).done_today == 1
 
 
-async def test_screening_older_than_window_does_not_count(batch_on):
-    """S sprzed 2 dni roboczych zamknięte dziś już minimum nie zalicza."""
+async def test_old_screening_closed_today_is_not_todays_decision(batch_on):
+    """S sprzed 2 dni roboczych liczyło się w dniu ruchu, nie w dniu wyniku."""
     a = await _user()
     world = await _world(1, recruiters=[a])
     await _pool(world["job_id"], {world["ids"][0]: 90})
@@ -544,9 +582,9 @@ async def test_team_view_row_counts_decisions_blocks_and_ratio(batch_on):
         view = await team.team_view(db, now=_now())
 
     row = next(r for r in view["rows"] if r["user_id"] == a)
-    assert row["done_today"] == 1
+    assert row["done_today"] == 2  # odrzucenie i „Do screeningu”
     assert row["pending"] == 1
-    assert row["required"] == 3  # 1 decyzja + 1 w porcji + 1 niedomknięte S
+    assert row["required"] == 3  # 2 decyzje + 1 w porcji
     assert row["screened"] == 1 and row["rejected"] == 1
     assert row["open_screenings"] == 1
     assert row["blocked_today"] == 1

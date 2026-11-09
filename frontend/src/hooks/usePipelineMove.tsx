@@ -54,6 +54,7 @@ import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
 import { useClientRateHistory } from "@/lib/api/clientRateHistory";
 import { canViewClientRate } from "@/lib/client-rate-access";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
+import { closePairMeetings, type PairMeetingsChoice } from "@/lib/api/pairMeetings";
 import type { RejectionWorkModeChoice } from "@/components/v2/modals/RejectionWorkModeField";
 import {
   rejectionRateMoveFields,
@@ -1633,7 +1634,8 @@ export function usePipelineMove({
     emailText?: RejectionEmailText | null,
     workMode?: RejectionWorkModeChoice | null,
     autofill?: AutofillFeedbackChoice | null,
-    rate?: RejectionRateChoice | null
+    rate?: RejectionRateChoice | null,
+    meetings?: PairMeetingsChoice | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol, followUp } = pendingRejection;
@@ -1675,8 +1677,9 @@ export function usePipelineMove({
           }
         );
         if (!ok) failed.push({ name: itemFullName(item), reason: failureReason });
-        else if (cancelAgreementId && entries.length === 1) {
-          await cancelAgreement(cancelAgreementId);
+        else if (entries.length === 1) {
+          if (cancelAgreementId) await cancelAgreement(cancelAgreementId);
+          await closePairMeetings(jobId, item.candidate_id, meetings, { showSuccess, showError });
         }
       }
       if (entries.length > 1) {
@@ -1753,6 +1756,11 @@ export function usePipelineMove({
         onOpenChange={(v) => !v && setPendingRejection(null)}
         terminalType={pendingRejection?.terminalType ?? "rejected"}
         reasons={job.rejectionReasons}
+        meetingsPair={
+          pendingRejection?.entries.length === 1
+            ? { jobId, candidateId: pendingRejection.entries[0].item.candidate_id }
+            : null
+        }
         previousStageCategory={(() => {
           const firstSrc = pendingRejection?.entries[0]?.srcColId;
           if (!firstSrc) return null;

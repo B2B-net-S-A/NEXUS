@@ -82,7 +82,7 @@ async def _advanced(
         done = sum(
             1
             for decision in decisions.get(user_id, [])
-            if decision.counted_at is not None and start <= decision.counted_at < end
+            if decision.closed_at is not None and start <= decision.closed_at < end
         )
         level = next_level(level_of(stored, user_id, base), done)
         if level > base:

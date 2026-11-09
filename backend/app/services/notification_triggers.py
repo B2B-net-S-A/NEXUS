@@ -55,6 +55,7 @@ from app.services.calendar_auto_complete import mark_ended_interviews_completed
 from app.services.job_previous_recruiters import working_owner_id
 from app.services.job_priority import level_of
 from app.services.job_team import recruiters_for_jobs, working
+from app.services.stage_verifier import verifier_ids
 from app.services.notification_access import notification_recipient_has_access
 from app.services.notification_substitution import notification_route
 from app.services.notification_topics import (
@@ -993,6 +994,14 @@ def _post_interview_side(event: CalendarEvent, stage: "LatestStage | None") -> b
     return _is_client_side(stage)
 
 
+def _card_closed(stage: "LatestStage | None") -> bool:
+    """Po zamknięciu karty nikt już do tej osoby nie dzwoni."""
+    return stage is not None and stage.stage in (
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+    )
+
+
 async def _post_interview_recipients(
     db: AsyncSession,
     event: CalendarEvent,
@@ -1010,9 +1019,13 @@ async def _post_interview_recipients(
     """
     recipients: list[int] = []
     if event.event_type == EventType.client_interview:
+        # Dzwoni osoba, która zweryfikowała kandydata (decyzja Artura 09.11.2026).
+        pair = (event.candidate_id, event.job_id)
+        verifiers = await verifier_ids(db, [pair]) if event.job_id else {}
         owner = await _operational_recipient(
             db,
             [
+                verifiers.get(pair),
                 event.operational_owner_id or event.created_by,
                 await working_owner_id(db, job) if job else None,
             ],
@@ -1174,6 +1187,8 @@ async def check_post_interview_t15(
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
+        if _card_closed(stage):
+            continue
         client_side = _post_interview_side(event, stage)
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
@@ -1226,6 +1241,8 @@ async def check_post_interview_t45(
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
+        if _card_closed(stage):
+            continue
         client_side = _post_interview_side(event, stage)
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
@@ -1268,6 +1285,8 @@ async def check_post_interview_t2h_escalation(
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
+        if _card_closed(stage):
+            continue
         client_side = _post_interview_side(event, stage)
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side

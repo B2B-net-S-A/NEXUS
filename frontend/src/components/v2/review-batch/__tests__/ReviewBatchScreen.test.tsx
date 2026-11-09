@@ -1,9 +1,9 @@
 /**
- * Pusta kolejka nie znaczy „porcja przejrzana”: rekruter, który na całej porcji
- * wcisnął „Do screeningu”, nadal ma blokadę 423 i musi widzieć, co domknąć.
+ * Pusta kolejka nie znaczy „porcja przejrzana”, a screeningi bez wyniku muszą
+ * być pod ręką: po 2 dniach roboczych znów blokują wyszukiwanie.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewBatchScreen } from "@/components/v2/review-batch/ReviewBatchScreen";
@@ -58,27 +58,42 @@ function given(status: Partial<ReviewBatchStatus>, queue: Record<string, unknown
 describe("ReviewBatchScreen przy pustej kolejce", () => {
   beforeEach(() => given({}));
 
-  it("przy niezrobionym minimum pokazuje dzisiejsze screeningi z linkami do Tablicy", () => {
+  it("zakładka „Do domknięcia” prowadzi do screeningu na Tablicy", () => {
     render(<ReviewBatchScreen />);
-    expect(screen.queryByText(/Porcja przejrzana/)).toBeNull();
-    expect(screen.getByRole("link", { name: /Jan Testowy/ }).getAttribute("href")).toBe(
+    fireEvent.click(screen.getByRole("tab", { name: /Do domknięcia/ }));
+    expect(screen.getByRole("link", { name: "Otwórz screening" }).getAttribute("href")).toBe(
       "/jobs/11?candidate=101",
     );
-    expect(screen.getByRole("link", { name: /Ewa Próbna/ }).getAttribute("href")).toBe(
-      "/jobs/12?candidate=102",
-    );
-    expect(screen.getByTestId("review-batch-open-today").textContent).toMatch(/brakuje 10 decyzji/);
+    expect(screen.getByTestId("review-batch-open-today").textContent).toMatch(/Ewa Próbna/);
   });
 
-  it("wskazuje dobranie kolejnych osób, gdy jest z czego dobrać", () => {
+  it("zakładka „Rekrutacje” pozwala dobrać osoby w przejrzanej rekrutacji", () => {
     render(<ReviewBatchScreen />);
-    expect(screen.getByTestId("review-batch-open-today").textContent).toMatch(/Dodaj .* kolejnych/);
+    fireEvent.click(screen.getByRole("tab", { name: /Rekrutacje/ }));
+    expect(screen.getByRole("button", { name: /Dodaj 20 kolejnych/ })).toBeTruthy();
   });
 
-  it("nie obiecuje dobrania, gdy żadna rekrutacja nie jest przejrzana do końca", () => {
-    given({ team_jobs: [] });
+  it("screening po terminie otwiera „Do domknięcia” i mówi, co odblokuje wyszukiwanie", () => {
+    given({
+      met: false,
+      done_today: 10,
+      remaining: 0,
+      overdue_screenings: 1,
+      open_today_screenings: [
+        { job_id: 11, job_title: "Java Developer", candidate_id: 101, name: "Jan Testowy", overdue: true },
+      ],
+    });
     render(<ReviewBatchScreen />);
-    expect(screen.getByTestId("review-batch-open-today").textContent).not.toMatch(/kolejnych/);
+    expect(screen.getByTestId("review-batch-open-today").textContent).toMatch(/po terminie/);
+    expect(screen.getByText(/Wyszukiwanie wróci po domknięciu 1 screeningu/)).toBeTruthy();
+    expect(screen.getByText("Wyszukiwanie zablokowane")).toBeTruthy();
+  });
+
+  it("po minimum przypomina o terminie niedomkniętych screeningów", () => {
+    given({ met: true, done_today: 10, remaining: 0 });
+    render(<ReviewBatchScreen />);
+    expect(screen.getByText(/bez wyniku w 2 dni robocze/)).toBeTruthy();
+    expect(screen.getByText("Wyszukiwanie działa")).toBeTruthy();
   });
 
   it("bez listy i bez minimum nie twierdzi, że porcja jest przejrzana", () => {
@@ -89,7 +104,7 @@ describe("ReviewBatchScreen przy pustej kolejce", () => {
   });
 
   it("po zrobionym minimum zostaje „Porcja przejrzana”", () => {
-    given({ met: true, done_today: 10, remaining: 0, open_today_screenings: [] });
+    given({ met: true, done_today: 10, remaining: 0, open_today_screenings: [], open_screenings: 0 });
     render(<ReviewBatchScreen />);
     expect(screen.getByTestId("review-batch-empty").textContent).toMatch(/Porcja przejrzana/);
   });
