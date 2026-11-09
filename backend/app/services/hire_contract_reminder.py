@@ -155,7 +155,7 @@ async def _already_rang_for_pair(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> set[int]:
     rows = await db.execute(
-        select(Notification.user_id)
+        select(Notification.addressee_id)
         .join(CandidateStage, CandidateStage.id == Notification.related_entity_id)
         .where(
             Notification.notification_type == NOTIFICATION_TYPE,

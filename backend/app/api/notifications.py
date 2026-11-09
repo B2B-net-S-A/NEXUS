@@ -325,7 +325,7 @@ async def _list_items(
     """Wiersze listy z podpisem „w zastępstwie za …” przy cudzych przypomnieniach."""
     foreign_owner_ids = {
         n.user_id for n in notifications if n.user_id != current_user.id
-    }
+    } | {n.on_behalf_of_user_id for n in notifications if n.on_behalf_of_user_id}
     owner_names: dict[int, str] = {}
     if foreign_owner_ids:
         owner_rows = await db.execute(
@@ -343,8 +343,8 @@ async def _list_items(
             is_read=n.is_read,
             created_at=n.created_at.isoformat() if n.created_at else None,
             on_behalf_of_name=(
-                (owner_names.get(n.user_id) or "nieobecną osobę")
-                if n.user_id != current_user.id
+                (owner_names.get(n.addressee_id) or "nieobecną osobę")
+                if n.addressee_id != current_user.id
                 else None
             ),
             **_category_fields(n.notification_type),

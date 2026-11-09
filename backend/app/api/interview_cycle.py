@@ -88,7 +88,10 @@ from app.services.interview_slot_requests import (
     create_slot_request_for_pair,
 )
 from app.services.debrief_gate import interview_not_started_message
-from app.services.workforce_availability import operational_owner_ids
+from app.services.workforce_availability import (
+    operational_owner_ids,
+    workforce_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +247,8 @@ class TodoEntry(PairInfo):
     # Zadanie czeka na wołającego (``interview_cycle.todo_is_mine``); ekran
     # pokazuje wszystkie z zakresu, okienko „Rozmowy” tylko te.
     mine: bool = False
+    # Sprawa nieobecnej osoby, którą oglądający dziś zastępuje.
+    on_behalf_of_name: Optional[str] = None
 
 
 class CycleOverview(BaseModel):
@@ -708,6 +713,40 @@ async def read_slots_from_mail(
     )
     await db.commit()
     return SlotsFromMailOut(**result)
+
+
+class SlotRecipientOut(BaseModel):
+    """Kto dostanie terminy: rekruter pary albo osoba, która go dziś zastępuje."""
+
+    recruiter_name: Optional[str] = None
+    substitute_name: Optional[str] = None
+    until: Optional[date] = None
+
+
+@router.get("/interview-cycle/slots/recipient", response_model=SlotRecipientOut)
+async def slot_recipient(
+    current_user: CalendarWriteAccess,
+    candidate_id: int = Query(...),
+    job_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> SlotRecipientOut:
+    """Opis w oknie „Terminy rozmowy od klienta”, bez rodzaju nieobecności."""
+    await ensure_job_membership(db, current_user, job_id)
+    recruiter_id = await interview_slots.default_recruiter_id(
+        db, candidate_id=candidate_id, job_id=job_id
+    )
+    if recruiter_id is None:
+        return SlotRecipientOut()
+    delegation = (await workforce_context(db)).delegations.get(recruiter_id)
+    ids = [recruiter_id, *([delegation.performer_id] if delegation else [])]
+    names = dict(
+        (await db.execute(select(User.id, User.name).where(User.id.in_(ids)))).all()
+    )
+    return SlotRecipientOut(
+        recruiter_name=names.get(recruiter_id),
+        substitute_name=names.get(delegation.performer_id) if delegation else None,
+        until=delegation.end_date if delegation else None,
+    )
 
 
 @router.post(

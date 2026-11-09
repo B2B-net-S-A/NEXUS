@@ -82,6 +82,10 @@ function openRequestIdFrom(err: unknown): number | null {
  * („Zmień terminy”) okno wczytuje otwarty wniosek, a zapis go zastępuje —
  * miniony termin odpada, bo serwer i tak by go nie przyjął.
  */
+function formatDayMonth(iso: string | null): string {
+  return iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : "powrotu";
+}
+
 export function SlotRequestDialog({
   open,
   onOpenChange,
@@ -134,6 +138,14 @@ export function SlotRequestDialog({
   const filledSlots = slots.filter((s) => s.value);
   const candidateId = pair?.candidate_id ?? candidate?.id ?? null;
   const targetJobId = pair?.job_id ?? jobId;
+
+  const recipient = useQuery({
+    queryKey: ["interview-cycle", "slot-recipient", candidateId, targetJobId],
+    queryFn: () => interviewCycleApi.slotRecipient(candidateId as number, targetJobId as number),
+    enabled: open && candidateId != null && targetJobId != null,
+    retry: false,
+  });
+  const substitute = recipient.data?.substitute_name ? recipient.data : null;
 
   const mutation = useMutation({
     mutationFn: (replacesRequestId: number | null) =>
@@ -199,9 +211,11 @@ export function SlotRequestDialog({
       onOpenChange={onOpenChange}
       title={request ? "Zmień terminy od klienta" : "Terminy rozmowy od klienta"}
       description={
-        request
-          ? "Rekruter dostanie nowe terminy i wybierze od początku — dotychczasowy wybór przestaje obowiązywać."
-          : "Rekruter dostanie je w NEXUSIE, ustali jeden z kandydatem i odeśle Ci wybór."
+        substitute
+          ? `Zastępstwo za ${substitute.recruiter_name} do ${formatDayMonth(substitute.until)}: terminy dostanie ${substitute.substitute_name} i odeśle Ci wybór.`
+          : request
+            ? "Rekruter dostanie nowe terminy i wybierze od początku — dotychczasowy wybór przestaje obowiązywać."
+            : "Rekruter dostanie je w NEXUSIE, ustali jeden z kandydatem i odeśle Ci wybór."
       }
       footer={
         <>
@@ -214,7 +228,7 @@ export function SlotRequestDialog({
             disabled={mutation.isPending}
             className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
-            {request ? "Zapisz i wyślij rekruterowi" : "Wyślij rekruterowi"}
+            {substitute ? "Wyślij zastępcy" : request ? "Zapisz i wyślij rekruterowi" : "Wyślij rekruterowi"}
           </button>
         </>
       }

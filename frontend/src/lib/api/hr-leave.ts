@@ -208,6 +208,8 @@ export interface LeavePreview {
   department_absent: ColleagueAbsence[];
   work: WorkSummary;
   substitute_absent: boolean;
+  /** Rola, której pracy wybrany zastępca nie przejmie. */
+  substitute_role_gap?: "delivery_lead" | "head_of_recruitment" | "talent_community_manager" | "recruiter" | null;
   return_on: string | null;
   /** Osoba wrzuca kandydatów Nordei do Cpro — okno pyta, kto zrobi to w tym czasie. */
   cpro_sender?: boolean;

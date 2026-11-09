@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, exists, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.workforce_availability import operational_owner_ids
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
@@ -238,7 +239,7 @@ async def load_sent_today(
                 and_(
                     CandidateStage.moved_at >= _day_start(now),
                     Job.status == JobStatus.published,
-                    reviewer_scope_clause(user.id, portfolio, lead),
+                    reviewer_scope_clause(operational_owner_ids(user), portfolio, lead),
                 )
             )
             .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())

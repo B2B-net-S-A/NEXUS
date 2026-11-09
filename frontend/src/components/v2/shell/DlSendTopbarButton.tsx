@@ -152,6 +152,7 @@ export function DlSendPanel({ queue, onNavigate, onJobsList = false }: DlSendPan
                   {row.job_working_title?.trim() || row.job_title}
                   {row.client_name ? ` · ${row.client_name}` : ""}
                   {row.handed_over_by_name ? ` · przekazał(a) ${row.handed_over_by_name}` : ""}
+                  {row.on_behalf_of_name ? ` · za ${row.on_behalf_of_name}` : ""}
                 </span>
               </span>
               <span className={cn("shrink-0 text-xs tabular-nums", WAIT_TONE[row.urgency])}>

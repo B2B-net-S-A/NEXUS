@@ -157,7 +157,9 @@ async def _existing_pairs(
     if not job_ids:
         return set()
     rows = await db.execute(
-        select(Notification.user_id, Notification.related_entity_id).where(
+        select(
+            Notification.addressee_id.label("user_id"), Notification.related_entity_id
+        ).where(
             Notification.related_entity_type == _ENTITY_TYPE,
             Notification.related_entity_id.in_(job_ids),
             Notification.notification_type == ntype,

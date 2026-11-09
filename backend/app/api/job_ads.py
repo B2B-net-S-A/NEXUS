@@ -842,11 +842,11 @@ async def remind_recruiters(
     already_ids = set(
         (
             await db.scalars(
-                select(Notification.user_id).where(
+                select(Notification.addressee_id).where(
                     Notification.notification_type == NotificationType.job_ad_nudge,
                     Notification.related_entity_type == "job",
                     Notification.related_entity_id == job_id,
-                    Notification.user_id.in_(targets),
+                    Notification.addressee_id.in_(targets),
                     Notification.created_at >= day_start,
                 )
             )

@@ -216,6 +216,11 @@ function SendRowsTable({
                   >
                     {row.candidate_name}
                   </button>
+                  {row.on_behalf_of_name ? (
+                    <span className="mt-0.5 block w-fit max-w-full truncate rounded-full bg-warning-muted px-2 text-xs font-semibold text-warning-muted-foreground">
+                      za {row.on_behalf_of_name}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-2 py-2 align-top">
                   <p className="truncate" title={job}>

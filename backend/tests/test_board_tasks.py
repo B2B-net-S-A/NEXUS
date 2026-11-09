@@ -170,8 +170,13 @@ def test_without_firm_sender_hor_sees_fallback_tasks_too() -> None:
 class _DigestDb:
     """Minimalna sesja dla `digest_counts`: lista aktywnych użytkowników."""
 
+    info: dict = {}
+
     def __init__(self, users: list) -> None:
         self._users = users
+
+    async def scalar(self, _query):
+        return None  # odczyt przełącznika źródła urlopów przez silnik zastępstw
 
     async def scalars(self, _query):
         return SimpleNamespace(all=lambda: self._users)

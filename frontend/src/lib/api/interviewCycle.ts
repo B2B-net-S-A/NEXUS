@@ -72,6 +72,13 @@ export const interviewCycleApi = {
     api
       .get<CycleOverview>("/api/interview-cycle", { params: { scope } })
       .then((r) => r.data),
+  slotRecipient: (candidateId: number, jobId: number) =>
+    api
+      .get<{ recruiter_name: string | null; substitute_name: string | null; until: string | null }>(
+        "/api/interview-cycle/slots/recipient",
+        { params: { candidate_id: candidateId, job_id: jobId } },
+      )
+      .then((r) => r.data),
   createSlots: (body: {
     candidate_id: number;
     job_id: number;

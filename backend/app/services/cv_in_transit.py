@@ -29,8 +29,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import bindparam, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.workforce_availability import operational_owner_ids
 
 from app.models.pipeline_template import PipelineTemplate
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -182,24 +183,24 @@ _SQL = text(
              ORDER BY p.moved_at DESC, p.id DESC
              LIMIT 1
       ) p ON TRUE
-     WHERE l.moved_by = :user_id
-        OR p.moved_by = :user_id
-        OR j.recruiter_id = :user_id
+     WHERE l.moved_by IN :owner_ids
+        OR p.moved_by IN :owner_ids
+        OR j.recruiter_id IN :owner_ids
         OR EXISTS (
             SELECT 1 FROM recruitment_processes rp
              WHERE rp.candidate_id = l.candidate_id
                AND rp.job_id = l.job_id
-               AND rp.owner_user_id = :user_id
+               AND rp.owner_user_id IN :owner_ids
         )
         OR EXISTS (
             SELECT 1 FROM candidate_stages v
              WHERE v.candidate_id = l.candidate_id
                AND v.job_id = l.job_id
                AND v.stage = 'verified'
-               AND v.moved_by = :user_id
+               AND v.moved_by IN :owner_ids
         )
     """
-)
+).bindparams(bindparam("owner_ids", expanding=True))
 
 
 def _value(raw: object) -> Optional[str]:
@@ -425,11 +426,12 @@ async def load_for_user(
     default_template_id = await db.scalar(
         select(PipelineTemplate.id).where(PipelineTemplate.is_default.is_(True))
     )
+    owners = operational_owner_ids(user)
     rows = (
         await db.execute(
             _SQL,
             {
-                "user_id": user.id,
+                "owner_ids": sorted(owners),
                 "default_template_id": default_template_id,
                 "since": now - timedelta(days=REVIEW_WINDOW_DAYS),
             },
@@ -467,7 +469,7 @@ async def load_for_user(
             if kind == KIND_IN_REVIEW and reviews_as_dl:
                 # Ten wiersz mam już w „Czeka na Twój przegląd”.
                 mine_to_review = (
-                    r.delivery_lead_id == user.id
+                    r.delivery_lead_id in owners
                     if r.delivery_lead_id is not None
                     else r.client_id in portfolio
                 )
@@ -481,7 +483,7 @@ async def load_for_user(
             handed_over = (
                 r.prev_moved_by if prev_column in _BEFORE_SEND_COLUMNS else None
             )
-        candidates.append((r, kind, handed_over == user.id))
+        candidates.append((r, kind, handed_over in owners))
 
     recruiters = await default_recruiter_ids(
         db, [(r.candidate_id, r.job_id) for r, _kind, mine in candidates if not mine]
@@ -489,7 +491,7 @@ async def load_for_user(
     kept = [
         (r, kind)
         for r, kind, mine in candidates
-        if mine or recruiters.get((r.candidate_id, r.job_id)) == user.id
+        if mine or recruiters.get((r.candidate_id, r.job_id)) in owners
     ]
     if not kept:
         return CvInTransit()

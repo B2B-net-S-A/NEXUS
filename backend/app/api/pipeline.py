@@ -3415,9 +3415,7 @@ async def _viewer_owns_dl_review(
             delivery_lead_id = None
     if delivery_lead_id is None:
         if "portfolio" not in memo:
-            memo["portfolio"] = await board_tasks_svc.dl_portfolio_client_ids(
-                db, viewer.id
-            )
+            memo["portfolio"] = await board_tasks_svc.dl_review_portfolio(db, viewer)
         portfolio = memo["portfolio"]
     else:
         portfolio = frozenset()

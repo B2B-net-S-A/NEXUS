@@ -79,6 +79,8 @@ from app.services.delivery_alert_recipients import (
 )
 from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
 
+from app.services.workforce_availability import workforce_context  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -174,6 +176,22 @@ async def _episode_state(
     return current[0][0], handled, episode
 
 
+async def _substituted(
+    db: AsyncSession, user_ids: Sequence[int]
+) -> list[tuple[int, Optional[int]]]:
+    """``(odbiorca, za kogo)``: alert nieobecnego DL-a idzie do zastępcy (09.11.2026)."""
+    try:
+        context = await workforce_context(db)
+    except Exception:  # noqa: BLE001 — alert nie może przez to zginąć
+        logger.exception("dl_alerts: workforce context failed")
+        return [(user_id, None) for user_id in user_ids]
+    routed: dict[int, Optional[int]] = {}
+    for user_id in user_ids:
+        performer = context.performer(user_id) or user_id
+        routed.setdefault(performer, None if performer == user_id else user_id)
+    return list(routed.items())
+
+
 async def emit(
     db: AsyncSession,
     *,
@@ -226,9 +244,16 @@ async def emit(
     created: list[DlAlert] = []
 
     base_payload = dict(payload or {})
+    nominal_message = message
 
-    for user_id in user_ids:
-        event_key = event_key_for(alert_type, entity_key, user_id)
+    for user_id, on_behalf_of in await _substituted(db, user_ids):
+        message = nominal_message
+        if on_behalf_of is not None:
+            name = await db.scalar(select(User.name).where(User.id == on_behalf_of))
+            message = f"W zastępstwie za {name or 'nieobecną osobę'}. {message}"
+        # Klucz sprawy zostaje przy nominalnym DL-u: skaner liczy z nim `live`
+        # i inaczej zamknąłby wiersz zastępcy w tym samym przebiegu.
+        event_key = event_key_for(alert_type, entity_key, on_behalf_of or user_id)
         first_seen, handled, episode = await _episode_state(db, event_key=event_key)
         if handled:
             continue

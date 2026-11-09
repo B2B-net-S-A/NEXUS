@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.workforce_availability import operational_owner_ids
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
@@ -86,6 +87,8 @@ class Scope:
     """
 
     viewer_id: Optional[int] = None
+    # Osoby, za które oglądający dziś pracuje (z nim samym); puste = sam oglądający.
+    owner_ids: frozenset[int] = frozenset()
     portfolio: frozenset[int] = frozenset()
     job_id: Optional[int] = None
     pair: Optional[tuple[int, int]] = None
@@ -212,7 +215,7 @@ def _active_lead_id(lead):
     return case((lead.is_active.is_(True), Job.delivery_lead_id))
 
 
-def reviewer_scope_clause(viewer_id: int, portfolio: frozenset[int], lead):
+def reviewer_scope_clause(viewer_ids: Iterable[int], portfolio: frozenset[int], lead):
     """Lustro `board_tasks.reviews_as_dl` w SQL (``lead`` = alias konta DL-a).
 
     Rolę Delivery Leada sprawdza wołający — tu jest tylko „która rekrutacja”.
@@ -220,7 +223,7 @@ def reviewer_scope_clause(viewer_id: int, portfolio: frozenset[int], lead):
 
     lead_id = _active_lead_id(lead)
     return or_(
-        lead_id == viewer_id,
+        lead_id.in_(sorted(viewer_ids)),
         and_(lead_id.is_(None), Job.client_id.in_(sorted(portfolio))),
     )
 
@@ -317,7 +320,9 @@ async def load_rows(
         query = query.where(CandidateStage.job_id == scope.job_id)
     if scope.viewer_id is not None:
         query = query.where(
-            reviewer_scope_clause(scope.viewer_id, scope.portfolio, lead)
+            reviewer_scope_clause(
+                scope.owner_ids or {scope.viewer_id}, scope.portfolio, lead
+            )
         )
 
     tasks: list[BoardTask] = []
@@ -432,7 +437,13 @@ async def load_for_viewer(
     if not user.has_role(UserRole.delivery_lead):
         return []
     return await load_rows(
-        db, scope=Scope(viewer_id=user.id, portfolio=portfolio), now=now
+        db,
+        scope=Scope(
+            viewer_id=user.id,
+            owner_ids=frozenset(operational_owner_ids(user)),
+            portfolio=portfolio,
+        ),
+        now=now,
     )
 
 

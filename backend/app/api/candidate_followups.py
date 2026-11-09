@@ -543,7 +543,7 @@ async def _append_to_todays_signal(
     existing = await db.scalar(
         select(Notification)
         .where(
-            Notification.user_id == user_id,
+            Notification.addressee_id == user_id,
             Notification.notification_type
             == NotificationType.candidate_followup_signal,
             Notification.related_entity_type == "candidate",

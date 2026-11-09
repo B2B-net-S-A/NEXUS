@@ -61,6 +61,7 @@ from app.models.hr_leave import HrM365Operation, LeaveRequest, LeaveRequestDay
 from app.models.hr_profile import EmployeeProfile
 from app.models.notification import NotificationType
 from app.models.user import User
+from app.services.notification_substitution import substitute_role_gap
 from app.services.hr import audit, leave_substitute, people
 from app.services.hr.calendar import load_calendar, years_between
 from app.services.hr.employment_terms import reports_absence, terms
@@ -398,6 +399,7 @@ async def preview(
         "department_absent": [],
         "work": {"total": 0, "by_kind": [], "items": []},
         "substitute_absent": False,
+        "substitute_role_gap": None,
         "return_on": None,
         # Osoba od Cpro — okno pyta, kto wrzuca do Cpro w tym czasie.
         "cpro_sender": await _is_cpro_sender(db, subject.id),
@@ -492,6 +494,9 @@ async def preview(
             db, data.start_date, data.end_date, approved_only=for_self
         )
         result["substitute_absent"] = data.substitute_user_id in busy
+        substitute = await db.get(User, data.substitute_user_id)
+        if substitute is not None:
+            result["substitute_role_gap"] = substitute_role_gap(subject, substitute)
     return result
 
 

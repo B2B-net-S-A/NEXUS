@@ -47,6 +47,7 @@ from app.models.job import Job
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
+from app.services.workforce_availability import operational_owner_ids
 from app.services import agreement_tasks, rate_change_tasks
 from app.services import board_tasks as svc
 from app.services.stage_client_rate import latest_client_rates
@@ -79,6 +80,8 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 class BoardTaskRow(BaseModel):
+    # Wiersz nieobecnego DL-a, którego oglądający zastępuje.
+    on_behalf_of_name: Optional[str] = None
     kind: Literal["cpro_to_send", "cpro_sent", "dl_review"]
     stage_id: int
     candidate_id: int
@@ -164,6 +167,8 @@ class DlSendRow(BaseModel):
     handed_over_by_name: Optional[str] = None
     # Nordea: osoba czeka na akceptację do kolejki Cpro.
     cpro: bool = False
+    # Wiersz należy do nieobecnego DL-a, którego oglądający zastępuje.
+    on_behalf_of_name: Optional[str] = None
 
 
 class DlSendQueueResponse(BaseModel):
@@ -687,7 +692,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
     dołączyć do konta politykę dostępu (`resolve_effective_access`).
     """
     snapshot = await svc.load_snapshot(db)
-    portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
+    portfolio = await svc.dl_review_portfolio(db, current_user)
     mine = svc.tasks_for_user(snapshot, current_user, portfolio=portfolio)
     preps = prep_attention.for_user(
         await prep_attention.load_prep_attention(db, datetime.now(timezone.utc)),
@@ -761,6 +766,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
             for row in flow_out.claimed
             if (row.candidate_id, row.job_id) not in starts
         ]
+    inherited_leads = await _inherited_lead_names(db, current_user)
     return BoardTasksResponse(
         booked_calls=[
             BookedCallRow(
@@ -788,6 +794,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
                 cv_stage_id=(dl_cvs.get((t.candidate_id, t.job_id)) or {}).get(
                     "stage_id"
                 ),
+                on_behalf_of_name=inherited_leads.get(t.delivery_lead_id),
             )
             for t in dl_review
         ],
@@ -1029,8 +1036,17 @@ async def get_dl_send_queue(
         return DlSendQueueResponse(
             ready=[], ready_total=0, not_ready_total=0, imported_total=0
         )
-    portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
+    portfolio = await svc.dl_review_portfolio(db, current_user)
     return await _dl_send_payload(db, current_user, portfolio)
+
+
+async def _inherited_lead_names(db: AsyncSession, user: User) -> dict[int, str]:
+    """Imiona osób, które oglądający dziś zastępuje — podpis wierszy przeglądu."""
+    inherited = operational_owner_ids(user) - {user.id}
+    if not inherited:
+        return {}
+    rows = await db.execute(select(User.id, User.name).where(User.id.in_(inherited)))
+    return dict(rows.all())
 
 
 async def _dl_send_payload(
@@ -1044,6 +1060,7 @@ async def _dl_send_payload(
     )
     shown = ready[:DL_SEND_ROWS]
     await dl_send_queue.attach_handed_over_names(db, shown)
+    lead_names = await _inherited_lead_names(db, current_user)
     return DlSendQueueResponse(
         ready=[
             DlSendRow(
@@ -1059,6 +1076,7 @@ async def _dl_send_payload(
                 urgency=t.urgency,
                 handed_over_by_name=t.handed_over_by_name,
                 cpro=t.cpro,
+                on_behalf_of_name=lead_names.get(t.delivery_lead_id),
             )
             for t in shown
         ],
@@ -1260,7 +1278,7 @@ async def get_cv_topic(
     if not (as_recruiter or as_dl):
         return CvTopicResponse(badge=0)
     portfolio = (
-        await svc.dl_portfolio_client_ids(db, current_user.id) if as_dl else frozenset()
+        await svc.dl_review_portfolio(db, current_user) if as_dl else frozenset()
     )
     recruiter: Optional[cv_topic.RecruiterCv] = None
     if as_recruiter:

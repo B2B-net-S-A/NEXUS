@@ -25,6 +25,8 @@ export type BoardTaskKind = "cpro_to_send" | "cpro_sent" | "dl_review";
 export type QcStatus = "passed" | "failed" | "overridden" | "unchecked";
 
 export interface BoardTaskRow {
+  /** Wiersz nieobecnego Delivery Leada, którego oglądający zastępuje. */
+  on_behalf_of_name?: string | null;
   kind: BoardTaskKind;
   stage_id: number;
   candidate_id: number;
@@ -144,6 +146,8 @@ export interface DlSendRow {
   handed_over_by_name?: string | null;
   /** Nordea: osoba czeka na akceptację do kolejki Cpro. */
   cpro?: boolean;
+  /** Wiersz nieobecnego Delivery Leada, którego oglądający zastępuje. */
+  on_behalf_of_name?: string | null;
 }
 
 export interface DlSendQueueResponse {

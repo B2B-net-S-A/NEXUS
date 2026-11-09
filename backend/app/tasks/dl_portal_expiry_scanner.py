@@ -68,6 +68,7 @@ from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
 )
+from app.services.notification_substitution import notification_route
 from app.services.order_alert_policy import extended_order_alert_client_ids
 from app.services.order_continuation import order_ending_without_continuation
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
@@ -177,7 +178,7 @@ async def _already_notified(
     res = await db.execute(
         select(Notification.id)
         .where(
-            Notification.user_id == user_id,
+            Notification.addressee_id == user_id,
             Notification.related_entity_id == related_entity_id,
             Notification.notification_type == ntype,
             or_(
@@ -200,6 +201,13 @@ async def _insert_notification(db: AsyncSession, **values: object) -> bool:
     kolumny i wyrażenie dnia, ten sam warunek częściowy), więc inny błąd
     integralności nadal wychodzi na wierzch. Zwraca ``True``, gdy wiersz powstał.
     """
+    route = await notification_route(db, values["user_id"], values["notification_type"])
+    if route.on_behalf_of is not None:
+        values = {
+            **values,
+            "user_id": route.user_id,
+            "on_behalf_of_user_id": route.on_behalf_of,
+        }
     statement = (
         pg_insert(Notification)
         .values(**values)

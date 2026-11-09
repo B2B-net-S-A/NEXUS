@@ -141,7 +141,7 @@ async def _already_sent(db: AsyncSession, user_id: int, key: int) -> bool:
         await db.scalar(
             select(Notification.id)
             .where(
-                Notification.user_id == user_id,
+                Notification.addressee_id == user_id,
                 Notification.notification_type == NotificationType.auto_match_proposals,
                 Notification.related_entity_type == DIGEST_ENTITY_TYPE,
                 Notification.related_entity_id == key,
