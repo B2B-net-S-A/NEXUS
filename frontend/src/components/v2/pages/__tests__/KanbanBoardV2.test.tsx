@@ -862,7 +862,7 @@ describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
 
     renderBoard();
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
-    // Awatar właściciela: brak danych mówi o sobie w dymku.
+    // Imię właściciela: brak danych mówi o sobie w dymku.
     expect(candidate.closest("[data-kanban-card]")?.querySelector('[data-testid="card-owner"]')?.getAttribute("title")).toContain(
       "Brak danych o osobie dodającej",
     );
@@ -2027,11 +2027,26 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
 
     const verifiedRow = screen.getByTitle(/^Zweryfikował\(a\): Olga Weryfikująca/);
     expect(verifiedRow.title).toContain("Dodano do rekrutacji przez: Piotr Szkicowy");
-    expect(within(verifiedRow).getByText("OW")).toBeInTheDocument();
+    expect(within(verifiedRow).getByText("Olga")).toBeInTheDocument();
 
     const screeningCard = screen.getByText("Jan Wrócił").closest("[data-kanban-card]") as HTMLElement;
-    expect(within(screeningCard).getByTestId("card-owner")).toHaveTextContent("PS");
-    expect(within(screeningCard).queryByText("OW")).toBeNull();
+    expect(within(screeningCard).getByTestId("card-owner")).toHaveTextContent("Piotr");
+    expect(within(screeningCard).queryByText("Olga")).toBeNull();
+  });
+
+  it("karta pisze imię właściciela zamiast inicjałów, a pełne nazwisko zostaje w dymku (09.11.2026)", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[1] = {
+      ...columns[1],
+      items: [{ id: 7301, candidate_id: 8301, stage: "screening", name: "Jan", lastname: "Testowy", days_in_stage: 1, added_to_job_by_name: "Piotr Szkicowy" }],
+    };
+    renderBoard(columns as never);
+
+    const card = (await screen.findByText("Jan Testowy")).closest("[data-kanban-card]") as HTMLElement;
+    const owner = within(card).getByTestId("card-owner");
+    expect(owner).toHaveTextContent(/^Piotr$/);
+    expect(owner.title).toContain("Piotr Szkicowy");
+    expect(within(card).queryByText("PS")).toBeNull();
   });
 
   it("nawigator doku idzie po kolumnie otwartej osoby, karty od góry — także z etapów złożonych w kolumnę", async () => {

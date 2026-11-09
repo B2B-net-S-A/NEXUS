@@ -41,6 +41,7 @@ import {
  UserX,
  XCircle,
  PhoneCall,
+ UserRound,
 } from"lucide-react";
 import {
  api,
@@ -958,16 +959,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const owner = cardOwner(item, boardKey);
  const hasOwnerName = owner.name != null;
  const ownerShortName = cardShortName(owner.name) ?? "Brak danych";
- // Awatar WŁAŚCICIELA karty, nie kandydata — makieta kroku 04 pyta „czyja to
- // karta", a nazwisko kandydata i tak stoi wiersz wyżej.
- const ownerInitials = owner.name
- ? owner.name
- .split(/\s+/)
- .map((w) => w[0])
- .slice(0, 2)
- .join("")
- .toUpperCase()
- : "?";
  const addedLine = item.entry_source === "system"
  ? `Dodał system („Nowi” na 20)${
  item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
@@ -1402,7 +1393,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  czyli z rekrutacji); profil w nowej karcie daje Ctrl/⌘-klik na
  nazwisku i „Pełny profil" w doku. */}
  {/* Wiersz 1: nazwisko w jednej linii (pełne w dymku, U1 08.11.2026),
- inicjały właściciela i pierścień wyniku po prawej. */}
+ pod nim imię właściciela, pierścień wyniku po prawej. */}
  {/* Wcięcie DOKŁADNIE pod checkbox: jego pole wizualne (`before:inset-1`)
  kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px.
  Stare `pl-5` zostawiało nazwisku 64 z 158 px
@@ -1437,21 +1428,23 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  >
  {fullName}
  </Link>
- </div>
- {/* Czyja karta (20.10.2026): inicjały, imię i data w dymku — kto ma ruch
- mówi trzeci wiersz. */}
+ {/* Czyja karta: imię wprost (09.11.2026), bo inicjały 7 px były
+ nieczytelne; kto i kiedy w dymku, kto ma ruch mówi trzeci wiersz.
+ Stoi obok pierścienia, żeby nie zabierać miejsca plakietkom. */}
  <span
  data-testid="card-owner"
  className={cn(
- "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
- hasOwnerName ? "bg-primary/10 text-primary" : "bg-warning/15 text-warning",
+ "mt-px flex min-w-0 items-center gap-0.5 text-[11px] font-medium leading-3.5",
+ hasOwnerName ? "text-foreground/80" : "text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title={addedAttribution}
  aria-hidden="true"
  >
- {ownerInitials}
+ <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+ <span className="truncate">{ownerShortName}</span>
  </span>
+ </div>
  {scoreState !== "none" && (
  <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
  {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
