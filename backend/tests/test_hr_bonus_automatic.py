@@ -168,7 +168,10 @@ async def test_due_bonus_is_assigned_with_no_person_and_a_bell() -> None:
         bells = await db.scalar(
             select(func.count())
             .select_from(Notification)
-            .where(Notification.related_entity_id == found["dl"].id)
+            .where(
+                Notification.related_entity_type == "hr_bonus",
+                Notification.related_entity_id == found["dl"].id,
+            )
         )
     assert bells == 1
 
@@ -631,6 +634,7 @@ async def test_report_notifies_admin_and_needs_a_note(app_client) -> None:
             .select_from(Notification)
             .where(
                 Notification.user_id == admin_id,
+                Notification.related_entity_type == "hr_bonus",
                 Notification.related_entity_id == bonus.id,
             )
         )
