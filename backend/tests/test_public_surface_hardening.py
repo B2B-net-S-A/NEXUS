@@ -77,6 +77,8 @@ _RATE_LIMITED_MODULES = (
     "api/public_career.py",
     # Panel klienta (0639): dane kandydatów pod samym linkiem, bez logowania.
     "api/public_client_panel.py",
+    # Rekrutacja własna: wybór terminu pod linkiem z maila, bez logowania.
+    "api/public_own_hiring.py",
     # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
     "api/job_request_intake.py",
     # Przepięcie (Pipeline v4): podpowiedzi Luny — każde wywołanie to płatny model.

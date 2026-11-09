@@ -237,6 +237,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/cv/abc123",
     "/cv/i/abc123",
     "/k/abc123",
+    "/t/abc123",
     "/preview/client-panel",
     "/engagement/abc123",
     "/preview/candidates",

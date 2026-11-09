@@ -303,6 +303,8 @@ from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
 from app.api import public_client_panel as public_client_panel_api
+from app.api import own_hiring as own_hiring_api
+from app.api import public_own_hiring as public_own_hiring_api
 from app.api import client_panel as client_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
@@ -821,6 +823,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cpro_mail import cpro_mail_loop
     from app.tasks.client_wait import client_wait_loop
+    from app.tasks.own_hiring import own_hiring_loop
     from app.tasks.job_idle import job_idle_loop
     from app.tasks.job_p0_overdue import job_p0_overdue_loop
     from app.tasks.skill_proposals import skill_proposals_loop
@@ -999,6 +1002,7 @@ async def lifespan(app: FastAPI):
             "job_idle": asyncio.create_task(job_idle_loop()),
             # 08.11.2026: pary bez odpowiedzi klienta — zamknięcie po 30 dniach, za wyłącznikiem.
             "client_wait": asyncio.create_task(client_wait_loop()),
+            "own_hiring": asyncio.create_task(own_hiring_loop()),
             # 06.11.2026: P0 po terminie trwa do decyzji — dzwonek do Head of Recruitment.
             "job_p0_overdue": asyncio.create_task(job_p0_overdue_loop()),
             # 06.11.2026: nocne propozycje do słownika umiejętności (zatwierdza HoR+).
@@ -2013,6 +2017,16 @@ app.include_router(
     client_panel_api.router,
     prefix="/api/client-panel",
     tags=["client-panel"],
+)
+app.include_router(
+    public_own_hiring_api.router,
+    prefix="/api/public/own-hiring",
+    tags=["public-own-hiring"],
+)
+app.include_router(
+    own_hiring_api.router,
+    prefix="/api/own-hiring",
+    tags=["own-hiring"],
 )
 app.include_router(
     pipeline_templates.router,
@@ -3602,6 +3616,12 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
     from app.models.client_cover_sheet_template import ClientCoverSheetTemplate
+    from app.models.own_hiring import (
+        OwnHiringApplication,
+        OwnHiringBooking,
+        OwnHiringEvent,
+        OwnHiringProcess,
+    )
     from app.models.client_panel import (
         ClientPanel,
         ClientPanelCandidate,
@@ -3929,6 +3949,11 @@ async def api_health_deep_check():
         ("client_panel_candidates", ClientPanelCandidate),
         ("client_panel_requests", ClientPanelRequest),
         ("client_panel_views", ClientPanelView),
+        # Rekrutacja własna: brak tabeli = 500 na Tablicy i pod linkiem z zaproszenia.
+        ("own_hiring_processes", OwnHiringProcess),
+        ("own_hiring_applications", OwnHiringApplication),
+        ("own_hiring_bookings", OwnHiringBooking),
+        ("own_hiring_events", OwnHiringEvent),
         # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),

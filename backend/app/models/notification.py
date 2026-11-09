@@ -364,6 +364,8 @@ class NotificationType(str, enum.Enum):
     # 0518 (23.10.2026): raport poniedziałkowy „Jakość podpowiedzi systemu”
     # gotowy — do odbiorców raportu; related_entity=(autofill_quality_report, id).
     autofill_quality_report = "autofill_quality_report"
+    # Rekrutacja własna: odbiorcą jest osoba z procesu, nie sekcja produktu.
+    own_hiring_update = "own_hiring_update"
     # 0447: „Poprzedni rekruter” — rekrutacja zeszła z P1, osoba przeszła do
     # poprzednich rekruterów (``recruiter_parked``) albo wróciła na P1 i osoba
     # znowu nad nią pracuje (``recruiter_restored``). Do osób z zespołu poza

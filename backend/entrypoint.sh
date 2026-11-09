@@ -177,6 +177,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'back_office'",
     # „Ludzie w NEXUSIE” (0457): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'own_hiring_update'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_decided'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_cancelled'",
@@ -1302,6 +1303,15 @@ try:
 except Exception as _client_panel_schema_err:  # noqa: BLE001
     print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
     _CLIENT_PANEL_DDL = []
+
+# Rekrutacja własna — JEDNO źródło z migracją (`app/services/own_hiring/schema.py`).
+try:
+    from app.services.own_hiring import schema as _own_hiring_schema
+
+    _OWN_HIRING_DDL = list(_own_hiring_schema.TABLE_DDL)
+except Exception as _own_hiring_schema_err:  # noqa: BLE001
+    print(f"own hiring schema unavailable: {_own_hiring_schema_err!r}")
+    _OWN_HIRING_DDL = []
 
 # Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
 # i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
@@ -7144,6 +7154,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
+    *_OWN_HIRING_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).

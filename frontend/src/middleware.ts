@@ -451,6 +451,8 @@ const PUBLIC_PATHS = [
   "/cv/",
   // Panel klienta pod linkiem z CV: token w adresie, klient nie ma konta.
   "/k/",
+  // Rekrutacja własna: wybór terminu z linku w mailu.
+  "/t/",
   "/engagement/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
