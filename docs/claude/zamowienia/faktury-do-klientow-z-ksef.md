@@ -94,8 +94,9 @@
   takiego wiersza nie ma, pozycja osoby w zamówieniu MD z kwotą równą co do grosza. Jedna taka pozycja wiąże z metodą `order_number`,
   dwie lub więcej (dwie osoby z tą samą stawką) zostają `several_orders`, bo kwota nie mówi, o kogo chodzi. Wspólna pula bez podziału
   na osoby nie ma pozycji z `order_id`, więc nie wiąże. `several_orders` jest w `RETRY_REASONS`: faktura wraca po poprawce reguły albo
-  po imporcie zużycia MD, który wypełni pozycje. Pomiar na nocnej kopii: jeden numer klienta na dwóch grupach, 9 faktur, 6 wiąże się
-  z osobą, 3 za miesiąc z samą pulą zostają u Finansów.
+  po imporcie zużycia MD, który wypełni pozycje. Miesiąc puli z importu bez ręcznego `breakdown` dostaje podział z wierszy importu
+  (`shared_md_month_people`, ta sama reguła co panel zamówienia), o ile składają się w sumę zejścia (09.11.2026). Bez tego rozliczenie
+  widziało jedną pozycję puli, choć ekran pokazywał osoby, i faktury na osoby czekały u Finansów.
 
 ## Nieznani nabywcy i NIP w formularzu (audyt C5, 08.11.2026)
 

@@ -11,7 +11,7 @@ Wiersz = zamówienie, które się fakturuje:
   PLN/MD; zamówienie w obcej walucie — ``rate_client``, bez przeliczania
   kursem, patrz ``_group_currency``). Wspólna pula MD (``shared_md_orders.uses_shared_md_pool`` — sama
   flaga ``is_md_budget_based`` z 0246 nie rozstrzyga): zejście puli z podziałem
-  na osoby (``breakdown``),
+  na osoby (``breakdown`` albo wiersze importu, ``shared_md_month_people``),
   bez podziału — jedna pozycja, jeśli wszystkie osoby mają tę samą stawkę;
   inaczej kwoty nie liczymy (Finanse widzą „brak podziału puli”),
 * **zamówienie kosztowe** — rozlicza FAKTURĘ, nie MD: linie nie mają
@@ -71,7 +71,11 @@ from app.services.hr.calendar import month_range
 from app.services.order_burn_rate import workdays_between
 from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
 from app.services.order_rate_snapshots import convert_order_rate
-from app.services.shared_md_orders import uses_shared_md_pool
+from app.services.shared_md_orders import (
+    shared_md_import_breakdowns,
+    shared_md_month_people,
+    uses_shared_md_pool,
+)
 
 CENT = Decimal("0.01")
 ZERO = Decimal("0.00")
@@ -358,8 +362,9 @@ def _pool_lines(
     group: ClientOrderGroup,
     lines: list[ClientOrder],
     pool: Optional[ClientOrderGroupMdConsumption],
+    import_split: dict[str, list[tuple[int, Decimal]]],
 ) -> list[BillingLine]:
-    """Wspólna pula MD: podział z panelu zamówienia albo jedna stawka dla wszystkich."""
+    """Wspólna pula MD: podział z panelu albo importu, inaczej jedna stawka dla wszystkich."""
 
     currency = _group_currency(lines)
     if pool is None:
@@ -370,6 +375,9 @@ def _pool_lines(
             split[int(part["order_id"])] = Decimal(str(part["md"]))
         except (KeyError, TypeError, ValueError, ArithmeticError):
             continue
+    if not pool.breakdown:
+        people, _source = shared_md_month_people(pool, import_split)
+        split = dict(people or [])
     if split:
         return [
             _md_line(order, split.get(order.id), currency)
@@ -537,6 +545,12 @@ async def billing_rows(
             )
         }
 
+    import_splits = {
+        group_id: await shared_md_import_breakdowns(db, group_id)
+        for group_id, pool in pools.items()
+        if pool.source == "import" and not pool.breakdown
+    }
+
     settled_before = await _settled_before(
         db, [gid for gid, group in groups.items() if group.is_cost_based], period
     )
@@ -587,7 +601,12 @@ async def billing_rows(
         else:
             currency = _group_currency(members)
             if uses_shared_md_pool(group):
-                lines = _pool_lines(group, members, pools.get(group_id))
+                lines = _pool_lines(
+                    group,
+                    members,
+                    pools.get(group_id),
+                    import_splits.get(group_id, {}),
+                )
             else:
                 lines = [
                     _md_line(order, md_by_line.get(order.id), currency)
