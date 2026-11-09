@@ -1,15 +1,15 @@
 """Rola z karty stawek klienta przy rekrutacji (raport miesięczny BNP).
 
-Revision ID: 0674_job_client_rate_card
-Revises: 0673_own_hiring
+Revision ID: 0675_job_client_rate_card
+Revises: 0674_notification_on_behalf
 
 Lustro w ``entrypoint.sh``.
 """
 
 from alembic import op
 
-revision = "0674_job_client_rate_card"
-down_revision = "0673_own_hiring"
+revision = "0675_job_client_rate_card"
+down_revision = "0674_notification_on_behalf"
 branch_labels = None
 depends_on = None
 
