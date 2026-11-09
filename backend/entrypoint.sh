@@ -7159,7 +7159,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
-    # 0675: rola z widełek umowy przy rekrutacji (raport miesięczny BNP).
+    # 0674: rola z widełek umowy przy rekrutacji (raport miesięczny BNP).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS client_rate_card_id INTEGER NULL "
     "REFERENCES rate_cards (id) ON DELETE SET NULL",
     # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).

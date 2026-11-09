@@ -25,7 +25,7 @@ nie zmieniaj ich „dla porządku”. Kod: `services/bnp_report/`, `api/bnp_repo
 - **Widełki z umowy:** tabela leży w umowie klienta, nie w repozytorium (repo jest
   publiczne). `rate_annex.py` czyta ją z fragmentów tekstu umowy jako propozycję;
   po sprawdzeniu zapis do `rate_cards` (zł/h). Rola z umowy przy rekrutacji:
-  `jobs.client_rate_card_id` (0675); bez zapisu rola jest propozycją z nazwy.
+  `jobs.client_rate_card_id` (0674); bez zapisu rola jest propozycją z nazwy.
 - **Dostęp:** kto widzi stawkę do klienta (`user_can_view_client_rate`) i klienta
   w zakresie Delivery. Zapisy: uprawnienie „Rekrutacje”, także widełek, bo sprawdza je
   Delivery Lead (reszta kart stawek zostaje przy Finansach; rola zapisana w innej
