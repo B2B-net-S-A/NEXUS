@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 08.11.2026
+> **Zgodność z systemem sprawdzona:** 09.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -101,6 +101,7 @@ Nad listą masz:
   (godz. / MD / mies.) i **„Waluta"** — stawka kosztowa brana z umowy jest
   przeliczona na jednostkę zamówienia,
 * przycisk **Nowe zamówienie**.
+  W czasie nieobecności Delivery Leada nowe alerty klienta dostaje osoba, która go zastępuje.
 
 **Draft** pokazuje szkice pojedynczych konsultantów oraz nowe zbiorcze
 zamówienia MD, które czekają na uzupełnienie i aktywację. **Wyczerpane**

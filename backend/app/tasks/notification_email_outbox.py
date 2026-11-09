@@ -400,6 +400,11 @@ async def _deliver(
             if dropped:
                 await _set(db, dropped, email_send_started_at=None)
             ids = sent_ids
+        if notif.on_behalf_of_user_id is not None:
+            name = await db.scalar(
+                select(User.name).where(User.id == notif.on_behalf_of_user_id)
+            )
+            message = f"W zastępstwie za {name or 'nieobecną osobę'}. {message}"
         subject, text_body, html_body = render_card_email(
             build_card(
                 notification_type=notif.notification_type.value,

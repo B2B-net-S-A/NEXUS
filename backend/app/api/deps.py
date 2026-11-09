@@ -463,9 +463,11 @@ async def get_current_user(
     ensure_password_change_not_required(request)
     current_user = ensure_onboarding_complete(current_user)
     ensure_not_trainee(current_user)
+    from app.services.notification_substitution import ACTOR_KEY
     from app.services.workforce_availability import workforce_context
 
     await workforce_context(db)
+    db.info[ACTOR_KEY] = current_user.id
     return current_user
 
 

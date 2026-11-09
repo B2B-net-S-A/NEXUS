@@ -159,7 +159,7 @@ async def emit_opened(db: AsyncSession, now: datetime) -> int:
     for user_id, job_id, created_at in (
         await db.execute(
             select(
-                Notification.user_id,
+                Notification.addressee_id,
                 Notification.related_entity_id,
                 Notification.created_at,
             ).where(

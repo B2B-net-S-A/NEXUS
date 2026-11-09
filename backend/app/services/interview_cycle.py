@@ -1552,6 +1552,17 @@ async def load_overview(
     from app.services.workforce_availability import operational_owner_ids
 
     acting_for = operational_owner_ids(user)
+    inherited_names: dict[int, str] = {}
+    if acting_for - {user.id}:
+        inherited_names = dict(
+            (
+                await db.execute(
+                    select(User.id, User.name).where(
+                        User.id.in_(acting_for - {user.id})
+                    )
+                )
+            ).all()
+        )
 
     items: list[dict] = []
     agenda: list[dict] = []
@@ -1623,6 +1634,7 @@ async def load_overview(
                     "mine": todo_is_mine(
                         t, acting_for, delivery_lead_id=delivery_lead_id
                     ),
+                    "on_behalf_of_name": inherited_names.get(t.get("owner_id")),
                 }
             )
 

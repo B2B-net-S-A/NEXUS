@@ -355,6 +355,7 @@ export function buildInterviewWindow({
       place(
         {
           ...baseRow("waiting", `debrief:${todo.event_id}`, todo),
+          onBehalfOf: todo.on_behalf_of_name ? `w zastępstwie za ${todo.on_behalf_of_name}` : null,
           status: TODO_LABELS.debrief_overdue,
           detail: todo.due ? overdueLabel(todo.due, now) : null,
           icon: "phone",
@@ -368,6 +369,7 @@ export function buildInterviewWindow({
     place(
       {
         ...baseRow("waiting", `todo:${todo.kind}:${pairKey(todo)}`, todo),
+        onBehalfOf: todo.on_behalf_of_name ? `w zastępstwie za ${todo.on_behalf_of_name}` : null,
         status: TODO_LABELS[todo.kind],
         detail: todoDetail(todo, itemByPair.get(pairKey(todo)), now),
         icon: TODO_ICONS[todo.kind] ?? "calendar",

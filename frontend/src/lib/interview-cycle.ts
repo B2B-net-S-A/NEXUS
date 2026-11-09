@@ -317,6 +317,8 @@ export type TodoKind =
   | "precall_due";
 
 export interface TodoEntry extends PairInfo {
+  /** Sprawa nieobecnej osoby, którą oglądający dziś zastępuje. */
+  on_behalf_of_name?: string | null;
   kind: TodoKind;
   priority: number;
   due: string | null;

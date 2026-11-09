@@ -46,6 +46,7 @@ from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 from sqlalchemy import and_, func, or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.workforce_availability import operational_owner_ids
 
 from app.core.scheduling import business_today
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -61,7 +62,7 @@ from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.action_permissions import ProductAction, has_permission
-from app.services.board_tasks import _catalog, _Catalog, dl_portfolio_client_ids
+from app.services.board_tasks import _catalog, _Catalog, dl_review_portfolio
 from app.services.candidate_rate_from import effective_rate_sql
 from app.services.cv_in_transit import _place
 from app.services.interview_slots import default_recruiter_ids
@@ -304,7 +305,7 @@ def _in_work():
 async def _recruiting_job_ids(db: AsyncSession, user: User) -> list[int]:
     """Rekrutacje w pracy, w których osoba jest Rekruterem; TCM + kategoria."""
 
-    scope = jobs_worked_by_clause([user.id])
+    scope = jobs_worked_by_clause(sorted(operational_owner_ids(user)))
     if user.has_role(UserRole.talent_community_manager):
         my_categories = select(UserCompetenceCategory.competence_category_id).where(
             UserCompetenceCategory.user_id == user.id
@@ -326,9 +327,8 @@ async def _owned_job_ids(db: AsyncSession, user: User, exclude: list[int]) -> li
     i Zweryfikowani tych osób też mają być w „Czeka na Ciebie”.
     """
 
-    # Równość, nie zastępstwa: `_mine` porównuje rekrutera pary z ``user.id``.
     query = select(RecruitmentProcess.job_id).where(
-        RecruitmentProcess.owner_user_id == user.id,
+        RecruitmentProcess.owner_user_id.in_(operational_owner_ids(user)),
         RecruitmentProcess.status == ProcessStatus.open,
     )
     return list(
@@ -354,7 +354,7 @@ async def _dl_job_ids(
     Ta sama reguła co przegląd w „Czeka na Ciebie” (`_sees_dl_review`).
     """
 
-    scope = Job.delivery_lead_id == user.id
+    scope = Job.delivery_lead_id.in_(operational_owner_ids(user))
     if portfolio:
         scope = or_(
             scope,
@@ -510,10 +510,11 @@ async def _mine(
     owners = await default_recruiter_ids(
         db, [(p.row.candidate_id, p.row.job_id) for p in in_column]
     )
+    acting_for = operational_owner_ids(user)
     return [
         p
         for p in in_column
-        if owners.get((p.row.candidate_id, p.row.job_id)) == user.id
+        if owners.get((p.row.candidate_id, p.row.job_id)) in acting_for
     ]
 
 
@@ -968,7 +969,7 @@ async def load_flow(
         portfolio = await _safe(
             db,
             "portfel DL",
-            lambda: dl_portfolio_client_ids(db, user.id),
+            lambda: dl_review_portfolio(db, user),
             frozenset(),
         )
 

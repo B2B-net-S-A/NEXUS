@@ -370,7 +370,7 @@ export function LeaveRequestDialog({
             description="Najpierw osoby z Twojego działu, które są dostępne przez cały okres."
           >
             <Select value={substitute} onValueChange={setSubstitute}>
-              <SelectTrigger id="leave-substitute">
+              <SelectTrigger id="leave-substitute" data-tour="leave.substitute">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -57,6 +57,7 @@ from app.services.job_priority import level_of
 from app.services.job_team import recruiters_for_jobs, working
 from app.services.stage_verifier import verifier_ids
 from app.services.notification_access import notification_recipient_has_access
+from app.services.notification_substitution import notification_route
 from app.services.notification_topics import (
     STAGE_STUCK_DIGEST_ENTITY,
     STAGE_STUCK_UNSTAFFED_ENTITY,
@@ -130,6 +131,31 @@ async def emit(
 
     Zwraca utworzoną Notification lub None (duplikat albo brak adresata).
     """
+    # Adresat zastępowany: praca bieżąca idzie do zastępcy (09.11.2026).
+    on_behalf_of: Optional[int] = None
+    route = await notification_route(db, user_id, ntype)
+    if route.skip:
+        return None
+    if route.on_behalf_of is not None and await notification_recipient_has_access(
+        db,
+        route.user_id,
+        ntype,
+        related_entity_type=related_entity_type,
+        link=link,
+        ignore_personal_mutes=True,
+    ):
+        user_id, on_behalf_of = route.user_id, route.on_behalf_of
+    if _is_substitution_duplicate(
+        db,
+        user_id=user_id,
+        ntype=ntype,
+        related_entity_type=related_entity_type,
+        related_entity_id=related_entity_id,
+        title=title,
+        message=message,
+        routed=on_behalf_of is not None,
+    ):
+        return None
     # Mail obowiązkowy (26.10.2026): przy wyciszonej kategorii wiersz i tak
     # powstaje, bo z niego wychodzi mail (`notification_email_outbox`). Dzwonek
     # go nie pokazuje (`notification_visibility_predicate`), a dymka nie ma.
@@ -161,6 +187,7 @@ async def emit(
 
     notif = Notification(
         user_id=user_id,
+        on_behalf_of_user_id=on_behalf_of,
         title=title,
         message=message,
         link=link,
@@ -196,6 +223,11 @@ async def emit(
             "link": notif.link,
             "notification_type": ntype.value,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "on_behalf_of_name": (
+                await db.scalar(select(User.name).where(User.id == on_behalf_of))
+                if on_behalf_of is not None
+                else None
+            ),
         },
     }
     if not queue_ws_notification(db, user_id=user_id, event_payload=payload, row=notif):
@@ -207,6 +239,31 @@ async def emit(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _is_substitution_duplicate(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    ntype: NotificationType,
+    related_entity_type: Optional[str],
+    related_entity_id: Optional[int],
+    title: str,
+    message: str,
+    routed: bool,
+) -> bool:
+    """Nieobecna osoba i jej zastępca w jednej liście odbiorców: jeden wiersz.
+
+    Wiersze z encją łapie ``ix_notif_dedup_daily``. Bez encji indeks milczy,
+    a np. zmiana rozmowy idzie do DL-a i rekrutera jednocześnie.
+    """
+    if related_entity_id is not None:
+        return False
+    seen: dict = db.info.setdefault("notification_emit_seen", {})
+    key = (user_id, ntype, related_entity_type, title, message)
+    earlier = seen.get(key)
+    seen[key] = routed or bool(earlier)
+    return earlier is not None and (routed or earlier)
 
 
 def _feeds_required_mail(ntype: NotificationType) -> bool:
@@ -573,7 +630,7 @@ async def _already_notified(
         await db.scalar(
             select(Notification.id)
             .where(
-                Notification.user_id == user_id,
+                Notification.addressee_id == user_id,
                 Notification.notification_type == NotificationType.prep_attention,
                 Notification.related_entity_type == entity_type,
                 Notification.related_entity_id == entity_id,
@@ -732,7 +789,7 @@ async def check_stage_stuck_7d(
     # dzień, więc bez tego sprawdzenia wpis wracałby codziennie.
     already = await db.execute(
         select(
-            Notification.user_id,
+            Notification.addressee_id.label("user_id"),
             Notification.related_entity_type,
             Notification.related_entity_id,
         ).where(

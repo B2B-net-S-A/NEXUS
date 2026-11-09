@@ -214,7 +214,7 @@ async def _already_rang_for_pair(
     o „CV wysłane” nie niesie odpowiedzi „Co z obecną współpracą?”.
     """
     stmt = (
-        select(Notification.user_id)
+        select(Notification.addressee_id)
         .join(CandidateStage, CandidateStage.id == Notification.related_entity_id)
         .where(
             Notification.notification_type == NOTIFICATION_TYPE,

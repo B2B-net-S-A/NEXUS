@@ -137,25 +137,30 @@ class WorkforceContext:
         return owners
 
 
-def _roles(user: User) -> set[str]:
+#: Kto może przejąć pracę danej roli. Delivery Lead zastępuje rekrutera, bo ma
+#: zapis na tablicy (decyzja Artura 09.11.2026); odwrotnie nie, bo rekruter nie
+#: wysyła CV do klienta.
+SUBSTITUTE_CAPABILITIES: dict[str, set[str]] = {
+    "recruiter": {"recruiter", "delivery_lead"},
+    "delivery_lead": {"delivery_lead"},
+    "talent_community_manager": {"talent_community_manager"},
+    "finance": {"finance"},
+    "head_of_recruitment": {"head_of_recruitment"},
+}
+
+
+def user_roles(user: User) -> set[str]:
     values = [getattr(user, "role", None), *(getattr(user, "roles", None) or [])]
     return {str(getattr(value, "value", value)) for value in values if value}
 
 
 def compatible_substitute(owner: User, substitute: User) -> bool:
-    target_roles = _roles(substitute)
+    target_roles = user_roles(substitute)
     if "admin" in target_roles:
         return True
-    capability_groups = {
-        "recruiter": {"recruiter"},
-        "delivery_lead": {"delivery_lead"},
-        "talent_community_manager": {"talent_community_manager"},
-        "finance": {"finance"},
-        "head_of_recruitment": {"head_of_recruitment"},
-    }
-    required = _roles(owner) & capability_groups.keys()
+    required = user_roles(owner) & SUBSTITUTE_CAPABILITIES.keys()
     return bool(required) and all(
-        target_roles & capability_groups[role] for role in required
+        target_roles & SUBSTITUTE_CAPABILITIES[role] for role in required
     )
 
 
@@ -198,7 +203,7 @@ def resolve_workforce(
         key = user.email.strip().casefold()
         matches = by_email.get(key, [])
         if len(matches) != 1 or len(users_by_email[key]) != 1:
-            if _roles(user) & OPERATIONAL_COVER_ROLES:
+            if user_roles(user) & OPERATIONAL_COVER_ROLES:
                 context.issues.append(
                     {
                         "user_id": user.id,

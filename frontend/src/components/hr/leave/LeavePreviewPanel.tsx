@@ -17,6 +17,17 @@ export interface PreviewPanelProps {
 }
 
 /** „Co wypada w tym czasie” — dni, pula, praca w NEXUSIE, nieobecni z działu. */
+const SUBSTITUTE_ROLE_GAP = {
+  delivery_lead:
+    "Wybrana osoba nie ma roli Delivery Leada, więc nie przejmie przeglądu CV ani wysyłki do klienta. Wybierz Delivery Leada.",
+  head_of_recruitment:
+    "Wybrana osoba nie ma roli Head of Recruitment, więc NEXUS nie przekaże jej tej pracy. Wybierz kogoś z tą rolą.",
+  talent_community_manager:
+    "Wybrana osoba nie ma roli TCM, więc NEXUS nie przekaże jej tej pracy. Wybierz kogoś z tą rolą.",
+  recruiter:
+    "Wybrana osoba nie ma roli Rekrutera ani Delivery Leada, więc NEXUS nie przekaże jej pracy z kandydatami.",
+} as const;
+
 export function PreviewPanel({
   preview,
   loading,
@@ -121,6 +132,11 @@ export function PreviewPanel({
       {preview.substitute_absent ? (
         <p className="text-warning-muted-foreground">
           Wybrany zastępca też jest nieobecny w części tego okresu.
+        </p>
+      ) : null}
+      {preview.substitute_role_gap ? (
+        <p className="rounded-md bg-warning-muted p-2 text-warning-muted-foreground" data-testid="substitute-role-gap">
+          {SUBSTITUTE_ROLE_GAP[preview.substitute_role_gap]}
         </p>
       ) : null}
       {report && !onBehalf ? (

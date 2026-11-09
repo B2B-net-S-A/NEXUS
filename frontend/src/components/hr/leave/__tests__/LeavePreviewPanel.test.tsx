@@ -62,3 +62,20 @@ describe("PreviewPanel — pula według formy", () => {
     expect(screen.getByText(/Pula 2026/).textContent).toMatch(/po wniosku/);
   });
 });
+
+describe("ostrzeżenie o zastępcy bez roli", () => {
+  it("mówi, czego zastępca nie przejmie", () => {
+    render(
+      <PreviewPanel
+        preview={{ ...PREVIEW, substitute_role_gap: "delivery_lead" }}
+        loading={false}
+        failed={false}
+        waitingForPerson={false}
+        onBehalf={false}
+        range="03.11.2026"
+        form="b2b"
+      />,
+    );
+    expect(screen.getByTestId("substitute-role-gap").textContent).toContain("Delivery Leada");
+  });
+});

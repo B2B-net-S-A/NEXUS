@@ -2,7 +2,8 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -472,6 +473,11 @@ class Notification(Base, TimestampMixin):
         ForeignKey("users.id"), nullable=False, index=True
     )
 
+    # Wiersz przyszedł do zastępcy: osoba, do której był adresowany (0675).
+    on_behalf_of_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -521,6 +527,20 @@ class Notification(Base, TimestampMixin):
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
+
+    @hybrid_property
+    def addressee_id(self) -> int:
+        """Do kogo powiadomienie było adresowane, także gdy dostał je zastępca.
+
+        Skanery typu „już wysłano tej osobie” pytają o tę wartość, inaczej po
+        przekazaniu zastępcy wysyłałyby powiadomienie codziennie od nowa.
+        """
+        return self.on_behalf_of_user_id or self.user_id
+
+    @addressee_id.inplace.expression
+    @classmethod
+    def _addressee_id_expression(cls):
+        return func.coalesce(cls.on_behalf_of_user_id, cls.user_id)
 
     def __repr__(self) -> str:
         return f"<Notification id={self.id} user={self.user_id} type={self.notification_type} read={self.is_read}>"

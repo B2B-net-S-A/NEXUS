@@ -37,6 +37,7 @@ from app.services.notification_delivery import (
     guarded_send,
     load_policy,
 )
+from app.services.notification_substitution import notification_route
 from app.services.notification_triggers import emit
 from app.services.board_stage_badges import cpro_enabled_for_client
 from app.services.consultant_elsewhere_notifications import (
@@ -468,6 +469,12 @@ async def notify_stage_change(
                     "pipeline_stage", new_stage.moved_at
                 ):
                     continue
+                # Mail idzie za dzwonkiem: zastępca zamiast nieobecnej osoby.
+                route = await notification_route(
+                    db, rec.user_id, NotificationType.stage_rule
+                )
+                if route.skip:
+                    continue
                 # Ta sama bramka odbiorcy co dzwonek (`emit`): nieaktywne
                 # konto, wyciszona kategoria albo odebrana sekcja = bez maila.
                 # Do 25.09.2026 mail sprawdzał tylko politykę dostarczania,
@@ -475,21 +482,21 @@ async def notify_stage_change(
                 # dostawały nazwisko kandydata pocztą (audyt R3-3).
                 if not await notification_recipient_has_access(
                     db,
-                    rec.user_id,
+                    route.user_id,
                     NotificationType.stage_rule,
                     related_entity_type="candidate_stage",
                     link=f"/candidates/{candidate.id}",
                 ):
                     logger.debug(
                         "stage_notif: email skipped — user=%s not eligible",
-                        rec.user_id,
+                        route.user_id,
                     )
                     continue
-                user = await _user_by_id(db, rec.user_id)
+                user = await _user_by_id(db, route.user_id)
                 if user is None:
                     logger.debug(
                         "stage_notif: email skipped — user=%s not found",
-                        rec.user_id,
+                        route.user_id,
                     )
                     continue
                 # Blocking smtplib send (+ template render) — offload so the
@@ -500,7 +507,12 @@ async def notify_stage_change(
                     candidate=candidate,
                     candidate_full_name=candidate_full,
                     candidate_first_name=candidate_first,
-                    stage_display_name=stage_display_name,
+                    stage_display_name=(
+                        f"{stage_display_name} (w zastępstwie za "
+                        f"{await _name(db, route.on_behalf_of)})"
+                        if route.on_behalf_of is not None
+                        else stage_display_name
+                    ),
                     client_name=client_name,
                     job=job,
                     mover=mover,
@@ -515,6 +527,11 @@ async def notify_stage_change(
                 )
 
     return emitted_inapp
+
+
+async def _name(db: AsyncSession, user_id: int) -> str:
+    user = await _user_by_id(db, user_id)
+    return (user.name if user else None) or "nieobecną osobę"
 
 
 __all__ = ["notify_stage_change"]

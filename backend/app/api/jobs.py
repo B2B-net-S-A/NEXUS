@@ -201,7 +201,7 @@ from app.services import dl_send_queue
 from app.services import new_job_leads
 from app.services.new_profiles import NewProfiles, new_profiles_by_job
 from app.services import job_lifecycle
-from app.services.board_tasks import dl_portfolio_client_ids
+from app.services.board_tasks import dl_review_portfolio
 from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
 from app.services.job_readiness import job_handoff_blocker_items
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -1442,7 +1442,7 @@ async def list_jobs(
             await dl_send_queue.load_for_viewer(
                 db,
                 current_user,
-                portfolio=await dl_portfolio_client_ids(db, current_user.id),
+                portfolio=await dl_review_portfolio(db, current_user),
             )
         )
     if dl_send == "mine":

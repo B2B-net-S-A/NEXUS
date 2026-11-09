@@ -48,6 +48,10 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services import cpro_sender, recommendation_cards
+from app.services.workforce_availability import (
+    operational_owner_ids,
+    workforce_context,
+)
 from app.services.stage_verifier import first_verifier
 from app.services.board_stage_badges import (
     cpro_enabled_for_client,
@@ -671,6 +675,21 @@ async def dl_portfolio_client_ids(db: AsyncSession, user_id: int) -> frozenset[i
     )
 
 
+async def dl_review_portfolio(db: AsyncSession, user: User) -> frozenset[int]:
+    """Portfel do przeglądu CV: własny i osób, które ten DL dziś zastępuje."""
+    return frozenset(
+        (
+            await db.scalars(
+                select(DeliveryLeadClientAssignment.client_id).where(
+                    DeliveryLeadClientAssignment.delivery_lead_user_id.in_(
+                        sorted(operational_owner_ids(user))
+                    )
+                )
+            )
+        ).all()
+    )
+
+
 def _sees_all(user: User) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
@@ -695,7 +714,7 @@ def reviews_as_dl(
     if not user.has_role(UserRole.delivery_lead):
         return False
     if delivery_lead_id is not None:
-        return delivery_lead_id == user.id
+        return delivery_lead_id in operational_owner_ids(user)
     return client_id is not None and client_id in portfolio
 
 
@@ -857,6 +876,9 @@ async def digest_counts(
             key
         ] += 1
 
+    # Pętla w tle nie przeszła przez `get_current_user`: bez tego
+    # `operational_owner_ids` nie zna zastępstw.
+    await workforce_context(db)
     for t in snapshot.tasks:
         if t.kind == KIND_CPRO_TO_SEND:
             if t.assignee_id is not None:

@@ -504,3 +504,17 @@ describe("pomocnicze", () => {
     expect(nextWindowBoundary(overview(), NOW)).toBeNull();
   });
 });
+
+describe("zadanie w zastępstwie", () => {
+  it("mówi, za kogo jest zadanie", () => {
+    const w = build(
+      overview({ items: [item(IGOR)], todos: [todo(IGOR, "slots_pick", { on_behalf_of_name: "Anna Dąb" })] }),
+    );
+    expect(w.waiting[0].onBehalfOf).toBe("w zastępstwie za Anna Dąb");
+  });
+
+  it("własne zadanie nie ma dopisku", () => {
+    const w = build(overview({ items: [item(IGOR)], todos: [todo(IGOR, "slots_pick")] }));
+    expect(w.waiting[0].onBehalfOf).toBeNull();
+  });
+});

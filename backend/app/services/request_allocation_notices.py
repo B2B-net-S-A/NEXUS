@@ -169,7 +169,9 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
             (user_id, job_id)
             for user_id, job_id in (
                 await db.execute(
-                    select(Notification.user_id, Notification.related_entity_id).where(
+                    select(
+                        Notification.addressee_id, Notification.related_entity_id
+                    ).where(
                         Notification.notification_type
                         == NotificationType.request_assignment_changed,
                         Notification.related_entity_type == "job",
@@ -506,7 +508,7 @@ async def send_proposal_notices(
         existing = await db.scalar(
             select(Notification)
             .where(
-                Notification.user_id == user_id,
+                Notification.addressee_id == user_id,
                 Notification.notification_type == ntype,
                 Notification.related_entity_type == "user",
                 Notification.related_entity_id == user_id,
