@@ -48,6 +48,7 @@ from app.services.client_duplicates import load_client_name_index
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales import client_gate, meeting_decisions
 from app.services.sales.next_step import not_system_entry
+from app.services.sales.task_scope import not_orphaned, task_items
 from app.services.sales.timeline import Scope, merge_duplicates
 
 router = APIRouter()
@@ -251,16 +252,6 @@ def _is_open_item(kind: str, due_at: Optional[datetime]) -> bool:
     """Zadanie albo telefon z terminem — pozycja listy zadań, nie wpis historii."""
 
     return kind == "task" or (kind in schema.TASK_KINDS and due_at is not None)
-
-
-def _task_items():
-    return or_(
-        SalesActivity.kind == "task",
-        and_(
-            SalesActivity.kind.in_(schema.TASK_KINDS),
-            SalesActivity.due_at.is_not(None),
-        ),
-    )
 
 
 def _out(row, now: datetime, *, from_company: bool = False) -> ActivityOut:
@@ -498,7 +489,7 @@ async def list_tasks(
 ) -> TaskList:
     """Zadania i telefony z terminem (Task Center z Atlasa)."""
 
-    query = _base_query().where(_task_items())
+    query = _base_query().where(task_items())
     if kind:
         query = query.where(SalesActivity.kind == kind)
     if scope == "mine":
@@ -509,7 +500,7 @@ async def list_tasks(
         query = query.where(SalesActivity.done_at.is_not(None))
         order = (SalesActivity.done_at.desc(), SalesActivity.id.desc())
     else:
-        query = query.where(SalesActivity.done_at.is_(None))
+        query = query.where(SalesActivity.done_at.is_(None), not_orphaned())
         if bucket == "overdue":
             query = query.where(SalesActivity.due_at < now)
         elif bucket == "today":
@@ -1007,7 +998,7 @@ async def complete_tasks(
             .where(
                 SalesActivity.id.in_(set(payload.ids)),
                 SalesActivity.done_at.is_(None),
-                _task_items(),
+                task_items(),
             )
             .values(done_at=now)
             .returning(SalesActivity.opportunity_id)
