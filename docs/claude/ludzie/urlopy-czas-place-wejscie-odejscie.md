@@ -479,7 +479,8 @@ z odnośnikiem `hr_documents.leave_request_id`.
   ustawowe i dni wolne firmy — ten sam kalendarz co urlop, decyzja 17.10.2026);
   miesiąc wypłaty = następny po starcie, nie wcześniej niż miesiąc terminu
   (`bonus_rules.payout_period`, decyzja Artura 30.10.2026 za arkuszem Delivery);
-  premia DL = 10% × marża/h × 168 h; rekruter progami marży PLN/h. Progi
+  premia DL = 10% × marża/h × godziny DL (od 11.2026 każdy DL 160 h, ustawienie
+  `dl_default_hours`, wyjątek osoby w `dl_hours`); rekruter progami marży PLN/h. Progi
   i „dodatkowa premia DL” to ustawienia (`app_settings['hr_bonus_rules']`),
   w kodzie nie ma żadnej osoby.
 - **Odbiorcy premii z placementu jak w Compassie** (decyzja Artura 18.10.2026,

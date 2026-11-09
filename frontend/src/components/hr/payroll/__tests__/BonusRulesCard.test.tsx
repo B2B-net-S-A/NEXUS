@@ -126,3 +126,22 @@ describe("premia 200% i stała premia TCM w formularzu", () => {
     expect(parseMonths("")).toBeNull();
   });
 });
+
+describe("godziny premii DL", () => {
+  const form = formFromRules(RULES);
+
+  it("wpisane godziny idą do zapisu i do przykładu, puste pole = godziny miesiąca", () => {
+    const set = rulesPayload({ ...form, dlDefaultHours: "160" });
+    expect(set.ok && set.payload.dl_default_hours).toBe(160);
+    expect(bonusExample({ ...form, dlDefaultHours: "160" }, "46")?.dl).toBe(736);
+
+    const empty = rulesPayload(form);
+    expect(empty.ok && empty.payload.dl_default_hours).toBeNull();
+    expect(bonusExample(form, "46")?.dl).toBe(772.8);
+  });
+
+  it("zła wartość to zdanie błędu", () => {
+    expect(rulesPayload({ ...form, dlDefaultHours: "0" }).ok).toBe(false);
+    expect(rulesPayload({ ...form, dlDefaultHours: "abc" }).ok).toBe(false);
+  });
+});

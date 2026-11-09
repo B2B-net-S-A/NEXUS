@@ -32,6 +32,7 @@ from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
 from app.services.hr.bonus_rules import load_rules
 from tests.test_hr_bonus_automation import (  # noqa: F401  (fikstura)
     _bonuses,
+    _person,
     _placement,
     _reconcile,
     _set_setting,
@@ -513,3 +514,52 @@ async def test_signing_day_correction_needs_payroll_and_a_reason(app_client) -> 
     async with AsyncSessionLocal() as db:
         dates = await double_bonus.signed_dates(db, [world["contract"]])
     assert dates[world["contract"]] == (date(2026, 10, 30), "signed")
+
+
+@pytest.mark.asyncio
+async def test_dl_default_hours_change_main_and_extra_dl_bonus() -> None:
+    """Od listopada każdy DL: 160 h × 10%, także dodatkowa premia (decyzja 09.11.2026)."""
+
+    world = await _placement(started_days_ago=40)
+    async with AsyncSessionLocal() as db:
+        extra = await _person(db, "delivery_lead")
+        extra_id = extra.id
+        await db.commit()
+    await _set_setting(
+        RULES_KEY,
+        {
+            "dl_default_hours": 160,
+            "extra_dl": [{"dl_user_id": world["dl"], "recipient_user_id": extra_id}],
+        },
+    )
+    await _reconcile(world["contract"])
+
+    found = await _bonuses(world["contract"])
+    assert found["dl"].amount == Decimal("736.00")  # 10% × 46 zł/h × 160 h
+    assert found["dl_extra"].amount == Decimal("736.00")
+    assert found["dl"].rule_snapshot["dl_hours"] == 160
+    assert found["recruiter"].amount == Decimal("1500.00")
+
+
+@pytest.mark.asyncio
+async def test_bonus_signature_gives_agreement_outside_program_month() -> None:
+    """„Popraw datę podpisu” przy premii: data sprzed programu też ma gdzie być poprawiona."""
+
+    from app.api.hr_payroll import _bonus_signatures
+
+    world = await _placement(started_days_ago=40)
+    generated_id = await _signed_agreement(
+        world["contract"],
+        signed_at=datetime(2026, 10, 30, 14, 0, tzinfo=_WAW),
+        signed_on=date(2026, 10, 30),
+        source="manual",
+    )
+    await _reconcile(world["contract"])
+    found = await _bonuses(world["contract"])
+    async with AsyncSessionLocal() as db:
+        signatures = await _bonus_signatures(db, list(found.values()))
+
+    signature = signatures[world["contract"]]
+    assert signature["signed_on"] == "2026-10-30"
+    assert signature["signed_source"] == "manual"
+    assert signature["agreement"]["generated_contract_id"] == generated_id

@@ -161,6 +161,8 @@ class BonusRules:
     lookback_days: int = field(default=DEFAULT_LOOKBACK_DAYS)
     fixed_role_amounts: tuple[FixedRoleAmount, ...] = ()
     double_bonus: Optional[DoubleBonusRule] = None
+    #: Godziny premii każdego DL-a; ``None`` = ``monthly_hours`` (od 11.2026: 160 h).
+    dl_default_hours: Optional[int] = None
 
 
 DEFAULT_RULES = BonusRules()
@@ -208,12 +210,12 @@ def fixed_amount_for(role: object, rules: BonusRules) -> Optional[Decimal]:
 
 
 def dl_hours_for(dl_user_id: Optional[int], rules: BonusRules) -> int:
-    """Godziny premii DL: wyjątek z ustawień, inaczej ``monthly_hours``."""
+    """Godziny premii DL: wyjątek osoby, potem domyślne dla DL-i, potem ``monthly_hours``."""
 
     for rule in rules.dl_hours:
         if rule.user_id == dl_user_id:
             return rule.hours
-    return rules.monthly_hours
+    return rules.dl_default_hours or rules.monthly_hours
 
 
 def dl_bonus(
@@ -466,6 +468,12 @@ def parse_rules(raw: object) -> BonusRules:
     if "monthly_hours" in source:
         hours = _int(source["monthly_hours"], "Godziny w miesiącu", low=1, high=744)
 
+    dl_default_hours: Optional[int] = None
+    if source.get("dl_default_hours") not in (None, ""):
+        dl_default_hours = _int(
+            source["dl_default_hours"], "Godziny premii DL", low=1, high=744
+        )
+
     days = defaults.eligible_business_days
     if "eligible_business_days" in source:
         days = _int(
@@ -625,6 +633,7 @@ def parse_rules(raw: object) -> BonusRules:
         lookback_days=defaults.lookback_days,
         fixed_role_amounts=tuple(fixed),
         double_bonus=double,
+        dl_default_hours=dl_default_hours,
     )
 
 
@@ -636,6 +645,7 @@ def rules_payload(rules: BonusRules) -> dict[str, Any]:
         "recruiter_tier_amounts": [str(v) for v in rules.recruiter_tier_amounts],
         "dl_percent": str(rules.dl_percent),
         "monthly_hours": rules.monthly_hours,
+        "dl_default_hours": rules.dl_default_hours,
         "eligible_business_days": rules.eligible_business_days,
         "currency": rules.currency,
         "extra_dl": [

@@ -30,6 +30,7 @@ import {
   type CloseStep,
   type CloseStepState,
 } from "./payroll-format";
+import { SignedOnCorrectionDialog } from "./SignedOnCorrectionDialog";
 
 const SECTION_TITLE = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 
@@ -193,6 +194,7 @@ export function DecisionPanel({
   const { askConfirm, confirmDialog } = useConfirmV2();
   const batch = useApproveBonuses();
   const [tab, setTab] = useState<"month" | "later" | "missing">("month");
+  const [correcting, setCorrecting] = useState<BonusRow | null>(null);
   const allRows = tab === "later" ? later : rows;
   const selectable = open ? allRows.filter((row) => batchSelectable(row, meId)) : [];
   // Bez uwag zaznaczone od razu, oznaczone tylko po świadomym kliknięciu.
@@ -410,6 +412,11 @@ export function DecisionPanel({
                               </DropdownMenuItem>
                             ) : null}
                             <DropdownMenuItem onSelect={() => onEdit(row)}>Zmień</DropdownMenuItem>
+                            {row.signature?.agreement ? (
+                              <DropdownMenuItem onSelect={() => setCorrecting(row)}>
+                                Popraw datę podpisu
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem onSelect={() => onCancel(row)}>Usuń premię</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -440,6 +447,16 @@ export function DecisionPanel({
         </div>
       ) : null}
       {confirmDialog}
+      {correcting?.signature?.agreement ? (
+        <SignedOnCorrectionDialog
+          contract={{
+            ...correcting.signature,
+            agreement: correcting.signature.agreement,
+            label: bonusTitle(correcting),
+          }}
+          onClose={() => setCorrecting(null)}
+        />
+      ) : null}
     </section>
   );
 }
