@@ -96,7 +96,13 @@ export function MeetingSummary({ item, open, canEdit, onTranscript, onClientMail
           Transkrypt
         </Button>
         {canEdit && item.can_send_client_summary && (
-          <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => onClientMail(activityId)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2"
+            data-tour="sales.meeting-client-summary"
+            onClick={() => onClientMail(activityId)}
+          >
             Podsumowanie dla klienta
           </Button>
         )}
