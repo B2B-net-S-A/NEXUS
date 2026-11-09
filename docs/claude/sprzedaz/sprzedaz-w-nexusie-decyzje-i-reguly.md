@@ -194,6 +194,8 @@ https://claude.ai/artifact/M6mS1dYC9DwcPe3BDBEv7j.
   (`offers_only`), bez nowej tabeli. Generator ofert dalej jest poza zakresem.
 - **Spotkania = `GET /api/sales/activities/meetings`**: wszystkie aktywności
   `meeting`, notatka skrócona do 300 znaków, bo transkrypcja bywa bardzo długa.
+  Decyzja przy wierszu (przypnij, załóż szansę, klient NEXUSA):
+  `outlook-handlowcow-w-sprzedazy.md`.
   Nowe nagrania przychodzą z transkryptów Teams, nie z Fireflies (niżej).
 - **Filtry szans:** Model (`service_line`) i data utworzenia w kalendarzu firmy,
   pod przyciskiem „Filtry”, bo przy 1280 × 720 kolejny rząd pól zabiera miejsce

@@ -168,6 +168,15 @@ describe("Sprzedaż — historia zmian szansy", () => {
     );
   });
 
+  it("spotkanie z Outlooka: temat z wiersza, nigdy samo id", () => {
+    expect(describeEvent(event({ field: "outlook_activity", new_value: "77", new_label: "Warsztat" }))).toBe(
+      "Spotkanie lub mail z Outlooka: — → Warsztat",
+    );
+    expect(describeEvent(event({ field: "outlook_activity", old_value: "77", old_label: null }))).toBe(
+      "Spotkanie lub mail z Outlooka: usunięte z Outlooka → —",
+    );
+  });
+
   it("założenie, archiwum i scalenie firm", () => {
     expect(describeEvent(event({ kind: "created", field: "stage_id", new_value: "1", new_label: "Lead" }))).toBe(
       "Założenie szansy na etapie „Lead”",
