@@ -3647,6 +3647,7 @@ async def api_health_deep_check():
     from app.models.sales import (
         SalesActivity,
         SalesCompany,
+        SalesCompanyAlias,
         SalesMeetingTranscript,
         SalesOpportunity,
         SalesPipelineStage,
@@ -3950,6 +3951,8 @@ async def api_health_deep_check():
         # 0623: cele i KPI tygodniowe handlowców.
         ("sales_targets", SalesTarget),
         ("sales_meeting_transcripts", SalesMeetingTranscript),
+        # 0671: inne nazwy firmy z CV — bez tabeli pada pas w „Kogo znamy”.
+        ("sales_company_aliases", SalesCompanyAlias),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),
