@@ -93,6 +93,16 @@ def _day_start() -> datetime:
     return local_day_bounds(local_now()).start_utc
 
 
+def _midday(days_ago: int) -> datetime:
+    """Okolice południa sprzed ``days_ago`` dni: kilka minut później to ten sam dzień.
+
+    Duplikaty scalają się w obrębie dnia w Warszawie, więc ``_now()`` o 23:57 plus
+    pięć minut trafiało już w następny dzień.
+    """
+
+    return _day_start() - timedelta(days=days_ago) + timedelta(hours=12)
+
+
 # ── Definicja kroku ──────────────────────────────────────────────────────
 
 
@@ -899,7 +909,7 @@ async def test_note_copied_from_a_mail_is_one_row(app_client) -> None:
     text_ = (
         "Dzień dobry, dotarła do mnie informacja o zmianie osoby kontaktowej w firmie."
     )
-    at = _now() - timedelta(days=4)
+    at = _midday(4)
     mail = await _activity(
         kind="email",
         subject="ODP: Nowy opiekun",
@@ -1046,7 +1056,7 @@ async def test_copy_of_one_mail_from_two_mailboxes_is_one_row(app_client) -> Non
 async def test_note_with_a_cut_copy_of_a_mail_is_one_row(app_client) -> None:
     rep = await _user("sales_edit")
     opp, company = await _opportunity(app_client, rep)
-    at = _now() - timedelta(days=1)
+    at = _midday(1)
     whole = (
         MAIL_HEADER
         + "pierwszy akapit wiadomości. Drugi akapit, którego notatka nie ma."

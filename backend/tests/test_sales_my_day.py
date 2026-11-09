@@ -102,7 +102,9 @@ async def _opportunity(
     primary_contact_id: Optional[int] = None,
 ) -> int:
     pipeline_id, stage_id = await _stage(stage)
-    created = _now() - timedelta(days=age_days)
+    # Południe dnia sprzed ``age_days``: wieczorem i przez zmianę czasu odjęcie dni od
+    # chwili w UTC trafia w sąsiedni dzień kalendarza firmy.
+    created = _noon(business_today() - timedelta(days=age_days)) if age_days else _now()
     async with AsyncSessionLocal() as db:
         opportunity = SalesOpportunity(
             company_id=company_id,
@@ -202,7 +204,8 @@ async def test_meetings_today_are_mine_and_one_per_event(app_client) -> None:
     other = await _user("sales_view")
     first = await _company("Kopia A")
     second = await _company("Kopia B")
-    when = _now() + timedelta(hours=1)
+    # Godzinę po teraz o 23:30 jest już jutro, a liczy się spotkanie z dziś.
+    when = _noon(business_today())
     uid = uuid.uuid4().hex
     for company in (first, second):
         await _activity(
@@ -238,7 +241,7 @@ async def test_meetings_today_are_mine_and_one_per_event(app_client) -> None:
 async def test_manual_meetings_without_external_id_stay_separate(app_client) -> None:
     rep = await _user("sales_view")
     company = await _company()
-    when = _now() + timedelta(minutes=30)
+    when = _noon(business_today())
     for subject in ("Pierwsze", "Drugie"):
         await _activity(
             kind="meeting",
@@ -950,16 +953,18 @@ async def test_prep_covers_the_nearest_meeting(app_client) -> None:
         kind="note",
         body="Pytali o zespół",
         company_id=near,
-        occurred_at=_now() - timedelta(days=9),
+        occurred_at=_noon(business_today() - timedelta(days=9)),
     )
     await _activity(
         kind="email",
         direction="in",
         subject="Zaproszenie na rozmowę",
         company_id=near,
-        occurred_at=_now() - timedelta(days=4),
+        occurred_at=_noon(business_today() - timedelta(days=4)),
     )
-    soon = _now() + timedelta(minutes=20)
+    # Oba spotkania są dziś i jeszcze trwają o każdej porze uruchomienia (25 h
+    # pokrywa też dzień zmiany czasu); najbliższe zaczyna się minutę wcześniej.
+    soon = _day_start()
     meeting = await _activity(
         kind="meeting",
         subject="Rozmowa",
@@ -968,7 +973,7 @@ async def test_prep_covers_the_nearest_meeting(app_client) -> None:
         company_id=near,
         created_by_user_id=rep.id,
         occurred_at=soon,
-        duration_minutes=30,
+        duration_minutes=25 * 60,
     )
     await _activity(
         kind="meeting",
@@ -977,7 +982,8 @@ async def test_prep_covers_the_nearest_meeting(app_client) -> None:
         external_id=uuid.uuid4().hex,
         company_id=far,
         created_by_user_id=rep.id,
-        occurred_at=_now() + timedelta(minutes=40),
+        occurred_at=soon + timedelta(minutes=1),
+        duration_minutes=25 * 60,
     )
     prep = (await _day(app_client, rep))["prep"]
     assert prep["activity_id"] == meeting
@@ -1000,7 +1006,7 @@ async def test_prep_does_not_offer_opportunity_when_one_is_open(app_client) -> N
         external_id=uuid.uuid4().hex,
         company_id=company,
         created_by_user_id=rep.id,
-        occurred_at=_now() + timedelta(minutes=20),
+        occurred_at=_noon(business_today()),
     )
     assert (await _day(app_client, rep))["prep"]["can_create_opportunity"] is False
 
