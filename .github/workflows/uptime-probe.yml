@@ -60,9 +60,14 @@ jobs:
           body=$(cat "$body_file")
           echo "body=$body"
           echo "$body" | jq -e '.status != "unhealthy"' > /dev/null
+      # Certyfikat poniżej 14 dni nie czerwieni joba: czerwony otwierałby alarm
+      # „niedostępny”, a NEXUS jeszcze działa. Wynik idzie na wyjście dopiero po
+      # całej pętli, więc nieudany odczyt hosta ani nie otwiera, ani nie zamyka alarmu.
       - name: TLS expiry check
+        id: tls
         run: |
           set -euo pipefail
+          expiring=""
           for host in nexus.b2bnetwork.pl api.nexus.b2bnetwork.pl nexus.dynaminds.pl api.nexus.dynaminds.pl; do
             expiry=$(echo | openssl s_client -servername "$host" -connect "$host:443" 2>/dev/null \
               | openssl x509 -noout -enddate | cut -d= -f2)
@@ -73,13 +78,47 @@ jobs:
             echo "$host has $days_left days left"
             if [ "$days_left" -lt 14 ]; then
               echo "::warning::$host TLS expires in $days_left days"
+              expiring+="- \`$host\`: dni do końca $days_left (ważny do $expiry)"$'\n'
             fi
           done
+          if [ -n "$expiring" ]; then
+            {
+              echo "Certyfikat TLS wygasa za mniej niż 14 dni albo już wygasł:"
+              echo
+              printf '%s' "$expiring"
+              echo
+              echo "Sprawdź odnawianie certyfikatów w proxy Coolify na hoście."
+            } > "$RUNNER_TEMP/tls-alert.md"
+            echo "expiring=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "expiring=0" >> "$GITHUB_OUTPUT"
+          fi
       - name: Checkout (tylko .github/scripts) do zamknięcia alarmu
         if: ${{ success() }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+      # Audyt rutyn 08.11.2026: samo `::warning::` w logu nie miało czytelnika.
+      # `continue-on-error`, bo błąd API GitHuba nie może dać czerwonego joba,
+      # a z nim fałszywego alarmu „niedostępny”; kolejny bieg ponowi próbę.
+      - name: Alarm — certyfikat TLS wygasa
+        if: ${{ steps.tls.outputs.expiring == '1' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '\nBieg: %s\n' "$RUN_URL" >> "$RUNNER_TEMP/tls-alert.md"
+          bash .github/scripts/alert_issue.sh open "Certyfikat TLS NEXUS wygasa" "$RUNNER_TEMP/tls-alert.md"
+      - name: Zamknij alarm certyfikatu TLS
+        if: ${{ steps.tls.outputs.expiring == '0' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Certyfikat TLS NEXUS wygasa" "Certyfikaty wszystkich hostów mają co najmniej 14 dni ważności."
       # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
       # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
       - name: Zamknij alarm po zielonym biegu
