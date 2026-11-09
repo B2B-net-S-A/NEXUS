@@ -757,6 +757,12 @@ from app.models.candidate_conversation_fact import (  # noqa: F401
 )
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
+from app.models.own_hiring import (  # noqa: F401
+    OwnHiringApplication,
+    OwnHiringBooking,
+    OwnHiringEvent,
+    OwnHiringProcess,
+)
 from app.models.candidate_job_owner import (  # noqa: F401
     CandidateJobOwner,
     CandidateJobOwnerEvent,

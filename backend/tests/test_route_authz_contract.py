@@ -68,6 +68,8 @@ _GATE_QUALNAME_MARKERS = (
     # 0374: trasy „Telefony na dziś” — wyłącznie konto praktykanta, a w serwisie
     # wyłącznie pozycje jego własnej listy (`_own_item`).
     "require_trainee",
+    # Rekrutacja własna: wyłącznie osoby z listy w procesie, rola konta bez znaczenia.
+    "require_own_hiring_access",
     # 0410: bramki dziewięciu uprawnień z ekranu Ustawienia → Osoby i role.
     "require_permission",
     "require_any_permission",
@@ -224,6 +226,8 @@ def _routes() -> list[tuple[str, str, str]]:
 # most have simply never been reviewed. Removing an entry means that route
 # gained a real gate. That is the burn-down, and mutating routes come first.
 _BARE_BASELINE: set[tuple[str, str]] = {
+    # Rekrutacja własna: odpowiada tylko o własnym członkostwie, menu z niej korzysta.
+    ("GET", "/api/own-hiring/me"),
     ("DELETE", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/autenti/health"),
     ("GET", "/api/auth/me"),
@@ -321,6 +325,12 @@ _BARE_BASELINE: set[tuple[str, str]] = {
 # Trasy bez żadnego poświadczenia, zamrożone 08.11.2026 (pomiar `_classify` na mainie).
 # Wpis tutaj to decyzja „to ma być otwarte na internet”, a nie brak bramki.
 _PUBLIC_BASELINE: set[tuple[str, str]] = {
+    # Rekrutacja własna: wybór terminu z linku w mailu, token w adresie, limity tras.
+    ("GET", "/api/public/own-hiring/{token}"),
+    ("POST", "/api/public/own-hiring/{token}/book"),
+    ("POST", "/api/public/own-hiring/{token}/cancel"),
+    ("POST", "/api/public/own-hiring/{token}/no-fit"),
+    ("POST", "/api/public/own-hiring/{token}/withdraw"),
     # Logowanie, rejestracja i zwrotki OAuth — z definicji przed sesją.
     ("POST", "/api/auth/forgot-password"),
     ("POST", "/api/auth/login"),

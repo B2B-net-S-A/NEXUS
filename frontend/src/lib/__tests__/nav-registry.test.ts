@@ -102,7 +102,7 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     ).toEqual([
       // „Ludzie w NEXUSIE” (16.10.2026): „Mój czas”, „Ludzie”, „Sprzęt” —
       // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
-      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
+      ["Praca", ["dashboard", "jobs", "candidates", "calendar", "own-hiring", "my-time"]],
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
       // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
