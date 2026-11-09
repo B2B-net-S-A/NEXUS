@@ -58,7 +58,7 @@ describe("candidate-row-format", () => {
         free_from_basis: "work_end" as const,
       },
     };
-    expect(availabilityCellText(row)).toBe("od 01.12");
+    expect(availabilityCellText(row)).toBe("aktywne zamówienie");
     expect(availabilityCellSecondLine(row)).toEqual({
       text: "z kontraktu · Bank Przykładowy",
       title: expect.stringContaining("W profilu: od 01.09.2026"),

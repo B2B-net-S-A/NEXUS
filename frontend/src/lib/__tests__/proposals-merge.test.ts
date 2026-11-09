@@ -77,7 +77,7 @@ describe("dostępność osoby z żywą umową (15.10.2026)", () => {
   it("data ze screeningu sprzed zatrudnienia nie robi z niej „od razu”", () => {
     expect(isAvailableNow("actively_looking", "2026-09-01", now)).toBe(true);
     expect(isAvailableNow("actively_looking", "2026-09-01", now, marker)).toBe(false);
-    expect(availabilityLabel("actively_looking", "2026-09-01", now, marker)).toBe("od 01.12");
+    expect(availabilityLabel("actively_looking", "2026-09-01", now, marker)).toBe("aktywne zamówienie");
   });
 
   it("po końcu zamówień jest dostępna od razu", () => {
