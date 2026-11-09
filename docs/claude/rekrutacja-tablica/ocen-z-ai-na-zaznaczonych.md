@@ -31,6 +31,18 @@ Decyzja Artura: wariant C z makiet https://claude.ai/artifact/TBHtexa3vvyK76HW2v
   cytatu → „Może”; „Dzwoń” bez cytatu albo przy must-have < 50% → „Może”.
   „Nie pasuje” z cytatem zostaje nawet przy must-have w tekście — słowo bywa
   nazwą czegoś innego (aplikacja z innej dziedziny), a to widzi tylko model.
+- **„Cytat w CV” nie znaczy „znak w znak”** (`quote_matcher`, 09.11.2026):
+  `raw_cv_text` z PDF wtrąca daty, telefon, nagłówki i drugą kolumnę w środek
+  zdania („optimize/␤01-2021 – Present␤improve JIRA…”), a model cytuje zdanie
+  sklejone. Cytat stoi, gdy jest dosłownie albo ma ≥ 6 słów i ≥ 80% jego
+  trójek słów jest w tekście (bez diakrytyków i interpunkcji). Krótszy —
+  tylko dosłownie. „…” dzieli cytat na fragmenty i każdy musi przejść sam.
+  Pomiar 09.11 na stagingu: 176 z 1 490 cytatów (12%) było prawdziwych, ale
+  niedosłownych, 79 zmyślonych dalej odpada; próbka 30 osób tą ścieżką: +24
+  ze 180 cytatów, wszystkie sprawdzone prawdziwe. Ta sama reguła ustala źródło
+  cytatu (CV / notatka) i trafienie „Odpada, gdy” w przeglądzie zgłoszeń.
+  Nie wracaj do samego `needle in hay` — prawdziwy dowód znikał, a osoba bez
+  cytatu dostaje „Może” zamiast „Dzwoń”.
 - **AI niczego nie odrzuca** i nie zmienia procentu dopasowania — tylko
   kolejność (`call_order_key` ↔ `callOrder`: werdykt, siła 1–5, must-have,
   miejsce w zaznaczeniu). Brak CV albo awaria modelu = „AI nie oceniło”,
