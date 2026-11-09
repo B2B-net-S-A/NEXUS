@@ -24,7 +24,7 @@ export function PrepBusyStrip({
   const strip = dayStrip(day, busy, chosen);
   if (!strip) return null;
   return (
-    <div data-testid="prep-busy-strip">
+    <div data-testid="prep-busy-strip" data-tour="prep.organizer-calendar">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="font-semibold">Kalendarz: {who}</span>
         <span className="flex items-center gap-3 text-muted-foreground">
