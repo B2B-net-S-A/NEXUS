@@ -752,7 +752,7 @@ CALL_OUTCOME_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0676: podsumowanie spotkania dla klienta (09.11.2026) ─────────────────
+# ── 0677: podsumowanie spotkania dla klienta (09.11.2026) ─────────────────
 # Szkic modelu F46 zapisany przy transkrypcie, żeby ponowne otwarcie okna nie
 # wołało modelu drugi raz, klucz żądania wysyłki (drugi klik „Wyślij” z tym
 # samym kluczem nie wysyła drugiego maila do klienta) i chwila ostatniej wysyłki,
