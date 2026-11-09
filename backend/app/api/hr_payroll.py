@@ -57,6 +57,7 @@ from app.services.action_permissions import ProductAction
 from app.services.hr import audit, people
 from app.services.hr import modules as hr_modules
 from app.services.hr import (
+    bonus_auto_assign,
     bonus_decisions,
     double_bonus,
     bonus_flags,
@@ -1230,9 +1231,32 @@ async def bonus_decisions_panel(
         )
     )
     items = await _bonus_list(db, proposals, viewer, today=today)
+    rules = await bonus_rules.load_rules(db)
+    automatic = rules.auto_assign_from is not None
+    scheduled = 0
+    if automatic:
+        # Decyzja Artura 09.11.2026: przy automacie ikona pokazuje tylko to,
+        # co automat zatrzymał; premie przed terminem przyzna sam.
+        closed = await payroll_periods.closed_months(db)
+        kept: list[dict[str, Any]] = []
+        for bonus, item in zip(proposals, items):
+            codes = {flag["code"] for flag in item["flags"]}
+            if bonus_auto_assign.needs_person(
+                bonus, rules=rules, today=today, codes=codes, closed=closed
+            ):
+                kept.append(item)
+            elif (
+                bonus_auto_assign.is_scheduled(bonus, rules=rules, today=today)
+                and "inactive" not in codes
+                and (bonus.period_year, bonus.period_month) not in closed
+            ):
+                scheduled += 1
+        items = kept
     return {
         **bonus_decisions.group_decisions(items, viewer_id=viewer.user_id),
         "vouchers": await bonus_decisions.pending_vouchers(db),
+        "automatic": automatic,
+        "scheduled": scheduled,
     }
 
 

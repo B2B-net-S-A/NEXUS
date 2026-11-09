@@ -44,6 +44,50 @@ def _due(bonus: HrBonus, today: date) -> bool:
     return bool((bonus.rule_snapshot or {}).get("double_bonus"))
 
 
+def _first_month(rules: BonusRules) -> Optional[int]:
+    if rules.auto_assign_from is None:
+        return None
+    return rules.auto_assign_from[0] * 12 + rules.auto_assign_from[1]
+
+
+def _in_scope(bonus: HrBonus, rules: BonusRules) -> bool:
+    first = _first_month(rules)
+    return (
+        first is not None
+        and bonus.source in AUTO_SOURCES
+        and bonus.period_year * 12 + bonus.period_month >= first
+    )
+
+
+def is_scheduled(bonus: HrBonus, *, rules: BonusRules, today: date) -> bool:
+    """Propozycja, którą automat przyzna sam w dniu terminu."""
+
+    return _in_scope(bonus, rules) and not _due(bonus, today)
+
+
+def needs_person(
+    bonus: HrBonus,
+    *,
+    rules: BonusRules,
+    today: date,
+    codes: set[str],
+    closed: set[tuple[int, int]],
+) -> bool:
+    """Propozycja w ikonie „Premie do decyzji” (decyzja Artura 09.11.2026).
+
+    Przy włączonym automacie zostaje w niej tylko to, czego automat sam nie
+    przyzna: premia po terminie ze znacznikiem wstrzymującym albo w zamkniętym
+    miesiącu. Premię przed terminem i czekającą na wynik 200% automat przyzna
+    sam, a spoza jego zakresu (ręczne, sprzed „od miesiąca”) rozstrzyga człowiek.
+    """
+
+    if not _in_scope(bonus, rules):
+        return True
+    if not _due(bonus, today):
+        return False
+    return (bonus.period_year, bonus.period_month) in closed or bool(codes & HOLD_FLAGS)
+
+
 async def _awaiting_double_result(
     db: AsyncSession, rules: BonusRules, contract_ids: list[int]
 ) -> set[int]:
@@ -69,9 +113,9 @@ async def assign_due(
 ) -> dict[str, int]:
     rules = rules or await load_rules(db)
     counts = {"assigned": 0, "held": 0, "left": 0}
-    if rules.auto_assign_from is None:
+    first = _first_month(rules)
+    if first is None:
         return counts
-    first = rules.auto_assign_from[0] * 12 + rules.auto_assign_from[1]
     bonuses = list(
         await db.scalars(
             select(HrBonus)
@@ -170,4 +214,10 @@ async def assign_rule_items(
     return counts
 
 
-__all__ = ["HOLD_FLAGS", "assign_due", "assign_rule_items"]
+__all__ = [
+    "HOLD_FLAGS",
+    "assign_due",
+    "assign_rule_items",
+    "is_scheduled",
+    "needs_person",
+]

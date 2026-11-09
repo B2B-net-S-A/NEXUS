@@ -40,10 +40,12 @@ async def refresh_proposals(db: AsyncSession, *, today: date) -> dict[str, Any]:
     rules = await load_rules(db)
     placements = await sync_placements(db, today=today, rules=rules)
     league = await sync_league(db, today=today, rules=rules)
-    ready = await notify_ready(db, today=today)
     guarantees = await bonus_guarantee.sync_guarantees(db, today=today)
     assigned = await bonus_auto_assign.assign_due(db, today=today, rules=rules)
     items = await bonus_auto_assign.assign_rule_items(db, rules=rules)
+    # Po samym przyznaniu: „Decyzja jest po stronie Rozliczeń” dostaje tylko
+    # premia, której automat nie przyznał; przyznana ma jeden dzwonek (09.11.2026).
+    ready = await notify_ready(db, today=today)
     return {
         **{f"placement_{k}": v for k, v in placements.items()},
         **{f"league_{k}": v for k, v in league.items()},
