@@ -18,6 +18,8 @@ import { useRecruiterOnly } from "@/lib/cv-download-access";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+
+import { CvIdentityDoubtNotice } from "@/components/v2/person/CvIdentityDoubtNotice";
 import { Download, FileText, AlertCircle, Loader2 } from "lucide-react";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -174,6 +176,9 @@ export function CVOriginalPreviewModal({
           ) : null}
         </div>
 
+        {hasSnapshot && data?.identity_doubt ? (
+          <CvIdentityDoubtNotice candidateId={data.candidate_id} className="mx-5 mt-3" />
+        ) : null}
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="p-10 text-center text-sm text-muted-foreground">
