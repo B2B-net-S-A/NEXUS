@@ -594,7 +594,10 @@ async def execute_run(db: AsyncSession, run: DutySearchRun) -> None:
     fits: dict[int, float] = {}
     canonical_degraded = False
     try:
-        canonical, fits, canonical_degraded = await _canonical(db, run)
+        # Punkt zapisu: błąd bazy w rankingu nie może zostawić przerwanej
+        # transakcji, bo dalej idzie pula celu na tej samej sesji.
+        async with db.begin_nested():
+            canonical, fits, canonical_degraded = await _canonical(db, run)
     except Exception as exc:  # noqa: BLE001 — zostaje pula celu
         logger.warning(
             "[duty-search] kanoniczny ranking nieudany (%s): %s", run.id, exc

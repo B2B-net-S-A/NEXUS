@@ -189,6 +189,7 @@ export function RequestSearchDialog({
                   role="tab"
                   aria-selected={active}
                   data-testid={`request-kind-${item.value}`}
+                  data-tour={item.value === "goal" ? "candidates.request.goal-tab" : undefined}
                   onClick={() => {
                     setKind(item.value);
                     setTouched(false);

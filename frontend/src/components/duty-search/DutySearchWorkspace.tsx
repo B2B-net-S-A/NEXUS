@@ -524,9 +524,12 @@ function JobDutySearch({ jobId }: { jobId: number }) {
   const [draft, setDraft] = useState<string | null>(null);
   const goalText = draft ?? latest.data?.run?.goal ?? latest.data?.duties ?? "";
   const start = useMutation({
+    // Szukamy dokładnie tego, co stoi w polu — także celu poprzedniego
+    // przebiegu po przeładowaniu strony, a nie po cichu obowiązków z Championa.
     mutationFn: () => {
-      const edited = draft !== null && draft.trim() !== (latest.data?.duties ?? "").trim();
-      return dutySearchApi.start({ job_id: jobId, goal: edited ? draft.trim() : undefined });
+      const visible = goalText.trim();
+      const edited = visible !== (latest.data?.duties ?? "").trim();
+      return dutySearchApi.start({ job_id: jobId, goal: edited ? visible : undefined });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: dutySearchKeys.jobLatest(jobId) }),
     onError: (error) => showError(apiErrorMessage(error, "Nie udało się uruchomić wyszukiwania.")),

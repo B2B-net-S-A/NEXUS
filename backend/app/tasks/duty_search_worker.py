@@ -2,7 +2,8 @@
 
 Przebieg trwa 1,5–2 min (rozbicie celu, pula, ok. 100 ocen CV). Dzierżawa
 10 min: proces zabity w trakcie (u nas zwykle wdrożenie) oddaje przebieg
-następnemu przejęciu, a trzecie przejęcie bez wyniku kończy go jako ``failed``,
+następnemu przejęciu, a po trzech próbach bez wyniku czwarte przejęcie kończy
+go jako ``failed`` (``abandoned``),
 żeby nie zajmował autorowi jednego z dwóch slotów w nieskończoność.
 """
 

@@ -145,4 +145,20 @@ describe("DutySearchWorkspace (rekrutacja)", () => {
     );
     expect(await within(cards[0]).findByRole("button", { name: /Dodano/ })).toBeTruthy();
   });
+
+  it("„Szukaj ponownie” po przeładowaniu wysyła cel widoczny w polu, nie obowiązki z Championa", async () => {
+    const edited = "Własny opis celu: wdrożenie release managementu w GCP dla banku, CAB, RFC.";
+    jobLatest.mockResolvedValue({
+      has_duties: true,
+      duties: "Zarządzanie release i change management w banku.",
+      title: "R",
+      run: run({ goal: edited }),
+      usage: USAGE,
+    });
+    startRun.mockResolvedValue({ run_id: "r3", state: "queued", usage: USAGE });
+    renderJob();
+    await screen.findAllByTestId("duty-result");
+    fireEvent.click(screen.getByRole("button", { name: /Szukaj ponownie/ }));
+    await waitFor(() => expect(startRun).toHaveBeenCalledWith({ job_id: 7, goal: edited }));
+  });
 });
