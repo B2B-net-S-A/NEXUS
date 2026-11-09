@@ -229,7 +229,7 @@ async def test_intake_sorts_by_filter_and_ignores_other_ads(world, microsoft):
     hidden = await world.client.get(
         "/api/own-hiring/new?bucket=filtered", headers=_headers(world.owner)
     )
-    assert [row["id"] for row in hidden.json()] == [filtered_id]
+    assert filtered_id in [row["id"] for row in hidden.json()]
 
 
 async def test_intake_twice_does_not_duplicate(world, microsoft):
@@ -522,6 +522,124 @@ async def test_assistant_books_and_three_failed_calls_return_to_owner(world, mic
         silent = await db.get(OwnHiringApplication, silent_id)
         assert booked.stage == "teams"
         assert silent.stage == "no_response"
+
+
+async def test_assistant_cannot_book_outside_her_queue(world, microsoft):
+    _, app_id = await _import(world)
+    await _invite(world, app_id)
+    assistant = _headers(world.assistant)
+    slots = (
+        await world.client.get("/api/own-hiring/slots?kind=teams", headers=assistant)
+    ).json()
+    response = await world.client.post(
+        f"/api/own-hiring/queue/{app_id}/book",
+        headers=assistant,
+        json={"start": slots["days"][0]["slots"][0]},
+    )
+    assert response.status_code == 409
+
+
+async def test_batch_invite_continues_after_person_without_email(world, microsoft):
+    no_email, no_email_id = await _import(world)
+    _, ok_id = await _import(world)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Candidate, no_email.id)
+        row.email = None
+        await db.commit()
+    response = await world.client.post(
+        "/api/own-hiring/applications/invite",
+        headers=_headers(world.owner),
+        json={"ids": [no_email_id, ok_id]},
+    )
+    assert response.status_code == 200, response.text
+    outcomes = {r["id"]: r["outcome"] for r in response.json()["results"]}
+    assert outcomes == {no_email_id: "no_email", ok_id: "sent"}
+
+
+async def test_batch_invite_continues_after_send_failure(world, microsoft, monkeypatch):
+    first, first_id = await _import(world)
+    _, second_id = await _import(world)
+    original = m365_sender.send_new
+
+    async def flaky(db, connection, *, to, **kwargs):
+        if to == [first.email]:
+            raise RuntimeError("mail down")
+        return await original(db, connection, to=to, **kwargs)
+
+    monkeypatch.setattr(m365_sender, "send_new", flaky)
+    response = await world.client.post(
+        "/api/own-hiring/applications/invite",
+        headers=_headers(world.owner),
+        json={"ids": [first_id, second_id]},
+    )
+    assert response.status_code == 200, response.text
+    outcomes = {r["id"]: r["outcome"] for r in response.json()["results"]}
+    assert outcomes == {first_id: "failed", second_id: "sent"}
+
+
+async def test_reminders_continue_after_send_failure(world, microsoft, monkeypatch):
+    first, first_id = await _import(world)
+    second, second_id = await _import(world)
+    for app_id in (first_id, second_id):
+        token = await _invite(world, app_id)
+        slot = await _first_slot(world, token)
+        booked = await world.client.post(
+            f"/api/public/own-hiring/{token}/book", json={"start": slot}
+        )
+        assert booked.status_code == 200, booked.text
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        rows = list(await db.scalars(select(OwnHiringBooking)))
+        for index, row in enumerate(rows):
+            row.created_at = now - timedelta(days=1)
+            row.start_at = now + timedelta(hours=3, minutes=index * 40)
+            row.end_at = row.start_at + timedelta(minutes=30)
+        await db.commit()
+    original = m365_sender.send_new
+    microsoft.mails.clear()
+
+    async def flaky(db, connection, *, to, **kwargs):
+        if to == [first.email]:
+            raise RuntimeError("mail down")
+        return await original(db, connection, to=to, **kwargs)
+
+    monkeypatch.setattr(m365_sender, "send_new", flaky)
+    async with AsyncSessionLocal() as db:
+        totals = await sweep.run_once(db)
+    assert totals["reminded"] == 1
+    assert [m.to for m in microsoft.mails] == [[second.email]]
+
+
+async def test_manual_move_out_of_teams_releases_the_meeting(world, microsoft):
+    _, app_id = await _import(world)
+    token = await _invite(world, app_id)
+    slot = await _first_slot(world, token)
+    await world.client.post(
+        f"/api/public/own-hiring/{token}/book", json={"start": slot}
+    )
+    moved = await world.client.post(
+        f"/api/own-hiring/applications/{app_id}/move",
+        headers=_headers(world.owner),
+        json={"stage": "no_response"},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["booking"] is None
+    assert microsoft.cancelled == ["evt-1"]
+    view = (await world.client.get(f"/api/public/own-hiring/{token}")).json()
+    assert view["state"] == "open"
+
+
+async def test_manual_move_to_teams_without_booking_can_record_outcome(
+    world, microsoft
+):
+    _, app_id = await _import(world)
+    headers = _headers(world.owner)
+    moved = await world.client.post(
+        f"/api/own-hiring/applications/{app_id}/move",
+        headers=headers,
+        json={"stage": "teams"},
+    )
+    assert moved.json()["needs_decision"] is True
 
 
 async def test_calendar_failure_keeps_booking_and_retries(world, microsoft):

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
-from app.models.m365 import Email, EmailDirection
+from app.models.m365 import Email, EmailDirection, M365Connection
 from app.models.own_hiring import (
     OwnHiringApplication,
     OwnHiringBooking,
@@ -250,52 +250,81 @@ async def send_reminders(db: AsyncSession, process: OwnHiringProcess) -> int:
     connection = await owner_connection(db, process)
     if connection is None:
         return 0
-    sent = 0
+    # Rollback po nieudanej wysyłce wygasza obiekty sesji: dalej idą same wartości.
+    connection_id = connection.id
     address = str(merged_settings(process).get("office_address") or "")
-    for booking, application, candidate in rows:
-        token = current_token(application)
-        text = mail_text.reminder(
-            role_title=process.title,
-            start=booking.start_at,
-            office_address=address if booking.kind == "office" else "",
-            link=public_link(token) if token else "",
+    role_title = process.title
+    due = [
+        (
+            booking.id,
+            candidate.email,
+            mail_text.reminder(
+                role_title=role_title,
+                start=booking.start_at,
+                office_address=address if booking.kind == "office" else "",
+                link=public_link(token)
+                if (token := current_token(application))
+                else "",
+            ),
         )
+        for booking, application, candidate in rows
+    ]
+    sent = 0
+    for booking_id, recipient, text in due:
         try:
             await m365_sender.send_new(
                 db,
-                connection,
-                to=[candidate.email],
+                await db.get(M365Connection, connection_id),
+                to=[recipient],
                 subject=text.subject,
                 body_html=text.body_html,
-                client_request_id=f"own-hiring-reminder:{booking.id}",
+                client_request_id=f"own-hiring-reminder:{booking_id}",
                 commit_reservation=True,
             )
         except Exception as exc:  # noqa: BLE001 — następny przebieg ponowi
             await db.rollback()
             logger.warning(
                 "own_hiring.reminder_failed booking=%s error=%s",
-                booking.id,
+                booking_id,
                 type(exc).__name__,
             )
             continue
+        booking = await db.get(OwnHiringBooking, booking_id)
         booking.reminder_sent_at = now_utc()
         await db.commit()
         sent += 1
     return sent
 
 
+async def _run_process(db: AsyncSession, process_id: int) -> dict[str, int]:
+    process = await db.get(OwnHiringProcess, process_id)
+    if process is None:
+        return {}
+    imported = await intake(db, process)
+    await reclassify_unread(db, process)
+    return {
+        "imported": imported,
+        "replied": await mark_replies(db, process),
+        "expired": await expire_invitations(db, process),
+        "synced": await retry_calendar(db, process),
+        "reminded": await send_reminders(db, process),
+    }
+
+
 async def run_once(db: AsyncSession) -> dict[str, int]:
     totals = {"imported": 0, "replied": 0, "expired": 0, "synced": 0, "reminded": 0}
-    processes = list(
+    process_ids = list(
         await db.scalars(
-            select(OwnHiringProcess).where(OwnHiringProcess.is_active.is_(True))
+            select(OwnHiringProcess.id).where(OwnHiringProcess.is_active.is_(True))
         )
     )
-    for process in processes:
-        totals["imported"] += await intake(db, process)
-        await reclassify_unread(db, process)
-        totals["replied"] += await mark_replies(db, process)
-        totals["expired"] += await expire_invitations(db, process)
-        totals["synced"] += await retry_calendar(db, process)
-        totals["reminded"] += await send_reminders(db, process)
+    for process_id in process_ids:
+        try:
+            result = await _run_process(db, process_id)
+        except Exception:  # noqa: BLE001 — jeden proces nie zatrzymuje pozostałych
+            await db.rollback()
+            logger.exception("own_hiring.sweep_failed process=%s", process_id)
+            continue
+        for key, value in result.items():
+            totals[key] += value
     return totals

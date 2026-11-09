@@ -148,6 +148,8 @@ function NewReview({
     },
     onError: (error) => showError(apiErrorMessage(error, "Nie udało się odrzucić.")),
   });
+  // Zaproszone osoby znikają z listy, więc zaznaczenie liczy się tylko z widocznych.
+  const chosen = selected.filter((id) => list.data?.some((person) => person.id === id));
   const toggle = (id: number) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   return (
@@ -234,24 +236,24 @@ function NewReview({
         )}
       </div>
       <footer className="flex items-center justify-between border-t border-border bg-card px-5 py-2.5">
-        <span className="text-sm">Zaznaczone: {selected.length}</span>
+        <span className="text-sm">Zaznaczone: {chosen.length}</span>
         <div className="flex gap-2">
           <Button
             size="sm"
             variant="outline"
-            disabled={selected.length === 0 || reject.isPending}
+            disabled={chosen.length === 0 || reject.isPending}
             onClick={async () => {
               const ok = await askConfirm({
-                title: `Odrzucić zaznaczone osoby (${selected.length})?`,
+                title: `Odrzucić zaznaczone osoby (${chosen.length})?`,
                 description: "Karty trafią do zamkniętych. Maile z odmową nie zostaną wysłane.",
                 confirmLabel: "Odrzuć",
               });
-              if (ok) reject.mutate(selected);
+              if (ok) reject.mutate(chosen);
             }}
           >
             Odrzuć
           </Button>
-          <Button size="sm" disabled={selected.length === 0} onClick={() => onInvite(selected)}>
+          <Button size="sm" disabled={chosen.length === 0} onClick={() => onInvite(chosen)}>
             <Send className="mr-1.5 size-3.5" /> Zaproś na rozmowę
           </Button>
         </div>

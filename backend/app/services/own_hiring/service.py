@@ -249,11 +249,8 @@ def _card(
         "call_attempts": application.call_attempts,
         "callback_at": application.callback_at,
         "booking": booking_out(booking),
-        "needs_decision": bool(
-            booking is not None
-            and booking.end_at <= now
-            and application.stage in ("teams", "office")
-        ),
+        "needs_decision": application.stage in ("teams", "office")
+        and (booking is None or booking.end_at <= now),
         "contract_sent_at": application.contract_sent_at,
         "signed_at": application.signed_at,
         "close_reason": application.close_reason,
@@ -354,9 +351,15 @@ async def _application(
     *,
     lock: bool = False,
 ) -> OwnHiringApplication:
+    return await _application_in(db, process.id, application_id, lock=lock)
+
+
+async def _application_in(
+    db: AsyncSession, process_id: int, application_id: int, *, lock: bool = False
+) -> OwnHiringApplication:
     query = select(OwnHiringApplication).where(
         OwnHiringApplication.id == application_id,
-        OwnHiringApplication.process_id == process.id,
+        OwnHiringApplication.process_id == process_id,
     )
     if lock:
         query = query.with_for_update()
@@ -430,21 +433,36 @@ async def invite(
             "mailbox_missing",
             "Podłącz skrzynkę Microsoft 365 w ustawieniach konta, żeby wysłać zaproszenia.",
         )
-    settings = merged_settings(ctx.process)
+    # Rollback po nieudanej wysyłce wygasza obiekty sesji, więc partia pracuje na
+    # wartościach, a wiersze czyta od nowa przy każdej osobie.
+    plan = _InvitePlan(
+        process_id=ctx.process.id,
+        role_title=ctx.process.title,
+        actor_id=ctx.user.id,
+        connection_id=connection.id,
+        minutes=int(merged_settings(ctx.process)["slot_minutes"]),
+        response_days=int(merged_settings(ctx.process)["response_business_days"]),
+    )
     results: list[dict[str, Any]] = []
     for application_id in dict.fromkeys(application_ids):
-        results.append(await _invite_one(db, ctx, application_id, connection, settings))
+        results.append(await _invite_one(db, plan, application_id))
     return results
 
 
+@dataclass(frozen=True)
+class _InvitePlan:
+    process_id: int
+    role_title: str
+    actor_id: int
+    connection_id: int
+    minutes: int
+    response_days: int
+
+
 async def _invite_one(
-    db: AsyncSession,
-    ctx: Context,
-    application_id: int,
-    connection: M365Connection,
-    settings: dict[str, Any],
+    db: AsyncSession, plan: _InvitePlan, application_id: int
 ) -> dict[str, Any]:
-    application = await _application(db, ctx.process, application_id, lock=True)
+    application = await _application_in(db, plan.process_id, application_id, lock=True)
     candidate = await db.get(Candidate, application.candidate_id)
     if application.stage not in ("new", "no_response"):
         await db.rollback()
@@ -459,20 +477,21 @@ async def _invite_one(
         token = issue_token(application, now)
     else:
         token = compute_token(application.id, application.token_nonce)
+    request_id = f"own-hiring-invite:{application.id}:{application.token_nonce}"
+    recipient = candidate.email
     await db.commit()
     text = mail_text.invitation(
-        role_title=ctx.process.title,
-        minutes=int(settings["slot_minutes"]),
-        link=public_link(token),
+        role_title=plan.role_title, minutes=plan.minutes, link=public_link(token)
     )
+    connection = await db.get(M365Connection, plan.connection_id)
     try:
         await m365_sender.send_new(
             db,
             connection,
-            to=[candidate.email],
+            to=[recipient],
             subject=text.subject,
             body_html=text.body_html,
-            client_request_id=f"own-hiring-invite:{application.id}:{application.token_nonce}",
+            client_request_id=request_id,
             commit_reservation=True,
         )
     except Exception as exc:  # noqa: BLE001 — wynik per osoba, reszta idzie dalej
@@ -484,15 +503,13 @@ async def _invite_one(
         )
         return {"id": application_id, "outcome": "failed"}
 
-    application = await _application(db, ctx.process, application_id, lock=True)
+    application = await _application_in(db, plan.process_id, application_id, lock=True)
     sent_at = now_utc()
     application.invited_at = sent_at
     application.replied_at = None
-    application.response_due_at = response_deadline(
-        sent_at, int(settings["response_business_days"])
-    )
+    application.response_due_at = response_deadline(sent_at, plan.response_days)
     set_stage(application, "invited", sent_at)
-    log_event(db, application, "invited", actor_id=ctx.user.id)
+    log_event(db, application, "invited", actor_id=plan.actor_id)
     await db.commit()
     return {"id": application_id, "outcome": "sent"}
 
@@ -567,9 +584,14 @@ async def move(
         raise OwnHiringError(
             422, "bad_stage", "Na ten etap nie można przenieść ręcznie."
         )
+    from app.services.own_hiring import booking as booking_service  # noqa: PLC0415
+
     application = await _application(db, ctx.process, application_id, lock=True)
     now = now_utc()
     previous = application.stage
+    released: list[OwnHiringBooking] = []
+    if previous in ("teams", "office") and previous != stage:
+        released = await booking_service.release_active(db, application, now)
     set_stage(application, stage, now)
     if stage == "signed" and application.signed_at is None:
         application.signed_at = now
@@ -579,6 +601,7 @@ async def move(
         db, application, "moved", actor_id=ctx.user.id, previous=previous, stage=stage
     )
     await db.commit()
+    await booking_service.cancel_in_calendar(db, ctx.process, released)
     return await detail(db, ctx.process, application_id)
 
 

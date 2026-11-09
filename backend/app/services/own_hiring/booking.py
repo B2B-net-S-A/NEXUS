@@ -256,6 +256,8 @@ async def book_from_queue(
     )
     if application is None:
         raise OwnHiringError(404, "not_found", "Nie ma takiej osoby w tym procesie.")
+    if ctx.role == "assistant" and application.stage != "assistant":
+        raise OwnHiringError(409, "wrong_stage", "Tej osoby nie ma już w kolejce.")
     via = "assistant" if ctx.role == "assistant" else "owner"
     await book_teams(
         db, application, ctx.process, start=start, via=via, actor_id=ctx.user.id
