@@ -113,6 +113,7 @@ jobs:
           bash .github/scripts/alert_issue.sh open "Certyfikat TLS NEXUS wygasa" "$RUNNER_TEMP/tls-alert.md"
       - name: Zamknij alarm certyfikatu TLS
         if: ${{ steps.tls.outputs.expiring == '0' }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

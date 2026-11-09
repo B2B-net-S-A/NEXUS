@@ -198,3 +198,7 @@ def test_alarm_steps_have_token_and_repo(name: str) -> None:
     env = _step(name)["env"]
     assert env["GH_TOKEN"] == "${{ github.token }}"
     assert env["REPO"] == "${{ github.repository }}"
+
+
+def test_github_hiccup_while_resolving_cannot_turn_the_probe_red() -> None:
+    assert _step(RESOLVE_STEP)["continue-on-error"] is True
