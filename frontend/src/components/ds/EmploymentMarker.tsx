@@ -1,33 +1,31 @@
 import * as React from "react"
-import { AlertCircle } from "lucide-react"
+import { PhoneOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
   markerLabel,
   markerTone,
-  returnsToMarketLabel,
   type EmploymentMarker,
   type EmploymentMarkerTone,
   type MarkerLabelOptions,
 } from "@/lib/employment-marker"
 
 const PILL_TONE: Record<EmploymentMarkerTone, string> = {
-  success: "border-success/20 bg-success-muted text-success-muted-foreground",
-  warning: "border-warning/25 bg-warning-muted text-warning-muted-foreground",
+  danger: "border-destructive/25 bg-destructive/10 text-destructive",
+  neutral: "border-border bg-muted/40 text-foreground",
   info: "border-info/20 bg-info-muted text-info-muted-foreground",
 }
 
 const TEXT_TONE: Record<EmploymentMarkerTone, string> = {
-  success: "text-success-muted-foreground",
-  warning: "text-warning-muted-foreground",
+  danger: "text-destructive",
+  neutral: "text-muted-foreground",
   info: "text-info-muted-foreground",
 }
 
 export const EMPLOYMENT_DOT_TONE: Record<EmploymentMarkerTone, string> = {
-  success: "bg-success",
-  warning: "bg-warning",
-  // „Zaczyna” — pusta kropka: umowa jest, praca jeszcze nie.
-  info: "border border-info",
+  danger: "bg-destructive",
+  neutral: "bg-muted-foreground",
+  info: "bg-info",
 }
 
 export interface EmploymentPillProps
@@ -40,10 +38,9 @@ export interface EmploymentPillProps
 }
 
 /**
- * Znacznik „Pracuje u nas” — ten sam na każdym ekranie, na którym dodaje się
- * osobę do rekrutacji. Niczego nie blokuje; znaczenie niesie tekst, kolor
- * tylko je wzmacnia (zielony = pracuje, bursztyn = kończy albo klient tej
- * rekrutacji, niebieski = zaczyna).
+ * Znacznik osoby z żywą umową — ten sam na każdym ekranie. Mówi rekruterowi,
+ * czy może dzwonić; datę końca zna Delivery (decyzja Artura 09.11.2026).
+ * Niczego nie blokuje.
  */
 export function EmploymentPill({
   marker,
@@ -53,10 +50,10 @@ export function EmploymentPill({
   ...props
 }: EmploymentPillProps) {
   const tone = markerTone(marker)
-  const returning = returnsToMarketLabel(marker)
-  const pill = (
+  return (
     <span
       data-employment-phase={marker.phase}
+      data-returns-to-market={marker.returns_to_market ? "" : undefined}
       title={markerLabel(marker)}
       className={cn(
         "inline-flex min-w-0 max-w-full items-center gap-1.5 font-semibold",
@@ -67,8 +64,8 @@ export function EmploymentPill({
       )}
       {...props}
     >
-      {marker.elsewhere === false ? (
-        <AlertCircle aria-hidden className="size-3 shrink-0" />
+      {tone === "danger" ? (
+        <PhoneOff aria-hidden className="size-3 shrink-0" />
       ) : (
         <span
           aria-hidden
@@ -77,25 +74,5 @@ export function EmploymentPill({
       )}
       <span className="min-w-0 truncate">{markerLabel(marker, label)}</span>
     </span>
-  )
-  if (!returning) return pill
-  // „Wraca na rynek” obok znacznika (22.10.2026) — osoba z opieki przekazana
-  // do front office: koniec pracy u nas jest już ustalony.
-  return (
-    <>
-      {pill}
-      <span
-        data-returns-to-market
-        title="Opieka przekazała osobę do front office — po końcu pracy u nas szuka nowego projektu"
-        className={cn(
-          "inline-flex shrink-0 items-center font-semibold",
-          appearance === "pill"
-            ? cn("h-5 rounded-full border px-2 text-[11px]", PILL_TONE.info)
-            : cn("text-xs", TEXT_TONE.info),
-        )}
-      >
-        {returning}
-      </span>
-    </>
   )
 }

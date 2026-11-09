@@ -63,6 +63,7 @@ function prepare(params: URLSearchParams) {
     : hrConfig({ payroll: true });
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, config);
+  client.setQueryData(payrollKeys.bonusMode, { automatic: false, manual_allowed: true });
   client.setQueryData(hrKeys.counts, { approvals: team ? 2 : null, cases: null });
   client.setQueryData(
     payrollKeys.month(scene.year, scene.month),

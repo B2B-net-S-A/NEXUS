@@ -107,8 +107,8 @@ describe("QuickAssignV2 (C5)", () => {
     );
 
     const notice = screen.getByRole("note");
-    expect(notice).toHaveTextContent("Pracuje u nas · Bank Przykładowy");
-    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+    expect(notice).toHaveTextContent("Aktywne zamówienie · nie dzwoń · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Delivery Lead: Karol Wzorcowy");
 
     const mine = await screen.findByRole("region", { name: "Moje otwarte" });
     await within(mine).findByText("U obecnego klienta");

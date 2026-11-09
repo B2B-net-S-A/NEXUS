@@ -205,7 +205,7 @@ describe("PeopleListView", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Pracują/ }));
-    expect(screen.getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026")).toBeTruthy();
+    expect(screen.getByText("Aktywne zamówienie · nie dzwoń")).toBeTruthy();
     // Do 12.10.2026 przycisku nie było — pracującej osoby nie dało się dodać.
     fireEvent.click(screen.getByLabelText("Dodaj do rekrutacji: Pracuje Test"));
     expect(onAdd).toHaveBeenCalledWith(

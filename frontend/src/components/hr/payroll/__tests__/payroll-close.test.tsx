@@ -278,6 +278,36 @@ describe("DecisionPanel", () => {
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Premia zatwierdzona", "success"));
   });
 
+  it("po włączeniu automatu Płace mają listę bez decyzji: tylko „Zgłoś” i poprawa daty", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DecisionPanel
+          rows={[bonus()]}
+          meId={7}
+          open
+          canCreate={false}
+          approving={false}
+          automatic
+          readOnly
+          onCreate={vi.fn()}
+          onApprove={vi.fn()}
+          onEdit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Premie z automatu")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zatwierdź zaznaczone" })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Nowa premia" })).toBeNull();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: /^Opcje:/ }), { key: "Enter" });
+    expect(screen.queryByRole("menuitem", { name: "Usuń premię" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Zgłoś adminowi" }));
+    expect(screen.getByRole("dialog", { name: "Zgłoś premię do admina" })).toBeInTheDocument();
+  });
+
   it("„Popraw datę podpisu” jest w menu premii z umową i otwiera okno z obecną datą", () => {
     renderPanel([
       bonus({

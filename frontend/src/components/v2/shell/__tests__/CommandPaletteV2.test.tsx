@@ -318,7 +318,7 @@ describe("CommandPaletteV2 — podpis kandydata", () => {
     expect(getByText("· Java Developer · Kraków")).toBeTruthy();
     // Podpis zostaje bez zmian; znacznik zatrudnienia to osobny element obok.
     expect(getByText("· Gdańsk")).toBeTruthy();
-    expect(getByText("Pracuje u nas · Bank Przykładowy")).toBeTruthy();
+    expect(getByText("Aktywne zamówienie · nie dzwoń")).toBeTruthy();
   });
 });
 

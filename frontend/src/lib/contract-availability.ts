@@ -24,6 +24,8 @@ interface Common {
   deliveryLead: string | null;
   /** Data z profilu (`availability_date`), także ta, która się nie liczy. */
   profileDate: string | null;
+  /** Umowa bez trwającego ani zaplanowanego zamówienia. */
+  noCurrentOrder: boolean;
 }
 
 export type ContractAvailability =
@@ -91,6 +93,7 @@ export function contractAvailability(
     clientName: clientNames(marker),
     deliveryLead: marker.clients.find((c) => c.delivery_lead_name)?.delivery_lead_name ?? null,
     profileDate: isoDay(profileDate),
+    noCurrentOrder: Boolean(marker.no_current_order),
   };
   if (marker.free_from_basis === "starting") {
     const starts = marker.clients
@@ -126,10 +129,10 @@ function shortDay(day: string): string {
 }
 
 /**
- * Tekst terminu: `long` — profil, panel osoby, Tablica („od 01.12.2026”);
+ * Termin z datą, dla Delivery (przegląd DL, okna edycji): `long` — profil, panel osoby, Tablica („od 01.12.2026”);
  * `short` — wąska kolumna listy („od 01.12”).
  */
-export function contractAvailabilityText(
+export function contractDateText(
   a: ContractAvailability,
   style: "long" | "short" = "long",
 ): string {
@@ -149,10 +152,19 @@ export function contractAvailabilityText(
   return `od ${fmt(a.date)}`;
 }
 
-/** „za 17 dni” przy fazie „kończy u nas”; `null` poza nią. */
-export function contractAvailabilityCountdown(a: ContractAvailability): string | null {
-  if (a.kind !== "date" || a.daysLeft == null) return null;
-  return a.daysLeft === 1 ? "jutro" : `za ${a.daysLeft} dni`;
+/**
+ * Dostępność na ekranach rekrutera (decyzja Artura 09.11.2026): bez daty końca,
+ * bo „od 01.01” czytano jak zaproszenie do telefonu. Datę ma `contractDateText`.
+ */
+export function contractAvailabilityText(
+  a: ContractAvailability,
+  style: "long" | "short" = "long",
+): string {
+  if (a.kind === "starting") return style === "short" ? "zaczyna u nas" : "Zaczyna u nas";
+  if (a.noCurrentOrder || (a.kind === "date" && a.ordersEnded)) {
+    return style === "short" ? "bez zamówienia" : "Bez aktywnego zamówienia";
+  }
+  return style === "short" ? "aktywne zamówienie" : "Aktywne zamówienie";
 }
 
 /** Dymek przy kropce źródła — skąd termin i co z datą z profilu. */
@@ -174,20 +186,18 @@ export function contractAvailabilityOrigin(a: ContractAvailability): {
         : `Z kontraktu: umowa${where} jeszcze się nie zaczęła.`,
     };
   }
+  if (!a.noCurrentOrder && (a.kind === "no_end_date" || !a.ordersEnded)) {
+    return {
+      title: "Z kontraktu",
+      tone: "contract",
+      text: `Z kontraktu: aktywne zamówienie${where}. Nie dzwoń z nowym projektem.`,
+    };
+  }
   if (a.kind === "no_end_date") {
     return {
       title: "Z kontraktu",
       tone: "contract",
-      text:
-        `Z kontraktu: zamówienie${where} nie ma daty końca — termin zna Delivery.` +
-        profileLine("liczy się dopiero po ustaleniu końca pracy u nas"),
-    };
-  }
-  if (a.basis === "profile") {
-    return {
-      title: "Z profilu",
-      tone: "notes",
-      text: `Z profilu: później niż koniec pracy${where} (${fmt(a.workEnd)}).`,
+      text: `Z kontraktu: umowa${where} bez trwającego zamówienia — ustal z Delivery, czy osoba jest wolna.`,
     };
   }
   if (a.ordersEnded) {
@@ -230,7 +240,7 @@ export function availabilityContractNote(
     : "Delivery Lead";
   if (contract.kind === "starting") {
     return (
-      `${contractAvailabilityText(contract)}${client}. ${HIDDEN_STATUS_SENTENCE} ` +
+      `${contractDateText(contract)}${client}. ${HIDDEN_STATUS_SENTENCE} ` +
       `Termin dostępności ustala ${lead}.`
     );
   }
@@ -243,7 +253,7 @@ export function availabilityContractNote(
   }
   return (
     `Pracuje u nas do ${formatIsoDatePl(contract.workEnd)}${client}. ${HIDDEN_STATUS_SENTENCE} ` +
-    `Karta pokazuje „${contractAvailabilityText(contract)}”. Data wcześniejsza nic nie ` +
+    `Karta pokazuje „${contractDateText(contract)}”. Data wcześniejsza nic nie ` +
     `zmieni — odejście przed końcem zamówienia ustala ${lead}. Data późniejsza, np. po ` +
     "urlopie, zastąpi termin z kontraktu."
   );

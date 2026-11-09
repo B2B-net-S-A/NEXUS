@@ -322,6 +322,14 @@ export interface IndividualRecruiterRule {
   name?: string | null;
 }
 
+/** Pozycja poza regułami wpisana przez admina: automat ją przyznaje. */
+export interface BonusRuleItem {
+  user_id: number;
+  amount: string;
+  month: string;
+  reason: string;
+}
+
 export interface BonusRules {
   recruiter_tier_bounds: [string, string];
   recruiter_tier_amounts: [string, string, string];
@@ -329,6 +337,9 @@ export interface BonusRules {
   monthly_hours: number;
   /** Godziny premii każdego DL-a; `null` = `monthly_hours`. Wyjątki w `dl_hours`. */
   dl_default_hours?: number | null;
+  /** Miesiąc RRRR-MM: od niego automat przyznaje sam, a ręcznie zmienia tylko admin. */
+  auto_assign_from?: string | null;
+  rule_items?: BonusRuleItem[];
   eligible_business_days: number;
   currency: Currency;
   extra_dl: ExtraDlRule[];
@@ -505,6 +516,7 @@ export const payrollKeys = {
   person: (userId: number) => ["hr", "payroll", "person", userId] as const,
   rules: ["hr", "payroll", "rules"] as const,
   clawbacks: ["hr", "payroll", "clawbacks"] as const,
+  bonusMode: ["hr", "payroll", "bonus-mode"] as const,
   minimumRates: ["hr", "payroll", "minimum-rates"] as const,
   doubleBonus: (year: number, month: number) =>
     ["hr", "payroll", "double-bonus", year, month] as const,
@@ -862,6 +874,25 @@ export function useApproveBonuses() {
         )
       ).data,
     onSuccess: invalidate,
+  });
+}
+
+/** Czy premie przyznaje automat i czy ta osoba może zmieniać je ręcznie (09.11.2026). */
+export function useBonusMode() {
+  return useQuery({
+    queryKey: payrollKeys.bonusMode,
+    queryFn: async () =>
+      (await api.get<{ automatic: boolean; manual_allowed: boolean }>("/api/hr/payroll/bonus-mode"))
+        .data,
+    staleTime: 60_000,
+  });
+}
+
+export function useReportBonus() {
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: number; note: string }) => {
+      await api.post(`/api/hr/payroll/bonuses/${id}/report`, { note });
+    },
   });
 }
 

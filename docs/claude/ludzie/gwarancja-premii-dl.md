@@ -36,6 +36,21 @@ premii. Kod: `services/hr/bonus_guarantee.py`, schemat
   ktoś ma potrącenie), sekcję „Zwroty z gwarancji” z „Zdejmij” pod premiami
   miesiąca i znacznik „zwrot z gwarancji” przy premii.
 
+## Zmiany z 09.11.2026
+
+- **Każdy powód końca kontraktu** łamie gwarancję. Zastępstwo nie ma wpływu.
+- **Przepięcie:** następny kontrakt tej samej osoby do 31 dni od końca poprzedniego,
+  u dowolnego klienta, nie łamie gwarancji. Liczy się koniec ostatniego kontraktu
+  w łańcuchu, od startu pierwszego. Taki kontrakt nie daje nowej premii DL, rekruter
+  swoją dostaje (`placement_bonuses.continues_earlier_contract`).
+- **Przy 200%** wraca cała wypłacona kwota.
+- **Premie z importu Compassa** nie mają kontraktu. Po włączeniu samego przyznawania
+  nocny przebieg dopasowuje je po imieniu i nazwisku z opisu (jednoznacznie, start
+  kontraktu od 4 miesięcy przed miesiącem premii do miesiąca po nim). Premii bez
+  nazwiska w opisie gwarancja nie obejmuje. Premie rozliczone w październiku przez
+  usunięcie nowej premii są wyłączone stałą `SETTLED_BEFORE_AUTOMATION`.
+- Zakładanie i zdejmowanie zwrotu ręcznie: tylko admin (`ludzie/premie-z-automatu.md`).
+
 ## Jak to działa
 
 - `hr_bonus_clawbacks` — dług za jedną premię: kwota i waluta premii, skąd

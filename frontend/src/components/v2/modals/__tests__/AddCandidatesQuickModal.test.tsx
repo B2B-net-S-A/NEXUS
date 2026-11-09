@@ -190,17 +190,17 @@ describe("AddCandidatesQuickModal — eligibility", () => {
     renderModal();
 
     const row = await screen.findByTestId("add-candidate-row-1");
-    expect(row).toHaveTextContent("Pracuje u nas · Bank Przykładowy · do 31.12.2026");
+    expect(row).toHaveTextContent("Aktywne zamówienie · nie dzwoń");
     expect(row).toBeEnabled();
     // Klient tej rekrutacji: jeden znacznik zamiast znacznika i plakietki.
-    expect(screen.getByTestId("add-candidate-row-2")).toHaveTextContent("Pracuje u tego klienta");
+    expect(screen.getByTestId("add-candidate-row-2")).toHaveTextContent("Aktywne zamówienie · nie dzwoń");
     expect(screen.queryByTestId("add-candidate-eligibility-2")).toBeNull();
     expect(screen.queryByRole("note")).toBeNull();
 
     fireEvent.click(row);
     const notice = screen.getByRole("note");
-    expect(notice).toHaveTextContent("Kandydat Nr1 pracuje u nas · Bank Przykładowy");
-    expect(notice).toHaveTextContent("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy");
+    expect(notice).toHaveTextContent("Kandydat Nr1: aktywne zamówienie · nie dzwoń · Bank Przykładowy");
+    expect(notice).toHaveTextContent("Delivery Lead: Karol Wzorcowy");
     expect(notice).toHaveTextContent("Dodanie jest możliwe.");
     expect(screen.getByTestId("add-candidates-confirm")).toBeEnabled();
 

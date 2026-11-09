@@ -54,6 +54,7 @@ from app.services.hr import (
 )
 from app.services.hr.approvals import rules as approval_rules
 from app.services.hr.approvals.rules import ApprovalRules
+from app.services.hr.bonus_rules import load_rules as load_bonus_rules
 from app.services.hr.employment_terms import bonus_message, terms
 from app.services.hr_approval_basis_schema import CONTRACT_BASIS_MAX_LENGTH
 from app.services.hr.notify import notify_each
@@ -705,6 +706,8 @@ async def decide(
                 raise ApprovalError(
                     "Ta kwota jest ponad Twój próg — zdecyduje zatwierdzający."
                 )
+    if action == "approve" and request.kind == "bonus":
+        await _assert_manual_bonus_allowed(db, actor)
     status = {"approve": "approved", "reject": "rejected", "return": "returned"}[action]
     moved = await _conditional_update(
         db,
@@ -728,6 +731,14 @@ async def decide(
     _audit(db, moved, actor_id=actor.id, action=f"approval_{status}", channel=channel)
     await _notify_requester(db, moved, actor)
     return moved
+
+
+async def _assert_manual_bonus_allowed(db: AsyncSession, actor: User) -> None:
+    """Po włączeniu automatu premię spoza reguł przyznaje tylko admin (09.11.2026)."""
+
+    rules = await load_bonus_rules(db)
+    if rules.auto_assign_from is not None and not actor.has_role(UserRole.admin):
+        raise ApprovalError("Premie liczy automat. Premię spoza reguł przyznaje admin.")
 
 
 async def _conditional_update(

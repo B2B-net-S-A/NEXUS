@@ -19,12 +19,14 @@ import {
 import { apiErrorMessage } from "@/lib/api-error";
 import { usePeople } from "@/lib/api/hr";
 import {
+  useBonusMode,
   useBonusRules,
   useRefreshProposals,
   useSaveBonusRules,
   type BonusRules,
   type DlHoursRule,
   type ExtraDlRule,
+  type BonusRuleItem,
   type IndividualRecruiterRule,
 } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
@@ -64,6 +66,8 @@ interface RulesForm {
   doubleVerifications: string;
   doublePrecision: string;
   doubleDlMargin: string;
+  autoAssignFrom: string;
+  ruleItems: BonusRuleItem[];
 }
 
 const TCM_ROLE = "talent_community_manager";
@@ -99,6 +103,8 @@ export function formFromRules(rules: BonusRules): RulesForm {
     doubleVerifications: plain(rules.double_bonus?.verifications_per_day ?? "4"),
     doublePrecision: plain(rules.double_bonus?.precision_pct ?? "75"),
     doubleDlMargin: plain(rules.double_bonus?.dl_min_margin ?? "50"),
+    autoAssignFrom: rules.auto_assign_from ?? "",
+    ruleItems: rules.rule_items ?? [],
   };
 }
 
@@ -141,6 +147,10 @@ export function rulesPayload(
   const tcm = form.tcmAmount.trim() ? parseAmount(form.tcmAmount) : "";
   if (tcm === null || (tcm !== "" && Number(tcm) <= 0)) {
     return { ok: false, error: "Stałą premię TCM podaj jako kwotę (np. 1000) albo zostaw puste pole." };
+  }
+  const autoAssignFrom = form.autoAssignFrom.trim();
+  if (autoAssignFrom && !/^\d{4}-(0[1-9]|1[0-2])$/.test(autoAssignFrom)) {
+    return { ok: false, error: "Automat przyznaje od: miesiąc w formacie RRRR-MM." };
   }
   let double: Partial<Omit<BonusRules, "currency">>["double_bonus"] = null;
   if (form.doubleOn) {
@@ -187,6 +197,8 @@ export function rulesPayload(
       ),
       fixed_role_amounts: tcm ? [{ role: TCM_ROLE, amount: tcm }] : [],
       double_bonus: double,
+      auto_assign_from: autoAssignFrom || null,
+      rule_items: form.ruleItems,
     },
   };
 }
@@ -240,6 +252,11 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
   const [hoursPerson, setHoursPerson] = useState("");
   const [hoursValue, setHoursValue] = useState("160");
   const [individualPerson, setIndividualPerson] = useState("");
+  const locked = useBonusMode().data?.manual_allowed === false;
+  const [itemPerson, setItemPerson] = useState("");
+  const [itemAmount, setItemAmount] = useState("");
+  const [itemMonth, setItemMonth] = useState("");
+  const [itemReason, setItemReason] = useState("");
   const directory = people.data?.items ?? [];
   const nameOf = (id: number, fallback?: string | null) =>
     directory.find((person) => person.user_id === id)?.name ?? fallback ?? `Osoba ${id}`;
@@ -512,6 +529,116 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
         </div>
       </fieldset>
 
+      <fieldset className="space-y-3 rounded-lg border border-border p-4">
+        <legend className="px-1 text-sm font-medium text-foreground">Premie z automatu</legend>
+        <FormField
+          label="Automat przyznaje od miesiąca (RRRR-MM)"
+          htmlFor="rules-auto-assign-from"
+          description="Puste = wyłączone. Po włączeniu premie przyznają się same po terminie, a ręcznie zmienia tylko admin."
+        >
+          <Input
+            id="rules-auto-assign-from"
+            placeholder="np. 2026-11"
+            value={form.autoAssignFrom}
+            disabled={locked}
+            onChange={(event) => set("autoAssignFrom", event.target.value)}
+          />
+        </FormField>
+        <p className="text-sm text-muted-foreground">
+          Gwarancja DL: konsultant nie przepracuje 12 miesięcy, przy każdym powodzie końca, więc cała
+          premia DL wraca na minus i potrąca się z kolejnych. Replacement nie ma wpływu. Następny
+          kontrakt tej osoby do 31 dni przedłuża gwarancję i nie daje nowej premii DL.
+        </p>
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-foreground">Pozycje poza regułami</p>
+          <p className="text-xs text-muted-foreground">
+            Premia, na którą nie ma reguły. Automat przyzna ją raz, w podanym miesiącu.
+          </p>
+          {form.ruleItems.length > 0 ? (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {form.ruleItems.map((item, index) => (
+                <li
+                  key={`${item.user_id}-${item.month}-${item.reason}`}
+                  className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
+                >
+                  <span className="text-foreground">
+                    {nameOf(item.user_id)} · {plain(item.amount)} zł · {item.month} · {item.reason}
+                  </span>
+                  {!locked ? (
+                    <Button
+                      size="icon-sm"
+                      variant="quiet"
+                      aria-label={`Usuń pozycję: ${nameOf(item.user_id)}, ${item.reason}`}
+                      onClick={() =>
+                        set(
+                          "ruleItems",
+                          form.ruleItems.filter((_, position) => position !== index),
+                        )
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {!locked ? (
+            <div className="flex flex-wrap items-end gap-2">
+              <FormField label="Osoba" htmlFor="rules-item-person" className="min-w-[200px] flex-1">
+                <Select value={itemPerson} onValueChange={setItemPerson}>
+                  <SelectTrigger id="rules-item-person">
+                    <SelectValue placeholder="Wybierz" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {directory.map((person) => (
+                      <SelectItem key={person.user_id} value={String(person.user_id)}>
+                        {person.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="Kwota" htmlFor="rules-item-amount" className="w-28">
+                <Input id="rules-item-amount" inputMode="decimal" value={itemAmount} onChange={(event) => setItemAmount(event.target.value)} />
+              </FormField>
+              <FormField label="Miesiąc" htmlFor="rules-item-month" className="w-28">
+                <Input id="rules-item-month" placeholder="2026-11" value={itemMonth} onChange={(event) => setItemMonth(event.target.value)} />
+              </FormField>
+              <FormField label="Powód" htmlFor="rules-item-reason" className="min-w-[200px] flex-1">
+                <Input id="rules-item-reason" maxLength={200} value={itemReason} onChange={(event) => setItemReason(event.target.value)} />
+              </FormField>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  if (!itemPerson || !itemAmount.trim() || !itemMonth.trim() || itemReason.trim().length < 3) {
+                    setError("Pozycja: osoba, kwota, miesiąc RRRR-MM i powód są wymagane.");
+                    return;
+                  }
+                  setError(null);
+                  set("ruleItems", [
+                    ...form.ruleItems,
+                    {
+                      user_id: Number(itemPerson),
+                      amount: itemAmount.trim().replace(",", "."),
+                      month: itemMonth.trim(),
+                      reason: itemReason.trim(),
+                    },
+                  ]);
+                  setItemPerson("");
+                  setItemAmount("");
+                  setItemMonth("");
+                  setItemReason("");
+                }}
+              >
+                Dodaj pozycję
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </fieldset>
+
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium text-foreground">Indywidualny system premii rekrutera</legend>
         <p className="text-xs text-muted-foreground">
@@ -700,7 +827,7 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
           {error}
         </p>
       ) : null}
-      {dirty || save.isPending ? (
+      {(dirty || save.isPending) && !locked ? (
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 shadow-sm">
           <span className="flex-1 text-sm text-warning-muted-foreground">Niezapisane zmiany w regułach</span>
           <Button

@@ -388,7 +388,7 @@ describe("CandidatesListV2", () => {
       renderList();
       const row = await screen.findByTestId("candidate-row-1");
       // Bez znacznika — osoba u nas nie pracuje.
-      expect(within(row).queryByText(/Pracuje u nas/)).toBeNull();
+      expect(within(row).queryByText(/Aktywne zamówienie/)).toBeNull();
       expect(within(row).getByText("od 01.10")).toBeTruthy();
       expect(within(row).getByText("160 zł/h")).toBeTruthy();
       expect(within(row).getByText("Senior Java Developer")).toBeTruthy();
@@ -414,7 +414,7 @@ describe("CandidatesListV2", () => {
       // Znacznik zatrudnienia stoi pod nazwiskiem (kolumna wymagana), a nie
       // w „W procesie”, którą da się ukryć i która liczy rekrutacje.
       expect(
-        within(empty).getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026"),
+        within(empty).getByText("Aktywne zamówienie · nie dzwoń"),
       ).toBeTruthy();
       expect(within(empty).queryByRole("button", { name: /^W procesie:/ })).toBeNull();
       expect(within(empty).queryByRole("button", { name: /Podgląd CV/ })).toBeNull();

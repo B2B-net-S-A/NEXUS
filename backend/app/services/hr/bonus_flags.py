@@ -228,14 +228,6 @@ async def bonus_flags(
                         "detail": "Ta osoba jest zatrudniona też w innej rekrutacji tego klienta. Sprawdź, kto ją domknął.",
                     }
                 )
-            if contract.is_replacement:
-                flags.append(
-                    {
-                        "code": "replacement",
-                        "label": "Replacement",
-                        "detail": "Zastępstwo: sprawdź gwarancję i osobę, której premia się należy.",
-                    }
-                )
             if contract.fte is not None and contract.fte < 1:
                 flags.append(
                     {

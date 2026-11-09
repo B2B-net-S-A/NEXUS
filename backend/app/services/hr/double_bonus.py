@@ -469,8 +469,8 @@ async def evaluate_month(
         }
         if recruiter_id is not None:
             by_recruiter.setdefault(recruiter_id, []).append(item)
-        if dl_id is not None and not await placement_bonuses.guarantee_lost_dl(
-            db, contract, dl_id
+        if dl_id is not None and not await placement_bonuses.continues_earlier_contract(
+            db, contract
         ):
             by_dl.setdefault(dl_id, []).append(item)
 

@@ -54,49 +54,61 @@ afterEach(() => {
 });
 
 describe("EmploymentPill", () => {
-  it("pokazuje pełną treść i zieloną kropkę, gdy osoba pracuje", () => {
+  it("trwające zamówienie: czerwony zakaz z ikoną telefonu, bez daty", () => {
     render(<EmploymentPill marker={WORKING} />);
 
-    const pill = screen.getByText("Pracuje u nas · Bank Przykładowy · do 31.12.2026").parentElement!;
+    const pill = screen.getByText("Aktywne zamówienie · nie dzwoń").parentElement!;
     expect(pill).toHaveAttribute("data-employment-phase", "working");
-    expect(pill.className).toContain("bg-success-muted");
-    expect(pill.querySelector("[aria-hidden]")).toHaveClass("bg-success");
+    expect(pill.className).toContain("text-destructive");
+    expect(pill.querySelector("svg")).not.toBeNull();
+    expect(pill.textContent).not.toContain("31.12");
   });
 
   it("skrócona treść zostawia pełną w dymku", () => {
-    render(<EmploymentPill marker={WORKING} label={{ clients: "none", date: "short" }} />);
+    render(<EmploymentPill marker={WORKING} label={{ short: true }} />);
 
-    const pill = screen.getByText("Pracuje u nas · do 31.12").parentElement!;
-    expect(pill).toHaveAttribute("title", "Pracuje u nas · Bank Przykładowy · do 31.12.2026");
+    const pill = screen.getByText("Nie dzwoń").parentElement!;
+    expect(pill).toHaveAttribute("title", "Aktywne zamówienie · nie dzwoń");
   });
 
-  it("klient tej rekrutacji: bursztyn i ikona zamiast kropki", () => {
-    render(<EmploymentPill marker={{ ...WORKING, elsewhere: false }} />);
+  it("ławka: neutralna kropka zamiast telefonu", () => {
+    render(<EmploymentPill marker={{ ...WORKING, no_current_order: true }} />);
 
-    const pill = screen.getByText("Pracuje u tego klienta · do 31.12.2026").parentElement!;
-    expect(pill.className).toContain("bg-warning-muted");
-    expect(pill.querySelector("svg")).not.toBeNull();
+    const pill = screen.getByText("Bez aktywnego zamówienia").parentElement!;
+    expect(pill.className).not.toContain("text-destructive");
+    expect(pill.querySelector("svg")).toBeNull();
   });
 
   it("wariant tekstowy nie ma tła plakietki", () => {
     render(<EmploymentPill marker={STARTING} appearance="text" />);
 
-    const text = screen.getByText("Zaczyna u nas 01.11.2026 · Telekom Przykładowy").parentElement!;
-    expect(text.className).toContain("text-info-muted-foreground");
-    expect(text.className).not.toContain("bg-info-muted");
+    const text = screen.getByText("Zaczyna u nas · nie dzwoń").parentElement!;
+    expect(text.className).toContain("text-destructive");
+    expect(text.className).not.toContain("bg-destructive");
   });
 });
 
 describe("EmploymentNotice", () => {
-  it("mówi, u kogo, do kiedy i kto jest Delivery Leadem", () => {
+  it("rekruter: u kogo i kto jest Delivery Leadem, bez daty", () => {
+    signIn("recruiter");
     render(<EmploymentNotice marker={WORKING} personName="Anna Przykładowa" />);
 
     const notice = screen.getByRole("note");
-    expect(within(notice).getByText("Anna Przykładowa pracuje u nas · Bank Przykładowy")).toBeInTheDocument();
     expect(
-      within(notice).getByText("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy"),
+      within(notice).getByText("Anna Przykładowa: aktywne zamówienie · nie dzwoń · Bank Przykładowy"),
     ).toBeInTheDocument();
+    expect(within(notice).getByText("Delivery Lead: Karol Wzorcowy")).toBeInTheDocument();
+    expect(notice.textContent).not.toContain("31.12");
     expect(within(notice).getByText("Przed wysłaniem profilu zapytaj Delivery.")).toBeInTheDocument();
+  });
+
+  it("dostęp do Delivery: data zamówienia zostaje", () => {
+    signIn("admin");
+    render(<EmploymentNotice marker={WORKING} />);
+
+    expect(
+      screen.getByText("Zamówienie do 31.12.2026 · Delivery Lead: Karol Wzorcowy"),
+    ).toBeInTheDocument();
   });
 
   it("link do kontraktu tylko z dostępem do Delivery", () => {
@@ -133,7 +145,7 @@ describe("EmployedPeopleNotice", () => {
   it("jedna osoba: pełne szczegóły", () => {
     render(<EmployedPeopleNotice people={[anna]} total={2} />);
 
-    expect(screen.getByText("Anna Przykładowa pracuje u nas · Bank Przykładowy")).toBeInTheDocument();
+    expect(screen.getByText("Anna Przykładowa: aktywne zamówienie · nie dzwoń · Bank Przykładowy")).toBeInTheDocument();
   });
 
   it("kilka osób: liczba, lista i akcja", () => {
@@ -147,8 +159,8 @@ describe("EmployedPeopleNotice", () => {
 
     const notice = screen.getByRole("note");
     expect(within(notice).getByText("2 z 4 osób pracują u nas")).toBeInTheDocument();
-    expect(notice).toHaveTextContent("Anna Przykładowa — pracuje u nas · Bank Przykładowy · do 31.12.2026");
-    expect(notice).toHaveTextContent("Piotr Fikcyjny — zaczyna u nas 01.11.2026 · Telekom Przykładowy");
+    expect(notice).toHaveTextContent("Anna Przykładowa — aktywne zamówienie · nie dzwoń");
+    expect(notice).toHaveTextContent("Piotr Fikcyjny — zaczyna u nas · nie dzwoń");
     expect(within(notice).getByRole("button", { name: "Dodaj bez tych 2 osób" })).toBeInTheDocument();
   });
 
@@ -167,10 +179,10 @@ describe("EmploymentPopoverPill", () => {
     render(<EmploymentPopoverPill marker={WORKING} />);
 
     expect(screen.queryByRole("note")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Pracuje u nas · do 31.12" }));
+    await userEvent.click(screen.getByRole("button", { name: "Aktywne zamówienie · nie dzwoń" }));
 
     expect(
-      within(screen.getByRole("note")).getByText("Pracuje u nas · Bank Przykładowy"),
+      within(screen.getByRole("note")).getByText("Aktywne zamówienie · nie dzwoń · Bank Przykładowy"),
     ).toBeInTheDocument();
   });
 });

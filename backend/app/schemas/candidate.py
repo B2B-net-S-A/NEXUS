@@ -126,6 +126,9 @@ class EmploymentMarker(BaseModel):
     # każdej trwającej umowie; data = koniec pracy (None = nieznany).
     returns_to_market: bool = False
     returns_to_market_on: Optional[date] = None
+    # Żywa umowa bez trwającego ani zaplanowanego zamówienia (ławka, 09.11.2026):
+    # rekruter widzi wtedy „Bez aktywnego zamówienia” zamiast „nie dzwoń”.
+    no_current_order: bool = False
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}

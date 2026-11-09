@@ -1,5 +1,18 @@
 [
   {
+    "id": "rekruter-nie-dzwon-aktywne-zamowienie",
+    "pr": 3261,
+    "title": "„Nie dzwoń” przy osobie z aktywnym zamówieniem",
+    "why": "Przy naszym konsultancie zamiast daty końca stoi „Aktywne zamówienie · nie dzwoń”. Nie proponuj mu nowego projektu: końcem zamówień i powrotem na rynek zajmuje się osobny dział.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": { "roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment"] },
+    "where": "Rekrutacje → Tablica → panel osoby",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.no-call"
+  },
+  {
     "id": "daily-p1-bez-cv-nowe-profile",
     "pr": 3200,
     "title": "P1 bez CV i nowe profile na Daily",

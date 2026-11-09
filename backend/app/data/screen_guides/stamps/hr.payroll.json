@@ -1,9 +1,9 @@
 {
-  "entry": "3ee3fb3abe92eeb08f6fab183b33809a0b12a7be48076d90d4e53d57aa5b7a00",
+  "entry": "d42d54f665078bdc56eac36d260085d77663088f471bd3acb97f294f606204db",
   "guide": "hr.payroll",
   "sources": {
-    "frontend/src/components/hr/payroll/BonusDialog.tsx": "0577af0c8f22ec276deb7980e6b6c1d3e9a373d55d036a1a08faa02617a3dc3a",
-    "frontend/src/components/hr/payroll/PayrollCloseParts.tsx": "5d27b25d0ed57294e0eb61270739470b8742f5767c2e42c1a297d2bc25654966",
-    "frontend/src/components/hr/payroll/PayrollMonthScreen.tsx": "fb3b6ba772f6bc53868aceec6c59019c6cd3ecd9534f8463cac8ebcd7e7c899c"
+    "frontend/src/components/hr/payroll/BonusDialog.tsx": "992cafbd15cf5315a282360998c36d7c752d6c624922b1fcca92b0f1596116b1",
+    "frontend/src/components/hr/payroll/PayrollCloseParts.tsx": "a01123e528d4330c66e360a9b6199453eda0b6b3dfb516841344c082739ae597",
+    "frontend/src/components/hr/payroll/PayrollMonthScreen.tsx": "75d498dd46d263f29cb0e37849216c0b38dad215f1e45ed6b5965054c94b5c5f"
   }
 }

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/hr-payroll", async (original) => ({
   ...(await original<typeof import("@/lib/api/hr-payroll")>()),
+  useBonusMode: () => ({ data: undefined }),
   usePersonPayroll: () => ({
     data: mocks.payroll,
     isLoading: false,

@@ -26,6 +26,7 @@ Postgresa; kalendarz firmy z dniami wolnymi podaje wołający
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -113,6 +114,25 @@ class IndividualRecruiterRule:
 
 
 @dataclass(frozen=True)
+class RuleItem:
+    """Pozycja poza regułami wpisana przez admina: automat ją przyznaje.
+
+    Zastępuje wpisywanie premii ręcznie (decyzja Artura 09.11.2026), np. premia
+    za punkty z arkusza Delivery, dopóki nie ma na nią wzoru.
+    """
+
+    user_id: int
+    amount: Decimal
+    month: tuple[int, int]
+    reason: str
+
+    @property
+    def key(self) -> str:
+        text = f"{self.user_id}|{self.amount}|{self.month[0]}-{self.month[1]:02d}|{self.reason}"
+        return hashlib.sha256(text.encode()).hexdigest()[:24]
+
+
+@dataclass(frozen=True)
 class FixedRoleAmount:
     """Rola główna rekrutera ze stałą premią zamiast progów marży (np. TCM)."""
 
@@ -163,6 +183,9 @@ class BonusRules:
     double_bonus: Optional[DoubleBonusRule] = None
     #: Godziny premii każdego DL-a; ``None`` = ``monthly_hours`` (od 11.2026: 160 h).
     dl_default_hours: Optional[int] = None
+    #: Od tego miesiąca premii automat sam przyznaje, a ręcznie zmienia tylko admin.
+    auto_assign_from: Optional[tuple[int, int]] = None
+    rule_items: tuple[RuleItem, ...] = ()
 
 
 DEFAULT_RULES = BonusRules()
@@ -424,6 +447,17 @@ def _int(value: object, label: str, *, low: int, high: int) -> int:
     return number
 
 
+def _year_month(value: object, label: str) -> tuple[int, int]:
+    try:
+        year_text, month_text = str(value).split("-")
+        year, month = int(year_text), int(month_text)
+    except ValueError as exc:
+        raise BonusRulesError(f"{label}: miesiąc w formacie RRRR-MM.") from exc
+    if not (2020 <= year <= 2100 and 1 <= month <= 12):
+        raise BonusRulesError(f"{label}: miesiąc w formacie RRRR-MM.")
+    return year, month
+
+
 def parse_rules(raw: object) -> BonusRules:
     """Ustawienia z bazy albo z żądania → ``BonusRules`` (brak klucza = domyślne).
 
@@ -618,6 +652,37 @@ def parse_rules(raw: object) -> BonusRules:
             dl_min_margin=dl_margin,
         )
 
+    auto_assign_from: Optional[tuple[int, int]] = None
+    if source.get("auto_assign_from"):
+        auto_assign_from = _year_month(
+            source["auto_assign_from"], "Automat przyznaje od"
+        )
+
+    rule_items: list[RuleItem] = []
+    for item in source.get("rule_items") or ():
+        if not isinstance(item, Mapping):
+            raise BonusRulesError("Pozycje poza regułami: niepoprawny wpis.")
+        user_id = _int(
+            item.get("user_id"),
+            "Pozycje poza regułami: osoba",
+            low=1,
+            high=2_147_483_647,
+        )
+        amount = _decimal(item.get("amount"), "Pozycje poza regułami: kwota")
+        if not Decimal(0) < amount <= Decimal(1_000_000):
+            raise BonusRulesError("Pozycje poza regułami: kwota od 0,01 do 1 000 000.")
+        reason = str(item.get("reason") or "").strip()
+        if not 3 <= len(reason) <= 200:
+            raise BonusRulesError("Pozycje poza regułami: podaj powód (3–200 znaków).")
+        rule_items.append(
+            RuleItem(
+                user_id=user_id,
+                amount=money(amount),
+                month=_year_month(item.get("month"), "Pozycje poza regułami: miesiąc"),
+                reason=reason,
+            )
+        )
+
     return BonusRules(
         recruiter_tier_bounds=bounds,
         recruiter_tier_amounts=amounts,
@@ -634,6 +699,8 @@ def parse_rules(raw: object) -> BonusRules:
         fixed_role_amounts=tuple(fixed),
         double_bonus=double,
         dl_default_hours=dl_default_hours,
+        auto_assign_from=auto_assign_from,
+        rule_items=tuple(rule_items),
     )
 
 
@@ -683,6 +750,20 @@ def rules_payload(rules: BonusRules) -> dict[str, Any]:
             if rules.double_bonus
             else None
         ),
+        "auto_assign_from": (
+            f"{rules.auto_assign_from[0]}-{rules.auto_assign_from[1]:02d}"
+            if rules.auto_assign_from
+            else None
+        ),
+        "rule_items": [
+            {
+                "user_id": item.user_id,
+                "amount": str(item.amount),
+                "month": f"{item.month[0]}-{item.month[1]:02d}",
+                "reason": item.reason,
+            }
+            for item in rules.rule_items
+        ],
     }
 
 
@@ -733,6 +814,7 @@ async def save_rules(
 __all__ = [
     "DEFAULT_RULES",
     "BonusRules",
+    "RuleItem",
     "AUTOMATION_STOPPED",
     "BonusRulesError",
     "DlHoursRule",
