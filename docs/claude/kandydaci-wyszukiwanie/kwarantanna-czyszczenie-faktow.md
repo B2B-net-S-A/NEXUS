@@ -130,3 +130,24 @@ bieżącego CV, a rekruter nie miał następnego kroku.
   `_identity_quarantine_source`, gdy wskazuje ten plik, bo inaczej ramka w profilu
   dalej prosiłaby o zwolnienie.
 - Powód nie wraca na ekran: trasa go nie zwraca, bo można w nim wpisać dane osobowe.
+
+## Pliki z Traffita i ostrzeżenie w podglądzie
+
+Pomiar 09.11.2026 na kopii produkcji: bramka widziała 157 z 84 576 plików CV
+z Traffita, bo import tylko kopiował pliki. Identyczny plik leżał pod osobami
+o innych nazwiskach w 307 grupach. Tekst wskazał właściciela w 159, co dało 141
+profili z cudzym plikiem, z czego 36 bez kwarantanny.
+
+- `python -m app.cli.traffit_cv_identity_review` czyta tylko pliki z powodem do
+  wątpliwości: brak imienia i nazwiska w tekście CV, ocena wskaźnika „inna osoba”
+  albo profil z `--candidate-ids-file`. Bez `--apply` nie woła modelu.
+- Bieg idzie z `hold_mismatch_for_review`, więc nie wpisuje faktów i nie robi
+  kwarantanny. Sama nazwa nie odróżnia własnego CV od cudzego.
+- `GET /documents` i `GET …/cv/original` zwracają `identity_doubt`. Ostrzegają
+  `CandidatePreviewPane` i okno `CVOriginalPreviewModal`, czyli oba miejsca, gdzie
+  rekruter ogląda oryginał. Kopia etapu łączy się z plikiem po sumie albo nazwie.
+- Warunek to `review_names_another_person`. Inna forma tej samej nazwy i nazwa
+  z nagłówka CV nie dają ostrzeżenia. Telefon zgodny z profilem zdejmuje tylko
+  kwarantannę, ostrzeżenie zostaje.
+- Numer, który ma też inny profil, nie liczy się jako dowód
+  (`_phone_on_other_profile`). Taki numer trzymał cudzy plik poza kwarantanną.

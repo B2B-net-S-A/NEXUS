@@ -41,6 +41,8 @@ class CVOriginalSnapshotResponse(BaseModel):
     # Ramka „inne główne CV” porównuje ją z sumą pliku w profilu.
     original_cv_sha256: Optional[str] = None
     download_url: Optional[str] = None
+    # Kopia to plik, w którym model przeczytał inną osobę (tylko GET kopii).
+    identity_doubt: bool = False
 
 
 class CVBrandedSelectGenerated(BaseModel):
