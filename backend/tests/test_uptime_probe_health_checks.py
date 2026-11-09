@@ -48,7 +48,9 @@ def _stub_network_and_clock(tmp_path: Path, payloads: tuple[str, ...]) -> Path:
     przerwę, żeby test nie czekał na nią naprawdę.
     """
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
+    (tmp_path / "reads").unlink(missing_ok=True)
+    (tmp_path / "sleeps").unlink(missing_ok=True)
     for number, payload in enumerate(payloads, start=1):
         (tmp_path / f"health-{number}.json").write_text(payload, encoding="utf-8")
     curl = bin_dir / "curl"
@@ -84,7 +86,7 @@ def _run(tmp_path: Path, *payloads: str) -> tuple[int, dict[str, str], list[str]
     script.write_text(_classify_step()["run"], encoding="utf-8")
     outputs = tmp_path / "outputs.txt"
     summary = tmp_path / "summary.md"
-    outputs.touch()
+    outputs.write_text("", encoding="utf-8")
     summary.touch()
     proc = subprocess.run(
         ["bash", str(script)],
@@ -354,6 +356,18 @@ def test_backend_gone_on_second_read_stays_with_probe(tmp_path: Path) -> None:
     assert outputs["fail"] == "0"
     assert "checked" not in outputs
     assert not [a for a in annotations if a.startswith("::error")]
+
+
+@requires_jq
+def test_run_helper_starts_clean_on_the_same_tmp_path(tmp_path: Path) -> None:
+    """`_run` importuje też `test_fix48_ws13_traffit_tails` i woła go dwa razy."""
+    _, outputs, _ = _run(tmp_path, WORKER_DOWN, WORKER_DOWN)
+    assert outputs["fail"] == "1"
+
+    _, outputs, _ = _run(tmp_path, _payload(traffit="degraded"))
+    assert outputs["fail"] == "0"
+    assert _reads(tmp_path) == 1
+    assert _sleeps(tmp_path) == []
 
 
 def test_health_checks_timeout_covers_both_reads() -> None:
