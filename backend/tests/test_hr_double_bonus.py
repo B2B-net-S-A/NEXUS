@@ -1,8 +1,7 @@
 """Automat premii: stała premia TCM, gwarancja DL i premia 200% (decyzje 05.11.2026).
 
 * TCM jako weryfikujący dostaje stałą kwotę zamiast progu marży,
-* zastępstwo osoby, którą zatrudnił ten sam DL i która odeszła przed rokiem:
-  bez premii DL, rekruter dostaje swoją,
+* zastępstwo nie wpływa na premie,
 * zapisana decyzja 200% podwaja premie kontraktu podpisanego w miesiącu
   programu i przenosi je na miesiąc podpisu; koniec przed terminem jej nie zabiera.
 
@@ -130,24 +129,14 @@ async def _replacement(*, replaced_days: int, same_dl: bool) -> tuple[dict, dict
 
 
 @pytest.mark.asyncio
-async def test_guarantee_drops_dl_bonus_of_the_same_dl_only() -> None:
+async def test_replacement_does_not_touch_dl_bonus() -> None:
+    """Zastępstwo nie wpływa na premie (decyzja 09.11.2026), także tego samego DL-a."""
+
     _replaced, world = await _replacement(replaced_days=200, same_dl=True)
     await _reconcile(world["contract"])
     found = await _bonuses(world["contract"])
-    assert "dl" not in found
-    assert found["recruiter"].recipient_user_id == world["recruiter"]
+    assert found["dl"].status == "proposed"
     assert found["recruiter"].status == "proposed"
-
-    _replaced, other = await _replacement(replaced_days=200, same_dl=False)
-    await _reconcile(other["contract"])
-    assert (await _bonuses(other["contract"]))["dl"].status == "proposed"
-
-
-@pytest.mark.asyncio
-async def test_replaced_contract_over_a_year_keeps_dl_bonus() -> None:
-    _replaced, world = await _replacement(replaced_days=400, same_dl=True)
-    await _reconcile(world["contract"])
-    assert (await _bonuses(world["contract"]))["dl"].status == "proposed"
 
 
 @pytest.mark.asyncio
@@ -263,7 +252,7 @@ async def test_settle_month_stores_dl_above_threshold_and_doubles(
         )
         await db.commit()
     assert world["contract"] in ids
-    assert evaluation["stored"]["dl_contracts"] == {str(world["contract"]): world["dl"]}
+    assert evaluation["stored"]["dl_contracts"][str(world["contract"])] == world["dl"]
     assert world["recruiter"] not in evaluation["stored"]["recruiters"]
     await _reconcile(world["contract"])
     found = await _bonuses(world["contract"])

@@ -30,6 +30,7 @@ import {
   type CloseStep,
   type CloseStepState,
 } from "./payroll-format";
+import { BonusReportDialog } from "./BonusReportDialog";
 import { SignedOnCorrectionDialog } from "./SignedOnCorrectionDialog";
 
 const SECTION_TITLE = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
@@ -170,6 +171,10 @@ interface DecisionPanelProps {
   onEdit: (row: BonusRow) => void;
   onCancel: (row: BonusRow) => void;
   approving: boolean;
+  /** Premie przyznaje automat (napisy i grupy). */
+  automatic?: boolean;
+  /** Płace i koordynatorzy: tylko podgląd, „Zgłoś” i poprawa daty podpisu. */
+  readOnly?: boolean;
 }
 
 /**
@@ -189,14 +194,17 @@ export function DecisionPanel({
   onEdit,
   onCancel,
   approving,
+  automatic = false,
+  readOnly = false,
 }: DecisionPanelProps) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const batch = useApproveBonuses();
   const [tab, setTab] = useState<"month" | "later" | "missing">("month");
   const [correcting, setCorrecting] = useState<BonusRow | null>(null);
+  const [reporting, setReporting] = useState<BonusRow | null>(null);
   const allRows = tab === "later" ? later : rows;
-  const selectable = open ? allRows.filter((row) => batchSelectable(row, meId)) : [];
+  const selectable = open && !readOnly ? allRows.filter((row) => batchSelectable(row, meId)) : [];
   // Bez uwag zaznaczone od razu, oznaczone tylko po świadomym kliknięciu.
   const [overrides, setOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
   const selected = new Set(
@@ -243,11 +251,16 @@ export function DecisionPanel({
     >
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          Premie do decyzji
+          {readOnly ? "Premie z automatu" : "Premie do decyzji"}
           <span className="rounded-full bg-info-muted px-2 text-xs font-medium text-info-muted-foreground">
             {rows.length}
           </span>
         </h2>
+        {readOnly ? (
+          <span className="text-xs text-muted-foreground">
+            Automat przyznaje sam po terminie
+          </span>
+        ) : null}
         <div className="flex items-center gap-1">
           {onImport ? (
             <Button size="sm" variant="ghost" onClick={onImport}>
@@ -344,14 +357,16 @@ export function DecisionPanel({
                   {flagged.length > 0 && (index === 0 || index === flagged.length) ? (
                     <tr className="border-t border-border bg-muted/40">
                       <td colSpan={5} className="px-4 py-2 text-xs font-semibold text-foreground">
-                        {index === 0 ? `Do sprawdzenia: ${flagged.length}` : `Bez uwag: ${clean.length}`}
+                        {index === 0
+                          ? `${automatic ? "Wstrzymane, czeka na admina" : "Do sprawdzenia"}: ${flagged.length}`
+                          : `${automatic ? "Przyzna się samo" : "Bez uwag"}: ${clean.length}`}
                       </td>
                     </tr>
                   ) : null}
                   <tr
-                    className={`border-t border-border ${open && !mine ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                    className={`border-t border-border ${open && !mine && !readOnly ? "cursor-pointer hover:bg-muted/30" : ""}`}
                     onClick={(event) => {
-                      if (!open || mine) return;
+                      if (!open || mine || readOnly) return;
                       // Pole wyboru i menu mają własne akcje.
                       if ((event.target as HTMLElement).closest("button,a,[role=menu]")) return;
                       onEdit(row);
@@ -372,7 +387,9 @@ export function DecisionPanel({
                       </span>
                       <span className="block text-xs text-muted-foreground">
                         {row.category_label}
-                        {row.eligible_on ? ` · termin ${formatDayMonthPl(row.eligible_on)}` : ""}
+                        {row.eligible_on
+                          ? ` · ${automatic ? "przyzna się" : "termin"} ${formatDayMonthPl(row.eligible_on)}`
+                          : ""}
                         {row.from_sheet ? " · z arkusza" : ""}
                         {row.edited ? " · kwota poprawiona" : ""}
                         {row.edited_recipient ? " · osoba zmieniona" : ""}
@@ -398,7 +415,25 @@ export function DecisionPanel({
                       {formatMoney(row.amount, row.currency)}
                     </td>
                     <td className="py-2 pr-4 text-right">
-                      {open && !mine ? (
+                      {readOnly ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={`Opcje: ${bonusTitle(row)} · ${row.recipient_name ?? ""}`}>
+                              <MoreHorizontal className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {row.signature?.agreement ? (
+                              <DropdownMenuItem onSelect={() => setCorrecting(row)}>
+                                Popraw datę podpisu
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem onSelect={() => setReporting(row)}>
+                              Zgłoś adminowi
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : open && !mine ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={`Decyzja: ${bonusTitle(row)}`}>
@@ -447,6 +482,7 @@ export function DecisionPanel({
         </div>
       ) : null}
       {confirmDialog}
+      {reporting ? <BonusReportDialog row={reporting} onClose={() => setReporting(null)} /> : null}
       {correcting?.signature?.agreement ? (
         <SignedOnCorrectionDialog
           contract={{

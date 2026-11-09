@@ -19,6 +19,7 @@ import { formatMoney } from "@/lib/money";
 import { usePeople } from "@/lib/api/hr";
 import {
   useApproveBonus,
+  useBonusMode,
   useCreateBonus,
   usePlacementOptions,
   useUpdateBonus,
@@ -115,6 +116,8 @@ export function BonusDialog({
   const [error, setError] = useState<string | null>(null);
   const pending = create.isPending || update.isPending || approve.isPending;
   const personChanged = bonus !== undefined && personId !== String(bonus.recipient_user_id);
+  const automatic = useBonusMode().data?.automatic ?? false;
+  const reasonRequired = personChanged || (bonus !== undefined && automatic);
   const categories = bonus && !MANUAL_CATEGORIES.includes(bonus.category)
     ? [...MANUAL_CATEGORIES, bonus.category]
     : MANUAL_CATEGORIES;
@@ -142,13 +145,14 @@ export function BonusDialog({
     const onError = (err: unknown) => setError(apiErrorMessage(err, "Nie udało się zapisać premii."));
     const placement = contractId === NO_PLACEMENT ? null : Number(contractId);
     if (bonus) {
-      if (personChanged && !reason.trim()) {
+      if (reasonRequired && !reason.trim()) {
         setError("Podaj powód zmiany osoby.");
         return;
       }
       const patch = {
         ...fields,
-        ...(personChanged ? { recipient_user_id: Number(personId), change_reason: reason.trim() } : {}),
+        ...(personChanged ? { recipient_user_id: Number(personId) } : {}),
+        ...(reasonRequired ? { change_reason: reason.trim() } : {}),
         ...(fullEdit && !automated ? { contract_id: placement } : {}),
       };
       update.mutate(
@@ -290,8 +294,12 @@ export function BonusDialog({
             </Select>
           </FormField>
         ) : null}
-        {personChanged ? (
-          <FormField label="Powód zmiany osoby" htmlFor="bonus-reason" className="sm:col-span-2">
+        {reasonRequired ? (
+          <FormField
+            label={personChanged ? "Powód zmiany osoby" : "Powód zmiany"}
+            htmlFor="bonus-reason"
+            className="sm:col-span-2"
+          >
             <Input
               id="bonus-reason"
               value={reason}

@@ -1129,7 +1129,7 @@
     ],
     "pitfalls": [
       "Premię zmieniasz i anulujesz w miesiącu, do którego należy — ta sama premia jest też w kartotece osoby (sekcja płac) i na kontrakcie w „Premiach z tego kontraktu”, z tym samym „Zmień”. Usuwania premii bez śladu nie ma: anulowane liczy dopisek „anulowane: N” przy „Premiach przyznanych w tym miesiącu”.",
-      "Błędną datę podpisu umowy poprawisz w menu decyzji przy premii: „Popraw datę podpisu”, z datą podpisu konsultanta i powodem. Pozycja jest tylko przy premii z umową oznaczoną jako podpisana, a data decyduje o miesiącu programu 200%.",
+      "Po włączeniu automatu premie przyznają się same po terminie: Rozliczenia mają przy premii „Zgłoś adminowi” i „Popraw datę podpisu”, a ręcznie zmienia tylko admin. Data podpisu decyduje o miesiącu programu 200%.",
       "Nagłówek miesiąca (Rozliczenia) ma „Eksport do księgowości (XLSX)”, „PDF-y raportów godzin (ZIP)” z zaakceptowanymi raportami godzin i „Zamknij miesiąc”; zakładki „Rozliczenia”, „Faktury z KSeF” i „Przelewy” są obok „Miesiąca”."
     ],
     "anchors": [

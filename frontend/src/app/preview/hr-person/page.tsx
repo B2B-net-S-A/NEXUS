@@ -166,6 +166,7 @@ function prepare(params: URLSearchParams) {
         : shown;
   const client = harnessQueryClient();
   client.setQueryData(hrKeys.config, config);
+  client.setQueryData(payrollKeys.bonusMode, { automatic: false, manual_allowed: true });
   client.setQueryData(hrKeys.people, harnessDirectory());
   client.setQueryData(hrKeys.person(ola.id), withRing);
   // E-teczka i umowy (etap 5) — puste, ten harness pokazuje kartotekę.

@@ -250,6 +250,17 @@ class IndividualRecruiterIn(BaseModel):
     expert_percent: Decimal
 
 
+class RuleItemIn(BaseModel):
+    user_id: int = Field(ge=1)
+    amount: Decimal
+    month: str = Field(max_length=7)
+    reason: str = Field(max_length=200)
+
+
+class BonusReportIn(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
 class RulesIn(BaseModel):
     recruiter_tier_bounds: Optional[list[Decimal]] = Field(default=None, max_length=2)
     recruiter_tier_amounts: Optional[list[Decimal]] = Field(default=None, max_length=3)
@@ -268,6 +279,8 @@ class RulesIn(BaseModel):
         default=None, max_length=10
     )
     double_bonus: Optional[DoubleBonusIn] = None
+    auto_assign_from: Optional[str] = Field(default=None, max_length=7)
+    rule_items: Optional[list[RuleItemIn]] = Field(default=None, max_length=200)
 
 
 # ── Pomocnicze ────────────────────────────────────────────────────────────────
@@ -879,10 +892,62 @@ async def _bonus_response(
     return payload
 
 
+async def _manual_gate(
+    db: AsyncSession,
+    user: User,
+    *,
+    reason: Optional[str] = None,
+    needs_reason: bool = False,
+) -> None:
+    """Po włączeniu samego przyznawania ręcznie zmienia tylko admin, z powodem."""
+
+    rules = await bonus_rules.load_rules(db)
+    if rules.auto_assign_from is None:
+        return
+    if not user.has_role(UserRole.admin):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Premie liczy automat. Jeśli coś się nie zgadza, użyj „Zgłoś”: zasady zmienia admin.",
+        )
+    if needs_reason and len((reason or "").strip()) < 3:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Podaj powód ręcznej zmiany (co najmniej 3 znaki).",
+        )
+
+
+@router.get("/bonus-mode")
+async def bonus_mode(
+    current_user: PayrollMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Czy premie przyznaje automat i czy ten użytkownik może zmieniać je ręcznie."""
+
+    rules = await bonus_rules.load_rules(db)
+    automatic = rules.auto_assign_from is not None
+    return {
+        "automatic": automatic,
+        "manual_allowed": not automatic or current_user.has_role(UserRole.admin),
+    }
+
+
+@router.post("/bonuses/{bonus_id}/report", status_code=status.HTTP_204_NO_CONTENT)
+async def report_bonus(
+    bonus_id: int,
+    payload: BonusReportIn,
+    current_user: PayrollMember,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    viewer = await load_viewer(db, current_user)
+    with _http_errors():
+        await payroll_bonuses.report_to_admin(db, viewer, bonus_id, note=payload.note)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/bonuses", status_code=status.HTTP_201_CREATED)
 async def create_bonus(
     payload: BonusIn, current_user: PayrollMember, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    await _manual_gate(db, current_user, reason=payload.description, needs_reason=True)
     viewer = await load_viewer(db, current_user)
     with _http_errors():
         bonus = await payroll_bonuses.create_manual(
@@ -910,6 +975,9 @@ async def update_bonus(
     current_user: PayrollMember,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await _manual_gate(
+        db, current_user, reason=payload.change_reason, needs_reason=True
+    )
     viewer = await load_viewer(db, current_user)
     changes = {k: v for k, v in payload.model_dump(exclude_unset=True).items()}
     for required in ("amount", "currency", "category", "period_year", "period_month"):
@@ -928,6 +996,7 @@ async def update_bonus(
 async def approve_bonus(
     bonus_id: int, current_user: PayrollMember, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    await _manual_gate(db, current_user)
     viewer = await load_viewer(db, current_user)
     await _reconcile_before_approval(db, viewer, bonus_id)
     with _http_errors():
@@ -954,6 +1023,7 @@ async def approve_bonuses(
     blokady wierszy zawsze w tym samym porządku.
     """
 
+    await _manual_gate(db, current_user)
     viewer = await load_viewer(db, current_user)
     ids = sorted(set(payload.ids))
     for bonus_id in ids:
@@ -1036,6 +1106,7 @@ async def cancel_bonus(
     current_user: PayrollMember,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await _manual_gate(db, current_user, reason=payload.note, needs_reason=True)
     viewer = await load_viewer(db, current_user)
     with _http_errors():
         bonus = await payroll_bonuses.cancel_bonus(
@@ -1056,6 +1127,7 @@ async def cancel_bonuses(
     cofa całość, więc nikt nie dostaje dzwonka o anulowaniu, które nie weszło.
     """
 
+    await _manual_gate(db, current_user, reason=payload.note, needs_reason=True)
     viewer = await load_viewer(db, current_user)
     cancelled = 0
     for bonus_id in sorted(set(payload.ids)):
@@ -1086,6 +1158,7 @@ async def register_clawback(
 ) -> dict[str, Any]:
     """Zwrot z gwarancji ręcznie: konsultant odszedł, kontrakt w NEXUSIE jeszcze trwa."""
 
+    await _manual_gate(db, current_user)
     with _http_errors():
         clawback = await bonus_guarantee.register_manual(
             db,
@@ -1104,6 +1177,7 @@ async def cancel_clawback(
     current_user: PayrollAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await _manual_gate(db, current_user)
     with _http_errors():
         clawback = await bonus_guarantee.cancel_manual(
             db, clawback_id=clawback_id, actor_id=current_user.id, note=payload.note
@@ -1250,6 +1324,15 @@ async def get_rules(
 async def put_rules(
     payload: RulesIn, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    await _manual_gate(db, current_user)
+    if payload.auto_assign_from and not current_user.has_role(UserRole.admin):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Samo przyznawanie włącza admin."
+        )
+    if any(item.user_id == current_user.id for item in payload.rule_items or ()):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Premii dla siebie nie wpisujesz."
+        )
     saved = await bonus_rules.load_rules(db)
     current = bonus_rules.rules_payload(saved)
     changes = payload.model_dump(exclude_unset=True, mode="json")
@@ -1391,6 +1474,7 @@ async def preview_settlement_import(
 ) -> dict[str, Any]:
     """Porównanie arkusza z NEXUSEM; plik nie jest zapisywany, nic się nie zmienia."""
 
+    await _manual_gate(db, current_user)
     viewer = await load_viewer(db, current_user)
     with _http_errors():
         payroll_periods.validate_period(year, month)
@@ -1408,6 +1492,7 @@ async def apply_settlement_import(
     current_user: PayrollAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
+    await _manual_gate(db, current_user)
     viewer = await load_viewer(db, current_user)
     with _http_errors():
         return await settlement_import.apply_rows(

@@ -8,6 +8,7 @@ import { DecisionPanel } from "../PayrollCloseParts";
 
 vi.mock("@/lib/api/hr-payroll", async (original) => ({
   ...(await original<typeof import("@/lib/api/hr-payroll")>()),
+  useBonusMode: () => ({ data: undefined }),
   useApproveBonuses: () => ({ mutate: vi.fn(), isPending: false }),
   useApproveBonus: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateBonus: () => ({ mutate: vi.fn(), isPending: false }),

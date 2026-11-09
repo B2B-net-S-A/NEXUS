@@ -684,37 +684,51 @@ async def _lock_periods(
 #: Powód anulowania przez automat: kandydat wskazany przez klienta (0656).
 CLIENT_REFERRAL = "client_referral"
 
-#: Zastępstwo w gwarancji: krócej niż rok współpracy osoby zastąpionej.
-GUARANTEE_DAYS = 365
+#: Przepięcie: kolejny kontrakt tej samej osoby do tylu dni od końca poprzedniego.
+CONTINUATION_DAYS = 31
+RECIPIENT_LEFT = "recipient_left"
 
 
-async def guarantee_lost_dl(
-    db: AsyncSession, contract: Contract, dl_id: Optional[int]
-) -> Optional[dict[str, Any]]:
-    """Premia DL przepada za zastępstwo osoby, którą ten sam DL zatrudnił,
-    a która odeszła przed upływem roku (decyzje Artura 26.10 i 05.11.2026).
+async def continues_earlier_contract(db: AsyncSession, contract: Contract) -> bool:
+    """Przepięcie: ta sama osoba miała kontrakt, który skończył się do 31 dni wokół startu.
 
-    Rekruter gwarancji nie ma: dostaje premię, a placement liczy mu się do celu
-    premii 200%. Zwraca ślad do migawki albo ``None``, gdy premia DL się należy.
+    Nowy kontrakt nie daje drugiej premii DL (decyzja Artura 09.11.2026),
+    u dowolnego klienta. Rekruter dostaje swoją.
     """
 
-    if not contract.is_replacement or contract.replaced_contract_id is None:
-        return None
-    if dl_id is None or contract.start_date is None:
-        return None
-    replaced = await db.get(Contract, contract.replaced_contract_id)
-    if replaced is None or replaced.start_date is None:
-        return None
-    ended = contract_end(replaced) or contract.start_date
-    days = (ended - replaced.start_date).days
-    if days >= GUARANTEE_DAYS:
-        return None
-    replaced_dl, _recruiter, _source = (await load_context(db, [replaced])).people(
-        replaced
+    if contract.candidate_id is None or contract.start_date is None:
+        return False
+    earlier = await db.scalars(
+        select(Contract).where(
+            Contract.candidate_id == contract.candidate_id,
+            Contract.id != contract.id,
+            Contract.start_date < contract.start_date,
+            Contract.status.in_(STARTED_STATUSES),
+        )
     )
-    if replaced_dl != dl_id:
-        return None
-    return {"replaced_contract_id": replaced.id, "replaced_days": days}
+    for row in earlier:
+        ended = contract_end(row)
+        if ended is None:
+            continue
+        if (
+            -CONTINUATION_DAYS
+            <= (contract.start_date - ended).days
+            <= CONTINUATION_DAYS
+        ):
+            return True
+    return False
+
+
+async def _inactive_users(db: AsyncSession, user_ids: set[int]) -> set[int]:
+    if not user_ids:
+        return set()
+    return set(
+        await db.scalars(
+            select(User.id).where(
+                User.id.in_(sorted(user_ids)), User.is_active.is_(False)
+            )
+        )
+    )
 
 
 async def reconcile_contract(
@@ -806,10 +820,27 @@ async def reconcile_contract(
         ).items()
         if target.amount is not None
     }
-    guarantee = await guarantee_lost_dl(db, contract, dl_id)
-    if guarantee is not None:
+    if await continues_earlier_contract(db, contract):
         targets.pop("dl", None)
         targets.pop("dl_extra", None)
+    # Odbiorca odszedł przed terminem: premia przepada, nikomu nie przechodzi.
+    left: set[str] = set()
+    if rules.auto_assign_from is not None:
+        proposed = {
+            role: existing[source_key(contract.id, role)].recipient_user_id
+            for role in ROLES
+            if source_key(contract.id, role) in existing
+            and existing[source_key(contract.id, role)].status == "proposed"
+        }
+        planned = {role: target[0] for role, target in targets.items()}
+        inactive = await _inactive_users(db, {*planned.values(), *proposed.values()})
+        left = {
+            role
+            for role, user_id in (*proposed.items(), *planned.items())
+            if user_id in inactive
+        }
+        for role in left:
+            targets.pop(role, None)
     # Arkusz mógł dać premię DL odbiorcy dodatkowej premii: jedna osoba, jedna premia.
     main_dl = existing.get(source_key(contract.id, "dl"))
     if (
@@ -846,8 +877,6 @@ async def reconcile_contract(
     }
     if margin.reason:
         common["skip_reason"] = margin.reason
-    if guarantee is not None:
-        common["guarantee"] = guarantee
     if target_period != period:
         common["period_shifted_from"] = f"{period[0]}-{period[1]:02d}"
 
@@ -893,6 +922,7 @@ async def reconcile_contract(
                 from_sheet
                 and bonus.status == "cancelled"
                 and bonus.cancel_reason in AUTO_CANCEL_REASONS
+                and role not in left
             ):
                 bonus.status = "proposed"
                 bonus.cancel_reason = None
@@ -907,11 +937,20 @@ async def reconcile_contract(
                 and bonus.status == "proposed"
                 and not _edit_marks(bonus)
             ):
-                lost = guarantee is not None and role in ("dl", "dl_extra")
-                _auto_cancel(bonus, "guarantee" if lost else "rule_no_longer_applies")
+                _auto_cancel(
+                    bonus, RECIPIENT_LEFT if role in left else "rule_no_longer_applies"
+                )
                 counts["cancelled"] += 1
             continue
         recipient, amount, category = target
+        if (
+            bonus is not None
+            and bonus.status == "cancelled"
+            and bonus.cancel_reason == RECIPIENT_LEFT
+            and bonus.recipient_user_id != recipient
+        ):
+            # Premia przepada, nikomu nie przechodzi: wraca tylko z kontem tej osoby.
+            continue
         snapshot = {**common, "role": role}
         role_period = target_period
         if doubled:
