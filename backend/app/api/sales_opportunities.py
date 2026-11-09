@@ -24,6 +24,7 @@ from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_ad
 from app.core.database import get_db
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.sales import (
+    SalesActivity,
     SalesCompany,
     SalesContact,
     SalesOpportunity,
@@ -37,7 +38,14 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import calls, company_dates, decision_map, history
+from app.services.sales import (
+    calls,
+    client_gate,
+    company_dates,
+    decision_map,
+    history,
+    meeting_decisions,
+)
 from app.services.sales.lifecycle import apply_stage, deal_value
 from app.services.sales.motion import build_atlas_motion, entry_keys
 from app.services.sales.next_step import Step, StepSignals, load_signals
@@ -170,6 +178,20 @@ class OpportunityCreate(OpportunityFields):
     title: str = Field(min_length=1, max_length=255)
     pipeline_id: Optional[int] = None
     stage_id: Optional[int] = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Podaj nazwę szansy.")
+        return value
+
+
+class OpportunityFromMeeting(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    service_line: ServiceLine
+    contact_ids: list[int] = Field(default_factory=list, max_length=50)
 
     @field_validator("title")
     @classmethod
@@ -647,6 +669,101 @@ async def list_owner_candidates(
     ]
 
 
+@router.post(
+    "/from-activity/{activity_id}",
+    response_model=OpportunityDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_opportunity_from_meeting(
+    activity_id: int,
+    payload: OpportunityFromMeeting,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityDetail:
+    """Szansa ze spotkania z Outlooka; spotkanie od razu przypina się do niej."""
+
+    activity = await meeting_decisions.lock_activity(db, activity_id)
+    if activity is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Nie ma takiego spotkania."
+        )
+    if activity.kind != "meeting" or not meeting_decisions.is_outlook(activity):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Szansę da się założyć tylko ze spotkania z Outlooka.",
+        )
+    if activity.opportunity_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="To spotkanie jest już przy szansie."
+        )
+    company = (
+        await db.get(SalesCompany, activity.company_id)
+        if activity.company_id is not None
+        else None
+    )
+    if company is None or company.archived_at is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=COMPANY_MISSING_DETAIL
+        )
+    if company.normalized_name == client_gate.OWN_COMPANY_KEY:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=client_gate.OWN_COMPANY_REFUSAL
+        )
+    clients = await client_gate.match_companies(
+        db,
+        [
+            client_gate.CompanyIdentity(
+                company_id=company.id,
+                client_id=company.client_id,
+                normalized_name=company.normalized_name,
+            )
+        ],
+    )
+    if company.id in clients:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=clients[company.id].refusal
+        )
+    contact_ids = list(dict.fromkeys(payload.contact_ids))
+    allowed = {p.id for p in await meeting_decisions.company_people(db, company.id)}
+    if set(contact_ids) - allowed:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Kontakt nie należy do tej firmy.",
+        )
+    pipeline = await _default_pipeline(db)
+    stages = await _stages(db, pipeline.id)
+    if not stages:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="Ten lejek nie ma jeszcze etapów."
+        )
+    stage = next((s for s in stages if s.outcome == "open"), stages[0])
+    now = datetime.now(timezone.utc)
+    opp = SalesOpportunity(
+        company_id=company.id,
+        pipeline_id=pipeline.id,
+        stage_id=stage.id,
+        title=payload.title,
+        service_line=payload.service_line,
+        source=meeting_decisions.OPPORTUNITY_SOURCE,
+        primary_contact_id=contact_ids[0] if contact_ids else None,
+        owner_user_id=current_user.id,
+        created_by_user_id=current_user.id,
+    )
+    apply_stage(opp, stage, stages, now=now)
+    db.add(opp)
+    await db.flush()
+    history.record_created(db, opp, user_id=current_user.id)
+    db.add_all(
+        SalesOpportunityContact(opportunity_id=opp.id, contact_id=contact_id)
+        for contact_id in contact_ids
+    )
+    meeting_decisions.attach(db, activity, opp, user_id=current_user.id, now=now)
+    await db.commit()
+    if company_dates.needs_run(company.dates_backfill, now=now):
+        company_dates.schedule_company_dates(company.id)
+    return await _detail(db, opp.id)
+
+
 @router.get("/{opportunity_id}", response_model=OpportunityDetail)
 async def get_opportunity(
     opportunity_id: int,
@@ -767,6 +884,11 @@ _LABELLED = {
     "stage_id": (SalesPipelineStage, SalesPipelineStage.name),
     "owner_user_id": (User, User.name),
     "company_id": (SalesCompany, SalesCompany.name),
+    # Temat czytany z wiersza: oznaczony jako prywatny znika też z historii.
+    meeting_decisions.OUTLOOK_FIELD: (
+        SalesActivity,
+        func.coalesce(SalesActivity.subject, meeting_decisions.NO_SUBJECT),
+    ),
 }
 
 

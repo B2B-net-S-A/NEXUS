@@ -90,3 +90,21 @@ przy tym o decyzję „Dzwonię”, której w panelu nie było.
   panelu nie może skakać między zakładkami.
 - **Bez zmian:** formularz nie ma kroku wstępnego, a pierwszy zapis dalej bierze
   wolną osobę (`screening_form._claim_on_save`).
+
+## Zamknięta rekrutacja: bez „Biorę” (05.11.2026)
+
+Tester 05.11.2026: zamknięta rekrutacja pokazywała aktywne „Biorę”, a
+`POST /api/pipeline/claim` zakładał blokadę 12 h, zapisywał decyzję „Dzwonię”,
+a przy przejęciu dzwonił do poprzedniego rekrutera. Nic z tego nie ma sensu po
+zamknięciu; na kopii produkcji z 04.11 nie było ani jednego `candidate_claimed`
+po dacie zamknięcia.
+
+- **Serwer:** `/claim` w zamkniętej rekrutacji odpowiada 409 z komunikatem, także
+  adminowi, Delivery Leadowi i Head of Recruitment.
+- **Tablica:** `can_take` = `false` na każdej karcie zamkniętej rekrutacji. Karta
+  i oba miejsca w panelu (`PairOwnerLine`, rząd telefonu) czytają to pole, więc
+  nowe miejsce z „Biorę” też ma czytać `can_take`, a nie własny warunek.
+- **„Nowi”:** bez podpisu „kliknij „Biorę””, gdy rekrutacja jest zamknięta.
+- **Po ponownym otwarciu** wszystko wraca samo, bo nic nie jest zapisane.
+- **Bez zmian:** ruch karty i odrzucenie z paska „Odrzuć i napisz” działają
+  w zamkniętej rekrutacji jak dotąd.

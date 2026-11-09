@@ -3,7 +3,7 @@
 // Lustro `backend/app/api/sales_*.py`. Odczyt wymaga „Sprzedaż: podgląd”, zapis
 // „Sprzedaż: edycja”; opiekuna zmienia obecny opiekun albo admin (403 z API).
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -987,15 +987,33 @@ export function useSalesTasks(filters: TaskFilters) {
   });
 }
 
+export type MeetingDecision = "linked" | "client" | "internal" | "create" | "pin" | "choose" | "company_only";
+
+export interface MeetingOpportunityOption {
+  id: number;
+  title: string;
+  stage_name: string;
+  value: string | null;
+  currency: string;
+}
+
 export interface Meeting extends Activity {
   /** Stan transkryptu Teams; `null` — spotkanie poza kolejką (gość, historia, Atlas). */
   transcript_status: "waiting" | "fetched" | "missing" | "not_online" | "forbidden" | "error" | null;
   transcript_summary: string | null;
+  /** Co handlowiec ma zrobić z tym spotkaniem (kolumna „Co dalej”). */
+  decision: MeetingDecision;
+  timing: "soon" | "past" | "later";
+  can_unpin: boolean;
+  open_opportunities: MeetingOpportunityOption[];
+  client_name: string | null;
+  delivery_lead: string | null;
 }
 
 export interface MeetingList {
   items: Meeting[];
   total: number;
+  counts: { pin: number; create: number; upcoming: number };
 }
 
 export interface MeetingTranscript {
@@ -1004,12 +1022,24 @@ export interface MeetingTranscript {
   plain_text: string;
 }
 
+export interface MeetingDraft {
+  company: Ref;
+  occurred_at: string | null;
+  duration_minutes: number | null;
+  suggested_title: string;
+  attendees_known: boolean;
+  people: { id: number; name: string; title: string | null; attended: boolean }[];
+}
+
 export interface MeetingFilters {
   q?: string;
   linked?: "opportunity" | "company";
   has_transcript?: boolean;
   date_from?: string;
   date_to?: string;
+  mine?: boolean;
+  queue?: "pin" | "create";
+  upcoming?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -1020,6 +1050,54 @@ export function useSalesMeetings(filters: MeetingFilters) {
     queryFn: async () =>
       (await api.get<MeetingList>("/api/sales/activities/meetings", { params: clean({ ...filters }) }))
         .data,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMeetingDraft(activityId: number) {
+  return useQuery({
+    queryKey: ["sales", "meetings", activityId, "draft"] as const,
+    queryFn: async () =>
+      (await api.get<MeetingDraft>(`/api/sales/activities/${activityId}/opportunity-draft`)).data,
+  });
+}
+
+export function usePinActivity() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: { activityId: number; opportunityId: number }) =>
+      (
+        await api.post<Activity>(`/api/sales/activities/${input.activityId}/pin`, {
+          opportunity_id: input.opportunityId,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUnpinActivity() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (activityId: number) =>
+      (await api.delete<Activity>(`/api/sales/activities/${activityId}/pin`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useCreateOpportunityFromMeeting() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: {
+      activityId: number;
+      title: string;
+      service_line: ServiceLine;
+      contact_ids: number[];
+    }) => {
+      const { activityId, ...payload } = input;
+      return (await api.post<{ id: number; title: string }>(`/api/sales/opportunities/from-activity/${activityId}`, payload))
+        .data;
+    },
+    onSuccess: invalidate,
   });
 }
 

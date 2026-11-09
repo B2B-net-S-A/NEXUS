@@ -58,6 +58,10 @@ export interface ProposalInboxEvidence {
   previously_dismissed?: boolean;
 }
 
+/** Plakietki jednej listy (`SINGLE_CANDIDATE_LIST_ENABLED`, 08.11.2026). */
+export type ProposalListLabel = "applied" | "new_in_base" | "portal" | "known" | "similar";
+export type ProposalListFilter = "all" | ProposalListLabel;
+
 export interface ProposalInboxItem {
   candidate: ProposalInboxCandidate;
   /** `string` w unii: nowe źródło backendu nie może wywrócić widoku. */
@@ -111,6 +115,8 @@ export interface ProposalInboxItem {
    * ale nie przechodzi progu albo reguł silnika.
    */
   new_in_base_at?: string | null;
+  /** Jedna lista: skąd osoba jest. Bez flagi serwer pola nie wysyła. */
+  labels?: ProposalListLabel[];
 }
 
 export interface ProposalHistoryRef {
@@ -141,6 +147,8 @@ export interface ProposalCounts {
   below_threshold?: number;
   /** Próg propozycji w % (`AUTO_FULL_REVIEW_MIN_SCORE` albo panel rankingu). */
   threshold?: number;
+  /** Włączona jedna lista kandydatów (bez flagi serwer pola nie wysyła). */
+  single_list?: boolean;
   /** Zgłoszenia odłożone przez przegląd AI („Odrzuceni przez AI”). */
   screened_out: number;
   /** Must-have, po których nie da się szukać (zdania) — do rozmowy. */
@@ -237,6 +245,8 @@ export interface ProposalInboxPage {
   /** Ukryci na TEJ stronie przez globalną czarną listę — nigdy po cichu. */
   /** Nowi w bazie najpierw: ile osób ma pierwszeństwo, także na dalszych stronach. */
   new_in_base_total?: number;
+  /** Jedna lista: liczby na plakietkach, bez osób spod progu. */
+  label_counts?: Record<ProposalListFilter, number>;
   hidden_on_page: number;
   limit: number;
   offset: number;
@@ -394,7 +404,12 @@ export const PROPOSAL_INBOX_PAGE = 20;
 export const jobProposalsApi = {
   inbox: (
     jobId: number,
-    opts: { status?: ProposalInboxStatus; limit?: number; offset?: number } = {},
+    opts: {
+      status?: ProposalInboxStatus;
+      limit?: number;
+      offset?: number;
+      list?: ProposalListFilter;
+    } = {},
     signal?: AbortSignal,
   ): Promise<ProposalInboxPage> =>
     api
@@ -403,6 +418,7 @@ export const jobProposalsApi = {
           status: opts.status ?? "proposed",
           limit: opts.limit ?? PROPOSAL_INBOX_PAGE,
           offset: opts.offset ?? 0,
+          ...(opts.list && opts.list !== "all" ? { list: opts.list } : {}),
         },
         signal,
       })
@@ -502,8 +518,10 @@ export const jobProposalsKeys = {
    * otwarte, kafle pokazują samą skrzynkę (`counts`).
    */
   visibleSplit: (jobId: number) => ["job-proposals", jobId, "visible-split"] as const,
-  inbox: (jobId: number, limit: number) =>
-    ["job-proposals", jobId, "inbox", limit] as const,
+  inbox: (jobId: number, limit: number, list?: ProposalListFilter) =>
+    list && list !== "all"
+      ? (["job-proposals", jobId, "inbox", limit, list] as const)
+      : (["job-proposals", jobId, "inbox", limit] as const),
   latestRun: (jobId: number) => ["job-proposals", jobId, "latest-run"] as const,
   /** Pod wspólnym prefiksem — dodanie i „Pomiń” odświeżają też kafle. */
   counts: (jobId: number) => ["job-proposals", jobId, "counts"] as const,

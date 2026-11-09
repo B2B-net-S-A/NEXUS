@@ -123,8 +123,13 @@ Włączenie to decyzja Artura z 08.11 (sekcja „Narastanie minimum”).
   stoi pusta) w ciągu `SCREENING_CLOSE_DAYS` = 2 dni roboczych. Liczy się w dniu
   domknięcia, odrzucenie z powodem od razu. Bez tego przesunięcie całej porcji na
   screening odblokowywało wyszukiwanie po kilku minutach. Dzisiejsze niedomknięte S
-  zostają w `required`, inaczej porcja wyzerowana klawiszem S dawała `met`, i tej
-  karty nie da się dziś usunąć z rekrutacji (409 `REVIEW_CARD_NEEDS_DECISION`).
+  z własnej porcji (właściciel i `in_batch`, `Decision.own_batch`) zostają w
+  `required`, inaczej porcja wyzerowana klawiszem S dawała `met`, i tej karty nie da
+  się dziś usunąć z rekrutacji (409 `REVIEW_CARD_NEEDS_DECISION`). S na starszej albo
+  cudzej karcie nie cofa zrobionego minimum i taką kartę można zdjąć z rekrutacji.
+- **Pusta kolejka przy `met=false`** (cała porcja na S): `/porcja` pokazuje
+  `open_today_screenings` z linkami do Tablicy zamiast „Porcja przejrzana”. Wyjścia to
+  zapis screeningu, odrzucenie i „Dodaj kolejnych”.
 - **Kolejność jak na Tablicy** (`review_batch_order.order_cards`, lustro
   `orderNewColumn`): nowi w bazie od progu, bez uwag z miejscem co 5., z ostrzeżeniem,
   z brakiem krytycznej, po sumie wyniku, „znamy” i premii. Tego samego klucza używa

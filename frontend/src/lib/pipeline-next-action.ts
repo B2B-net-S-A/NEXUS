@@ -421,16 +421,17 @@ export function columnSlaHint(
 
   return {
     left: "SLA: —",
-    right: oldest == null ? null : `najstarszy ${oldest} d`,
+    right: oldest == null ? null : `najstarszy ${oldest} d rob.`,
     rightTone: oldest != null && oldest >= STUCK_DAYS ? "warn" : "normal",
   };
 }
 
-/** Najstarsza karta w kolumnie (dni), albo `null` dla pustej kolumny. */
+/** Najstarsza karta w kolumnie (dni robocze, ta sama liczba co na kartach),
+ *  albo `null` dla pustej kolumny. */
 export function oldestDaysInColumn(column: KanbanColumn): number | null {
   let oldest: number | null = null;
   for (const item of column.items) {
-    const days = item.days_in_stage;
+    const days = item.waiting_workdays;
     if (days == null) continue;
     if (oldest == null || days > oldest) oldest = days;
   }

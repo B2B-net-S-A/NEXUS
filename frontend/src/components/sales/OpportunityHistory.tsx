@@ -25,6 +25,8 @@ const FIELD_LABELS: Record<string, string> = {
   decision_map: "Mapa decyzyjna",
   decision_map_contact: "Kontakt uzupełniony z mapy",
   do_not_contact: "Sprzeciw wobec kontaktu",
+  outlook_activity: "Spotkanie lub mail z Outlooka",
+  last_activity_at: "Ostatnia aktywność",
 };
 const STATUS_WORDS: Record<string, string> = {
   open: "otwarta",
@@ -54,6 +56,11 @@ function shown(
       return `${Number(value)}%`;
     case "expected_close_date":
       return formatIsoDatePl(value);
+    case "last_activity_at":
+      return formatDateTimePl(value);
+    case "outlook_activity":
+      // Wartość to id wiersza; temat idzie etykietą, żeby prywatny nie został.
+      return label ?? "usunięte z Outlooka";
     case "title":
     case "lost_reason":
       return `„${value}”`;

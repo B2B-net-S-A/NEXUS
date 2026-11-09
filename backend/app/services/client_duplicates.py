@@ -45,14 +45,16 @@ class SameNameClient:
         return {"id": self.id, "name": self.name, "categories": list(self.categories)}
 
 
-async def find_same_name_clients(
-    db: AsyncSession, name: str
-) -> tuple[SameNameClient, ...]:
-    """Widoczni klienci, których któraś nazwa to ta sama firma co ``name``."""
+@dataclass(frozen=True)
+class ClientNameIndex:
+    """Widoczni klienci po każdej z ich nazw (klucz: ``normalize_company_name``)."""
 
-    key = normalize_company_name(name)
-    if not key:
-        return ()
+    display_by_id: dict[int, str]
+    ids_by_key: dict[str, frozenset[int]]
+
+
+async def load_client_name_index(db: AsyncSession) -> ClientNameIndex:
+    """Nazwa, nazwa wyświetlana albo prawna i aktywne aliasy widocznych klientów."""
 
     rows = (
         await db.execute(
@@ -64,16 +66,13 @@ async def find_same_name_clients(
             ).where(*visible_client_predicates())
         )
     ).all()
-    matched: dict[int, str] = {
-        row.id: row.display
-        for row in rows
-        if key
-        in {
-            normalize_company_name(value or "")
-            for value in (row.display, row.name, row.legal_name)
-        }
-    }
     display_by_id = {row.id: row.display for row in rows}
+    ids_by_key: dict[str, set[int]] = {}
+    for row in rows:
+        for value in (row.display, row.name, row.legal_name):
+            ids_by_key.setdefault(normalize_company_name(value or ""), set()).add(
+                row.id
+            )
     aliases = (
         await db.execute(
             select(ClientAlias.client_id, ClientAlias.alias).where(
@@ -83,8 +82,30 @@ async def find_same_name_clients(
         )
     ).all()
     for alias in aliases:
-        if normalize_company_name(alias.alias) == key:
-            matched.setdefault(alias.client_id, display_by_id[alias.client_id])
+        ids_by_key.setdefault(normalize_company_name(alias.alias), set()).add(
+            alias.client_id
+        )
+    ids_by_key.pop("", None)
+    return ClientNameIndex(
+        display_by_id=display_by_id,
+        ids_by_key={key: frozenset(ids) for key, ids in ids_by_key.items()},
+    )
+
+
+async def find_same_name_clients(
+    db: AsyncSession, name: str
+) -> tuple[SameNameClient, ...]:
+    """Widoczni klienci, których któraś nazwa to ta sama firma co ``name``."""
+
+    key = normalize_company_name(name)
+    if not key:
+        return ()
+
+    index = await load_client_name_index(db)
+    matched: dict[int, str] = {
+        client_id: index.display_by_id[client_id]
+        for client_id in index.ids_by_key.get(key, ())
+    }
     if not matched:
         return ()
 

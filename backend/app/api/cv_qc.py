@@ -200,6 +200,8 @@ class QcResponse(BaseModel):
     blocking_failed: int
     warnings_count: int
     override: Optional[QcOverride] = None
+    # Gotowy stan pary, ten sam co na karcie (`services/qc_state.py`).
+    qc_state: Optional[dict] = None
     # Tryb doradczy i to, czy TA osoba może przesunąć kartę mimo uwag QC.
     advisory: bool = False
     can_override: bool = False

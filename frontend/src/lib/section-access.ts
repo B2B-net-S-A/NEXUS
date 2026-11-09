@@ -148,8 +148,8 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  // Praktykant (0374) nie ma żadnej sekcji produktu — pracuje wyłącznie na
-  // własnej liście telefonów (`/api/trainee/*`, bramka roli w backendzie).
+  // Praktykant (0374) nie ma żadnej sekcji produktu (program usunięty 08.11.2026,
+  // rola została).
   trainee: {
     sourcing: "none",
     pipeline: "none",

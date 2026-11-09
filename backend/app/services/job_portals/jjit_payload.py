@@ -384,6 +384,19 @@ def content_fields(
     }
 
 
+def new_contact() -> Optional[dict[str, Any]]:
+    """Kontakt nowego ogłoszenia; ``None`` = domyślny z profilu firmy na portalu.
+
+    Pełny obiekt albo wcale: portal sprawdza każde pole osobno, gdy kontakt jest
+    podany („Contact phone is required when contact is provided”).
+    """
+    phone = settings.JJIT_CONTACT_PHONE.strip()
+    email = (settings.JJIT_APPLY_EMAIL or "").strip()
+    if not phone or not email:
+        return None
+    return {"name": settings.JJIT_CONTACT_NAME, "email": email, "phone": phone}
+
+
 def create_body(
     board: str,
     *,
@@ -399,7 +412,7 @@ def create_body(
         "jobBoard": board,
         "title": title,
         "informationClause": None,
-        "contact": None,
+        "contact": new_contact(),
         "hiringCompany": None,
         "category": options["category"],
         "payment": payment,
@@ -437,16 +450,23 @@ def _current_locations(current: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _contact_with_phone(contact: Any) -> Optional[dict[str, Any]]:
-    """Kontakt z ``GET`` do ``PUT``, tylko gdy ma telefon.
+def _update_contact(contact: Any) -> Any:
+    """Kontakt do ``PUT``: dane z ``GET`` z telefonem z konfiguracji.
 
-    Produkcja 08.11.2026: „Contact phone is required when contact is provided”
-    — portal oddaje kontakt bez telefonu, a potem go nie przyjmuje.
-    Ogłoszenie zakładamy z ``contact = None``, więc to dozwolona wartość.
+    Dokumentacja 1EP: przy ``PUT`` „contact must be provided as a full object”.
+    Produkcja 08.11.2026: portal oddaje kontakt bez telefonu, a potem odrzuca go
+    („Contact phone is required…”) i odrzuca też ``null`` („Contact is required”).
+    Bez ustawionego telefonu idzie to, co oddał portal.
     """
-    if isinstance(contact, dict) and str(contact.get("phone") or "").strip():
+    phone = settings.JJIT_CONTACT_PHONE.strip()
+    if not phone:
         return contact
-    return None
+    known = contact if isinstance(contact, dict) else {}
+    return {
+        "name": known.get("name") or settings.JJIT_CONTACT_NAME,
+        "email": known.get("email") or (settings.JJIT_APPLY_EMAIL or "").strip(),
+        "phone": phone,
+    }
 
 
 def update_body(
@@ -467,7 +487,7 @@ def update_body(
     """
     body = content_fields(board, job, options, apply_url=apply_url, skill_ids=skill_ids)
     body["informationClause"] = current.get("informationClause") or ""
-    body["contact"] = _contact_with_phone(current.get("contact"))
+    body["contact"] = _update_contact(current.get("contact"))
     body["publicTags"] = current.get("publicTags") or []
     body["categories"] = [{"key": options["category"]}]
     body["expiredAt"] = (

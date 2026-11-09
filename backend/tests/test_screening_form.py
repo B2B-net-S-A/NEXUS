@@ -38,7 +38,7 @@ from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.screening_form_version import ScreeningFormVersion
 from app.models.user import User, UserRole
 from app.services import candidate_rate_change as rate_change
-from app.services import note_kinds
+from app.services import move_requirements, note_kinds
 from app.services import screening_form as form
 from tests.test_interview_cycle import _user
 
@@ -488,6 +488,36 @@ async def test_empty_sheet_is_not_saved(app_client: AsyncClient):
         stage = await db.get(CandidateStage, w["stage_id"])
         assert stage.screening_answers is None
     assert await _version_count(w) == 0
+
+
+async def test_a_sheet_with_only_an_experience_check_is_saved(
+    app_client: AsyncClient,
+):
+    """Rekrutacja bez pytań: „Potwierdził” przy wymaganiu z sekcji 4 to treść
+    arkusza, choć lista odpowiedzi jest pusta. Bramki to nie spełnia."""
+    w = await _world()
+    sheet = {
+        "answers": [],
+        "experience_checks": [
+            {"kind": "domains", "name": "Bankowość", "status": "confirmed"}
+        ],
+        "overall_fit": "fit",
+    }
+
+    body = await _put(app_client, w, expected=0, sheet=sheet)
+
+    assert body["saved_version"] == 1
+    state = await _state(app_client, w)
+    assert state["sheet"]["answers"] == []
+    assert [c["status"] for c in state["sheet"]["experience_checks"]] == ["confirmed"]
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, w["stage_id"])
+        assert move_requirements.sheet_answered(stage.screening_answers) is False
+
+    # Odczyt widzi arkusz, więc ten sam zapis drugi raz niczego nie dokłada.
+    again = await _put(app_client, w, expected=1, sheet=sheet)
+    assert again["saved_version"] is None
+    assert await _version_count(w) == 1
 
 
 @pytest.mark.parametrize(

@@ -14,10 +14,10 @@ Trzy decyzje, które trzymają ten moduł uczciwym:
    gubi kamienie milowe par, których oferta została skasowana — czyli cicho
    zaniża lejek historyczny.
 
-3. **Etapy strukturalnie nieobecne są ODZNACZANE, nie zerowane.** Traffit
-   nie mapuje `acceptance`, `client_interview`, `negotiation`, `onboarding`
-   ani `prep_call` (`app/services/traffit/mappers.py:404-449`), a nieznane
-   typy stanów cicho degraduje do `screening`. Gołe „0" przy „Akceptacja"
+3. **Etapy strukturalnie nieobecne są ODZNACZANE, nie zerowane.** Import
+   z Traffita nie mapował `acceptance`, `client_interview`, `negotiation`,
+   `onboarding` ani `prep_call`, a nieznane
+   typy stanów cicho degradował do `screening`. Gołe „0" przy „Akceptacja"
    czyta się jako „klienci nas nie akceptują", a znaczy „nie odnotowujemy
    akceptacji". Koperta niesie `coverage`, żeby konsument mógł to napisać.
 """

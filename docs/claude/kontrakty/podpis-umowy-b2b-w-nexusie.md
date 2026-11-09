@@ -224,9 +224,9 @@ kontraktu przed podpisem (audyt 21.10.2026). Nie przywracaj go.
   `provider.py` (`ValidationReport`, `signer_identity`, `normalize_person_text`,
   `is_positive_indication`), `validation.py` (`ValidationService`, DSS)
   i `pades.py` (pyHanko, `approval_signatures`).
-- **Tabele zostają:** `document_signatures` (Autenti i historia starego toru)
-  i `signature_links` — bez migracji. Wiersze starego toru w
-  `document_signatures` są tylko historią.
+- **Tabela zostaje:** `document_signatures` (Autenti i historia starego toru),
+  bez migracji; wiersze starego toru są tylko historią. Pustą `signature_links`
+  usunęła migracja 0667 (decyzja z 08.11.2026).
 - **`signature_reconciler` obsługuje już tylko Autenti** (`provider='autenti'`,
   działa przy `AUTENTI_ENABLED`). Autenti zostaje — używa go moduł „Ludzie”
   (`hr_agreements`).
