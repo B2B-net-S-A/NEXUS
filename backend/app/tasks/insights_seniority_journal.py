@@ -18,6 +18,7 @@ import logging
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.insights_seniority_journal import record_seniority_observations
+from app.services.kpi_level_targets import apply_level_targets
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 async def run_once() -> dict:
     async with AsyncSessionLocal() as db:
         return await record_seniority_observations(db)
+
+
+async def raise_targets_once() -> dict:
+    async with AsyncSessionLocal() as db:
+        return await apply_level_targets(db)
 
 
 async def insights_seniority_journal_loop() -> None:
@@ -53,4 +59,13 @@ async def insights_seniority_journal_loop() -> None:
             raise
         except Exception:  # noqa: BLE001
             logger.exception("insights_seniority_journal_loop iteration failed")
+        # Osobno od dziennika: jego awaria nie może wstrzymać celów i odwrotnie.
+        try:
+            raised = await raise_targets_once()
+            if raised.get("raised"):
+                logger.info("kpi level targets: %s", raised)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("kpi level targets iteration failed")
         await asyncio.sleep(interval)

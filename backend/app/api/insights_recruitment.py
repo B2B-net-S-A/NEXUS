@@ -60,6 +60,7 @@ from app.services.insights_invite_links import (
     count_invite_link_candidates,
 )
 from app.services.insights_seniority import compute_seniority, load_thresholds
+from app.services.kpi_level_targets import target_level_floors
 from app.services.insights_seniority_journal import (
     load_journal_status,
     load_open_regressions,
@@ -1291,7 +1292,12 @@ async def insights_seniority(
     if cached is not None:
         return {**cached, "regressions": regressions, "journal": journal_status}
 
-    computed = await compute_seniority(db, as_of=effective_as_of, thresholds=thresholds)
+    computed = await compute_seniority(
+        db,
+        as_of=effective_as_of,
+        thresholds=thresholds,
+        level_floors=await target_level_floors(db),
+    )
 
     result = {
         "as_of": computed.as_of.isoformat(),

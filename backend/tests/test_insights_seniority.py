@@ -454,7 +454,7 @@ async def test_progress_to_expert_counts_only_placements_after_the_promotion():
     """
     user_id = await _seed_user(UserRole.recruiter, "anchprog")
     # Senior wpada w miesiącu 10 (8,9,10 = 3 przy progu 3 w 6 miesiącach).
-    # Do eksperta liczą się wtedy tylko miesiące 10 i 11 — czyli 2 z 5.
+    # Do eksperta liczy się dopiero następny miesiąc, 11 — czyli 1 z 5.
     await _seed_placements(user_id, [8, 9, 10, 11])
 
     _, row = await _row_for(user_id)
@@ -463,11 +463,11 @@ async def test_progress_to_expert_counts_only_placements_after_the_promotion():
     assert row.level == "senior"
     assert row.senior_since == f"{SEED_YEAR}-10"
     assert row.expert_since is None
-    assert row.placements_in_expert_window == 2, (
-        "licznik do eksperta liczy placementy sprzed awansu na seniora"
+    assert row.placements_in_expert_window == 1, (
+        "licznik do eksperta liczy placementy sprzed miesiąca po awansie na seniora"
     )
-    assert row.placements_to_next_level == 3
-    assert row.progress_pct == 40.0
+    assert row.placements_to_next_level == 4
+    assert row.progress_pct == 20.0
 
 
 @pytest.mark.asyncio
@@ -486,7 +486,7 @@ async def test_expert_clock_is_anchored_at_the_senior_promotion():
     _, row = await _row_for(burst)
 
     assert row is not None
-    # Senior od miesiąca 6 (4,5,6 = 3). Po kotwicy zostają miesiące 6-8 = 3,
+    # Senior od miesiąca 6 (4,5,6 = 3). Po kotwicy zostają miesiące 7-8 = 2,
     # a próg eksperta to 5 — więc NIE ekspert.
     assert row.level == "senior"
     assert row.senior_since == f"{SEED_YEAR}-06"
@@ -496,8 +496,8 @@ async def test_expert_clock_is_anchored_at_the_senior_promotion():
 async def test_expert_row_has_no_next_level():
     """Expert nie ma dokąd awansować — 0 czytałoby się jako „tuż-tuż"."""
     user_id = await _seed_user(UserRole.recruiter, "expert")
-    # Senior od miesiąca 3 (1,2,3 = 3). Od miesiąca 3 w górę jest 6
-    # placementów — powyżej progu eksperta (5 w 12).
+    # Senior od miesiąca 3 (1,2,3 = 3). Od miesiąca 4 w górę jest 5
+    # placementów — próg eksperta (5 w 12) pada w miesiącu 8.
     await _seed_placements(user_id, [1, 2, 3, 4, 5, 6, 7, 8])
 
     _, row = await _row_for(user_id)
@@ -505,7 +505,7 @@ async def test_expert_row_has_no_next_level():
     assert row is not None
     assert row.level == "expert"
     assert row.senior_since == f"{SEED_YEAR}-03"
-    assert row.expert_since == f"{SEED_YEAR}-07"
+    assert row.expert_since == f"{SEED_YEAR}-08"
     assert row.placements_to_next_level is None
     assert row.progress_pct is None
 
