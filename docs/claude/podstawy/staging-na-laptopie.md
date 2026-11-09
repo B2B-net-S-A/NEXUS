@@ -43,13 +43,20 @@ a Qdrant był 10 dni starszy od bazy, co wyrzucało 2 247 osób z rankingu.
 - **Flagi:** `docker-compose.staging.yml`, sekcja „Ranking jak na produkcji”.
   Wartości bierze co noc `nightly_sync.py`. Nowa nazwa w `_SCORING_CACHE_INPUTS`
   wymaga wpisu w compose, bo inaczej nie dojdzie do backendu (pilnuje
-  `tests/test_staging_nightly_sync.py`). Różnice, które zostają celowo: integracje,
-  poczta, pętle w tle.
+  `tests/test_staging_nightly_sync.py`). `QUERY_ADAPTER_ENABLED` też idzie z produkcji
+  (`RANKING_POOL_FLAGS`), bo włączony zmienia stempel: 09.11.2026 produkcja liczyła
+  `dc1ff64ccd10`, a staging bez niego `bdba10363617`. Różnice, które zostają celowo:
+  integracje, poczta, pętle w tle, `REVIEW_BATCH_ENABLED` z
+  `AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED` (silnik porcji stoi, a włączona blokada 423
+  zamknęłaby rekruterowi wyszukiwanie bez kart do oceny) i `DB_MAX_OVERFLOW`.
 - **Nowa kopia bazy = wyrównanie Qdranta** (co noc robi to `nightly_sync.py`). Klon z Hetznera przenosi samą bazę,
   a outbox w kopii ma `indexed_hash` z produkcji. `index_drift_reconciler`
   porównuje z nim treść, nie z Qdrantem, więc tej różnicy nie widzi. Skrypt niżej
   porównuje hasz z punktem w Qdrancie i liczy tylko osoby ze zmianą (02.11: 2 252
-  osoby, ok. 3,3 mln tokenów):
+  osoby, ok. 3,3 mln tokenów). Masowy zapis na produkcji przekracza limit nocy
+  (`MAX_REEMBED_PEOPLE`) i wtedy wyrównuje się ręcznie: ponowny odczyt CV z 07.11.2026
+  (`scripts/reparse_cv_batch.py`) to 54 540 osób na stagingu, a produkcja przeliczyła je
+  sama przez outbox:
 
   ```bash
   docker exec nexus-staging-backend-1 python -m scripts.reembed_collections --target candidates --resume --commit
