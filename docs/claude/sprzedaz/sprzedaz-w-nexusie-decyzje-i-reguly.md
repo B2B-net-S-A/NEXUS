@@ -77,7 +77,7 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   (okno jednej sekundy). Zmierzone na kopii z 08.11: 104 z 250 otwartych z importu,
   431 w całej tabeli, 0 o 04:20 i 05:20 UTC ani o 06:20 w Warszawie.
 - **Odbiór (kopia 08.11, stan na 09.11 00:00, 320 otwartych):** ponad 30/60/90 dni
-  bez dotyku = 223/195/108 (ostatnie 659 400 zł). Szacunek 231/207/118 (649 500 zł)
+  bez dotyku = 223/195/108. Szacunek 231/207/118
   liczono na 08.11 i z `created_at` tylko jako zastępstwem, bez zrobionych zadań.
 - **Automat w trybie cienia** (`tasks/sales_archive_shadow.py`, kontener worker,
   raz dziennie o 04:40, wyłącznik `SALES_ARCHIVE_SHADOW_ENABLED`): liczy, co by
