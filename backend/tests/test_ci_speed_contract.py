@@ -220,6 +220,26 @@ def test_selector_changed_test_file_is_always_selected() -> None:
     assert "tests/test_ci_speed_contract.py" in direct
 
 
+def test_selector_changed_test_file_selects_tests_that_import_it() -> None:
+    """09.11.2026: #3234 zmienił helper `_run` w pliku testowym, który importują
+    dwa inne. Sito wybrało tylko sam plik, PR był zielony, a grupa w kolejce
+    padła na importerze. Importerzy są pośredni, więc podlegają budżetowi."""
+    sel = _selector()
+    changed = "tests/test_uptime_probe_health_checks.py"
+    direct, indirect = sel.select([f"backend/{changed}"])
+    assert changed in direct
+    assert {
+        "tests/test_fix48_ws13_traffit_tails.py",
+        "tests/test_fix48_ws08_traffit_retired.py",
+    } <= indirect
+
+
+def test_selector_finds_importers_of_a_test_file_imported_as_a_module() -> None:
+    """Forma `from tests import test_x as y` nie zawiera ścieżki kropkowej."""
+    _, indirect = _selector().select(["backend/tests/test_career_links_api.py"])
+    assert "tests/test_career_apply_cv_only.py" in indirect
+
+
 def test_selector_hub_modules_do_not_select_half_the_suite() -> None:
     sel = _selector()
     direct, indirect = sel.select(["backend/app/core/config.py"])

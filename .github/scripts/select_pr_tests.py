@@ -9,7 +9,8 @@ po HTTP i nie wymienia modułu z nazwy, może zostać pominięty — złapie go 
 
 Reguły (każda dokłada pliki, żadna nie odejmuje):
 
-* zmieniony plik testowy → on sam;
+* zmieniony plik testowy → on sam, a pośrednio testy, które z niego importują
+  (helpery testów bywają współdzielone: #3234 wywrócił kolejkę na importerze);
 * zmieniony moduł ``backend/app/…`` → testy wymieniające jego ścieżkę kropkową
   (``app.services.foo`` albo ``from app.services import foo``) lub mające
   w nazwie jego rdzeń (``test_foo.py``, ``test_foo_*.py``);
@@ -124,6 +125,11 @@ def _module_patterns(rel_from_backend: str) -> list[re.Pattern[str]]:
     return patterns
 
 
+def _importers(rel_from_backend: str, tests: dict[str, str]) -> set[str]:
+    patterns = _module_patterns(rel_from_backend)
+    return {t for t, text in tests.items() if any(p.search(text) for p in patterns)}
+
+
 def select(changed: list[str]) -> tuple[set[str], set[str]]:
     """Zwraca (wybrane wprost, wybrane pośrednio)."""
     tests = _test_files()
@@ -148,6 +154,7 @@ def select(changed: list[str]) -> tuple[set[str], set[str]]:
             ):
                 if rel in tests:
                     direct.add(rel)
+                indirect.update(_importers(rel, tests))
                 continue
             if rel == "tests/conftest.py":
                 continue
@@ -164,12 +171,7 @@ def select(changed: list[str]) -> tuple[set[str], set[str]]:
                     )
                 if rel in _HUB_MODULES:
                     continue
-                patterns = _module_patterns(rel)
-                indirect.update(
-                    t
-                    for t, text in tests.items()
-                    if any(p.search(text) for p in patterns)
-                )
+                indirect.update(_importers(rel, tests))
                 continue
             needles = {rel, path}
         else:
