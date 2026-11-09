@@ -156,10 +156,6 @@ const PAGES = [
   "/preview/request-allocation?screen=board",
   "/preview/request-allocation?screen=board&as=dl",
   "/preview/talent-radar",
-  "/preview/trainee",
-  "/preview/trainee?state=done",
-  "/preview/trainee?state=handover",
-  "/preview/trainee?state=employment_only",
   // „Ludzie w NEXUSIE” (17.10.2026): harnessy 14 makiet raportu, każdy stan.
   "/preview/hr-dashboard",
   "/preview/hr-dashboard?as=manager",

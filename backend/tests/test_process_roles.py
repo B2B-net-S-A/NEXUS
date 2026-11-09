@@ -48,6 +48,12 @@ def test_worker_leaves_web_memory_tasks() -> None:
     assert task_runs_in_role("runtime_metrics", "worker")
 
 
+def test_worker_reads_corpus_readiness_and_web_does_not() -> None:
+    assert "keyword_corpus_readiness" in _registry_names()
+    assert task_runs_in_role("keyword_corpus_readiness", "worker")
+    assert not task_runs_in_role("keyword_corpus_readiness", "web")
+
+
 def test_all_keeps_everything() -> None:
     assert all(task_runs_in_role(n, "all") for n in _registry_names())
 

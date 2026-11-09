@@ -70,10 +70,8 @@ COMMIT_EVERY = 25
 # i nie może zmonopolizować ani limitów dostawcy, ani pętli zdarzeń.
 SLEEP_BETWEEN_CALLS_S = 0.15
 
-# Ile ID padłych wierszy zmieści się w statystykach biegu. Lustro
-# ``PhaseProgress._MAX_ERROR_REFS`` (``app/services/traffit/importer.py``) —
-# liczba skopiowana świadomie, nie zaimportowana: ten moduł nie zna importera
-# Traffita i nie warto zakładać tej krawędzi dla stałej. Powyżej progu to nie
+# Ile ID padłych wierszy zmieści się w statystykach biegu (ta sama liczba, co
+# w usuniętym imporcie Traffita). Powyżej progu to nie
 # jest zatruty wiersz, tylko awaria systemowa; nadmiar zostaje NIEprzypisany
 # i dalej mrozi watermark, co jest tu bezpieczną odpowiedzią.
 _MAX_ERROR_IDS = 500

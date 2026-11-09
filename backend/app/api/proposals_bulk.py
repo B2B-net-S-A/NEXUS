@@ -1090,6 +1090,7 @@ async def propose_candidates_for_job(
     lista, już w tej rekrutacji, weto hiring managera) — pominięci wracają
     w ``skipped`` z tymi samymi powodami. Bez commita (robi to wołający).
     """
+    from app.services import single_candidate_list  # noqa: PLC0415
     from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
     from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
 
@@ -1123,6 +1124,16 @@ async def propose_candidates_for_job(
 
     evidence = job_board_evidence(entry_meta)
     score = entry_meta.get("score") if isinstance(entry_meta, dict) else None
+    # Jedna lista (08.11.2026): wynik „Dop.” dla osób z aktualnym wektorem.
+    dop = await single_candidate_list.dop_scores(
+        db,
+        job,
+        [
+            candidates_by_id[cid]
+            for cid in ordered_ids
+            if cid in candidates_by_id and decisions[cid].assignment_allowed
+        ],
+    )
     rows: list[dict] = []
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
@@ -1156,11 +1167,14 @@ async def propose_candidates_for_job(
                     reason_label=decision.reason,
                 )
             )
+        row_score, row_evidence = single_candidate_list.portal_score(
+            candidate_id, score, evidence, dop
+        )
         rows.append(
             {
                 "candidate_id": candidate_id,
-                "score": score,
-                "evidence": evidence,
+                "score": row_score,
+                "evidence": row_evidence,
                 "cv_revision": candidate_revision(candidate),
             }
         )

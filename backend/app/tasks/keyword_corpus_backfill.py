@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services import keyword_corpus
 
@@ -550,3 +551,41 @@ async def keyword_corpus_backfill_loop() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.warning("keyword corpus backfill failed, retrying: %r", exc)
             await asyncio.sleep(_RETRY_SECONDS)
+
+
+async def _readiness_from_db() -> tuple[bool, bool]:
+    """Warunki, po których web ustawia flagi: (``ready``, złożona ścieżka)."""
+    corpus = not await _pending()
+    folded = (
+        corpus
+        and await _db_fold_version() == keyword_corpus.FOLD_VERSION
+        and await _stored_fold_version() == keyword_corpus.FOLD_VERSION
+        and not await _pending(keyword_corpus.FOLD_PENDING_EXISTS_SQL)
+        and not await _pending(keyword_corpus.NOTES_PENDING_EXISTS_SQL)
+    )
+    return corpus, folded
+
+
+async def keyword_corpus_readiness_loop() -> None:
+    """Flagi korpusu w workerze, bez zapisów: uzupełnia je tylko web.
+
+    Flagi to pamięć procesu, więc bez tego odczytu worker liczył zapisane
+    wyszukiwania starą ścieżką, inną niż lista w web. Odczyt powtarza się, aż
+    web skończy, bo po zmianie ``FOLD_VERSION`` worker startuje w trakcie
+    przeliczania. Proces ``all`` ma własny backfill i niczego tu nie czyta.
+    """
+    if settings.NEXUS_PROCESS_ROLE != "worker":
+        return
+    while True:
+        try:
+            corpus, folded = await _readiness_from_db()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("keyword corpus readiness read failed: %r", exc)
+            await asyncio.sleep(_RETRY_SECONDS)
+            continue
+        keyword_corpus.mark_ready(corpus)
+        keyword_corpus.mark_fold_ready(folded)
+        keyword_corpus.mark_notes_ready(folded)
+        if folded:
+            return
+        await asyncio.sleep(_RETRY_SECONDS)

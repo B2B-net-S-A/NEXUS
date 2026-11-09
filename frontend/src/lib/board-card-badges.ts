@@ -175,6 +175,12 @@ export function waitingWorkdaysText(days: number): string {
   return days === 1 ? "czeka 1 dzień rob." : `czeka ${days} dni rob.`;
 }
 
+/** Linia „następna w kolumnie”: ta sama liczba co na karcie tej osoby. */
+export function nextPersonWaitText(days: number | null | undefined): string | null {
+  if (days == null) return null;
+  return days <= 0 ? "czeka od dziś" : waitingWorkdaysText(days);
+}
+
 /** „na etapie od 03.11” — dni kalendarzowe zostają tylko w dymku karty. */
 export function stageSinceText(item: Pick<KanbanItem, "moved_at">): string | null {
   const day = item.moved_at ? formatDayMonthPl(warsawDateOf(item.moved_at)) : "—";
@@ -581,9 +587,10 @@ export function autofillDecisionBadge(meta: KanbanItem["entry_autofill"]): CardB
   if (!meta?.decision_due || meta.waiting_days == null) return null;
   return {
     key: "autofill_due",
-    label: `${workdaysText(meta.waiting_days)} bez decyzji`,
+    // Liczba stoi raz, w wierszu ruchu (`waiting_workdays` = `waiting_days`).
+    label: "Bez decyzji",
     tone: "wait",
-    title: "Osoba od systemu czeka na decyzję: zadzwoń („Dzwonię”) albo odrzuć z powodem.",
+    title: `Osoba od systemu czeka na decyzję od ${workdaysText(meta.waiting_days)} rob.: zadzwoń („Dzwonię”) albo odrzuć z powodem.`,
   };
 }
 
@@ -669,7 +676,9 @@ function newInBaseBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | nu
   if (!view?.isNew || view.days == null) return null;
   return {
     key: "new_in_base",
-    label: `Nowy · ${newInBaseDaysText(view.days)}`,
+    // Data, nie „N dni”: dni kalendarzowe obok „czeka N dni rob.” czytały się jak
+    // druga miara tego samego czekania. Dziś zostaje słowem.
+    label: `Nowy · ${view.days <= 0 ? newInBaseDaysText(view.days) : `od ${formatDayMonthPl(warsawDateOf(item.candidate_added_at))}`}`,
     tone: "info",
     title: addedToBaseTitle(view, item.candidate_added_by_name),
   };
@@ -962,7 +971,7 @@ export const CARD_PRIMARY_LIMIT = 2;
 /** Mówi to przycisk w wierszu ruchu — nie dokłada ani plakietki, ani „+N”. */
 const SAID_BY_MOVE_ROW: ReadonlySet<string> = new Set(["dl_review"]);
 
-/** Fakty tylko do dymku: „Nowy · N dni”, „3 dni bez decyzji”, „U klienta 3×”… */
+/** Fakty tylko do dymku: „Nowy · od 28.10”, „Bez decyzji”, „U klienta 3×”… */
 const ONLY_IN_MORE = (key: string): boolean =>
   key === "autofill_due" ||
   key === "new_in_base" ||

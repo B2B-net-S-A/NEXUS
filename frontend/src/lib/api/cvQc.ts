@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import api from "@/lib/api";
 import { BOARD_TASKS_QUERY_KEY } from "@/lib/api/boardTasks";
-import { apiErrorCode } from "@/lib/cv-qc";
+import { apiErrorCode, type QcStateView } from "@/lib/cv-qc";
 
 export type QcCheckStatus = "pass" | "fail" | "manual" | "skip";
 export type QcSeverity = "blocking" | "warning";
@@ -183,6 +183,8 @@ export interface QcResult {
   blocking_failed: number;
   warnings_count: number;
   override: QcOverride | null;
+  /** Gotowy stan pary, ten sam co na karcie (`services/qc_state.py`). */
+  qc_state?: QcStateView | null;
   /** QC doradza, nie blokuje (`CV_QC_ADVISORY`). */
   advisory?: boolean;
   /** Czy TA osoba może przesunąć kartę mimo uwag QC. */

@@ -58,6 +58,7 @@ EXEMPT: dict[str, str] = {
     "marketplace_sweeper": "sprzątanie Targu; opóźnienie nieszkodliwe",
     "saved_search_alerts": "alerty zapisanych wyszukiwań; nie ścieżka krytyczna",
     "keyword_corpus_backfill": "jednorazowe uzupełnienie korpusu; do końca zapytania używają starych kolumn",
+    "keyword_corpus_readiness": "jednorazowy odczyt gotowości korpusu w workerze; do końca alerty zapisanych wyszukiwań używają starych kolumn",
     "note_kind_backfill": "jednorazowe uzupełnienie rodzaju notatek; do końca wiersz bez rodzaju czyta się jak zwykłą notatkę",
     "cv_qc_recompute": "jednorazowe przeliczenie QC CV po zmianie reguł; do końca plakietka pokazuje poprzedni wynik, a bramka ruchu i okno liczą QC na żywo",
     "qc_quality_daily": "dzienna trafność sprawdzeń QC CV („Jakość QC”); opóźnienie = stary stan automatu, blokady i tak nie przechodzą same",

@@ -99,6 +99,27 @@ beforeEach(() => {
 });
 
 describe("useJobProposals", () => {
+  it("jedna lista: filtr idzie do serwera, kolejność skrzynki zostaje, inne źródła tylko bez filtra", async () => {
+    mocks.inbox.mockResolvedValue({
+      ...inboxPage([3, 2]),
+      items: [
+        { ...inboxItem(3), score: 50, labels: ["portal"] },
+        { ...inboxItem(2), score: 90, labels: [] },
+      ],
+      label_counts: { all: 2, applied: 0, new_in_base: 0, portal: 1, known: 0, similar: 0 },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const { result } = renderHook(
+      () => useJobProposals(JOB, { filters: DEFAULT_PROPOSAL_FILTERS, budgetHourly: null, pipelineCandidateIds: [], singleList: true, listFilter: "portal" }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toEqual([3, 2]));
+    expect(mocks.inbox.mock.calls[0][1]).toMatchObject({ list: "portal" });
+    expect(result.current.status.labelCounts?.portal).toBe(1);
+    expect(result.current.entries[0].detail.labels).toEqual(["portal"]);
+  });
+
   it("scala skrzynkę, żywy przegląd i podobne projekty w jedną listę", async () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([1, 2, 3, 4]));

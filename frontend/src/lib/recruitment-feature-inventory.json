@@ -3209,6 +3209,7 @@
    "marker": "proposals-below-threshold",
    "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy"
   },
+  { "id": "board.sources-single-list", "area": "pozyskiwanie", "opis": "Jedna lista kandydatów za flagą SINGLE_CANDIDATE_LIST_ENABLED: filtry-plakietki (Wszyscy, Zgłosili się, Nowi w bazie, Z portali, Podobne, Znamy) zamiast zakładek „Nowi z ogłoszeń”, „Propozycje z bazy”, „Podobne rekrutacje”; narzędzie przepięć pod filtrem „Podobne”, zgłoszenia odłożone przez AI pod „Zgłosili się” i „Z portali”", "file": "components/v2/recruitment/AddCandidatesPanel.tsx", "marker": "single-list-filters", "v3_home": "okno „Kandydaci do dodania” → Kandydaci" },
   {
    "id": "board.sources-hidden-by-critical",
    "area": "pozyskiwanie",

@@ -3619,6 +3619,16 @@ async def run_qc(
         " ".join(p for p in (src.candidate.name, src.candidate.lastname) if p)
         or "Kandydat"
     )
+    # Obejście doradcze dotyczy CV, przy którym je zrobiono (to liczone teraz).
+    override = await _latest_override(
+        db, src.candidate.id, src.job.id, cv_fingerprint=fp
+    )
+    state = qc_state_of_checks(checks, has_override=override is not None)
+    if state["kind"] == qc_state.OVERRIDDEN:
+        pair = (src.candidate.id, src.job.id)
+        who = (await _pass_through_names(db, [pair])).get(pair)
+        if who:
+            state = qc_state.describe(status="overridden", override_by=who)
     return {
         "stage_id": stage.id,
         "candidate_id": src.candidate.id,
@@ -3629,10 +3639,8 @@ async def run_qc(
         "passed": passed,
         "blocking_failed": blocking_failed,
         "warnings_count": warnings_count,
-        # Obejście doradcze dotyczy CV, przy którym je zrobiono (to liczone teraz).
-        "override": await _latest_override(
-            db, src.candidate.id, src.job.id, cv_fingerprint=fp
-        ),
+        "override": override,
+        "qc_state": state,
         "advisory": advisory_mode(),
         "confirmations": await _confirmations(db, src.candidate.id),
         "confirm_roles": confirm_roles(src),
@@ -4510,6 +4518,88 @@ def manual_items(
     return out
 
 
+def _pair_status(
+    *, passed: bool, dismissed: int, has_override: bool, pending_manual: bool
+) -> str:
+    """Status pary: ta sama kolejność dla zapisu (Tablica) i QC liczonego na żywo."""
+
+    if passed and dismissed:
+        return "overridden"
+    if passed and has_override and pending_manual:
+        # QC-7: w trybie doradczym rekruter przesunął mimo niesprawdzonych.
+        return "overridden"
+    if passed:
+        return "passed"
+    return "overridden" if has_override else "failed"
+
+
+def qc_state_of_checks(checks: list[dict], *, has_override: bool) -> dict:
+    """``qc_state`` z bieżącego wyniku QC (panel osoby i okno QC, 09.11.2026).
+
+    Lustro ścieżek jsonpath z `pair_statuses`, które czytają zapisany przebieg:
+    karta i okno mają mówić to samo. Zgodność pilnuje
+    `test_qc_endpoint_says_the_same_state_as_the_board`.
+    """
+
+    passed, blocking_failed, _ = summarize(checks)
+    manual = [
+        c
+        for c in checks
+        if c.get("status") == "manual" and c.get("severity") == "blocking"
+    ]
+    critical = [c for c in checks if c.get("key") == "critical_skills"]
+    roles = [r for c in critical for r in c.get("roles") or []]
+    unverified = [r.get("requirement") for r in roles if r.get("state") == "unverified"]
+    return qc_state.describe(
+        status=_pair_status(
+            passed=passed,
+            dismissed=dismissed_blocking(checks) if passed else 0,
+            has_override=has_override,
+            pending_manual=bool(unverified or manual),
+        ),
+        blocking_failed=0 if passed else blocking_failed,
+        manual_items=manual_items(
+            [str(c.get("key")) for c in manual],
+            [str(c.get("label") or "") for c in manual],
+            [str(r) for r in unverified if r],
+        ),
+        unverified=_names(unverified),
+        candidate_gaps=[
+            str(i["requirement"])
+            for c in critical
+            for i in c.get("info") or []
+            if i.get("candidate_gap") is True and i.get("requirement")
+        ],
+        manual_requirements=_names(
+            r.get("requirement") for r in roles if r.get("manual")
+        ),
+        manual_by=next(
+            (
+                str(r["manual"]["by"])
+                for r in roles
+                if (r.get("manual") or {}).get("by")
+            ),
+            None,
+        ),
+        to_fix_items=_names(
+            i.get("requirement")
+            for c in checks
+            if c.get("severity") == "blocking" and c.get("status") == "fail"
+            for i in c.get("items") or []
+        ),
+        older_document=next(
+            (
+                i["document"]
+                for c in checks
+                if c.get("key") == "cv_present" and c.get("status") == "manual"
+                for i in c.get("items") or []
+                if i.get("document")
+            ),
+            None,
+        ),
+    )
+
+
 async def pair_statuses(
     db: AsyncSession, pairs: Iterable[tuple[int, int]]
 ) -> dict[tuple[int, int], dict]:
@@ -4660,18 +4750,14 @@ async def pair_statuses(
         # Pominięcia przywrócone po przebiegu — zaliczenie już nie obowiązuje.
         returned = max(dismissed - active_dismissals.get(pair, 0), 0)
         passed = bool(row.passed) and not returned
+        status = _pair_status(
+            passed=passed,
+            dismissed=dismissed,
+            has_override=bool(row.has_override),
+            pending_manual=bool(row.unverified or row.manual_keys),
+        )
         ok_since = _parse_ok_since(row.ok_since) or row.created_at
-        if passed and dismissed:
-            status, ok_at = "overridden", ok_since
-        elif passed and row.has_override and (row.unverified or row.manual_keys):
-            # QC-7: w trybie doradczym rekruter przesunął mimo niesprawdzonych.
-            status, ok_at = "overridden", ok_since
-        elif passed:
-            status, ok_at = "passed", ok_since
-        elif row.has_override:
-            status, ok_at = "overridden", row.override_at
-        else:
-            status, ok_at = "failed", None
+        ok_at = ok_since if passed else row.override_at if row.has_override else None
         items = manual_items(
             row.manual_keys or [], row.manual or [], row.unverified or []
         )

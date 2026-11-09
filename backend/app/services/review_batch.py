@@ -540,7 +540,8 @@ def day_start(now: Optional[datetime] = None) -> datetime:
 @dataclass(frozen=True)
 class Decision:
     """Wyjście karty od systemu z „Nowych”. ``counted_at`` = kiedy liczy się do
-    minimum; ``None`` = „Do screeningu” jeszcze niedomknięte."""
+    minimum; ``None`` = „Do screeningu” jeszcze niedomknięte. ``own_batch`` =
+    karta należała do porcji tej osoby (właściciel i ``in_batch``)."""
 
     process_id: int
     job_id: int
@@ -549,13 +550,16 @@ class Decision:
     stage: str
     moved_at: datetime
     counted_at: Optional[datetime]
+    own_batch: bool
 
 
 @dataclass(frozen=True)
 class DayCounts:
     done: int = 0
-    # Dzisiejsze „Do screeningu” bez domknięcia: nie zmniejszają wymaganego minimum.
+    # Dzisiejsze „Do screeningu” bez domknięcia z własnej porcji: nie zmniejszają
+    # wymaganego minimum. Starsze i cudze karty nikogo nie blokują.
     open_today: int = 0
+    open_cards: tuple[Decision, ...] = ()
     # Wszystkie niedomknięte w oknie ``SCREENING_CLOSE_DAYS`` (do licznika na ekranie).
     open_screenings: int = 0
     screened_today: int = 0
@@ -615,6 +619,7 @@ async def _decisions(
     if not ids:
         return out
     since = since or close_window_start()
+    min_score = (await read_settings(db)).min_score
     earlier = aliased(CandidateStage)
     previous_stage = (
         select(earlier.stage)
@@ -643,6 +648,8 @@ async def _decisions(
                 CandidateStage.stage,
                 CandidateStage.moved_at,
                 CandidateStage.moved_by,
+                RecruitmentProcess.entry_meta,
+                RecruitmentProcess.opened_at,
             )
             .join(
                 CandidateStage,
@@ -718,6 +725,8 @@ async def _decisions(
         stage,
         moved_at,
         user,
+        meta,
+        opened_at,
     ) in exits.values():
         pair = by_pair.get((job_id, candidate_id), [])
         if pair and pair[-1][1] in _NEW_STAGES:
@@ -737,6 +746,19 @@ async def _decisions(
                 counted_at=counted_at_for(
                     name, moved_at, later, answered.get((job_id, candidate_id), [])
                 ),
+                own_batch=_owner(meta) == int(user)
+                and in_batch(
+                    PendingCard(
+                        process_id=int(process_id),
+                        job_id=int(job_id),
+                        candidate_id=int(candidate_id),
+                        owner_id=int(user),
+                        score=_score(meta),
+                        opened_at=opened_at,
+                    ),
+                    moved_at,
+                    min_score,
+                ),
             )
         )
     return out
@@ -748,9 +770,11 @@ def summarize_day(decisions: Iterable[Decision], since: datetime) -> DayCounts:
     )
     items = list(decisions)
     waiting = [d for d in items if d.stage == "screening" and d.counted_at is None]
+    open_cards = tuple(d for d in waiting if d.moved_at >= since and d.own_batch)
     return DayCounts(
         done=len(done),
-        open_today=sum(1 for d in waiting if d.moved_at >= since),
+        open_today=len(open_cards),
+        open_cards=open_cards,
         open_screenings=len(waiting),
         screened_today=sum(
             1 for d in items if d.stage == "screening" and d.moved_at >= since
@@ -787,6 +811,16 @@ class JobShare:
 
 
 @dataclass(frozen=True)
+class OpenScreening:
+    """Dzisiejsze niedomknięte S z porcji, które trzyma minimum."""
+
+    job_id: int
+    job_title: str
+    candidate_id: int
+    name: str
+
+
+@dataclass(frozen=True)
 class BatchStatus:
     enabled: bool
     applies: bool
@@ -804,6 +838,8 @@ class BatchStatus:
     # Rekrutacje w pracy, w których osoba jest rekruterem (z czekającymi u niej
     # osobami albo bez) — lista do „Dodaj 20 kolejnych”.
     team_jobs: tuple[JobShare, ...] = ()
+    # Przy niezrobionym minimum: co domknąć na Tablicy, gdy kolejka jest pusta.
+    open_today_screenings: tuple[OpenScreening, ...] = ()
 
     @property
     def remaining(self) -> int:
@@ -866,6 +902,42 @@ def _priority_rank(job: Job, now: datetime) -> int:
     return _PRIORITY_RANK.get(job.priority, 3)
 
 
+async def _open_screenings(
+    db: AsyncSession, decisions: Iterable[Decision]
+) -> list[OpenScreening]:
+    from app.models.candidate import Candidate
+
+    items = sorted(decisions, key=lambda d: (d.moved_at, d.process_id))
+    if not items:
+        return []
+    titles = dict(
+        (
+            await db.execute(
+                select(Job.id, Job.title).where(Job.id.in_({d.job_id for d in items}))
+            )
+        ).all()
+    )
+    people = {
+        row.id: f"{row.name} {row.lastname}".strip()
+        for row in (
+            await db.execute(
+                select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                    Candidate.id.in_({d.candidate_id for d in items})
+                )
+            )
+        ).all()
+    }
+    return [
+        OpenScreening(
+            job_id=d.job_id,
+            job_title=titles.get(d.job_id) or "",
+            candidate_id=d.candidate_id,
+            name=people.get(d.candidate_id, ""),
+        )
+        for d in items
+    ]
+
+
 async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchStatus:
     settings_value = await read_settings(db)
     if not enabled() or not applies_to(user):
@@ -895,8 +967,8 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
     day = await day_counts(db, user.id, now=now)
     done = day.done
     # Kto ma w porcji mniej, niż brakuje do minimum, przegląda całą porcję.
-    # Dzisiejsze niedomknięte S zostają w rachunku: inaczej przesunięcie całej
-    # porcji na screening zerowałoby wymagane minimum.
+    # Dzisiejsze niedomknięte S z własnej porcji zostają w rachunku: inaczej
+    # przesunięcie całej porcji na screening zerowałoby wymagane minimum.
     required = min(minimum, done + len(cards) + day.open_today)
     met = done >= required
     counts: dict[int, int] = {}
@@ -929,6 +1001,9 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         blocks=not met and blocking_now(settings_value, user.id, now),
         open_screenings=day.open_screenings,
         team_jobs=tuple(await _team_jobs(db, user.id, counts, now=now)),
+        open_today_screenings=(
+            () if met else tuple(await _open_screenings(db, day.open_cards))
+        ),
     )
 
 
@@ -1277,13 +1352,15 @@ async def assert_removal_allowed(
                 ),
             },
         )
-    # Dzisiejsze niedomknięte S trzyma wymagane minimum: usunięcie karty po
-    # klawiszu S zerowałoby je tak samo jak usunięcie z „Nowych”.
+    # Dzisiejsze niedomknięte S z własnej porcji trzyma wymagane minimum: usunięcie
+    # karty po klawiszu S zerowałoby je tak samo jak usunięcie z „Nowych”. Starsza
+    # albo cudza karta minimum nie trzyma, więc można ją zdjąć.
     since = day_start(now)
     decisions = (await _decisions(db, [user.id], now=now)).get(user.id, [])
     if any(
         d.job_id == job_id
         and d.candidate_id == candidate_id
+        and d.own_batch
         and d.counted_at is None
         and d.moved_at >= since
         for d in decisions

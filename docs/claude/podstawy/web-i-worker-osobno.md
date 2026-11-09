@@ -36,6 +36,11 @@ na pamięci procesu czytanej przez trasy albo gniazda:
 W obu procesach biegną `runtime_metrics` (mierzy własną pętlę zdarzeń, pole `process_role`)
 i `process_bus`.
 
+Flagi korpusu są pamięcią procesu, a worker też szuka kandydatów (`saved_search_alerts` przez
+ASGITransport). Dlatego przy starcie workera `keyword_corpus_readiness` czyta z bazy te same
+warunki, po których web ustawia flagi, i ponawia odczyt, aż web skończy uzupełnianie. Bez tego
+worker liczył zapisane wyszukiwania inną ścieżką niż lista w web.
+
 ## Współpraca web i workera
 
 - **`app/core/process_bus.py`:** LISTEN/NOTIFY Postgresa, tylko sygnały do zgubienia, do 7,9 kB.

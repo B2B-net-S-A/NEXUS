@@ -95,6 +95,36 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   w NEXUSIE. Wejście na etap to `field = 'stage_id'` (także `kind='created'`);
   z tego samego źródła liczy się KPI ofert — nie zakładaj drugiej tabeli etapów.
 
+## Ostatni dotyk i archiwizacja w cieniu (decyzje Artura 09.11.2026)
+
+- **Jedna definicja: `services/sales/touch.py`**, używają jej lista i karta szansy
+  (`last_touch_at`), Podsumowanie i automat. Były trzy (`summary.py`, kafelek,
+  filtr) i dawały inne liczby dla tej samej szansy, dlatego front niczego już
+  nie liczy sam.
+- **Dotyk** to najpóźniejsza chwila w przeszłości spośród: aktywność szansy albo
+  jej firmy (odbyty telefon, notatka, mail w obie strony, odbyte i nieodwołane
+  spotkanie, zrobione zadanie w `done_at`), `last_activity_at` bez śladów joba,
+  `created_at` szansy jako dolna granica.
+- **Nie są dotykiem:** `updated_at` (zapisuje go import), otwarte zadanie,
+  zaplanowany telefon i przyszłe spotkanie: to zamiar, nie praca. Telefon z terminem
+  bez `done_at` jest zaplanowany także wtedy, gdy ma `occurred_at`, bo import wpisuje
+  tam datę założenia. Telefon bez terminu to wpis historii.
+- **Ślad joba Atlasa:** wiersz z importu z `last_activity_at` o 06:20:00 UTC
+  (okno jednej sekundy). Zmierzone na kopii z 08.11: 104 z 250 otwartych z importu,
+  431 w całej tabeli, 0 o 04:20 i 05:20 UTC ani o 06:20 w Warszawie.
+- **Odbiór (kopia 08.11, stan na 09.11 00:00, 320 otwartych):** ponad 30/60/90 dni
+  bez dotyku = 223/195/108. Szacunek 231/207/118
+  liczono na 08.11 i z `created_at` tylko jako zastępstwem, bez zrobionych zadań.
+- **Automat w trybie cienia** (`tasks/sales_archive_shadow.py`, kontener worker,
+  raz dziennie o 04:40, wyłącznik `SALES_ARCHIVE_SHADOW_ENABLED`): liczy, co by
+  zarchiwizował (otwarta, bez przyszłego kroku, dotyk ponad 90 dni, poza Fabrykami
+  IT i Przetargami, bez `top22`, bez `keep_open_until` w przyszłości) i zapisuje
+  jedną linię logu z samymi liczbami. Transakcja jest tylko do odczytu, bo progi
+  trzeba najpierw zobaczyć na danych, a archiwizacja dotyka pracy handlowców.
+  Włączenie prawdziwej archiwizacji to osobna decyzja.
+- **Ponowny import** nie nadpisuje `keep_open_until`, `archived_reason` ani
+  rodzaju aktywności w wierszu zmienionym w NEXUSIE (`PROTECTED`).
+
 ## Wygrana → Delivery (decyzja 27.10.2026)
 
 - **Tylko powiązanie z klientem NEXUSA** (`/api/sales/clients/link/{company_id}`)
@@ -145,7 +175,9 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   i przypisanie zadania. Opiekun i przypisanie zadania są tylko uzupełniane
   (`COALESCE`), nigdy kasowane.
 - **Zadanie przy szansie należy do opiekuna szansy** (reguła Atlasa, liczona
-  przy imporcie). Lista „Zadania” obejmuje też telefony z terminem.
+  przy imporcie i przy zapisie w NEXUSIE, `_default_assignee`). Jawne
+  przypisanie wygrywa; bez szansy albo bez aktywnego opiekuna zadanie zostaje
+  u autora. Lista „Zadania” obejmuje też telefony z terminem.
 - **Opiekun z Atlasa bez konta = `owner_label`.** Etykietę przypisuje do konta
   admin (Firmy → „Opiekunowie z Atlasa”); nazwisk nie ma w kodzie ani w logach.
 - **Osoba w kilku firmach**: `sales_company_contacts` (rola, stanowisko,
@@ -230,6 +262,8 @@ https://claude.ai/artifact/M6mS1dYC9DwcPe3BDBEv7j.
   (`offers_only`), bez nowej tabeli. Generator ofert dalej jest poza zakresem.
 - **Spotkania = `GET /api/sales/activities/meetings`**: wszystkie aktywności
   `meeting`, notatka skrócona do 300 znaków, bo transkrypcja bywa bardzo długa.
+  Decyzja przy wierszu (przypnij, załóż szansę, klient NEXUSA):
+  `outlook-handlowcow-w-sprzedazy.md`.
   Nowe nagrania przychodzą z transkryptów Teams, nie z Fireflies (niżej).
 - **Filtry szans:** Model (`service_line`) i data utworzenia w kalendarzu firmy,
   pod przyciskiem „Filtry”, bo przy 1280 × 720 kolejny rząd pól zabiera miejsce

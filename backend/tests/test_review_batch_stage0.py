@@ -223,6 +223,72 @@ async def test_screening_of_whole_batch_does_not_unlock(batch_on):
     assert status.pending == 0 and status.required == 2 and status.met is False
 
 
+async def _rewrite_process(job_id: int, cid: int, **changes) -> None:
+    async with AsyncSessionLocal() as db:
+        process = (
+            await db.scalars(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.job_id == job_id,
+                    RecruitmentProcess.candidate_id == cid,
+                )
+            )
+        ).one()
+        for name, value in changes.items():
+            setattr(process, name, value)
+        await db.commit()
+
+
+async def test_old_card_moved_on_the_board_does_not_block_again(batch_on):
+    """Starsza karta nie jest porcją: jej S nie cofa zrobionego minimum."""
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    first, old = await _fill(world["job_id"])
+    await _move(world["job_id"], first, PipelineStage.rejected, a)
+    await _rewrite_process(
+        world["job_id"], old, opened_at=_now() - timedelta(days=rb.MAX_AGE_DAYS + 3)
+    )
+    assert (await _status(a)).met is True
+
+    await _move(world["job_id"], old, PipelineStage.screening, a)
+
+    status = await _status(a)
+    assert status.done_today == 1 and status.required == 1 and status.met is True
+    assert status.open_today_screenings == ()
+
+
+async def test_screening_of_someone_elses_card_does_not_hold_my_minimum(batch_on):
+    a = await _user()
+    b = await _user()
+    world = await _world(1, recruiters=[a])
+    await _pool(world["job_id"], {world["ids"][0]: 90})
+    [cid] = await _fill(world["job_id"])
+    await _rewrite_process(
+        world["job_id"], cid, entry_meta={"score": 90, rb.OWNER_KEY: b}
+    )
+
+    await _move(world["job_id"], cid, PipelineStage.screening, a)
+
+    status = await _status(a)
+    assert status.required == 0 and status.met is True
+
+
+async def test_status_lists_todays_open_screenings_from_own_batch(batch_on):
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    added = await _fill(world["job_id"])
+    for cid in added:
+        await _move(world["job_id"], cid, PipelineStage.screening, a)
+
+    status = await _status(a)
+
+    assert status.pending == 0 and status.required == 2 and status.met is False
+    assert {row.candidate_id for row in status.open_today_screenings} == set(added)
+    row = status.as_dict()["open_today_screenings"][0]
+    assert row["job_id"] == world["job_id"] and row["job_title"] and row["name"]
+
+
 async def test_screening_closed_by_saved_form_counts(batch_on):
     a = await _user()
     world = await _world(1, recruiters=[a])
@@ -309,6 +375,41 @@ async def test_card_moved_to_screening_today_cannot_be_removed(batch_on):
         await rb.assert_removal_allowed(
             db, user, candidate_id=rejected, job_id=world["job_id"]
         )
+
+
+async def _assert_removable_after_screening(
+    job_id: int, cid: int, user_id: int
+) -> None:
+    await _move(job_id, cid, PipelineStage.screening, user_id)
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        await rb.assert_removal_allowed(db, user, candidate_id=cid, job_id=job_id)
+
+
+async def test_old_card_moved_to_screening_today_can_be_removed(batch_on):
+    """Starsza karta nie jest porcją, więc jej S nie trzyma minimum."""
+    a = await _user()
+    world = await _world(1, recruiters=[a])
+    await _pool(world["job_id"], {world["ids"][0]: 90})
+    [old] = await _fill(world["job_id"])
+    await _rewrite_process(
+        world["job_id"], old, opened_at=_now() - timedelta(days=rb.MAX_AGE_DAYS + 3)
+    )
+
+    await _assert_removable_after_screening(world["job_id"], old, a)
+
+
+async def test_someone_elses_card_moved_to_screening_today_can_be_removed(batch_on):
+    a = await _user()
+    b = await _user()
+    world = await _world(1, recruiters=[a])
+    await _pool(world["job_id"], {world["ids"][0]: 90})
+    [cid] = await _fill(world["job_id"])
+    await _rewrite_process(
+        world["job_id"], cid, entry_meta={"score": 90, rb.OWNER_KEY: b}
+    )
+
+    await _assert_removable_after_screening(world["job_id"], cid, a)
 
 
 async def test_card_in_cpro_column_with_new_enum_is_not_in_batch(batch_on):

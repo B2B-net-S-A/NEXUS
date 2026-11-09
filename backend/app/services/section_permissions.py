@@ -111,8 +111,8 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
     # 0637: wycofywany Viewer nie ma żadnej sekcji — przechodził imienne Insights,
     # a na produkcji nie ma już kont tej roli (``viewer_role_schema``).
     UserRole.user: _policy(),
-    # 0374: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami
-    # (`/api/trainee/*`, ``TraineeUser``).
+    # 0374: praktykant nie ma żadnej sekcji (jego program usunięto 08.11.2026,
+    # rola została).
     UserRole.trainee: _policy(),
     # 0446: „Automatyzacje” — wszędzie tylko odczyt, więc bramka sekcji odmawia
     # każdego zapisu. Delivery „read” to próg zasiewu podglądu Delivery

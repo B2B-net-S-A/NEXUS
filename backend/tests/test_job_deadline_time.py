@@ -33,13 +33,10 @@ def _migration():
     return module
 
 
-def test_migration_is_mirrored_and_column_belongs_to_nexus() -> None:
-    from app.services.job_column_ownership import NEXUS_OWNED
-
+def test_migration_is_mirrored() -> None:
     module = _migration()
     assert module.down_revision == "0405_proposal_feedback_job_board"
     assert module.ADD_COLUMN in (BACKEND / "entrypoint.sh").read_text()
-    assert "deadline_time" in NEXUS_OWNED
 
 
 def test_time_without_any_date_is_refused() -> None:

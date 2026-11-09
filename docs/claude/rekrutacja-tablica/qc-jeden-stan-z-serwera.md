@@ -6,6 +6,10 @@ i cztery nazwy przepuszczenia. Każda poprawka stanu szła w sześciu kopiach.
 
 - `cv_qc.pair_statuses` zwraca `qc_state` (`services/qc_state.py`). Front tylko go
   renderuje: `qcStateText`, `QcStatusBadge`, chip karty, nagłówek „Kontrola CV”.
+- `run_qc` (odpowiedź `/qc`) zwraca ten sam `qc_state`, policzony z bieżących `checks`
+  (`qc_state_of_checks`, lustro ścieżek jsonpath z `pair_statuses`). Panel osoby i okno QC
+  czytają go zamiast liczyć z `passed` (09.11.2026: panel mówił „bez blokad”, karta
+  „wskaż stanowisko”). Nowe pole z `checks` dopisz po obu stronach.
   Ramka „Następny etap” (`move_requirements._qc_result_item`) bierze ten sam tekst.
 - Słownik: „QC: sprawdzone”, „QC: sprawdzone ręcznie · Anna K.”, „QC: wskaż
   stanowisko · 3”, „QC: obejrzyj zgodę RODO”, „QC: kandydat nie ma: Kafka”,
@@ -19,7 +23,7 @@ i cztery nazwy przepuszczenia. Każda poprawka stanu szła w sześciu kopiach.
 - „Kontrola CV” w przeglądzie DL ma w nagłówku stan i jedno „Otwórz QC”. Pasek nad CV
   nie powtarza już wyniku QC.
 
-Testy: `tests/test_qc_state.py`, `CvControlSummary.test.tsx`, `QcStatusBadge.test.tsx`.
+Testy: `tests/test_qc_state.py`, `test_qc_endpoint_says_the_same_state_as_the_board`, `CvControlSummary.test.tsx`, `QcStatusBadge.test.tsx`.
 
 ## Co zatrzymuje parę u rekrutera (QC-7, QC-8, 08.11.2026)
 
