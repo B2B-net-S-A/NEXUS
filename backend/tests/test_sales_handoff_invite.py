@@ -307,9 +307,11 @@ async def test_lost_answer_blocks_every_window_until_it_expires(
         opp = await handoff.lock(db, opportunity_id)
         data = handoff_state.block(opp)
         stale = datetime.now(timezone.utc) - handoff_invite.RETRY_AFTER
-        data[handoff_invite.INVITE_KEY]["reserved_at"] = (
-            stale - timedelta(minutes=1)
-        ).isoformat()
+        # Nowy słownik, nie zmiana w miejscu: inaczej SQLAlchemy nie widzi różnicy w JSON-ie.
+        data[handoff_invite.INVITE_KEY] = {
+            **data[handoff_invite.INVITE_KEY],
+            "reserved_at": (stale - timedelta(minutes=1)).isoformat(),
+        }
         handoff_state.store(opp, data)
         await db.commit()
     retried = await _send(app_client, host, opportunity_id)
