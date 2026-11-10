@@ -35,6 +35,12 @@ function nextDayKey(key: string): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Dzień `RRRR-MM-DD` i godzina `GG:MM` chwili ISO w kalendarzu firmy. */
+export function companyDayTime(iso: string | Date): { day: string; time: string } {
+  const parts = localParts(typeof iso === "string" ? new Date(iso) : iso);
+  return { day: dayKey(parts), time: parts.time };
+}
+
 /** Czy chwila ISO to dziś w kalendarzu firmy. */
 export function isMeetingToday(iso: string | null, now: Date = new Date()): boolean {
   return iso !== null && dayKey(localParts(new Date(iso))) === dayKey(localParts(now));

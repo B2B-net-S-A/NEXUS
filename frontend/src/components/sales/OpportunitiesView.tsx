@@ -32,6 +32,7 @@ import {
   type Stage,
   type OpportunitySort,
 } from "@/lib/api/sales";
+import { IT_FACTORIES_PIPELINE_KEY } from "@/lib/api/sales-factories";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { hasPermission } from "@/lib/permissions";
@@ -39,6 +40,7 @@ import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { FactoriesView } from "./factories/FactoriesView";
 import { daysSince, formatDealAmount, formatDealNumber } from "./format";
 import { OpportunityBoard } from "./OpportunityBoard";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
@@ -119,7 +121,6 @@ export function OpportunitiesView() {
   const { replaceUrl } = useUrlWriter();
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
-  const view: View = searchParams?.get("view") === "list" ? "list" : "board";
   const mine = searchParams?.get("mine") === "1";
   // Konkretny opiekun (`?opiekun=`), sortowanie i archiwum — jak w Atlasie
   // (audyt importu 28.10.2026: 766 zarchiwizowanych szans było nie do znalezienia).
@@ -138,7 +139,6 @@ export function OpportunitiesView() {
     archived,
     sort !== "updated",
   ].filter(Boolean).length;
-  const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
   const [q, setQ] = useState(searchParams?.get("q") ?? "");
   const [creating, setCreating] = useState(false);
 
@@ -150,6 +150,15 @@ export function OpportunitiesView() {
     pipelines.data?.find((p) => p.id === pipelineParam) ??
     pipelines.data?.find((p) => p.is_default) ??
     pipelines.data?.[0];
+  // Fabryki IT startują od listy kont mierzonej kontaktem (decyzja Artura 10.11.2026):
+  // etapy tego lejka opisują research, więc tablica nie mówi, z kim już rozmawialiśmy.
+  const isFactories = pipeline?.key === IT_FACTORIES_PIPELINE_KEY;
+  const defaultView: View = isFactories ? "list" : "board";
+  const viewParam = searchParams?.get("view");
+  const view: View = viewParam === "list" || viewParam === "board" ? viewParam : defaultView;
+  const ownerOptions = useOwnerFilterOptions(pipeline && !pipeline.is_default ? pipeline.id : null).filter(
+    (option) => option.value.startsWith("acct:"),
+  );
   const opportunities = useOpportunities(
     {
       pipeline_id: pipeline?.id ?? null,
@@ -317,7 +326,7 @@ export function OpportunitiesView() {
                 { value: "list", label: "Lista" },
               ]}
               value={view}
-              onChange={(value) => writeParam("view", value === "list" ? "list" : null)}
+              onChange={(value) => writeParam("view", value === defaultView ? null : value)}
             />
           </div>
         }
@@ -385,6 +394,16 @@ export function OpportunitiesView() {
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie szans…</p>
       ) : state === "forbidden" || state === "not_found" || state === "error" ? (
         <QueryStateNotice state={state} onRetry={() => void opportunities.refetch()} />
+      ) : isFactories && view === "list" ? (
+        // Przed pustym stanem listy: kolejka osób nie zależy od filtrów szans.
+        <FactoriesView
+          items={items}
+          ownerId={mine ? (user?.id ?? null) : ownerParam}
+          currentUserId={user?.id ?? null}
+          canEdit={canEdit}
+          archived={archived}
+          search={q}
+        />
       ) : state === "empty" ? (
         <EmptyState
           icon={Target}

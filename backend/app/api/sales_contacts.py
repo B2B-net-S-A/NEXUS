@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,12 +26,16 @@ from app.core.database import get_db
 from app.models.sales import SalesCompany, SalesCompanyContact, SalesContact
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales.companies import http_url
+from app.services.sales.contacts import (
+    OBJECTION_DETAIL,
+    PHONE_FIELDS,
+    ensure_new_person_not_objected,
+    set_primary_company,
+)
 
 router = APIRouter()
 
 NOT_FOUND_DETAIL = "Nie ma takiego kontaktu."
-OBJECTION_DETAIL = "Ta osoba zgłosiła sprzeciw wobec kontaktu, numeru nie zapisujemy."
-PHONE_FIELDS = ("phone", "mobile_phone")
 
 
 class ContactFields(BaseModel):
@@ -174,37 +178,6 @@ async def _companies(
     return found
 
 
-async def _set_primary(
-    db: AsyncSession, contact: SalesContact, company_id: Optional[int]
-) -> None:
-    """Firma główna = jedyny wiersz powiązania z ``is_primary``."""
-
-    await db.execute(
-        update(SalesCompanyContact)
-        .where(
-            SalesCompanyContact.contact_id == contact.id,
-            SalesCompanyContact.company_id != (company_id or 0),
-            SalesCompanyContact.is_primary.is_(True),
-        )
-        .values(is_primary=False)
-    )
-    if company_id is None:
-        return
-    await db.execute(
-        insert(SalesCompanyContact)
-        .values(
-            company_id=company_id,
-            contact_id=contact.id,
-            title=contact.title,
-            is_primary=True,
-        )
-        .on_conflict_do_update(
-            index_elements=["company_id", "contact_id"],
-            set_={"is_primary": True},
-        )
-    )
-
-
 async def _check_company(db: AsyncSession, company_id: Optional[int]) -> None:
     if company_id is not None and await db.get(SalesCompany, company_id) is None:
         raise HTTPException(
@@ -245,30 +218,6 @@ def _adds_phone(contact: SalesContact, fields: dict[str, Any]) -> bool:
         for key in PHONE_FIELDS
         if key in fields
     )
-
-
-async def _ensure_new_person_not_objected(
-    db: AsyncSession, full_name: str, fields: dict[str, Any]
-) -> None:
-    """Sprzeciw zostaje też wtedy, gdy numer przyjdzie pod „nową osobą” o tej nazwie."""
-
-    company_id = fields.get("company_id")
-    if company_id is None or not any(fields.get(key) for key in PHONE_FIELDS):
-        return
-    linked = select(SalesCompanyContact.contact_id).where(
-        SalesCompanyContact.company_id == company_id
-    )
-    objected = await db.scalar(
-        select(SalesContact.id)
-        .where(
-            func.lower(SalesContact.full_name) == full_name.lower(),
-            SalesContact.do_not_contact_at.is_not(None),
-            or_(SalesContact.company_id == company_id, SalesContact.id.in_(linked)),
-        )
-        .limit(1)
-    )
-    if objected is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=OBJECTION_DETAIL)
 
 
 def _digits(column):
@@ -351,14 +300,14 @@ async def create_contact(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Podaj imię i nazwisko."
         )
     await _check_company(db, fields.get("company_id"))
-    await _ensure_new_person_not_objected(db, full_name, fields)
+    await ensure_new_person_not_objected(db, full_name, fields)
     contact = SalesContact(
         full_name=full_name, source="manual", created_by_user_id=current_user.id
     )
     _apply(contact, fields)
     db.add(contact)
     await db.flush()
-    await _set_primary(db, contact, contact.company_id)
+    await set_primary_company(db, contact, contact.company_id)
     await db.commit()
     return await _load(db, contact.id)
 
@@ -391,7 +340,7 @@ async def update_contact(
     )
     _apply(contact, fields)
     if primary_changed:
-        await _set_primary(db, contact, contact.company_id)
+        await set_primary_company(db, contact, contact.company_id)
     if {"full_name", "first_name", "last_name"} & fields.keys():
         full_name = _full_name(fields, contact)
         if not full_name:

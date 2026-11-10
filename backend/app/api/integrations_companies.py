@@ -65,7 +65,7 @@ pretending to be complete.
 
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from datetime import date
 from typing import Annotated, Any, Literal, Optional
 
@@ -290,7 +290,7 @@ def _experience_entries(candidate: Candidate) -> list[dict[str, Any]]:
 
 
 def _match_experience(
-    candidate: Candidate, canonical_names: set[str]
+    candidate: Candidate, canonical_names: Set[str]
 ) -> tuple[Optional[Relationship], Optional[dict[str, Any]]]:
     """Decide this candidate's relationship to the company, exactly.
 
@@ -400,30 +400,13 @@ async def _resolve_client(
     wide (contract terms, notes) and nothing else here is read.
 
     Merged-away clients are excluded and hidden duplicates deprioritised — see
-    the query comment.
+    ``_client_labels``.
     """
-    # `hidden` marks a duplicate spelling and `merged_into_client_id` a client
-    # folded into another. Matching either would hand back an id whose contracts
-    # live on the surviving row, so `via_us` would silently come back empty.
-    # Ordering puts the canonical row first when a name still matches several.
-    # Runda 9 (R9-N9-5): a deleted client (`deleted_at`) is not a NEXUS client
-    # any more — CRM must not be told the company is ours.
-    labels = (
-        select(Client.id, Client.name, Client.legal_name, Client.display_name)
-        .where(Client.merged_into_client_id.is_(None), Client.deleted_at.is_(None))
-        .order_by(Client.hidden.asc(), Client.id.asc())
-    )
+    labels = _client_labels()
 
     if nip:
-        # Digits-only comparison in SQL — CRMs store NIP with dashes or a `PL`
-        # prefix, so an equality test on the raw column silently misses.
         row = (
-            await db.execute(
-                labels.where(
-                    func.regexp_replace(func.coalesce(Client.nip, ""), r"\D", "", "g")
-                    == nip
-                ).limit(1)
-            )
+            await db.execute(labels.where(_client_nip_digits() == nip).limit(1))
         ).first()
         if row is not None:
             return MatchedClient(id=row.id, name=row.display_name or row.name)
@@ -432,6 +415,29 @@ async def _resolve_client(
         if names & canonical_names:
             return MatchedClient(id=client_id, name=display)
     return None
+
+
+def _client_labels():
+    """Clients a company may resolve to, canonical row first.
+
+    `hidden` marks a duplicate spelling and `merged_into_client_id` a client
+    folded into another. Matching either would hand back an id whose contracts
+    live on the surviving row, so `via_us` would silently come back empty.
+    Ordering puts the canonical row first when a name still matches several.
+    Runda 9 (R9-N9-5): a deleted client (`deleted_at`) is not a NEXUS client
+    any more — CRM must not be told the company is ours.
+    """
+    return (
+        select(Client.id, Client.name, Client.legal_name, Client.display_name)
+        .where(Client.merged_into_client_id.is_(None), Client.deleted_at.is_(None))
+        .order_by(Client.hidden.asc(), Client.id.asc())
+    )
+
+
+def _client_nip_digits():
+    """Digits-only NIP in SQL — CRMs store it with dashes or a `PL` prefix, so
+    an equality test on the raw column silently misses."""
+    return func.regexp_replace(func.coalesce(Client.nip, ""), r"\D", "", "g")
 
 
 # Runda 9 (R9-N9-12): the name pass used to re-normalise every client label on

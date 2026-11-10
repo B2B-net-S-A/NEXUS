@@ -634,6 +634,9 @@ class CproQueueCv(BaseModel):
     # CV etapu jest szkicem: akceptacja DL-a nie zdołała go zatwierdzić
     # (`cv_dl_accept_finalize`), więc „CV” pobierze plik „SZKIC_…”.
     draft: bool = False
+    # Szkic czeka na kontrolę AI w tle po akceptacji DL-a; po niej zostanie
+    # zatwierdzony i „CV” da plik bez „SZKIC_” (10.11.2026).
+    review_pending: bool = False
 
 
 class CproQueueItem(BaseModel):
@@ -1536,6 +1539,11 @@ async def get_cpro_queue(
     pairs = [(t.candidate_id, t.job_id) for t in to_send]
     rates = await latest_client_rates(db, pairs)
     cvs = await move_requirements.company_cv_refs(db, pairs)
+    from app.services.cv_dl_accept_finalize import review_pending_stage_ids
+
+    reviewing = await review_pending_stage_ids(
+        db, [cv["stage_id"] for cv in cvs.values() if cv["source"] == "branded_draft"]
+    )
     availability = await _availability(db, {t.candidate_id for t in to_send})
     mover_ids = {t.moved_by for t in to_send if t.moved_by is not None}
     movers = (
@@ -1585,6 +1593,7 @@ async def get_cpro_queue(
                     generated_document_id=cv["generated_document_id"],
                     document_id=cv["document_id"],
                     draft=cv["source"] == "branded_draft",
+                    review_pending=cv["stage_id"] in reviewing,
                 )
                 if cv
                 else None

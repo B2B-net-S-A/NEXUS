@@ -72,8 +72,11 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
 ## Przypięcie do szansy i ekran Spotkania (09.11.2026)
 
 Synchronizacja przypina aktywność do firmy. Do szansy przypina handlowiec
-przy wierszu w Sprzedaż → Spotkania, bo tylko on wie, której szansy dotyczy
-spotkanie. Logika: `services/sales/meeting_decisions.py`, `client_gate.py`.
+przy wierszu w Sprzedaż → Spotkania, bo przy kilku szansach tylko on wie, której
+dotyczy spotkanie. Logika: `services/sales/meeting_decisions.py`, `client_gate.py`.
+Od 10.11.2026 spotkanie firmy z jedną otwartą szansą przypina się samo
+(`meeting_autopin.py`, reguły w `przekazanie-spotkania-i-werdykt.md`); „Cofnij
+przypięcie” działa na nie tak samo i takie spotkanie nie przypina się ponownie.
 
 - **Trasy** za `SalesEditUser`: `POST` i `DELETE /api/sales/activities/{id}/pin`
   (mail i spotkanie z Outlooka, otwarta szansa tej samej firmy) oraz

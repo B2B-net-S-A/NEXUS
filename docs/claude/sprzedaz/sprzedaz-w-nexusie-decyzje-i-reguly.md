@@ -424,6 +424,22 @@ osoby, paska postępu i blokady za brak skrzynki celowo nie ma.
 - **Rama:** tytuł i zakładki w jednym rzędzie od 1280 px, opis i akcje w niskiej linii
   pod spodem. Karta firmy i szansy bez zakładek zostają przy `PageHeader`.
 
+## Przekazanie spotkania i werdykt (decyzje Artura 10.11.2026)
+
+Pełne reguły: `przekazanie-spotkania-i-werdykt.md`. W skrócie:
+
+- **Szansa powstaje z umówionego spotkania**: „Umów spotkanie” zakłada ją na etapie
+  „Spotkanie kwalifikujące” u prowadzącego, a osoba, która umówiła, zostaje autorem.
+  „Oferta ogólna wysłana” to wynik rozmowy, nie szansa.
+- **„Mój dzień” ma dwie sekcje przekazań**: „Przekazane do Ciebie” (terminy,
+  potwierdzenie u klienta, werdykt jednym kliknięciem) i „Umówione przez Ciebie”
+  (werdykt prowadzącego i własne liczby tygodnia). Stan leży w
+  `custom_fields["handoff"]` szansy, bez nowej tabeli.
+- **Moduł podpowiada, nie blokuje**, i nie mierzy ludzi: bez celu dziennego, paska
+  postępu, rankingu i przełącznika osoby.
+- **Spotkanie z kalendarza przypina się samo**, gdy firma ma jedną otwartą szansę,
+  a nowa karta firmy dostaje podpowiedź istniejącej karty i domeny.
+
 ## Porządek po imporcie: lista Zadania (09.11.2026)
 
 - **Lista „Zadania” nie pokazuje sierot** (`services/sales/task_scope.py`): otwartej

@@ -186,6 +186,70 @@ describe("Moje powiadomienia", () => {
   });
 });
 
+describe("Moje powiadomienia — ruchy w prowadzonych rekrutacjach", () => {
+  const pipeline = {
+    key: "pipeline",
+    label: "Ruchy w rekrutacjach",
+    description: "Kandydat przesunięty na inny etap.",
+    mandatory: false,
+    muted: false,
+    received_30d: 153,
+  };
+  const ACCOUNT_URL = "/api/users/me/preferences";
+
+  function mockWithAccount(account: Record<string, unknown> | Error, muted = false) {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const body =
+        url === EMAILS_URL
+          ? MY_EMAILS
+          : url === ACCOUNT_URL
+            ? account
+            : { categories: [{ ...pipeline, muted }] };
+      if (body instanceof Error) throw body;
+      return { data: body } as never;
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.get).mockReset();
+    vi.mocked(api.patch).mockReset();
+  });
+
+  it("domyślnie tylko moi kandydaci; drugi wybór zapisuje się na koncie", async () => {
+    mockWithAccount({ stage_moves_all_led_jobs: false });
+    vi.mocked(api.patch).mockResolvedValue({
+      data: { stage_moves_all_led_jobs: true },
+    } as never);
+    const user = renderPanel();
+    const mine = await screen.findByRole("radio", { name: /Tylko moi kandydaci/ });
+    expect(mine).toHaveAttribute("aria-checked", "true");
+    await user.click(
+      screen.getByRole("radio", { name: /Wszyscy kandydaci w rekrutacjach, które prowadzę/ }),
+    );
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(ACCOUNT_URL, {
+        stage_moves_all_led_jobs: true,
+      }),
+    );
+  });
+
+  it("przy wyłączonej kategorii wyboru nie ma", async () => {
+    mockWithAccount({ stage_moves_all_led_jobs: false }, true);
+    renderPanel();
+    await screen.findByRole("switch", { name: "Ruchy w rekrutacjach" });
+    expect(screen.queryByRole("radio", { name: /Tylko moi kandydaci/ })).toBeNull();
+  });
+
+  it("awaria odczytu konta mówi o awarii zamiast pokazać domyślny wybór", async () => {
+    mockWithAccount(new Error("boom"));
+    renderPanel();
+    expect(
+      await screen.findByText("Nie udało się wczytać, czyje ruchy dostajesz."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /Tylko moi kandydaci/ })).toBeNull();
+  });
+});
+
 describe("Moje powiadomienia — „Maile do Ciebie”", () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset();

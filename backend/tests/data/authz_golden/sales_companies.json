@@ -33,6 +33,7 @@
  "routes": {
   "GET /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/duplicates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/identity": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/owner-labels": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/registry": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

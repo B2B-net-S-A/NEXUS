@@ -79,6 +79,7 @@ from app.services.m365.matcher import IncomingMessage
 from app.services.m365.oauth import M365ReauthRequired
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
 from app.services.sales import meeting_transcripts as sales_transcripts
+from app.services.sales import meeting_autopin as sales_autopin
 from app.services.sales import outlook_activities as sales_outlook
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,7 @@ async def _sync_connection_locked(
                     await sales_transcripts.resolve_join_urls(db, gc, conn.user_id)
             if scope.sales:
                 await _sales_catch_up(db, conn)
+                await _auto_pin_sales_meetings(db, conn)
                 await _settle_sales_meetings(db, conn)
 
         await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
@@ -1029,6 +1031,16 @@ async def _settle_sales_meetings(db: AsyncSession, conn: M365Connection) -> None
         await db.commit()
     except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
         logger.exception("m365 conn %s: pinned sales meetings failed", conn.id)
+
+
+async def _auto_pin_sales_meetings(db: AsyncSession, conn: M365Connection) -> None:
+    """Spotkania firm z jedną otwartą szansą przypinają się same (10.11.2026)."""
+    try:
+        async with db.begin_nested():
+            await sales_autopin.pin_obvious_meetings(db, now=datetime.now(timezone.utc))
+        await db.commit()
+    except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
+        logger.exception("m365 conn %s: auto-pin of sales meetings failed", conn.id)
 
 
 async def _sales_catch_up(db: AsyncSession, conn: M365Connection) -> None:
