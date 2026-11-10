@@ -542,6 +542,7 @@ export function FilePreviewModal({
   candidateName,
   headerActions,
   onCloseAutoFocus,
+  searchRequest = null,
 }: {
   doc?: CandidateDocument | null;
   documents?: CandidateDocument[];
@@ -556,6 +557,8 @@ export function FilePreviewModal({
   headerActions?: ReactNode;
   /** Gdzie wrócić fokusem po zamknięciu (domyślnie przycisk, który otworzył okno). */
   onCloseAutoFocus?: (event: Event) => void;
+  /** Lupa ustawiona przy otwarciu (np. klik w „✓ java” w podglądzie osoby). */
+  searchRequest?: DocumentSearchRequest | null;
 }) {
   const recruiterOnly = useRecruiterOnly();
   const gallery = useMemo(() => {
@@ -706,6 +709,7 @@ export function FilePreviewModal({
           findShortcutScope="dialog"
           loadDocumentBlob={loadDocumentBlob}
           pdfFit="actual"
+          searchRequest={searchRequest}
         />
       </DialogContent>
     </Dialog>

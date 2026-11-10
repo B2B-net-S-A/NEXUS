@@ -37,6 +37,8 @@ from app.schemas.candidate_search import (
     LastRecruitment,
     MatchScoresRequest,
     MatchScoresResponse,
+    RequirementEvidenceRequest,
+    RequirementEvidenceResponse,
     SearchDiagnosticsResponse,
     SearchFacets,
     SearchMeta,
@@ -531,6 +533,42 @@ async def _competence_facets(
         CompetenceCategoryFacet(id=row.id, name=row.name_pl, count=row.cnt)
         for row in result.all()
     ]
+
+
+@router.post(
+    "/candidates/requirement-evidence", response_model=RequirementEvidenceResponse
+)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def candidate_requirement_evidence(
+    request: Request,
+    body: RequirementEvidenceRequest,
+    current_user: CandidateSearchAccess,
+    db: AsyncSession = Depends(get_db),
+) -> RequirementEvidenceResponse:
+    """Skąd „✓” przy wymaganiach jednej osoby (zgłoszenie DL z 09.11.2026).
+
+    Podgląd osoby w oknie „Kandydaci do dodania” pokazuje przy każdym „✓”,
+    czy technologia stoi w CV, w profilu czy w notatce, a klik daje cytaty
+    (``services/requirement_evidence``). Ta sama bramka co ``/candidates/scores``,
+    z którego pochodzą te „✓”: dostęp do kandydatów i do tej rekrutacji
+    (``_authorized_job``). Tylko odczyt; ocena dopasowania się nie zmienia.
+    """
+    from app.api.candidate_search import _authorized_job  # noqa: PLC0415
+    from app.services import requirement_evidence  # noqa: PLC0415
+
+    await _authorized_job(db, current_user, body.job_id)
+    candidate = await db.get(Candidate, body.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono kandydata.")
+    labels = list(
+        dict.fromkeys(label.strip() for label in body.labels if label.strip())
+    )
+    if not labels:
+        return RequirementEvidenceResponse(items={})
+    notes = await requirement_evidence.load_notes(db, candidate.id, labels)
+    return RequirementEvidenceResponse(
+        items=requirement_evidence.collect(candidate, labels, notes)
+    )
 
 
 @router.post("/candidates/scores", response_model=MatchScoresResponse)

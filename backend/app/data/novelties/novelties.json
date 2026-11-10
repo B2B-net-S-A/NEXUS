@@ -1,5 +1,18 @@
 [
   {
+    "id": "skad-ptaszek-przy-wymaganiu",
+    "pr": 3284,
+    "title": "Skąd „✓” przy wymaganiu",
+    "why": "Przy każdym „✓” w podglądzie osoby widać, czy technologia stoi w CV, w profilu czy w notatce. Bez CV dopisek jest żółty. Kliknij „✓”, żeby zobaczyć cytaty, a „Pokaż w CV” otworzy CV na tym słowie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": { "roles": ["recruiter", "talent_community_manager", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacje → Kandydaci do dodania → podgląd osoby",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person-preview.requirement-sources"
+  },
+  {
     "id": "wypowiedzenie-z-okna-zakonczenia",
     "pr": 3283,
     "title": "Wypowiedzenie umowy B2B z okna zakończenia",
