@@ -60,8 +60,8 @@ trasy `backend/app/api/sales_factories.py` (`/api/sales/it-factories`), front
   paska postępu ani porównania opiekunów.
 - **„Zapisz kontakt”** (konto z „Sprzedaż: edycja”) otwiera `DecisionPersonDialog`
   z kluczem z mapy: to ten sam wpis co na karcie szansy, z `motion.decision_people`.
-  Zmiana statusu zdejmuje osobę z kolejki. Status zmienia człowiek; samoczynne
-  przesuwanie z Outlooka to osobny krok pakietu (B4).
+  Zmiana statusu zdejmuje osobę z kolejki. Status zmienia człowiek albo automat
+  po mailu lub spotkaniu z Outlooka (`mapa-decyzyjna-status-z-outlooka.md`).
 - **Filtr „Opiekun” zna opiekunów oglądanego lejka** (`useOwnerFilterOptions(pipelineId)`
   dla lejka innego niż domyślny). Wcześniej brał osoby z lejka Sprzedaż, a opiekun kont
   Fabryk IT nie musi mieć tam żadnej szansy, więc nie dało się go wybrać.

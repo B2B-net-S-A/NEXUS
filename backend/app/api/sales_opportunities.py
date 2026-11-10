@@ -1133,12 +1133,16 @@ async def update_decision_person(
     if changed:
         # Klucze spoza formularza (``contact_id`` z Atlasa) zostają we wpisie.
         after = {**before, **fields}
+        now = datetime.now(timezone.utc)
+        if decision_map.CONTACT_FIELDS.intersection(changed):
+            # Ręczna zmiana wygrywa z automatem: starsze maile jej nie cofną.
+            after[decision_map.CONTACT_EDITED_AT] = now.isoformat()
         entries[index] = after
         opp.custom_fields = decision_map.with_entries(
             opp.custom_fields,
             entries,
             user_id=current_user.id,
-            now=datetime.now(timezone.utc),
+            now=now,
         )
         old_value, new_value = decision_map.describe_change(before, after, changed)
         _record_decision_map(

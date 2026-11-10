@@ -1971,6 +1971,19 @@
     "dot_anchor": "sales.factories.mode"
   },
   {
+    "id": "sprzedaz-mapa-status-z-outlooka",
+    "title": "Mapa decyzyjna: status po mailu i spotkaniu",
+    "why": "Mail albo spotkanie z Outlooka z osobą z mapy sam zmienia jej status: Twój mail daje „w toku”, jej odpowiedź albo odbyte spotkanie „pierwszy kontakt”. Zmiana w oknie osoby zawsze wygrywa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse → lejek Fabryki IT → kolumna „Mapa po kontakcie”",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.factories.contacted"
+  },
+  {
     "id": "insights-termin-rozmowy",
     "pr": 3249,
     "title": "Termin rozmowy pod ręką",

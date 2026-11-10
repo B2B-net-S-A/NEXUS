@@ -61,7 +61,7 @@ export function FactoryAccountsTable({ items, accounts, known, knownState }: Fac
           <TableRow>
             <TableHead className={`${CALM_HEAD} sticky left-0 min-w-[18rem] bg-card`}>Konto</TableHead>
             <TableHead className={CALM_HEAD}>Opiekun</TableHead>
-            <TableHead className={CALM_HEAD}>Mapa po kontakcie</TableHead>
+            <TableHead className={CALM_HEAD} data-tour="sales.factories.contacted">Mapa po kontakcie</TableHead>
             <TableHead className={`${CALM_HEAD} text-right`}>Znamy teraz</TableHead>
             <TableHead className={`${CALM_HEAD} text-right`}>Kiedyś</TableHead>
             <TableHead className={CALM_HEAD}>Ostatni ruch</TableHead>
