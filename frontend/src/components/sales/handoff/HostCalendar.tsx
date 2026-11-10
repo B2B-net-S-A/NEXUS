@@ -47,7 +47,7 @@ export function HostCalendar({ hostId, hostName, day, time, minutes, onPickTime 
         chosen={chosen}
         clash={clash}
         chosenLabel="to spotkanie"
-        tourAnchor={null}
+        tour={false}
       />
       {calendar === "unavailable" && (
         <p className="text-xs text-muted-foreground">

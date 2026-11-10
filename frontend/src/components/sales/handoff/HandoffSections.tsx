@@ -119,7 +119,7 @@ export function HandedToMeSection({ rows, selectedId, canEdit, onOpen }: Section
     />
   );
   return (
-    <section data-testid="handed-to-me">
+    <section data-testid="handed-to-me" data-tour="sales.handed-to-me">
       <header className={HEADER}>
         <h2 className={TITLE}>Przekazane do Ciebie</h2>
         <span className="text-xs text-muted-foreground">

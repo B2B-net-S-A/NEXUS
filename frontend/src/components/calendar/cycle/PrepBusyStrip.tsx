@@ -16,7 +16,7 @@ export function PrepBusyStrip({
   chosen,
   clash,
   chosenLabel = "ten prep",
-  tourAnchor = "prep.organizer-calendar",
+  tour = true,
 }: {
   who: string;
   day: string;
@@ -24,12 +24,13 @@ export function PrepBusyStrip({
   chosen: Span | null;
   clash: boolean;
   chosenLabel?: string;
-  tourAnchor?: string | null;
+  /** Kotwica nowości prepów; poza prepami pasek jej nie nosi. */
+  tour?: boolean;
 }) {
   const strip = dayStrip(day, busy, chosen);
   if (!strip) return null;
   return (
-    <div data-testid="prep-busy-strip" data-tour={tourAnchor ?? undefined}>
+    <div data-testid="prep-busy-strip" data-tour={tour ? "prep.organizer-calendar" : undefined}>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="font-semibold">Kalendarz: {who}</span>
         <span className="flex items-center gap-3 text-muted-foreground">
