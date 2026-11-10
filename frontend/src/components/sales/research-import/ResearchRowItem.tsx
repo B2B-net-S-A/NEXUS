@@ -154,7 +154,7 @@ function CompanyCell({ item, choice, resolved, onChoose }: Pick<ResearchRowItemP
       </Badge>
       <SalesSelect
         ariaLabel={`Karta firmy: ${company.name}`}
-        className="mt-1 h-7 w-full max-w-[19rem] text-xs [&>span]:min-w-0 [&>span]:truncate [&>span]:text-left"
+        className="mt-1 h-7 w-[15rem] max-w-full text-xs [&>span]:min-w-0 [&>span]:truncate [&>span]:text-left"
         value={choice === undefined ? "" : String(choice)}
         onValueChange={(value) => {
           if (value) onChoose(value === NEW_CARD ? NEW_CARD : Number(value));
