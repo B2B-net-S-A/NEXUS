@@ -882,6 +882,33 @@ async def test_morning_releases_untouched_cards_over_the_portion(tick_world):
     assert await _owned(world["job_id"]) == {r: 4}
 
 
+async def test_cards_handed_over_in_the_morning_do_not_exhaust_the_pool(tick_world):
+    """Rano karty osoby zajętej P0 przechodzą na drugą przypisaną; rekrutacja nie
+    może przez to wypaść z puli na cały dzień (review 10.11.2026)."""
+    _portion(tick_world, 4)
+    a, b = await _user(), await _user()
+    job = await _world(20, recruiters=[a], priority=JobPriority.urgent)
+    await _pool(job["job_id"], {cid: 90 for cid in job["ids"]})
+    assert len(await _fill(job["job_id"])) == 4
+    async with AsyncSessionLocal() as db:
+        db.add(JobCollaborator(job_id=job["job_id"], user_id=b, source="manual"))
+        await db.commit()
+    p0 = await _world(10, recruiters=[a])
+    await _pool(p0["job_id"], {cid: 90 for cid in p0["ids"]})
+    await _p0(p0["job_id"], _WORKDAY)
+
+    async def _only(_db):
+        return [job["job_id"], p0["job_id"]]
+
+    tick_world.setattr(autofill, "_jobs_in_work", _only)
+    await autofill.tick(now=_WORKDAY)
+
+    assert await _owned(job["job_id"]) == {b: 4}
+    async with AsyncSessionLocal() as db:
+        state = (await db.get(AppSetting, autofill.BATCH_DAY_KEY)).value
+    assert job["job_id"] not in state["exhausted"]
+
+
 # ── P4: strumienie ──────────────────────────────────────────────────────────
 
 

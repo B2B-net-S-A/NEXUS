@@ -726,6 +726,10 @@ async def test_more_in_batch_for_an_editor_outside_the_team_adds_ten(tempo_on):
     world = await _world(20, recruiter_id=recruiter)
     await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
     assert await _call(batch_api.add_more, world["job_id"], lead) == {"added": 10}
+    # Osoby od kogoś spoza zespołu trafiają do przypisanego, nie wiszą bez właściciela.
+    async with AsyncSessionLocal() as db:
+        cards = await rb.pending_cards(db, job_ids=[world["job_id"]])
+    assert {card.owner_id for card in cards} == {recruiter}
 
 
 async def test_flag_off_keeps_the_old_more_rules(monkeypatch):

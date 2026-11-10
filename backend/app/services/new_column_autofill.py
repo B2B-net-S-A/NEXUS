@@ -956,6 +956,7 @@ async def fill_job(
     swap: bool = False,
     want: Optional[dict[int, int]] = None,
     release: bool = False,
+    report: Optional[dict] = None,
 ) -> list[int]:
     """Dopełnij „Nowych” do ``TARGET``, osobami nowymi w bazie także do
     ``TARGET + FRESH_OVER_TARGET`` (najwyżej ``limit`` osób naraz). Nowi w bazie
@@ -966,7 +967,9 @@ async def fill_job(
     wyłącznie w rekrutacji z rekruterem. Od 10.11.2026 rekrutacja dostaje tyle
     osób, ile wynika z planu porcji jej przypisanych (``want``: osoba → ile kart,
     ``review_batch_plan``), a ``release`` (pierwszy przebieg dnia) zdejmuje nadwyżki.
-    ``extra_for`` = „Dodaj 20 kolejnych” tej osoby.
+    ``extra_for`` = „Dodaj 20 kolejnych” tej osoby. ``report["short"]`` = ile kart
+    rekrutacji dalej brakuje do planu po dopełnieniu (przebieg porcji wie z tego,
+    że pula się wyczerpała).
 
     Przy ``NEW_COLUMN_TEMPO_TARGET_ENABLED`` cel to ``Tempo.target`` (także
     w porcji), a osoby nowe w bazie nie wchodzą ponad cel. ``extra_cards`` =
@@ -1061,8 +1064,10 @@ async def fill_job(
         )
         chosen += spare[: len(gone)]
     if not chosen:
-        if batch and extra_for:
+        if batch and want is None:
             await review_batch.assign_owners(db, job_id, now=now, only=extra_for)
+        if report is not None and need is not None:
+            report["short"] = need
         return []
     candidates = {
         c.id: c
@@ -1114,10 +1119,13 @@ async def fill_job(
             )
         )
         await db.flush()
-    if batch and extra_for:
+    if batch and want is None:
+        # „Dodaj kolejnych”: klikającemu, a od osoby spoza zespołu po równo.
         await review_batch.assign_owners(db, job_id, now=now, only=extra_for)
-    elif batch and want is not None:
-        await review_batch.settle_owners(db, job_id, want=want, now=now)
+    elif batch:
+        short = await review_batch.settle_owners(db, job_id, want=want, now=now)
+        if report is not None:
+            report["short"] = short
     return added
 
 
@@ -1406,6 +1414,7 @@ async def _batch_tick(now: datetime) -> dict:
         if missing > 0 and budget <= 0:
             cut_short = True
             break
+        report: dict = {}
         async with AsyncSessionLocal() as db:
             try:
                 added = await fill_job(
@@ -1416,6 +1425,7 @@ async def _batch_tick(now: datetime) -> dict:
                     batch=True,
                     want=plan.want_for(job_id),
                     release=release,
+                    report=report,
                 )
                 await db.commit()
             except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje reszty
@@ -1428,9 +1438,11 @@ async def _batch_tick(now: datetime) -> dict:
         if added:
             filled[job_id] = len(added)
             budget -= len(added)
-        # Pula dała mniej, niż planowano: do końca dnia osoby biorą resztę
-        # z niższych poziomów, a nie czekają na pustą rekrutację.
-        if missing > 0 and len(added) < missing and budget > 0:
+        # Po dopełnieniu dalej brakuje, a bezpiecznik nie był powodem: pula dała
+        # mniej, niż planowano. Do końca dnia osoby biorą resztę z niższych
+        # poziomów, a nie czekają na pustą rekrutację. Brak liczony po porannym
+        # zdjęciu nadwyżek, bo karty przekazane między osobami też go pokrywają.
+        if report.get("short", 0) > 0 and budget > 0:
             exhausted.add(job_id)
     async with AsyncSessionLocal() as db:
         row = await db.get(AppSetting, BATCH_DAY_KEY)
