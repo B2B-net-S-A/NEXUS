@@ -81,7 +81,11 @@ export function TeamFilterControls({
               onChange({ ...value, clientId: id, clientName: name })
             }}
           >
-            <SelectTrigger className="h-7 w-56 min-w-0 text-[13px]" aria-label="Klient">
+            <SelectTrigger
+              className="h-7 w-56 min-w-0 text-[13px]"
+              aria-label="Klient"
+              data-tour="team-filters.client"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
