@@ -828,6 +828,22 @@ function closedChips(closed: KanbanColumn[]) {
  });
 }
 
+/** Rozwinięcie „Zamkniętych”: wszyscy albo jedna grupa z licznika (klucz =
+ *  `droppableId` licznika). 10.11.2026: klik w „przez klienta” rozwijał
+ *  wszystkich odrzuconych i wycofanych, a DL szukał wśród nich dziesięciu. */
+const CLOSED_VIEW_ALL = "all";
+
+function closedColsForView(closed: KanbanColumn[], view: string): KanbanColumn[] {
+ if (view === CLOSED_VIEW_ALL) return closed;
+ const [baseId, by] = view.split(CLOSED_BY_SEP);
+ const col = closed.find((c) => colId(c) === baseId);
+ if (!col) return closed;
+ if (!by) return [col];
+ const group = CLOSED_REJECT_GROUPS.find((g) => g.by === by);
+ const items = col.items.filter((i) => closedRejectBy(i.ended_by) === by);
+ return [{ ...col, name: group?.label ?? columnLabel(col), items, count: items.length }];
+}
+
 /**
  * Pipeline v4 (23.09.2026): to, czego karta nie wie sama — w której kolumnie
  * Tablicy stoi, kto na nią patrzy, czy to Nordea — i akcja „Biorę/Przejmij".
@@ -2283,7 +2299,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  [boardFold]
  );
  // Odrzuceni / wycofani / rezerwa — pasek pod tablicą, rozwijany na kolumny.
- const [showClosed, setShowClosed] = useState(false);
+ const [closedView, setClosedView] = useState<string | null>(null);
  const authUser = useAuthStore((st) => st.user);
  const isDlOrHor =
  hasRole(authUser, "admin") ||
@@ -3962,8 +3978,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  return m;
  }, [allDisplayCols, allOffTemplateCols]);
  const visibleCols = useMemo(
- () => [...displayCols, ...(showClosed ? boardFold.closed : []), ...offTemplateCols],
- [displayCols, boardFold, showClosed, offTemplateCols]
+ () => [
+ ...displayCols,
+ ...(closedView ? closedColsForView(boardFold.closed, closedView) : []),
+ ...offTemplateCols,
+ ],
+ [displayCols, boardFold, closedView, offTemplateCols]
  );
  // Filtr schował część osób — zaznaczenie ich nie trzyma, żeby pasek
  // zaznaczonych nie działał na kimś, kogo nie widać.
@@ -4350,16 +4370,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  >
  <h3 className="text-sm font-medium text-foreground">Zamknięci</h3>
  <p className="text-muted-foreground max-lg:hidden">Odrzuceni i rezygnacje</p>
- {showClosed ? (
- <button
- type="button"
- onClick={() => setShowClosed(false)}
- className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
- >
- Zwiń zamkniętych
- </button>
- ) : (
- closedChips(boardFold.closed).map(({ droppableId, label, short, count }) => (
+ {closedChips(boardFold.closed).map(({ droppableId, label, short, count }) => {
+ const active = closedView === droppableId;
+ return (
  <Droppable key={droppableId} droppableId={droppableId} isDropDisabled={readOnly}>
  {(provided, snapshot) => (
  <span
@@ -4367,15 +4380,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  {...provided.droppableProps}
  className={cn(
  "flex rounded-md border border-dashed border-border transition-colors",
+ active && "border-solid border-primary bg-primary/10",
  snapshot.isDraggingOver && "border-destructive bg-destructive/10"
  )}
  >
  <button
  type="button"
- onClick={() => setShowClosed(true)}
- aria-label={`${label}: ${count} — pokaż kolumny zamkniętych`}
- title={`${label} — upuść tu kartę albo kliknij, żeby zobaczyć osoby`}
- className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-muted-foreground hover:text-foreground pointer-coarse:min-h-9"
+ aria-pressed={active}
+ onClick={() => setClosedView(active ? null : droppableId)}
+ aria-label={`${label}: ${count} — ${active ? "zwiń" : "pokaż tylko te osoby"}`}
+ title={`${label} — upuść tu kartę albo kliknij, żeby zobaczyć tylko te osoby`}
+ className={cn(
+ "flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-muted-foreground hover:text-foreground pointer-coarse:min-h-9",
+ active && "font-medium text-foreground"
+ )}
  >
  {short}
  <span className="font-semibold tabular-nums text-foreground">{count}</span>
@@ -4384,8 +4402,26 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  </span>
  )}
  </Droppable>
- ))
- )}
+ );
+ })}
+ {closedView !== CLOSED_VIEW_ALL ? (
+ <button
+ type="button"
+ onClick={() => setClosedView(CLOSED_VIEW_ALL)}
+ className="rounded-md px-2 py-1 text-left text-muted-foreground underline-offset-2 hover:text-foreground hover:underline pointer-coarse:min-h-9"
+ >
+ Pokaż wszystkich
+ </button>
+ ) : null}
+ {closedView ? (
+ <button
+ type="button"
+ onClick={() => setClosedView(null)}
+ className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
+ >
+ Zwiń zamkniętych
+ </button>
+ ) : null}
  </section>
  ) : null;
 

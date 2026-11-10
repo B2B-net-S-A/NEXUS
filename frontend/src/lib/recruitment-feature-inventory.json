@@ -1659,7 +1659,7 @@
   {
    "id": "board.closed-column",
    "area": "pipeline",
-   "opis": "Wąska kolumna „Zamknięci” obok Tablicy: cztery strefy upuszczenia (przez nas / DL / klienta / zrezygnował) z licznikami; klik rozwija kolumny zamkniętych",
+   "opis": "Wąska kolumna „Zamknięci” obok Tablicy: cztery strefy upuszczenia (przez nas / DL / klienta / zrezygnował) z licznikami; klik w licznik pokazuje tylko tę grupę (10.11.2026), „Pokaż wszystkich” rozwija wszystkie kolumny zamkniętych",
    "file": "components/v2/pages/KanbanBoardV2.tsx",
    "marker": "board-closed-column",
    "v3_home": "Tablica → prawa krawędź"
