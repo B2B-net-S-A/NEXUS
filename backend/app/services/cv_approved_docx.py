@@ -21,6 +21,7 @@ import copy
 from io import BytesIO
 import re
 from typing import Any, Optional
+import zipfile
 
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
@@ -46,7 +47,8 @@ from app.services.cv_text_align import (  # noqa: F401 — wołający biorą st�
     cv_text_align,
 )
 
-RENDERER_VERSION = "approved-html-3"
+# 4: bez jawnego „wyłączone” podkreślenie/kursywa/przekreślenie (10.11.2026).
+RENDERER_VERSION = "approved-html-4"
 BLOCKS = {
     "p",
     "div",
@@ -93,6 +95,37 @@ _DATES_ONLY = re.compile(
     re.IGNORECASE,
 )
 _LEADING_SEPARATOR = re.compile(r"^[\s—–\-,:·|]+")
+_BODY_PART = "word/document.xml"
+_EMPTY_UNDERLINE = re.compile(rb'<w:u w:val="none"\s*/>')
+
+
+def without_empty_underline(docx: bytes) -> bytes:
+    """Plik bez ``<w:u w:val="none"/>`` w treści; reszta archiwum bez zmian.
+
+    Wersje zatwierdzone przed ``approved-html-4`` mają ten znacznik przy niemal
+    każdym fragmencie tekstu. Word czyta go jako brak podkreślenia, a podgląd
+    w Cpro (i starsze silniki, np. mammoth do 1.4.11) jako podkreślenie, więc
+    każde zdanie było podkreślone (10.11.2026). Style treści CV nie podkreślają,
+    więc bez znacznika tekst wygląda w Wordzie tak samo. Zapisane bajty wersji
+    zostają nietknięte; czyścimy kopię, która wychodzi. Plik bez znacznika
+    wraca ten sam, bez przepakowania. Plik, który nie jest archiwum, też wraca
+    bez zmian: czyszczenie nie zatrzymuje pobrania.
+    """
+    if not zipfile.is_zipfile(BytesIO(docx)):
+        return docx
+    with zipfile.ZipFile(BytesIO(docx)) as source:
+        if _BODY_PART not in source.namelist():
+            return docx
+        body = source.read(_BODY_PART)
+        cleaned = _EMPTY_UNDERLINE.sub(b"", body)
+        if cleaned == body:
+            return docx
+        out = BytesIO()
+        with zipfile.ZipFile(out, "w") as target:
+            for item in source.infolist():
+                data = cleaned if item.filename == _BODY_PART else source.read(item)
+                target.writestr(item, data)
+    return out.getvalue()
 
 
 def _norm_title(text: str) -> str:
@@ -302,11 +335,18 @@ def render_approved_docx(
             return
         run = paragraph.add_run(text)
         run.bold = state.get("bold", False)
-        run.italic = state.get("italic", False)
-        run.underline = state.get("underline", False)
-        run.font.strike = state.get("strike", False)
-        run.font.subscript = state.get("sub", False)
-        run.font.superscript = state.get("sup", False)
+        # Tylko włączone, jak w generatorze: jawne „wyłączone” podgląd w Cpro
+        # czyta jako podkreślenie (`without_empty_underline`).
+        if state.get("italic"):
+            run.italic = True
+        if state.get("underline"):
+            run.underline = True
+        if state.get("strike"):
+            run.font.strike = True
+        if state.get("sub"):
+            run.font.subscript = True
+        if state.get("sup"):
+            run.font.superscript = True
         if state.get("code"):
             run.font.name = "Courier New"
 

@@ -93,6 +93,7 @@ from sqlalchemy.orm import defer, selectinload
 from app.services.html_sanitizer import sanitize_cv_html
 from app.services import candidate_audit, cv_download_policy, cv_editor_issues
 from app.services.client_panel import stamp_for_download
+from app.services.cv_approved_docx import without_empty_underline
 from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_rewrite_merge import MergeResult, merge_rewrite
@@ -3022,7 +3023,8 @@ async def download_approved_docx(
         state="approved",
         version=version.version,
     )
-    content = version.docx_content
+    # Wersje sprzed `approved-html-4`: podgląd w Cpro podkreślał każde zdanie.
+    content = without_empty_underline(version.docx_content)
     headers = approved_docx_headers(version)
     if intent == DOWNLOAD_INTENT:
         content = await stamp_for_download(
@@ -3032,9 +3034,9 @@ async def download_approved_docx(
             docx=content,
             language=csv.branded_language,
         )
-        # ETag opisuje zamrożone bajty wersji, a ramka je zmienia.
-        if content is not version.docx_content:
-            headers.pop("ETag", None)
+    # ETag opisuje zamrożone bajty wersji, a ramka i czyszczenie je zmieniają.
+    if content is not version.docx_content:
+        headers.pop("ETag", None)
     return Response(
         content=content,
         media_type=DOCX_MEDIA_TYPE,
