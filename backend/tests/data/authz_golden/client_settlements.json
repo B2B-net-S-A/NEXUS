@@ -36,6 +36,7 @@
   "GET /api/finance/settlements/client-invoice/attachments": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/clients": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/contract/{contract_id}/documents/{document_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/estimates": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/module": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

@@ -83,7 +83,10 @@ function deals(count: number): string {
 export function rowReason(row: MyDayRow): string {
   switch (row.section) {
     case "meetings":
-      return [row.duration_minutes ? `${row.duration_minutes} min` : null, deals(row.open_opportunities)]
+      return [
+        row.duration_minutes ? `${row.duration_minutes} min` : null,
+        row.auto_pinned ? "przypięte samo, jedyna otwarta szansa" : deals(row.open_opportunities),
+      ]
         .filter(Boolean)
         .join(" · ");
     case "reply":

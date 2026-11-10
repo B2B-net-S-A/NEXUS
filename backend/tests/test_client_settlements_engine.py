@@ -146,7 +146,9 @@ def test_brak_linii_przy_ostrzezeniu_i_wylaczonej_regule():
     assert off.status == "ok"
 
 
-def test_za_malo_md_na_zamowieniu():
+def test_za_malo_md_na_zamowieniu_przyjmuje_do_wysokosci_puli():
+    """Rozliczenia 10.11.2026: nie „nie wystawiaj”, tylko „zafakturuj tyle, ile
+    zostało”; nadwyżka czeka na decyzję Finansów, bez obietnicy zamówienia."""
     r = compute(
         Inputs(
             md_regular=D("21"),
@@ -156,8 +158,25 @@ def test_za_malo_md_na_zamowieniu():
             has_report=True,
         )
     )
-    assert r.status == "no_md"
-    assert r.md_remaining_after == D("-2.200")
+    assert r.status == "warnings"
+    assert r.md_charged == D("20.000") and r.md_over == D("2.200")
+    assert r.md_remaining_after == D("0.000")
+    assert r.amount_cost == D("20000.00") and r.amount_revenue == D("22000.00")
+    titles = [c["title"] for g in r.checks for c in g["checks"]]
+    assert "Ponad zamówienie o 2,2 MD" in titles
+
+
+def test_pusta_pula_nadal_brak_md():
+    r = compute(
+        Inputs(
+            md_regular=D("5"),
+            md_extra=None,
+            rules=_rules(),
+            order=_order(available="0"),
+            has_report=True,
+        )
+    )
+    assert r.status == "no_md" and r.md_charged == D("0.000")
 
 
 def test_klient_bez_regul_liczy_bez_mnoznika_i_bez_blokad():

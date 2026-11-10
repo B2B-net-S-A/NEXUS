@@ -11,10 +11,18 @@ export interface UserPreferences {
   daily_digest_email_enabled: boolean;
   /** `false` = rola tego konta nigdy nie dostaje skrótu; przełącznika nie pokazujemy. */
   daily_digest_email_available: boolean;
+  /**
+   * `true` = „Ruchy w rekrutacjach” także o kandydatach innych rekruterów
+   * w rekrutacjach, które konto prowadzi (domyślnie tylko własnych).
+   */
+  stage_moves_all_led_jobs: boolean;
 }
 
 export type UserPreferencesUpdate = Partial<
-  Pick<UserPreferences, "kpi_coach_enabled" | "daily_digest_email_enabled">
+  Pick<
+    UserPreferences,
+    "kpi_coach_enabled" | "daily_digest_email_enabled" | "stage_moves_all_led_jobs"
+  >
 >;
 
 export const USER_PREFERENCES_QUERY_KEY = ["user-preferences", "me"] as const;

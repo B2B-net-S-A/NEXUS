@@ -150,6 +150,14 @@ def positions(
     extra = Decimal(s.md_extra or 0)
     onboarding = Decimal(s.md_onboarding or 0)
     price = None if rate is None else _money(Decimal(rate))
+    if service.md_over(s) and s.md_charged is not None:
+        # Ponad pulę (10.11): do klienta tylko to, co zeszło z zamówienia —
+        # najpierw dni zwykłe, potem praca dodatkowa.
+        cap = Decimal(s.md_charged)
+        base_cap = min(regular - onboarding, cap)
+        mult = _multiplier(s)
+        extra = min(extra, ((cap - base_cap) / mult).quantize(Decimal("0.001")))
+        regular = base_cap + onboarding
     out = [
         Position(
             name,
@@ -408,12 +416,19 @@ def _safe(text: str) -> str:
 
 
 async def attachments_zip(
-    db: AsyncSession, client_id: int, month: str
+    db: AsyncSession,
+    client_id: int,
+    month: str,
+    *,
+    contract_id: Optional[int] = None,
+    issued_only: bool = False,
 ) -> tuple[bytes, int]:
     """Zip z plikami RCP i maili rozliczeń przyjętych w miesiącu (E5.2).
 
     Przy regule ``cl.attachment_name`` RCP nazywa się numerem KSeF faktury do
-    klienta (gdy już jest), reszta plików dostaje ten sam przedrostek. Zwraca
+    klienta (gdy już jest), reszta plików dostaje ten sam przedrostek.
+    ``contract_id`` — jedna osoba; ``issued_only`` — tylko osoby z wystawioną
+    fakturą, czyli z nazwą z numeru KSeF (pytanie rozliczeń 10.11). Zwraca
     zawartość i liczbę plików."""
 
     data = await invoice_month(db, client_id, month, amounts=False)
@@ -424,6 +439,10 @@ async def attachments_zip(
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for row in data["rows"]:
             if row["kind"] is None:
+                continue
+            if contract_id is not None and row["contract_id"] != contract_id:
+                continue
+            if issued_only and not row["ksef_number"]:
                 continue
             s = await service._settlement(
                 db, row["contract_id"], month, kind=row["kind"]
@@ -503,16 +522,23 @@ async def estimates(
                 ),
                 None,
             )
-        over = None
-        if plan is not None and plan.md_charged is not None and remaining is not None:
-            excess = Decimal(plan.md_charged) - Decimal(remaining)
-            over = f"{excess:.3f}" if excess > 0 else None
-        to_invoice = None
-        if amounts and before is not None and before.status == "accepted":
-            total = Decimal(before.amount_revenue or 0)
-            if plan is not None and plan.amount_revenue is not None and over is None:
-                total += Decimal(plan.amount_revenue)
-            to_invoice = f"{total:.2f}"
+        stored_over = service.md_over(plan) if plan is not None else None
+        over = f"{stored_over:.3f}" if stored_over else None
+        # Dwie osobne faktury do klienta: za poprzedni miesiąc i za plan
+        # (rozliczenia 10.11 — nie łączymy na jednej).
+        previous_invoice = (
+            f"{Decimal(before.amount_revenue):.2f}"
+            if amounts
+            and before is not None
+            and before.status == "accepted"
+            and before.amount_revenue is not None
+            else None
+        )
+        plan_invoice = (
+            f"{Decimal(plan.amount_revenue):.2f}"
+            if amounts and plan is not None and plan.amount_revenue is not None
+            else None
+        )
         rows.append(
             {
                 "contract_id": row["contract_id"],
@@ -528,7 +554,8 @@ async def estimates(
                 if plan is None or plan.md_charged is None
                 else f"{plan.md_charged:.3f}",
                 "over_pool": over,
-                "to_invoice": to_invoice,
+                "previous_invoice": previous_invoice,
+                "plan_invoice": plan_invoice,
             }
         )
     # Najpierw osoby z planem, potem z przyjętym poprzednim miesiącem.

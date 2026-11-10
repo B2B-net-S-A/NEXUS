@@ -203,6 +203,7 @@ const USER_PREFERENCES: UserPreferences = {
   kpi_coach_enabled: true,
   daily_digest_email_enabled: true,
   daily_digest_email_available: true,
+  stage_moves_all_led_jobs: false,
 };
 
 function myEmails(persona: Persona): MyEmailNotifications {

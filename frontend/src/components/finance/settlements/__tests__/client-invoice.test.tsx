@@ -67,5 +67,8 @@ describe("Do faktury dla klienta (E5.1)", () => {
     expect(screen.getByText(/2 do wystawienia, 0 wystawione, 1 czeka/)).toBeInTheDocument();
     expect(screen.getByText(/Bez poprzedniej faktury: nazwa zastępcza/)).toBeInTheDocument();
     expect(screen.queryByText("Czeka Ktoś")).not.toBeInTheDocument();
+    // Hurtem tylko wystawione (nazwa z numeru KSeF), przy osobie — jej RCP.
+    expect(screen.getByRole("button", { name: /Pobierz RCP wystawionych \(0\)/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pobierz RCP: Jan Testowy" })).toBeEnabled();
   });
 });

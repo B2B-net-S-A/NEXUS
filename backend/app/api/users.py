@@ -49,6 +49,14 @@ class UserPreferencesUpdate(BaseModel):
         default=None,
         description="Poranny skrót „Twój dzień w NEXUSIE” mailem — tylko to konto.",
     )
+    stage_moves_all_led_jobs: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Ruchy wszystkich kandydatów w rekrutacjach, które konto prowadzi "
+            "(domyślnie tylko własnych i etapów Interview Klient, Akceptacja, "
+            "Zatrudniony)."
+        ),
+    )
 
 
 class JarvisPrefsResponse(JarvisPrefs):
@@ -64,6 +72,7 @@ class UserPreferencesResponse(BaseModel):
     # Czy skrót w ogóle może trafić do tego konta (rola z listy skrótu) —
     # bez tego przełącznik obiecywałby mail, którego konto nie dostaje.
     daily_digest_email_available: bool
+    stage_moves_all_led_jobs: bool
 
 
 async def _preferences_response(
@@ -81,6 +90,7 @@ async def _preferences_response(
         kpi_coach_enabled=user.kpi_coach_enabled,
         daily_digest_email_enabled=user.daily_digest_email_enabled,
         daily_digest_email_available=receives_digest(user),
+        stage_moves_all_led_jobs=user.stage_moves_all_led_jobs,
         jarvis=JarvisPrefsResponse(
             **prefs.model_dump(),
             unlocked_characters=unlocked,
@@ -254,6 +264,10 @@ async def update_my_preferences(
 
     if payload.daily_digest_email_enabled is not None:
         current_user.daily_digest_email_enabled = payload.daily_digest_email_enabled
+        changed = True
+
+    if payload.stage_moves_all_led_jobs is not None:
+        current_user.stage_moves_all_led_jobs = payload.stage_moves_all_led_jobs
         changed = True
 
     if payload.jarvis is not None:

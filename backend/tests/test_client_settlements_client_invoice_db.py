@@ -504,3 +504,120 @@ async def test_przyjecie_odmawia_gdy_import_podzielil_miesiac_na_dwa_zamowienia(
             await _accept(contract_id, month, "20")
     finally:
         await _cleanup(client_id)
+
+
+async def test_ponad_pule_faktura_do_klienta_i_konsultant_tylko_za_pule() -> None:
+    from app.services.client_settlements import consultant
+
+    previous = await _module(True)
+    client_id, contract_id, _line = await _world(md_total="10")
+    month = _month(-1)
+    year, mon = (int(x) for x in month.split("-"))
+    try:
+        await _accept(contract_id, month, "12", "2")
+        async with AsyncSessionLocal() as db:
+            data = await client_invoice.invoice_month(
+                db, client_id, month, amounts=True
+            )
+            view = await consultant.view(db, contract_id, client_id, year, mon)
+        row = next(r for r in data["rows"] if r["contract_id"] == contract_id)
+        assert [p["quantity"] for p in row["positions"]] == ["10"]
+        assert row["net"] == "11000.00"
+        assert view["label"] == (
+            "RCP przyjęte: wystaw fakturę na 10 MD, tyle zostało na zamówieniu"
+        )
+        assert view["invoice"]["amount_net"] == "10000.00"
+    finally:
+        await _cleanup(client_id)
+        await _restore(previous)
+
+
+async def test_paczka_zip_dla_osoby_i_tylko_wystawionych(tmp_path, monkeypatch) -> None:
+    from app.services import storage_service
+    from app.services.consultant_portal import documents
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    client_id, contract_id, line_id = await _world()
+    month = _month(-1)
+    year, mon = (int(x) for x in month.split("-"))
+    eml = b"From: a@bank.example\r\nTo: b@firma.example\r\nSubject: OK\r\nDate: Mon, 2 Nov 2026 10:00:00 +0100\r\nMIME-Version: 1.0\r\n\r\nOK"
+    invoices: list[int] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            await documents.store(
+                db,
+                contract_id=contract_id,
+                kind="report",
+                year=year,
+                month=mon,
+                content=eml,
+                file_name="akceptacja.eml",
+                channel="portal",
+                now=local_now(),
+            )
+            await db.commit()
+        await _accept(contract_id, month, "10")
+        async with AsyncSessionLocal() as db:
+            _, issued = await client_invoice.attachments_zip(
+                db, client_id, month, issued_only=True
+            )
+            _, mine = await client_invoice.attachments_zip(
+                db, client_id, month, contract_id=contract_id
+            )
+            _, other = await client_invoice.attachments_zip(
+                db, client_id, month, contract_id=contract_id + 999999
+            )
+        assert (issued, mine, other) == (0, 1, 0)
+        invoices.append(
+            await _sales_invoice(await _group(line_id), month, [{"name": BASE}])
+        )
+        async with AsyncSessionLocal() as db:
+            _, issued = await client_invoice.attachments_zip(
+                db, client_id, month, issued_only=True
+            )
+        assert issued == 1
+    finally:
+        await _drop_invoices(invoices)
+        await _cleanup(client_id)
+
+
+async def test_plik_z_karty_osoby_tylko_dla_wlasnego_kontraktu(
+    app_client, app_auth_headers, tmp_path, monkeypatch
+) -> None:
+    from app.services import storage_service
+    from app.services.consultant_portal import documents
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    previous = await _module(True)
+    client_id, contract_id, _line = await _world()
+    month = _month(-1)
+    year, mon = (int(x) for x in month.split("-"))
+    eml = b"From: a@bank.example\r\nTo: b@firma.example\r\nSubject: OK\r\nDate: Mon, 2 Nov 2026 10:00:00 +0100\r\nMIME-Version: 1.0\r\n\r\nOK"
+    try:
+        async with AsyncSessionLocal() as db:
+            stored = await documents.store(
+                db,
+                contract_id=contract_id,
+                kind="report",
+                year=year,
+                month=mon,
+                content=eml,
+                file_name="akceptacja.eml",
+                channel="portal",
+                now=local_now(),
+            )
+            await db.commit()
+            doc_id = stored.document.id
+        base = "/api/finance/settlements/contract"
+        ok = await app_client.get(
+            f"{base}/{contract_id}/documents/{doc_id}", headers=app_auth_headers
+        )
+        assert ok.status_code == 200 and ok.content == eml
+        assert ok.headers["content-disposition"].startswith("attachment")
+        wrong = await app_client.get(
+            f"{base}/{contract_id + 1}/documents/{doc_id}", headers=app_auth_headers
+        )
+        assert wrong.status_code == 404
+    finally:
+        await _cleanup(client_id)
+        await _restore(previous)

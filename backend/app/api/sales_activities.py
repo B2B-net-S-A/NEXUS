@@ -51,7 +51,12 @@ from app.services import sales_schema as schema
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_duplicates import load_client_name_index
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import client_gate, meeting_client_mail, meeting_decisions
+from app.services.sales import (
+    client_gate,
+    meeting_autopin,
+    meeting_client_mail,
+    meeting_decisions,
+)
 from app.services.sales.next_step import not_system_entry
 from app.services.sales.task_scope import not_orphaned, task_items
 from app.services.sales.timeline import Scope, merge_duplicates
@@ -198,6 +203,8 @@ class MeetingOut(ActivityOut):
     decision: MeetingDecision = "company_only"
     timing: MeetingTiming = "past"
     can_unpin: bool = False
+    #: Przypiął je automat, bo firma miała jedną otwartą szansę (``meeting_autopin``).
+    auto_pinned: bool = False
     open_opportunities: list[MeetingOpportunityOption] = Field(default_factory=list)
     client_name: Optional[str] = None
     delivery_lead: Optional[str] = None
@@ -882,6 +889,21 @@ async def list_meetings(
             if item.decision == "client"
         ],
     )
+    linked_ids = [item.id for item in page if item.decision == "linked"]
+    pinned_by_automat = (
+        set(
+            (
+                await db.scalars(
+                    select(SalesActivity.id).where(
+                        SalesActivity.id.in_(linked_ids),
+                        meeting_autopin.auto_pinned(SalesActivity.id),
+                    )
+                )
+            ).all()
+        )
+        if linked_ids
+        else set()
+    )
     now = datetime.now(timezone.utc)
     items = []
     for item in page:
@@ -902,6 +924,7 @@ async def list_meetings(
                     item.decision == "linked"
                     and meeting_decisions.is_outlook(row.SalesActivity)
                 ),
+                auto_pinned=item.id in pinned_by_automat,
                 open_opportunities=(
                     options.get(company_id, [])
                     if item.decision in ("pin", "choose")

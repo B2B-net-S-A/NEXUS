@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,9 +18,12 @@ from app.api.deps import FinanceModuleUser
 from app.api.financial_access import has_financial_access
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today, local_now
 from app.models.user import User
+from app.models.consultant_portal import CpDocument
 from app.services.client_settlements import client_invoice, contractor_invoices, service
+from app.services.consultant_portal import documents as portal_documents
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.service import SettlementError
 
@@ -356,11 +360,15 @@ async def client_invoice_attachments(
     current_user: FinanceModuleUser,
     client_id: int = Query(..., ge=1),
     month: str = Query(..., pattern=MONTH_PATTERN),
+    contract_id: Optional[int] = Query(None, ge=1),
+    issued_only: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await _open(db, current_user)
     try:
-        content, count = await client_invoice.attachments_zip(db, client_id, month)
+        content, count = await client_invoice.attachments_zip(
+            db, client_id, month, contract_id=contract_id, issued_only=issued_only
+        )
     except SettlementError as exc:
         raise _fail(exc) from exc
     if count == 0:
@@ -373,6 +381,34 @@ async def client_invoice_attachments(
         headers={
             "Content-Disposition": f'attachment; filename="rcp-{client_id}-{month}.zip"'
         },
+    )
+
+
+@router.get("/contract/{contract_id}/documents/{document_id}")
+async def contract_document(
+    contract_id: int,
+    document_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Plik RCP albo maila z karty osoby — do sprawdzenia przed przyjęciem
+    zbiorczym (pytanie rozliczeń 10.11). Jak w portalu: zawsze jako załącznik."""
+
+    await _open(db, current_user)
+    document = await db.get(CpDocument, document_id)
+    if document is None or document.contract_id != contract_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego pliku.")
+    try:
+        path = portal_documents.path_for(document.file_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Plik nie jest dostępny na dysku."
+        ) from None
+    name = document.file_name or f"dokument-{document.id}"
+    return FileResponse(
+        path,
+        media_type=document.mime,
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
     )
 
 

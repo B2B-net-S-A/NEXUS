@@ -325,4 +325,14 @@ describe("CproCvDraftBadge — CV etapu niezatwierdzone po akceptacji DL (10.11.
       unmount();
     }
   });
+
+  it("kontrola w tle po akceptacji: „Sprawdzamy CV”, nie „niezatwierdzone”", () => {
+    render(
+      <CproCvDraftBadge
+        item={item({ cv: { stage_id: 9, generated_document_id: 5, document_id: null, draft: true, review_pending: true } })}
+      />,
+    );
+    expect(screen.getByTestId("cpro-cv-review-pending")).toHaveTextContent("Sprawdzamy CV — za chwilę bez „SZKIC_”");
+    expect(screen.queryByTestId("cpro-cv-draft")).toBeNull();
+  });
 });

@@ -12,7 +12,9 @@ Logika:
    karty z kolejki Cpro do „QC CV” (przekazanie z przepływu, punkt 8).
 2. **Override priority** — jeśli istnieje ≥1 aktywny override dla pary
    (job.client_id, stage_def_id), użyj ich; inaczej baseline rules.
-3. **Recipient resolution** — wg ``RecipientType``.
+3. **Recipient resolution** — wg ``RecipientType``. „Rekruter rekrutacji” =
+   rekruter kandydata; prowadzący dostaje ruch cudzego kandydata tylko na
+   etapach z ``LEAD_STAGE_CODES`` albo na własne życzenie (10.11.2026).
 4. **Self-suppression** — usuń ``mover_user_id``.
 5. **Aktywni** — User.is_active=True.
 6. **Merge** — ten sam user w kilku regułach: OR(in-app), OR(email).
@@ -130,12 +132,44 @@ async def _client_overrides(
     return [_snapshot_override(r) for r in rows.scalars().all()]
 
 
+# Etapy, na których prowadzący rekrutację dostaje ruch także cudzego kandydata:
+# zmieniają coś dla całej rekrutacji. Reszta (Screening, Odrzucony…) to praca
+# rekrutera kandydata — prowadzący widzi ją na Tablicy (decyzja Artura 10.11.2026).
+LEAD_STAGE_CODES = frozenset({"client_interview", "acceptance", "hired"})
+
+
+def job_recruiter_ids(
+    *,
+    owner_id: Optional[int],
+    pair_id: Optional[int],
+    stage_code: Optional[str],
+    owner_wants_all: bool,
+) -> list[int]:
+    """Odbiorcy reguły „rekruter rekrutacji”: rekruter kandydata, a prowadzący
+    przy własnym kandydacie, kandydacie bez rekrutera, na etapie z
+    ``LEAD_STAGE_CODES`` albo gdy wybrał wszystkie ruchy
+    (``users.stage_moves_all_led_jobs``)."""
+
+    if pair_id is None or pair_id == owner_id:
+        return [owner_id] if owner_id else []
+    if owner_id and (owner_wants_all or stage_code in LEAD_STAGE_CODES):
+        return [owner_id, pair_id]
+    return [pair_id]
+
+
+async def _owner_wants_all_moves(db: AsyncSession, user_id: int) -> bool:
+    return bool(
+        await db.scalar(select(User.stage_moves_all_led_jobs).where(User.id == user_id))
+    )
+
+
 async def _resolve_user_ids_for_rule(
     db: AsyncSession,
     *,
     rule: _RuleSnapshot,
     job: Job,
     candidate: Candidate,
+    stage_code: Optional[str] = None,
 ) -> list[int]:
     """Zwraca listę user_id wynikającą z reguły. Może być pusta (None drop)."""
     rt = rule.recipient_type
@@ -149,24 +183,30 @@ async def _resolve_user_ids_for_rule(
         return []
 
     if rt == RecipientType.job_recruiter:
-        # Prowadzący rekrutację ORAZ rekruter, który prowadzi tego kandydata
-        # (właściciel procesu → pierwszy weryfikator). Do 02.10.2026 liczyło
-        # się samo `jobs.recruiter_id`: przy rekrutacji z automatu przydziału
-        # albo bez prowadzącego osoba pracująca z kandydatem nie dowiadywała
-        # się, że DL wysłał jej CV do klienta.
+        # Rekruter, który prowadzi tego kandydata (właściciel procesu →
+        # pierwszy weryfikator; od 02.10.2026). Prowadzący rekrutację dostaje
+        # ruch cudzego kandydata tylko na etapach ważnych dla całej rekrutacji
+        # albo gdy sam o to poprosił (10.11.2026, `job_recruiter_ids`).
         # „Poprzedni rekruter” (14.10.2026) nie pracuje nad rekrutacją —
-        # dzwonek dostaje tylko, gdy prowadzi tego kandydata (para niżej).
+        # dzwonek dostaje tylko, gdy prowadzi tego kandydata.
         from app.services.job_previous_recruiters import (  # noqa: PLC0415
             working_owner_id,
         )
 
         owner_id = await working_owner_id(db, job)
-        ids = [owner_id] if owner_id else []
         pair_recruiter = await pair_recruiter_id(
             db, candidate_id=candidate.id, job_id=job.id
         )
-        if pair_recruiter is not None and pair_recruiter not in ids:
-            ids.append(pair_recruiter)
+        ids = job_recruiter_ids(
+            owner_id=owner_id,
+            pair_id=pair_recruiter,
+            stage_code=stage_code,
+            owner_wants_all=bool(
+                owner_id
+                and pair_recruiter not in (None, owner_id)
+                and await _owner_wants_all_moves(db, owner_id)
+            ),
+        )
         if not ids:
             logger.warning(
                 "stage_notif: job_recruiter unresolved for job=%s (no recruiter)",
@@ -336,7 +376,11 @@ async def resolve_recipients(
 
     for rule in rules:
         user_ids = await _resolve_user_ids_for_rule(
-            db, rule=rule, job=job, candidate=candidate
+            db,
+            rule=rule,
+            job=job,
+            candidate=candidate,
+            stage_code=str(stage_code) if stage_code else None,
         )
         for uid in user_ids:
             if uid is None:

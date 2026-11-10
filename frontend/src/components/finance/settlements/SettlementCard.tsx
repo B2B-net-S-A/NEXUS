@@ -11,9 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
+import { downloadBlob } from "@/lib/authenticated-files";
 import {
   useAcceptSettlement,
   useNeedsFixSettlement,
+  fetchSettlementDocument,
   useNipDecision,
   useSetSettlementMd,
   useSettlementDetail,
@@ -329,6 +331,14 @@ function MdForm({ detail, month, kind }: { detail: SettlementDetail; month: stri
 }
 
 function Documents({ detail }: { detail: SettlementDetail }) {
+  const { showError } = useToast();
+  async function open(docId: number, name: string | null) {
+    try {
+      downloadBlob(await fetchSettlementDocument(detail.contract_id, docId), name ?? `dokument-${docId}`);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się pobrać pliku."));
+    }
+  }
   return (
     <section className="rounded-xl border bg-card p-3">
       <h3 className="text-sm font-semibold">Dokumenty</h3>
@@ -339,7 +349,14 @@ function Documents({ detail }: { detail: SettlementDetail }) {
           {detail.documents.map((doc) => (
             <li key={doc.id} className="flex items-center gap-2 py-1.5">
               <FileText aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{doc.file_name ?? "Plik bez nazwy"}</span>
+              <button
+                type="button"
+                onClick={() => open(doc.id, doc.file_name)}
+                className="min-w-0 flex-1 truncate text-left text-primary hover:underline"
+                title="Pobierz i sprawdź plik"
+              >
+                {doc.file_name ?? "Plik bez nazwy"}
+              </button>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {doc.kind === "invoice" ? "Faktura" : MAIL_MIMES.has(doc.mime) ? "Mail" : "RCP"} · {doc.channel === "portal" ? "panel" : "mail"} ·{" "}
                 {new Date(doc.received_at).toLocaleDateString("pl-PL")}

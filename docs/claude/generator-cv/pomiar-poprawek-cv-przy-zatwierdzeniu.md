@@ -50,6 +50,7 @@ widać efekt zmian generatora bez kolejnego odtwarzania.
   `approved_via: "dl_accept"`, a `user_id` to DL. Poprawki liczone są względem
   startu generatora, więc to dalej poprawki ludzi z edytora (zwykle rekrutera),
   nie DL-a; zatwierdzającego bierz z `approved_via`, nie z `user_id`.
+  Zatwierdzenie po kontroli w tle (ten sam dzień) ma też `review_id`.
 - Zapis w SAVEPOINT-cie, każdy błąd (także odczytu treści) to ostrzeżenie w logu
   `[cv_edit_summary]` — zatwierdzenie przechodzi.
 
