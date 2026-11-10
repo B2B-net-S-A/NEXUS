@@ -248,16 +248,18 @@ export function OffersView() {
           ariaLabel: "Szukaj oferty",
         }}
         actions={
-          <SegmentedRadio
-            size="sm"
-            label="Czyje pozycje"
-            options={OFFER_SCOPES.map((value) => ({ value, label: scopeLabel(value, data?.totals) }))}
-            value={scope}
-            onChange={(value) => {
-              setChosenScope(value);
-              setShowAll(false);
-            }}
-          />
+          <div data-tour="sales.offers.scope">
+            <SegmentedRadio
+              size="sm"
+              label="Czyje pozycje"
+              options={OFFER_SCOPES.map((value) => ({ value, label: scopeLabel(value, data?.totals) }))}
+              value={scope}
+              onChange={(value) => {
+                setChosenScope(value);
+                setShowAll(false);
+              }}
+            />
+          </div>
         }
       />
       {state === "loading" ? (
