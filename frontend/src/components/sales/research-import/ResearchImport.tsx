@@ -180,7 +180,7 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-0.5">
+          <div className="flex flex-col gap-0.5">
             <Label htmlFor="research-source" className="text-xs text-muted-foreground">
               Skąd lista
             </Label>
@@ -192,7 +192,7 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
               onChange={(event) => setSourceLabel(event.target.value)}
             />
           </div>
-          <div className="space-y-0.5">
+          <div className="flex flex-col gap-0.5">
             <Label htmlFor="research-owner" className="text-xs text-muted-foreground">
               Opiekun nowych kont
             </Label>
@@ -245,44 +245,43 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
           „Znamy teraz” to dolna granica: skan bazy trafił w limit wierszy.
         </p>
       )}
-      <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
-        <Table className="min-w-[1000px]">
-          <TableHeader>
+      {/* `Table` ma własne przewijanie w poziomie; przy 1280 px mieści się bez niego. */}
+      <Table density="compact" className="min-w-[940px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead className={`${CALM_HEAD} sticky left-0 min-w-[12.5rem] bg-background`}>Firma i osoba</TableHead>
+            <TableHead className={CALM_HEAD}>Poziom</TableHead>
+            <TableHead className={CALM_HEAD}>Pewność</TableHead>
+            <TableHead className={CALM_HEAD}>W NEXUSIE</TableHead>
+            <TableHead className={`${CALM_HEAD} text-right`}>Znamy teraz</TableHead>
+            <TableHead className={`${CALM_HEAD} text-right`}>Co zrobić</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {shown.map((item) => (
+            <ResearchRowItem
+              key={item.row.line}
+              item={item}
+              choice={choices[item.company.key]}
+              resolved={created[item.company.key] !== undefined}
+              saving={saving.has(item.row.line)}
+              blockedReason={blockedReason}
+              onLevel={(level) => setLevels((current) => ({ ...current, [item.row.line]: level }))}
+              onChoose={(choice) => setChoices((current) => ({ ...current, [item.company.key]: choice }))}
+              onAccept={() => {
+                if (isReady(item)) void save([item]);
+              }}
+            />
+          ))}
+          {shown.length === 0 && (
             <TableRow>
-              <TableHead className={`${CALM_HEAD} sticky left-0 min-w-[15rem] bg-card`}>Firma i osoba</TableHead>
-              <TableHead className={CALM_HEAD}>Poziom</TableHead>
-              <TableHead className={CALM_HEAD}>Pewność</TableHead>
-              <TableHead className={CALM_HEAD}>W NEXUSIE</TableHead>
-              <TableHead className={`${CALM_HEAD} text-right`}>Znamy teraz</TableHead>
-              <TableHead className={`${CALM_HEAD} text-right`}>Co zrobić</TableHead>
+              <TableCell colSpan={6} className="py-4 text-center text-sm text-muted-foreground">
+                {items.length === 0 ? "W pliku nie ma wierszy do dodania." : "Żaden wiersz nie czeka na decyzję."}
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shown.map((item) => (
-              <ResearchRowItem
-                key={item.row.line}
-                item={item}
-                choice={choices[item.company.key]}
-                resolved={created[item.company.key] !== undefined}
-                saving={saving.has(item.row.line)}
-                blockedReason={blockedReason}
-                onLevel={(level) => setLevels((current) => ({ ...current, [item.row.line]: level }))}
-                onChoose={(choice) => setChoices((current) => ({ ...current, [item.company.key]: choice }))}
-                onAccept={() => {
-                  if (isReady(item)) void save([item]);
-                }}
-              />
-            ))}
-            {shown.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="py-4 text-center text-sm text-muted-foreground">
-                  {items.length === 0 ? "W pliku nie ma wierszy do dodania." : "Żaden wiersz nie czeka na decyzję."}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+          )}
+        </TableBody>
+      </Table>
       <p className="text-xs text-muted-foreground">
         Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem i dzisiejszą datą. Nic się nie wysyła i nie dzwoni
         samo.

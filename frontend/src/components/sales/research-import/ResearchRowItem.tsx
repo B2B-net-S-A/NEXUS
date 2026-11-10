@@ -263,7 +263,7 @@ export function ResearchRowItem(props: ResearchRowItemProps) {
       <TableCell className="py-1.5">
         <SalesSelect
           ariaLabel={`Poziom decyzji: ${row.name}`}
-          className="h-7 w-[9.5rem] text-xs"
+          className="h-7 w-[8.25rem] text-xs"
           value={String(item.level)}
           onValueChange={(value) => onLevel(Number(value))}
           options={LEVEL_OPTIONS}

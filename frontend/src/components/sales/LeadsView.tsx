@@ -218,7 +218,9 @@ export function LeadsView() {
   const mode = picked && options.some((option) => option.value === picked) ? picked : fallback;
   const switcher =
     options.length > 1 ? (
-      <SegmentedRadio size="sm" label="Widok leadów" options={options} value={mode} onChange={setPicked} />
+      <div data-tour="sales.leads.mode">
+        <SegmentedRadio size="sm" label="Widok leadów" options={options} value={mode} onChange={setPicked} />
+      </div>
     ) : null;
   if (mode === "signals" || mode === "research") {
     return (

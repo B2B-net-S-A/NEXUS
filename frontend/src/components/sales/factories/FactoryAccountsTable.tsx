@@ -59,7 +59,7 @@ export function FactoryAccountsTable({ items, accounts, known, knownState }: Fac
       <Table className="min-w-[940px]">
         <TableHeader>
           <TableRow>
-            <TableHead className={`${CALM_HEAD} sticky left-0 min-w-[18rem] bg-card`}>Konto</TableHead>
+            <TableHead className={`${CALM_HEAD} sticky left-0 min-w-[18rem] bg-background`}>Konto</TableHead>
             <TableHead className={CALM_HEAD}>Opiekun</TableHead>
             <TableHead className={CALM_HEAD}>Mapa po kontakcie</TableHead>
             <TableHead className={`${CALM_HEAD} text-right`}>Znamy teraz</TableHead>

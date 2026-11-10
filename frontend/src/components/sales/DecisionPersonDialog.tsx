@@ -189,6 +189,19 @@ export function DecisionPersonDialog({ opportunityId, entry, onClose }: Decision
         </>
       }
     >
+      {origin && (
+        <p className="mb-2 text-xs text-muted-foreground first-letter:uppercase" data-testid="decision-person-source">
+          {origin}
+          {originHref && (
+            <>
+              {" · "}
+              <a href={originHref} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                otwórz źródło
+              </a>
+            </>
+          )}
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         {text("name", "Imię i nazwisko", { maxLength: 255 })}
         {text("role_in_company", "Stanowisko", { maxLength: 255 })}
@@ -241,19 +254,6 @@ export function DecisionPersonDialog({ opportunityId, entry, onClose }: Decision
       <p className="mt-2 text-xs text-muted-foreground">
         Telefon, e-mail, LinkedIn i notatka uzupełnią też puste pola kontaktu, niczego w nim nie nadpiszą.
       </p>
-      {origin && (
-        <p className="mt-1 text-xs text-muted-foreground first-letter:uppercase" data-testid="decision-person-source">
-          {origin}
-          {originHref && (
-            <>
-              {" · "}
-              <a href={originHref} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                otwórz źródło
-              </a>
-            </>
-          )}
-        </p>
-      )}
       {confirmDialog}
     </AppModal>
   );
