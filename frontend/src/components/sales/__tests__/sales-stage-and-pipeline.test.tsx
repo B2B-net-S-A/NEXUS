@@ -137,6 +137,11 @@ vi.mock("../FilesSection", () => ({ FilesSection: () => null }));
 vi.mock("../LinkClientDialog", () => ({ LinkClientDialog: () => null }));
 vi.mock("../OpportunityContacts", () => ({ OpportunityContacts: () => null }));
 vi.mock("../OpportunityHistory", () => ({ OpportunityHistory: () => null }));
+vi.mock("../handoff/OpportunityHandoff", () => ({ OpportunityHandoff: () => null }));
+vi.mock("@/lib/api/sales-handoffs", async (original) => ({
+  ...(await original<typeof import("@/lib/api/sales-handoffs")>()),
+  useOpportunityHandoff: () => ({ isSuccess: true, data: null }),
+}));
 vi.mock("../WhoWeKnowPanel", () => ({ WhoWeKnowPanel: () => null }));
 vi.mock("../SalesMotionPanel", () => ({ SalesMotionPanel: () => null }));
 // Lejek Fabryki IT otwiera listę kont z własnymi zapytaniami; tu liczy się pasek nad nią.

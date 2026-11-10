@@ -1889,6 +1889,32 @@
     "dot_anchor": "sales.tabs"
   },
   {
+    "id": "sprzedaz-umow-spotkanie",
+    "title": "Umów spotkanie jednym formularzem",
+    "why": "Zamiast wpisywać termin w opis szansy: firma, osoba, termin z kalendarza prowadzącego i trzy odpowiedzi z rozmowy. Szansa od razu trafia do prowadzącego, a Ty widzisz potem jego werdykt.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Mój dzień → Umów spotkanie",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.book-meeting"
+  },
+  {
+    "id": "sprzedaz-przekazane-i-werdykt",
+    "title": "Przekazane do Ciebie i werdykt po spotkaniu",
+    "why": "Umówione dla Ciebie spotkania są w jednym miejscu, po kolei, z odpowiedziami z rozmowy. Dzień wcześniej potwierdzasz termin u klienta, a po spotkaniu jednym kliknięciem mówisz, jak poszło.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Mój dzień → Przekazane do Ciebie",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.handed-to-me"
+  },
+  {
     "id": "sprzedaz-kogo-znamy-najpierw-najwazniejsi",
     "pr": 3239,
     "title": "Kogo znamy: najpierw najważniejsi",

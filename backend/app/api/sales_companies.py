@@ -157,6 +157,24 @@ class DuplicateOut(BaseModel):
     nip: Optional[str]
 
 
+class IdentityMatchOut(BaseModel):
+    id: int
+    name: str
+    hq_city: Optional[str]
+    domain: Optional[str]
+    open_opportunities: int
+    #: ``name`` ta sama nazwa, ``domain`` ta sama domena, ``similar`` podobna nazwa.
+    reason: Literal["name", "domain", "similar"]
+
+
+class IdentityOut(BaseModel):
+    """Podpowiedź przy zakładaniu karty; niczego nie blokuje."""
+
+    domain: Optional[str]
+    domain_source: Optional[Literal["website", "email"]]
+    matches: list[IdentityMatchOut]
+
+
 class DuplicateGroupCompany(BaseModel):
     id: int
     name: str
@@ -298,6 +316,10 @@ def _apply(company: SalesCompany, fields: dict[str, Any]) -> None:
         company.owner_label = None
     if "name" in fields:
         company.normalized_name = normalize_company_name(company.name) or company.name
+    if "domain" not in fields and not company.domain and fields.get("website_url"):
+        # Bez domeny nie działa dopasowanie poczty i kalendarza (10.11.2026).
+        # Domena wysłana jawnie, także pusta, jest decyzją człowieka.
+        company.domain = service.mail_domain(company.website_url)
 
 
 @router.get("", response_model=CompanyList)
@@ -392,6 +414,37 @@ async def registry_lookup(
         address=address,
         hq_city=city_from_address(address),
         source=found.get("source"),
+    )
+
+
+@router.get("/identity", response_model=IdentityOut)
+async def company_identity(
+    current_user: SalesViewUser,
+    name: Optional[str] = Query(default=None, max_length=500),
+    email: Optional[str] = Query(default=None, max_length=255),
+    website: Optional[str] = Query(default=None, max_length=500),
+    exclude_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+) -> IdentityOut:
+    """Tożsamość firmy przy zakładaniu: istniejące karty i domena do podpowiedzi."""
+
+    found = await service.identity(
+        db, name=name, email=email, website=website, exclude_id=exclude_id
+    )
+    return IdentityOut(
+        domain=found.domain,
+        domain_source=found.domain_source,
+        matches=[
+            IdentityMatchOut(
+                id=match.company.id,
+                name=match.company.name,
+                hq_city=match.company.hq_city,
+                domain=match.company.domain,
+                open_opportunities=match.open_opportunities,
+                reason=match.reason,
+            )
+            for match in found.matches
+        ],
     )
 
 

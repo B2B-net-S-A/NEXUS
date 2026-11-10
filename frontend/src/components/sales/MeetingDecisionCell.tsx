@@ -61,13 +61,23 @@ export function MeetingDecisionCell({ meeting, canEdit, busy, onPin, onCreate, o
     case "linked":
       return (
         <div className={row}>
+          {meeting.auto_pinned && (
+            <span
+              className="shrink-0 text-xs text-muted-foreground"
+              title="Przypięte samo, bo firma miała jedną otwartą szansę. „Odepnij”, jeśli to spotkanie dotyczy czegoś innego: nie przypnie się ponownie."
+            >
+              samo
+            </span>
+          )}
           <StatusDot tone="success">
             <Link
               href={`/sales/opportunities/${meeting.opportunity?.id}`}
               className="hover:underline"
               title={meeting.opportunity?.name}
             >
-              <TruncatedText className="max-w-[188px]">{meeting.opportunity?.name ?? ""}</TruncatedText>
+              <TruncatedText className={meeting.auto_pinned ? "max-w-[148px]" : "max-w-[188px]"}>
+                {meeting.opportunity?.name ?? ""}
+              </TruncatedText>
             </Link>
           </StatusDot>
           {canEdit && meeting.can_unpin && (
@@ -78,7 +88,7 @@ export function MeetingDecisionCell({ meeting, canEdit, busy, onPin, onCreate, o
               disabled={busy}
               onClick={onUnpin}
             >
-              Cofnij
+              {meeting.auto_pinned ? "Odepnij" : "Cofnij"}
             </Button>
           )}
         </div>

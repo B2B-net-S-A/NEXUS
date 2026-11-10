@@ -48,6 +48,7 @@ from app.models.sales import (
 from app.services import sales_schema as schema
 from app.services.sales import next_step
 from app.services.sales.kpi import OFFER_STAGE_KEY
+from app.services.sales.meeting_autopin import auto_pinned
 from app.services.sales.meeting_decisions import is_outlook
 from app.services.sales.touch import last_touch_at, not_cancelled, touched_at
 
@@ -118,6 +119,10 @@ class DayRow:
     do_not_contact: bool = False
     person: Optional[DayPerson] = None
     people_without_phone: tuple[DayPerson, ...] = ()
+    #: Spotkanie z kalendarza przypięte do szansy przez automat (``meeting_autopin``).
+    auto_pinned: bool = False
+    #: Spotkanie z Outlooka przy firmie bez otwartej szansy: po nim „Załóż szansę”.
+    can_create_opportunity: bool = False
 
 
 @dataclass(frozen=True)
@@ -468,6 +473,24 @@ async def _meeting_rows(
         if identity not in chosen or preference(item) < preference(chosen[identity]):
             chosen[identity] = item
 
+    pinned_ids = [
+        item[0].id for item in chosen.values() if item[0].opportunity_id is not None
+    ]
+    pinned_by_automat = (
+        set(
+            (
+                await db.scalars(
+                    select(SalesActivity.id).where(
+                        SalesActivity.id.in_(pinned_ids),
+                        auto_pinned(SalesActivity.id),
+                    )
+                )
+            ).all()
+        )
+        if pinned_ids
+        else set()
+    )
+
     result: list[DayRow] = []
     activities: dict[int, SalesActivity] = {}
     for activity, company_name, opportunity_title in sorted(
@@ -490,6 +513,12 @@ async def _meeting_rows(
                 ),
                 open_opportunities=open_by_company.get(activity.company_id, 0),
                 duration_minutes=activity.duration_minutes,
+                auto_pinned=activity.id in pinned_by_automat,
+                can_create_opportunity=(
+                    activity.opportunity_id is None
+                    and open_by_company.get(activity.company_id, 0) == 0
+                    and is_outlook(activity)
+                ),
             )
         )
     return result, activities
