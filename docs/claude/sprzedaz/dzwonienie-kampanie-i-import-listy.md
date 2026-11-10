@@ -8,7 +8,7 @@ https://claude.ai/artifact/PEfTGijHaxrPDZS2mkxKty). Powód: dwie osoby dzwoniąc
 
 Kod: `backend/app/services/sales/calling.py` (kolejka, wynik), `calling_file.py` (odczyt
 pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
-`frontend/src/components/sales/calling/`, trasa `/sales/calling`. Migracja 0681, DDL w
+`frontend/src/components/sales/calling/`, trasa `/sales/calling`. Migracja 0680, DDL w
 `sales_schema.CALLING_DDL` (lustro w `entrypoint.sh`).
 
 ## Co jest szansą, a co wpisem kolejki

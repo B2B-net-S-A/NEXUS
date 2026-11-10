@@ -737,7 +737,7 @@ CALL_OUTCOMES: tuple[str, ...] = (
     "wants_offer",
     "not_now",
     "do_not_contact",
-    # 0681: wyniki z kolejki dzwonienia (jeden słownik dla karty szansy i kolejki).
+    # 0680: wyniki z kolejki dzwonienia (jeden słownik dla karty szansy i kolejki).
     "offer_sent",
     "meeting_booked",
 )
@@ -846,7 +846,7 @@ CLIENT_SUMMARY_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_summary",
 )
 
-# ── 0681: kampanie dzwonienia i kolejka (decyzje Artura 10.11.2026) ───────
+# ── 0680: kampanie dzwonienia i kolejka (decyzje Artura 10.11.2026) ───────
 #
 # Wynik telefonu przestaje być szansą. Kampania to usługa, lista i skrypt rozmowy,
 # a rekord to firma, osoba, telefon, „skąd kontakt”, stan w kolejce, data

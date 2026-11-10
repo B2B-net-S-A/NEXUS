@@ -4015,7 +4015,7 @@ async def api_health_deep_check():
         ("sales_meeting_transcripts", SalesMeetingTranscript),
         # 0671: inne nazwy firmy z CV — bez tabeli pada pas w „Kogo znamy”.
         ("sales_company_aliases", SalesCompanyAlias),
-        # 0681: kampanie i kolejka dzwonienia — bez tabel pada zakładka „Dzwonienie”.
+        # 0680: kampanie i kolejka dzwonienia — bez tabel pada zakładka „Dzwonienie”.
         ("sales_call_campaigns", SalesCallCampaign),
         ("sales_call_records", SalesCallRecord),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.

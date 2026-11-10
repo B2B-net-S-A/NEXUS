@@ -788,7 +788,7 @@ class SalesCompanyBriefing(Base):
 
 
 class SalesCallCampaign(Base, TimestampMixin):
-    """Kampania dzwonienia: usługa, lista i skrypt rozmowy (0681)."""
+    """Kampania dzwonienia: usługa, lista i skrypt rozmowy (0680)."""
 
     __tablename__ = "sales_call_campaigns"
     __table_args__ = (
@@ -808,7 +808,7 @@ class SalesCallCampaign(Base, TimestampMixin):
 
 
 class SalesCallRecord(Base, TimestampMixin):
-    """Wpis kolejki dzwonienia: rekord kampanii albo szansa z etapu „Lead” (0681).
+    """Wpis kolejki dzwonienia: rekord kampanii albo szansa z etapu „Lead” (0680).
 
     To nie jest szansa: ``opportunity_id`` pojawia się dopiero z umówionego spotkania.
     Rekord bez kampanii powstaje przy pierwszym wyniku dla istniejącej szansy.
