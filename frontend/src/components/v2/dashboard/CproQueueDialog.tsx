@@ -132,6 +132,14 @@ export function CproAcceptance({ item }: { item: CproQueueItem }) {
  */
 export function CproCvDraftBadge({ item }: { item: CproQueueItem }) {
   if (!item.cv?.stage_id || !item.cv.draft) return null;
+  if (item.cv.review_pending) {
+    // Kontrola treści biegnie w tle po akceptacji; po niej CV będzie zatwierdzone.
+    return (
+      <Badge variant="info" size="sm" className="mt-1" data-testid="cpro-cv-review-pending">
+        Sprawdzamy CV — za chwilę bez „SZKIC_”
+      </Badge>
+    );
+  }
   return (
     <Badge variant="warning" size="sm" className="mt-1" data-testid="cpro-cv-draft">
       CV niezatwierdzone przez rekrutera

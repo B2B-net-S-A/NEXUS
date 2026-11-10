@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 import type { FollowupRow } from "@/lib/api/candidateFollowups";
-import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
+import { CPRO_CV_REVIEW_POLL_MS, WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import type { RateChangeTaskRow } from "@/lib/rate-change";
 import type { PriorityLevel } from "@/lib/request-priority";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -818,6 +818,8 @@ export interface CproQueueItem {
     document_id: number | null;
     /** CV etapu jest szkicem (akceptacja DL-a go nie zatwierdziła) — plik „SZKIC_…”. */
     draft?: boolean;
+    /** Szkic czeka na kontrolę AI w tle po akceptacji DL-a; po niej będzie zatwierdzony. */
+    review_pending?: boolean;
   } | null;
   /** Kto włożył osobę do kolejki i kiedy. Od 13.10.2026 robi to wyłącznie
    *  Delivery Lead po akceptacji; `accepted: false` = karta sprzed tej zmiany,
@@ -864,7 +866,12 @@ export function useCproQueue(enabled = true) {
     queryFn: () => api.get<CproQueueResponse>("/api/board-tasks/cpro/queue").then((r) => r.data),
     enabled,
     // Ruch z okna unieważnia kolejkę sam; odpytywanie to siatka bezpieczeństwa.
-    refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
+    // Kontrola CV w tle kończy się bez zdarzenia — wtedy pytamy częściej.
+    refetchInterval: (query) => {
+      if (!enabled) return false;
+      const reviewing = query.state.data?.jobs.some((g) => g.items.some((i) => i.cv?.review_pending));
+      return reviewing ? CPRO_CV_REVIEW_POLL_MS : WS_BACKED_SAFETY_POLL_MS;
+    },
   });
 }
 
