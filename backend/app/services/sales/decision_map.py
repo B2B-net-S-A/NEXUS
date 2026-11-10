@@ -63,6 +63,8 @@ _FIELD_WORDS = {
     "email": "e-mail",
     "linkedin_url": "LinkedIn",
     "notes": "notatka",
+    # Tylko wpis z importu listy (``research_import.py``); formularz go nie wysyła.
+    "source_label": "źródło",
 }
 #: Pole mapy → limit tej kolumny w ``sales_contacts`` (mapa pozwala czasem na więcej).
 _CONTACT_FILL_LIMITS: dict[str, Optional[int]] = {

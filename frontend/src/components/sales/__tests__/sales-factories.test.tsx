@@ -300,7 +300,8 @@ describe("kolejka osób", () => {
 
     expect(screen.getByRole("button", { name: "Zapisz kontakt: Prezes Testowy" })).toBeInTheDocument();
     expect(screen.getByText(/Poziom 2 · Dyrektorzy · telefon · z bazy pracuje tam teraz 12 · kiedyś 30/)).toBeInTheDocument();
-    expect(screen.getByText(/nie daje prawa do zimnego kontaktu/)).toBeInTheDocument();
+    // Dopisek o zimnym kontakcie zdjęty decyzją z 10.11.2026: ekran nie niesie ostrzeżeń prawnych.
+    expect(screen.queryByText(/zimnego kontaktu/)).toBeNull();
     expect(screen.queryByText("Tester Testowy")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Kto ich zna: Firma Sowa" })[0]).toHaveAttribute(
       "href",

@@ -1970,6 +1970,20 @@
     "dot_anchor": "sales.tabs"
   },
   {
+    "id": "sprzedaz-lista-z-researchu",
+    "pr": 3302,
+    "title": "Leady: lista osób z researchu do map decyzyjnych",
+    "why": "Listę osób z researchu wgrywasz plikiem. Przed zapisem widzisz przy każdej osobie jej firmę w NEXUSIE i pewność, a akceptacja dodaje ją na mapę decyzyjną Fabryk IT ze statusem „bez kontaktu”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Leady → Lista z researchu",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.leads.mode"
+  },
+  {
     "id": "sprzedaz-fabryki-it-lista-i-kolejka",
     "pr": 3295,
     "title": "Fabryki IT: lista kont i kolejka osób",
