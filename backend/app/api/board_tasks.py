@@ -631,6 +631,9 @@ class CproQueueCv(BaseModel):
     stage_id: Optional[int] = None
     generated_document_id: Optional[int] = None
     document_id: Optional[int] = None
+    # CV etapu jest szkicem: akceptacja DL-a nie zdołała go zatwierdzić
+    # (`cv_dl_accept_finalize`), więc „CV” pobierze plik „SZKIC_…”.
+    draft: bool = False
 
 
 class CproQueueItem(BaseModel):
@@ -1581,6 +1584,7 @@ async def get_cpro_queue(
                     stage_id=cv["stage_id"],
                     generated_document_id=cv["generated_document_id"],
                     document_id=cv["document_id"],
+                    draft=cv["source"] == "branded_draft",
                 )
                 if cv
                 else None
