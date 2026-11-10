@@ -1,7 +1,7 @@
 """Sprzedaż: podsumowanie spotkania dla klienta i wysyłka z NEXUSA.
 
 Revision ID: 0677_sales_meeting_client_summary
-Revises: 0676_duty_search
+Revises: 0676_sales_signal_runs
 
 DDL w ``app/services/sales_schema.py`` (``CLIENT_SUMMARY_DDL``; to samo źródło
 czyta ``entrypoint.sh``). Klucz AI F46 (``sales_meeting_client_summary``).
@@ -12,7 +12,7 @@ from alembic import op
 from app.services import sales_schema as schema
 
 revision = "0677_sales_meeting_client_summary"
-down_revision = "0676_duty_search"
+down_revision = "0676_sales_signal_runs"
 branch_labels = None
 depends_on = None
 
