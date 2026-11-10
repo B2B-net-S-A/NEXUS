@@ -124,7 +124,7 @@ class TestFeatureKeyEnum:
             "cv_call_questions",
             # 0658: nocne propozycje do słownika umiejętności.
             "skill_dictionary_proposals",
-            # 0676: „Kto już to robił” — rozbicie celu i ocena CV.
+            # 0677: „Kto już to robił” — rozbicie celu i ocena CV.
             "duty_search_plan",
             "duty_search_judge",
         }

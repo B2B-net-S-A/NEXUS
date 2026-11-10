@@ -1260,7 +1260,7 @@ except Exception as _ai_assessment_err:  # noqa: BLE001
     print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
     _CANDIDATE_AI_ASSESSMENT_DDL = []
 
-# „Kto już to robił” (migracja 0676) — JEDNO źródło z migracją
+# „Kto już to robił” (migracja 0677) — JEDNO źródło z migracją
 # (`app/services/duty_search_schema.py`).
 try:
     from app.services import duty_search_schema as _duty_search_schema
@@ -8028,7 +8028,7 @@ _DATA_STATEMENTS = [
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
-    # 0676: seed kluczy AI „Kto już to robił” (rozbicie celu i ocena CV).
+    # 0677: seed kluczy AI „Kto już to robił” (rozbicie celu i ocena CV).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'duty_search_plan', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

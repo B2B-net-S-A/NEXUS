@@ -1,4 +1,4 @@
-"""„Kto już to robił” — przebieg wyszukiwania po celu i oceny osób (0676).
+"""„Kto już to robił” — przebieg wyszukiwania po celu i oceny osób (0677).
 
 DDL: ``app/services/duty_search_schema.py`` (jedno źródło dla migracji i entrypointu).
 """

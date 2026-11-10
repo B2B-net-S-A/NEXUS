@@ -1,7 +1,7 @@
 """„Kto już to robił”: tabele wyszukiwania po celu i klucze AI F46/F47.
 
-Revision ID: 0676_duty_search
-Revises: 0675_notification_on_behalf
+Revision ID: 0677_duty_search
+Revises: 0676_sales_signal_runs
 
 Decyzja Artura 09.11.2026: wyszukiwanie po celu projektu i obowiązkach, gdy
 nie znamy technologii krytycznych (reguła
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services import duty_search_schema as schema
 
-revision = "0676_duty_search"
-down_revision = "0675_notification_on_behalf"
+revision = "0677_duty_search"
+down_revision = "0676_sales_signal_runs"
 branch_labels = None
 depends_on = None
 
@@ -45,7 +45,7 @@ REFUSE_WITH_LIVE_ROWS = """DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log
                WHERE feature::text IN ('duty_search_plan', 'duty_search_judge')) THEN
-        RAISE EXCEPTION 'Downgrade 0676 odmawia: są wpisy duty_search_*, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0677 odmawia: są wpisy duty_search_*, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

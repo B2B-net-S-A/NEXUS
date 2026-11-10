@@ -905,7 +905,7 @@ async def lifespan(app: FastAPI):
             "cv_source_cleanup": asyncio.create_task(cv_source_cleanup_loop()),
             "cv_version_maps": asyncio.create_task(cv_version_map_loop()),
             "candidate_search": asyncio.create_task(candidate_search_loop()),
-            # 0676: „Kto już to robił” — kolejka wyszukiwań po celu projektu.
+            # 0677: „Kto już to robił” — kolejka wyszukiwań po celu projektu.
             "duty_search": asyncio.create_task(duty_search_loop()),
             # 7 dni, ale najnowszy przegląd z wynikami na (autor, rekrutacja/
             # request) zostaje (decyzja 10.09). Kill-switch sprawdzany PRZED pętlą.

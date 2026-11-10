@@ -200,7 +200,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0658 (06.11.2026): nocne propozycje do słownika umiejętności (nazwy spoza
     # słownika), zatwierdza Head of Recruitment albo admin.
     skill_dictionary_proposals = "skill_dictionary_proposals"
-    # 0676 (09.11.2026): „Kto już to robił” — rozbicie celu projektu na rzeczy
+    # 0677 (09.11.2026): „Kto już to robił” — rozbicie celu projektu na rzeczy
     # do sprawdzenia w CV i ocena CV z cytatem (wyszukiwanie po obowiązkach).
     duty_search_plan = "duty_search_plan"
     duty_search_judge = "duty_search_judge"
