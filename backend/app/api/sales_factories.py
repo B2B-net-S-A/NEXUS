@@ -34,24 +34,26 @@ from app.services.sales.decision_map import IT_FACTORIES_PIPELINE_KEY
 router = APIRouter()
 
 
-class Ref(BaseModel):
+# Modele mają przedrostek „Factory”: nazwa bez niego (np. ``ClientOut``) zderza się
+# z modelem API v1, a FastAPI zmienia wtedy nazwy obu w OpenAPI i psuje kontrakt v1.
+class FactoryRef(BaseModel):
     id: int
     name: str
 
 
-class OpportunityRef(BaseModel):
+class FactoryOpportunityRef(BaseModel):
     id: int
     title: str
 
 
-class ClientOut(BaseModel):
+class FactoryClientOut(BaseModel):
     """Firma jest klientem NEXUSA: temat prowadzi Delivery Lead."""
 
     name: str
     delivery_lead: Optional[str]
 
 
-class AccountOut(BaseModel):
+class FactoryAccountOut(BaseModel):
     opportunity_id: int
     company_id: int
     map_total: int
@@ -63,29 +65,29 @@ class AccountOut(BaseModel):
     waiting: int
     #: Etap mówi o kontakcie, a na mapie nikt go nie ma. Podpowiedź, nie blokada.
     stage_mismatch: bool
-    client: Optional[ClientOut]
+    client: Optional[FactoryClientOut]
 
 
-class AccountsOut(BaseModel):
-    items: list[AccountOut]
+class FactoryAccountsOut(BaseModel):
+    items: list[FactoryAccountOut]
 
 
-class QueuePersonOut(BaseModel):
-    opportunity: OpportunityRef
-    company: Ref
-    client: Optional[ClientOut]
+class FactoryQueuePersonOut(BaseModel):
+    opportunity: FactoryOpportunityRef
+    company: FactoryRef
+    client: Optional[FactoryClientOut]
     #: Wpis mapy w kształcie z karty szansy (``atlas_motion.it_factory.decision_map``).
     person: dict[str, Any]
 
 
-class QueueOut(BaseModel):
-    owner: Ref
-    people: list[QueuePersonOut]
+class FactoryQueueOut(BaseModel):
+    owner: FactoryRef
+    people: list[FactoryQueuePersonOut]
     #: Poziom 3 i 4 oraz osoby bez poziomu: ekran pokazuje je zwinięte.
-    lower_levels: list[QueuePersonOut]
+    lower_levels: list[FactoryQueuePersonOut]
 
 
-class KnownCountsOut(BaseModel):
+class FactoryKnownCountsOut(BaseModel):
     company_id: int
     current: int
     past: int
@@ -93,39 +95,41 @@ class KnownCountsOut(BaseModel):
     unknown: int
 
 
-class KnownPeopleOut(BaseModel):
-    items: list[KnownCountsOut]
+class FactoryKnownPeopleOut(BaseModel):
+    items: list[FactoryKnownCountsOut]
     #: Skan trafił w sufit wierszy: liczby są dolną granicą.
     truncated: bool
 
 
-def _client_out(match: Optional[client_gate.ClientMatch]) -> Optional[ClientOut]:
+def _client_out(match: Optional[client_gate.ClientMatch]) -> Optional[FactoryClientOut]:
     if match is None:
         return None
-    return ClientOut(name=match.client_name, delivery_lead=match.delivery_lead)
+    return FactoryClientOut(name=match.client_name, delivery_lead=match.delivery_lead)
 
 
-def _person_out(row: factories.QueuePerson) -> QueuePersonOut:
-    return QueuePersonOut(
-        opportunity=OpportunityRef(id=row.opportunity_id, title=row.opportunity_title),
-        company=Ref(id=row.company_id, name=row.company_name),
+def _person_out(row: factories.QueuePerson) -> FactoryQueuePersonOut:
+    return FactoryQueuePersonOut(
+        opportunity=FactoryOpportunityRef(
+            id=row.opportunity_id, title=row.opportunity_title
+        ),
+        company=FactoryRef(id=row.company_id, name=row.company_name),
         client=_client_out(row.client),
         person=row.person,
     )
 
 
-@router.get("/accounts", response_model=AccountsOut)
+@router.get("/accounts", response_model=FactoryAccountsOut)
 async def list_accounts(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
     archived: bool = False,
-) -> AccountsOut:
+) -> FactoryAccountsOut:
     """Liczniki map kont lejka; wiersze listy daje ``GET /api/sales/opportunities``."""
 
     accounts = await factories.load_accounts(db, archived=archived)
-    return AccountsOut(
+    return FactoryAccountsOut(
         items=[
-            AccountOut(
+            FactoryAccountOut(
                 opportunity_id=account.opportunity_id,
                 company_id=account.company_id,
                 map_total=account.counts.total,
@@ -141,12 +145,12 @@ async def list_accounts(
     )
 
 
-@router.get("/queue", response_model=QueueOut)
+@router.get("/queue", response_model=FactoryQueueOut)
 async def people_queue(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
     owner_id: Optional[int] = None,
-) -> QueueOut:
+) -> FactoryQueueOut:
     """Kolejka do pierwszego kontaktu z map zalogowanej osoby.
 
     Kolejkę innego opiekuna (``owner_id``, ten sam filtr co w Szansach) otwiera
@@ -163,14 +167,14 @@ async def people_queue(
                 status.HTTP_404_NOT_FOUND, detail="Nie ma takiego opiekuna."
             )
     queue = await factories.load_queue(db, owner_user_id=owner.id)
-    return QueueOut(
-        owner=Ref(id=owner.id, name=owner.name),
+    return FactoryQueueOut(
+        owner=FactoryRef(id=owner.id, name=owner.name),
         people=[_person_out(row) for row in queue.people],
         lower_levels=[_person_out(row) for row in queue.lower_levels],
     )
 
 
-@router.get("/known-people", response_model=KnownPeopleOut)
+@router.get("/known-people", response_model=FactoryKnownPeopleOut)
 # Skan kandydatów po JSONB, jak panel „Kogo znamy” (30/min): bramka uprawnienia
 # nie ogranicza przepustowości.
 @limiter.limit("30/minute")
@@ -179,7 +183,7 @@ async def known_people(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
     archived: bool = False,
-) -> KnownPeopleOut:
+) -> FactoryKnownPeopleOut:
     """„Znamy teraz” i „Kiedyś” dla firm lejka: same liczby, jeden skan na listę."""
 
     companies = list(
@@ -215,9 +219,9 @@ async def known_people(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Nie udało się teraz policzyć osób z bazy. Spróbuj za chwilę.",
         ) from exc
-    return KnownPeopleOut(
+    return FactoryKnownPeopleOut(
         items=[
-            KnownCountsOut(
+            FactoryKnownCountsOut(
                 company_id=company_id,
                 current=counts.current,
                 past=counts.past,
