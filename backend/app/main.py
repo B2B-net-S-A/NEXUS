@@ -246,6 +246,7 @@ from app.api import hr_payments as hr_payments_api
 from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
+from app.api import client_settlements as client_settlements_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2194,6 +2195,13 @@ app.include_router(
     client_sales_invoices_api.finance_router,
     prefix="/api/finance/sales-invoices",
     tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+# Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
+app.include_router(
+    client_settlements_api.router,
+    prefix="/api/finance/settlements",
+    tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
 app.include_router(

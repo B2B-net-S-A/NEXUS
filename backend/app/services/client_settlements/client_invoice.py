@@ -1,0 +1,549 @@
+"""Do faktury dla klienta (roadmapa E5.1, E5.2, E5.3).
+
+Z przyjętych rozliczeń miesiąca składamy pozycje faktury do klienta tak, jak
+dziś wyglądają w KSeF: nazwa pozycji z ostatniej faktury do klienta za tę grupę
+zamówienia (bez przyrostka), MD × stawka klienta, praca dodatkowa osobną
+pozycją z przyrostkiem z reguły ``cl.overtime_item`` po stawce × mnożnik, MD
+wdrożeniowe pozycją za 0 zł. Nic tu nie wystawia faktury: Finanse kopiują
+pozycje do programu, a wystawiona faktura wraca z KSeF (``client_invoicing``)
+i przypięta do grupy zamówienia i miesiąca zmienia stan na „Wystawiona”.
+
+Estymacja (E5.3): miesiąc z przyjętą estymacją fakturujemy z estymacji;
+faktyczne RCP za ten miesiąc już nie wchodzi na fakturę, a gdy wyszło mniej MD,
+różnica schodzi ujemną pozycją na fakturze za następny miesiąc (bez korekty).
+
+Paczka załączników (E5.2): pliki RCP i maile miesiąca w zipie; przy regule
+``cl.attachment_name`` plik RCP nosi numer KSeF faktury do klienta.
+"""
+
+from __future__ import annotations
+
+import io
+import re
+import zipfile
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any, Optional
+
+from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.client_order import ClientOrder
+from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
+from app.models.client_settlement import ClientSettlement
+from app.services.client_settlements import service
+from app.services.client_settlements.rcp_checks import name_tokens
+from app.services.consultant_portal import documents as portal_documents
+from app.services.hr.payroll_periods import add_months
+
+MONEY = Decimal("0.01")
+ONBOARDING_SUFFIX = "_onbording"  # tak jak dziś w fakturach do BNP
+CORRECTION_SUFFIX = "_korekta_estymacji"
+_SUFFIX = re.compile(
+    r"[_\s]+(nadgodziny|onbording|onboarding|korekta[\w ]*)\s*$", re.IGNORECASE
+)
+EXTENSIONS = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-outlook": ".msg",
+    "message/rfc822": ".eml",
+}
+
+
+@dataclass(frozen=True)
+class Position:
+    name: str
+    unit: str
+    quantity: Decimal
+    unit_price: Optional[Decimal]
+    net: Decimal
+    kind: str  # base · overtime · onboarding · correction
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "unit": self.unit,
+            "quantity": f"{self.quantity.normalize():f}",
+            "unit_price": None if self.unit_price is None else f"{self.unit_price:.2f}",
+            "net": f"{self.net:.2f}",
+            "kind": self.kind,
+        }
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(MONEY)
+
+
+def _previous(month: str) -> str:
+    year, mon = (int(x) for x in month.split("-"))
+    year, mon = add_months(year, mon, -1)
+    return f"{year}-{mon:02d}"
+
+
+def base_name(items: list[dict[str, Any]], person: str) -> Optional[str]:
+    """Nazwa pozycji zasadniczej z faktury: bez przyrostka; przy kilku osobach
+    na fakturze — ta z nazwiskiem osoby."""
+
+    names = [
+        str(item.get("name") or "").strip()
+        for item in items
+        if isinstance(item, dict) and item.get("name")
+    ]
+    plain = [n for n in names if not _SUFFIX.search(n)] or [
+        _SUFFIX.sub("", n) for n in names
+    ]
+    if not plain:
+        return None
+    if len(plain) > 1:
+        tokens = name_tokens(person)
+        mine = [n for n in plain if tokens and tokens <= name_tokens(n)]
+        if mine:
+            return mine[0]
+    return plain[0]
+
+
+async def _group_invoices(
+    db: AsyncSession, group_ids: set[int]
+) -> dict[int, list[tuple[str, ClientSalesInvoice]]]:
+    """Faktury do klienta per grupa zamówienia: (miesiąc usługi, faktura)."""
+
+    if not group_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ClientSalesInvoiceLink.order_group_id,
+            ClientSalesInvoiceLink.period_year,
+            ClientSalesInvoiceLink.period_month,
+            ClientSalesInvoice,
+        )
+        .join(
+            ClientSalesInvoice,
+            ClientSalesInvoice.id == ClientSalesInvoiceLink.invoice_id,
+        )
+        .where(ClientSalesInvoiceLink.order_group_id.in_(group_ids))
+        .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
+    )
+    out: dict[int, list[tuple[str, ClientSalesInvoice]]] = {}
+    for group_id, year, month, invoice in rows.all():
+        out.setdefault(int(group_id), []).append((f"{year}-{int(month):02d}", invoice))
+    return out
+
+
+def _multiplier(s: ClientSettlement) -> Decimal:
+    for line in s.lines or []:
+        if isinstance(line, dict) and line.get("label") == "Praca dodatkowa":
+            try:
+                return Decimal(str(line.get("multiplier")))
+            except ArithmeticError:
+                break
+    return Decimal("1")
+
+
+def positions(
+    s: ClientSettlement,
+    *,
+    name: str,
+    rate: Optional[Decimal],
+    overtime_suffix: Optional[str],
+) -> list[Position]:
+    regular = Decimal(s.md_regular or 0)
+    extra = Decimal(s.md_extra or 0)
+    onboarding = Decimal(s.md_onboarding or 0)
+    price = None if rate is None else _money(Decimal(rate))
+    out = [
+        Position(
+            name,
+            "MD",
+            regular - onboarding,
+            price,
+            _money((regular - onboarding) * (price or 0)),
+            "base",
+        )
+    ]
+    if onboarding > 0:
+        out.append(
+            Position(
+                name + ONBOARDING_SUFFIX,
+                "MD",
+                onboarding,
+                None,
+                Decimal("0.00"),
+                "onboarding",
+            )
+        )
+    if extra > 0:
+        extra_price = None if price is None else _money(price * _multiplier(s))
+        suffix = overtime_suffix if overtime_suffix is not None else "_nadgodziny"
+        if overtime_suffix is None:
+            # Bez reguły nadgodziny nie idą osobno: ta sama pozycja, cena × mnożnik.
+            out.append(
+                Position(
+                    name,
+                    "MD",
+                    extra,
+                    extra_price,
+                    _money(extra * (extra_price or 0)),
+                    "overtime",
+                )
+            )
+        else:
+            out.append(
+                Position(
+                    name + suffix,
+                    "MD",
+                    extra,
+                    extra_price,
+                    _money(extra * (extra_price or 0)),
+                    "overtime",
+                )
+            )
+    return out
+
+
+def _correction(
+    estimate: ClientSettlement,
+    actual: ClientSettlement,
+    *,
+    name: str,
+    rate: Optional[Decimal],
+    month_label: str,
+) -> Optional[Position]:
+    if estimate.md_charged is None or actual.md_charged is None:
+        return None
+    diff = Decimal(estimate.md_charged) - Decimal(actual.md_charged)
+    if diff <= 0:
+        return None
+    price = None if rate is None else _money(Decimal(rate))
+    return Position(
+        f"{name}{CORRECTION_SUFFIX} {month_label}",
+        "MD",
+        -diff,
+        price,
+        _money(-diff * (price or 0)),
+        "correction",
+    )
+
+
+async def invoice_month(
+    db: AsyncSession, client_id: int, month: str, *, amounts: bool
+) -> dict[str, Any]:
+    """Wiersze „Do faktury dla klienta” za miesiąc klienta."""
+
+    view = await service.month_view(db, client_id, month, amounts=amounts)
+    previous = _previous(month)
+    # Kontrakt zakończony w miesiącu planu nie ma już wiersza w kolejnym
+    # miesiącu, a korekta planu musi trafić na fakturę (E5.3).
+    listed = {r["contract_id"] for r in view["rows"]}
+    ended = (
+        await db.scalars(
+            select(ClientSettlement.contract_id).where(
+                ClientSettlement.client_id == client_id,
+                ClientSettlement.period_month == previous,
+                ClientSettlement.kind == service.ESTIMATE,
+                ClientSettlement.status == "accepted",
+                ClientSettlement.contract_id.not_in(listed) if listed else True,
+            )
+        )
+    ).all()
+    for contract_id in ended:
+        person = await service._contract(db, contract_id)
+        view["rows"].append(
+            {"contract_id": contract_id, "person": person.name, "order_number": None}
+        )
+    ids = [r["contract_id"] for r in view["rows"]]
+    settlements = (
+        (
+            await db.scalars(
+                select(ClientSettlement).where(
+                    ClientSettlement.contract_id.in_(ids),
+                    ClientSettlement.period_month.in_((month, previous)),
+                    ClientSettlement.status == "accepted",
+                )
+            )
+        ).all()
+        if ids
+        else []
+    )
+    by_key = {(s.contract_id, s.period_month, s.kind): s for s in settlements}
+    order_ids = {s.order_id for s in settlements if s.order_id is not None}
+    orders = (
+        {
+            o.id: o
+            for o in (
+                await db.scalars(
+                    select(ClientOrder).where(ClientOrder.id.in_(order_ids))
+                )
+            ).all()
+        }
+        if order_ids
+        else {}
+    )
+    groups = {o.order_group_id for o in orders.values() if o.order_group_id is not None}
+    invoices = await _group_invoices(db, groups)
+    rules = await service.rules_for(db, client_id, month)
+    suffix_rule = rules["cl.overtime_item"]
+    overtime_suffix = (
+        str(suffix_rule["params"].get("suffix") or "_nadgodziny")
+        if suffix_rule["level"] != "off"
+        else None
+    )
+    rows = []
+    for row in view["rows"]:
+        contract_id = row["contract_id"]
+        estimate = by_key.get((contract_id, month, service.ESTIMATE))
+        actual = by_key.get((contract_id, month, service.ACTUAL))
+        chosen = estimate or actual
+        out: dict[str, Any] = {
+            "contract_id": contract_id,
+            "person": row["person"],
+            "order_number": row["order_number"],
+            # Sama korekta planu (kontrakt już bez pracy) idzie jak RCP faktyczne.
+            "kind": chosen.kind if chosen else None,
+            "state": "waiting",
+            "positions": [],
+            "net": None,
+            "cost": None,
+            "margin": None,
+            "margin_pct": None,
+            "template": False,
+            "ksef_number": None,
+            "invoice_number": None,
+        }
+        prev_estimate = by_key.get((contract_id, previous, service.ESTIMATE))
+        prev_actual = by_key.get((contract_id, previous, service.ACTUAL))
+        basis = chosen or (prev_estimate if prev_actual is not None else None)
+        if basis is None:
+            rows.append(out)
+            continue
+        if chosen is None:
+            out["kind"] = service.ACTUAL
+        order = orders.get(basis.order_id) if basis.order_id else None
+        rate = order.md_rate_revenue if order else None
+        history = (
+            invoices.get(order.order_group_id, [])
+            if order and order.order_group_id
+            else []
+        )
+        template = next(
+            (
+                base_name(inv.items or [], row["person"])
+                for period, inv in reversed(history)
+                if period < month and base_name(inv.items or [], row["person"])
+            ),
+            None,
+        )
+        name = template or (
+            f"Usługi informatyczne; {row['person']}; nr zamówienia: {row['order_number'] or '—'}"
+        )
+        items = (
+            positions(chosen, name=name, rate=rate, overtime_suffix=overtime_suffix)
+            if chosen is not None
+            else []
+        )
+        if prev_estimate is not None and prev_actual is not None:
+            correction = _correction(
+                prev_estimate,
+                prev_actual,
+                name=name,
+                rate=rate,
+                month_label=previous,
+            )
+            if correction is not None:
+                items.append(correction)
+        net = sum((p.net for p in items), Decimal("0"))
+        cost = (
+            Decimal(chosen.amount_cost)
+            if chosen is not None and chosen.amount_cost is not None
+            else None
+        )
+        issued = next((inv for period, inv in history if period == month), None)
+        out.update(
+            state="issued" if issued else "ready",
+            positions=[p.as_dict() for p in items]
+            if amounts
+            else [{**p.as_dict(), "unit_price": None, "net": None} for p in items],
+            template=template is not None,
+            ksef_number=issued.ksef_number if issued else None,
+            invoice_number=issued.invoice_number if issued else None,
+        )
+        if amounts:
+            out["net"] = f"{net:.2f}"
+            if cost is not None:
+                margin = net - cost
+                out["cost"] = f"{cost:.2f}"
+                out["margin"] = f"{margin:.2f}"
+                out["margin_pct"] = None if net == 0 else f"{margin / net * 100:.1f}"
+        rows.append(out)
+    return {
+        "client_id": client_id,
+        "client_name": view["client_name"],
+        "month": month,
+        "can_see_amounts": amounts,
+        "rows": rows,
+    }
+
+
+def copy_text(rows: list[dict[str, Any]]) -> str:
+    """Pozycje do wklejenia w program do faktur: kolumny oddzielone tabulatorem."""
+
+    lines = []
+    for row in rows:
+        for p in row["positions"]:
+            lines.append(
+                "\t".join(
+                    [
+                        p["name"],
+                        p["quantity"].replace(".", ","),
+                        p["unit"],
+                        (p["unit_price"] or "").replace(".", ","),
+                        (p["net"] or "").replace(".", ","),
+                    ]
+                )
+            )
+    return "\n".join(lines)
+
+
+def _safe(text: str) -> str:
+    return re.sub(r"[^\w.\-]+", "_", text, flags=re.UNICODE).strip("_")[:80] or "plik"
+
+
+async def attachments_zip(
+    db: AsyncSession, client_id: int, month: str
+) -> tuple[bytes, int]:
+    """Zip z plikami RCP i maili rozliczeń przyjętych w miesiącu (E5.2).
+
+    Przy regule ``cl.attachment_name`` RCP nazywa się numerem KSeF faktury do
+    klienta (gdy już jest), reszta plików dostaje ten sam przedrostek. Zwraca
+    zawartość i liczbę plików."""
+
+    data = await invoice_month(db, client_id, month, amounts=False)
+    rules = await service.rules_for(db, client_id, month)
+    by_ksef = rules["cl.attachment_name"]["level"] != "off"
+    buffer = io.BytesIO()
+    count = 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for row in data["rows"]:
+            if row["kind"] is None:
+                continue
+            s = await service._settlement(
+                db, row["contract_id"], month, kind=row["kind"]
+            )
+            if s is None:
+                continue
+            docs = await service._month_reports(
+                db, row["contract_id"], month, kind=s.kind
+            )
+            # Najpierw RCP (nazwa bez przyrostka), potem maile i reszta.
+            docs.sort(
+                key=lambda d: (
+                    d.mime not in service.RCP_MIMES,
+                    d.id != s.report_document_id,
+                    d.created_at,
+                )
+            )
+            prefix = (
+                row["ksef_number"]
+                if by_ksef and row["ksef_number"]
+                else f"{row['order_number'] or 'bez_zamowienia'}_{row['person']}"
+            )
+            for index, doc in enumerate(docs):
+                try:
+                    content = portal_documents.path_for(doc.file_path).read_bytes()
+                except OSError:
+                    continue
+                ext = EXTENSIONS.get(doc.mime, "")
+                name = _safe(prefix) + ("" if index == 0 else f"_{index}") + ext
+                archive.writestr(name, content)
+                count += 1
+    return buffer.getvalue(), count
+
+
+async def estimates(
+    db: AsyncSession, client_id: int, month: str, *, amounts: bool
+) -> dict[str, Any]:
+    """Ekran „<poprzedni miesiąc> i plan <miesiąca>” (E5.4): stan poprzedniego
+    miesiąca, reszta puli po nim, plan i ile pójdzie na fakturę."""
+
+    view = await service.month_view(db, client_id, month, amounts=amounts)
+    previous = _previous(month)
+    ids = [r["contract_id"] for r in view["rows"]]
+    found = (
+        (
+            await db.scalars(
+                select(ClientSettlement).where(
+                    ClientSettlement.contract_id.in_(ids),
+                    or_(
+                        and_(
+                            ClientSettlement.period_month == previous,
+                            ClientSettlement.kind == service.ACTUAL,
+                        ),
+                        and_(
+                            ClientSettlement.period_month == month,
+                            ClientSettlement.kind == service.ESTIMATE,
+                        ),
+                    ),
+                )
+            )
+        ).all()
+        if ids
+        else []
+    )
+    by_key = {(s.contract_id, s.kind): s for s in found}
+    rows = []
+    for row in view["rows"]:
+        before = by_key.get((row["contract_id"], service.ACTUAL))
+        plan = by_key.get((row["contract_id"], service.ESTIMATE))
+        remaining = None
+        if before is not None and before.status == "accepted":
+            remaining = next(
+                (
+                    c.get("remaining_after")
+                    for c in before.checks or []
+                    if isinstance(c, dict) and "remaining_after" in c
+                ),
+                None,
+            )
+        over = None
+        if plan is not None and plan.md_charged is not None and remaining is not None:
+            excess = Decimal(plan.md_charged) - Decimal(remaining)
+            over = f"{excess:.3f}" if excess > 0 else None
+        to_invoice = None
+        if amounts and before is not None and before.status == "accepted":
+            total = Decimal(before.amount_revenue or 0)
+            if plan is not None and plan.amount_revenue is not None and over is None:
+                total += Decimal(plan.amount_revenue)
+            to_invoice = f"{total:.2f}"
+        rows.append(
+            {
+                "contract_id": row["contract_id"],
+                "person": row["person"],
+                "order_number": row["order_number"],
+                "previous_status": before.status if before else "missing",
+                "previous_md": None
+                if before is None or before.md_charged is None
+                else f"{before.md_charged:.3f}",
+                "remaining_after_previous": remaining,
+                "plan_status": plan.status if plan else "missing",
+                "plan_md": None
+                if plan is None or plan.md_charged is None
+                else f"{plan.md_charged:.3f}",
+                "over_pool": over,
+                "to_invoice": to_invoice,
+            }
+        )
+    # Najpierw osoby z planem, potem z przyjętym poprzednim miesiącem.
+    rows.sort(
+        key=lambda r: (
+            r["plan_status"] == "missing",
+            r["previous_status"] != "accepted",
+        )
+    )
+    return {
+        "client_id": client_id,
+        "client_name": view["client_name"],
+        "month": month,
+        "previous_month": previous,
+        "enabled": await service.estimate_allowed(db, client_id, month),
+        "can_see_amounts": amounts,
+        "rows": rows,
+    }
