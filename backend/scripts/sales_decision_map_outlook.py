@@ -4,7 +4,8 @@
 Automat (``services/sales/decision_map_outlook.py``) po wdrożeniu liczy tylko nowe
 zdarzenia. Ten skrypt przechodzi całą historię aktywności z Outlooka dla osób z map
 otwartych szans tymi samymi regułami: status nigdy się nie cofa, a sprzeciw i ręczna
-zmiana mają pierwszeństwo.
+zmiana mają pierwszeństwo. Od 10.11.2026 obejmuje też zakończone telefony tych osób
+(zapis w NEXUSIE i import z Atlasa), bo liczy je ten sam ``sync``.
 
 Drugi krok (decyzja Artura z 10.11.2026): adres e-mail wpisany tylko na mapie trafia
 do pustego pola kontaktu tej osoby, regułą okna osoby z 02.11.2026. Niczego nie
@@ -73,6 +74,7 @@ class Report:
     people_with_contact: int = 0
     skipped_objection: int = 0
     outlook_events: dict[str, int] = field(default_factory=dict)
+    call_events: dict[str, int] = field(default_factory=dict)
     people_to_change: int = 0
     transitions: dict[str, int] = field(default_factory=dict)
     last_contact_only: int = 0
@@ -176,6 +178,7 @@ def _report(
         people_with_contact=planned.people_with_contact,
         skipped_objection=planned.skipped_objection,
         outlook_events=planned.events,
+        call_events=planned.calls,
         people_to_change=len(planned.changes),
         transitions=dict(
             Counter(f"{c.old_status}->{c.new_status}" for c in status_changes)
@@ -224,7 +227,7 @@ async def run(options: Options, now: Optional[datetime] = None) -> Report:
 
 def _parse(argv: Sequence[str]) -> Options:
     parser = argparse.ArgumentParser(
-        description="Mapy decyzyjne według historii poczty i spotkań z Outlooka"
+        description="Mapy decyzyjne według historii poczty, spotkań i telefonów"
     )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--expect-people", type=int)

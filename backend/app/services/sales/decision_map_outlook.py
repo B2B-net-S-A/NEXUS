@@ -1,4 +1,4 @@
-"""Mapa decyzyjna ← Outlook: status kontaktu osoby przesuwa się sam.
+"""Mapa decyzyjna ← Outlook i telefon: status kontaktu osoby przesuwa się sam.
 
 Decyzje Artura z 10.11.2026 (rekomendacja B4). Status na mapie zmieniał wyłącznie
 człowiek w oknie osoby i od 24.10 nikt go nie ruszył, więc lista kont i kolejka
@@ -17,13 +17,25 @@ Zdarzenie → status:
 Auto-odpowiedź, potwierdzenie zaproszenia i zwrotka nie są kontaktem
 (``my_day.is_auto_subject``): osoba, która ma włączoną nieobecność, nie odpisała.
 
+Zapisana rozmowa telefoniczna (decyzje Artura z 10.11.2026, ``_CALL_SIGNALS``):
+
+* osoba odebrała („Dodzwoniłem”, „Prosi o ofertę”, „Nie teraz”, z kolejki
+  dzwonienia „Oferta ogólna wysłana” i „Umówione spotkanie”) → „pierwszy kontakt”;
+* próba bez rozmowy („Nie odebrał”, „Oddzwonić”) i telefon z importu bez wyniku →
+  „w toku”, jak nasz mail bez odpowiedzi;
+* „Nie kontaktować” to sprzeciw, nie kontakt.
+
+Rozmowa zapisana na karcie szansy zmienia status od razu, w tym samym zapisie
+(``record_call``). Telefon przy firmie bez szansy, z kolejki dzwonienia i z importu
+dolicza przebieg po synchronizacji skrzynki, po kontakcie aktywności.
+
 Status nigdy się nie cofa, data ostatniego kontaktu idzie tylko w przód, a osoba
 ze sprzeciwem zostaje nietknięta. Ręczna zmiana statusu albo daty w oknie osoby ma
 pierwszeństwo: zdarzenia sprzed niej już się nie liczą
 (``decision_map.CONTACT_EDITED_AT``).
 
-Liczą się tylko maile i spotkania z Outlooka zapisane w Sprzedaży
-(``outlook_activities.py``). Korespondencja z kandydatem tam nie trafia, więc
+Z poczty i kalendarza liczą się tylko maile i spotkania z Outlooka zapisane
+w Sprzedaży (``outlook_activities.py``). Korespondencja z kandydatem tam nie trafia, więc
 statusu też nie przesuwa. Osobę z kontaktem łączy ta sama reguła co karta szansy
 (``motion.match_contacts``), a do tego adres wpisany na mapie, gdy jest wśród
 adresów maila albo uczestników spotkania.
@@ -31,7 +43,7 @@ adresów maila albo uczestników spotkania.
 Wynik zależy tylko od zdarzeń i stanu mapy, więc drugi przebieg nic nie zmienia.
 Zapis trzyma blokadę wiersza szansy i liczy zmianę od nowa na zablokowanej treści.
 Nie dotyka aktywności ani ``last_activity_at``: dotyk szansy (``touch.py``) wynika
-z samego maila albo spotkania.
+z samego maila, spotkania albo telefonu.
 """
 
 from __future__ import annotations
@@ -79,12 +91,15 @@ _MAP_PATH = ("atlas", "it_factory", "decision_map")
 
 
 class Signal(enum.Enum):
-    """Co zaszło między nami a osobą: podpis do historii i status, który z tego wynika."""
+    """Co zaszło między nami a osobą: dopisek do historii i status, który z tego wynika."""
 
-    OUR_MAIL = ("mail od nas", "in_progress")
-    INCOMING_MAIL = ("mail przychodzący", "in_progress")
-    THEIR_MAIL = ("mail od osoby", "first_contact")
-    MEETING = ("spotkanie", "first_contact")
+    OUR_MAIL = ("z Outlooka: mail od nas", "in_progress")
+    INCOMING_MAIL = ("z Outlooka: mail przychodzący", "in_progress")
+    THEIR_MAIL = ("z Outlooka: mail od osoby", "first_contact")
+    MEETING = ("z Outlooka: spotkanie", "first_contact")
+    CALL_TALK = ("z telefonu: rozmowa", "first_contact")
+    CALL_ATTEMPT = ("z telefonu: próba bez rozmowy", "in_progress")
+    CALL_NO_OUTCOME = ("z telefonu: wpis bez wyniku", "in_progress")
 
     @property
     def label(self) -> str:
@@ -93,6 +108,28 @@ class Signal(enum.Enum):
     @property
     def status(self) -> str:
         return self.value[1]
+
+
+#: Wynik zapisanej rozmowy → sygnał (decyzje Artura z 10.11.2026). ``None`` to telefon
+#: z importu, który wyniku nie niesie. „Nie kontaktować” i wynik, o którym nikt jeszcze
+#: nie zdecydował, kontaktem nie są; nowy wpis w ``CALL_OUTCOMES`` bez decyzji
+#: zatrzymuje ``test_sales_decision_map_calls.py``.
+_CALL_SIGNALS: dict[Optional[str], Signal] = {
+    "connected": Signal.CALL_TALK,
+    "wants_offer": Signal.CALL_TALK,
+    "not_now": Signal.CALL_TALK,
+    "offer_sent": Signal.CALL_TALK,
+    "meeting_booked": Signal.CALL_TALK,
+    "no_answer": Signal.CALL_ATTEMPT,
+    "call_back": Signal.CALL_ATTEMPT,
+    None: Signal.CALL_NO_OUTCOME,
+}
+
+
+def call_signal(outcome: Optional[str]) -> Optional[Signal]:
+    """Czym zapisana rozmowa z tym wynikiem jest dla mapy; ``None`` = niczym."""
+
+    return _CALL_SIGNALS.get(outcome)
 
 
 @dataclass(frozen=True)
@@ -105,6 +142,8 @@ class _Event:
     sender: Optional[str]
     #: Mail: nadawca i odbiorcy; spotkanie: uczestnicy. Puste = znamy sam kontakt.
     addresses: frozenset[str]
+    #: Wynik telefonu; pusty przy mailu, spotkaniu i telefonie z importu.
+    outcome: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +177,8 @@ class Report:
     people_with_contact: int = 0
     skipped_objection: int = 0
     events: dict[str, int] = field(default_factory=dict)
+    #: Zakończone telefony osób z map według wyniku; „bez_wyniku” to import.
+    calls: dict[str, int] = field(default_factory=dict)
     changes: list[Change] = field(default_factory=list)
 
 
@@ -310,6 +351,48 @@ async def _load_events(
     return events
 
 
+async def _load_calls(
+    db: AsyncSession,
+    contact_ids: Collection[int],
+    *,
+    now: datetime,
+    since: Optional[datetime],
+) -> list[_Event]:
+    """Zakończone telefony z osobami z map: zapis w NEXUSIE i historia z importu.
+
+    Telefon łączy z osobą wyłącznie kontakt aktywności. Pozycja z terminem bez
+    ``done_at`` to zadanie „zadzwonić”, nie rozmowa.
+    """
+
+    if not contact_ids:
+        return []
+    conditions = [
+        SalesActivity.kind == "call",
+        SalesActivity.contact_id.in_(contact_ids),
+        SalesActivity.done_at.is_not(None),
+        SalesActivity.done_at <= now,
+    ]
+    if since is not None:
+        conditions.append(SalesActivity.done_at > since)
+    rows = await db.execute(
+        select(
+            SalesActivity.contact_id, SalesActivity.done_at, SalesActivity.outcome
+        ).where(*conditions)
+    )
+    return [
+        _Event(
+            contact_id=contact_id,
+            kind="call",
+            direction=None,
+            occurred_at=done_at,
+            sender=None,
+            addresses=frozenset(),
+            outcome=outcome,
+        )
+        for contact_id, done_at, outcome in rows.all()
+    ]
+
+
 async def _contacts(
     db: AsyncSession, contact_ids: Collection[int]
 ) -> dict[int, _Contact]:
@@ -334,6 +417,8 @@ def _signal(
     by_contact = contact_id is not None and event.contact_id == contact_id
     if not by_contact and not (addresses & event.addresses):
         return None
+    if event.kind == "call":
+        return call_signal(event.outcome)
     if event.kind == "meeting":
         return Signal.MEETING
     if event.direction == "out":
@@ -345,6 +430,47 @@ def _signal(
 
 def _objects(entry: dict[str, Any], contact: Optional[_Contact]) -> bool:
     return bool(entry.get("do_not_contact")) or bool(contact and contact.objects)
+
+
+def _advance(
+    opportunity_id: int,
+    index: int,
+    entry: dict[str, Any],
+    hits: Sequence[tuple[datetime, Signal]],
+) -> Optional[Change]:
+    """Status i data kontaktu osoby po zdarzeniach, które jej dotyczą.
+
+    Zdarzenia sprzed ręcznej zmiany się nie liczą, status tylko rośnie, a data
+    idzie tylko w przód. ``None``, gdy nic się nie zmienia.
+    """
+
+    edited_at = _moment(entry.get(decision_map.CONTACT_EDITED_AT))
+    hits = [hit for hit in hits if edited_at is None or hit[0] > edited_at]
+    if not hits:
+        return None
+    latest_at, signal = max(hits, key=lambda hit: hit[0])
+    _, strongest = max(hits, key=lambda hit: (_STATUS_RANK[hit[1].status], hit[0]))
+    after = dict(entry)
+    fields = []
+    if _STATUS_RANK[strongest.status] > _STATUS_RANK[_status(entry)]:
+        after["contact_status"] = strongest.status
+        fields.append("contact_status")
+        signal = strongest
+    day = business_date(latest_at)
+    known = _day(entry.get("last_contact_at"))
+    if known is None or known < day:
+        after["last_contact_at"] = day.isoformat()
+        fields.append("last_contact_at")
+    if not fields:
+        return None
+    return Change(
+        opportunity_id=opportunity_id,
+        index=index,
+        before=entry,
+        after=after,
+        fields=tuple(fields),
+        signal=signal,
+    )
 
 
 def _plan(
@@ -366,42 +492,45 @@ def _plan(
             for a in (_norm(entry.get("email")), contact.email if contact else None)
             if a
         )
-        edited_at = _moment(entry.get(decision_map.CONTACT_EDITED_AT))
         hits = [
-            (event, signal)
+            (event.occurred_at, signal)
             for event in events
-            if (edited_at is None or event.occurred_at > edited_at)
-            and (signal := _signal(event, contact_id, addresses)) is not None
+            if (signal := _signal(event, contact_id, addresses)) is not None
         ]
-        if not hits:
-            continue
-        latest, signal = max(hits, key=lambda hit: hit[0].occurred_at)
-        _, strongest = max(
-            hits, key=lambda hit: (_STATUS_RANK[hit[1].status], hit[0].occurred_at)
-        )
-        after = dict(entry)
-        fields = []
-        if _STATUS_RANK[strongest.status] > _STATUS_RANK[_status(entry)]:
-            after["contact_status"] = strongest.status
-            fields.append("contact_status")
-            signal = strongest
-        day = business_date(latest.occurred_at)
-        known = _day(entry.get("last_contact_at"))
-        if known is None or known < day:
-            after["last_contact_at"] = day.isoformat()
-            fields.append("last_contact_at")
-        if fields:
-            changes.append(
-                Change(
-                    opportunity_id=opportunity_id,
-                    index=index,
-                    before=entry,
-                    after=after,
-                    fields=tuple(fields),
-                    signal=signal,
-                )
-            )
+        change = _advance(opportunity_id, index, entry, hits)
+        if change is not None:
+            changes.append(change)
     return changes
+
+
+def _save(
+    db: AsyncSession,
+    opportunity: SalesOpportunity,
+    entries: list[dict[str, Any]],
+    changes: Sequence[Change],
+    now: datetime,
+) -> None:
+    """Zmiany na mapie i wiersz historii na osobę; wiersz szansy jest pod blokadą."""
+
+    for change in changes:
+        entries[change.index] = change.after
+    opportunity.custom_fields = decision_map.with_entries(
+        opportunity.custom_fields, entries, user_id=None, now=now
+    )
+    for change in changes:
+        old_value, new_value = decision_map.describe_change(
+            change.before, change.after, list(change.fields)
+        )
+        # Sam rodzaj zdarzenia: tematu, treści ani notatki z rozmowy historia nie trzyma.
+        history.record(
+            db,
+            opportunity_id=opportunity.id,
+            user_id=None,
+            kind=OpportunityEventKind.updated,
+            field=HISTORY_FIELD,
+            old_value=old_value,
+            new_value=f"{new_value} · {change.signal.label}",
+        )
 
 
 async def _write(
@@ -436,27 +565,41 @@ async def _write(
         contacts,
         events,
     )
-    if not changes:
+    if changes:
+        _save(db, opportunity, entries, changes, now)
+    return changes
+
+
+def record_call(
+    db: AsyncSession,
+    opportunity: SalesOpportunity,
+    entries: list[dict[str, Any]],
+    indexes: Collection[int],
+    *,
+    outcome: str,
+    at: datetime,
+) -> list[Change]:
+    """Rozmowa zapisana na karcie szansy: status osoby od razu, w tym samym zapisie.
+
+    Wywołujący (``calls.log_call``) trzyma blokadę wiersza szansy, wskazuje wpisy
+    osoby, z którą była rozmowa, i wcześniej odrzucił sprzeciw jej kontaktu. Osoba
+    tylko z mapy kontaktu nie ma, więc przebieg po synchronizacji by jej nie znalazł.
+    """
+
+    signal = call_signal(outcome)
+    live = opportunity.status == "open" and opportunity.archived_at is None
+    if signal is None or not live:
         return []
-    for change in changes:
-        entries[change.index] = change.after
-    opportunity.custom_fields = decision_map.with_entries(
-        opportunity.custom_fields, entries, user_id=None, now=now
-    )
-    for change in changes:
-        old_value, new_value = decision_map.describe_change(
-            change.before, change.after, list(change.fields)
-        )
-        # Sam rodzaj zdarzenia: tematu ani treści z Outlooka historia nie trzyma.
-        history.record(
-            db,
-            opportunity_id=opportunity.id,
-            user_id=None,
-            kind=OpportunityEventKind.updated,
-            field=HISTORY_FIELD,
-            old_value=old_value,
-            new_value=f"{new_value} · z Outlooka: {change.signal.label}",
-        )
+    changes = []
+    for index in sorted(indexes):
+        entry = entries[index]
+        if not _named(entry) or _objects(entry, None):
+            continue
+        change = _advance(opportunity.id, index, entry, [(at, signal)])
+        if change is not None:
+            changes.append(change)
+    if changes:
+        _save(db, opportunity, entries, changes, at)
     return changes
 
 
@@ -469,10 +612,14 @@ def _event_counts(events: Sequence[_Event]) -> dict[str, int]:
     )
 
 
+def _call_counts(calls: Sequence[_Event]) -> dict[str, int]:
+    return dict(Counter(call.outcome or "bez_wyniku" for call in calls))
+
+
 async def sync(
     db: AsyncSession, *, now: datetime, since: Optional[datetime] = None, apply: bool
 ) -> Report:
-    """Statusy na mapach otwartych szans według zdarzeń z Outlooka.
+    """Statusy na mapach otwartych szans według zdarzeń z Outlooka i telefonów.
 
     ``since`` zawęża zdarzenia do późniejszych niż ta chwila; bez niego liczy się
     cała historia. ``apply=False`` tylko liczy. Wywołujący robi commit.
@@ -504,7 +651,9 @@ async def sync(
     events = await _load_events(
         db, {company_id for company_id, _ in maps}, contact_ids, now=now, since=since
     )
-    report = Report(events=_event_counts(events))
+    calls = await _load_calls(db, contact_ids, now=now, since=since)
+    report = Report(events=_event_counts(events), calls=_call_counts(calls))
+    events = [*events, *calls]
     for row, (_, entries), ids in zip(rows, maps, matched):
         people = [(entry, cid) for entry, cid in zip(entries, ids) if _named(entry)]
         if not people:

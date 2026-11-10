@@ -23,7 +23,7 @@ from app.models.sales import (
     SalesOpportunityContact,
 )
 from app.services import sales_schema as schema
-from app.services.sales import decision_map, history
+from app.services.sales import decision_map, decision_map_outlook, history
 from app.services.sales.motion import entry_keys, resolve_contacts
 from app.services.sales_schema import OpportunityEventKind
 
@@ -120,6 +120,25 @@ async def _resolve_person(
     return _Person(name=entry.get("name"), contact=contact, map_index=index), entries
 
 
+async def _map_indexes(
+    db: AsyncSession,
+    opp: SalesOpportunity,
+    person: _Person,
+    entries: list[dict[str, Any]],
+) -> set[int]:
+    """Wpisy mapy osoby, z którą była rozmowa: wskazany kluczem i te z jej kontaktem."""
+
+    indexes = set() if person.map_index is None else {person.map_index}
+    if person.contact is not None and entries:
+        matched = await resolve_contacts(db, opp.company_id, entries)
+        indexes.update(
+            index
+            for index, contact_id in enumerate(matched)
+            if contact_id == person.contact.id
+        )
+    return indexes
+
+
 def _objected(person: _Person, entries: list[dict[str, Any]]) -> bool:
     if person.contact is not None and person.contact.do_not_contact_at is not None:
         return True
@@ -196,6 +215,16 @@ async def log_call(
         opp.last_activity_at = now
     if objecting:
         _save_objection(db, opp, person, entries, user_id=user_id, now=now)
+    else:
+        # Status osoby na mapie rośnie od razu, regułami automatu z Outlooka.
+        decision_map_outlook.record_call(
+            db,
+            opp,
+            entries,
+            await _map_indexes(db, opp, person, entries),
+            outcome=payload.outcome,
+            at=now,
+        )
 
 
 async def log_company_call(

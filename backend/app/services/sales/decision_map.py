@@ -74,7 +74,8 @@ _CONTACT_FILL_LIMITS: dict[str, Optional[int]] = {
     "notes": None,
 }
 #: Chwila ręcznej zmiany statusu albo daty kontaktu w oknie osoby. Automat z Outlooka
-#: (``decision_map_outlook.py``) pomija zdarzenia sprzed niej: człowiek ma pierwszeństwo.
+#: i telefonów (``decision_map_outlook.py``) pomija zdarzenia sprzed niej: człowiek ma
+#: pierwszeństwo.
 CONTACT_EDITED_AT = "contact_edited_at"
 CONTACT_FIELDS = frozenset({"contact_status", "last_contact_at"})
 
@@ -148,7 +149,7 @@ def with_entries(
 ) -> dict[str, Any]:
     """Nowy słownik ``custom_fields`` (SQLAlchemy widzi przypisanie, nie mutację JSON-a).
 
-    ``user_id`` puste = zmiana automatu z Outlooka, nie człowieka.
+    ``user_id`` puste = zmiana automatu (Outlook, zapisana rozmowa), nie człowieka.
     """
 
     custom = dict(custom_fields or {})

@@ -366,7 +366,9 @@ spotkaniach” z KPI Atlasa.
   prawie wszystko.
 - **Zapis rozmowy:** `POST /api/sales/opportunities/{id}/calls`, wynik w
   `sales_activities.outcome`, żeby dało się go policzyć. Krok zakłada osobno okno
-  „Co dalej i kiedy” zwykłym zadaniem, a zadanie dostaje opiekun szansy.
+  „Co dalej i kiedy” zwykłym zadaniem, a zadanie dostaje opiekun szansy. Rozmowa
+  z osobą z mapy decyzyjnej podnosi jej status kontaktu
+  (`mapa-decyzyjna-status-z-outlooka.md`, sekcja o rozmowach).
 - **„Nie kontaktować”:** `sales_contacts.do_not_contact_at`; osoba z mapy bez kontaktu
   ma flagę na wpisie mapy, bo mapa nie zakłada kontaktów. Numer i mail przestają być
   klikalne, kolejny wpis rozmowy dostaje 409. Cofnięcia sprzeciwu na ekranie nie ma.

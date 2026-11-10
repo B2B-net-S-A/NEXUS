@@ -79,7 +79,6 @@ from app.services.m365.matcher import IncomingMessage
 from app.services.m365.oauth import M365ReauthRequired
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
 from app.services.sales import meeting_transcripts as sales_transcripts
-from app.services.sales import decision_map_outlook as sales_decision_map_outlook
 from app.services.sales import meeting_autopin as sales_autopin
 from app.services.sales import outlook_activities as sales_outlook
 
@@ -1048,12 +1047,20 @@ async def _auto_pin_sales_meetings(db: AsyncSession, conn: M365Connection) -> No
 async def _sync_sales_decision_maps(db: AsyncSession, conn: M365Connection) -> None:
     """Status kontaktu osób z map decyzyjnych po poczcie i spotkaniach z Outlooka.
 
+    Ten sam przebieg dolicza telefony zapisane poza kartą szansy (przy firmie,
+    w kolejce dzwonienia); rozmowa z karty zmienia status od razu, w swoim zapisie.
+
     Osobna, krótka transakcja po przebiegu skrzynki: blokada wiersza szansy nie
     czeka wtedy na wywołania Graph.
     """
+    # Import dopiero tutaj: ``decision_map`` → ``companies`` → ``m365.matcher`` wraca do
+    # tego modułu, więc import na górze pliku wywracał każdy proces, który zaczynał
+    # od ``companies`` (skrypt próby bota, testy importu z Atlasa uruchomione osobno).
+    from app.services.sales import decision_map_outlook
+
     try:
         async with db.begin_nested():
-            await sales_decision_map_outlook.sync_live(db)
+            await decision_map_outlook.sync_live(db)
         await db.commit()
     except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
         logger.exception("m365 conn %s: decision map contact status failed", conn.id)
