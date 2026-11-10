@@ -29,6 +29,8 @@ TRACKED_FIELDS: tuple[str, ...] = (
     "margin_pct",
     "owner_user_id",
     "expected_close_date",
+    # „Odłóż do…” z zakładki Oferty: decyzja ma zostać w historii.
+    "keep_open_until",
 )
 
 
