@@ -176,6 +176,40 @@ export interface PortalMonth {
   issue_invoice: boolean;
   action: "send_report" | "send_invoice" | null;
   documents: PortalDocument[];
+  /** Rozliczenie klienta (E3); `null` przy wyłączonym module albo bez rozliczenia. */
+  settlement?: PortalMonthSettlement | null;
+}
+
+/** Lista dozwolonych pól: bez stawki klienta, marży i mnożnika nadgodzin. */
+export interface PortalMonthSettlement {
+  status: "checking" | "ok" | "warnings" | "needs_fix" | "no_md" | "accepted";
+  /** `estimate` — plan miesiąca (E5.3); bez danych do faktury. */
+  kind?: "actual" | "estimate";
+  label: string;
+  fix_reason: string | null;
+  checks: { state: "ok" | "warn" | "fail" | "none"; title: string }[];
+  todo: string[];
+  md_regular: string | null;
+  md_extra: string | null;
+  md_remaining_after: string | null;
+  invoice: PortalSettlementInvoice | null;
+}
+
+/** Dane do faktury po przyjęciu RCP (E3.2) i faktura już w KSeF (E4). */
+export interface PortalSettlementInvoice {
+  amount_net: string | null;
+  sale_date: string;
+  payment_days: number;
+  buyer?: { name: string; nip: string; address: string };
+  item?: { description: string; quantity: string; net: string | null };
+  ksef?: {
+    state: "in_ksef" | "differs";
+    label: string;
+    invoice_number: string | null;
+    ksef_number: string;
+    net_amount: string;
+    due_date: string | null;
+  } | null;
 }
 
 export interface PortalRatingForm {

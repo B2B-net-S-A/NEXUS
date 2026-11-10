@@ -58,8 +58,6 @@ BUYER = {
     "nip": "5711707392",
     "address": "Al. Jerozolimskie 180, 02-486 Warszawa",
 }
-#: Termin zapłaty z umowy B2B: dni od nadania numeru KSeF.
-PAYMENT_DAYS = 14
 #: Tak długo po starcie albo aktywacji ekran „Na start” zostaje w menu.
 START_SCREEN_DAYS = 30
 MATERIAL_NOT_FOUND = "Nie ma takiego materiału."
@@ -80,6 +78,14 @@ TRAINER_TOPICS_MAX = 20
 
 
 # ── Współpraca i menu ────────────────────────────────────────────────────────
+
+
+def format_pln(amount: str) -> str:
+    """„12345.00” → „12 345,00 zł” (jak na fakturze)."""
+
+    whole, _, cents = f"{float(amount):.2f}".partition(".")
+    grouped = f"{int(whole):,}".replace(",", " ")
+    return f"{grouped},{cents} zł"
 
 
 def local_date(moment: datetime) -> date:
@@ -171,18 +177,52 @@ async def todo(
         if activation
         else (today.year, today.month)
     )
+    from app.services.client_settlements import consultant as settlement_view
+
+    contract = await db.get(Contract, context.consultant.contract_id)
+    plan = await settlement_view.estimate_todo(
+        db,
+        context.consultant.contract_id,
+        contract.client_id if contract else None,
+        today,
+    )
+    if plan is not None:
+        items.append(plan)
     for row in months:
         # Tylko miesiące zamknięte i od aktywacji: wcześniejsze rozliczano mailem,
         # więc zadanie dublowałoby dokumenty u Finansów.
         period = (row["year"], row["month"])
         if not since <= period < (today.year, today.month):
             continue
+        settlement = row.get("settlement") or {}
+        for index, task in enumerate(settlement.get("todo") or []):
+            items.append(
+                {
+                    "key": f"settlement-{row['year']}-{row['month']}-{index}",
+                    "title": task,
+                    "detail": f"Za {row['month']:02d}.{row['year']}",
+                    "href": "/konsultant/faktury",
+                }
+            )
+        if settlement.get("status") == "needs_fix":
+            items.append(
+                {
+                    "key": f"fix-{row['year']}-{row['month']}",
+                    "title": "Popraw RCP",
+                    "detail": settlement.get("fix_reason")
+                    or f"Za {row['month']:02d}.{row['year']}",
+                    "href": "/konsultant/faktury",
+                }
+            )
+            continue
         if row["action"] == "send_invoice":
+            amount = (settlement.get("invoice") or {}).get("amount_net")
             items.append(
                 {
                     "key": f"invoice-{row['year']}-{row['month']}",
                     "title": "Wyślij fakturę",
-                    "detail": f"Za {row['month']:02d}.{row['year']}",
+                    "detail": f"Za {row['month']:02d}.{row['year']}"
+                    + (f" · {format_pln(amount)} netto" if amount else ""),
                     "href": "/konsultant/faktury",
                 }
             )
@@ -412,11 +452,20 @@ async def settlement_screen(db: AsyncSession, context: PortalContext) -> dict[st
         if contract and contract.client_id
         else None
     )
+    from app.core.scheduling import business_today
+    from app.services.client_settlements import consultant as settlement_view
+
+    today = business_today()
     return {
         "mode": rule.mode if rule else None,
         "instructions": (rule.instructions or None) if rule else None,
         "buyer": BUYER,
-        "payment_days": PAYMENT_DAYS,
+        # Termin z reguły klienta (E3.2); bez reguły — 14 dni z umowy B2B.
+        "payment_days": await settlement_view.payment_days(
+            db,
+            contract.client_id if contract else None,
+            f"{today.year}-{today.month:02d}",
+        ),
     }
 
 

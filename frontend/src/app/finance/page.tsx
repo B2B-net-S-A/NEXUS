@@ -28,7 +28,9 @@ import { useAuthStore } from "@/store/auth";
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
 import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 import { RateDivergencesTab } from "@/components/finance/RateDivergencesTab";
+import { SETTLEMENTS_URL_KEYS, SettlementsTab } from "@/components/finance/settlements/SettlementsTab";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
+import { useSettlementsModule } from "@/lib/api/client-settlements";
 import {
   APPROVED_EXPENSES_URL_KEYS,
   ApprovedExpensesTab,
@@ -49,6 +51,7 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
     "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
   "rate-divergences":
     "Nocny raport: gdzie stawka z kontraktu różni się od stawki linii zamówienia MD",
+  settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
 };
@@ -114,6 +117,8 @@ export default function FinancePage() {
   // „Wydatki ze zgodą” (Zgody, etap 3) tylko przy otwartym module „Zgody”.
   const approvalsOpen =
     useHrConfig(hasModule).data?.open_modules?.approvals === true;
+  // „Rozliczenia” (rozliczenia klientów, roadmapa E1) tylko przy włączonym module.
+  const settlementsOpen = useSettlementsModule(hasModule).data?.open === true;
   // Import MD: `orders_work`, nie zapis sekcji — sekcji Back office nie ma.
   const canImportMd = !impersonating && hasPermission(user, "orders_work");
   const fallbackView: ViewMode = hasModule ? "results" : "order-changes";
@@ -123,7 +128,8 @@ export default function FinancePage() {
     (view === "archive" && !hasModule) ||
     (view === "sales-invoices" && !invoicingOpen) ||
     (view === "rate-divergences" && !hasModule) ||
-    (view === "approved-expenses" && !approvalsOpen)
+    (view === "approved-expenses" && !approvalsOpen) ||
+    (view === "settlements" && !settlementsOpen)
       ? fallbackView
       : view;
 
@@ -176,6 +182,9 @@ export default function FinancePage() {
     if (next !== "approved-expenses") {
       APPROVED_EXPENSES_URL_KEYS.forEach((key) => params.delete(key));
     }
+    if (next !== "settlements") {
+      SETTLEMENTS_URL_KEYS.forEach((key) => params.delete(key));
+    }
     const query = params.toString();
     window.history.replaceState(
       null,
@@ -217,6 +226,14 @@ export default function FinancePage() {
           data-help="finance.modes"
           className="flex max-w-full gap-0.5 overflow-x-auto border-b border-border"
         >
+          {settlementsOpen ? (
+            <ModeButton
+              active={visibleView === "settlements"}
+              onClick={() => changeView("settlements")}
+            >
+              Rozliczenia
+            </ModeButton>
+          ) : null}
           {hasModule && (
             <ModeButton
               active={visibleView === "results"}
@@ -301,6 +318,8 @@ export default function FinancePage() {
           <FinanceSalesInvoicesTab />
         ) : visibleView === "rate-divergences" ? (
           <RateDivergencesTab />
+        ) : visibleView === "settlements" ? (
+          <SettlementsTab canWrite={canWrite} />
         ) : visibleView === "approved-expenses" ? (
           <div data-help="finance.approved-expenses">
             <ApprovedExpensesTab />
