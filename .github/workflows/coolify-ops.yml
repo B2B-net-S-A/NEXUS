@@ -45,6 +45,10 @@ name: Coolify Ops
 #                                   (read-only; wyłącznie linie `[startup-timing]`).
 #  16. action=atlas-import        → import CRM Atlasa do Sprzedaży (job `atlas`
 #                                   niżej; tryb z `atlas_import_mode`, raport = liczby).
+#  17. scalanie kart firm Sprzedaży → osobny workflow `coolify-sales-company-merge.yml`,
+#                                   bo `workflow_dispatch` mieści 25 wejść, a ten plik
+#                                   ma ich dokładnie 25. Akcja z własnym wejściem tu
+#                                   nie wejdzie: 26. wejście unieważnia cały plik.
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
 # timestamps) — no env values or secrets.

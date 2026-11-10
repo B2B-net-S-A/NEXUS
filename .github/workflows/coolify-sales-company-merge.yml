@@ -1,0 +1,265 @@
+name: Coolify sales company merge
+
+# Jednorazowe scalenie zdublowanych kart firm Sprzedaży i domeny kont „Fabryk IT”
+# na produkcji (rekomendacja B6, decyzje Artura 10.11.2026). Logika:
+# `backend/scripts/sales_company_merge.py`, reguły:
+# `docs/claude/sprzedaz/scalanie-kart-firm-i-domeny.md`.
+#
+# Dlaczego osobny plik, a nie akcja w `coolify-ops.yml`: `workflow_dispatch` mieści
+# 25 wejść, a „Coolify Ops” ma ich dokładnie 25. Dwudzieste szóste unieważnia cały
+# plik razem z `list` i `cancel`. Mechanizm jest ten sam co w jobie `atlas` tamtego
+# pliku: zadanie Coolify odpalane co minutę, katalog-blokada `--lock`, odczyt
+# wykonania, kasacja zadania.
+#
+# Kolejność:
+#   1. mode=dry-run (transakcja READ ONLY) → raport z liczbami.
+#   2. Lista do przejrzenia i wyraźne „tak” Artura z liczbami.
+#   3. mode=apply z `expect_merge` i `expect_domains` z biegu na sucho z TYMI SAMYMI
+#      wejściami oraz `actor_id` (aktywne konto administratora). Skrypt odmawia
+#      zapisu, gdy liczniki się nie zgadzają.
+#
+# Repo i logi Actions są publiczne. Operator wnosi wyłącznie cyfry, przecinki,
+# dwukropki i spacje (id kart i liczniki), a do logu idzie tylko zwalidowany raport
+# z licznikami albo komunikat o stałej treści (`sales_company_merge_report.py`).
+# Surowa treść wykonania z Coolify nie jest drukowana.
+#
+# Wynik biegu: zielony = raport; czerwony z kodem 2 = odmowa bez zapisu, 3 = wynik
+# zapisu inny niż plan (transakcja wycofana), 4 = blokada (ten bieg już pracował),
+# 1 = błąd skryptu albo brak raportu.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run = tylko liczby; apply = zapis, dopiero po „tak” Artura"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      expect_merge:
+        description: "apply: licznik to_merge z biegu na sucho z tymi samymi wejściami"
+        required: false
+        default: ""
+      expect_domains:
+        description: "apply: licznik domains_to_set z biegu na sucho z tymi samymi wejściami"
+        required: false
+        default: ""
+      actor_id:
+        description: "apply: id aktywnego konta administratora (trafia do historii szans)"
+        required: false
+        default: ""
+      decide:
+        description: "Decyzje DOCELOWA:ŹRÓDŁO[,ŹRÓDŁO] rozdzielone spacją, same id, np. 12:34,35 40:41"
+        required: false
+        default: ""
+      company_ids:
+        description: "Dodatkowe karty w zakresie: id po przecinku, np. 12,34"
+        required: false
+        default: ""
+      accept_domain:
+        description: "Karty, którym zapisać słabą albo konfliktową domenę: id po przecinku"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    name: Sales company merge (prod)
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: coolify-sales-company-merge
+      cancel-in-progress: false
+    env:
+      TASK_NAME: nexus-sales-company-merge-oneshot
+      # Krótki, bo komenda zadania mieści 255 znaków i każdy znak to mniej decyzji.
+      SENTINEL: ===SCM-END===
+      MODE: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      # Wejścia idą przez `env:`, nie przez wyrażenia GitHuba w treści skryptu,
+      # i każde przechodzi przez wzorzec z samych cyfr, przecinków i dwukropków.
+      # Ten zestaw nie zawiera metaznaku powłoki, więc operator nie zmieni kształtu
+      # komendy na produkcji.
+      - name: Zbuduj komendę
+        env:
+          EXPECT_MERGE: ${{ inputs.expect_merge }}
+          EXPECT_DOMAINS: ${{ inputs.expect_domains }}
+          ACTOR_ID: ${{ inputs.actor_id }}
+          DECIDE: ${{ inputs.decide }}
+          COMPANY_IDS: ${{ inputs.company_ids }}
+          ACCEPT_DOMAIN: ${{ inputs.accept_domain }}
+        run: |
+          set -euo pipefail
+          number='^[0-9]{1,9}$'
+          ids='^[0-9]{1,9}(,[0-9]{1,9})*$'
+          decision='^[0-9]{1,9}:[0-9]{1,9}(,[0-9]{1,9})*$'
+          decisions='^[0-9:, ]*$'
+          check() {
+            if [ -n "$2" ] && ! [[ "$2" =~ $3 ]]; then
+              echo "::error::wejście $1 ma niedozwolony kształt (dozwolone: $4)"
+              exit 1
+            fi
+          }
+          check expect_merge "$EXPECT_MERGE" "$number" "liczba"
+          check expect_domains "$EXPECT_DOMAINS" "$number" "liczba"
+          check actor_id "$ACTOR_ID" "$number" "liczba"
+          check company_ids "$COMPANY_IDS" "$ids" "id po przecinku"
+          check accept_domain "$ACCEPT_DOMAIN" "$ids" "id po przecinku"
+          check decide "$DECIDE" "$decisions" "DOCELOWA:ŹRÓDŁO[,ŹRÓDŁO] rozdzielone spacją"
+
+          FLAGS=""
+          case "$MODE" in
+            dry-run)
+              if [ -n "${EXPECT_MERGE}${EXPECT_DOMAINS}${ACTOR_ID}" ]; then
+                echo "::error::expect_merge, expect_domains i actor_id podaje się tylko z mode=apply; ten bieg byłby biegiem na sucho"
+                exit 1
+              fi;;
+            apply)
+              if [ -z "$EXPECT_MERGE" ] || [ -z "$EXPECT_DOMAINS" ] || [ -z "$ACTOR_ID" ]; then
+                echo "::error::apply wymaga expect_merge, expect_domains (z biegu na sucho z tymi samymi wejściami) i actor_id"
+                exit 1
+              fi
+              FLAGS=" --apply --actor-id ${ACTOR_ID} --expect-merge ${EXPECT_MERGE} --expect-domains ${EXPECT_DOMAINS}";;
+            *) echo "::error::nieznany tryb"; exit 1;;
+          esac
+          read -r -a decided <<< "$DECIDE"
+          for item in ${decided[@]+"${decided[@]}"}; do
+            check decide "$item" "$decision" "DOCELOWA:ŹRÓDŁO[,ŹRÓDŁO] rozdzielone spacją"
+            FLAGS="${FLAGS} --decide ${item}"
+          done
+          [ -z "$COMPANY_IDS" ] || FLAGS="${FLAGS} --company-ids ${COMPANY_IDS}"
+          [ -z "$ACCEPT_DOMAIN" ] || FLAGS="${FLAGS} --accept-domain ${ACCEPT_DOMAIN}"
+
+          LOCK="/tmp/nexus-sales-company-merge-${GITHUB_RUN_ID}"
+          CMD="cd /app && python -m scripts.sales_company_merge${FLAGS} --lock ${LOCK} 2>&1 ; echo ${SENTINEL}"
+          case "$CMD" in
+            *"'"*|*'$'*|*'`'*) echo "::error::komenda zawiera znak zależny od opakowania"; exit 1;;
+          esac
+          if [ "${#CMD}" -gt 255 ]; then
+            echo "::error::komenda ma ${#CMD} znaków, a Coolify trzyma ją w VARCHAR(255). Podziel decyzje na kilka biegów; każdy apply dostaje liczniki z biegu na sucho z tymi samymi wejściami."
+            exit 1
+          fi
+          echo "=== komenda (same id i liczby) ==="
+          echo "$CMD"
+          echo "CMD=${CMD}" >> "$GITHUB_ENV"
+
+      - name: Uruchom zadanie i odczytaj raport
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          # uuid zadań o tej nazwie z listy Coolify; kod różny od 0 = listy nie ma.
+          tasks_named() {
+            local listed
+            listed=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks") || return 1
+            printf '%s' "$listed" | jq -er --arg n "$TASK_NAME" \
+              'if type=="array" then [.[] | select(.name==$n) | .uuid | strings | select(test("^[A-Za-z0-9-]{1,64}$"))] | join(" ") else error("lista") end'
+          }
+
+          # Pozostałość po poprzednim biegu to cron z jego komendą. Bez pewności,
+          # że zniknęła, nie zakładamy drugiego zadania o tej samej nazwie.
+          found=$(tasks_named) || { echo "::error::nie da się odczytać listy zadań Coolify; nic nie założono"; exit 1; }
+          if [ -n "$found" ]; then
+            echo "sprzątam pozostałość po poprzednim biegu"
+            for uuid in $found; do
+              curl -sS -o /dev/null -X DELETE "${auth[@]}" \
+                "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
+            done
+            found=$(tasks_named) || found="?"
+            if [ -n "$found" ]; then
+              echo "::error::pozostałość po poprzednim biegu ($TASK_NAME) nie dała się skasować. Skasuj ją w panelu Coolify; nowego zadania nie zakładam."
+              exit 1
+            fi
+          fi
+
+          # Od tej chwili zadanie mogło powstać, nawet gdy odpowiedź nie dojdzie.
+          echo "TASK_REQUESTED=1" >> "$GITHUB_ENV"
+          payload=$(jq -n --arg n "$TASK_NAME" --arg c "$CMD" --arg ct backend \
+            '{name:$n, command:$c, frequency:"* * * * *", container:$ct, enabled:true, timeout:900}')
+          code=$(curl -sS -o /tmp/create.json -w "%{http_code}" -X POST "${auth[@]}" \
+            -H "Content-Type: application/json" -d "$payload" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks") || code=000
+          echo "create HTTP $code"
+          if [ "$code" -ge 400 ] 2>/dev/null || [ "$code" = "000" ]; then
+            jq -r '.message // .error // "request failed"' /tmp/create.json 2>/dev/null || true
+            exit 1
+          fi
+          uuid=$(jq -r '(.uuid // .task.uuid // .data.uuid // "") | strings' /tmp/create.json 2>/dev/null) || uuid=""
+          if ! [[ "$uuid" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
+            uuid=$(tasks_named) || uuid=""
+          fi
+          if ! [[ "$uuid" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
+            echo "::error::utworzono zadanie, ale nie znam jego uuid; sprzątanie niżej szuka go po nazwie ($TASK_NAME)"
+            exit 1
+          fi
+          echo "TASK_UUID=$uuid" >> "$GITHUB_ENV"
+
+          # Filtr dostaje listę wykonań i sam wybiera to, które pracowało. Kod 10
+          # znaczy „jeszcze nie ma wyniku”; każdy inny kończy krok tym kodem.
+          # Treści wykonań powłoka nie drukuje w żadnej gałęzi.
+          deadline=$(( $(date -u +%s) + 20 * 60 ))
+          rc=10
+          while [ "$(date -u +%s)" -lt "$deadline" ]; do
+            sleep 30
+            execs=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" || echo '[]')
+            rc=0
+            printf '%s' "$execs" | python3 .github/scripts/sales_company_merge_report.py || rc=$?
+            [ "$rc" -eq 10 ] || break
+            echo "$(date -u +%H:%M:%S) czekam… wykonań: $(printf '%s' "$execs" | jq -r 'if type=="array" then length else "?" end' 2>/dev/null || echo '?')"
+          done
+          if [ "$rc" -eq 10 ]; then
+            echo "::error::brak wyniku w 20 minut. Proces w kontenerze może dalej biec: przed kolejnym apply uruchom bieg na sucho i porównaj liczniki."
+            exit 1
+          fi
+          exit "$rc"
+
+      # Kasacja przy każdym wyniku, bo zostawiony cron chodziłby co minutę, a jego
+      # jedyny hamulec, katalog blokady w /tmp kontenera, znika przy wdrożeniu.
+      # „Skasowane” pada dopiero wtedy, gdy lista zadań Coolify go nie zawiera.
+      - name: Skasuj zadanie jednorazowe
+        if: ${{ always() }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -uo pipefail
+          if [ -z "${TASK_REQUESTED:-}" ]; then
+            echo "ten bieg nie zakładał zadania — nie ma czego kasować"
+            exit 0
+          fi
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          tasks_named() {
+            local listed
+            listed=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks") || return 1
+            printf '%s' "$listed" | jq -er --arg n "$TASK_NAME" \
+              'if type=="array" then [.[] | select(.name==$n) | .uuid | strings | select(test("^[A-Za-z0-9-]{1,64}$"))] | join(" ") else error("lista") end'
+          }
+          left() {
+            echo "::error::$1 Zadanie $TASK_NAME może dalej chodzić co minutę: skasuj je w panelu Coolify przed najbliższym wdrożeniem, bo po restarcie kontenera blokada w /tmp znika i komenda pobiegłaby jeszcze raz."
+            exit 1
+          }
+
+          uuids="${TASK_UUID:-}"
+          if found=$(tasks_named); then
+            uuids="$uuids $found"
+          fi
+          for uuid in $(printf '%s\n' $uuids | sort -u); do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE "${auth[@]}" \
+              "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid") || code=000
+            echo "DELETE HTTP $code"
+          done
+          found=$(tasks_named) || left "Nie da się odczytać listy zadań Coolify, więc nie wiadomo, czy zadanie zniknęło."
+          [ -z "$found" ] || left "Zadanie jest dalej na liście Coolify po kasowaniu."
+          echo "zadanie $TASK_NAME skasowane (nie ma go na liście zadań Coolify)"
