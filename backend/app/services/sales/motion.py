@@ -13,9 +13,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sales import SalesCompanyContact, SalesContact
@@ -77,16 +79,31 @@ def _norm(value: Any) -> Optional[str]:
     return text or None
 
 
-async def resolve_contacts(
-    db: AsyncSession, company_id: int, entries: list[dict[str, Any]]
-) -> list[Optional[int]]:
-    """Kontakt NEXUSA dla każdej osoby z mapy: id z Atlasa, potem e-mail, potem nazwisko."""
+#: Mapa jednej szansy: firma i wpisy tak, jak leżą w ``custom_fields``.
+CompanyMap = tuple[int, list[dict[str, Any]]]
 
-    refs = {
-        f"{ATLAS_CONTACT_REF}{entry['contact_id']}"
-        for entry in entries
-        if entry.get("contact_id")
-    }
+
+@dataclass(frozen=True)
+class ContactIndex:
+    """Kontakty firm wczytane raz dla wielu map: po id z Atlasa, mailu i nazwisku."""
+
+    by_ref: dict[str, int]
+    by_email: dict[int, dict[str, int]]
+    by_name: dict[int, dict[str, int]]
+
+
+def _atlas_ref(entry: dict[str, Any]) -> Optional[str]:
+    return (
+        f"{ATLAS_CONTACT_REF}{entry['contact_id']}" if entry.get("contact_id") else None
+    )
+
+
+async def load_contact_index(
+    db: AsyncSession, maps: Sequence[CompanyMap]
+) -> ContactIndex:
+    """Dwa zapytania na dowolną liczbę map, żeby lista kont nie pytała per wiersz."""
+
+    refs = {ref for _, entries in maps for e in entries if (ref := _atlas_ref(e))}
     by_ref: dict[str, int] = {}
     if refs:
         by_ref = {
@@ -99,43 +116,59 @@ async def resolve_contacts(
                 )
             ).all()
         }
-    linked = select(SalesCompanyContact.contact_id).where(
-        SalesCompanyContact.company_id == company_id
+    by_email: dict[int, dict[str, int]] = {}
+    by_name: dict[int, dict[str, int]] = {}
+    company_ids = {company_id for company_id, _ in maps}
+    if not company_ids:
+        return ContactIndex(by_ref=by_ref, by_email=by_email, by_name=by_name)
+    columns = (
+        SalesContact.id,
+        SalesContact.email,
+        SalesContact.full_name,
+        SalesContact.archived_at,
     )
-    company_contacts = (
-        await db.execute(
-            select(SalesContact.id, SalesContact.email, SalesContact.full_name)
-            .where(
-                or_(
-                    SalesContact.company_id == company_id,
-                    SalesContact.id.in_(linked),
-                )
-            )
-            .order_by(SalesContact.archived_at.is_not(None), SalesContact.id)
-        )
-    ).all()
-    by_email: dict[str, int] = {}
-    by_name: dict[str, int] = {}
-    for contact_id, email, full_name in company_contacts:
-        if (key := _norm(email)) is not None:
-            by_email.setdefault(key, contact_id)
-        if (key := _norm(full_name)) is not None:
-            by_name.setdefault(key, contact_id)
+    own = select(SalesContact.company_id.label("company_id"), *columns).where(
+        SalesContact.company_id.in_(company_ids)
+    )
+    linked = (
+        select(SalesCompanyContact.company_id.label("company_id"), *columns)
+        .join(SalesContact, SalesContact.id == SalesCompanyContact.contact_id)
+        .where(SalesCompanyContact.company_id.in_(company_ids))
+    )
+    rows = (await db.execute(union_all(own, linked))).all()
+    # Aktywny kontakt przed zarchiwizowanym, potem najstarszy: pierwszy wygrywa.
+    for row in sorted(rows, key=lambda r: (r.archived_at is not None, r.id)):
+        if (key := _norm(row.email)) is not None:
+            by_email.setdefault(row.company_id, {}).setdefault(key, row.id)
+        if (key := _norm(row.full_name)) is not None:
+            by_name.setdefault(row.company_id, {}).setdefault(key, row.id)
+    return ContactIndex(by_ref=by_ref, by_email=by_email, by_name=by_name)
 
+
+def match_contacts(
+    index: ContactIndex, company_id: int, entries: list[dict[str, Any]]
+) -> list[Optional[int]]:
+    """Kontakt NEXUSA dla każdej osoby z mapy: id z Atlasa, potem e-mail, potem nazwisko."""
+
+    by_email = index.by_email.get(company_id, {})
+    by_name = index.by_name.get(company_id, {})
     resolved: list[Optional[int]] = []
     for entry in entries:
-        ref = (
-            f"{ATLAS_CONTACT_REF}{entry['contact_id']}"
-            if entry.get("contact_id")
-            else None
-        )
-        found = by_ref.get(ref) if ref else None
+        ref = _atlas_ref(entry)
+        found = index.by_ref.get(ref) if ref else None
         if found is None and (email := _norm(entry.get("email"))) is not None:
             found = by_email.get(email)
         if found is None and (name := _norm(entry.get("name"))) is not None:
             found = by_name.get(name)
         resolved.append(found)
     return resolved
+
+
+async def resolve_contacts(
+    db: AsyncSession, company_id: int, entries: list[dict[str, Any]]
+) -> list[Optional[int]]:
+    index = await load_contact_index(db, [(company_id, entries)])
+    return match_contacts(index, company_id, entries)
 
 
 async def _fill_from_contacts(db: AsyncSession, entries: list[dict[str, Any]]) -> None:
@@ -167,6 +200,32 @@ async def _fill_from_contacts(db: AsyncSession, entries: list[dict[str, Any]]) -
                 entry[field] = value
                 # Formularz pokazuje to jako podpowiedź, nie jako wartość z mapy.
                 entry["from_contact"].append(field)
+
+
+async def decision_people(
+    db: AsyncSession, maps: Sequence[CompanyMap]
+) -> list[list[dict[str, Any]]]:
+    """Osoby z wielu map z polami liczonymi przy odczycie, jak na karcie szansy.
+
+    Każda osoba dostaje ``key``, ``nexus_contact_id``, ``from_contact``
+    i ``do_not_contact``; wpisy źródłowe zostają nietknięte.
+    """
+
+    index = await load_contact_index(db, maps)
+    people: list[list[dict[str, Any]]] = []
+    for company_id, raw_entries in maps:
+        entries = [dict(entry) for entry in raw_entries]
+        # Klucz liczony z treści zapisanej, zanim dojdą pola wyliczane przy odczycie.
+        keys = entry_keys(entries)
+        contact_ids = match_contacts(index, company_id, entries)
+        for entry, key, contact_id in zip(entries, keys, contact_ids):
+            entry["key"] = key
+            entry["nexus_contact_id"] = contact_id
+            entry["from_contact"] = []
+            entry["do_not_contact"] = bool(entry.get("do_not_contact"))
+        people.append(entries)
+    await _fill_from_contacts(db, [entry for entries in people for entry in entries])
+    return people
 
 
 async def build_atlas_motion(
@@ -203,20 +262,12 @@ async def build_atlas_motion(
 
     if it_factory is not None:
         raw_entries = it_factory.get("decision_map")
-        entries = (
-            [dict(e) for e in raw_entries if isinstance(e, dict)]
+        raw = (
+            [e for e in raw_entries if isinstance(e, dict)]
             if isinstance(raw_entries, list)
             else []
         )
-        # Klucz liczony z treści zapisanej, zanim dojdą pola wyliczane przy odczycie.
-        keys = entry_keys(entries)
-        contact_ids = await resolve_contacts(db, company_id, entries)
-        for entry, key, contact_id in zip(entries, keys, contact_ids):
-            entry["key"] = key
-            entry["nexus_contact_id"] = contact_id
-            entry["from_contact"] = []
-            entry["do_not_contact"] = bool(entry.get("do_not_contact"))
-        await _fill_from_contacts(db, entries)
+        [entries] = await decision_people(db, [(company_id, raw)])
         it_factory["decision_map"] = entries
         it_factory["decision_map_completeness"] = decision_map_completeness(it_factory)
         it_factory["decision_map_required"] = DECISION_MAP_REQUIRED
