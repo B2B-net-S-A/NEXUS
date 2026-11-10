@@ -1374,3 +1374,96 @@ def test_parser_keeps_the_row_and_marks_it_for_review() -> None:
     first = next(r for r in parsed.rows if r.data.get("inventory_number") == f"L1{tag}")
     assert first.data["serial_number"] is None
     assert first.needs_review and "120" in first.needs_review[0]
+
+
+async def test_contract_merge_moves_settlements_and_contractor_invoices():
+    """Rozliczenia klientów (0679): przyjęte rozliczenie miesiąca wygrywa z
+    nieprzyjętym duplikatem, reszta i faktury kontraktora idą za zachowanym."""
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    ids: dict = {}
+    ksef = f"9980000000-20261103-{suffix.upper()}AB-01"
+    try:
+        async with AsyncSessionLocal() as db:
+            candidate, client, survivor, loser = await _merge_pair(db, suffix=suffix)
+            sid, lid = survivor.id, loser.id
+            ids.update(contracts=[sid, lid], candidate=candidate.id, client=client.id)
+
+            async def settlement(contract: int, month: str, status: str) -> int:
+                return await _insert(
+                    db,
+                    "INSERT INTO client_settlements (contract_id, client_id, "
+                    "period_month, status) VALUES (:c, :cl, :m, :s)",
+                    c=contract,
+                    cl=client.id,
+                    m=month,
+                    s=status,
+                )
+
+            waiting = await settlement(sid, "2026-10", "warnings")
+            accepted = await settlement(lid, "2026-10", "accepted")
+            other_month = await settlement(lid, "2026-09", "checking")
+            invoice = await _insert(
+                db,
+                "INSERT INTO client_contractor_invoices (ksef_number, seller_nip, "
+                "gross_amount, contract_id, period_month, nip_state) "
+                "VALUES (:k, '9980000000', 123.00, :c, '2026-10', 'known')",
+                k=ksef,
+                c=lid,
+            )
+            await db.commit()
+
+            manifest = ContractMergeManifest(same_client_groups=((sid, lid),))
+            audit = await build_contract_merge_plan(db, manifest, today=today)
+            assert audit["global_blockers"] == []
+            assert audit["groups"][0]["blockers"] == []
+            await db.rollback()
+            applied = await apply_contract_merge_plan(
+                db,
+                manifest,
+                expected_fingerprint=audit["fingerprint"],
+                expected_approval_fingerprint=approval_fingerprint(
+                    audit["fingerprint"]
+                ),
+                today=today,
+            )
+            await db.commit()
+            moved = applied["applied"][0]["reparented"]
+            assert moved["client_settlements_duplicates_removed"] == 1
+            rows = dict(
+                (
+                    await db.execute(
+                        text(
+                            "SELECT id, status FROM client_settlements "
+                            "WHERE contract_id = :c ORDER BY id"
+                        ),
+                        {"c": sid},
+                    )
+                ).all()
+            )
+            assert rows == {accepted: "accepted", other_month: "checking"}
+            assert waiting not in rows
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT contract_id FROM client_contractor_invoices WHERE id = :id"
+                    ),
+                    {"id": invoice},
+                )
+                == sid
+            )
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM client_contractor_invoices WHERE ksef_number = :k"),
+                {"k": ksef},
+            )
+            if ids.get("contracts"):
+                await db.execute(
+                    text(
+                        "DELETE FROM client_settlements WHERE contract_id = ANY(:ids)"
+                    ),
+                    {"ids": ids["contracts"]},
+                )
+            await db.commit()
+        await _cleanup_merge(ids)
