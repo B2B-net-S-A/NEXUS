@@ -1,4 +1,12 @@
-"""Durable review execution. Produces evidence; never approves mutable drafts."""
+"""Durable review execution. Produces evidence; never approves mutable drafts.
+
+One exception, outside the review itself (10.11.2026, Artur): a review queued
+by a Delivery Lead's accept to the Cpro queue hands its finished job to
+`cv_dl_accept_finalize.finalize_after_review`. That step runs in its own
+transaction AFTER the evidence is stored, locks the draft row and approves only
+when the accept marker names this job, the result is "verified" and the
+revision, generator document and content hash still match what was reviewed.
+"""
 
 import asyncio
 import logging
@@ -12,6 +20,7 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.user import User
 from app.services.cv_approval_snapshot import deserialize_review
 from app.services.cv_approval_review import execute_approval_review
+from app.services.cv_dl_accept_finalize import finalize_after_review
 from app.services import cv_approval_leases as leases
 from app.services.lease_renewal import renew_lease
 
@@ -33,6 +42,7 @@ async def execute_review_job(job_id: int):
     if not token:
         return
     verification = heartbeat = None
+    finished = False
     try:
         async with AsyncSessionLocal() as db:
             job = await db.get(CvApprovalJob, job_id)
@@ -78,12 +88,12 @@ async def execute_review_job(job_id: int):
             raise RuntimeError("Review heartbeat stopped")
         result = verification.result()
         async with AsyncSessionLocal() as db:
-            await leases.finish_review(
+            finished = await leases.finish_review(
                 db, job_id, token, status="verified", result=result
             )
     except HTTPException as exc:
         async with AsyncSessionLocal() as db:
-            await leases.finish_review(
+            finished = await leases.finish_review(
                 db,
                 job_id,
                 token,
@@ -94,7 +104,7 @@ async def execute_review_job(job_id: int):
             )
     except ValueError:
         async with AsyncSessionLocal() as db:
-            await leases.finish_review(
+            finished = await leases.finish_review(
                 db, job_id, token, status="failed", error_code="invalid_or_stale_input"
             )
     except asyncio.CancelledError:
@@ -109,6 +119,13 @@ async def execute_review_job(job_id: int):
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+    if finished:
+        try:
+            await finalize_after_review(AsyncSessionLocal, job_id)
+        except Exception:
+            # The evidence is stored; a failed follow-up leaves the draft for a
+            # manual "Zatwierdź", which reuses this result without a new bill.
+            logger.warning("CV approval follow-up unavailable for job %s", job_id)
 
 
 async def recovery_loop():

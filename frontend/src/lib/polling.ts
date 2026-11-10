@@ -15,6 +15,10 @@
 /** Siatka bezpieczeństwa dla danych, które WebSocket odświeża na zdarzeniach. */
 export const WS_BACKED_SAFETY_POLL_MS = 5 * 60_000;
 
+/** Kolejka Cpro, gdy szkic CV czeka na kontrolę w tle po akceptacji DL-a
+ *  (zwykle 30–90 s) — okno samo pokaże wersję zatwierdzoną. Tylko otwarte okno. */
+export const CPRO_CV_REVIEW_POLL_MS = 15_000;
+
 /** Powiadomienia, gdy WebSocket jest rozłączony (jedyne źródło świeżości). */
 export const NOTIFICATIONS_FALLBACK_POLL_MS = 60_000;
 
