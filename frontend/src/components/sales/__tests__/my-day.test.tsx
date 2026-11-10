@@ -40,9 +40,9 @@ vi.mock("@/lib/api/sales", async (original) => ({
 vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales-handoffs")>()),
   useHandoffs: () => handoffs(),
-  useConfirmHandoff: () => mutation(vi.fn()),
-  useGiveVerdict: () => mutation(vi.fn()),
-  useSetHandoffTerm: () => mutation(vi.fn()),
+  useConfirmHandoff: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
+  useGiveVerdict: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
+  useSetHandoffTerm: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
   useHostBusy: () => ({ isPending: true, isSuccess: false }),
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showError, showSuccess }) }));

@@ -2,7 +2,7 @@
  * Przekazanie spotkania i werdykt: formularz „Umów spotkanie”, listy w „Mój dzień”,
  * karta przekazania i podpowiedź tożsamości firmy. Dane fikcyjne.
  */
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,9 +37,9 @@ vi.mock("@/lib/api/sales-handoffs", async (original) => ({
     },
   }),
   useBookMeeting: () => mutation(bookMeeting),
-  useGiveVerdict: () => mutation(giveVerdict),
-  useSetHandoffTerm: () => mutation(setTerm),
-  useConfirmHandoff: () => mutation(confirmTerm),
+  useGiveVerdict: () => ({ mutateAsync: giveVerdict, isPending: false }),
+  useSetHandoffTerm: () => ({ mutateAsync: setTerm, isPending: false }),
+  useConfirmHandoff: () => ({ mutateAsync: confirmTerm, isPending: false }),
   useCompanyIdentity: (input: { name?: string; email?: string; website?: string }) => identity(input),
   useHostBusy: (hostId: number | null, day: string | null) => hostBusy(hostId, day),
 }));
@@ -160,6 +160,9 @@ beforeEach(() => {
   contacts.mockReturnValue({ data: { items: [], total: 0 } });
   opportunities.mockReturnValue({ data: { items: [], total: 0 } });
   companyCard.mockReturnValue({ isSuccess: false, data: undefined });
+  giveVerdict.mockResolvedValue({});
+  setTerm.mockResolvedValue({});
+  confirmTerm.mockResolvedValue({});
 });
 
 describe("podpisy przekazania", () => {
@@ -488,16 +491,37 @@ describe("listy w „Mój dzień”", () => {
 });
 
 describe("werdykt", () => {
-  it("„Kwalifikuje się” i „Nie odbyło się” to jedno kliknięcie", () => {
+  it("„Kwalifikuje się” i „Nie odbyło się” to jedno kliknięcie", async () => {
     const onSaved = vi.fn();
-    giveVerdict.mockImplementation((_input, { onSuccess }) => onSuccess());
     render(<VerdictPanel handoff={handoff({ phase: "verdict" })} onSaved={onSaved} />);
     fireEvent.click(screen.getByRole("button", { name: /Kwalifikuje się/ }));
     expect(giveVerdict.mock.calls[0][0]).toEqual({ opportunity_id: 21, kind: "qualified" });
-    expect(onSaved).toHaveBeenCalledWith("qualified");
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith("qualified"));
+    expect(showSuccess).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /Nie odbyło się/ }));
     expect(giveVerdict.mock.calls[1][0]).toEqual({ opportunity_id: 21, kind: "no_show" });
     expect(screen.getByText(/Werdykt zobaczy Dzwoniący Testowy/)).toBeTruthy();
+  });
+
+  it("werdykt dochodzi do rodzica także wtedy, gdy panel zdążył zniknąć", async () => {
+    // Po zapisie lista się odświeża i spotkanie z niej znika, zanim przyjdzie odpowiedź do panelu.
+    let finish: () => void = () => undefined;
+    giveVerdict.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+    const onSaved = vi.fn();
+    const { unmount } = render(<VerdictPanel handoff={handoff({ phase: "verdict" })} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole("button", { name: /Kwalifikuje się/ }));
+    unmount();
+    finish();
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith("qualified"));
+  });
+
+  it("nieudany zapis werdyktu mówi o tym i niczego nie zamyka", async () => {
+    giveVerdict.mockRejectedValueOnce(new Error("boom"));
+    const onSaved = vi.fn();
+    render(<VerdictPanel handoff={handoff({ phase: "verdict" })} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole("button", { name: /Nie odbyło się/ }));
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it("„Nie teraz” pyta o datę powrotu", () => {

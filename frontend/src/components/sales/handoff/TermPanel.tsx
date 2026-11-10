@@ -22,18 +22,17 @@ export function TermPanel({ handoff, onDone }: { handoff: Handoff; onDone: () =>
   const [minutes, setMinutes] = useState(handoff.duration_minutes);
   const start = termFromFields(term.day, term.time);
 
-  const submit = () => {
+  // Po zapisie panel bywa już odmontowany (spotkanie zmienia fazę), stąd `mutateAsync`.
+  const submit = async () => {
     if (!start) return;
-    save.mutate(
-      { opportunity_id: handoff.opportunity.id, meeting_at: start, duration_minutes: minutes },
-      {
-        onSuccess: () => {
-          showSuccess(`Termin: ${handoffWhen(start)}.`);
-          onDone();
-        },
-        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać terminu.")),
-      },
-    );
+    try {
+      await save.mutateAsync({ opportunity_id: handoff.opportunity.id, meeting_at: start, duration_minutes: minutes });
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zapisać terminu."));
+      return;
+    }
+    showSuccess(`Termin: ${handoffWhen(start)}.`);
+    onDone();
   };
 
   return (
@@ -77,7 +76,7 @@ export function TermPanel({ handoff, onDone }: { handoff: Handoff; onDone: () =>
         <Button size="sm" variant="ghost" onClick={onDone}>
           Anuluj
         </Button>
-        <Button size="sm" disabled={!start} loading={save.isPending} onClick={submit}>
+        <Button size="sm" disabled={!start} loading={save.isPending} onClick={() => void submit()}>
           Zapisz termin
         </Button>
       </div>

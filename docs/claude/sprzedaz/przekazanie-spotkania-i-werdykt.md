@@ -84,8 +84,9 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
 
 - Po każdym przebiegu skrzynki z dostępem do Sprzedaży automat przypina spotkanie
   z Outlooka, gdy **firma ma dokładnie jedną otwartą szansę**, a spotkanie nie jest
-  starsze niż dzień jej założenia. Pomiar na kopii z 10.11: 17 wierszy
-  (15 spotkań), z tego 4 przyszłe; bez warunku daty byłoby 30.
+  starsze niż dzień jej założenia. Pomiar na kopii z 10.11: z 71 nieprzypiętych
+  spotkań z Outlooka pierwszy przebieg przypiął 13, drugi 0; bez warunku daty
+  kandydatów byłoby 30.
 - Drugi sposób: spotkanie trafia w **termin przekazania** (15 minut). Wtedy
   wiadomo, której szansy dotyczy, także gdy firma ma ich kilka, a wpis terminu
   z formularza zastępuje spotkanie z kalendarza i odtąd termin czytamy z niego.

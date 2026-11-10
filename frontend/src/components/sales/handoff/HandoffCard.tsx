@@ -90,6 +90,15 @@ function ConfirmBlock({ handoff }: { handoff: Handoff }) {
   const { showError, showSuccess } = useToast();
   const mail = confirmMailHref(handoff);
   const phone = handoff.contact && !handoff.contact.do_not_contact ? handoff.contact.phone : null;
+  // Po zapisie ten blok znika z karty, więc wynik czytamy z obietnicy, nie z wywołania zwrotnego.
+  const save = async () => {
+    try {
+      await confirm.mutateAsync(handoff.opportunity.id);
+      showSuccess("Zapisano: termin potwierdzony.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia."));
+    }
+  };
   return (
     <div className="space-y-2 rounded-md border border-border bg-muted/30 p-2" data-testid="confirm-block">
       <p className="text-xs font-medium text-foreground">Potwierdź termin u klienta</p>
@@ -111,12 +120,7 @@ function ConfirmBlock({ handoff }: { handoff: Handoff }) {
           size="sm"
           className="ml-auto h-7"
           loading={confirm.isPending}
-          onClick={() =>
-            confirm.mutate(handoff.opportunity.id, {
-              onSuccess: () => showSuccess("Zapisano: termin potwierdzony."),
-              onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia.")),
-            })
-          }
+          onClick={() => void save()}
         >
           Klient potwierdził
         </Button>
@@ -179,13 +183,14 @@ export function HandoffCard({
           {!pending && <Badge variant="neutral" size="sm">{bookerStatus(handoff)}</Badge>}
         </div>
       </div>
+      {/* To, co jest teraz do zrobienia, stoi nad przygotowaniem: przy 720 px wysokości musi być widać bez przewijania. */}
+      {acting && isHost && handoff.phase === "confirm" && panel === null && <ConfirmBlock handoff={handoff} />}
+      {showTerm && <TermPanel handoff={handoff} onDone={() => onPanel(null)} />}
+      {showVerdict && <VerdictPanel handoff={handoff} onSaved={(kind) => onVerdict?.(kind)} />}
       <ContactLine handoff={handoff} />
       <FromCall handoff={handoff} />
       {!embedded && <TalkingPoints companyId={handoff.company.id} className="border-t border-border pt-3" />}
       {!embedded && <WhoWeKnow companyId={handoff.company.id} companyName={handoff.company.name} />}
-      {acting && isHost && handoff.phase === "confirm" && panel === null && <ConfirmBlock handoff={handoff} />}
-      {showTerm && <TermPanel handoff={handoff} onDone={() => onPanel(null)} />}
-      {showVerdict && <VerdictPanel handoff={handoff} onSaved={(kind) => onVerdict?.(kind)} />}
       <div className="flex flex-wrap items-center gap-1 border-t border-border pt-3">
         {acting && !handoff.from_calendar && !showTerm && (
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => onPanel("term")}>

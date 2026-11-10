@@ -46,17 +46,17 @@ export function VerdictPanel({ handoff, onSaved }: VerdictPanelProps) {
   const [returnOn, setReturnOn] = useState("");
   const [reason, setReason] = useState("");
 
-  const save = (kind: HandoffVerdict, extra: { reason?: string | null; return_on?: string | null } = {}) => {
-    give.mutate(
-      { opportunity_id: handoff.opportunity.id, kind, ...extra },
-      {
-        onSuccess: () => {
-          showSuccess(SAVED[kind]);
-          onSaved(kind);
-        },
-        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać werdyktu.")),
-      },
-    );
+  // `mutateAsync`, nie wywołanie zwrotne przy `mutate`: po werdykcie spotkanie znika z listy
+  // i ten panel się odmontowuje, a wtedy wywołania zwrotne przy `mutate` już nie odpalają.
+  const save = async (kind: HandoffVerdict, extra: { reason?: string | null; return_on?: string | null } = {}) => {
+    try {
+      await give.mutateAsync({ opportunity_id: handoff.opportunity.id, kind, ...extra });
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zapisać werdyktu."));
+      return;
+    }
+    showSuccess(SAVED[kind]);
+    onSaved(kind);
   };
 
   const choose = (kind: HandoffVerdict) => {
@@ -65,7 +65,7 @@ export function VerdictPanel({ handoff, onSaved }: VerdictPanelProps) {
       setReason("");
       return;
     }
-    save(kind);
+    void save(kind);
   };
 
   return (
@@ -124,7 +124,7 @@ export function VerdictPanel({ handoff, onSaved }: VerdictPanelProps) {
               size="sm"
               loading={give.isPending}
               onClick={() =>
-                save("not_now", {
+                void save("not_now", {
                   return_on: returnOn || dayPlus(Number(returnIn ?? "30")),
                   reason: reason.trim() || null,
                 })
@@ -164,7 +164,7 @@ export function VerdictPanel({ handoff, onSaved }: VerdictPanelProps) {
             <Button
               size="sm"
               loading={give.isPending}
-              onClick={() => save("not_a_fit", { reason: reason.trim() || null })}
+              onClick={() => void save("not_a_fit", { reason: reason.trim() || null })}
             >
               Zamknij szansę
             </Button>

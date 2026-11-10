@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,9 +32,17 @@ export function useMyDayHandoffs(handoffs: Handoffs | undefined, canEdit: boolea
   const [followUp, setFollowUp] = useState<Handoff | null>(null);
   const [rebooking, setRebooking] = useState<Handoff | null>(null);
   const all = handoffs ? [...handoffs.to_me, ...handoffs.booked_by_me] : [];
-  // Dopóki nikt nie kliknął, karta otwiera się sama tam, gdzie jest coś do zrobienia.
+  // Dopóki nikt nie wybrał wiersza, karta otwiera się sama tam, gdzie jest coś do zrobienia.
   const automatic = handoffs ? (needsAction(handoffs) ?? (hasPrep ? undefined : handoffs.to_me[0])) : undefined;
-  const current = selection === undefined ? (automatic ? { id: automatic.opportunity.id, panel: null } : null) : selection;
+  const automaticId = automatic?.opportunity.id;
+  // Wybór automatu zostaje zapamiętany: po „Klient potwierdził” karta nie może zniknąć spod ręki
+  // tylko dlatego, że spotkanie przestało wymagać ruchu.
+  useEffect(() => {
+    if (automaticId !== undefined) {
+      setSelection((chosen) => (chosen === undefined ? { id: automaticId, panel: null } : chosen));
+    }
+  }, [automaticId]);
+  const current = selection === undefined ? (automaticId !== undefined ? { id: automaticId, panel: null } : null) : selection;
   const selected = current ? all.find((row) => row.opportunity.id === current.id) : undefined;
   const viewer = selected && handoffs?.to_me.includes(selected) ? "host" : "booker";
 
@@ -43,7 +51,8 @@ export function useMyDayHandoffs(handoffs: Handoffs | undefined, canEdit: boolea
     setSelection({ id: handoff.opportunity.id, panel });
   };
   const onVerdict = (handoff: Handoff, kind: HandoffVerdict) => {
-    setSelection(null);
+    // Po werdykcie karta przechodzi sama do następnego spotkania, które czeka na ruch.
+    setSelection(undefined);
     // Po kwalifikacji od razu krok: bez niego szansa wraca na listę „bez kroku”.
     setFollowUp(kind === "qualified" ? handoff : null);
   };
