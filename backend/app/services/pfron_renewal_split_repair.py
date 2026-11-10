@@ -163,6 +163,9 @@ HANDLED_FOREIGN_KEYS: tuple[tuple[str, str], ...] = (
     ("client_order_md_consumptions", "order_id"),
     ("client_order_offboarding_cases", "order_id"),
     ("client_order_offboarding_cases", "target_order_id"),
+    # Dopisane 10.11.2026 (rozliczenia klientów, 0679): paragon korekty na
+    # kopii produkcji z 11.09.2026 (split=3), rozliczeń wtedy nie było.
+    ("client_settlements", "order_id"),
     ("client_orders", "predecessor_order_id"),
     # Dopisane 18.10.2026 (faktury do klientów z KSeF): korekta przeszła na
     # produkcji wcześniej (paragon `0306_pfron_renewal_split_repair`), więc

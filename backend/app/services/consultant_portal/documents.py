@@ -12,8 +12,11 @@ Raport przyjęty przez Finanse daje konsultantowi sygnał „wystaw fakturę”.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import logging
 import os
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -51,8 +54,73 @@ BAD_KIND = "Wybierz raport albo fakturę."
 ALREADY_DECIDED = "Ten dokument ma już decyzję."
 
 
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MSG_MIME = "application/vnd.ms-outlook"
+EML_MIME = "message/rfc822"
+#: Rozliczenia (roadmapa E2.0): RCP w Excelu i mail z akceptacją z Outlooka
+#: albo jako .eml. Tylko w portalu konsultanta; reszta ``documents_store`` bez zmian.
+SETTLEMENT_EXTENSIONS: dict[str, str] = {
+    XLSX_MIME: "xlsx",
+    MSG_MIME: "msg",
+    EML_MIME: "eml",
+}
+_OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_EML_HEADERS = (b"from:", b"subject:", b"mime-version:", b"message-id:", b"date:")
+
+
+def _is_xlsx(content: bytes) -> bool:
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            names = {entry.filename for entry in archive.infolist()}
+    except (zipfile.BadZipFile, OSError):
+        return False
+    if any(name.lower().endswith("vbaproject.bin") for name in names):
+        raise documents_store.FileRejected(
+            "Arkusz z makrami nie jest przyjmowany — zapisz go jako zwykły XLSX albo PDF."
+        )
+    return "[Content_Types].xml" in names and "xl/workbook.xml" in names
+
+
+def _is_msg(content: bytes) -> bool:
+    # Kontener OLE z polami wiadomości Outlooka; stary .doc/.xls ich nie ma.
+    return (
+        content.startswith(_OLE_HEADER)
+        and "__substg1.0_".encode("utf-16-le") in content
+    )
+
+
+def _is_eml(content: bytes) -> bool:
+    head = content[:4096].lower()
+    lines = {
+        line.split(b":", 1)[0] + b":" for line in head.splitlines() if b":" in line
+    }
+    return sum(header in lines for header in _EML_HEADERS) >= 3
+
+
+def check_settlement_file(content: bytes) -> tuple[str, str]:
+    """Typ i SHA-256 pliku rozliczenia: typy ``documents_store`` plus XLSX, MSG i EML."""
+
+    if content and len(content) <= MAX_FILE_BYTES:
+        if content.startswith(b"PK\x03\x04") and _is_xlsx(content):
+            return XLSX_MIME, hashlib.sha256(content).hexdigest()
+        if _is_msg(content):
+            return MSG_MIME, hashlib.sha256(content).hexdigest()
+        if documents_store.sniff_mime(content) is None and _is_eml(content):
+            return EML_MIME, hashlib.sha256(content).hexdigest()
+    try:
+        return documents_store.check(content)
+    except documents_store.FileRejected as exc:
+        if "Wgraj PDF" in str(exc):
+            raise documents_store.FileRejected(
+                "Wgraj PDF, arkusz Excel (XLSX), mail z Outlooka (MSG, EML), plik Word (DOCX) "
+                "albo zdjęcie (JPG, PNG)."
+            ) from None
+        raise
+
+
 def relative_path(owner: str, digest: str, mime: str) -> str:
-    return f"{SUBDIR}/{owner}/{digest}.{documents_store.EXTENSIONS[mime]}"
+    extension = SETTLEMENT_EXTENSIONS.get(mime) or documents_store.EXTENSIONS[mime]
+    return f"{SUBDIR}/{owner}/{digest}.{extension}"
 
 
 def _save(owner: str, content: bytes, *, mime: str, digest: str) -> str:
@@ -143,7 +211,7 @@ async def store(
     if kind not in DOCUMENT_KINDS:
         raise PortalError(BAD_KIND)
     try:
-        mime, digest = documents_store.check(content)
+        mime, digest = check_settlement_file(content)
     except documents_store.FileRejected as exc:
         raise PortalError(str(exc), code="bad_file") from None
     existing = await _same_file(
@@ -195,7 +263,28 @@ async def store(
         if existing is None:
             raise
         return Stored(existing, True)
+    await _refresh_settlement(db, document)
     return Stored(document, False)
+
+
+async def _refresh_settlement(db: AsyncSession, document: CpDocument) -> None:
+    """Rozliczenia klientów (E2.4): nowe RCP przelicza rozliczenie miesiąca.
+
+    W SAVEPOINT i bez wyjątku na zewnątrz: odczyt pliku jest dodatkiem, przyjęcie
+    dokumentu działa także wtedy, gdy parser albo moduł rozliczeń zawiodą.
+    """
+
+    from app.services.client_settlements import service as settlements
+
+    try:
+        async with db.begin_nested():
+            await settlements.refresh_for_document(db, document)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "rozliczenia: przeliczenie po dokumencie %s nie wyszło (%s)",
+            document.id,
+            type(exc).__name__,
+        )
 
 
 # ── Konsultant ───────────────────────────────────────────────────────────────
@@ -333,12 +422,53 @@ async def overview(
         if contract and contract.client_id
         else None
     )
-    return [
+    rows = [
         month_row(
             year, month, by_month[(year, month)], mode=rule.mode if rule else None
         )
         for year, month in sorted(by_month, reverse=True)
     ]
+    # Rozliczenia klientów (E3): stan RCP, wynik sprawdzenia i dane do faktury.
+    from app.services.client_settlements import consultant as settlement_view
+
+    for row in rows:
+        settlement = (
+            await settlement_view.view(
+                db,
+                context.consultant.contract_id,
+                contract.client_id if contract else None,
+                row["year"],
+                row["month"],
+            )
+            if contract
+            else None
+        )
+        apply_settlement(row, settlement)
+    return rows
+
+
+def apply_settlement(row: dict[str, Any], settlement: Optional[dict[str, Any]]) -> None:
+    """Dołącza rozliczenie do wiersza miesiąca. Przyjęte rozliczenie zamyka krok
+    raportu także wtedy, gdy Finanse przyjęły MD wpisane bez pliku: następny krok
+    to faktura, nie „Wyślij raport”."""
+
+    row["settlement"] = settlement
+    if not settlement or settlement.get("status") != "accepted":
+        return
+    if settlement.get("kind") == "estimate":
+        # Przyjęty plan nie zamyka miesiąca: RCP faktyczne przychodzi po jego końcu.
+        return
+    if row["action"] == "send_report":
+        row["action"] = "send_invoice"
+        row["issue_invoice"] = True
+        row["report_label"] = REPORT_LABELS["accepted"]
+        row["invoice_label"] = "Faktura: wystaw i wyślij"
+    ksef = (settlement.get("invoice") or {}).get("ksef")
+    if ksef:
+        # Faktura jest już w KSeF (E4): nic do wysłania; korekta idzie zadaniem.
+        row["action"] = None
+        row["issue_invoice"] = False
+        row["invoice_label"] = ksef["label"]
 
 
 async def upload_from_portal(

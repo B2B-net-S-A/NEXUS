@@ -128,6 +128,8 @@ class _Run:
     progress: Optional[str] = None
     #: Moduł „Zgody” włączony: faktury kosztowe spółki zapisujemy z metadanych.
     store_costs: bool = False
+    #: Moduł rozliczeń klientów włączony: faktury kontraktorów (E4) przed kosztami.
+    contractors: Optional[Any] = None
 
 
 class _BudgetSpent(Exception):
@@ -523,6 +525,10 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
     run.counts["listed"] += 1
     seller = (item.get("seller") or {}).get("nip") or numbers.seller_nip(ksef_number)
     if seller not in run.known:
+        if run.contractors is not None and await _store_contractor(
+            run, item, ksef_number
+        ):
+            return
         # Dostawca firmy — poza rozliczeniami ludzi (licznik ``skipped``). Przy
         # włączonym module „Zgody” zapisujemy go jako fakturę kosztową (``costs``),
         # inaczej bez śladu w bazie i logach.
@@ -538,6 +544,43 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
     await _download_and_store(
         run, ksef_number, acquired if isinstance(acquired, str) else None
     )
+
+
+async def _store_contractor(run: _Run, item: dict[str, Any], ksef_number: str) -> bool:
+    """Faktura kontraktora klienta (rozliczenia klientów, E4) z samych metadanych.
+
+    ``True`` = to kontraktor (zapisany albo już był) — nie trafia do kosztów.
+    Awaria zapisu nie zatrzymuje przebiegu; faktura wraca przy „Pobierz
+    ponownie okres”.
+    """
+
+    from app.services.client_settlements import contractor_invoices  # noqa: PLC0415
+
+    try:
+        async with run.db.begin_nested():
+            stored = await contractor_invoices.consider(
+                run.db, run.contractors, item, ksef_number
+            )
+    except Exception:  # noqa: BLE001 — pobieranie idzie dalej
+        logger.exception("ksef: zapis faktury kontraktora nieudany")
+        run.counts["contractors_failed"] += 1
+        return False
+    if stored is None:
+        return False
+    await run.db.commit()
+    run.counts["contractors"] += 1
+    if stored == contractor_invoices.SUGGESTED:
+        run.counts["contractors_suggested"] += 1
+    return True
+
+
+async def _contractor_index(db: AsyncSession, now: datetime) -> Optional[Any]:
+    from app.services.client_settlements import contractor_invoices  # noqa: PLC0415
+    from app.services.client_settlements import settings as settlements_module  # noqa: PLC0415
+
+    if not await settlements_module.is_enabled(db):
+        return None
+    return await contractor_invoices.load_index(db, now.astimezone(_ZONE).date())
 
 
 async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None:
@@ -717,6 +760,7 @@ async def _execute(
         requests_left=MAX_METADATA_REQUESTS,
         downloads_left=MAX_DOWNLOADS,
         store_costs=bool((await load_modules(db)).get(HrModule.approvals)),
+        contractors=await _contractor_index(db, now),
     )
     error: Optional[KsefApiError] = None
     partial = False
