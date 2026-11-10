@@ -15,6 +15,20 @@ export interface ReviewBatchJob {
   /** Osoby z porcji czekające u patrzącego w tej rekrutacji. */
   pending: number
   p0: boolean
+  /** Poziom, z którego porcja bierze osoby: P0 najpierw, potem niżej (10.11.2026). */
+  group?: ReviewBatchSource
+  /** Jak osoba jest przypisana: prowadzi, przypisanie, dopisana ręcznie. */
+  via?: "owner" | "assignment" | "collaborator" | null
+  p0_until?: string | null
+}
+
+/** Dlaczego osoba z porcji trafiła do patrzącego (decyzje Artura 10.11.2026). */
+export type ReviewBatchSource = "p0" | "p1" | "p2" | "accepting"
+
+export interface ReviewBatchWhy {
+  source: ReviewBatchSource
+  via: "owner" | "assignment" | "collaborator" | null
+  p0_until?: string | null
 }
 
 export interface ReviewBatchOpenScreening {
@@ -49,6 +63,8 @@ export interface ReviewBatchStatus {
   team_jobs: ReviewBatchJob[]
   /** Ile osób dokłada „Dodaj kolejnych”: 20 w porcji, 10 przy celu wg tempa. */
   more_cards?: number
+  /** Skład porcji: ile osób z P0, ile z niższych priorytetów; poziom jutro (do 50). */
+  sources?: { p0: number; rest: number; level_next: number; level_cap: number }
 }
 
 export interface ReviewBatchCaution {
@@ -78,6 +94,7 @@ export interface ReviewBatchItem {
   known?: KnownFacts | null
   order_active?: boolean
   order_in_budget?: boolean
+  why?: ReviewBatchWhy
 }
 
 export interface ReviewBatchTeamRow {

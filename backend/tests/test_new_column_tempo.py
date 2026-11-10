@@ -352,11 +352,21 @@ async def test_new_in_base_does_not_exceed_the_target(tempo_on):
     assert await _fill(job_id) == []
 
 
-async def test_batch_uses_the_tempo_target_instead_of_twenty(tempo_on):
+def _level(monkeypatch, size: int) -> None:
+    """Od 10.11.2026 porcja jest na osobę (jej poziom), a nie cel wg tempa."""
+
+    async def _settings(_db):
+        return rb.BatchSettings(minimum=size)
+
+    monkeypatch.setattr(rb, "read_settings", _settings)
+
+
+async def test_batch_gives_the_persons_level_not_the_tempo_target(tempo_on):
+    _level(tempo_on, 7)
     recruiter = await _user()
     world = await _world(30, recruiter_id=recruiter)
     await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
-    assert len(await _fill(world["job_id"], batch=True)) == 5
+    assert len(await _fill(world["job_id"], batch=True)) == 7
 
 
 # ── Miejsce dla świeżych ────────────────────────────────────────────────────
@@ -502,6 +512,7 @@ async def test_a_person_who_gave_way_does_not_come_back_as_new_in_base(tempo_on)
 
 
 async def test_batch_never_swaps_because_old_cards_take_no_place(tempo_on):
+    _level(tempo_on, 5)
     recruiter = await _user()
     world = await _seats(
         [(1, 90)] * 5 + [(8, 70)] * 5, newcomers=5, recruiter_id=recruiter
@@ -699,6 +710,7 @@ async def test_more_refuses_a_job_out_of_work_and_a_missing_job(tempo_on):
 
 async def test_more_in_batch_waits_for_own_cards(tempo_on):
     tempo_on.setattr(settings, "REVIEW_BATCH_ENABLED", True)
+    _level(tempo_on, 5)
     recruiter = await _user()
     world = await _world(20, recruiter_id=recruiter)
     await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})

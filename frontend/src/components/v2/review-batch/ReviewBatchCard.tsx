@@ -275,7 +275,7 @@ export function ReviewBatchCard({
             data-testid="review-to-screening"
             data-tour="review-batch.to-screening"
           >
-            <Check className="h-4 w-4" aria-hidden="true" /> Do screeningu <kbd className="ml-1 text-xs opacity-70">S</kbd>
+            <Check className="h-4 w-4" aria-hidden="true" /> Pasuje <kbd className="ml-1 text-xs opacity-70">S</kbd>
           </Button>
           <Button
             variant="outline"
@@ -283,11 +283,11 @@ export function ReviewBatchCard({
             disabled={busy}
             data-testid="review-reject"
           >
-            <X className="h-4 w-4" aria-hidden="true" /> Odrzuć… <kbd className="ml-1 text-xs opacity-70">O</kbd>
+            <X className="h-4 w-4" aria-hidden="true" /> Nie pasuje… <kbd className="ml-1 text-xs opacity-70">O</kbd>
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          „Do screeningu” i odrzucenie z powodem liczą się od razu. Wynik screeningu wpisz w 2 dni robocze, inaczej wyszukiwanie znów się zablokuje.
+          „Pasuje” (osoba idzie do screeningu) i „Nie pasuje” z powodem liczą się od razu. Wynik screeningu wpisz w 2 dni robocze, inaczej wyszukiwanie znów się zablokuje.
         </p>
         </>
       ) : (
