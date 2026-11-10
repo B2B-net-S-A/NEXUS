@@ -1972,6 +1972,7 @@
   },
   {
     "id": "sprzedaz-lista-z-researchu",
+    "pr": 3302,
     "title": "Leady: lista osób z researchu do map decyzyjnych",
     "why": "Listę osób z researchu wgrywasz plikiem. Przed zapisem widzisz przy każdej osobie jej firmę w NEXUSIE i pewność, a akceptacja dodaje ją na mapę decyzyjną Fabryk IT ze statusem „bez kontaktu”.",
     "tier": "dot",
