@@ -126,6 +126,9 @@ class TestFeatureKeyEnum:
             "skill_dictionary_proposals",
             # 0677: podsumowanie spotkania handlowca do wysłania klientowi.
             "sales_meeting_client_summary",
+            # 0678: „Kto już to robił” — rozbicie celu i ocena CV.
+            "duty_search_plan",
+            "duty_search_judge",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

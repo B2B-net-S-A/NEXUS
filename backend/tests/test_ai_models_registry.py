@@ -178,6 +178,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.skill_dictionary_proposals: ("F45", "gpt-6.1-sol"),
     # F46 — 09.11.2026: podsumowanie spotkania handlowca do wysłania klientowi.
     AIFeatureKey.sales_meeting_client_summary: ("F46", "claude-sonnet-5-5"),
+    # F47/F48 — 09.11.2026: „Kto już to robił” (rozbicie celu, ocena CV z cytatem).
+    AIFeatureKey.duty_search_plan: ("F47", "claude-sonnet-5"),
+    AIFeatureKey.duty_search_judge: ("F48", "gpt-6-luna"),
 }
 
 

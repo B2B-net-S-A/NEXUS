@@ -203,6 +203,10 @@ class AIFeatureKey(str, enum.Enum):
     # 0677 (09.11.2026): podsumowanie spotkania handlowca do wysłania klientowi
     # (ustalenia i następne kroki, bez stawek i spraw wewnętrznych).
     sales_meeting_client_summary = "sales_meeting_client_summary"
+    # 0678 (09.11.2026): „Kto już to robił” — rozbicie celu projektu na rzeczy
+    # do sprawdzenia w CV i ocena CV z cytatem (wyszukiwanie po obowiązkach).
+    duty_search_plan = "duty_search_plan"
+    duty_search_judge = "duty_search_judge"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -254,6 +258,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_call_questions: "Ściąga do rozmowy — pytania pod CV z Championa i oryginalnego CV",
     AIFeatureKey.skill_dictionary_proposals: "Słownik umiejętności — nocne propozycje haseł i wariantów do zatwierdzenia",
     AIFeatureKey.sales_meeting_client_summary: "Sprzedaż — podsumowanie spotkania do wysłania klientowi",
+    AIFeatureKey.duty_search_plan: "„Kto już to robił” — rozbicie celu projektu na rzeczy do sprawdzenia w CV",
+    AIFeatureKey.duty_search_judge: "„Kto już to robił” — ocena CV względem celu projektu z cytatem",
 }
 
 
@@ -473,6 +479,15 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Temat spotkania handlowca i transkrypt z Teams",
         "(bez danych z kartoteki firmy, szans, notatek i kandydatów; handlowiec "
         "czyta i poprawia treść przed wysyłką)",
+    ],
+    AIFeatureKey.duty_search_plan: [
+        "Opis celu projektu albo obowiązki z Championa i tytuł rekrutacji",
+        "(bez danych osób, nazwy klienta, stawek i kontaktów)",
+    ],
+    AIFeatureKey.duty_search_judge: [
+        "Tekst CV ok. 100 najbliższych osób (do 14 tys. znaków na osobę)",
+        "Cel projektu i rzeczy do sprawdzenia w CV z rozbicia celu",
+        "(bez imion, nazwisk z profilu, notatek, stawek, nazwy klienta i kontaktów)",
     ],
 }
 
