@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
+import httpx
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, select
@@ -37,6 +38,7 @@ from app.models.m365 import M365Connection
 from app.models.sales import SalesActivity, SalesContact, SalesOpportunity
 from app.services.m365 import calendar as m365_calendar
 from app.services.m365.graph_client import GraphClient, GraphRequestError
+from app.services.m365.oauth import M365ReauthRequired
 from app.services.sales import handoff, history
 from app.services.sales.handoff_state import (
     DEFAULT_DURATION,
@@ -77,6 +79,9 @@ NO_SCOPE_DETAIL = "Połącz skrzynkę Outlook ponownie: brakuje zgody na kalenda
 UNDELIVERED_DETAIL = (
     "Outlook nie przyjął zaproszenia. Nic nie wyszło, spróbuj ponownie."
 )
+RECONNECT_DETAIL = (
+    "Połącz skrzynkę Outlook ponownie: zgoda wygasła. Zaproszenie nie wyszło."
+)
 UNCERTAIN_DETAIL = (
     "Nie wiadomo, czy zaproszenie wyszło. Sprawdź kalendarz w Outlooku, zanim "
     "spróbujesz ponownie."
@@ -104,7 +109,16 @@ class InviteDraft:
 
 
 class Undelivered(RuntimeError):
-    """Graph odmówił: wydarzenie na pewno nie powstało."""
+    """Wydarzenie na pewno nie powstało: Graph odmówił albo żądanie do niego nie dotarło."""
+
+
+class ReconnectNeeded(Undelivered):
+    """Microsoft odrzucił odświeżenie zgody: skrzynkę trzeba połączyć ponownie."""
+
+
+# Połączenie nie powstało, więc Graph nie widział żądania (klient Graph mówi to samo
+# przy ``httpx.ConnectError``). Zerwana odpowiedź do tej grupy nie należy.
+_NEVER_SENT = (httpx.ConnectError, httpx.ConnectTimeout)
 
 
 class Uncertain(RuntimeError):
@@ -272,8 +286,15 @@ async def deliver(
     try:
         async with GraphClient(connection, db, sales_ok=True) as gc:
             event = await gc.post("/me/events", json=payload)
+    except M365ReauthRequired as exc:
+        # 401 i nieudane odświeżenie: wydarzenia nie ma, a klient Graph oznaczył już
+        # skrzynkę jako wymagającą ponownego połączenia.
+        logger.warning("sales_handoff_invite: reconnect required")
+        raise ReconnectNeeded(type(exc).__name__) from exc
     except Exception as exc:
-        refused = isinstance(exc, GraphRequestError) and 400 <= exc.status < 500
+        refused = isinstance(exc, _NEVER_SENT) or (
+            isinstance(exc, GraphRequestError) and 400 <= exc.status < 500
+        )
         logger.warning(
             "sales_handoff_invite: %s (%s)",
             "refused" if refused else "uncertain",

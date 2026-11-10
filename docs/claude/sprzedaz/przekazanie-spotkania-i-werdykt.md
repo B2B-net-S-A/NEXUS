@@ -139,6 +139,12 @@ innej osoby. Logika: `services/sales/handoff_invite.py`, trasy `GET` i `POST
   przekazania i terminu, więc ponowiona wysyłka nie tworzy drugiego spotkania.
   Odmowa Graph (4xx) zwalnia rezerwację (502, nic nie wyszło); utracona odpowiedź
   zostawia ją i każe sprawdzić kalendarz (409), bo spotkanie mogło powstać.
+  „Nic nie wyszło” to także połączenie, które nie powstało (`httpx.ConnectError`,
+  `ConnectTimeout`), i wygasła zgoda skrzynki (`M365ReauthRequired`; 409 z prośbą
+  o ponowne połączenie): Graph nie widział wtedy żądania, więc rezerwacja znika od
+  razu. Na stagingu z laptopa wyszło 10.11, że bez tego okno mówiło „nie wiadomo”
+  i blokowało ponowienie na 10 minut, choć nic nie mogło wyjść. Zerwanej
+  odpowiedzi i 5xx do tej grupy nie dopisuj.
 - **Na osi szansy** wydarzenie jest spotkaniem z Outlooka (`msgraph-event`, `iCalUId`)
   i zastępuje wpis terminu z formularza; kopia z synchronizacji kalendarza skleja się
   z nim. Od tej chwili termin zmienia się w Outlooku.

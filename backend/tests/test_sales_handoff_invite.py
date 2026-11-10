@@ -11,11 +11,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+import httpx
 import pytest
 
 from app.core.database import AsyncSessionLocal
 from app.models.m365 import M365Connection
 from app.services.m365.graph_client import GraphRequestError
+from app.services.m365.oauth import M365ReauthRequired
 from app.services.sales import handoff, handoff_invite, handoff_state
 from app.services.sales import outlook_activities as outlook
 from tests.test_sales_companies_api import _headers, _user
@@ -31,10 +33,11 @@ def _tag() -> str:
 
 
 class _FakeGraph:
-    """Kalendarz Graph: ``fail_status`` = odpowiedź błędem zamiast wydarzenia."""
+    """Kalendarz Graph: ``fail_status`` = odpowiedź błędem, ``fail_with`` = inny wyjątek."""
 
     calls: list[tuple[str, Any]] = []
     fail_status: Optional[int] = None
+    fail_with: Optional[Exception] = None
 
     def __init__(self, connection, db, *, sales_ok: bool = False) -> None:
         # Skrzynka handlowca bez dostępu do kandydatów musi przejść jawnie.
@@ -49,6 +52,8 @@ class _FakeGraph:
 
     async def post(self, url: str, json=None, **_kwargs):
         type(self).calls.append((url, json))
+        if type(self).fail_with is not None:
+            raise type(self).fail_with
         if type(self).fail_status is not None:
             raise GraphRequestError(type(self).fail_status, "boom")
         return {
@@ -62,6 +67,7 @@ class _FakeGraph:
 def graph(monkeypatch):
     _FakeGraph.calls = []
     _FakeGraph.fail_status = None
+    _FakeGraph.fail_with = None
     monkeypatch.setattr(handoff_invite, "GraphClient", _FakeGraph)
     return _FakeGraph
 
@@ -277,6 +283,54 @@ async def test_refused_by_outlook_can_be_retried(app_client, graph) -> None:
 
     graph.fail_status = None
     retried = await _send(app_client, host, opportunity_id, request_id=request_id)
+    assert retried.status_code == 200, retried.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [httpx.ConnectError("no route"), httpx.ConnectTimeout("no answer")],
+    ids=["connect_error", "connect_timeout"],
+)
+async def test_request_that_never_reached_outlook_can_be_retried(
+    app_client, graph, failure
+) -> None:
+    # Połączenie nie powstało, więc Outlook nie widział żądania: to nie jest
+    # „nie wiadomo”, tylko „nie wyszło”, i nie ma na co czekać z ponowieniem.
+    _, host, opportunity_id, _ = await _handoff(app_client)
+    await _mailbox(host)
+    graph.fail_with = failure
+    failed = await _send(app_client, host, opportunity_id)
+    assert failed.status_code == 502
+    assert "Nic nie wyszło" in failed.json()["detail"]
+    opp = await _opp_row(opportunity_id)
+    assert handoff_invite.INVITE_KEY not in handoff_state.block(opp)
+
+    graph.fail_with = None
+    retried = await _send(app_client, host, opportunity_id)
+    assert retried.status_code == 200, retried.text
+
+
+@pytest.mark.asyncio
+async def test_mailbox_that_lost_consent_asks_to_reconnect(app_client, graph) -> None:
+    _, host, opportunity_id, _ = await _handoff(app_client)
+    await _mailbox(host)
+    graph.fail_with = M365ReauthRequired("invalid_grant")
+    failed = await _send(app_client, host, opportunity_id)
+    assert failed.status_code == 409
+    assert "Połącz skrzynkę Outlook ponownie" in failed.json()["detail"]
+    assert "Nie wiadomo" not in failed.json()["detail"]
+    # Nic nie wyszło, więc po ponownym połączeniu skrzynki nie ma blokady.
+    opp = await _opp_row(opportunity_id)
+    assert handoff_invite.INVITE_KEY not in handoff_state.block(opp)
+    assert not [
+        event
+        for event in await _events(opportunity_id)
+        if event.field == handoff.HISTORY_FIELD and event.new_value == "invited"
+    ]
+
+    graph.fail_with = None
+    retried = await _send(app_client, host, opportunity_id)
     assert retried.status_code == 200, retried.text
 
 

@@ -423,10 +423,14 @@ async def send_invite(
             minutes=minutes,
             to=addresses,
         )
-    except handoff_invite.Undelivered:
+    except handoff_invite.Undelivered as failure:
         await db.rollback()
         await handoff_invite.release(db, opportunity_id, payload.request_id)
         await db.commit()
+        if isinstance(failure, handoff_invite.ReconnectNeeded):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail=handoff_invite.RECONNECT_DETAIL
+            )
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, detail=handoff_invite.UNDELIVERED_DETAIL
         )
