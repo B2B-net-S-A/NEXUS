@@ -24,6 +24,7 @@ from starlette.datastructures import QueryParams
 
 from app.models.job import JobPriority, JobStatus
 from app.models.user import UserRole
+from app.services import job_team
 from app.services import review_batch as rb
 
 NOW = datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc)
@@ -118,8 +119,13 @@ def batch_on(monkeypatch):
     async def _no_levels(_db):
         return {}
 
+    async def _no_teams(_db, job_ids):
+        return {job_id: [] for job_id in job_ids}
+
     monkeypatch.setattr(rb, "read_settings", _settings)
     monkeypatch.setattr(rb.review_batch_levels, "read_levels", _no_levels)
+    # „Rekrutacje” na ekranie porcji pokazują, jak osoba jest przypisana (10.11.2026).
+    monkeypatch.setattr(job_team, "recruiters_for_jobs", _no_teams)
     # Poniedziałek 09.11, 10:00 w Warszawie — dzień roboczy po 7:00.
     monkeypatch.setattr(rb, "_now", lambda: NOW)
     return monkeypatch
@@ -271,7 +277,9 @@ async def test_filtered_list_is_blocked(batch_on):
 # ── Kolejka przeglądu ───────────────────────────────────────────────────────
 
 
-async def test_queue_alternates_jobs_priority_first(monkeypatch):
+async def test_queue_takes_whole_levels_p0_first(monkeypatch):
+    """Najpierw cały P0, potem cały P1 Pilne, potem niżej (10.11.2026); w obrębie
+    poziomu rekrutacje na zmianę, w każdej od najlepszej osoby."""
     cards = [
         _card(1, 10, 90),
         _card(2, 10, 80),
@@ -279,6 +287,7 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
         _card(4, 20, 60),
         _card(5, 20, 50),
         _card(6, 30, 95),
+        _card(7, 40, 85),
     ]
 
     async def _own(_db, _uid, *, now=None):
@@ -312,6 +321,12 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
             p0_until=NOW + timedelta(hours=5),
             status=JobStatus.published,
         ),
+        SimpleNamespace(
+            id=40,
+            priority=JobPriority.high,
+            p0_until=None,
+            status=JobStatus.published,
+        ),
     ]
 
     class _JobsDb:
@@ -319,8 +334,8 @@ async def test_queue_alternates_jobs_priority_first(monkeypatch):
             return SimpleNamespace(all=lambda: jobs)
 
     queue = await rb.review_queue(_JobsDb(), _user(), now=NOW)
-    # P0 (30), potem pilna (20), potem średnia (10); w każdej od najlepszej
-    assert [c.process_id for c in queue] == [6, 4, 1, 5, 2, 3]
+    # P0 (30), potem P1 Pilne (20 i 40 na zmianę), potem „Bez priorytetu” (10)
+    assert [c.process_id for c in queue] == [6, 4, 7, 5, 1, 2, 3]
 
 
 def _multi(role: UserRole, extra: list[str]):

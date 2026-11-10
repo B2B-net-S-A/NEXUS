@@ -2,7 +2,8 @@
 
 Start od minimum z ustawień HoR. Kto w dniu roboczym zrobił swoje minimum,
 następnego dnia roboczego ma o ``STEP`` więcej, aż do ``CAP``, i przy ``CAP``
-zostaje do odwołania. Kto nie zrobił, zostaje na swoim poziomie: poziom nie
+zostaje do odwołania. Od 10.11.2026 poziom to też wielkość porcji osoby
+(``review_batch_plan``), a liczy się sama decyzja, bez domknięcia screeningu. Kto nie zrobił, zostaje na swoim poziomie: poziom nie
 spada. Stan siedzi w ``app_settings['review_batch_levels']``, a przelicza go
 pierwszy tick nowego dnia (``new_column_autofill._batch_tick``), w tej samej
 transakcji co plan dnia.
@@ -75,14 +76,15 @@ async def _advanced(
     tz = settings.BUSINESS_TZ
     start = local_day_start_utc(day, tz)
     end = local_day_start_utc(day + timedelta(days=1), tz)
-    # Screening domknięty wczoraj mógł ruszyć z „Nowych” do 2 dni roboczych wcześniej.
-    decisions = await rb._decisions(db, ids, now=now, since=rb.close_window_start(day))
+    # Od 10.11.2026 liczy się sama decyzja („Pasuje” albo „Nie pasuje” z powodem),
+    # tak jak do porcji dnia. Termin na wynik screeningu dalej blokuje wyszukiwanie.
+    decisions = await rb._decisions(db, ids, now=now, since=start)
     out = dict(stored)
     for user_id in ids:
         done = sum(
             1
             for decision in decisions.get(user_id, [])
-            if decision.closed_at is not None and start <= decision.closed_at < end
+            if start <= decision.moved_at < end
         )
         level = next_level(level_of(stored, user_id, base), done)
         if level > base:

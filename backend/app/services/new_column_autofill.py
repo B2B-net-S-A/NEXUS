@@ -897,8 +897,10 @@ async def _room(
     batch: bool,
     extra: Optional[int],
     tempo: Optional[Tempo],
+    need: Optional[int] = None,
 ) -> Optional[_Room]:
-    """Ile kart może dojść. ``None`` = porcja bez rekrutera."""
+    """Ile kart może dojść. ``None`` = porcja bez rekrutera. ``need`` = brak do
+    planu porcji na osobę (``review_batch.settle_owners``, 10.11.2026)."""
     from app.services import review_batch
 
     if batch:
@@ -913,9 +915,11 @@ async def _room(
                 await review_batch.pending_cards(db, job_ids=[job_id]), now, min_score
             )
         )
-        target = tempo.target if tempo else review_batch.BATCH_SIZE
-        missing = extra if extra is not None else target - have
-        return _Room(have, missing, missing, target, min_score)
+        if extra is not None:
+            missing = extra
+        else:
+            missing = need or 0
+        return _Room(have, missing, missing, have + missing, min_score)
     if tempo is not None:
         have = await waiting_system_cards(db, job_id)
         missing = extra if extra is not None else tempo.target - have
@@ -950,15 +954,22 @@ async def fill_job(
     extra_for: Optional[int] = None,
     extra_cards: Optional[int] = None,
     swap: bool = False,
+    want: Optional[dict[int, int]] = None,
+    release: bool = False,
+    report: Optional[dict] = None,
 ) -> list[int]:
     """Dopełnij „Nowych” do ``TARGET``, osobami nowymi w bazie także do
     ``TARGET + FRESH_OVER_TARGET`` (najwyżej ``limit`` osób naraz). Nowi w bazie
     wchodzą pierwsi. Zwraca id dodanych osób. Bez commitu.
 
     ``batch`` = porcja dnia (``review_batch``, 07.11.2026): liczą się tylko
-    czekające karty od systemu, do ``review_batch.BATCH_SIZE`` od
-    progu porcji (``BatchSettings.min_score``), wyłącznie w rekrutacji z rekruterem; karty
-    dostają właścicieli. ``extra_for`` = „Dodaj 20 kolejnych” tej osoby.
+    czekające karty od systemu od progu porcji (``BatchSettings.min_score``),
+    wyłącznie w rekrutacji z rekruterem. Od 10.11.2026 rekrutacja dostaje tyle
+    osób, ile wynika z planu porcji jej przypisanych (``want``: osoba → ile kart,
+    ``review_batch_plan``), a ``release`` (pierwszy przebieg dnia) zdejmuje nadwyżki.
+    ``extra_for`` = „Dodaj 20 kolejnych” tej osoby. ``report["short"]`` = ile kart
+    rekrutacji dalej brakuje do planu po dopełnieniu (przebieg porcji wie z tego,
+    że pula się wyczerpała).
 
     Przy ``NEW_COLUMN_TEMPO_TARGET_ENABLED`` cel to ``Tempo.target`` (także
     w porcji), a osoby nowe w bazie nie wchodzą ponad cel. ``extra_cards`` =
@@ -981,7 +992,18 @@ async def fill_job(
     extra = extra_cards
     if extra is None and extra_for:
         extra = review_batch.BATCH_SIZE
-    room = await _room(db, job_id, now=now, batch=batch, extra=extra, tempo=tempo)
+    need: Optional[int] = None
+    if batch and extra is None:
+        from app.services import review_batch_plan
+
+        if want is None:
+            want = await review_batch_plan.want_for_job(db, job_id, now=now)
+        need = await review_batch.settle_owners(
+            db, job_id, want=want, now=now, release=release
+        )
+    room = await _room(
+        db, job_id, now=now, batch=batch, extra=extra, tempo=tempo, need=need
+    )
     if room is None:
         return []
     have, missing, fresh_room, target = (
@@ -1042,8 +1064,10 @@ async def fill_job(
         )
         chosen += spare[: len(gone)]
     if not chosen:
-        if batch:
+        if batch and want is None:
             await review_batch.assign_owners(db, job_id, now=now, only=extra_for)
+        if report is not None and need is not None:
+            report["short"] = need
         return []
     candidates = {
         c.id: c
@@ -1095,8 +1119,13 @@ async def fill_job(
             )
         )
         await db.flush()
-    if batch:
+    if batch and want is None:
+        # „Dodaj kolejnych”: klikającemu, a od osoby spoza zespołu po równo.
         await review_batch.assign_owners(db, job_id, now=now, only=extra_for)
+    elif batch:
+        short = await review_batch.settle_owners(db, job_id, want=want, now=now)
+        if report is not None:
+            report["short"] = short
     return added
 
 
@@ -1144,6 +1173,8 @@ class _State:
     last_tick: Optional[datetime] = None
     # Rekrutacje pełnego przebiegu, do których bezpiecznik jeszcze nie doszedł.
     pending: list[int] = field(default_factory=list)
+    # Ostatni pełny plan porcji na osobę (10.11.2026); w ciągu dnia co ``REPLAN_EVERY``.
+    last_plan: Optional[datetime] = None
 
 
 def _budget() -> int:
@@ -1238,22 +1269,6 @@ async def _jobs_by_priority(db, now: datetime) -> list[int]:
     ]
 
 
-async def _day_plan(db, today: str, now: datetime) -> dict:
-    """Plan dnia: P0, priorytet, potem nowsze rekrutacje (W8). Rekrutacje bez
-    rekrutera czekają w ``no_team`` na pierwsze przypisanie (P12)."""
-    from app.services import review_batch
-
-    ordered = await _jobs_by_priority(db, now)
-    teams = await review_batch.recruiter_ids_for_jobs(db, ordered)
-    staffed = [job_id for job_id in ordered if teams.get(job_id)]
-    return {
-        "day": today,
-        "pending": staffed,
-        "rest": staffed,
-        "no_team": [job_id for job_id in ordered if not teams.get(job_id)],
-    }
-
-
 async def _withdraw_stale(job_ids: list[int], now: datetime) -> None:
     """Pierwszy rekruter w rekrutacji: stare karty od systemu schodzą, żeby
     nie zaczynał od kart sprzed tygodni (P12). Tylko nietknięte."""
@@ -1327,18 +1342,26 @@ async def _fill_round(
     return done, cut_short, budget
 
 
-async def _batch_tick(now: datetime) -> dict:
-    """Porcja dnia: jeden przebieg dziennie po rekrutacjach w pracy, bez
-    dopełniania po każdym ruchu karty. Postęp przebiegu siedzi w
-    ``app_settings[BATCH_DAY_KEY]``, więc restart w ciągu dnia nie dokłada
-    drugiej porcji w miejsce kart, o których już zdecydowano.
+# W ciągu dnia plan porcji liczy się co tyle: P0 ustawione po 7:00, nowa
+# rekrutacja i nowy przypisany dostają karty, a karty osoby zdjętej z rekrutacji
+# tracą właściciela (10.11.2026).
+REPLAN_EVERY = timedelta(minutes=5)
 
-    Dwie rundy (W8): najpierw każda rekrutacja dostaje do ``FIRST_ROUND_CARDS``
-    osób, potem resztę. Bezpiecznik dodań na tick zostaje, więc przy 100 na tick
-    i ponad 20 rekrutacjach pierwsza runda trwa kilka ticków."""
+
+async def _batch_tick(now: datetime) -> dict:
+    """Porcja dnia na osobę (10.11.2026): każdy przypisany rekruter ma porcję równą
+    swojemu poziomowi, najpierw z P0, potem z niższych priorytetów, tylko
+    z rekrutacji, do których jest przypisany (``review_batch_plan``).
+
+    Pierwszy przebieg dnia przelicza poziomy, rozdaje porcje od nowa i zdejmuje
+    nieruszone karty ponad plan (``release``). Kolejne, co ``REPLAN_EVERY``, tylko
+    dokładają i nikomu nie zabierają kart: decyzje z dziś zmniejszają porcję, więc
+    w miejsce osób, o których zdecydowano, nic nie dochodzi. Postęp dnia siedzi
+    w ``app_settings[BATCH_DAY_KEY]``, więc restart nie rozdaje porcji drugi raz.
+    Bezpiecznik dodań na tick zostaje; P0 idą pierwsze."""
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services import review_batch, review_batch_levels
+    from app.services import review_batch, review_batch_levels, review_batch_plan
 
     today = business_today().isoformat()
     staffed: list[int] = []
@@ -1347,7 +1370,14 @@ async def _batch_tick(now: datetime) -> dict:
         state = row.value if row is not None and isinstance(row.value, dict) else {}
         if state.get("day") != today:
             await review_batch_levels.roll_levels(db, now=now)
-            state = await _day_plan(db, today, now)
+            ordered = await _jobs_by_priority(db, now)
+            teams = await review_batch.recruiter_ids_for_jobs(db, ordered)
+            state = {
+                "day": today,
+                "released": False,
+                "exhausted": [],
+                "no_team": [job_id for job_id in ordered if not teams.get(job_id)],
+            }
             if row is None:
                 db.add(AppSetting(key=BATCH_DAY_KEY, value=state))
             else:
@@ -1358,65 +1388,79 @@ async def _batch_tick(now: datetime) -> dict:
             teams = await review_batch.recruiter_ids_for_jobs(db, waiting)
             staffed = [j for j in waiting if teams.get(j)]
         if staffed:
-            state = {
-                "day": today,
-                "pending": [*staffed, *(state.get("pending") or [])],
-                "rest": [*staffed, *(state.get("rest") or [])],
-                "no_team": [j for j in waiting if j not in staffed],
-            }
+            state = {**state, "no_team": [j for j in waiting if j not in staffed]}
             row = await db.get(AppSetting, BATCH_DAY_KEY)
             if row is not None:
                 row.value = state
             await db.commit()
     if staffed:
+        # Pierwszy rekruter w rekrutacji: stare karty schodzą (P12).
         await _withdraw_stale(staffed, now)
-    first = [int(j) for j in state.get("pending") or []]
-    rest = [int(j) for j in state.get("rest") or []]
-    if not first and not rest:
-        # Rekrutacja założona w ciągu dnia dostaje porcję zaraz po pierwszym
-        # przeglądzie (R6), a nie dopiero jutro rano.
-        async with AsyncSessionLocal() as db:
-            rest = await _jobs_without_batch(db)
-        if not rest:
-            return {
-                "pass": "batch",
-                "day": today,
-                "jobs": 0,
-                "pending": 0,
-                "filled": {},
-            }
-    filled: dict[int, int] = {}
-    done_first, cut_first, budget = await _fill_round(
-        first,
-        now=now,
-        budget=_budget(),
-        cap=review_batch.FIRST_ROUND_CARDS,
-        filled=filled,
-    )
-    left_first = [j for j in first if j not in done_first or j == cut_first]
-    done_rest: set[int] = set()
-    cut_rest: Optional[int] = None
-    # Reszta dopiero, gdy każda rekrutacja dostała swoje pierwsze osoby.
-    if not left_first:
-        done_rest, cut_rest, budget = await _fill_round(
-            rest, now=now, budget=budget, cap=None, filled=filled
+    release = not state.get("released")
+    fresh = _state.last_plan is not None and now - _state.last_plan < REPLAN_EVERY
+    if not release and not staffed and fresh:
+        return {"pass": "batch", "day": today, "jobs": 0, "pending": 0, "filled": {}}
+    exhausted = {int(j) for j in state.get("exhausted") or []}
+    async with AsyncSessionLocal() as db:
+        plan = await review_batch_plan.load_plan(
+            db, await _jobs_in_work(db), now=now, exhausted=exhausted
         )
-    left_rest = [j for j in rest if j not in done_rest or j == cut_rest]
+    budget = _budget()
+    filled: dict[int, int] = {}
+    done: set[int] = set()
+    cut_short = False
+    for job_id in plan.job_order():
+        missing = plan.missing.get(job_id, 0)
+        if missing > 0 and budget <= 0:
+            cut_short = True
+            break
+        report: dict = {}
+        async with AsyncSessionLocal() as db:
+            try:
+                added = await fill_job(
+                    db,
+                    job_id,
+                    now=now,
+                    limit=max(budget, 0),
+                    batch=True,
+                    want=plan.want_for(job_id),
+                    release=release,
+                    report=report,
+                )
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje reszty
+                await db.rollback()
+                logger.warning(
+                    "[review_batch] job=%s failed: %s", job_id, type(exc).__name__
+                )
+                continue
+        done.add(job_id)
+        if added:
+            filled[job_id] = len(added)
+            budget -= len(added)
+        # Po dopełnieniu dalej brakuje, a bezpiecznik nie był powodem: pula dała
+        # mniej, niż planowano. Do końca dnia osoby biorą resztę z niższych
+        # poziomów, a nie czekają na pustą rekrutację. Brak liczony po porannym
+        # zdjęciu nadwyżek, bo karty przekazane między osobami też go pokrywają.
+        if report.get("short", 0) > 0 and budget > 0:
+            exhausted.add(job_id)
     async with AsyncSessionLocal() as db:
         row = await db.get(AppSetting, BATCH_DAY_KEY)
         if row is not None:
+            current = row.value if isinstance(row.value, dict) else {}
             row.value = {
+                **current,
                 "day": today,
-                "pending": left_first,
-                "rest": left_rest,
-                "no_team": [int(j) for j in state.get("no_team") or []],
+                "released": bool(current.get("released")) or not cut_short,
+                "exhausted": sorted(exhausted),
             }
             await db.commit()
+    _state.last_plan = None if cut_short else now
     return {
         "pass": "batch",
         "day": today,
-        "jobs": len(done_first | done_rest),
-        "pending": len(set(left_first) | set(left_rest)),
+        "jobs": len(filled),
+        "pending": sum(1 for j in plan.job_order() if j not in done),
         "filled": filled,
     }
 

@@ -232,15 +232,16 @@ async def test_one_short_of_the_minimum_keeps_the_level(batch_on, clean_state):
     assert (await _roll())[a] == 20
 
 
-async def test_open_screenings_do_not_raise_the_minimum(batch_on, clean_state):
-    """Dziesięć „Do screeningu” bez domknięcia to jeszcze nie dziesięć decyzji."""
+async def test_open_screenings_raise_the_level(batch_on, clean_state):
+    """Od 10.11.2026 wystarczy decyzja: dziesięć „Pasuje” (do screeningu) bez
+    wyniku screeningu podnosi poziom tak samo jak dziesięć odrzuceń."""
     a = await _user()
     at = _yesterday()
     await _state(levels.previous_business_day(business_today()), {})
     world = await _cards(a, 10, opened=at - timedelta(hours=2))
     for cid in world["ids"]:
         await _move(world["job_id"], cid, PipelineStage.screening, a, at)
-    assert a not in await _roll()
+    assert (await _roll())[a] == 20
 
 
 async def test_second_roll_the_same_day_changes_nothing(batch_on, clean_state):

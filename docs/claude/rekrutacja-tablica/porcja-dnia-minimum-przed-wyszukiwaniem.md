@@ -1,5 +1,5 @@
-# Porcja dnia od Nexusa: 20 osób na rekrutację, minimum 10 decyzji przed ręcznym wyszukiwaniem
-<!-- indeks: `services/review_batch.py`, `/api/review-batch`, `REVIEW_BATCH_ENABLED`, 423 `REVIEW_MINIMUM_PENDING`, `entry_meta.review_owner_id`, `/porcja`, „Dla: …” na karcie, „Dodaj 20 kolejnych” -->
+# Porcja dnia od Nexusa: porcja na osobę (poziom 10→50), tylko jej rekrutacje, P0 najpierw, decyzje przed ręcznym wyszukiwaniem
+<!-- indeks: `services/review_batch.py`, `services/review_batch_plan.py`, `/api/review-batch`, `REVIEW_BATCH_ENABLED`, 423 `REVIEW_MINIMUM_PENDING`, `entry_meta.review_owner_id`, `/porcja`, „Dla: …” na karcie, „Dodaj 20 kolejnych”, „Pasuje” / „Nie pasuje”, „Masz tę osobę, bo” -->
 
 Decyzje Artura z 07.11.2026, raport i makiety M1–M11:
 https://claude.ai/artifact/36VRtoCfN6WXhTsRjfKmNi. Od poprawek silnika z 03.11
@@ -9,7 +9,58 @@ a zespół dodał ręcznie, trafiła na pełną kolumnę zajętą przez takie ka
 Rekruterzy szukali ręcznie, a system nie dostawał ocen. Porcja dnia wymusza
 decyzję o propozycjach, zanim ruszy ręczne wyszukiwanie.
 
-## Reguły
+## Porcja na osobę, P0 najpierw (decyzje Artura 10.11.2026)
+
+Artur: „ma dawać porcje dla osoby najpierw tylko pod przypisane requesty pod daną
+osobą, w pierwszej kolejności P0 i potem niższe priorytety, ale zawsze tylko
+requesty, pod które ta osoba jest przypisana, a nie cudze”, „pula ma się zwiększać
+o 10 osób codziennie, aż dojdzie do 50”, „wystarczy tylko decyzja, czy pasuje,
+czy nie, i z powodem”. Raport z kopii z 09.11 i makiety:
+https://claude.ai/artifact/SiG22GMDhRFCgShW6281sj. Do tego dnia porcja liczyła
+się na rekrutację (20 osób po równo w zespole): osoby przypisane do P0 dostały
+z P0 77 z 609 kart (13%), a 169 z 778 kart (22%) stało „Dla:” osób już zdjętych
+z rekrutacji. Ta sekcja wygrywa ze starszymi punktami niżej.
+
+- **Porcja osoby = jej poziom** (`review_batch_levels`: minimum z ustawień, potem
+  +10 następnego dnia roboczego po zrobieniu całej porcji, do 50). Minus decyzje
+  z dziś: w miejsce osoby, o której zdecydowano, nic nie dochodzi.
+- **Tylko rekrutacje, do których osoba jest przypisana** (`recruiter_ids_for_jobs`:
+  prowadzi, przypisanie, „+ osoba”; bez propozycji automatu, „Poprzedniego
+  rekrutera” i nieobecnych). Cudzych nie ma w kolejce ani przy „Dla:”.
+- **Kolejność: najpierw wszystkie P0 osoby, potem P1 Pilne, „Bez priorytetu”,
+  „Przyjmujemy kandydatów”** (`review_batch_plan.tier_of`, poziomy jak na ekranach).
+  Ściśle, świadomie (Artur, 10.11): dopóki P0 ma osoby w puli, cała porcja idzie
+  z P0, także gdy przez to rekrutacje P1 nie dostają propozycji (na danych z 09.11
+  przy poziomie 10–20 cała porcja szła do 8 rekrutacji P0, bo AML i 789167 mają
+  po 12 przypisanych). Nie wprowadzaj limitu P0 bez nowej decyzji.
+- **Plan** (`review_batch_plan.plan_portions`, czysta funkcja): poziom po poziomie,
+  osoby na zmianę po jednej karcie, w obrębie poziomu rekrutacje na zmianę. Własne
+  czekające karty liczą się najpierw; wolne karty i pula (`_pool_free`, szacunek)
+  dzielą się między przypisanych. Rekrutacja, w której dopełnianie dało mniej niż
+  plan, trafia do `exhausted` w stanie dnia i do wieczora liczy tylko karty bez
+  właściciela, więc osoby dostają resztę z niższych poziomów.
+- **Rano** (pierwszy tick dnia): poziomy, plan od nowa, `release` zdejmuje nieruszone
+  karty ponad plan osoby (od najsłabszej w kolejce „Nowych”). **W ciągu dnia** co
+  `REPLAN_EVERY` (5 min) plan tylko dokłada: P0 ustawione po 7:00, nowa rekrutacja
+  i nowy przypisany dostają karty, a karty osoby zdjętej z rekrutacji tracą
+  właściciela (`settle_owners`). W ciągu dnia nikomu nie zabieramy kart.
+- **„Dla:” na Tablicy** tylko przy osobie dalej przypisanej (`build_kanban_view`).
+- **Decyzja = „Pasuje” (do screeningu) albo „Nie pasuje” z powodem** i liczy się od
+  razu także do wzrostu poziomu (`_advanced` czyta `moved_at`, nie `closed_at`).
+  Blokada za „Pasuje” bez wyniku screeningu po 2 dniach roboczych **zostaje**
+  (Artur, 10.11: „Zostawić blokadę po 2 dniach”).
+- **Ekran `/porcja`:** nad osobą „Masz tę osobę, bo: Twoja rekrutacja (…) · P0 do …”
+  (`why` w `/me/queue`), na pasku „Twoja porcja dziś: N · X z P0 · Y z P1 i niżej ·
+  jutro N+10” (`sources` w `/me`), „Rekrutacje” w grupach P0 / P1 Pilne / Bez
+  priorytetu / Przyjmujemy (`team_jobs[].group`, `via`); niższe grupy czekają
+  „po P0”, a „Dodaj kolejnych” stoi tylko tam, dokąd porcja już sięga.
+- **Cel wg tempa** (`NEW_COLUMN_TEMPO_TARGET_ENABLED`) przy włączonej porcji nie
+  ustala już jej wielkości; zostaje poza porcją i przy „Dodaj 10 kolejnych”.
+
+Testy: `test_review_batch_plan_unit.py`, `test_review_batch_stage0.py` (sekcja
+„Porcja na osobę”), `test_review_batch.py::test_board_shows_for_only_people_still_assigned`.
+
+## Reguły sprzed 10.11.2026 (część zastąpiona sekcją wyżej)
 
 - **Raz dziennie, w dni robocze od 7:00.** Silnik „Nowych”
   (`new_column_autofill.tick` → `_batch_tick`) robi jeden przebieg po
@@ -156,8 +207,8 @@ Włączenie to decyzja Artura z 08.11 (sekcja „Narastanie minimum”).
 - **Nieobecni** (`absent_today`, urlop i L4 z `absences_on`, także pół dnia): nie
   dostają kart i nie mają blokady. Ich karty przechodzą przy następnym przebiegu na
   resztę zespołu.
-- **Plan dnia** (`_day_plan`): P0, priorytet, nowsze. Dwie rundy: najpierw każda
-  rekrutacja do `FIRST_ROUND_CARDS` = 5 osób, potem reszta. Bezpiecznik 100 dodań na
+- **Plan dnia** (do 10.11.2026 `_day_plan` z dwiema rundami po `FIRST_ROUND_CARDS`;
+  teraz `review_batch_plan`, sekcja „Porcja na osobę”). Bezpiecznik 100 dodań na
   tick zostaje (decyzja z 23.10), więc przy ok. 100 rekrutacjach pierwsza runda
   trwa kilka minut, nie jeden tick.
 - **Pierwszy rekruter** (`no_team` w `app_settings['review_batch_day']`): rekrutacja
@@ -202,8 +253,8 @@ Artur wybrał „samo kliknięcie”, świadomie odwracając ustalenie P5 z audy
   423 z polem `overdue`, aż ktoś wpisze wynik, przesunie dalej albo odrzuci. Szukamy
   `DEBT_LOOKBACK_DAYS` wstecz. Karta z rekrutacji zamkniętej albo wstrzymanej zaległością
   nie jest (`job_in_work`).
-- **Narastanie minimum do 50 liczy tylko domknięte decyzje** (`closed_at`), więc samo
-  klikanie nie podnosi poziomu.
+- **Narastanie minimum do 50** liczyło do 10.11.2026 tylko domknięte decyzje
+  (`closed_at`). Od 10.11 liczy się sama decyzja (`moved_at`), sekcja „Porcja na osobę”.
 - **Do pilnowania:** kolumna niedomkniętych w „Zobacz zespół dziś”. Skoro 10 kliknięć
   odblokowuje wyszukiwanie w kilka minut, hamulcem jest tylko termin.
 

@@ -3741,13 +3741,24 @@ async def build_kanban_view(
         and (owner := application_link_owner_id(p.entry_meta)) is not None
     }
     owner_ids |= set(link_owner_by_candidate.values())
-    # Porcja dnia (07.11.2026): „Dla: …” na karcie od systemu.
+    # Porcja dnia (07.11.2026): „Dla: …” na karcie od systemu. Tylko osoba dalej
+    # przypisana do rekrutacji (10.11.2026): karta osoby zdjętej z rekrutacji
+    # wyglądała jak jej porcja, choć nikogo nie blokuje i nikt jej nie przegląda.
     review_owner_by_candidate = {
         cid: owner
         for cid, p in v4_processes.items()
         if p.entry_source == candidate_claim.ENTRY_SYSTEM
         and (owner := review_batch.owner_of(p.entry_meta)) is not None
     }
+    if review_owner_by_candidate:
+        assigned = set(
+            (await review_batch.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
+        )
+        review_owner_by_candidate = {
+            cid: owner
+            for cid, owner in review_owner_by_candidate.items()
+            if owner in assigned
+        }
     owner_ids |= set(review_owner_by_candidate.values())
     # …i ślad ponownego zgłoszenia osoby, która już była w rekrutacji:
     # „Zgłosił się też z Twojego linku” / „Zgłosił się też z linku: Marta”.

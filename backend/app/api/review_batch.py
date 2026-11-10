@@ -130,6 +130,17 @@ async def my_queue(
         )
     ).all()
     latest_stage = {(job_id, cid): sid for sid, job_id, cid in stage_rows}
+    # „Masz tę osobę, bo: jesteś przypisana (…) · P0 do …” (10.11.2026).
+    from app.services import job_p0
+    from app.services.job_team import recruiters_for_jobs, working
+    from app.services.review_batch_plan import tier_key, tier_of
+
+    via = {
+        job_id: person.via
+        for job_id, people in (await recruiters_for_jobs(db, job_ids)).items()
+        for person in working(people)
+        if person.user_id == current_user.id
+    }
     items = []
     for card in cards:
         person = candidates.get(card.candidate_id)
@@ -161,6 +172,15 @@ async def my_queue(
                     else None
                 ),
                 **_order_note(card),
+                "why": {
+                    "source": tier_key(tier_of(job, now)),
+                    "via": via.get(job.id),
+                    "p0_until": (
+                        job.p0_until.isoformat()
+                        if job_p0.is_active(job, now) and job.p0_until is not None
+                        else None
+                    ),
+                },
             }
         )
     return {"items": items}

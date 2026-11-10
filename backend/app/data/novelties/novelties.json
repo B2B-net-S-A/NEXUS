@@ -2217,5 +2217,23 @@
     "where": "Ustawienia → Moje konto → Ruchy w rekrutacjach",
     "href": "/settings",
     "dot_anchor": "settings.notifications.stage-moves-scope"
+  },
+  {
+    "id": "porcja-na-osobe-p0-najpierw",
+    "pr": 3297,
+    "title": "Porcja dnia: tylko Twoje rekrutacje, P0 najpierw",
+    "why": "Tylko z Twoich rekrutacji, najpierw P0. Tyle osób, ile wynosi Twój poziom (10–50). Nad osobą widać, dlaczego ją masz. Decyzja: „Pasuje” albo „Nie pasuje” z powodem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.why",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
   }
 ]
