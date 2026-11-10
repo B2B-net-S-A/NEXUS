@@ -505,6 +505,10 @@ export interface BonusDecisions {
   league: BonusRow[];
   check: BonusRow[];
   vouchers: { id: number; label: string; period: string; rank: number; name: string }[];
+  /** Automat przyznaje sam: `check` to tylko to, co zatrzymał (09.11.2026). */
+  automatic?: boolean;
+  /** Premie przed terminem, które automat przyzna sam; poza listą. */
+  scheduled?: number;
 }
 
 export const payrollKeys = {

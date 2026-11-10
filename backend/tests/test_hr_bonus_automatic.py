@@ -19,7 +19,12 @@ from app.models.contract import Contract, ContractStatus
 from app.models.hr_payroll import HrBonus, HrBonusClawback
 from app.models.notification import Notification
 from app.models.user import User
-from app.services.hr import bonus_auto_assign, bonus_guarantee, double_bonus
+from app.services.hr import (
+    bonus_auto_assign,
+    bonus_guarantee,
+    double_bonus,
+    payroll_jobs,
+)
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
 from app.services.hr.bonus_rules import BonusRulesError, parse_rules, rules_payload
 from tests.test_hr_bonus_automation import (  # noqa: F401  (fikstura)
@@ -639,3 +644,68 @@ async def test_report_notifies_admin_and_needs_a_note(app_client) -> None:
             )
         )
     assert bells == 1
+
+
+# ── Ikona w pasku i dzwonek przy automacie ──
+
+
+@pytest.mark.asyncio
+async def test_refresh_rings_once_when_automat_assigns() -> None:
+    await _set_setting(RULES_KEY, AUTOMATIC)
+    world = await _ready_placement()
+    await _reconcile(world["contract"])
+    async with AsyncSessionLocal() as db:
+        await payroll_jobs.refresh_proposals(db, today=business_today())
+        await db.commit()
+
+    found = await _bonuses(world["contract"])
+    assert found["dl"].status == "assigned"
+    async with AsyncSessionLocal() as db:
+        bells = await db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(
+                Notification.related_entity_type == "hr_bonus",
+                Notification.related_entity_id == found["dl"].id,
+            )
+        )
+    # Bez „Decyzja jest teraz po stronie Rozliczeń” przed „przyznana”.
+    assert bells == 1
+
+
+@pytest.mark.asyncio
+async def test_decisions_show_only_what_automat_held(app_client) -> None:
+    await _set_setting(RULES_KEY, AUTOMATIC)
+    ready = await _ready_placement()
+    await _reconcile(ready["contract"])
+    held = await _placement(started_days_ago=45)
+    await _update_contract(held["contract"], client_order_start_date=None)
+    await _reconcile(held["contract"])
+    fresh = await _placement(started_days_ago=3)
+    await _reconcile(fresh["contract"])
+    admin, _admin_id = await _admin_headers()
+
+    response = await app_client.get("/api/hr/payroll/decisions", headers=admin)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    shown = {row["id"] for key in ("signed", "league", "check") for row in body[key]}
+    assert (await _bonuses(held["contract"]))["dl"].id in {
+        row["id"] for row in body["check"]
+    }
+    assert (await _bonuses(ready["contract"]))["dl"].id not in shown
+    assert (await _bonuses(fresh["contract"]))["dl"].id not in shown
+    assert body["automatic"] is True
+    assert body["scheduled"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_decisions_without_automat_list_every_proposal(app_client) -> None:
+    fresh = await _placement(started_days_ago=3)
+    await _reconcile(fresh["contract"])
+    admin, _admin_id = await _admin_headers()
+
+    body = (await app_client.get("/api/hr/payroll/decisions", headers=admin)).json()
+    shown = {row["id"] for key in ("signed", "league", "check") for row in body[key]}
+    assert (await _bonuses(fresh["contract"]))["dl"].id in shown
+    assert body["automatic"] is False
+    assert body["scheduled"] == 0
