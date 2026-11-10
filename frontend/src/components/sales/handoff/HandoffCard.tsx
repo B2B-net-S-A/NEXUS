@@ -13,7 +13,7 @@ import { formatDayMonthPl } from "@/lib/date-pl";
 import { telHref } from "../my-day";
 import { WhoWeKnow } from "../MyDayPrepCard";
 import { TalkingPoints } from "../signals/TalkingPoints";
-import { bookerStatus, confirmMailHref, handoffWhen } from "./helpers";
+import { bookerStatus, confirmMailHref, handoffWhen, mailAddress } from "./helpers";
 import { TermPanel } from "./TermPanel";
 import { VerdictPanel } from "./VerdictPanel";
 
@@ -75,8 +75,8 @@ function ContactLine({ handoff }: { handoff: Handoff }) {
           {contact.phone}
         </a>
       )}
-      {reachable && contact.email && (
-        <a href={`mailto:${contact.email}`} className="truncate text-primary hover:underline">
+      {reachable && mailAddress(contact.email) && (
+        <a href={`mailto:${mailAddress(contact.email)}`} className="truncate text-primary hover:underline">
           {contact.email}
         </a>
       )}

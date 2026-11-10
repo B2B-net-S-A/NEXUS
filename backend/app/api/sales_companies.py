@@ -316,8 +316,9 @@ def _apply(company: SalesCompany, fields: dict[str, Any]) -> None:
         company.owner_label = None
     if "name" in fields:
         company.normalized_name = normalize_company_name(company.name) or company.name
-    if not company.domain and fields.get("website_url"):
+    if "domain" not in fields and not company.domain and fields.get("website_url"):
         # Bez domeny nie działa dopasowanie poczty i kalendarza (10.11.2026).
+        # Domena wysłana jawnie, także pusta, jest decyzją człowieka.
         company.domain = service.mail_domain(company.website_url)
 
 

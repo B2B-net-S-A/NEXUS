@@ -847,6 +847,43 @@ async def test_no_show_returns_to_the_caller_as_a_task(app_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_caller_cannot_erase_a_verdict_by_rebooking(app_client) -> None:
+    caller, host = await _pair()
+    booked = await _booked(app_client, caller, host)
+    opportunity_id = booked["opportunity"]["id"]
+    await _verdict(app_client, host, opportunity_id, kind="qualified")
+
+    resp = await _book(
+        app_client, caller, opportunity_id=opportunity_id, host_user_id=host.id
+    )
+    assert resp.status_code == 409
+    kept = handoff_state.block(await _opp_row(opportunity_id))["verdict"]
+    assert kept["kind"] == "qualified"
+    # Prowadzący może umówić kolejne spotkanie na swojej szansie.
+    again = await _book(
+        app_client, host, opportunity_id=opportunity_id, host_user_id=host.id
+    )
+    assert again.status_code == 201, again.text
+
+
+@pytest.mark.asyncio
+async def test_caller_rebooks_after_not_now(app_client) -> None:
+    caller, host = await _pair()
+    booked = await _booked(app_client, caller, host)
+    opportunity_id = booked["opportunity"]["id"]
+    await _verdict(app_client, host, opportunity_id, kind="not_now")
+    resp = await _book(
+        app_client,
+        caller,
+        opportunity_id=opportunity_id,
+        host_user_id=host.id,
+        meeting_at=_in(20).isoformat(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["phase"] == "upcoming"
+
+
+@pytest.mark.asyncio
 async def test_closed_opportunity_takes_no_verdict(app_client) -> None:
     caller, host = await _pair()
     stages = await _stages(app_client, caller)

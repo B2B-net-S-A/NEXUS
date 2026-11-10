@@ -14,6 +14,7 @@ const giveVerdict = vi.fn();
 const setTerm = vi.fn();
 const confirmTerm = vi.fn();
 const createCompany = vi.fn();
+const updateCompany = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
 const identity = vi.fn();
@@ -50,7 +51,7 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useCompanyBriefing: () => ({ isSuccess: false }),
   useCompanyPeople: () => ({ isLoading: true, error: null, isSuccess: false }),
   useCreateSalesCompany: () => mutation(createCompany),
-  useUpdateSalesCompany: () => mutation(vi.fn()),
+  useUpdateSalesCompany: () => mutation(updateCompany),
   useRegistryLookup: () => mutation(vi.fn()),
 }));
 vi.mock("@/lib/use-debounced-value", () => ({ useDebouncedValue: <T,>(value: T) => value }));
@@ -103,6 +104,7 @@ import {
   briefLine,
   freeStarts,
   handoffWhen,
+  mailAddress,
   termFromFields,
   visibleWeeks,
   weekFunnel,
@@ -205,6 +207,12 @@ describe("podpisy przekazania", () => {
       "poprzedni",
       "od 19.10",
     ]);
+  });
+
+  it("adres z dopiskiem nie staje się odnośnikiem do poczty", () => {
+    expect(mailAddress(" anna@firma.example ")).toBe("anna@firma.example");
+    expect(mailAddress("anna@firma.example?bcc=ktos@inny.example")).toBeUndefined();
+    expect(mailAddress(null)).toBeUndefined();
   });
 
   it("wolne godziny omijają zajęte i przeszłe", () => {
@@ -636,8 +644,33 @@ describe("tożsamość firmy w oknie „Nowa firma”", () => {
     expect(hints.getByRole("link", { name: "Firma Testowa" }).getAttribute("href")).toBe("/sales/companies/7");
     expect(screen.getByText(/Zapiszemy firma-testowa.example z adresu strony/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dodaj firmę" }));
-    // Podpowiedź nie blokuje: zapis idzie od razu, z domeną ze strony.
-    expect(createCompany.mock.calls[0][0]).toMatchObject({ name: "Firma Test", domain: "firma-testowa.example" });
+    // Podpowiedź nie blokuje: zapis idzie od razu, a domenę ze strony wylicza serwer.
+    expect(createCompany.mock.calls[0][0]).toMatchObject({
+      name: "Firma Test",
+      domain: null,
+      website_url: "www.firma-testowa.example",
+    });
+  });
+
+  it("przy edycji skasowana domena idzie do zapisu pusta", () => {
+    identity.mockReturnValue({ data: { ...noIdentity, domain: "ze-strony.example", domain_source: "website" } });
+    const company = {
+      id: 7,
+      name: "Firma Testowa",
+      domain: "stara.example",
+      website_url: "https://ze-strony.example",
+      tags: [],
+      lifecycle_stage: "lead",
+      owner: null,
+      parent: null,
+    } as unknown as import("@/lib/api/sales").SalesCompany;
+    const update = vi.fn();
+    updateCompany.mockImplementation(update);
+    render(<CompanyFormDialog open onOpenChange={vi.fn()} company={company} />);
+    expect(screen.queryByTestId("company-identity-hints")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Domena poczty"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(update.mock.calls[0][0].domain).toBeNull();
   });
 
   it("wpisana domena ma pierwszeństwo przed podpowiedzią", () => {

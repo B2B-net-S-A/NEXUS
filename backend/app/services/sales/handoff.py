@@ -83,6 +83,8 @@ QUALIFIED_STAGE_KEY = "qualified"
 NOT_A_FIT_STAGE_KEY = "not-qualified"
 #: „Nie teraz” bez daty wraca po tylu dniach.
 NOT_NOW_DEFAULT_DAYS = 30
+#: Po tych werdyktach osoba, która umówiła spotkanie, może umówić je ponownie.
+REBOOKABLE: tuple[str, ...] = ("no_show", "not_now")
 #: Spotkanie z kalendarza w tym oknie od terminu przekazania to to samo spotkanie.
 ADOPT_WINDOW = timedelta(minutes=15)
 
@@ -491,12 +493,18 @@ async def book(
     if payload.opportunity_id is not None:
         opportunity = await lock(db, payload.opportunity_id)
         _ensure_open(opportunity)
-        booker = user_id_of((block(opportunity) or {}).get("booked_by"))
+        existing = block(opportunity) or {}
+        booker = user_id_of(existing.get("booked_by"))
         owns = admin or opportunity.owner_user_id in (None, user_id)
         if not owns and user_id != booker:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=FOREIGN_DETAIL)
         if not owns and host.id != opportunity.owner_user_id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail=HOST_CHANGE_DETAIL)
+        verdict = existing.get("verdict")
+        settled = isinstance(verdict, dict) and verdict.get("kind") not in REBOOKABLE
+        if not owns and settled:
+            # Ponowne umówienie czyści werdykt, a ten należy do prowadzącego.
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=VERDICT_GIVEN_DETAIL)
         company = await db.get(SalesCompany, opportunity.company_id)
     elif payload.company_id is not None:
         company = await db.get(SalesCompany, payload.company_id)

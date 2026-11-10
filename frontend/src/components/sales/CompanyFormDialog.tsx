@@ -100,15 +100,13 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
   const { showError, showSuccess } = useToast();
   const registry = useRegistryLookup();
   const pending = create.isPending || update.isPending;
-  // Tożsamość firmy (10.11.2026): przy nowej karcie podpowiadamy istniejące karty, a domenę
-  // bierzemy z adresu strony. To podpowiedź: zapis od niej nie zależy.
+  // Tożsamość firmy (10.11.2026): przy nowej karcie podpowiadamy istniejące karty i mówimy,
+  // jaką domenę serwer weźmie z adresu strony. To podpowiedź: zapis od niej nie zależy,
+  // a przy edycji pole domeny idzie do zapisu dokładnie tak, jak je zostawiono.
   const typedName = useDebouncedValue(form.name, 300);
   const typedWebsite = useDebouncedValue(form.website_url, 300);
-  const identity = useCompanyIdentity(
-    { name: company ? "" : typedName, website: typedWebsite, excludeId: company?.id },
-    open,
-  );
-  const suggestedDomain = form.domain.trim() ? null : (identity.data?.domain ?? null);
+  const identity = useCompanyIdentity({ name: typedName, website: typedWebsite }, open && !company);
+  const suggestedDomain = company || form.domain.trim() ? null : (identity.data?.domain ?? null);
   const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
   const ownerChoices = [
     ...(company?.owner && !ownerOptions.some((option) => option.value === `acct:${company.owner!.id}`)
@@ -141,7 +139,7 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
     name: form.name.trim(),
     legal_name: form.legal_name.trim() || null,
     nip: form.nip.trim() || null,
-    domain: form.domain.trim() || suggestedDomain,
+    domain: form.domain.trim() || null,
     industry: form.industry.trim() || null,
     hq_city: form.hq_city.trim() || null,
     website_url: form.website_url.trim() || null,

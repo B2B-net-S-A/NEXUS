@@ -142,3 +142,18 @@ async def test_new_company_takes_the_domain_from_its_website(app_client) -> None
         headers=_headers(rep),
     )
     assert patched.json()["domain"] == "wpisana.example"
+
+    # Domena skasowana świadomie nie wraca ze strony przy tym samym zapisie.
+    cleared = await app_client.patch(
+        f"{URL}/{kept.json()['id']}",
+        json={"domain": None, "website_url": "https://jeszcze-inna.example"},
+        headers=_headers(rep),
+    )
+    assert cleared.json()["domain"] is None
+    # Zapis samej strony na karcie bez domeny ją uzupełnia.
+    filled = await app_client.patch(
+        f"{URL}/{kept.json()['id']}",
+        json={"website_url": "https://nowa-strona.example"},
+        headers=_headers(rep),
+    )
+    assert filled.json()["domain"] == "nowa-strona.example"

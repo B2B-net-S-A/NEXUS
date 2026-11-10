@@ -155,9 +155,15 @@ export function planRow(handoff: Handoff): MyDayRow {
   };
 }
 
+/** Sam adres do `mailto:`; adres z dopiskiem (`?bcc=…`, spacja) nie staje się odnośnikiem. */
+export function mailAddress(email: string | null | undefined): string | undefined {
+  const value = (email ?? "").trim();
+  return /^[^\s?&#<>"]+@[^\s?&#<>"]+$/.test(value) ? value : undefined;
+}
+
 /** Mail do klienta z prośbą o potwierdzenie: otwiera program pocztowy, NEXUS niczego nie wysyła. */
 export function confirmMailHref(handoff: Handoff): string | undefined {
-  const email = handoff.contact?.email;
+  const email = mailAddress(handoff.contact?.email);
   if (!email || handoff.contact?.do_not_contact) return undefined;
   const when = handoffWhen(handoff.meeting_at);
   return `mailto:${email}?subject=${encodeURIComponent(`Potwierdzenie spotkania: ${when}`)}`;
