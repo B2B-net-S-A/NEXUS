@@ -83,12 +83,20 @@ def _named(entry: dict[str, Any]) -> bool:
     return isinstance(name, str) and bool(name.strip())
 
 
+def _level(entry: dict[str, Any]) -> Optional[int]:
+    """Poziom decyzji jako liczba; wpis z importu nie przeszedł walidacji API."""
+
+    level = entry.get("decision_level")
+    return level if isinstance(level, int) and not isinstance(level, bool) else None
+
+
 def is_contacted(entry: dict[str, Any]) -> bool:
-    return entry.get("contact_status") in CONTACTED_STATUSES
+    status = entry.get("contact_status")
+    return isinstance(status, str) and status in CONTACTED_STATUSES
 
 
 def in_queue_levels(entry: dict[str, Any]) -> bool:
-    return entry.get("decision_level") in QUEUE_LEVELS
+    return _level(entry) in QUEUE_LEVELS
 
 
 def waits_for_first_contact(entry: dict[str, Any]) -> bool:
@@ -134,7 +142,7 @@ def _queue_order(row: QueuePerson) -> tuple[Any, ...]:
         row.client is not None,
         row.company_name.casefold(),
         row.company_id,
-        person.get("decision_level") or 9,
+        _level(person) or 9,
         not has_channel,
         str(person.get("name") or "").casefold(),
     )

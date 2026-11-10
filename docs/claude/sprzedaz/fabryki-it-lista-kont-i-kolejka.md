@@ -23,6 +23,8 @@ trasy `backend/app/api/sales_factories.py` (`/api/sales/it-factories`), front
 - **„Po kontakcie”** to osoba z nazwiskiem i statusem „w toku”, „pierwszy kontakt”
   albo „stały dialog” (`CONTACTED_STATUSES`). „Bez kontaktu” i brak statusu to osoba,
   do której nikt nie dotarł. Jedna definicja dla listy, kolejki i sumy nad tabelą.
+  Mapy z importu nie przeszły walidacji API, więc poziom albo status w dziwnym
+  typie liczy się jak brak wartości, a nie kończy listy błędem.
 - **Podpowiedź, nie blokada.** Otwarty etap „Pierwszy kontakt” albo dalszy, przy
   zerze osób po kontakcie (także przy pustej mapie), dostaje dopisek przy etapie
   (`stage_mismatch`). `/move` niczego nie sprawdza: handlowiec poprawia status osoby
@@ -41,6 +43,10 @@ trasy `backend/app/api/sales_factories.py` (`/api/sales/it-factories`), front
   opiekunem jest zalogowana osoba. Poziom 1 i 2 (zarząd, dyrektorzy) to kolejka.
   Poziom 3 i 4 oraz osoby bez poziomu wracają osobno i ekran pokazuje je zwinięte;
   nic nie jest kasowane ani ukrywane na stałe.
+- **Kolejka nie zależy od filtrów listy szans.** Widok Fabryk IT renderuje się przed
+  pustym stanem zakładki, bo szukanie po nazwisku osoby zeruje listę szans (serwer
+  szuka po firmie i tytule), a kolejka filtruje wtedy u siebie po firmie, osobie
+  i stanowisku. Pusta lista kont zostawia przełącznik „Wszystkie / Kolejka”.
 - **Kto nie trafia do kolejki:** osoba ze sprzeciwem (flaga na wpisie mapy albo
   `do_not_contact_at` kontaktu), osoby z firmy „Nie kontaktować”, konta przegrane
   i w archiwum.

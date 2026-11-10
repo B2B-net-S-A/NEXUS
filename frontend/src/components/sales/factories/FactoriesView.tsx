@@ -1,8 +1,10 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { Target } from "lucide-react";
 import { useMemo } from "react";
 
+import { EmptyState } from "@/components/ds/EmptyState";
 import { Button } from "@/components/ui/button";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import type { Opportunity } from "@/lib/api/sales";
@@ -64,7 +66,7 @@ export function FactoriesView({ items, ownerId, currentUserId, canEdit, archived
     <div className="space-y-2">
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className="text-sm text-muted-foreground">
-          {mode === "accounts" && facts ? summaryLine(summarizeAccounts(items, facts)) : null}
+          {mode === "accounts" && facts && items.length > 0 ? summaryLine(summarizeAccounts(items, facts)) : null}
         </p>
         <SegmentedRadio
           size="sm"
@@ -77,7 +79,7 @@ export function FactoriesView({ items, ownerId, currentUserId, canEdit, archived
           onChange={setMode}
         />
       </div>
-      {accounts.isError && mode === "accounts" && (
+      {accounts.isError && mode === "accounts" && items.length > 0 && (
         <p role="alert" className="flex flex-wrap items-center gap-2 text-xs text-warning">
           Nie udało się wczytać liczników map. Konta są na liście, ale bez liczb z mapy.
           <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => void accounts.refetch()}>
@@ -98,7 +100,14 @@ export function FactoriesView({ items, ownerId, currentUserId, canEdit, archived
           Osób z bazy jest więcej, niż obejmuje jedno przeliczenie: „Znamy teraz” i „Kiedyś” to dolna granica.
         </p>
       )}
-      {mode === "accounts" ? (
+      {mode === "accounts" && items.length === 0 ? (
+        // Lista szans wczytała się i jest pusta (awarię pokazuje zakładka wyżej).
+        <EmptyState
+          icon={Target}
+          title="Brak kont na liście"
+          description="Żadna szansa tego lejka nie pasuje do wyszukiwania i filtrów. Kolejka osób od nich nie zależy."
+        />
+      ) : mode === "accounts" ? (
         <FactoryAccountsTable items={items} accounts={facts} known={knownByCompany} knownState={knownState} />
       ) : (
         <FactoryQueue

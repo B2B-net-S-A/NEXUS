@@ -404,6 +404,24 @@ describe("Szanse: lejek Fabryki IT startuje od listy kont", () => {
     expect(screen.queryByRole("columnheader", { name: "Mapa po kontakcie" })).not.toBeInTheDocument();
   });
 
+  it("kolejka nie znika, gdy filtry szans nie zostawiają żadnego konta", () => {
+    // Szukanie po nazwisku osoby zeruje listę szans (serwer szuka po firmie i tytule).
+    opportunitiesQuery.mockReturnValue(success({ items: [], total: 0 }));
+    queueQuery.mockReturnValue(success(queueData([person("Prezes Testowy", 1)])));
+    searchParams = new URLSearchParams("lejek=2&kolejka=1&q=prezes");
+    const { unmount } = render(<OpportunitiesView />);
+    expect(screen.getByRole("button", { name: "Zapisz kontakt: Prezes Testowy" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Kolejka" })).toBeChecked();
+    unmount();
+
+    // Pusta lista kont zostawia przełącznik, żeby dało się wrócić do kolejki.
+    searchParams = new URLSearchParams("lejek=2&q=prezes");
+    render(<OpportunitiesView />);
+    expect(screen.getByText("Brak kont na liście")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Kolejka" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Mapa po kontakcie" })).not.toBeInTheDocument();
+  });
+
   it("pozostałe lejki zostają przy tablicy i zwykłej liście", () => {
     opportunitiesQuery.mockReturnValue(loaded(1));
     const { unmount } = render(<OpportunitiesView />);

@@ -139,6 +139,8 @@ vi.mock("../OpportunityContacts", () => ({ OpportunityContacts: () => null }));
 vi.mock("../OpportunityHistory", () => ({ OpportunityHistory: () => null }));
 vi.mock("../WhoWeKnowPanel", () => ({ WhoWeKnowPanel: () => null }));
 vi.mock("../SalesMotionPanel", () => ({ SalesMotionPanel: () => null }));
+// Lejek Fabryki IT otwiera listę kont z własnymi zapytaniami; tu liczy się pasek nad nią.
+vi.mock("../factories/FactoriesView", () => ({ FactoriesView: () => null }));
 
 import { OpportunitiesView } from "../OpportunitiesView";
 import { OpportunityCard } from "../OpportunityCard";

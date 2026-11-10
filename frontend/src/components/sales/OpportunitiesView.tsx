@@ -394,6 +394,16 @@ export function OpportunitiesView() {
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie szans…</p>
       ) : state === "forbidden" || state === "not_found" || state === "error" ? (
         <QueryStateNotice state={state} onRetry={() => void opportunities.refetch()} />
+      ) : isFactories && view === "list" ? (
+        // Przed pustym stanem listy: kolejka osób nie zależy od filtrów szans.
+        <FactoriesView
+          items={items}
+          ownerId={mine ? (user?.id ?? null) : ownerParam}
+          currentUserId={user?.id ?? null}
+          canEdit={canEdit}
+          archived={archived}
+          search={q}
+        />
       ) : state === "empty" ? (
         <EmptyState
           icon={Target}
@@ -419,15 +429,6 @@ export function OpportunitiesView() {
           canEdit={canEdit && !archived}
           showOwner={!mine}
           refetch={opportunities.refetch}
-        />
-      ) : isFactories ? (
-        <FactoriesView
-          items={items}
-          ownerId={mine ? (user?.id ?? null) : ownerParam}
-          currentUserId={user?.id ?? null}
-          canEdit={canEdit}
-          archived={archived}
-          search={q}
         />
       ) : (
         <div className="relative overflow-x-auto">

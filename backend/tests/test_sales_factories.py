@@ -173,6 +173,28 @@ def test_waiting_skips_objection_lower_levels_and_blocked_company() -> None:
     assert (blocked.waiting, blocked.total) == (0, 5)
 
 
+def test_map_counts_survive_unvalidated_values_from_import() -> None:
+    """Mapa z importu nie przeszła walidacji API: dziwny typ to brak wartości, nie błąd."""
+
+    people = [
+        {"name": "Lista", "decision_level": [1], "contact_status": ["first_contact"]},
+        {"name": "Napis", "decision_level": "2", "contact_status": None},
+        {"name": "Prawda", "decision_level": True},
+        _person("Dyrektor", 2),
+    ]
+    counts = factories.map_counts(people)
+    assert (counts.total, counts.contacted, counts.top_total) == (4, 0, 1)
+    rows = [
+        factories.QueuePerson(1, "Konto", 1, "Firma", None, person) for person in people
+    ]
+    assert [row.person["name"] for row in sorted(rows, key=factories._queue_order)] == [
+        "Dyrektor",
+        "Lista",
+        "Napis",
+        "Prawda",
+    ]
+
+
 @pytest.mark.parametrize(
     ("position", "outcome", "first_contact", "expected"),
     [
