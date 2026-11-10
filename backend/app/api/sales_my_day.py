@@ -55,6 +55,9 @@ class RowOut(BaseModel):
     do_not_contact: bool
     person: Optional[PersonOut]
     people_without_phone: list[PersonOut]
+    #: Spotkanie przypięte do szansy przez automat; da się je odpiąć w Spotkaniach.
+    auto_pinned: bool = False
+    can_create_opportunity: bool = False
 
 
 class HistoryOut(BaseModel):
@@ -153,6 +156,8 @@ def _row(row: DayRow) -> RowOut:
         do_not_contact=row.do_not_contact,
         person=_person(row.person) if row.person else None,
         people_without_phone=[_person(item) for item in row.people_without_phone],
+        auto_pinned=row.auto_pinned,
+        can_create_opportunity=row.can_create_opportunity,
     )
 
 
