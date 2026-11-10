@@ -67,6 +67,7 @@ from app.services.recruitment_operations import (
     list_recruitment_operations,
     set_recruitment_operation_favorite,
 )
+from app.services.team_filters import TeamRoleFilter
 from app.services.recruitment_activity import (
     build_recruitment_activity_summary,
     list_recruitment_activity_details,
@@ -336,10 +337,13 @@ async def recruitment_activity_summary(
     scope: Literal["auto", "team"] = Query("auto"),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    role: TeamRoleFilter = Query("all"),
+    client_id: int | None = Query(None, ge=1),
 ) -> RecruitmentActivitySummaryResponse:
     """Drillable personal/team KPI activity for the unified dashboard.
 
     `date_from`–`date_to` (włącznie) zastępuje okno miesiąca w liczbach kafli.
+    `role` i `client_id` zawężają widok całego zespołu (`services/team_filters.py`).
     """
 
     selected_day = day or datetime.now(WARSAW).date()
@@ -353,6 +357,8 @@ async def recruitment_activity_summary(
         team_scope=scope == "team",
         date_from=date_from,
         date_to=date_to,
+        role=role,
+        client_id=client_id,
     )
 
 
@@ -376,6 +382,8 @@ async def recruitment_activity_details(
     date_to: date | None = Query(None),
     state: RecruitmentActivityState | None = Query(None),
     order: RecruitmentActivityDetailOrder = Query("reached"),
+    role: TeamRoleFilter = Query("all"),
+    client_id: int | None = Query(None, ge=1),
 ) -> RecruitmentActivityDetailResponse:
     """Candidate/job rows behind one visible KPI number.
 
@@ -404,6 +412,8 @@ async def recruitment_activity_details(
         date_to=date_to,
         state=state,
         order=order,
+        role=role,
+        client_id=client_id,
     )
 
 
@@ -418,6 +428,8 @@ async def recruitment_activity_team_totals(
     date_from: date = Query(...),
     date_to: date = Query(...),
     metric: list[RecruitmentActivityMetric] = Query(...),
+    role: TeamRoleFilter = Query("all"),
+    client_id: int | None = Query(None, ge=1),
 ) -> RecruitmentActivityTeamTotalsResponse:
     """Liczby zespołu za dni `date_from`–`date_to` dla kilku etapów naraz —
     każda równa `period_total` z `/recruitment-activity/details` (`scope=team`,
@@ -429,6 +441,8 @@ async def recruitment_activity_team_totals(
         metrics=tuple(dict.fromkeys(metric)),
         date_from=date_from,
         date_to=date_to,
+        role=role,
+        client_id=client_id,
     )
 
 

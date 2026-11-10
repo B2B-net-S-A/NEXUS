@@ -18,6 +18,7 @@ from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.models.user import User, UserRole
 from app.schemas.recruitment_activity import (
     RecruitmentActivityCandidate,
+    RecruitmentActivityClient,
     RecruitmentActivityComparison,
     RecruitmentActivityDetailItem,
     RecruitmentActivityDetailResponse,
@@ -38,6 +39,11 @@ from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.kpi_engine import WARSAW
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_targets import resolve_kpi_target
+from app.services.team_filters import (
+    TeamRoleFilter,
+    client_job_filter,
+    team_role_user_ids,
+)
 
 
 _KPI_ROLES = frozenset({UserRole.recruiter})
@@ -62,6 +68,8 @@ _METRIC_STAGE: dict[RecruitmentActivityMetric, str] = {
     "placement": "hired",
 }
 _STAGE_METRIC = {stage: metric for metric, stage in _METRIC_STAGE.items()}
+# Etapy kafli i listy — klienci do filtra liczą się z tych samych wierszy.
+MILESTONE_STAGES: tuple[str, ...] = tuple(_METRIC_STAGE.values())
 _BENCHMARK_MONTHS = 3
 _OVERVIEW_CACHE_TTL_SECONDS = 120
 
@@ -90,6 +98,9 @@ _OVERVIEW_SQL = text(
       AND stage IN (
           'verified', 'cv_sent', 'client_interview', 'acceptance', 'hired'
       )
+      AND """
+    + client_job_filter("job_id")
+    + """
       AND (
           (reached_at >= :day_start AND reached_at < :day_end)
           OR (reached_at >= :month_start AND reached_at < :month_end)
@@ -137,6 +148,7 @@ _DESCRIBED_CTE = """
           AND credited.stage = :stage
           AND credited.reached_at >= :period_start
           AND credited.reached_at < :period_end
+          AND {client_filter}
     ),
     candidate_jobs AS (
         SELECT candidate_id, count(DISTINCT job_id) AS jobs
@@ -225,7 +237,10 @@ def _detail_summary_sql(person_filter: str):
     return _with_user_ids(
         text(
             CREDITED_FROM_SNAPSHOT_CTE
-            + _DESCRIBED_CTE.format(person_filter=person_filter)
+            + _DESCRIBED_CTE.format(
+                person_filter=person_filter,
+                client_filter=client_job_filter("credited.job_id"),
+            )
             + f"""
     SELECT count(*) AS total,
            count(DISTINCT candidate_id) AS people,
@@ -281,7 +296,10 @@ def _detail_sql(person_filter: str, order: str):
     return _with_user_ids(
         text(
             CREDITED_FROM_SNAPSHOT_CTE
-            + _DESCRIBED_CTE.format(person_filter=person_filter)
+            + _DESCRIBED_CTE.format(
+                person_filter=person_filter,
+                client_filter=client_job_filter("credited.job_id"),
+            )
             + """
     SELECT described.candidate_id,
            trim(concat_ws(' ', candidate.name, candidate.lastname)) AS candidate_name,
@@ -330,6 +348,75 @@ def _detail_sql(person_filter: str, order: str):
         ),
         person_filter,
     )
+
+
+def _clients_sql(person_filter: str):
+    """Klienci okresu: wiersze `credited` po filtrze osób, bez filtra klienta."""
+    return _with_user_ids(
+        text(
+            CREDITED_FROM_SNAPSHOT_CTE
+            + f"""
+    SELECT client.id AS client_id,
+           coalesce(
+               nullif(client.display_name, ''),
+               nullif(client.name, ''),
+               'Klient #' || client.id::text
+           ) AS client_name,
+           count(*) AS cnt
+    FROM credited
+    JOIN jobs job ON job.id = credited.job_id
+    JOIN clients client ON client.id = job.client_id
+    WHERE {person_filter}
+      AND credited.stage IN :stages
+      AND credited.reached_at >= :period_start
+      AND credited.reached_at < :period_end
+    GROUP BY client.id, client_name
+    ORDER BY cnt DESC, client_name
+    """
+        ),
+        person_filter,
+    ).bindparams(bindparam("stages", expanding=True))
+
+
+_CLIENTS_SQL = {
+    "person": _clients_sql(_PERSON_FILTER),
+    "team": _clients_sql(_TEAM_FILTER),
+}
+
+
+async def period_clients(
+    db: AsyncSession,
+    *,
+    stages: list[str],
+    period_start: datetime,
+    period_end: datetime,
+    user_ids: frozenset[int] | None,
+) -> list[RecruitmentActivityClient]:
+    params: dict = {
+        "stages": stages,
+        "period_start": period_start,
+        "period_end": period_end,
+        **await credited_bind(db, since=period_start, until=period_end),
+    }
+    if user_ids is not None:
+        params["user_ids"] = sorted(user_ids)
+    rows = (
+        (
+            await db.execute(
+                _CLIENTS_SQL["team" if user_ids is None else "person"], params
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        RecruitmentActivityClient(
+            id=int(row["client_id"]),
+            name=str(row["client_name"]),
+            count=int(row["cnt"]),
+        )
+        for row in rows
+    ]
 
 
 _DETAIL_SUMMARY_SQL = {
@@ -547,6 +634,8 @@ async def build_recruitment_activity_summary(
     date_from: date | None = None,
     date_to: date | None = None,
     today: date | None = None,
+    role: TeamRoleFilter = "all",
+    client_id: int | None = None,
 ) -> RecruitmentActivitySummaryResponse:
     # Okres od–do (29.10.2026): kafel liczy wybrany przedział w miejscu
     # miesiąca — ten sam przegląd, te same granice co lista `window=range`.
@@ -586,21 +675,39 @@ async def build_recruitment_activity_summary(
     benchmark_by_user: dict[int, dict[str, int]] = {
         user.id: {"verified": 0, "hired": 0} for user in audience.users
     }
-    rows = await _overview_rows(
+    # Rola i klient (10.11.2026) zawężają tylko widok całego zespołu —
+    # osoba ma jedną rolę, a jej wynik zostaje pełny.
+    team_view = audience.selected is None
+    role_ids = await team_role_user_ids(db, role) if team_view else None
+    team_client = client_id if team_view else None
+    overview_key = (
+        f"{selected_day.isoformat()}:{period_start.isoformat()}:"
+        f"{period_end.isoformat()}:"
+        f"{benchmark_start.isoformat()}:{benchmark_end.isoformat()}"
+    )
+    overview_params = {
+        "day_start": day_start_dt,
+        "day_end": day_end_dt,
+        "month_start": month_start_dt,
+        "month_end": month_end_dt,
+        "benchmark_start": benchmark_start_dt,
+        "benchmark_end": benchmark_end_dt,
+    }
+    all_rows = await _overview_rows(
         db,
-        cache_key=(
-            f"{selected_day.isoformat()}:{period_start.isoformat()}:"
-            f"{period_end.isoformat()}:"
-            f"{benchmark_start.isoformat()}:{benchmark_end.isoformat()}"
-        ),
-        params={
-            "day_start": day_start_dt,
-            "day_end": day_end_dt,
-            "month_start": month_start_dt,
-            "month_end": month_end_dt,
-            "benchmark_start": benchmark_start_dt,
-            "benchmark_end": benchmark_end_dt,
-        },
+        cache_key=f"{overview_key}:all",
+        params={**overview_params, "client_id": None},
+    )
+    # Średnia zespołu zostaje dla całej pracy zespołu (bez roli i klienta) —
+    # karta nazywa się „średnia zespołu”, a nie „średnia u klienta”.
+    rows = (
+        all_rows
+        if team_client is None
+        else await _overview_rows(
+            db,
+            cache_key=f"{overview_key}:{team_client}",
+            params={**overview_params, "client_id": team_client},
+        )
     )
     selected_id = audience.selected.id if audience.selected is not None else None
     for row in rows:
@@ -609,9 +716,14 @@ async def build_recruitment_activity_summary(
         metric = _STAGE_METRIC.get(stage)
         if metric is None:
             continue
-        if selected_id is None or uid == selected_id:
+        if (selected_id is None and (role_ids is None or uid in role_ids)) or (
+            uid == selected_id
+        ):
             counts[metric]["day"] += int(row["day_count"] or 0)
             counts[metric]["month"] += int(row["month_count"] or 0)
+    for row in all_rows:
+        uid = int(row["credit_user"])
+        stage = str(row["stage"])
         benchmark = int(row["benchmark_count"] or 0)
         if stage in {"verified", "hired"} and benchmark > 0:
             person = benchmark_by_user.setdefault(uid, {"verified": 0, "hired": 0})
@@ -701,6 +813,17 @@ async def build_recruitment_activity_summary(
         metrics=metric_models,
         verification_progress=progress,
         comparisons=comparisons,
+        clients=(
+            await period_clients(
+                db,
+                stages=list(_METRIC_STAGE.values()),
+                period_start=month_start_dt,
+                period_end=month_end_dt,
+                user_ids=role_ids,
+            )
+            if team_view and audience.can_view_team_details
+            else []
+        ),
     )
 
 
@@ -721,6 +844,8 @@ async def list_recruitment_activity_details(
     unattributed: bool = False,
     state: RecruitmentActivityState | None = None,
     order: RecruitmentActivityDetailOrder = "reached",
+    role: TeamRoleFilter = "all",
+    client_id: int | None = None,
 ) -> RecruitmentActivityDetailResponse:
     """Wiersze za jedną liczbą — lista „Kto się liczy” i rozwinięcie kafla.
 
@@ -779,9 +904,16 @@ async def list_recruitment_activity_details(
         "stage": _METRIC_STAGE[metric],
         "period_start": period_start,
         "period_end": period_end,
+        "client_id": client_id,
     }
+    # Grupa roli w zakresie zespołu to filtr osób — ten sam SQL co dla jednej
+    # osoby, z listą id; odpowiedź zostaje „team”.
+    role_ids = await team_role_user_ids(db, role) if scope == "team" else None
+    sql_scope = "person" if role_ids is not None else scope
     if subject is not None:
         params["user_ids"] = [subject.id]
+    elif role_ids is not None:
+        params["user_ids"] = sorted(role_ids)
     # `period_rows` czyta z `credited` tylko ten etap i ten okres.
     params.update(
         await credited_bind(
@@ -789,7 +921,9 @@ async def list_recruitment_activity_details(
         )
     )
 
-    summary = (await db.execute(_DETAIL_SUMMARY_SQL[scope], params)).mappings().one()
+    summary = (
+        (await db.execute(_DETAIL_SUMMARY_SQL[sql_scope], params)).mappings().one()
+    )
     listed_total = int(summary["total"] or 0)
     # Licznik celów liczy też tygodniowe wpisy DynaReportera sprzed 12.10.2026,
     # których nie da się rozpisać na osoby kandydatów — suma okresu je zawiera,
@@ -802,12 +936,21 @@ async def list_recruitment_activity_details(
         if int(summary[f"state_{name}"] or 0) > 0
     }
     total = states.get(state, 0) if state is not None else listed_total
+    clients: list[RecruitmentActivityClient] = []
+    if scope == "team" and (listed_total > 0 or client_id is not None):
+        clients = await period_clients(
+            db,
+            stages=[params["stage"]],
+            period_start=period_start,
+            period_end=period_end,
+            user_ids=role_ids,
+        )
     rows = []
     if total:
         rows = (
             (
                 await db.execute(
-                    _DETAIL_SQL[(scope, order)],
+                    _DETAIL_SQL[(sql_scope, order)],
                     {
                         **params,
                         "term_from": term_from(business_today()),
@@ -840,6 +983,7 @@ async def list_recruitment_activity_details(
         state_filter=state,
         period_total=period_total,
         history_total=history_total,
+        clients=clients,
     )
 
 
@@ -850,6 +994,8 @@ async def team_period_totals(
     metrics: tuple[RecruitmentActivityMetric, ...],
     date_from: date,
     date_to: date,
+    role: TeamRoleFilter = "all",
+    client_id: int | None = None,
 ) -> RecruitmentActivityTeamTotalsResponse:
     """Liczby zespołu za dni od–do dla kilku etapów w jednym żądaniu.
 
@@ -869,18 +1015,28 @@ async def team_period_totals(
     period_start, period_end = _warsaw_bounds(start_date, end_date)
     totals: dict[RecruitmentActivityMetric, int] = {}
     history: dict[RecruitmentActivityMetric, int] = {}
+    role_ids = await team_role_user_ids(db, role)
     for metric in metrics:
         stage = _METRIC_STAGE[metric]
         params: dict = {
             "stage": stage,
             "period_start": period_start,
             "period_end": period_end,
+            "client_id": client_id,
+            **({"user_ids": sorted(role_ids)} if role_ids is not None else {}),
             **await credited_bind(
                 db, stage=stage, since=period_start, until=period_end
             ),
         }
         summary = (
-            (await db.execute(_DETAIL_SUMMARY_SQL["team"], params)).mappings().one()
+            (
+                await db.execute(
+                    _DETAIL_SUMMARY_SQL["team" if role_ids is None else "person"],
+                    params,
+                )
+            )
+            .mappings()
+            .one()
         )
         history[metric] = int(summary["history_total"] or 0)
         totals[metric] = int(summary["total"] or 0) + history[metric]
@@ -890,6 +1046,13 @@ async def team_period_totals(
         period_end=end_date - timedelta(days=1),
         totals=totals,
         history=history,
+        clients=await period_clients(
+            db,
+            stages=[_METRIC_STAGE[metric] for metric in metrics],
+            period_start=period_start,
+            period_end=period_end,
+            user_ids=role_ids,
+        ),
     )
 
 

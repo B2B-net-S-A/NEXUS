@@ -1,6 +1,7 @@
 import api from "@/lib/api";
 import type { JobCloseReason } from "@/types/client-profile";
 import type { MyKpiGoals } from "@/lib/api";
+import type { TeamRoleFilter } from "@/lib/team-filters";
 
 /**
  * Klient `/api/insights/*` — powierzchni Insights liczonej z danych
@@ -243,6 +244,13 @@ export interface TeamActivityResponse {
     actions: number;
     placements: number;
   };
+  /** Osoby spoza wybranej grupy roli (10.11.2026); `null` bez filtra. */
+  filtered_out?: {
+    label: string;
+    users: number;
+    actions: number;
+    placements: number;
+  } | null;
   /**
    * `user_activities` zapisuje WYŁĄCZNIE czynności wykonane w NEXUSIE — import
    * z Traffita nie tworzy tam ani jednego wiersza. Bez wyrenderowania `note`
@@ -777,12 +785,13 @@ export const insightsApi = {
    * 403, a sekcja renderowała go jako „brak danych o zespole”. Guard tamtego
    * endpointu ZOSTAJE nietknięty (steruje też dashboardem rekrutera).
    */
-  teamActivity: (p: InsightsPeriodParams & { limit?: number }) =>
+  teamActivity: (p: InsightsPeriodParams & { limit?: number; role?: TeamRoleFilter }) =>
     api
       .get<TeamActivityResponse>("/api/insights/recruitment/team-activity", {
         params: {
           ...periodQuery(p),
           ...(p.limit ? { limit: p.limit } : {}),
+          ...(p.role && p.role !== "all" ? { role: p.role } : {}),
         },
       })
       .then((r) => r.data),
@@ -1408,8 +1417,8 @@ export const insightsQueryKeys = {
     ["insights", "delivery-leads", "by-client", p] as const,
   deliveryLeadTrend: (dlId: number, months: number) =>
     ["insights", "delivery-leads", "trend", dlId, months] as const,
-  teamActivity: (p: InsightsPeriodParams, limit?: number) =>
-    ["insights", "recruitment", "team-activity", p, limit ?? null] as const,
+  teamActivity: (p: InsightsPeriodParams, limit?: number, role: TeamRoleFilter = "all") =>
+    ["insights", "recruitment", "team-activity", p, limit ?? null, role] as const,
   inviteLinks: (p: InsightsPeriodParams) =>
     ["insights", "recruitment", "invite-links", p] as const,
   linkPeople: (p: InsightsPeriodParams) =>

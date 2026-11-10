@@ -47,6 +47,7 @@ from app.schemas.dashboard_v2 import FirstCvSummary
 from app.services import competition_history
 from app.services.client_response_metrics import compute_first_cv
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
+from app.services.team_filters import TeamRoleFilter, team_role_user_ids
 from app.services.insights_competence_matrix import compute_competence_matrix
 from app.services.insights_in_flight import compute_in_flight
 from app.services.integration_insights import company_team_goals
@@ -977,6 +978,7 @@ async def insights_team_activity(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     limit: int = Query(20, ge=1, le=50),
+    role: TeamRoleFilter = Query("all"),
 ):
     """Imienny ranking aktywności zespołu w oknie.
 
@@ -1000,7 +1002,10 @@ async def insights_team_activity(
     # liczby jednego zapytania pod etykietą drugiego.
     # v2 (24.09.2026): konta administracyjne poza rankingiem osób.
     # v3 (runda 10): kolumny z prawdziwych źródeł.
-    cache_key = f"insights:recruitment:team-activity:v4:{resolved.cache_suffix}:{limit}"
+    # v5 (10.11.2026): filtr roli (`services/team_filters.py`).
+    cache_key = (
+        f"insights:recruitment:team-activity:v5:{resolved.cache_suffix}:{limit}:{role}"
+    )
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -1014,7 +1019,22 @@ async def insights_team_activity(
         )
         outside_ids = await outside_scope_user_ids(db, [r.user_id for r in all_rows])
         outside_rows = [r for r in all_rows if r.user_id in outside_ids]
-        rows = [r for r in all_rows if r.user_id not in outside_ids][:limit]
+        role_ids = await team_role_user_ids(db, role)
+        # Osoby spoza grupy roli: jeden wiersz pod rankingiem, jak konta
+        # administracyjne — liczby nie znikają bez śladu.
+        filtered_rows = [
+            r
+            for r in all_rows
+            if r.user_id not in outside_ids
+            and role_ids is not None
+            and r.user_id not in role_ids
+        ]
+        filtered_ids = {r.user_id for r in filtered_rows}
+        rows = [
+            r
+            for r in all_rows
+            if r.user_id not in outside_ids and r.user_id not in filtered_ids
+        ][:limit]
 
         # Mianownik paska: najaktywniejsza osoba w oknie. Pusty ranking daje zero,
         # a `_ratio` zamienia je na `None` — pasek bez skali to brak wartości,
@@ -1057,6 +1077,16 @@ async def insights_team_activity(
                 "actions": sum(r.total_actions for r in outside_rows),
                 "placements": sum(r.placements for r in outside_rows),
             },
+            "filtered_out": (
+                {
+                    "label": "Poza filtrem roli",
+                    "users": len(filtered_rows),
+                    "actions": sum(r.total_actions for r in filtered_rows),
+                    "placements": sum(r.placements for r in filtered_rows),
+                }
+                if role_ids is not None
+                else None
+            ),
             "coverage": {
                 # Runda 10 (R10-N2-1): kolumny liczone z prawdziwych źródeł
                 # (opis w `services/insights_team_activity.py`).

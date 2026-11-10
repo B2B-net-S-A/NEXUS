@@ -144,7 +144,10 @@ describe("TeamDayTable", () => {
     renderTable()
     await screen.findByTestId("team-day-table")
     expect(people).toHaveBeenCalledTimes(1)
-    expect(people).toHaveBeenCalledWith({ period: "custom", date_from: "2026-10-13", date_to: "2026-10-24" })
+    expect(people).toHaveBeenCalledWith(
+      { period: "custom", date_from: "2026-10-13", date_to: "2026-10-24" },
+      undefined,
+    )
     expect(screen.getByText("13–24 października 2026 · od najwięcej weryfikacji")).toBeInTheDocument()
   })
 
@@ -305,4 +308,42 @@ describe("RecruitmentActivityDashboard team table", () => {
     await screen.findByTestId("team-day-table")
     expect(screen.queryByRole("button", { name: "Na cały ekran" })).toBeNull()
   })
+
+  it("with a role filter puts other roles and admin accounts in one row", async () => {
+    people.mockResolvedValue({
+      ...PERIOD,
+      filtered_out: {
+        label: "Poza filtrem roli",
+        people: 2,
+        verifications: 12,
+        recommendations: 5,
+        interviews: 1,
+        acceptances: 0,
+        placements: 0,
+        previous_placements: 0,
+      },
+    })
+    wrap(
+      <TeamDayTable
+        range={RANGE}
+        rangeLabel="13–24 października 2026"
+        // Liczba nad tabelą przy filtrze: aktywni + byli z grupy (84 + 4).
+        metrics={[{ metric: "verification" as const, day: 0, month: 84 }]}
+        compact
+        teamFilters={{ role: "recruiter", clientId: null }}
+      />,
+    )
+    const outside = await screen.findByTestId("team-day-table-filtered-out")
+    // 12 spoza grupy + 3 z kont administracyjnych.
+    expect(within(outside).getAllByRole("cell")[1]).toHaveTextContent("15")
+    expect(people).toHaveBeenCalledWith(
+      { period: "custom", date_from: "2026-10-13", date_to: "2026-10-24" },
+      { role: "recruiter", clientId: null },
+    )
+    // Konta administracyjne nie liczą się drugi raz w „Pozostałych”.
+    const rest = screen.getByTestId("team-day-table-rest")
+    expect(within(rest).getAllByRole("cell")[1]).toHaveTextContent("4")
+    expect(screen.queryByTestId("team-day-table-mismatch")).toBeNull()
+  })
 })
+
