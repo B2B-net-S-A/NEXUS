@@ -37,8 +37,13 @@ wiadomości wymagające decyzji uprawnień. Nie jest liczbą wszystkich maili NE
 Zapytanie Loki (złożenie do jednej serii zapobiega alarmowi per timestamp):
 
 ```logql
-max(max_over_time({app="nexus",service="backend"} | json | event_kind="app_mail_monitor" | unwrap alarm | __error__="" [3m]))
+max(max_over_time({app="nexus",service=~"backend|worker"} | json | event_kind="app_mail_monitor" | unwrap alarm | __error__="" [3m]))
 ```
+
+Od #3178 (08.11.2026) pętla monitora biegnie w kontenerze `worker`, który Alloy
+oznacza `service="worker"`. Selektor z samym `service="backend"` nie widzi wtedy
+ani jednej próbki i reguła odpala z `grafana_state_reason=NoData` przy działającej
+poczcie (10.11.2026). → `docs/claude/podstawy/web-i-worker-osobno.md`
 
 Próg `> 0`, pending 1 min, ewaluacja 1 min, No Data = Alerting,
 Error = Alerting. Jawnie ustaw repeat interval 30 min, group interval 5 min,
