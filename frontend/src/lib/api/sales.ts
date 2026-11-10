@@ -705,14 +705,25 @@ export interface MyDayPrep {
   contacts: MyDayPerson[];
 }
 
+export interface MyDaySignal {
+  lead_id: number;
+  company: Ref;
+  title: string;
+  strength: SignalStrength | null;
+  type: SignalType | null;
+  signal_at: string | null;
+}
+
 export interface MyDay {
   today: string;
-  counts: Record<MyDaySectionKey | "older_tasks", number>;
+  counts: Record<MyDaySectionKey | "older_tasks", number> & { signals?: number };
   meetings: MyDayRow[];
   reply: MyDayRow[];
   overdue: MyDayRow[];
   offers: MyDayRow[];
   prep: MyDayPrep | null;
+  /** Nowe sygnały z bota researchu (najwyżej trzy); pusta lista przy wyłączonej fladze. */
+  signals?: MyDaySignal[];
 }
 
 /** Kolejka „Mój dzień” zalogowanej osoby. */
@@ -1364,7 +1375,7 @@ export function useClientSalesSummary(clientId: number, enabled = true) {
 
 // ── Leady ─────────────────────────────────────────────────────────────────
 
-export type LeadSource = "job_board" | "linkedin" | "press" | "manual" | "atlas";
+export type LeadSource = "job_board" | "linkedin" | "press" | "manual" | "atlas" | "research";
 export type LeadStatus = "new" | "contacted" | "converted" | "dismissed";
 
 export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
@@ -1373,6 +1384,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   press: "Prasa",
   manual: "Ręcznie",
   atlas: "Z Atlasa",
+  research: "Research bota",
 };
 export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   new: "Nowe",
@@ -1402,13 +1414,145 @@ export interface LeadList {
   items: Lead[];
   total: number;
   counts: Record<LeadStatus, number>;
+  /** Kanał sygnałów z bota researchu włączony (flaga po stronie serwera). */
+  signals_enabled?: boolean;
 }
 
-export function useLeads(filters: { status: LeadStatus; source?: LeadSource | ""; q?: string }) {
+export interface LeadFilters {
+  status: LeadStatus;
+  source?: LeadSource | "";
+  q?: string;
+  company_id?: number;
+  /** Wszystkie statusy naraz (skrzynka sygnałów grupuje sama); `status` wtedy nie filtruje. */
+  all_statuses?: boolean;
+  limit?: number;
+}
+
+export function useLeads(filters: LeadFilters, enabled = true) {
   return useQuery({
     queryKey: ["sales", "leads", filters] as const,
     queryFn: async () =>
       (await api.get<LeadList>("/api/sales/leads", { params: clean({ ...filters }) })).data,
+    enabled,
+  });
+}
+
+// ── Sygnały z bota researchu (Grok Bot) ─────────────────────────────────
+
+export type SignalStrength = "strong" | "medium" | "weak";
+export type SignalType =
+  | "hiring"
+  | "restructuring"
+  | "program"
+  | "contract"
+  | "investment"
+  | "leadership"
+  | "other";
+
+export const SIGNAL_STRENGTH_LABELS: Record<SignalStrength, string> = {
+  strong: "Silny",
+  medium: "Średni",
+  weak: "Słaby",
+};
+export const SIGNAL_TYPE_LABELS: Record<SignalType, string> = {
+  hiring: "Zatrudnianie",
+  restructuring: "Restrukturyzacja",
+  program: "Program",
+  contract: "Kontrakt",
+  investment: "Inwestycja",
+  leadership: "Zmiana zarządu",
+  other: "Inne",
+};
+
+/** Pola sygnału zapisane przez serwer w `payload` leada z bota. */
+export interface SignalPayload {
+  type?: SignalType;
+  strength?: SignalStrength;
+  why_now?: string;
+  published?: string;
+  domain?: string;
+}
+
+export function signalPayload(lead: Pick<Lead, "payload">): SignalPayload {
+  const raw = lead.payload ?? {};
+  const text = (key: string) => (typeof raw[key] === "string" ? (raw[key] as string) : undefined);
+  const strength = text("strength");
+  const type = text("type");
+  return {
+    strength: strength && strength in SIGNAL_STRENGTH_LABELS ? (strength as SignalStrength) : undefined,
+    type: type && type in SIGNAL_TYPE_LABELS ? (type as SignalType) : undefined,
+    why_now: text("why_now"),
+    published: text("published"),
+    domain: text("domain"),
+  };
+}
+
+export interface SignalRunReport {
+  checked_firms?: number;
+  sent_firms?: number;
+  signals_in?: number;
+  leads?: number;
+  leads_new?: number;
+  by_strength?: Partial<Record<SignalStrength, number>>;
+  briefings?: number;
+  quiet?: string[];
+  dropped?: {
+    outside_window?: { company: string; title: string; published: string }[];
+    nexus_clients?: { company: string; client: string; delivery_lead: string | null }[];
+    unknown_company?: number;
+    duplicates?: number;
+  };
+}
+
+export interface SignalRun {
+  id: number;
+  kind: "signals" | "briefing";
+  status: "started" | "received" | "expired" | "failed";
+  started_at: string;
+  received_at: string | null;
+  company_count: number;
+  report: SignalRunReport;
+  error: string | null;
+}
+
+export interface LatestSignalRun {
+  enabled: boolean;
+  reject_reasons: string[];
+  run: SignalRun | null;
+}
+
+export function useLatestSignalRun(kind: "signals" | "briefing" = "signals", enabled = true) {
+  return useQuery({
+    queryKey: ["sales", "signals", "latest-run", kind] as const,
+    queryFn: async () =>
+      (await api.get<LatestSignalRun>("/api/sales/signals/latest-run", { params: { kind } })).data,
+    enabled,
+  });
+}
+
+export interface TalkingPoint {
+  text: string;
+  url: string | null;
+  published: string | null;
+}
+
+export interface CompanyBriefing {
+  enabled: boolean;
+  briefing: {
+    mode: "first_call" | "ongoing";
+    points: TalkingPoint[];
+    generated_at: string;
+  } | null;
+}
+
+export function useCompanyBriefing(companyId: number | null | undefined) {
+  const id = companyId ?? 0;
+  return useQuery({
+    queryKey: ["sales", "signals", "briefing", id] as const,
+    queryFn: async () =>
+      (await api.get<CompanyBriefing>(`/api/sales/signals/briefings/${id}`)).data,
+    enabled: Number.isFinite(id) && id > 0,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

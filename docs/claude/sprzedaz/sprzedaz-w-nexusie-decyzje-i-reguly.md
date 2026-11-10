@@ -137,6 +137,9 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 
 ## Leady (decyzja 27.10.2026)
 
+> 09.11.2026: research prasy i stron firm robi bot (Grok Bot), a NEXUS przyjmuje jego
+> raport: `sygnaly-grok-bot.md`. Skan ogłoszeń i LinkedIna dalej odpada.
+
 - **Bez silnika.** Skan ogłoszeń z Atlasa celował w klientów Elevate (firmy
   spoza IT szukające back-office) i odrzucał zatrudniających programistów —
   odwrotnie niż body leasing. Skrzynka = import otwartych leadów z Atlasa

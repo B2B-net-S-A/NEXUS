@@ -26,6 +26,7 @@ from app.services.company_names import normalize_company_name
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales import company_dates
 from app.services.sales import leads as service
+from app.services.sales import signals
 from app.services.sales.companies import http_url
 
 router = APIRouter()
@@ -87,6 +88,8 @@ class LeadList(BaseModel):
     items: list[LeadOut]
     total: int
     counts: dict[str, int]
+    #: Kanał sygnałów z bota researchu włączony (``SALES_SIGNALS_ENABLED``).
+    signals_enabled: bool = False
 
 
 def _out(lead: SalesLead) -> LeadOut:
@@ -107,11 +110,16 @@ async def list_leads(
     source: Optional[Source] = None,
     lead_status: Optional[Status] = Query(default="new", alias="status"),
     q: Optional[str] = Query(default=None, max_length=200),
+    company_id: Optional[int] = Query(default=None, ge=1),
+    #: Skrzynka sygnałów grupuje po stronie ekranu: wszystkie statusy naraz.
+    all_statuses: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> LeadList:
     query = select(SalesLead)
     if source:
         query = query.where(SalesLead.source == source)
+    if company_id is not None:
+        query = query.where(SalesLead.company_id == company_id)
     text = (q or "").strip()
     if text:
         query = query.where(
@@ -127,7 +135,7 @@ async def list_leads(
             )
         ).all()
     )
-    if lead_status:
+    if lead_status and not all_statuses:
         query = query.where(SalesLead.status == lead_status)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
@@ -143,6 +151,7 @@ async def list_leads(
         items=[_out(lead) for lead in rows],
         total=int(total or 0),
         counts={key: int(counts.get(key, 0)) for key in schema.LEAD_STATUSES},
+        signals_enabled=signals.enabled(),
     )
 
 

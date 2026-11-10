@@ -45,6 +45,7 @@ export function dayLine(day: MyDay): string {
     `${reply} do odpisania`,
     plural(overdue, "zaległy", "zaległe", "zaległych"),
     plural(offers, "oferta bez ruchu", "oferty bez ruchu", "ofert bez ruchu"),
+    ...(day.signals?.length ? [plural(day.signals.length, "sygnał", "sygnały", "sygnałów")] : []),
   ].join(" · ");
 }
 
@@ -53,7 +54,8 @@ export function isDayEmpty(day: MyDay): boolean {
     day.meetings.length === 0 &&
     day.reply.length === 0 &&
     day.overdue.length === 0 &&
-    day.offers.length === 0
+    day.offers.length === 0 &&
+    (day.signals ?? []).length === 0
   );
 }
 

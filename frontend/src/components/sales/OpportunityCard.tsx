@@ -46,6 +46,7 @@ import { OpportunityStepBar } from "./OpportunityStepBar";
 import { OpportunityTimelineCard } from "./OpportunityTimeline";
 import { PurchasingProcessPanel } from "./PurchasingProcessPanel";
 import { callQueue } from "./step";
+import { TalkingPoints } from "./signals/TalkingPoints";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 import { SalesMotionPanel } from "./SalesMotionPanel";
 
@@ -307,6 +308,8 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
             <OpportunityTimelineCard opportunityId={data.id} canEdit={canEdit} />
           </div>
           <div className="min-w-0 space-y-4">
+            {/* Punkty do rozmowy z bota researchu; bez kanału albo bez punktów nic. */}
+            <TalkingPoints companyId={data.company.id} className="rounded-lg border border-border bg-card px-3 py-2" />
             <SalesMotionPanel
               opportunityId={data.id}
               motion={data.atlas_motion}

@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="SALES_SIGNALS_ENABLED",
+        purpose="Sygnały i punkty do rozmowy z Grok Bota w Sprzedaży; włącza Artur po próbie bota.",
+        decided=date(2026, 11, 9),
+        expires=date(2027, 1, 8),
+    ),
+    FeatureFlag(
         name="SINGLE_CANDIDATE_LIST_ENABLED",
         purpose="Jedna lista kandydatów zamiast zakładek, portale na skali „Dop.”; włącza tylko Artur.",
         decided=date(2026, 11, 8),
