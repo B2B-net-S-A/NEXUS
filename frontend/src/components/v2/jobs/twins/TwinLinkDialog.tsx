@@ -4,8 +4,9 @@
  * Okno „Połącz bliźniaka” (0614, decyzje Artura z 28.10.2026, makieta
  * https://claude.ai/artifact/83ybsjjmstNhKAzHYNraFw, część 4).
  *
- * Bez wskazanej rekrutacji pierwszy krok to wybór: otwarte podobne, które
- * patrzący może połączyć, albo wyszukiwarka. Drugi krok pokazuje to, co
+ * Bez wskazanej rekrutacji pierwszy krok to wybór: wyszukiwarka dowolnej
+ * otwartej rekrutacji (na górze — przy 1280 × 720 pod listą podobnych była
+ * poza ekranem, 10.11.2026) albo otwarte podobne, które patrzący może połączyć. Drugi krok pokazuje to, co
  * decyduje, czy to naprawdę bliźniak: budżet i tryb pracy obu stron (stawka
  * jest jedna, inna tylko przy innym trybie pracy), pary pytań „to samo
  * pytanie” z podpowiedzią serwera do poprawienia i zdanie, że osoby
@@ -60,6 +61,8 @@ export interface TwinLinkDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Rekrutacja wskazana w kaflu albo na liście HoR — bez kroku wyboru. */
   otherJobId?: number | null;
+  /** Lista rekrutacji: pierwsza rekrutacja pary („Łączysz: …”), bo okno otwiera się poza nią. */
+  anchorLabel?: string;
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -114,7 +117,7 @@ function sameMode(a: TwinJobBrief, b: TwinJobBrief): boolean {
   return workModeLabel(a) === workModeLabel(b);
 }
 
-export function TwinLinkDialog({ jobId, open, onOpenChange, otherJobId = null }: TwinLinkDialogProps) {
+export function TwinLinkDialog({ jobId, open, onOpenChange, otherJobId = null, anchorLabel }: TwinLinkDialogProps) {
   const [picked, setPicked] = useState<number | null>(otherJobId);
   useEffect(() => {
     if (open) setPicked(otherJobId);
@@ -128,6 +131,11 @@ export function TwinLinkDialog({ jobId, open, onOpenChange, otherJobId = null }:
           <DialogDescription id="twin-link-desc">
             Bliźniak to rekrutacja o tym samym profilu kandydata. Każdą osobę weryfikujecie raz, w jednej
             rozmowie, pod obie rekrutacje.
+            {anchorLabel ? (
+              <span className="mt-1 block font-medium text-foreground" data-testid="twin-link-anchor">
+                Łączysz: {anchorLabel}
+              </span>
+            ) : null}
           </DialogDescription>
         </DialogHeader>
         {picked == null ? (
@@ -157,10 +165,43 @@ function PickStep({ jobId, onPick }: { jobId: number; onPick: (id: number) => vo
         .items,
   });
   const candidates = (open.data?.items ?? []).filter((item) => item.can_twin);
-  const found = (search.data ?? []).filter((row) => row.status !== "closed");
+  const found = (search.data ?? []).filter((row) => row.status !== "closed" && row.id !== jobId);
 
   return (
     <DialogBody className="space-y-4">
+      <section className="space-y-2" aria-label="Inna rekrutacja">
+        <label htmlFor="twin-search" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Dowolna otwarta rekrutacja
+        </label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <Input
+            id="twin-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Numer, tytuł albo klient — np. 42959, DORA, Orlen"
+            autoFocus
+            className="pl-8"
+          />
+        </div>
+        {found.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {found.map((row) => (
+              <li key={row.id} className="flex items-center gap-3 px-3 py-2">
+                <p className="min-w-0 flex-1 truncate text-sm">
+                  {row.reference_number ? <span className="mr-1.5 font-mono text-xs">{row.reference_number}</span> : null}
+                  {row.title} <span className="text-muted-foreground">· {row.client_name ?? "—"}</span>
+                </p>
+                <Button size="sm" variant="outline" onClick={() => onPick(row.id)}>
+                  Wybierz
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : term.length >= 2 && search.isSuccess ? (
+          <p className="text-sm text-muted-foreground">Nic nie pasuje do „{term}”.</p>
+        ) : null}
+      </section>
       <section className="space-y-2" aria-label="Otwarte podobne">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Otwarte podobne</h3>
         {open.isLoading ? (
@@ -190,38 +231,6 @@ function PickStep({ jobId, onPick }: { jobId: number; onPick: (id: number) => vo
             ))}
           </ul>
         )}
-      </section>
-      <section className="space-y-2" aria-label="Inna rekrutacja">
-        <label htmlFor="twin-search" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Inna otwarta rekrutacja
-        </label>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <Input
-            id="twin-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Numer, tytuł, klient…"
-            className="pl-8"
-          />
-        </div>
-        {found.length > 0 ? (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {found.map((row) => (
-              <li key={row.id} className="flex items-center gap-3 px-3 py-2">
-                <p className="min-w-0 flex-1 truncate text-sm">
-                  {row.reference_number ? <span className="mr-1.5 font-mono text-xs">{row.reference_number}</span> : null}
-                  {row.title} <span className="text-muted-foreground">· {row.client_name ?? "—"}</span>
-                </p>
-                <Button size="sm" variant="outline" onClick={() => onPick(row.id)}>
-                  Wybierz
-                </Button>
-              </li>
-            ))}
-          </ul>
-        ) : term.length >= 2 && search.isSuccess ? (
-          <p className="text-sm text-muted-foreground">Nic nie pasuje do „{term}”.</p>
-        ) : null}
       </section>
     </DialogBody>
   );
