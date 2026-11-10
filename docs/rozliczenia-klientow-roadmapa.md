@@ -97,8 +97,23 @@ przepływem.
 - E0.1 NIP konsultantów: decyzja Artura z 09.11 — **nie uzupełniamy ręcznie**,
   NIP podpowiada E4 z faktur w KSeF (E4.0). Adres do panelu (10 z 50 osób BNP)
   zostaje do E3: bez niego osoba rozlicza się mailem.
-- E0.2 Odpowiedzi rozliczeń na 4 pytania BNP (przerwa a darmowe MD, termin
-  przysłania estymacji, rok limitu 2 000 zł, który DL pyta bank).
+- E0.2 Odpowiedzi rozliczeń na 4 pytania BNP — **są (10.11.2026)**:
+  - 2 darmowe MD tylko przy nowej rekrutacji (nowe stanowisko), przedłużenie
+    zamówienia bez nich — zgodne z silnikiem (kontrakt od tego lub poprzedniego
+    miesiąca);
+  - plan grudnia od konsultantów do 04.12 (parametr „plan do” w regule
+    estymacji); najpierw listopad i zejście MD, plan grudnia nie jest
+    rozpatrywany przed listopadem; listopad i grudzień to **dwie osobne
+    faktury** do klienta;
+  - koszty integracji: limit 2 000 zł na rok kalendarzowy, tylko BNP — do
+    zrobienia przy `cl.integration_costs`;
+  - zgodę banku na RCP w NEXUS-ie i ich przechowywanie zbiera DL przypisany
+    do BNP (blokuje pilotaż E7, nie kod);
+  - MD ponad zamówienie: zamiast „nie wystawiaj” — „wystaw fakturę na X MD,
+    tyle zostało”, bez obiecywania zamówienia; przyjęcie zdejmuje pulę, nadwyżka
+    czeka na decyzję Finansów (decyzja Artura 10.11);
+  - przed przyjęciem zbiorczym Finanse mogą pobrać każdy plik z karty osoby;
+    RCP z numerem KSeF pobiera się przy osobie albo hurtem „wystawionych”.
 - E0.3 Odpowiedzi Michała i Kingi dla pozostałych klientów (pytania w zakładkach
   makiety) — blokują E6, nie E1–E5.
 - E0.4 Skrzynka: **docelowo tylko `wsparcie@b2bnetwork.pl`** (decyzja Artura

@@ -12,7 +12,7 @@ import { useAcceptBatch, useEstimates, type EstimateRow } from "@/lib/api/client
 import { STATUS, mdText, monthLabel, pln } from "./format";
 
 function planCell(r: EstimateRow) {
-  if (r.over_pool) return <StatusDot tone="danger">Ponad pulę o {mdText(r.over_pool)} MD</StatusDot>;
+  if (r.over_pool) return <StatusDot tone="warning">Ponad pulę o {mdText(r.over_pool)} MD</StatusDot>;
   if (r.plan_status === "missing") return <StatusDot tone="neutral">Brak planu</StatusDot>;
   if (r.plan_status === "ok") return <StatusDot tone="info">Do przyjęcia</StatusDot>;
   return <StatusDot tone={STATUS[r.plan_status].tone}>{STATUS[r.plan_status].label}</StatusDot>;
@@ -64,7 +64,7 @@ export function EstimatesView({ clientId, month, canWrite, onOpen }: EstimatesVi
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="max-w-[80ch] text-sm text-muted-foreground">
           Estymacja to zwykłe RCP z planowanymi dniami, przysłane przed końcem miesiąca. Najpierw przyjmujemy {previous} i
-          zdejmujemy MD, potem plan, który nie może przekroczyć tego, co zostało.
+          zdejmujemy MD, potem plan, który nie może przekroczyć tego, co zostało. Do klienta idą dwie osobne faktury.
         </p>
         {canWrite ? (
           <Button size="sm" disabled={ready === 0 || batch.isPending} onClick={onBatch}>
@@ -73,14 +73,15 @@ export function EstimatesView({ clientId, month, canWrite, onOpen }: EstimatesVi
         ) : null}
       </div>
       <div className="overflow-x-auto rounded-xl border bg-card">
-        <table className="w-full min-w-[820px] table-fixed text-[13px]">
+        <table className="w-full min-w-[880px] table-fixed text-[13px]">
           <colgroup>
-            <col className="w-[25%]" />
-            <col className="w-[17%]" />
-            <col className="w-[11%]" />
-            <col className="w-[10%]" />
-            <col className="w-[19%]" />
-            {data.can_see_amounts ? <col className="w-[18%]" /> : null}
+            <col className="w-[22%]" />
+            <col className="w-[15%]" />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
+            <col className="w-[18%]" />
+            {data.can_see_amounts ? <col className="w-[12%]" /> : null}
+            {data.can_see_amounts ? <col className="w-[12%]" /> : null}
           </colgroup>
           <thead className="border-b bg-muted/40 text-left text-[11px] text-muted-foreground">
             <tr>
@@ -88,8 +89,9 @@ export function EstimatesView({ clientId, month, canWrite, onOpen }: EstimatesVi
               <th className="px-2 py-1.5 font-medium">{previous}</th>
               <th className="px-2 py-1.5 text-right font-medium">Zostało MD</th>
               <th className="px-2 py-1.5 text-right font-medium">Plan</th>
-              <th className="px-2 py-1.5 font-medium">Plan {monthLabel(month).split(" ")[0]}</th>
-              {data.can_see_amounts ? <th className="px-3 py-1.5 text-right font-medium">Do faktury</th> : null}
+              <th className="px-2 py-1.5 font-medium">Stan planu</th>
+              {data.can_see_amounts ? <th className="px-2 py-1.5 text-right font-medium">Faktura · {previous.split(" ")[0]}</th> : null}
+              {data.can_see_amounts ? <th className="px-3 py-1.5 text-right font-medium">Faktura · plan</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -112,7 +114,8 @@ export function EstimatesView({ clientId, month, canWrite, onOpen }: EstimatesVi
                 <td className="px-2 py-1.5 text-right tabular-nums">{mdText(r.remaining_after_previous)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{mdText(r.plan_md)}</td>
                 <td className="px-2 py-1.5">{planCell(r)}</td>
-                {data.can_see_amounts ? <td className="px-3 py-1.5 text-right tabular-nums">{pln(r.to_invoice)}</td> : null}
+                {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{pln(r.previous_invoice)}</td> : null}
+                {data.can_see_amounts ? <td className="px-3 py-1.5 text-right tabular-nums">{pln(r.plan_invoice)}</td> : null}
               </tr>
             ))}
           </tbody>

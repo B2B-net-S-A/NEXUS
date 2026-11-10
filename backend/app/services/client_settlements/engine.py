@@ -11,8 +11,11 @@ kwoty, pozycje wyliczenia, wynik kontroli i stan.
   do klienta idą za 0 zł i nie schodzą z zamówienia. Niewykorzystane przechodzą
   na kolejny miesiąc tego samego kontraktu. Odnowienie po przerwie czeka na
   odpowiedź rozliczeń (roadmapa E0.2), więc dziś pula jest na kontrakt.
-* Brak linii zamówienia albo za mało MD na linii przy ``order.no_md_holds_invoice``
+* Brak linii zamówienia albo pusta pula przy ``order.no_md_holds_invoice``
   na poziomie „Blokuje” daje stan ``no_md``: plik zostaje, faktura czeka.
+* Za mało MD na linii (decyzja rozliczeń i Artura z 10.11.2026): zejdzie tyle,
+  ile zostało, koszt i przychód za tę część, nadwyżka ``md_over`` czeka na
+  decyzję Finansów — konsultant fakturuje tylko pulę, bez obietnicy zamówienia.
 """
 
 from __future__ import annotations
@@ -68,6 +71,8 @@ class Result:
     checks: list[dict[str, Any]]
     #: Reguła „Blokuje” nie przeszła: przyjęcie wymaga poprawy pliku.
     blocking: bool = False
+    #: MD (z mnożnikiem) ponad pulę zamówienia, bez zejścia i bez zapłaty.
+    md_over: Optional[Decimal] = None
 
 
 def _md(value: Decimal) -> Decimal:
@@ -199,6 +204,7 @@ def compute(inp: Inputs) -> Result:
     order = inp.order
     order_checks: list[dict[str, Any]] = []
     remaining_after: Optional[Decimal] = None
+    over = ZERO
     hold = _level(rules, "order.no_md_holds_invoice")
     if order is None:
         order_checks.append(
@@ -220,16 +226,30 @@ def compute(inp: Inputs) -> Result:
         )
     else:
         remaining_after = _md(order.md_available - charged)
-        if remaining_after < 0 and hold != "off":
+        available = _md(max(order.md_available, ZERO))
+        if remaining_after < 0 and hold != "off" and available <= 0:
             order_checks.append(
                 _check(
                     "fail" if hold == "block" else "warn",
-                    f"Brakuje {_fmt(-remaining_after)} MD na zamówieniu",
-                    f"Zostało {_fmt(_md(order.md_available))} MD, zejść ma {_fmt(charged)} MD.",
+                    "Na zamówieniu nie zostało MD",
+                    f"Zejść ma {_fmt(charged)} MD. Do faktury nic; decyzja Finansów.",
                 )
             )
             blocked = blocked or hold == "block"
             warn = warn or hold == "warn"
+            over, charged, remaining_after = charged, ZERO, ZERO
+        elif remaining_after < 0 and hold != "off":
+            over = _md(-remaining_after)
+            order_checks.append(
+                _check(
+                    "warn",
+                    f"Ponad zamówienie o {_fmt(over)} MD",
+                    f"Zejdzie {_fmt(available)} MD (tyle zostało) i tyle idzie do faktury; "
+                    "nadwyżka czeka na decyzję Finansów.",
+                )
+            )
+            warn = True
+            charged, remaining_after = available, ZERO
         else:
             order_checks.append(
                 _check(
@@ -270,15 +290,20 @@ def compute(inp: Inputs) -> Result:
                 else str(_money(extra * multiplier * cost_rate)),
             }
         )
-    amount_cost = (
-        None
-        if cost_rate is None
-        else _money((regular + extra * multiplier) * cost_rate)
-    )
+    if over > 0:
+        lines.append(
+            {
+                "label": "Ponad zamówienie, bez zapłaty",
+                "md": str(-over),
+                "multiplier": "1.00",
+                "rate": None if cost_rate is None else str(_money(cost_rate)),
+                "net": None if cost_rate is None else str(_money(-over * cost_rate)),
+            }
+        )
+    paid_md = regular + extra * multiplier - over
+    amount_cost = None if cost_rate is None else _money(paid_md * cost_rate)
     amount_revenue = (
-        None
-        if revenue_rate is None
-        else _money((regular - onboarding + extra * multiplier) * revenue_rate)
+        None if revenue_rate is None else _money((paid_md - onboarding) * revenue_rate)
     )
     if order is not None and (cost_rate is None or revenue_rate is None):
         groups.append(
@@ -306,4 +331,5 @@ def compute(inp: Inputs) -> Result:
         lines,
         groups,
         blocking=proof_blocking,
+        md_over=over if over > 0 else None,
     )
