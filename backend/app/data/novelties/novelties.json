@@ -1998,6 +1998,25 @@
     "dot_anchor": "client-projects.previous-month"
   },
   {
+    "id": "zespol-filtr-rola-klient",
+    "pr": 3282,
+    "title": "Wyniki zespołu: rola i klient",
+    "why": "Liczby zespołu zawęzisz do rekruterów albo Delivery Leadów i do jednego klienta. Pulpit startuje od całego zespołu i samych rekruterów, a to, co filtr odsunął, stoi w wierszu „Poza filtrem”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin",
+        "delivery_lead"
+      ]
+    },
+    "where": "Insights → Zespół → Ludzie → Klient",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "team-filters.client"
+  },
+  {
     "id": "sprzedaz-podsumowanie-spotkania-dla-klienta",
     "pr": 3270,
     "title": "Podsumowanie spotkania do klienta jednym przyciskiem",

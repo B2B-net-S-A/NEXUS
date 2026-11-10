@@ -35,6 +35,8 @@ import { formatDealAmount, safeHref } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
+import { SignalStrip } from "./signals/SignalStrip";
+import { TalkingPoints } from "./signals/TalkingPoints";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 
 /** Tag importu z Atlasa: firma przeszła warunkowo (nazwa wygląda na osobę). */
@@ -257,6 +259,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           {data.archived_at && (
             <StatusDot tone="warning">Firma jest w archiwum</StatusDot>
           )}
+          <SignalStrip companyId={companyId} />
           <TabbedNav
             ariaLabel="Zakładki firmy"
             tabs={TABS}
@@ -273,6 +276,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
                 <CompanyFacts company={data} onLink={canEdit ? () => setLinking(true) : undefined} />
+                <TalkingPoints companyId={companyId} className="rounded-lg border border-border bg-card px-3 py-2" />
                 <CompanyOpportunities companyId={companyId} />
               </div>
               <WhoWeKnowPanel companyId={companyId} companyName={data.name} />

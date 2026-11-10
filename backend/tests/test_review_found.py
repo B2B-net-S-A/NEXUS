@@ -59,6 +59,7 @@ from app.services.hr.bonus_rules import (
     DEFAULT_RULES,
     eligible_date,
     load_bonus_calendar,
+    payout_period,
 )
 from app.services.hr.compass_import import time as time_import
 from app.services.hr.m365 import executor
@@ -312,7 +313,12 @@ async def test_placement_proposal_waits_for_running_close_and_moves_on(
     async with AsyncSessionLocal() as db:
         calendar = await load_bonus_calendar(db, start, start, DEFAULT_RULES)
     deadline = eligible_date(start, DEFAULT_RULES, calendar=calendar)
-    year, month = deadline.year, deadline.month
+    # Miesiąc, do którego automat wkłada propozycję (od #2852 miesiąc po starcie,
+    # nigdy przed terminem). Sam miesiąc terminu był różny raz na kilka miesięcy:
+    # start w pierwszy dzień roboczy miesiąca, termin w tym samym miesiącu
+    # (10.11.2026: start 01.10, termin 30.10, wypłata listopad) — automat nie
+    # dotykał zablokowanego okresu i test padał w kolejce.
+    year, month = payout_period(start, deadline)
     closer = await _hold_closing(year, month)
     try:
         task = asyncio.create_task(_reconcile(world["contract"]))

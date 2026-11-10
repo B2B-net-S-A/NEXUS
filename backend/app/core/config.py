@@ -1337,6 +1337,15 @@ class Settings(BaseSettings):
     # nie ma kroku i czerwień na wszystkim nic by nie znaczyła.
     SALES_STEP_RULES_SINCE: date = date(2026, 11, 10)
     SALES_ARCHIVE_SHADOW_ENABLED: bool = True
+    # Kanał sygnałów z bota researchu (Grok Bot, 0676): NEXUS startuje bieg
+    # webhookiem bota i przyjmuje jeden raport z jednorazowym tokenem
+    # (``app/services/sales/signals.py``). OFF do udanej próby na koncie Artura.
+    SALES_SIGNALS_ENABLED: bool = False
+    # Adres webhooka rutyny bota i jego klucz (nagłówek ``Authorization: Bearer``).
+    GROK_BOT_WEBHOOK_URL: str = ""
+    GROK_BOT_WEBHOOK_KEY: str = ""
+    # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
+    SALES_SIGNALS_TAG: str = "sygnały"
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.

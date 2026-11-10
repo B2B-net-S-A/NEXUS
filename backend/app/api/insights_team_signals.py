@@ -25,6 +25,8 @@ from app.services.section_permissions import (
     section_access_for_user,
 )
 from app.services.dl_send_queue import STALE_WORKDAYS
+from app.services.recruitment_activity import MILESTONE_STAGES, period_clients
+from app.services.team_filters import TeamRoleFilter, team_role_user_ids
 from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.insights_team_signals import (
     LOW_PRECISION_PCT,
@@ -70,6 +72,8 @@ async def insights_team_people(
     anchor: date | None = Query(None),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    role: TeamRoleFilter = Query("all"),
+    client_id: int | None = Query(None, ge=1),
 ):
     """Tabela „Ludzie”: lejek per osoba, weryfikacje na dzień roboczy,
     precyzja (30 dni) i placementy z tego samego odcinka poprzedniego okresu.
@@ -85,13 +89,37 @@ async def insights_team_people(
     # tabelą — stary kształt z cache'u nie może przeżyć wdrożenia.
     # v3 (17.10.2026): pole `unattributed` (wiersz „Bez osoby z zasługą”).
     # v4 (22.10.2026): akceptacje, cel placementów (miesiąc) i „w drodze”.
-    cache_key = f"insights:team:people:v4:{resolved.cache_suffix}:{today}"
+    # v5 (10.11.2026): filtr roli i klienta, wiersz `filtered_out`.
+    cache_key = (
+        f"insights:team:people:v5:{resolved.cache_suffix}:{today}:{role}:"
+        f"{client_id or 'all'}"
+    )
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
-        people = await team_people(db, resolved, now=now, today=today)
-        result = {"period": resolved.as_payload(), **people_payload(people)}
+        role_ids = await team_role_user_ids(db, role)
+        people = await team_people(
+            db,
+            resolved,
+            now=now,
+            today=today,
+            role_user_ids=role_ids,
+            client_id=client_id,
+        )
+        # Klienci okresu do filtra (po filtrze roli, przed filtrem klienta).
+        clients = await period_clients(
+            db,
+            stages=list(MILESTONE_STAGES),
+            period_start=resolved.start,
+            period_end=resolved.end,
+            user_ids=role_ids,
+        )
+        result = {
+            "period": resolved.as_payload(),
+            **people_payload(people),
+            "clients": [client.model_dump() for client in clients],
+        }
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
 

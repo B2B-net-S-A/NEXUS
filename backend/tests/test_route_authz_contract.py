@@ -98,6 +98,8 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "require_scope",
     "get_extension_principal",
     "portal_context",
+    # Raport bota researchu: jednorazowy token biegu (``X-Run-Token``).
+    "require_signal_run_token",
 )
 
 # Many handlers carry no gate in their signature but check imperatively as the

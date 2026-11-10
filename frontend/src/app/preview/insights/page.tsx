@@ -459,13 +459,19 @@ function seeded(): QueryClient {
       { kind: "weak_preps", count: 4, label: "prepów ocenionych jako słabe w ostatnich 7 dniach", report: "prepy" },
     ],
   });
-  qc.setQueryData(insightsTeamSignalsQueryKeys.people(ZESPOL_DEFAULT_PERIOD), {
+  const zespolPeople = {
     period: monthFunnel.period, workdays: 17, precision_target_pct: 75, low_precision_pct: 50,
     rows: [...PEOPLE.map((p) => ({ ...p, active: true })), ...FORMER_PEOPLE.map((p) => ({ ...p, active: false }))].map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", is_active: p.active, verifications: p.v, recommendations: p.r, interviews: p.i, acceptances: p.a, placements: p.p, placements_target: p.t || null, in_flight: p.f, previous_placements: p.prev, verifications_per_workday: +(p.v / 17).toFixed(1), precision_pct: p.prec })),
     totals: { verifications: 518, recommendations: 90, interviews: 42, placements: 14, precision_pct: 63, people: 8, unattributed: 3 },
     previous_totals: { verifications: 500, recommendations: 95, interviews: 40, placements: 15 },
     outside_scope: { label: "Konta administracyjne", people: 1, verifications: 0, recommendations: 4, interviews: 2, placements: 5, previous_placements: 3 },
-  });
+  };
+  qc.setQueryData(insightsTeamSignalsQueryKeys.people(ZESPOL_DEFAULT_PERIOD), zespolPeople);
+  // Tabela Ludzie w zakładce „Rekruterzy” pyta z filtrem roli (10.11.2026).
+  qc.setQueryData(
+    insightsTeamSignalsQueryKeys.people(ZESPOL_DEFAULT_PERIOD, { role: "recruiter", clientId: null }),
+    { ...zespolPeople, filtered_out: null, clients: [] },
+  );
   qc.setQueryData(performanceFlagsQueryKey, { flags_by_user: {}, types: [] });
   // „Kto się liczy do celów” w Mój miesiąc (17.10.2026): rekomendacje osoby 1
   // w bieżącym tygodniu — ten sam klucz co `MyWhoCountsPanel` po wejściu.

@@ -1339,6 +1339,8 @@ try:
         *_sales_schema.COMPANY_ALIASES_DDL,
         # 0672: wynik rozmowy i sprzeciw wobec kontaktu.
         *_sales_schema.CALL_OUTCOME_DDL,
+        # 0676: biegi bota researchu i punkty do rozmowy przy firmie.
+        *_sales_schema.SIGNALS_DDL,
         # 0677: szkic maila do klienta po spotkaniu i klucz wysyłki.
         *_sales_schema.CLIENT_SUMMARY_DDL,
     ]

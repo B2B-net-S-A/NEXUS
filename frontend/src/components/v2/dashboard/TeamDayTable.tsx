@@ -29,6 +29,7 @@ import type {
   RecruitmentActivityMetric,
   RecruitmentActivityMetricCounts,
 } from "@/lib/recruitment-activity-api"
+import { isFiltered, type TeamFilterParams } from "@/lib/team-filters"
 import { cn } from "@/lib/utils"
 
 /**
@@ -79,12 +80,16 @@ function emptyCounts(): Counts {
   return { verifications: 0, recommendations: 0, interviews: 0, acceptances: 0, placements: 0 }
 }
 
-/** Zasługa spoza wierszy aktywnych osób: konta administracyjne i byli pracownicy. */
-function restCounts(data: TeamPeopleResponse): Counts {
+/**
+ * Zasługa spoza wierszy aktywnych osób: konta administracyjne i byli
+ * pracownicy. Przy filtrze roli konta administracyjne nie są w liczbie nad
+ * tabelą (nie należą do grupy), więc stoją razem z osobami spoza filtra.
+ */
+function restCounts(data: TeamPeopleResponse, roleFiltered: boolean): Counts {
   const rest = emptyCounts()
   const parts: Array<Partial<Record<Counted, number>> | undefined> = [
     ...data.rows.filter((row) => !row.is_active),
-    data.outside_scope,
+    ...(roleFiltered ? [] : [data.outside_scope]),
   ]
   for (const part of parts) {
     for (const column of COLUMNS) rest[column.key] += num(part, column.key)
@@ -144,7 +149,10 @@ export function TeamDayTable({
   rangeLabel,
   metrics,
   compact,
+  teamFilters,
 }: {
+  /** Rola i klient z paska kafla (10.11.2026); bez nich — cały zespół. */
+  teamFilters?: TeamFilterParams
   /** Okres z paska nad kaflami (dni włącznie). */
   range: DayRange
   /** Ten okres słownie, np. „1–29 października 2026”. */
@@ -161,8 +169,8 @@ export function TeamDayTable({
     date_to: range.end,
   }
   const query = useQuery({
-    queryKey: insightsTeamSignalsQueryKeys.people(params),
-    queryFn: () => insightsTeamSignalsApi.people(params),
+    queryKey: insightsTeamSignalsQueryKeys.people(params, teamFilters),
+    queryFn: () => insightsTeamSignalsApi.people(params, teamFilters),
     enabled: range.start <= range.end,
     staleTime: 30_000,
   })
@@ -182,8 +190,19 @@ export function TeamDayTable({
   }
 
   const rows = teamPeriodRows(query.data)
-  const rest = restCounts(query.data)
+  const roleFiltered = teamFilters !== undefined && teamFilters.role !== "all"
+  const rest = restCounts(query.data, roleFiltered)
   const hasRest = COLUMNS.some((column) => rest[column.key] > 0)
+  // Osoby spoza grupy roli i konta administracyjne: jeden wiersz, żeby suma
+  // tabeli i „poza filtrem” dawała cały zespół.
+  const outside = emptyCounts()
+  if (roleFiltered) {
+    for (const part of [query.data.filtered_out, query.data.outside_scope]) {
+      for (const column of COLUMNS) outside[column.key] += num(part ?? undefined, column.key)
+    }
+  }
+  const hasOutside = COLUMNS.some((column) => outside[column.key] > 0)
+  const filtered = teamFilters !== undefined && isFiltered(teamFilters)
   const missing = new Set(
     COLUMNS.filter((column) => !reported(query.data, column.key)).map((column) => column.key),
   )
@@ -237,8 +256,27 @@ export function TeamDayTable({
           </tr>
         ))}
       </tbody>
-      {hasRest ? (
+      {hasRest || hasOutside ? (
         <tfoot className="sticky bottom-0">
+          {hasOutside ? (
+            <tr data-testid="team-day-table-filtered-out">
+              <td className={cn("py-1.5 pl-4 text-foreground", STICKY_FOOT)}>
+                Poza filtrem
+                <span className="block text-xs text-muted-foreground">
+                  inne role i konta administracyjne
+                </span>
+              </td>
+              {COLUMNS.map((column) => (
+                <Cell
+                  key={column.key}
+                  value={outside[column.key]}
+                  missing={missing.has(column.key)}
+                  className={STICKY_FOOT}
+                />
+              ))}
+            </tr>
+          ) : null}
+          {hasRest ? (
           <tr data-testid="team-day-table-rest">
             <td className={cn("py-1.5 pl-4 text-foreground", STICKY_FOOT)}>
               Pozostali
@@ -255,6 +293,7 @@ export function TeamDayTable({
               />
             ))}
           </tr>
+          ) : null}
         </tfoot>
       ) : null}
     </table>
@@ -283,9 +322,11 @@ export function TeamDayTable({
           ) : null}
         </div>
       </div>
-      {rows.length === 0 && !hasRest ? (
+      {rows.length === 0 && !hasRest && !hasOutside ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">
-          Nikt z zespołu nie ma wyników w tym okresie.
+          {filtered
+            ? "Nikt w wybranej roli i u wybranego klienta nie ma wyników w tym okresie."
+            : "Nikt z zespołu nie ma wyników w tym okresie."}
         </p>
       ) : (
         <div

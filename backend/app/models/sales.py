@@ -717,3 +717,71 @@ class SalesTarget(Base, TimestampMixin):
     updated_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+
+
+class SalesSignalRun(Base):
+    """Bieg bota researchu: lista firm, jednorazowy token, raport (0676)."""
+
+    __tablename__ = "sales_signal_runs"
+    __table_args__ = (
+        CheckConstraint(schema.CK_SIGNAL_RUN_KIND, name="ck_sales_signal_runs_kind"),
+        CheckConstraint(
+            schema.CK_SIGNAL_RUN_STATUS, name="ck_sales_signal_runs_status"
+        ),
+        Index("ix_sales_signal_runs_kind_started", "kind", text("started_at DESC")),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="started", server_default="started"
+    )
+    #: Firmy z kartoteki sprzedaży wysłane do bota; raport może mówić tylko o nich.
+    company_ids: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    #: ``{company_id: "first_call" | "ongoing"}`` dla biegu ``briefing``.
+    modes: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    token_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    received_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: Liczby i odrzucenia z przyjęcia raportu (ekran „Raport bota”).
+    report: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    error: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class SalesCompanyBriefing(Base):
+    """Punkty do rozmowy o firmie z ostatniego biegu bota (0676)."""
+
+    __tablename__ = "sales_company_briefings"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_BRIEFING_MODE, name="ck_sales_company_briefings_mode"
+        ),
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_companies.id", ondelete="CASCADE"), primary_key=True
+    )
+    mode: Mapped[str] = mapped_column(String(12), nullable=False)
+    points: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_signal_runs.id", ondelete="SET NULL")
+    )
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

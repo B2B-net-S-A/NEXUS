@@ -8,8 +8,9 @@ name: Pas migracji w kolejce
 # za nimi — także PR-y bez migracji. 25–28.10 wszystkie 54 czerwone bramki
 # kolejki miały ten powód; 28.10 w kolejce było naraz 9 PR-ów z 0616.
 #
-# Ten workflow po każdej bramce i każdym CI grupy w kolejce uruchamia
-# `.github/scripts/queue_migration_lane.py enforce`:
+# Ten workflow po każdej bramce i każdym CI grupy w kolejce, a także gdy PR
+# z migracją wchodzi do kolejki, wypada z niej albo dostaje `czeka-na-migracje`,
+# uruchamia `.github/scripts/queue_migration_lane.py enforce`:
 #   * pierwszy w kolejce PR z migracją i drugi stojący na nim zostają, reszta
 #     schodzi z kolejki (zanim ich grupy padną, więc grupy za nimi przebudowują
 #     się bez nich); pierwszy bez rodzica (PR przed nim wypadł) też schodzi;
@@ -23,8 +24,13 @@ name: Pas migracji w kolejce
 # Przepięcie robi `migration-rechain.yml` po scaleniu migracji; wpuszczanie
 # nowych PR-ów — `auto-enqueue.yml` (`admit`).
 #
-# `workflow_run` biegnie z definicji i kodu z maina — kod z gałęzi kolejki
-# z tokenem w ręku nie jest tu wykonywany. TOKEN: `QUEUE_BOT_TOKEN` (ten sam
+# Zdarzenia PR-a (09.11.2026): #3262 wypadł po limicie czasu, więc żadne CI grupy
+# już się nie skończyło i `enforce` nie ruszył przez 13 min. W tym czasie #3265,
+# stojący na jego migracji, wrócił do kolejki z pominięciem `admit` i padł na
+# dwóch głowach. `labeled` to droga od `admit`, który parkuje PR bez rodzica.
+#
+# `workflow_run` i `pull_request_target` biegną z definicji i kodu z maina — kod
+# z gałęzi PR-a ani kolejki z tokenem w ręku nie jest tu wykonywany. TOKEN: `QUEUE_BOT_TOKEN` (ten sam
 # PAT co auto-enqueue): etykieta zdjęta tokenem Actions nie uruchomiłaby
 # `auto-enqueue`, a `gh pr merge --auto` tym tokenem nie dałby grupie testów.
 # Ręcznie: „Run workflow” (`dry_run` tylko wypisuje plan).
@@ -34,6 +40,11 @@ on:
     workflows: ["CI Gate", "CI"]
     types: [completed]
     branches: ["gh-readonly-queue/**"]
+  pull_request_target:
+    types: [enqueued, dequeued, labeled]
+    branches: [main]
+    paths:
+      - "backend/alembic/versions/**"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -60,7 +71,10 @@ jobs:
       actions: write
     if: >-
       ${{ github.event_name == 'workflow_dispatch'
-      || github.event.workflow_run.event == 'merge_group' }}
+      || github.event.workflow_run.event == 'merge_group'
+      || (github.event_name == 'pull_request_target'
+          && (github.event.action != 'labeled'
+              || github.event.label.name == 'czeka-na-migracje')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -393,7 +393,15 @@ ALL_DDL: tuple[str, ...] = TABLE_DDL + INDEX_DDL + DATA_DDL
 # z kolejnych skanów. Lead z firmy, która jest już klientem NEXUSA, nie
 # powstaje — popyt u klientów idzie do DL (decyzja Artura 22.10.2026).
 
-LEAD_SOURCES: tuple[str, ...] = ("job_board", "linkedin", "press", "manual", "atlas")
+LEAD_SOURCES: tuple[str, ...] = (
+    "job_board",
+    "linkedin",
+    "press",
+    "manual",
+    "atlas",
+    # 0676: sygnał z raportu bota researchu (Grok Bot), ``SIGNALS_DDL`` niżej.
+    "research",
+)
 LEAD_STATUSES: tuple[str, ...] = ("new", "contacted", "converted", "dismissed")
 CK_LEAD_SOURCE = f"source IN ({quoted(LEAD_SOURCES)})"
 CK_LEAD_STATUS = f"status IN ({quoted(LEAD_STATUSES)})"
@@ -751,6 +759,68 @@ CALL_OUTCOME_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_activities DROP COLUMN IF EXISTS outcome",
 )
 
+# ── 0676: kanał sygnałów z bota researchu (Grok Bot) ─────────────────────
+#
+# NEXUS zakłada bieg, wysyła botowi nazwy i domeny firm z jednorazowym tokenem,
+# a bot odsyła jeden raport. ``token_hash`` to SHA-256 tokenu: samego tokenu baza
+# nie trzyma. ``kind``: ``signals`` (tygodniowy przegląd firm z tagiem pilota)
+# albo ``briefing`` (punkty do rozmowy dla firm z leadami i szansami).
+# Punkty firmy to jeden wiersz na firmę, nadpisywany kolejnym biegiem.
+
+SIGNAL_RUN_KINDS: tuple[str, ...] = ("signals", "briefing")
+SIGNAL_RUN_STATUSES: tuple[str, ...] = ("started", "received", "expired", "failed")
+BRIEFING_MODES: tuple[str, ...] = ("first_call", "ongoing")
+CK_SIGNAL_RUN_KIND = f"kind IN ({quoted(SIGNAL_RUN_KINDS)})"
+CK_SIGNAL_RUN_STATUS = f"status IN ({quoted(SIGNAL_RUN_STATUSES)})"
+CK_BRIEFING_MODE = f"mode IN ({quoted(BRIEFING_MODES)})"
+
+SIGNALS_DDL: tuple[str, ...] = (
+    # Nowe źródło leada. Stary CHECK z 0602 nie zna ``research``; podmiana tylko
+    # wtedy, gdy definicja go jeszcze nie ma, bo entrypoint biegnie przy każdym starcie.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_leads_source' "
+    "AND pg_get_constraintdef(oid) LIKE '%research%') THEN "
+    "ALTER TABLE sales_leads DROP CONSTRAINT IF EXISTS ck_sales_leads_source; "
+    "ALTER TABLE sales_leads ADD CONSTRAINT ck_sales_leads_source "
+    f"CHECK ({CK_LEAD_SOURCE}); END IF; END $$",
+    f"""CREATE TABLE IF NOT EXISTS sales_signal_runs (
+    id SERIAL PRIMARY KEY,
+    kind VARCHAR(16) NOT NULL,
+    status VARCHAR(12) NOT NULL DEFAULT 'started',
+    company_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    modes JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    token_hash VARCHAR(64) NULL,
+    token_expires_at TIMESTAMPTZ NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    received_at TIMESTAMPTZ NULL,
+    report JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    error VARCHAR(255) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_signal_runs_kind CHECK ({CK_SIGNAL_RUN_KIND}),
+    CONSTRAINT ck_sales_signal_runs_status CHECK ({CK_SIGNAL_RUN_STATUS})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_signal_runs_kind_started "
+    "ON sales_signal_runs (kind, started_at DESC)",
+    f"""CREATE TABLE IF NOT EXISTS sales_company_briefings (
+    company_id INTEGER PRIMARY KEY REFERENCES sales_companies(id) ON DELETE CASCADE,
+    mode VARCHAR(12) NOT NULL,
+    points JSONB NOT NULL DEFAULT '[]'::jsonb,
+    run_id INTEGER NULL REFERENCES sales_signal_runs(id) ON DELETE SET NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_company_briefings_mode CHECK ({CK_BRIEFING_MODE})
+)""",
+)
+
+_LEAD_SOURCES_BEFORE_SIGNALS = tuple(s for s in LEAD_SOURCES if s != "research")
+
+SIGNALS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_company_briefings",
+    "DROP TABLE IF EXISTS sales_signal_runs",
+    "DELETE FROM sales_leads WHERE source = 'research'",
+    "ALTER TABLE sales_leads DROP CONSTRAINT IF EXISTS ck_sales_leads_source",
+    "ALTER TABLE sales_leads ADD CONSTRAINT ck_sales_leads_source "
+    f"CHECK (source IN ({quoted(_LEAD_SOURCES_BEFORE_SIGNALS)}))",
+)
 
 # ── 0677: podsumowanie spotkania dla klienta (09.11.2026) ─────────────────
 # Szkic modelu F46 zapisany przy transkrypcie, żeby ponowne otwarcie okna nie

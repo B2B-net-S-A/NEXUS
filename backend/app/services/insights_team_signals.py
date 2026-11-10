@@ -93,6 +93,10 @@ def workdays_in_window(start: datetime, end: datetime, today: date) -> int:
     return workdays_between(start.date(), last)
 
 
+# Etykieta wiersza osób spoza wybranej grupy roli (filtr Rola, 10.11.2026).
+FILTERED_OUT_LABEL = "Poza filtrem roli"
+
+
 @dataclass(frozen=True)
 class TeamPeople:
     current: TeamPanelResult
@@ -109,23 +113,39 @@ class TeamPeople:
     # Dni pracy osoby w oknie do dziś (dni robocze minus zatwierdzona
     # nieobecność, `person_workdays`) — mianownik „Weryf. / dzień”.
     workdays_by_user: dict[int, float] = field(default_factory=dict)
+    # Filtr roli (10.11.2026): osoby spoza grupy idą do wiersza `filtered_out`.
+    role_user_ids: Optional[frozenset[int]] = None
 
 
 async def current_team_panel(
-    db: AsyncSession, period: Period, *, now: datetime
+    db: AsyncSession, period: Period, *, now: datetime, client_id: int | None = None
 ) -> TeamPanelResult:
     return await compute_team_panel(
-        db, bounds=(period.start, period.end), period_label=period.kind.value, now=now
+        db,
+        bounds=(period.start, period.end),
+        period_label=period.kind.value,
+        now=now,
+        client_id=client_id,
     )
 
 
 async def team_people(
-    db: AsyncSession, period: Period, *, now: datetime, today: date
+    db: AsyncSession,
+    period: Period,
+    *,
+    now: datetime,
+    today: date,
+    role_user_ids: frozenset[int] | None = None,
+    client_id: int | None = None,
 ) -> TeamPeople:
-    current = await current_team_panel(db, period, now=now)
+    current = await current_team_panel(db, period, now=now, client_id=client_id)
     prev_start, prev_end = previous_matching_window(period, now)
     previous = await compute_team_panel(
-        db, bounds=(prev_start, prev_end), period_label="previous", now=now
+        db,
+        bounds=(prev_start, prev_end),
+        period_label="previous",
+        now=now,
+        client_id=client_id,
     )
     outside = await outside_scope_user_ids(
         db, [r.user_id for r in current.rows] + [r.user_id for r in previous.rows]
@@ -162,6 +182,7 @@ async def team_people(
         workdays_by_user=await workdays_by_user(
             db, [r.user_id for r in current.rows], period.start.date(), window_last
         ),
+        role_user_ids=role_user_ids,
     )
 
 
@@ -185,8 +206,41 @@ def people_payload(people: TeamPeople) -> dict:
             r.placementy for r in people.previous.rows if r.user_id in outside
         ),
     }
+    role_ids = people.role_user_ids
+    filtered_row = (
+        {
+            "label": FILTERED_OUT_LABEL,
+            "people": 0,
+            "verifications": 0,
+            "recommendations": 0,
+            "interviews": 0,
+            "acceptances": 0,
+            "placements": 0,
+            "previous_placements": sum(
+                r.placementy
+                for r in people.previous.rows
+                if r.user_id not in outside and r.user_id not in role_ids
+            ),
+        }
+        if role_ids is not None
+        else None
+    )
     rows = []
     for r in people.current.rows:
+        if (
+            filtered_row is not None
+            and r.user_id not in outside
+            and r.user_id not in role_ids
+        ):
+            # Sumy firmy zostają; dorobek spoza grupy roli to jeden wiersz.
+            if r.weryfikacje + r.rekomendacje + r.interview + r.placementy > 0:
+                filtered_row["people"] += 1
+            filtered_row["verifications"] += r.weryfikacje
+            filtered_row["recommendations"] += r.rekomendacje
+            filtered_row["interviews"] += r.interview
+            filtered_row["acceptances"] += r.akceptacje
+            filtered_row["placements"] += r.placementy
+            continue
         if r.user_id in outside:
             # Sumy firmy (`totals`) zostają bez zmian — dorobek tych kont jest
             # osobnym wierszem, nie znika.
@@ -232,6 +286,8 @@ def people_payload(people: TeamPeople) -> dict:
     for p in people.previous.rows:
         if p.user_id in current_ids or p.user_id in outside or p.placementy <= 0:
             continue
+        if role_ids is not None and p.user_id not in role_ids:
+            continue
         rows.append(
             {
                 "user_id": p.user_id,
@@ -259,6 +315,7 @@ def people_payload(people: TeamPeople) -> dict:
     return {
         "rows": rows,
         "outside_scope": outside_row,
+        "filtered_out": filtered_row,
         "unattributed": {
             "verifications": unattributed.get("verified", 0),
             "recommendations": unattributed.get("cv_sent", 0),

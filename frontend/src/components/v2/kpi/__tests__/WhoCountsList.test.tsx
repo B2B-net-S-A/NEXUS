@@ -319,4 +319,49 @@ describe("WhoCountsList", () => {
     expect(await screen.findByRole("button", { name: "Ponów" })).toBeInTheDocument()
     expect(screen.queryByText("Nikogo w tym okresie.")).not.toBeInTheDocument()
   })
+
+  it("lista osoby przy wybranym kliencie pyta o klienta, bez roli", async () => {
+    getDetails.mockResolvedValue(RESPONSE)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <WhoCountsList
+          metric="recommendation"
+          viewerId={11}
+          cacheKey="11:1"
+          query={{ window: "week", day: "2026-10-15", month: "2026-10", subjectUserId: 11 }}
+          teamFilters={{ role: "recruiter", clientId: 7, clientName: "Nordea" }}
+        />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText("3 rekomendacje")).toBeInTheDocument()
+    expect(getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectUserId: 11, team: { role: "all", clientId: 7 } }),
+    )
+    // Kontrolki są tylko na liście całego zespołu.
+    expect(screen.queryByRole("group", { name: "Rola" })).not.toBeInTheDocument()
+  })
+
+  it("lista zespołu z filtrem pokazuje kontrolki i pyta o rolę i klienta", async () => {
+    getDetails.mockResolvedValue({ ...RESPONSE, scope: "team", clients: [{ id: 7, name: "Nordea", count: 3 }] })
+    const onChange = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <WhoCountsList
+          metric="recommendation"
+          viewerId={11}
+          cacheKey="11:1"
+          query={{ window: "week", day: "2026-10-15", month: "2026-10", teamScope: true }}
+          teamFilters={{ role: "recruiter", clientId: null, clientName: null }}
+          onTeamFiltersChange={onChange}
+        />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByRole("group", { name: "Rola" })).toBeInTheDocument()
+    expect(getDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ teamScope: true, team: { role: "recruiter", clientId: null } }),
+    )
+  })
 })
+
