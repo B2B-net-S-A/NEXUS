@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
@@ -389,6 +389,23 @@ class MatchScoresRequest(BaseModel):
     impression_ranks: Optional[list[int]] = Field(
         default=None, max_length=MATCH_SCORES_MAX_CANDIDATES
     )
+
+
+class RequirementEvidenceRequest(BaseModel):
+    """Skąd „✓” przy wymaganiach jednej osoby w rekrutacji (10.11.2026)."""
+
+    job_id: int
+    candidate_id: int
+    labels: list[Annotated[str, StringConstraints(min_length=1, max_length=120)]] = (
+        Field(default_factory=list, max_length=30)
+    )
+
+
+class RequirementEvidenceResponse(BaseModel):
+    """``etykieta → {sources, cv, notes, notes_more, profile}``
+    (``services/requirement_evidence.collect``)."""
+
+    items: dict[str, dict[str, Any]]
 
 
 class MatchScoresResponse(BaseModel):

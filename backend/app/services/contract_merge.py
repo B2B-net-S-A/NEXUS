@@ -242,6 +242,12 @@ _KNOWN_CONTRACT_FKS = {
     # ``_resolve_child_duplicates``.
     ("cp_activations", "contract_id"),
     ("cp_trainer_applications", "contract_id"),
+    # Rozliczenia klientów (0679): UNIQUE (kontrakt, miesiąc, rodzaj) — dwa
+    # rozliczenia tego samego miesiąca rozstrzyga ``_resolve_child_duplicates``
+    # (przyjęte wygrywa, remis → zachowany). Faktury kontraktora z KSeF idą
+    # za kontraktem bez unikatu.
+    ("client_settlements", "contract_id"),
+    ("client_contractor_invoices", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -3341,6 +3347,27 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["cp_trainer_applications_duplicates_removed"] = len(losers)
+
+    if ("client_settlements", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, period_month, kind, "
+            "CASE WHEN status = 'accepted' THEN 'accepted' ELSE 'open' END AS status "
+            "FROM client_settlements WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (row["period_month"], row["kind"]),
+            rank={"accepted": 0, "open": 1},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM client_settlements WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["client_settlements_duplicates_removed"] = len(losers)
 
     if ("redeploy_queue_items", "contract_id") in present:
         rows = await _child_rows(

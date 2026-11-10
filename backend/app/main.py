@@ -246,6 +246,7 @@ from app.api import hr_payments as hr_payments_api
 from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
+from app.api import client_settlements as client_settlements_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -267,6 +268,7 @@ from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_my_day as sales_my_day_api
+from app.api import sales_offers as sales_offers_api
 from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
@@ -2196,6 +2198,13 @@ app.include_router(
     tags=["client-invoicing"],
     dependencies=_HR_PROGRAM,
 )
+# Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
+app.include_router(
+    client_settlements_api.router,
+    prefix="/api/finance/settlements",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 app.include_router(
     hr_lifecycle_api.router,
     prefix="/api/hr/lifecycle",
@@ -2266,6 +2275,7 @@ app.include_router(
     sales_signals_api.router, prefix="/api/sales/signals", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
+app.include_router(sales_offers_api.router, prefix="/api/sales", tags=["sales"])
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
     sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]

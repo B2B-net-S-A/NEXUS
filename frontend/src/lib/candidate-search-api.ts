@@ -322,7 +322,45 @@ export const candidateSearchApi = {
         { signal: options?.signal },
       )
       .then((r) => r.data),
+
+  /**
+   * Skąd „✓” przy wymaganiach jednej osoby (10.11.2026): CV, profil, notatka
+   * z cytatami. Ta sama bramka co `matchScores`; ocena się nie zmienia.
+   */
+  requirementEvidence: (
+    jobId: number,
+    candidateId: number,
+    labels: string[],
+    signal?: AbortSignal,
+  ): Promise<RequirementEvidenceResponse> =>
+    api
+      .post<RequirementEvidenceResponse>(
+        "/api/search/candidates/requirement-evidence",
+        { job_id: jobId, candidate_id: candidateId, labels },
+        { signal },
+      )
+      .then((r) => r.data),
 };
+
+export type RequirementEvidenceSource = "cv" | "profile" | "note";
+
+export interface RequirementEvidenceQuote {
+  snippet: string;
+  /** Nazwa, którą trafienie stoi w tekście, gdy to nie słowo wymagania (PostgreSQL przy SQL). */
+  via: string | null;
+}
+
+export interface RequirementEvidence {
+  sources: RequirementEvidenceSource[];
+  cv: RequirementEvidenceQuote | null;
+  notes: Array<RequirementEvidenceQuote & { id: number; date: string | null; author: string | null }>;
+  notes_more: number;
+  profile: Array<RequirementEvidenceQuote & { where: string }>;
+}
+
+export interface RequirementEvidenceResponse {
+  items: Record<string, RequirementEvidence>;
+}
 
 export interface MatchScoresResponse {
   scores: Record<string, number>;

@@ -2227,6 +2227,14 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
     await userEvent.click(within(closed).getByRole("button", { name: /Odrzucony przez nas/ }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
+    // 10.11.2026: licznik pokazuje tylko swoją grupę, nie wszystkich zamkniętych.
+    await userEvent.click(within(closed).getByRole("button", { name: /Odrzucony przez klienta/ }));
+    const onlyClient = container.querySelector('[data-colid="def:313"]') as HTMLElement;
+    expect(within(onlyClient).getByRole("heading")).toHaveTextContent("Odrzucony przez klienta");
+    expect(within(closed).getByRole("button", { name: /Odrzucony przez klienta/ })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(closed).getByRole("button", { name: "Pokaż wszystkich" }));
+    expect(container.querySelector('[data-colid="def:313"] h3')).toHaveTextContent("Odrzucony");
+    expect(container.querySelector('[data-colid="def:313"] h3')).not.toHaveTextContent("przez");
     // Rozwinięte kolumny zamkniętych da się zwinąć z tego samego miejsca.
     await userEvent.click(within(closed).getByRole("button", { name: "Zwiń zamkniętych" }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();

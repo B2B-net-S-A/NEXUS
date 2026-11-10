@@ -4,12 +4,38 @@ Reguły kanału: `docs/claude/sprzedaz/sygnaly-grok-bot.md`. Ten plik mówi, co 
 po stronie bota i jak sprawdzić, że rutyna sama odsyła raport. Klucze wpisujesz
 tylko w ustawieniach bota i w sekretach repo, nigdy w czacie bota ani w plikach.
 
+## Dwa poświadczenia, żadnego stałego klucza NEXUSA u bota
+
+- **NEXUS → bot:** klucz webhooka rutyny (`crsr_…`, nagłówek `Authorization: Bearer`)
+  i jej adres (`https://api2.cursor.sh/automations/webhook/<id rutyny>`). Daje je
+  Grok Bot, trafiają do NEXUSA jako `GROK_BOT_WEBHOOK_KEY` i `GROK_BOT_WEBHOOK_URL`.
+- **Bot → NEXUS:** jednorazowy token biegu. NEXUS sam go losuje przy każdym biegu
+  i wysyła w treści webhooka (`token`, `callback_url`), a treść webhooka jest wejściem
+  biegu, które bot czyta. Stałego klucza API NEXUSA bot nie dostaje, bo Vault bota
+  wypełnia tylko pola na stronach (nie podstawia wartości do `curl`), więc stały klucz
+  leżałby jawnie w czacie albo w plikach bota, widoczny dla modelu i każdego bota na
+  koncie. Token biegu działa raz i najwyżej 2 godziny, więc jego widoczność nie szkodzi.
+
+Źródła (09.11.2026): docs.x.ai/grok-bot/approvals-security-and-privacy, opis webhooków
+rutyn (hookdeck.com, „Using Hookdeck with Grok Bot”), forum.cursor.com: wątki
+„Webhook-triggered Grok Bot routine should count as user intent…” (27.08.2026)
+i „Webhook credentials; in-app links” (09.10.2026).
+
 ## 1. Rutyna w Grok Bocie (konto Artura)
 
-1. Nowa rutyna z wyzwalaczem **webhook**. Skopiuj jej adres i klucz.
-2. W ustawieniach rutyny zezwól na wychodzące wywołanie HTTP do
-   `api.nexus.dynaminds.pl` bez pytania o zgodę („Always allow”), inaczej bieg
-   w nocy stanie na karcie zgody, która wygasa po 30 minutach.
+1. Nowa rutyna z wyzwalaczem **„When a webhook fires”**. Adres, klucz i nagłówek
+   pokazuje **tylko aplikacja desktopowa** Grok Bota (Mac, Windows, Linux), nie
+   telefon: otwórz rutynę z linii „Created routine” w czacie, gdzie ją założyłeś,
+   i skopiuj pola kliknięciem. Od razu wpisz je jako sekrety repo (krok 2), nie do
+   czatu ani notatek.
+2. **Zgoda na wysyłkę do NEXUSA.** Auto Review ocenia wychodzące żądanie w biegu
+   z webhooka według ostatniej rozmowy w czacie bota, a nie według polecenia rutyny,
+   i może je zatrzymać kartą zgody (zgłoszenie na forum z 27.08.2026, bez poprawki).
+   Karta z biegu w tle wygasa po 30 minutach. Przy pierwszej karcie dla
+   `POST https://api.nexus.dynaminds.pl/api/integrations/sales-signals/runs/…` wybierz
+   **„Always allow”**, co zapisze regułę Allow (limit 20 reguł, najstarsza wypada).
+   Wbudowanych kontroli bota reguła nie wyłącza, więc dopiero próba z kroku 3 pokaże,
+   czy bieg przejdzie bez człowieka.
 3. Polecenie rutyny (treść do wklejenia):
 
 ```text
@@ -59,8 +85,8 @@ Wyłącznie workflow „Coolify set env” (sekrety repo wpisuje Artur):
 
 | Zmienna | Wartość |
 |---|---|
-| `GROK_BOT_WEBHOOK_URL` | adres webhooka rutyny |
-| `GROK_BOT_WEBHOOK_KEY` | klucz webhooka (sekret) |
+| `GROK_BOT_WEBHOOK_URL` | adres webhooka rutyny (`https://api2.cursor.sh/automations/webhook/…`) |
+| `GROK_BOT_WEBHOOK_KEY` | klucz webhooka `crsr_…` (sekret repo, wpisuje Artur) |
 | `SALES_SIGNALS_TAG` | tag firm pilota, domyślnie `sygnały` |
 | `SALES_SIGNALS_ENABLED` | `false` do udanej próby, potem `true` |
 
@@ -71,7 +97,9 @@ który ma dostać sygnał w „Moim dniu” (bez opiekuna sygnał jest tylko w L
 
 1. Z ustawionym adresem i kluczem, przy wyłączonej fladze, w kontenerze backendu:
    `python -m scripts.sales_signals_run --kind signals --company-ids <id1>,<id2>,<id3>`
-   Wynik `{"started": true, "status": "started", ...}` znaczy, że webhook przyjął bieg.
+   Wynik `{"started": true, "status": "started", ...}` znaczy, że webhook przyjął bieg
+   (Grok odpowiada `200` z `runUuid` od razu, nie czekając na koniec biegu).
+   `failed` z `webhook HTTP 401` to zły klucz, `400` to wyłączona rutyna.
 2. Poczekaj na koniec rutyny w bocie, nie klikając zgód.
 3. Sprawdź bieg (read-only): `SELECT status, error, report->>'leads' FROM sales_signal_runs ORDER BY id DESC LIMIT 1;`
    - `received`: bot sam odesłał raport. Można włączyć flagę.

@@ -816,6 +816,8 @@ export interface CproQueueItem {
     stage_id?: number | null;
     generated_document_id: number | null;
     document_id: number | null;
+    /** CV etapu jest szkicem (akceptacja DL-a go nie zatwierdziła) — plik „SZKIC_…”. */
+    draft?: boolean;
   } | null;
   /** Kto włożył osobę do kolejki i kiedy. Od 13.10.2026 robi to wyłącznie
    *  Delivery Lead po akceptacji; `accepted: false` = karta sprzed tej zmiany,

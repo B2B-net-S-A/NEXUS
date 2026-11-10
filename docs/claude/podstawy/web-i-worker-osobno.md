@@ -41,6 +41,14 @@ ASGITransport). Dlatego przy starcie workera `keyword_corpus_readiness` czyta z 
 warunki, po których web ustawia flagi, i ponawia odczyt, aż web skończy uzupełnianie. Bez tego
 worker liczył zapisane wyszukiwania inną ścieżką niż lista w web.
 
+## Logi workera w Loki
+
+Alloy bierze etykietę `service` z nazwy usługi Compose, więc logi pętli mają
+`service="worker"`, nie `"backend"`. Reguła Grafany albo zapytanie o zdarzenie z pętli
+(`app_mail_monitor`, heartbeaty, alerty z pętli) używa `service=~"backend|worker"`.
+Sam `backend` daje brak danych: 10.11.2026 alarm `NEXUS system mail delivery unhealthy`
+odpalił z `NoData`, choć worker co minutę logował `alarm: 0`. `http_outcome` zostaje w web.
+
 ## Współpraca web i workera
 
 - **`app/core/process_bus.py`:** LISTEN/NOTIFY Postgresa, tylko sygnały do zgubienia, do 7,9 kB.

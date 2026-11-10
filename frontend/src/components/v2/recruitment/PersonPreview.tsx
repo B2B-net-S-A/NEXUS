@@ -16,7 +16,6 @@ import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Check,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -30,6 +29,7 @@ import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCandidateCvPreview } from "@/components/v2/candidates/CandidateCvCell";
+import { RequirementEvidenceChips } from "./RequirementEvidenceChips";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { scoreFailureFor } from "@/hooks/useVisibleMatchScores";
 import api from "@/lib/api";
@@ -254,7 +254,12 @@ export function PersonPreview({
           title="Dopasowanie do tej rekrutacji"
           aside={<ScoreBadge query={score} candidateId={candidateId} />}
         >
-          <ScoreBody query={score} candidateId={candidateId} />
+          <ScoreBody
+            query={score}
+            jobId={jobId}
+            candidateId={candidateId}
+            onShowInCv={(term) => void cv.open({ text: term, terms: [term] })}
+          />
           {talkChecks.length > 0 ? (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Zapytaj w rozmowie</p>
@@ -384,7 +389,17 @@ function ScoreBadge({ query, candidateId }: { query: ScoreQuery; candidateId: nu
   );
 }
 
-function ScoreBody({ query, candidateId }: { query: ScoreQuery; candidateId: number }) {
+function ScoreBody({
+  query,
+  jobId,
+  candidateId,
+  onShowInCv,
+}: {
+  query: ScoreQuery;
+  jobId: number;
+  candidateId: number;
+  onShowInCv: (term: string) => void;
+}) {
   if (query.isPending) return <Muted>Liczę dopasowanie…</Muted>;
   if (query.isError) {
     return scoreFailureFor(query.error) === "forbidden" ? (
@@ -414,25 +429,13 @@ function ScoreBody({ query, candidateId }: { query: ScoreQuery; candidateId: num
         </Muted>
       ) : null}
       {hasMust ? (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Wymagania must-have">
-          {matchedMust.map((skill) => (
-            <li
-              key={`met-${skill}`}
-              className="inline-flex items-center gap-1 rounded-md bg-success-muted px-2 py-0.5 text-xs text-success-muted-foreground"
-            >
-              <Check className="h-3 w-3" aria-hidden />
-              {skill}
-            </li>
-          ))}
-          {gapMust.map((skill) => (
-            <li
-              key={`gap-${skill}`}
-              className="rounded-md bg-warning-muted px-2 py-0.5 text-xs text-warning-muted-foreground"
-            >
-              {skill} — nie znaleziono
-            </li>
-          ))}
-        </ul>
+        <RequirementEvidenceChips
+          jobId={jobId}
+          candidateId={candidateId}
+          matched={matchedMust}
+          gaps={gapMust}
+          onShowInCv={onShowInCv}
+        />
       ) : measured ? (
         <Muted>
           {onlyProse

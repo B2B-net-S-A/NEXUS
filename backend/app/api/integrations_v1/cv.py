@@ -88,6 +88,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.service_account import ServiceScope
 from app.services import candidate_audit, cv_consent_gate, integration_cv
 from app.services.candidate_claim import stage_column
+from app.services.cv_approved_docx import without_empty_underline
 from app.services.cv_document_versions import stage_versions
 from app.services.cv_download_log import log_cv_download
 
@@ -450,8 +451,11 @@ async def download_client_cv(
             db, csv, csv.branded_version
         )
         version_number = version.version
-        docx = version.docx_content
+        # Ten sam plik co „Pobierz” na ekranie (`download_approved_docx`).
+        docx = without_empty_underline(version.docx_content)
         docx_headers = stage_cv_api.approved_docx_headers(version)
+        if docx is not version.docx_content:
+            docx_headers.pop("ETag", None)
         pdf_name = _pdf_name(version.docx_filename, "CV")
     else:
         state = "draft"

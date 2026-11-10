@@ -38,7 +38,7 @@ vi.mock("@/lib/authenticated-files", () => ({
   downloadBlob: (...a: unknown[]) => downloadBlob(...a),
 }));
 
-import { CproAcceptance, CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
+import { CproAcceptance, CproCvDraftBadge, CproQueueDialog } from "@/components/v2/dashboard/CproQueueDialog";
 import type { CproQueueItem, CproQueueResponse } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
 
@@ -305,5 +305,24 @@ describe("CproAcceptance — wiersz akceptacji w kolejce Cpro", () => {
   it("starszy serwer bez pól akceptacji — nic nie pokazuje", () => {
     const { container } = render(<CproAcceptance item={item({})} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("CproCvDraftBadge — CV etapu niezatwierdzone po akceptacji DL (10.11.2026)", () => {
+  it("szkic CV etapu: plakietka „CV niezatwierdzone przez rekrutera”", () => {
+    render(<CproCvDraftBadge item={item({ cv: { stage_id: 9, generated_document_id: 5, document_id: null, draft: true } })} />);
+    expect(screen.getByTestId("cpro-cv-draft")).toHaveTextContent("CV niezatwierdzone przez rekrutera");
+  });
+
+  it("CV zatwierdzone, CV z generatora albo starszy serwer bez pola — nic", () => {
+    for (const cv of [
+      { stage_id: 9, generated_document_id: 5, document_id: null, draft: false },
+      { generated_document_id: 5, document_id: null, draft: true },
+      { stage_id: 9, generated_document_id: 5, document_id: null },
+    ]) {
+      const { container, unmount } = render(<CproCvDraftBadge item={item({ cv })} />);
+      expect(container).toBeEmptyDOMElement();
+      unmount();
+    }
   });
 });
