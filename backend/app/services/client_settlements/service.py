@@ -507,7 +507,10 @@ async def detail(
     state = await _order_state(db, order, month)
     total_md = None
     if s and s.md_regular is not None:
-        total_md = _dec(Decimal(s.md_regular) + Decimal(s.md_extra or 0))
+        # Suma pozycji „Ile wychodzi z RCP” — z linią ponad zamówienie (ujemną).
+        total_md = _dec(
+            Decimal(s.md_regular) + Decimal(s.md_extra or 0) - (md_over(s) or 0)
+        )
     lines = [
         {
             **line,
@@ -593,8 +596,23 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
     s.lines = result.lines
     # Pozostałość po zejściu trzymamy przy kontrolach, żeby lista miesiąca nie
     # pytała zamówień osoba po osobie.
-    s.checks = [*result.checks, {"remaining_after": _dec(result.md_remaining_after)}]
+    s.checks = [
+        *result.checks,
+        {
+            "remaining_after": _dec(result.md_remaining_after),
+            "md_over": _dec(result.md_over),
+        },
+    ]
     s.order_id = order.order_id if order else None
+
+
+def md_over(s: ClientSettlement) -> Optional[Decimal]:
+    """MD ponad pulę zamówienia zapisane przy przeliczeniu (bez zejścia i zapłaty)."""
+
+    for item in s.checks or []:
+        if isinstance(item, dict) and item.get("md_over"):
+            return Decimal(str(item["md_over"]))
+    return None
 
 
 def _onboarding_eligible(contract: Contract, month: str) -> bool:

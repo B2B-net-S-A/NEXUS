@@ -17,6 +17,7 @@ from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.client_settlements import contractor_invoices, service
+from app.services.multi_consultant_orders import format_md
 from app.services.client_settlements import settings as module_settings
 
 #: Termin zapłaty z umowy B2B (dni od nadania numeru KSeF), gdy klient nie ma
@@ -172,6 +173,14 @@ async def view(
             },
             "ksef": await _ksef(db, s, client_id, period, days),
         }
+        over = service.md_over(s)
+        if over:
+            # Rozliczenia 10.11: „zafakturować możesz X MD”, bez obietnicy zamówienia.
+            billable = Decimal(s.md_charged or 0) + Decimal(s.md_onboarding or 0)
+            result["label"] = (
+                f"RCP przyjęte: wystaw fakturę na {format_md(billable)} MD, "
+                "tyle zostało na zamówieniu"
+            )
         ksef = result["invoice"]["ksef"]
         if ksef is not None:
             result["label"] = ksef["label"]
@@ -237,9 +246,12 @@ async def estimate_todo(
         db, contract_id, period, kind=service.ESTIMATE
     ):
         return None
+    rule = (await service.rules_for(db, client_id, period))["cl.estimate"]
+    deadline = str(rule["params"].get("deadline") or "").strip()
     return {
         "key": f"estimate-{period}",
-        "title": f"Wyślij RCP z planem na {MONTHS[today.month - 1]}",
+        "title": f"Wyślij RCP z planem na {MONTHS[today.month - 1]}"
+        + (f" do {deadline}" if deadline else ""),
         "detail": "Planowane dni do końca miesiąca, podpisane przez akceptanta"
         + (f". Co poprawić: {plan.fix_reason}" if plan and plan.fix_reason else ""),
         "href": "/konsultant/faktury",

@@ -258,7 +258,9 @@ export interface EstimateRow {
   plan_status: SettlementStatus;
   plan_md: string | null;
   over_pool: string | null;
-  to_invoice: string | null;
+  /** Dwie osobne faktury do klienta: za poprzedni miesiąc i za plan (10.11). */
+  previous_invoice: string | null;
+  plan_invoice: string | null;
 }
 
 export interface EstimatesMonth {
@@ -289,14 +291,29 @@ export function useEstimates(clientId: number | null, month: string) {
   });
 }
 
-/** Zip z RCP i mailami przyjętych rozliczeń miesiąca (E5.2). */
-export async function fetchAttachmentsZip(clientId: number, month: string): Promise<Blob> {
+/** Zip z RCP i mailami przyjętych rozliczeń miesiąca (E5.2): jednej osoby
+ * albo hurtem tylko tych z wystawioną fakturą (nazwa z numeru KSeF). */
+export async function fetchAttachmentsZip(
+  clientId: number,
+  month: string,
+  options: { contractId?: number; issuedOnly?: boolean } = {},
+): Promise<Blob> {
   return (
     await api.get<Blob>(`${BASE}/client-invoice/attachments`, {
-      params: { client_id: clientId, month },
+      params: {
+        client_id: clientId,
+        month,
+        contract_id: options.contractId,
+        issued_only: options.issuedOnly || undefined,
+      },
       responseType: "blob",
     })
   ).data;
+}
+
+/** Plik RCP albo maila z karty osoby (do sprawdzenia przed przyjęciem). */
+export async function fetchSettlementDocument(contractId: number, documentId: number): Promise<Blob> {
+  return (await api.get<Blob>(`${BASE}/contract/${contractId}/documents/${documentId}`, { responseType: "blob" })).data;
 }
 
 export function useClientRules(clientId: number | null, month: string) {

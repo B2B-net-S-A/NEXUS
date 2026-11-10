@@ -253,8 +253,11 @@ SECTIONS: tuple[Section, ...] = (
                 "Estymacja: RCP z planem dni przed końcem miesiąca",
                 "off",
                 "E5",
-                {"months": "12"},
-                (ParamField("months", "miesiące", "np. 12"),),
+                {"months": "12", "deadline": ""},
+                (
+                    ParamField("months", "miesiące", "np. 12"),
+                    ParamField("deadline", "plan do", "np. 04.12"),
+                ),
                 "Plan przyjmujemy po przyjęciu poprzedniego miesiąca, nie ponad resztę puli; "
                 "mniej przepracowane schodzi na kolejnej fakturze.",
             ),
