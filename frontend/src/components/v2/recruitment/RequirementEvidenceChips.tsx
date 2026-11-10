@@ -195,7 +195,7 @@ export function RequirementEvidenceChips({
 
   return (
     <div className="space-y-2">
-      <ul className="flex flex-wrap gap-1.5" aria-label="Wymagania must-have">
+      <ul className="flex flex-wrap gap-1.5" aria-label="Wymagania must-have" data-tour="person-preview.requirement-sources">
         {matched.map((skill) => {
           const item = items[skill];
           const suffix = sourceSuffix(item);
