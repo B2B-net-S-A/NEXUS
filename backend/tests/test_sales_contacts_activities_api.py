@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -333,7 +334,10 @@ async def test_meetings_list_filters_and_shortens_the_note(app_client) -> None:
         headers=_headers(rep),
     )
     assert opp.status_code == 201, opp.text
-    subject = f"Warsztat {company_id}"
+    # Szukamy po losowym znaczniku, nie po id firmy: krótka liczba trafia też
+    # w znaczniki w nazwach firm z innych testów, a baza jest wspólna dla biegu.
+    tag = uuid.uuid4().hex[:10]
+    subject = f"Warsztat {tag}"
     at_opportunity = await _meeting(
         app_client,
         rep,
@@ -347,7 +351,7 @@ async def test_meetings_list_filters_and_shortens_the_note(app_client) -> None:
         app_client,
         rep,
         company_id,
-        subject=f"Inne {company_id}",
+        subject=f"Inne {tag}",
         occurred_at="2026-03-01T10:00:00+00:00",
     )
     note = await app_client.post(
@@ -357,19 +361,19 @@ async def test_meetings_list_filters_and_shortens_the_note(app_client) -> None:
     )
     assert note.status_code == 201, note.text
 
-    found = await _meetings(app_client, rep, q=str(company_id))
+    found = await _meetings(app_client, rep, q=tag)
     assert [item["id"] for item in found["items"]] == [at_opportunity, at_company]
     assert found["total"] == 2
     assert len(found["items"][0]["body"]) == 300
 
-    linked = await _meetings(app_client, rep, q=str(company_id), linked="opportunity")
+    linked = await _meetings(app_client, rep, q=tag, linked="opportunity")
     assert [item["id"] for item in linked["items"]] == [at_opportunity]
-    company_only = await _meetings(app_client, rep, q=str(company_id), linked="company")
+    company_only = await _meetings(app_client, rep, q=tag, linked="company")
     assert [item["id"] for item in company_only["items"]] == [at_company]
 
     # 23:30 UTC 01.03 to już 02.03 w Warszawie.
     next_day = await _meetings(
-        app_client, rep, q=str(company_id), date_from="2026-03-02", date_to="2026-03-02"
+        app_client, rep, q=tag, date_from="2026-03-02", date_to="2026-03-02"
     )
     assert [item["id"] for item in next_day["items"]] == [at_opportunity]
 
