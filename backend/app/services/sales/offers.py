@@ -29,13 +29,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from sqlalchemy import DateTime, String, case, cast, func, or_, select, update
+from sqlalchemy import DateTime, String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.scheduling import business_date
 from app.models.sales import (
-    SalesActivity,
     SalesCompany,
     SalesOpportunity,
     SalesOpportunityEvent,
@@ -46,10 +45,9 @@ from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import history
+from app.services.sales import history, owner_tasks
 from app.services.sales.next_step import Step, load_signals
-from app.services.sales.offer_steps import OFFER_STEP_SOURCE
-from app.services.sales.task_scope import live_opportunity, task_items
+from app.services.sales.task_scope import live_opportunity
 from app.services.sales.touch import last_touch_at
 
 #: Etapy, na których szansa ma wysłaną ofertę.
@@ -336,9 +334,9 @@ async def take_over(
     """Zrób ``user`` opiekunem szansy, której nikt ze Sprzedaży nie prowadzi.
 
     Zmiana idzie do historii szansy jak przekazanie w ``scripts/sales_cleanup.py``.
-    Otwarte zadania poprzedniego opiekuna przy tej szansie przechodzą razem z nią,
-    bo zadanie przy szansie należy do jej opiekuna, a na koncie spoza Sprzedaży nikt
-    by ich nie zobaczył. Wywołujący trzyma blokadę wiersza i robi commit.
+    Otwarte zadania poprzedniego opiekuna przy tej szansie przechodzą razem z nią
+    (``owner_tasks.hand_over``), bo na koncie spoza Sprzedaży nikt by ich nie zobaczył.
+    Wywołujący trzyma blokadę wiersza i robi commit.
     """
 
     if opportunity.status != "open" or opportunity.archived_at is not None:
@@ -355,23 +353,6 @@ async def take_over(
     before = history.snapshot(opportunity)
     opportunity.owner_user_id = user.id
     history.record_changes(db, opportunity, before, user_id=user.id)
-    if previous_id is None:
-        return
-    await db.execute(
-        update(SalesActivity)
-        .where(
-            SalesActivity.opportunity_id == opportunity.id,
-            SalesActivity.assignee_user_id == previous_id,
-            SalesActivity.done_at.is_(None),
-            task_items(),
-        )
-        .values(
-            assignee_user_id=user.id,
-            # Krok po ofercie ma autora równego wykonawcy (``offer_steps.py``).
-            created_by_user_id=case(
-                (SalesActivity.external_source == OFFER_STEP_SOURCE, user.id),
-                else_=SalesActivity.created_by_user_id,
-            ),
-        )
-        .execution_options(synchronize_session=False)
+    await owner_tasks.hand_over(
+        db, opportunity.id, previous_owner_id=previous_id, new_owner_id=user.id
     )

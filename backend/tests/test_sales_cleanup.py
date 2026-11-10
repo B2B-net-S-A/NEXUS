@@ -340,6 +340,57 @@ async def test_transfer_records_history_and_leaves_stage_and_archive() -> None:
     assert planned_again.handover_opportunity_ids == []
 
 
+async def _assignee(activity_id: int) -> Optional[int]:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(SalesActivity, activity_id)
+        assert row is not None
+        return row.assignee_user_id
+
+
+async def test_transfer_takes_open_tasks_of_the_former_owner_along() -> None:
+    former = await _user()
+    target = await _user("sales_edit")
+    admin = await _user(role="admin")
+    colleague = await _user("sales_edit")
+    live, company_id = await _opportunity(owner_user_id=former.id)
+    won, _ = await _opportunity(owner_user_id=former.id, status="won")
+    here = {"opportunity_id": live, "company_id": company_id}
+    in_nexus = {"external_source": None, "synced_at": None}
+    own = await _item(assignee_user_id=former.id, **here, **in_nexus)
+    # Pozycja z importu na koncie byłego opiekuna zamyka się w pkt 1 i nie przechodzi.
+    imported = await _item(assignee_user_id=former.id, **here)
+    someone_elses = await _item(assignee_user_id=colleague.id, **here, **in_nexus)
+    at_won = await _item(opportunity_id=won, assignee_user_id=former.id, **in_nexus)
+    options = {
+        "assignee_id": former.id,
+        "former_owner_id": former.id,
+        "transfer_to": target.id,
+        "actor_id": admin.id,
+    }
+
+    planned = await cleanup.run(cleanup.Options(**options), now=NOW)
+    assert planned.handover_open_tasks == 1
+    assert (planned.transferred, planned.transferred_tasks) == (0, 0)
+    assert await _assignee(own) == former.id
+
+    report = await cleanup.run(
+        cleanup.Options(
+            apply=True,
+            expect_close=planned.to_close,
+            expect_transfer=1,
+            **options,
+        ),
+        now=NOW,
+    )
+
+    assert (report.transferred, report.transferred_tasks) == (1, 1)
+    assert await _assignee(own) == target.id
+    assert (await _state(imported))[0] is not None
+    assert await _assignee(imported) == former.id
+    assert await _assignee(someone_elses) == colleague.id
+    assert await _assignee(at_won) == former.id
+
+
 @pytest.mark.parametrize("problem", ["target_inactive", "target_no_edit", "not_admin"])
 async def test_transfer_needs_active_seller_and_admin(problem: str) -> None:
     former = await _user()

@@ -49,7 +49,7 @@ from app.models.sales import (
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
-from app.services.sales import client_gate, history
+from app.services.sales import client_gate, history, owner_tasks
 from app.services.sales import companies as company_service
 from app.services.sales.contacts import (
     ensure_new_person_not_objected,
@@ -559,7 +559,15 @@ async def book(
         history.record_created(db, opportunity, user_id=user_id)
     else:
         before = history.snapshot(opportunity)
+        previous_owner_id = opportunity.owner_user_id
         opportunity.owner_user_id = host.id
+        # Otwarte zadania poprzedniego opiekuna idą za szansą do prowadzącego.
+        await owner_tasks.hand_over(
+            db,
+            opportunity.id,
+            previous_owner_id=previous_owner_id,
+            new_owner_id=host.id,
+        )
         current = next((s for s in stages if s.id == opportunity.stage_id), None)
         if current is not None and current.position < meeting_stage.position:
             # Lead staje się spotkaniem; dalszych etapów nie cofamy.

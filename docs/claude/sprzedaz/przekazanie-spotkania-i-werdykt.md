@@ -45,6 +45,9 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
   istniejącą szansę (Lead przechodzi na „Spotkanie kwalifikujące”, dalszych etapów
   nie cofamy). Robi to jej opiekun albo admin; cudza szansa to 403. Tak wchodzi do
   procesu 28 otwartych szans ze spotkaniem, które dzwoniący mieli 10.11 u siebie.
+  Gdy zmienia się przy tym opiekun, otwarte zadania poprzedniego przy tej szansie idą
+  do prowadzącego (`owner_tasks.hand_over`, decyzja Artura 10.11.2026). Zadania
+  przypisane komuś innemu niż poprzedni opiekun zostają na miejscu.
 - **Prowadzący** to dowolne aktywne konto z „Sprzedaż: edycja” (`handoff_hosts.py`);
   roli „Handlowiec” nie ma. Formularz podpowiada tego z ostatniego przekazania.
 - **Kalendarz prowadzącego** (`GET …/host-busy`) to wydarzenia zsynchronizowane
