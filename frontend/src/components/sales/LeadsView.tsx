@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Inbox, Plus } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -31,6 +31,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { safeHref } from "./format";
+import { SignalsInbox } from "./signals/SignalsInbox";
 
 const STATUSES: LeadStatus[] = ["new", "contacted", "converted", "dismissed"];
 
@@ -195,7 +196,33 @@ function LeadPayloadLine({ payload }: { payload: Record<string, unknown> | undef
   return <p className="text-xs text-muted-foreground">{parts.join(" — ")}</p>;
 }
 
+type LeadsMode = "signals" | "leads";
+
+const MODE_OPTIONS = [
+  { value: "signals" as const, label: "Sygnały bota" },
+  { value: "leads" as const, label: "Wszystkie leady" },
+];
+
+/** Przy włączonym kanale sygnałów Leady otwierają się na skrzynce sygnałów (G1). */
 export function LeadsView() {
+  const [mode, setMode] = useState<LeadsMode>("signals");
+  const probe = useLeads({ status: "new", limit: 1 });
+  const signalsOn = probe.data?.signals_enabled === true;
+  const switcher = signalsOn ? (
+    <SegmentedRadio size="sm" label="Widok leadów" options={MODE_OPTIONS} value={mode} onChange={setMode} />
+  ) : null;
+  if (signalsOn && mode === "signals") {
+    return (
+      <div className="space-y-3">
+        {switcher}
+        <SignalsInbox />
+      </div>
+    );
+  }
+  return <LeadsList switcher={switcher} />;
+}
+
+function LeadsList({ switcher }: { switcher: ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
   const [status, setStatus] = useState<LeadStatus>("new");
@@ -211,6 +238,7 @@ export function LeadsView() {
   });
   return (
     <div className="space-y-3">
+      {switcher}
       <FilterBar
         search={{ value: q, onChange: setQ, placeholder: "Szukaj firmy albo sygnału…", ariaLabel: "Szukaj leada" }}
         filters={

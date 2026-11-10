@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Info, Loader2, Zap } from "lucide-react";
 import {
@@ -9,6 +10,8 @@ import {
 } from "@/lib/insights-api";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { TeamFilterControls } from "@/components/v2/kpi/TeamFilterControls";
+import { DEFAULT_TEAM_FILTERS, type TeamFilters } from "@/lib/team-filters";
 import { barWidth, count, pct } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
@@ -42,9 +45,12 @@ const ACTIVITY_COLUMNS = [
  * do dziś”. Tutaj okno jest kalendarzowe i sterowane `PeriodPicker`iem.
  */
 export function InsightsTeamActivity({ period, limit = 20 }: Props) {
+  // Rola (10.11.2026): domyślnie rekruterzy, jak pulpit. Klienta tu nie ma —
+  // ranking liczy też notatki i telefony, które nie należą do rekrutacji.
+  const [filters, setFilters] = useState<TeamFilters>(DEFAULT_TEAM_FILTERS);
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
-    queryKey: insightsQueryKeys.teamActivity(period, limit),
-    queryFn: () => insightsApi.teamActivity({ ...period, limit }),
+    queryKey: insightsQueryKeys.teamActivity(period, limit, filters.role),
+    queryFn: () => insightsApi.teamActivity({ ...period, limit, role: filters.role }),
   });
 
   const entries = data?.entries ?? [];
@@ -67,6 +73,7 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
           </span>
         )}
       </h2>
+      <TeamFilterControls value={filters} onChange={setFilters} className="mb-4" />
 
       {viewState === "loading" ? (
         <div className="py-8 flex items-center justify-center">
@@ -172,6 +179,13 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
               {count(data.outside_scope.users)}) —{" "}
               {count(data.outside_scope.actions)} akcji, w tym{" "}
               {count(data.outside_scope.placements)} placementów.
+            </p>
+          )}
+          {data?.filtered_out && data.filtered_out.users > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Poza filtrem roli: {count(data.filtered_out.users)} osób —{" "}
+              {count(data.filtered_out.actions)} akcji, w tym{" "}
+              {count(data.filtered_out.placements)} placementów.
             </p>
           )}
           {data?.coverage?.note && (

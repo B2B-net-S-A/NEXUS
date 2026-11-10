@@ -38,6 +38,14 @@ class RecruitmentActivityModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RecruitmentActivityClient(RecruitmentActivityModel):
+    """Klient do filtra (10.11.2026): wiersze okresu po filtrze roli."""
+
+    id: int
+    name: str
+    count: int
+
+
 class RecruitmentActivityPerson(RecruitmentActivityModel):
     id: int
     name: str
@@ -82,6 +90,8 @@ class RecruitmentActivitySummaryResponse(RecruitmentActivityModel):
     metrics: list[RecruitmentActivityMetricCounts] = Field(default_factory=list)
     verification_progress: RecruitmentActivityProgress | None = None
     comparisons: list[RecruitmentActivityComparison] = Field(default_factory=list)
+    # Klienci z ruchem w okresie (wszystkie etapy), tylko w zakresie zespołu.
+    clients: list[RecruitmentActivityClient] = Field(default_factory=list)
 
 
 class RecruitmentActivityCandidate(RecruitmentActivityModel):
@@ -147,6 +157,8 @@ class RecruitmentActivityDetailResponse(RecruitmentActivityModel):
     # Ile z `period_total` to tygodniowe wpisy DynaReportera (1.01–11.10.2026):
     # są w liczbie, ale nie na liście — DynaReporter nie zna kandydatów.
     history_total: int = 0
+    # Klienci tego etapu w okresie po filtrze roli, przed filtrem klienta.
+    clients: list[RecruitmentActivityClient] = Field(default_factory=list)
 
 
 class RecruitmentActivityTeamTotalsResponse(RecruitmentActivityModel):
@@ -160,3 +172,5 @@ class RecruitmentActivityTeamTotalsResponse(RecruitmentActivityModel):
     totals: dict[RecruitmentActivityMetric, int] = Field(default_factory=dict)
     # Ile z liczby to wpisy DynaReportera (bez osób na liście).
     history: dict[RecruitmentActivityMetric, int] = Field(default_factory=dict)
+    # Klienci tych etapów w okresie po filtrze roli (filtr kafla, 10.11.2026).
+    clients: list[RecruitmentActivityClient] = Field(default_factory=list)

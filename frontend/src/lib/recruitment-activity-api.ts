@@ -1,4 +1,5 @@
 import api from "@/lib/api"
+import { teamFilterQuery, type TeamFilterParams } from "@/lib/team-filters"
 
 export type RecruitmentActivityMetric =
   | "verification"
@@ -53,6 +54,13 @@ export interface RecruitmentActivityComparison {
   people: number
 }
 
+/** Klient do filtra (10.11.2026): wiersze okresu po filtrze roli. */
+export interface RecruitmentActivityClient {
+  id: number
+  name: string
+  count: number
+}
+
 export interface RecruitmentActivitySummaryResponse {
   generated_at: string
   day: string
@@ -67,6 +75,8 @@ export interface RecruitmentActivitySummaryResponse {
   metrics: RecruitmentActivityMetricCounts[]
   verification_progress: RecruitmentActivityProgress | null
   comparisons: RecruitmentActivityComparison[]
+  /** Klienci z ruchem w okresie (zakres zespołu); brak = serwer sprzed 10.11.2026. */
+  clients?: RecruitmentActivityClient[]
 }
 
 export type RecruitmentActivityDetailOrder = "reached" | "term"
@@ -126,6 +136,8 @@ export interface RecruitmentActivityDetailResponse {
    * liczą się do wyniku, ale nie ma ich na liście (DynaReporter nie zapisywał kandydatów).
    */
   history_total?: number
+  /** Klienci tego etapu po filtrze roli, przed filtrem klienta (zakres zespołu). */
+  clients?: RecruitmentActivityClient[]
 }
 
 interface RecruitmentActivityFilters {
@@ -133,6 +145,11 @@ interface RecruitmentActivityFilters {
   month: string
   subjectUserId?: number | null
   teamScope?: boolean
+  /**
+   * Rola (tylko zakres zespołu) i klient (każdy zakres listy) —
+   * `services/team_filters.py`.
+   */
+  team?: TeamFilterParams
 }
 
 function activityParams(filters: RecruitmentActivityFilters) {
@@ -143,6 +160,12 @@ function activityParams(filters: RecruitmentActivityFilters) {
       ? { subject_user_id: filters.subjectUserId }
       : {}),
     ...(filters.teamScope ? { scope: "team" } : {}),
+    ...teamFilterQuery(
+      filters.team && {
+        role: filters.teamScope ? filters.team.role : "all",
+        clientId: filters.team.clientId,
+      },
+    ),
   }
 }
 
@@ -214,6 +237,8 @@ export interface RecruitmentActivityTeamTotalsResponse {
   totals: Partial<Record<RecruitmentActivityMetric, number>>
   /** Ile z liczby to wpisy DynaReportera (bez osób na liście). */
   history: Partial<Record<RecruitmentActivityMetric, number>>
+  /** Klienci tych etapów po filtrze roli; brak = serwer sprzed 10.11.2026. */
+  clients?: RecruitmentActivityClient[]
 }
 
 /** Liczby zespołu za dni od–do (włącznie) dla kilku etapów jednym zapytaniem. */
@@ -221,11 +246,17 @@ export async function getRecruitmentActivityTeamTotals(filters: {
   dateFrom: string
   dateTo: string
   metrics: readonly RecruitmentActivityMetric[]
+  team?: TeamFilterParams
 }): Promise<RecruitmentActivityTeamTotalsResponse> {
   const response = await api.get<RecruitmentActivityTeamTotalsResponse>(
     "/api/dashboard/v2/recruitment-activity/team-totals",
     {
-      params: { date_from: filters.dateFrom, date_to: filters.dateTo, metric: [...filters.metrics] },
+      params: {
+        date_from: filters.dateFrom,
+        date_to: filters.dateTo,
+        metric: [...filters.metrics],
+        ...teamFilterQuery(filters.team),
+      },
       paramsSerializer: { indexes: null },
     },
   )
