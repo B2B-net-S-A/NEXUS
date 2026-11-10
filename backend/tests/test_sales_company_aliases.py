@@ -600,8 +600,127 @@ async def test_merge_moves_decisions_and_keeps_the_targets_own(app_client) -> No
         [
             (target_id, f"wspolna {tag}", "rejected"),
             (target_id, f"tylko {tag}", "joined"),
+            # Nazwa wchłoniętej karty dochodzi jako dołączona.
+            (target_id, normalize_company_name(f"Zrodlo{tag}"), "joined"),
         ]
     )
+
+
+async def _merge(target_id: int, source_id: int, **kwargs) -> None:
+    async with AsyncSessionLocal() as db:
+        target = await db.get(SalesCompany, target_id)
+        source = await db.get(SalesCompany, source_id)
+        await merge_companies(
+            db, target=target, source=source, now=datetime.now(timezone.utc), **kwargs
+        )
+        await db.commit()
+
+
+async def _decisions(company_id: int) -> list[tuple[str, str]]:
+    async with AsyncSessionLocal() as db:
+        rows = await company_aliases.decisions(db, company_id)
+        return [(row.alias, row.status) for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_merge_on_the_screen_keeps_people_of_the_absorbed_name(
+    app_client,
+) -> None:
+    editor = await _user("sales_edit")
+    tag = _tag()
+    target_id = await _card(f"Omega{tag}")
+    source_id = await _card(f"Omega{tag} Group")
+    await _person(f"Cel{tag}", _job(f"Omega{tag}"))
+    for number in range(2):
+        await _person(f"Zrodlo{number}{tag}", _job(f"Omega{tag} Group"))
+    before = [
+        (await _people(app_client, company_id, editor))["counts"]["current"]
+        for company_id in (target_id, source_id)
+    ]
+
+    merged = await app_client.post(
+        f"{URL}/{target_id}/merge",
+        headers=_headers(editor),
+        json={"source_id": source_id},
+    )
+
+    assert merged.status_code == 200, merged.text
+    assert before == [1, 2]
+    after = await _people(app_client, target_id, editor)
+    assert after["counts"]["current"] == sum(before)
+    async with AsyncSessionLocal() as db:
+        alias = (
+            await db.execute(
+                select(SalesCompanyAlias).where(
+                    SalesCompanyAlias.company_id == target_id
+                )
+            )
+        ).scalar_one()
+    assert (alias.alias, alias.normalized_alias, alias.status) == (
+        f"Omega{tag} Group",
+        normalize_company_name(f"Omega{tag} Group"),
+        "joined",
+    )
+    # Dopisek da się cofnąć na karcie i widać, kto scalił.
+    assert alias.created_by_user_id == editor.id
+
+
+@pytest.mark.asyncio
+async def test_merge_joins_the_legal_name_and_skips_names_the_target_has(
+    app_client,
+) -> None:
+    tag = _tag()
+    target_id = await _card(f"Cel{tag}", legal_name=f"Cel{tag} Dawna")
+    # Nazwa źródła to nazwa prawna docelowej, a karta tej samej nazwy niczego nie wnosi.
+    source_id = await _card(f"Cel{tag} Dawna S.A.", legal_name=f"Prawna{tag} Holding")
+    twin_id = await _card(f"CEL{tag} Sp. z o.o.")
+
+    await _merge(target_id, source_id)
+    await _merge(target_id, twin_id)
+
+    assert await _decisions(target_id) == [(f"Prawna{tag} Holding", "joined")]
+    assert await _decisions(source_id) == []
+
+
+@pytest.mark.asyncio
+async def test_merge_leaves_the_targets_decision_about_the_absorbed_name(
+    app_client,
+) -> None:
+    editor = await _user("sales_edit")
+    tag = _tag()
+    target_id = await _card(f"Cel{tag}")
+    source_id = await _card(f"Zrodlo{tag}")
+    await _person(f"Obca{tag}", _job(f"Zrodlo{tag}"))
+    async with AsyncSessionLocal() as db:
+        db.add(
+            SalesCompanyAlias(
+                company_id=target_id,
+                alias=f"Zrodlo{tag}",
+                normalized_alias=normalize_company_name(f"Zrodlo{tag}"),
+                status="rejected",
+            )
+        )
+        await db.commit()
+
+    await _merge(target_id, source_id)
+
+    assert await _decisions(target_id) == [(f"Zrodlo{tag}", "rejected")]
+    assert (await _people(app_client, target_id, editor))["counts"]["current"] == 0
+
+
+@pytest.mark.asyncio
+async def test_merge_does_not_join_a_name_that_cannot_be_an_alias(app_client) -> None:
+    tag = _tag()
+    target_id = await _card(f"Cel{tag}")
+    # Nazwa prawna źródła uzupełnia pustą nazwę prawną docelowej, więc panel już ją zna.
+    source_id = await _card(f"Freelance {tag}", legal_name=f"Prawna{tag} Holding")
+
+    await _merge(target_id, source_id)
+
+    assert await _decisions(target_id) == []
+    async with AsyncSessionLocal() as db:
+        target = await db.get(SalesCompany, target_id)
+    assert target.legal_name == f"Prawna{tag} Holding"
 
 
 # ── Kolejność osób ───────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ tag, a podsumowanie liczy własny lejek testu.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -17,7 +18,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select, text
 
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, Base
 from app.core.scheduling import business_today
 from app.models.sales import (
     SalesActivity,
@@ -31,6 +32,7 @@ from app.models.sales import (
     SalesPipelineStage,
 )
 from app.models.user import User
+from app.services.sales import merge as company_merge
 from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
 from app.services.sales.summary import period_range
 from tests.test_sales_companies_api import _headers, _user
@@ -891,6 +893,22 @@ async def test_merge_moves_everything_and_archives_the_source(app_client) -> Non
         url, json={"source_id": source["id"]}, headers=_headers(rep)
     )
     assert again.status_code == 409
+
+
+def test_merge_knows_every_table_that_points_at_a_sales_company() -> None:
+    """Tabela z kluczem do firmy, której ``merge.py`` nie zna, zostaje w archiwum."""
+
+    handled = inspect.getsource(company_merge)
+    pointing = {
+        mapper.class_.__name__
+        for mapper in Base.registry.mappers
+        if any(
+            key.column.table.name == "sales_companies"
+            for key in mapper.local_table.foreign_keys
+        )
+    }
+    assert "SalesOpportunity" in pointing
+    assert sorted(name for name in pointing if name not in handled) == []
 
 
 # ── D. Kontakty ──────────────────────────────────────────────────────────

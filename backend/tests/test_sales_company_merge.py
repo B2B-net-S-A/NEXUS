@@ -567,6 +567,24 @@ async def test_joined_names_of_the_source_follow_the_merge() -> None:
     }
 
 
+async def test_plan_counts_the_names_the_merge_joins_source_by_source() -> None:
+    tag = _tag()
+    target = await _card(f"Zmyślona {tag}")
+    first = await _card(f"Zmyślona {tag} Group")
+    # Nazwa prawna drugiej karty to nazwa pierwszej, a pierwsza jest już dołączona.
+    second = await _card(
+        f"Zmyślona {tag} Polska", legal_name=f"Zmyślona {tag} Group Sp. z o.o."
+    )
+
+    report = await _apply(decide=((target, (first, second)),))
+
+    assert (report.merged, report.names_to_join, report.names_joined) == (2, 2, 2)
+    assert await _aliases(target) == {
+        f"Zmyślona {tag} Group": JOINED,
+        f"Zmyślona {tag} Polska": JOINED,
+    }
+
+
 async def test_domain_shared_by_two_companies_is_a_conflict_until_accepted(
     tmp_path,
 ) -> None:

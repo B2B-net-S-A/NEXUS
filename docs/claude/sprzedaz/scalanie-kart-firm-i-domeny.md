@@ -1,5 +1,5 @@
 # Scalanie zdublowanych kart firm i domeny: jednorazowy skrypt (B6) — decyzje Artura 10.11.2026
-<!-- indeks: scripts/sales_company_merge.py, konta lejka atlas-it-factories i lista z researchu centrów IT, grupa = ta sama nazwa kanoniczna albo NIP, karta docelowa, „do decyzji”, karty tej samej marki (wariant nazwy, inna spółka), --decide, blokada dotyku szansy, nazwy dołączone po scaleniu, domena z poczty kontaktów, konflikt domen, --accept-domain, --expect-merge, --expect-domains, lista poza repo -->
+<!-- indeks: scripts/sales_company_merge.py, services/sales/merge.py, names_to_join, konta lejka atlas-it-factories i lista z researchu centrów IT, grupa = ta sama nazwa kanoniczna albo NIP, karta docelowa, „do decyzji”, karty tej samej marki (wariant nazwy, inna spółka), --decide, blokada dotyku szansy, nazwy dołączone po scaleniu (także z ekranu Firmy), punkty do rozmowy z bota po scaleniu, domena z poczty kontaktów, konflikt domen, --accept-domain, --expect-merge, --expect-domains, lista poza repo -->
 
 Kartoteka Sprzedaży po imporcie z Atlasa ma po kilka kart tej samej firmy, a karty
 kont „Fabryk IT” nie mają domeny. Bez domeny nie działa dopasowanie poczty i kalendarza
@@ -69,15 +69,40 @@ Wzór biegu na sucho i liczników to `scripts/sales_cleanup.py`.
 
 ## Nazwa wchłoniętej karty zostaje jako dołączona
 
-„Kogo znamy” dopasowuje osoby dokładnie po nazwie kanonicznej, a `merge.py` nie przenosi
-nazwy źródła. Bez dopisku osoby z „Marka Group” w CV znikłyby z liczników po scaleniu
-tej karty w „Marka”. Skrypt dopisuje więc nazwę (i nazwę prawną) wchłoniętej karty do
-`sales_company_aliases` jako `joined`, gdy różni się od nazw docelowej. Da się to cofnąć
-na karcie („Cofnij”). Scalenie z ekranu Firmy tego nie robi.
+„Kogo znamy” dopasowuje osoby dokładnie po nazwie kanonicznej. Bez dopisku osoby
+z „Marka Group” w CV znikłyby z liczników po scaleniu tej karty w „Marka”. Scalenie
+dopisuje więc nazwę (i nazwę prawną) wchłoniętej karty do `sales_company_aliases` jako
+`joined`, gdy różni się od nazw docelowej i wolno ją doliczyć do firmy
+(`company_aliases.can_be_alias`). Da się to cofnąć na karcie („Cofnij”).
+
+Od 10.11.2026 robi to `merge.py` (`names_to_join`), więc scalenie z ekranu Firmy
+i skrypt dają ten sam wynik. Do tego dnia nazwę dopisywał tylko skrypt i to samo
+scalenie zależało od drogi. Skrypt liczy te nazwy w biegu na sucho tą samą funkcją
+i po zapisie sprawdza, że są przy karcie docelowej.
+
+- Nazwa idzie po decyzjach źródła i nie nadpisuje tego, co już jest przy docelowej:
+  „Nie ta firma” przy nazwie wchłanianej karty zostaje. Z ekranu scalenie przechodzi
+  wtedy bez dopisku, a skrypt takiej grupy nie scala (blokada wyżej).
+- Pusta nazwa prawna docelowej dostaje nazwę prawną źródła (`FILLABLE_FIELDS`), więc
+  ta nazwa nie trafia do dołączonych drugi raz.
+- Karty scalone z ekranu przed 10.11.2026 dopisku nie mają. Nazwę takiej karty widać
+  na karcie w archiwum (`custom_fields.merged_into`), a dołącza się ją ręcznie
+  w „Innych nazwach z CV”.
 
 Próba na osobnej kopii bazy (10.11.2026, 18 kart wchłoniętych): mapy 55 kont listy
 z `fabryki-it-lista-kont-i-kolejka.md` wyszły bez zmian, a „Znamy teraz” scalonej karty
 równało się sumie kart sprzed scalenia i nigdzie nie spadło.
+
+## Punkty do rozmowy z bota
+
+`sales_company_briefings` ma jeden wiersz na firmę, nadpisywany kolejnym biegiem bota
+(`sygnaly-grok-bot.md`). Scalenie daje docelowej punkty źródła, gdy nie ma własnych
+albo ma starsze (`generated_at`); nowsze punkty docelowej zostają. Przy karcie
+w archiwum wiersz nie zostaje, tak jak nazwy dołączone i powiązania osób.
+
+Bieg bota (`sales_signal_runs.company_ids`) to zapis tego, co wysłano, i scalenie go
+nie zmienia. Raport z biegu, który trwał w chwili scalenia, pomija kartę w archiwum
+(`signals._companies`), a następny bieg bierze już kartę docelową.
 
 ## Domeny
 

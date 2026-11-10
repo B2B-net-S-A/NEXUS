@@ -24,8 +24,9 @@ Co robi:
 3. karty tej samej marki o innej nazwie („… Bank Polska”, „… Leasing”) wypisuje obok
    grupy jako podobne i nigdy nie scala ich sam. Decyzję Artura wykonuje
    ``--decide DOCELOWA:ŹRÓDŁO[,ŹRÓDŁO]`` (same id);
-4. nazwę wchłoniętej karty, inną niż nazwy docelowej, dopisuje do „Innych nazw z CV”
-   jako dołączoną, bo „Kogo znamy” dopasowuje osoby dokładnie po nazwie;
+4. liczy nazwy wchłoniętych kart, które scalenie dopisze do „Innych nazw z CV”
+   jako dołączone (``merge.py``: „Kogo znamy” dopasowuje osoby dokładnie po nazwie),
+   i po zapisie sprawdza, że są przy karcie docelowej;
 5. proponuje domenę karty docelowej: najczęstsza firmowa domena z adresów kontaktów
    (bez darmowych skrzynek), w drugiej kolejności pole strony www. Domena już wpisana
    zostaje. Propozycja słaba albo wspólna z inną firmą nie jest zapisywana bez
@@ -65,7 +66,6 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import Select, func, select, text
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -81,9 +81,9 @@ from app.models.sales import (
 from app.models.user import User, UserRole
 from app.services.company_names import normalize_company_name
 from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
-from app.services.sales.company_aliases import JOINED, brand_of, can_be_alias
+from app.services.sales.company_aliases import JOINED, brand_of
 from app.services.sales.decision_map import IT_FACTORIES_PIPELINE_KEY
-from app.services.sales.merge import merge_companies
+from app.services.sales.merge import merge_companies, names_to_join
 from app.services.sales.task_scope import live_opportunity
 from app.services.sales.touch import last_touch_at, touched_at
 
@@ -430,37 +430,33 @@ def _similar(
 def _names_to_join(
     merge: Merge, aliases: dict[int, list[tuple[str, str]]]
 ) -> tuple[list[tuple[str, str]], bool]:
-    """Nazwy do dopisania po scaleniu i czy scalenie zgubiłoby nazwę dołączoną.
+    """Nazwy, które scalenie dopisze, i czy zgubiłoby nazwę dołączoną.
 
-    Odtwarza ``merge.py``: decyzje źródła idą za firmą, a przy tej samej nazwie
-    wygrywa decyzja docelowej (``ON CONFLICT DO NOTHING``).
+    Odtwarza ``merge.py`` źródło po źródle: decyzje źródła idą za firmą, potem
+    jego nazwy (``names_to_join``), a przy tej samej nazwie wygrywa decyzja,
+    która już jest przy docelowej (``ON CONFLICT DO NOTHING``).
     """
 
     state = dict(aliases.get(merge.target.id, ()))
     lost = False
+    own = {merge.target.key, normalize_company_name(merge.target.name)}
     legal_name = merge.target.legal_name
+    join = []
     for source in merge.sources:
-        legal_name = legal_name or source.legal_name
         for canonical, status in aliases.get(source.id, ()):
             kept = state.setdefault(canonical, status)
             lost = lost or (status == JOINED and kept != JOINED)
-    covered = {
-        merge.target.key,
-        normalize_company_name(merge.target.name),
-        normalize_company_name(legal_name or ""),
-    }
-    join = []
-    for source in merge.sources:
-        for raw in (source.name, source.legal_name):
-            canonical = normalize_company_name(raw or "")
-            if not canonical or canonical in covered or not can_be_alias(canonical):
-                continue
-            covered.add(canonical)
+        legal_name = legal_name or source.legal_name
+        covered = {*own, normalize_company_name(legal_name or "")}
+        for alias, canonical in names_to_join(
+            covered, (source.name, source.legal_name)
+        ):
             if canonical in state:
                 # „Nie ta firma” przy nazwie karty, którą właśnie mamy wchłonąć.
                 lost = lost or state[canonical] != JOINED
                 continue
-            join.append(((raw or "").strip(), canonical))
+            state[canonical] = JOINED
+            join.append((alias, canonical))
     return join, lost
 
 
@@ -912,24 +908,19 @@ async def _apply(db: AsyncSession, plan: Plan, options: Options, now: datetime) 
             )
             plan.report.merged += 1
         if merge.join:
-            joined = await db.execute(
-                insert(SalesCompanyAlias)
-                .values(
-                    [
-                        {
-                            "company_id": target.id,
-                            "alias": alias,
-                            "normalized_alias": canonical,
-                            "status": JOINED,
-                            "created_by_user_id": options.actor_id,
-                        }
-                        for alias, canonical in merge.join
-                    ]
+            # Nazwy dopisuje ``merge.py``; tu tylko sprawdzenie, że są przy karcie.
+            present = await db.scalar(
+                select(func.count())
+                .select_from(SalesCompanyAlias)
+                .where(
+                    SalesCompanyAlias.company_id == target.id,
+                    SalesCompanyAlias.status == JOINED,
+                    SalesCompanyAlias.normalized_alias.in_(
+                        [canonical for _, canonical in merge.join]
+                    ),
                 )
-                .on_conflict_do_nothing()
-                .returning(SalesCompanyAlias.id)
             )
-            plan.report.names_joined += len(joined.all())
+            plan.report.names_joined += int(present or 0)
     for item in writing:
         company = companies[item.card.id]
         if not company.domain:
