@@ -116,6 +116,8 @@ front `frontend/src/components/sales/research-import/`, klient API
 - **Bez tekstu informacji z art. 14 RODO i bez przycisku jej kopiowania.** Artur
   10.11.2026: w elementach handlowych RODO pomijamy i zakładamy, że zgody są. Nie
   dokładaj klauzul, pytań o ich treść ani nowych ostrzeżeń prawnych na tych ekranach.
+  Z tej samej decyzji z kolejki zniknął dopisek o zimnym kontakcie
+  (`fabryki-it-lista-kont-i-kolejka.md`).
 
 Testy: `backend/tests/test_sales_research_file.py`,
 `backend/tests/test_sales_research_import.py`,

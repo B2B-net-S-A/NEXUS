@@ -1957,20 +1957,6 @@
     "dot_anchor": "sales.tabs"
   },
   {
-    "id": "sprzedaz-fabryki-it-lista-i-kolejka",
-    "pr": 3295,
-    "title": "Fabryki IT: lista kont i kolejka osób",
-    "why": "Lejek Fabryki IT otwiera lista kont: ile osób z mapy ma kontakt za sobą i ilu ludzi z bazy pracuje w firmie. „Kolejka” to zarząd i dyrektorzy bez kontaktu, „Kto ich zna” prowadzi do znajomych z bazy.",
-    "tier": "dot",
-    "shipped_on": "2026-11-10",
-    "audience": {
-      "permissions": ["sales_view"]
-    },
-    "where": "Sprzedaż → Szanse → lejek Fabryki IT → Wszystkie / Kolejka",
-    "href": "/sales/opportunities",
-    "dot_anchor": "sales.factories.mode"
-  },
-  {
     "id": "sprzedaz-lista-z-researchu",
     "pr": 3302,
     "title": "Leady: lista osób z researchu do map decyzyjnych",
@@ -1983,6 +1969,20 @@
     "where": "Sprzedaż → Leady → Lista z researchu",
     "href": "/sales/leads",
     "dot_anchor": "sales.leads.mode"
+  },
+  {
+    "id": "sprzedaz-fabryki-it-lista-i-kolejka",
+    "pr": 3295,
+    "title": "Fabryki IT: lista kont i kolejka osób",
+    "why": "Lejek Fabryki IT otwiera lista kont: ile osób z mapy ma kontakt za sobą i ilu ludzi z bazy pracuje w firmie. „Kolejka” to zarząd i dyrektorzy bez kontaktu, „Kto ich zna” prowadzi do znajomych z bazy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse → lejek Fabryki IT → Wszystkie / Kolejka",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.factories.mode"
   },
   {
     "id": "insights-termin-rozmowy",

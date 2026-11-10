@@ -155,10 +155,6 @@ export function FactoryQueue({ ownerId, ownerDenied, canEdit, search, known }: F
             </h2>
             <span className="text-xs tabular-nums text-muted-foreground">{peopleLabel(data?.people.length ?? 0)}</span>
           </div>
-          <p className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
-            Wpis na mapie nie daje prawa do zimnego kontaktu. Zacznij od osoby, którą znamy („Kto ich zna”), albo
-            działaj w ramach pilota.
-          </p>
           {people.length > 0 ? (
             <ul className="divide-y divide-border">{people.map(row)}</ul>
           ) : (
