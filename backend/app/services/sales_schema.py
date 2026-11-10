@@ -821,3 +821,24 @@ SIGNALS_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_leads ADD CONSTRAINT ck_sales_leads_source "
     f"CHECK (source IN ({quoted(_LEAD_SOURCES_BEFORE_SIGNALS)}))",
 )
+
+# ── 0677: podsumowanie spotkania dla klienta (09.11.2026) ─────────────────
+# Szkic modelu F46 zapisany przy transkrypcie, żeby ponowne otwarcie okna nie
+# wołało modelu drugi raz, klucz żądania wysyłki (drugi klik „Wyślij” z tym
+# samym kluczem nie wysyła drugiego maila do klienta) i chwila ostatniej wysyłki,
+# którą okno pokazuje przed ponowną.
+
+CLIENT_SUMMARY_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_meeting_transcripts ADD COLUMN IF NOT EXISTS "
+    "client_summary TEXT NULL",
+    "ALTER TABLE sales_meeting_transcripts ADD COLUMN IF NOT EXISTS "
+    "client_mail_request_id VARCHAR(64) NULL",
+    "ALTER TABLE sales_meeting_transcripts ADD COLUMN IF NOT EXISTS "
+    "client_mail_sent_at TIMESTAMPTZ NULL",
+)
+
+CLIENT_SUMMARY_DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_mail_sent_at",
+    "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_mail_request_id",
+    "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_summary",
+)

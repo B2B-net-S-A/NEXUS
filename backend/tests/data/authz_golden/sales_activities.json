@@ -32,15 +32,20 @@
  ],
  "routes": {
   "DELETE /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "DELETE /api/sales/activities/{activity_id}/pin": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/timeline": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/{activity_id}/client-summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/{activity_id}/opportunity-draft": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/{activity_id}/transcript": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities/tasks/complete": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/activities/{activity_id}/client-summary/send": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities/{activity_id}/done": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/activities/{activity_id}/pin": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities/{activity_id}/reopen": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

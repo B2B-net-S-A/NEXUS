@@ -124,6 +124,8 @@ class TestFeatureKeyEnum:
             "cv_call_questions",
             # 0658: nocne propozycje do słownika umiejętności.
             "skill_dictionary_proposals",
+            # 0677: podsumowanie spotkania handlowca do wysłania klientowi.
+            "sales_meeting_client_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

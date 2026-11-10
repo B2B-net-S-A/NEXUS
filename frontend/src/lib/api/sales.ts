@@ -487,6 +487,12 @@ export interface TimelineItem extends Activity {
   scope: TimelineScope;
   /** Skąd wpis: po sklejeniu duplikatów może być kilka źródeł. */
   sources: string[];
+  /** Spotkanie z transkryptem Teams: aktywność z Outlooka, przy której leży transkrypt. */
+  transcript_activity_id?: number | null;
+  transcript_summary?: string | null;
+  /** Organizator spotkania albo admin z „Sprzedaż: edycja”. */
+  can_send_client_summary?: boolean;
+  client_mail_sent_at?: string | null;
 }
 
 export interface OpportunityTimeline {
@@ -1189,6 +1195,33 @@ export interface MeetingTranscript {
   plain_text: string;
 }
 
+export interface ClientMailRecipient {
+  address: string;
+  name: string | null;
+  /** Adres z bazy kandydatów: podsumowań z Sprzedaży tam nie wysyłamy. */
+  blocked: "candidate" | null;
+}
+
+export interface ClientMailDraft {
+  subject: string;
+  body: string;
+  /** Model nie dał szkicu: pole zostaje puste do napisania ręcznie. */
+  model_failed: boolean;
+  recipients: ClientMailRecipient[];
+  mailbox: "ok" | "missing" | "no_send_scope";
+  sender_address: string | null;
+  sent_at: string | null;
+}
+
+export interface ClientMailSendInput {
+  activityId: number;
+  subject: string;
+  body: string;
+  to: string[];
+  request_id: string;
+  opportunity_id?: number | null;
+}
+
 export interface MeetingDraft {
   company: Ref;
   occurred_at: string | null;
@@ -1274,6 +1307,26 @@ export function useMeetingTranscript(activityId: number | null) {
     queryFn: async () =>
       (await api.get<MeetingTranscript>(`/api/sales/activities/${activityId}/transcript`)).data,
     enabled: activityId !== null,
+  });
+}
+
+export function useClientMailDraft(activityId: number) {
+  return useQuery({
+    queryKey: ["sales", "meetings", activityId, "client-summary"] as const,
+    queryFn: async () =>
+      (await api.get<ClientMailDraft>(`/api/sales/activities/${activityId}/client-summary`)).data,
+    // Szkic modelu powstaje raz i leży przy transkrypcie; bez ponowień po błędzie.
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useSendClientMail() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ activityId, ...payload }: ClientMailSendInput) =>
+      (await api.post<Activity>(`/api/sales/activities/${activityId}/client-summary/send`, payload)).data,
+    onSuccess: invalidate,
   });
 }
 

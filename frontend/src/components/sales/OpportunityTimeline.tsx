@@ -28,6 +28,8 @@ import { ActivityBody } from "./ActivityBody";
 import { ActivityComposer } from "./ActivityComposer";
 import { ActivityEditDialog } from "./ActivityEditDialog";
 import { isTodo } from "./ActivityTimeline";
+import { MeetingClientMailDialog } from "./MeetingClientMailDialog";
+import { MeetingTranscriptDialog } from "./MeetingTranscriptDialog";
 
 const PAGE = 12;
 const TITLE_CHARS = 240;
@@ -67,6 +69,53 @@ function sourcesLabel(item: TimelineItem): string {
   return [...new Set(item.sources.map((source) => SOURCE_LABEL[source]).filter(Boolean))].join(" i ");
 }
 
+interface MeetingSummaryProps {
+  item: TimelineItem;
+  open: boolean;
+  canEdit: boolean;
+  onTranscript: (activityId: number) => void;
+  onClientMail: (activityId: number) => void;
+}
+
+/** Spotkanie z transkryptem Teams: podsumowanie widać bez rozwijania wiersza. */
+export function MeetingSummary({ item, open, canEdit, onTranscript, onClientMail }: MeetingSummaryProps) {
+  const activityId = item.transcript_activity_id;
+  if (!activityId) return null;
+  return (
+    <div className="mt-1 space-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm md:ml-[5.5rem]">
+      {item.transcript_summary ? (
+        <p className={open ? "whitespace-pre-line text-foreground" : "line-clamp-3 text-foreground"}>
+          <span className="font-medium">Podsumowanie z Teams: </span>
+          {item.transcript_summary}
+        </p>
+      ) : (
+        <p className="text-muted-foreground">Transkrypt z Teams bez podsumowania.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => onTranscript(activityId)}>
+          Transkrypt
+        </Button>
+        {canEdit && item.can_send_client_summary && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2"
+            data-tour="sales.meeting-client-summary"
+            onClick={() => onClientMail(activityId)}
+          >
+            Podsumowanie dla klienta
+          </Button>
+        )}
+        {item.client_mail_sent_at && (
+          <span className="text-xs text-muted-foreground">
+            wysłane klientowi {formatDateTimePl(item.client_mail_sent_at)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface RowProps {
   item: TimelineItem;
   canEdit: boolean;
@@ -75,9 +124,21 @@ interface RowProps {
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onTranscript: (activityId: number) => void;
+  onClientMail: (activityId: number) => void;
 }
 
-function Row({ item, canEdit, canManage, canDelete, onToggle, onEdit, onDelete }: RowProps) {
+function Row({
+  item,
+  canEdit,
+  canManage,
+  canDelete,
+  onToggle,
+  onEdit,
+  onDelete,
+  onTranscript,
+  onClientMail,
+}: RowProps) {
   const [open, setOpen] = useState(false);
   const todo = isTodo(item);
   const notDone = todo && !item.done_at;
@@ -119,6 +180,13 @@ function Row({ item, canEdit, canManage, canDelete, onToggle, onEdit, onDelete }
           </Badge>
         </span>
       </div>
+      <MeetingSummary
+        item={item}
+        open={open}
+        canEdit={canEdit}
+        onTranscript={onTranscript}
+        onClientMail={onClientMail}
+      />
       {open && (
         <div className="mt-1 space-y-1 pl-[5.5rem]">
           {item.body && <ActivityBody body={item.body} markdown={item.kind === "note"} />}
@@ -193,6 +261,8 @@ export function OpportunityTimelineCard({ opportunityId, canEdit }: OpportunityT
   const [limit, setLimit] = useState(PAGE);
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<TimelineItem | null>(null);
+  const [transcriptFor, setTranscriptFor] = useState<number | null>(null);
+  const [mailFor, setMailFor] = useState<number | null>(null);
 
   const items = timeline.data?.items;
   const shown = useMemo(
@@ -273,6 +343,8 @@ export function OpportunityTimelineCard({ opportunityId, canEdit }: OpportunityT
               }
               onEdit={() => setEditing(item)}
               onDelete={() => void onDelete(item)}
+              onTranscript={setTranscriptFor}
+              onClientMail={setMailFor}
             />
           ))}
         </ul>
@@ -285,6 +357,16 @@ export function OpportunityTimelineCard({ opportunityId, canEdit }: OpportunityT
         </div>
       )}
       {editing && <ActivityEditDialog activity={editing} onClose={() => setEditing(null)} />}
+      {transcriptFor !== null && (
+        <MeetingTranscriptDialog activityId={transcriptFor} onClose={() => setTranscriptFor(null)} />
+      )}
+      {mailFor !== null && (
+        <MeetingClientMailDialog
+          activityId={mailFor}
+          opportunityId={opportunityId}
+          onClose={() => setMailFor(null)}
+        />
+      )}
       {confirmDialog}
     </Card>
   );

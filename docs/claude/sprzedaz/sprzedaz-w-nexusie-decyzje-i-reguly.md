@@ -296,6 +296,50 @@ wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
 - **Podsumowanie (F40) jest dodatkiem:** lista czyta je z wiersza, awaria modelu
   zostawia sam transkrypt, najwyżej 3 próby na spotkanie.
 
+### Podsumowanie na karcie szansy i mail do klienta (decyzje Artura 09.11.2026)
+
+Logika wysyłki: `services/sales/meeting_client_mail.py`, trasy w `api/sales_activities.py`,
+kolumny 0677 przy `sales_meeting_transcripts`.
+
+- **Nagrywanie włącza handlowiec sam w Teams.** Bez polityki automatycznego nagrywania
+  i bez `NEXUS-Meetings-Scope`; kroki w M365: `docs/teams-prep-setup.md`, sekcja
+  „Transkrypty spotkań handlowców”.
+- **Oś szansy pokazuje podsumowanie bez rozwijania wiersza** (`MeetingSummary`
+  w `OpportunityTimeline.tsx`): spotkanie przypięte do szansy i spotkanie jej firmy.
+  Aktywność nie ma powiązania z leadem, więc spotkanie sprzed szansy z leada jest na osi
+  jako wpis firmy. `GET …/timeline` dokłada `transcript_activity_id`, `transcript_summary`,
+  `can_send_client_summary` i `client_mail_sent_at`; transkrypt szuka po wszystkich
+  sklejonych wpisach wiersza, bo wierszem bywa kopia z Fireflies.
+- **Szkic dla klienta to osobny wynik modelu (F46, `sales_meeting_client_summary`),**
+  nie przeróbka F40: ustalenia i następne kroki w formie „Państwo”, bez kwot, stawek,
+  marż, kandydatów i spraw wewnętrznych. Szkic leży przy transkrypcie (`client_summary`),
+  więc ponowne otwarcie okna nie woła modelu. Awaria modelu daje puste pole i zwykłą
+  wysyłkę, nie błąd. Okno ostrzega przed kwotami i słowami o stawkach w treści,
+  ale nie blokuje: decyduje handlowiec.
+- **Wysyła organizator spotkania albo admin, za `SalesEditUser`,** z własnej skrzynki
+  (`/me/messages` + `/send`, stopka z Outlooka). Organizatora wyznacza
+  `sales_meeting_transcripts.organizer_user_id`, bo transkrypt pobieramy tylko dla
+  spotkań, których handlowiec jest organizatorem. Skrzynka bez `Mail.Send` w
+  `scopes_granted` dostaje 409 z prośbą o ponowne połączenie.
+- **Adresaci domyślnie:** uczestnicy z `calendar_events.attendees` bez naszych domen
+  i bez właściciela skrzynki (`matcher.external_addresses`); da się ich zmienić.
+- **Bez wysyłki do adresów z bazy kandydatów, także dla admina (422).** Najpierw
+  bramka organizatora (403/404), potem adresy, a odmowa ich nie wymienia: inaczej każdy
+  z „Sprzedaż: edycja” sprawdzałby wpisywaniem, kto jest w bazie kandydatów. Ta ścieżka
+  używa `GraphClient(..., sales_ok=True)`, żeby wysłać ze skrzynki handlowca bez dostępu
+  do kandydatów; bramka kandydatów z `m365/sender.py` zostaje nietknięta, a korespondencja
+  z kandydatem i tak nie idzie na oś firmy.
+- **Jedna wysyłka na klucz:** okno nadaje `request_id`, serwer zapisuje go pod blokadą
+  wiersza transkryptu przed wywołaniem Graph. Drugi klik z tym samym kluczem dostaje 409.
+  Odmowa Graph (4xx albo brak szkicu) zwalnia klucz (502, nic nie wyszło); błąd po
+  utworzeniu szkicu zostawia klucz i mówi „sprawdź Wysłane” (409), bo mail mógł wyjść.
+- **Mail ląduje na osi szansy** jako `email`/`out` z `external_source='msgraph-mail'`
+  i `internetMessageId`, więc kopia z folderu Wysłane z synchronizacji skleja się z nim
+  (ten sam klucz co `ux_sales_activities_outlook`). Spotkanie przypięte idzie do swojej
+  szansy, spotkanie firmy do karty, z której wysłano (tylko szansa tej samej firmy).
+  Synchronizacja nie skraca treści: podgląd z Graph nie zastępuje dłuższej treści maila
+  (`outlook_activities.record`).
+
 ## Poza zakresem (świadomie)
 
 Generator ofert, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, synchronizacja
