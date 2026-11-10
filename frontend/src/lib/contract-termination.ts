@@ -94,16 +94,23 @@ export function suggestedLastDay(
  * (propozycja zespołu 28.10.2026: 18 z 22 zakończeń od 23.09 zostawiło umowę
  * bez rozwiązania, a generator porozumień nie wydał ani jednego dokumentu).
  * `prepare` = zapis końca + generator porozumienia z datami z okna,
+ * `notice` = zapis końca + generator wypowiedzenia przez B2B.net (zgłoszenie
+ * 10.11.2026; daty liczy generator z okresu wypowiedzenia w umowie),
  * `done` = umowa już rozwiązana (dotychczasowe pola), `keep` = umowa zostaje
  * („Umowy bez projektu” w generatorze).
  */
-export type AgreementPlan = "" | "prepare" | "done" | "keep";
+export type AgreementPlan = "" | "prepare" | "notice" | "done" | "keep";
 
 export const AGREEMENT_PLANS: { value: Exclude<AgreementPlan, "">; label: string; hint: string }[] = [
   {
     value: "prepare",
     label: "Przygotuj porozumienie o rozwiązaniu",
     hint: "Po zapisie otworzy się generator z tą umową i datą końca projektu.",
+  },
+  {
+    value: "notice",
+    label: "Przygotuj wypowiedzenie (przez B2B.net)",
+    hint: "Po zapisie otworzy się generator z tą umową. Datę rozwiązania wyliczy z okresu wypowiedzenia w umowie.",
   },
   {
     value: "done",
@@ -116,6 +123,24 @@ export const AGREEMENT_PLANS: { value: Exclude<AgreementPlan, "">; label: string
     hint: "Umowa trafi do „Umów bez projektu” w generatorze.",
   },
 ];
+
+/**
+ * Powody z wypowiedzenia przez B2B.net — lustro `_TERMINATION_BY_COMPANY`
+ * w `backend/app/services/b2b_documents/registry.py`. Powód kontraktu spoza
+ * tej listy (np. „Przejście do klienta”) nie idzie do generatora: tam pole
+ * jest obowiązkowe, więc wybór zostaje przy wystawiającym.
+ */
+const NOTICE_REASONS: ReadonlySet<string> = new Set([
+  "project_ended",
+  "client_budget_cut",
+  "performance_issue",
+  "contract_breach",
+  "other",
+]);
+
+export function noticeReason(reason: ContractTerminationReason | ""): string {
+  return NOTICE_REASONS.has(reason) ? reason : "";
+}
 
 /** Zakaz konkurencji w porozumieniu: `release` = zdjęty dla klienta projektu. */
 export type NonCompetePlan = "keep" | "release";

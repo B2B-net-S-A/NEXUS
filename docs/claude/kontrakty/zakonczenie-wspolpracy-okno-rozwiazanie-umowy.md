@@ -85,6 +85,29 @@ typu dokumentu.
   `contract-termination.test.ts`, `b2b-documents.test.ts` („adres kreatora”),
   `app/contracts/[id]/__tests__/signed-delete-flow.test.tsx`.
 
+### „Przygotuj wypowiedzenie” (zgłoszenie zespołu, 10.11.2026)
+
+Zespół pisał wypowiedzenia ręcznie, bo okno proponowało tylko porozumienie,
+choć generator ma „Wypowiedzenie umowy (przez B2B.net)” (`termination_notice`)
+od #1759. Brakowało drogi, nie wzoru — tak samo jak przy porozumieniu.
+
+- **Czwarta odpowiedź `notice`** działa jak `prepare`: zapisuje koniec
+  projektu bez danych rozwiązania, potem otwiera generator na
+  `termination_notice`. Dane rozwiązania (tryb, strona B2B.net, doręczenie,
+  ostatni dzień) dopisuje `effects.apply` przy dokumencie.
+- **Dat okno nie przekazuje.** Doręczenie (dziś) i rozwiązanie (koniec
+  okresu wypowiedzenia z wersji wzoru umowy) podpowiada serwer generatora;
+  `v_termination_date` z okna przykryłby to wyliczenie końcem projektu.
+  Okno nie liczy daty z `notice_period_months` kontraktu: na kopii z 10.11
+  pole było puste na 502 z 502 żywych kontraktów B2B, a 113 z 114 aktywnych
+  umów w generatorze ma wersję wzoru, z której generator zna okres.
+- **Powód idzie jako `v_termination_reason` tylko z listy wypowiedzenia**
+  (`noticeReason`, lustro `_TERMINATION_BY_COMPANY`). Inny powód kontraktu
+  zostawia pole puste do wyboru w generatorze.
+- Wypowiedzenie złożone przez Partnera dalej zapisuje się przez „Umowa jest
+  już rozwiązana albo wypowiedziana” — generator nie ma tego dokumentu, bo
+  pisze go Partner.
+
 ## Rozwiązanie podpisane poza NEXUSEM (zgłoszenie zespołu, decyzja Artura 29.10.2026)
 
 Kontrakt zakończony bez danych rozwiązania nie miał gdzie ich dopisać: okno

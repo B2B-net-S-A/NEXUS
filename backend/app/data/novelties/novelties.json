@@ -1,5 +1,18 @@
 [
   {
+    "id": "wypowiedzenie-z-okna-zakonczenia",
+    "pr": 3283,
+    "title": "Wypowiedzenie umowy B2B z okna zakończenia",
+    "why": "W „Co z umową B2B?” jest teraz też „Przygotuj wypowiedzenie”: po zapisie otwiera się generator z gotowym wypowiedzeniem i datą rozwiązania z okresu wypowiedzenia. Nie trzeba go pisać ręcznie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {"permissions": ["contract_status"]},
+    "where": "Kontrakty → Zakończ współpracę",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.end.notice"
+  },
+  {
     "id": "rekruter-nie-dzwon-aktywne-zamowienie",
     "pr": 3261,
     "title": "„Nie dzwoń” przy osobie z aktywnym zamówieniem",
@@ -489,7 +502,7 @@
       {
         "anchor": "contract.end.b2b-question",
         "text": "Tu jest nowe pole „Co z umową B2B?”.",
-        "hint": "Bez wyboru jednej z trzech odpowiedzi kontraktu nie zakończysz. Zamknij okno bez zapisu.",
+        "hint": "Bez wyboru jednej z odpowiedzi kontraktu nie zakończysz. Zamknij okno bez zapisu.",
         "ack": true
       }
     ]
