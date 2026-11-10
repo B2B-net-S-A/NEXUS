@@ -11,9 +11,10 @@ Skrzynka handlowca bez dostępu do kandydatów przechodzi tu z ``sales_ok=True``
 ta ścieżka nie zaprasza adresów z bazy kandydatów: bramka kandydatów zostaje taka
 jak przy mailu po spotkaniu (``meeting_client_mail``).
 
-Jedno zaproszenie na przekazanie: klucz żądania leży w bloku przekazania i jest
-zapisany przed wywołaniem Graph, a Graph dostaje stały ``transactionId``, więc
-powtórzone żądanie nie tworzy drugiego spotkania. Wydarzenie trafia na oś szansy
+Jedno zaproszenie na przekazanie: rezerwacja leży w bloku przekazania i jest
+zapisana przed wywołaniem Graph, więc drugie żądanie (także z innego okna, z własnym
+kluczem) czeka ``RETRY_AFTER``. Graph dostaje ``transactionId`` stały dla przekazania
+i terminu, więc ponowiona wysyłka nie tworzy drugiego spotkania. Wydarzenie trafia na oś szansy
 jako spotkanie z Outlooka i zastępuje wpis terminu z formularza; kopia
 z synchronizacji kalendarza skleja się z nim po ``iCalUId``.
 """
@@ -58,6 +59,9 @@ logger = logging.getLogger(__name__)
 CALENDAR_SCOPE = "calendars.readwrite"
 MAX_ATTENDEES = 10
 INVITE_KEY = "invite"
+#: Tyle trwa blokada po żądaniu, którego wynik nie jest znany. Dłużej niż wywołanie
+#: Graph; potem prowadzący, który sprawdził kalendarz, może spróbować jeszcze raz.
+RETRY_AFTER = timedelta(minutes=10)
 
 OWNER_DETAIL = "Zaproszenie wysyła prowadzący spotkanie, ze swojej skrzynki."
 PAST_DETAIL = "Termin już minął. Zmień termin, a potem wyślij zaproszenie."
@@ -208,9 +212,16 @@ async def reserve(
     invite = data.get(INVITE_KEY) if isinstance(data.get(INVITE_KEY), dict) else {}
     if invite.get("at"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail=SENT_DETAIL)
-    if invite.get("request_id") == str(payload.request_id):
+    reserved_at = moment(invite.get("reserved_at"))
+    if reserved_at is not None and now - reserved_at < RETRY_AFTER:
+        # Każdy klucz, nie tylko ten sam: drugie okno albo druga karta miałyby własny
+        # i przeszłyby obok trwającej wysyłki.
         raise HTTPException(status.HTTP_409_CONFLICT, detail=IN_FLIGHT_DETAIL)
-    data[INVITE_KEY] = {"request_id": str(payload.request_id), "at": None}
+    data[INVITE_KEY] = {
+        "request_id": str(payload.request_id),
+        "reserved_at": now.isoformat(),
+        "at": None,
+    }
     store(opportunity, data)
     return meeting_at, int(data.get("duration_minutes") or DEFAULT_DURATION)
 
@@ -231,7 +242,6 @@ async def deliver(
     connection: M365Connection,
     *,
     opportunity_id: int,
-    request_id: UUID,
     subject: str,
     message: Optional[str],
     start: datetime,
@@ -254,7 +264,9 @@ async def deliver(
             start=start,
             end=end,
             attendee_emails=to,
-            intent_id=f"sales-handoff-{opportunity_id}-{request_id}",
+            # Stały dla przekazania i terminu, nie dla okna: ponowiona wysyłka z nowym
+            # kluczem żądania nie tworzy w Outlooku drugiego spotkania.
+            intent_id=f"sales-handoff-{opportunity_id}-{start.isoformat()}",
         ),
     )
     try:

@@ -417,7 +417,6 @@ async def send_invite(
             db,
             connection,
             opportunity_id=opportunity_id,
-            request_id=payload.request_id,
             subject=subject,
             message=payload.message,
             start=start,

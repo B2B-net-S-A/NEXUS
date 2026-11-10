@@ -132,10 +132,13 @@ innej osoby. Logika: `services/sales/handoff_invite.py`, trasy `GET` i `POST
 - **Bez adresów z bazy kandydatów (422)**, najpierw bramka prowadzącego, a odmowa nie
   wymienia adresu: te same reguły co przy mailu po spotkaniu. To czwarte dozwolone
   użycie `GraphClient(..., sales_ok=True)` (`outlook-handlowcow-w-sprzedazy.md`).
-- **Jedno zaproszenie na przekazanie:** klucz żądania leży w bloku przekazania
-  i jest zapisany przed wywołaniem Graph, a Graph dostaje stały `transactionId`.
-  Odmowa Graph (4xx) zwalnia klucz (502, nic nie wyszło); utracona odpowiedź zostawia
-  go i każe sprawdzić kalendarz (409), bo spotkanie mogło powstać.
+- **Jedno zaproszenie na przekazanie:** rezerwacja leży w bloku przekazania i jest
+  zapisana przed wywołaniem Graph. Dopóki trwa (10 minut), 409 dostaje każde kolejne
+  żądanie, także z drugiego okna z własnym kluczem: sam klucz żądania tego nie
+  chronił (przegląd bezpieczeństwa 10.11). `transactionId` dla Graph jest stały dla
+  przekazania i terminu, więc ponowiona wysyłka nie tworzy drugiego spotkania.
+  Odmowa Graph (4xx) zwalnia rezerwację (502, nic nie wyszło); utracona odpowiedź
+  zostawia ją i każe sprawdzić kalendarz (409), bo spotkanie mogło powstać.
 - **Na osi szansy** wydarzenie jest spotkaniem z Outlooka (`msgraph-event`, `iCalUId`)
   i zastępuje wpis terminu z formularza; kopia z synchronizacji kalendarza skleja się
   z nim. Od tej chwili termin zmienia się w Outlooku.

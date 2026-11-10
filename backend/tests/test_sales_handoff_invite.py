@@ -281,7 +281,9 @@ async def test_refused_by_outlook_can_be_retried(app_client, graph) -> None:
 
 
 @pytest.mark.asyncio
-async def test_lost_answer_keeps_the_key_and_asks_to_check(app_client, graph) -> None:
+async def test_lost_answer_blocks_every_window_until_it_expires(
+    app_client, graph
+) -> None:
     _, host, opportunity_id, _ = await _handoff(app_client)
     await _mailbox(host)
     request_id = str(uuid.uuid4())
@@ -289,13 +291,31 @@ async def test_lost_answer_keeps_the_key_and_asks_to_check(app_client, graph) ->
     unsure = await _send(app_client, host, opportunity_id, request_id=request_id)
     assert unsure.status_code == 409
     assert "Sprawdź kalendarz" in unsure.json()["detail"]
-    # Ten sam klucz nie wyśle drugi raz, a wpis terminu z formularza zostaje.
+
+    # Ani ten sam klucz, ani nowe okno z własnym kluczem nie wyśle drugi raz.
     graph.fail_status = None
     same = await _send(app_client, host, opportunity_id, request_id=request_id)
-    assert same.status_code == 409
+    other_window = await _send(app_client, host, opportunity_id)
+    assert (same.status_code, other_window.status_code) == (409, 409)
     assert len(graph.calls) == 1
     [meeting] = await _meetings(opportunity_id)
     assert meeting.external_source is None
+
+    # Po czasie, w którym wynik musiał już być znany, prowadzący może ponowić.
+    # Graph dostaje ten sam transactionId, więc drugiego spotkania nie utworzy.
+    async with AsyncSessionLocal() as db:
+        opp = await handoff.lock(db, opportunity_id)
+        data = handoff_state.block(opp)
+        stale = datetime.now(timezone.utc) - handoff_invite.RETRY_AFTER
+        data[handoff_invite.INVITE_KEY]["reserved_at"] = (
+            stale - timedelta(minutes=1)
+        ).isoformat()
+        handoff_state.store(opp, data)
+        await db.commit()
+    retried = await _send(app_client, host, opportunity_id)
+    assert retried.status_code == 200, retried.text
+    first, second = (call[1]["transactionId"] for call in graph.calls)
+    assert first == second
 
 
 @pytest.mark.asyncio
