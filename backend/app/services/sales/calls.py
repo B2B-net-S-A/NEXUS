@@ -30,11 +30,14 @@ from app.services.sales_schema import OpportunityEventKind
 DO_NOT_CONTACT = "do_not_contact"
 OUTCOME_LABELS: dict[str, str] = {
     "connected": "Dodzwoniłem",
-    "no_answer": "Brak odpowiedzi",
+    "no_answer": "Nie odebrał",
     "call_back": "Oddzwonić",
     "wants_offer": "Prosi o ofertę",
     "not_now": "Nie teraz",
     DO_NOT_CONTACT: "Nie kontaktować",
+    # Wyniki z kolejki dzwonienia (``services/sales/calling.py``).
+    "offer_sent": "Oferta ogólna wysłana",
+    "meeting_booked": "Umówione spotkanie",
 }
 OBJECTION_DETAIL = "Ta osoba zgłosiła sprzeciw wobec kontaktu, nie zapisujemy rozmowy."
 STALE_PERSON_DETAIL = (

@@ -737,6 +737,9 @@ CALL_OUTCOMES: tuple[str, ...] = (
     "wants_offer",
     "not_now",
     "do_not_contact",
+    # 0680: wyniki z kolejki dzwonienia (jeden słownik dla karty szansy i kolejki).
+    "offer_sent",
+    "meeting_booked",
 )
 CK_ACTIVITY_OUTCOME = f"outcome IS NULL OR outcome IN ({quoted(CALL_OUTCOMES)})"
 
@@ -841,4 +844,95 @@ CLIENT_SUMMARY_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_mail_sent_at",
     "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_mail_request_id",
     "ALTER TABLE sales_meeting_transcripts DROP COLUMN IF EXISTS client_summary",
+)
+
+# ── 0680: kampanie dzwonienia i kolejka (decyzje Artura 10.11.2026) ───────
+#
+# Wynik telefonu przestaje być szansą. Kampania to usługa, lista i skrypt rozmowy,
+# a rekord to firma, osoba, telefon, „skąd kontakt”, stan w kolejce, data
+# oddzwonienia i kto dzwoni. Szansa powstaje dopiero z umówionego spotkania
+# (``opportunity_id``). Rekord bez kampanii to wpis kolejki dla istniejącej szansy
+# dzwoniącego z etapu „Lead”: jeden na szansę (``ux_sales_call_records_opportunity``).
+# Stan rekordu to ``new`` albo ostatni wynik z kolejki, nazwany jak ``CALL_OUTCOMES``.
+
+CALL_QUEUE_OUTCOMES: tuple[str, ...] = (
+    "no_answer",
+    "call_back",
+    "not_now",
+    "offer_sent",
+    "meeting_booked",
+    "do_not_contact",
+)
+CALL_RECORD_NEW = "new"
+CALL_RECORD_STATES: tuple[str, ...] = (CALL_RECORD_NEW, *CALL_QUEUE_OUTCOMES)
+CK_CALL_CAMPAIGN_NAME = "char_length(btrim(name)) > 0"
+CK_CALL_RECORD_STATE = f"state IN ({quoted(CALL_RECORD_STATES)})"
+CK_CALL_RECORD_ATTEMPTS = "attempts >= 0"
+
+CALLING_DDL: tuple[str, ...] = (
+    # Stary CHECK z 0672 nie zna wyników kolejki; podmiana tylko wtedy, gdy definicja
+    # ich jeszcze nie ma, bo entrypoint biegnie przy każdym starcie.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_activities_outcome' "
+    "AND pg_get_constraintdef(oid) LIKE '%meeting_booked%') THEN "
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome; "
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
+    f"CHECK ({CK_ACTIVITY_OUTCOME}); END IF; END $$",
+    f"""CREATE TABLE IF NOT EXISTS sales_call_campaigns (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(160) NOT NULL,
+    service VARCHAR(120) NULL,
+    script TEXT NULL,
+    created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    archived_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_call_campaigns_name CHECK ({CK_CALL_CAMPAIGN_NAME})
+)""",
+    f"""CREATE TABLE IF NOT EXISTS sales_call_records (
+    id SERIAL PRIMARY KEY,
+    campaign_id INTEGER NULL REFERENCES sales_call_campaigns(id) ON DELETE CASCADE,
+    company_id INTEGER NOT NULL REFERENCES sales_companies(id) ON DELETE CASCADE,
+    contact_id INTEGER NULL REFERENCES sales_contacts(id) ON DELETE SET NULL,
+    opportunity_id INTEGER NULL REFERENCES sales_opportunities(id) ON DELETE SET NULL,
+    person_name VARCHAR(255) NULL,
+    person_title VARCHAR(255) NULL,
+    phone VARCHAR(60) NULL,
+    email VARCHAR(255) NULL,
+    contact_source VARCHAR(255) NULL,
+    note TEXT NULL,
+    state VARCHAR(20) NOT NULL DEFAULT 'new',
+    callback_on DATE NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_outcome_at TIMESTAMPTZ NULL,
+    assigned_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_call_records_state CHECK ({CK_CALL_RECORD_STATE}),
+    CONSTRAINT ck_sales_call_records_attempts CHECK ({CK_CALL_RECORD_ATTEMPTS})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_call_records_queue "
+    "ON sales_call_records (assigned_user_id, state, callback_on)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_call_records_company "
+    "ON sales_call_records (company_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_call_records_campaign "
+    "ON sales_call_records (campaign_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_call_records_opportunity "
+    "ON sales_call_records (opportunity_id) "
+    "WHERE campaign_id IS NULL AND opportunity_id IS NOT NULL",
+)
+
+_CALL_OUTCOMES_BEFORE_QUEUE = tuple(
+    o for o in CALL_OUTCOMES if o not in ("offer_sent", "meeting_booked")
+)
+
+CALLING_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_call_records",
+    "DROP TABLE IF EXISTS sales_call_campaigns",
+    "UPDATE sales_activities SET outcome = NULL "
+    "WHERE outcome IN ('offer_sent', 'meeting_booked')",
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome",
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
+    f"CHECK (outcome IS NULL OR outcome IN ({quoted(_CALL_OUTCOMES_BEFORE_QUEUE)}))",
 )

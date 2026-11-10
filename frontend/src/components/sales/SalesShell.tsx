@@ -13,6 +13,7 @@ import { SalesMailboxStatus } from "./SalesMailboxStatus";
 
 export type SalesSection =
   | "my-day"
+  | "calling"
   | "summary"
   | "opportunities"
   | "offers"
@@ -24,6 +25,7 @@ export type SalesSection =
 
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
   { value: "my-day", label: "Mój dzień", href: "/sales/my-day" },
+  { value: "calling", label: "Dzwonienie", href: "/sales/calling" },
   { value: "summary", label: "Podsumowanie", href: "/sales/summary" },
   { value: "opportunities", label: "Szanse", href: "/sales/opportunities" },
   { value: "offers", label: "Oferty", href: "/sales/offers" },
@@ -36,6 +38,7 @@ const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
 
 export function activeSection(pathname: string): SalesSection {
   if (pathname.startsWith("/sales/my-day")) return "my-day";
+  if (pathname.startsWith("/sales/calling")) return "calling";
   if (pathname.startsWith("/sales/summary")) return "summary";
   if (pathname.startsWith("/sales/offers")) return "offers";
   if (pathname.startsWith("/sales/contacts")) return "contacts";
@@ -82,11 +85,14 @@ export function SalesShell({ title, description, actions, hideNav, children }: S
       ) : (
         <div className="space-y-3">
           <div className="space-y-1">
-            <div className="flex flex-col gap-1 xl:flex-row xl:items-end xl:gap-8">
+            <div className="flex flex-col gap-1 xl:flex-row xl:items-end xl:gap-4">
               <h1 className="shrink-0 pb-1 text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
               <div data-tour="sales.tabs" className="min-w-0 flex-1">
                 <TabbedNav
                   ariaLabel="Sprzedaż"
+                  // Dziesięć zakładek w jednym rzędzie przy 1280 px: węższe odstępy,
+                  // bo drugi rząd zabiera listom wysokość na ekranie 720 px.
+                  listClassName="[&>button]:px-2.5"
                   tabs={SECTIONS.map(({ value, label }) => ({ value, label }))}
                   value={activeSection(pathname)}
                   onValueChange={(value) => {
