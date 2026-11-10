@@ -361,7 +361,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_call_questions'",
     # 0658: propozycje do słownika umiejętności (GPT-6.1 Sol).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'skill_dictionary_proposals'",
-    # 0677: podsumowanie spotkania handlowca do wysłania klientowi (Sonnet 5.5).
+    # 0676: podsumowanie spotkania handlowca do wysłania klientowi (Sonnet 5.5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_client_summary'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
@@ -1339,7 +1339,7 @@ try:
         *_sales_schema.COMPANY_ALIASES_DDL,
         # 0672: wynik rozmowy i sprzeciw wobec kontaktu.
         *_sales_schema.CALL_OUTCOME_DDL,
-        # 0677: szkic maila do klienta po spotkaniu i klucz wysyłki.
+        # 0676: szkic maila do klienta po spotkaniu i klucz wysyłki.
         *_sales_schema.CLIENT_SUMMARY_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
@@ -8039,7 +8039,7 @@ _DATA_STATEMENTS = [
     "SELECT 'skill_dictionary_proposals', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'skill_dictionary_proposals')",
-    # 0677: seed klucza AI podsumowania spotkania do wysłania klientowi.
+    # 0676: seed klucza AI podsumowania spotkania do wysłania klientowi.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'sales_meeting_client_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

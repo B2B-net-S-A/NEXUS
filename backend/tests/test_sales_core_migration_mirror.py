@@ -118,7 +118,7 @@ def test_migration_reads_the_shared_module() -> None:
     assert "for stmt in schema.CALL_OUTCOME_DDL:" in outcomes
     assert "*_sales_schema.CALL_OUTCOME_DDL," in entry
     client_summary = (
-        ROOT / "alembic/versions/0677_sales_meeting_client_summary.py"
+        ROOT / "alembic/versions/0676_sales_meeting_client_summary.py"
     ).read_text(encoding="utf-8")
     assert "for stmt in schema.CLIENT_SUMMARY_DDL:" in client_summary
     assert "*_sales_schema.CLIENT_SUMMARY_DDL," in entry
