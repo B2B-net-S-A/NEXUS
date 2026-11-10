@@ -66,6 +66,7 @@ from app.services.cv_quoted_evidence import (  # noqa: F401 — dawne nazwy modu
     keep_quoted_reasons,
     must_facts,
     normalize,
+    quote_matcher,
 )
 from app.services.cv_quoted_evidence import model_json as _model_json
 from app.services.llm_prompts import APPLICATION_SCREENING
@@ -119,7 +120,7 @@ def keep_quoted_deal_breaker(
 
     Model (prompt v2) może oddać ``deal_breaker: {"condition", "quote"}``.
     Zostaje WYŁĄCZNIE, gdy ``condition`` jest jednym z warunków rekrutacji,
-    a ``quote`` stoi dosłownie w CV albo profilu. Awaria odczytu = ``None``
+    a ``quote`` stoi w CV albo profilu (``quote_matcher``). Awaria odczytu = ``None``
     (to plakietka, nigdy bramka). ``decide`` tego nie czyta.
     """
     try:
@@ -137,9 +138,7 @@ def keep_quoted_deal_breaker(
     matched = known.get(normalize(condition))
     if matched is None:
         return None
-    hay = "\n".join(normalize(h) for h in haystacks if h)
-    needle = normalize(quote)
-    if len(needle) < 3 or needle not in hay:
+    if not quote_matcher(haystacks)(quote):
         return None
     return {"condition": matched, "quote": quote[:QUOTE_MAX]}
 

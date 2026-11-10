@@ -309,6 +309,62 @@ describe("ContractTerminationDialog — przygotuj porozumienie", () => {
   });
 });
 
+/**
+ * Zgłoszenie zespołu 10.11.2026: okno proponowało tylko porozumienie, a
+ * wypowiedzenie pisano ręcznie, choć generator ma je od #1759. „Przygotuj
+ * wypowiedzenie” zapisuje koniec projektu i otwiera generator na
+ * wypowiedzeniu przez B2B.net; daty doręczenia i rozwiązania liczy generator.
+ */
+describe("ContractTerminationDialog — przygotuj wypowiedzenie", () => {
+  const NOTICE = /Przygotuj wypowiedzenie/;
+
+  it("zapisuje koniec bez danych rozwiązania i otwiera generator wypowiedzenia z powodem", async () => {
+    const { onSuccess } = renderDialog({ defaultDate: "2026-11-30" });
+    await userEvent.selectOptions(screen.getByRole("combobox"), "client_budget_cut");
+    await userEvent.click(planRadio(NOTICE));
+    expect(screen.queryByText(/Zakaz konkurencji w porozumieniu/)).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Zakończ i przygotuj wypowiedzenie" }),
+    );
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ changed: 1 }));
+    expect(mocks.terminate.mock.calls[0][1]).toMatchObject({
+      terminated_at: "2026-11-30",
+      agreement_termination: null,
+    });
+    const params = pushedParams();
+    expect(params.get("tab")).toBe("documents");
+    expect(params.get("new")).toBe("termination_notice");
+    expect(params.get("contract")).toBe("7");
+    expect(params.get("v_termination_reason")).toBe("client_budget_cut");
+    // Daty liczy generator z okresu wypowiedzenia w umowie — okno ich nie narzuca.
+    expect(params.has("v_termination_date")).toBe(false);
+    expect(params.has("v_delivery_date")).toBe(false);
+  });
+
+  it("powód spoza listy wypowiedzenia nie trafia do generatora", async () => {
+    renderDialog();
+    await userEvent.selectOptions(screen.getByRole("combobox"), "poached_by_client");
+    await userEvent.click(planRadio(NOTICE));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Zakończ i przygotuj wypowiedzenie" }),
+    );
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    expect(pushedParams().has("v_termination_reason")).toBe(false);
+  });
+
+  it("odmowa serwera zostaje w oknie i nie otwiera generatora", async () => {
+    mocks.terminate.mockRejectedValue(new Error("boom"));
+    const { onSuccess } = renderDialog();
+    await userEvent.click(planRadio(NOTICE));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Zakończ i przygotuj wypowiedzenie" }),
+    );
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+});
+
 describe("ContractTerminationDialog — zbiorczo (Oznacz zakończone)", () => {
   it("nie pyta „Co z umową B2B?” — zostaje pole „Rozwiązanie umowy”", () => {
     renderDialog({ contractIds: [3, 4], bulk: true });

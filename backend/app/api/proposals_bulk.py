@@ -114,6 +114,8 @@ BulkAddSource = Literal[
     # umiejętności krytycznej rekrutacji wchodzi tylko ze zdaniem „dlaczego
     # mimo to” (``reasons``), które trafia na kartę jako notatka.
     "similar_candidates",
+    # 09.11.2026: „Kto już to robił” — wyszukiwanie po celu i obowiązkach.
+    "duty_search",
 ]
 
 # Skąd osoba dodana ręcznie (porcja dnia, P4): trzy strumienie, żeby odróżnić
@@ -133,6 +135,7 @@ _FOUND_VIA_BY_SOURCE: dict[str, FoundVia] = {
     "also_fits": "proposals",
     "also_manual": "proposals",
     "similar_candidates": "proposals",
+    "duty_search": "search",
 }
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.

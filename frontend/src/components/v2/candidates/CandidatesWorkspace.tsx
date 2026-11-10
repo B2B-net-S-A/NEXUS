@@ -19,6 +19,7 @@ import {
   parseCandidatesMode,
 } from "@/lib/candidates-mode";
 import { searchStateToListHref } from "@/lib/candidates-search-redirect";
+import { DutySearchWorkspace } from "@/components/duty-search/DutySearchWorkspace";
 
 /**
  * Jeden ekran „Kandydaci" (uproszczenie 22.09.2026): lista z filtrami po
@@ -79,6 +80,15 @@ export function CandidatesWorkspace() {
         <BackToCandidates />
         <CandidateSearchView syncUrl hideHeader persistUrlParams={SEARCH_URL_PARAMS} />
       </div>
+    );
+  }
+
+  if (mode === "goal") {
+    return (
+      <DutySearchWorkspace
+        jobId={jobParam ? Number(jobParam) : null}
+        runId={searchParams?.get("run") ?? null}
+      />
     );
   }
 

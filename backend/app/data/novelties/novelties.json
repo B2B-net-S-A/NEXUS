@@ -13,6 +13,19 @@
     "dot_anchor": "person-preview.requirement-sources"
   },
   {
+    "id": "wypowiedzenie-z-okna-zakonczenia",
+    "pr": 3283,
+    "title": "Wypowiedzenie umowy B2B z okna zakończenia",
+    "why": "W „Co z umową B2B?” jest teraz też „Przygotuj wypowiedzenie”: po zapisie otwiera się generator z gotowym wypowiedzeniem i datą rozwiązania z okresu wypowiedzenia. Nie trzeba go pisać ręcznie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {"permissions": ["contract_status"]},
+    "where": "Kontrakty → Zakończ współpracę",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.end.notice"
+  },
+  {
     "id": "rekruter-nie-dzwon-aktywne-zamowienie",
     "pr": 3261,
     "title": "„Nie dzwoń” przy osobie z aktywnym zamówieniem",
@@ -502,7 +515,7 @@
       {
         "anchor": "contract.end.b2b-question",
         "text": "Tu jest nowe pole „Co z umową B2B?”.",
-        "hint": "Bez wyboru jednej z trzech odpowiedzi kontraktu nie zakończysz. Zamknij okno bez zapisu.",
+        "hint": "Bez wyboru jednej z odpowiedzi kontraktu nie zakończysz. Zamknij okno bez zapisu.",
         "ack": true
       }
     ]
@@ -2042,5 +2055,53 @@
     "dot_anchor": "sales.meeting-client-summary",
     "requires_setting": "SALES_TEAMS_TRANSCRIPTS_ENABLED",
     "active_days": 90
+  },
+  {
+    "id": "kto-juz-to-robil-rekrutacja",
+    "title": "Kto już to robił — szukanie po obowiązkach",
+    "why": "Gdy rekrutacja jest opisana tym, co osoba ma zrobić, a nie listą technologii, AI czyta CV z bazy i pokazuje, kto robił coś takiego — także gdy w CV nazwał to inaczej. Każda ocena ma cytat z CV.",
+    "tier": "tour",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → Szukaj → Kto już to robił",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.sources.duties",
+    "steps": [
+      {
+        "anchor": "jobs.sources.search",
+        "text": "Kliknij „Szukaj” na Tablicy rekrutacji.",
+        "hint": "W menu są źródła kandydatów do tej rekrutacji."
+      },
+      {
+        "anchor": "jobs.sources.duties",
+        "text": "Wybierz „Kto już to robił”.",
+        "hint": "Szukamy po obowiązkach z Championa. Wynik liczy się ok. 2 minut i zostaje przy rekrutacji; najpierw są osoby, które robiły to samo, z cytatem z CV."
+      }
+    ]
+  },
+  {
+    "id": "z-requestu-cel-projektu",
+    "title": "„Z requestu” → Cel projektu",
+    "why": "Opisz zwykłymi słowami, co osoba ma zrobić, a AI znajdzie w bazie, kto już robił coś takiego, i pokaże cytat z CV. Bez zakładania rekrutacji.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Kandydaci → Z requestu → Cel projektu",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.request.goal-tab"
   }
 ]

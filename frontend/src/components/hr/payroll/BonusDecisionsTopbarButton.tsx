@@ -3,6 +3,10 @@
 // Ikona „Premie do decyzji” w górnym pasku (decyzja Artura 30.10.2026): ten sam
 // ekran dla wszystkich z uprawnieniem Płace. Licznik ze stanu, nie z dzwonków;
 // przy zerze ikony nie ma, żeby nie rozpychać paska na laptopie 1280 px.
+// Przy włączonym automacie (decyzja Artura 09.11.2026) ikona jest tylko
+// adminowa: to, co automat zatrzymał, ma „Sprawdź” zamiast „Zatwierdź”, a premie
+// przed terminem przyzna automat, więc są tylko liczbą w stopce. Propozycje spoza
+// automatu (ręczne, sprzed „od miesiąca”) zostają z „Zatwierdź” jak dotąd.
 
 import Link from "next/link";
 import { Award } from "lucide-react";
@@ -19,6 +23,7 @@ import { useHrConfig } from "@/lib/api/hr";
 import {
   useApproveBonus,
   useBonusDecisions,
+  useBonusMode,
   useConfirmVoucher,
   type BonusRow,
 } from "@/lib/api/hr-payroll";
@@ -77,10 +82,13 @@ export function BonusDecisionsTopbarButton({ className }: { className?: string }
 function DecisionsMenu({ className }: { className?: string }) {
   const { showToast } = useToast();
   const decisions = useBonusDecisions(true);
+  const mode = useBonusMode();
   const approve = useApproveBonus();
   const confirm = useConfirmVoucher();
   if (!decisions.isSuccess) return null;
-  const { signed, league, check, vouchers } = decisions.data;
+  const { signed, league, check, vouchers, automatic = false, scheduled = 0 } = decisions.data;
+  // Przy automacie ręcznie zmienia tylko admin, więc reszcie Płac ikona nic nie daje.
+  if (automatic && mode.data?.manual_allowed !== true) return null;
   const total = signed.length + league.length + check.length + vouchers.length;
   if (total === 0) return null;
 
@@ -161,7 +169,9 @@ function DecisionsMenu({ className }: { className?: string }) {
         ) : null}
         {check.length > 0 ? (
           <>
-            <GroupHeader>Do sprawdzenia · {check.length}</GroupHeader>
+            <GroupHeader>
+              {automatic ? "Automat zatrzymał" : "Do sprawdzenia"} · {check.length}
+            </GroupHeader>
             {check.slice(0, PREVIEW_LIMIT).map((row) => (
               <BonusLine
                 key={row.id}
@@ -174,6 +184,15 @@ function DecisionsMenu({ className }: { className?: string }) {
               />
             ))}
           </>
+        ) : null}
+        {automatic && scheduled > 0 ? (
+          <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+            Czeka na termin: {countPl(scheduled, "premia", "premie", "premii")}. Automat przyzna je sam,{" "}
+            <Link href="/people/payroll" className="font-medium text-primary hover:underline">
+              lista w Rozliczeniach
+            </Link>
+            .
+          </p>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>

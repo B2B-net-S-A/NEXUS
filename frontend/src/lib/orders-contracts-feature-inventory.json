@@ -864,7 +864,7 @@
   },
   {
    "id": "k.termination-agreement-plan",
-   "opis": "Zakończenie współpracy: obowiązkowe „Co z umową B2B?”, zakaz konkurencji i przejście do generatora porozumienia z datami",
+   "opis": "Zakończenie współpracy: obowiązkowe „Co z umową B2B?”, zakaz konkurencji i przejście do generatora porozumienia z datami albo wypowiedzenia",
    "file": "components/contracts/ContractTerminationDialog.tsx",
    "marker": "Co z umową B2B?",
    "b_home": "Okno „Zakończ współpracę”"

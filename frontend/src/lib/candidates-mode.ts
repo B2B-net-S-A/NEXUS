@@ -2,11 +2,11 @@
  * Tryby jednego ekranu „Kandydaci" (`/candidates?mode=…`). Czysty moduł —
  * czytają go ekran, przekierowania starych adresów i rejestr nawigacji.
  */
-export type CandidatesMode = "list" | "search" | "request";
+export type CandidatesMode = "list" | "search" | "request" | "goal";
 
 export const CANDIDATES_MODE_PARAM = "mode";
 
-const MODES: readonly CandidatesMode[] = ["list", "search", "request"];
+const MODES: readonly CandidatesMode[] = ["list", "search", "request", "goal"];
 
 /** Nieznana albo pusta wartość = lista (dotychczasowe `/candidates`). */
 export function parseCandidatesMode(value: string | null | undefined): CandidatesMode {
