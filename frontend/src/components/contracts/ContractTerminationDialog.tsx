@@ -23,6 +23,7 @@ import {
   defaultNonCompetePlan,
   emptyTerminationForm,
   missingTerminationFields,
+  noticeReason,
   signedOnLabel,
   suggestedLastDay,
   terminationFormError,
@@ -243,7 +244,7 @@ export function ContractTerminationDialog({
         return;
       }
       onSuccess({ changed: count });
-      if (preparesAgreement) router.push(agreementHref);
+      if (generatorHref) router.push(generatorHref);
     },
   });
 
@@ -252,17 +253,28 @@ export function ContractTerminationDialog({
   // czeka w „Umowach bez projektu”), a podpis porozumienia w generatorze
   // zamyka ją z datą rozwiązania — kolejność „najpierw koniec, potem dokument”
   // obsługuje `effects.apply` (projekt już zakończony = kontrakt bez zmian).
+  // „Przygotuj wypowiedzenie” idzie tą samą drogą; daty doręczenia
+  // i rozwiązania liczy generator z okresu wypowiedzenia w umowie.
   const preparesAgreement = !bulk && form.agreementPlan === "prepare";
-  const agreementHref = documentsHref({
-    newType: "termination_agreement",
-    contractId: contractIds[0],
-    values: {
-      termination_date: form.projectEndDate,
-      last_service_date: form.projectEndDate,
-      release_non_compete: form.nonCompete === "release",
-      non_compete_client_name: form.nonCompete === "release" ? clientName ?? "" : "",
-    },
-  });
+  const preparesNotice = !bulk && form.agreementPlan === "notice";
+  const generatorHref = preparesAgreement
+    ? documentsHref({
+        newType: "termination_agreement",
+        contractId: contractIds[0],
+        values: {
+          termination_date: form.projectEndDate,
+          last_service_date: form.projectEndDate,
+          release_non_compete: form.nonCompete === "release",
+          non_compete_client_name: form.nonCompete === "release" ? clientName ?? "" : "",
+        },
+      })
+    : preparesNotice
+      ? documentsHref({
+          newType: "termination_notice",
+          contractId: contractIds[0],
+          values: { termination_reason: noticeReason(form.reason) },
+        })
+      : null;
   const choosePlan = (plan: AgreementPlan) => {
     setLastDayTouched(false);
     setFile(null);
@@ -441,7 +453,9 @@ export function ContractTerminationDialog({
               ? "Zapisywanie…"
               : preparesAgreement
                 ? "Zakończ i przygotuj porozumienie"
-                : "Zakończ"}
+                : preparesNotice
+                  ? "Zakończ i przygotuj wypowiedzenie"
+                  : "Zakończ"}
           </button>
         </>
       }
@@ -499,7 +513,10 @@ export function ContractTerminationDialog({
             <legend className="px-1 text-sm font-medium">Co z umową B2B? *</legend>
             {AGREEMENT_PLANS.map((plan) => (
               <div key={plan.value}>
-                <label className="flex items-start gap-2">
+                <label
+                  className="flex items-start gap-2"
+                  data-tour={plan.value === "notice" ? "contract.end.notice" : undefined}
+                >
                   <input
                     type="radio"
                     name={`${formId}-plan`}

@@ -431,6 +431,8 @@ PIPELINE_ADD_SOURCES = frozenset(
         "also_manual",
         # 22.10.2026: zakładka „Podobni” na profilu kandydata.
         "similar_candidates",
+        # 09.11.2026: „Kto już to robił” (wyszukiwanie po celu i obowiązkach).
+        "duty_search",
         # Audyt 06.10.2026 (U2): dodanie tokenem integracji (scraper) — bez
         # tego kodu zajmowało klucze z `reason_code` NULL obok ludzkich.
         "integration",

@@ -76,7 +76,7 @@
       },
       {
         "q": "Jak dodać kandydatów?",
-        "a": "Kliknij „Nowi z ogłoszeń” albo menu „Szukaj ▾”: podobne rekrutacje, propozycje z bazy, szukaj w bazie; „+ Dodaj” daje osobę na górę Nowych na 12 h. „Otwarte podobne” (w menu) to otwarte rekrutacje o tym samym profilu — tam DL łączy bliźniaka. „+1 rekrutacja” w „+N” na karcie: „Screening razem” to jedna rozmowa pod obie.",
+        "a": "Kliknij „Nowi z ogłoszeń” albo menu „Szukaj ▾”: podobne rekrutacje, propozycje z bazy, szukaj w bazie, „Kto już to robił”; „+ Dodaj” daje osobę na górę Nowych na 12 h. „Otwarte podobne” (w menu) to otwarte rekrutacje o tym samym profilu — tam DL łączy bliźniaka. „+1 rekrutacja” w „+N” na karcie: „Screening razem” to jedna rozmowa pod obie.",
         "anchor": "jobs.board.sources"
       },
       {
@@ -103,7 +103,7 @@
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Kolumny etapów (u Nordei po „QC CV” stoi „Do Cpro”) — strzałka „→” albo przeciąganie. W „QC CV” gotowa karta ma „Przejrzyj i wyślij” (u Nordei „Przejrzyj → Cpro”)."},
-      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Źródła w nagłówku rekrutacji: nowi z ogłoszeń, moi ludzie i menu „Szukaj ▾” (podobne rekrutacje, propozycje z bazy, szukaj w bazie); „Dodaj” — po nazwisku albo z CV."},
+      {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Źródła w nagłówku rekrutacji: nowi z ogłoszeń, moi ludzie i menu „Szukaj ▾” (podobne rekrutacje, propozycje z bazy, szukaj w bazie, „Kto już to robił”); „Dodaj” — po nazwisku albo z CV."},
       {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."},
       {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead; u Nordei przed akceptacją do Cpro): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."}
     ],
@@ -298,7 +298,7 @@
       },
       {
         "q": "Jak znaleźć kandydatów pod request klienta?",
-        "a": "Kliknij „Z requestu”, wklej treść, wgraj plik Championa albo wybierz rekrutację, podaj klienta i przejdź dalej — dostaniesz ranking bazy bez zakładania rekrutacji.",
+        "a": "Kliknij „Z requestu”, wklej treść, wgraj plik Championa albo wybierz rekrutację, podaj klienta i przejdź dalej — dostaniesz ranking bazy bez zakładania rekrutacji. Zakładka „Cel projektu”: opisz, co osoba ma zrobić, a AI pokaże, kto robił coś takiego, z cytatem z CV.",
         "anchor": "candidates.list.request"
       },
       {
@@ -327,7 +327,7 @@
       {
         "id": "candidates.list.request",
         "label": "Z requestu",
-        "describe": "Wyszukiwanie z treści requestu, pliku Championa albo rekrutacji."
+        "describe": "Wyszukiwanie z treści requestu, pliku Championa albo rekrutacji; zakładka „Cel projektu” szuka po tym, co osoba ma zrobić."
       },
       {
         "id": "candidates.list.more",

@@ -1,5 +1,13 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+const startDuty = vi.fn();
+vi.mock("@/lib/duty-search-api", () => ({
+  dutySearchApi: { start: (...args: unknown[]) => startDuty(...args) },
+}));
 
 let user: Record<string, unknown> | null = null;
 vi.mock("@/store/auth", () => ({
@@ -28,7 +36,9 @@ function renderDialog(props: Partial<Parameters<typeof RequestSearchDialog>[0]> 
   const onSubmit = vi.fn();
   const onOpenChange = vi.fn();
   render(
-    <RequestSearchDialog open onOpenChange={onOpenChange} onSubmit={onSubmit} {...props} />,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}>
+      <RequestSearchDialog open onOpenChange={onOpenChange} onSubmit={onSubmit} {...props} />
+    </QueryClientProvider>,
   );
   return { onSubmit, onOpenChange, dialog: screen.getByRole("dialog") };
 }
@@ -116,5 +126,27 @@ describe("RequestSearchDialog", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Dalej: sprawdź wymagania" }));
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ source: "file", file }));
+  });
+
+  it("„Cel projektu” startuje „Kto już to robił” z klientem i przechodzi do wyniku", async () => {
+    startDuty.mockResolvedValue({ run_id: "abc-1", state: "queued", usage: { used_today: 1, daily_limit: 10 } });
+    const { dialog, onSubmit, onOpenChange } = renderDialog();
+    fireEvent.click(within(dialog).getByRole("tab", { name: /Cel projektu/ }));
+    expect(within(dialog).queryByText("Skąd bierzemy wymagania?")).toBeNull();
+    expect(within(dialog).queryByLabelText("Budżet (zł/h)")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Szukaj, kto już to robił" }));
+    expect(within(dialog).getByRole("alert").textContent).toContain("Opisz, co osoba ma zrobić");
+    fireEvent.change(within(dialog).getByLabelText("Co osoba ma zrobić?"), {
+      target: { value: "Przenieść 40 aplikacji z serwerowni VMware do AWS i wygasić data center." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wybierz klienta" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Szukaj, kto już to robił" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/candidates?mode=goal&run=abc-1"));
+    expect(startDuty).toHaveBeenCalledWith({
+      client_id: 5,
+      goal: "Przenieść 40 aplikacji z serwerowni VMware do AWS i wygasić data center.",
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
