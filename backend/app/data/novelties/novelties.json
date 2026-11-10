@@ -1,6 +1,7 @@
 [
   {
     "id": "wypowiedzenie-z-okna-zakonczenia",
+    "pr": 3283,
     "title": "Wypowiedzenie umowy B2B z okna zakończenia",
     "why": "W „Co z umową B2B?” jest teraz też „Przygotuj wypowiedzenie”: po zapisie otwiera się generator z gotowym wypowiedzeniem i datą rozwiązania z okresu wypowiedzenia. Nie trzeba go pisać ręcznie.",
     "tier": "dot",
