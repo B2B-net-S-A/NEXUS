@@ -15,6 +15,8 @@ SAFE_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/search/candidates/scores",
+    # Skąd „✓” przy wymaganiu (10.11.2026): cytaty z CV, profilu i notatek.
+    "/api/search/candidates/requirement-evidence",
     "/api/search/candidates/diagnostics",
     "/api/search/candidates",
     "/api/search/semantic",

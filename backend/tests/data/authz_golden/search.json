@@ -35,6 +35,7 @@
   "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/search/candidates/requirement-evidence": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }

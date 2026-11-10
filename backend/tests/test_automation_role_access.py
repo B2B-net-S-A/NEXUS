@@ -67,6 +67,7 @@ READ_LIKE_WRITES = frozenset(
         "POST /api/recommendations/cv-upload-preview",
         "POST /api/search/candidates",
         "POST /api/search/candidates/diagnostics",
+        "POST /api/search/candidates/requirement-evidence",
         "POST /api/search/candidates/scores",
         "POST /api/search/semantic",
         "POST /api/talent-radar/parse-champion",

@@ -10,6 +10,7 @@ import {
   FilePreviewModal,
   downloadDocumentBlob,
   type CandidateDocument,
+  type DocumentSearchRequest,
 } from "@/components/v2/files/FilePreviewModal";
 
 /**
@@ -21,10 +22,12 @@ export function useCandidateCvPreview(candidateId: number) {
   const [loading, setLoading] = useState(false);
   const [previewDocumentId, setPreviewDocumentId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
+  const [searchRequest, setSearchRequest] = useState<DocumentSearchRequest | null>(null);
   const { showError } = useToast();
 
-  const open = async () => {
+  const open = async (search?: { text: string; terms?: readonly string[] }) => {
     if (loading) return;
+    setSearchRequest(search ? { ...search, nonce: Date.now() } : null);
     setLoading(true);
     try {
       const { data: docs } = await api.get<CandidateDocument[]>(
@@ -51,6 +54,7 @@ export function useCandidateCvPreview(candidateId: number) {
       candidateId={candidateId}
       onClose={() => setPreviewDocumentId(null)}
       onDownload={(doc) => downloadDocumentBlob(candidateId, doc).catch(() => {})}
+      searchRequest={searchRequest}
     />
   );
 
