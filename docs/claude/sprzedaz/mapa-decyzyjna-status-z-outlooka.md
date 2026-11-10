@@ -1,5 +1,5 @@
 # Mapa decyzyjna: status kontaktu z Outlooka — decyzje Artura 10.11.2026
-<!-- indeks: automat statusu kontaktu osoby z mapy, mail od nas → „w toku”, mail od osoby i odbyte spotkanie → „pierwszy kontakt”, „stały dialog” tylko ręcznie, status się nie cofa, sprzeciw, ręczna zmiana ma pierwszeństwo (contact_edited_at), auto-odpowiedzi, korespondencja z kandydatem się nie liczy, przebieg po synchronizacji skrzynki, skrypt uzupełnienia wstecz, adres z mapy do pustego kontaktu -->
+<!-- indeks: automat statusu kontaktu osoby z mapy, mail od nas → „w toku”, mail od osoby i odbyte spotkanie → „pierwszy kontakt”, „stały dialog” tylko ręcznie, status się nie cofa, sprzeciw, ręczna zmiana ma pierwszeństwo (contact_edited_at), auto-odpowiedzi, korespondencja z kandydatem się nie liczy, przebieg po synchronizacji skrzynki, skrypt uzupełnienia wstecz, adres z mapy do pustego kontaktu, zapisana rozmowa telefoniczna (wynik → status, karta szansy od razu, reszta w przebiegu) -->
 
 Status kontaktu na mapie decyzyjnej zmieniał tylko człowiek w oknie osoby i od
 24.10.2026 nikt go nie ruszył, więc lista kont i kolejka Fabryk IT
@@ -100,4 +100,48 @@ Kod: `backend/app/services/sales/decision_map_outlook.py`, wywołanie w
   1 zdarzenie z Outlooka przy tych firmach, 0 osób do zmiany, 38 adresów do dopisania
   (39 wpisów, jedna osoba jest na dwóch mapach).
 
-Testy: `backend/tests/test_sales_decision_map_outlook.py`.
+## Rozmowy telefoniczne (decyzje Artura 10.11.2026)
+
+Poczta i kalendarz nie widzą telefonu, więc osoba, do której handlowiec się dodzwonił,
+zostawała na liście kont i w kolejce jako „bez kontaktu”. Na kopii z 10.11.2026
+w Sprzedaży było 270 telefonów, wszystkie z importu i bez wyniku, w tym 3 zakończone
+z osobami z map; rozmów z wynikiem zapisanych w NEXUSIE było 0. Zaczyna je zapisywać
+zakładka „Dzwonienie” (`dzwonienie-kampanie-i-import-listy.md`).
+
+- **Osoba odebrała → „pierwszy kontakt”:** „Dodzwoniłem”, „Prosi o ofertę”, „Nie
+  teraz”, a z kolejki dzwonienia „Oferta ogólna wysłana” i „Umówione spotkanie”.
+  Tak samo jak mail od osoby i odbyte spotkanie.
+- **Próba bez rozmowy → „w toku”:** „Nie odebrał” i „Oddzwonić”, jak nasz mail bez
+  odpowiedzi. Osoba schodzi z kolejki do pierwszego kontaktu po pierwszej próbie,
+  a „Ostatni kontakt” dostaje dzień próby. Powrotu pilnuje krok albo data
+  oddzwonienia w kolejce dzwonienia. Odrzucone: próba bez zmiany statusu.
+- **Telefon z importu bez wyniku → „w toku”,** bo nie wiadomo, czy ktoś odebrał (ta
+  sama zasada co mail z importu bez nadawcy).
+- **„Nie kontaktować” to sprzeciw, nie kontakt.** Nie zmienia statusu ani daty.
+- **Nowy wynik w `CALL_OUTCOMES` wymaga decyzji, co robi z mapą** (`_CALL_SIGNALS`
+  w `decision_map_outlook.py`). Wynik bez wpisu nie zmienia nic, a test słownika
+  zatrzymuje PR, który takiego wyniku nie rozstrzyga.
+- **Liczy się telefon z `done_at`.** Pozycja z terminem bez `done_at` to zadanie
+  „zadzwonić”. Chwila zdarzenia to `done_at`.
+- **Rozmowa z karty szansy zmienia status od razu,** w tym samym zapisie
+  (`calls.log_call` → `record_call`), bo trasa już trzyma blokadę wiersza szansy.
+  Dotyczy osoby wskazanej z mapy i każdego wpisu mapy z jej kontaktem. Tylko ta
+  ścieżka obejmuje osobę, która jest na mapie, a nie ma kontaktu w kartotece: telefon
+  nie ma adresów, więc poza kartą łączy go z osobą wyłącznie kontakt aktywności.
+- **Telefon przy firmie bez szansy, z kolejki dzwonienia i z importu dolicza
+  przebieg po synchronizacji skrzynki** (do `M365_SYNC_INTERVAL_SECONDS`, 5 minut).
+  Te ścieżki nie mają szansy pod blokadą, a kontakt bywa na mapach kilku szans.
+  Nie dokładaj w nich własnego zapisu mapy: przebieg znajdzie telefon po kontakcie.
+- **Reszta reguł jak przy poczcie:** status się nie cofa, data idzie w przód, wpis ze
+  sprzeciwem i szansa zamknięta zostają nietknięte, telefon sprzed ręcznej zmiany się
+  nie liczy, zmiana nie rusza `last_activity_at` (dotykiem jest sam telefon). Historia
+  dostaje dopisek „z telefonu: rozmowa”, „próba bez rozmowy” albo „wpis bez wyniku”,
+  bez notatki z rozmowy i bez użytkownika.
+- **Skrypt uzupełnienia wstecz obejmuje telefony,** bo liczy je ten sam `sync`
+  (`call_events` w raporcie). Liczniki `--expect-people` trzeba brać z biegu na sucho
+  tej samej wersji kodu: na kopii z 10.11.2026 telefony zmieniają wynik z 0 na 1 osobę
+  (3 telefony bez wyniku, 0 zmian statusu, jedna późniejsza data kontaktu), a przebieg
+  z telefonami trwa 16 ms.
+
+Testy: `backend/tests/test_sales_decision_map_outlook.py`,
+`backend/tests/test_sales_decision_map_calls.py`.
