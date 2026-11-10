@@ -234,7 +234,7 @@ const SOURCE_LABEL: Record<ReviewBatchSource, string> = {
 /** Jedno zdanie: dlaczego ta osoba jest w Twojej porcji (decyzje Artura 10.11.2026). */
 function WhyLine({ why }: { why: ReviewBatchWhy }) {
   return (
-    <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-snug" data-testid="review-why">
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-snug" data-testid="review-why" data-tour="review-batch.why">
       <span className="font-medium text-muted-foreground">Masz tę osobę, bo:</span>
       <span className="text-muted-foreground">
         Twoja rekrutacja{why.via ? ` (${VIA_LABEL[why.via]})` : ""}
