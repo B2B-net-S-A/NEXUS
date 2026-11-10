@@ -18,7 +18,8 @@ import {
   type DecisionPersonInput,
 } from "@/lib/api/sales";
 
-import { CONTACT_STATUS, DECISION_LEVELS, OUR_ROLE_LABELS } from "./decision-map-labels";
+import { CONTACT_STATUS, DECISION_LEVELS, OUR_ROLE_LABELS, sourceLine } from "./decision-map-labels";
+import { safeHref } from "./format";
 import { SalesSelect } from "./SalesSelect";
 
 const NOTES_LIMIT = 2000;
@@ -145,6 +146,8 @@ export function DecisionPersonDialog({ opportunityId, entry, onClose }: Decision
 
   const hint = (field: DecisionFromContactField) =>
     entry?.from_contact?.includes(field) && entry[field] ? `Z kontaktu: ${entry[field]}` : undefined;
+  const origin = entry ? sourceLine(entry) : null;
+  const originHref = safeHref(entry?.source_url);
 
   const text = (
     key: keyof PersonForm,
@@ -238,6 +241,19 @@ export function DecisionPersonDialog({ opportunityId, entry, onClose }: Decision
       <p className="mt-2 text-xs text-muted-foreground">
         Telefon, e-mail, LinkedIn i notatka uzupełnią też puste pola kontaktu, niczego w nim nie nadpiszą.
       </p>
+      {origin && (
+        <p className="mt-1 text-xs text-muted-foreground first-letter:uppercase" data-testid="decision-person-source">
+          {origin}
+          {originHref && (
+            <>
+              {" · "}
+              <a href={originHref} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                otwórz źródło
+              </a>
+            </>
+          )}
+        </p>
+      )}
       {confirmDialog}
     </AppModal>
   );

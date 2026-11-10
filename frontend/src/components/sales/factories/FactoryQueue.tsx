@@ -17,6 +17,7 @@ import {
 import { permissionLabel } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 
+import { sourceLine } from "../decision-map-labels";
 import { DecisionPersonDialog } from "../DecisionPersonDialog";
 
 import { ClientHandoff } from "./ClientHandoff";
@@ -47,6 +48,7 @@ interface PersonRowProps {
 function PersonRow({ row, known, onEdit }: PersonRowProps) {
   const { person, company, client } = row;
   const role = person.role_in_company?.trim();
+  const origin = sourceLine(person);
   return (
     <li className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5">
       <div className="min-w-0 flex-1 basis-80 leading-tight">
@@ -68,6 +70,7 @@ function PersonRow({ row, known, onEdit }: PersonRowProps) {
         <p className="text-xs text-muted-foreground">
           {[levelLabel(person), channelsLabel(person), knownLabel(known)].filter(Boolean).join(" · ")}
         </p>
+        {origin && <p className="text-xs text-muted-foreground">{origin}</p>}
         {client && (
           <p className="text-xs">
             <ClientHandoff client={client} />

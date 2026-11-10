@@ -31,6 +31,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { safeHref } from "./format";
+import { ResearchImport } from "./research-import/ResearchImport";
 import { SignalsInbox } from "./signals/SignalsInbox";
 
 const STATUSES: LeadStatus[] = ["new", "contacted", "converted", "dismissed"];
@@ -196,26 +197,34 @@ function LeadPayloadLine({ payload }: { payload: Record<string, unknown> | undef
   return <p className="text-xs text-muted-foreground">{parts.join(" — ")}</p>;
 }
 
-type LeadsMode = "signals" | "leads";
+type LeadsMode = "signals" | "leads" | "research";
 
-const MODE_OPTIONS = [
-  { value: "signals" as const, label: "Sygnały bota" },
-  { value: "leads" as const, label: "Wszystkie leady" },
-];
-
-/** Przy włączonym kanale sygnałów Leady otwierają się na skrzynce sygnałów (G1). */
+/**
+ * Przy włączonym kanale sygnałów Leady otwierają się na skrzynce sygnałów (G1).
+ * „Lista z researchu” (import osób do map Fabryk IT) jest dla kont z edycją Sprzedaży.
+ */
 export function LeadsView() {
-  const [mode, setMode] = useState<LeadsMode>("signals");
+  const user = useAuthStore((s) => s.user);
+  const canEdit = hasPermission(user, "sales_edit");
+  const [picked, setPicked] = useState<LeadsMode | null>(null);
   const probe = useLeads({ status: "new", limit: 1 });
   const signalsOn = probe.data?.signals_enabled === true;
-  const switcher = signalsOn ? (
-    <SegmentedRadio size="sm" label="Widok leadów" options={MODE_OPTIONS} value={mode} onChange={setMode} />
-  ) : null;
-  if (signalsOn && mode === "signals") {
+  const options: { value: LeadsMode; label: string }[] = [
+    ...(signalsOn ? [{ value: "signals" as const, label: "Sygnały bota" }] : []),
+    { value: "leads", label: "Wszystkie leady" },
+    ...(canEdit ? [{ value: "research" as const, label: "Lista z researchu" }] : []),
+  ];
+  const fallback: LeadsMode = signalsOn ? "signals" : "leads";
+  const mode = picked && options.some((option) => option.value === picked) ? picked : fallback;
+  const switcher =
+    options.length > 1 ? (
+      <SegmentedRadio size="sm" label="Widok leadów" options={options} value={mode} onChange={setPicked} />
+    ) : null;
+  if (mode === "signals" || mode === "research") {
     return (
       <div className="space-y-3">
         {switcher}
-        <SignalsInbox />
+        {mode === "signals" ? <SignalsInbox /> : <ResearchImport />}
       </div>
     );
   }
