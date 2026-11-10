@@ -84,8 +84,8 @@ History of the burn-down:
                  accepts `subprotocol=`, `test_shortlist_and_proposal` seeds a
                  client). Seven were the test's own contract gone stale: the
                  pipeline membership gate wants the recruiter on the job team
-                 (`recruiter_id`), the CloudTalk webhook reads
-                 `settings.CLOUDTALK_ENABLED` (not an env var the test set),
+                 (`recruiter_id`), the telephony webhook (removed 08.11.2026)
+                 read its kill-switch from settings, not an env var the test set,
                  `parse_cv` adds the v5 quick-view fields, three post-interview
                  triggers joined `run_all_triggers`, the note preview cap is a
                  named constant (220, not 120), a "(DL)" tag suffix placed

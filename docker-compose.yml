@@ -362,8 +362,8 @@ services:
   # extra transfer basis is needed for candidate personal data).
   #
   # Ships disabled: `BACKUP_ENABLED` defaults to false and the script exits
-  # immediately, matching the kill-switch convention used by CLOUDTALK_ENABLED
-  # and TRAFFIT_SYNC_ENABLED. Activation is one env-var flip in the Coolify
+  # immediately, matching the kill-switch convention used by
+  # TRAFFIT_SYNC_ENABLED. Activation is one env-var flip in the Coolify
   # vault once the bucket and keys exist — no redeploy of anything else.
   #
   # Why this exists at all: until now the only backup was an unversioned script

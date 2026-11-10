@@ -368,7 +368,7 @@ async def load_team_kpis(
     return list(result["rows"])
 
 
-def cloudtalk_calls_available() -> bool:
+def telephony_calls_available() -> bool:
     return kpi_catalog.TELEPHONY_AVAILABLE
 
 

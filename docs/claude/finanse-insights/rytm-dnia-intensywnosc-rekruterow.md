@@ -90,5 +90,5 @@ wyniki = trzeba pracować więcej.
   `DEFAULT_RULES`, brakujące pole = wartość domyślna. Zakresy i rosnące progi
   pilnuje `WorkRhythmRulesIn` (422 z komunikatem po polsku). Cache odpowiedzi
   ma w kluczu skrót reguł, więc zmiana działa od razu.
-- **Nie widać:** rozmów z telefonu (CloudTalk wyłączony) i pracy na LinkedIn
+- **Nie widać:** rozmów z telefonu (telefonii nie ma) i pracy na LinkedIn
   poza wtyczką. Wpis rozmowy do wskaźnika Artur odrzucił 28.10.2026.

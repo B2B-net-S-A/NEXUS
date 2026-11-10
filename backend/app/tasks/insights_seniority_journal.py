@@ -37,7 +37,7 @@ async def insights_seniority_journal_loop() -> None:
     """Kill-switch sprawdzany PRZED pętlą, nie w środku.
 
     Wyłączona funkcja ma nie budzić procesu co dobę po to, żeby sprawdzić tę
-    samą flagę (ten sam błąd naprawiano w pętli CloudTalka i w `dl_alerts`).
+    samą flagę (ten sam błąd naprawiano w pętli usuniętej telefonii i w `dl_alerts`).
     """
     if not settings.INSIGHTS_SENIORITY_JOURNAL_ENABLED:
         logger.info(

@@ -196,7 +196,7 @@ describe("api — powtarzanie żądań przejściowych", () => {
 
   it("GET z odpowiedzią 503 (np. funkcja wyłączona flagą) zostaje przy dwóch ponowieniach", async () => {
     const { attempts } = await run(
-      { url: "/api/cloudtalk/agents", method: "get" },
+      { url: "/api/jjit/offers", method: "get" },
       (_n, config) => Promise.reject(httpError(config, 503)),
     );
 

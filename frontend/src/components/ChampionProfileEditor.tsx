@@ -1854,7 +1854,7 @@ export function ChampionProfileEditor({
   );
   const sourcesPanel = (
     <>
-      {/* Phase 14: Fireflies / CloudTalk sources + pending AI suggestions */}
+      {/* Phase 14: Fireflies sources + pending AI suggestions */}
       {canEdit && (
         <div className="border-t border-border dark:border-border pt-6 mt-6">
           <ChampionProfileSourcesPanel

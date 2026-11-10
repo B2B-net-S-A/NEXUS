@@ -518,7 +518,7 @@ async def refresh_token(
     # wiąże jako parametr QUERY — 30-dniowe poświadczenie jechało w URL-u,
     # a stamtąd do access loga uvicorna (stdout → json-file → Loki), historii
     # przeglądarki i Referera. Ta sama klasa błędu, przez którą usunięto
-    # webhook CloudTalka z tokenem w ścieżce. Wariant query usunięty (audyt
+    # webhook usuniętej telefonii z tokenem w ścieżce. Wariant query usunięty (audyt
     # procesów F06): `?refresh_token=` bez ciała = 422, nigdy wymiana tokenu.
     token = payload_in.refresh_token
     if not token:

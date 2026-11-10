@@ -15,7 +15,7 @@
  *   wpisów i „Pokaż CV obok”.
  *
  * Lista notatek ma grupy miesięczne, przypięte na górze i 10 najnowszych
- * z „Pokaż starsze”. Filtr „Telefony” (rejestr połączeń CloudTalk) zniknął
+ * z „Pokaż starsze”. Filtr „Telefony” (rejestr połączeń telefonicznych) zniknął
  * 13.10.2026 — stary adres `activity=calls` otwiera oś czasu.
  *
  * Czytnik maili (`EmailThreadList`) MUSI mieć tu wejście — raz już osierociał

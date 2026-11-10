@@ -279,7 +279,7 @@ async def check_and_increment(
 # A decorator on the route was the obvious design and would not have worked:
 # three of the five paths that reach Claude without a quota check are not
 # routes at all — `fireflies_sync` is a background loop, CV enrichment is a
-# `BackgroundTask`, and `enrich_from_call` sits in a CloudTalk webhook. A
+# `BackgroundTask`, and `enrich_from_call` sat in the (now removed) telephony webhook. A
 # route decorator never touches any of them, which is precisely how they came
 # to be ungated while every handler looked correctly wrapped.
 #

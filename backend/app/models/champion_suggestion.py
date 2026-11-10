@@ -2,8 +2,11 @@
 
 A suggestion is an AI-generated delta-patch for `jobs.champion_profile` that
 a Delivery Lead can review section-by-section and apply or reject. Source can
-be a pasted JD, a Fireflies transcript, a CloudTalk call, or a manual
-consultant note.
+be a pasted JD, a Fireflies transcript or a manual consultant note.
+
+Typ Postgresa ``champion_suggestion_source`` ma jeszcze etykietę
+``cloudtalk_call`` z usuniętej telefonii (0 wierszy, Postgres nie usuwa
+etykiet enuma); enum Pythona jej nie deklaruje, więc nic jej nie zapisze.
 """
 
 from __future__ import annotations
@@ -23,7 +26,6 @@ from app.models.base import TimestampMixin
 class SuggestionSource(str, enum.Enum):
     jd_paste = "jd_paste"
     fireflies_meeting = "fireflies_meeting"
-    cloudtalk_call = "cloudtalk_call"
     manual_consultant_note = "manual_consultant_note"
     # Phase 15: draft generated from top-K semantically similar CLOSED jobs
     # whose champion_profile is already populated (same-client preferred).

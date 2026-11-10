@@ -3,7 +3,7 @@
 `_background_tasks_status` raportowało tylko `running` i `expected`. Ten ułamek
 jest z założenia nierówny: większość zarejestrowanych pętli kończy się CELOWO
 przed swoim `while True`, bo sprawdza własny kill-switch (`AUTENTI_ENABLED`,
-`AI_INDEX_WORKER_ENABLED`, `CLOUDTALK_ENABLED`, …). Więc `running: 22,
+`AI_INDEX_WORKER_ENABLED`, `JJIT_ENABLED`, …). Więc `running: 22,
 expected: 34` to zdrowy odczyt, a `running: 21` — jedna pętla PADŁA — jest od
 niego nieodróżnialny. Nic w kodzie nie odtwarza zakończonego taska, więc taka
 pętla jest martwa do najbliższego deployu (alerty z zapisanych wyszukiwań albo
