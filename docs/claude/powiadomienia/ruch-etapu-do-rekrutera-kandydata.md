@@ -1,5 +1,5 @@
 # Ruch etapu idzie do rekrutera kandydata, prowadzący dostaje tylko ważne etapy (10.11.2026)
-<!-- indeks: reguła „rekruter rekrutacji” (job_recruiter), job_recruiter_ids, LEAD_STAGE_CODES, users.stage_moves_all_led_jobs (0679), „Kandydata prowadzi …”, bez „w ofercie (#id)” -->
+<!-- indeks: reguła „rekruter rekrutacji” (job_recruiter), job_recruiter_ids, LEAD_STAGE_CODES, users.stage_moves_all_led_jobs (0680), „Kandydata prowadzi …”, bez „w ofercie (#id)” -->
 
 Zgłoszenie z 10.11.2026: prowadzący rekrutację 43209 dostał w okienku
 „Rekrutacje” „Kandydat … → Odrzucony” o kandydacie innej rekruterki i nie mógł
@@ -18,7 +18,7 @@ Artura (R1 + R2 + R3): https://claude.ai/artifact/6wfDBoKrmLMA46c1JHQPnG
 - **Bez zmian:** przekazania z przepływu (QC, Cpro, „CV wysłane”, etapy-odznaki),
   zastępstwa (`notification_route`), reguły z rolą, `specific_user`, DL rekrutacji
   i override'y klienta. Zmiana dotyczy wyłącznie typu odbiorcy `job_recruiter`.
-- **Wybór konta:** `users.stage_moves_all_led_jobs` (0679 + lustro w
+- **Wybór konta:** `users.stage_moves_all_led_jobs` (0680 + lustro w
   `entrypoint.sh`), `PATCH /api/users/me/preferences`. W „Moje konto” pod
   włączoną kategorią „Ruchy w rekrutacjach” są dwie opcje: „Tylko moi
   kandydaci” (domyślnie) i „Wszyscy kandydaci w rekrutacjach, które prowadzę”.

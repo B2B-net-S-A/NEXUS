@@ -1,7 +1,7 @@
 """Konto wybiera, czy dostaje ruchy cudzych kandydatów w rekrutacjach, które prowadzi.
 
-Revision ID: 0679_stage_moves_all_led_jobs
-Revises: 0678_duty_search
+Revision ID: 0680_stage_moves_all_led_jobs
+Revises: 0679_client_settlements
 
 Reguła ``docs/claude/powiadomienia/ruch-etapu-do-rekrutera-kandydata.md``.
 Lustro w ``entrypoint.sh``.
@@ -9,8 +9,8 @@ Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0679_stage_moves_all_led_jobs"
-down_revision = "0678_duty_search"
+revision = "0680_stage_moves_all_led_jobs"
+down_revision = "0679_client_settlements"
 branch_labels = None
 depends_on = None
 
