@@ -539,6 +539,30 @@ describe("przegląd listy", () => {
     expect(sentPeople(1)[0]).toMatchObject({ line: 6, company_id: 77 });
   });
 
+  it("dwie osoby tej samej firmy nie zapisują się naraz", async () => {
+    let finish: (value: ResearchAccepted) => void = () => undefined;
+    acceptMutate.mockReturnValueOnce(new Promise<ResearchAccepted>((resolve) => (finish = resolve)));
+    acceptMutate.mockResolvedValueOnce(accepted([outcome(6, { company_id: 77, opportunity_id: 177 })]));
+    openReview();
+
+    fireEvent.click(screen.getByRole("button", { name: "Załóż firmę: Olga Zmyślna" }));
+
+    // Pierwsze żądanie jeszcze trwa: druga osoba firmy czeka, inne firmy nie.
+    const second = screen.getByRole("button", { name: "Załóż firmę: Piotr Zmyślny" });
+    expect(second).toBeDisabled();
+    fireEvent.click(second);
+    expect(acceptMutate).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Dodaj do mapy: Jan Fikcyjny" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Dodaj pewne do map (1)" })).toBeEnabled();
+
+    finish(
+      accepted([outcome(5, { company_id: 77, opportunity_id: 177, created_company: true, created_account: true })]),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Dodaj do mapy: Piotr Zmyślny" }));
+    await waitFor(() => expect(acceptMutate).toHaveBeenCalledTimes(2));
+    expect(sentPeople(1)[0]).toMatchObject({ line: 6, company_id: 77 });
+  });
+
   it("odmowa i błąd wiersza zostają przy wierszu", async () => {
     acceptMutate.mockResolvedValueOnce(
       accepted([

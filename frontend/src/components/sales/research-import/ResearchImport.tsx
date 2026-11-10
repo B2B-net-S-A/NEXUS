@@ -41,6 +41,7 @@ import {
 import { ResearchRowItem, type ResearchItem } from "./ResearchRowItem";
 
 const SOURCE_MISSING = "Wpisz, skąd pochodzi lista: trafi to przy każdej osobie na mapie.";
+const COMPANY_BUSY = "Poczekaj: zapisuje się inna osoba tej firmy.";
 
 type ReadyItem = ResearchItem & { target: Target };
 
@@ -100,9 +101,12 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
   const toDecide = items.filter(
     (item) => item.phase === "choose" || (item.phase === "ready" && item.row.confidence === "to_verify"),
   );
+  // Jedna firma naraz: druga osoba ma trafić na kartę i konto założone przez pierwszą,
+  // a zna je dopiero odpowiedź serwera.
+  const busyCompanies = new Set(items.filter((item) => saving.has(item.row.line)).map((item) => item.company.key));
   const certain = items
     .filter(isReady)
-    .filter((item) => item.row.confidence === "confirmed" && !saving.has(item.row.line));
+    .filter((item) => item.row.confidence === "confirmed" && !busyCompanies.has(item.company.key));
   const added = items.filter((item) => item.phase === "added").length;
   const shown = onlyToDecide ? toDecide : items;
   const blockedReason = sourceLabel.trim().length < MIN_SOURCE_CHARS ? SOURCE_MISSING : null;
@@ -265,7 +269,10 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
               choice={choices[item.company.key]}
               resolved={created[item.company.key] !== undefined}
               saving={saving.has(item.row.line)}
-              blockedReason={blockedReason}
+              blockedReason={
+                blockedReason ??
+                (busyCompanies.has(item.company.key) && !saving.has(item.row.line) ? COMPANY_BUSY : null)
+              }
               onLevel={(level) => setLevels((current) => ({ ...current, [item.row.line]: level }))}
               onChoose={(choice) => setChoices((current) => ({ ...current, [item.company.key]: choice }))}
               onAccept={() => {

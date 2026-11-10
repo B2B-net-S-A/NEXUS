@@ -281,6 +281,78 @@ def test_xlsx_that_unpacks_to_a_huge_sheet_is_refused_before_reading() -> None:
     assert error.value.too_large is True
 
 
+def _with_sheet(payload: bytes, rewrite) -> bytes:
+    """Ten sam arkusz z podmienioną treścią pierwszego skoroszytu."""
+
+    source = zipfile.ZipFile(io.BytesIO(payload))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for member in source.infolist():
+            data = source.read(member.filename)
+            if member.filename == "xl/worksheets/sheet1.xml":
+                data = rewrite(data)
+            target.writestr(member.filename, data)
+    return buffer.getvalue()
+
+
+def test_xlsx_with_blank_stretches_keeps_the_rows_below_them() -> None:
+    """Puste wiersze nie zjadają limitu: dane pod nimi też są listą."""
+
+    rows: list[list[object]] = [["Firma", "Osoba"]]
+    rows += [["Czapla Test", f"Osoba {index}"] for index in range(300)]
+    rows += [[None, None] for _ in range(300)]
+    rows += [["Bocian Test", f"Dalsza {index}"] for index in range(100)]
+
+    listing = parse_research_file("lista.xlsx", _xlsx(rows))
+
+    assert len(listing.rows) == 400
+    assert listing.rows[-1].name == "Dalsza 99"
+
+    too_many = rows + [["Bocian Test", f"Nadmiar {index}"] for index in range(101)]
+    with pytest.raises(ResearchFileError) as error:
+        parse_research_file("lista.xlsx", _xlsx(too_many))
+    assert error.value.detail == files.TOO_MANY_ROWS_DETAIL
+
+
+def test_xlsx_with_broken_sheet_xml_is_a_bad_file_not_a_crash() -> None:
+    payload = _xlsx([["Firma", "Osoba"], ["Czapla Test", "Jan Fikcyjny"]])
+    broken = _with_sheet(payload, lambda data: data[: len(data) // 2])
+    with pytest.raises(ResearchFileError) as error:
+        parse_research_file("lista.xlsx", broken)
+    assert error.value.detail == files.UNREADABLE_DETAIL
+
+
+def test_xlsx_with_an_entity_bomb_is_refused() -> None:
+    """Encje rozwijają się w pamięci, nie w archiwum: rozmiar pliku ich nie zdradza."""
+
+    # 50 znaków × 10^6 = 50 MB po rozwinięciu z arkusza, który waży kilobajt.
+    entities = f'<!ENTITY a0 "{"a" * 50}">' + "".join(
+        f'<!ENTITY a{level} "{f"&a{level - 1};" * 10}">' for level in range(1, 7)
+    )
+
+    def bomb(data: bytes) -> bytes:
+        sheet = data.decode("utf-8").replace("Jan Fikcyjny", "&a6;")
+        return f"<!DOCTYPE worksheet [{entities}]>{sheet}".encode()
+
+    payload = _xlsx([["Firma", "Osoba"], ["Czapla Test", "Jan Fikcyjny"]])
+    workbook = _with_sheet(payload, bomb)
+    sheet = zipfile.ZipFile(io.BytesIO(workbook)).read("xl/worksheets/sheet1.xml")
+    assert b"&a6;" in sheet and len(workbook) < 20_000
+
+    with pytest.raises(ResearchFileError) as error:
+        parse_research_file("lista.xlsx", workbook)
+    assert error.value.detail == files.UNREADABLE_DETAIL
+
+
+def test_tens_of_thousands_of_blank_lines_are_not_a_list() -> None:
+    payload = (
+        "Firma;Osoba\n" + "\n" * files.MAX_SCANNED_LINES + "Czapla;Jan\n"
+    ).encode()
+    with pytest.raises(ResearchFileError) as error:
+        parse_research_file("lista.csv", payload)
+    assert error.value.detail == files.TOO_MANY_ROWS_DETAIL
+
+
 def test_same_person_key_ignores_word_order_case_and_diacritics() -> None:
     assert files.person_key("Żółty Józef") == files.person_key("józef  ZOLTY")
     assert files.person_key("  ") is None

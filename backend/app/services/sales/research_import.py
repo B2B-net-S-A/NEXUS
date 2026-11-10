@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
-from sqlalchemy import String, any_, bindparam, func, or_, select
+from sqlalchemy import String, any_, bindparam, func, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,6 +87,8 @@ CHOOSE_CARD_DETAIL = "Ta firma ma kilka kart. Wybierz kartę i dodaj osobę pono
 BLOCKED_DETAIL = "Firma ma oznaczenie „Nie kontaktować”."
 ON_MAP_DETAIL = "Ta osoba jest już na mapie tej firmy."
 ERROR_DETAIL = "Nie udało się zapisać tego wiersza. Spróbuj ponownie."
+#: Jedna akceptacja naraz w całej bazie; klucz blokady transakcyjnej Postgresa.
+ACCEPT_LOCK_KEY = "sales-research-import-accept"
 
 
 class NoPipelineError(RuntimeError):
@@ -182,6 +184,7 @@ class _Target:
 
     id: int
     name: str
+    normalized_name: str
     blocked: bool
 
 
@@ -300,8 +303,12 @@ async def _cards_by_key(db: AsyncSession, keys: Sequence[str]) -> dict[str, list
         found[key] = [
             row
             for row in rows
-            if row.normalized_name in (key, brand)
-            or (prefix is not None and row.normalized_name.startswith(prefix))
+            # Karta naszej spółki nie jest celem, także przy podobnej nazwie z pliku.
+            if not company_aliases.is_own_company(row.normalized_name)
+            and (
+                row.normalized_name in (key, brand)
+                or (prefix is not None and row.normalized_name.startswith(prefix))
+            )
         ]
     return found
 
@@ -537,6 +544,17 @@ class _Batch:
                 return Outcome(line, CHOOSE_CARD, detail=CHOOSE_CARD_DETAIL), None
             target = self.targets[same_name[0]] if same_name else None
         if target is not None:
+            # Kartę wskazuje żądanie, więc nazwa z pliku nie wystarcza do tej odmowy.
+            if company_aliases.is_own_company(target.normalized_name):
+                return (
+                    Outcome(
+                        line,
+                        OWN_COMPANY,
+                        detail=client_gate.OWN_COMPANY_REFUSAL,
+                        company_id=target.id,
+                    ),
+                    None,
+                )
             client = self.clients.get(target.id)
             if client is not None:
                 return (
@@ -574,7 +592,12 @@ class _Batch:
             )
             db.add(company)
             await db.flush()
-            target = _Target(id=company.id, name=name, blocked=False)
+            target = _Target(
+                id=company.id,
+                name=name,
+                normalized_name=company.normalized_name,
+                blocked=False,
+            )
 
         opportunity_id = self.accounts.get(target.id)
         created_account = opportunity_id is None
@@ -656,7 +679,10 @@ class _Batch:
             return
         if outcome.created_company:
             self.targets[outcome.company_id] = _Target(
-                id=outcome.company_id, name=person.company[:500], blocked=False
+                id=outcome.company_id,
+                name=person.company[:500],
+                normalized_name=company_key(person.company)[:500],
+                blocked=False,
             )
             self.exact.setdefault(company_key(person.company), []).append(
                 outcome.company_id
@@ -681,6 +707,12 @@ async def accept(
     więc ponowna akceptacja tej samej listy niczego nie dopisuje.
     """
 
+    # Dwa wiersze tej samej firmy kliknięte jeden po drugim to dwa żądania naraz:
+    # bez kolejki oba nie widzą jeszcze karty ani konta i każde zakłada własne.
+    # Blokada trzyma do końca transakcji, a odczyty niżej widzą już zapis poprzedniego.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": ACCEPT_LOCK_KEY}
+    )
     pipeline_id, stages = await _pipeline(db)
     keys = list(dict.fromkeys(company_key(person.company) for person in people))
     given = sorted({p.company_id for p in people if p.company_id is not None})
@@ -728,6 +760,7 @@ async def accept(
             card.id: _Target(
                 id=card.id,
                 name=card.name,
+                normalized_name=card.normalized_name,
                 blocked=card.status == COMPANY_DO_NOT_CONTACT,
             )
             for card in cards

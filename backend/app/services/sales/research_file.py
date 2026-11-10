@@ -31,6 +31,9 @@ MAX_FILE_BYTES = 2 * 1024 * 1024
 #: Lista z researchu to dziesiątki osób; limit chroni przegląd i proces web.
 MAX_ROWS = 500
 MAX_COLUMNS = 40
+#: Tyle linii pliku czytamy razem z pustymi; arkusz z dziesiątkami tysięcy pustych
+#: wierszy to nie lista, a jego przeglądanie zajmuje proces web.
+MAX_SCANNED_LINES = 20_000
 #: Arkusz 500 wierszy to po rozpakowaniu ułamek megabajta; zapas zatrzymuje plik,
 #: który z 2 MB rozwija się do dziesiątek megabajtów XML-a.
 MAX_UNZIPPED_BYTES = 10 * 1024 * 1024
@@ -355,9 +358,17 @@ def _xlsx_rows(payload: bytes) -> Iterable[tuple[Any, ...]]:
         sheet = workbook.worksheets[0] if workbook.worksheets else None
         if sheet is None:
             raise ResearchFileError(EMPTY_DETAIL)
-        yield from sheet.iter_rows(
-            values_only=True, max_row=MAX_ROWS + 50, max_col=MAX_COLUMNS
-        )
+        # Bez `max_row`: puste wiersze w środku arkusza nie mogą uciąć danych pod
+        # nimi. Liczbę wierszy ogranicza pętla w `parse_research_file`.
+        rows = sheet.iter_rows(values_only=True, max_col=MAX_COLUMNS)
+        while True:
+            try:
+                row = next(rows)
+            except StopIteration:
+                return
+            except Exception as exc:  # noqa: BLE001 — zepsuty XML wychodzi przy czytaniu
+                raise ResearchFileError(UNREADABLE_DETAIL) from exc
+            yield row
     finally:
         workbook.close()
 
@@ -445,6 +456,8 @@ def parse_research_file(filename: str, payload: bytes) -> ResearchFile:
     rows: list[ResearchRow] = []
     skipped: list[SkippedRow] = []
     for line, cells in enumerate(raw, start=1):
+        if line > MAX_SCANNED_LINES:
+            raise ResearchFileError(TOO_MANY_ROWS_DETAIL)
         cells = list(cells or ())
         if columns is None:
             if not any(clean_text(cell, 255) for cell in cells):

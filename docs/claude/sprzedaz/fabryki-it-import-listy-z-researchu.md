@@ -29,10 +29,14 @@ front `frontend/src/components/sales/research-import/`, klient API
 
 ## Plik to dane niezaufane
 
-- CSV albo `.xlsx`, do 2 MB, 500 wierszy i 40 kolumn; arkusz sprawdzany przed
+- CSV albo `.xlsx`, do 2 MB, 500 wierszy z danymi i 40 kolumn; arkusz sprawdzany przed
   rozpakowaniem (rozmiar po rozpakowaniu, liczba plików w archiwum). Znaki sterujące
   i niewidoczne znaczniki kierunku tekstu są wycinane, komórka przycinana do limitu
   pola mapy, linki tylko http(s).
+- **Limit liczy wiersze z danymi, nie linie arkusza.** `iter_rows(max_row=…)` ucinał
+  po cichu dane leżące pod pustymi wierszami, więc arkusz czyta się do końca, a osobny
+  sufit 20 000 linii (z pustymi) kończy się jawną odmową. Zepsuty XML arkusza i bomba
+  encji wychodzą dopiero przy czytaniu wierszy: to też odmowa 422, nie błąd 500.
 - **Błąd w wierszu nie wywraca pliku.** Wiersz bez firmy albo osoby idzie na listę
   pominiętych z numerem wiersza i powodem. Zły adres, telefon albo link odpada
   z ostrzeżeniem przy wierszu, a osoba zostaje.
@@ -77,10 +81,16 @@ front `frontend/src/components/sales/research-import/`, klient API
 - **Osoba się nie dubluje:** ten sam e-mail albo to samo imię i nazwisko na mapie tej
   firmy (bez ogonków, kolejność wyrazów bez znaczenia) daje wynik „już na mapie”.
   Zapis trzyma blokadę wiersza szansy jak `add_decision_person`.
+- **Jedna akceptacja naraz** (`pg_advisory_xact_lock` na początku `accept`). Dwa wiersze
+  tej samej nowej firmy kliknięte jeden po drugim to dwa żądania; bez kolejki żadne nie
+  widziało jeszcze karty ani konta i każde zakładało własne (`sales_companies`
+  i `sales_opportunities` nie mają tu unikalnego indeksu). Ekran dodatkowo wstrzymuje
+  pozostałe wiersze firmy, dopóki pierwszy się zapisuje.
 - **Klient NEXUSA nie dostaje osoby ani konta.** Wiersz pokazuje klienta i Delivery
   Leada (`client_gate.match_companies`: nazwa z pliku, powiązanie karty, nazwa karty).
   Serwer sprawdza to przy każdym zapisie, nie tylko w przeglądzie. Karty klienta nie da
-  się wskazać przy wyborze. Firma „Nie kontaktować” i nasza spółka też odpadają.
+  się wskazać przy wyborze. Firma „Nie kontaktować” i nasza spółka też odpadają, także
+  gdy żądanie wskazuje ich kartę wprost pod inną nazwą firmy.
 - **„Dodaj pewne do map”** bierze wiersze oznaczone w pliku jako pewne, z ustalonym
   celem, po potwierdzeniu z liczbą osób, kont i kart. „Do weryfikacji” i firmy
   czekające na wybór karty zostają na liście do akceptacji pojedynczo.

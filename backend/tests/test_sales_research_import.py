@@ -7,6 +7,7 @@ Dane są fikcyjne, a nazwy niosą losowy tag: baza testowa jest wspólna.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -433,6 +434,30 @@ async def test_own_company_is_refused(app_client) -> None:
     body = await _outcomes(app_client, rep, [_person_in(plan["rows"][0])])
     assert body["outcomes"][0]["result"] == "own_company"
 
+    # Karta naszej spółki wskazana wprost, pod inną nazwą firmy, też odpada.
+    own_card = await _company(f"B2B Network {_tag()}")
+    forged = await _outcomes(
+        app_client,
+        rep,
+        [
+            {
+                "line": 2,
+                "company": f"Inna Nazwa {_tag()}",
+                "name": "Jan Fikcyjny",
+                "company_id": own_card,
+            }
+        ],
+    )
+    assert forged["outcomes"][0]["result"] == "own_company"
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(SalesOpportunity)
+                .where(SalesOpportunity.company_id == own_card)
+            )
+        ) == 0
+
 
 # ── Przegląd: osoba ───────────────────────────────────────────────────────
 
@@ -659,6 +684,50 @@ async def test_accept_creates_one_card_with_domain_for_a_new_company(
     replan = await _plan(app_client, rep, _csv(f"{name};Jan Fikcyjny;Manager;;;;"))
     assert _company_of(replan, name)["state"] == "account"
     assert replan["rows"][0]["person"] == "on_map"
+
+
+@pytest.mark.asyncio
+async def test_two_accepts_at_once_do_not_open_two_cards_or_accounts(
+    app_client,
+) -> None:
+    """Dwa wiersze tej samej nowej firmy kliknięte jeden po drugim to dwa żądania naraz."""
+
+    rep = await _user("sales_edit")
+    await _wip_stage_id()
+    tag = _tag()
+    name = f"Zniczek {tag}"
+    card_only = f"Sikora {tag}"
+    card_id = await _company(card_only)
+
+    def person(line: int, company: str, who: str) -> dict[str, Any]:
+        return {"line": line, "company": company, "name": who}
+
+    responses = await asyncio.gather(
+        _accept(app_client, rep, [person(2, name, "Jan Fikcyjny")]),
+        _accept(app_client, rep, [person(3, name, "Ewa Zmyślona")]),
+        _accept(app_client, rep, [person(4, card_only, "Adam Wymyślony")]),
+        _accept(app_client, rep, [person(5, card_only, "Olga Zmyślna")]),
+    )
+
+    outcomes = [resp.json()["outcomes"][0] for resp in responses]
+    assert [o["result"] for o in outcomes] == ["added"] * 4
+    [card] = await _cards_named(name)
+    assert {outcomes[0]["company_id"], outcomes[1]["company_id"]} == {card.id}
+    assert outcomes[0]["opportunity_id"] == outcomes[1]["opportunity_id"]
+    assert outcomes[2]["opportunity_id"] == outcomes[3]["opportunity_id"]
+    async with AsyncSessionLocal() as db:
+        for company_id in (card.id, card_id):
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(SalesOpportunity)
+                    .where(SalesOpportunity.company_id == company_id)
+                )
+            ) == 1
+    assert {e["name"] for e in await _map(outcomes[0]["opportunity_id"])} == {
+        "Jan Fikcyjny",
+        "Ewa Zmyślona",
+    }
 
 
 @pytest.mark.asyncio
