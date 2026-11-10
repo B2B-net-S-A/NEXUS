@@ -387,6 +387,7 @@ async def log_approved_edits(
     user_id: Optional[int],
     document_version_id: Optional[int],
     version: Optional[int],
+    extra: Optional[dict] = None,
 ) -> None:
     """Dopisz ``ACTION`` dla zatwierdzenia CV etapu, które zaczęło się w generatorze.
 
@@ -414,6 +415,7 @@ async def log_approved_edits(
                         "origin": metadata.get("source") or "generator",
                         "assisted": assisted,
                         **summary,
+                        **(extra or {}),
                     },
                 )
             )

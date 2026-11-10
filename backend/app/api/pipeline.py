@@ -1881,6 +1881,9 @@ async def apply_move(
     client_rate_unit = data.client_rate_unit
     client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
     to_cpro_queue = cpro_enabled_for_client(job.client_id)
+    # Akceptacja Delivery Leada do kolejki Cpro zatwierdza też CV etapu
+    # (wariant A, 10.11.2026, `cv_dl_accept_finalize`).
+    dl_accepts_to_cpro = False
     if pipeline_move_rules.requires_dl_client_rate(
         legacy_enum,
         job.client_id,
@@ -1888,6 +1891,9 @@ async def apply_move(
     ) and await pipeline_move_rules.arrives_from_before_client_send(
         db, candidate_id=data.candidate_id, job_id=data.job_id
     ):
+        dl_accepts_to_cpro = to_cpro_queue and is_cpro_stage(
+            stage_def.name if stage_def else None
+        )
         known_rate = client_rate_value
         if known_rate is None:
             known_rate = await db.scalar(
@@ -2454,6 +2460,15 @@ async def apply_move(
     await stage_handoff_recipients.close_client_acceptance_bells(
         db, previous=previous_stage_row, target_column=target_column
     )
+    if dl_accepts_to_cpro:
+        from app.services.cv_dl_accept_finalize import finalize_on_dl_accept
+
+        await finalize_on_dl_accept(
+            db,
+            candidate_id=data.candidate_id,
+            job_id=data.job_id,
+            user_id=policy.actor_id,
+        )
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
         job.cpro_sender_id = cpro_assignee.id

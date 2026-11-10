@@ -125,6 +125,20 @@ export function CproAcceptance({ item }: { item: CproQueueItem }) {
   );
 }
 
+/**
+ * CV etapu jest szkicem: akceptacja DL-a nie zdołała go zatwierdzić (np. kontrola
+ * treści przed zatwierdzeniem jeszcze nie biegła), więc „CV” pobierze plik
+ * „SZKIC_…”. Wariant B z makiety 10.11.2026 jako zapas wariantu A.
+ */
+export function CproCvDraftBadge({ item }: { item: CproQueueItem }) {
+  if (!item.cv?.stage_id || !item.cv.draft) return null;
+  return (
+    <Badge variant="warning" size="sm" className="mt-1" data-testid="cpro-cv-draft">
+      CV niezatwierdzone przez rekrutera
+    </Badge>
+  );
+}
+
 // ── Kto wrzuca (cała firma) ──────────────────────────────────────────────────
 
 interface SenderControlProps {
@@ -568,6 +582,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                             <span>czeka {waitingFor(item.since)}</span>
                           </p>
                           <CproAcceptance item={item} />
+                          <CproCvDraftBadge item={item} />
                         </div>
                         <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:justify-end">
                           <Button
