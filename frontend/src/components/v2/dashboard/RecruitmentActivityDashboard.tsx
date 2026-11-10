@@ -197,7 +197,8 @@ function ActivityDetails({
         viewerId={viewerId}
         cacheKey={scopeCacheKey}
         pageSize={DETAIL_PAGE_SIZE}
-        teamFilters={teamFilters}
+        // Wybrana osoba: kafle liczą całą jej pracę, lista też.
+        teamFilters={teamScope ? teamFilters : undefined}
         query={{
           window: "range",
           day: range.start,

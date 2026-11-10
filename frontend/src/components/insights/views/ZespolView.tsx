@@ -388,6 +388,11 @@ function RecruiterTable({
           }}
           onMetricChange={(metric) => writeList(metric, listWho, "replace")}
           onClose={() => writeList(null, null)}
+          client={
+            teamFilters.clientId !== null
+              ? { id: teamFilters.clientId, name: teamFilters.clientName }
+              : null
+          }
         />
       ) : null}
       <PerformanceFlagsLoadNotice

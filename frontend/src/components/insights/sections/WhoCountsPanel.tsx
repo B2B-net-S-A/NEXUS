@@ -265,9 +265,12 @@ export function TeamWhoCountsPanel({
   range,
   metrics = TEAM_WHO_COUNTS,
   notice,
+  client = null,
   onMetricChange,
   onClose,
 }: {
+  /** Klient wybrany w tabeli Ludzie — lista osoby liczy tylko jego (10.11.2026). */
+  client?: { id: number; name: string | null } | null;
   /** Linijka nad listą (lejek: pary bez osoby z zasługą, różnica z liczbą). */
   notice?: ReactNode;
   subject: TeamWhoCountsSubject;
@@ -311,6 +314,11 @@ export function TeamWhoCountsPanel({
       >
         <MetricTabs metrics={metrics} active={metric} onChange={onMetricChange} />
         {notice}
+        {subject.kind !== "team" && client ? (
+          <p className="text-xs text-muted-foreground">
+            Tylko klient: <strong className="font-medium text-foreground">{client.name ?? `#${client.id}`}</strong>
+          </p>
+        ) : null}
         <WhoCountsList
           metric={metric}
           viewerId={viewerId}
@@ -323,7 +331,13 @@ export function TeamWhoCountsPanel({
             dateTo: range.end,
             ...subjectQuery(subject),
           }}
-          teamFilters={subject.kind === "team" ? teamFilters : undefined}
+          teamFilters={
+            subject.kind === "team"
+              ? teamFilters
+              : client
+                ? { role: "all", clientId: client.id, clientName: client.name }
+                : undefined
+          }
           onTeamFiltersChange={subject.kind === "team" ? setTeamFilters : undefined}
         />
       </Panel>

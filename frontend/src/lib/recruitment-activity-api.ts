@@ -145,7 +145,10 @@ interface RecruitmentActivityFilters {
   month: string
   subjectUserId?: number | null
   teamScope?: boolean
-  /** Rola i klient — tylko w zakresie zespołu (`services/team_filters.py`). */
+  /**
+   * Rola (tylko zakres zespołu) i klient (każdy zakres listy) —
+   * `services/team_filters.py`.
+   */
   team?: TeamFilterParams
 }
 
@@ -156,7 +159,13 @@ function activityParams(filters: RecruitmentActivityFilters) {
     ...(typeof filters.subjectUserId === "number"
       ? { subject_user_id: filters.subjectUserId }
       : {}),
-    ...(filters.teamScope ? { scope: "team", ...teamFilterQuery(filters.team) } : {}),
+    ...(filters.teamScope ? { scope: "team" } : {}),
+    ...teamFilterQuery(
+      filters.team && {
+        role: filters.teamScope ? filters.team.role : "all",
+        clientId: filters.team.clientId,
+      },
+    ),
   }
 }
 

@@ -280,25 +280,30 @@ async def test_team_tiles_count_only_role_group(monkeypatch) -> None:
     outside = MagicMock()
     outside.all.return_value = []
     db = AsyncMock()
+
+    def _verified(uid: int, *, day: int, month: int, bench: int) -> dict:
+        return {
+            "credit_user": uid,
+            "stage": "verified",
+            "day_count": day,
+            "month_count": month,
+            "benchmark_count": bench,
+        }
+
     db.execute.side_effect = [
         _result([head]),
+        # Cały zespół, wszyscy klienci — źródło średniej zespołu.
         _result(
             [
-                {
-                    "credit_user": 11,
-                    "stage": "verified",
-                    "day_count": 1,
-                    "month_count": 5,
-                    "benchmark_count": 0,
-                },
-                # DL bez roli rekrutera: w sumie firmy, poza kaflem „Rekruterzy”.
-                {
-                    "credit_user": 21,
-                    "stage": "verified",
-                    "day_count": 2,
-                    "month_count": 3,
-                    "benchmark_count": 0,
-                },
+                _verified(11, day=3, month=9, bench=6),
+                _verified(21, day=2, month=4, bench=3),
+            ]
+        ),
+        # Wybrany klient — kafle. 21 to DL bez roli rekrutera: poza kaflem.
+        _result(
+            [
+                _verified(11, day=1, month=5, bench=1),
+                _verified(21, day=2, month=3, bench=1),
             ]
         ),
         outside,
@@ -319,8 +324,12 @@ async def test_team_tiles_count_only_role_group(monkeypatch) -> None:
     verification = next(m for m in result.metrics if m.metric == "verification")
     assert verification.month == 5
     assert verification.day == 1
-    overview_params = db.execute.await_args_list[1].args[1]
-    assert overview_params["client_id"] == 7
+    # Pierwsze zapytanie: cały zespół (średnia), drugie: wybrany klient (kafle).
+    assert db.execute.await_args_list[1].args[1]["client_id"] is None
+    assert db.execute.await_args_list[2].args[1]["client_id"] == 7
+    # Średnia zespołu bez filtra roli i klienta: (6 + 3) / (2 osoby × 3 miesiące).
+    comparison = next(c for c in result.comparisons if c.metric == "verification")
+    assert comparison.team_average == 1.5
 
 
 def test_client_filter_is_in_every_team_query() -> None:

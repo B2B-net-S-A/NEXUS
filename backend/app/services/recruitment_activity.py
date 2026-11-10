@@ -680,23 +680,34 @@ async def build_recruitment_activity_summary(
     team_view = audience.selected is None
     role_ids = await team_role_user_ids(db, role) if team_view else None
     team_client = client_id if team_view else None
-    rows = await _overview_rows(
+    overview_key = (
+        f"{selected_day.isoformat()}:{period_start.isoformat()}:"
+        f"{period_end.isoformat()}:"
+        f"{benchmark_start.isoformat()}:{benchmark_end.isoformat()}"
+    )
+    overview_params = {
+        "day_start": day_start_dt,
+        "day_end": day_end_dt,
+        "month_start": month_start_dt,
+        "month_end": month_end_dt,
+        "benchmark_start": benchmark_start_dt,
+        "benchmark_end": benchmark_end_dt,
+    }
+    all_rows = await _overview_rows(
         db,
-        cache_key=(
-            f"{selected_day.isoformat()}:{period_start.isoformat()}:"
-            f"{period_end.isoformat()}:"
-            f"{benchmark_start.isoformat()}:{benchmark_end.isoformat()}:"
-            f"{team_client or 'all'}"
-        ),
-        params={
-            "client_id": team_client,
-            "day_start": day_start_dt,
-            "day_end": day_end_dt,
-            "month_start": month_start_dt,
-            "month_end": month_end_dt,
-            "benchmark_start": benchmark_start_dt,
-            "benchmark_end": benchmark_end_dt,
-        },
+        cache_key=f"{overview_key}:all",
+        params={**overview_params, "client_id": None},
+    )
+    # Średnia zespołu zostaje dla całej pracy zespołu (bez roli i klienta) —
+    # karta nazywa się „średnia zespołu”, a nie „średnia u klienta”.
+    rows = (
+        all_rows
+        if team_client is None
+        else await _overview_rows(
+            db,
+            cache_key=f"{overview_key}:{team_client}",
+            params={**overview_params, "client_id": team_client},
+        )
     )
     selected_id = audience.selected.id if audience.selected is not None else None
     for row in rows:
@@ -710,6 +721,9 @@ async def build_recruitment_activity_summary(
         ):
             counts[metric]["day"] += int(row["day_count"] or 0)
             counts[metric]["month"] += int(row["month_count"] or 0)
+    for row in all_rows:
+        uid = int(row["credit_user"])
+        stage = str(row["stage"])
         benchmark = int(row["benchmark_count"] or 0)
         if stage in {"verified", "hired"} and benchmark > 0:
             person = benchmark_by_user.setdefault(uid, {"verified": 0, "hired": 0})

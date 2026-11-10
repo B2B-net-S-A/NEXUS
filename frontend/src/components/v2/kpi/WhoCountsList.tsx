@@ -588,10 +588,17 @@ export function WhoCountsList({
   pageSize?: number
   compact?: boolean
 }) {
-  const scoped: WhoCountsQuery =
-    teamFilters && query.teamScope
-      ? { ...query, team: { role: teamFilters.role, clientId: teamFilters.clientId } }
-      : query
+  // Rola dotyczy listy całego zespołu, klient każdej listy (osoba z tabeli
+  // Ludzie przy wybranym kliencie liczy się tylko u niego).
+  const scoped: WhoCountsQuery = teamFilters
+    ? {
+        ...query,
+        team: {
+          role: query.teamScope ? teamFilters.role : "all",
+          clientId: teamFilters.clientId,
+        },
+      }
+    : query
   const scopeKey = JSON.stringify(scoped)
   // Filtr i strona należą do jednego celu i jednej osoby: po zmianie wracają
   // do „Wszystkie”, strona 1 — od razu w tym renderze, bez zapytania ze starym filtrem.
