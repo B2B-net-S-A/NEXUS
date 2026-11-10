@@ -46,6 +46,7 @@ from app.services.sales import (
     history,
     meeting_decisions,
     offer_steps,
+    owner_tasks,
 )
 from app.services.sales.lifecycle import apply_stage, deal_value
 from app.services.sales.motion import build_atlas_motion, entry_keys
@@ -793,9 +794,16 @@ async def update_opportunity(
     if fields.get("currency", "") is None:
         fields.pop("currency")
     await _check_links(db, fields)
+    previous_owner_id = opp.owner_user_id
     before = history.snapshot(opp)
     _apply(opp, fields)
     history.record_changes(db, opp, before, user_id=current_user.id)
+    await owner_tasks.hand_over(
+        db,
+        opp.id,
+        previous_owner_id=previous_owner_id,
+        new_owner_id=opp.owner_user_id,
+    )
     await db.commit()
     return await _detail(db, opportunity_id)
 

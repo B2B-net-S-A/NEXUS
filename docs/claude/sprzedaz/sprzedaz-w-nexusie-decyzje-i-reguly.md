@@ -1,5 +1,5 @@
 # Sprzedaż w NEXUSIE (Atlas → NEXUS) — decyzje Artura 26–27.10.2026 i reguły modułu
-<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, inne nazwy z CV, dziennik odczytu, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap), Oferty: kroki po wysłaniu, „Do decyzji”, „Odłóż do…”, „Przejmij” -->
+<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, inne nazwy z CV, dziennik odczytu, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap), Oferty: kroki po wysłaniu, „Do decyzji”, „Odłóż do…”, „Przejmij”, zadania idą za opiekunem (owner_tasks.hand_over) -->
 
 Sekcja „Sprzedaż” zastępuje CRM Atlasa (D1 = budowa w NEXUSIE od nowa
 i import danych). Propozycja z makietami M0–M4:
@@ -180,7 +180,8 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 - **Zadanie przy szansie należy do opiekuna szansy** (reguła Atlasa, liczona
   przy imporcie i przy zapisie w NEXUSIE, `_default_assignee`). Jawne
   przypisanie wygrywa; bez szansy albo bez aktywnego opiekuna zadanie zostaje
-  u autora. Lista „Zadania” obejmuje też telefony z terminem.
+  u autora. Lista „Zadania” obejmuje też telefony z terminem. Od 10.11.2026 reguła
+  działa także po zmianie opiekuna (sekcja „Zadania idą za opiekunem” na końcu pliku).
 - **Opiekun z Atlasa bez konta = `owner_label`.** Etykietę przypisuje do konta
   admin (Firmy → „Opiekunowie z Atlasa”); nazwisk nie ma w kodzie ani w logach.
 - **Osoba w kilku firmach**: `sales_company_contacts` (rola, stanowisko,
@@ -447,7 +448,7 @@ Pełne reguły: `przekazanie-spotkania-i-werdykt.md`. W skrócie:
   134 ze 174. Pozycja przy firmie bez szansy zostaje. Zakładka „Zrobione” bez zmian.
 - **`scripts/sales_cleanup.py`** zamyka pozycje z importu przypisane do wskazanego konta
   i bez przypisania, a szanse po opiekunie, który odszedł, przekazuje przez
-  `services/sales/history.py`. Domyślnie na sucho (`READ ONLY`). `--apply` wymaga licznika
+  `services/sales/history.py` razem z jego otwartymi zadaniami. Domyślnie na sucho (`READ ONLY`). `--apply` wymaga licznika
   z biegu na sucho (`--expect-close`) i tylko po „tak” Artura. Nie rusza etapu, statusu
   ani archiwum szans. `--pipeline-key` zawęża listę i przekazanie do jednego lejka
   (10.11.2026), bo konta Fabryk IT i stare szanse sprzedażowe po tej samej osobie
@@ -510,3 +511,31 @@ Logika: `services/sales/offer_steps.py` i `services/sales/offers.py`, trasy w
   bez zakresu tylko raz, bo inaczej po pierwszym „Przejmij” osoba bez własnych ofert
   lądowałaby w „Moje” i traciła z oczu resztę „Do decyzji”.
   To lista spraw do rozstrzygnięcia: bez rankingu osób, celu i paska postępu.
+
+## Zadania idą za opiekunem (decyzja Artura 10.11.2026)
+
+Logika: `services/sales/owner_tasks.py` (`hand_over`). Bez migracji.
+
+- **Każda zmiana opiekuna szansy przenosi otwarte zadania poprzedniego opiekuna na
+  nowego:** okno „Zmień opiekuna” (`PATCH` szansy), „Przejmij”, „Umów spotkanie”
+  z innym prowadzącym i przekazanie w `scripts/sales_cleanup.py`. Wcześniej robiło to
+  tylko „Przejmij”. Po zwykłej zmianie nowy opiekun widział krok w „Co dalej” i na pasku
+  karty (`next_step.py` nie patrzy na wykonawcę), ale nie miał go w „Zadania → Moje” ani
+  w „Mój dzień → Zaległe”, a kroku po ofercie nie mógł usunąć.
+- **Co przechodzi:** otwarte pozycje listy „Zadania” przy tej szansie, czyli zadania
+  i telefony z terminem (`task_scope.task_items`), przypisane do poprzedniego opiekuna.
+  Krok po ofercie (`offer-step`) dostaje też nowego autora, bo zadanie usuwa tylko autor.
+  Zwykłe zadanie autora nie zmienia.
+- **Co zostaje:** pozycja przypisana komuś trzeciemu, bo jawne przypisanie wygrywa (na
+  przykład „umów nowy termin” u osoby, która umówiła spotkanie), pozycja zrobiona, telefon
+  bez terminu (wpis historii), zadania przy innych szansach i przy samej firmie.
+- **Szansa, która traci opiekuna bez następcy, zadań nie oddaje,** bo nie ma komu.
+  Nadanie opiekuna szansie bez opiekuna też ich nie rusza: przechodzą tylko zadania
+  bezpośredniego poprzednika. „Opiekunowie z Atlasa” i import uzupełniają wyłącznie
+  pustego opiekuna, więc poprzednika tam nie ma.
+- **Nowa ścieżka, która zmienia `owner_user_id` szansy, woła `owner_tasks.hand_over`**
+  obok `history.record_changes`. Bez tego wraca luka z punktu pierwszego.
+- **Skrypt** podaje w raporcie `handover_open_tasks` (bieg na sucho, bez pozycji, które sam
+  zamyka) i `transferred_tasks` (po `--apply`). Na kopii produkcji z 10.11.2026 przy
+  szansach przekazywanych skryptem nie było otwartych zadań, więc wstecz nie ma czego
+  naprawiać.
