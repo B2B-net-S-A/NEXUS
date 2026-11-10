@@ -34,7 +34,17 @@ import {
 import { cn } from "@/lib/utils"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { hasSectionAccess } from "@/lib/section-access"
-import { useAuthStore } from "@/store/auth"
+import { hasRole, useAuthStore } from "@/store/auth"
+import {
+  DEFAULT_TEAM_FILTERS,
+  describeTeamFilters,
+  isFiltered,
+  readStoredTeamFilters,
+  writeStoredTeamFilters,
+  type ClientOption,
+  type TeamFilters,
+} from "@/lib/team-filters"
+import { TeamFilterControls } from "@/components/v2/kpi/TeamFilterControls"
 import {
   ActivityPeriodBar,
   activityPeriodRange,
@@ -48,6 +58,22 @@ import { TeamDayTable } from "./TeamDayTable"
 
 const TEAM_SCOPE = "team"
 const DETAIL_PAGE_SIZE = 25
+const TEAM_FILTERS_KEY = "nexus:recruitment-activity:team-filters"
+
+/**
+ * Role z wglądem w zespół (`_TEAM_DETAIL_ROLES` w `services/recruitment_activity.py`)
+ * startują od „Cały zespół · Rekruterzy” (decyzja Artura z 10.11.2026), rekruter od siebie.
+ */
+function startsWithTeam(user: Parameters<typeof hasRole>[0]): boolean {
+  return hasRole(
+    user,
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "finance",
+    "talent_community_manager",
+  )
+}
 
 const METRICS: Array<{
   key: RecruitmentActivityMetric
@@ -144,7 +170,9 @@ function ActivityDetails({
   teamScope,
   scopeCacheKey,
   viewerId,
+  teamFilters,
 }: {
+  teamFilters: TeamFilters
   metric: RecruitmentActivityMetric
   range: DayRange
   subjectUserId: number | null | undefined
@@ -169,6 +197,7 @@ function ActivityDetails({
         viewerId={viewerId}
         cacheKey={scopeCacheKey}
         pageSize={DETAIL_PAGE_SIZE}
+        teamFilters={teamFilters}
         query={{
           window: "range",
           day: range.start,
@@ -295,18 +324,29 @@ export function RecruitmentActivityDashboard({
   const range = activityPeriodRange(periodKey, today, customRange)
   const validRange = range.start <= range.end
   const rangeLabel = describeActivityRange(range)
+  const teamByDefault = startsWithTeam(authUser)
   const [subjectUserId, setSubjectUserId] = useState<number | null | undefined>(
-    undefined,
+    () => (teamByDefault ? null : undefined),
   )
-  const [teamScope, setTeamScope] = useState(false)
+  const [teamScope, setTeamScope] = useState(teamByDefault)
   const [expandedMetric, setExpandedMetric] =
     useState<RecruitmentActivityMetric | null>(null)
+  const [teamFilters, setTeamFilters] = useState<TeamFilters>(DEFAULT_TEAM_FILTERS)
+  const filtersRestoredRef = useRef(false)
+  useEffect(() => {
+    const stored = readStoredTeamFilters(TEAM_FILTERS_KEY)
+    if (stored) setTeamFilters(stored)
+    filtersRestoredRef.current = true
+  }, [])
+  useEffect(() => {
+    if (filtersRestoredRef.current) writeStoredTeamFilters(TEAM_FILTERS_KEY, teamFilters)
+  }, [teamFilters])
 
   useEffect(() => {
-    setSubjectUserId(undefined)
-    setTeamScope(false)
+    setSubjectUserId(teamByDefault ? null : undefined)
+    setTeamScope(teamByDefault)
     setExpandedMetric(null)
-  }, [scopeCacheKey])
+  }, [scopeCacheKey, teamByDefault])
 
   const query = useQuery({
     queryKey: [
@@ -318,6 +358,8 @@ export function RecruitmentActivityDashboard({
       range.end,
       subjectUserId ?? null,
       teamScope,
+      teamScope ? teamFilters.role : null,
+      teamScope ? teamFilters.clientId : null,
     ],
     queryFn: () =>
       getRecruitmentActivitySummary({
@@ -327,6 +369,7 @@ export function RecruitmentActivityDashboard({
         dateTo: range.end,
         subjectUserId,
         teamScope,
+        team: { role: teamFilters.role, clientId: teamFilters.clientId },
       }),
     enabled: validRange,
     staleTime: 30_000,
@@ -369,6 +412,13 @@ export function RecruitmentActivityDashboard({
   }
 
   const canReadPipeline = hasSectionAccess(authUser, "pipeline")
+  // Rola i klient dotyczą tylko „Cały zespół”; lista klientów zostaje na
+  // ekranie, póki idzie odpowiedź po zmianie filtra.
+  const teamView =
+    (teamScope || query.data?.scope === "team") && query.data?.can_view_team_details !== false
+  const lastClients = useRef<ClientOption[]>([])
+  if (query.data?.clients) lastClients.current = query.data.clients
+  const filtering = teamView && isFiltered(teamFilters)
 
   return (
     <>
@@ -393,8 +443,22 @@ export function RecruitmentActivityDashboard({
             rekrutacje.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {teamView ? (
+          <TeamFilterControls
+            value={teamFilters}
+            onChange={(next) => {
+              setTeamFilters(next)
+              setExpandedMetric(null)
+            }}
+            clients={query.data?.clients ?? lastClients.current}
+            showCounts={false}
+          />
+        ) : null}
+        <div className="flex min-w-0 items-center gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Kto</span>
         <Select value={selectedPersonValue} onValueChange={selectPerson}>
-          <SelectTrigger className="w-full @xl:w-56" aria-label="Osoba lub zespół">
+          <SelectTrigger className="h-7 w-full text-[13px] @xl:w-48" aria-label="Osoba lub zespół">
             <SelectValue placeholder="Osoba lub zespół" />
           </SelectTrigger>
           <SelectContent>
@@ -408,6 +472,8 @@ export function RecruitmentActivityDashboard({
             ))}
           </SelectContent>
         </Select>
+        </div>
+        </div>
       </div>
 
       <ActivityPeriodBar
@@ -496,7 +562,9 @@ export function RecruitmentActivityDashboard({
                   <div>
                     <p className="text-sm font-medium text-foreground">
                       {query.data.scope === "team"
-                        ? "Wynik całego zespołu"
+                        ? filtering
+                          ? `Wynik zespołu · ${describeTeamFilters(teamFilters)}`
+                          : "Wynik całego zespołu"
                         : `Wynik: ${query.data.subject?.name}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -535,6 +603,7 @@ export function RecruitmentActivityDashboard({
                 teamScope={query.data.scope === "team"}
                 scopeCacheKey={scopeCacheKey}
                 viewerId={authUser?.id ?? null}
+                teamFilters={teamFilters}
               />
             ) : null}
           </Card>
@@ -546,6 +615,7 @@ export function RecruitmentActivityDashboard({
               rangeLabel={rangeLabel}
               metrics={query.data.metrics}
               compact={!embedded}
+              teamFilters={teamFilters}
             />
           ) : null}
 

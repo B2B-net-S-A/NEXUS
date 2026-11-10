@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Badge } from "@/components/ui/badge"
@@ -36,7 +36,9 @@ import {
   type RecruitmentActivityDetailResponse,
   type RecruitmentActivityState,
 } from "@/lib/recruitment-activity-api"
+import type { TeamFilters } from "@/lib/team-filters"
 import { cn } from "@/lib/utils"
+import { TeamFilterControls } from "./TeamFilterControls"
 
 const TONE_BADGE: Record<WhoCountsTone, "outline" | "info" | "success" | "danger" | "warning"> = {
   neutral: "outline",
@@ -569,16 +571,28 @@ export function WhoCountsList({
   cacheKey,
   pageSize = 50,
   compact = false,
+  teamFilters,
+  onTeamFiltersChange,
 }: {
   metric: WhoCountsMetric
   query: WhoCountsQuery
+  /**
+   * Rola i klient listy całego zespołu (10.11.2026). Z `onTeamFiltersChange`
+   * lista pokazuje kontrolki sama; bez — filtr ustawia ekran nad nią.
+   */
+  teamFilters?: TeamFilters
+  onTeamFiltersChange?: (next: TeamFilters) => void
   viewerId: number | null
   /** Oddziela cache po zmianie konta albo uprawnień. */
   cacheKey: string
   pageSize?: number
   compact?: boolean
 }) {
-  const scopeKey = JSON.stringify(query)
+  const scoped: WhoCountsQuery =
+    teamFilters && query.teamScope
+      ? { ...query, team: { role: teamFilters.role, clientId: teamFilters.clientId } }
+      : query
+  const scopeKey = JSON.stringify(scoped)
   // Filtr i strona należą do jednego celu i jednej osoby: po zmianie wracają
   // do „Wszystkie”, strona 1 — od razu w tym renderze, bez zapytania ze starym filtrem.
   const viewKey = `${metric}|${scopeKey}`
@@ -593,9 +607,9 @@ export function WhoCountsList({
   const order = view.key === viewKey ? view.order : "reached"
 
   const details = useQuery({
-    queryKey: whoCountsQueryKey(cacheKey, metric, query, state, page, pageSize, order),
+    queryKey: whoCountsQueryKey(cacheKey, metric, scoped, state, page, pageSize, order),
     queryFn: () =>
-      getRecruitmentActivityDetails({ ...query, metric, state, page, pageSize, order }),
+      getRecruitmentActivityDetails({ ...scoped, metric, state, page, pageSize, order }),
     staleTime: 30_000,
     // Poprzednia strona albo filtr zostaje na ekranie, póki idzie następna —
     // ale nie dane innego celu albo innej osoby pod nowym nagłówkiem.
@@ -605,18 +619,39 @@ export function WhoCountsList({
         : undefined,
   })
 
+  // Lista klientów zostaje na ekranie, póki idzie odpowiedź po zmianie filtra.
+  const lastClients = useRef(details.data?.clients ?? [])
+  if (details.data?.clients) lastClients.current = details.data.clients
+  const controls =
+    teamFilters && onTeamFiltersChange && query.teamScope ? (
+      <TeamFilterControls
+        value={teamFilters}
+        onChange={onTeamFiltersChange}
+        clients={details.data?.clients ?? lastClients.current}
+        className="rounded-lg border border-border bg-muted/30 px-3 py-2"
+      />
+    ) : null
+  const withControls = (content: ReactNode) =>
+    controls ? (
+      <div className="flex flex-col gap-3">
+        {controls}
+        {content}
+      </div>
+    ) : (
+      content
+    )
   if (details.isPending) {
-    return (
+    return withControls(
       <div className="space-y-2" aria-busy="true">
         {Array.from({ length: 3 }).map((_, index) => (
           <Skeleton key={index} className="h-12 w-full" />
         ))}
-      </div>
+      </div>,
     )
   }
   // Nieudane odświeżenie zostawia ostatnie dane; błąd bez danych to „Ponów”.
   if (!details.data) {
-    return (
+    return withControls(
       <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
         <p className="text-sm text-foreground">
           {apiErrorMessage(details.error, "Nie udało się pobrać listy osób.")}
@@ -624,10 +659,10 @@ export function WhoCountsList({
         <Button size="sm" variant="outline" onClick={() => void details.refetch()}>
           Ponów
         </Button>
-      </div>
+      </div>,
     )
   }
-  return (
+  return withControls(
     <WhoCountsListView
       metric={metric}
       response={details.data}
@@ -639,6 +674,6 @@ export function WhoCountsList({
       onOrderChange={(next) => setView({ key: viewKey, state, page: 1, order: next })}
       isFetching={details.isFetching && details.isPlaceholderData}
       compact={compact}
-    />
+    />,
   )
 }

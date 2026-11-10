@@ -38,6 +38,7 @@ from app.services.kpi_panel import (
     PRECISION_R30_SQL,
 )
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
+from app.services.team_filters import client_job_filter
 from app.services.kpi_targets import resolve_org_target
 
 # Cel precision (rekomendacje ÷ weryfikacje) widoku zespołu to cel
@@ -71,6 +72,9 @@ _TEAM_FUNNEL_SQL = text(
                    WHERE reached_at >= :period_start AND reached_at < :period_end
                ) AS period_cnt
         FROM credited
+        WHERE """
+    + client_job_filter("job_id")
+    + """
         GROUP BY credit_user, stage
     ) f
     LEFT JOIN precision_cohort p ON p.credit_user = f.credit_user
@@ -161,6 +165,7 @@ async def compute_team_panel(
     bounds: tuple[datetime, datetime] | None = None,
     period_label: str | None = None,
     now: Optional[datetime] = None,
+    client_id: int | None = None,
 ) -> TeamPanelResult:
     """Lejek per osoba dla całego zespołu w oknie czasu.
 
@@ -202,6 +207,9 @@ async def compute_team_panel(
                     "period_start": period_start,
                     "period_end": period_end,
                     "rolling30": rolling30,
+                    # Klient rekrutacji (filtr Insights → Zespół, 10.11.2026);
+                    # precyzja 30 dni zostaje dla całej pracy osoby.
+                    "client_id": client_id,
                     **await credited_bind(db),
                 },
             )

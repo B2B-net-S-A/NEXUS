@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { RecruitmentActivityDashboard } from "@/components/v2/dashboard/RecruitmentActivityDashboard"
+import { useAuthStore } from "@/store/auth"
 import {
   getRecruitmentActivityDetails,
   getRecruitmentActivitySummary,
@@ -221,5 +222,36 @@ describe("RecruitmentActivityDashboard", () => {
         }),
       ),
     )
+  })
+
+  it("starts a Head of Recruitment on the whole team, recruiters only", async () => {
+    useAuthStore.setState({
+      user: { id: 1, role: "head_of_recruitment", roles: ["head_of_recruitment"] },
+    } as never)
+    getSummary.mockResolvedValue({
+      ...summary,
+      scope: "team",
+      subject: null,
+      verification_progress: null,
+      clients: [{ id: 5, name: "Nordic Bank", count: 12 }],
+    })
+    try {
+      renderDashboard()
+      expect(await screen.findByText("Wynik zespołu · Rekruterzy")).toBeInTheDocument()
+      expect(getSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          teamScope: true,
+          team: { role: "recruiter", clientId: null },
+        }),
+      )
+      // „Wszyscy” zdejmuje filtr — nagłówek wraca do całego zespołu.
+      await userEvent.click(screen.getByRole("button", { name: "Wszyscy" }))
+      expect(await screen.findByText("Wynik całego zespołu")).toBeInTheDocument()
+      expect(getSummary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ team: { role: "all", clientId: null } }),
+      )
+    } finally {
+      useAuthStore.setState({ user: null } as never)
+    }
   })
 })

@@ -75,6 +75,8 @@ import { TeamFirstCvStrip } from "./team/TeamFirstCvStrip";
 import { TEAM_LIST_SLUG } from "./team/TeamFunnelPanel";
 import { TeamStageLens } from "./team/TeamStageLens";
 import { useTeamViewData } from "./team/useTeamViewData";
+import { TeamFilterControls } from "@/components/v2/kpi/TeamFilterControls";
+import { DEFAULT_TEAM_FILTERS, type TeamFilters } from "@/lib/team-filters";
 import { PanelLoading } from "./ViewKit";
 
 export const ZESPOL_DEFAULT_PERIOD: InsightsPeriodParams = {
@@ -257,9 +259,14 @@ function RecruiterTable({
   hideComparison: boolean;
   showFormer: boolean;
 }) {
+  // Zakładka „Rekruterzy” liczy tę samą grupę co pulpit (10.11.2026): DL bez
+  // roli rekrutera idzie do wiersza „Poza filtrem”. Klient do wyboru.
+  const [teamFilters, setTeamFilters] = useState<TeamFilters>(DEFAULT_TEAM_FILTERS);
+  const filterParams = { role: teamFilters.role, clientId: teamFilters.clientId };
   const peopleQuery = useQuery({
-    queryKey: insightsTeamSignalsQueryKeys.people(period),
-    queryFn: () => insightsTeamSignalsApi.people(period),
+    queryKey: insightsTeamSignalsQueryKeys.people(period, filterParams),
+    queryFn: () => insightsTeamSignalsApi.people(period, filterParams),
+    placeholderData: (previous) => previous,
   });
   const flagsQuery = useQuery({
     queryKey: performanceFlagsQueryKey,
@@ -289,6 +296,7 @@ function RecruiterTable({
   const onSort = (key: TeamPeopleSortKey) =>
     setSort((current) => nextColumnSort(current, key, isNameColumn));
   const outside = data?.outside_scope;
+  const filteredOut = data?.filtered_out;
   const hasTargets = (data?.rows ?? []).some(
     (row) => row.placements_target != null && row.placements_target > 0,
   );
@@ -363,6 +371,13 @@ function RecruiterTable({
     unattributed.recommendations + unattributed.interviews + unattributed.placements > 0;
   return (
     <div className="space-y-2">
+      <TeamFilterControls
+        value={teamFilters}
+        onChange={setTeamFilters}
+        roles={["recruiter"]}
+        clients={data.clients ?? []}
+        showCounts={false}
+      />
       {listMetric && listSubject ? (
         <TeamWhoCountsPanel
           subject={listSubject}
@@ -480,6 +495,32 @@ function RecruiterTable({
                 </td>
                 <td className="px-3 py-2.5 text-right text-xs tabular-nums">
                   {formerSummary.sums.placements}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-4 py-2.5 text-right text-xs">—</td>
+              </tr>
+            ) : null}
+            {filteredOut && filteredOut.people > 0 ? (
+              <tr
+                className="h-8 border-t border-border text-muted-foreground"
+                data-testid="people-filtered-out"
+              >
+                <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
+                  Poza filtrem: inne role ({filteredOut.people})
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {filteredOut.recommendations}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {filteredOut.interviews}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {filteredOut.acceptances ?? "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {filteredOut.placements}
                 </td>
                 <td className="px-3 py-2.5 text-right text-xs">—</td>
                 <td className="px-3 py-2.5 text-right text-xs">—</td>
