@@ -366,6 +366,64 @@ async def test_transfer_needs_active_seller_and_admin(problem: str) -> None:
     assert (await _opportunity_row(opportunity_id)).owner_user_id == former.id
 
 
+def test_cli_passes_the_pipeline_key() -> None:
+    assert cleanup._parse([]).pipeline_key is None
+    parsed = cleanup._parse(["--pipeline-key", "atlas-it-factories"])
+    assert parsed.pipeline_key == "atlas-it-factories"
+
+
+async def test_pipeline_key_limits_the_handover_to_one_pipeline() -> None:
+    former = await _user()
+    target = await _user("sales_edit")
+    admin = await _user(role="admin")
+    factory, _ = await _opportunity(
+        owner_user_id=former.id, pipeline_key="atlas-it-factories"
+    )
+    sales, _ = await _opportunity(owner_user_id=former.id)
+    options = {
+        "assignee_id": admin.id,
+        "former_owner_id": former.id,
+        "transfer_to": target.id,
+        "actor_id": admin.id,
+        "pipeline_key": "atlas-it-factories",
+    }
+
+    planned = await cleanup.run(cleanup.Options(**options), now=NOW)
+    assert planned.handover_opportunity_ids == [factory]
+    report = await cleanup.run(
+        cleanup.Options(
+            apply=True,
+            expect_close=planned.to_close,
+            expect_transfer=1,
+            **options,
+        ),
+        now=NOW,
+    )
+
+    assert report.transferred == 1
+    assert (await _opportunity_row(factory)).owner_user_id == target.id
+    assert (await _opportunity_row(sales)).owner_user_id == former.id
+    assert await _events(sales) == []
+
+
+async def test_unknown_pipeline_key_is_refused() -> None:
+    former = await _user()
+    admin = await _user(role="admin")
+    opportunity_id, _ = await _opportunity(owner_user_id=former.id)
+
+    with pytest.raises(cleanup.Refused):
+        await cleanup.run(
+            cleanup.Options(
+                assignee_id=admin.id,
+                former_owner_id=former.id,
+                pipeline_key="lejek-ktorego-nie-ma",
+            ),
+            now=NOW,
+        )
+
+    assert (await _opportunity_row(opportunity_id)).owner_user_id == former.id
+
+
 async def test_report_has_only_numbers_and_ids() -> None:
     assignee = await _user()
     owner = await _user()

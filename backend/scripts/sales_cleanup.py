@@ -11,7 +11,9 @@ Co robi:
 1. zamyka otwarte pozycje z importu przypisane do wskazanego konta (domyślnie 30)
    oraz bez przypisania; pozycja zmieniona w NEXUSIE po imporcie zostaje;
 2. pokazuje otwarte szanse po opiekunie, który odszedł (domyślnie konto 159), a z
-   ``--transfer-to`` i ``--actor-id`` przekazuje je, zapisując historię zmian.
+   ``--transfer-to`` i ``--actor-id`` przekazuje je, zapisując historię zmian;
+   ``--pipeline-key`` zawęża obie rzeczy do jednego lejka (np. ``atlas-it-factories``),
+   gdy szanse z różnych lejków przejmują różne osoby.
 
 Nie rusza etapu, statusu ani archiwum szans. Sieroty po zamkniętych szansach znikają
 z listy dzięki filtrowi trasy (``task_scope.not_orphaned``), tu zamykane są tylko te
@@ -46,7 +48,7 @@ from sqlalchemy import case, distinct, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.models.sales import SalesActivity, SalesOpportunity
+from app.models.sales import SalesActivity, SalesOpportunity, SalesPipeline
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
@@ -76,6 +78,7 @@ class Options:
     transfer_to: Optional[int] = None
     actor_id: Optional[int] = None
     expect_transfer: Optional[int] = None
+    pipeline_key: Optional[str] = None
 
 
 @dataclass
@@ -206,6 +209,23 @@ def _check_counters(options: Options, report: Report) -> None:
         )
 
 
+async def _handover_scope(db: AsyncSession, options: Options) -> list:
+    """Otwarte szanse byłego opiekuna; z ``--pipeline-key`` tylko w tym lejku."""
+
+    scope = [
+        SalesOpportunity.owner_user_id == options.former_owner_id,
+        live_opportunity(),
+    ]
+    if options.pipeline_key is None:
+        return scope
+    pipeline_id = await db.scalar(
+        select(SalesPipeline.id).where(SalesPipeline.key == options.pipeline_key)
+    )
+    if pipeline_id is None:
+        raise Refused("--pipeline-key: nie ma lejka o takim kluczu")
+    return [*scope, SalesOpportunity.pipeline_id == pipeline_id]
+
+
 async def _build_report(
     db: AsyncSession, options: Options, users: dict[int, User], now: datetime
 ) -> tuple[Report, list[int]]:
@@ -244,10 +264,7 @@ async def _build_report(
         (
             await db.execute(
                 select(SalesOpportunity.id)
-                .where(
-                    SalesOpportunity.owner_user_id == options.former_owner_id,
-                    live_opportunity(),
-                )
+                .where(*await _handover_scope(db, options))
                 .order_by(SalesOpportunity.id)
             )
         ).scalars()
@@ -298,10 +315,7 @@ async def _transfer(db: AsyncSession, options: Options) -> int:
         (
             await db.execute(
                 select(SalesOpportunity)
-                .where(
-                    SalesOpportunity.owner_user_id == options.former_owner_id,
-                    live_opportunity(),
-                )
+                .where(*await _handover_scope(db, options))
                 .with_for_update()
             )
         ).scalars()
@@ -346,6 +360,7 @@ def _parse(argv: Sequence[str]) -> Options:
     parser.add_argument("--transfer-to", type=int)
     parser.add_argument("--actor-id", type=int)
     parser.add_argument("--expect-transfer", type=int)
+    parser.add_argument("--pipeline-key")
     args = parser.parse_args(argv)
     return Options(**vars(args))
 
