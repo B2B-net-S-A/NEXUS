@@ -695,6 +695,22 @@ def test_jobs_with_production_secrets_run_only_from_main() -> None:
     assert offenders == []
 
 
+def test_no_workflow_exceeds_the_dispatch_input_limit() -> None:
+    """GitHub przyjmuje najwyżej 25 wejść `workflow_dispatch`, a 26. unieważnia
+    cały plik, więc „Coolify Ops” straciłby też `list` i `cancel`. 10.11.2026
+    miał ich dokładnie 25 i scalanie kart firm dostało osobny workflow."""
+    over: dict[str, int] = {}
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        workflow = _load(path.name)
+        triggers = workflow.get("on", workflow.get(True))
+        if not isinstance(triggers, dict):
+            continue
+        count = len((triggers.get("workflow_dispatch") or {}).get("inputs") or {})
+        if count > 25:
+            over[path.name] = count
+    assert over == {}
+
+
 def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
     """OPS-N06: sekret dodany i usunięty w kolejnych commitach PR-a zostaje na
     GitHubie, a skan drzewa (`--no-git`) go nie widzi."""

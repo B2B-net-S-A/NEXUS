@@ -1,5 +1,6 @@
 # Scalanie zdublowanych kart firm i domeny: jednorazowy skrypt (B6) — decyzje Artura 10.11.2026
-<!-- indeks: scripts/sales_company_merge.py, services/sales/merge.py, names_to_join, konta lejka atlas-it-factories i lista z researchu centrów IT, grupa = ta sama nazwa kanoniczna albo NIP, karta docelowa, „do decyzji”, karty tej samej marki (wariant nazwy, inna spółka), --decide, blokada dotyku szansy, nazwy dołączone po scaleniu (także z ekranu Firmy), punkty do rozmowy z bota po scaleniu, domena z poczty kontaktów, konflikt domen, --accept-domain, --expect-merge, --expect-domains, lista poza repo -->
+<!-- indeks: scripts/sales_company_merge.py, services/sales/merge.py, names_to_join, konta lejka atlas-it-factories i lista z researchu centrów IT, grupa = ta sama nazwa kanoniczna albo NIP, karta docelowa, „do decyzji”, karty tej samej marki (wariant nazwy, inna spółka), --decide, blokada dotyku szansy, nazwy dołączone po scaleniu (także z ekranu Firmy), punkty do rozmowy z bota po scaleniu, domena z poczty kontaktów, konflikt domen, --accept-domain, --expect-merge, --expect-domains, lista poza repo, bieg na produkcji workflowem coolify-sales-company-merge.yml (dry-run → liczby → zgoda Artura → apply), filtr raportu sales_company_merge_report.py, limit 25 wejść workflow_dispatch -->
+
 
 Kartoteka Sprzedaży po imporcie z Atlasa ma po kilka kart tej samej firmy, a karty
 kont „Fabryk IT” nie mają domeny. Bez domeny nie działa dopasowanie poczty i kalendarza
@@ -138,6 +139,41 @@ python -m scripts.sales_company_merge --apply --actor-id <admin> \
   więc bieg z workflowu dostaje `--lock /tmp/nexus-sales-company-merge-<run id>`: pracuje
   pierwsze odpalenie, kolejne kończą się kodem 4. Komenda zadania mieści 255 znaków,
   dlatego długą listę decyzji dzieli się na kilka biegów, każdy z własnymi licznikami.
+
+### Bieg na produkcji: workflow „Coolify sales company merge”
+
+Plik `.github/workflows/coolify-sales-company-merge.yml`, filtr raportu
+`.github/scripts/sales_company_merge_report.py`, test
+`backend/tests/test_sales_company_merge_workflow_contract.py`. To osobny workflow, a nie
+akcja w „Coolify Ops”, bo `workflow_dispatch` mieści 25 wejść, a `coolify-ops.yml` ma
+ich dokładnie 25 (26. wejście unieważnia cały plik).
+
+```bash
+gh workflow run coolify-sales-company-merge.yml -f mode=dry-run
+gh workflow run coolify-sales-company-merge.yml -f mode=apply -f actor_id=<admin> \
+    -f expect_merge=<liczba> -f expect_domains=<liczba> [-f decide="12:34,35 40:41"]
+```
+
+- **Wejścia:** `mode` (`dry-run` albo `apply`), `expect_merge`, `expect_domains`,
+  `actor_id`, `decide` (decyzje `DOCELOWA:ŹRÓDŁO[,ŹRÓDŁO]` rozdzielone spacją),
+  `company_ids`, `accept_domain`. Do komendy przechodzą wyłącznie cyfry, przecinki
+  i dwukropki. `--names-file` i `--list-out` nie mają wejść, bo nazwy nie mogą stać
+  w publicznej komendzie; lista do przejrzenia powstaje na kopii produkcji.
+- **Kolejność:** `mode=dry-run` → liczby z raportu (`to_merge`, `domains_to_set`) →
+  przejrzenie listy i wyraźne „tak” Artura z tymi liczbami → `mode=apply` z tymi samymi
+  `decide`, `company_ids` i `accept_domain` oraz z `expect_merge`, `expect_domains`
+  i `actor_id`. `apply` bez tych trzech workflow odrzuca, zanim powstanie zadanie.
+  `dry-run` z nimi też odrzuca, żeby bieg pomyślany jako zapis nie przeszedł po cichu
+  na sucho.
+- **Wynik:** zielony bieg drukuje raport z licznikami. Czerwony podaje kod skryptu:
+  2 to odmowa bez zapisu, 3 to wynik zapisu inny niż plan (transakcja wycofana), 4 to
+  blokada (ponowiona próba tego samego biegu, „Re-run”), 1 to błąd albo brak raportu.
+  Po kodzie 1 i po braku wyniku w 20 minut najpierw bieg na sucho, dopiero potem
+  kolejny `apply`.
+- **Do logu idzie tylko to, co filtr zna:** raport o polach `Report`, odmowa z listy
+  `KNOWN_REFUSALS` (z liczbami) albo sam typ wyjątku. Nowe pole raportu albo nowa odmowa
+  w skrypcie wymaga dopisania w filtrze, inaczej zielony zapis wyglądałby na błąd; test
+  kontraktu pada, gdy filtr i skrypt się rozjadą.
 
 ## Czego skrypt nie robi
 
