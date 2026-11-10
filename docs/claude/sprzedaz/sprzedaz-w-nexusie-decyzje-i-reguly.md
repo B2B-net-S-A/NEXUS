@@ -1,5 +1,5 @@
 # Sprzedaż w NEXUSIE (Atlas → NEXUS) — decyzje Artura 26–27.10.2026 i reguły modułu
-<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, inne nazwy z CV, dziennik odczytu, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap) -->
+<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, inne nazwy z CV, dziennik odczytu, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap), Oferty: kroki po wysłaniu, „Do decyzji”, „Odłóż do…”, „Przejmij” -->
 
 Sekcja „Sprzedaż” zastępuje CRM Atlasa (D1 = budowa w NEXUSIE od nowa
 i import danych). Propozycja z makietami M0–M4:
@@ -263,6 +263,7 @@ https://claude.ai/artifact/M6mS1dYC9DwcPe3BDBEv7j.
   etapu „Niezakwalifikowany” — w Atlasie też go nie było.
 - **Oferty = lista szans na etapach `offer-sent` i `tender-submitted`**
   (`offers_only`), bez nowej tabeli. Generator ofert dalej jest poza zakresem.
+  Od 10.11.2026 zakładka ma sekcje „W toku” i „Do decyzji” (sekcja na końcu pliku).
 - **Spotkania = `GET /api/sales/activities/meetings`**: wszystkie aktywności
   `meeting`, notatka skrócona do 300 znaków, bo transkrypcja bywa bardzo długa.
   Decyzja przy wierszu (przypnij, załóż szansę, klient NEXUSA):
@@ -438,3 +439,58 @@ osoby, paska postępu i blokady za brak skrzynki celowo nie ma.
 - **Zamknięcie datą `created_at`, nie „teraz”**, bo zrobione zadanie jest dotykiem szansy
   i firmy (`touch.py`), a sprzątanie nie jest pracą handlowca. Na kopii z 08.11 data „teraz”
   przesunęłaby dotyk 2 otwartych szans. Gdy dotyk miałby się przesunąć, `--apply` odmawia.
+
+## Oferty: kroki po wysłaniu i „Do decyzji” (decyzje Artura 10.11.2026)
+
+Logika: `services/sales/offer_steps.py` i `services/sales/offers.py`, trasy w
+`api/sales_offers.py`: `GET /api/sales/offers` (`SalesViewUser`) i
+`POST /api/sales/opportunities/{id}/take-over` (`SalesEditUser`). Bez migracji.
+
+- **Trzy kroki po wejściu na `offer-sent`:** dzień 3 potwierdzenie odbioru, dzień 14
+  pytanie o decyzję, dzień 30 rozstrzygnięcie. Termin rano w kalendarzu firmy, z weekendu
+  i święta na najbliższy dzień roboczy. To zwykłe zadania opiekuna ze znacznikiem
+  `external_source = 'offer-step'`: da się je przełożyć, odhaczyć i usunąć, a moduł niczego
+  sam nie wysyła. Autorem jest wykonawca, bo zadanie usuwa tylko autor, a krok ma dać się
+  usunąć opiekunowi także wtedy, gdy szansę przesunął ktoś inny (kto przesunął, mówi
+  historia szansy). Bez aktywnego opiekuna kroki dostaje osoba, która przesunęła.
+- **Kroki powstają tylko z wejścia na etap** (`/move` albo założenie szansy od razu na
+  etapie). Oferty, które były na etapie wcześniej, nie dostają ich wstecz. Przetarg
+  (`tender-submitted`) ma własne terminy i kroków nie dostaje. Powrót na etap nie dubluje
+  kroków, dopóki któryś z poprzednich jest otwarty.
+- **To nie są sekwencje do zimnego kontaktu** (odłożone 09.11.2026 do opinii prawnej).
+  Dotyczą oferty wysłanej osobie, z którą trwa rozmowa. Nie rozszerzaj ich na leady ani
+  na pierwszy kontakt.
+- **„Do decyzji”** to pozycja bez ruchu ponad 30 dni (dokładnie 30 dni to jeszcze „W toku”)
+  albo pozycja opiekuna, który nie pracuje już w Sprzedaży: konto nieaktywne albo bez
+  „Sprzedaż: podgląd” i „Sprzedaż: edycja”. Ta druga reguła obejmuje trwające szanse
+  z każdego etapu i lejka, nie tylko oferty. Sekcja niczego sama nie zamyka ani nie
+  archiwizuje i nie jest bramką etapu.
+- **Kto nie pracuje w Sprzedaży, wynika z ekranu „Osoby i role”,** nie z listy kont
+  w kodzie. Konto, które zmieniło zajęcie, ale ma jeszcze uprawnienie Sprzedaży, trafi do
+  „Do decyzji” dopiero, gdy Artur to uprawnienie odbierze.
+- **„Bez ruchu”** liczy się od późniejszej z dwóch chwil: dotyku z `touch.py` i wejścia na
+  obecny etap z historii szansy. `/move` dotyku nie zapisuje, więc bez tego oferta wysłana
+  dziś przy szansie sprzed kwartału od razu czekałaby na decyzję. Definicji dotyku to nie
+  zmienia; dla ofert z importu, które historii etapów nie mają, liczy się sam dotyk.
+- **„Odłóż do…”** zapisuje `keep_open_until` zwykłym `PATCH` szansy i zmiana idzie do
+  historii. Data w przyszłości trzyma ofertę w „W toku”, w dniu daty oferta wraca. To samo
+  pole chroni szansę przed automatem archiwizacji, bo oba znaczą „zostaw otwartą do dnia”.
+  Odłożenie nie jest ruchem i nie zdejmuje z „Do decyzji” pozycji bez opiekuna w Sprzedaży.
+- **„Zamknij z powodem”** to `/move` na etap przegranej wybrany w oknie, domyślnie
+  „Przegrana”. Powód jest opcjonalny, bo moduł podpowiada, a nie blokuje.
+- **„Przejmij”** działa tylko, gdy opiekuna nie ma albo nie pracuje on w Sprzedaży.
+  W innym przypadku 409, a opiekuna zmienia jak dotąd on sam albo admin. Klikający zostaje
+  opiekunem, zmiana idzie do historii jak `_transfer` w `scripts/sales_cleanup.py`,
+  a otwarte zadania poprzedniego opiekuna przy tej szansie przechodzą razem z nią, bo na
+  koncie spoza Sprzedaży nikt by ich nie zobaczył. Szansa spoza etapu oferty po przejęciu
+  znika z zakładki i wraca do zwykłej pracy.
+- **„Co dalej”** pokazuje najpierw zaległość, potem krok z `next_step.py`. „Zrobione”
+  odhacza zadanie albo telefon, spotkania z kalendarza nie. Odhaczony krok jest dotykiem,
+  sam zaplanowany nie.
+- **Zakresy „Moje / Bez opiekuna / Wszystkie”:** „Bez opiekuna” to brak opiekuna albo
+  opiekun spoza Sprzedaży. Liczniki i sumy MRR sekcji liczy backend, front ich nie
+  przelicza. Przy wejściu osoba, która prowadzi jakąś ofertę, dostaje „Moje”, pozostali
+  „Wszystkie”. Ten wybór zostaje na całą wizytę i nie zależy od wyszukiwania: ekran pyta
+  bez zakresu tylko raz, bo inaczej po pierwszym „Przejmij” osoba bez własnych ofert
+  lądowałaby w „Moje” i traciła z oczu resztę „Do decyzji”.
+  To lista spraw do rozstrzygnięcia: bez rankingu osób, celu i paska postępu.

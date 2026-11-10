@@ -2103,5 +2103,21 @@
     "href": "/candidates",
     "section": "sourcing",
     "dot_anchor": "candidates.request.goal-tab"
+  },
+  {
+    "id": "sprzedaz-oferty-kroki-i-do-decyzji",
+    "pr": 3292,
+    "title": "Oferty: kroki po wysłaniu i „Do decyzji”",
+    "why": "Po wysłaniu oferty NEXUS ustawia trzy kroki: odbiór, pytanie o decyzję, rozstrzygnięcie. Oferty bez ruchu ponad 30 dni czekają w „Do decyzji”: odłóż z datą, zamknij z powodem albo przejmij.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Oferty",
+    "href": "/sales/offers",
+    "dot_anchor": "sales.offers.scope"
   }
 ]
