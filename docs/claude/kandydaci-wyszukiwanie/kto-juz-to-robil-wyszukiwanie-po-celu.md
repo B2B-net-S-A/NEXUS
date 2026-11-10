@@ -49,6 +49,11 @@ a o migracji do chmury pisze wprost 1 916; opis stanowiska po odczycie CV ma
 - **Zapora: 10 wyszukiwań dziennie na osobę** (kalendarz firmy,
   `DUTY_SEARCH_DAILY_LIMIT`). Otwarcie zapisanego wyniku nie zużywa. To ochrona
   przed przeczesywaniem bazy hurtem, nie budżet AI.
+- **Rola „Automatyzacje” czyta zapisane wyniki, ale nie uruchamia wyszukiwania
+  ani nie stawia kciuków** (`NOT_READ_ONLY` na `POST /duty-search/runs` i na
+  `PUT …/feedback`), bo przebieg zapisuje się przy rekrutacji i widzą go inni.
+  10.11.2026 brak tej bramki wyrzucił PR z kolejki
+  (`test_automation_role_access.py`).
 - **Awaria AI = komunikat o awarii**, nigdy pusta lista ani „nikt nie robił”.
 - **Nic nie dodaje się samo.** „Dodaj do Nowych” klika rekruter.
 

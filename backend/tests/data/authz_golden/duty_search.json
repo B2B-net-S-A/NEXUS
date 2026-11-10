@@ -33,7 +33,7 @@
  "routes": {
   "GET /api/duty-search/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/{job_id}/duty-search/latest": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
-  "POST /api/duty-search/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
-  "PUT /api/duty-search/runs/{run_id}/results/{candidate_id}/feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
+  "POST /api/duty-search/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/duty-search/runs/{run_id}/results/{candidate_id}/feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

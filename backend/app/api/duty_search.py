@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.candidate_search import _authorized_job, _search_access
 from app.api.deps import CurrentUser, get_db
 from app.api.section_access import require_section_access_any_read
@@ -70,7 +71,7 @@ async def _usage(db: AsyncSession, user_id: int) -> dict:
     return {"used_today": used, "daily_limit": duty_search.DAILY_LIMIT}
 
 
-@router.post("/duty-search/runs", status_code=202)
+@router.post("/duty-search/runs", status_code=202, dependencies=NOT_READ_ONLY)
 @limiter.limit("10/minute", key_func=user_or_ip_key)
 async def start_duty_search(
     request: Request,
@@ -260,7 +261,10 @@ async def latest_duty_search(
     }
 
 
-@router.put("/duty-search/runs/{run_id}/results/{candidate_id}/feedback")
+@router.put(
+    "/duty-search/runs/{run_id}/results/{candidate_id}/feedback",
+    dependencies=NOT_READ_ONLY,
+)
 async def set_feedback(
     run_id: str,
     candidate_id: int,
