@@ -296,7 +296,7 @@ class ClientOrderMdConsumption(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint(
             "source IN ('import', 'manual', 'settlement')",
-            name="ck_md_consumptions_source"
+            name="ck_md_consumptions_source",
         ),
         CheckConstraint(_PERIOD_MONTH_CHECK, name="ck_md_consumptions_period"),
         # Status rozliczenia miesiąca (Faza B, 09.2026): `protocol` = „Protokół",
