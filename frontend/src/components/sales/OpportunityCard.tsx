@@ -27,6 +27,7 @@ import {
   type SalesContact,
   type Stage,
 } from "@/lib/api/sales";
+import { useOpportunityHandoff } from "@/lib/api/sales-handoffs";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
@@ -39,6 +40,8 @@ import { formatDealAmount } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
 import { SalesSelect } from "./SalesSelect";
 import { OpportunityContacts } from "./OpportunityContacts";
+import { BookMeetingDialog } from "./handoff/BookMeetingForm";
+import { OpportunityHandoff } from "./handoff/OpportunityHandoff";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { OpportunityHistory } from "./OpportunityHistory";
 import { SalesShell } from "./SalesShell";
@@ -140,6 +143,9 @@ function cardTitle({ company, title }: OpportunityDetail): string {
   return title.toLowerCase().startsWith(company.name.toLowerCase()) ? title : `${company.name} · ${title}`;
 }
 
+/** Etapy, z których szansę oddaje się prowadzącemu formularzem „Umów spotkanie”. */
+const HANDOFF_STAGES = ["lead", "qualifying-meeting"];
+
 /** Karta szansy w kolejności pracy: krok i zapis rozmowy na górze, oś firmy i szansy, potem reszta. */
 export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const opportunity = useOpportunity(opportunityId);
@@ -158,6 +164,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const [afterCall, setAfterCall] = useState<{ outcome: Exclude<CallOutcome, "do_not_contact">; person: string | null } | null>(null);
   const [planning, setPlanning] = useState(false);
   const [changingOwner, setChangingOwner] = useState(false);
+  const [booking, setBooking] = useState(false);
   const [reached, setReached] = useState<readonly string[]>([]);
   const data = opportunity.data;
   const company = useSalesCompany(data?.company.id ?? 0);
@@ -209,6 +216,17 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   };
 
   const canChangeOwner = data?.owner == null || data.owner.id === user?.id || hasRole(user, "admin");
+  // Własny lead albo spotkanie bez przekazania: opiekun oddaje je prowadzącemu jednym formularzem.
+  const handoff = useOpportunityHandoff(opportunityId);
+  const canBook =
+    canEdit &&
+    canChangeOwner &&
+    data?.status === "open" &&
+    !data.archived_at &&
+    HANDOFF_STAGES.includes(data.stage.key) &&
+    pipelines.data?.find((pipeline) => pipeline.id === data.pipeline_id)?.key === "sales" &&
+    handoff.isSuccess &&
+    (handoff.data === null || handoff.data.verdict !== null);
   const contactsPanel = data ? (
     <OpportunityContacts
       opportunity={data}
@@ -231,6 +249,11 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               Edytuj
             </Button>
+            {canBook && (
+              <Button size="sm" variant="outline" onClick={() => setBooking(true)}>
+                Umów spotkanie
+              </Button>
+            )}
             {data.status === "open" && lostStage && (
               <Button size="sm" variant="outline" onClick={() => setLosingStage(lostStage)}>
                 Przegrana
@@ -308,6 +331,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
             <OpportunityTimelineCard opportunityId={data.id} canEdit={canEdit} />
           </div>
           <div className="min-w-0 space-y-4">
+            <OpportunityHandoff opportunityId={data.id} canEdit={canEdit} />
             {/* Punkty do rozmowy z bota researchu; bez kanału albo bez punktów nic. */}
             <TalkingPoints companyId={data.company.id} className="rounded-lg border border-border bg-card px-3 py-2" />
             <SalesMotionPanel
@@ -400,6 +424,13 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
       )}
       {editing && data && (
         <OpportunityFormDialog open={editing} onOpenChange={setEditing} opportunity={data} />
+      )}
+      {booking && data && (
+        <BookMeetingDialog
+          opportunity={{ id: data.id, name: data.title, company: data.company }}
+          handoff={handoff.data ?? undefined}
+          onClose={() => setBooking(false)}
+        />
       )}
       {losingStage && (
         <AppModal

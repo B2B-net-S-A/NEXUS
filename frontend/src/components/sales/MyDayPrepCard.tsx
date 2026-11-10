@@ -70,7 +70,7 @@ function CompanyContacts({ prep }: { prep: MyDayPrep }) {
   );
 }
 
-function WhoWeKnow({ companyId, companyName }: { companyId: number; companyName: string }) {
+export function WhoWeKnow({ companyId, companyName }: { companyId: number; companyName: string }) {
   const people = useCompanyPeople(companyId);
   const counts = people.data?.counts;
   const total = counts ? Object.values(counts).reduce((sum, n) => sum + n, 0) : 0;

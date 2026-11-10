@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 /**
  * Pasek dnia prowadzącego prep: zajęte bloki (bez tytułów spotkań) i wybrany
  * termin. `clash` — termin wpada na zajęte albo łamie regułę, więc ma kolor
- * ostrzeżenia. Wspólny dla „Inna godzina…” i „Zaplanuj Prep”.
+ * ostrzeżenia. Wspólny dla „Inna godzina…” i „Zaplanuj Prep”, a w Sprzedaży
+ * dla „Umów spotkanie” (tam z własnym podpisem i bez kotwicy przewodnika prepów).
  */
 export function PrepBusyStrip({
   who,
@@ -14,17 +15,21 @@ export function PrepBusyStrip({
   busy,
   chosen,
   clash,
+  chosenLabel = "ten prep",
+  tourAnchor = "prep.organizer-calendar",
 }: {
   who: string;
   day: string;
   busy: Span[];
   chosen: Span | null;
   clash: boolean;
+  chosenLabel?: string;
+  tourAnchor?: string | null;
 }) {
   const strip = dayStrip(day, busy, chosen);
   if (!strip) return null;
   return (
-    <div data-testid="prep-busy-strip" data-tour="prep.organizer-calendar">
+    <div data-testid="prep-busy-strip" data-tour={tourAnchor ?? undefined}>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="font-semibold">Kalendarz: {who}</span>
         <span className="flex items-center gap-3 text-muted-foreground">
@@ -34,7 +39,7 @@ export function PrepBusyStrip({
           </span>
           <span className="inline-flex items-center gap-1">
             <span aria-hidden="true" className="h-2.5 w-3 rounded-sm bg-primary" />
-            ten prep
+            {chosenLabel}
           </span>
         </span>
       </div>

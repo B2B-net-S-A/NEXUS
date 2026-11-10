@@ -5,8 +5,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MyDay, MyDayRow } from "@/lib/api/sales";
+import type { Handoff, Handoffs } from "@/lib/api/sales-handoffs";
 
 const myDay = vi.fn();
+const handoffs = vi.fn();
 const logCall = vi.fn();
 const logCompanyCall = vi.fn();
 const createActivity = vi.fn();
@@ -33,6 +35,15 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useCreateSalesContact: () => mutation(createContact),
   useUpdateSalesContact: () => mutation(updateContact),
   useCompanyPeople: () => companyPeople(),
+  useCompanyBriefing: () => ({ isSuccess: false }),
+}));
+vi.mock("@/lib/api/sales-handoffs", async (original) => ({
+  ...(await original<typeof import("@/lib/api/sales-handoffs")>()),
+  useHandoffs: () => handoffs(),
+  useConfirmHandoff: () => mutation(vi.fn()),
+  useGiveVerdict: () => mutation(vi.fn()),
+  useSetHandoffTerm: () => mutation(vi.fn()),
+  useHostBusy: () => ({ isPending: true, isSuccess: false }),
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showError, showSuccess }) }));
 vi.mock("@/components/v2/modals/ConfirmV2", () => ({
@@ -98,9 +109,42 @@ function day(overrides: Partial<MyDay> = {}): MyDay {
 
 const ok = (data: MyDay) => ({ data, isLoading: false, error: null, isSuccess: true, refetch: vi.fn() });
 
+const noHandoffs: Handoffs = { to_me: [], booked_by_me: [], weeks: [] };
+const handoffsOk = (data: Handoffs) => ({ data, isError: false, isSuccess: true, refetch: vi.fn() });
+
+function handoff(overrides: Partial<Handoff> = {}): Handoff {
+  return {
+    opportunity: { id: 21, name: "Automatyzacje: spotkanie kwalifikujące" },
+    company: { id: 7, name: "Firma Testowa" },
+    status: "open",
+    stage_key: "qualifying-meeting",
+    stage_name: "Spotkanie kwalifikujące",
+    host: { id: 2, name: "Prowadzący Testowy" },
+    booked_by: { id: 3, name: "Dzwoniący Testowy" },
+    booked_at: "2026-11-06T10:00:00Z",
+    meeting_at: "2026-11-12T12:00:00Z",
+    duration_minutes: 30,
+    from_calendar: false,
+    service: "Automatyzacje",
+    problem: "Raporty składane ręcznie",
+    decision_maker: null,
+    timing: null,
+    contact: { id: 5, name: "Anna Przykładowa", title: "Kierownik IT", phone: null, email: null, do_not_contact: false },
+    confirmed_at: null,
+    verdict: null,
+    verdict_at: null,
+    verdict_reason: null,
+    return_on: null,
+    phase: "upcoming",
+    clash: false,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   canEdit = true;
+  handoffs.mockReturnValue(handoffsOk(noHandoffs));
   companyPeople.mockReturnValue({ isLoading: true, error: null, isSuccess: false });
 });
 
@@ -180,9 +224,85 @@ describe("kolejka dnia", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
   });
+
+  it("przekazane spotkania stoją nad kolejką i nie dublują wiersza z kalendarza", () => {
+    const sameOpportunity = row({ key: "meeting-1", section: "meetings", activity_id: 1 });
+    const other = row({
+      key: "meeting-2",
+      section: "meetings",
+      activity_id: 2,
+      company: { id: 8, name: "Inna Firma" },
+      opportunity: null,
+    });
+    myDay.mockReturnValue(
+      ok(day({ meetings: [sameOpportunity, other], counts: { meetings: 2, reply: 0, overdue: 0, offers: 0, older_tasks: 0 } })),
+    );
+    handoffs.mockReturnValue(handoffsOk({ to_me: [handoff({ phase: "verdict" })], booked_by_me: [], weeks: [] }));
+    render(<MyDayView />);
+    expect(screen.getByText("Przekazane do Ciebie")).toBeTruthy();
+    expect(screen.getByText(/1 przekazane spotkanie · 1 spotkanie ·/)).toBeTruthy();
+    // Wiersz listy i karta po prawej; spotkania tej samej szansy nie ma drugi raz w „Spotkania dziś”.
+    expect(screen.getAllByText("Firma Testowa")).toHaveLength(2);
+    expect(screen.getByText("Inna Firma")).toBeTruthy();
+    // Po terminie karta od razu pyta o werdykt.
+    expect(screen.getByText("Jak poszło?")).toBeTruthy();
+    expect(screen.getByText("Raporty składane ręcznie")).toBeTruthy();
+  });
+
+  it("same przekazania to nie jest pusty dzień", () => {
+    myDay.mockReturnValue(ok(day()));
+    handoffs.mockReturnValue(handoffsOk({ to_me: [handoff()], booked_by_me: [], weeks: [] }));
+    render(<MyDayView />);
+    expect(screen.queryByText("Czysto. Nic pilnego.")).toBeNull();
+    expect(screen.getByText("Przekazane do Ciebie")).toBeTruthy();
+  });
+
+  it("awaria przekazań nie wygląda jak ich brak", () => {
+    myDay.mockReturnValue(ok(day({ offers: [row()] })));
+    handoffs.mockReturnValue({ data: undefined, isError: true, isSuccess: false, refetch: vi.fn() });
+    render(<MyDayView />);
+    expect(screen.getByText("Nie udało się wczytać przekazanych spotkań.")).toBeTruthy();
+  });
+
+  it("„Umów spotkanie” jest tylko dla osób z edycją", () => {
+    myDay.mockReturnValue(ok(day()));
+    const { unmount } = render(<MyDayView />);
+    expect(screen.getByRole("button", { name: "Umów spotkanie" })).toBeTruthy();
+    unmount();
+    canEdit = false;
+    render(<MyDayView />);
+    expect(screen.queryByRole("button", { name: "Umów spotkanie" })).toBeNull();
+  });
 });
 
 describe("przyciski wiersza", () => {
+  it("spotkanie przypięte przez automat mówi o tym w wierszu", () => {
+    expect(rowReason(row({ section: "meetings", duration_minutes: 60, auto_pinned: true }))).toBe(
+      "60 min · przypięte samo, jedyna otwarta szansa",
+    );
+  });
+
+  it("po spotkaniu bez szansy wiersz proponuje „Załóż szansę”", () => {
+    const meeting = row({
+      section: "meetings",
+      activity_id: 9,
+      opportunity: null,
+      open_opportunities: 0,
+      can_create_opportunity: true,
+    });
+    render(<MyDayRowItem row={meeting} canEdit />);
+    expect(screen.queryByRole("button", { name: "Załóż szansę" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Po spotkaniu" }));
+    expect(screen.getByRole("button", { name: "Załóż szansę" })).toBeTruthy();
+    expect(screen.getByText("Co dalej i kiedy")).toBeTruthy();
+  });
+
+  it("spotkanie przy szansie nie proponuje drugiej", () => {
+    render(<MyDayRowItem row={row({ section: "meetings", activity_id: 9 })} canEdit />);
+    fireEvent.click(screen.getByRole("button", { name: "Po spotkaniu" }));
+    expect(screen.queryByRole("button", { name: "Załóż szansę" })).toBeNull();
+  });
+
   it("Zadzwoniłem zapisuje wynik przy szansie i krok", async () => {
     logCall.mockImplementation((_input, { onSuccess }) => onSuccess());
     render(<MyDayRowItem row={row()} canEdit />);

@@ -6,11 +6,15 @@ import { useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Button } from "@/components/ui/button";
 import { useMyDay, type MyDay, type MyDayRow, type MyDaySectionKey } from "@/lib/api/sales";
+import { useHandoffs } from "@/lib/api/sales-handoffs";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { BookMeetingDialog } from "./handoff/BookMeetingForm";
+import { useMyDayHandoffs } from "./handoff/MyDayHandoffs";
 import { dayHeading, dayLine, isDayEmpty, OFFERS_PREVIEW, plural } from "./my-day";
 import { MyDayPrepCard } from "./MyDayPrepCard";
 import { MyDayRowItem } from "./MyDayRowItem";
@@ -77,21 +81,53 @@ function DayQueue({ day, canEdit }: { day: MyDay; canEdit: boolean }) {
   );
 }
 
-function DayContent({ day, canEdit }: { day: MyDay; canEdit: boolean }) {
+/** Spotkania dziś bez tych, które są już w „Przekazane do Ciebie”: jedno spotkanie, jeden wiersz. */
+function withoutHandedMeetings(day: MyDay, handedIds: Set<number>): MyDay {
+  const meetings = day.meetings.filter((row) => !row.opportunity || !handedIds.has(row.opportunity.id));
+  return { ...day, meetings, counts: { ...day.counts, meetings: meetings.length } };
+}
+
+function DayContent({ day: fullDay, canEdit }: { day: MyDay; canEdit: boolean }) {
+  const handoffs = useHandoffs();
+  const [booking, setBooking] = useState(false);
+  const handed = handoffs.data?.to_me ?? [];
+  const day = withoutHandedMeetings(fullDay, new Set(handed.map((row) => row.opportunity.id)));
+  const queue = useMyDayHandoffs(handoffs.data, canEdit, day.prep !== null);
   const older = day.counts.older_tasks;
+  const line = [
+    handed.length > 0 ? plural(handed.length, "przekazane spotkanie", "przekazane spotkania", "przekazanych spotkań") : null,
+    dayLine(day),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <div className="space-y-2">
-      <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-4 text-sm">
+      <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
         <p className="min-w-0 text-muted-foreground">
-          <span className="font-medium text-foreground">{dayHeading(day.today)}:</span> {dayLine(day)}
+          <span className="font-medium text-foreground">{dayHeading(day.today)}:</span> {line}
         </p>
-        {older > 0 && (
-          <Link href="/sales/tasks" className="shrink-0 text-xs text-primary hover:underline">
-            {plural(older, "starsze zadanie", "starsze zadania", "starszych zadań")}
-          </Link>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {older > 0 && (
+            <Link href="/sales/tasks" className="text-xs text-primary hover:underline">
+              {plural(older, "starsze zadanie", "starsze zadania", "starszych zadań")}
+            </Link>
+          )}
+          {canEdit && (
+            <Button size="sm" className="h-7" data-tour="sales.book-meeting" onClick={() => setBooking(true)}>
+              Umów spotkanie
+            </Button>
+          )}
+        </div>
       </div>
-      {isDayEmpty(day) ? (
+      {/* Awaria listy przekazań nie może wyglądać jak brak przekazań. */}
+      {handoffs.isError && (
+        <QueryStateNotice
+          state="error"
+          description="Nie udało się wczytać przekazanych spotkań."
+          onRetry={() => void handoffs.refetch()}
+        />
+      )}
+      {isDayEmpty(day) && queue.count === 0 ? (
         <div className="rounded-lg border border-border bg-card">
           <EmptyState
             icon={CheckCircle2}
@@ -101,10 +137,17 @@ function DayContent({ day, canEdit }: { day: MyDay; canEdit: boolean }) {
         </div>
       ) : (
         <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
-          <DayQueue day={day} canEdit={canEdit} />
-          {day.prep && <MyDayPrepCard prep={day.prep} canEdit={canEdit} />}
+          <div className="min-w-0 space-y-3">
+            {queue.count > 0 && (
+              <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">{queue.sections}</div>
+            )}
+            {!isDayEmpty(day) && <DayQueue day={day} canEdit={canEdit} />}
+          </div>
+          {queue.card ?? (day.prep && <MyDayPrepCard prep={day.prep} canEdit={canEdit} />)}
         </div>
       )}
+      {booking && <BookMeetingDialog onClose={() => setBooking(false)} />}
+      {queue.dialog}
     </div>
   );
 }

@@ -688,6 +688,10 @@ export interface MyDayRow {
   do_not_contact: boolean;
   person: MyDayPerson | null;
   people_without_phone: MyDayPerson[];
+  /** Spotkanie z kalendarza przypięte do szansy przez automat (firma miała jedną otwartą szansę). */
+  auto_pinned?: boolean;
+  /** Spotkanie z Outlooka przy firmie bez otwartej szansy: po nim można ją założyć. */
+  can_create_opportunity?: boolean;
 }
 
 export interface MyDayPrepEntry {
@@ -1178,6 +1182,8 @@ export interface Meeting extends Activity {
   decision: MeetingDecision;
   timing: "soon" | "past" | "later";
   can_unpin: boolean;
+  /** Przypiął je automat, bo firma miała jedną otwartą szansę; „Cofnij” odpina na stałe. */
+  auto_pinned?: boolean;
   open_opportunities: MeetingOpportunityOption[];
   client_name: string | null;
   delivery_lead: string | null;

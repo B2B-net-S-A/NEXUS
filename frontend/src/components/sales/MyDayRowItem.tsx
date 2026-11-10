@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useCompleteActivity, type MyDayRow } from "@/lib/api/sales";
 
+import { CreateOpportunityFromMeetingDialog } from "./CreateOpportunityFromMeetingDialog";
 import { formatDealAmount, safeHref } from "./format";
 import { clock, replyHref, rowReason, telHref } from "./my-day";
 import { CallPanel, PhonePanel, PlanPanel } from "./MyDayRowPanels";
@@ -72,6 +73,7 @@ function ReplyButton({ row }: { row: MyDayRow }) {
 /** Jeden wiersz kolejki: firma, osoba, numer, powód, kwota i przyciski, które to załatwiają. */
 export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean }) {
   const [mode, setMode] = useState<PanelMode | null>(null);
+  const [creating, setCreating] = useState(false);
   const complete = useCompleteActivity();
   const { showError } = useToast();
   const toggle = (next: PanelMode) => setMode((current) => (current === next ? null : next));
@@ -150,9 +152,23 @@ export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean
           )}
         </div>
       </div>
+      {mode === "plan" && isMeeting && row.can_create_opportunity && row.activity_id !== null && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs">
+          <p className="min-w-0 text-muted-foreground">
+            <span className="font-medium text-foreground">Ta firma nie ma otwartej szansy.</span> Jeśli spotkanie coś
+            otwiera, załóż ją: spotkanie przypnie się od razu.
+          </p>
+          <Button size="sm" variant="outline" className="h-7 shrink-0" onClick={() => setCreating(true)}>
+            Załóż szansę
+          </Button>
+        </div>
+      )}
       {mode === "plan" && <PlanPanel row={row} onDone={close} />}
       {mode === "call" && <CallPanel row={row} onDone={close} />}
       {mode === "phone" && <PhonePanel row={row} onDone={close} />}
+      {creating && row.activity_id !== null && (
+        <CreateOpportunityFromMeetingDialog meeting={{ id: row.activity_id }} onClose={() => setCreating(false)} />
+      )}
     </li>
   );
 }

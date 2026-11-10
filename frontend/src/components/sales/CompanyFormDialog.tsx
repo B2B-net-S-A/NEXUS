@@ -23,8 +23,11 @@ import {
   type Ref,
   type SalesCompany,
 } from "@/lib/api/sales";
+import { useCompanyIdentity } from "@/lib/api/sales-handoffs";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 import { CompanyPicker } from "./CompanyPicker";
+import { CompanyIdentityHints } from "./handoff/CompanyIdentityHints";
 import { SalesSelect } from "./SalesSelect";
 import { useOwnerFilterOptions } from "./useOwnerFilterOptions";
 
@@ -97,6 +100,15 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
   const { showError, showSuccess } = useToast();
   const registry = useRegistryLookup();
   const pending = create.isPending || update.isPending;
+  // Tożsamość firmy (10.11.2026): przy nowej karcie podpowiadamy istniejące karty, a domenę
+  // bierzemy z adresu strony. To podpowiedź: zapis od niej nie zależy.
+  const typedName = useDebouncedValue(form.name, 300);
+  const typedWebsite = useDebouncedValue(form.website_url, 300);
+  const identity = useCompanyIdentity(
+    { name: company ? "" : typedName, website: typedWebsite, excludeId: company?.id },
+    open,
+  );
+  const suggestedDomain = form.domain.trim() ? null : (identity.data?.domain ?? null);
   const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
   const ownerChoices = [
     ...(company?.owner && !ownerOptions.some((option) => option.value === `acct:${company.owner!.id}`)
@@ -129,7 +141,7 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
     name: form.name.trim(),
     legal_name: form.legal_name.trim() || null,
     nip: form.nip.trim() || null,
-    domain: form.domain.trim() || null,
+    domain: form.domain.trim() || suggestedDomain,
     industry: form.industry.trim() || null,
     hq_city: form.hq_city.trim() || null,
     website_url: form.website_url.trim() || null,
@@ -238,6 +250,7 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
             onChange={(event) => set("name", event.target.value)}
             autoFocus
           />
+          {!company && duplicates.length === 0 && <CompanyIdentityHints matches={identity.data?.matches ?? []} />}
         </div>
         <div className="space-y-1">
           <Label htmlFor="sales-company-nip">NIP</Label>
@@ -311,6 +324,20 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
             value={form.website_url}
             onChange={(event) => set("website_url", event.target.value)}
           />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="sales-company-domain">Domena poczty</Label>
+          <Input
+            id="sales-company-domain"
+            value={form.domain}
+            placeholder={suggestedDomain ?? "np. firma.pl"}
+            onChange={(event) => set("domain", event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            {suggestedDomain
+              ? `Zapiszemy ${suggestedDomain} z adresu strony. Po domenie NEXUS dopasowuje pocztę i spotkania.`
+              : "Po domenie NEXUS dopasowuje do firmy pocztę i spotkania."}
+          </p>
         </div>
         <div className="space-y-1">
           <Label htmlFor="sales-company-linkedin">LinkedIn</Label>
