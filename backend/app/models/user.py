@@ -187,6 +187,12 @@ class User(Base, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
 
+    # 0679: „Ruchy w rekrutacjach” także o kandydatach innych rekruterów
+    # w rekrutacjach, które konto prowadzi (`stage_notification_resolver`).
+    stage_moves_all_led_jobs: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # 0427: maile, które konto wyłączyło sobie — ``{rodzaj: ISO czasu
     # wyłączenia}``. Rodzaje i reguła: ``services/notification_email_prefs``
     # (poranny skrót ma własną kolumnę wyżej).

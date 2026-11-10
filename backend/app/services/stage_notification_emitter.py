@@ -59,6 +59,7 @@ from app.services.stage_handoff_recipients import (
     TITLE_CPRO_RETURNED,
     TITLE_DL_REVIEW,
     TITLE_QC_RETURNED,
+    pair_recruiter_id,
 )
 from app.services.stage_notification_email_template import render_stage_email
 from app.services.stage_notification_resolver import (
@@ -101,6 +102,7 @@ def _inapp_content(
     client_name: Optional[str] = None,
     accepted_on: Optional[date] = None,
     planned_start_on: Optional[date] = None,
+    candidate_recruiter: Optional[str] = None,
 ) -> tuple[str, str, str]:
     """``(tytuł, treść, link)`` dzwonka.
 
@@ -121,6 +123,7 @@ def _inapp_content(
         client_name=client_name,
         accepted_on=accepted_on,
         planned_start_on=planned_start_on,
+        candidate_recruiter=candidate_recruiter,
     )
     note = stage_remarks.short(remark)
     if note:
@@ -155,6 +158,11 @@ def _cpro_job_label(job: Job) -> str:
     return f"{job.title} ({reference})"
 
 
+def _sentence(text: str) -> str:
+    """Kropka na końcu, ale bez drugiej po skrócie nazwiska („Julia S.”)."""
+    return text if text.endswith(".") else f"{text}."
+
+
 def _inapp_base(
     *,
     reason: Optional[str],
@@ -166,6 +174,7 @@ def _inapp_base(
     client_name: Optional[str] = None,
     accepted_on: Optional[date] = None,
     planned_start_on: Optional[date] = None,
+    candidate_recruiter: Optional[str] = None,
 ) -> tuple[str, str, str]:
     job_title = getattr(job, "working_title", None) or job.title
     who = mover.name if mover and mover.name else "Ktoś z zespołu"
@@ -241,11 +250,31 @@ def _inapp_base(
             f"przesunął(-ęła) {who}.",
             board_link,
         )
-    mover_part = f" przez {mover.name}" if mover else ""
+    # 10.11.2026: „w rekrutacji” zamiast „w ofercie” i bez wewnętrznego id.
+    # Ruch cudzego kandydata zaczyna się od jego rekrutera — to pierwsze
+    # słowa widoczne w okienku „Rekrutacje”.
+    if candidate_recruiter:
+        moved = (
+            f"przesunął(-ęła) kartę na etap „{stage_display_name}” w rekrutacji "
+            f"„{job_title}”."
+        )
+        if who == candidate_recruiter:
+            # Rekruter kandydata sam przesunął kartę — nazwisko raz.
+            message = f"{who} (prowadzi kandydata) {moved}"
+        else:
+            message = (
+                f"{_sentence(f'Kandydata prowadzi {candidate_recruiter}')} "
+                f"{who} {moved}"
+            )
+    else:
+        mover_part = f" przez {mover.name}" if mover and mover.name else ""
+        message = _sentence(
+            f"Kandydat {candidate_full_name} przeszedł na etap "
+            f"„{stage_display_name}” w rekrutacji „{job_title}”{mover_part}"
+        )
     return (
         f"Kandydat {candidate_full_name} → {stage_display_name}",
-        f"Kandydat {candidate_full_name} przeszedł na etap "
-        f"„{stage_display_name}” w ofercie '{job.title}' (#{job.id}){mover_part}.",
+        message,
         # Tablica z otwartą osobą, nie sam profil: wiersz trafia do okienka
         # „Rekrutacje” przy tej rekrutacji (16.10.2026, bez dzwonka).
         f"/jobs/{job.id}?candidate={candidate.id}",
@@ -266,6 +295,7 @@ async def _send_inapp(
     remark: Optional[str] = None,
     fix_labels: Sequence[str] = (),
     client_name: Optional[str] = None,
+    candidate_recruiter: Optional[str] = None,
 ) -> bool:
     title, message, link = _inapp_content(
         reason=reason,
@@ -279,6 +309,7 @@ async def _send_inapp(
         client_name=client_name,
         accepted_on=getattr(new_stage, "client_accepted_on", None),
         planned_start_on=getattr(new_stage, "planned_start_on", None),
+        candidate_recruiter=candidate_recruiter,
     )
     notif = await emit(
         db,
@@ -436,6 +467,16 @@ async def notify_stage_change(
         logger.warning("stage_notif: fix labels lookup failed: %s", type(exc).__name__)
         fix_labels = []
 
+    # Rekruter kandydata: odbiorca, który nim nie jest (prowadzący na etapie
+    # Interview Klient i dalej, DL rekrutacji), widzi w treści, czyj to kandydat.
+    try:
+        pair_id = await pair_recruiter_id(db, candidate_id=candidate.id, job_id=job.id)
+        pair_user = await _user_by_id(db, pair_id) if pair_id is not None else None
+        pair_name = pair_user.name if pair_user and pair_user.name else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stage_notif: candidate recruiter lookup failed: %s", exc)
+        pair_id, pair_name = None, None
+
     emitted_inapp = 0
     for rec in recipients:
         if rec.notify_inapp:
@@ -453,6 +494,7 @@ async def notify_stage_change(
                     remark=remark,
                     fix_labels=fix_labels,
                     client_name=client_name,
+                    candidate_recruiter=(pair_name if pair_id != rec.user_id else None),
                 ):
                     emitted_inapp += 1
             except Exception as exc:  # noqa: BLE001
