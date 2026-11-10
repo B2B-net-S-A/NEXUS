@@ -1,4 +1,4 @@
-"""DDL „Kto już to robił” — JEDNO źródło dla migracji 0677 i siatki
+"""DDL „Kto już to robił” — JEDNO źródło dla migracji 0678 i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``duty_search_runs``: jedno wyszukiwanie po celu projektu albo obowiązkach

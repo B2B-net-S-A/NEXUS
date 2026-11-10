@@ -159,7 +159,7 @@ class TestOrder:
 
 
 def test_migration_and_entrypoint_share_one_ddl_source():
-    migration = (BACKEND / "alembic/versions/0677_duty_search.py").read_text()
+    migration = (BACKEND / "alembic/versions/0678_duty_search.py").read_text()
     entrypoint = (BACKEND / "entrypoint.sh").read_text()
     assert "from app.services import duty_search_schema as schema" in migration
     assert (
