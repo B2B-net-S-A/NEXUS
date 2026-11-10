@@ -430,3 +430,23 @@ async def test_meeting_from_queue_counts_as_dated_after_logging_a_meeting(
     ).json()
     assert body["funnel"]["dated"] == 1
     assert body["people"][0]["dated"] == 1
+
+
+def test_second_meeting_result_for_one_opportunity_counts_once() -> None:
+    # Rekord szansy zostaje w kolejce po „Umówionym spotkaniu” (dzwoniący ustala
+    # termin), więc ten sam wynik może paść dwa razy dla jednej szansy.
+    calls = [
+        _call("meeting_booked", record=5, opportunity=7),
+        _call("meeting_booked", record=5, opportunity=7),
+        _call("meeting_booked"),  # z karty szansy, bez id: liczy się jako jedno
+    ]
+    result = _summary(
+        calls, meetings={7: MeetingRow(7, dated=True, verdict="qualified")}
+    )
+    assert (result.funnel.meetings, result.funnel.dated) == (2, 1)
+    assert result.outcomes["meeting_booked"] == 3
+    [person] = result.people
+    assert (person.meetings, person.dated) == (2, 1)
+    lead = next(s for s in result.sources if s.source == stats.LEAD_SOURCE)
+    assert lead.meetings == 1
+    assert result.insights[0].text.startswith("1 z 2 umówionych spotkań")

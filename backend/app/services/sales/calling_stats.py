@@ -211,6 +211,21 @@ def _is_talk(outcome: str) -> bool:
     return outcome != NO_ANSWER
 
 
+def _meeting_count(calls: list[CallRow]) -> int:
+    """Umówione spotkania: raz na szansę, telefon bez szansy (karta) jako jedno.
+
+    Rekord szansy zostaje w kolejce po „Umówionym spotkaniu”, więc ten sam wynik
+    może paść dwa razy; liczony per telefon dawałby „1 z 2 bez terminu” dla
+    jednego spotkania z terminem.
+    """
+
+    booked = [c for c in calls if c.outcome == MEETING_BOOKED]
+    with_opportunity = {
+        c.opportunity_id for c in booked if c.opportunity_id is not None
+    }
+    return len(with_opportunity) + sum(1 for c in booked if c.opportunity_id is None)
+
+
 def _source_of(call: CallRow) -> str:
     if call.record_id is None:
         return CARD_SOURCE
@@ -316,7 +331,7 @@ def summarize(
         calls=len(calls),
         talks=talks,
         offers=outcomes.get(OFFER_SENT, 0),
-        meetings=outcomes.get(MEETING_BOOKED, 0),
+        meetings=_meeting_count(calls),
         dated=sum(1 for m in booked if m.dated),
         held=sum(1 for m in booked if m.verdict in handoff_state.HELD_VERDICTS),
         qualified=sum(1 for m in booked if m.verdict == "qualified"),
@@ -342,7 +357,7 @@ def summarize(
                 calls=len(rows),
                 talks=sum(1 for c in rows if _is_talk(c.outcome)),
                 offers=sum(1 for c in rows if c.outcome == OFFER_SENT),
-                meetings=sum(1 for c in rows if c.outcome == MEETING_BOOKED),
+                meetings=_meeting_count(rows),
             )
         )
     loose = by_campaign.get(None, [])
@@ -358,7 +373,7 @@ def summarize(
                 calls=len(loose),
                 talks=sum(1 for c in loose if _is_talk(c.outcome)),
                 offers=sum(1 for c in loose if c.outcome == OFFER_SENT),
-                meetings=sum(1 for c in loose if c.outcome == MEETING_BOOKED),
+                meetings=_meeting_count(loose),
             )
         )
     campaign_rows.sort(key=lambda row: (row.id is None, -row.calls, row.name.lower()))
@@ -379,7 +394,7 @@ def summarize(
                 records=len(records),
                 reached=sum(1 for reached in records.values() if reached),
                 talks=sum(1 for c in rows if _is_talk(c.outcome)),
-                meetings=sum(1 for c in rows if c.outcome == MEETING_BOOKED),
+                meetings=_meeting_count(rows),
                 objections=sum(1 for c in rows if c.outcome == DO_NOT_CONTACT),
             )
         )
@@ -438,7 +453,7 @@ def summarize(
                 calls=len(rows),
                 talks=sum(1 for c in rows if _is_talk(c.outcome)),
                 offers=sum(1 for c in rows if c.outcome == OFFER_SENT),
-                meetings=sum(1 for c in rows if c.outcome == MEETING_BOOKED),
+                meetings=_meeting_count(rows),
                 dated=sum(1 for m in own_booked if m.dated),
                 qualified=sum(1 for m in own_booked if m.verdict == "qualified"),
             )
