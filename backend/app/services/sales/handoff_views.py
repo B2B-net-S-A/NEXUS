@@ -8,7 +8,7 @@ i rankingu (decyzja Artura z 10.11.2026).
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -222,8 +222,10 @@ def _with_clashes(views: list[HandoffView]) -> list[HandoffView]:
     ]
 
 
-_FAR = datetime(9999, 1, 1, tzinfo=timezone.utc)
-_LONG_AGO = datetime(1970, 1, 1, tzinfo=timezone.utc)
+def _order(moment_: Optional[datetime]) -> float:
+    """Chwila jako liczba do sortowania; brak chwili idzie na koniec."""
+
+    return moment_.timestamp() if moment_ is not None else float("inf")
 
 
 async def for_host(db: AsyncSession, user_id: int, now: datetime) -> list[HandoffView]:
@@ -247,7 +249,7 @@ async def for_host(db: AsyncSession, user_id: int, now: datetime) -> list[Handof
     views.sort(
         key=lambda view: (
             view.meeting_at is None,
-            view.meeting_at or view.booked_at or _FAR,
+            _order(view.meeting_at or view.booked_at),
             view.opportunity_id,
         )
     )
@@ -258,9 +260,9 @@ def _booker_order(view: HandoffView) -> tuple[int, bool, float, int]:
     """Najpierw to, co wróciło do umówienia, potem czekające po terminach, potem werdykty."""
 
     if view.verdict is None:
-        when = view.meeting_at or view.booked_at or _FAR
-        return (1, view.meeting_at is None, when.timestamp(), view.opportunity_id)
-    recency = -(view.verdict_at or _LONG_AGO).timestamp()
+        when = _order(view.meeting_at or view.booked_at)
+        return (1, view.meeting_at is None, when, view.opportunity_id)
+    recency = -view.verdict_at.timestamp() if view.verdict_at is not None else 0.0
     return (0 if view.verdict == "no_show" else 2, False, recency, view.opportunity_id)
 
 
