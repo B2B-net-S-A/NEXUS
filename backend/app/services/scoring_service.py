@@ -282,7 +282,8 @@ def scoring_algorithm_version() -> str:
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["skill_canon_contract"] = "2026-10-07-implied-by"
     payload["location_contract"] = "2026-09-27-place-dictionary"
-    payload["alias_mention_contract"] = "2026-10-07-rest-plain-word"
+    # Zwykłe słowa i końcówki złożeń w prozie requestu (09.11.2026).
+    payload["alias_mention_contract"] = "2026-11-09-request-common-words"
     payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
     # Mianownik `_score_skills` liczy technologie bramką must (`_technology_labels`)
     # — nawias i wstęp „znajomość …” czytane od 13.10.2026 zmieniają wynik.
@@ -728,6 +729,62 @@ def is_technology_mention(text: str, match: re.Match) -> bool:
     return True
 
 
+# Zwykłe angielskie słowa, które słownik zna też jako nazwę (09.11.2026).
+# Pomiar „Szukaj z requestu” na stagingu: „Password-less Access” w tytule
+# dawało must „LeSS” i „Microsoft Access”, „Stabilization Project” —
+# „Microsoft Project”. Na 800 rekrutacjach: „project” 45 razy (36 małą
+# literą), „less” 30, „office” 15, „access” 13, „solid” 11.
+# Wartość = ile wielkich liter musi mieć słowo w requeście, żeby liczyło się
+# jako nazwa; ``None`` = samo słowo nie liczy się nigdy, tylko pełna nazwa
+# („MS Access”, „Microsoft Project”), którą wzorzec łapie jako dłuższy alias.
+COMMON_WORD_ALIASES: dict[str, Optional[int]] = {
+    "access": None,
+    "project": None,
+    "office": None,
+    "teams": None,
+    "word": None,
+    "exchange": None,
+    "outlook": None,
+    # LeSS, SAFe, SOLID: „less than”, „safe”, „solid understanding”.
+    "less": 2,
+    "safe": 2,
+    "solid": 2,
+    # Język Swift: „swift on-boarding”.
+    "swift": 1,
+}
+
+
+def common_word_counts(found: str) -> bool:
+    """Czy zwykłe słowo z ``COMMON_WORD_ALIASES`` jest napisane jak nazwa."""
+    needed = COMMON_WORD_ALIASES.get(found.lower(), 0)
+    if needed is None:
+        return False
+    return sum(ch.isupper() for ch in found) >= needed
+
+
+def is_request_mention(text: str, match: re.Match) -> bool:
+    """Wzmianka technologii w treści requestu albo rekrutacji (wymagania z prozy).
+
+    Ostrzej niż ``is_technology_mention`` (CV i notatki zostają bez zmian):
+    zwykłe słowo musi być napisane jak nazwa (``COMMON_WORD_ALIASES``),
+    a słowo małą literą doklejone myślnikiem do poprzedniego to końcówka
+    złożenia, nie nazwa: „password-less”, „privileged-access”, „non-docker”.
+    „PL-Linux” zostaje.
+    """
+    if not is_technology_mention(text, match):
+        return False
+    found = match.group(1)
+    start = match.start(1)
+    if (
+        found.islower()
+        and start >= 2
+        and text[start - 1] == "-"
+        and text[start - 2].isalnum()
+    ):
+        return False
+    return common_word_counts(found)
+
+
 class _AliasPattern:
     """Wzorzec taksonomii, który oddaje tylko prawdziwe wzmianki technologii.
 
@@ -735,26 +792,24 @@ class _AliasPattern:
     (``finditer``, ``search``, ``fullmatch``): wymagania z prozy ofert
     (``classify_requirements``), surowe CV kandydata i prep-kit dostają jedną
     regułę (``is_technology_mention``) zamiast kopii w każdym miejscu.
+    Proza requestu bierze ostrzejszą (``request_alias_pattern``).
     """
 
-    __slots__ = ("regex",)
+    __slots__ = ("regex", "accept")
 
-    def __init__(self, regex: re.Pattern) -> None:
+    def __init__(self, regex: re.Pattern, accept=is_technology_mention) -> None:
         self.regex = regex
+        self.accept = accept
 
     def finditer(self, text: str, *args):
-        return (
-            m
-            for m in self.regex.finditer(text, *args)
-            if is_technology_mention(text, m)
-        )
+        return (m for m in self.regex.finditer(text, *args) if self.accept(text, m))
 
     def search(self, text: str, *args) -> Optional[re.Match]:
         return next(self.finditer(text, *args), None)
 
     def fullmatch(self, text: str, *args) -> Optional[re.Match]:
         match = self.regex.fullmatch(text, *args)
-        return match if match and is_technology_mention(text, match) else None
+        return match if match and self.accept(text, match) else None
 
 
 # Compiled union regex: \b(alias1|alias2|...)\b. Built lazily, invalidated when
@@ -779,6 +834,12 @@ def _alias_pattern() -> Optional[_AliasPattern]:
         )
         _CHAMPION_ALIAS_PATTERN = _AliasPattern(re.compile(pattern, re.IGNORECASE))
     return _CHAMPION_ALIAS_PATTERN
+
+
+def request_alias_pattern() -> Optional[_AliasPattern]:
+    """Ten sam wzorzec słownika z regułą prozy requestu (``is_request_mention``)."""
+    base = _alias_pattern()
+    return None if base is None else _AliasPattern(base.regex, is_request_mention)
 
 
 # Słowa opisujące ROLĘ, nie technologię. Taksonomia zna je jako poprawne
@@ -951,7 +1012,7 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
                 for s in re.split(r"[,;\n]", value)
                 if s.strip()
             ]
-            pattern = _alias_pattern()
+            pattern = request_alias_pattern()
             if (
                 attr == "requirements"
                 and pattern is not None
@@ -962,13 +1023,15 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
             parts.append(value)
     from app.services.requirement_modality import classify_requirements
 
-    result = classify_requirements("\n\n".join(parts), _alias_pattern(), ALIAS_MAP)
+    result = classify_requirements(
+        "\n\n".join(parts), request_alias_pattern(), ALIAS_MAP
+    )
     # A technology explicitly naming the role supplies a soft requirement.
     # It still cannot become a hard dealbreaker (job_explicit_must_skills).
     title = getattr(job, "title", None)
     if isinstance(title, str) and title.strip() and not result["must"]:
         title_skills = classify_requirements(
-            "Wymagane: " + _strip_role_words(title), _alias_pattern(), ALIAS_MAP
+            "Wymagane: " + _strip_role_words(title), request_alias_pattern(), ALIAS_MAP
         )["must"]
         result["must"] = sorted(
             set(result["must"])
