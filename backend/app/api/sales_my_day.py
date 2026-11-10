@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesViewUser
 from app.core.database import get_db
+from app.models.sales import SalesLead
+from app.services.sales import signals as sales_signals
 from app.services.sales.my_day import DayPerson, DayRow, MeetingPrep, MyDay, load_my_day
 
 router = APIRouter()
@@ -81,6 +83,18 @@ class CountsOut(BaseModel):
     overdue: int
     offers: int
     older_tasks: int
+    signals: int = 0
+
+
+class SignalOut(BaseModel):
+    """Nowy sygnał z bota researchu (``services/sales/signals.py``)."""
+
+    lead_id: int
+    company: Ref
+    title: str
+    strength: Optional[str]
+    type: Optional[str]
+    signal_at: Optional[datetime]
 
 
 class MyDayOut(BaseModel):
@@ -91,6 +105,19 @@ class MyDayOut(BaseModel):
     overdue: list[RowOut]
     offers: list[RowOut]
     prep: Optional[PrepOut]
+    signals: list[SignalOut] = []
+
+
+def _signal(lead: SalesLead) -> SignalOut:
+    payload = lead.payload or {}
+    return SignalOut(
+        lead_id=lead.id,
+        company=Ref(id=lead.company_id or 0, name=lead.company_name or ""),
+        title=lead.title,
+        strength=payload.get("strength"),
+        type=payload.get("type"),
+        signal_at=lead.signal_at,
+    )
 
 
 def _person(person: DayPerson) -> PersonOut:
@@ -154,7 +181,7 @@ def _prep(prep: Optional[MeetingPrep]) -> Optional[PrepOut]:
     )
 
 
-def _out(day: MyDay) -> MyDayOut:
+def _out(day: MyDay, signals: list[SalesLead]) -> MyDayOut:
     return MyDayOut(
         today=day.today,
         counts=CountsOut(
@@ -163,12 +190,14 @@ def _out(day: MyDay) -> MyDayOut:
             overdue=len(day.overdue),
             offers=len(day.offers),
             older_tasks=day.older_tasks,
+            signals=len(signals),
         ),
         meetings=[_row(row) for row in day.meetings],
         reply=[_row(row) for row in day.reply],
         overdue=[_row(row) for row in day.overdue],
         offers=[_row(row) for row in day.offers],
         prep=_prep(day.prep),
+        signals=[_signal(lead) for lead in signals],
     )
 
 
@@ -179,4 +208,6 @@ async def my_day(
 ) -> MyDayOut:
     """Kolejka dnia zalogowanej osoby; przełącznika osoby nie ma z założenia."""
 
-    return _out(await load_my_day(db, current_user.id, now=datetime.now(timezone.utc)))
+    now = datetime.now(timezone.utc)
+    day = await load_my_day(db, current_user.id, now=now)
+    return _out(day, await sales_signals.my_day_signals(db, current_user.id, now=now))

@@ -135,6 +135,19 @@ Grant-CsApplicationAccessPolicy -PolicyName NEXUS-TeamsPrep-ApplicationAccess -G
 Graph daje transkrypt tylko organizatorowi, więc spotkania założonego przez klienta
 nie pobierzemy. Bez kroku 2 wiersze kończą w stanie `forbidden` (`last_error=http_403`).
 
+Sprawdzenie zakresu przed krokiem 3 (bez danych spotkań):
+
+```powershell
+Connect-MicrosoftTeams
+Get-CsApplicationAccessPolicy -Identity NEXUS-TeamsPrep-ApplicationAccess   # AppIds = APP_ID NEXUS Teams Prep
+Get-CsGroupPolicyAssignment -PolicyType ApplicationAccessPolicy             # jest wpis dla ID grupy handlowców
+```
+
+Mail z podsumowaniem do klienta (09.11.2026) wychodzi delegowanym `Mail.Send`
+ze skrzynki handlowca podłączonej w Sprzedaży: ten zakres jest w `M365_SCOPES`
+od początku, więc w M365 nie trzeba nic klikać. Okno mówi „Połącz skrzynkę
+ponownie”, gdy połączenie go nie ma.
+
 ## 3. Zawężenie dostępu (PowerShell)
 
 Exchange Online (kalendarze): skonfiguruj [App RBAC](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac)

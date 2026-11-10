@@ -1998,6 +1998,39 @@
     "dot_anchor": "client-projects.previous-month"
   },
   {
+    "id": "zespol-filtr-rola-klient",
+    "pr": 3282,
+    "title": "Wyniki zespołu: rola i klient",
+    "why": "Liczby zespołu zawęzisz do rekruterów albo Delivery Leadów i do jednego klienta. Pulpit startuje od całego zespołu i samych rekruterów, a to, co filtr odsunął, stoi w wierszu „Poza filtrem”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin",
+        "delivery_lead"
+      ]
+    },
+    "where": "Insights → Zespół → Ludzie → Klient",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "team-filters.client"
+  },
+  {
+    "id": "sprzedaz-podsumowanie-spotkania-dla-klienta",
+    "pr": 3270,
+    "title": "Podsumowanie spotkania do klienta jednym przyciskiem",
+    "why": "Włącz transkrypcję w Teams, a podsumowanie spotkania będzie w historii szansy. Przycisk przygotuje mail do klienta: przeczytaj, popraw i wyślij ze swojej skrzynki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-09",
+    "audience": {"permissions": ["sales_edit"]},
+    "where": "Sprzedaż → Szanse → karta szansy → Historia firmy i szansy",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.meeting-client-summary",
+    "requires_setting": "SALES_TEAMS_TRANSCRIPTS_ENABLED",
+    "active_days": 90
+  },
+  {
     "id": "kto-juz-to-robil-rekrutacja",
     "title": "Kto już to robił — szukanie po obowiązkach",
     "why": "Gdy rekrutacja jest opisana tym, co osoba ma zrobić, a nie listą technologii, AI czyta CV z bazy i pokazuje, kto robił coś takiego — także gdy w CV nazwał to inaczej. Każda ocena ma cytat z CV.",

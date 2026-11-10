@@ -200,6 +200,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0658 (06.11.2026): nocne propozycje do słownika umiejętności (nazwy spoza
     # słownika), zatwierdza Head of Recruitment albo admin.
     skill_dictionary_proposals = "skill_dictionary_proposals"
+    # 0677 (09.11.2026): podsumowanie spotkania handlowca do wysłania klientowi
+    # (ustalenia i następne kroki, bez stawek i spraw wewnętrznych).
+    sales_meeting_client_summary = "sales_meeting_client_summary"
     # 0678 (09.11.2026): „Kto już to robił” — rozbicie celu projektu na rzeczy
     # do sprawdzenia w CV i ocena CV z cytatem (wyszukiwanie po obowiązkach).
     duty_search_plan = "duty_search_plan"
@@ -254,6 +257,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.portal_meeting_summary: "Portal konsultanta — podsumowanie rozmowy do sprawy",
     AIFeatureKey.cv_call_questions: "Ściąga do rozmowy — pytania pod CV z Championa i oryginalnego CV",
     AIFeatureKey.skill_dictionary_proposals: "Słownik umiejętności — nocne propozycje haseł i wariantów do zatwierdzenia",
+    AIFeatureKey.sales_meeting_client_summary: "Sprzedaż — podsumowanie spotkania do wysłania klientowi",
     AIFeatureKey.duty_search_plan: "„Kto już to robił” — rozbicie celu projektu na rzeczy do sprawdzenia w CV",
     AIFeatureKey.duty_search_judge: "„Kto już to robił” — ocena CV względem celu projektu z cytatem",
 }
@@ -470,6 +474,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Hasła słownika umiejętności i ich kategorie",
         "Pary haseł z odsetkiem profili, które wpisują oba (mapa wiedzy IT)",
         "(bez danych osób: imion, nazwisk, kontaktów, stawek i treści CV)",
+    ],
+    AIFeatureKey.sales_meeting_client_summary: [
+        "Temat spotkania handlowca i transkrypt z Teams",
+        "(bez danych z kartoteki firmy, szans, notatek i kandydatów; handlowiec "
+        "czyta i poprawia treść przed wysyłką)",
     ],
     AIFeatureKey.duty_search_plan: [
         "Opis celu projektu albo obowiązki z Championa i tytuł rekrutacji",

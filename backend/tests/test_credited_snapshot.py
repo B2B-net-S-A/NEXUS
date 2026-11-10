@@ -434,6 +434,34 @@ async def test_every_consumer_counts_the_same_as_the_full_cte():
             )
             assert value == listed.period_total, metric
 
+        # Filtr roli (10.11.2026): kafel i lista z tym samym filtrem liczą to samo.
+        role_totals = await recruitment_activity.team_period_totals(
+            db,
+            head,
+            metrics=("verification", "recommendation"),
+            date_from=date(2027, 7, 1),
+            date_to=date(2027, 7, 31),
+            role="recruiter",
+        )
+        for metric, value in role_totals.totals.items():
+            listed = await recruitment_activity.list_recruitment_activity_details(
+                db,
+                head,
+                metric=metric,
+                window="range",
+                selected_day=date(2027, 7, 1),
+                selected_month=date(2027, 7, 1),
+                subject_user_id=None,
+                team_scope=True,
+                page=1,
+                page_size=1,
+                date_from=date(2027, 7, 1),
+                date_to=date(2027, 7, 31),
+                role="recruiter",
+            )
+            assert value == listed.period_total, metric
+            assert value <= totals.totals[metric], metric
+
         await recruitment_trend.monthly_milestone_trend(db, months=3, now=now)
         await metric_engine._credited_snapshot(db, date(2027, 6, 1))
         await reports_api.report_recruitment(current_user=head, db=db, period="year")

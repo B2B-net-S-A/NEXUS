@@ -115,6 +115,7 @@ from app.api import insights_campaigns
 from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
+from app.api import integrations_sales_signals
 from app.api import integrations_v1
 from app.api.integrations_v1.common import (
     IntegrationApiError,
@@ -264,6 +265,7 @@ from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
+from app.api import sales_signals as sales_signals_api
 from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
@@ -814,6 +816,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
+    from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -1032,6 +1035,8 @@ async def lifespan(app: FastAPI):
             "order_gaps": asyncio.create_task(order_gaps_loop()),
             # Sprzedaż: tryb cienia automatu archiwizacji, sam odczyt i linia logu.
             "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
+            # Sprzedaż: biegi bota researchu (Grok Bot); wyłącznik SALES_SIGNALS_ENABLED.
+            "sales_signals": asyncio.create_task(sales_signals_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
@@ -1926,6 +1931,12 @@ app.include_router(
     prefix="/api/integrations/compass",
     tags=["integrations"],
 )
+# Raport bota researchu (Grok Bot): poświadczeniem jest jednorazowy token biegu.
+app.include_router(
+    integrations_sales_signals.router,
+    prefix="/api/integrations/sales-signals",
+    tags=["integrations"],
+)
 # API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
 # procesów firmy (na start rozliczanie klientów) na kluczach `X-API-Key`.
 # Osobna warstwa obok tras ekranów — te dla klucza nadal są 401.
@@ -2251,6 +2262,9 @@ app.include_router(
     sales_activities_api.router, prefix="/api/sales/activities", tags=["sales"]
 )
 app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sales"])
+app.include_router(
+    sales_signals_api.router, prefix="/api/sales/signals", tags=["sales"]
+)
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(

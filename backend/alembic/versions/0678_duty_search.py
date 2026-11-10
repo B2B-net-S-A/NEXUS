@@ -1,4 +1,4 @@
-"""„Kto już to robił”: tabele wyszukiwania po celu i klucze AI F46/F47.
+"""„Kto już to robił”: tabele wyszukiwania po celu i klucze AI F47/F48.
 
 Revision ID: 0678_duty_search
 Revises: 0677_sales_meeting_client_summary

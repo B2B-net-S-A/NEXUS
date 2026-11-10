@@ -5,12 +5,12 @@ Decyzja Artura 09.11.2026, reguła
 
 Przebieg (w tle, ``app/tasks/duty_search_worker.py``):
 
-1. rozbicie celu (F46): zdolności z wagą, sygnały pośrednie, wzorce do tekstu CV,
+1. rozbicie celu (F47): zdolności z wagą, sygnały pośrednie, wzorce do tekstu CV,
    trzy przykładowe akapity CV osoby, która to zrobiła;
 2. szeroka sieć: wektor celu, wektory akapitów, wzorce w ``raw_cv_text`` (RRF)
    oraz kanoniczny ranking „Z requestu” (top 50) — ta sama bramka
    dopuszczalności (blacklista, NDA, weto) co ``canonical_search``;
-3. ocena CV (F47) z dosłownym cytatem; cytat sprawdza kod;
+3. ocena CV (F48) z dosłownym cytatem; cytat sprawdza kod;
 4. kolejność widoku: najpierw „Robił to” / „Bardzo blisko” z cytatem, w grupie
    RRF z obu list. Ocena celu NIE wchodzi do kanonicznego fitu.
 

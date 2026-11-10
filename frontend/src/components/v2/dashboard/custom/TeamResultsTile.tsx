@@ -8,7 +8,7 @@
 // `period_total` listy (27.10.2026: wcześniej cztery zapytania, każde po dwa
 // pełne przeliczenia zasługi), więc kafelek i Insights pokazują to samo.
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Input } from "@/components/ui/input"
@@ -24,6 +24,14 @@ import {
   type WhoCountsMetric,
 } from "@/lib/kpi-who-counts"
 import { getRecruitmentActivityTeamTotals } from "@/lib/recruitment-activity-api"
+import {
+  DEFAULT_TEAM_FILTERS,
+  readStoredTeamFilters,
+  writeStoredTeamFilters,
+  type ClientOption,
+  type TeamFilters,
+} from "@/lib/team-filters"
+import { TeamFilterControls } from "@/components/v2/kpi/TeamFilterControls"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 
@@ -117,6 +125,9 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
   const [custom, setCustom] = useState<DayRange>(() => presetRange("this_month", today))
   const [open, setOpen] = useState<WhoCountsMetric | null>(null)
   const [restored, setRestored] = useState(false)
+  // Rola i klient (10.11.2026): domyślnie rekruterzy, jak pulpit HoR.
+  const [teamFilters, setTeamFilters] = useState<TeamFilters>(DEFAULT_TEAM_FILTERS)
+  const filtersKey = `${STORAGE_PREFIX}${tileId}:team-filters`
 
   // Po zamontowaniu, nie w inicjalizatorze — SSR nie zna localStorage.
   useEffect(() => {
@@ -125,12 +136,17 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
       setPreset(stored.preset)
       setCustom(stored.custom)
     }
+    const storedFilters = readStoredTeamFilters(`${STORAGE_PREFIX}${tileId}:team-filters`)
+    if (storedFilters) setTeamFilters(storedFilters)
     setRestored(true)
   }, [tileId])
 
   useEffect(() => {
     if (restored) writeStored(tileId, { preset, custom })
   }, [restored, tileId, preset, custom])
+  useEffect(() => {
+    if (restored) writeStoredTeamFilters(filtersKey, teamFilters)
+  }, [restored, filtersKey, teamFilters])
 
   const range = preset === "custom" ? custom : presetRange(preset, today)
   const validRange = range.start <= range.end
@@ -143,13 +159,21 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
     teamScope: true,
   }
 
+  const team = { role: teamFilters.role, clientId: teamFilters.clientId }
   const counts = useQuery({
-    queryKey: ["team-results-tile", cacheKey, range.start, range.end],
+    queryKey: ["team-results-tile", cacheKey, range.start, range.end, team.role, team.clientId],
     queryFn: () =>
-      getRecruitmentActivityTeamTotals({ dateFrom: range.start, dateTo: range.end, metrics: METRICS }),
+      getRecruitmentActivityTeamTotals({
+        dateFrom: range.start,
+        dateTo: range.end,
+        metrics: METRICS,
+        team,
+      }),
     enabled: validRange,
     staleTime: 30_000,
   })
+  const lastClients = useRef<ClientOption[]>([])
+  if (counts.data?.clients) lastClients.current = counts.data.clients
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3" data-testid="team-results-tile">
@@ -196,6 +220,16 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
           </span>
         )}
       </div>
+
+      <TeamFilterControls
+        value={teamFilters}
+        onChange={(next) => {
+          setTeamFilters(next)
+          setOpen(null)
+        }}
+        clients={counts.data?.clients ?? lastClients.current}
+        showCounts={false}
+      />
 
       {!validRange ? (
         <p className="text-sm text-warning-muted-foreground">Data „od” jest po dacie „do”.</p>
@@ -257,6 +291,7 @@ export function TeamResultsTile({ tileId }: { tileId: string }) {
             cacheKey={cacheKey}
             pageSize={25}
             compact
+            teamFilters={teamFilters}
           />
         </div>
       ) : null}

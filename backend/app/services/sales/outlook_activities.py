@@ -310,7 +310,10 @@ async def record(db: AsyncSession, item: OutlookItem) -> int:
             continue
         newly_held = done_at is not None and row.done_at != done_at
         row.subject = subject
-        row.body = body
+        # Mail wysłany z NEXUSA (podsumowanie spotkania) ma pełną treść; kopia
+        # z Wysłanych niesie tylko podgląd Graph i nie może jej skrócić.
+        if not (item.kind == "email" and row.body and len(row.body) > len(body or "")):
+            row.body = body
         row.occurred_at = item.occurred_at
         row.done_at = done_at
         if newly_held and row.opportunity_id is not None:

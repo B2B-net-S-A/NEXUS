@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQueries } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
@@ -30,6 +30,7 @@ import {
   teamListReconcile,
 } from "@/lib/kpi-who-counts";
 import { getRecruitmentActivityDetails } from "@/lib/recruitment-activity-api";
+import { ALL_TEAM_FILTERS, type TeamFilters } from "@/lib/team-filters";
 import { useUrlWriter } from "@/lib/url-selection";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -264,9 +265,12 @@ export function TeamWhoCountsPanel({
   range,
   metrics = TEAM_WHO_COUNTS,
   notice,
+  client = null,
   onMetricChange,
   onClose,
 }: {
+  /** Klient wybrany w tabeli Ludzie — lista osoby liczy tylko jego (10.11.2026). */
+  client?: { id: number; name: string | null } | null;
   /** Linijka nad listą (lejek: pary bez osoby z zasługą, różnica z liczbą). */
   notice?: ReactNode;
   subject: TeamWhoCountsSubject;
@@ -286,6 +290,9 @@ export function TeamWhoCountsPanel({
   }, [subjectKey]);
 
   const who = subject.kind === "person" ? subject.name : SUBJECT_LABEL[subject.kind];
+  // Rola i klient (10.11.2026). Start od „Wszyscy”: lista otwiera się z liczby
+  // lejka całej firmy i ma się z nią zgadzać, zawęża ją dopiero wybór.
+  const [teamFilters, setTeamFilters] = useState<TeamFilters>(ALL_TEAM_FILTERS);
   return (
     <div ref={ref} id={WHO_COUNTS_ANCHOR} className="scroll-mt-20">
       <Panel
@@ -307,6 +314,11 @@ export function TeamWhoCountsPanel({
       >
         <MetricTabs metrics={metrics} active={metric} onChange={onMetricChange} />
         {notice}
+        {subject.kind !== "team" && client ? (
+          <p className="text-xs text-muted-foreground">
+            Tylko klient: <strong className="font-medium text-foreground">{client.name ?? `#${client.id}`}</strong>
+          </p>
+        ) : null}
         <WhoCountsList
           metric={metric}
           viewerId={viewerId}
@@ -319,6 +331,14 @@ export function TeamWhoCountsPanel({
             dateTo: range.end,
             ...subjectQuery(subject),
           }}
+          teamFilters={
+            subject.kind === "team"
+              ? teamFilters
+              : client
+                ? { role: "all", clientId: client.id, clientName: client.name }
+                : undefined
+          }
+          onTeamFiltersChange={subject.kind === "team" ? setTeamFilters : undefined}
         />
       </Panel>
     </div>

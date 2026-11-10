@@ -90,6 +90,8 @@ async def test_team_total_keeps_inactive_and_non_kpi_credit() -> None:
             ]
         ),
         outside,
+        # Klienci okresu do filtra (10.11.2026) — tylko w zakresie zespołu.
+        _result([]),
     ]
 
     result = await activity_service.build_recruitment_activity_summary(
@@ -313,6 +315,8 @@ async def test_admin_bulk_placements_do_not_inflate_the_team_average() -> None:
             ]
         ),
         outside,
+        # Klienci okresu do filtra (10.11.2026) — tylko w zakresie zespołu.
+        _result([]),
     ]
 
     result = await activity_service.build_recruitment_activity_summary(

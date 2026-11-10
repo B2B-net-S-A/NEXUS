@@ -67,8 +67,9 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
 | F44 | cv_call_questions                | claude-sonnet-5-5 (z 5)  |
 | F45 | skill_dictionary_proposals       | gpt-6.1-sol (z Sonnet 5.5)|
-| F46 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
-| F47 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
+| F46 | sales_meeting_client_summary     | claude-sonnet-5-5 (z 5)  |
+| F47 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
+| F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -566,11 +567,21 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "must-have z 46% do 56% i P@5 z 0,103 do 0,117. Dodatek: nic nie wchodzi do słownika "
         "bez zatwierdzenia HoR+, awaria modelu zostawia wczorajsze propozycje.",
     ),
+    AIFeatureKey.sales_meeting_client_summary: ModelChoice(
+        default=SONNET_55,
+        env_vars=("SALES_MEETING_CLIENT_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F46 (09.11.2026, POZA badaniem 16.09). Podsumowanie spotkania do "
+        "wysłania klientowi z NEXUSA: tekst idzie do osoby spoza firmy, więc ten sam model "
+        "co tekst dla klienta w F44, a nie Luna z F40. Jedno wywołanie na okno, handlowiec "
+        "czyta i poprawia treść przed wysyłką; awaria modelu zostawia puste pole do "
+        "napisania ręcznie.",
+    ),
     AIFeatureKey.duty_search_plan: ModelChoice(
         default=SONNET_5,
         env_vars=("DUTY_SEARCH_PLAN_MODEL",),
         fallbacks=(HAIKU_55,),
-        rationale="F46 (decyzja Artura 09.11.2026, POZA badaniem 16.09). „Kto już to robił”: "
+        rationale="F47 (decyzja Artura 09.11.2026, POZA badaniem 16.09). „Kto już to robił”: "
         "rozbicie celu projektu na zdolności, sygnały pośrednie i przykładowe akapity CV — ten sam "
         "model co podpowiedź słów do wymagań (F41). Prototyp na stagingu 09.11 (6 celów): 25-32 s "
         "na rozbicie. Dodatek: bez rozbicia wyszukiwanie idzie samym wektorem celu.",
@@ -579,7 +590,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=GPT_LUNA,
         env_vars=("DUTY_SEARCH_JUDGE_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F47 (decyzja Artura 09.11.2026, POZA badaniem 16.09). Ocena CV względem celu "
+        rationale="F48 (decyzja Artura 09.11.2026, POZA badaniem 16.09). Ocena CV względem celu "
         "z dosłownym cytatem — to samo zadanie „znajdź i zacytuj” co „Oceń z AI” (F39). Prototyp "
         "na stagingu 09.11: ok. 100 CV w 42-50 s przy 8 wątkach, przy celach opisowych top 10 "
         "trafnych 2->10 (Jira) i 6->10 (AWS). Dodatek: awaria modelu = komunikat, nie pusta lista.",

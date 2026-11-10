@@ -1,5 +1,6 @@
 import api from "@/lib/api";
 import type { InsightsPeriod, InsightsPeriodParams } from "@/lib/insights-api";
+import { teamFilterQuery, type TeamFilterParams } from "@/lib/team-filters";
 
 /**
  * Klient `GET /api/insights/team-table` — „Performance per osoba".
@@ -166,6 +167,10 @@ export interface TeamPeopleResponse {
   rows: TeamPeopleRow[];
   /** Konta administracyjne — jeden wiersz pod tabelą (reguła Hall of Fame). */
   outside_scope?: TeamPeopleOutsideScope;
+  /** Osoby spoza wybranej grupy roli (filtr Rola, 10.11.2026); `null` bez filtra. */
+  filtered_out?: TeamPeopleOutsideScope | null;
+  /** Klienci okresu po filtrze roli — do filtra klienta; brak = serwer sprzed 10.11.2026. */
+  clients?: { id: number; name: string; count: number }[];
   /**
    * Kamienie, które nie liczą się nikomu — wiersz „Bez osoby z zasługą”
    * (17.10.2026). Brak pola = odpowiedź sprzed wdrożenia.
@@ -232,10 +237,10 @@ export interface StaleJob {
 }
 
 export const insightsTeamSignalsApi = {
-  people: (p: InsightsPeriodParams) =>
+  people: (p: InsightsPeriodParams, filters?: TeamFilterParams) =>
     api
       .get<TeamPeopleResponse>("/api/insights/team/people", {
-        params: periodQuery(p),
+        params: { ...periodQuery(p), ...teamFilterQuery(filters) },
       })
       .then((r) => r.data),
   attention: () =>
@@ -251,8 +256,11 @@ export const insightsTeamSignalsApi = {
 };
 
 export const insightsTeamSignalsQueryKeys = {
-  people: (p: InsightsPeriodParams) =>
-    ["insights", "team", "people", p] as const,
+  // Bez filtrów klucz zostaje jak był — cache wspólny z tabelą Ludzie i pulpitem.
+  people: (p: InsightsPeriodParams, filters?: TeamFilterParams) =>
+    filters && (filters.role !== "all" || filters.clientId !== null)
+      ? (["insights", "team", "people", p, filters.role, filters.clientId] as const)
+      : (["insights", "team", "people", p] as const),
   attention: () => ["insights", "team", "attention"] as const,
   staleJobs: () => ["insights", "team", "stale-jobs"] as const,
 };

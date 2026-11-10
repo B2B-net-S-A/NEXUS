@@ -83,6 +83,8 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
 # drugi raz dziennie, a wynik i tak jest na produkcji).
 STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
     {
+        # Webhook do bota researchu w USA: drugi bieg ze stagingu to koszt i dane poza UE.
+        "sales_signals",
         "consultant_portal_transcripts",
         "consultant_portal_ratings",
         "consultant_portal_mailbox",
