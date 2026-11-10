@@ -91,6 +91,9 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
   u 4 kolejnych te same godziny są drugi raz w 25–30 już zatwierdzone
   (konsultant przeniósł je zgodnie z procedurą, stary wpis wisi w statusie 1).
   Pytanie R3 niżej.
+- Numer osoby w T4T (`UserId`) i w raporcie dla Cost Control to ten sam
+  numer u wszystkich 284 wspólnych osób, więc po zapisaniu numeru w kartotece
+  T4T łączy się z kontraktem bez nazwiska.
 - Kartoteka po nazwisku na kopii produkcji: z 292 osób (T4T ∪ raport) 261 ma
   aktywny kontrakt Nordei o tym imieniu i nazwisku (1 z nich dwa), 19 tylko
   zakończony, 12 żadnego (inna pisownia, drugie imię, nazwa firmy). 32 aktywne
@@ -118,12 +121,15 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
 
 ## Co jest nowe dla Nordei
 
-1. **Kartoteka T4T.** Kontrakt ↔ `UserId` z T4T (G…) ↔ numer Nordei (M…, na
-   fakturze i w raporcie dla Cost Control) ↔ NIDS z datą od–do. Dwa różne
-   identyfikatory, więc oba w kartotece. Pierwsze wypełnienie: numer Nordei
-   i NIDS z opisów pozycji faktur do Nordei w KSeF, `UserId` po imieniu
-   i nazwisku z pierwszego wgranego raportu (podpowiedź do zatwierdzenia jak
-   NIP w E4.0). Do tego flaga „wcześniejszy termin płatności” i kanał kontaktu.
+1. **Kartoteka T4T.** Kontrakt ↔ numer osoby u Nordei ↔ NIDS z datą od–do.
+   Numer osoby to jeden identyfikator: `UserId` w T4T, „User ID” w raporcie dla
+   Cost Control i `ID:…` w opisie pozycji faktury do Nordei (we wrześniu zgodny
+   u wszystkich 284 osób obecnych w obu plikach; zwykle zaczyna się od M,
+   u części od G, Z albo K; 1 osoba ma w T4T dwa numery). Pierwsze wypełnienie:
+   numer i NIDS z opisów pozycji faktur do Nordei w KSeF, dla nowych osób
+   po imieniu i nazwisku z pierwszego wgranego raportu (podpowiedź do
+   zatwierdzenia jak NIP w E4.0). Do tego flaga „wcześniejszy termin płatności”
+   i kanał kontaktu.
 2. **Wersje raportu T4T.** Każdy wgrany Excel to wersja z datą otrzymania;
    wiersze surowe (osoba, NIDS, okres, dzień, godziny, status, charge code)
    zapisane per wersja, żeby karta osoby pokazywała historię i różnice.
@@ -174,7 +180,7 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
 ### N1. Kartoteka i porównanie (MVP, prezentacja: etap 1)
 
 - N1.1 Kartoteka: tabela `client_external_ids` (kontrakt, klient, rodzaj
-  `t4t_user` / `client_person_no` / `project_no`, wartość, `valid_from/to`,
+  `client_person_no` / `project_no`, wartość, `valid_from/to`,
   źródło `ksef_item` / `report_name` / `manual`, `confirmed_by/at`). Wypełnienie
   z faktur do Nordei w KSeF i podpowiedzi po imieniu i nazwisku z raportu.
   Ekran „Kartoteka Nordei” w regułach klienta: bez dopasowania, do zatwierdzenia,
