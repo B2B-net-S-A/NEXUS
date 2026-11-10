@@ -42,7 +42,10 @@ function StageMovesScope() {
 
   const value = query.data.stage_moves_all_led_jobs ? "all" : "mine";
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
+    <div
+      data-tour="settings.notifications.stage-moves-scope"
+      className="mt-2 space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2"
+    >
       <RadioGroup
         value={value}
         aria-label="Czyje ruchy dostajesz"

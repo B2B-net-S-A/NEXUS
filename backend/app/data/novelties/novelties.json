@@ -2090,5 +2090,23 @@
     "href": "/candidates",
     "section": "sourcing",
     "dot_anchor": "candidates.request.goal-tab"
+  },
+  {
+    "id": "ruchy-tylko-moich-kandydatow",
+    "pr": 3290,
+    "title": "Ruchy w rekrutacjach: tylko Twoi kandydaci",
+    "why": "W rekrutacji, którą prowadzisz, nie dostajesz już każdego ruchu kandydatów innych rekruterów — tylko Interview Klient, Akceptację i Zatrudnionego. Chcesz widzieć wszystko? Zmień to tutaj.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Ustawienia → Moje konto → Ruchy w rekrutacjach",
+    "href": "/settings",
+    "dot_anchor": "settings.notifications.stage-moves-scope"
   }
 ]
