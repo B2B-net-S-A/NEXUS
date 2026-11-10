@@ -79,6 +79,7 @@ from app.services.m365.matcher import IncomingMessage
 from app.services.m365.oauth import M365ReauthRequired
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
 from app.services.sales import meeting_transcripts as sales_transcripts
+from app.services.sales import decision_map_outlook as sales_decision_map_outlook
 from app.services.sales import meeting_autopin as sales_autopin
 from app.services.sales import outlook_activities as sales_outlook
 
@@ -266,6 +267,7 @@ async def _sync_connection_locked(
                 await _sales_catch_up(db, conn)
                 await _auto_pin_sales_meetings(db, conn)
                 await _settle_sales_meetings(db, conn)
+                await _sync_sales_decision_maps(db, conn)
 
         await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
@@ -1041,6 +1043,20 @@ async def _auto_pin_sales_meetings(db: AsyncSession, conn: M365Connection) -> No
         await db.commit()
     except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
         logger.exception("m365 conn %s: auto-pin of sales meetings failed", conn.id)
+
+
+async def _sync_sales_decision_maps(db: AsyncSession, conn: M365Connection) -> None:
+    """Status kontaktu osób z map decyzyjnych po poczcie i spotkaniach z Outlooka.
+
+    Osobna, krótka transakcja po przebiegu skrzynki: blokada wiersza szansy nie
+    czeka wtedy na wywołania Graph.
+    """
+    try:
+        async with db.begin_nested():
+            await sales_decision_map_outlook.sync_live(db)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — nie blokuje synchronizacji skrzynki
+        logger.exception("m365 conn %s: decision map contact status failed", conn.id)
 
 
 async def _sales_catch_up(db: AsyncSession, conn: M365Connection) -> None:
