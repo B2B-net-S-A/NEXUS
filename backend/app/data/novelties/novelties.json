@@ -1957,6 +1957,19 @@
     "dot_anchor": "sales.handed-to-me"
   },
   {
+    "id": "sprzedaz-zaproszenie-z-przekazania",
+    "title": "Zaproszenie na spotkanie jednym kliknięciem",
+    "why": "Na karcie przekazanego spotkania wysyłasz klientowi zaproszenie Teams ze swojej skrzynki Outlook. Spotkanie od razu jest w Twoim kalendarzu i przy szansie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Mój dzień → Przekazane do Ciebie → karta spotkania",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.handoff-invite"
+  },
+  {
     "id": "insights-termin-rozmowy",
     "pr": 3249,
     "title": "Termin rozmowy pod ręką",

@@ -222,11 +222,21 @@ class Booked:
 
 
 async def lock(db: AsyncSession, opportunity_id: int) -> SalesOpportunity:
+    """Wiersz szansy pod blokadą, zawsze ze świeżym ``custom_fields``."""
+
     opportunity = await db.scalar(
         select(SalesOpportunity)
         .where(SalesOpportunity.id == opportunity_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
+    if opportunity is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    return opportunity
+
+
+async def fetch(db: AsyncSession, opportunity_id: int) -> SalesOpportunity:
+    opportunity = await db.get(SalesOpportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     return opportunity
@@ -237,7 +247,7 @@ def _ensure_open(opportunity: SalesOpportunity) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=CLOSED_DETAIL)
 
 
-def _pending(opportunity: SalesOpportunity) -> dict[str, Any]:
+def pending(opportunity: SalesOpportunity) -> dict[str, Any]:
     """Blok przekazania, które czeka na spotkanie albo werdykt."""
 
     data = block(opportunity)
@@ -417,7 +427,7 @@ async def _contact(
     return contact
 
 
-async def _meeting_activity(
+async def meeting_activity(
     db: AsyncSession, opportunity: SalesOpportunity, data: dict[str, Any]
 ) -> Optional[SalesActivity]:
     activity_id = user_id_of(data.get("meeting_activity_id"))
@@ -439,7 +449,7 @@ async def _sync_meeting(
 ) -> None:
     """Termin z bloku jako aktywność przy szansie; spotkania z Outlooka nie ruszamy."""
 
-    activity = await _meeting_activity(db, opportunity, data)
+    activity = await meeting_activity(db, opportunity, data)
     if activity is not None and is_outlook(activity):
         return
     meeting_at = moment(data.get("meeting_at"))
@@ -621,8 +631,8 @@ async def set_term(
 ) -> None:
     """Ustaw albo zmień termin; potwierdzenie u klienta trzeba wtedy powtórzyć."""
 
-    data = _pending(opportunity)
-    activity = await _meeting_activity(db, opportunity, data)
+    data = pending(opportunity)
+    activity = await meeting_activity(db, opportunity, data)
     if activity is not None and is_outlook(activity):
         raise HTTPException(status.HTTP_409_CONFLICT, detail=CALENDAR_TERM_DETAIL)
     data["meeting_at"] = (
@@ -640,7 +650,7 @@ async def confirm(
 ) -> None:
     """Klient potwierdził termin. Samo kliknięcie niczego do klienta nie wysyła."""
 
-    data = _pending(opportunity)
+    data = pending(opportunity)
     if await _effective_term(db, opportunity, data) is None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=NO_TERM_DETAIL)
     data["confirmed_at"] = now.isoformat()
@@ -652,7 +662,7 @@ async def confirm(
 async def _effective_term(
     db: AsyncSession, opportunity: SalesOpportunity, data: dict[str, Any]
 ) -> Optional[datetime]:
-    activity = await _meeting_activity(db, opportunity, data)
+    activity = await meeting_activity(db, opportunity, data)
     if activity is not None and is_outlook(activity) and activity.occurred_at:
         return activity.occurred_at
     return moment(data.get("meeting_at"))
@@ -705,7 +715,7 @@ async def give_verdict(
 ) -> None:
     """Werdykt po spotkaniu: przesuwa szansę i wraca do osoby, która umówiła."""
 
-    data = _pending(opportunity)
+    data = pending(opportunity)
     stages = await _sales_stages(db, opportunity.pipeline_id)
     company_name = (
         await db.scalar(
@@ -713,7 +723,7 @@ async def give_verdict(
         )
         or ""
     )
-    activity = await _meeting_activity(db, opportunity, data)
+    activity = await meeting_activity(db, opportunity, data)
     from_calendar = activity is not None and is_outlook(activity)
     before = history.snapshot(opportunity)
     reason = clean(payload.reason)
@@ -805,7 +815,7 @@ async def adopt_calendar_meeting(
     data = block(opportunity)
     if data is None or data.get("verdict") or activity.occurred_at is None:
         return False
-    current = await _meeting_activity(db, opportunity, data)
+    current = await meeting_activity(db, opportunity, data)
     if current is not None and (current.id == activity.id or is_outlook(current)):
         return False
     planned = moment(data.get("meeting_at"))

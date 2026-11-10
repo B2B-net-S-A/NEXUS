@@ -428,7 +428,7 @@ export function BookMeetingForm({
       <div className="space-y-2 border-t border-border pt-3">
         <p className="text-xs leading-snug text-muted-foreground">
           Zapis: szansa „Spotkanie kwalifikujące” u prowadzącego, spotkanie przy szansie, Ty jako źródło.
-          Zaproszenie do klienta wysyła się z Outlooka jak dotąd; NEXUS sam niczego nie wysyła.
+          Ten formularz niczego nie wysyła: zaproszenie do klienta wyśle prowadzący ze swojej skrzynki.
         </p>
         <div className="flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onCancel} disabled={book.isPending}>

@@ -5,7 +5,8 @@ prowadzącego (``handoff_hosts.py``). Blok jest zwykłym słownikiem JSON:
 
 ``booked_by``, ``booked_at``, ``service``, ``problem``, ``decision_maker``, ``timing``,
 ``meeting_at``, ``duration_minutes``, ``meeting_activity_id``, ``confirmed_at``,
-``confirmed_by`` i ``verdict`` (``kind``, ``at``, ``by``, ``reason``, ``return_on``).
+``confirmed_by``, ``verdict`` (``kind``, ``at``, ``by``, ``reason``, ``return_on``)
+i ``invite`` (``request_id``, ``at``, ``by``, ``attendees``) po wysłaniu zaproszenia.
 """
 
 from __future__ import annotations
@@ -60,6 +61,13 @@ def day_of(value: Any) -> Optional[date]:
         return date.fromisoformat(value)
     except ValueError:
         return None
+
+
+def invite_sent_at(data: Optional[dict[str, Any]]) -> Optional[datetime]:
+    """Kiedy prowadzący wysłał zaproszenie z Outlooka; ``None``, gdy nie wyszło."""
+
+    invite = (data or {}).get("invite")
+    return moment(invite.get("at")) if isinstance(invite, dict) else None
 
 
 def user_id_of(value: Any) -> Optional[int]:
