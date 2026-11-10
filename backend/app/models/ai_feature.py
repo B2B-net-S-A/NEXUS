@@ -200,7 +200,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0658 (06.11.2026): nocne propozycje do słownika umiejętności (nazwy spoza
     # słownika), zatwierdza Head of Recruitment albo admin.
     skill_dictionary_proposals = "skill_dictionary_proposals"
-    # 0676 (09.11.2026): podsumowanie spotkania handlowca do wysłania klientowi
+    # 0677 (09.11.2026): podsumowanie spotkania handlowca do wysłania klientowi
     # (ustalenia i następne kroki, bez stawek i spraw wewnętrznych).
     sales_meeting_client_summary = "sales_meeting_client_summary"
 

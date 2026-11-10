@@ -296,7 +296,7 @@ wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
 ### Podsumowanie na karcie szansy i mail do klienta (decyzje Artura 09.11.2026)
 
 Logika wysyłki: `services/sales/meeting_client_mail.py`, trasy w `api/sales_activities.py`,
-kolumny 0676 przy `sales_meeting_transcripts`.
+kolumny 0677 przy `sales_meeting_transcripts`.
 
 - **Nagrywanie włącza handlowiec sam w Teams.** Bez polityki automatycznego nagrywania
   i bez `NEXUS-Meetings-Scope`; kroki w M365: `docs/teams-prep-setup.md`, sekcja

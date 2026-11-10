@@ -1,7 +1,7 @@
 """Sprzedaż: podsumowanie spotkania dla klienta i wysyłka z NEXUSA.
 
-Revision ID: 0676_sales_meeting_client_summary
-Revises: 0675_notification_on_behalf
+Revision ID: 0677_sales_meeting_client_summary
+Revises: 0676_duty_search
 
 DDL w ``app/services/sales_schema.py`` (``CLIENT_SUMMARY_DDL``; to samo źródło
 czyta ``entrypoint.sh``). Klucz AI F46 (``sales_meeting_client_summary``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0676_sales_meeting_client_summary"
-down_revision = "0675_notification_on_behalf"
+revision = "0677_sales_meeting_client_summary"
+down_revision = "0676_duty_search"
 branch_labels = None
 depends_on = None
 
@@ -37,7 +37,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0676 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0677 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

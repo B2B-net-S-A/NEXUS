@@ -124,7 +124,7 @@ class TestFeatureKeyEnum:
             "cv_call_questions",
             # 0658: nocne propozycje do słownika umiejętności.
             "skill_dictionary_proposals",
-            # 0676: podsumowanie spotkania handlowca do wysłania klientowi.
+            # 0677: podsumowanie spotkania handlowca do wysłania klientowi.
             "sales_meeting_client_summary",
         }
 
