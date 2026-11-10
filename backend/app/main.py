@@ -2275,12 +2275,12 @@ app.include_router(
     sales_signals_api.router, prefix="/api/sales/signals", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
-app.include_router(
-    sales_handoffs_api.router, prefix="/api/sales/handoffs", tags=["sales"]
-)
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
     sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]
+)
+app.include_router(
+    sales_handoffs_api.router, prefix="/api/sales/handoffs", tags=["sales"]
 )
 app.include_router(
     client_onboarding_api.router,
