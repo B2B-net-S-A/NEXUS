@@ -55,7 +55,7 @@ from app.services.cv_quoted_evidence import (
     keep_quoted_reasons,
     model_json,
     must_facts,
-    normalize,
+    quote_matcher,
 )
 from app.services.llm_prompts import CANDIDATE_AI_ASSESSMENT
 from app.services.prompt_fencing import fence
@@ -186,11 +186,11 @@ def tag_sources(
     reasons: Sequence[dict], *, cv: str, notes: str, profile: str
 ) -> list[dict]:
     """Do każdego powodu dopisz, skąd jest cytat: CV, notatka albo profil."""
-    hay = ((SOURCE_CV, normalize(cv)), (SOURCE_NOTE, normalize(notes)))
+    hay = ((SOURCE_CV, quote_matcher([cv])), (SOURCE_NOTE, quote_matcher([notes])))
     out: list[dict] = []
     for reason in reasons:
-        needle = normalize(reason.get("quote"))
-        source = next((name for name, h in hay if needle and needle in h), None)
+        quote = reason.get("quote")
+        source = next((name for name, found in hay if found(quote)), None)
         out.append({**reason, "source": source or SOURCE_PROFILE})
     return out
 

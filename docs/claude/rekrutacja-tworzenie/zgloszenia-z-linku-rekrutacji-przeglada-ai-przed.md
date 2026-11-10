@@ -14,7 +14,8 @@ harness `/preview/job-board-screening`.
   (`AIFeatureKey.application_screening`, F27) mówi `not_fit` z co najmniej
   jednym cytatem obecnym w CV/profilu ORAZ must-have technologie
   (`search_dealbreaker_inputs` + `must_text_evidence`) są w CV w < 50% (albo
-  rekrutacja ich nie ma). Powód z cytatem spoza CV wypada. Awaria modelu,
+  rekrutacja ich nie ma). Powód z cytatem spoza CV wypada („w CV” liczy
+  `quote_matcher`, opis w `rekrutacja-tablica/ocen-z-ai-na-zaznaczonych.md`). Awaria modelu,
   brak CV = `unclear` → osoba wchodzi do „Nowi” („AI nie oceniło”). AI nie
   może zgubić kandydata; nie zamieniaj tego w bramkę „w razie wątpliwości
   odrzuć”.
