@@ -57,7 +57,9 @@ ma, zostaje ikona screeningu, resztę daje klik w kafelek i panel osoby.
 
 - Źródła w jednym rzędzie: kafle „Nowi z ogłoszeń” (z liczbą), „Moi ludzie”,
   „Aplikacje”, potem menu „Szukaj ▾” (Podobne rekrutacje, Propozycje z bazy,
-  Szukaj w bazie, „Otwarte podobne”, bliźniak) bez liczb, z opisem pod pozycją.
+  Szukaj w bazie, „Otwarte podobne”) bez liczb, z opisem pod pozycją.
+  Bliźniak (chip i „⇄ Połącz bliźniaka”) od 10.11.2026 stoi za „Dodaj” na
+  końcu rzędu, nie w menu — `blizniacze-rekrutacje-jeden-screening-pod-kilka.md`.
   Liczby 2080 i 6823 nie były do decyzji. Menu to popover, nie `DropdownMenu`,
   bo w środku kafle mają własne okienka.
 - „Kto dodał” stoi na stałe po prawej w linii źródeł (`AddedByFilterButton`,

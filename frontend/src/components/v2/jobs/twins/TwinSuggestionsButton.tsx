@@ -1,17 +1,21 @@
 "use client";
 
 /**
- * „⇄ N możliwych bliźniaków” na liście rekrutacji — tylko Head of
- * Recruitment i admin (0614, decyzja Artura 28.10.2026). Delivery Lead zna
- * swoje requesty, więc lista pokazuje pary otwartych rekrutacji z RÓŻNYMI
- * DL-ami (często u różnych klientów), jeszcze nie połączone i nie odrzucone.
- * „⇄ Połącz” otwiera to samo okno porównania co w rekrutacji; „To nie
- * bliźniak” chowa parę na stałe.
+ * „⇄ Bliźniaki” na liście rekrutacji — tylko Head of Recruitment i admin
+ * (0614, decyzja Artura 28.10.2026). Delivery Lead zna swoje requesty, więc
+ * podpowiedzi to pary otwartych rekrutacji z RÓŻNYMI DL-ami (często u różnych
+ * klientów), jeszcze nie połączone i nie odrzucone. „⇄ Połącz” otwiera to
+ * samo okno porównania co w rekrutacji; „To nie bliźniak” chowa parę na stałe.
+ *
+ * Od 10.11.2026 przycisk stoi zawsze, także bez podpowiedzi, a okno zaczyna
+ * od „Połącz wybrane rekrutacje” (Olaf nie wiedział, jak samemu wybrać
+ * requesty i je połączyć): pierwsza z wyszukiwarki, druga w oknie łączenia.
  */
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeftRight } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeftRight, Search } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -23,6 +27,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   budgetLabel,
@@ -33,6 +39,7 @@ import {
   useTwinSuggestions,
   workModeLabel,
 } from "@/lib/job-twins-api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 import { RuleChips } from "./OpenSimilarTile";
 import { TwinLinkDialog } from "./TwinLinkDialog";
@@ -97,15 +104,94 @@ export function TwinSuggestionList({ items, onLink, onDismiss, busyKey }: TwinSu
   );
 }
 
+interface OpenJobRow {
+  id: number;
+  title: string;
+  reference_number: string | null;
+  client_reference: string | null;
+  client_name: string | null;
+}
+
+/** Pierwsza rekrutacja pary — dowolna otwarta; drugą wybiera się w oknie łączenia. */
+export function ManualTwinPicker({ onPick }: { onPick: (jobId: number, label: string) => void }) {
+  const [q, setQ] = useState("");
+  const term = useDebouncedValue(q.trim(), 250);
+  const search = useQuery({
+    queryKey: ["twin-manual-first", term],
+    enabled: term.length >= 2,
+    queryFn: async ({ signal }) =>
+      (
+        await api.get<{ items: OpenJobRow[] }>("/api/jobs", {
+          params: { q: term, open_only: true, page_size: 8 },
+          signal,
+        })
+      ).data.items,
+  });
+  const rows = search.data ?? [];
+  return (
+    <section className="space-y-2" aria-label="Połącz wybrane rekrutacje" data-testid="twin-manual-picker">
+      <label
+        htmlFor="twin-manual-first"
+        className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+      >
+        Połącz wybrane rekrutacje
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Wybierz pierwszą rekrutację, drugą wskażesz w następnym kroku. Dowolne otwarte, także spoza podpowiedzi.
+      </p>
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <Input
+          id="twin-manual-first"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Pierwsza rekrutacja: numer, tytuł albo klient"
+          className="pl-8"
+        />
+      </div>
+      {search.isError ? (
+        <p className="text-sm text-destructive">
+          {apiErrorMessage(search.error, "Nie udało się wyszukać rekrutacji.")}
+        </p>
+      ) : rows.length > 0 ? (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {rows.map((row) => {
+            const ref = row.client_reference ?? row.reference_number ?? `#${row.id}`;
+            return (
+              <li key={row.id} className="flex items-center gap-3 px-3 py-2">
+                <p className="min-w-0 flex-1 truncate text-sm">
+                  <span className="mr-1.5 font-mono text-xs">{ref}</span>
+                  {row.title} <span className="text-muted-foreground">· {row.client_name ?? "—"}</span>
+                </p>
+                <Button size="sm" variant="outline" onClick={() => onPick(row.id, `${ref} ${row.title}`)}>
+                  Wybierz
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : term.length >= 2 && search.isSuccess ? (
+        <p className="text-sm text-muted-foreground">Nic otwartego nie pasuje do „{term}”.</p>
+      ) : null}
+    </section>
+  );
+}
+
 export function TwinSuggestionsButton() {
   const { showError } = useToast();
   const query = useTwinSuggestions(true);
   const dismiss = useDismissTwinSuggestion();
   const [open, setOpen] = useState(false);
-  const [linking, setLinking] = useState<TwinSuggestion | null>(null);
+  const [linking, setLinking] = useState<{
+    jobId: number;
+    otherId: number | null;
+    anchorLabel?: string;
+  } | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const items = query.data?.items ?? [];
-  if (!query.isSuccess || items.length === 0) return null;
 
   return (
     <>
@@ -113,44 +199,78 @@ export function TwinSuggestionsButton() {
         type="button"
         onClick={() => setOpen(true)}
         data-testid="twin-suggestions-button"
+        data-tour="jobs.list.twins"
+        title="Połącz wybrane rekrutacje jako bliźniaki albo przejrzyj podpowiedzi"
         className="inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"
       >
         <ArrowLeftRight className="h-3 w-3" aria-hidden="true" />
-        {items.length} {pluralTwins(items.length)}
+        Bliźniaki
+        {items.length > 0 ? (
+          <span className="font-normal">
+            · {items.length} {pluralTwins(items.length)}
+          </span>
+        ) : null}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="lg" aria-describedby="twin-suggestions-desc">
           <DialogHeader>
-            <DialogTitle>Możliwe bliźniaki</DialogTitle>
+            <DialogTitle>Bliźniaki</DialogTitle>
             <DialogDescription id="twin-suggestions-desc">
-              Otwarte rekrutacje podobne do siebie (≈ {query.data.min_similarity}% i więcej), które spełniają zasady
-              wymagane z Ustawień → Rekrutacja → Zasady bliźniaków. Połączone weryfikujecie w jednej rozmowie.
+              Bliźniaki to rekrutacje o tym samym profilu kandydata. Połączone weryfikujecie w jednej rozmowie.
             </DialogDescription>
           </DialogHeader>
-          <DialogBody>
-            <TwinSuggestionList
-              items={items}
-              busyKey={busyKey}
-              onLink={(item) => {
+          <DialogBody className="space-y-5">
+            <ManualTwinPicker
+              onPick={(jobId, anchorLabel) => {
                 setOpen(false);
-                setLinking(item);
-              }}
-              onDismiss={(item) => {
-                const key = `${item.job.id}-${item.other.id}`;
-                setBusyKey(key);
-                dismiss
-                  .mutateAsync({ jobId: item.job.id, otherId: item.other.id })
-                  .catch((error: unknown) => showError(apiErrorMessage(error, "Nie udało się odrzucić pary.")))
-                  .finally(() => setBusyKey(null));
+                setLinking({ jobId, otherId: null, anchorLabel });
               }}
             />
+            <section className="space-y-2" aria-label="Możliwe bliźniaki">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Możliwe bliźniaki</h3>
+              {query.isError ? (
+                <p className="text-sm text-destructive">Nie udało się pobrać podpowiedzi.</p>
+              ) : !query.isSuccess ? (
+                <p className="text-sm text-muted-foreground">Szukam podpowiedzi…</p>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Otwarte rekrutacje różnych DL-i podobne do siebie (≈ {query.data.min_similarity}% i więcej), które
+                    spełniają zasady wymagane z Ustawień → Rekrutacja → Zasady bliźniaków.
+                  </p>
+                  <TwinSuggestionList
+                    items={items}
+                    busyKey={busyKey}
+                    onLink={(item) => {
+                      setOpen(false);
+                      setLinking({
+                        jobId: item.job.id,
+                        otherId: item.other.id,
+                      });
+                    }}
+                    onDismiss={(item) => {
+                      const key = `${item.job.id}-${item.other.id}`;
+                      setBusyKey(key);
+                      dismiss
+                        .mutateAsync({
+                          jobId: item.job.id,
+                          otherId: item.other.id,
+                        })
+                        .catch((error: unknown) => showError(apiErrorMessage(error, "Nie udało się odrzucić pary.")))
+                        .finally(() => setBusyKey(null));
+                    }}
+                  />
+                </>
+              )}
+            </section>
           </DialogBody>
         </DialogContent>
       </Dialog>
       {linking ? (
         <TwinLinkDialog
-          jobId={linking.job.id}
-          otherJobId={linking.other.id}
+          jobId={linking.jobId}
+          otherJobId={linking.otherId}
+          anchorLabel={linking.anchorLabel}
           open
           onOpenChange={(next) => {
             if (!next) setLinking(null);

@@ -96,6 +96,31 @@ Serwis `services/job_twins.py`, trasy `api/job_twins.py`, DDL
   i zostaje w Historii zdarzeń. Pominięcie dotyczy tej rozmowy; nie
   zapisujemy go na stałe przy osobie.
 
+## Ręczne łączenie wybranych rekrutacji (decyzja Artura 10.11.2026)
+
+Olaf (HoR) nie znalazł, jak sam wybrać requesty i połączyć je jako bliźniaki.
+Od audytu U3 (08.11) kafel „Otwarte podobne” i chip stały na dole menu
+„Szukaj ▾”, a okno łączenia z wyszukiwarką dowolnej otwartej rekrutacji
+istniało w kodzie, ale żadne wejście nie otwierało go bez wskazanej
+rekrutacji — dało się połączyć tylko jedną z kilku podpowiedzi kafla.
+Makiety ze stagingu: https://claude.ai/artifact/9FFtvvgsPoAenJTkK61fUh.
+
+- **Pasek rekrutacji:** chip bliźniaka i „⇄ Połącz bliźniaka” stoją za
+  „Dodaj” na końcu paska (`JobTwinChip` w slocie `twins` paska), nie w menu.
+  Przycisk widzi tylko `can_manage` (DL tej rekrutacji, HoR, admin) i tylko
+  poniżej `max_twins`; przy bliźniaku nazywa się „+ Bliźniak”. Rekruter widzi
+  sam chip. „Otwarte podobne” zostaje w menu „Szukaj ▾” jako przegląd.
+- **Okno „Połącz bliźniaka” bez wskazanej rekrutacji** zaczyna od pola
+  „Dowolna otwarta rekrutacja” (z kursorem), podpowiedzi są pod nim — przy
+  1280 × 720 pole pod listą 8 podpowiedzi było poza ekranem. Wyniki nie
+  zawierają samej rekrutacji.
+- **Lista rekrutacji (HoR, admin):** „⇄ Bliźniaki” stoi zawsze, także bez
+  podpowiedzi; liczba podpowiedzi to dopisek. Okno zaczyna od „Połącz
+  wybrane rekrutacje”: pierwszą rekrutację szuka `GET /api/jobs?q=…&open_only=true`
+  (bez nowej trasy), drugą wybiera się w oknie łączenia z linią „Łączysz: …”.
+  Kto może połączyć, sprawdza serwer jak dotąd (`can_link`).
+- Kropki „Nowości” na obu przyciskach (`jobs.twins.link`, `jobs.list.twins`).
+
 ## Zasady bliźniaków w Ustawieniach (decyzje Artura 29.10.2026)
 
 Pytanie Olafa: „Mogę zmodyfikować warunki matchowania bliźniaków?”. Makieta:
