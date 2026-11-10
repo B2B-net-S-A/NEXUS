@@ -690,5 +690,8 @@ async def finalize_stage_cv(
             user_id=user_id,
             document_version_id=version.id,
             version=version.version,
+            # Kto zatwierdził zamiast rekrutera (akceptacja DL-a do Cpro) —
+            # poprawki w treści dalej są poprawkami ludzi z edytora.
+            extra=activity_details,
         )
     return version, filename, size
