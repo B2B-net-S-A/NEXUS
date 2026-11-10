@@ -7,7 +7,7 @@ konto w lejku z licznikami mapy i odsiewa klienta NEXUSA. ``accept`` dodaje
 zaakceptowane osoby do map ze statusem „bez kontaktu”, źródłem i datą.
 
 Dopasowanie firmy: karty tej samej marki (``company_aliases.brand_of``), bo jedna
-firma ma w kartotece po kilka kart („Volvo”, „Volvo Group”, „Volvo Polska”).
+firma ma w kartotece po kilka kart („Żuraw”, „Żuraw Group”, „Żuraw Polska”).
 Cel wybiera się sam tylko przy jednej karcie o dokładnie tej nazwie i gdy żadna
 inna karta marki nie ma konta w lejku; w pozostałych przypadkach kartę wskazuje
 człowiek. Scalanie kart to osobny krok (B6).

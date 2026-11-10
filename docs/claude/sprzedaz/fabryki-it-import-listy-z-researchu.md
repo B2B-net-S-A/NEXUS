@@ -50,7 +50,7 @@ front `frontend/src/components/sales/research-import/`, klient API
 ## Dopasowanie firmy
 
 - **Karty tej samej marki, nie tylko dokładna nazwa.** Jedna firma ma w kartotece po
-  kilka kart („Volvo”, „Volvo Group”, „Volvo Polska”), więc przegląd szuka kart, których
+  kilka kart („Żuraw”, „Żuraw Group”, „Żuraw Polska”), więc przegląd szuka kart, których
   nazwa kanoniczna zaczyna się od marki (`company_aliases.brand_of`, ta sama reguła co
   „Inne nazwy z CV”). Jedno zapytanie na całą listę.
 - **Cel wybiera się sam tylko w jednym przypadku:** jest dokładnie jedna karta o nazwie
@@ -121,4 +121,4 @@ Testy: `backend/tests/test_sales_research_file.py`,
 `backend/tests/test_sales_research_import.py`,
 `frontend/src/components/sales/__tests__/sales-research-import.test.tsx`, wzorzec
 `tests/data/authz_golden/sales_research_import.json`. Ścieżka na stagingu (konto
-z edycją i konto z samym podglądem): https://claude.ai/artifact/ARTEFAKT_STAGING.
+z edycją i konto z samym podglądem): https://claude.ai/artifact/ESnGhRRNJrJXvZ8sETFuwW.
