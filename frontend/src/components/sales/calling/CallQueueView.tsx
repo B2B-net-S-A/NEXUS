@@ -135,7 +135,7 @@ function QueueBoard({ queue, canEdit, meetingStage }: QueueBoardProps) {
 
   return (
     <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
-      <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+      <div data-tour="sales.calling.queue" className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
         {SECTION_ORDER.filter((section) => queue[section].length > 0).map((section) => (
           <section key={section} aria-label={SECTION_TITLES[section]}>
             <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-3 py-1">
@@ -195,7 +195,13 @@ export function CallingActions() {
       <Button size="sm" variant="outline" className="h-7" onClick={() => setCampaignsOpen("list")}>
         Kampanie
       </Button>
-      <Button size="sm" variant="outline" className="h-7" onClick={() => setImportOpen(true)}>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7"
+        data-tour="sales.calling.import"
+        onClick={() => setImportOpen(true)}
+      >
         <Upload className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Importuj listę
       </Button>
       {importOpen && (

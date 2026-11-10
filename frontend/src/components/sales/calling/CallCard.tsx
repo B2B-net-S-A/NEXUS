@@ -215,7 +215,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
         disabled={blocked}
         onChange={(event) => setNote(event.target.value)}
       />
-      <div className="grid grid-cols-2 gap-1.5">
+      <div data-tour="sales.calling.outcomes" className="grid grid-cols-2 gap-1.5">
         {QUICK_OUTCOMES.map((outcome) => (
           <Button
             key={outcome}

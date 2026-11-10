@@ -81,6 +81,13 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
   zapytań, dlatego moduł API nie ma `from __future__ import annotations`.
 - **Logi są publiczne:** import loguje same liczby.
 
+## Nowość do przeklikania
+
+Wpis `sprzedaz-dzwonienie-kolejka` (poziom `tour`, odbiorcy „Sprzedaż: edycja”) chodzi po
+kotwicach `sales.calling.queue`, `sales.calling.outcomes` i `sales.calling.import`. Krok
+z wynikami ma `ack`, bo klik w wynik zapisałby prawdziwą rozmowę. Użycie w pracy zalicza
+klik w wynik (`used_anchor`).
+
 ## Poza zakresem (osobne decyzje)
 
 Wysyłka oferty ogólnej z NEXUSA (A5), karta rozmowy per usługa (A6), jednorazowe

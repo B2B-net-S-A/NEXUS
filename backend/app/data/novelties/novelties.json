@@ -2103,5 +2103,41 @@
     "href": "/candidates",
     "section": "sourcing",
     "dot_anchor": "candidates.request.goal-tab"
+  },
+  {
+    "id": "sprzedaz-dzwonienie-kolejka",
+    "pr": 3294,
+    "title": "Dzwonienie: kolejka zamiast zakładania szans",
+    "why": "Wynik telefonu zapisujesz jednym kliknięciem w kolejce, a „Oferta ogólna wysłana” wraca sama w dniu oddzwonienia. Szansę zakładasz dopiero, gdy umówisz spotkanie. Listę do kampanii wgrasz z pliku.",
+    "tier": "tour",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.tabs",
+    "used_anchor": "sales.calling.outcomes",
+    "steps": [
+      {
+        "anchor": "sales.calling.queue",
+        "text": "Kliknij pozycję na liście.",
+        "hint": "Kolejność jest stała: oddzwonienia na dziś, spotkania bez terminu, nowe rekordy kampanii. Są tu też Twoje szanse z etapu Lead."
+      },
+      {
+        "anchor": "sales.calling.outcomes",
+        "text": "Wynik rozmowy to jedno kliknięcie.",
+        "hint": "„Oddzwonić” i „Nie teraz” pytają o dzień i wracają same. Szansa powstaje dopiero z „Umówione spotkanie”: nie zakładaj jej po samym telefonie.",
+        "ack": true
+      },
+      {
+        "anchor": "sales.calling.import",
+        "text": "Listę do kampanii wgrasz przez „Importuj listę”.",
+        "hint": "Przed zapisem zobaczysz, co stanie się z każdym wierszem: klient NEXUSA, firma, do której dzwoni ktoś inny, brak telefonu.",
+        "ack": true
+      }
+    ]
   }
 ]
