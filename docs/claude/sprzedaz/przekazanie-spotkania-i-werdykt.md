@@ -1,5 +1,5 @@
 # Sprzedaż: przekazanie spotkania, werdykt i tożsamość firmy (decyzje Artura 10.11.2026)
-<!-- indeks: „Umów spotkanie”, szansa z umówionego spotkania, prowadzący = opiekun, autor szansy = źródło, custom_fields.handoff, „Przekazane do Ciebie”, potwierdzenie terminu, werdykt (kwalifikuje się / nie teraz / nie nasz klient / nie odbyło się), liczby tygodniowe bez celu, spotkanie przypina się samo, tożsamość firmy i domena, zaproszenie z Outlooka poza zakresem -->
+<!-- indeks: „Umów spotkanie”, szansa z umówionego spotkania, prowadzący = opiekun, autor szansy = źródło, custom_fields.handoff, „Przekazane do Ciebie”, potwierdzenie terminu, werdykt (kwalifikuje się / nie teraz / nie nasz klient / nie odbyło się), liczby tygodniowe bez celu, spotkanie przypina się samo, tożsamość firmy i domena, zaproszenie Teams wysyła prowadzący (handoff_invite, sales_ok) -->
 
 Pakiet „Przekazanie i werdykt” (rekomendacje A3, A4, C1, C3):
 https://claude.ai/artifact/PEfTGijHaxrPDZS2mkxKty. Stan sprzed zmiany, kopia
@@ -20,7 +20,7 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
   ani przełącznika „pokaż osobę”; trasa list nie przyjmuje identyfikatora osoby.
 - **Nic nie wychodzi samo do ludzi z zewnątrz.** „Potwierdź termin u klienta” daje
   numer i adres do kliknięcia, a potem zapisuje „Klient potwierdził”. Zaproszenie
-  do klienta wysyła człowiek z Outlooka (sekcja „Zaproszenie” niżej).
+  do klienta wysyła prowadzący swoim kliknięciem (sekcja „Zaproszenie” niżej).
 - **Klient NEXUSA nie dostaje szansy** (409 z nazwą Delivery Leada, `client_gate`),
   także gdy ktoś wpisuje jego nazwę jako nową firmę. Nasza spółka też nie.
 
@@ -115,16 +115,43 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
 - Nowa karta o nazwie istniejącej dostaje z formularza 409
   `sales_company_duplicate` z wyborem „Użyj tej karty” albo „Załóż mimo to”.
 
-## Zaproszenie z Outlooka: poza tym pakietem
+## Zaproszenie wysyła prowadzący (decyzja Artura 10.11.2026)
 
-Zapis nie wysyła zaproszenia. Obecne uprawnienia Graph (delegowane
-`Calendars.ReadWrite` połączonej skrzynki) technicznie na to pozwalają, ale
-wymagałoby to nowego użycia `GraphClient(..., sales_ok=True)`, którego
-`outlook-handlowcow-w-sprzedazy.md` zabrania poza trzema miejscami, oraz decyzji,
-z czyjej skrzynki idzie zaproszenie do klienta: 10.11 skrzynkę miały połączoną
-dwa z czterech kont Sprzedaży. Do decyzji Artura. Do tego czasu zaproszenie
-wysyła człowiek, a gdy trafi do kalendarza prowadzącego, przypnie się samo.
+Artur wybrał wariant „prowadzący jednym kliknięciem” zamiast wysyłki przy zapisie
+formularza: zaproszenie do klienta nie może wyjść z cudzej skrzynki na kliknięcie
+innej osoby. Logika: `services/sales/handoff_invite.py`, trasy `GET` i `POST
+/api/sales/handoffs/{id}/invite`.
 
-Testy: `backend/tests/test_sales_handoff.py`, `test_sales_meeting_autopin.py`,
-`test_sales_company_identity.py`,
+- **Tylko prowadzący (opiekun szansy), ze swojej skrzynki.** Osoba, która umówiła,
+  inne konto z edycją i administrator dostają 403: zaproszenie wychodzi ze skrzynki
+  tego, kto klika, a organizatorem ma być prowadzący (dla niego działa potem
+  transkrypt i mail po spotkaniu). Formularz „Umów spotkanie” dalej niczego nie wysyła.
+- **Spotkanie Teams w kalendarzu prowadzącego** (`POST /me/events`); zaproszenia
+  rozsyła Outlook. Skrzynka bez zgody `Calendars.ReadWrite` albo niepołączona to 409
+  z prośbą o połączenie, a okno mówi to przed wysyłką.
+- **Bez adresów z bazy kandydatów (422)**, najpierw bramka prowadzącego, a odmowa nie
+  wymienia adresu: te same reguły co przy mailu po spotkaniu. To czwarte dozwolone
+  użycie `GraphClient(..., sales_ok=True)` (`outlook-handlowcow-w-sprzedazy.md`).
+- **Jedno zaproszenie na przekazanie:** rezerwacja leży w bloku przekazania i jest
+  zapisana przed wywołaniem Graph. Dopóki trwa (10 minut), 409 dostaje każde kolejne
+  żądanie, także z drugiego okna z własnym kluczem: sam klucz żądania tego nie
+  chronił (przegląd bezpieczeństwa 10.11). `transactionId` dla Graph jest stały dla
+  przekazania i terminu, więc ponowiona wysyłka nie tworzy drugiego spotkania.
+  Odmowa Graph (4xx) zwalnia rezerwację (502, nic nie wyszło); utracona odpowiedź
+  zostawia ją i każe sprawdzić kalendarz (409), bo spotkanie mogło powstać.
+  „Nic nie wyszło” to także połączenie, które nie powstało (`httpx.ConnectError`,
+  `ConnectTimeout`), i wygasła zgoda skrzynki (`M365ReauthRequired`; 409 z prośbą
+  o ponowne połączenie): Graph nie widział wtedy żądania, więc rezerwacja znika od
+  razu. Na stagingu z laptopa wyszło 10.11, że bez tego okno mówiło „nie wiadomo”
+  i blokowało ponowienie na 10 minut, choć nic nie mogło wyjść. Zerwanej
+  odpowiedzi i 5xx do tej grupy nie dopisuj.
+- **Na osi szansy** wydarzenie jest spotkaniem z Outlooka (`msgraph-event`, `iCalUId`)
+  i zastępuje wpis terminu z formularza; kopia z synchronizacji kalendarza skleja się
+  z nim. Od tej chwili termin zmienia się w Outlooku.
+- **Historia** dostaje sam krok (`handoff` → `invited`), bez adresów i tematu.
+- Wymaga terminu w przyszłości; spotkanie, które jest już w kalendarzu, nie dostaje
+  drugiego zaproszenia.
+
+Testy: `backend/tests/test_sales_handoff.py`, `test_sales_handoff_invite.py`,
+`test_sales_meeting_autopin.py`, `test_sales_company_identity.py`,
 `frontend/src/components/sales/__tests__/sales-handoff.test.tsx`, `my-day.test.tsx`.

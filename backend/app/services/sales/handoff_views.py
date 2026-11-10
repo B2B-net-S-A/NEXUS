@@ -34,6 +34,7 @@ from app.services.sales.handoff_state import (
     booked_by,
     day_of,
     has_handoff,
+    invite_sent_at,
     moment,
     phase_of,
     user_id_of,
@@ -86,6 +87,8 @@ class HandoffView:
     verdict_reason: Optional[str]
     return_on: Optional[date]
     phase: Phase
+    #: Kiedy prowadzący wysłał zaproszenie z Outlooka.
+    invite_sent_at: Optional[datetime] = None
     #: Inne przekazane spotkanie tej osoby nachodzi na ten termin.
     clash: bool = False
 
@@ -198,6 +201,7 @@ async def _views(
                     if verdict or closed
                     else phase_of(meeting_at, confirmed_at, now)
                 ),
+                invite_sent_at=invite_sent_at(data),
             )
         )
     return views

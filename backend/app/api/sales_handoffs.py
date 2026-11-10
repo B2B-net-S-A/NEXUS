@@ -10,9 +10,9 @@ zalogowanej osoby: przełącznika osoby, celu ani rankingu tu nie ma.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,7 @@ from app.services.sales import (
     company_dates,
     handoff,
     handoff_hosts,
+    handoff_invite,
     handoff_state,
     handoff_views,
 )
@@ -69,6 +70,8 @@ class HandoffOut(BaseModel):
     return_on: Optional[date]
     phase: handoff_state.Phase
     clash: bool
+    #: Kiedy prowadzący wysłał zaproszenie z Outlooka; ``null``, gdy nie wyszło.
+    invite_sent_at: Optional[datetime] = None
 
 
 class WeekOut(BaseModel):
@@ -93,6 +96,21 @@ class FormOut(BaseModel):
 class BusySpan(BaseModel):
     start: datetime
     end: datetime
+
+
+class InviteRecipientOut(BaseModel):
+    address: str
+    name: Optional[str]
+    blocked: Optional[Literal["candidate"]] = None
+
+
+class InviteDraftOut(BaseModel):
+    mailbox: Literal["ok", "missing", "no_calendar_scope"]
+    subject: str
+    recipients: list[InviteRecipientOut]
+    meeting_at: Optional[datetime]
+    duration_minutes: int
+    sent_at: Optional[datetime]
 
 
 class HostBusyOut(BaseModel):
@@ -142,6 +160,7 @@ def _out(view: handoff_views.HandoffView) -> HandoffOut:
         return_on=view.return_on,
         phase=view.phase,
         clash=view.clash,
+        invite_sent_at=view.invite_sent_at,
     )
 
 
@@ -318,6 +337,118 @@ async def give_verdict(
         db,
         opportunity,
         payload,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
+    await db.commit()
+    return await _one(db, opportunity_id)
+
+
+@router.get("/{opportunity_id}/invite", response_model=InviteDraftOut)
+async def invite_draft(
+    opportunity_id: int,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> InviteDraftOut:
+    """Okno „Wyślij zaproszenie”: stan skrzynki, temat i adresat. Tylko dla prowadzącego,
+    bo odpowiedź mówi, czy adres osoby jest w bazie kandydatów."""
+
+    opportunity = await handoff.fetch(db, opportunity_id)
+    handoff_invite.ensure_host(opportunity, current_user.id)
+    found = await handoff_invite.draft(db, opportunity, user_id=current_user.id)
+    return InviteDraftOut(
+        mailbox=found.mailbox,
+        subject=found.subject,
+        recipients=[
+            InviteRecipientOut(
+                address=item.address, name=item.name, blocked=item.blocked
+            )
+            for item in found.recipients
+        ],
+        meeting_at=found.meeting_at,
+        duration_minutes=found.duration_minutes,
+        sent_at=found.sent_at,
+    )
+
+
+@router.post("/{opportunity_id}/invite", response_model=HandoffOut)
+async def send_invite(
+    opportunity_id: int,
+    payload: handoff_invite.InviteRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> HandoffOut:
+    """Zaproszenie Teams ze skrzynki prowadzącego, po jego kliknięciu."""
+
+    # Najpierw prowadzący: odpowiedź o adresach kandydatów nie może trafić do kogoś,
+    # kto tego zaproszenia nie wysyła.
+    opportunity = await handoff.lock(db, opportunity_id)
+    handoff_invite.ensure_host(opportunity, current_user.id)
+    subject = payload.subject.strip()
+    if not subject:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Zaproszenie musi mieć temat."
+        )
+    addresses = handoff_invite.clean_addresses(payload.to)
+    # Bez wymieniania adresów, żeby wpisywanie nie sprawdzało, kto jest w bazie.
+    if await handoff_invite.candidate_addresses(db, addresses):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=handoff_invite.CANDIDATE_DETAIL,
+        )
+    connection = await handoff_invite.own_connection(db, current_user.id)
+    mailbox = handoff_invite.mailbox_state(connection)
+    if mailbox != "ok" or connection is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                handoff_invite.NO_MAILBOX_DETAIL
+                if mailbox == "missing"
+                else handoff_invite.NO_SCOPE_DETAIL
+            ),
+        )
+    start, minutes = await handoff_invite.reserve(
+        db, opportunity, payload, now=datetime.now(timezone.utc)
+    )
+    await db.commit()  # klucz widzi drugie żądanie, zanim zaproszenie wyjdzie
+
+    try:
+        event = await handoff_invite.deliver(
+            db,
+            connection,
+            opportunity_id=opportunity_id,
+            subject=subject,
+            message=payload.message,
+            start=start,
+            minutes=minutes,
+            to=addresses,
+        )
+    except handoff_invite.Undelivered as failure:
+        await db.rollback()
+        await handoff_invite.release(db, opportunity_id, payload.request_id)
+        await db.commit()
+        if isinstance(failure, handoff_invite.ReconnectNeeded):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail=handoff_invite.RECONNECT_DETAIL
+            )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail=handoff_invite.UNDELIVERED_DETAIL
+        )
+    except handoff_invite.Uncertain:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=handoff_invite.UNCERTAIN_DETAIL
+        )
+
+    opportunity = await handoff.lock(db, opportunity_id)
+    await handoff_invite.record_sent(
+        db,
+        opportunity,
+        event,
+        request_id=payload.request_id,
+        subject=subject,
+        start=start,
+        minutes=minutes,
+        attendees=len(addresses),
         user_id=current_user.id,
         now=datetime.now(timezone.utc),
     )
