@@ -68,16 +68,18 @@ export function FactoriesView({ items, ownerId, currentUserId, canEdit, archived
         <p className="text-sm text-muted-foreground">
           {mode === "accounts" && facts && items.length > 0 ? summaryLine(summarizeAccounts(items, facts)) : null}
         </p>
-        <SegmentedRadio
-          size="sm"
-          label="Zakres listy"
-          options={[
-            { value: "accounts", label: "Wszystkie" },
-            { value: "queue", label: "Kolejka" },
-          ]}
-          value={mode}
-          onChange={setMode}
-        />
+        <div data-tour="sales.factories.mode">
+          <SegmentedRadio
+            size="sm"
+            label="Zakres listy"
+            options={[
+              { value: "accounts", label: "Wszystkie" },
+              { value: "queue", label: "Kolejka" },
+            ]}
+            value={mode}
+            onChange={setMode}
+          />
+        </div>
       </div>
       {accounts.isError && mode === "accounts" && items.length > 0 && (
         <p role="alert" className="flex flex-wrap items-center gap-2 text-xs text-warning">
