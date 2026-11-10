@@ -432,7 +432,9 @@ osoby, paska postępu i blokady za brak skrzynki celowo nie ma.
   i bez przypisania, a szanse po opiekunie, który odszedł, przekazuje przez
   `services/sales/history.py`. Domyślnie na sucho (`READ ONLY`). `--apply` wymaga licznika
   z biegu na sucho (`--expect-close`) i tylko po „tak” Artura. Nie rusza etapu, statusu
-  ani archiwum szans.
+  ani archiwum szans. `--pipeline-key` zawęża listę i przekazanie do jednego lejka
+  (10.11.2026), bo konta Fabryk IT i stare szanse sprzedażowe po tej samej osobie
+  przejmują różne osoby; nieznany klucz kończy bieg odmową.
 - **Zamknięcie datą `created_at`, nie „teraz”**, bo zrobione zadanie jest dotykiem szansy
   i firmy (`touch.py`), a sprzątanie nie jest pracą handlowca. Na kopii z 08.11 data „teraz”
   przesunęłaby dotyk 2 otwartych szans. Gdy dotyk miałby się przesunąć, `--apply` odmawia.
