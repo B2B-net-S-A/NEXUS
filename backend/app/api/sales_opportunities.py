@@ -45,10 +45,12 @@ from app.services.sales import (
     decision_map,
     history,
     meeting_decisions,
+    offer_steps,
 )
 from app.services.sales.lifecycle import apply_stage, deal_value
 from app.services.sales.motion import build_atlas_motion, entry_keys
 from app.services.sales.next_step import Step, StepSignals, load_signals
+from app.services.sales.offers import OFFER_STAGE_KEYS
 from app.services.sales.summary import Period, build_summary
 from app.services.sales.touch import last_touch_at
 from app.services.sales_schema import OpportunityEventKind
@@ -63,9 +65,6 @@ STAGE_MISMATCH_DETAIL = "Ten etap nie należy do lejka tej szansy."
 DECISION_PERSON_STALE = (
     "Ktoś właśnie zmienił tę osobę na mapie. Zamknij okno i otwórz ją ponownie."
 )
-
-#: Etapy, na których szansa ma wysłaną ofertę — ekran Sprzedaż → Oferty.
-OFFER_STAGE_KEYS = ("offer-sent", "tender-submitted")
 
 ServiceLine = Literal[schema.SERVICE_LINES]  # type: ignore[valid-type]
 StatusValue = Literal[schema.OPPORTUNITY_STATUSES]  # type: ignore[valid-type]
@@ -634,6 +633,9 @@ async def create_opportunity(
     db.add(opp)
     await db.flush()
     history.record_created(db, opp, user_id=current_user.id)
+    await offer_steps.schedule_on_entry(
+        db, opp, stage.key, user_id=current_user.id, now=now
+    )
     if opp.primary_contact_id is not None:
         db.add(
             SalesOpportunityContact(
@@ -814,7 +816,11 @@ async def move_opportunity(
         )
     before = history.snapshot(opp)
     if stage.id != opp.stage_id:
-        apply_stage(opp, stage, stages, now=datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        apply_stage(opp, stage, stages, now=now)
+        await offer_steps.schedule_on_entry(
+            db, opp, stage.key, user_id=current_user.id, now=now
+        )
     if stage.outcome == "lost":
         reason = (payload.lost_reason or "").strip()
         if reason:

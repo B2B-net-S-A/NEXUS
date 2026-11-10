@@ -8,9 +8,12 @@ import type { SalesSelectOption } from "./SalesSelect";
  * Opcje filtra „Opiekun”: moje, osoby prowadzące szanse (z podsumowania lejka
  * — lista dostępna każdemu z „Sprzedaż: podgląd”) i opiekunowie z Atlasa bez
  * konta w NEXUSIE (etykiety do przypisania przez admina).
+ *
+ * `pipelineId` to oglądany lejek inny niż domyślny: opiekun kont Fabryk IT nie
+ * musi mieć szansy w lejku Sprzedaż, a bez niego nie dało się go wybrać w filtrze.
  */
-export function useOwnerFilterOptions(): SalesSelectOption[] {
-  const summary = useSalesSummary(null, "all");
+export function useOwnerFilterOptions(pipelineId: number | null = null): SalesSelectOption[] {
+  const summary = useSalesSummary(pipelineId, "all");
   const labels = useOwnerLabels();
   return [
     { value: "me", label: "Moje" },

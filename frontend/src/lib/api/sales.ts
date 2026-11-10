@@ -387,6 +387,8 @@ export interface OpportunityInput {
   roles?: OpportunityRole[];
   source?: string | null;
   owner_user_id?: number | null;
+  /** „Odłóż do…” z zakładki Oferty; ten sam dzień chroni też przed automatem archiwizacji. */
+  keep_open_until?: string | null;
 }
 
 export interface ContactCompanyLink {
@@ -594,6 +596,7 @@ export const salesKeys = {
   ownerCandidates: ["sales", "owner-candidates"] as const,
   companyDuplicates: ["sales", "company-duplicates"] as const,
   myDay: ["sales", "my-day"] as const,
+  offers: (filters: OfferFilters) => ["sales", "offers", filters] as const,
 };
 
 function clean(params: Record<string, unknown>): Record<string, string> {
@@ -909,6 +912,82 @@ export function useMoveOpportunity() {
           lost_reason: input.lost_reason,
         })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+// ── Oferty: „W toku” i „Do decyzji” (zasady w services/sales/offers.py) ────
+
+export type OfferScope = "mine" | "unowned" | "all";
+export type OfferSection = "in_progress" | "to_decide";
+
+export interface OfferStep {
+  /** Zadanie albo telefon do odhaczenia; spotkanie z kalendarza go nie ma. */
+  activity_id: number | null;
+  kind: OpportunityStep["kind"];
+  at: string;
+  subject: string | null;
+  overdue: boolean;
+}
+
+export interface OfferRow {
+  id: number;
+  title: string;
+  company: Ref;
+  pipeline_id: number;
+  pipeline_name: string;
+  stage: { id: number; key: string; name: string };
+  /** Fałsz: szansa z innego etapu, która jest tu tylko dlatego, że nie ma opiekuna. */
+  is_offer: boolean;
+  owner: Ref | null;
+  /** Opiekun jest i pracuje w Sprzedaży; bez tego pozycję można przejąć. */
+  owner_in_sales: boolean;
+  mrr_value: string | null;
+  currency: string;
+  idle_since: string;
+  idle_days: number;
+  expected_close_date: string | null;
+  close_overdue: boolean;
+  keep_open_until: string | null;
+  postponed: boolean;
+  section: OfferSection;
+  reason: "owner_left" | "idle" | null;
+  step: OfferStep | null;
+}
+
+export interface OfferSectionTotals {
+  count: number;
+  mrr: string;
+}
+
+export interface Offers {
+  /** Zakres, który serwer zastosował: bez parametru wybiera go sam. */
+  scope: OfferScope;
+  items: OfferRow[];
+  totals: Record<OfferScope, Record<OfferSection, OfferSectionTotals>>;
+}
+
+export interface OfferFilters {
+  scope?: OfferScope;
+  q?: string;
+}
+
+export function useOffers(filters: OfferFilters) {
+  return useQuery({
+    queryKey: salesKeys.offers(filters),
+    queryFn: async () =>
+      (await api.get<Offers>("/api/sales/offers", { params: clean({ ...filters }) })).data,
+    // Zmiana zakresu albo frazy nie zeruje liczników na czas zapytania.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** „Przejmij”: klikający zostaje opiekunem szansy, której nikt ze Sprzedaży nie prowadzi. */
+export function useTakeOverOpportunity() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post<{ id: number; owner: Ref }>(`/api/sales/opportunities/${id}/take-over`)).data,
     onSuccess: invalidate,
   });
 }

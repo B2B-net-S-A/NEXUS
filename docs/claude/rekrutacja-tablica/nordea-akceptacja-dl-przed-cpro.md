@@ -92,3 +92,48 @@ Makiety i decyzje D1–D6: https://claude.ai/artifact/Si7j1pcC3cXxUKYMNVGWa1.
     Ciebie”, przed Finansami i follow-upami (`BoardTasksPanel`).
   - Serwer bez zmian: bramka `requires_dl_client_rate`, dzwonek osoby od Cpro
     po akceptacji i kolumny w liczeniu lejka (`board_column_for` → `cv_qc`).
+- **Akceptacja zatwierdza CV etapu (10.11.2026, wariant A).** Zgłoszenie osoby
+  od Cpro: pliki z kolejki miały w nazwie „SZKIC_”, bo „CV” bez wersji
+  zatwierdzonej robi plik z bieżącej treści edytora (`draft_docx_filename`),
+  a akceptacja niczego nie zatwierdzała. Makiety: https://claude.ai/artifact/MCMr9aq7sSfep6UXJ5RfoP.
+  - `apply_move` przy akceptacji do etapu Cpro (bramka `requires_dl_client_rate`
+    + `arrives_from_before_client_send`, cel = etap Cpro, nie „Wysłane do Cpro”)
+    woła `cv_dl_accept_finalize.finalize_on_dl_accept`: CV pary wybiera
+    `company_cv_refs` (to samo, co pobierze kolejka), a szkic przechodzi przez
+    `finalize_stage_cv` z DL-em jako zatwierdzającym i `approved_via: "dl_accept"`
+    we wpisach `branded_cv_finalized` i `cv_approved_edit_summary`. Dotyczy też
+    „Match” DL-a (`dl_match` idzie przez `apply_move`); `/bulk-move` nie.
+  - Kontrola treści przed zatwierdzeniem (`review_for_approval`) biegnie jak przy
+    „Zatwierdź” i nie woła AI: przechodzi treść niezmieniona od generacji, CV bez
+    źródła (tryb doradczy) i treść z gotowym wynikiem kontroli. Poprawione CV bez
+    kontroli dostaje 409 `cv_review_required`.
+  - **Odmowa nie cofa akceptacji.** Zatwierdzenie siedzi w SAVEPOINT-cie; każda
+    odmowa zostawia szkic, zapisuje `branded_cv_dl_accept_not_finalized`
+    z kodem powodu, a kolejka Cpro pokazuje „CV niezatwierdzone przez rekrutera”
+    (`CproQueueCv.draft`, `CproCvDraftBadge`). Plik dalej ma „SZKIC_”.
+- **Kontrola w tle po akceptacji (10.11.2026, decyzja Artura).** Na kopii
+  produkcji 41 z 89 szkiców w październiku i 19 z 54 w listopadzie dostawało
+  przy akceptacji 409 `cv_review_required` i zostawało „SZKIC_”.
+  - Przy tej odmowie `finalize_on_dl_accept` zakłada w transakcji ruchu
+    zadanie kontroli (`cv_approval_queue.enqueue_review`, właściciel i koszt
+    AI = DL) i znacznik `branded_cv_dl_accept_review_queued` z `review_id`.
+    Zadanie nie założone (brak źródła, blokada danych kandydata) = zwykła
+    odmowa z `review_not_queued` w `details`.
+  - Worker (`cv_approval_worker.execute_review_job`) po zapisaniu wyniku woła
+    `finalize_after_review` w osobnej transakcji. Krok pod blokadą wiersza CV
+    zatwierdza tylko, gdy znacznik wskazuje TO zadanie, CV jest szkicem, wynik
+    to `verified`, a rewizja i dokument generatora są te same co w zadaniu;
+    potem `finalize_stage_cv` drugi raz szuka wyniku kontroli po skrócie
+    treści. Zatwierdzający = DL, `approved_via: "dl_accept"` i `review_id`
+    w `branded_cv_finalized`. Kontroli się nie powtarza.
+  - Odmowa po kontroli (`review_rejected` — tryb wymuszony z uwagami,
+    `review_failed`, `draft_changed` — rekruter poprawił CV w trakcie) zostawia
+    szkic i wpis `branded_cv_dl_accept_not_finalized` z `review_id`. Ręczne
+    „Zatwierdź” używa wyniku tej kontroli, jeśli treść jest ta sama.
+    Zadanie przerwane przez wygaśnięcie dzierżawy niczego nie wpisuje.
+  - Tryb doradczy (produkcja): kontrola z uwagami też kończy się `verified`
+    i zatwierdzeniem — tak samo jak ręczne „Zatwierdź”; uwagi jadą w wersji.
+  - Kolejka Cpro: `CproQueueCv.review_pending` (zadanie `queued`/`running` dla
+    bieżącej rewizji) → plakietka „Sprawdzamy CV — za chwilę bez „SZKIC_””
+    zamiast „CV niezatwierdzone przez rekrutera”, a okno pyta co 15 s
+    (`CPRO_CV_REVIEW_POLL_MS`), dopóki taka plakietka stoi.

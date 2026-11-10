@@ -54,6 +54,8 @@ class Step:
     kind: str
     at: datetime
     subject: Optional[str]
+    #: Zadanie albo telefon do odhaczenia; spotkanie z kalendarza go nie ma.
+    activity_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,7 @@ async def _open_items(
                 SalesActivity.due_at,
                 SalesActivity.opportunity_id,
                 SalesActivity.company_id,
+                SalesActivity.id,
             )
             .where(
                 SalesActivity.kind.in_(schema.TASK_KINDS),
@@ -219,10 +222,15 @@ async def load_signals(
     next_by_opportunity: dict[int, Step] = {}
     next_by_company: dict[int, Step] = {}
     overdue: dict[int, Step] = {}
-    for kind, subject, due_at, opportunity_id, company_id in await _open_items(
-        db, opportunity_ids, company_ids
-    ):
-        step = Step(kind, due_at, subject)
+    for (
+        kind,
+        subject,
+        due_at,
+        opportunity_id,
+        company_id,
+        activity_id,
+    ) in await _open_items(db, opportunity_ids, company_ids):
+        step = Step(kind, due_at, subject, activity_id)
         if due_at >= day_start:
             if opportunity_id is not None:
                 next_by_opportunity.setdefault(opportunity_id, step)

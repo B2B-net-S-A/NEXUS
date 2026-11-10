@@ -264,11 +264,13 @@ from app.api import sales_company_people as sales_company_people_api
 from app.api import sales_activities as sales_activities_api
 from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
+from app.api import sales_factories as sales_factories_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_handoffs as sales_handoffs_api
 from app.api import sales_leads as sales_leads_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_my_day as sales_my_day_api
+from app.api import sales_offers as sales_offers_api
 from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
@@ -2265,6 +2267,9 @@ app.include_router(
 )
 app.include_router(sales_kpi_api.router, prefix="/api/sales/kpi", tags=["sales"])
 app.include_router(
+    sales_factories_api.router, prefix="/api/sales/it-factories", tags=["sales"]
+)
+app.include_router(
     sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
 )
 app.include_router(
@@ -2275,6 +2280,7 @@ app.include_router(
     sales_signals_api.router, prefix="/api/sales/signals", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
+app.include_router(sales_offers_api.router, prefix="/api/sales", tags=["sales"])
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
     sales_clients_api.router, prefix="/api/sales/clients", tags=["sales"]

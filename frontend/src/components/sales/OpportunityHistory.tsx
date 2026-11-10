@@ -21,6 +21,7 @@ const FIELD_LABELS: Record<string, string> = {
   margin_pct: "Marża",
   owner_user_id: "Opiekun",
   expected_close_date: "Planowane zamknięcie",
+  keep_open_until: "Odłożone do",
   company_id: "Firma",
   decision_map: "Mapa decyzyjna",
   decision_map_contact: "Kontakt uzupełniony z mapy",
@@ -55,6 +56,7 @@ function shown(
     case "margin_pct":
       return `${Number(value)}%`;
     case "expected_close_date":
+    case "keep_open_until":
       return formatIsoDatePl(value);
     case "last_activity_at":
       return formatDateTimePl(value);
