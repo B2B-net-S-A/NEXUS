@@ -3,7 +3,8 @@
 Decyzje Artura z 10.11.2026 (rekomendacje B2 i B3). Etap konta opisuje research
 („Mapa decyzyjna gotowa”), więc lista kont pokazuje obok niego, ile osób z mapy
 ma kontakt za sobą. To sam odczyt: mapa leży w ``custom_fields`` szansy
-(``decision_map.py``), a status kontaktu zmienia człowiek w oknie osoby.
+(``decision_map.py``), a status kontaktu zmienia człowiek w oknie osoby albo
+automat po mailu lub spotkaniu z Outlooka (``decision_map_outlook.py``).
 
 Moduł podpowiada i niczego nie blokuje: rozjazd etapu z mapą to znacznik przy
 wierszu, a nie warunek zapisu etapu. Kolejka nie ma celu, postępu ani rankingu.

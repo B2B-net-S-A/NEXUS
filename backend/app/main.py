@@ -268,6 +268,7 @@ from app.api import sales_factories as sales_factories_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_handoffs as sales_handoffs_api
 from app.api import sales_leads as sales_leads_api
+from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_calling as sales_calling_api
 from app.api import sales_my_day as sales_my_day_api
@@ -2269,6 +2270,11 @@ app.include_router(
 app.include_router(sales_kpi_api.router, prefix="/api/sales/kpi", tags=["sales"])
 app.include_router(
     sales_factories_api.router, prefix="/api/sales/it-factories", tags=["sales"]
+)
+app.include_router(
+    sales_research_import_api.router,
+    prefix="/api/sales/it-factories/research-import",
+    tags=["sales"],
 )
 app.include_router(
     sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]

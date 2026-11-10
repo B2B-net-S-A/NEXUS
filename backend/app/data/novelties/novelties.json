@@ -1915,6 +1915,19 @@
     "dot_anchor": "sales.handed-to-me"
   },
   {
+    "id": "sprzedaz-zaproszenie-z-przekazania",
+    "title": "Zaproszenie na spotkanie jednym kliknięciem",
+    "why": "Na karcie przekazanego spotkania wysyłasz klientowi zaproszenie Teams ze swojej skrzynki Outlook. Spotkanie od razu jest w Twoim kalendarzu i przy szansie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Mój dzień → Przekazane do Ciebie → karta spotkania",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.handoff-invite"
+  },
+  {
     "id": "sprzedaz-kogo-znamy-najpierw-najwazniejsi",
     "pr": 3239,
     "title": "Kogo znamy: najpierw najważniejsi",
@@ -1957,6 +1970,20 @@
     "dot_anchor": "sales.tabs"
   },
   {
+    "id": "sprzedaz-lista-z-researchu",
+    "pr": 3302,
+    "title": "Leady: lista osób z researchu do map decyzyjnych",
+    "why": "Listę osób z researchu wgrywasz plikiem. Przed zapisem widzisz przy każdej osobie jej firmę w NEXUSIE i pewność, a akceptacja dodaje ją na mapę decyzyjną Fabryk IT ze statusem „bez kontaktu”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Leady → Lista z researchu",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.leads.mode"
+  },
+  {
     "id": "sprzedaz-fabryki-it-lista-i-kolejka",
     "pr": 3295,
     "title": "Fabryki IT: lista kont i kolejka osób",
@@ -1969,6 +1996,19 @@
     "where": "Sprzedaż → Szanse → lejek Fabryki IT → Wszystkie / Kolejka",
     "href": "/sales/opportunities",
     "dot_anchor": "sales.factories.mode"
+  },
+  {
+    "id": "sprzedaz-mapa-status-z-outlooka",
+    "title": "Mapa decyzyjna: status po mailu i spotkaniu",
+    "why": "Mail albo spotkanie z Outlooka z osobą z mapy sam zmienia jej status: Twój mail daje „w toku”, jej odpowiedź albo odbyte spotkanie „pierwszy kontakt”. Zmiana w oknie osoby zawsze wygrywa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Szanse → lejek Fabryki IT → kolumna „Mapa po kontakcie”",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.factories.contacted"
   },
   {
     "id": "insights-termin-rozmowy",
@@ -2177,6 +2217,24 @@
     "where": "Ustawienia → Moje konto → Ruchy w rekrutacjach",
     "href": "/settings",
     "dot_anchor": "settings.notifications.stage-moves-scope"
+  },
+  {
+    "id": "porcja-na-osobe-p0-najpierw",
+    "pr": 3297,
+    "title": "Porcja dnia: tylko Twoje rekrutacje, P0 najpierw",
+    "why": "Tylko z Twoich rekrutacji, najpierw P0. Tyle osób, ile wynosi Twój poziom (10–50). Nad osobą widać, dlaczego ją masz. Decyzja: „Pasuje” albo „Nie pasuje” z powodem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.why",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
   },
   {
     "id": "sprzedaz-dzwonienie-kolejka",

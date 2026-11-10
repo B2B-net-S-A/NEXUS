@@ -734,51 +734,179 @@ async def test_first_recruiter_gets_batch_the_same_day(tick_world):
     assert stale_id not in left and planned == []
 
 
-async def test_day_plan_orders_p0_and_priority_first(tick_world):
-    r = await _user()
-    low = await _world(1, recruiters=[r], priority=JobPriority.low)
-    urgent = await _world(1, recruiters=[r], priority=JobPriority.urgent)
-    medium_newer = await _world(1, recruiters=[r], priority=JobPriority.medium)
-    medium_older = await _world(1, recruiters=[r], priority=JobPriority.medium)
-    # ``medium_newer`` jest starsza id-kiem niż ``medium_older``: nowsze idą pierwsze.
-    ids = [
-        low["job_id"],
-        urgent["job_id"],
-        medium_newer["job_id"],
-        medium_older["job_id"],
-    ]
+# ── Porcja na osobę (decyzje Artura 10.11.2026) ─────────────────────────────
 
-    async def _only(_db):
-        return ids
 
-    tick_world.setattr(autofill, "_jobs_in_work", _only)
+def _portion(monkeypatch, size: int) -> None:
+    """Poziom każdej nowej osoby = ``size`` (minimum z ustawień, bez zapisanych)."""
+
+    async def _settings(_db):
+        return rb.BatchSettings(minimum=size)
+
+    monkeypatch.setattr(rb, "read_settings", _settings)
+    monkeypatch.setattr(autofill._state, "last_plan", None)
+
+
+async def _p0(job_id: int, now: datetime) -> None:
     async with AsyncSessionLocal() as db:
-        plan = await autofill._day_plan(db, "2026-11-09", _now())
-    assert plan["pending"] == [
-        urgent["job_id"],
-        medium_older["job_id"],
-        medium_newer["job_id"],
-        low["job_id"],
-    ]
+        job = await db.get(Job, job_id)
+        job.p0_until = now + timedelta(days=1)
+        job.p0_reason = "test porcji"
+        job.p0_set_at = now
+        await db.commit()
 
 
-async def test_every_job_gets_first_round_before_the_rest(tick_world):
-    tick_world.setattr(rb, "BATCH_SIZE", 20)
-    tick_world.setattr(autofill.settings, "NEW_COLUMN_AUTOFILL_MAX_PER_TICK", 10)
-    r = await _user()
+async def _owned(job_id: int) -> dict[int, int]:
+    async with AsyncSessionLocal() as db:
+        out: dict[int, int] = {}
+        for card in await rb.pending_cards(db, job_ids=[job_id]):
+            if card.owner_id is not None:
+                out[card.owner_id] = out.get(card.owner_id, 0) + 1
+        return out
+
+
+async def test_portion_takes_p0_first_and_only_assigned_jobs(tick_world):
+    _portion(tick_world, 4)
+    r, other = await _user(), await _user()
+    p0 = await _world(12, recruiters=[r], priority=JobPriority.medium)
     urgent = await _world(12, recruiters=[r], priority=JobPriority.urgent)
-    medium = await _world(12, recruiters=[r], priority=JobPriority.medium)
-    for world in (urgent, medium):
+    foreign = await _world(12, recruiters=[other], priority=JobPriority.urgent)
+    for world in (p0, urgent, foreign):
         await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    await _p0(p0["job_id"], _WORKDAY)
 
     async def _only(_db):
-        return [medium["job_id"], urgent["job_id"]]
+        return [urgent["job_id"], p0["job_id"], foreign["job_id"]]
 
     tick_world.setattr(autofill, "_jobs_in_work", _only)
     result = await autofill.tick(now=_WORKDAY)
 
-    assert result["filled"] == {urgent["job_id"]: 5, medium["job_id"]: 5}
-    assert result["pending"] == 2
+    # Cała porcja r z P0, nic z P1; cudza rekrutacja daje karty tylko swojej osobie.
+    assert result["filled"] == {p0["job_id"]: 4, foreign["job_id"]: 4}
+    assert await _owned(p0["job_id"]) == {r: 4}
+    assert await _owned(foreign["job_id"]) == {other: 4}
+
+
+async def test_shared_p0_pool_splits_then_lower_priority(tick_world):
+    _portion(tick_world, 4)
+    a, b = await _user(), await _user()
+    p0 = await _world(5, recruiters=[a, b])
+    urgent = await _world(12, recruiters=[a, b], priority=JobPriority.urgent)
+    for world in (p0, urgent):
+        await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    await _p0(p0["job_id"], _WORKDAY)
+
+    async def _only(_db):
+        return [urgent["job_id"], p0["job_id"]]
+
+    tick_world.setattr(autofill, "_jobs_in_work", _only)
+    result = await autofill.tick(now=_WORKDAY)
+
+    # 5 osób w P0 na dwie porcje po 4: na zmianę 3 i 2, reszta z P1 Pilne.
+    assert result["filled"] == {p0["job_id"]: 5, urgent["job_id"]: 3}
+    assert sorted((await _owned(p0["job_id"])).values()) == [2, 3]
+    assert sum((await _owned(urgent["job_id"])).values()) == 3
+
+
+async def test_p0_set_during_the_day_gets_cards_without_taking_any(tick_world):
+    _portion(tick_world, 4)
+    r = await _user()
+    urgent = await _world(8, recruiters=[r], priority=JobPriority.urgent)
+    later = await _world(8, recruiters=[r])
+    for world in (urgent, later):
+        await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+
+    async def _only(_db):
+        return [urgent["job_id"], later["job_id"]]
+
+    tick_world.setattr(autofill, "_jobs_in_work", _only)
+    morning = await autofill.tick(now=_WORKDAY)
+    assert morning["filled"] == {urgent["job_id"]: 4}
+
+    await _p0(later["job_id"], _WORKDAY)
+    noon = await autofill.tick(
+        now=_WORKDAY + autofill.REPLAN_EVERY + timedelta(minutes=1)
+    )
+
+    # P0 z południa dostaje porcję, a karty z rana zostają u osoby.
+    assert noon["filled"] == {later["job_id"]: 4}
+    assert await _owned(urgent["job_id"]) == {r: 4}
+    async with AsyncSessionLocal() as db:
+        queue = await rb.review_queue(db, await db.get(User, r), now=_WORKDAY)
+    assert {c.job_id for c in queue[:4]} == {later["job_id"]}
+
+
+async def test_unassigned_person_loses_cards_on_the_next_plan(tick_world):
+    _portion(tick_world, 4)
+    a, b = await _user(), await _user()
+    world = await _world(12, recruiters=[a, b])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+
+    async def _only(_db):
+        return [world["job_id"]]
+
+    tick_world.setattr(autofill, "_jobs_in_work", _only)
+    await autofill.tick(now=_WORKDAY)
+    assert await _owned(world["job_id"]) == {a: 4, b: 4}
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(JobCollaborator).where(
+                JobCollaborator.job_id == world["job_id"], JobCollaborator.user_id == b
+            )
+        )
+        await db.commit()
+    await autofill.tick(now=_WORKDAY + autofill.REPLAN_EVERY + timedelta(minutes=1))
+
+    # „Dla: b” znika; a ma już swoją porcję, więc karty b czekają bez właściciela.
+    assert await _owned(world["job_id"]) == {a: 4}
+
+
+async def test_morning_releases_untouched_cards_over_the_portion(tick_world):
+    _portion(tick_world, 6)
+    r = await _user()
+    world = await _world(8, recruiters=[r])
+    await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(world["ids"])})
+    assert len(await _fill(world["job_id"])) == 6
+
+    _portion(tick_world, 4)
+
+    async def _only(_db):
+        return [world["job_id"]]
+
+    tick_world.setattr(autofill, "_jobs_in_work", _only)
+    result = await autofill.tick(now=_WORKDAY)
+
+    # Porcja spadła do 4: dwie najsłabsze karty schodzą z osoby, nic nie dochodzi.
+    assert result["filled"] == {}
+    assert await _owned(world["job_id"]) == {r: 4}
+
+
+async def test_cards_handed_over_in_the_morning_do_not_exhaust_the_pool(tick_world):
+    """Rano karty osoby zajętej P0 przechodzą na drugą przypisaną; rekrutacja nie
+    może przez to wypaść z puli na cały dzień (review 10.11.2026)."""
+    _portion(tick_world, 4)
+    a, b = await _user(), await _user()
+    job = await _world(20, recruiters=[a], priority=JobPriority.urgent)
+    await _pool(job["job_id"], {cid: 90 for cid in job["ids"]})
+    assert len(await _fill(job["job_id"])) == 4
+    async with AsyncSessionLocal() as db:
+        db.add(JobCollaborator(job_id=job["job_id"], user_id=b, source="manual"))
+        await db.commit()
+    p0 = await _world(10, recruiters=[a])
+    await _pool(p0["job_id"], {cid: 90 for cid in p0["ids"]})
+    await _p0(p0["job_id"], _WORKDAY)
+
+    async def _only(_db):
+        return [job["job_id"], p0["job_id"]]
+
+    tick_world.setattr(autofill, "_jobs_in_work", _only)
+    await autofill.tick(now=_WORKDAY)
+
+    assert await _owned(job["job_id"]) == {b: 4}
+    async with AsyncSessionLocal() as db:
+        state = (await db.get(AppSetting, autofill.BATCH_DAY_KEY)).value
+    assert job["job_id"] not in state["exhausted"]
 
 
 # ── P4: strumienie ──────────────────────────────────────────────────────────

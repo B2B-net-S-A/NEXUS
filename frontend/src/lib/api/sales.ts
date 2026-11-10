@@ -277,6 +277,12 @@ export interface DecisionMapEntry {
   from_contact?: DecisionFromContactField[];
   /** Sprzeciw wobec kontaktu: z kontaktu albo z samego wpisu na mapie. */
   do_not_contact?: boolean;
+  /** Wpis z importu listy (Leady → „Lista z researchu”): skąd pochodzi i od kiedy. */
+  source?: string | null;
+  source_label?: string | null;
+  source_url?: string | null;
+  source_added_at?: string | null;
+  source_confidence?: "confirmed" | "to_verify" | null;
 }
 
 export type DecisionFromContactField = "email" | "phone" | "linkedin_url" | "notes";

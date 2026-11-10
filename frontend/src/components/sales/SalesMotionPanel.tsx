@@ -11,7 +11,7 @@ import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 
 import type { AtlasMotion, DecisionMapEntry } from "@/lib/api/sales";
 
-import { CONTACT_STATUS, DECISION_LEVELS, OUR_ROLE_LABELS } from "./decision-map-labels";
+import { CONTACT_STATUS, DECISION_LEVELS, OUR_ROLE_LABELS, sourceLine } from "./decision-map-labels";
 import { DecisionPersonDialog } from "./DecisionPersonDialog";
 import { safeHref } from "./format";
 
@@ -33,6 +33,7 @@ function Person({ entry, order, onEdit, onCall }: PersonProps) {
   const blocked = Boolean(entry.do_not_contact);
   const role = entry.role_in_company ?? undefined;
   const level = entry.decision_level ? DECISION_LEVELS[entry.decision_level - 1] : undefined;
+  const origin = sourceLine(entry);
   return (
     <li className="text-sm">
       <div className="flex items-center gap-3 py-0.5">
@@ -111,6 +112,7 @@ function Person({ entry, order, onEdit, onCall }: PersonProps) {
             </div>
           )}
           {entry.notes && <p className="whitespace-pre-line">{entry.notes}</p>}
+          {origin && <p>{origin}</p>}
           {!blocked && (entry.email || linkedin) && (
             <p className="flex flex-wrap gap-x-3">
               {entry.email && (

@@ -150,7 +150,7 @@ async def test_przyjecie_zdejmuje_md_a_ponowne_nadpisuje() -> None:
         await _cleanup(client_id)
 
 
-async def test_brak_md_na_zamowieniu_nie_przyjmuje_i_nie_zdejmuje() -> None:
+async def test_ponad_pule_przyjmuje_i_zdejmuje_tyle_ile_zostalo() -> None:
     client_id, contract_id, line_id = await _world(md_total="10")
     month = _previous_month()
     try:
@@ -163,13 +163,12 @@ async def test_brak_md_na_zamowieniu_nie_przyjmuje_i_nie_zdejmuje() -> None:
                 md_extra=None,
                 actor=ACTOR,
             )
-            assert s.status == "no_md"
-            with pytest.raises(SettlementError):
-                await service.accept(
-                    db, contract_id, month, actor=ACTOR, now=local_now()
-                )
+            assert s.status == "warnings"
+            await service.accept(db, contract_id, month, actor=ACTOR, now=local_now())
             await db.commit()
-        assert await _consumption(line_id, month) is None
+            assert s.md_charged == Decimal("10.000")
+            assert s.amount_cost == Decimal("10000.00")
+        assert await _consumption(line_id, month) == Decimal("10")
     finally:
         await _cleanup(client_id)
 

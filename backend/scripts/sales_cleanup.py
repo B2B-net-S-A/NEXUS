@@ -12,6 +12,8 @@ Co robi:
    oraz bez przypisania; pozycja zmieniona w NEXUSIE po imporcie zostaje;
 2. pokazuje otwarte szanse po opiekunie, który odszedł (domyślnie konto 159), a z
    ``--transfer-to`` i ``--actor-id`` przekazuje je, zapisując historię zmian;
+   otwarte zadania byłego opiekuna przy tych szansach idą razem z nimi
+   (``owner_tasks.hand_over``), a raport podaje ich liczbę;
    ``--pipeline-key`` zawęża obie rzeczy do jednego lejka (np. ``atlas-it-factories``),
    gdy szanse z różnych lejków przejmują różne osoby.
 
@@ -52,7 +54,7 @@ from app.models.sales import SalesActivity, SalesOpportunity, SalesPipeline
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
-from app.services.sales import history
+from app.services.sales import history, owner_tasks
 from app.services.sales.task_scope import live_opportunity, not_orphaned, task_items
 from app.services.sales.touch import last_touch_at
 
@@ -97,7 +99,9 @@ class Report:
     assignee_sales_view: bool = False
     former_owner_active: bool = False
     handover_opportunity_ids: list[int] = field(default_factory=list)
+    handover_open_tasks: int = 0
     transferred: int = 0
+    transferred_tasks: int = 0
 
 
 class TouchWouldMove(Exception):
@@ -226,6 +230,30 @@ async def _handover_scope(db: AsyncSession, options: Options) -> list:
     return [*scope, SalesOpportunity.pipeline_id == pipeline_id]
 
 
+async def _handover_open_tasks(
+    db: AsyncSession,
+    opportunity_ids: Sequence[int],
+    closing: Sequence[int],
+    former_owner_id: int,
+) -> int:
+    """Otwarte zadania byłego opiekuna, które pójdą za szansami; bez zamykanych w pkt 1."""
+
+    if not opportunity_ids:
+        return 0
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(SalesActivity)
+            .where(
+                SalesActivity.opportunity_id.in_(opportunity_ids),
+                owner_tasks.open_items_of(former_owner_id),
+                SalesActivity.id.not_in(closing),
+            )
+        )
+        or 0
+    )
+
+
 async def _build_report(
     db: AsyncSession, options: Options, users: dict[int, User], now: datetime
 ) -> tuple[Report, list[int]]:
@@ -293,6 +321,9 @@ async def _build_report(
             ),
             former_owner_active=bool(former_owner and former_owner.is_active),
             handover_opportunity_ids=handover,
+            handover_open_tasks=await _handover_open_tasks(
+                db, handover, closing, options.former_owner_id
+            ),
         ),
         closing,
     )
@@ -310,7 +341,9 @@ async def _close(db: AsyncSession, activity_ids: Sequence[int], now: datetime) -
     return int(done.rowcount or 0)
 
 
-async def _transfer(db: AsyncSession, options: Options) -> int:
+async def _transfer(db: AsyncSession, options: Options) -> tuple[int, int]:
+    """Przekaż szanse; zwraca liczbę szans i liczbę zadań, które poszły za nimi."""
+
     opportunities = list(
         (
             await db.execute(
@@ -320,11 +353,18 @@ async def _transfer(db: AsyncSession, options: Options) -> int:
             )
         ).scalars()
     )
+    tasks = 0
     for opportunity in opportunities:
         before = history.snapshot(opportunity)
         opportunity.owner_user_id = options.transfer_to
         history.record_changes(db, opportunity, before, user_id=options.actor_id)
-    return len(opportunities)
+        tasks += await owner_tasks.hand_over(
+            db,
+            opportunity.id,
+            previous_owner_id=options.former_owner_id,
+            new_owner_id=options.transfer_to,
+        )
+    return len(opportunities), tasks
 
 
 async def run(options: Options, now: Optional[datetime] = None) -> Report:
@@ -346,7 +386,7 @@ async def run(options: Options, now: Optional[datetime] = None) -> Report:
             raise TouchWouldMove(report)
         report.closed = await _close(db, closing, moment)
         if options.transfer_to is not None:
-            report.transferred = await _transfer(db, options)
+            report.transferred, report.transferred_tasks = await _transfer(db, options)
         await db.commit()
         return report
 

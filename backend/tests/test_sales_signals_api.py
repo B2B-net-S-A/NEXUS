@@ -20,6 +20,7 @@ from app.models.sales import (
 )
 from app.services.company_names import normalize_company_name
 from app.services.sales import signals
+from app.services.sales.merge import merge_companies
 from tests.test_sales_companies_api import _headers, _user
 
 URL = "/api/integrations/sales-signals/runs"
@@ -366,3 +367,69 @@ async def test_expiry_closes_only_open_runs(app_client) -> None:
     async with AsyncSessionLocal() as db:
         assert (await db.get(SalesSignalRun, open_id)).status == "expired"
         assert (await db.get(SalesSignalRun, done_id)).status == "received"
+
+
+# ── Scalenie kart firm: punkty do rozmowy idą za firmą ───────────────────
+
+
+async def _briefing(company_id: int, point: str, generated_at: datetime) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            SalesCompanyBriefing(
+                company_id=company_id,
+                mode="ongoing",
+                points=[{"text": point}],
+                generated_at=generated_at,
+            )
+        )
+        await db.commit()
+
+
+async def _briefing_after_merge(target: int, source: int) -> tuple[str, datetime]:
+    async with AsyncSessionLocal() as db:
+        await merge_companies(
+            db,
+            target=await db.get(SalesCompany, target),
+            source=await db.get(SalesCompany, source),
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(SalesCompanyBriefing, target)
+        assert row is not None, "docelowa karta nie ma punktów do rozmowy"
+        # Jeden wiersz na firmę: przy karcie w archiwum nic nie zostaje.
+        assert await db.get(SalesCompanyBriefing, source) is None
+        return row.points[0]["text"], row.generated_at
+
+
+@pytest.mark.asyncio
+async def test_company_merge_carries_talking_points_to_a_target_without_any(
+    app_client,
+) -> None:
+    tag = uuid.uuid4().hex[:8]
+    target = await _company(f"Cel {tag}")
+    source = await _company(f"Źródło {tag}")
+    generated = datetime.now(timezone.utc) - timedelta(days=3)
+    await _briefing(source, "Punkty źródła", generated)
+
+    assert await _briefing_after_merge(target, source) == ("Punkty źródła", generated)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_age_days", "kept"), [(1, "Punkty źródła"), (30, "Punkty docelowej")]
+)
+async def test_company_merge_keeps_the_newer_talking_points(
+    app_client, source_age_days: int, kept: str
+) -> None:
+    tag = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    target = await _company(f"Cel {tag}")
+    source = await _company(f"Źródło {tag}")
+    await _briefing(target, "Punkty docelowej", now - timedelta(days=10))
+    await _briefing(source, "Punkty źródła", now - timedelta(days=source_age_days))
+
+    point, generated = await _briefing_after_merge(target, source)
+
+    assert point == kept
+    assert generated == now - timedelta(days=min(source_age_days, 10))

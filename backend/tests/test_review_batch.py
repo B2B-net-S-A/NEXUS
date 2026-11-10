@@ -5,8 +5,10 @@ Kontrakty:
 - porcja liczy tylko czekające karty od systemu (osoby dodane przez zespół
   się nie liczą) i bierze osoby od ``MIN_SCORE``;
 - rekrutacja bez rekrutera nie dostaje porcji;
-- karty dostają właścicieli po równo między rekruterów rekrutacji;
-- decyzja dziś = ruch karty od systemu z „Nowych” przez tę osobę;
+- od 10.11.2026 porcja jest na osobę: tyle kart, ile wynosi jej poziom
+  (tu minimum 4), wspólna pula dzieli się na zmianę między przypisanych;
+- decyzja dziś = ruch karty od systemu z „Nowych” przez tę osobę i nic nie
+  dochodzi w jej miejsce;
 - „Dodaj kolejnych” dokłada osoby klikającemu;
 - dzienny przebieg: drugi tick tego samego dnia nie dokłada nikogo w miejsce
   osób, o których już zdecydowano.
@@ -20,7 +22,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
@@ -120,7 +122,13 @@ async def _owners(job_id: int) -> dict[int, int]:
 
 @pytest.fixture
 def small_batch(monkeypatch):
+    """Porcja osoby = 4 (minimum z ustawień, bez zapisanych poziomów)."""
+
+    async def _four(_db):
+        return rb.BatchSettings(minimum=4)
+
     monkeypatch.setattr(rb, "BATCH_SIZE", 4)
+    monkeypatch.setattr(rb, "read_settings", _four)
     monkeypatch.setattr(rb.settings, "REVIEW_BATCH_ENABLED", True, raising=False)
     return monkeypatch
 
@@ -136,9 +144,10 @@ async def test_batch_fills_from_min_score_and_splits_between_recruiters(small_ba
 
     added = await _fill(world["job_id"])
 
-    assert len(added) == 4 and ids[5] not in added  # 60 < 65
+    # Dwie porcje po 4, a od progu jest tylko 5 osób: na zmianę 3 i 2.
+    assert len(added) == 5 and ids[5] not in added  # 60 < 65
     owners = await _owners(world["job_id"])
-    assert sorted(list(owners.values()).count(u) for u in (a, b)) == [2, 2]
+    assert sorted(list(owners.values()).count(u) for u in (a, b)) == [2, 3]
 
 
 async def test_team_cards_do_not_count_and_no_recruiter_no_batch(small_batch):
@@ -165,7 +174,7 @@ async def test_team_cards_do_not_count_and_no_recruiter_no_batch(small_batch):
     assert await _fill(lonely["job_id"]) == []
 
 
-async def test_decision_counts_today_and_refill_only_replaces_decided(small_batch):
+async def test_decision_counts_today_and_nothing_replaces_it(small_batch):
     a = await _user()
     world = await _world(8, recruiters=[a])
     ids = world["ids"]
@@ -188,14 +197,13 @@ async def test_decision_counts_today_and_refill_only_replaces_decided(small_batc
         assert await rb.decided_today(db, a, now=_WORKDAY) >= 1
         assert len(await rb.pending_cards(db, owner_id=a)) == 3
 
-    # Następne dopełnienie dokłada tylko w miejsce jednej decyzji.
-    second = await _fill(world["job_id"])
-    assert len(second) == 1
+    # Porcja to porcja dnia: w miejsce decyzji nic nie dochodzi (10.11.2026).
+    assert await _fill(world["job_id"]) == []
 
 
 async def test_add_more_goes_to_clicker(small_batch):
     a, b = await _user(), await _user()
-    world = await _world(10, recruiters=[a, b])
+    world = await _world(12, recruiters=[a, b])
     ids = world["ids"]
     await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(ids)})
     first = await _fill(world["job_id"])
@@ -427,3 +435,62 @@ async def test_low_score_card_is_not_the_batch(small_batch):
         )
         mine = {c.candidate_id for c in await rb._own_cards(db, a, now=_WORKDAY)}
     assert first not in mine
+
+
+async def test_board_shows_for_only_people_still_assigned(small_batch):
+    """10.11.2026: „Dla: …” na Tablicy tylko przy osobie dalej przypisanej. Karta
+    osoby zdjętej z rekrutacji wyglądała jak jej porcja, choć nikogo nie blokuje."""
+    from httpx import ASGITransport, AsyncClient
+
+    from app.core.rate_limit import limiter
+    from app.main import app
+
+    tag = uuid.uuid4().hex[:8]
+    email, password = f"rb-board-{tag}@example.com", f"T3st_{tag}!Board"
+    async with AsyncSessionLocal() as db:
+        owner = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"RB board {tag}",
+            role=UserRole.recruiter,
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add(owner)
+        await db.commit()
+        a = owner.id
+    b = await _user()
+    world = await _world(8, recruiters=[a, b])
+    await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(world["ids"])})
+    await _fill(world["job_id"])
+    owners = await _owners(world["job_id"])
+    gone = {cid for cid, uid in owners.items() if uid == b}
+    assert gone
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(JobCollaborator).where(
+                JobCollaborator.job_id == world["job_id"], JobCollaborator.user_id == b
+            )
+        )
+        await db.commit()
+
+    limiter.enabled = False
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://testserver",
+    ) as client:
+        login = await client.post(
+            "/api/auth/login", json={"email": email, "password": password}
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        board = await client.get(
+            f"/api/pipeline/kanban/{world['job_id']}", headers=headers
+        )
+    assert board.status_code == 200, board.text
+    shown = {
+        item["candidate_id"]: (item.get("entry_autofill") or {}).get("review_owner")
+        for column in board.json()["columns"]
+        for item in column["items"]
+    }
+    assert all(shown[cid] is None for cid in gone)
+    assert any((owner or {}).get("id") == a for owner in shown.values())

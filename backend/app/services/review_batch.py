@@ -62,9 +62,6 @@ MIN_SCORE = 65.0
 # Próg porcji ustawia HoR; poniżej 50% system i tak nie proponuje nikogo sensownego.
 MIN_SCORE_FLOOR = 50.0
 MIN_SCORE_CEIL = 95.0
-# W pierwszym przebiegu każda rekrutacja dostaje tyle osób, zanim inne dostaną
-# resztę: 2 100 dodań przy 100 na tick to ponad 20 minut od 7:00 (W8).
-FIRST_ROUND_CARDS = 5
 # „Do screeningu” liczy się po domknięciu w tylu dniach roboczych (P5).
 SCREENING_CLOSE_DAYS = 2
 # Ile dni wstecz niedomknięty screening z własnej porcji jest jeszcze zaległością.
@@ -486,6 +483,85 @@ async def assign_owners(
     return len(plan)
 
 
+async def settle_owners(
+    db: AsyncSession,
+    job_id: int,
+    *,
+    want: dict[int, int],
+    now: datetime,
+    release: bool = False,
+) -> int:
+    """Właściciele kart porcji według planu na osobę (10.11.2026). Bez commitu.
+
+    Karta osoby, która nie jest już przypisana (albo jest dziś nieobecna), traci
+    właściciela od razu. ``release`` (pierwszy przebieg dnia) zdejmuje też
+    nieruszone karty ponad plan osoby, od najsłabszej w kolejce „Nowych”. Karty
+    bez właściciela idą od najlepszej do osoby z największym brakiem. Zwraca, ile
+    kart rekrutacji jeszcze brakuje do planu."""
+    team = (await recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
+    min_score = (await read_settings(db)).min_score
+    cards = batch_cards(await pending_cards(db, job_ids=[job_id]), now, min_score)
+    owner = {
+        card.process_id: (card.owner_id if card.owner_id in team else None)
+        for card in cards
+    }
+    held = {uid: sum(1 for o in owner.values() if o == uid) for uid in team}
+    free_cards = sum(1 for o in owner.values() if o is None)
+    short_now = any(want.get(u, 0) > held[u] for u in team)
+    over_now = release and any(held[u] > want.get(u, 0) for u in team)
+    # Kolejność „Nowych” kosztuje kilka zapytań: liczymy ją tylko, gdy coś
+    # rozdajemy albo zdejmujemy (przebieg co kilka minut obchodzi każdą rekrutację).
+    if (free_cards and short_now) or over_now:
+        ordered = await _board_order(db, job_id, cards, now=now)
+    else:
+        ordered = list(cards)
+    if release:
+        for uid in team:
+            mine = [c for c in ordered if owner[c.process_id] == uid]
+            for card in reversed(mine[want.get(uid, 0) :]):
+                if not card.taken:
+                    owner[card.process_id] = None
+    load = {uid: 0 for uid in team}
+    for pid, uid in owner.items():
+        if uid is not None:
+            load[uid] += 1
+    members = list(team)
+    random.Random(f"{job_id}:{business_today().isoformat()}").shuffle(members)
+    order = {uid: i for i, uid in enumerate(members)}
+    for card in ordered:
+        if owner[card.process_id] is not None:
+            continue
+        short = [u for u in members if want.get(u, 0) - load[u] > 0]
+        if not short:
+            break
+        uid = max(short, key=lambda u: (want.get(u, 0) - load[u], -order[u]))
+        owner[card.process_id] = uid
+        load[uid] += 1
+    changed = {
+        card.process_id: owner[card.process_id]
+        for card in ordered
+        if owner[card.process_id] != card.owner_id
+    }
+    if changed:
+        processes = (
+            await db.scalars(
+                select(RecruitmentProcess).where(
+                    RecruitmentProcess.id.in_(list(changed))
+                )
+            )
+        ).all()
+        for process in processes:
+            meta = dict(process.entry_meta or {})
+            if changed[process.id] is None:
+                meta.pop(OWNER_KEY, None)
+            else:
+                meta[OWNER_KEY] = changed[process.id]
+            process.entry_meta = meta
+            flag_modified(process, "entry_meta")
+        await db.flush()
+    return sum(max(0, want.get(u, 0) - load[u]) for u in team)
+
+
 async def _board_order(
     db: AsyncSession, job_id: int, cards: list[PendingCard], *, now: datetime
 ) -> list[PendingCard]:
@@ -849,6 +925,11 @@ class JobShare:
     title: str
     pending: int
     p0: bool
+    # Poziom, z którego porcja bierze osoby: p0 / p1 / p2 / accepting (10.11.2026).
+    group: str = "p2"
+    # Jak osoba jest przypisana: owner (prowadzi) / assignment / collaborator.
+    via: Optional[str] = None
+    p0_until: Optional[str] = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -887,6 +968,9 @@ class BatchStatus:
     open_today_screenings: tuple[OpenScreening, ...] = ()
     # Ile z nich minęło 2 dni robocze: dopóki > 0, wyszukiwanie stoi.
     overdue_screenings: int = 0
+    # Skład porcji (10.11.2026): ile czekających osób z P0, ile z niższych
+    # priorytetów, jaki poziom jutro po zrobieniu całej porcji i sufit.
+    sources: Optional[dict] = None
 
     @property
     def remaining(self) -> int:
@@ -1022,21 +1106,9 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
     counts: dict[int, int] = {}
     for card in cards:
         counts[card.job_id] = counts.get(card.job_id, 0) + 1
-    jobs: list[JobShare] = []
-    if counts:
-        from app.services import job_p0
-
-        rows = (await db.scalars(select(Job).where(Job.id.in_(list(counts))))).all()
-        ordered = sorted(rows, key=lambda j: (_priority_rank(j, now), j.id))
-        jobs = [
-            JobShare(
-                job_id=j.id,
-                title=j.title or "",
-                pending=counts[j.id],
-                p0=job_p0.is_active(j, now),
-            )
-            for j in ordered
-        ]
+    team_jobs = await _team_jobs(db, user.id, counts, now=now)
+    jobs = [job for job in team_jobs if job.pending > 0]
+    p0_cards = sum(job.pending for job in team_jobs if job.group == "p0")
     return BatchStatus(
         enabled=True,
         applies=True,
@@ -1048,11 +1120,17 @@ async def status_for(db: AsyncSession, user: User, *, now: datetime) -> BatchSta
         jobs=tuple(jobs),
         blocks=not met and blocking_now(settings_value, user.id, now),
         open_screenings=day.open_screenings,
-        team_jobs=tuple(await _team_jobs(db, user.id, counts, now=now)),
+        team_jobs=tuple(team_jobs),
         open_today_screenings=tuple(
             await _open_screenings(db, day.open_cards, day.overdue_cards)
         ),
         overdue_screenings=len(day.overdue_cards),
+        sources={
+            "p0": p0_cards,
+            "rest": len(cards) - p0_cards,
+            "level_next": review_batch_levels.next_level(minimum, minimum),
+            "level_cap": review_batch_levels.CAP,
+        },
     )
 
 
@@ -1064,6 +1142,9 @@ async def _team_jobs(
     from app.services.job_team import jobs_worked_by_clause
     from app.services.request_work_state import IN_WORK_STATES
 
+    from app.services.job_team import recruiters_for_jobs, working
+    from app.services.review_batch_plan import tier_key, tier_of
+
     rows = (
         await db.scalars(
             select(Job).where(
@@ -1073,13 +1154,28 @@ async def _team_jobs(
             )
         )
     ).all()
-    ordered = sorted(rows, key=lambda j: (_priority_rank(j, now), j.id))
+    teams = await recruiters_for_jobs(db, [j.id for j in rows]) if rows else {}
+    via = {
+        job_id: person.via
+        for job_id, people in teams.items()
+        for person in working(people)
+        if person.user_id == user_id
+    }
+    tiers = {j.id: tier_of(j, now) for j in rows}
+    ordered = sorted(rows, key=lambda j: (tiers[j.id], _priority_rank(j, now), j.id))
     return [
         JobShare(
             job_id=j.id,
             title=j.title or "",
             pending=counts.get(j.id, 0),
             p0=job_p0.is_active(j, now),
+            group=tier_key(tiers[j.id]),
+            via=via.get(j.id),
+            p0_until=(
+                j.p0_until.isoformat()
+                if job_p0.is_active(j, now) and j.p0_until is not None
+                else None
+            ),
         )
         for j in ordered
     ]
@@ -1180,8 +1276,11 @@ async def assert_search_allowed(db: AsyncSession, user: User) -> None:
 async def review_queue(
     db: AsyncSession, user: User, *, now: datetime, limit: int = 50
 ) -> list[PendingCard]:
-    """Karty osoby w kolejności przeglądu: rekrutacje na zmianę (P0, potem
-    priorytet), w każdej w kolejności kolumny „Nowi” na Tablicy (P7)."""
+    """Karty osoby w kolejności przeglądu: najpierw wszystkie P0, potem P1 Pilne
+    i niżej (10.11.2026); w obrębie poziomu rekrutacje na zmianę, w każdej
+    w kolejności kolumny „Nowi” na Tablicy (P7)."""
+    from app.services.review_batch_plan import tier_of
+
     cards = await _own_cards(db, user.id, now=now)
     if not cards:
         return []
@@ -1203,20 +1302,16 @@ async def review_queue(
             for card in await _board_order(db, job_id, column, now=now)
             if card.process_id in mine
         ]
-    job_order = sorted(
-        by_job,
-        key=lambda jid: (
-            _priority_rank(jobs[jid], now) if jid in jobs else 3,
-            jid,
-        ),
-    )
+    tiers = {jid: tier_of(jobs[jid], now) if jid in jobs else 3 for jid in by_job}
     queue: list[PendingCard] = []
-    depth = max(len(v) for v in by_job.values())
-    for i in range(depth):
-        for jid in job_order:
-            items = by_job[jid]
-            if i < len(items):
-                queue.append(items[i])
+    for tier in sorted(set(tiers.values())):
+        job_order = sorted(jid for jid in by_job if tiers[jid] == tier)
+        depth = max(len(by_job[jid]) for jid in job_order)
+        for i in range(depth):
+            for jid in job_order:
+                items = by_job[jid]
+                if i < len(items):
+                    queue.append(items[i])
     return queue[:limit]
 
 

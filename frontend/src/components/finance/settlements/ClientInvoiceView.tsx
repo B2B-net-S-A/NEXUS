@@ -71,13 +71,20 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
     }
   }
 
-  async function onZip() {
+  async function onZip(row?: ClientInvoiceRow) {
     try {
-      downloadBlob(await fetchAttachmentsZip(clientId, month), `rcp-${data.client_name}-${month}.zip`);
+      const blob = await fetchAttachmentsZip(
+        clientId,
+        month,
+        row ? { contractId: row.contract_id } : { issuedOnly: true },
+      );
+      const name = row ? `rcp-${row.ksef_number ?? row.order_number ?? row.contract_id}-${month}.zip` : `rcp-wystawione-${month}.zip`;
+      downloadBlob(blob, name);
     } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się pobrać paczki RCP."));
+      showError(apiErrorMessage(error, "Nie udało się pobrać plików RCP."));
     }
   }
+  const issued = rows.filter((r) => r.state === "issued").length;
 
   return (
     <div className="space-y-3">
@@ -89,15 +96,16 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
             </h2>
             <p className="max-w-[70ch] text-xs text-muted-foreground">
               {ready.length} do wystawienia, {rows.length - ready.length} wystawione, {waiting} czeka na przyjęcie RCP. Pozycje mają
-              nazwy z ostatniej faktury za to zamówienie; wklej je do programu do faktur. Wystawiona faktura wróci z KSeF sama.
+              nazwy z ostatniej faktury za to zamówienie; wklej je do programu do faktur. Wystawiona faktura wróci z KSeF sama, a jej RCP
+              dostaje nazwę z numeru KSeF.
             </p>
           </div>
           <div className="flex gap-1.5">
             <Button size="sm" variant="outline" disabled={ready.length === 0} onClick={onCopy}>
               <Copy aria-hidden className="size-3.5" /> Kopiuj pozycje
             </Button>
-            <Button size="sm" variant="outline" disabled={rows.length === 0} onClick={onZip}>
-              <Download aria-hidden className="size-3.5" /> Pobierz RCP (zip)
+            <Button size="sm" variant="outline" disabled={issued === 0} onClick={() => onZip()}>
+              <Download aria-hidden className="size-3.5" /> Pobierz RCP wystawionych ({issued})
             </Button>
           </div>
         </div>
@@ -137,6 +145,14 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
                   <td className="px-2 py-1.5">
                     <StatusDot tone={CLIENT_INVOICE[r.state].tone}>{CLIENT_INVOICE[r.state].label}</StatusDot>
                     {r.invoice_number ? <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{r.invoice_number}</span> : null}
+                    <button
+                      type="button"
+                      onClick={() => onZip(r)}
+                      className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                      aria-label={`Pobierz RCP: ${r.person}`}
+                    >
+                      <Download aria-hidden className="size-3" /> RCP
+                    </button>
                   </td>
                   <td className="px-2 py-1.5">
                     <ul className="grid gap-0.5">

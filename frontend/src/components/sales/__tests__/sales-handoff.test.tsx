@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Meeting } from "@/lib/api/sales";
-import type { CompanyIdentity, Handoff, HandoffWeek, HostBusy } from "@/lib/api/sales-handoffs";
+import type { CompanyIdentity, Handoff, HandoffWeek, HostBusy, InviteDraft } from "@/lib/api/sales-handoffs";
 
 const bookMeeting = vi.fn();
 const giveVerdict = vi.fn();
@@ -22,6 +22,8 @@ const hostBusy = vi.fn();
 const contacts = vi.fn();
 const opportunities = vi.fn();
 const companyCard = vi.fn();
+const inviteDraft = vi.fn();
+const sendInvite = vi.fn();
 
 const mutation = (mutate: ReturnType<typeof vi.fn>) => ({ mutate, isPending: false });
 
@@ -42,6 +44,8 @@ vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   useConfirmHandoff: () => ({ mutateAsync: confirmTerm, isPending: false }),
   useCompanyIdentity: (input: { name?: string; email?: string; website?: string }) => identity(input),
   useHostBusy: (hostId: number | null, day: string | null) => hostBusy(hostId, day),
+  useInviteDraft: (opportunityId: number) => inviteDraft(opportunityId),
+  useSendInvite: () => ({ mutateAsync: sendInvite, isPending: false }),
 }));
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
@@ -111,6 +115,7 @@ import {
   weekLabel,
 } from "../handoff/helpers";
 import { HostCalendar } from "../handoff/HostCalendar";
+import { InviteDialog } from "../handoff/InviteDialog";
 import { VerdictPanel } from "../handoff/VerdictPanel";
 import { MeetingDecisionCell } from "../MeetingDecisionCell";
 
@@ -163,6 +168,7 @@ beforeEach(() => {
   giveVerdict.mockResolvedValue({});
   setTerm.mockResolvedValue({});
   confirmTerm.mockResolvedValue({});
+  sendInvite.mockResolvedValue({});
 });
 
 describe("podpisy przekazania", () => {
@@ -603,6 +609,110 @@ describe("karta przekazania", () => {
     card({ ...objecting, contact: { ...objecting.contact!, do_not_contact: true }, phase: "confirm" });
     expect(screen.getByText("Nie kontaktować")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Zadzwoń" })).toBeNull();
+  });
+});
+
+describe("zaproszenie od prowadzącego", () => {
+  const draft = (overrides: Partial<InviteDraft> = {}): InviteDraft => ({
+    mailbox: "ok",
+    subject: "Spotkanie: Automatyzacje",
+    recipients: [{ address: "anna@firma-testowa.example", name: "Anna Przykładowa", blocked: null }],
+    meeting_at: "2026-11-12T12:00:00Z",
+    duration_minutes: 30,
+    sent_at: null,
+    ...overrides,
+  });
+  const ok = (data: InviteDraft) => ({ data, isLoading: false, error: null, isSuccess: true, refetch: vi.fn() });
+  const card = (data: Handoff, viewer: "host" | "booker" = "host") =>
+    render(<HandoffCard handoff={data} viewer={viewer} canEdit panel={null} onPanel={vi.fn()} />);
+
+  it("przycisk ma tylko prowadzący przy spotkaniu z terminem, którego nie ma jeszcze w kalendarzu", () => {
+    const { unmount } = card(handoff());
+    expect(screen.getByRole("button", { name: "Wyślij zaproszenie" })).toBeTruthy();
+    unmount();
+    for (const data of [
+      handoff({ from_calendar: true }),
+      handoff({ invite_sent_at: "2026-11-10T10:00:00Z", from_calendar: true }),
+      handoff({ meeting_at: null, phase: "no_term" }),
+      handoff({ phase: "verdict" }),
+    ]) {
+      const view = card(data);
+      expect(screen.queryByRole("button", { name: "Wyślij zaproszenie" })).toBeNull();
+      view.unmount();
+    }
+    card(handoff(), "booker");
+    expect(screen.queryByRole("button", { name: "Wyślij zaproszenie" })).toBeNull();
+  });
+
+  it("po wysłaniu karta mówi, że zaproszenie wyszło", () => {
+    card(handoff({ invite_sent_at: "2026-11-10T10:00:00Z", from_calendar: true }));
+    expect(screen.getByText("Zaproszenie wysłane")).toBeTruthy();
+    expect(screen.queryByText("Termin z kalendarza")).toBeNull();
+  });
+
+  it("wysyła temat, adres i dopisek z kluczem jednej wysyłki", async () => {
+    inviteDraft.mockReturnValue(ok(draft()));
+    const onClose = vi.fn();
+    render(<InviteDialog handoff={handoff()} onClose={onClose} />);
+    expect((screen.getByLabelText("Do") as HTMLInputElement).value).toBe("anna@firma-testowa.example");
+    fireEvent.change(screen.getByLabelText("Do"), {
+      target: { value: "anna@firma-testowa.example, Jan@Firma-Testowa.example" },
+    });
+    fireEvent.change(screen.getByLabelText("Dopisek do zaproszenia (opcjonalnie)"), {
+      target: { value: "Do zobaczenia" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij zaproszenie" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const payload = sendInvite.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      opportunity_id: 21,
+      subject: "Spotkanie: Automatyzacje",
+      to: ["anna@firma-testowa.example", "jan@firma-testowa.example"],
+      message: "Do zobaczenia",
+    });
+    expect(payload.request_id).toMatch(/^[0-9a-f-]{36}$/);
+    // Drugi klik w tym samym oknie niesie ten sam klucz.
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij zaproszenie" }));
+    await waitFor(() => expect(sendInvite).toHaveBeenCalledTimes(2));
+    expect(sendInvite.mock.calls[1][0].request_id).toBe(payload.request_id);
+  });
+
+  it("adres z bazy kandydatów nie jest podpowiadany, a bez adresu nie da się wysłać", () => {
+    inviteDraft.mockReturnValue(
+      ok(draft({ recipients: [{ address: "ktos@poczta.example", name: "Ktoś", blocked: "candidate" }] })),
+    );
+    render(<InviteDialog handoff={handoff()} onClose={vi.fn()} />);
+    expect((screen.getByLabelText("Do") as HTMLInputElement).value).toBe("");
+    expect(screen.getByText(/jest w bazie kandydatów/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Wyślij zaproszenie" })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("Do"), { target: { value: "to nie adres" } });
+    expect(screen.getByText(/To nie jest adres/)).toBeTruthy();
+  });
+
+  it("bez połączonej skrzynki mówi, co zrobić, i nie wysyła", () => {
+    inviteDraft.mockReturnValue(ok(draft({ mailbox: "missing" })));
+    render(<InviteDialog handoff={handoff()} onClose={vi.fn()} />);
+    expect(screen.getByRole("alert").textContent).toContain("Podłącz skrzynkę Outlook");
+    expect(screen.getByRole("button", { name: "Wyślij zaproszenie" })).toHaveProperty("disabled", true);
+  });
+
+  it("odmowa serwera zostaje w oknie", async () => {
+    inviteDraft.mockReturnValue(ok(draft()));
+    sendInvite.mockRejectedValueOnce({
+      response: { status: 502, data: { detail: "Outlook nie przyjął zaproszenia. Nic nie wyszło, spróbuj ponownie." } },
+    });
+    const onClose = vi.fn();
+    render(<InviteDialog handoff={handoff()} onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij zaproszenie" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Nic nie wyszło"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("awaria wczytania okna nie wygląda jak gotowy formularz", () => {
+    inviteDraft.mockReturnValue({ data: undefined, isLoading: false, error: new Error("boom"), isSuccess: false, refetch: vi.fn() });
+    render(<InviteDialog handoff={handoff()} onClose={vi.fn()} />);
+    expect(screen.queryByLabelText("Temat")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Wyślij zaproszenie" })).toBeNull();
   });
 });
 

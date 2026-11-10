@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,7 @@ import { telHref } from "../my-day";
 import { WhoWeKnow } from "../MyDayPrepCard";
 import { TalkingPoints } from "../signals/TalkingPoints";
 import { bookerStatus, confirmMailHref, handoffWhen, mailAddress } from "./helpers";
+import { InviteDialog } from "./InviteDialog";
 import { TermPanel } from "./TermPanel";
 import { VerdictPanel } from "./VerdictPanel";
 
@@ -150,6 +152,15 @@ export function HandoffCard({
   const showVerdict = acting && isHost && (panel === "verdict" || (panel === null && handoff.phase === "verdict"));
   const showTerm = acting && !handoff.from_calendar && (panel === "term" || (panel === null && handoff.phase === "no_term"));
   const canRebook = canEdit && viewer === "booker" && handoff.verdict === "no_show" && handoff.status === "open";
+  const [inviting, setInviting] = useState(false);
+  // Zaproszenie wysyła prowadzący, ze swojej skrzynki; termin z kalendarza już je ma.
+  const canInvite =
+    acting &&
+    isHost &&
+    !handoff.from_calendar &&
+    !handoff.invite_sent_at &&
+    handoff.meeting_at !== null &&
+    (handoff.phase === "upcoming" || handoff.phase === "confirm");
   return (
     <Card className="space-y-3 p-4" data-testid="handoff-card">
       <div>
@@ -179,7 +190,10 @@ export function HandoffCard({
         <div className="mt-1 flex flex-wrap gap-1">
           {handoff.clash && pending && <Badge variant="warning" size="sm">Kolizja z innym spotkaniem</Badge>}
           {handoff.confirmed_at && pending && <Badge variant="success" size="sm">Termin potwierdzony</Badge>}
-          {handoff.from_calendar && <Badge variant="neutral" size="sm">Termin z kalendarza</Badge>}
+          {handoff.invite_sent_at && <Badge variant="success" size="sm">Zaproszenie wysłane</Badge>}
+          {handoff.from_calendar && !handoff.invite_sent_at && (
+            <Badge variant="neutral" size="sm">Termin z kalendarza</Badge>
+          )}
           {!pending && <Badge variant="neutral" size="sm">{bookerStatus(handoff)}</Badge>}
         </div>
       </div>
@@ -195,6 +209,17 @@ export function HandoffCard({
         {acting && !handoff.from_calendar && !showTerm && (
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => onPanel("term")}>
             {handoff.meeting_at ? "Zmień termin" : "Ustaw termin"}
+          </Button>
+        )}
+        {canInvite && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2"
+            data-tour="sales.handoff-invite"
+            onClick={() => setInviting(true)}
+          >
+            Wyślij zaproszenie
           </Button>
         )}
         {acting && isHost && !showVerdict && (
@@ -213,6 +238,7 @@ export function HandoffCard({
           </Button>
         )}
       </div>
+      {inviting && <InviteDialog handoff={handoff} onClose={() => setInviting(false)} />}
     </Card>
   );
 }

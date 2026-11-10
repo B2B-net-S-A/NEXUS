@@ -63,6 +63,8 @@ _FIELD_WORDS = {
     "email": "e-mail",
     "linkedin_url": "LinkedIn",
     "notes": "notatka",
+    # Tylko wpis z importu listy (``research_import.py``); formularz go nie wysyła.
+    "source_label": "źródło",
 }
 #: Pole mapy → limit tej kolumny w ``sales_contacts`` (mapa pozwala czasem na więcej).
 _CONTACT_FILL_LIMITS: dict[str, Optional[int]] = {
@@ -71,6 +73,10 @@ _CONTACT_FILL_LIMITS: dict[str, Optional[int]] = {
     "linkedin_url": 500,
     "notes": None,
 }
+#: Chwila ręcznej zmiany statusu albo daty kontaktu w oknie osoby. Automat z Outlooka
+#: (``decision_map_outlook.py``) pomija zdarzenia sprzed niej: człowiek ma pierwszeństwo.
+CONTACT_EDITED_AT = "contact_edited_at"
+CONTACT_FIELDS = frozenset({"contact_status", "last_contact_at"})
 
 
 class _DecisionPersonFields(BaseModel):
@@ -137,10 +143,13 @@ def with_entries(
     custom_fields: Optional[dict[str, Any]],
     entries: list[dict[str, Any]],
     *,
-    user_id: int,
+    user_id: Optional[int],
     now: datetime,
 ) -> dict[str, Any]:
-    """Nowy słownik ``custom_fields`` (SQLAlchemy widzi przypisanie, nie mutację JSON-a)."""
+    """Nowy słownik ``custom_fields`` (SQLAlchemy widzi przypisanie, nie mutację JSON-a).
+
+    ``user_id`` puste = zmiana automatu z Outlooka, nie człowieka.
+    """
 
     custom = dict(custom_fields or {})
     atlas = custom.get("atlas")

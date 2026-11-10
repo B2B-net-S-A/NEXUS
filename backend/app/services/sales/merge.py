@@ -7,18 +7,26 @@ Tagi sumujemy, ``custom_fields`` łączymy (wygrywa firma docelowa), puste pola
 docelowej uzupełniamy ze źródłowej. Źródłowej nie kasujemy — trafia do
 archiwum z ``custom_fields.merged_into`` (ślad i droga powrotu). Jedna
 transakcja: wywołujący robi ``commit`` dopiero po całości.
+
+Nazwa i nazwa prawna źródłowej, których docelowa nie ma, zostają przy docelowej
+jako nazwy dołączone („Inne nazwy z CV”), bo „Kogo znamy” dopasowuje osoby
+dokładnie po nazwie. Punkty do rozmowy z bota to jeden wiersz na firmę: przy
+docelowej zostaje nowszy z dwóch.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.company_names import normalize_company_name
 from app.services.sales import history
+from app.services.sales.company_aliases import JOINED, can_be_alias
 from app.services.sales_schema import OpportunityEventKind
 
 from app.models.sales import (
@@ -26,6 +34,7 @@ from app.models.sales import (
     SalesCallRecord,
     SalesCompany,
     SalesCompanyAlias,
+    SalesCompanyBriefing,
     SalesCompanyContact,
     SalesContact,
     SalesFile,
@@ -59,6 +68,27 @@ def _union_tags(target: list[Any], source: list[Any]) -> list[Any]:
         if tag not in merged:
             merged.append(tag)
     return merged
+
+
+def names_to_join(
+    covered: Iterable[str], names: Iterable[Optional[str]]
+) -> list[tuple[str, str]]:
+    """Nazwy wchłanianej karty do dopisania jako dołączone: (zapis, kanoniczna).
+
+    „Kogo znamy” dopasowuje osoby dokładnie po nazwie kanonicznej, więc bez
+    dopisku osoby z „Marka Group” w CV znikłyby z liczników po scaleniu tej
+    karty w „Marka”. ``covered`` to nazwy kanoniczne, które docelowa już ma.
+    """
+
+    seen = set(covered)
+    found = []
+    for raw in names:
+        canonical = normalize_company_name(raw or "")
+        if not canonical or canonical in seen or not can_be_alias(canonical):
+            continue
+        seen.add(canonical)
+        found.append(((raw or "").strip(), canonical))
+    return found
 
 
 async def merge_companies(
@@ -158,6 +188,26 @@ async def merge_companies(
         }
         for row in aliases
     ]
+    # Nazwa wchłoniętej karty zostaje jako dołączona. Idzie po decyzjach źródła,
+    # a wcześniejsza decyzja o tej nazwie (także „Nie ta firma”) wygrywa.
+    alias_rows += [
+        {
+            "company_id": target_id,
+            "alias": alias,
+            "normalized_alias": canonical,
+            "status": JOINED,
+            "created_by_user_id": user_id,
+        }
+        for alias, canonical in names_to_join(
+            {
+                target.normalized_name,
+                normalize_company_name(target.name),
+                # Pustą nazwę prawną docelowej uzupełnia niżej nazwa źródłowej.
+                normalize_company_name(target.legal_name or source.legal_name or ""),
+            },
+            (source.name, source.legal_name),
+        )
+    ]
     if alias_rows:
         await db.execute(
             insert(SalesCompanyAlias).values(alias_rows).on_conflict_do_nothing()
@@ -184,6 +234,34 @@ async def merge_companies(
     if target.parent_company_id == source_id:
         parent = source.parent_company_id
         target.parent_company_id = parent if parent != target_id else None
+
+    # Punkty do rozmowy to jeden wiersz na firmę: docelowa bierze punkty źródła,
+    # gdy nie ma własnych albo ma starsze.
+    briefing = insert(SalesCompanyBriefing).from_select(
+        ["company_id", "mode", "points", "run_id", "generated_at"],
+        select(
+            literal(target_id),
+            SalesCompanyBriefing.mode,
+            SalesCompanyBriefing.points,
+            SalesCompanyBriefing.run_id,
+            SalesCompanyBriefing.generated_at,
+        ).where(SalesCompanyBriefing.company_id == source_id),
+    )
+    await db.execute(
+        briefing.on_conflict_do_update(
+            index_elements=["company_id"],
+            set_={
+                name: briefing.excluded[name]
+                for name in ("mode", "points", "run_id", "generated_at")
+            },
+            where=SalesCompanyBriefing.generated_at < briefing.excluded.generated_at,
+        )
+    )
+    await db.execute(
+        SalesCompanyBriefing.__table__.delete().where(
+            SalesCompanyBriefing.company_id == source_id
+        )
+    )
 
     target.tags = _union_tags(target.tags, source.tags)
     target.custom_fields = {

@@ -48,6 +48,33 @@ export interface Handoff {
   phase: HandoffPhase;
   /** Inne przekazane spotkanie tej osoby nachodzi na ten termin. */
   clash: boolean;
+  /** Kiedy prowadzący wysłał zaproszenie z Outlooka. */
+  invite_sent_at?: string | null;
+}
+
+export interface InviteRecipient {
+  address: string;
+  name: string | null;
+  /** Adres jest w bazie kandydatów: ze Sprzedaży go nie zapraszamy. */
+  blocked: "candidate" | null;
+}
+
+export interface InviteDraft {
+  mailbox: "ok" | "missing" | "no_calendar_scope";
+  subject: string;
+  recipients: InviteRecipient[];
+  meeting_at: string | null;
+  duration_minutes: number;
+  sent_at: string | null;
+}
+
+export interface InviteInput {
+  opportunity_id: number;
+  subject: string;
+  to: string[];
+  message: string | null;
+  /** Klucz jednej wysyłki: drugi klik z tym samym kluczem nie wysyła drugiego zaproszenia. */
+  request_id: string;
 }
 
 export interface HandoffWeek {
@@ -202,6 +229,28 @@ export function useGiveVerdict() {
     mutationFn: async (input: VerdictInput) => {
       const { opportunity_id, ...payload } = input;
       return (await api.post<Handoff>(`/api/sales/handoffs/${opportunity_id}/verdict`, payload)).data;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** Okno „Wyślij zaproszenie”: stan skrzynki prowadzącego, temat i adresat. */
+export function useInviteDraft(opportunityId: number) {
+  return useQuery({
+    queryKey: [...handoffKeys.opportunity(opportunityId), "invite"] as const,
+    queryFn: async () => (await api.get<InviteDraft>(`/api/sales/handoffs/${opportunityId}/invite`)).data,
+    // Okno pokazuje stan z chwili otwarcia; wysyłka i tak sprawdza wszystko na serwerze.
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useSendInvite() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: InviteInput) => {
+      const { opportunity_id, ...payload } = input;
+      return (await api.post<Handoff>(`/api/sales/handoffs/${opportunity_id}/invite`, payload)).data;
     },
     onSuccess: invalidate,
   });
