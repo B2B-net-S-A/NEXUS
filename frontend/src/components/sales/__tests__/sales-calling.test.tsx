@@ -19,6 +19,7 @@ const createActivity = vi.fn();
 const campaigns = vi.fn();
 const preview = vi.fn();
 const importList = vi.fn();
+const briefing = vi.fn();
 const askConfirm = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
@@ -45,7 +46,7 @@ vi.mock("@/lib/api/sales-calling", async (original) => ({
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
   useCreateActivity: () => mutation(createActivity),
-  useCompanyBriefing: () => ({ isSuccess: false }),
+  useCompanyBriefing: () => briefing(),
   useOwnerCandidates: () => ({ data: [{ id: 9, name: "Druga Osoba" }] }),
   usePipelines: () => ({
     data: [{ id: 1, key: "sales", name: "Sprzedaż", is_default: true, stages: [{ id: 12, key: "qualifying-meeting" }] }],
@@ -207,6 +208,7 @@ beforeEach(() => {
   campaigns.mockReturnValue(ok([{ id: 3, name: "Kampania Testowa", service: null, script: null, total: 0, counts: {} }]));
   saveOutcome.mockResolvedValue({ record_id: 1 });
   createActivity.mockResolvedValue({});
+  briefing.mockReturnValue({ isSuccess: false });
 });
 
 describe("podpisy kolejki", () => {
@@ -284,6 +286,25 @@ describe("kolejka", () => {
     expect(screen.getByText(/Skąd kontakt: Lista z konferencji/)).toBeInTheDocument();
     expect(screen.getByText(/pt 06\.11 · Telefon · Oferta ogólna wysłana: Jan Testowy/)).toBeInTheDocument();
     expect(screen.getByText("Po zapisie od razu następna: Spotkanie S.A.")).toBeInTheDocument();
+  });
+
+  it("pokazuje punkty z researchu, gdy kanał jest włączony i firma je ma", () => {
+    briefing.mockReturnValue({
+      isSuccess: true,
+      data: {
+        enabled: true,
+        briefing: {
+          mode: "first_call",
+          generated_at: "2026-11-09T08:00:00Z",
+          points: [{ text: "Firma otwiera drugi magazyn", url: "https://example.com/magazyn", published: "2026-11-03" }],
+        },
+      },
+    });
+    render(<CallQueueView />);
+    expect(screen.getByText(/Punkty do rozmowy na pierwszą rozmowę/)).toBeInTheDocument();
+    expect(screen.getByText(/Firma otwiera drugi magazyn/)).toBeInTheDocument();
+    // Skrypt kampanii i punkty stoją obok siebie w „Do rozmowy”.
+    expect(screen.getByText("Otwarcie: jedno zdanie o usłudze.")).toBeInTheDocument();
   });
 
   it("awaria nie wygląda jak pusta kolejka, a pusta mówi, skąd wezmą się rekordy", () => {
