@@ -72,6 +72,11 @@ export interface CandidateSourcesStripViewProps {
   /** Kafel po źródłach — „Aplikacje” (wszyscy aplikujący, 07.11.2026). */
   afterTiles?: ReactNode;
   /**
+   * Bliźniaki na końcu paska, poza menu „Szukaj ▾” (10.11.2026): w menu
+   * Olaf (HoR) nie znalazł, gdzie ręcznie połączyć wybrane rekrutacje.
+   */
+  twins?: ReactNode;
+  /**
    * „Kto już to robił” (09.11.2026) — wyszukiwanie po obowiązkach z Championa
    * (`docs/claude/kandydaci-wyszukiwanie/kto-juz-to-robil-wyszukiwanie-po-celu.md`).
    */
@@ -186,6 +191,7 @@ export function CandidateSourcesStripView({
   onAddFromCv,
   afterSimilar,
   afterTiles,
+  twins,
   dutyHref,
 }: CandidateSourcesStripViewProps) {
   const postings = tiles.find((tile) => tile.tab === "postings");
@@ -247,6 +253,7 @@ export function CandidateSourcesStripView({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
+      {twins}
     </section>
   );
 }
@@ -358,13 +365,8 @@ export function CandidateSourcesStrip({
           <JobApplicantsTile jobId={jobId} />
         </>
       }
-      afterSimilar={
-        <>
-          <OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />
-          {/* Bliźniak (0614) — w rzędzie tytułu łamał się przy 1280 px. */}
-          {canSeeSimilar ? <JobTwinChip jobId={jobId} /> : null}
-        </>
-      }
+      afterSimilar={<OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />}
+      twins={canSeeSimilar ? <JobTwinChip jobId={jobId} /> : null}
     />
   );
 }

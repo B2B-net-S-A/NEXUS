@@ -1,5 +1,40 @@
 [
   {
+    "id": "polacz-blizniaka-recznie",
+    "title": "„⇄ Połącz bliźniaka” na pasku rekrutacji",
+    "why": "Bliźniaka łączysz przyciskiem na końcu paska „Kandydaci do dodania”, nie z menu „Szukaj”. Wpisz numer, tytuł albo klienta dowolnej otwartej rekrutacji, także spoza podpowiedzi.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → pasek „Kandydaci do dodania” → „⇄ Połącz bliźniaka”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.twins.link"
+  },
+  {
+    "id": "blizniaki-z-listy-rekrutacji",
+    "title": "Połącz dwie wybrane rekrutacje jako bliźniaki z listy",
+    "why": "„⇄ Bliźniaki” obok tytułu listy jest zawsze, także bez podpowiedzi. Wybierasz pierwszą rekrutację, drugą w następnym oknie, i łączysz je w bliźniaki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-10",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacje → „⇄ Bliźniaki” obok tytułu",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.list.twins"
+  },
+  {
     "id": "skad-ptaszek-przy-wymaganiu",
     "pr": 3284,
     "title": "Skąd „✓” przy wymaganiu",
