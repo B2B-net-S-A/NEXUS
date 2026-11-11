@@ -81,7 +81,21 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --legacy-peer-deps
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        # Ponowienia na chwilowy brak DNS runnera (run 43036754346, 11.11.2026).
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
+          for attempt in 1 2 3; do
+            if npx playwright install --with-deps chromium; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Playwright nie zainstalował przeglądarki po 3 próbach"
+              exit 1
+            fi
+            echo "::warning::instalacja Playwrighta nie przeszła (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
+            sleep $((attempt * 30))
+          done
       - name: Jednorazowe hasło kont E2E
         # Generowane per bieg i maskowane — nie jest sekretem repozytorium,
         # bo stack i jego baza istnieją wyłącznie w tym jobie.
@@ -344,7 +358,21 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --legacy-peer-deps
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        # Ponowienia na chwilowy brak DNS runnera (run 43036754346, 11.11.2026).
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
+          for attempt in 1 2 3; do
+            if npx playwright install --with-deps chromium; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Playwright nie zainstalował przeglądarki po 3 próbach"
+              exit 1
+            fi
+            echo "::warning::instalacja Playwrighta nie przeszła (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
+            sleep $((attempt * 30))
+          done
       - name: Run tests
         env:
           E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://nexus.b2bnetwork.pl' }}

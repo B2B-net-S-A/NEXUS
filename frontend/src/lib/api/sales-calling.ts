@@ -300,3 +300,70 @@ export function useImportList() {
     onSuccess: invalidate,
   });
 }
+
+// ── Przeniesienie Excela dzwoniących: arkusz = osoba, kolor = wynik (11.11.2026) ──
+
+export interface ExcelSheetPlan {
+  title: string;
+  assignee_id: number | null;
+  rows: number;
+  states: Partial<Record<RecordState, number>>;
+  review: number;
+  fates: Partial<Record<ImportFate, number>>;
+  addable: number;
+  without_company: number;
+  moved: number;
+  days: number;
+  duplicate_days: number;
+  totals: { calls: number; talks: number; offers: number; meetings: number };
+}
+
+export interface ExcelPreview {
+  sheets: ExcelSheetPlan[];
+  people: Ref[];
+}
+
+export interface ExcelTransferInput {
+  campaign_id: number;
+  file: File;
+  contact_source: string;
+  /** Nazwa arkusza → osoba z „Sprzedaż: edycja”. */
+  assignees: Record<string, number>;
+}
+
+function excelForm(input: ExcelTransferInput): FormData {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("contact_source", input.contact_source);
+  form.append("assignees", JSON.stringify(input.assignees));
+  return form;
+}
+
+/** Bieg na sucho przeniesienia: co stanie się z każdym arkuszem; niczego nie zapisuje. */
+export function usePreviewExcel() {
+  return useMutation({
+    mutationFn: async (input: ExcelTransferInput) =>
+      (
+        await api.post<ExcelPreview>(
+          `/api/sales/calling/campaigns/${input.campaign_id}/excel/preview`,
+          excelForm(input),
+          MULTIPART,
+        )
+      ).data,
+  });
+}
+
+export function useTransferExcel() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: ExcelTransferInput) =>
+      (
+        await api.post<{ added: number; days: number }>(
+          `/api/sales/calling/campaigns/${input.campaign_id}/excel`,
+          excelForm(input),
+          MULTIPART,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}

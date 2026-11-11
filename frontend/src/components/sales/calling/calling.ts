@@ -211,7 +211,7 @@ const SUMMARY_ORDER: ImportFate[] = [
   "no_phone",
 ];
 
-const SUMMARY_TEXT: Record<ImportFate, string> = {
+export const SUMMARY_TEXT: Record<ImportFate, string> = {
   new_company: "nowe firmy",
   linked: "z istniejącą kartą firmy",
   already_in_campaign: "już w kampanii",

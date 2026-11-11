@@ -20,7 +20,9 @@ Bramki, od najważniejszej (pierwsza pasująca decyduje):
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Optional
 
 from sqlalchemy import literal_column, or_, select, text
@@ -83,6 +85,15 @@ OBJECTION_DETAIL = "Osoba albo firma ma zapisany sprzeciw wobec kontaktu."
 REPEATED_DETAIL = "Powtórzony wiersz w pliku."
 IN_CAMPAIGN_DETAIL = "Ten rekord jest już w tej kampanii."
 NO_PHONE_DETAIL = "Brak numeru telefonu w wierszu."
+
+
+@dataclass(frozen=True)
+class RecordOverride:
+    """Stan rekordu przeniesiony z Excela dzwoniących zamiast „nowy” (11.11.2026)."""
+
+    state: str
+    callback_on: Optional[date] = None
+    attempts: int = 0
 
 
 @dataclass(frozen=True)
@@ -562,6 +573,7 @@ async def apply_import(
     contact_source: str,
     assignee_id: int,
     user_id: int,
+    overrides: Optional[Mapping[int, RecordOverride]] = None,
 ) -> tuple[ImportPlan, int]:
     """Zapisuje wiersze ``ADDABLE``; bez commita. Zwraca plan i liczbę dodanych."""
 
@@ -604,6 +616,7 @@ async def apply_import(
             contact_id = (
                 await _new_contact(db, row_plan, company.id, user_id=user_id)
             ).id
+        override = (overrides or {}).get(row.line)
         db.add(
             SalesCallRecord(
                 campaign_id=campaign.id,
@@ -615,7 +628,9 @@ async def apply_import(
                 email=valid_email(row.email),
                 contact_source=contact_source,
                 note=row.note,
-                state=schema.CALL_RECORD_NEW,
+                state=override.state if override else schema.CALL_RECORD_NEW,
+                callback_on=override.callback_on if override else None,
+                attempts=override.attempts if override else 0,
                 assigned_user_id=assignee_id,
                 created_by_user_id=user_id,
             )
