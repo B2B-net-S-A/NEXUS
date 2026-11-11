@@ -60,6 +60,10 @@ NEW = schema.CALL_RECORD_NEW
 RETURNING_STATES: tuple[str, ...] = ("no_answer", "call_back", "not_now", "offer_sent")
 OPEN_STATES: tuple[str, ...] = (NEW, *RETURNING_STATES)
 MEETING_BOOKED = "meeting_booked"
+#: Telefon z kolejki w dzienniku: ``external_id`` = „<id rekordu>:<numer próby>”.
+#: Po nim „Skuteczność” łączy telefon z kampanią i listą (``calling_stats.py``);
+#: numer próby, bo ``ux_sales_activities_outlook`` nie wpuści dwóch takich samych id.
+CALL_SOURCE = "call_queue"
 LEAD_STAGE_KEY = "lead"
 MEETING_STAGE_KEY = "qualifying-meeting"
 QUEUE_PIPELINE_KEY = schema.DEFAULT_PIPELINE_KEY
@@ -811,6 +815,8 @@ async def apply_outcome(
             created_by_user_id=user_id,
             occurred_at=now,
             done_at=now,
+            external_source=CALL_SOURCE,
+            external_id=f"{record.id}:{record.attempts}",
         )
     )
     if opportunity is not None and (

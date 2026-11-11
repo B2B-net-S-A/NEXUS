@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/sales/calling/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/calling/effectiveness": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/queue": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/records/{record_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
