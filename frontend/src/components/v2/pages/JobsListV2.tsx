@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
+  ArrowLeftRight,
   Briefcase,
   Building2,
   ChevronRight,
@@ -73,6 +74,7 @@ import {
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
 import { priorityLevelOf, type PriorityLevel } from "@/lib/request-priority";
 import { TwinSuggestionsButton } from "@/components/v2/jobs/twins/TwinSuggestionsButton";
+import { type TwinPick, TwinPickBar, TwinPickCheckbox, useTwinPick } from "@/components/v2/jobs/twins/TwinPickBar";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
   JOB_SCOPE_VALUES,
@@ -314,6 +316,7 @@ function JobsTable({
   workedBy,
   canStaff,
   canDecideProposals,
+  twinPick,
 }: {
   items: any[];
   /** Rekrutacja otwarta w doku podglądu — jej wiersz jest podświetlony. */
@@ -331,6 +334,8 @@ function JobsTable({
   canStaff: boolean;
   /** Rozstrzyga propozycje automatu (`request.proposal.decide`). */
   canDecideProposals: boolean;
+  /** HoR i admin: pole przy wierszu do łączenia bliźniaków (11.11.2026). */
+  twinPick?: TwinPick;
 }) {
   const toast = useToast();
   // Kropka nieobecności przy Rekruterze i DL — jedno zapytanie na stronę listy.
@@ -348,7 +353,24 @@ function JobsTable({
           {/* Telefon: tabela przewija się w poziomie, więc kolumna „Rekrutacja"
               stoi przyklejona — bez niej po przewinięciu nie wiadomo, czyj to
               status i termin. */}
-          <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
+          <TableHead
+            className={cn(
+              "max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background",
+              twinPick && "relative md:pl-9",
+            )}
+          >
+            {twinPick ? (
+              <span
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-primary max-md:hidden"
+                title="Zaznacz rekrutacje i połącz je jako bliźniaki"
+                data-tour="jobs.list.twin-pick"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="sr-only">Pole przy rekrutacji: zaznacz do połączenia jako bliźniaki</span>
+              </span>
+            ) : null}
+            Rekrutacja
+          </TableHead>
           <TableHead className={cn("w-[136px]", NARROW_CELL)}>Status</TableHead>
           <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
@@ -410,7 +432,27 @@ function JobsTable({
                   nazwa przycina się wielokropkiem zamiast rozpychać tabelę.
                   Minimum 200 px: z otwartym Podglądem na laptopie tabela
                   przewija się w poziomie, zamiast ściskać nazwę do kilku liter. */}
-              <TableCell className="overflow-hidden md:w-full md:min-w-[200px] md:max-w-0 max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
+              <TableCell
+                className={cn(
+                  "overflow-hidden md:w-full md:min-w-[200px] md:max-w-0 max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card",
+                  // Pole bliźniaka w komórce nazwy, nie w osobnej kolumnie: przy
+                  // 1280 px kolumna wypychała „›” poza ramkę tabeli (11.11.2026).
+                  twinPick && "relative md:pl-9",
+                )}
+              >
+                {twinPick && !locked && job.status !== "closed" ? (
+                  // Bliźniakiem zostaje tylko otwarta rekrutacja (422 `twin_closed`).
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 max-md:hidden">
+                    <TwinPickCheckbox
+                      pick={twinPick}
+                      job={{
+                        id: job.id,
+                        ref: job.client_reference ?? job.reference_number ?? `#${job.id}`,
+                        title: job.title,
+                      }}
+                    />
+                  </span>
+                ) : null}
                 {/* Priorytet stoi przy tytule (P2 nie ma plakietki), bez
                     osobnej kolumny. */}
                 {/* `flex-wrap` i `basis-32` przy nazwie: przy 1280 px „P0 · minęło 17 h”
@@ -878,6 +920,10 @@ export function JobsListV2({
   // rekrutacji dałby ten sam wynik.
   const canStaff = can["job.recruiter.assign"] === true;
   const canDecideProposals = can["request.proposal.decide"] === true;
+  // Bliźniaki zaznaczane na liście (11.11.2026) — ci sami co „⇄ Bliźniaki”
+  // obok tytułu; DL łączy swoje z paska rekrutacji.
+  const canPickTwins = hasRole(authUser, "admin", "head_of_recruitment");
+  const twinPick = useTwinPick();
 
 
   // Te same warunki dla listy i dla licznika rekrutacji schowanych przez zakres.
@@ -1460,8 +1506,10 @@ export function JobsListV2({
               workedBy={filterValue.workedBy}
               canStaff={canStaff}
               canDecideProposals={canDecideProposals}
+              twinPick={canPickTwins ? twinPick : undefined}
             />
           )}
+          {canPickTwins ? <TwinPickBar pick={twinPick} /> : null}
 
           {viewState === "ready" && total > pageSize && (
             <div className="flex items-center justify-between text-sm">

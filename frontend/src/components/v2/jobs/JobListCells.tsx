@@ -10,7 +10,7 @@
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import { countPl } from "@/lib/plural-pl";
-import { ArrowLeftRight, History, Trophy } from "lucide-react";
+import { History, Trophy } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
@@ -435,7 +435,7 @@ export function similarJobsSummary(similar: JobSimilarSummary): string {
 }
 
 /**
- * Ikona „Podobne rekrutacje” w kolumnie akcji wiersza (02.10.2026). Tekstowa
+ * Ikona „≈ Podobne rekrutacje” w kolumnie akcji wiersza (02.10.2026). Tekstowa
  * plakietka zeszła z wiersza do Podglądu; ikona zostawia przepięcie pod jednym
  * kliknięciem i otwiera to samo okno. Bez połączeń i podpowiedzi — nic.
  */
@@ -463,7 +463,11 @@ export function SimilarJobsIconButton({
       aria-label={label}
       className="rounded-md p-1 text-primary transition-colors hover:bg-primary/10 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:p-2.5"
     >
-      <ArrowLeftRight className="h-3.5 w-3.5" />
+      {/* „≈” jak w pasku „≈ N z podobnymi — przepnij” (11.11.2026): „⇄” to od
+          #3308 bliźniaki, a ta sama strzałka tu prowadziła HoR do przepięć. */}
+      <span aria-hidden="true" className="block h-3.5 w-3.5 text-center text-sm font-bold leading-[0.875rem]">
+        ≈
+      </span>
     </button>
   );
 }
