@@ -77,7 +77,7 @@ Testy: `frontend/src/components/sales/__tests__/my-day.test.tsx` („przyciski w
   zapisuje rozmowę przy niej, w innym przypadku przy firmie. Bez osoby z numerem panel mówi,
   gdzie go dodać.
 - **„Umówione spotkanie” w kolejce dzwonienia** otwiera „Umów spotkanie” z firmą, osobą
-  i nazwą kampanii jako usługą, zamiast formularza szansy. Szansa powstaje u prowadzącego
+  i usługą kampanii (pole „Usługa” z okna „Kampanie”), zamiast formularza szansy. Szansa powstaje u prowadzącego
   na etapie „Spotkanie kwalifikujące” ze źródłem `handoff`, jak każde przekazanie, a nie
   ze źródłem „Dzwonienie”. Skuteczność liczy spotkania z wyniku rozmowy, nie ze źródła
   szansy, więc liczby się nie zmieniają.

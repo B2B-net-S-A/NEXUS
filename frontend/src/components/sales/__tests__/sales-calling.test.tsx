@@ -404,14 +404,14 @@ describe("kolejka", () => {
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "do_not_contact" });
   });
 
-  it("umówione spotkanie z rekordu kampanii otwiera „Umów spotkanie” z firmą, osobą i kampanią", () => {
+  it("umówione spotkanie z rekordu kampanii otwiera „Umów spotkanie” z firmą, osobą i usługą kampanii", () => {
     queue.mockReturnValue(ok(callQueue({ new: [fresh] })));
     render(<CallQueueView />);
     fireEvent.click(screen.getByRole("button", { name: "Umówione spotkanie" }));
     expect(saveOutcome).not.toHaveBeenCalled();
     const form = screen.getByRole("button", { name: "Formularz szansy" });
     const props = JSON.parse(form.getAttribute("data-props") ?? "{}");
-    expect(props).toMatchObject({ contactId: 31, service: "Kampania Testowa" });
+    expect(props).toMatchObject({ contactId: 31, service: "Usługa" });
     expect(props.company.id).toBeGreaterThan(0);
     fireEvent.click(form);
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ item: fresh, outcome: "meeting_booked", opportunity_id: 77 });

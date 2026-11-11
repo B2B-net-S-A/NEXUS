@@ -370,7 +370,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
         <BookMeetingDialog
           company={company}
           contactId={card.contact_id ?? undefined}
-          service={item.campaign?.name ?? undefined}
+          service={card.service ?? undefined}
           onClose={() => setBooking(false)}
           onSaved={(handoff) => {
             setBooked(handoff.opportunity.id);
