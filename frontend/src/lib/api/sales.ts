@@ -808,7 +808,7 @@ export function useUndoCompanyAlias(id: number) {
   });
 }
 
-export function useInvalidateSales() {
+function useInvalidateSales() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: salesKeys.all });
 }
