@@ -84,3 +84,23 @@ Testy: `frontend/src/components/sales/__tests__/my-day.test.tsx` („przyciski w
 
 Testy: `sales-shell-tabs.test.tsx`, `sales-tasks-reschedule.test.tsx`,
 `sales-company-call.test.tsx`, „Umówione spotkanie” w `sales-calling.test.tsx`.
+
+## Wiele szans naraz (decyzja Artura 11.11.2026, trzeci PR)
+
+Lista Szans (widok „Lista”, bez archiwum, „Sprzedaż: edycja”) ma zaznaczanie i pasek akcji
+(`OpportunityBulkBar.tsx`). Jedna trasa `POST /api/sales/opportunities/bulk`
+(`SalesEditUser`, logika w `services/sales/bulk.py`, do 200 szans) z trzema akcjami:
+
+- **„Zaplanuj krok”**: zadanie „Zadzwonić” na 9:00 (Europe/Warsaw) za 1, 3, 7, 14 albo 30 dni
+  (`STEP_WHEN`). Wykonawca to aktywny opiekun szansy, w innym przypadku klikający, jak przy
+  zadaniu z karty. Sam zaplanowany krok nie jest dotykiem szansy.
+- **„Zmień opiekuna”**: per szansa ta sama reguła co okno na karcie (zmienia obecny opiekun
+  albo admin, szansa bez opiekuna jest wolna) i `owner_tasks.hand_over` z historią zmian.
+  Nieaktywny nowy opiekun to 422 dla całego żądania.
+- **„Zamknij z powodem”**: etap `lost` z lejka każdej szansy przez `apply_stage`, powód
+  opcjonalny. Lejek bez takiego etapu: szansa pominięta.
+
+Szansa, której reguła nie przepuszcza (zamknięta, w archiwum, cudza, nie istnieje), nie
+wywraca akcji. Wraca w `skipped` z powodem, pasek pokazuje ją i zostawia zaznaczenie.
+Testy: `backend/tests/test_sales_opportunities_bulk.py`, `sales-bulk-bar.test.tsx`,
+„lista z zaznaczaniem” w `sales-stage-and-pipeline.test.tsx`.

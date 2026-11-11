@@ -10,7 +10,8 @@ wyłącznie przez ``POST /{id}/move`` — reguły cyklu życia są w
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
@@ -20,7 +21,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_admin
+from app.api.sales_gates import (
+    SalesEditUser,
+    SalesViewUser,
+    ensure_owner_or_admin,
+    is_admin,
+)
 from app.core.database import get_db
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.sales import (
@@ -45,6 +51,7 @@ from app.services.sales import (
     decision_map,
     history,
     meeting_decisions,
+    bulk,
     offer_steps,
     owner_tasks,
 )
@@ -209,6 +216,30 @@ class OpportunityUpdate(OpportunityFields):
 class MoveRequest(BaseModel):
     stage_id: int
     lost_reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class OpportunityBulkRequest(BaseModel):
+    """Akcja z listy Szans dla wielu zaznaczonych szans (``services/sales/bulk.py``)."""
+
+    ids: list[int] = Field(min_length=1, max_length=bulk.MAX_IDS)
+    action: Literal["plan", "owner", "close"]
+    #: Terminy kroku z całego modułu (``STEP_WHEN`` na froncie).
+    days: Optional[Literal[1, 3, 7, 14, 30]] = None
+    subject: str = Field(default="Zadzwonić", max_length=500)
+    owner_user_id: Optional[int] = None
+    stage_key: str = Field(default="lost", max_length=60)
+    lost_reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class OpportunityBulkSkipOut(BaseModel):
+    id: int
+    title: Optional[str]
+    reason: str
+
+
+class OpportunityBulkOut(BaseModel):
+    done: list[int]
+    skipped: list[OpportunityBulkSkipOut]
 
 
 class ContactLink(BaseModel):
@@ -765,6 +796,60 @@ async def create_opportunity_from_meeting(
     if company_dates.needs_run(company.dates_backfill, now=now):
         company_dates.schedule_company_dates(company.id)
     return await _detail(db, opp.id)
+
+
+@router.post("/bulk", response_model=OpportunityBulkOut)
+async def bulk_opportunities(
+    payload: OpportunityBulkRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityBulkOut:
+    """Krok, opiekun albo zamknięcie dla wielu szans; szansa spoza reguły trafia do ``skipped``."""
+
+    opportunities, missing = await bulk.load(db, payload.ids)
+    now = datetime.now(timezone.utc)
+    if payload.action == "plan":
+        subject = payload.subject.strip()
+        if payload.days is None or not subject:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Wybierz termin i wpisz, co jest do zrobienia.",
+            )
+        day = business_today() + timedelta(days=payload.days)
+        due_at = datetime.combine(day, time(9), tzinfo=ZoneInfo(DEFAULT_TZ))
+        result = await bulk.plan_step(
+            db, opportunities, subject=subject, due_at=due_at, user_id=current_user.id
+        )
+    elif payload.action == "owner":
+        if payload.owner_user_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Wybierz nowego opiekuna."
+            )
+        await _check_links(db, {"owner_user_id": payload.owner_user_id})
+        result = await bulk.change_owner(
+            db,
+            opportunities,
+            new_owner_id=payload.owner_user_id,
+            user=current_user,
+            is_admin=is_admin(current_user),
+        )
+    else:
+        result = await bulk.close_lost(
+            db,
+            opportunities,
+            stage_key=payload.stage_key,
+            lost_reason=payload.lost_reason,
+            user_id=current_user.id,
+            now=now,
+        )
+    await db.commit()
+    return OpportunityBulkOut(
+        done=result.done,
+        skipped=[
+            OpportunityBulkSkipOut(id=skip.id, title=skip.title, reason=skip.reason)
+            for skip in [*missing, *result.skipped]
+        ],
+    )
 
 
 @router.get("/{opportunity_id}", response_model=OpportunityDetail)

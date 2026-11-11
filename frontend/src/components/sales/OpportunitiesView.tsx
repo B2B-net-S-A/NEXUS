@@ -43,6 +43,7 @@ import { useAuthStore } from "@/store/auth";
 import { FactoriesView } from "./factories/FactoriesView";
 import { daysSince, formatDealAmount, formatDealNumber } from "./format";
 import { OpportunityBoard } from "./OpportunityBoard";
+import { OpportunityBulkBar } from "./OpportunityBulkBar";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesSelect } from "./SalesSelect";
 import { boardCounters, hasNoStep } from "./step";
@@ -207,6 +208,13 @@ export function OpportunitiesView() {
     isEmpty: items.length === 0,
   });
   const open = (id: number) => router.push(`/sales/opportunities/${id}`);
+  // Zaznaczanie na liście i akcje dla wielu szans naraz (decyzja Artura 11.11.2026).
+  const [selected, setSelected] = useState<number[]>([]);
+  const toggleSelected = (id: number) =>
+    setSelected((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+  const selectable = canEdit && !archived;
+  // Backend zamyka na etapie „lost” z lejka każdej szansy, więc pasek pokazuje jego nazwę.
+  const lostStage = pipeline?.stages.find((stage) => stage.key === "lost" && stage.outcome === "lost");
 
   return (
     <div className="space-y-3">
@@ -435,10 +443,23 @@ export function OpportunitiesView() {
           refetch={opportunities.refetch}
         />
       ) : (
-        <div className="relative overflow-x-auto">
+        <div className="relative space-y-2 overflow-x-auto">
+          {selectable && selected.length > 0 && (
+            <OpportunityBulkBar ids={selected} lostStageName={lostStage?.name ?? null} onClear={() => setSelected([])} />
+          )}
           <Table className="min-w-[860px]">
             <TableHeader>
               <TableRow>
+                {selectable && (
+                  <TableHead className={`${CALM_HEAD} w-8`}>
+                    <input
+                      type="checkbox"
+                      aria-label="Zaznacz wszystkie widoczne"
+                      checked={items.length > 0 && selected.length === items.length}
+                      onChange={(event) => setSelected(event.target.checked ? items.map((item) => item.id) : [])}
+                    />
+                  </TableHead>
+                )}
                 <TableHead className={`${CALM_HEAD} sticky left-0 bg-card`}>Szansa</TableHead>
                 <TableHead className={CALM_HEAD}>Etap</TableHead>
                 <TableHead className={CALM_HEAD}>Status</TableHead>
@@ -454,6 +475,16 @@ export function OpportunitiesView() {
                   className={`${CALM_ROW} cursor-pointer`}
                   onClick={() => open(item.id)}
                 >
+                  {selectable && (
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Zaznacz ${item.title}`}
+                        checked={selected.includes(item.id)}
+                        onChange={() => toggleSelected(item.id)}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="sticky left-0 bg-card">
                     <Link
                       href={`/sales/opportunities/${item.id}`}
