@@ -918,6 +918,26 @@ export function useUpdateOpportunity(id: number) {
   });
 }
 
+export type OpportunityBulkAction =
+  | { action: "plan"; days: number; subject?: string }
+  | { action: "owner"; owner_user_id: number }
+  | { action: "close"; stage_key?: string; lost_reason?: string };
+
+export interface OpportunityBulkResult {
+  done: number[];
+  skipped: { id: number; title: string | null; reason: string }[];
+}
+
+/** Akcja z listy Szans dla wielu zaznaczonych szans (`POST /api/sales/opportunities/bulk`). */
+export function useBulkOpportunities() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ ids, ...action }: { ids: number[] } & OpportunityBulkAction) =>
+      (await api.post<OpportunityBulkResult>("/api/sales/opportunities/bulk", { ids, ...action })).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useMoveOpportunity() {
   const invalidate = useInvalidateSales();
   return useMutation({
