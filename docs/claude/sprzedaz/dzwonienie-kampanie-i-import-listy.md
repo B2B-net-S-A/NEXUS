@@ -86,7 +86,7 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
 Powód: osoby dzwoniące prowadziły arkusz na osobę (kolor wiersza = wynik, komentarz ręcznie,
 wiersz „Podsumowanie” dnia wpisywany ręcznie). Makiety: https://claude.ai/artifact/5yiSa8H1BW5v2iewpKFFHX.
 
-- **Dwa nowe wyniki** (migracja 0682, DDL `sales_schema.CALL_OUTCOMES_V2_DDL`):
+- **Dwa nowe wyniki** (migracja 0683, DDL `sales_schema.CALL_OUTCOMES_V2_DDL`):
   „Nie zainteresowany” (`not_interested`) wraca do kolejki domyślnie za pół roku, do wyboru
   3 / 6 / 12 miesięcy albo **nigdy** (`never: true`, rekord bez daty nie wraca). To nie jest
   sprzeciw: firma i osoba zostają do kontaktu inną drogą. „Zły numer / brak danych”

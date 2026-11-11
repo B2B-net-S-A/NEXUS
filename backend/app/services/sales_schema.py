@@ -740,7 +740,7 @@ CALL_OUTCOMES: tuple[str, ...] = (
     # 0681: wyniki z kolejki dzwonienia (jeden słownik dla karty szansy i kolejki).
     "offer_sent",
     "meeting_booked",
-    # 0682: z Excela dzwoniących (decyzje Artura 11.11.2026).
+    # 0683: z Excela dzwoniących (decyzje Artura 11.11.2026).
     "not_interested",
     "bad_contact",
 )
@@ -865,7 +865,7 @@ CALL_QUEUE_OUTCOMES: tuple[str, ...] = (
     "offer_sent",
     "meeting_booked",
     "do_not_contact",
-    # 0682: „Nie zainteresowany” wraca po wybranym czasie albo nigdy, „Zły numer /
+    # 0683: „Nie zainteresowany” wraca po wybranym czasie albo nigdy, „Zły numer /
     # brak danych” zamyka rekord. To nie jest sprzeciw: firma i osoba zostają do
     # kontaktu z innej drogi.
     "not_interested",
@@ -948,7 +948,7 @@ CALLING_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0682: „Nie zainteresowany” i „Zły numer / brak danych” ───────────────
+# ── 0683: „Nie zainteresowany” i „Zły numer / brak danych” ───────────────
 #
 # Podmiana obu CHECK-ów tylko wtedy, gdy definicja nie zna jeszcze nowych wyników,
 # bo entrypoint biegnie przy każdym starcie (tak samo jak w 0681).

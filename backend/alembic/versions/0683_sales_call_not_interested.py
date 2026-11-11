@@ -1,7 +1,7 @@
 """Sprzedaż: wyniki „Nie zainteresowany” i „Zły numer / brak danych” w kolejce.
 
-Revision ID: 0682_sales_call_not_interested
-Revises: 0681_sales_call_campaigns
+Revision ID: 0683_sales_call_not_interested
+Revises: 0682_drop_telephony_columns
 
 DDL w ``app/services/sales_schema.py``; ``entrypoint.sh`` wpina tę samą listę.
 """
@@ -10,8 +10,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0682_sales_call_not_interested"
-down_revision = "0681_sales_call_campaigns"
+revision = "0683_sales_call_not_interested"
+down_revision = "0682_drop_telephony_columns"
 branch_labels = None
 depends_on = None
 
