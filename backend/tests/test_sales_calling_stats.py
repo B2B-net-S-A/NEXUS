@@ -549,7 +549,7 @@ async def test_effectiveness_reads_excel_history_without_double_counting(
     caller = await _user("sales_view", "sales_edit")
     campaign_id = await _campaign("Excel i kolejka")
     record_id = await _record(caller.id, campaign_id, await _company())
-    resp = await _save(app_client, caller, record_id, outcome="connected")
+    resp = await _save(app_client, caller, record_id, outcome="offer_sent")
     assert resp.status_code == 200, resp.text
 
     first_day = date(2026, 7, 27)
