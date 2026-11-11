@@ -55,7 +55,7 @@ async def test_schema_drift_requires_auth(app_client: AsyncClient) -> None:
 # Migration 0180 adds every enum label the ORM sends, so a migrated database
 # must now have all of them. Four genuine bugs used to live here — writes that
 # raised `invalid input value for enum` on real paths (rejection-email
-# notifications, CloudTalk outbound calls, contract rate history, interview
+# notifications, outbound telephony calls, contract rate history, interview
 # feedback). They were found by this very report on its first run; see 0180 for
 # the full account.
 #

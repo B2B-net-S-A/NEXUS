@@ -37,7 +37,7 @@ export const PROFILE_SECTIONS = [
  * `automat` = „Automat”. Klucz `notes` zostaje — niosą go linki z powiadomień.
  *
  * `calls` („Telefony”) zostaje na liście tylko jako stary klucz wejściowy
- * (13.10.2026: 10 połączeń w historii, CloudTalk wyłączony) — parser
+ * (13.10.2026: 10 połączeń w historii, telefonia wyłączona) — parser
  * zamienia go na `timeline` i podmienia adres na kanoniczny.
  */
 export const ACTIVITY_VIEWS = [

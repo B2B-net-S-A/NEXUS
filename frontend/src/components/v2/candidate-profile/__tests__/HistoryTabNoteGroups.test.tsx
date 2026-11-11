@@ -219,7 +219,7 @@ describe("Notatki — filtry po rodzaju", () => {
     expect(within(tabs).getByRole("tab", { name: "Maile" })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: "Automat · 9" })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: "Czat zespołu" })).toBeTruthy();
-    // „Telefony” (rejestr połączeń CloudTalk) zdjęte 13.10.2026.
+    // „Telefony” (rejestr połączeń telefonicznych) zdjęte 13.10.2026.
     expect(within(tabs).queryByRole("tab", { name: /Telefony/ })).toBeNull();
     // Kolejność z makiety: grupa notatek, potem inne źródła.
     expect(within(tabs).getAllByRole("tab").map((tab) => tab.dataset.filter)).toEqual([

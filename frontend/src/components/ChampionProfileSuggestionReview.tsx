@@ -346,7 +346,6 @@ function SourceBadge({ source }: { source: ChampionProfileSuggestion["source_typ
   const labels: Record<ChampionProfileSuggestion["source_type"], string> = {
     jd_paste: "opis klienta",
     fireflies_meeting: "Fireflies",
-    cloudtalk_call: "CloudTalk",
     manual_consultant_note: "notatka konsultanta",
     historical_jobs: "historia",
   };

@@ -131,7 +131,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
     (
         "integracje",
         "Integracje",
-        "Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań.",
+        "Traffit, COMPASS, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań, usunięta telefonia.",
     ),
     (
         "sprzedaz",

@@ -146,7 +146,7 @@ def test_set_env_refuses_a_url_with_password_and_allows_non_secret_key_names():
     for key, value in (
         ("SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS", "365"),
         ("SERVICE_ACCOUNT_KEY_DEFAULT_TTL_DAYS", "90"),
-        ("CLOUDTALK_API_KEY_ID", "12345"),
+        ("RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID", "12345"),
         ("PUBLIC_BASE_URL", "https://nexus.example"),
     ):
         result = _run_set_env(key, value)

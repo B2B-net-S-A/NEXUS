@@ -531,7 +531,7 @@ async def test_delivery_demands_query_uses_resolved_job_ids(
 
 
 @pytest.mark.asyncio
-async def test_disabled_cloudtalk_is_unavailable_not_zero(
+async def test_missing_telephony_is_unavailable_not_zero(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     operator = _user(UserRole.recruiter)
@@ -576,7 +576,7 @@ async def test_disabled_cloudtalk_is_unavailable_not_zero(
     )
     monkeypatch.setattr(
         dashboard_v2_sources,
-        "cloudtalk_calls_available",
+        "telephony_calls_available",
         lambda: False,
     )
 
@@ -740,7 +740,7 @@ async def test_missing_contact_queue_marks_overdue_actions_partial(
     )
     monkeypatch.setattr(
         dashboard_v2_sources,
-        "cloudtalk_calls_available",
+        "telephony_calls_available",
         lambda: False,
     )
 
@@ -798,7 +798,7 @@ async def test_malformed_my_work_sources_never_become_complete_zeroes(
     )
     monkeypatch.setattr(
         dashboard_v2_sources,
-        "cloudtalk_calls_available",
+        "telephony_calls_available",
         lambda: True,
     )
 

@@ -1038,7 +1038,6 @@ async def callback(
         if new_role == UserRole.finance:
             user.allowed_sections = []
             user.kpi_coach_enabled = False
-            user.cloudtalk_agent_id = None
             user.profile_completed = True
             user.profile_completed_at = user.profile_completed_at or datetime.now(
                 timezone.utc

@@ -2,7 +2,7 @@
 
 Pokrywa: powtórne przejście przez stage, atrybucję pierwszego weryfikatora,
 fallback bez verified, rozmowy completed z COALESCE(started_at, created_at),
-CloudTalk unavailable (KPI rozmów znika zamiast straszyć zerem), target
+brak telefonii (KPI rozmów znika zamiast straszyć zerem), target
 resolution (override → rola → code default), hire rate źródeł ≤ 100%.
 """
 
@@ -240,8 +240,8 @@ async def test_target_override_beats_default(seeded):
 
 
 @pytest.mark.asyncio
-async def test_cloudtalk_off_hides_calls_kpi(seeded, monkeypatch):
-    """CloudTalk off ⇒ KPI rozmów ZNIKA (unavailable), nie świeci zerem."""
+async def test_no_telephony_hides_calls_kpi(seeded, monkeypatch):
+    """Bez telefonii KPI rozmów ZNIKA (unavailable), nie świeci zerem."""
     monkeypatch.setattr(kpi_catalog, "TELEPHONY_AVAILABLE", False)
     async with AsyncSessionLocal() as db:
         user = await db.get(User, seeded["user_a"])
@@ -252,7 +252,7 @@ async def test_cloudtalk_off_hides_calls_kpi(seeded, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cloudtalk_on_shows_calls_kpi(seeded, monkeypatch):
+async def test_telephony_on_shows_calls_kpi(seeded, monkeypatch):
     monkeypatch.setattr(kpi_catalog, "TELEPHONY_AVAILABLE", True)
     async with AsyncSessionLocal() as db:
         user = await db.get(User, seeded["user_a"])

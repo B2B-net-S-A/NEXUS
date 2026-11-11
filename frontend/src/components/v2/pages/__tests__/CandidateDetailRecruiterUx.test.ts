@@ -83,8 +83,8 @@ describe("profil kandydata — kontrakt zmian UX rekrutera", () => {
     expect(ROOT).not.toContain("AddToMarketplaceButton");
   });
 
-  it("nie ma przycisku CloudTalk ani statusu sprawy kontaktu (D3 — 10 połączeń, 0 spraw)", () => {
-    for (const gone of ["<CallButton", "ContactStatusBadge", "ContactOutcomeSheet", "useCloudTalkEnabled"]) {
+  it("nie ma przycisku dzwonienia ani statusu sprawy kontaktu (D3 — 10 połączeń, 0 spraw)", () => {
+    for (const gone of ["<CallButton", "ContactStatusBadge", "ContactOutcomeSheet"]) {
       expect(ALL).not.toContain(gone);
     }
     // Pasek „Ocena ryzyka jest chwilowo niedostępna” — trasa nie zwraca 5xx.

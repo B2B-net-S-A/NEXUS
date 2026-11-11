@@ -97,7 +97,7 @@ wiersz „Podsumowanie” dnia wpisywany ręcznie). Makiety: https://claude.ai/a
   zwykłym znakiem. „Umówione spotkanie” z klawisza otwiera to samo okno szansy.
 - **Licznik „Dziś”** (telefony · rozmowy · oferty · spotkania, obok poprzedni dzień roboczy)
   to świadomy wyjątek od „bez paska postępu”: sam licznik, **bez celu i bez porównania
-  z innymi**. Liczy jak „Skuteczność”: rozmowa = wynik inny niż „Nie odebrał”, spotkanie raz
+  z innymi**. Liczy jak „Skuteczność”: rozmowa = wynik inny niż „Nie odebrał” i „Zły numer”, spotkanie raz
   na szansę. Ranking osób jest tylko na ekranie „Skuteczność”.
 - **Widok „Tabela”** (przełącznik obok filtra kampanii): wszystkie rekordy osoby
   (`GET /api/sales/calling/records`) z filtrem po wyniku i licznikami, kolory jak w legendzie

@@ -5804,7 +5804,6 @@ export const championApi = {
 export type ChampionSuggestionSource =
   | "jd_paste"
   | "fireflies_meeting"
-  | "cloudtalk_call"
   | "manual_consultant_note"
   | "historical_jobs";
 
@@ -7948,7 +7947,7 @@ export const dictionariesApi = {
     ),
 };
 
-// ── CloudTalk telephony (Phase CloudTalk.2+) ────────────────────────────────
+// ── Rozmowy telefoniczne (rejestr dodawany ręcznie) ────────────────────────
 
 export type CallDirection = "inbound" | "outbound";
 export type CallStatus =
@@ -7968,8 +7967,6 @@ export interface Call {
   transcript: string | null;
   summary: string | null;
   recording_url: string | null;
-  cloudtalk_call_id: string | null;
-  cloudtalk_agent_id: number | null;
   started_at: string | null;
   created_at: string;
 }

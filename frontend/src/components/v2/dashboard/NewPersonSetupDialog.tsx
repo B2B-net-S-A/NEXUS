@@ -257,7 +257,7 @@ export function NewPersonSetupDialog({ person, presetKeep = false, isAdmin, onCl
           <li className="flex items-start gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
-              Cele KPI: domyślne cele rekrutera. Liga, CloudTalk i Traffit łączą się same po adresie e-mail. Osoba
+              Cele KPI: domyślne cele rekrutera. Liga i Traffit łączą się same po adresie e-mail. Osoba
               zostanie wylogowana i przy następnym logowaniu wybierze swoje aktywne rekrutacje.
             </span>
           </li>

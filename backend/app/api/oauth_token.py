@@ -125,7 +125,7 @@ async def issue_token(
     # tu token jest bezużyteczny, a Ustawienia reklamują integracje, których
     # kontrakt nie istnieje. Do rozstrzygnięcia: podpiąć `require_scope` pod
     # endpointy integracyjne ALBO zabramkować cały router flagą
-    # `OAUTH_CLIENTS_ENABLED` (wzorzec `CLOUDTALK_ENABLED`). Limit wyżej to
+    # `OAUTH_CLIENTS_ENABLED` (wzorzec wyłączników integracji). Limit wyżej to
     # doraźna obrona, nie decyzja o losie tej funkcji.
     # Look up client. We answer ALL credential failures with the same 401
     # message + body so a probing caller cannot tell whether the client_id

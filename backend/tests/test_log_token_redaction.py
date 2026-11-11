@@ -1,6 +1,7 @@
 """Capability tokens in URL paths must not survive into logs.
 
-Signature links, CV/champion/apply share links and CloudTalk webhooks carry
+Signature links, CV/champion/apply share links and the retired telephony
+webhook (410 stub) carry
 their secret in the URL path. The default uvicorn access log writes the full
 path, so without redaction the raw token ships to Loki/Grafana and the
 reverse-proxy log — meaning a log reader gains the same access the token grants.
