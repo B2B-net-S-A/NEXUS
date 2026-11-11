@@ -3,7 +3,7 @@
     "id": "sprzedaz-dzwonienie-po-excelu",
     "pr": 3315,
     "title": "Dzwonienie: klawisze, „Nie zainteresowany”, licznik „Dziś” i tabela",
-    "why": "Wszystko, co było w Excelu, jest teraz w kolejce. Wynik zapiszesz klawiszem 1–7, „Nie zainteresowany” wraca za pół roku albo nigdy, a „Zły numer” zamyka osobę. Dzień liczy się sam, bez wiersza „Podsumowanie”. W tabeli widzisz całą listę z kolorami jak w Excelu.",
+    "why": "To, co było w Excelu, jest w kolejce: wynik klawiszem 1–7, „Nie zainteresowany” wraca za pół roku albo nigdy, dzień liczy się sam, a tabela pokazuje całą listę z kolorami.",
     "tier": "tour",
     "shipped_on": "2026-11-11",
     "audience": {
@@ -19,7 +19,7 @@
       {
         "anchor": "sales.calling.outcomes",
         "text": "Wynik zapiszesz też klawiszem 1–7.",
-        "hint": "Numer stoi przy przycisku. Po zapisie karta od razu przechodzi do następnej osoby. „Nie zainteresowany” pyta, kiedy wrócić (domyślnie za pół roku, można „Nigdy”).",
+        "hint": "Numer stoi przy przycisku, po zapisie od razu następna osoba. „Nie zainteresowany” pyta, kiedy wrócić: domyślnie za pół roku, można „Nigdy”.",
         "ack": true
       },
       {
