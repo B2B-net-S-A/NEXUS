@@ -512,7 +512,7 @@ async def run_and_persist() -> dict[str, Any]:
 async def notes_insights_sync_loop() -> None:
     """Pętla tła — rejestrowana w lifespanie ``main.py``.
 
-    Wyłączona flaga kończy pętlę PRZED wejściem w while (lekcja z CloudTalka:
+    Wyłączona flaga kończy pętlę PRZED wejściem w while (lekcja z usuniętej telefonii:
     pętla budząca się co minutę, żeby sprawdzić tę samą flagę, to hałas).
     """
     if not settings.NOTES_INSIGHTS_SYNC_ENABLED:

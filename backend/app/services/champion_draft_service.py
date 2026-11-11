@@ -124,7 +124,7 @@ async def _call_claude_json(
     started = time.time()
     # Sync Anthropic SDK — offload the multi-second LLM round-trip so it does
     # not block the single-worker event loop. This helper is shared by the
-    # champion-draft request handlers and the CloudTalk webhook. call_claude
+    # champion-draft request handlers and the Fireflies sync. call_claude
     # adds an explicit timeout + transient-retry backoff; it returns the same
     # Message the SDK would, so the parsing below is unchanged.
     message = await run_in_threadpool(
@@ -525,7 +525,7 @@ async def _generate_enrichment_suggestion(
     user_id: Optional[int],
     source_text: str = "",
 ) -> ChampionProfileSuggestion:
-    """Shared path for Fireflies / CloudTalk enrichment.
+    """Shared path for Fireflies enrichment.
 
     The LLM returns a partial delta keyed by section name. We store it raw
     (after normalisation) so UI diff-viewers can render only the sections

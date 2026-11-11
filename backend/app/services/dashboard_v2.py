@@ -1078,14 +1078,14 @@ async def build_my_work_dashboard(
             "personal_kpis",
             "personal_kpis: odpowiedź nie zawiera wszystkich kanonicznych KPI",
         )
-    calls_available = sources.cloudtalk_calls_available()
+    calls_available = sources.telephony_calls_available()
     if not calls_available:
         quality.set(
             "completed_calls",
             "unavailable",
             warnings=[
-                "CloudTalk jest wyłączony; liczba rozmów jest niedostępna, "
-                "a nie zerowa."
+                "Telefonia nie jest podłączona; liczba rozmów jest "
+                "niedostępna, a nie zerowa."
             ],
         )
     contact_status = await _capture(

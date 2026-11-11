@@ -1493,7 +1493,7 @@ async def seed():
         await db.flush()
         print(f"  Created {len(postings)} job postings (simulated)")
 
-        # ── CALLS (CloudTalk placeholder) ──────────────────────────────────────
+        # ── CALLS (rozmowy dodane ręcznie) ─────────────────────────────────────
         calls_data = [
             {
                 "candidate_id": candidates[0].id,   # Piotr Kowalski
@@ -1631,7 +1631,7 @@ async def seed():
             db.add(c)
             calls.append(c)
         await db.flush()
-        print(f"  Created {len(calls)} call records (CloudTalk placeholder)")
+        print(f"  Created {len(calls)} call records (manual)")
 
         # ─────────────────────────────────────────────────────────────────────
         # V3: ClientKnowledge — wiedza o klientach

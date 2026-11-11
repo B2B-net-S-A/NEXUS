@@ -4,7 +4,7 @@ Pętla budzi się co ``COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS`` i deaktywuje
 w NEXUSIE konta osób, które w COMPASSIE mają ``employment_status = 'exited'``.
 
 Kończy się PRZED pierwszym odczekaniem, gdy wyłączona — wzorzec z D5, żeby nie
-powtórzyć CloudTalka, gdzie proces wstawał co 60 s wyłącznie po to, by
+powtórzyć błędu usuniętej telefonii, gdzie proces wstawał co 60 s wyłącznie po to, by
 natychmiast sprawdzić tę samą flagę i zasnąć.
 """
 

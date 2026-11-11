@@ -18,7 +18,7 @@
  * Zdjęte 13.10.2026 (D1–D3, liczby z produkcji): „Obserwuj” (0 przypięć),
  * „Wrzuć na targ” (strona targu zdjęta z menu 21.09, ręcznie 2 wpisy),
  * „Korekta imienia i nazwiska” (wchodzi do „Edytuj dane”), „Generuj CV”
- * z menu (zostaje w zakładce CV i w karcie rekrutacji), przycisk CloudTalk
+ * z menu (zostaje w zakładce CV i w karcie rekrutacji), przycisk dzwonienia
  * (10 połączeń w historii) i status sprawy kontaktu (0 spraw).
  */
 

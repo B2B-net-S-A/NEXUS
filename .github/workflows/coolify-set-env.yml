@@ -89,7 +89,7 @@ jobs:
           # zdarzenia, maska chroni wyłącznie log. Sekret idzie przez
           # `value_from_secret`. Pusta wartość (wyczyszczenie) jest dozwolona.
           # Runda 8 (R8-V3-7): liczby i identyfikatory z „KEY” w nazwie
-          # (`SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS`, `CLOUDTALK_API_KEY_ID`) nie są
+          # (`SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS`, `RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID`) nie są
           # sekretami, a adres bazy z hasłem przed znakiem @ jest —
           # niezależnie od nazwy klucza.
           if [ -n "${VALUE_PLAIN}" ]; then

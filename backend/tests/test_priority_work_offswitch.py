@@ -5,7 +5,7 @@ Dwie regresje w jednym miejscu:
 1. `priority_work_loop` nie miał kill-switcha — mimo domyślnego mode=off wchodził
    w `while True` i co 300 s robił pełny przemiał (SELECT ... FOR UPDATE na
    singletonie + cztery `count()` po `recruitment_processes`), bo bramka trybu
-   siedzi dopiero w środku sweepa. Reszta pętli w tym repo (np. `cloudtalk_sync`)
+   siedzi dopiero w środku sweepa. Reszta pętli w tym repo (np. `compass_workdays_sync`)
    sprawdza flagę RAZ, przed pętlą. Health raportował przy tym „disabled", więc
    operator nie miał żadnego sygnału, że sweep jednak chodzi.
 

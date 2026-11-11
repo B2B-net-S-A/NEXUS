@@ -94,10 +94,10 @@ class KpiDef:
     in_coach: bool = True
     # Metryka wymaga telefonii. Bez niej (`TELEPHONY_AVAILABLE`) KPI nie
     # istnieje — nie ma „0/15", nie ma nudge'a.
-    requires_cloudtalk: bool = False
+    requires_telephony: bool = False
 
 
-# Telefonii nie ma od usunięcia CloudTalka (08.11.2026, D1 z audytu). Model
+# Telefonii nie ma od 08.11.2026 (D1 z audytu, integracja usunięta). Model
 # `Call` zostaje; KPI rozmów wróci, gdy pojawi się następny dostawca.
 TELEPHONY_AVAILABLE = False
 
@@ -117,7 +117,7 @@ KPI_CATALOG: tuple[KpiDef, ...] = (
         description_pl="Liczą się zakończone rozmowy telefoniczne.",
         metric=KpiMetric.completed_calls,
         default_targets=_same_for_operators(15),
-        requires_cloudtalk=True,
+        requires_telephony=True,
     ),
     KpiDef(
         kpi_id="daily_first_verifications",
@@ -212,6 +212,6 @@ def all_kpi_ids() -> tuple[str, ...]:
 
 def kpi_available(kpi: KpiDef) -> bool:
     """Czy KPI ma dziś źródło danych (telefonia dla rozmów)."""
-    if not kpi.requires_cloudtalk:
+    if not kpi.requires_telephony:
         return True
     return TELEPHONY_AVAILABLE

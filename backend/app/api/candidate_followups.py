@@ -137,7 +137,7 @@ class FollowupOutcomeIn(BaseModel):
     outcome: Literal["connected", "changed", "no_answer", "callback"]
     note: Optional[str] = Field(default=None, max_length=4000)
     callback_on: Optional[date] = None
-    # Id wiersza `calls` (zakładał go usunięty CloudTalk), nigdy dopasowanie po numerze.
+    # Id wiersza `calls` (rozmowa wychodząca tego konta), nigdy dopasowanie po numerze.
     call_id: Optional[int] = Field(default=None, ge=1)
     # `changed`: co z każdym procesem — klucz to id rekrutacji.
     processes: dict[int, Literal["interested", "withdrawing"]] = {}
@@ -597,11 +597,10 @@ async def record_followup_outcome(
             or call.candidate_id != candidate_id
             or call.user_id != current_user.id
             or call.direction != CallDirection.outbound
-            or not call.cloudtalk_call_id
         ):
             raise HTTPException(
                 status_code=422,
-                detail="Rozmowa CloudTalk nie należy do tego kandydata i użytkownika.",
+                detail="Rozmowa nie należy do tego kandydata i użytkownika.",
             )
         previous = await db.scalar(
             select(CandidateFollowup.id).where(

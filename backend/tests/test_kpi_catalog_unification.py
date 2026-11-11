@@ -329,7 +329,7 @@ async def test_monthly_race_thresholds_come_from_kpi_and_config():
 
 
 @pytest.mark.asyncio
-async def test_calls_kpi_absent_when_cloudtalk_disabled(monkeypatch):
+async def test_calls_kpi_absent_without_telephony(monkeypatch):
     uid = await _seed_user(UserRole.recruiter, label="calls")
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)

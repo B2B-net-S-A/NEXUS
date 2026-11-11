@@ -526,7 +526,7 @@ async def test_one_call_for_the_person_and_outcome_resets_everyone(
 
 
 @pytest.mark.asyncio
-async def test_followup_links_only_the_users_cloudtalk_call(
+async def test_followup_links_only_the_users_outbound_call(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async with AsyncSessionLocal() as db:
@@ -545,14 +545,13 @@ async def test_followup_links_only_the_users_cloudtalk_call(
             user_id=user_ids[0],
             direction=CallDirection.outbound,
             status=CallStatus.completed,
-            cloudtalk_call_id=f"followup-{uuid.uuid4().hex}",
             transcript="Testowy transkrypt",
         )
         unlinked = Call(
             candidate_id=cid,
             user_id=user_ids[0],
-            direction=CallDirection.outbound,
-            status=CallStatus.initiated,
+            direction=CallDirection.inbound,
+            status=CallStatus.completed,
         )
         db.add_all([linked, unlinked])
         await db.commit()
@@ -568,12 +567,12 @@ async def test_followup_links_only_the_users_cloudtalk_call(
                 json={"outcome": "no_answer", "call_id": call_id},
             )
             assert rejected.status_code == 422, rejected.text
-        no_provider_id = await api_client.post(
+        inbound = await api_client.post(
             url,
             headers=headers[0],
             json={"outcome": "no_answer", "call_id": unlinked_id},
         )
-        assert no_provider_id.status_code == 422, no_provider_id.text
+        assert inbound.status_code == 422, inbound.text
 
         saved = await api_client.post(
             url, headers=headers[0], json={"outcome": "no_answer", "call_id": linked_id}

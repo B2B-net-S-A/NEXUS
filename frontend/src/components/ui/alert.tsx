@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
  * Banner-style alert for inline notifications inside cards/forms.
  *
  * Phase 4.1 of the M365 plan — extracted from the Microsoft365Card backfill /
- * error / reconnect banners so other integration cards (CloudTalk, Autenti,
+ * error / reconnect banners so other integration cards (Autenti,
  * future Gmail) can reuse the same shape and not drift on copy/paste.
  *
  * Intentionally NOT shadcn's `<Alert />` — we want a self-contained component

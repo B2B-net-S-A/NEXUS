@@ -4,7 +4,7 @@ Two things went wrong here and they reinforced each other:
 
 * A route-level check could never have worked. Three of the five paths that
   reached Claude without charging a quota are not routes — a background sync
-  loop, a `BackgroundTask`, and a CloudTalk webhook. Every *handler* looked
+  loop, a `BackgroundTask`, and a telephony webhook (removed 08.11.2026). Every *handler* looked
   correctly wrapped while those three spent money the master toggle could not
   stop and `ai_usage_log` never saw.
 * There were two implementations of the gate with the OPPOSITE answer for a

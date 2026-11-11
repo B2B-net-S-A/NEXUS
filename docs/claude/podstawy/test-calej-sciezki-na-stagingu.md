@@ -99,7 +99,7 @@ PR-a ani raportu.
 Pętle w tle stoją (`app/core/staging.py`), wyjście na świat blokuje zapora,
 dane są z dnia kopii. Krok zależny od pętli uruchom raz ręcznie (funkcja
 pętli w `docker exec … python -c`) albo oznacz jako **niepotwierdzone** z
-powodem. To samo dla integracji zewnętrznych (M365, CloudTalk, KSeF).
+powodem. To samo dla integracji zewnętrznych (M365, KSeF).
 
 ## 5. Raport
 

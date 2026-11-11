@@ -886,8 +886,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
     # 0639: pytanie, prośba o rozmowę albo „nie pasuje” z panelu klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_panel_request'",
-    # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
-    # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
+    # callstatus 'initiated': zostaje w typie, bo enum Pythona `CallStatus` ją
+    # deklaruje (DROP wartości enuma w Postgresie nie istnieje).
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
     # contracttype: typ powstał z literówką 'uzlecenie' (0001_initial), a ORM
     # wysyła 'zlecenie'. Dodajemy poprawną; literówki NIE ruszamy, bo mogą na
@@ -2584,11 +2584,10 @@ _COLUMN_STATEMENTS = [
     # notes + calls contract_id FK (migration 0037_contracts_expansion)
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
     "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
-    # calls.candidate_id NULL — unassigned inbound CloudTalk calls (F-12,
-    # migracja 0192). Ambiguous inbound (dwóch+ kandydatów o tych samych
-    # ostatnich 9 cyfrach telefonu) NIE jest przypisywany na ślepo do
-    # najnowszego kandydata — wiersz Call powstaje z candidate_id NULL do
-    # ręcznej atrybucji. Bez tego INSERT unassigned-a padnie na NOT NULL.
+    # calls.candidate_id NULL — nieprzypisane rozmowy przychodzące (F-12,
+    # migracja 0192). Rozmowa, której numer pasował do dwóch+ kandydatów, nie
+    # trafiała na ślepo do najnowszego — wiersz Call powstawał z candidate_id
+    # NULL do ręcznej atrybucji. Model nadal dopuszcza NULL.
     # DROP NOT NULL jest idempotentny (no-op gdy kolumna już nullable).
     "ALTER TABLE calls ALTER COLUMN candidate_id DROP NOT NULL",
     # Atomic dedup dla notatek Fireflies (migracja 0186). services/fireflies_sync.py
@@ -7214,6 +7213,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "DROP TABLE IF EXISTS dr_about_calendar, dr_about_career_paths, dr_about_clients_partners, dr_about_contacts, dr_about_faq, dr_about_feedback, dr_about_glossary, dr_about_links, dr_about_org_chart, dr_about_positions, dr_about_procedures, dr_about_templates, dr_about_training, dr_about_values, dr_alerts, dr_api_key_audit_log, dr_api_keys, dr_applied_migrations, dr_competence_categories, dr_consultant_group_assignments, dr_consultant_rate_history, dr_consultants, dr_data_audit_log, dr_delivery_lead_client_assignments, dr_group_monthly_costs, dr_monthly_mrr_data, dr_mrr_import_history, dr_project_cost_groups, dr_project_monthly_costs, dr_project_other_cost_items, dr_przetargi_mrr, dr_system_config, dr_tac_linkedin_farming",
     "DROP TABLE IF EXISTS ai_budget_reservations, ai_call_ledger, ai_eval_cases, ai_eval_labels, ai_eval_outputs, ai_eval_runs, ai_eval_sets, ai_provider_compliance, ai_rollout_events, ai_rollout_observations, ai_rollout_reports, ai_rollout_state, ai_routing_activation_log, ai_routing_state",
     "DROP TABLE IF EXISTS signature_links",
+    # 0682 (11.11.2026): kolumny usuniętej telefonii (integracja zdjęta
+    # 08.11.2026). Indeksy znikają razem z kolumnami. Lustro 1:1 z migracją —
+    # pilnuje `test_telephony_columns_dropped.py`.
+    "ALTER TABLE calls DROP COLUMN IF EXISTS cloudtalk_call_id",
+    "ALTER TABLE calls DROP COLUMN IF EXISTS cloudtalk_agent_id",
+    "ALTER TABLE users DROP COLUMN IF EXISTS cloudtalk_agent_id",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7236,7 +7241,6 @@ BEGIN
                 'profile_completed_at', profile_completed_at,
                 'allowed_sections', allowed_sections,
                 'kpi_coach_enabled', kpi_coach_enabled,
-                'cloudtalk_agent_id', cloudtalk_agent_id,
                 'authorization_version', authorization_version,
                 'tokens_valid_after', tokens_valid_after,
                 'finance_requested',
@@ -7256,8 +7260,7 @@ BEGIN
             allowed_sections = '[]'::jsonb,
             profile_completed = TRUE,
             profile_completed_at = COALESCE(profile_completed_at, clock_timestamp()),
-            kpi_coach_enabled = FALSE,
-            cloudtalk_agent_id = NULL
+            kpi_coach_enabled = FALSE
         WHERE role::text = 'finance' OR roles ? 'finance';
 
         UPDATE users
