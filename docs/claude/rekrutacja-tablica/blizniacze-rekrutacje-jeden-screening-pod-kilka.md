@@ -120,6 +120,16 @@ Makiety ze stagingu: https://claude.ai/artifact/9FFtvvgsPoAenJTkK61fUh.
   (bez nowej trasy), drugą wybiera się w oknie łączenia z linią „Łączysz: …”.
   Kto może połączyć, sprawdza serwer jak dotąd (`can_link`).
 - Kropki „Nowości” na obu przyciskach (`jobs.twins.link`, `jobs.list.twins`).
+- **Zaznaczanie na liście (decyzja Artura 11.11.2026).** Wpisywanie numerów
+  w „⇄ Bliźniaki” dalej było za trudne. HoR i admin mają pole przy każdej
+  otwartej rekrutacji (w komórce nazwy, nie w osobnej kolumnie — kolumna
+  wypychała „›” poza tabelę przy 1280 px) i pasek na dole „⇄ Połącz jako
+  bliźniaki” (`twins/TwinPickBar`). Pierwsza zaznaczona to kotwica, każda
+  kolejna łączy się z nią w osobnym oknie porównania („para 1 z 3”).
+  2–4 naraz (kotwica + `max_twins`). Ikona przepięć w wierszu
+  (`SimilarJobsIconButton`) to „≈”, nie „⇄”: ta sama strzałka i „Połącz
+  i przepnij” w oknie „Podobne rekrutacje” myliły przepięcie z bliźniakiem.
+  „⇄” na liście znaczy tylko bliźniaki. Kropka Nowości `jobs.list.twin-pick`.
 
 ## Zasady bliźniaków w Ustawieniach (decyzje Artura 29.10.2026)
 

@@ -1,5 +1,22 @@
 [
   {
+    "id": "blizniaki-zaznacz-na-liscie",
+    "title": "Zaznacz rekrutacje na liście i połącz je jako bliźniaki",
+    "why": "Zaznacz pole przy 2–4 otwartych rekrutacjach i kliknij na dole „⇄ Połącz jako bliźniaki”. Przepięcia osób mają teraz ikonę „≈”, a „⇄” znaczy tylko bliźniaki.",
+    "tier": "dot",
+    "shipped_on": "2026-11-11",
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacje → pole przy rekrutacji → „⇄ Połącz jako bliźniaki”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.list.twin-pick"
+  },
+  {
     "id": "sprzedaz-siedem-zakladek",
     "pr": 3321,
     "title": "Sprzedaż: siedem zakładek i rozmowa z karty firmy",
