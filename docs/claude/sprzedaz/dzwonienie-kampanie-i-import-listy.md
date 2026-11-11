@@ -1,5 +1,5 @@
 # Dzwonienie: kolejka, kampanie i import listy — decyzje Artura 10.11.2026
-<!-- indeks: zakładka Dzwonienie, sales_call_campaigns, sales_call_records, wynik rozmowy nie jest szansą, oferta ogólna wysłana = wpis kolejki, szansa z umówionego spotkania, sześć wyników i CALL_OUTCOMES, oddzwonienie po 3 dniach roboczych, spotkania bez terminu, szanse z etapu Lead w kolejce, import CSV/xlsx z bramkami, Skąd kontakt, klient NEXUSA do Delivery Leada, bez celu dziennego i przełącznika osoby -->
+<!-- indeks: Nie zainteresowany z powrotem za pół roku albo nigdy, Zły numer, klawisze 1–7, licznik Dziś bez celu, widok Tabela, LinkedIn z importu, zakładka Dzwonienie, sales_call_campaigns, sales_call_records, wynik rozmowy nie jest szansą, oferta ogólna wysłana = wpis kolejki, szansa z umówionego spotkania, sześć wyników i CALL_OUTCOMES, oddzwonienie po 3 dniach roboczych, spotkania bez terminu, szanse z etapu Lead w kolejce, import CSV/xlsx z bramkami, Skąd kontakt, klient NEXUSA do Delivery Leada, bez celu dziennego i przełącznika osoby -->
 
 Rekomendacje A1 i A2 z przeglądu Sprzedaży (prywatny artefakt z makietami:
 https://claude.ai/artifact/PEfTGijHaxrPDZS2mkxKty). Powód: dwie osoby dzwoniące założyły
@@ -80,6 +80,35 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
   10 MB po rozpakowaniu xlsx, znaki sterujące i długości komórek. Trasy mają limit
   zapytań, dlatego moduł API nie ma `from __future__ import annotations`.
 - **Logi są publiczne:** import loguje same liczby.
+
+## Po Excelu dzwoniących — decyzje Artura 11.11.2026
+
+Powód: osoby dzwoniące prowadziły arkusz na osobę (kolor wiersza = wynik, komentarz ręcznie,
+wiersz „Podsumowanie” dnia wpisywany ręcznie). Makiety: https://claude.ai/artifact/5yiSa8H1BW5v2iewpKFFHX.
+
+- **Dwa nowe wyniki** (migracja 0682, DDL `sales_schema.CALL_OUTCOMES_V2_DDL`):
+  „Nie zainteresowany” (`not_interested`) wraca do kolejki domyślnie za pół roku, do wyboru
+  3 / 6 / 12 miesięcy albo **nigdy** (`never: true`, rekord bez daty nie wraca). To nie jest
+  sprzeciw: firma i osoba zostają do kontaktu inną drogą. „Zły numer / brak danych”
+  (`bad_contact`) zamyka rekord. „Nie zainteresowany” z datą nie wlicza się do „wróci w swoim
+  dniu”, bo pół roku czekania setek osób zasłoniłoby ten licznik.
+- **Klawisze 1–7** zapisują wynik w kolejności przycisków (`calling.KEYED_OUTCOMES`), potem
+  karta przechodzi do następnej osoby. W polu tekstowym i przy otwartym oknie klawisz jest
+  zwykłym znakiem. „Umówione spotkanie” z klawisza otwiera to samo okno szansy.
+- **Licznik „Dziś”** (telefony · rozmowy · oferty · spotkania, obok poprzedni dzień roboczy)
+  to świadomy wyjątek od „bez paska postępu”: sam licznik, **bez celu i bez porównania
+  z innymi**. Liczy jak „Skuteczność”: rozmowa = wynik inny niż „Nie odebrał”, spotkanie raz
+  na szansę. Ranking osób jest tylko na ekranie „Skuteczność”.
+- **Widok „Tabela”** (przełącznik obok filtra kampanii): wszystkie rekordy osoby
+  (`GET /api/sales/calling/records`) z filtrem po wyniku i licznikami, kolory jak w legendzie
+  Excela, klik w wiersz otwiera tę samą kartę. Sprzeciwu nie ma w tabeli ani w licznikach,
+  bo numer nie może wyjść z API. Szanse z etapu „Lead” bez żadnego wyniku z kolejki nie
+  mają jeszcze rekordu, więc w tabeli ich nie ma (są w kolejce).
+- **LinkedIn**: import czyta kolumnę „LinkedIn” (tylko adres `linkedin.com` po http/https),
+  zapisuje go przy kontakcie (pusty uzupełnia, istniejącego nie nadpisuje), karta pokazuje
+  przycisk „LinkedIn”.
+- **Przeniesienie samego Excela** (arkusz = osoba, kolor = wynik) to osobny, jednorazowy krok
+  z biegiem na sucho; zapis na produkcji tylko po zgodzie Artura.
 
 ## Nowość do przeklikania
 

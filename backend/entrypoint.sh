@@ -1357,6 +1357,8 @@ try:
         *_sales_schema.CLIENT_SUMMARY_DDL,
         # 0681: kampanie dzwonienia, rekordy kolejki i wyniki rozmów z kolejki.
         *_sales_schema.CALLING_DDL,
+        # 0682: wyniki „Nie zainteresowany” i „Zły numer / brak danych”.
+        *_sales_schema.CALL_OUTCOMES_V2_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001

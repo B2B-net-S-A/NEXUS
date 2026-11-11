@@ -5,11 +5,13 @@ import type { BadgeProps } from "@/components/ui/badge";
 import { CALL_OUTCOME_LABELS } from "@/lib/api/sales";
 import type {
   CallQueue,
+  DayCounts,
   ImportFate,
   ImportPreview,
   QueueItem,
   QueueOutcome,
   QueueSection,
+  RecordState,
 } from "@/lib/api/sales-calling";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 
@@ -24,10 +26,11 @@ export const SECTION_TITLES: Record<QueueSection, string> = {
 };
 
 /** Wyniki z datą powrotu: klik otwiera wybór dnia, reszta zapisuje się od razu. */
-export const DATED_OUTCOMES = ["call_back", "not_now"] as const;
+export const DATED_OUTCOMES = ["call_back", "not_now", "not_interested"] as const;
 export type DatedOutcome = (typeof DATED_OUTCOMES)[number];
 
-export const DATE_PRESETS: Record<DatedOutcome, { label: string; days: number }[]> = {
+/** `days: null` = „Nigdy” (tylko „Nie zainteresowany”: rekord nie wraca do kolejki). */
+export const DATE_PRESETS: Record<DatedOutcome, { label: string; days: number | null }[]> = {
   call_back: [
     { label: "Jutro", days: 1 },
     { label: "Za 3 dni", days: 3 },
@@ -38,7 +41,40 @@ export const DATE_PRESETS: Record<DatedOutcome, { label: string; days: number }[
     { label: "Za kwartał", days: 90 },
     { label: "Za pół roku", days: 180 },
   ],
+  // Decyzja Artura 11.11.2026: domyślnie pół roku, do wyboru 3 / 12 miesięcy albo nigdy.
+  not_interested: [
+    { label: "Za 3 miesiące", days: 91 },
+    { label: "Za pół roku", days: 182 },
+    { label: "Za rok", days: 365 },
+    { label: "Nigdy", days: null },
+  ],
 };
+
+/**
+ * Wyniki w kolejności przycisków i klawiszy 1–7 (decyzja Artura 11.11.2026: wynik
+ * z klawiatury, potem od razu następna osoba — jak wpisywanie w Excelu, tylko szybciej).
+ */
+export const KEYED_OUTCOMES: QueueOutcome[] = [
+  "no_answer",
+  "call_back",
+  "offer_sent",
+  "meeting_booked",
+  "not_interested",
+  "bad_contact",
+  "not_now",
+];
+
+export function outcomeKey(outcome: QueueOutcome): string | null {
+  const index = KEYED_OUTCOMES.indexOf(outcome);
+  return index < 0 ? null : String(index + 1);
+}
+
+/** Klawisz liczy się tylko poza polem tekstowym i bez modyfikatorów. */
+export function outcomeForKey(event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey">): QueueOutcome | null {
+  if (event.altKey || event.ctrlKey || event.metaKey) return null;
+  const index = Number(event.key) - 1;
+  return Number.isInteger(index) && index >= 0 ? (KEYED_OUTCOMES[index] ?? null) : null;
+}
 
 export function outcomeLabel(outcome: QueueOutcome): string {
   return CALL_OUTCOME_LABELS[outcome];
@@ -203,4 +239,45 @@ export function fileProblem(file: Pick<File, "name" | "size">): string | null {
   if (!name.endsWith(".csv") && !name.endsWith(".xlsx")) return "Import przyjmuje plik CSV albo Excel (.xlsx).";
   if (file.size > IMPORT_MAX_BYTES) return "Plik przekracza limit 2 MB.";
   return null;
+}
+
+// ── Widok „Tabela” i licznik „Dziś” (decyzje Artura 11.11.2026) ─────────────
+
+/** Kolejność filtrów tabeli; sprzeciwu nie ma (numer nie wychodzi z API). */
+export const TABLE_STATES: RecordState[] = [
+  "new",
+  "no_answer",
+  "call_back",
+  "offer_sent",
+  "meeting_booked",
+  "not_now",
+  "not_interested",
+  "bad_contact",
+];
+
+/** Kolory jak w legendzie Excela dzwoniących: żółty oferta, niebieski spotkanie, czerwony „nie”. */
+export const STATE_TONES: Record<RecordState, NonNullable<BadgeProps["variant"]>> = {
+  new: "outline",
+  no_answer: "neutral",
+  call_back: "soft",
+  not_now: "neutral",
+  offer_sent: "warning",
+  meeting_booked: "info",
+  not_interested: "danger",
+  bad_contact: "outline",
+  do_not_contact: "danger",
+};
+
+export function stateLabel(state: RecordState): string {
+  return state === "new" ? "Nowy" : outcomeLabel(state);
+}
+
+/** „23 telefony · 9 rozmów · 3 oferty · 1 spotkanie”: zastępuje ręczne „Podsumowanie”. */
+export function dayLine(counts: DayCounts): string {
+  return [
+    plural(counts.calls, "telefon", "telefony", "telefonów"),
+    plural(counts.talks, "rozmowa", "rozmowy", "rozmów"),
+    plural(counts.offers, "oferta", "oferty", "ofert"),
+    plural(counts.meetings, "spotkanie", "spotkania", "spotkań"),
+  ].join(" · ");
 }

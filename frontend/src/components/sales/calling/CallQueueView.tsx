@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Button } from "@/components/ui/button";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { usePipelines } from "@/lib/api/sales";
 import { useCallQueue, type CallQueue, type QueueItem, type QueueSection } from "@/lib/api/sales-calling";
 import { hasPermission } from "@/lib/permissions";
@@ -13,11 +14,15 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { formatWeekdayDayPl } from "@/lib/date-pl";
+
 import { dayHeading } from "../my-day";
 import { CallCard, type MeetingStage } from "./CallCard";
+import { CallTableView } from "./CallTableView";
 import { CampaignsDialog } from "./CampaignsDialog";
 import { ImportListDialog } from "./ImportListDialog";
 import {
+  dayLine,
   isQueueEmpty,
   itemReason,
   nextKey,
@@ -160,7 +165,7 @@ function QueueBoard({ queue, canEdit, meetingStage }: QueueBoardProps) {
           </section>
         ))}
         <p className="px-3 py-1.5 text-xs text-muted-foreground">
-          „Nie teraz” i „Oddzwonić” wracają tu same w wybranym dniu.
+          „Oddzwonić”, „Nie teraz” i „Nie zainteresowany” wracają tu same w wybranym dniu.
         </p>
       </div>
       {selected && (
@@ -224,6 +229,7 @@ export function CallQueueView() {
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
   const [campaignId, setCampaignId] = useState<number | null>(null);
+  const [view, setView] = useState<"queue" | "table">("queue");
   const query = useCallQueue(campaignId);
   const pipelines = usePipelines();
 
@@ -255,9 +261,31 @@ export function CallQueueView() {
         <p className="min-w-0 text-muted-foreground">
           <span className="font-medium text-foreground">{dayHeading(queue.today)}:</span> {queueLine(queue)}
         </p>
-        <CampaignFilter queue={queue} value={campaignId} onChange={setCampaignId} />
+        <div className="flex flex-wrap items-center gap-2">
+          <CampaignFilter queue={queue} value={campaignId} onChange={setCampaignId} />
+          <SegmentedRadio
+            label="Widok"
+            size="sm"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "queue", label: "Kolejka" },
+              { value: "table", label: "Tabela" },
+            ]}
+          />
+        </div>
       </div>
-      {isQueueEmpty(queue) ? (
+      {/* Licznik bez celu (decyzja Artura 11.11.2026): zastępuje ręczne „Podsumowanie” w Excelu. */}
+      <p className="text-xs text-muted-foreground" aria-label="Dziś">
+        <span className="font-medium text-foreground">Dziś:</span> {dayLine(queue.today_counts)}
+        <span className="mx-1.5" aria-hidden>
+          ·
+        </span>
+        {formatWeekdayDayPl(queue.yesterday)}: {dayLine(queue.yesterday_counts)}
+      </p>
+      {view === "table" ? (
+        <CallTableView today={queue.today} campaignId={campaignId} canEdit={canEdit} meetingStage={meetingStage} />
+      ) : isQueueEmpty(queue) ? (
         <div className="rounded-lg border border-border bg-card">
           <EmptyState
             icon={PhoneCall}

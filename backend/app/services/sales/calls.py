@@ -38,6 +38,8 @@ OUTCOME_LABELS: dict[str, str] = {
     # Wyniki z kolejki dzwonienia (``services/sales/calling.py``).
     "offer_sent": "Oferta ogólna wysłana",
     "meeting_booked": "Umówione spotkanie",
+    "not_interested": "Nie zainteresowany",
+    "bad_contact": "Zły numer / brak danych",
 }
 OBJECTION_DETAIL = "Ta osoba zgłosiła sprzeciw wobec kontaktu, nie zapisujemy rozmowy."
 STALE_PERSON_DETAIL = (
