@@ -29,7 +29,7 @@ export interface CallPerson {
   contact_id?: number;
 }
 
-/** Makieta 11.11.2026: jedne terminy kroku w całym module (karta, Mój dzień, Zadania, tablica). */
+/** Jedne terminy kroku w całym module: karta, Mój dzień, Zadania, tablica (decyzja Artura 11.11.2026). */
 export const STEP_WHEN: { label: string; days: number }[] = [
   { label: "Jutro", days: 1 },
   { label: "Za 3 dni", days: 3 },

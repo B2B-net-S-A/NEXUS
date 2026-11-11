@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { ACTIVITY_KIND_LABELS, useCreateActivity, type OpportunityDetail, type Ref } from "@/lib/api/sales";
+import { ACTIVITY_KIND_LABELS, useCreateActivity, type Ref } from "@/lib/api/sales";
 import {
   useCallCard,
   useSaveOutcome,
@@ -41,9 +41,7 @@ import {
   type DatedOutcome,
 } from "./calling";
 
-const MEETING_TITLE = "Spotkanie wstępne";
 const MEETING_SUBJECT = "Spotkanie kwalifikujące";
-const OPPORTUNITY_SOURCE = "Dzwonienie";
 
 /** Pole tekstowe albo otwarte okno: klawisz 1–7 jest wtedy zwykłym znakiem. */
 function typingTarget(target: EventTarget | null): boolean {
@@ -367,7 +365,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
             : "To ostatnia pozycja na liście."}
       </p>
       {confirmDialog}
-      {/* Makieta 11.11.2026: ten sam formularz „Umów spotkanie” co w „Moim dniu”, z firmą i osobą z karty. */}
+      {/* Decyzja Artura 11.11.2026: ten sam formularz „Umów spotkanie” co w „Moim dniu”; szansę zakłada u prowadzącego. */}
       {booking && meetingStage && (
         <BookMeetingDialog
           company={company}

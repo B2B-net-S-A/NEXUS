@@ -43,7 +43,7 @@ const PAGE = 100;
  * (kalendarz firmy). Jak Task Center Atlasa — telefon z terminem to też
  * rzecz do zrobienia (audyt importu 28.10.2026).
  */
-/** Makieta 11.11.2026: przełożenie zadania z listy, te same terminy co w całym module. */
+/** „Przełóż” na liście: te same terminy co w całym module (decyzja Artura 11.11.2026). */
 function Reschedule({ id }: { id: number }) {
   const update = useUpdateActivity(id);
   const { showError, showSuccess } = useToast();

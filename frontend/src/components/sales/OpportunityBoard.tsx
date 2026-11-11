@@ -16,7 +16,7 @@ import { useCreateActivity, type Opportunity, type Pipeline, type Stage } from "
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
-import { dueAtMorning, plusDays } from "./CallLogDialogs";
+import { dueAtMorning, plusDays, STEP_WHEN } from "./CallLogDialogs";
 import { formatDealAmount, formatDealNumber } from "./format";
 import { amountLabel, canDragOpportunity, lastContactLabel, shortCompany, stepLabel, stepTone } from "./step";
 import { useBoardMove } from "./useBoardMove";
@@ -32,11 +32,6 @@ function amountHint(item: Opportunity): string | undefined {
   return [split, closing].filter(Boolean).join(" · ") || undefined;
 }
 
-const QUICK_WHEN = [
-  { label: "Jutro", days: 1 },
-  { label: "Za 3 dni", days: 3 },
-  { label: "Za tydzień", days: 7 },
-] as const;
 
 /**
  * Decyzja Artura 11.11.2026: krok prosto z kafelka, bez wchodzenia w kartę. „Zadzwonić” i termin
@@ -71,8 +66,8 @@ function QuickStep({ item }: { item: Opportunity }) {
       </PopoverTrigger>
       <PopoverContent className="w-auto p-2" onClick={(event) => event.stopPropagation()}>
         <p className="mb-1 text-xs text-muted-foreground">Zadzwonić…</p>
-        <div className="flex gap-1">
-          {QUICK_WHEN.map((option) => (
+        <div className="flex max-w-xs flex-wrap gap-1">
+          {STEP_WHEN.map((option) => (
             <Button
               key={option.days}
               size="sm"

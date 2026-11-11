@@ -20,8 +20,6 @@ import {
   useArchiveSalesCompany,
   useOpportunities,
   useSalesCompany,
-  useSalesContacts,
-  type MyDayRow,
   type SalesCompany,
 } from "@/lib/api/sales";
 import { hasPermission } from "@/lib/permissions";
@@ -30,12 +28,12 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { CompanyCallPanel } from "./CompanyCallPanel";
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { FilesSection } from "./FilesSection";
 import { ContactsSection } from "./ContactsSection";
 import { formatDealAmount, safeHref } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
-import { CallPanel } from "./MyDayRowPanels";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { SignalStrip } from "./signals/SignalStrip";
@@ -197,40 +195,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
     isSuccess: company.isSuccess,
   });
   const data = company.data;
-  // Makieta 11.11.2026: telefon z wynikiem przy samej firmie (`POST /companies/{id}/calls`), jak w „Moim dniu”.
   const [calling, setCalling] = useState(false);
-  const contacts = useSalesContacts(companyId, "", canEdit);
-  const reachable = (contacts.data?.items ?? []).find(
-    (contact) => !contact.do_not_contact_at && (contact.mobile_phone || contact.phone),
-  );
-  const callRow: MyDayRow | null =
-    data && reachable
-      ? {
-          key: `company-${data.id}`,
-          section: "offers",
-          company: { id: data.id, name: data.name },
-          opportunity: null,
-          activity_id: null,
-          kind: null,
-          subject: null,
-          at: new Date().toISOString(),
-          days: 0,
-          amount: null,
-          currency: "PLN",
-          open_opportunities: data.open_opportunities ?? 0,
-          duration_minutes: null,
-          web_link: null,
-          do_not_contact: false,
-          person: {
-            id: reachable.id,
-            name: reachable.full_name,
-            title: reachable.title,
-            phone: reachable.mobile_phone ?? reachable.phone,
-            email: reachable.email,
-          },
-          people_without_phone: [],
-        }
-      : null;
 
   const toggleArchive = async () => {
     if (!data) return;
@@ -276,7 +241,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               Edytuj
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setCalling((value) => !value)} disabled={!callRow}>
+            <Button size="sm" variant="outline" onClick={() => setCalling((value) => !value)} disabled={Boolean(data.archived_at)}>
               Zaloguj rozmowę
             </Button>
             <Button size="sm" onClick={() => setCreating(true)} disabled={Boolean(data.archived_at)}>
@@ -299,14 +264,8 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           {data.archived_at && (
             <StatusDot tone="warning">Firma jest w archiwum</StatusDot>
           )}
-          {calling && callRow && (
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
-              <p className="px-3 pt-2 text-sm font-medium text-foreground">
-                Rozmowa z: {callRow.person?.name}
-                {callRow.person?.phone ? ` · ${callRow.person.phone}` : ""}
-              </p>
-              <CallPanel row={callRow} onDone={() => setCalling(false)} />
-            </div>
+          {calling && (
+            <CompanyCallPanel company={{ id: data.id, name: data.name }} onDone={() => setCalling(false)} />
           )}
           <SignalStrip companyId={companyId} />
           <TabbedNav

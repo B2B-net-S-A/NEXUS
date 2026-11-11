@@ -14,7 +14,7 @@ import { CreateOpportunityFromMeetingDialog } from "./CreateOpportunityFromMeeti
 import { BookMeetingDialog } from "./handoff/BookMeetingForm";
 import { formatDealAmount, safeHref } from "./format";
 import { clock, replyHref, rowReason, telHref } from "./my-day";
-import { CallPanel, PhonePanel, PlanPanel } from "./MyDayRowPanels";
+import { CallPanel, callTargetOf, PhonePanel, PlanPanel } from "./MyDayRowPanels";
 
 type PanelMode = "call" | "plan" | "phone";
 
@@ -170,7 +170,7 @@ export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean
       {mode === "plan" && <PlanPanel row={row} onDone={close} />}
       {mode === "call" && (
         <CallPanel
-          row={row}
+          row={callTargetOf(row)}
           onDone={close}
           onBook={() => {
             close();

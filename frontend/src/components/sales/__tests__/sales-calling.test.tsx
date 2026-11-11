@@ -67,6 +67,29 @@ vi.mock("../OpportunityFormDialog", () => ({
     </button>
   ),
 }));
+// „Umówione spotkanie” w kolejce otwiera „Umów spotkanie” (decyzja Artura 11.11.2026).
+vi.mock("../handoff/BookMeetingForm", () => ({
+  BookMeetingDialog: ({
+    onSaved,
+    onClose,
+    ...props
+  }: {
+    onSaved: (handoff: { opportunity: { id: number } }) => void;
+    onClose: () => void;
+    [key: string]: unknown;
+  }) => (
+    <button
+      type="button"
+      data-props={JSON.stringify(props)}
+      onClick={() => {
+        onSaved({ opportunity: { id: 77 } });
+        onClose();
+      }}
+    >
+      Formularz szansy
+    </button>
+  ),
+}));
 vi.mock("../SalesSelect", () => ({
   // Radix Select nie daje się wybrać w jsdom: w teście wystarcza zwykła lista.
   SalesSelect: ({
@@ -375,20 +398,15 @@ describe("kolejka", () => {
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "do_not_contact" });
   });
 
-  it("umówione spotkanie z rekordu kampanii zakłada szansę na etapie spotkania", () => {
+  it("umówione spotkanie z rekordu kampanii otwiera „Umów spotkanie” z firmą, osobą i kampanią", () => {
     queue.mockReturnValue(ok(callQueue({ new: [fresh] })));
     render(<CallQueueView />);
     fireEvent.click(screen.getByRole("button", { name: "Umówione spotkanie" }));
     expect(saveOutcome).not.toHaveBeenCalled();
     const form = screen.getByRole("button", { name: "Formularz szansy" });
-    expect(JSON.parse(form.getAttribute("data-defaults") ?? "{}")).toEqual({
-      title: "Spotkanie wstępne",
-      service_line: null,
-      stage_id: 12,
-      primary_contact_id: 31,
-      source: "Dzwonienie",
-      campaign: "Kampania Testowa",
-    });
+    const props = JSON.parse(form.getAttribute("data-props") ?? "{}");
+    expect(props).toMatchObject({ contactId: 31, service: "Kampania Testowa" });
+    expect(props.company.id).toBeGreaterThan(0);
     fireEvent.click(form);
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ item: fresh, outcome: "meeting_booked", opportunity_id: 77 });
   });

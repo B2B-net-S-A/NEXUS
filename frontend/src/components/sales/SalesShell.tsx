@@ -23,7 +23,7 @@ export type SalesSection =
   | "leads"
   | "tasks";
 
-// Makieta 11.11.2026: siedem zakładek zamiast dziesięciu. Kontakty, Zadania i Podsumowanie
+// Siedem zakładek zamiast dziesięciu (decyzja Artura 11.11.2026). Kontakty, Zadania i Podsumowanie
 // zostają pod swoimi adresami, ale wchodzi się do nich przełącznikiem w zakładce-rodzicu.
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
   { value: "my-day", label: "Mój dzień", href: "/sales/my-day" },
@@ -51,7 +51,7 @@ const SUB_VIEWS: Partial<Record<SalesSection, { label: string; href: string }[]>
 };
 
 /** Zakładka-rodzic na pasku: Kontakty pod Firmami, Zadania pod „Moim dniem”, Podsumowanie pod Szansami. */
-function tabOf(section: SalesSection): SalesSection {
+export function tabOf(section: SalesSection): SalesSection {
   if (section === "contacts") return "companies";
   if (section === "tasks") return "my-day";
   if (section === "summary") return "opportunities";
@@ -63,7 +63,7 @@ function SubViews({ pathname }: { pathname: string }) {
   const views = SUB_VIEWS[tabOf(activeSection(pathname))];
   if (!views) return null;
   return (
-    <div role="tablist" aria-label="Widok" className="inline-flex rounded-md border border-border bg-card p-0.5 text-xs">
+    <div role="tablist" aria-label="Widok" data-tour="sales.subviews" className="inline-flex rounded-md border border-border bg-card p-0.5 text-xs">
       {views.map((view) => {
         const active = pathname.startsWith(view.href);
         return (
@@ -137,7 +137,7 @@ export function SalesShell({ title, description, actions, hideNav, children }: S
               <div data-tour="sales.tabs" className="min-w-0 flex-1">
                 <TabbedNav
                   ariaLabel="Sprzedaż"
-                  // Dziesięć zakładek w jednym rzędzie przy 1280 px: węższe odstępy,
+                  // Zakładki w jednym rzędzie przy 1280 px: węższe odstępy,
                   // bo drugi rząd zabiera listom wysokość na ekranie 720 px.
                   listClassName="[&>button]:px-2.5"
                   tabs={SECTIONS.map(({ value, label }) => ({ value, label }))}
