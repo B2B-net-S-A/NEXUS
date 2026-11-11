@@ -36,7 +36,7 @@ class Call(Base, TimestampMixin):
     """Rejestr rozmów telefonicznych z kandydatami.
 
     Rozmowy dopisuje ręcznie ``POST /api/calls``. Integracja telefonii
-    usunięta 08.11.2026, jej kolumny zdjęte migracją 0681; wiersze zostają.
+    usunięta 08.11.2026, jej kolumny zdjęte migracją 0682; wiersze zostają.
     """
 
     __tablename__ = "calls"

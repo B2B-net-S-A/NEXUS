@@ -128,7 +128,7 @@ def test_finance_snapshot_and_cleanup_scope_match_the_startup_mirror() -> None:
     _, upgrade, _ = _migration_parts()
     cutover = _entrypoint_cutover()
 
-    # Kolumnę telefonii zdjęła migracja 0681: historyczna migracja ją
+    # Kolumnę telefonii zdjęła migracja 0682: historyczna migracja ją
     # zapisuje, lustro na starcie nie może jej już czytać.
     assert "'cloudtalk_agent_id'" in upgrade
     assert "cloudtalk_agent_id" not in cutover

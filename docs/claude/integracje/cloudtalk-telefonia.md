@@ -11,7 +11,7 @@ używamy i można to w ogóle wywalić”.
   w `.env.example`, compose i rejestrze flag), przycisku „Zadzwoń” w szybkim
   podglądzie, karty w Ustawieniach, wartości `cloudtalk_call` w enumie
   `SuggestionSource` i na froncie, pola „Agent CloudTalk” w oknie rozmowy.
-- **Baza (migracja 0681, lustro w `entrypoint.sh`, decyzja Artura 11.11.2026):**
+- **Baza (migracja 0682, lustro w `entrypoint.sh`, decyzja Artura 11.11.2026):**
   zdjęte `calls.cloudtalk_call_id`, `calls.cloudtalk_agent_id`,
   `users.cloudtalk_agent_id` z indeksami. Odczyt produkcji 10.11.2026: 0 z 10
   rozmów miało id rozmowy albo agenta, id agenta miało 1 konto. Lustro
