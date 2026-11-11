@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Meeting } from "@/lib/api/sales";
+import type { Meeting, SalesCompany } from "@/lib/api/sales";
 import type { CompanyIdentity, Handoff, HandoffWeek, HostBusy, InviteDraft } from "@/lib/api/sales-handoffs";
 
 const bookMeeting = vi.fn();
@@ -15,6 +15,8 @@ const setTerm = vi.fn();
 const confirmTerm = vi.fn();
 const createCompany = vi.fn();
 const updateCompany = vi.fn();
+const ownerCandidates = vi.fn();
+const ownerFilterOptions = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
 const identity = vi.fn();
@@ -56,6 +58,7 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useCompanyPeople: () => ({ isLoading: true, error: null, isSuccess: false }),
   useCreateSalesCompany: () => mutation(createCompany),
   useUpdateSalesCompany: () => mutation(updateCompany),
+  useOwnerCandidates: (enabled?: boolean) => ownerCandidates(enabled),
   useRegistryLookup: () => mutation(vi.fn()),
 }));
 vi.mock("@/lib/use-debounced-value", () => ({ useDebouncedValue: <T,>(value: T) => value }));
@@ -64,7 +67,7 @@ vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (state: { user: { id: number } }) => unknown) => selector({ user: { id: 3 } }),
   hasRole: () => false,
 }));
-vi.mock("../useOwnerFilterOptions", () => ({ useOwnerFilterOptions: () => [] }));
+vi.mock("../useOwnerFilterOptions", () => ({ useOwnerFilterOptions: () => ownerFilterOptions() }));
 vi.mock("../CompanyPicker", () => ({ CompanyPicker: () => null }));
 vi.mock("@/components/ds/AppModal", () => ({
   AppModal: ({ title, children, footer }: { title: string; children: ReactNode; footer?: ReactNode }) => (
@@ -76,19 +79,21 @@ vi.mock("@/components/ds/AppModal", () => ({
 }));
 vi.mock("../SalesSelect", () => ({
   SalesSelect: ({
+    id,
     value,
     onValueChange,
     options,
     ariaLabel,
     anyLabel,
   }: {
+    id?: string;
     value: string;
     onValueChange: (value: string) => void;
     options: readonly { value: string; label: string }[];
     ariaLabel?: string;
     anyLabel?: string;
   }) => (
-    <select aria-label={ariaLabel} value={value} onChange={(event) => onValueChange(event.target.value)}>
+    <select id={id} aria-label={ariaLabel} value={value} onChange={(event) => onValueChange(event.target.value)}>
       {anyLabel !== undefined && <option value="">{anyLabel}</option>}
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -161,6 +166,8 @@ const busy = (data: HostBusy) => ({ isPending: false, isSuccess: true, data });
 beforeEach(() => {
   vi.clearAllMocks();
   identity.mockReturnValue({ data: noIdentity });
+  ownerCandidates.mockReturnValue({ data: [] });
+  ownerFilterOptions.mockReturnValue([]);
   hostBusy.mockReturnValue(busy({ calendar: "ok", busy: [] }));
   contacts.mockReturnValue({ data: { items: [], total: 0 } });
   opportunities.mockReturnValue({ data: { items: [], total: 0 } });
@@ -814,5 +821,73 @@ describe("tożsamość firmy w oknie „Nowa firma”", () => {
     fireEvent.change(screen.getByLabelText("Domena poczty"), { target: { value: "wpisana.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Dodaj firmę" }));
     expect(createCompany.mock.calls[0][0].domain).toBe("wpisana.example");
+  });
+});
+
+describe("opiekun w oknie „Edytuj firmę”", () => {
+  it("zapisuje opiekuna bez szans w lejku i zachowuje istniejące tagi", () => {
+    const company: SalesCompany = {
+      id: 7,
+      name: "Firma Testowa",
+      legal_name: null,
+      nip: null,
+      krs: null,
+      regon: null,
+      domain: null,
+      website_url: null,
+      linkedin_url: null,
+      industry: null,
+      size_range: null,
+      hq_city: null,
+      hq_country: null,
+      description: null,
+      lifecycle_stage: "lead",
+      tier: null,
+      status: "active",
+      tags: ["ważne", "kontakt"],
+      source: null,
+      parent: null,
+      client: null,
+      owner: { id: 11, name: "Obecny Opiekun" },
+      owner_label: null,
+      needs_review: false,
+      open_opportunities: 0,
+      open_value: "0",
+      archived_at: null,
+      created_at: "2026-11-01T10:00:00Z",
+      updated_at: "2026-11-01T10:00:00Z",
+    };
+    ownerFilterOptions.mockReturnValue([
+      { value: "acct:12", label: "Opiekun z lejka" },
+      { value: "acct:13", label: "Opiekun z obu list" },
+    ]);
+    ownerCandidates.mockReturnValue({
+      data: [
+        { id: 13, name: "Powtórzony opiekun" },
+        { id: 14, name: "Nowy Opiekun" },
+      ],
+    });
+
+    render(<CompanyFormDialog open onOpenChange={vi.fn()} company={company} />);
+
+    const owner = screen.getByLabelText("Opiekun");
+    const choices = within(owner).getAllByRole("option");
+    expect(owner).toHaveValue("11");
+    expect(choices.map((choice) => choice.textContent)).toEqual([
+      "Bez opiekuna",
+      "Obecny Opiekun",
+      "Opiekun z lejka",
+      "Opiekun z obu list",
+      "Nowy Opiekun",
+    ]);
+    fireEvent.change(owner, { target: { value: "14" } });
+    fireEvent.change(screen.getByLabelText("Tagi (po przecinku)"), { target: { value: "ważne, kontakt, nowy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(updateCompany).toHaveBeenCalledTimes(1);
+    expect(updateCompany.mock.calls[0][0]).toMatchObject({
+      owner_user_id: 14,
+      tags: ["ważne", "kontakt", "nowy"],
+    });
   });
 });
