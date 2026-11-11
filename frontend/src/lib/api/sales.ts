@@ -1867,12 +1867,13 @@ export interface OwnerLabel {
 
 const OWNER_CANDIDATES_STALE_MS = 5 * 60_000;
 
-/** Komu można przekazać szansę: aktywne konta z „Sprzedaż: edycja”. */
-export function useOwnerCandidates() {
+/** Aktywne konta z uprawnieniem „Sprzedaż: edycja”. */
+export function useOwnerCandidates(enabled = true) {
   return useQuery({
     queryKey: salesKeys.ownerCandidates,
     queryFn: async () => (await api.get<Ref[]>("/api/sales/opportunities/owner-candidates")).data,
     staleTime: OWNER_CANDIDATES_STALE_MS,
+    enabled,
   });
 }
 
