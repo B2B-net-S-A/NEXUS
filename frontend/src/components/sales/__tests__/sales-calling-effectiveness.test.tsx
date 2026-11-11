@@ -24,7 +24,7 @@ vi.mock("@/store/auth", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => "/sales/calling/effectiveness" }));
 
 import { CallingModeSwitch } from "../calling/CallingModeSwitch";
-import { EffectivenessView, funnelSteps, rankPeople } from "../calling/EffectivenessView";
+import { dayLabelStep, EffectivenessView, funnelSteps, rankPeople } from "../calling/EffectivenessView";
 
 const hours = Array.from({ length: 5 }, (_, weekday) =>
   Array.from({ length: 10 }, (_, i) => ({ weekday, hour: 8 + i, calls: 0, talks: 0, rate: null })),
@@ -55,11 +55,16 @@ function data(overrides: Partial<Effectiveness> = {}): Effectiveness {
     hours,
     offer_followup: { offer_sent: 6, meeting_booked: 2 },
     people: [
-      { user_id: 1, name: "Osoba Alfa", days: 2, calls: 30, talks: 10, offers: 5, meetings: 1, dated: 0, qualified: 0 },
-      { user_id: 2, name: "Osoba Beta", days: 2, calls: 10, talks: 10, offers: 3, meetings: 3, dated: 1, qualified: 0 },
+      { user_id: 1, name: "Osoba Alfa", days: 2, calls: 30, talks: 10, offers: 5, meetings: 1, dated: 0, qualified: 0, excel_days: 0, excel_meetings: 0 },
+      { user_id: 2, name: "Osoba Beta", days: 2, calls: 10, talks: 10, offers: 3, meetings: 3, dated: 1, qualified: 0, excel_days: 0, excel_meetings: 0 },
     ],
     insights: [{ tone: "warning", text: "3 z 4 umówionych spotkań nie ma terminu w NEXUSIE." }],
     campaign_options: [{ id: 1, name: "Kampania Testowa" }],
+    excel: { days: 0, calls: 0, talks: 0, offers: 0, meetings: 0 },
+    daily: [
+      { day: "2026-11-09", calls: 25, talks: 12, offers: 5, meetings: 3, source: "journal" },
+      { day: "2026-11-10", calls: 15, talks: 8, offers: 3, meetings: 1, source: "journal" },
+    ],
     ...overrides,
   };
 }
@@ -148,6 +153,61 @@ describe("Skuteczność dzwonienia", () => {
     render(<EffectivenessView />);
     expect(screen.queryByText("W tym okresie nie ma zapisanych telefonów.")).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("dni z Excela: notka, „z terminem” tylko wobec spotkań z NEXUSA i źródło w tabeli dni", () => {
+    // Fikcyjny okres: 2 dni z Excela (Osoba Alfa) i 1 dzień z kolejki (Osoba Beta).
+    const withExcel = data({
+      funnel: { calls: 90, talks: 40, offers: 10, meetings: 5, dated: 1, held: 0, qualified: 0 },
+      excel: { days: 2, calls: 80, talks: 35, offers: 8, meetings: 3 },
+      insights: [],
+      people: [
+        { user_id: 1, name: "Osoba Alfa", days: 2, calls: 80, talks: 35, offers: 8, meetings: 3, dated: 0, qualified: 0, excel_days: 2, excel_meetings: 3 },
+        { user_id: 2, name: "Osoba Beta", days: 1, calls: 10, talks: 5, offers: 2, meetings: 2, dated: 1, qualified: 0, excel_days: 0, excel_meetings: 0 },
+      ],
+      daily: [
+        { day: "2026-07-27", calls: 40, talks: 19, offers: 6, meetings: 0, source: "excel" },
+        { day: "2026-07-28", calls: 40, talks: 16, offers: 2, meetings: 3, source: "excel" },
+        { day: "2026-07-29", calls: 0, talks: 0, offers: 0, meetings: 0, source: "none" },
+        { day: "2026-11-10", calls: 10, talks: 5, offers: 2, meetings: 2, source: "journal" },
+      ],
+    });
+    const dated = funnelSteps(withExcel).find((s) => s.key === "dated");
+    // 3 spotkania z Excela nie mają terminu z definicji: nie wchodzą do ostrzeżenia.
+    expect(dated?.hint).toBe("1 z 2 z kolejki");
+    expect(dated?.warn).toBe(true);
+
+    effectiveness.mockReturnValue(ok(withExcel));
+    render(<EffectivenessView />);
+    expect(screen.getByText(/W tym 2 dni z Excela \(80 tel\., 35 rozm\., 3 spotk\.\)/)).toBeInTheDocument();
+    const ranking = within(screen.getByRole("region", { name: "Ranking osób" }));
+    expect(ranking.getByText(/2 dni dzwonienia · 2 z Excela/)).toBeInTheDocument();
+    // Osoba tylko z Excela nie ma „0 z 0” ani ostrzeżenia, tylko kreskę.
+    const alfa = ranking.getByText("Osoba Alfa").closest("tr") as HTMLElement;
+    expect(within(alfa).getAllByRole("cell").at(-2)?.textContent).toBe("—");
+
+    const daily = within(screen.getByRole("region", { name: "Dzień po dniu" }));
+    expect(daily.getByText(/rozmowy z Excela/)).toBeInTheDocument();
+    // Dzień bez liczb zostaje luką na osi, ale nie wierszem tabeli.
+    expect(daily.getByText("puste miejsce: dzień roboczy bez liczb (1 dzień)")).toBeInTheDocument();
+    expect(screen.getByText(/podsumowania z Excela ich nie mają/)).toBeInTheDocument();
+    const rows = daily.getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell").map((c) => c.textContent))).toEqual([
+      ["10.11", "10", "5", "2", "2", "NEXUS"],
+      ["28.07", "40", "16", "2", "3", "Excel"],
+      ["27.07", "40", "19", "6", "0", "Excel"],
+    ]);
+  });
+
+  it("bez Excela nie ma notki ani legendy Excela", () => {
+    effectiveness.mockReturnValue(ok(data()));
+    render(<EffectivenessView />);
+    expect(screen.queryByText(/z Excela/)).not.toBeInTheDocument();
+  });
+
+  it("podpisy osi dni nie gęstnieją przy długim okresie", () => {
+    expect(dayLabelStep(5)).toBe(1);
+    expect(dayLabelStep(80)).toBe(7);
   });
 
   it("przełącznik „Kolejka | Skuteczność” widzi tylko „Sprzedaż: edycja”", () => {

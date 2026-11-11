@@ -102,6 +102,53 @@ def test_duplicate_report_uses_nip_regon_and_aliases_without_merging() -> None:
 
 
 @pytest.mark.asyncio
+async def test_plan_reads_dependency_counts_once_per_client_not_per_pair(
+    monkeypatch,
+) -> None:
+    # 11.11.2026: 48 identical client names left by CI tests gave 1128 pairs,
+    # and each pair re-read the FK catalog for both clients: 36 min per plan.
+    same_name = [_client(client_id, "Nordea Bank") for client_id in range(40, 46)]
+    monkeypatch.setattr(
+        service,
+        "_load_directory_clients",
+        AsyncMock(return_value=(same_name, {})),
+    )
+    specs = [
+        {"table": "contracts", "column": "client_id", "primary_key_columns": ["id"]}
+    ]
+    fk_specs = AsyncMock(return_value=specs)
+    monkeypatch.setattr(service, "_direct_client_fk_specs", fk_specs)
+
+    async def fk_counts(db, client_id, *, specs=None):
+        assert specs is not None
+        return [{"table": "contracts", "rows": client_id}]
+
+    fk_counts_mock = AsyncMock(side_effect=fk_counts)
+    monkeypatch.setattr(service, "_direct_client_fk_counts", fk_counts_mock)
+    jsonb_mock = AsyncMock(side_effect=lambda db, client_id: client_id % 2)
+    monkeypatch.setattr(service, "_candidate_excluded_client_count", jsonb_mock)
+
+    plan = await service.build_client_portfolio_plan(
+        SimpleNamespace(), manifest=_manifest()
+    )
+
+    assert len(plan["duplicate_candidates"]) == 15
+    assert fk_specs.await_count == 1
+    assert sorted(call.args[1] for call in fk_counts_mock.await_args_list) == list(
+        range(40, 46)
+    )
+    assert jsonb_mock.await_count == 6
+    for candidate in plan["duplicate_candidates"]:
+        for client_id in candidate["client_ids"]:
+            assert candidate["dependency_counts"][str(client_id)] == [
+                {"table": "contracts", "rows": client_id}
+            ]
+            assert candidate["jsonb_dependency_counts"][str(client_id)] == (
+                client_id % 2
+            )
+
+
+@pytest.mark.asyncio
 async def test_kir_alias_cannot_select_an_unapproved_survivor(monkeypatch) -> None:
     unrelated = _client(10, "Unrelated Holdings")
     exact_duplicate = _client(11, "Krajowa Izba Rozliczeń S.A.")

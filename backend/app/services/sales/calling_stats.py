@@ -13,7 +13,13 @@ Reguły: ``docs/claude/sprzedaz/dzwonienie-skutecznosc.md``. W skrócie:
 * osoby są w tabeli z liczbami i sortowaniem (ranking jest decyzją Artura z
   11.11.2026); kolejka dalej nie ma rankingu ani celu dziennego;
 * wnioski liczą reguły z progiem próby, nie model: przy kilkunastu rozmowach
-  różnica procentów nic nie znaczy, więc zdanie się wtedy nie pojawia.
+  różnica procentów nic nie znaczy, więc zdanie się wtedy nie pojawia;
+* historia sprzed kolejki to ręczne podsumowania dni z Excela dzwoniących
+  (``sales_call_day_totals``, źródło ``excel``). Dzień osoby, który ma choć jeden
+  telefon w dzienniku, liczy się wyłącznie z dziennika; podsumowanie z Excela
+  bierzemy tylko dla dni bez telefonów, więc żaden dzień nie liczy się dwa razy.
+  Excel nie zna kampanii, list, godzin, wyników ani terminów spotkań, więc te
+  części ekranu zostają przy dzienniku, a filtr kampanii pomija Excela.
 
 Zapytania tylko czytają. Agregacja jest w czystej funkcji ``summarize``.
 """
@@ -34,6 +40,7 @@ from app.core.scheduling import DEFAULT_TZ, is_business_day, local_day_start_utc
 from app.models.sales import (
     SalesActivity,
     SalesCallCampaign,
+    SalesCallDayTotal,
     SalesCallRecord,
     SalesOpportunity,
 )
@@ -80,6 +87,18 @@ class CallRow:
 
 
 @dataclass(frozen=True)
+class DayTotalRow:
+    """Ręczne podsumowanie dnia z Excela dzwoniącego (sprzed kolejki)."""
+
+    user_id: int
+    day: date
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+
+
+@dataclass(frozen=True)
 class MeetingRow:
     opportunity_id: int
     dated: bool
@@ -104,6 +123,32 @@ class Funnel:
     dated: int
     held: int
     qualified: int
+
+
+@dataclass(frozen=True)
+class ExcelShare:
+    """Część lejka z podsumowań Excela (dni bez telefonów w dzienniku)."""
+
+    days: int
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+
+
+@dataclass(frozen=True)
+class DayStats:
+    """Jeden dzień okresu dla wszystkich osób razem."""
+
+    day: date
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+    #: ``journal`` – tylko dziennik, ``excel`` – tylko podsumowania, ``mixed`` – oba
+    #: (różne osoby tego dnia), ``none`` – dzień roboczy bez żadnych liczb (luka
+    #: zostaje na osi, żeby tygodnie bez podsumowań nie zlewały się w ciągłość).
+    source: Literal["journal", "excel", "mixed", "none"]
 
 
 @dataclass(frozen=True)
@@ -151,6 +196,9 @@ class PersonStats:
     meetings: int
     dated: int
     qualified: int
+    #: Ile z ``days`` (i ile spotkań) to dni z podsumowań Excela.
+    excel_days: int = 0
+    excel_meetings: int = 0
 
 
 @dataclass(frozen=True)
@@ -172,6 +220,8 @@ class Effectiveness:
     offer_followup: dict[str, int]
     people: list[PersonStats]
     insights: list[Insight]
+    excel: ExcelShare = ExcelShare(days=0, calls=0, talks=0, offers=0, meetings=0)
+    daily: list[DayStats] = field(default_factory=list)
     campaign_options: list[tuple[int, str]] = field(default_factory=list)
 
 
@@ -190,18 +240,19 @@ def period_bounds(
     return (first_day or today), today
 
 
+def _business_days(start: date, end: date) -> set[date]:
+    days, day = set(), start
+    while day <= end:
+        if is_business_day(datetime.combine(day, time(12), tzinfo=ZONE)):
+            days.add(day)
+        day += timedelta(days=1)
+    return days
+
+
 def workdays_between(start: date, end: date) -> int:
     """Dni robocze w ``[start, end]`` (święta jak w kalendarzu firmy)."""
 
-    if end < start:
-        return 0
-    count = 0
-    day = start
-    while day <= end:
-        if is_business_day(datetime.combine(day, time(12), tzinfo=ZONE)):
-            count += 1
-        day += timedelta(days=1)
-    return count
+    return len(_business_days(start, end))
 
 
 # ── Agregacja ─────────────────────────────────────────────────────────────
@@ -245,6 +296,7 @@ def _rate(part: int, whole: int) -> str:
 
 def _insights(
     funnel: Funnel,
+    excel: ExcelShare,
     hours: list[HourCell],
     sources: list[SourceStats],
     followup: dict[str, int],
@@ -257,16 +309,18 @@ def _insights(
                 "W tym okresie nie ma zapisanych telefonów. Wyniki z kolejki pojawią się tu same.",
             )
         ]
-    undated = funnel.meetings - funnel.dated
+    # Termin i godziny zna tylko dziennik; Excel podaje same liczby dnia.
+    logged_meetings = funnel.meetings - excel.meetings
+    undated = logged_meetings - funnel.dated
     if undated > 0:
         found.append(
             Insight(
                 "warning",
-                f"{undated} z {funnel.meetings} umówionych spotkań nie ma terminu w NEXUSIE. "
+                f"{undated} z {logged_meetings} umówionych spotkań nie ma terminu w NEXUSIE. "
                 "Bez terminu handlowiec nie wie, kiedy jedzie.",
             )
         )
-    if funnel.calls >= MIN_CALLS_FOR_HOURS:
+    if funnel.calls - excel.calls >= MIN_CALLS_FOR_HOURS:
         per_hour: dict[int, list[int]] = defaultdict(lambda: [0, 0])
         for cell in hours:
             per_hour[cell.hour][0] += cell.calls
@@ -309,6 +363,56 @@ def _insights(
     return found
 
 
+def excel_days_without_calls(
+    calls: list[CallRow], day_totals: list[DayTotalRow]
+) -> list[DayTotalRow]:
+    """Podsumowania z Excela tylko dla dni osoby bez żadnego telefonu w dzienniku.
+
+    Dziennik ma pierwszeństwo: dzień z telefonami w NEXUSIE i podsumowaniem
+    z Excela liczy się raz, z dziennika (inaczej przeniesienie w środku dnia
+    liczyłoby te same telefony dwa razy).
+    """
+
+    logged = {(c.user_id, c.at.astimezone(ZONE).date()) for c in calls}
+    return [t for t in day_totals if (t.user_id, t.day) not in logged]
+
+
+def _daily(
+    calls: list[CallRow], excel: list[DayTotalRow], start: date, last: date
+) -> list[DayStats]:
+    """Każdy dzień roboczy okresu (puste też) i każdy dzień z liczbami."""
+    journal: dict[date, list[CallRow]] = defaultdict(list)
+    for call in calls:
+        journal[call.at.astimezone(ZONE).date()].append(call)
+    from_excel: dict[date, list[DayTotalRow]] = defaultdict(list)
+    for total in excel:
+        from_excel[total.day].append(total)
+    days = []
+    for day in sorted(set(journal) | set(from_excel) | _business_days(start, last)):
+        rows, totals = journal.get(day, []), from_excel.get(day, [])
+        days.append(
+            DayStats(
+                day=day,
+                calls=len(rows) + sum(t.calls for t in totals),
+                talks=sum(1 for c in rows if _is_talk(c.outcome))
+                + sum(t.talks for t in totals),
+                offers=sum(1 for c in rows if c.outcome == OFFER_SENT)
+                + sum(t.offers for t in totals),
+                meetings=_meeting_count(rows) + sum(t.meetings for t in totals),
+                source=(
+                    "mixed"
+                    if rows and totals
+                    else "excel"
+                    if totals
+                    else "journal"
+                    if rows
+                    else "none"
+                ),
+            )
+        )
+    return days
+
+
 def summarize(
     *,
     calls: list[CallRow],
@@ -319,12 +423,26 @@ def summarize(
     start: date,
     end: date,
     today: date,
+    day_totals: Optional[list[DayTotalRow]] = None,
 ) -> Effectiveness:
-    """Liczy cały ekran z telefonów okresu; bez dostępu do bazy."""
+    """Liczy cały ekran z telefonów okresu; bez dostępu do bazy.
+
+    ``day_totals`` to podsumowania z Excela; liczą się tylko dni bez telefonów
+    w dzienniku (``excel_days_without_calls``) i tylko w lejku, rankingu
+    i rozkładzie dzień po dniu.
+    """
 
     workdays = workdays_between(start, min(end, today))
     outcomes: Counter[str] = Counter(call.outcome for call in calls)
     talks = sum(n for outcome, n in outcomes.items() if _is_talk(outcome))
+    excel_rows = excel_days_without_calls(calls, day_totals or [])
+    excel = ExcelShare(
+        days=len({t.day for t in excel_rows}),
+        calls=sum(t.calls for t in excel_rows),
+        talks=sum(t.talks for t in excel_rows),
+        offers=sum(t.offers for t in excel_rows),
+        meetings=sum(t.meetings for t in excel_rows),
+    )
 
     booked_ids = {
         call.opportunity_id
@@ -333,10 +451,10 @@ def summarize(
     }
     booked = [meetings[i] for i in booked_ids if i in meetings]
     funnel = Funnel(
-        calls=len(calls),
-        talks=talks,
-        offers=outcomes.get(OFFER_SENT, 0),
-        meetings=_meeting_count(calls),
+        calls=len(calls) + excel.calls,
+        talks=talks + excel.talks,
+        offers=outcomes.get(OFFER_SENT, 0) + excel.offers,
+        meetings=_meeting_count(calls) + excel.meetings,
         dated=sum(1 for m in booked if m.dated),
         held=sum(1 for m in booked if m.verdict in handoff_state.HELD_VERDICTS),
         qualified=sum(1 for m in booked if m.verdict == "qualified"),
@@ -439,8 +557,13 @@ def summarize(
     by_user: dict[int, list[CallRow]] = defaultdict(list)
     for call in calls:
         by_user[call.user_id].append(call)
+    excel_by_user: dict[int, list[DayTotalRow]] = defaultdict(list)
+    for total in excel_rows:
+        excel_by_user[total.user_id].append(total)
     people = []
-    for user_id, rows in by_user.items():
+    for user_id in set(by_user) | set(excel_by_user):
+        rows = by_user.get(user_id, [])
+        totals = excel_by_user.get(user_id, [])
         own_booked = [
             meetings[i]
             for i in {
@@ -454,13 +577,17 @@ def summarize(
             PersonStats(
                 user_id=user_id,
                 name=names.get(user_id, f"Konto {user_id}"),
-                days=len({c.at.astimezone(ZONE).date() for c in rows}),
-                calls=len(rows),
-                talks=sum(1 for c in rows if _is_talk(c.outcome)),
-                offers=sum(1 for c in rows if c.outcome == OFFER_SENT),
-                meetings=_meeting_count(rows),
+                days=len({c.at.astimezone(ZONE).date() for c in rows}) + len(totals),
+                calls=len(rows) + sum(t.calls for t in totals),
+                talks=sum(1 for c in rows if _is_talk(c.outcome))
+                + sum(t.talks for t in totals),
+                offers=sum(1 for c in rows if c.outcome == OFFER_SENT)
+                + sum(t.offers for t in totals),
+                meetings=_meeting_count(rows) + sum(t.meetings for t in totals),
                 dated=sum(1 for m in own_booked if m.dated),
                 qualified=sum(1 for m in own_booked if m.verdict == "qualified"),
+                excel_days=len(totals),
+                excel_meetings=sum(t.meetings for t in totals),
             )
         )
     people.sort(key=lambda p: (-p.meetings, -p.talks, p.name.lower()))
@@ -478,20 +605,56 @@ def summarize(
         hours=hours,
         offer_followup=dict(followup),
         people=people,
-        insights=_insights(funnel, hours, sources, dict(followup)),
+        insights=_insights(funnel, excel, hours, sources, dict(followup)),
+        excel=excel,
+        daily=_daily(calls, excel_rows, start, min(end, today)),
     )
 
 
 # ── Odczyt z bazy ─────────────────────────────────────────────────────────
 
 
-async def _first_call_day(db: AsyncSession) -> Optional[date]:
+async def _first_call_day(db: AsyncSession, *, with_excel: bool) -> Optional[date]:
+    """Pierwszy dzień z telefonem w dzienniku albo (``with_excel``) z Excela."""
+
     first = await db.scalar(
         select(func.min(SalesActivity.occurred_at)).where(
             SalesActivity.kind == "call", SalesActivity.outcome.is_not(None)
         )
     )
-    return first.astimezone(ZONE).date() if first else None
+    first_excel = (
+        await db.scalar(
+            select(func.min(SalesCallDayTotal.day)).where(
+                SalesCallDayTotal.source == schema.CALL_DAY_TOTALS_EXCEL
+            )
+        )
+        if with_excel
+        else None
+    )
+    days = [
+        d for d in (first.astimezone(ZONE).date() if first else None, first_excel) if d
+    ]
+    return min(days) if days else None
+
+
+async def _day_totals(
+    db: AsyncSession, start: date, end: date, *, user_id: Optional[int]
+) -> list[DayTotalRow]:
+    query = select(
+        SalesCallDayTotal.user_id,
+        SalesCallDayTotal.day,
+        SalesCallDayTotal.calls,
+        SalesCallDayTotal.talks,
+        SalesCallDayTotal.offers,
+        SalesCallDayTotal.meetings,
+    ).where(
+        SalesCallDayTotal.source == schema.CALL_DAY_TOTALS_EXCEL,
+        SalesCallDayTotal.day >= start,
+        SalesCallDayTotal.day <= end,
+    )
+    if user_id is not None:
+        query = query.where(SalesCallDayTotal.user_id == user_id)
+    return [DayTotalRow(*row) for row in (await db.execute(query)).all()]
 
 
 async def _calls(
@@ -627,8 +790,15 @@ async def load_effectiveness(
     user_id: Optional[int] = None,
     campaign_id: Optional[int] = None,
 ) -> Effectiveness:
-    start, end = period_bounds(period, today, await _first_call_day(db))
+    # Excel nie zna kampanii: przy filtrze kampanii zostaje sam dziennik.
+    with_excel = campaign_id is None
+    start, end = period_bounds(
+        period, today, await _first_call_day(db, with_excel=with_excel)
+    )
     calls = await _calls(db, start, end, user_id=user_id, campaign_id=campaign_id)
+    day_totals = (
+        await _day_totals(db, start, end, user_id=user_id) if with_excel else []
+    )
     booked = {
         c.opportunity_id
         for c in calls
@@ -648,7 +818,7 @@ async def load_effectiveness(
         if offered
         else {}
     )
-    user_ids = {c.user_id for c in calls}
+    user_ids = {c.user_id for c in calls} | {t.user_id for t in day_totals}
     names = (
         dict(
             (
@@ -670,5 +840,6 @@ async def load_effectiveness(
         start=start,
         end=end,
         today=today,
+        day_totals=day_totals,
     )
     return Effectiveness(**{**result.__dict__, "campaign_options": options})
