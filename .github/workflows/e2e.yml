@@ -83,6 +83,7 @@ jobs:
       - name: Install Playwright browsers
         # Ponowienia na chwilowy brak DNS runnera (run 43036754346, 11.11.2026).
         run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
           for attempt in 1 2 3; do
             if npx playwright install --with-deps chromium; then
               break
@@ -92,6 +93,7 @@ jobs:
               exit 1
             fi
             echo "::warning::instalacja Playwrighta nie przeszła (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
             sleep $((attempt * 30))
           done
       - name: Jednorazowe hasło kont E2E
@@ -358,6 +360,7 @@ jobs:
       - name: Install Playwright browsers
         # Ponowienia na chwilowy brak DNS runnera (run 43036754346, 11.11.2026).
         run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
           for attempt in 1 2 3; do
             if npx playwright install --with-deps chromium; then
               break
@@ -367,6 +370,7 @@ jobs:
               exit 1
             fi
             echo "::warning::instalacja Playwrighta nie przeszła (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
             sleep $((attempt * 30))
           done
       - name: Run tests

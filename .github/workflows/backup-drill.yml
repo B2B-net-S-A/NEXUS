@@ -104,6 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           # Ponowienia na chwilowy brak DNS runnera (jak w ci.yml, 11.11.2026).
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
           for attempt in 1 2 3; do
             if sudo apt-get update -qq \
               && sudo apt-get install -y --no-install-recommends rclone age; then
@@ -114,6 +115,7 @@ jobs:
               exit 1
             fi
             echo "::warning::apt-get nie przeszedł (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
             sleep $((attempt * 30))
           done
           rclone version | head -1
