@@ -657,6 +657,25 @@ class CallingPersonStatsOut(BaseModel):
     meetings: int
     dated: int
     qualified: int
+    excel_days: int
+    excel_meetings: int
+
+
+class CallingExcelShareOut(BaseModel):
+    days: int
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+
+
+class CallingDayStatsOut(BaseModel):
+    day: date
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+    source: str
 
 
 class CallingInsightOut(BaseModel):
@@ -676,6 +695,8 @@ class CallingEffectivenessOut(BaseModel):
     offer_followup: dict[str, int]
     people: list[CallingPersonStatsOut]
     insights: list[CallingInsightOut]
+    excel: CallingExcelShareOut
+    daily: list[CallingDayStatsOut]
     campaign_options: list[Ref]
 
 
@@ -711,5 +732,7 @@ async def effectiveness(
         offer_followup=result.offer_followup,
         people=[CallingPersonStatsOut(**row.__dict__) for row in result.people],
         insights=[CallingInsightOut(tone=i.tone, text=i.text) for i in result.insights],
+        excel=CallingExcelShareOut(**result.excel.__dict__),
+        daily=[CallingDayStatsOut(**row.__dict__) for row in result.daily],
         campaign_options=[Ref(id=i, name=n) for i, n in result.campaign_options],
     )

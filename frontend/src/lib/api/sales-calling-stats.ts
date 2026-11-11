@@ -58,6 +58,28 @@ export interface PersonStats {
   meetings: number;
   dated: number;
   qualified: number;
+  /** Ile z `days` i ile spotkań to dni z podsumowań Excela (bez terminów). */
+  excel_days: number;
+  excel_meetings: number;
+}
+
+/** Część lejka z ręcznych podsumowań Excela: dni bez telefonów w dzienniku. */
+export interface ExcelShare {
+  days: number;
+  calls: number;
+  talks: number;
+  offers: number;
+  meetings: number;
+}
+
+export interface DayStats {
+  day: string;
+  calls: number;
+  talks: number;
+  offers: number;
+  meetings: number;
+  /** `mixed`: część osób z kolejki, część z Excela; `none`: dzień roboczy bez liczb (luka na osi). */
+  source: "journal" | "excel" | "mixed" | "none";
 }
 
 export interface Insight {
@@ -77,6 +99,8 @@ export interface Effectiveness {
   offer_followup: Record<string, number>;
   people: PersonStats[];
   insights: Insight[];
+  excel: ExcelShare;
+  daily: DayStats[];
   campaign_options: Ref[];
 }
 

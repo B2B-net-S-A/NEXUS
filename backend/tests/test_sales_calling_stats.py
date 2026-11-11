@@ -17,7 +17,12 @@ import pytest
 from app.core.scheduling import DEFAULT_TZ
 from app.services.sales import calling_stats as stats
 from app.services.sales.calling import CALL_SOURCE
-from app.services.sales.calling_stats import CallRow, CampaignInfo, MeetingRow
+from app.services.sales.calling_stats import (
+    CallRow,
+    CampaignInfo,
+    DayTotalRow,
+    MeetingRow,
+)
 from tests.test_sales_calling_queue import (
     URL,
     _calls,
@@ -454,5 +459,140 @@ def test_second_meeting_result_for_one_opportunity_counts_once() -> None:
 
 def test_bad_number_is_an_attempt_not_a_talk() -> None:
     # „Zły numer / brak danych” to próba bez rozmowy, jak „Nie odebrał” (mapa decyzyjna tak samo).
-    result = _summary([_call("bad_contact"), _call("not_interested"), _call("no_answer")])
+    result = _summary(
+        [_call("bad_contact"), _call("not_interested"), _call("no_answer")]
+    )
     assert (result.funnel.calls, result.funnel.talks) == (3, 1)
+
+
+# ── Historia z Excela (sales_call_day_totals) ──────────────────────────────
+
+
+def _excel(
+    day: date,
+    *,
+    user: int = 1,
+    calls: int = 40,
+    talks: int = 19,
+    offers: int = 6,
+    meetings: int = 1,
+) -> DayTotalRow:
+    return DayTotalRow(user, day, calls, talks, offers, meetings)
+
+
+def test_excel_day_counts_only_when_the_journal_has_no_call_that_day() -> None:
+    tuesday = MONDAY + timedelta(days=1)
+    calls = [_call("no_answer", day=MONDAY), _call("connected", day=MONDAY)]
+    result = _summary(
+        calls,
+        day_totals=[
+            # Ten sam dzień i osoba co telefony w dzienniku: dziennik wygrywa.
+            _excel(MONDAY, calls=99, talks=50, offers=9, meetings=5),
+            _excel(tuesday),
+            # Inna osoba tego samego dnia co dziennik osoby 1: jej Excel się liczy.
+            _excel(MONDAY, user=2, calls=10, talks=4, offers=1, meetings=0),
+        ],
+    )
+    f = result.funnel
+    assert (f.calls, f.talks, f.offers, f.meetings) == (
+        2 + 40 + 10,
+        1 + 19 + 4,
+        6 + 1,
+        1,
+    )
+    assert result.excel == stats.ExcelShare(
+        days=2, calls=50, talks=23, offers=7, meetings=1
+    )
+    # Wyniki, kampanie, listy i godziny zna tylko dziennik.
+    assert sum(result.outcomes.values()) == 2
+    assert sum(c.calls for c in result.hours) == 2
+
+    by_user = {p.user_id: p for p in result.people}
+    assert (by_user[1].days, by_user[1].excel_days, by_user[1].calls) == (2, 1, 42)
+    assert (by_user[2].days, by_user[2].excel_days, by_user[2].calls) == (1, 1, 10)
+    # Środa to święto (11.11), czwartek i piątek bez liczb zostają na osi jako luka.
+    assert [(d.day, d.calls, d.source) for d in result.daily] == [
+        (MONDAY, 12, "mixed"),
+        (tuesday, 40, "excel"),
+        (MONDAY + timedelta(days=3), 0, "none"),
+        (MONDAY + timedelta(days=4), 0, "none"),
+    ]
+
+
+def test_excel_meetings_are_not_flagged_as_undated() -> None:
+    # Excel nie zna terminów: tylko spotkania z dziennika mogą być „bez terminu”.
+    result = _summary(
+        [_call("connected")], day_totals=[_excel(MONDAY + timedelta(days=1))]
+    )
+    assert result.funnel.meetings == 1
+    assert not any("terminu" in i.text for i in result.insights)
+    [person] = result.people
+    assert (person.meetings, person.excel_meetings, person.dated) == (1, 1, 0)
+
+
+def test_only_excel_in_the_period_is_not_an_empty_screen() -> None:
+    result = _summary([], day_totals=[_excel(MONDAY)])
+    assert result.funnel.calls == 40
+    assert result.daily[0].source == "excel"
+    assert not any("nie ma zapisanych" in i.text for i in result.insights)
+
+
+@pytest.mark.asyncio
+async def test_effectiveness_reads_excel_history_without_double_counting(
+    app_client,
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.sales import SalesCallDayTotal
+    from app.services import sales_schema as schema
+
+    caller = await _user("sales_view", "sales_edit")
+    campaign_id = await _campaign("Excel i kolejka")
+    record_id = await _record(caller.id, campaign_id, await _company())
+    resp = await _save(app_client, caller, record_id, outcome="connected")
+    assert resp.status_code == 200, resp.text
+
+    first_day = date(2026, 7, 27)
+    async with AsyncSessionLocal() as db:
+        for day, calls in ((first_day, 40), (business_today(), 99)):
+            db.add(
+                SalesCallDayTotal(
+                    user_id=caller.id,
+                    day=day,
+                    source=schema.CALL_DAY_TOTALS_EXCEL,
+                    calls=calls,
+                    talks=19,
+                    offers=6,
+                    meetings=0,
+                )
+            )
+        await db.commit()
+
+    body = (
+        await app_client.get(
+            f"{URL}/effectiveness",
+            params={"period": "all", "mine": "true"},
+            headers=_headers(caller),
+        )
+    ).json()
+    assert date.fromisoformat(body["start"]) <= first_day
+    # Dziś jest telefon w dzienniku, więc dzisiejsze 99 z Excela się nie liczy.
+    assert body["funnel"]["calls"] == 1 + 40
+    assert body["excel"]["days"] == 1
+    filled = [(d["day"], d["source"]) for d in body["daily"] if d["source"] != "none"]
+    assert filled[0] == (first_day.isoformat(), "excel")
+    assert filled[-1] == (business_today().isoformat(), "journal")
+    assert len([f for f in filled if f[0] == first_day.isoformat()]) == 1
+    [person] = body["people"]
+    assert (person["days"], person["excel_days"]) == (2, 1)
+
+    # Excel nie zna kampanii: filtr kampanii pokazuje sam dziennik.
+    only_campaign = (
+        await app_client.get(
+            f"{URL}/effectiveness",
+            params={"period": "all", "mine": "true", "campaign_id": campaign_id},
+            headers=_headers(caller),
+        )
+    ).json()
+    assert only_campaign["funnel"]["calls"] == 1
+    assert only_campaign["excel"]["days"] == 0

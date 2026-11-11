@@ -11,6 +11,7 @@ import { CALL_OUTCOME_LABELS, type CallOutcome } from "@/lib/api/sales";
 import {
   useCallingEffectiveness,
   type CampaignStats,
+  type DayStats,
   type Effectiveness,
   type EffectivenessPeriod,
   type HourCell,
@@ -23,6 +24,8 @@ import { resolveViewState } from "@/lib/view-state";
 // Sprzedaż → Dzwonienie → Skuteczność (decyzje Artura 11.11.2026,
 // docs/claude/sprzedaz/dzwonienie-skutecznosc.md): lejek, kampanie, listy, pory dnia
 // i ranking osób z sortowaniem. Kolejka dalej nie ma rankingu ani celu dziennego.
+// Dni sprzed kolejki to ręczne podsumowania z Excela dzwoniących (źródło „excel”):
+// liczą się w lejku, rankingu i „Dzień po dniu” tylko dla dni bez telefonów w dzienniku.
 
 type Tone = "primary" | "success" | "muted" | "warning" | "danger" | "info";
 
@@ -110,6 +113,8 @@ interface FunnelStep {
 
 export function funnelSteps(data: Effectiveness): FunnelStep[] {
   const f = data.funnel;
+  // Excel nie zna terminów ani werdyktów: „z terminem” liczymy wobec spotkań z dziennika.
+  const logged = f.meetings - data.excel.meetings;
   return [
     {
       key: "calls",
@@ -129,8 +134,12 @@ export function funnelSteps(data: Effectiveness): FunnelStep[] {
       key: "dated",
       label: "Z terminem w NEXUSIE",
       value: f.dated,
-      hint: `${f.dated} z ${f.meetings}`,
-      warn: f.meetings > 0 && f.dated < f.meetings,
+      hint: !data.excel.meetings
+        ? `${f.dated} z ${f.meetings}`
+        : logged
+          ? `${f.dated} z ${logged} z kolejki`
+          : "Excel nie zna terminów",
+      warn: logged > 0 && f.dated < logged,
     },
     {
       key: "qualified",
@@ -176,8 +185,15 @@ function FunnelStrip({ data }: { data: Effectiveness }) {
 
 const INSIGHT_ICONS = { info: Info, warning: AlertTriangle, success: Lightbulb };
 
-function InsightList({ items }: { items: Insight[] }) {
-  if (items.length === 0) return <Thin>Na razie bez wniosków: za mało rozmów, żeby coś porównać.</Thin>;
+function InsightList({ items, fromExcel }: { items: Insight[]; fromExcel: boolean }) {
+  if (items.length === 0)
+    return (
+      <Thin>
+        {fromExcel
+          ? "Na razie bez wniosków: liczymy je z telefonów z kolejki (godziny, listy), a podsumowania z Excela ich nie mają."
+          : "Na razie bez wniosków: za mało rozmów, żeby coś porównać."}
+      </Thin>
+    );
   return (
     <ul className="space-y-1.5">
       {items.map((item) => {
@@ -466,6 +482,7 @@ function PeopleRanking({ people }: { people: PersonStats[] }) {
               <span className="block whitespace-nowrap">{row.name}</span>
               <span className="block text-[11px] font-normal text-muted-foreground">
                 {row.days} {row.days === 1 ? "dzień" : "dni"} dzwonienia
+                {row.excel_days > 0 && ` · ${row.excel_days} z Excela`}
               </span>
             </Td>
             <Td right>{row.calls}</Td>
@@ -477,15 +494,127 @@ function PeopleRanking({ people }: { people: PersonStats[] }) {
             </Td>
             <Td right>{percent(row.meetings, row.talks)}</Td>
             <Td right>
-              <span className={row.dated < row.meetings ? "text-warning-muted-foreground" : undefined}>
-                {row.dated} z {row.meetings}
-              </span>
+              <DatedCell row={row} />
             </Td>
             <Td right>{row.qualified}</Td>
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** „Z terminem” osoby: tylko wobec spotkań z dziennika, Excel terminów nie zna. */
+function DatedCell({ row }: { row: PersonStats }) {
+  const logged = row.meetings - row.excel_meetings;
+  if (logged === 0 && row.excel_meetings > 0) return <>—</>;
+  return (
+    <span className={row.dated < logged ? "text-warning-muted-foreground" : undefined}>
+      {row.dated} z {logged}
+    </span>
+  );
+}
+
+const DAY_BAR: Record<DayStats["source"], { calls: string; talks: string }> = {
+  journal: { calls: "bg-primary/25", talks: "bg-primary" },
+  mixed: { calls: "bg-primary/25", talks: "bg-primary" },
+  excel: { calls: "bg-info/25", talks: "bg-info" },
+  none: { calls: "", talks: "" },
+};
+
+const DAY_SOURCE_LABEL: Record<DayStats["source"], string> = {
+  journal: "NEXUS",
+  excel: "Excel",
+  mixed: "NEXUS i Excel",
+  none: "brak liczb",
+};
+
+/** Co który dzień podpisać pod wykresem, żeby podpisy się nie zlewały (ok. 12 na oś). */
+export function dayLabelStep(count: number): number {
+  return Math.max(1, Math.ceil(count / 12));
+}
+
+/** Dzień po dniu: słupek = telefony, ciemniejsza część = rozmowy; kolor = źródło. */
+function DailyChart({ days }: { days: DayStats[] }) {
+  const filled = days.filter((d) => d.source !== "none");
+  if (filled.length === 0) return <Thin>Brak dni z telefonami w tym okresie.</Thin>;
+  const max = Math.max(...days.map((d) => d.calls), 1);
+  const step = dayLabelStep(days.length);
+  const hasExcel = days.some((d) => d.source === "excel" || d.source === "mixed");
+  const gaps = days.length - filled.length;
+  return (
+    <div className="space-y-2">
+      <div role="img" aria-label="Telefony i rozmowy dzień po dniu" className="flex h-24 items-end gap-px">
+        {days.map((day) => (
+          <div
+            key={day.day}
+            title={`${shortDate(day.day)} (${DAY_SOURCE_LABEL[day.source]}): ${day.calls} tel., ${day.talks} rozm., ${day.offers} ofert, ${day.meetings} spotk.`}
+            className={cn("relative min-w-[3px] max-w-6 flex-1 rounded-t-sm", DAY_BAR[day.source].calls)}
+            style={{ height: `${(day.calls / max) * 100}%` }}
+          >
+            <span
+              aria-hidden
+              className={cn("absolute inset-x-0 bottom-0 rounded-t-sm", DAY_BAR[day.source].talks)}
+              style={{ height: day.calls ? `${(day.talks / day.calls) * 100}%` : 0 }}
+            />
+          </div>
+        ))}
+      </div>
+      <div aria-hidden className="flex gap-px text-[10px] text-muted-foreground">
+        {days.map((day, index) => (
+          <span key={day.day} className="min-w-[3px] max-w-6 flex-1 overflow-visible whitespace-nowrap">
+            {index % step === 0 ? shortDate(day.day) : ""}
+          </span>
+        ))}
+      </div>
+      <ul className="flex flex-wrap gap-x-3 text-[11px] text-muted-foreground">
+        <li className="flex items-center gap-1">
+          <span aria-hidden className="h-2 w-2 rounded-sm bg-primary" /> rozmowy z NEXUSA
+        </li>
+        {hasExcel && (
+          <li className="flex items-center gap-1">
+            <span aria-hidden className="h-2 w-2 rounded-sm bg-info" /> rozmowy z Excela (podsumowanie dnia)
+          </li>
+        )}
+        <li>jaśniejsza część słupka: telefony bez rozmowy</li>
+        {gaps > 0 && (
+          <li>
+            puste miejsce: dzień roboczy bez liczb ({gaps} {gaps === 1 ? "dzień" : "dni"})
+          </li>
+        )}
+      </ul>
+      <details className="text-xs">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Tabela dzień po dniu</summary>
+        <div className="mt-1 max-h-64 overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="border-b border-border">
+              <tr>
+                <Th>Dzień</Th>
+                <Th right>Telefony</Th>
+                <Th right>Rozmowy</Th>
+                <Th right>Oferty</Th>
+                <Th right>Spotkania</Th>
+                <Th>Źródło</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {[...filled].reverse().map((day) => (
+                <tr key={day.day}>
+                  <Td strong>{shortDate(day.day)}</Td>
+                  <Td right>{day.calls}</Td>
+                  <Td right>{day.talks}</Td>
+                  <Td right>{day.offers}</Td>
+                  <Td right strong>
+                    {day.meetings}
+                  </Td>
+                  <Td>{DAY_SOURCE_LABEL[day.source]}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
   );
 }
 
@@ -509,8 +638,19 @@ function followupSlices(data: Effectiveness): Slice[] {
 
 function Board({ data }: { data: Effectiveness }) {
   const offered = Object.values(data.offer_followup).reduce((sum, n) => sum + n, 0);
+  const logged = Object.values(data.outcomes).reduce((sum, n) => sum + n, 0);
   return (
     <>
+      {data.excel.days > 0 && (
+        <p className="flex gap-1.5 rounded-md border border-info/30 bg-info-muted px-2.5 py-1.5 text-xs text-info-muted-foreground">
+          <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            W tym {data.excel.days} {data.excel.days === 1 ? "dzień" : "dni"} z Excela ({data.excel.calls} tel.,{" "}
+            {data.excel.talks} rozm., {data.excel.meetings} spotk.): ręczne podsumowania sprzed kolejki. Excel
+            nie zna kampanii, list, godzin ani terminów spotkań, więc te części liczą tylko telefony z NEXUSA.
+          </span>
+        </p>
+      )}
       <FunnelStrip data={data} />
       {data.funnel.calls === 0 ? (
         <div className="rounded-lg border border-border bg-card">
@@ -527,15 +667,18 @@ function Board({ data }: { data: Effectiveness }) {
               <CampaignTable rows={data.campaigns} />
             </Panel>
             <Panel title="Wnioski" aside="liczone regułami">
-              <InsightList items={data.insights} />
+              <InsightList items={data.insights} fromExcel={data.excel.days > 0} />
             </Panel>
           </div>
           {/* Ranking i listy na pełną szerokość: przy 1280 px w pół ekranu ucinały kolumny. */}
           <Panel title="Ranking osób" aside="kliknij nagłówek, żeby sortować">
             <PeopleRanking people={data.people} />
           </Panel>
+          <Panel title="Dzień po dniu" aside="telefony i rozmowy, najedź na słupek po szczegóły">
+            <DailyChart days={data.daily} />
+          </Panel>
           <div className="grid gap-2 lg:grid-cols-3">
-            <Panel title="Jak kończą się telefony" aside={`${data.funnel.calls} telefonów`}>
+            <Panel title="Jak kończą się telefony" aside={`${logged} telefonów z NEXUSA`}>
               <SliceBar slices={outcomeSlices(data)} label="Wyniki telefonów" />
             </Panel>
             <Panel title="Kiedy odbierają">
