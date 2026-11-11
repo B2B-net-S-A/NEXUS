@@ -29,7 +29,8 @@ export interface CallPerson {
   contact_id?: number;
 }
 
-const WHEN: { label: string; days: number }[] = [
+/** Makieta 11.11.2026: jedne terminy kroku w całym module (karta, Mój dzień, Zadania, tablica). */
+export const STEP_WHEN: { label: string; days: number }[] = [
   { label: "Jutro", days: 1 },
   { label: "Za 3 dni", days: 3 },
   { label: "Za tydzień", days: 7 },
@@ -108,7 +109,7 @@ export function NextStepDialog({ opportunityId, outcome, personName, onClose }: 
       </FormRow>
       <FormRow label="Kiedy" htmlFor="sales-next-date" className={FORM_ROW}>
         <div className="flex flex-wrap gap-1.5">
-          {WHEN.map((item) => (
+          {STEP_WHEN.map((item) => (
             <Button
               key={item.label}
               size="sm"

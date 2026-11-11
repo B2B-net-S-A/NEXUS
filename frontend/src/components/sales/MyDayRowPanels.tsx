@@ -38,6 +38,8 @@ const WHEN = [
   { value: "1", label: "Jutro" },
   { value: "3", label: "Za 3 dni" },
   { value: "7", label: "Za tydzień" },
+  { value: "14", label: "Za 2 tyg." },
+  { value: "30", label: "Za miesiąc" },
 ] as const;
 type When = (typeof WHEN)[number]["value"];
 

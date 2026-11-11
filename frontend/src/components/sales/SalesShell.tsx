@@ -23,18 +23,65 @@ export type SalesSection =
   | "leads"
   | "tasks";
 
+// Makieta 11.11.2026: siedem zakładek zamiast dziesięciu. Kontakty, Zadania i Podsumowanie
+// zostają pod swoimi adresami, ale wchodzi się do nich przełącznikiem w zakładce-rodzicu.
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
   { value: "my-day", label: "Mój dzień", href: "/sales/my-day" },
   { value: "calling", label: "Dzwonienie", href: "/sales/calling" },
-  { value: "summary", label: "Podsumowanie", href: "/sales/summary" },
   { value: "opportunities", label: "Szanse", href: "/sales/opportunities" },
   { value: "offers", label: "Oferty", href: "/sales/offers" },
   { value: "companies", label: "Firmy", href: "/sales/companies" },
-  { value: "contacts", label: "Kontakty", href: "/sales/contacts" },
   { value: "meetings", label: "Spotkania", href: "/sales/meetings" },
   { value: "leads", label: "Leady", href: "/sales/leads" },
-  { value: "tasks", label: "Zadania", href: "/sales/tasks" },
 ];
+
+const SUB_VIEWS: Partial<Record<SalesSection, { label: string; href: string }[]>> = {
+  "my-day": [
+    { label: "Dziś", href: "/sales/my-day" },
+    { label: "Wszystkie zadania", href: "/sales/tasks" },
+  ],
+  opportunities: [
+    { label: "Lejek", href: "/sales/opportunities" },
+    { label: "Podsumowanie", href: "/sales/summary" },
+  ],
+  companies: [
+    { label: "Firmy", href: "/sales/companies" },
+    { label: "Osoby", href: "/sales/contacts" },
+  ],
+};
+
+/** Zakładka-rodzic na pasku: Kontakty pod Firmami, Zadania pod „Moim dniem”, Podsumowanie pod Szansami. */
+function tabOf(section: SalesSection): SalesSection {
+  if (section === "contacts") return "companies";
+  if (section === "tasks") return "my-day";
+  if (section === "summary") return "opportunities";
+  return section;
+}
+
+function SubViews({ pathname }: { pathname: string }) {
+  const router = useRouter();
+  const views = SUB_VIEWS[tabOf(activeSection(pathname))];
+  if (!views) return null;
+  return (
+    <div role="tablist" aria-label="Widok" className="inline-flex rounded-md border border-border bg-card p-0.5 text-xs">
+      {views.map((view) => {
+        const active = pathname.startsWith(view.href);
+        return (
+          <button
+            key={view.href}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => router.push(view.href)}
+            className={`rounded px-2 py-1 ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {view.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function activeSection(pathname: string): SalesSection {
   if (pathname.startsWith("/sales/my-day")) return "my-day";
@@ -94,7 +141,7 @@ export function SalesShell({ title, description, actions, hideNav, children }: S
                   // bo drugi rząd zabiera listom wysokość na ekranie 720 px.
                   listClassName="[&>button]:px-2.5"
                   tabs={SECTIONS.map(({ value, label }) => ({ value, label }))}
-                  value={activeSection(pathname)}
+                  value={tabOf(activeSection(pathname))}
                   onValueChange={(value) => {
                     const target = SECTIONS.find((section) => section.value === value);
                     if (target) router.push(target.href);
@@ -102,9 +149,12 @@ export function SalesShell({ title, description, actions, hideNav, children }: S
                 />
               </div>
             </div>
-            {(description || actions) && (
+            {(description || actions || SUB_VIEWS[tabOf(activeSection(pathname))]) && (
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                {description && <p className="min-w-0 text-xs text-muted-foreground">{description}</p>}
+                <div className="flex min-w-0 items-center gap-3">
+                  <SubViews pathname={pathname} />
+                  {description && <p className="min-w-0 text-xs text-muted-foreground">{description}</p>}
+                </div>
                 {actions && <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
               </div>
             )}

@@ -8,16 +8,19 @@ import { EmptyState } from "@/components/ds/EmptyState";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   ACTIVITY_KIND_LABELS,
   useCompleteActivity,
   useCompleteTasks,
+  useUpdateActivity,
   useSalesTasks,
   type TaskBucket,
 } from "@/lib/api/sales";
 import { formatDateTimePl } from "@/lib/date-pl";
+import { dueAtMorning, plusDays, STEP_WHEN } from "./CallLogDialogs";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
@@ -40,6 +43,49 @@ const PAGE = 100;
  * (kalendarz firmy). Jak Task Center Atlasa — telefon z terminem to też
  * rzecz do zrobienia (audyt importu 28.10.2026).
  */
+/** Makieta 11.11.2026: przełożenie zadania z listy, te same terminy co w całym module. */
+function Reschedule({ id }: { id: number }) {
+  const update = useUpdateActivity(id);
+  const { showError, showSuccess } = useToast();
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="ghost">
+          Przełóż
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-2" align="end">
+        <div className="flex flex-wrap gap-1">
+          {STEP_WHEN.map((option) => (
+            <Button
+              key={option.days}
+              size="sm"
+              variant="outline"
+              className="h-7 px-2"
+              disabled={update.isPending}
+              onClick={() =>
+                update.mutate(
+                  { due_at: dueAtMorning(plusDays(option.days)) },
+                  {
+                    onSuccess: () => {
+                      setOpen(false);
+                      showSuccess(`Przełożono: ${option.label.toLowerCase()}.`);
+                    },
+                    onError: (error) => showError(apiErrorMessage(error, "Nie udało się przełożyć zadania.")),
+                  },
+                )
+              }
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function TasksView() {
   const [scope, setScope] = useState<"mine" | "team">("mine");
   const [bucket, setBucket] = useState<TaskBucket>("open");
@@ -180,6 +226,7 @@ export function TasksView() {
                     ) : null}
                   </p>
                 </div>
+                {canEdit && !task.done_at && <Reschedule id={task.id} />}
                 {canEdit && (
                   <Button
                     size="sm"
