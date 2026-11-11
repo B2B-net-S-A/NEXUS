@@ -1,5 +1,21 @@
 [
   {
+    "id": "sprzedaz-dzwonienie-skutecznosc",
+    "pr": 3311,
+    "title": "Dzwonienie: Skuteczność",
+    "why": "Co daje dzwonienie: ile telefonów kończy się rozmową, ofertą i spotkaniem, które kampanie i listy działają, o której ludzie odbierają i kto ile umówił. Liczy się samo z wyników klikniętych w kolejce.",
+    "tier": "dot",
+    "shipped_on": "2026-11-11",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Skuteczność",
+    "href": "/sales/calling/effectiveness",
+    "dot_anchor": "sales.calling.mode"
+  },
+  {
     "id": "polacz-blizniaka-recznie",
     "title": "„⇄ Połącz bliźniaka” na pasku rekrutacji",
     "why": "Bliźniaka łączysz przyciskiem na końcu paska „Kandydaci do dodania”, nie z menu „Szukaj”. Wpisz numer, tytuł albo klienta dowolnej otwartej rekrutacji, także spoza podpowiedzi.",

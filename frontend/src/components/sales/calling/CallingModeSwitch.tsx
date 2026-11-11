@@ -22,7 +22,7 @@ export function CallingModeSwitch() {
   const user = useAuthStore((s) => s.user);
   if (!hasPermission(user, "sales_edit")) return null;
   return (
-    <nav aria-label="Dzwonienie" className="inline-flex rounded-md border border-border p-0.5 text-xs">
+    <nav aria-label="Dzwonienie" data-tour="sales.calling.mode" className="inline-flex rounded-md border border-border p-0.5 text-xs">
       {MODES.map((mode) => {
         const active = mode.href === "/sales/calling" ? pathname === mode.href : pathname.startsWith(mode.href);
         return (
