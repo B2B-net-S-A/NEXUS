@@ -38,6 +38,8 @@
   "GET /api/sales/calling/records/{record_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/calling/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/calling/campaigns/{campaign_id}/excel": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/calling/campaigns/{campaign_id}/excel/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns/{campaign_id}/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns/{campaign_id}/import/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/opportunities/{opportunity_id}/outcome": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

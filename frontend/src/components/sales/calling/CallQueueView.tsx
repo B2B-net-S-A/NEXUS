@@ -19,6 +19,7 @@ import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { dayHeading } from "../my-day";
 import { CallCard, type MeetingStage } from "./CallCard";
 import { CallTableView } from "./CallTableView";
+import { ExcelTransferDialog } from "./ExcelTransferDialog";
 import { CampaignsDialog } from "./CampaignsDialog";
 import { ImportListDialog } from "./ImportListDialog";
 import {
@@ -194,6 +195,7 @@ export function CallingActions() {
   const user = useAuthStore((s) => s.user);
   const [importOpen, setImportOpen] = useState(false);
   const [campaignsOpen, setCampaignsOpen] = useState<"list" | "new" | null>(null);
+  const [excelOpen, setExcelOpen] = useState(false);
   if (!hasPermission(user, "sales_edit")) return null;
   return (
     <>
@@ -210,8 +212,17 @@ export function CallingActions() {
         <Upload className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Importuj listę
       </Button>
       {importOpen && (
-        <ImportListDialog open onOpenChange={setImportOpen} onNewCampaign={() => setCampaignsOpen("new")} />
+        <ImportListDialog
+          open
+          onOpenChange={setImportOpen}
+          onNewCampaign={() => setCampaignsOpen("new")}
+          onExcel={() => {
+            setImportOpen(false);
+            setExcelOpen(true);
+          }}
+        />
       )}
+      {excelOpen && <ExcelTransferDialog open onOpenChange={setExcelOpen} />}
       {campaignsOpen && (
         <CampaignsDialog
           key={campaignsOpen}

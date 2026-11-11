@@ -10,6 +10,7 @@ a moduł z limiterem i PEP 563 zamienia parametry ``Annotated`` w parametry quer
 """
 
 import asyncio
+import json
 from datetime import date, datetime, timezone
 from typing import Optional
 
@@ -30,11 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.scheduling import business_today
 from app.models.sales import SalesCallCampaign
 from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
-from app.services.sales import calling, calling_import
+from app.services.sales import calling, calling_excel, calling_import
 from app.services.sales.calling_file import (
     MAX_FILE_BYTES,
     TOO_BIG_DETAIL,
@@ -601,3 +603,141 @@ async def import_list(
         without_company=plan.without_company,
         counts=plan.counts,
     )
+
+
+# ── Przeniesienie Excela dzwoniących (arkusz = osoba) ─────────────────────
+
+SHEET_ASSIGNEE_DETAIL = "Wybierz osobę dla arkusza „{title}”."
+ASSIGNEES_FORMAT_DETAIL = "Niepoprawne przypisanie arkuszy do osób."
+
+
+class SheetPlanOut(BaseModel):
+    title: str
+    assignee_id: Optional[int]
+    rows: int
+    states: dict[str, int]
+    review: int
+    fates: dict[str, int]
+    addable: int
+    without_company: int
+    moved: int
+    days: int
+    duplicate_days: int
+    totals: dict[str, int]
+
+
+class ExcelPreviewOut(BaseModel):
+    sheets: list[SheetPlanOut]
+    people: list[Ref]
+
+
+class ExcelResultOut(BaseModel):
+    added: int
+    days: int
+
+
+async def _read_workbook(file: UploadFile) -> list[calling_excel.Sheet]:
+    payload = await file.read(MAX_FILE_BYTES + 1)
+    if len(payload) > MAX_FILE_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=TOO_BIG_DETAIL
+        )
+    try:
+        return await asyncio.to_thread(
+            calling_excel.parse_workbook,
+            file.filename or "",
+            payload,
+            business_today(),
+        )
+    except ListFileError as exc:
+        code = (
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+            if exc.too_large
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(code, detail=exc.detail) from exc
+
+
+def _assignees(raw: str, people: list[tuple[int, str]]) -> dict[str, int]:
+    """Przypisanie z formularza: {nazwa arkusza: id osoby z „Sprzedaż: edycja”}."""
+
+    try:
+        value = json.loads(raw or "{}")
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ASSIGNEES_FORMAT_DETAIL
+        ) from exc
+    if not isinstance(value, dict) or not all(
+        isinstance(key, str)
+        and isinstance(user_id, int)
+        and not isinstance(user_id, bool)
+        for key, user_id in value.items()
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ASSIGNEES_FORMAT_DETAIL
+        )
+    allowed = {user_id for user_id, _ in people}
+    if any(user_id not in allowed for user_id in value.values()):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ASSIGNEE_DETAIL
+        )
+    return value
+
+
+@router.post("/campaigns/{campaign_id}/excel/preview", response_model=ExcelPreviewOut)
+@limiter.limit("20/minute")
+async def preview_excel(
+    request: Request,  # wymagane przez slowapi
+    campaign_id: int,
+    current_user: SalesEditUser,
+    file: UploadFile = File(...),
+    assignees: str = Form(default="{}"),
+    db: AsyncSession = Depends(get_db),
+) -> ExcelPreviewOut:
+    """Bieg na sucho: co stanie się z każdym arkuszem i wierszem; niczego nie zapisuje."""
+
+    campaign = await _get_campaign(db, campaign_id)
+    people = await calling_excel.sales_editors(db)
+    chosen = _assignees(assignees, people)
+    sheets = await _read_workbook(file)
+    plans = await calling_excel.plan_sheets(db, campaign, sheets, chosen, people)
+    return ExcelPreviewOut(
+        sheets=[SheetPlanOut(**plan.__dict__) for plan in plans],
+        people=[Ref(id=user_id, name=name) for user_id, name in people],
+    )
+
+
+@router.post("/campaigns/{campaign_id}/excel", response_model=ExcelResultOut)
+@limiter.limit("5/minute")
+async def transfer_excel(
+    request: Request,  # wymagane przez slowapi
+    campaign_id: int,
+    current_user: SalesEditUser,
+    file: UploadFile = File(...),
+    contact_source: str = Form(default=""),
+    assignees: str = Form(default="{}"),
+    db: AsyncSession = Depends(get_db),
+) -> ExcelResultOut:
+    """Jednorazowe przeniesienie Excela: każdy arkusz do kolejki wybranej osoby."""
+
+    await _get_campaign(db, campaign_id)
+    source = _source(contact_source)
+    people = await calling_excel.sales_editors(db)
+    chosen = _assignees(assignees, people)
+    sheets = await _read_workbook(file)
+    missing = next((sheet.title for sheet in sheets if sheet.title not in chosen), None)
+    if missing is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=SHEET_ASSIGNEE_DETAIL.format(title=missing),
+        )
+    result = await calling_excel.apply_sheets(
+        db,
+        campaign_id,
+        sheets,
+        chosen,
+        contact_source=source,
+        user_id=current_user.id,
+    )
+    await db.commit()
+    return ExcelResultOut(added=result.added, days=result.days)

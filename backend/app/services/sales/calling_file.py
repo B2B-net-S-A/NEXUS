@@ -231,7 +231,13 @@ def _csv_rows(payload: bytes) -> Iterable[list[Any]]:
         raise ListFileError(UNREADABLE_DETAIL) from exc
 
 
-def _xlsx_rows(payload: bytes) -> Iterable[tuple[Any, ...]]:
+def open_workbook(payload: bytes, *, read_only: bool = True) -> Any:
+    """Skoroszyt po sprawdzeniu archiwum (liczba plików i rozmiar po rozpakowaniu).
+
+    ``read_only=False`` czyta też wypełnienie komórek (kolor wyniku w Excelu
+    dzwoniących); rozmiar pliku jest wtedy tak samo ograniczony.
+    """
+
     if not payload.startswith(_XLSX_MAGIC):
         raise ListFileError(UNREADABLE_DETAIL)
     try:
@@ -244,11 +250,15 @@ def _xlsx_rows(payload: bytes) -> Iterable[tuple[Any, ...]]:
                 raise ListFileError(TOO_BIG_DETAIL, too_large=True)
         from openpyxl import load_workbook
 
-        workbook = load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+        return load_workbook(io.BytesIO(payload), read_only=read_only, data_only=True)
     except ListFileError:
         raise
     except Exception as exc:  # noqa: BLE001 — każdy błąd biblioteki to zły plik
         raise ListFileError(UNREADABLE_DETAIL) from exc
+
+
+def _xlsx_rows(payload: bytes) -> Iterable[tuple[Any, ...]]:
+    workbook = open_workbook(payload)
     try:
         sheet = workbook.worksheets[0] if workbook.worksheets else None
         if sheet is None:
@@ -260,7 +270,7 @@ def _xlsx_rows(payload: bytes) -> Iterable[tuple[Any, ...]]:
         workbook.close()
 
 
-def _columns(header: Iterable[Any]) -> dict[str, int]:
+def columns_of(header: Iterable[Any]) -> dict[str, int]:
     columns: dict[str, int] = {}
     for index, cell in enumerate(header):
         if index >= MAX_COLUMNS:
@@ -289,7 +299,7 @@ def linkedin_url(value: Optional[str]) -> Optional[str]:
     return candidate if _LINKEDIN.match(candidate) else None
 
 
-def _row(
+def row_values(
     line: int, cells: list[Any], columns: dict[str, int]
 ) -> Optional[dict[str, Any]]:
     values = {
@@ -336,9 +346,9 @@ def parse_list_file(filename: str, payload: bytes) -> ListFile:
         if columns is None:
             if not any(clean_cell(cell, 255) for cell in cells):
                 continue
-            columns = _columns(cells)
+            columns = columns_of(cells)
             continue
-        values = _row(line, cells, columns)
+        values = row_values(line, cells, columns)
         if values is None:
             continue
         if len(rows) + without_company >= MAX_ROWS:
