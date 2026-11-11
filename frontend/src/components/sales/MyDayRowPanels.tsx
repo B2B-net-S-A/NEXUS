@@ -38,6 +38,8 @@ const WHEN = [
   { value: "1", label: "Jutro" },
   { value: "3", label: "Za 3 dni" },
   { value: "7", label: "Za tydzień" },
+  { value: "14", label: "Za 2 tyg." },
+  { value: "30", label: "Za miesiąc" },
 ] as const;
 type When = (typeof WHEN)[number]["value"];
 
@@ -160,7 +162,25 @@ const typingTarget = (target: EventTarget | null): boolean =>
  * Zapis rozmowy w wierszu (decyzja Artura 11.11.2026): klik w wynik zapisuje rozmowę i krok z podpowiedzi
  * wyniku, bez drugiego „Zapisz”. Inny krok niż podpowiedź: „Inny krok”. Klawisze 1–5 jak w kolejce.
  */
-export function CallPanel({ row, onDone, onBook }: { row: MyDayRow; onDone: () => void; onBook?: () => void }) {
+/** Komu i przy czym zapisujemy rozmowę: wiersz „Mojego dnia” albo karta firmy. */
+export interface CallTarget {
+  company: MyDayRow["company"];
+  opportunity: MyDayRow["opportunity"];
+  person: MyDayRow["person"];
+  /** Zaległe zadanie, które zamyka się razem z zapisem rozmowy. */
+  closesActivityId: number | null;
+}
+
+export function callTargetOf(row: MyDayRow): CallTarget {
+  return {
+    company: row.company,
+    opportunity: row.opportunity,
+    person: row.person,
+    closesActivityId: row.section === "overdue" ? row.activity_id : null,
+  };
+}
+
+export function CallPanel({ row, onDone, onBook }: { row: CallTarget; onDone: () => void; onBook?: () => void }) {
   const logOpportunity = useLogCall();
   const logCompany = useLogCompanyCall();
   const createStep = useCreateActivity();
@@ -176,9 +196,9 @@ export function CallPanel({ row, onDone, onBook }: { row: MyDayRow; onDone: () =
   const isPending = logOpportunity.isPending || logCompany.isPending || createStep.isPending;
 
   const afterLog = () => {
-    if (row.section === "overdue" && row.activity_id !== null) {
+    if (row.closesActivityId !== null) {
       complete.mutate(
-        { id: row.activity_id },
+        { id: row.closesActivityId },
         { onError: (error) => showError(apiErrorMessage(error, "Rozmowa zapisana, ale zadanie zostało otwarte.")) },
       );
     }

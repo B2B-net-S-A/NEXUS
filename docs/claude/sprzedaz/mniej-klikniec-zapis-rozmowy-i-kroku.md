@@ -57,3 +57,30 @@ o powód. Pasek tylko dla „Sprzedaż: edycja”.
 Testy: `frontend/src/components/sales/__tests__/my-day.test.tsx` („przyciski wiersza”),
 `sales-stage-and-pipeline.test.tsx` (pasek etapów, krok po rozmowie, domyślnie „Moje”),
 `sales-board-quick-step.test.tsx`.
+
+## Druga partia (decyzje Artura 11.11.2026, drugi PR)
+
+- **Siedem zakładek zamiast dziesięciu** (`SalesShell.tsx`): Mój dzień, Dzwonienie, Szanse,
+  Oferty, Firmy, Spotkania, Leady. Kontakty to „Firmy | Osoby” w Firmach, Zadania to
+  „Dziś | Wszystkie zadania” w „Moim dniu”, Podsumowanie to „Lejek | Podsumowanie” w Szansach
+  (`SUB_VIEWS`, `tabOf`). Adresy `/sales/contacts`, `/sales/tasks`, `/sales/summary` zostają,
+  żeby stare linki i zakładki przeglądarki dalej działały. Nowa strona Sprzedaży, która nie jest
+  zakładką, dostaje rodzica w `tabOf` i widok w `SUB_VIEWS`.
+- **Jedne terminy kroku** (`STEP_WHEN` w `CallLogDialogs.tsx`: jutro, 3 dni, tydzień,
+  2 tygodnie, miesiąc) w oknie „Co dalej”, „Zaplanuj” w „Moim dniu”, „+ krok” na tablicy
+  i „Przełóż” w Zadaniach. Nowe miejsce planowania kroku bierze terminy stąd.
+- **„Przełóż” na liście Zadania** zmienia termin otwartego zadania (`PATCH` aktywności),
+  zrobione zadanie go nie ma.
+- **„Zaloguj rozmowę” na karcie firmy** (`CompanyCallPanel.tsx`): te same wyniki, klawisze
+  i krok co w „Moim dniu” (`CallPanel` przyjmuje `CallTarget`). Osoba: kontakt firmy
+  z numerem i bez sprzeciwu, do wyboru, gdy jest ich kilka. Firma z jedną otwartą szansą
+  zapisuje rozmowę przy niej, w innym przypadku przy firmie. Bez osoby z numerem panel mówi,
+  gdzie go dodać.
+- **„Umówione spotkanie” w kolejce dzwonienia** otwiera „Umów spotkanie” z firmą, osobą
+  i nazwą kampanii jako usługą, zamiast formularza szansy. Szansa powstaje u prowadzącego
+  na etapie „Spotkanie kwalifikujące” ze źródłem `handoff`, jak każde przekazanie, a nie
+  ze źródłem „Dzwonienie”. Skuteczność liczy spotkania z wyniku rozmowy, nie ze źródła
+  szansy, więc liczby się nie zmieniają.
+
+Testy: `sales-shell-tabs.test.tsx`, `sales-tasks-reschedule.test.tsx`,
+`sales-company-call.test.tsx`, „Umówione spotkanie” w `sales-calling.test.tsx`.

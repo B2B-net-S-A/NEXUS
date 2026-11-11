@@ -28,6 +28,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { CompanyCallPanel } from "./CompanyCallPanel";
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { FilesSection } from "./FilesSection";
 import { ContactsSection } from "./ContactsSection";
@@ -194,6 +195,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
     isSuccess: company.isSuccess,
   });
   const data = company.data;
+  const [calling, setCalling] = useState(false);
 
   const toggleArchive = async () => {
     if (!data) return;
@@ -239,6 +241,9 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               Edytuj
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setCalling((value) => !value)} disabled={Boolean(data.archived_at)}>
+              Zaloguj rozmowę
+            </Button>
             <Button size="sm" onClick={() => setCreating(true)} disabled={Boolean(data.archived_at)}>
               Szansa
             </Button>
@@ -258,6 +263,9 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
         <div className="space-y-4">
           {data.archived_at && (
             <StatusDot tone="warning">Firma jest w archiwum</StatusDot>
+          )}
+          {calling && (
+            <CompanyCallPanel company={{ id: data.id, name: data.name }} onDone={() => setCalling(false)} />
           )}
           <SignalStrip companyId={companyId} />
           <TabbedNav

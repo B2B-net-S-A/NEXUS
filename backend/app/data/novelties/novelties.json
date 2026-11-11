@@ -1,5 +1,35 @@
 [
   {
+    "id": "sprzedaz-siedem-zakladek",
+    "pr": 3321,
+    "title": "Sprzedaż: siedem zakładek i rozmowa z karty firmy",
+    "why": "Kontakty, Zadania i Podsumowanie są teraz przełącznikami w Firmach, „Moim dniu” i Szansach. Na karcie firmy zapiszesz rozmowę, a zadanie przełożysz prosto z listy.",
+    "tier": "tour",
+    "shipped_on": "2026-11-11",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.tabs",
+    "used_anchor": "sales.subviews",
+    "steps": [
+      {
+        "anchor": "sales.tabs",
+        "text": "Siedem zakładek zamiast dziesięciu.",
+        "hint": "Kontakty są w Firmach, Zadania w „Moim dniu”, Podsumowanie w Szansach. Stare adresy dalej działają.",
+        "ack": true
+      },
+      {
+        "anchor": "sales.subviews",
+        "text": "Przełącz na „Wszystkie zadania”.",
+        "hint": "Każde zadanie przełożysz tam przyciskiem „Przełóż”, bez wchodzenia w kartę szansy."
+      }
+    ]
+  },
+  {
     "id": "sprzedaz-mniej-klikniec",
     "pr": 3320,
     "title": "Sprzedaż: wynik rozmowy zapisuje krok",

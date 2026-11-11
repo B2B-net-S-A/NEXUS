@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { ACTIVITY_KIND_LABELS, useCreateActivity, type OpportunityDetail, type Ref } from "@/lib/api/sales";
+import { ACTIVITY_KIND_LABELS, useCreateActivity, type Ref } from "@/lib/api/sales";
 import {
   useCallCard,
   useSaveOutcome,
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { telHref } from "../my-day";
-import { OpportunityFormDialog } from "../OpportunityFormDialog";
+import { BookMeetingDialog } from "../handoff/BookMeetingForm";
 import { TalkingPoints } from "../signals/TalkingPoints";
 import {
   DATE_PRESETS,
@@ -41,9 +41,7 @@ import {
   type DatedOutcome,
 } from "./calling";
 
-const MEETING_TITLE = "Spotkanie wstępne";
 const MEETING_SUBJECT = "Spotkanie kwalifikujące";
-const OPPORTUNITY_SOURCE = "Dzwonienie";
 
 /** Pole tekstowe albo otwarte okno: klawisz 1–7 jest wtedy zwykłym znakiem. */
 function typingTarget(target: EventTarget | null): boolean {
@@ -367,23 +365,16 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
             : "To ostatnia pozycja na liście."}
       </p>
       {confirmDialog}
+      {/* Decyzja Artura 11.11.2026: ten sam formularz „Umów spotkanie” co w „Moim dniu”; szansę zakłada u prowadzącego. */}
       {booking && meetingStage && (
-        <OpportunityFormDialog
-          open
-          onOpenChange={(open) => !open && setBooking(false)}
+        <BookMeetingDialog
           company={company}
-          pipelineId={meetingStage.pipelineId}
-          defaults={{
-            title: MEETING_TITLE,
-            service_line: null,
-            stage_id: meetingStage.stageId,
-            primary_contact_id: card.contact_id,
-            source: OPPORTUNITY_SOURCE,
-            campaign: item.campaign?.name ?? null,
-          }}
-          onCreated={(opportunity: OpportunityDetail) => {
-            setBooked(opportunity.id);
-            send("meeting_booked", { opportunity_id: opportunity.id });
+          contactId={card.contact_id ?? undefined}
+          service={item.campaign?.name ?? undefined}
+          onClose={() => setBooking(false)}
+          onSaved={(handoff) => {
+            setBooked(handoff.opportunity.id);
+            send("meeting_booked", { opportunity_id: handoff.opportunity.id });
           }}
         />
       )}
