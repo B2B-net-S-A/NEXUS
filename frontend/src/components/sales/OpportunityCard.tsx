@@ -16,6 +16,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   SERVICE_LINE_LABELS,
   useArchiveOpportunity,
+  useCreateActivity,
   useMoveOpportunity,
   useOpportunity,
   usePipelines,
@@ -34,7 +35,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 import { CallLogPanel } from "./CallLogPanel";
-import { ChangeOwnerDialog, NextStepDialog, type CallPerson } from "./CallLogDialogs";
+import { ChangeOwnerDialog, dueAtMorning, NextStepDialog, plusDays, type CallPerson } from "./CallLogDialogs";
 import { FilesSection } from "./FilesSection";
 import { formatDealAmount } from "./format";
 import { LinkClientDialog } from "./LinkClientDialog";
@@ -48,7 +49,7 @@ import { SalesShell } from "./SalesShell";
 import { OpportunityStepBar } from "./OpportunityStepBar";
 import { OpportunityTimelineCard } from "./OpportunityTimeline";
 import { PurchasingProcessPanel } from "./PurchasingProcessPanel";
-import { callQueue } from "./step";
+import { callQueue, outcomePreset } from "./step";
 import { TalkingPoints } from "./signals/TalkingPoints";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 import { SalesMotionPanel } from "./SalesMotionPanel";
@@ -146,11 +147,59 @@ function cardTitle({ company, title }: OpportunityDetail): string {
 /** Etapy, z których szansę oddaje się prowadzącemu formularzem „Umów spotkanie”. */
 const HANDOFF_STAGES = ["lead", "qualifying-meeting"];
 
+/**
+ * Decyzja Artura 11.11.2026: etap jako pasek pod paskiem kroku, zawsze widoczny. Klik w etap to `/move`
+ * (jak przeciągnięcie na tablicy); zamknięcie zostaje przy „Wygrana” / „Przegrana”.
+ */
+function StageStrip({
+  stages,
+  current,
+  disabled,
+  onPick,
+}: {
+  stages: Stage[];
+  current: Stage;
+  disabled: boolean;
+  onPick: (stage: Stage) => void;
+}) {
+  const open = stages.filter((stage) => stage.outcome === "open");
+  const index = open.findIndex((stage) => stage.id === current.id);
+  return (
+    <div role="group" aria-label="Etap szansy" className="flex overflow-hidden rounded-lg border border-border bg-card">
+      {open.map((stage, position) => {
+        const active = stage.id === current.id;
+        const passed = index >= 0 && position < index;
+        return (
+          <button
+            key={stage.id}
+            type="button"
+            disabled={disabled || active}
+            aria-current={active ? "step" : undefined}
+            onClick={() => onPick(stage)}
+            className={`min-w-0 flex-1 truncate border-r border-border px-2 py-1.5 text-xs last:border-r-0 ${
+              active
+                ? "bg-primary font-semibold text-primary-foreground"
+                : passed
+                  ? "bg-primary/10 text-foreground hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-muted"
+            }`}
+            title={active ? `Obecny etap: ${stage.name}` : `Przenieś na „${stage.name}”`}
+          >
+            {passed && "✓ "}
+            {stage.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Karta szansy w kolejności pracy: krok i zapis rozmowy na górze, oś firmy i szansy, potem reszta. */
 export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
   const opportunity = useOpportunity(opportunityId);
   const pipelines = usePipelines();
   const move = useMoveOpportunity();
+  const createStep = useCreateActivity();
   const archive = useArchiveOpportunity(opportunityId);
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
@@ -303,6 +352,14 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
               onLog={() => openLog()}
               onOwner={() => setChangingOwner(true)}
             />
+            {canEdit && stages.length > 0 && (
+              <StageStrip
+                stages={stages}
+                current={data.stage}
+                disabled={move.isPending}
+                onPick={(target) => (target.outcome === "lost" ? setLosingStage(target) : moveTo(target.id))}
+              />
+            )}
             {logOpen && (
               <CallLogPanel
                 key={logPerson}
@@ -319,7 +376,21 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
                     const key = person.person_key;
                     setReached((current) => [...current, key]);
                   }
-                  setAfterCall({ outcome, person: person?.name ?? null });
+                  // Decyzja Artura 11.11.2026: krok z podpowiedzi wyniku zapisuje się sam, bez okna „Co dalej”.
+                  const preset = outcomePreset(outcome);
+                  createStep.mutate(
+                    {
+                      kind: "task",
+                      subject: preset.what,
+                      due_at: dueAtMorning(plusDays(preset.days)),
+                      opportunity_id: data.id,
+                      company_id: null,
+                    },
+                    {
+                      onSuccess: () => showSuccess(`Zapisano rozmowę. Krok: ${preset.what}, za ${preset.days} dni. Inny: „Zaplanuj”.`),
+                      onError: () => setAfterCall({ outcome, person: person?.name ?? null }),
+                    },
+                  );
                 }}
                 onClose={() => setLogPerson(null)}
               />

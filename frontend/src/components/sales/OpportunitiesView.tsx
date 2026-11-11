@@ -121,7 +121,10 @@ export function OpportunitiesView() {
   const { replaceUrl } = useUrlWriter();
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
-  const mine = searchParams?.get("mine") === "1";
+  // Decyzja Artura 11.11.2026: osoba z „Sprzedaż: edycja” wchodzi od razu na swoje szanse; „Każdy opiekun” to `mine=0`.
+  const mineParam = searchParams?.get("mine") ?? null;
+  const ownerParamRaw = searchParams?.get("opiekun") ?? null;
+  const mine = mineParam === "1" || (mineParam === null && ownerParamRaw === null && canEdit);
   // Konkretny opiekun (`?opiekun=`), sortowanie i archiwum — jak w Atlasie
   // (audyt importu 28.10.2026: 766 zarchiwizowanych szans było nie do znalezienia).
   const ownerParam = Number(searchParams?.get("opiekun") ?? "") || null;
@@ -241,6 +244,7 @@ export function OpportunitiesView() {
                 params.delete("opiekun");
                 if (value === "me") params.set("mine", "1");
                 else if (value.startsWith("acct:")) params.set("opiekun", value.slice(5));
+                else params.set("mine", "0");
                 const qs = params.toString();
                 replaceUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
               }}

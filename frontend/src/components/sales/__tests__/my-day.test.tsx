@@ -20,6 +20,7 @@ const askConfirm = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
 const companyPeople = vi.fn();
+const bookProps = vi.fn();
 let canEdit = true;
 
 const mutation = (mutate: ReturnType<typeof vi.fn>) => ({ mutate, isPending: false });
@@ -44,6 +45,12 @@ vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   useGiveVerdict: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
   useSetHandoffTerm: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
   useHostBusy: () => ({ isPending: true, isSuccess: false }),
+}));
+vi.mock("../handoff/BookMeetingForm", () => ({
+  BookMeetingDialog: (props: object) => {
+    bookProps(props);
+    return <p>okno „Umów spotkanie”</p>;
+  },
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showError, showSuccess }) }));
 vi.mock("@/components/v2/modals/ConfirmV2", () => ({
@@ -303,24 +310,89 @@ describe("przyciski wiersza", () => {
     expect(screen.queryByRole("button", { name: "Załóż szansę" })).toBeNull();
   });
 
-  it("Zadzwoniłem zapisuje wynik przy szansie i krok", async () => {
+  it("klik w wynik zapisuje rozmowę i krok z podpowiedzi, bez drugiego „Zapisz”", async () => {
     logCall.mockImplementation((_input, { onSuccess }) => onSuccess());
     render(<MyDayRowItem row={row()} canEdit />);
     fireEvent.click(screen.getByText("Zadzwoniłem"));
+    expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Dodzwoniłem" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() => expect(createActivity).toHaveBeenCalled());
     expect(logCall.mock.calls[0][0]).toEqual({ opportunity_id: 21, outcome: "connected", contact_id: 3 });
-    const step = createActivity.mock.calls[0][0];
-    expect(step.opportunity_id).toBe(21);
-    expect(step.kind).toBe("task");
-    expect(step.subject).toBeTruthy();
+    expect(createActivity.mock.calls[0][0]).toMatchObject({
+      kind: "task",
+      subject: "Wysłać podsumowanie rozmowy",
+      opportunity_id: 21,
+      company_id: null,
+    });
   });
 
-  it("zapis bez wyboru wyniku jest niemożliwy", () => {
+  it("termin kroku idzie z wyniku: „Nie odebrał” to jutro, nie trzy dni", async () => {
+    logCall.mockImplementation((_input, { onSuccess }) => onSuccess());
     render(<MyDayRowItem row={row()} canEdit />);
     fireEvent.click(screen.getByText("Zadzwoniłem"));
-    expect((screen.getByRole("button", { name: "Zapisz" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Nie odebrał" }));
+    await waitFor(() => expect(createActivity).toHaveBeenCalled());
+    const due = new Date(createActivity.mock.calls[0][0].due_at);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(due.toDateString()).toBe(tomorrow.toDateString());
+    expect(createActivity.mock.calls[0][0].subject).toBe("Zadzwonić ponownie");
+  });
+
+  it("notatka z rozmowy idzie razem z wynikiem", async () => {
+    logCall.mockImplementation((_input, { onSuccess }) => onSuccess());
+    render(<MyDayRowItem row={row()} canEdit />);
+    fireEvent.click(screen.getByText("Zadzwoniłem"));
+    fireEvent.change(screen.getByLabelText("Notatka z rozmowy"), { target: { value: "Decyzja w piątek" } });
+    fireEvent.click(screen.getByRole("button", { name: "Oddzwonić" }));
+    await waitFor(() => expect(logCall).toHaveBeenCalled());
+    expect(logCall.mock.calls[0][0].note).toBe("Decyzja w piątek");
+  });
+
+  it("klawisz 2 zapisuje „Nie odebrał”, a cyfra wpisana w notatkę nic nie zapisuje", async () => {
+    logCall.mockImplementation((_input, { onSuccess }) => onSuccess());
+    render(<MyDayRowItem row={row()} canEdit />);
+    fireEvent.click(screen.getByText("Zadzwoniłem"));
+    fireEvent.keyDown(screen.getByLabelText("Notatka z rozmowy"), { key: "2" });
+    expect(logCall).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("group", { name: "Wynik rozmowy" }), { key: "2" });
+    await waitFor(() => expect(logCall).toHaveBeenCalled());
+    expect(logCall.mock.calls[0][0].outcome).toBe("no_answer");
+  });
+
+  it("„Inny krok” zostawia wybór kroku i dopiero „Zapisz” zapisuje", async () => {
+    logCall.mockImplementation((_input, { onSuccess }) => onSuccess());
+    render(<MyDayRowItem row={row()} canEdit />);
+    fireEvent.click(screen.getByText("Zadzwoniłem"));
+    fireEvent.click(screen.getByRole("button", { name: "Inny krok" }));
+    const save = screen.getByRole("button", { name: "Zapisz" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Prosi o ofertę" }));
+    expect(logCall).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Co dalej"), { target: { value: "Wysłać ofertę na 2 osoby" } });
+    fireEvent.click(save);
+    await waitFor(() => expect(createActivity).toHaveBeenCalled());
+    expect(logCall.mock.calls[0][0].outcome).toBe("wants_offer");
+    expect(createActivity.mock.calls[0][0].subject).toBe("Wysłać ofertę na 2 osoby");
+  });
+
+  it("klik w numer otwiera zapis wyniku bez „Zadzwoniłem”", () => {
+    render(<MyDayRowItem row={row()} canEdit />);
+    fireEvent.click(screen.getByRole("link", { name: "+48 600 100 200" }));
+    expect(screen.getByRole("group", { name: "Wynik rozmowy" })).toBeTruthy();
+  });
+
+  it("„Umówione spotkanie” otwiera formularz z firmą, szansą i osobą z wiersza", () => {
+    render(<MyDayRowItem row={row()} canEdit />);
+    fireEvent.click(screen.getByText("Zadzwoniłem"));
+    fireEvent.click(screen.getByRole("button", { name: "Umówione spotkanie" }));
+    expect(screen.getByText("okno „Umów spotkanie”")).toBeTruthy();
+    expect(bookProps.mock.calls[0][0]).toMatchObject({
+      company: { id: 7, name: "Firma Testowa" },
+      contactId: 3,
+      opportunity: { id: 21, name: "Zespół analityków", company: { id: 7, name: "Firma Testowa" } },
+    });
+    expect(logCall).not.toHaveBeenCalled();
   });
 
   it("telefon przy zadaniu firmy idzie trasą firmy i zamyka zadanie", async () => {
@@ -329,7 +401,6 @@ describe("przyciski wiersza", () => {
     render(<MyDayRowItem row={overdue} canEdit />);
     fireEvent.click(screen.getByText("Zadzwoniłem"));
     fireEvent.click(screen.getByRole("button", { name: "Nie odebrał" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() => expect(completeActivity).toHaveBeenCalled());
     expect(completeActivity.mock.calls[0][0]).toEqual({ id: 5 });
     expect(logCompanyCall.mock.calls[0][0]).toEqual({ company_id: 7, outcome: "no_answer", contact_id: 3 });
@@ -357,15 +428,14 @@ describe("przyciski wiersza", () => {
     expect(logCall).not.toHaveBeenCalled();
   });
 
-  it("błąd serwera wraca jako komunikat i wiersz zostaje", async () => {
+  it("błąd serwera wraca jako komunikat i wyniki zostają do ponownej próby", async () => {
     logCall.mockImplementation((_input, { onError }) => onError(new Error("boom")));
     render(<MyDayRowItem row={row()} canEdit />);
     fireEvent.click(screen.getByText("Zadzwoniłem"));
     fireEvent.click(screen.getByRole("button", { name: "Dodzwoniłem" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() => expect(showError).toHaveBeenCalled());
     expect(createActivity).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Zapisz" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dodzwoniłem" })).toBeTruthy();
   });
 
   it("nieudany krok po zapisanej rozmowie zamyka panel, żeby rozmowa się nie zdublowała", async () => {
@@ -374,9 +444,16 @@ describe("przyciski wiersza", () => {
     render(<MyDayRowItem row={row()} canEdit />);
     fireEvent.click(screen.getByText("Zadzwoniłem"));
     fireEvent.click(screen.getByRole("button", { name: "Dodzwoniłem" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Wynik rozmowy" })).toBeNull();
+  });
+
+  it("Zaplanuj ma już wpisane „Zadzwonić”, więc wystarczy termin i „Zapisz”", () => {
+    createActivity.mockImplementation((_input, { onSuccess }) => onSuccess());
+    render(<MyDayRowItem row={row()} canEdit />);
+    fireEvent.click(screen.getByText("Zaplanuj"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(createActivity.mock.calls[0][0]).toMatchObject({ kind: "task", subject: "Zadzwonić", opportunity_id: 21 });
   });
 
   it("Zaplanuj zapisuje krok przy szansie", () => {

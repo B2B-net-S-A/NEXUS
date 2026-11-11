@@ -7,11 +7,16 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { KanbanBoard, KanbanCard } from "@/components/ds/Kanban";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { TruncatedText } from "@/components/ds/TruncatedText";
+import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
-import type { Opportunity, Pipeline, Stage } from "@/lib/api/sales";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useCreateActivity, type Opportunity, type Pipeline, type Stage } from "@/lib/api/sales";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
+import { dueAtMorning, plusDays } from "./CallLogDialogs";
 import { formatDealAmount, formatDealNumber } from "./format";
 import { amountLabel, canDragOpportunity, lastContactLabel, shortCompany, stepLabel, stepTone } from "./step";
 import { useBoardMove } from "./useBoardMove";
@@ -25,6 +30,64 @@ function amountHint(item: Opportunity): string | undefined {
       ? `${formatDealNumber(item.mrr_value)} zł miesięcznie + ${formatDealNumber(item.one_off_value)} zł jednorazowo`
       : null;
   return [split, closing].filter(Boolean).join(" · ") || undefined;
+}
+
+const QUICK_WHEN = [
+  { label: "Jutro", days: 1 },
+  { label: "Za 3 dni", days: 3 },
+  { label: "Za tydzień", days: 7 },
+] as const;
+
+/**
+ * Decyzja Artura 11.11.2026: krok prosto z kafelka, bez wchodzenia w kartę. „Zadzwonić” i termin
+ * jednym kliknięciem; inny opis kroku dalej na karcie („Zaplanuj”).
+ */
+function QuickStep({ item }: { item: Opportunity }) {
+  const create = useCreateActivity();
+  const { showError, showSuccess } = useToast();
+  const [open, setOpen] = useState(false);
+  const plan = (days: number, label: string) =>
+    create.mutate(
+      { kind: "task", subject: "Zadzwonić", due_at: dueAtMorning(plusDays(days)), opportunity_id: item.id, company_id: null },
+      {
+        onSuccess: () => {
+          setOpen(false);
+          showSuccess(`Krok przy ${shortCompany(item.company.name)}: zadzwonić ${label.toLowerCase()}.`);
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać kroku.")),
+      },
+    );
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0 rounded border border-dashed border-destructive/50 px-1 text-destructive hover:bg-destructive/10"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          + krok
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-2" onClick={(event) => event.stopPropagation()}>
+        <p className="mb-1 text-xs text-muted-foreground">Zadzwonić…</p>
+        <div className="flex gap-1">
+          {QUICK_WHEN.map((option) => (
+            <Button
+              key={option.days}
+              size="sm"
+              variant="outline"
+              className="h-7 px-2"
+              disabled={create.isPending}
+              onClick={() => plan(option.days, option.label)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 interface OpportunityTileProps {
@@ -61,9 +124,13 @@ function OpportunityTile({ item, index, canEdit, showOwner }: OpportunityTilePro
               {amountLabel(item)}
             </span>
             {open && (
-              <StatusDot tone={tone} className="shrink-0" title="Następny krok">
-                {tone === "danger" ? <span className="text-destructive">brak kroku</span> : stepLabel(item)}
-              </StatusDot>
+              canEdit && !item.next_step && !item.overdue_step ? (
+                <QuickStep item={item} />
+              ) : (
+                <StatusDot tone={tone} className="shrink-0" title="Następny krok">
+                  {tone === "danger" ? <span className="text-destructive">brak kroku</span> : stepLabel(item)}
+                </StatusDot>
+              )
             )}
           </div>
           <p className="truncate text-xs leading-4 text-muted-foreground">
