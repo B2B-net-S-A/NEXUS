@@ -11,6 +11,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useCompleteActivity, type MyDayRow } from "@/lib/api/sales";
 
 import { CreateOpportunityFromMeetingDialog } from "./CreateOpportunityFromMeetingDialog";
+import { BookMeetingDialog } from "./handoff/BookMeetingForm";
 import { formatDealAmount, safeHref } from "./format";
 import { clock, replyHref, rowReason, telHref } from "./my-day";
 import { CallPanel, PhonePanel, PlanPanel } from "./MyDayRowPanels";
@@ -32,7 +33,7 @@ function Reason({ row }: { row: MyDayRow }) {
   );
 }
 
-function ContactInline({ row }: { row: MyDayRow }) {
+function ContactInline({ row, onDial }: { row: MyDayRow; onDial?: () => void }) {
   if (row.do_not_contact) return <Badge variant="neutral">Nie kontaktować</Badge>;
   const person = row.person;
   return (
@@ -41,6 +42,8 @@ function ContactInline({ row }: { row: MyDayRow }) {
       {person?.phone ? (
         <a
           href={telHref(person.phone)}
+          // Makieta 11.11: klik w numer od razu otwiera zapis wyniku, bez „Zadzwoniłem”.
+          onClick={onDial}
           className="max-w-[124px] truncate tabular-nums text-primary hover:underline"
         >
           {person.phone}
@@ -74,6 +77,7 @@ function ReplyButton({ row }: { row: MyDayRow }) {
 export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean }) {
   const [mode, setMode] = useState<PanelMode | null>(null);
   const [creating, setCreating] = useState(false);
+  const [booking, setBooking] = useState(false);
   const complete = useCompleteActivity();
   const { showError } = useToast();
   const toggle = (next: PanelMode) => setMode((current) => (current === next ? null : next));
@@ -102,7 +106,7 @@ export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean
             >
               {row.company.name}
             </Link>
-            {!isMeeting && <ContactInline row={row} />}
+            {!isMeeting && <ContactInline row={row} onDial={canEdit ? () => setMode("call") : undefined} />}
           </div>
           <div className="flex min-w-0 items-baseline gap-2 text-xs text-muted-foreground">
             <div className="min-w-0 flex-1">
@@ -164,7 +168,24 @@ export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean
         </div>
       )}
       {mode === "plan" && <PlanPanel row={row} onDone={close} />}
-      {mode === "call" && <CallPanel row={row} onDone={close} />}
+      {mode === "call" && (
+        <CallPanel
+          row={row}
+          onDone={close}
+          onBook={() => {
+            close();
+            setBooking(true);
+          }}
+        />
+      )}
+      {booking && (
+        <BookMeetingDialog
+          company={row.company}
+          contactId={row.person?.id}
+          opportunity={row.opportunity ? { id: row.opportunity.id, name: row.opportunity.title, company: row.company } : undefined}
+          onClose={() => setBooking(false)}
+        />
+      )}
       {mode === "phone" && <PhonePanel row={row} onDone={close} />}
       {creating && row.activity_id !== null && (
         <CreateOpportunityFromMeetingDialog meeting={{ id: row.activity_id }} onClose={() => setCreating(false)} />

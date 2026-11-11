@@ -12,6 +12,10 @@ import { CALL_OUTCOME_LABELS, useLogCall, type CallOutcome } from "@/lib/api/sal
 
 import type { CallPerson } from "./CallLogDialogs";
 import { SalesSelect } from "./SalesSelect";
+import { outcomePreset } from "./step";
+
+const dayHint = (days: number): string =>
+  days === 1 ? "jutro" : days === 7 ? "za tydzień" : days === 30 ? "za miesiąc" : `za ${days} dni`;
 
 const OUTCOMES: Exclude<CallOutcome, "do_not_contact">[] = [
   "connected",
@@ -91,8 +95,19 @@ export function CallLogPanel({ opportunityId, people, initialPerson, onSaved, on
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {OUTCOMES.map((outcome) => (
-          <Button key={outcome} size="sm" variant="outline" disabled={log.isPending} onClick={() => save(outcome)}>
-            {CALL_OUTCOME_LABELS[outcome]}
+          <Button
+            key={outcome}
+            size="sm"
+            variant="outline"
+            className="h-auto flex-col items-start gap-0 py-1"
+            disabled={log.isPending}
+            onClick={() => save(outcome)}
+          >
+            <span>{CALL_OUTCOME_LABELS[outcome]}</span>
+            {/* Makieta 11.11: krok z podpowiedzi zapisuje się razem z wynikiem, bez okna „Co dalej”. */}
+            <span className="text-[10px] font-normal text-muted-foreground">
+              {`${outcomePreset(outcome).what.toLowerCase()}, ${dayHint(outcomePreset(outcome).days)}`}
+            </span>
           </Button>
         ))}
         <Button

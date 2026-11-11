@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,7 @@ export function PlanPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
   const create = useCreateActivity();
   const update = useUpdateActivity(row.activity_id ?? 0);
   const { showError, showSuccess } = useToast();
-  const [what, setWhat] = useState(reschedule ? (row.subject ?? "") : "");
+  const [what, setWhat] = useState(reschedule ? (row.subject ?? "") : "Zadzwonić");
   const [when, setWhen] = useState<When | null>("3");
   const pending = create.isPending || update.isPending;
 
@@ -142,26 +142,38 @@ export function PlanPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
   );
 }
 
-/** Zapis rozmowy w wierszu: wynik, potem krok; zaległe zadanie zamyka się razem z rozmową. */
-export function CallPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }) {
+const OUTCOME_KEYS: Record<Exclude<CallOutcome, "do_not_contact">, string> = {
+  connected: "1",
+  no_answer: "2",
+  call_back: "3",
+  wants_offer: "4",
+  not_now: "5",
+};
+
+const whenLabel = (days: number): string =>
+  days === 1 ? "jutro" : days === 7 ? "za tydzień" : days === 30 ? "za miesiąc" : `za ${days} dni`;
+
+const typingTarget = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+
+/**
+ * Zapis rozmowy w wierszu (makieta 11.11.2026): klik w wynik zapisuje rozmowę i krok z podpowiedzi
+ * wyniku, bez drugiego „Zapisz”. Inny krok niż podpowiedź: „Inny krok”. Klawisze 1–5 jak w kolejce.
+ */
+export function CallPanel({ row, onDone, onBook }: { row: MyDayRow; onDone: () => void; onBook?: () => void }) {
   const logOpportunity = useLogCall();
   const logCompany = useLogCompanyCall();
   const createStep = useCreateActivity();
   const complete = useCompleteActivity();
   const { showError, showSuccess } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const [outcome, setOutcome] = useState<CallOutcome | null>(null);
+  const [note, setNote] = useState("");
+  const [custom, setCustom] = useState(false);
+  const [outcome, setOutcome] = useState<Exclude<CallOutcome, "do_not_contact"> | null>(null);
   const [what, setWhat] = useState("");
   const [when, setWhen] = useState<When | null>("3");
   const contactId = row.person?.id;
   const isPending = logOpportunity.isPending || logCompany.isPending || createStep.isPending;
-
-  const choose = (next: Exclude<CallOutcome, "do_not_contact">) => {
-    const preset = outcomePreset(next);
-    setOutcome(next);
-    setWhat(preset.what);
-    setWhen(next === "not_now" ? null : "3");
-  };
 
   const afterLog = () => {
     if (row.section === "overdue" && row.activity_id !== null) {
@@ -172,8 +184,8 @@ export function CallPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
     }
   };
 
-  const saveStep = () => {
-    if (!when || !what.trim()) {
+  const saveStep = (subject: string, days: number | null) => {
+    if (days === null || !subject.trim()) {
       showSuccess("Zapisano rozmowę.");
       onDone();
       return;
@@ -181,17 +193,16 @@ export function CallPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
     createStep.mutate(
       {
         kind: "task",
-        subject: what.trim(),
-        due_at: dueAtMorning(plusDays(Number(when))),
+        subject: subject.trim(),
+        due_at: dueAtMorning(plusDays(days)),
         opportunity_id: row.opportunity?.id ?? null,
         company_id: row.opportunity ? null : row.company.id,
       },
       {
         onSuccess: () => {
-          showSuccess("Zapisano rozmowę i następny krok.");
+          showSuccess(`Zapisano rozmowę. Krok: ${subject.trim()}, ${whenLabel(days)}.`);
           onDone();
         },
-        // Rozmowa już jest w historii: panel się zamyka, żeby drugi zapis jej nie zdublował.
         onError: (error) => {
           showError(apiErrorMessage(error, "Rozmowa zapisana, ale kroku nie udało się zapisać."));
           onDone();
@@ -208,14 +219,28 @@ export function CallPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
       },
       onError: (error: unknown) => showError(apiErrorMessage(error, "Nie udało się zapisać rozmowy.")),
     };
+    const text = note.trim() || undefined;
     if (row.opportunity) {
       logOpportunity.mutate(
-        { opportunity_id: row.opportunity.id, outcome: value, contact_id: contactId },
+        { opportunity_id: row.opportunity.id, outcome: value, contact_id: contactId, note: text },
         callbacks,
       );
     } else {
-      logCompany.mutate({ company_id: row.company.id, outcome: value, contact_id: contactId }, callbacks);
+      logCompany.mutate({ company_id: row.company.id, outcome: value, contact_id: contactId, note: text }, callbacks);
     }
+  };
+
+  const quick = (value: Exclude<CallOutcome, "do_not_contact">) => {
+    if (isPending) return;
+    if (custom) {
+      const preset = outcomePreset(value);
+      setOutcome(value);
+      setWhat(preset.what);
+      setWhen(value === "not_now" ? null : "3");
+      return;
+    }
+    const preset = outcomePreset(value);
+    log(value, () => saveStep(preset.what, preset.days));
   };
 
   const object = async () => {
@@ -233,26 +258,66 @@ export function CallPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
     });
   };
 
-  const save = () => {
-    if (!outcome) return;
-    log(outcome, saveStep);
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (custom || typingTarget(event.target)) return;
+    const hit = OUTCOMES.find((option) => OUTCOME_KEYS[option] === event.key);
+    if (hit) {
+      event.preventDefault();
+      quick(hit);
+    }
   };
 
   return (
-    <div className={PANEL}>
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- klawisze 1–5 jak w kolejce dzwonienia
+    <div className={PANEL} onKeyDown={onKeyDown}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          className="h-8 min-w-48 flex-1 text-xs"
+          placeholder="Co ustaliliście? (opcjonalnie)"
+          aria-label="Notatka z rozmowy"
+          value={note}
+          maxLength={2000}
+          onChange={(event) => setNote(event.target.value)}
+        />
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setCustom((value) => !value)}>
+          {custom ? "Krok z podpowiedzi" : "Inny krok"}
+        </Button>
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onDone}>
+          Anuluj
+        </Button>
+      </div>
       <div className="flex flex-wrap gap-1" role="group" aria-label="Wynik rozmowy">
-        {OUTCOMES.map((option) => (
-          <Button
-            key={option}
-            size="sm"
-            className="h-7 px-1.5"
-            variant={outcome === option ? "primary" : "outline"}
-            aria-pressed={outcome === option}
-            onClick={() => choose(option)}
-          >
-            {CALL_OUTCOME_LABELS[option]}
+        {OUTCOMES.map((option) => {
+          const preset = outcomePreset(option);
+          return (
+            <Button
+              key={option}
+              size="sm"
+              className="h-auto flex-col items-start gap-0 px-2 py-1"
+              variant={custom && outcome === option ? "primary" : "outline"}
+              aria-keyshortcuts={OUTCOME_KEYS[option]}
+              disabled={isPending}
+              onClick={() => quick(option)}
+            >
+              <span>
+                <kbd className="mr-1 rounded border border-border px-1 text-[10px] text-muted-foreground">
+                  {OUTCOME_KEYS[option]}
+                </kbd>
+                {CALL_OUTCOME_LABELS[option]}
+              </span>
+              {!custom && (
+                <span className="text-[10px] font-normal text-muted-foreground">
+                  {option === "not_now" ? "wrócić za miesiąc" : `krok ${whenLabel(preset.days)}`}
+                </span>
+              )}
+            </Button>
+          );
+        })}
+        {onBook && (
+          <Button size="sm" variant="outline" className="h-auto px-2 py-1" disabled={isPending} onClick={onBook}>
+            Umówione spotkanie
           </Button>
-        ))}
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -263,11 +328,17 @@ export function CallPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
           {CALL_OUTCOME_LABELS.do_not_contact}
         </Button>
       </div>
-      <p className="font-medium text-foreground">Co dalej i kiedy</p>
-      <div className="flex flex-wrap items-center gap-2">
-        <StepFields what={what} when={when} onWhat={setWhat} onWhen={setWhen} />
-        <SaveButtons canSave={outcome !== null} pending={isPending} onSave={save} onCancel={onDone} />
-      </div>
+      {custom && (
+        <div className="flex flex-wrap items-center gap-2">
+          <StepFields what={what} when={when} onWhat={setWhat} onWhen={setWhen} />
+          <SaveButtons
+            canSave={outcome !== null}
+            pending={isPending}
+            onSave={() => outcome && log(outcome, () => saveStep(what, when ? Number(when) : null))}
+            onCancel={onDone}
+          />
+        </div>
+      )}
       {confirmDialog}
     </div>
   );
