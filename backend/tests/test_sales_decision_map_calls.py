@@ -147,6 +147,15 @@ def test_every_outcome_of_the_dictionary_has_a_decision() -> None:
     assert undecided == []
 
 
+def test_excel_outcomes_count_like_their_neighbours() -> None:
+    assert map_outlook.call_signal("not_interested") == map_outlook.call_signal(
+        "not_now"
+    )
+    assert map_outlook.call_signal("bad_contact") == map_outlook.call_signal(
+        "no_answer"
+    )
+
+
 @pytest.mark.parametrize(
     ("outcome", "status", "source"),
     [

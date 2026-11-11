@@ -122,6 +122,10 @@ _CALL_SIGNALS: dict[Optional[str], Signal] = {
     "meeting_booked": Signal.CALL_TALK,
     "no_answer": Signal.CALL_ATTEMPT,
     "call_back": Signal.CALL_ATTEMPT,
+    # 11.11.2026 (Excel dzwoniących): „Nie zainteresowany” to rozmowa jak „Nie teraz”,
+    # „Zły numer / brak danych” to próba bez rozmowy jak „Nie odebrał”.
+    "not_interested": Signal.CALL_TALK,
+    "bad_contact": Signal.CALL_ATTEMPT,
     None: Signal.CALL_NO_OUTCOME,
 }
 
