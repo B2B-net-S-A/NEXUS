@@ -17,6 +17,22 @@
     "dot_anchor": "jobs.list.twin-pick"
   },
   {
+    "id": "sprzedaz-wiele-szans-naraz",
+    "pr": 3322,
+    "title": "Szanse: krok, opiekun i zamknięcie dla wielu naraz",
+    "why": "W widoku „Lista” zaznacz szanse i jednym kliknięciem zaplanuj krok, zmień opiekuna albo zamknij je z powodem. Pominięte pokażą powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-11",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Szanse → Lista",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.tabs"
+  },
+  {
     "id": "sprzedaz-siedem-zakladek",
     "pr": 3321,
     "title": "Sprzedaż: siedem zakładek i rozmowa z karty firmy",

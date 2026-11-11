@@ -12,6 +12,7 @@ const create = vi.fn();
 const createActivity = vi.fn();
 const logCall = vi.fn();
 const opportunitiesParams = vi.fn();
+let opportunityItems: object[] = [];
 let searchParams = new URLSearchParams();
 let pipelinesData: Pipeline[] | undefined;
 
@@ -71,8 +72,9 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useSalesContacts: () => ({ data: undefined, isSuccess: false }),
   useCreateActivity: () => ({ mutate: createActivity, isPending: false }),
   useLogCall: () => ({ mutate: logCall, isPending: false }),
+  useBulkOpportunities: () => ({ mutate: vi.fn(), isPending: false }),
   useOpportunities: (params: unknown) => (opportunitiesParams(params), {
-    data: { items: [], total: 0 },
+    data: { items: opportunityItems, total: opportunityItems.length },
     isLoading: false,
     error: null,
     isSuccess: true,
@@ -162,6 +164,7 @@ beforeEach(() => {
   createActivity.mockReset();
   logCall.mockReset();
   opportunitiesParams.mockClear();
+  opportunityItems = [];
   searchParams = new URLSearchParams();
   pipelinesData = PIPELINES;
 });
@@ -267,6 +270,40 @@ describe("Szanse: domyślnie „Moje”", () => {
     searchParams = new URLSearchParams("opiekun=5");
     render(<OpportunitiesView />);
     expect(owner()).toBe(5);
+  });
+});
+
+describe("Szanse: lista z zaznaczaniem", () => {
+  const item = (id: number, title: string) => ({
+    ...OPPORTUNITY,
+    id,
+    title,
+    status: "open",
+    owner: { id: 1, name: "Handlowiec" },
+    last_touch_at: null,
+    service_line: null,
+    next_step: null,
+    overdue_step: null,
+  });
+
+  it("„Zaznacz wszystkie” pokazuje pasek akcji dla widocznych szans", () => {
+    opportunityItems = [item(41, "Zespół QA"), item(42, "Zespół DevOps")];
+    searchParams = new URLSearchParams("view=list");
+    render(<OpportunitiesView />);
+    expect(screen.queryByRole("region", { name: "Zaznaczone szanse" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz wszystkie widoczne" }));
+    expect(screen.getByRole("region", { name: "Zaznaczone szanse" })).toHaveTextContent("Zaznaczone: 2 szanse");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz Zespół QA" }));
+    expect(screen.getByRole("region", { name: "Zaznaczone szanse" })).toHaveTextContent("Zaznaczone: 1 szansę");
+    // Lejek ma etap „lost”, więc jest też zamknięcie.
+    expect(screen.getByRole("button", { name: "Zamknij z powodem" })).toBeInTheDocument();
+  });
+
+  it("archiwum nie ma zaznaczania", () => {
+    opportunityItems = [item(41, "Zespół QA")];
+    searchParams = new URLSearchParams("view=list&archiwum=1");
+    render(<OpportunitiesView />);
+    expect(screen.queryByRole("checkbox", { name: "Zaznacz wszystkie widoczne" })).toBeNull();
   });
 });
 
