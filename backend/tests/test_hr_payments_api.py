@@ -268,8 +268,12 @@ async def test_settings_refuse_invalid_values(client, env, body, fragment):
 
 @pytest.mark.asyncio
 async def test_finance_list_shows_invoice_gross_and_ksef_title_without_account(
-    client, env
+    client, env, monkeypatch
 ):
+    # Terminy z `_team()` to 10.11 i 18.11.2026; od 11.11 „dziś” z zegara robiło
+    # z Kuby zaległość i test padał każdemu PR-owi w kolejce. Dzień przed
+    # oboma terminami, więc `overdue` = 0 niezależnie od dnia biegu.
+    monkeypatch.setattr(hr_payments, "business_today", lambda: date(2026, 11, 5))
     finance, _hr, ola, kuba, ola_s, kuba_s = await _team()
     async with AsyncSessionLocal() as db:
         # Korekta faktury (różnica) liczy się do kwoty do zapłaty.
