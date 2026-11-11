@@ -35,8 +35,8 @@ class CallStatus(str, enum.Enum):
 class Call(Base, TimestampMixin):
     """Rejestr rozmów telefonicznych z kandydatami.
 
-    Rozmowy dopisuje ręcznie ``POST /api/calls``. Webhook i backfill CloudTalka
-    usunięte 08.11.2026; kolumny ``cloudtalk_*`` i historyczne wiersze zostają.
+    Rozmowy dopisuje ręcznie ``POST /api/calls``. Integracja telefonii
+    usunięta 08.11.2026, jej kolumny zdjęte migracją 0682; wiersze zostają.
     """
 
     __tablename__ = "calls"
@@ -58,10 +58,9 @@ class Call(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # Powiązania
-    # Nullable: an inbound CloudTalk call whose phone matches MORE than one
-    # candidate (same trailing-9 digits) is left UNASSIGNED rather than
-    # auto-attached to an arbitrary candidate (F-12). The row is still persisted
-    # (by cloudtalk_call_id) so the event isn't lost; an operator resolves it.
+    # Nullable: historycznie rozmowa przychodząca, której numer pasował do
+    # kilku kandydatów, zostawała nieprzypisana zamiast trafić do przypadkowej
+    # osoby (F-12).
     candidate_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -89,33 +88,19 @@ class Call(Base, TimestampMixin):
         Enum(CallStatus), nullable=False, default=CallStatus.completed, index=True
     )
 
-    # Transkrypcja i podsumowanie (opcjonalne, może przyjść z CloudTalk AI)
+    # Transkrypcja i podsumowanie (opcjonalne)
     transcript: Mapped[Optional[str]] = mapped_column(Text)
     summary: Mapped[Optional[str]] = mapped_column(Text)
 
-    # URL nagrania (z CloudTalk)
+    # URL nagrania
     recording_url: Mapped[Optional[str]] = mapped_column(String(1000))
 
-    # ID rozmowy w CloudTalk (do deduplikacji webhooków)
-    cloudtalk_call_id: Mapped[Optional[str]] = mapped_column(
-        String(255), unique=True, nullable=True, index=True
-    )
-
-    # CloudTalk agent identifier — denormalized so historical rows survive
-    # rebindings of User → cloudtalk_agent_id. Set from webhook payload's
-    # ``agent.id`` (Phase 2).
-    cloudtalk_agent_id: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True, index=True
-    )
-
-    # Exact start time as reported by CloudTalk. Distinct from ``created_at``
-    # (which is when our row was inserted; the webhook may arrive minutes
-    # after the call actually started).
+    # Faktyczny początek rozmowy; ``created_at`` to chwila zapisu wiersza.
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
 
-    # Candidate-contact coordination metadata. Existing manual/CloudTalk rows
+    # Candidate-contact coordination metadata. Existing manual rows
     # stay NULL and retain their historical semantics.
     contact_outcome: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     contact_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)

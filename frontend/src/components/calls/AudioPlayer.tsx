@@ -9,15 +9,10 @@ interface AudioPlayerProps {
 }
 
 /**
- * Lightweight wrapper over `<audio controls>` for CloudTalk recordings.
+ * Lightweight wrapper over `<audio controls>` for call and meeting recordings.
  *
- * CloudTalk MP3 URLs are signed/public depending on plan tier. We render
- * the native player and also expose an external "Open" link as a fallback
- * for browsers that block the audio element (mixed-content) or codecs.
- *
- * No blob-fetching with auth headers yet — when CloudTalk requires auth on
- * recording downloads we'll switch to fetch + URL.createObjectURL (planned
- * for a follow-up once we observe the real auth flow on the dashboard).
+ * We render the native player and also expose an external "Open" link as a
+ * fallback for browsers that block the audio element (mixed-content) or codecs.
  */
 export default function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);

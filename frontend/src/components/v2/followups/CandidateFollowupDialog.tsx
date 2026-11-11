@@ -127,7 +127,7 @@ function History({ detail, onCall }: { detail: FollowupDetail; onCall: (callId: 
             {h.callback_on ? ` (${shortDate(h.callback_on)})` : ""}
             {h.call_id && (
               <button type="button" className="ml-2 text-primary underline" onClick={() => onCall(h.call_id!)}>
-                {h.has_transcript ? "Transkrypt" : h.has_recording ? "Nagranie" : "Rozmowa CloudTalk"}
+                {h.has_transcript ? "Transkrypt" : h.has_recording ? "Nagranie" : "Rozmowa"}
               </button>
             )}
           </li>

@@ -25,7 +25,7 @@ from app.core.background_leader import STANDBY_ALARM_SECONDS
 logger = logging.getLogger(__name__)
 
 # Alarmy bramkowane na SLACK_WEBHOOK_URL (patrz docstring). Krótka, jawna lista —
-# NIE dopisuj tu integracji opt-in (LinkedIn, M365, CloudTalk…): ich wyłączenie
+# NIE dopisuj tu integracji opt-in (LinkedIn, M365, Autenti…): ich wyłączenie
 # jest ŚWIADOME, a flagowanie go co godzinę to dokładnie ten fałszywy alarm,
 # przed którym ostrzega komentarz przy uptime-probe.
 SLACK_WEBHOOK_ALARM_TASKS: tuple[str, ...] = ("slack_sla_alerts",)

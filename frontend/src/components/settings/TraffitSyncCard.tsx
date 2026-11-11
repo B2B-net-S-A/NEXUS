@@ -6,7 +6,7 @@
  * Dopóki Traffit jest źródłem prawdy, świeżość tego importu decyduje o tym, czy
  * dane w NEXUS w ogóle są aktualne. Backend wystawiał to od zawsze
  * (`GET /api/admin/traffit/sync/status`), ale Ustawienia pokazywały M365,
- * Fireflies, CloudTalk i Teams — Traffita nie było. Efekt: `traffit=degraded`
+ * Fireflies i Teams — Traffita nie było. Efekt: `traffit=degraded`
  * w `/api/health` był sygnałem, którego nie dało się kliknąć, a przyczynę
  * trzeba było wyciągać zapytaniem do produkcyjnej bazy.
  *

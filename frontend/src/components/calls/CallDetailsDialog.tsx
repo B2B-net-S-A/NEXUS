@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, PhoneCall, PhoneIncoming, User } from "lucide-react";
+import { Clock, PhoneCall, PhoneIncoming } from "lucide-react";
 
 import {
   Dialog,
@@ -76,15 +76,6 @@ export default function CallDetailsDialog({
               </div>
               <div className="text-foreground font-medium">
                 {formatDuration(call.duration_seconds)}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-muted-foreground">
-                <User className="h-3.5 w-3.5" />
-                <span className="text-xs">Agent CloudTalk</span>
-              </div>
-              <div className="text-foreground font-medium">
-                {call.cloudtalk_agent_id ?? "—"}
               </div>
             </div>
             <div className="space-y-1">

@@ -945,7 +945,7 @@ class Settings(BaseSettings):
 
     # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────
     # Kill-switch całego mechanizmu. Domyślnie WŁĄCZONY, inaczej niż przy
-    # integracjach zewnętrznych (CloudTalk, Traffit sync): tamte gadają z obcym
+    # integracjach zewnętrznych (Traffit sync, M365): tamte gadają z obcym
     # systemem i bez sekretów i tak nie działają, a tu włącznik nie chroni przed
     # niczym — bez założonego konta i wydanego klucza żadne poświadczenie nie
     # istnieje, więc powierzchnia ataku przy pustej tabeli jest zerowa. Flaga

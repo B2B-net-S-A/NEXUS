@@ -1515,7 +1515,7 @@ async def dl_alerts_loop() -> None:
     """Dzienna pętla. Kill-switch sprawdzany PRZED pętlą, nie w środku.
 
     Wyłączona funkcja ma nie budzić procesu co 24 h tylko po to, żeby sprawdzić
-    tę samą flagę (ten sam błąd naprawiano w pętli CloudTalka).
+    tę samą flagę (ten sam błąd naprawiano w pętli usuniętej telefonii).
     """
     if not settings.DL_ALERTS_ENABLED:
         logger.info("dl_alerts_loop disabled (DL_ALERTS_ENABLED=false)")

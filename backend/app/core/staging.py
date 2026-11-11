@@ -78,7 +78,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
     }
 )
 
-# Wysyłki (maile, Slack, Teams), synchronizacje z M365/Compassem/CloudTalkiem/
+# Wysyłki (maile, Slack, Teams), synchronizacje z M365/Compassem/
 # KSeF/Autenti/portalami oraz nocne przebiegi AI na całej bazie (koszt modeli
 # drugi raz dziennie, a wynik i tak jest na produkcji).
 STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
