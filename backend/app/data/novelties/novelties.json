@@ -55,7 +55,7 @@
     "id": "sprzedaz-dzwonienie-skutecznosc",
     "pr": 3311,
     "title": "Dzwonienie: Skuteczność",
-    "why": "Co daje dzwonienie: ile telefonów kończy się rozmową, ofertą i spotkaniem, które kampanie i listy działają, o której ludzie odbierają i kto ile umówił. Liczy się samo z wyników klikniętych w kolejce.",
+    "why": "Co daje dzwonienie: ile telefonów kończy się rozmową, ofertą i spotkaniem, które kampanie i listy działają, o której odbierają i kto ile umówił. Dni sprzed kolejki są z podsumowań w Excelu.",
     "tier": "dot",
     "shipped_on": "2026-11-11",
     "audience": {

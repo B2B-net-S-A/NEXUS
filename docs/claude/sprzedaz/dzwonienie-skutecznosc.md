@@ -1,5 +1,5 @@
 # Dzwonienie → Skuteczność: lejek, kampanie, listy, pory dnia i ranking — decyzje Artura 11.11.2026
-<!-- indeks: ekran Skuteczność pod zakładką Dzwonienie, GET /api/sales/calling/effectiveness, calling_stats.py, external_source call_queue i external_id rekord:próba, rozmowa = wynik inny niż Nie odebrał i Zły numer, spotkanie z terminem, werdykt Warto z bloku przekazania, ranking osób z sortowaniem, tylko Sprzedaż: edycja, wnioski regułami z progiem próby, bez AI -->
+<!-- indeks: ekran Skuteczność pod zakładką Dzwonienie, GET /api/sales/calling/effectiveness, calling_stats.py, external_source call_queue i external_id rekord:próba, rozmowa = wynik inny niż Nie odebrał i Zły numer, spotkanie z terminem, werdykt Warto z bloku przekazania, ranking osób z sortowaniem, tylko Sprzedaż: edycja, wnioski regułami z progiem próby, bez AI, historia z Excela sales_call_day_totals źródło excel, dzień z dziennika ma pierwszeństwo, Dzień po dniu, luka na osi -->
 
 Powód: Artur chce rozumieć, co daje dzwonienie (dwie osoby dzwoniące, kampanie i listy)
 i mieć analizę na bieżąco. Makieta na danych stagingu (prywatny artefakt):
@@ -47,6 +47,31 @@ jedenasta zakładka Sprzedaży zawinęłaby rząd przy 1280 px).
 - **Wnioski liczą reguły z progiem próby, nie model AI**: godziny dopiero od 100
   telefonów (i 20 w godzinie), porównanie list od 30 rozmów na listę. Poniżej progu
   zdanie się nie pojawia, bo przy kilkunastu rozmowach różnica procentów to szum.
+
+## Historia sprzed kolejki: podsumowania z Excela (decyzja Artura 11.11.2026)
+
+Dzwoniący do 11.11.2026 prowadzili Excel z ręcznym wierszem „Podsumowanie” na koniec dnia
+(ok. 38 dni od 27.07.2026). Przeniesienie Excela (`dzwonienie-przeniesienie-excela.md`)
+zapisuje je w `sales_call_day_totals` ze źródłem `excel`, bez udawanych telefonów w dzienniku.
+
+- **Dzień osoby z choć jednym telefonem w dzienniku liczy się wyłącznie z dziennika.**
+  Podsumowanie z Excela wchodzi tylko dla dni bez telefonów (`excel_days_without_calls`).
+  Bez tego dzień przeniesienia albo dzień, w którym ktoś zaczął kolejkę i dokończył
+  w Excelu, liczyłby te same telefony dwa razy. Inna osoba tego samego dnia liczy się
+  ze swojego źródła (dzień „NEXUS i Excel”).
+- Excel wchodzi do **lejka** (telefony, rozmowy, oferta, spotkania), **rankingu osób**
+  i panelu **„Dzień po dniu”**. Nie wchodzi do kampanii, list, godzin, wyników telefonów
+  ani wniosków, bo podsumowanie to cztery liczby na dzień, bez tych szczegółów.
+  **Filtr kampanii pomija Excela** całkiem (także w początku okresu „Od początku”).
+- „Z terminem w NEXUSIE” i kolumna „Z terminem” liczą się wobec spotkań z dziennika:
+  spotkanie z Excela nie ma terminu z definicji, więc nie wchodzi do ostrzeżenia
+  „bez terminu” (osoba tylko z Excela ma „—”).
+- Okres **„Od początku”** zaczyna się od wcześniejszego z: pierwszego telefonu w dzienniku,
+  pierwszego dnia z Excela.
+- „Dzień po dniu” pokazuje każdy dzień roboczy okresu, także pusty (źródło `none`):
+  w Excelu nie ma podsumowań z części września i października, a oś bez luk udawałaby
+  ciągłość. Tabela pod wykresem pomija puste dni. Kolor słupka = źródło.
+- Ekran pokazuje nad lejkiem notkę, ile dni i telefonów pochodzi z Excela.
 
 Testy: `backend/tests/test_sales_calling_stats.py`,
 `frontend/src/components/sales/__tests__/sales-calling-effectiveness.test.tsx`.
