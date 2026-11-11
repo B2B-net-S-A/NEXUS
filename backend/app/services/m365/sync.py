@@ -79,7 +79,6 @@ from app.services.m365.matcher import IncomingMessage
 from app.services.m365.oauth import M365ReauthRequired
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
 from app.services.sales import meeting_transcripts as sales_transcripts
-from app.services.sales import meeting_autopin as sales_autopin
 from app.services.sales import outlook_activities as sales_outlook
 
 logger = logging.getLogger(__name__)
@@ -1036,6 +1035,12 @@ async def _settle_sales_meetings(db: AsyncSession, conn: M365Connection) -> None
 
 async def _auto_pin_sales_meetings(db: AsyncSession, conn: M365Connection) -> None:
     """Spotkania firm z jedną otwartą szansą przypinają się same (10.11.2026)."""
+    # Import dopiero tutaj, jak w ``_sync_sales_decision_maps``: ``meeting_autopin`` →
+    # ``handoff`` → ``companies`` bierze ``COMPANY_DOMAIN_SQL`` z ``outlook_activities``,
+    # a ten przez ``m365.matcher`` ładuje ten moduł. Import na górze pliku wywracał
+    # proces, który zaczynał od ``outlook_activities`` albo ``meeting_decisions``.
+    from app.services.sales import meeting_autopin as sales_autopin
+
     try:
         async with db.begin_nested():
             await sales_autopin.pin_obvious_meetings(db, now=datetime.now(timezone.utc))

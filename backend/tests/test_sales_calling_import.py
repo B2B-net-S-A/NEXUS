@@ -166,6 +166,9 @@ async def test_import_needs_edit_permission_and_an_existing_campaign(
             calling_file.TOO_MANY_ROWS_DETAIL,
         ),
     ],
+    # Krótkie nazwy przypadków: bez nich `pytest -v` wypisuje w logu CI cały plik
+    # 2 MB jako identyfikator testu, a przetwarzanie takiej linii trwało godzinami.
+    ids=["pdf", "xlsx-to-csv", "bez-telefonu", "za-duzy", "za-dlugi"],
 )
 @pytest.mark.asyncio
 async def test_file_is_validated_at_the_boundary(

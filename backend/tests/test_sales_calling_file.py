@@ -144,6 +144,20 @@ def test_domain_comes_from_site_or_business_mail_only() -> None:
             True,
         ),
     ],
+    # Krótkie nazwy przypadków: bez nich `pytest -v` wypisuje w logu CI cały plik
+    # 2 MB jako identyfikator testu, a przetwarzanie takiej linii trwało godzinami.
+    ids=[
+        "xls",
+        "pdf",
+        "bez-rozszerzenia",
+        "pusty",
+        "sam-naglowek",
+        "bez-firmy",
+        "bez-telefonu",
+        "xlsx-to-csv",
+        "xlsx-zly-zip",
+        "za-duzy",
+    ],
 )
 def test_bad_files_are_refused_with_a_message(
     filename: str, payload: bytes, detail: str, too_large: bool

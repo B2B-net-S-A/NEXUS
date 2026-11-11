@@ -477,11 +477,21 @@ async def test_backfill_covers_saved_calls_and_reports_numbers_only() -> None:
 
 
 @pytest.mark.parametrize(
-    "module", ["app.services.sales.companies", "scripts.sales_signals_run"]
+    "module",
+    [
+        "app.services.sales.companies",
+        "scripts.sales_signals_run",
+        "app.services.sales.outlook_activities",
+        "app.services.sales.meeting_decisions",
+    ],
 )
 def test_automation_does_not_close_an_import_cycle(module: str) -> None:
-    """``m365.sync`` importował automat na górze pliku i proces, który zaczynał od
-    ``companies``, kończył się błędem importu, choć sama aplikacja wstawała."""
+    """``m365.sync`` importował automaty na górze pliku i proces, który zaczynał od
+    ``companies``, kończył się błędem importu, choć sama aplikacja wstawała.
+
+    Mapa decyzyjna wracała przez ``decision_map`` → ``companies``, przypinanie
+    spotkań przez ``meeting_autopin`` → ``handoff`` → ``companies``, który bierze
+    ``COMPANY_DOMAIN_SQL`` z niedokończonego ``outlook_activities``."""
 
     result = subprocess.run(
         [sys.executable, "-c", f"import {module}"],
