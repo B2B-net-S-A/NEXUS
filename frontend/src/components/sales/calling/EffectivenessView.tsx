@@ -238,7 +238,7 @@ function Th({ children, right }: { children: ReactNode; right?: boolean }) {
   return (
     <th
       scope="col"
-      className={cn("whitespace-nowrap px-2 py-1 font-medium text-muted-foreground", right ? "text-right" : "text-left")}
+      className={cn("whitespace-nowrap px-1.5 py-1 font-medium text-muted-foreground", right ? "text-right" : "text-left")}
     >
       {children}
     </th>
@@ -249,7 +249,7 @@ function Td({ children, right, strong }: { children: ReactNode; right?: boolean;
   return (
     <td
       className={cn(
-        "px-2 py-1",
+        "px-1.5 py-1",
         right && "text-right tabular-nums",
         strong ? "font-medium text-foreground" : "text-muted-foreground",
       )}
@@ -522,7 +522,7 @@ function Board({ data }: { data: Effectiveness }) {
         </div>
       ) : (
         <>
-          <div className="grid gap-2 lg:grid-cols-[1.35fr_1fr]">
+          <div className="grid gap-2 lg:grid-cols-[1.6fr_1fr]">
             <Panel title="Kampanie" aside="lista dziś · reszta z okresu">
               <CampaignTable rows={data.campaigns} />
             </Panel>
@@ -530,6 +530,10 @@ function Board({ data }: { data: Effectiveness }) {
               <InsightList items={data.insights} />
             </Panel>
           </div>
+          {/* Ranking i listy na pełną szerokość: przy 1280 px w pół ekranu ucinały kolumny. */}
+          <Panel title="Ranking osób" aside="kliknij nagłówek, żeby sortować">
+            <PeopleRanking people={data.people} />
+          </Panel>
           <div className="grid gap-2 lg:grid-cols-3">
             <Panel title="Jak kończą się telefony" aside={`${data.funnel.calls} telefonów`}>
               <SliceBar slices={outcomeSlices(data)} label="Wyniki telefonów" />
@@ -541,14 +545,9 @@ function Board({ data }: { data: Effectiveness }) {
               <SliceBar slices={followupSlices(data)} label="Co dalej z ofertą ogólną" />
             </Panel>
           </div>
-          <div className="grid gap-2 lg:grid-cols-[1fr_1.6fr]">
-            <Panel title="Które listy działają">
-              <SourceTable data={data} />
-            </Panel>
-            <Panel title="Ranking osób" aside="kliknij nagłówek, żeby sortować">
-              <PeopleRanking people={data.people} />
-            </Panel>
-          </div>
+          <Panel title="Które listy działają">
+            <SourceTable data={data} />
+          </Panel>
         </>
       )}
     </>
