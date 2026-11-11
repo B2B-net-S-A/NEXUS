@@ -1,7 +1,7 @@
 """Zdjęcie kolumn usuniętej integracji telefonii z ``calls`` i ``users``.
 
-Revision ID: 0682_drop_telephony_columns
-Revises: 0681_sales_call_campaigns
+Revision ID: 0681_drop_telephony_columns
+Revises: 0680_stage_moves_all_led_jobs
 
 Integrację wycięto z kodu 08.11.2026; decyzja Artura z 11.11.2026, żeby
 zdjąć też jej kolumny. Produkcja 10.11.2026: ``calls`` ma 10 wierszy dodanych
@@ -16,8 +16,8 @@ Etykieta ``cloudtalk_call`` w typie ``champion_suggestion_source`` zostaje
 
 from alembic import op
 
-revision = "0682_drop_telephony_columns"
-down_revision = "0681_sales_call_campaigns"
+revision = "0681_drop_telephony_columns"
+down_revision = "0680_stage_moves_all_led_jobs"
 branch_labels = None
 depends_on = None
 

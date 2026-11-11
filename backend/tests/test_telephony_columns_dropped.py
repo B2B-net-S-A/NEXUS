@@ -1,4 +1,4 @@
-"""Kolumny usuniętej telefonii zdjęte w migracji 0682 i w lustrze entrypointu.
+"""Kolumny usuniętej telefonii zdjęte w migracji 0681 i w lustrze entrypointu.
 
 Alembic na produkcji bywa osierocony, więc wdrożeniem schematu jest też
 ``entrypoint.sh``: każde ``DROP COLUMN`` z migracji musi tam stać 1:1, a model
@@ -19,7 +19,7 @@ from app.models.user import User
 pytestmark = pytest.mark.static
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0682_drop_telephony_columns.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0681_drop_telephony_columns.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 
 DROPS = (

@@ -7211,7 +7211,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "DROP TABLE IF EXISTS dr_about_calendar, dr_about_career_paths, dr_about_clients_partners, dr_about_contacts, dr_about_faq, dr_about_feedback, dr_about_glossary, dr_about_links, dr_about_org_chart, dr_about_positions, dr_about_procedures, dr_about_templates, dr_about_training, dr_about_values, dr_alerts, dr_api_key_audit_log, dr_api_keys, dr_applied_migrations, dr_competence_categories, dr_consultant_group_assignments, dr_consultant_rate_history, dr_consultants, dr_data_audit_log, dr_delivery_lead_client_assignments, dr_group_monthly_costs, dr_monthly_mrr_data, dr_mrr_import_history, dr_project_cost_groups, dr_project_monthly_costs, dr_project_other_cost_items, dr_przetargi_mrr, dr_system_config, dr_tac_linkedin_farming",
     "DROP TABLE IF EXISTS ai_budget_reservations, ai_call_ledger, ai_eval_cases, ai_eval_labels, ai_eval_outputs, ai_eval_runs, ai_eval_sets, ai_provider_compliance, ai_rollout_events, ai_rollout_observations, ai_rollout_reports, ai_rollout_state, ai_routing_activation_log, ai_routing_state",
     "DROP TABLE IF EXISTS signature_links",
-    # 0682 (11.11.2026): kolumny usuniętej telefonii (integracja zdjęta
+    # 0681 (11.11.2026): kolumny usuniętej telefonii (integracja zdjęta
     # 08.11.2026). Indeksy znikają razem z kolumnami. Lustro 1:1 z migracją —
     # pilnuje `test_telephony_columns_dropped.py`.
     "ALTER TABLE calls DROP COLUMN IF EXISTS cloudtalk_call_id",
