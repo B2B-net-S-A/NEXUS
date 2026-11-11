@@ -203,7 +203,20 @@ jobs:
           exit 1
 
       - name: Install rclone
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends rclone
+        # Ponowienia na chwilowy brak DNS runnera (jak w ci.yml, 11.11.2026).
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq \
+              && sudo apt-get install -y --no-install-recommends rclone; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::apt-get nie zainstalował rclone po 3 próbach"
+              exit 1
+            fi
+            echo "::warning::apt-get nie przeszedł (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            sleep $((attempt * 30))
+          done
 
       - name: Read and validate LATEST.json
         run: |

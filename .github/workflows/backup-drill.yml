@@ -103,8 +103,21 @@ jobs:
       - name: Install rclone + age
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends rclone age
+          # Ponowienia na chwilowy brak DNS runnera (jak w ci.yml, 11.11.2026).
+          bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh"
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq \
+              && sudo apt-get install -y --no-install-recommends rclone age; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::apt-get nie zainstalował rclone/age po 3 próbach"
+              exit 1
+            fi
+            echo "::warning::apt-get nie przeszedł (próba $attempt/3), ponawiam za $((attempt * 30)) s"
+            bash "$GITHUB_WORKSPACE/.github/scripts/apt_mirror_fallback.sh" --force
+            sleep $((attempt * 30))
+          done
           rclone version | head -1
           age --version
 
