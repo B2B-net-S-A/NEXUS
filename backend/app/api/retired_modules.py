@@ -1,6 +1,6 @@
 """Adresy usuniętych modułów odpowiadają 410 z komunikatem zamiast 404.
 
-D1 z audytu 07.11.2026: Akademia, Praktykant, Traffit, CloudTalk i Analytics v1
+D1 z audytu 07.11.2026: Akademia, Praktykant, Traffit, telefonia i Analytics v1
 zniknęły z kodu, tabele zostały. 410 mówi klientowi (stara karta przeglądarki,
 skrypt, klucz API), że adresu nie będzie, i podaje powód po polsku.
 

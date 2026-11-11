@@ -36,7 +36,7 @@ from app.models.sales import SalesCallCampaign
 from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
-from app.services.sales import calling, calling_excel, calling_import
+from app.services.sales import calling, calling_excel, calling_import, calling_stats
 from app.services.sales.calling_file import (
     MAX_FILE_BYTES,
     TOO_BIG_DETAIL,
@@ -602,6 +602,117 @@ async def import_list(
         total=len(plan.rows),
         without_company=plan.without_company,
         counts=plan.counts,
+    )
+
+
+# ── Skuteczność ───────────────────────────────────────────────────────────
+
+
+class CallingFunnelOut(BaseModel):
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+    dated: int
+    held: int
+    qualified: int
+
+
+class CallingCampaignStatsOut(BaseModel):
+    id: Optional[int]
+    name: str
+    service: Optional[str]
+    on_list: Optional[int]
+    left: Optional[int]
+    days_left: Optional[int]
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+
+
+class CallingSourceStatsOut(BaseModel):
+    source: str
+    records: int
+    reached: int
+    talks: int
+    meetings: int
+    objections: int
+
+
+class CallingHourCellOut(BaseModel):
+    weekday: int
+    hour: int
+    calls: int
+    talks: int
+    rate: Optional[float]
+
+
+class CallingPersonStatsOut(BaseModel):
+    user_id: int
+    name: str
+    days: int
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+    dated: int
+    qualified: int
+
+
+class CallingInsightOut(BaseModel):
+    tone: str
+    text: str
+
+
+class CallingEffectivenessOut(BaseModel):
+    start: date
+    end: date
+    workdays: int
+    funnel: CallingFunnelOut
+    outcomes: dict[str, int]
+    campaigns: list[CallingCampaignStatsOut]
+    sources: list[CallingSourceStatsOut]
+    hours: list[CallingHourCellOut]
+    offer_followup: dict[str, int]
+    people: list[CallingPersonStatsOut]
+    insights: list[CallingInsightOut]
+    campaign_options: list[Ref]
+
+
+@router.get("/effectiveness", response_model=CallingEffectivenessOut)
+async def effectiveness(
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+    period: calling_stats.Period = Query(default="week"),
+    campaign_id: Optional[int] = Query(default=None, ge=1),
+    mine: bool = Query(default=False),
+) -> CallingEffectivenessOut:
+    """Co daje dzwonienie: lejek, kampanie, listy, pory dnia i osoby (decyzje 11.11.2026).
+
+    Tylko „Sprzedaż: edycja”; tabela osób jest pełna dla każdego z tym uprawnieniem.
+    """
+
+    result = await calling_stats.load_effectiveness(
+        db,
+        period=period,
+        today=business_today(),
+        user_id=current_user.id if mine else None,
+        campaign_id=campaign_id,
+    )
+    return CallingEffectivenessOut(
+        start=result.start,
+        end=result.end,
+        workdays=result.workdays,
+        funnel=CallingFunnelOut(**result.funnel.__dict__),
+        outcomes=result.outcomes,
+        campaigns=[CallingCampaignStatsOut(**row.__dict__) for row in result.campaigns],
+        sources=[CallingSourceStatsOut(**row.__dict__) for row in result.sources],
+        hours=[CallingHourCellOut(**cell.__dict__) for cell in result.hours],
+        offer_followup=result.offer_followup,
+        people=[CallingPersonStatsOut(**row.__dict__) for row in result.people],
+        insights=[CallingInsightOut(tone=i.tone, text=i.text) for i in result.insights],
+        campaign_options=[Ref(id=i, name=n) for i, n in result.campaign_options],
     )
 
 

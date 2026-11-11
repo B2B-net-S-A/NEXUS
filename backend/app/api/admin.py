@@ -392,7 +392,6 @@ async def update_user(
         # DynaReporter grants from their previous operational role.
         user.allowed_sections = []
         user.kpi_coach_enabled = False
-        user.cloudtalk_agent_id = None
         user.profile_completed = True
         user.profile_completed_at = user.profile_completed_at or datetime.now(
             timezone.utc
@@ -1135,7 +1134,6 @@ async def resync_aad_groups(
     if new_role == UserRole.finance:
         user.allowed_sections = []
         user.kpi_coach_enabled = False
-        user.cloudtalk_agent_id = None
         user.profile_completed = True
         user.profile_completed_at = user.profile_completed_at or datetime.now(
             timezone.utc

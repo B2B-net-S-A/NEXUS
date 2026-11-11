@@ -145,7 +145,6 @@ services:
       ORDER_MAIL_INGEST_ENABLED: "false"
       COMPASS_LIFECYCLE_ENABLED: "false"
       COMPASS_WORKDAYS_ENABLED: "false"
-      CLOUDTALK_ENABLED: "false"
       AUTENTI_ENABLED: "false"
       JJIT_ENABLED: "false"
       # JustJoin.IT w oknie „Ogłoszenie” jak na produkcji. Publikacji nie będzie:

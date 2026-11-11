@@ -437,8 +437,8 @@ async def forbid_read_only_roles(
     """0446: odmowa dla roli tylko do odczytu na trasie z bramką odczytu.
 
     Kilka tras za ``CandidatePIIAccess``/``CandidateDocumentAccess`` coś
-    zmienia albo wynosi dane hurtem (pobranie wielu CV, telefon przez
-    CloudTalk, podłączenie i synchronizacja poczty, przypięcia „Moich ludzi”).
+    zmienia albo wynosi dane hurtem (pobranie wielu CV, podłączenie
+    i synchronizacja poczty, przypięcia „Moich ludzi”).
     Rekruterowi wystarcza do nich odczyt; „Automatyzacje” nie robią ich wcale.
     """
 

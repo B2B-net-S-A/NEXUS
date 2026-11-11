@@ -30,7 +30,6 @@ class CallCreate(BaseModel):
     transcript: Optional[str] = None
     summary: Optional[str] = None
     recording_url: Optional[str] = None
-    cloudtalk_call_id: Optional[str] = None
 
 
 class CallResponse(BaseModel):
@@ -43,8 +42,6 @@ class CallResponse(BaseModel):
     transcript: Optional[str]
     summary: Optional[str]
     recording_url: Optional[str]
-    cloudtalk_call_id: Optional[str]
-    cloudtalk_agent_id: Optional[int]
     started_at: Optional[datetime]
     created_at: datetime
 
@@ -115,7 +112,6 @@ async def log_call(
         transcript=data.transcript,
         summary=data.summary,
         recording_url=data.recording_url,
-        cloudtalk_call_id=data.cloudtalk_call_id,
     )
     db.add(call)
     await db.commit()

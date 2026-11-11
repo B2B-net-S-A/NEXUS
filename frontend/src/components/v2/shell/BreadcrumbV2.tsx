@@ -34,6 +34,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   sales: "Sprzedaż",
   "my-day": "Mój dzień",
   calling: "Dzwonienie",
+  effectiveness: "Skuteczność",
   companies: "Firmy",
   opportunities: "Szanse",
   meetings: "Spotkania",

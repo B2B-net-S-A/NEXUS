@@ -72,8 +72,8 @@ async def compass_workdays_sync_loop() -> None:
     """Pętla tła. Kończy się PRZED pierwszym odczekaniem, gdy wyłączona.
 
     Świadomie nie budzi się co interwał tylko po to, żeby sprawdzić tę samą
-    flagę — to był wzorzec z CloudTalka, gdzie proces wstawał co 60 s wyłącznie
-    po to, by natychmiast zasnąć.
+    flagę — to był wzorzec z usuniętej telefonii, gdzie proces wstawał co 60 s
+    wyłącznie po to, by natychmiast zasnąć.
     """
     if not settings.COMPASS_WORKDAYS_ENABLED:
         logger.info("compass_workdays_sync disabled — pętla nie startuje")

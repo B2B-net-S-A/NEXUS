@@ -343,7 +343,7 @@ async def test_apply_rejects_when_not_pending(
     assert r2.status_code == 409, r2.text
 
 
-# ── CloudTalk webhook (Phase 14 / Faza C) ──────────────────────────────────
+# ── Regeneracja szkicu ─────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio

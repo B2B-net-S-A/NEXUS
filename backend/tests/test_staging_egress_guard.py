@@ -50,7 +50,7 @@ def test_local_and_ai_hosts_are_allowed(host):
         "91.99.199.112",
         "nbg1.your-objectstorage.com",
         "hooks.slack.com",
-        "my.cloudtalk.io",
+        "api.example.org",
         "",
         None,
     ],

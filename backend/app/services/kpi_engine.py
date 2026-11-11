@@ -548,7 +548,7 @@ async def evaluate_user_kpis(
     if now is None:
         now = datetime.now(WARSAW)
 
-    # CloudTalk off/misconfigured ⇒ metryka rozmów jest NIEDOSTĘPNA,
+    # Bez telefonii metryka rozmów jest NIEDOSTĘPNA,
     # nie zerowa (plan §3.3) — pomijamy KPI zamiast straszyć "behind".
     # Precyzja (`in_coach=False`) to wskaźnik jakości z okna kroczącego, nie
     # licznik narastający w okresie — widget i nudge'e jej nie pokazują.

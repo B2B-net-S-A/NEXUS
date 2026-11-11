@@ -1011,7 +1011,7 @@ METRIC_DEFINITIONS: list[dict[str, str]] = [
         "name": "completed_call",
         "definition": "Call.status = completed; data = COALESCE(started_at, created_at)",
         "unit": "count",
-        "source": "cloudtalk",
+        "source": "live_ats",
     },
     {
         "name": "first_touch_source",

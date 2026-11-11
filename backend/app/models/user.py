@@ -319,14 +319,6 @@ class User(Base, TimestampMixin):
         JSONB, default=list, server_default="[]", nullable=False
     )
 
-    # ── CloudTalk telephony (Phase CloudTalk.2, migracja 0099) ──────────────
-    # Link to a CloudTalk agent. The integration was removed on 08.11.2026
-    # (#3184): nothing sets or reads this for calling any more, the column
-    # stays with the historical `calls` rows.
-    cloudtalk_agent_id: Mapped[Optional[int]] = mapped_column(
-        Integer, unique=True, nullable=True, index=True
-    )
-
     # ── DynaReporter migration (Phase B.0, migracja 0112) ───────────────────
     # Lista identyfikatorów modułów DynaReportera do których user ma dostęp:
     # ``body-leasing``, ``sales``, ``delivery-lead``, ``placements``,

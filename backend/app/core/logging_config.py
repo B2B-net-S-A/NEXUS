@@ -57,7 +57,7 @@ _LABELED_SECRET_RE = re.compile(
     r"|access[_-]?key|client[_-]?secret|authorization))(\s*[=:]\s*)(['\"]?)([^\s'\"]{4,})"
 )
 # Capability tokens that travel in the URL PATH — signature links, CV / champion
-# / apply share links, CloudTalk webhooks. The default uvicorn access log writes
+# / apply share links, the retired telephony webhook (410 stub). The default uvicorn access log writes
 # the full path (`GET /sign/abc123... HTTP/1.1`), so the raw token lands in
 # Loki/Grafana and any reverse-proxy log. The labelled-secret pattern above does
 # NOT catch these because a path segment is not a `token=value` pair. Mask the

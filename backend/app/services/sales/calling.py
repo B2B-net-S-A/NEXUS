@@ -71,6 +71,10 @@ NOT_INTERESTED = "not_interested"
 BAD_CONTACT = "bad_contact"
 NOT_INTERESTED_DAYS = 182
 MEETING_BOOKED = "meeting_booked"
+#: Telefon z kolejki w dzienniku: ``external_id`` = „<id rekordu>:<numer próby>”.
+#: Po nim „Skuteczność” łączy telefon z kampanią i listą (``calling_stats.py``);
+#: numer próby, bo ``ux_sales_activities_outlook`` nie wpuści dwóch takich samych id.
+CALL_SOURCE = "call_queue"
 LEAD_STAGE_KEY = "lead"
 MEETING_STAGE_KEY = "qualifying-meeting"
 QUEUE_PIPELINE_KEY = schema.DEFAULT_PIPELINE_KEY
@@ -580,7 +584,7 @@ def previous_business_day(day: date) -> date:
 async def day_counts(db: AsyncSession, user_id: int, day: date) -> DayCounts:
     """Telefony osoby w danym dniu firmy: te same reguły co „Skuteczność”.
 
-    Rozmowa to wynik inny niż „Nie odebrał”; umówione spotkanie liczy się raz na
+    Rozmowa to wynik inny niż „Nie odebrał” i „Zły numer”; umówione spotkanie liczy się raz na
     szansę, bo rekord szansy zostaje w kolejce i wynik może paść dwa razy.
     """
 
@@ -589,7 +593,9 @@ async def day_counts(db: AsyncSession, user_id: int, day: date) -> DayCounts:
         await db.execute(
             select(
                 func.count(),
-                func.count().filter(SalesActivity.outcome != "no_answer"),
+                func.count().filter(
+                    SalesActivity.outcome.not_in(("no_answer", BAD_CONTACT))
+                ),
                 func.count().filter(SalesActivity.outcome == "offer_sent"),
                 func.count(func.distinct(SalesActivity.opportunity_id)).filter(booked),
                 func.count().filter(booked, SalesActivity.opportunity_id.is_(None)),
@@ -1008,6 +1014,8 @@ async def apply_outcome(
             created_by_user_id=user_id,
             occurred_at=now,
             done_at=now,
+            external_source=CALL_SOURCE,
+            external_id=f"{record.id}:{record.attempts}",
         )
     )
     if opportunity is not None and (
