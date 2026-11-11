@@ -861,12 +861,22 @@ async def _direct_client_fk_specs(db: AsyncSession) -> list[dict[str, Any]]:
 
 
 async def _direct_client_fk_counts(
-    db: AsyncSession, source_client_id: int
+    db: AsyncSession,
+    source_client_id: int,
+    *,
+    specs: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Inventory every direct FK to clients using the Postgres catalog."""
+    """Inventory every direct FK to clients using the Postgres catalog.
 
+    ``specs`` lets a caller that inventories many clients read the catalog
+    once: each ``_direct_client_fk_specs`` call is one information_schema
+    query per FK table (63 on production in 11.2026).
+    """
+
+    if specs is None:
+        specs = await _direct_client_fk_specs(db)
     impact: list[dict[str, Any]] = []
-    for spec in await _direct_client_fk_specs(db):
+    for spec in specs:
         table_name = spec["table"]
         column_name = spec["column"]
         count = await db.scalar(
@@ -1210,6 +1220,12 @@ async def build_client_portfolio_plan(
             for candidate in duplicate_report
             if set(candidate["client_ids"]) != known_kir_pair
         ]
+    # A client sits in many pairs (n same-named clients = n·(n-1)/2 pairs), so
+    # its dependency counts are read once per plan, not once per pair. Per
+    # pair, 48 identical names left by CI tests took 36 min (11.11.2026).
+    fk_specs: list[dict[str, Any]] | None = None
+    fk_counts_by_client: dict[int, list[dict[str, Any]]] = {}
+    jsonb_counts_by_client: dict[int, int] = {}
     for candidate in duplicate_report:
         candidate_clients = [
             client_by_id[client_id] for client_id in candidate["client_ids"]
@@ -1221,12 +1237,22 @@ async def build_client_portfolio_plan(
             }
             for client in candidate_clients
         ]
+        for client in candidate_clients:
+            if client.id not in fk_counts_by_client:
+                if fk_specs is None:
+                    fk_specs = await _direct_client_fk_specs(db)
+                fk_counts_by_client[client.id] = await _direct_client_fk_counts(
+                    db, client.id, specs=fk_specs
+                )
+                jsonb_counts_by_client[
+                    client.id
+                ] = await _candidate_excluded_client_count(db, client.id)
         candidate["dependency_counts"] = {
-            str(client.id): await _direct_client_fk_counts(db, client.id)
+            str(client.id): fk_counts_by_client[client.id]
             for client in candidate_clients
         }
         candidate["jsonb_dependency_counts"] = {
-            str(client.id): await _candidate_excluded_client_count(db, client.id)
+            str(client.id): jsonb_counts_by_client[client.id]
             for client in candidate_clients
         }
     plan_core = {
