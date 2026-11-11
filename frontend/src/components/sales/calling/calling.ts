@@ -64,6 +64,11 @@ export const KEYED_OUTCOMES: QueueOutcome[] = [
   "not_now",
 ];
 
+/** Krótszy podpis na przycisku karty (364 px); pełny zostaje w historii i podpowiedzi. */
+export function outcomeButtonLabel(outcome: QueueOutcome): string {
+  return outcome === "bad_contact" ? "Zły numer" : outcomeLabel(outcome);
+}
+
 export function outcomeKey(outcome: QueueOutcome): string | null {
   const index = KEYED_OUTCOMES.indexOf(outcome);
   return index < 0 ? null : String(index + 1);

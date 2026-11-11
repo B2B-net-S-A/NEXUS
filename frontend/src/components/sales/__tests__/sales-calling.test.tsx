@@ -561,6 +561,7 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "not_interested", never: true });
     fireEvent.keyDown(window, { key: "6" });
     expect(saveOutcome.mock.calls[1][0]).toMatchObject({ outcome: "bad_contact" });
+    expect(screen.getByRole("button", { name: "Zły numer" })).toHaveAttribute("aria-keyshortcuts", "6");
   });
 
   it("„Nie zainteresowany” ma powrót za pół roku do wyboru", () => {

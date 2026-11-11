@@ -169,7 +169,7 @@ function RecordTable({
     <table className="w-full text-xs">
       <thead className="border-b border-border bg-muted/40 text-muted-foreground">
         <tr>
-          {["Firma", "Osoba", "Telefon", "Wynik", "Ostatnio", "Powrót", "Próby"].map((header) => (
+          {["Firma", "Osoba", "Telefon", "Wynik", "Powrót"].map((header) => (
             <th key={header} scope="col" className="whitespace-nowrap px-2 py-1.5 text-left font-medium">
               {header}
             </th>
@@ -184,7 +184,7 @@ function RecordTable({
             className={cn("cursor-pointer hover:bg-muted/50", selectedKey === item.key && "bg-primary/5")}
             onClick={() => onSelect(item.key)}
           >
-            <td className="max-w-48 px-2 py-1.5">
+            <td className="max-w-36 px-2 py-1.5">
               <button
                 type="button"
                 className="block max-w-full truncate text-left font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -196,7 +196,7 @@ function RecordTable({
                 {item.company.name}
               </button>
             </td>
-            <td className="max-w-52 px-2 py-1.5">
+            <td className="max-w-36 px-2 py-1.5">
               <span className="block truncate text-foreground">{item.person_name ?? "—"}</span>
               {item.person_title && <span className="block truncate text-muted-foreground">{item.person_title}</span>}
             </td>
@@ -206,11 +206,12 @@ function RecordTable({
                 {stateLabel(item.state)}
               </Badge>
             </td>
-            <td className="whitespace-nowrap px-2 py-1.5 text-muted-foreground">
-              {item.last_outcome_at ? weekdayOf(item.last_outcome_at) : "—"}
+            <td
+              className="whitespace-nowrap px-2 py-1.5 text-muted-foreground"
+              title={item.last_outcome_at ? `Ostatnio ${weekdayOf(item.last_outcome_at)}, prób: ${item.attempts}` : undefined}
+            >
+              {returnLabel(item, today)}
             </td>
-            <td className="whitespace-nowrap px-2 py-1.5 text-muted-foreground">{returnLabel(item, today)}</td>
-            <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">{item.attempts}</td>
           </tr>
         ))}
       </tbody>

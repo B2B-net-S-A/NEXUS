@@ -33,6 +33,7 @@ import {
   itemTitle,
   KEYED_OUTCOMES,
   outcomeForKey,
+  outcomeButtonLabel,
   outcomeKey,
   outcomeLabel,
   plusDaysIso,
@@ -287,7 +288,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
                 onClick={bookMeeting}
               >
                 <OutcomeKey outcome={outcome} inverted />
-                <CalendarClock className="h-3.5 w-3.5" aria-hidden /> {outcomeLabel(outcome)}
+                <span className="min-w-0 truncate">{outcomeLabel(outcome)}</span>
               </Button>
             );
           }
@@ -296,15 +297,17 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
               key={outcome}
               size="sm"
               variant={dated === outcome ? "primary" : "outline"}
-              className="h-8 justify-start gap-1.5 px-2"
+              className="h-8 min-w-0 justify-start gap-1.5 px-2"
               disabled={blocked || pending}
               aria-expanded={isDated(outcome) ? dated === outcome : undefined}
               aria-keyshortcuts={outcomeKey(outcome) ?? undefined}
               onClick={() => choose(outcome)}
             >
               <OutcomeKey outcome={outcome} inverted={dated === outcome} />
-              {outcomeLabel(outcome)}
-              {isDated(outcome) && "…"}
+              <span className="min-w-0 truncate" title={outcomeLabel(outcome)}>
+                {outcomeButtonLabel(outcome)}
+                {isDated(outcome) && "…"}
+              </span>
             </Button>
           );
         })}
