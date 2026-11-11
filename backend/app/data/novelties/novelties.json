@@ -1,5 +1,21 @@
 [
   {
+    "id": "sprzedaz-mniej-klikniec",
+    "pr": 3320,
+    "title": "Sprzedaż: wynik rozmowy zapisuje krok",
+    "why": "Klik w wynik zapisuje rozmowę i krok, numer otwiera wyniki, „Umówione spotkanie” bierze firmę i osobę z wiersza. Etap zmienisz na pasku karty, krok dodasz z kafelka.",
+    "tier": "dot",
+    "shipped_on": "2026-11-11",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Mój dzień, Szanse",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.tabs"
+  },
+  {
     "id": "sprzedaz-dzwonienie-po-excelu",
     "pr": 3315,
     "title": "Dzwonienie: klawisze, „Nie zainteresowany”, licznik „Dziś” i tabela",
