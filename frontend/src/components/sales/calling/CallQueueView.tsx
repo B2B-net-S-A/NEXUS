@@ -263,20 +263,22 @@ export function CallQueueView() {
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <CampaignFilter queue={queue} value={campaignId} onChange={setCampaignId} />
-          <SegmentedRadio
-            label="Widok"
+          <span data-tour="sales.calling.view">
+            <SegmentedRadio
+              label="Widok"
             size="sm"
             value={view}
             onChange={setView}
             options={[
               { value: "queue", label: "Kolejka" },
               { value: "table", label: "Tabela" },
-            ]}
-          />
+              ]}
+            />
+          </span>
         </div>
       </div>
       {/* Licznik bez celu (decyzja Artura 11.11.2026): zastępuje ręczne „Podsumowanie” w Excelu. */}
-      <p className="text-xs text-muted-foreground" aria-label="Dziś">
+      <p className="text-xs text-muted-foreground" aria-label="Dziś" data-tour="sales.calling.today">
         <span className="font-medium text-foreground">Dziś:</span> {dayLine(queue.today_counts)}
         <span className="mx-1.5" aria-hidden>
           ·
