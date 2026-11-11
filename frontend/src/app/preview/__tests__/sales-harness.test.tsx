@@ -39,7 +39,8 @@ describe("/preview/sales", () => {
     expect(screen.getByText("Przegrana")).toBeInTheDocument();
     expect(screen.getByText(/otwartych ·/)).toBeInTheDocument();
     expect(screen.getAllByText(/mail od nas/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("brak kroku").length).toBeGreaterThan(0);
+    // Handlowiec z edycją ma przy szansie bez kroku „+ krok” zamiast napisu (decyzja Artura 11.11.2026).
+    expect(screen.getAllByRole("button", { name: "+ krok" }).length).toBeGreaterThan(0);
     expect(attempted()).toEqual([]);
   });
 

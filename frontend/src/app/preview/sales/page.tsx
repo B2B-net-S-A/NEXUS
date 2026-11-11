@@ -93,22 +93,27 @@ const ITEMS: Opportunity[] = [
   opportunity(5, "Mewa Energia Przykładowa", "Java", "won", "52000", 6),
 ];
 
+const HARNESS_USER_ID = 7;
+
 function prepare() {
   const client = harnessQueryClient();
   client.setQueryData(salesKeys.pipelines, [PIPELINE]);
-  client.setQueryData(
-    salesKeys.opportunities({
-      pipeline_id: 1,
-      owner_id: null,
-      q: "",
-      sort: "updated",
-      archived: false,
-      service_line: null,
-      created_from: null,
-      created_to: null,
-    }),
-    { items: ITEMS, total: ITEMS.length },
-  );
+  // Handlowiec z edycją wchodzi na „Moje” (owner_id = jego konto), „Każdy opiekun” to owner_id null.
+  for (const owner_id of [HARNESS_USER_ID, null]) {
+    client.setQueryData(
+      salesKeys.opportunities({
+        pipeline_id: 1,
+        owner_id,
+        q: "",
+        sort: "updated",
+        archived: false,
+        service_line: null,
+        created_from: null,
+        created_to: null,
+      }),
+      { items: ITEMS, total: ITEMS.length },
+    );
+  }
   // Filtr opiekuna czyta osoby z podsumowania lejka i etykiety z Atlasa — bez żądań.
   client.setQueryData(salesKeys.summary(null, "all"), {
     pipeline: { id: 1, name: "Sprzedaż" },
@@ -135,7 +140,7 @@ function prepare() {
   });
   return {
     user: {
-      id: 7,
+      id: HARNESS_USER_ID,
       name: "Anna Przykładowa",
       email: "anna.przykladowa@example.com",
       role: "recruiter" as const,
