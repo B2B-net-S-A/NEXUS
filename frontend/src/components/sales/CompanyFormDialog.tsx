@@ -14,6 +14,7 @@ import {
   LIFECYCLE_LABELS,
   TIER_LABELS,
   useCreateSalesCompany,
+  useOwnerCandidates,
   useRegistryLookup,
   useUpdateSalesCompany,
   type CompanyInput,
@@ -107,12 +108,23 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
   const typedWebsite = useDebouncedValue(form.website_url, 300);
   const identity = useCompanyIdentity({ name: typedName, website: typedWebsite }, open && !company);
   const suggestedDomain = company || form.domain.trim() ? null : (identity.data?.domain ?? null);
-  const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
+  const candidates = useOwnerCandidates(open && Boolean(company));
+  const ownerOptions = new Map<string, string>(
+    useOwnerFilterOptions()
+      .filter((option) => option.value.startsWith("acct:"))
+      .map((option) => [option.value.slice(5), option.label]),
+  );
+  // Katalog obejmuje też osoby bez otwartych szans w domyślnym lejku.
+  for (const candidate of candidates.data ?? []) {
+    const id = String(candidate.id);
+    if (!ownerOptions.has(id)) ownerOptions.set(id, candidate.name);
+  }
+  const currentOwner = company?.owner;
   const ownerChoices = [
-    ...(company?.owner && !ownerOptions.some((option) => option.value === `acct:${company.owner!.id}`)
-      ? [{ value: String(company.owner.id), label: company.owner.name }]
+    ...(currentOwner && !ownerOptions.has(String(currentOwner.id))
+      ? [{ value: String(currentOwner.id), label: currentOwner.name }]
       : []),
-    ...ownerOptions.map((option) => ({ value: option.value.slice(5), label: option.label })),
+    ...Array.from(ownerOptions, ([value, label]) => ({ value, label })),
   ];
 
   const fillFromRegistry = () =>
