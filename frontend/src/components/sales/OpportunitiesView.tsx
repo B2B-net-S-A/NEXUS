@@ -121,7 +121,7 @@ export function OpportunitiesView() {
   const { replaceUrl } = useUrlWriter();
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
-  // Makieta 11.11: osoba z „Sprzedaż: edycja” wchodzi od razu na swoje szanse; „Każdy opiekun” to `mine=0`.
+  // Decyzja Artura 11.11.2026: osoba z „Sprzedaż: edycja” wchodzi od razu na swoje szanse; „Każdy opiekun” to `mine=0`.
   const mineParam = searchParams?.get("mine") ?? null;
   const ownerParamRaw = searchParams?.get("opiekun") ?? null;
   const mine = mineParam === "1" || (mineParam === null && ownerParamRaw === null && canEdit);

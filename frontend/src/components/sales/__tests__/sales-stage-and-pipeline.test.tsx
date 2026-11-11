@@ -2,13 +2,16 @@
  * Karta szansy zapisuje etap, który wybrał użytkownik (nie zawsze „Przegrana”),
  * a „+ Szansa” zakłada szansę w lejku oglądanej tablicy.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OpportunityDetail, Pipeline, Ref, Stage } from "@/lib/api/sales";
 
 const move = vi.fn();
 const create = vi.fn();
+const createActivity = vi.fn();
+const logCall = vi.fn();
+const opportunitiesParams = vi.fn();
 let searchParams = new URLSearchParams();
 let pipelinesData: Pipeline[] | undefined;
 
@@ -25,6 +28,7 @@ const stage = (id: number, key: string, name: string, outcome: Stage["outcome"])
 
 const SALES_STAGES = [
   stage(1, "lead", "Lead", "open"),
+  stage(4, "offer-sent", "Oferta wysłana", "open"),
   stage(5, "not-qualified", "Niezakwalifikowany", "lost"),
   stage(6, "won", "Wygrana", "won"),
   stage(7, "lost", "Przegrana", "lost"),
@@ -65,7 +69,9 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useArchiveOpportunity: () => ({ mutate: vi.fn(), isPending: false }),
   useSalesCompany: () => ({ data: undefined, isSuccess: false }),
   useSalesContacts: () => ({ data: undefined, isSuccess: false }),
-  useOpportunities: () => ({
+  useCreateActivity: () => ({ mutate: createActivity, isPending: false }),
+  useLogCall: () => ({ mutate: logCall, isPending: false }),
+  useOpportunities: (params: unknown) => (opportunitiesParams(params), {
     data: { items: [], total: 0 },
     isLoading: false,
     error: null,
@@ -153,6 +159,9 @@ import { OpportunityCard } from "../OpportunityCard";
 beforeEach(() => {
   move.mockClear();
   create.mockClear();
+  createActivity.mockReset();
+  logCall.mockReset();
+  opportunitiesParams.mockClear();
   searchParams = new URLSearchParams();
   pipelinesData = PIPELINES;
 });
@@ -191,6 +200,73 @@ describe("karta szansy: etap z wynikiem przegranej", () => {
     fireEvent.click(screen.getByRole("button", { name: "Przegrana" }));
     save();
     expect(move.mock.calls[0][0]).toMatchObject({ id: 11, stage_id: 7 });
+  });
+});
+
+describe("karta szansy: pasek etapów", () => {
+  it("klik w etap na pasku przenosi szansę jak przeciągnięcie na tablicy", () => {
+    render(<OpportunityCard opportunityId={11} />);
+    const strip = within(screen.getByRole("group", { name: "Etap szansy" }));
+    expect(strip.getByRole("button", { name: "Lead" })).toBeDisabled();
+    fireEvent.click(strip.getByRole("button", { name: "Oferta wysłana" }));
+    expect(move.mock.calls[0][0]).toEqual({ id: 11, stage_id: 4, lost_reason: undefined });
+  });
+
+  it("pasek pokazuje tylko otwarte etapy: wygraną i przegraną zamyka się przyciskami", () => {
+    render(<OpportunityCard opportunityId={11} />);
+    const strip = within(screen.getByRole("group", { name: "Etap szansy" }));
+    expect(strip.queryByRole("button", { name: "Wygrana" })).toBeNull();
+    expect(strip.queryByRole("button", { name: "Przegrana" })).toBeNull();
+  });
+});
+
+describe("karta szansy: krok po rozmowie zapisuje się sam", () => {
+  const logNoAnswer = () => {
+    logCall.mockImplementation((_input, { onSuccess }) => onSuccess({}));
+    render(<OpportunityCard opportunityId={11} />);
+    fireEvent.click(screen.getByRole("button", { name: "Zaloguj rozmowę" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nie odebrał" }));
+  };
+
+  it("wynik zapisuje krok z podpowiedzi bez okna „Co dalej”", () => {
+    createActivity.mockImplementation((_input, { onSuccess }) => onSuccess());
+    logNoAnswer();
+    expect(logCall.mock.calls[0][0]).toMatchObject({ opportunity_id: 11, outcome: "no_answer" });
+    expect(createActivity.mock.calls[0][0]).toMatchObject({
+      kind: "task",
+      subject: "Zadzwonić ponownie",
+      opportunity_id: 11,
+      company_id: null,
+    });
+    expect(screen.queryByText("Co dalej i kiedy")).toBeNull();
+  });
+
+  it("gdy krok się nie zapisze, wraca okno „Co dalej”, żeby go nie zgubić", () => {
+    createActivity.mockImplementation((_input, { onError }) => onError(new Error("boom")));
+    logNoAnswer();
+    expect(screen.getByText("Co dalej i kiedy")).toBeTruthy();
+  });
+});
+
+describe("Szanse: domyślnie „Moje”", () => {
+  const owner = () => opportunitiesParams.mock.calls.at(-1)?.[0]?.owner_id;
+
+  it("osoba z edycją wchodzi od razu na swoje szanse", () => {
+    render(<OpportunitiesView />);
+    expect(owner()).toBe(1);
+    expect((screen.getByLabelText("Opiekun") as HTMLSelectElement).value).toBe("me");
+  });
+
+  it("„Każdy opiekun” zostaje wybrany w adresie jako mine=0", () => {
+    searchParams = new URLSearchParams("mine=0");
+    render(<OpportunitiesView />);
+    expect(owner()).toBeNull();
+  });
+
+  it("konkretny opiekun z adresu wygrywa z domyślnym „Moje”", () => {
+    searchParams = new URLSearchParams("opiekun=5");
+    render(<OpportunitiesView />);
+    expect(owner()).toBe(5);
   });
 });
 

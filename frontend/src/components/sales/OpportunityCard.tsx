@@ -148,7 +148,7 @@ function cardTitle({ company, title }: OpportunityDetail): string {
 const HANDOFF_STAGES = ["lead", "qualifying-meeting"];
 
 /**
- * Makieta 11.11.2026: etap jako pasek pod paskiem kroku, zawsze widoczny. Klik w etap to `/move`
+ * Decyzja Artura 11.11.2026: etap jako pasek pod paskiem kroku, zawsze widoczny. Klik w etap to `/move`
  * (jak przeciągnięcie na tablicy); zamknięcie zostaje przy „Wygrana” / „Przegrana”.
  */
 function StageStrip({
@@ -376,7 +376,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
                     const key = person.person_key;
                     setReached((current) => [...current, key]);
                   }
-                  // Makieta 11.11: krok z podpowiedzi wyniku zapisuje się sam, bez okna „Co dalej”.
+                  // Decyzja Artura 11.11.2026: krok z podpowiedzi wyniku zapisuje się sam, bez okna „Co dalej”.
                   const preset = outcomePreset(outcome);
                   createStep.mutate(
                     {

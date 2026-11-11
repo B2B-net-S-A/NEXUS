@@ -39,7 +39,7 @@ const QUICK_WHEN = [
 ] as const;
 
 /**
- * Makieta 11.11.2026: krok prosto z kafelka, bez wchodzenia w kartę. „Zadzwonić” i termin
+ * Decyzja Artura 11.11.2026: krok prosto z kafelka, bez wchodzenia w kartę. „Zadzwonić” i termin
  * jednym kliknięciem; inny opis kroku dalej na karcie („Zaplanuj”).
  */
 function QuickStep({ item }: { item: Opportunity }) {

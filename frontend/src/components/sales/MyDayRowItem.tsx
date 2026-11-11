@@ -42,7 +42,7 @@ function ContactInline({ row, onDial }: { row: MyDayRow; onDial?: () => void }) 
       {person?.phone ? (
         <a
           href={telHref(person.phone)}
-          // Makieta 11.11: klik w numer od razu otwiera zapis wyniku, bez „Zadzwoniłem”.
+          // Decyzja Artura 11.11.2026: klik w numer od razu otwiera zapis wyniku, bez „Zadzwoniłem”.
           onClick={onDial}
           className="max-w-[124px] truncate tabular-nums text-primary hover:underline"
         >

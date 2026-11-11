@@ -157,7 +157,7 @@ const typingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 
 /**
- * Zapis rozmowy w wierszu (makieta 11.11.2026): klik w wynik zapisuje rozmowę i krok z podpowiedzi
+ * Zapis rozmowy w wierszu (decyzja Artura 11.11.2026): klik w wynik zapisuje rozmowę i krok z podpowiedzi
  * wyniku, bez drugiego „Zapisz”. Inny krok niż podpowiedź: „Inny krok”. Klawisze 1–5 jak w kolejce.
  */
 export function CallPanel({ row, onDone, onBook }: { row: MyDayRow; onDone: () => void; onBook?: () => void }) {
@@ -268,7 +268,6 @@ export function CallPanel({ row, onDone, onBook }: { row: MyDayRow; onDone: () =
   };
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- klawisze 1–5 jak w kolejce dzwonienia
     <div className={PANEL} onKeyDown={onKeyDown}>
       <div className="flex flex-wrap items-center gap-2">
         <Input
@@ -295,6 +294,7 @@ export function CallPanel({ row, onDone, onBook }: { row: MyDayRow; onDone: () =
               size="sm"
               className="h-auto flex-col items-start gap-0 px-2 py-1"
               variant={custom && outcome === option ? "primary" : "outline"}
+              aria-label={CALL_OUTCOME_LABELS[option]}
               aria-keyshortcuts={OUTCOME_KEYS[option]}
               disabled={isPending}
               onClick={() => quick(option)}

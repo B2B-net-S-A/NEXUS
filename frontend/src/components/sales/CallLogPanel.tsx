@@ -100,11 +100,12 @@ export function CallLogPanel({ opportunityId, people, initialPerson, onSaved, on
             size="sm"
             variant="outline"
             className="h-auto flex-col items-start gap-0 py-1"
+            aria-label={CALL_OUTCOME_LABELS[outcome]}
             disabled={log.isPending}
             onClick={() => save(outcome)}
           >
             <span>{CALL_OUTCOME_LABELS[outcome]}</span>
-            {/* Makieta 11.11: krok z podpowiedzi zapisuje się razem z wynikiem, bez okna „Co dalej”. */}
+            {/* Decyzja Artura 11.11.2026: krok z podpowiedzi zapisuje się razem z wynikiem, bez okna „Co dalej”. */}
             <span className="text-[10px] font-normal text-muted-foreground">
               {`${outcomePreset(outcome).what.toLowerCase()}, ${dayHint(outcomePreset(outcome).days)}`}
             </span>
