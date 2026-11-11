@@ -808,7 +808,7 @@ class SalesCallCampaign(Base, TimestampMixin):
 
 
 class SalesCallDayTotal(Base, TimestampMixin):
-    """Podsumowanie dnia dzwonienia sprzed kolejki (Excel), jedna liczba na dzień (0682)."""
+    """Podsumowanie dnia dzwonienia sprzed kolejki (Excel), jedna liczba na dzień (0683)."""
 
     __tablename__ = "sales_call_day_totals"
     __table_args__ = (
