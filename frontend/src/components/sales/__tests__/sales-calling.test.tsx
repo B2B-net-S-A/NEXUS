@@ -14,6 +14,9 @@ import type {
 
 const queue = vi.fn();
 const records = vi.fn();
+const previewExcel = vi.fn();
+const transferExcel = vi.fn();
+let excelData: unknown;
 const card = vi.fn();
 const saveOutcome = vi.fn();
 const createActivity = vi.fn();
@@ -38,6 +41,8 @@ vi.mock("@/lib/api/sales-calling", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales-calling")>()),
   useCallQueue: (campaignId: number | null) => queue(campaignId),
   useCallRecords: (filters: unknown) => records(filters),
+  usePreviewExcel: () => ({ ...mutation(previewExcel), data: excelData }),
+  useTransferExcel: () => mutation(transferExcel),
   useCallCard: () => card(),
   useSaveOutcome: () => mutation(saveOutcome),
   useCallCampaigns: () => campaigns(),
@@ -106,6 +111,7 @@ vi.mock("@/store/auth", () => ({
 
 import { activeSection } from "../SalesShell";
 import { CallingActions, CallQueueView } from "../calling/CallQueueView";
+import { ExcelTransferDialog } from "../calling/ExcelTransferDialog";
 import { ImportListDialog } from "../calling/ImportListDialog";
 import {
   fileProblem,
@@ -620,5 +626,85 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
     expect(screen.queryByText("Nie masz jeszcze nikogo na liście.")).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+});
+
+
+describe("przeniesienie Excela dzwoniących", () => {
+  const sheet = (overrides: Record<string, unknown> = {}) => ({
+    title: "Ola",
+    assignee_id: 41,
+    rows: 3,
+    states: { no_answer: 1, not_interested: 2 },
+    review: 1,
+    fates: { new_company: 3, other_caller: 1 },
+    addable: 3,
+    without_company: 0,
+    moved: 2,
+    days: 2,
+    duplicate_days: 1,
+    totals: { calls: 124, talks: 54, offers: 13, meetings: 8 },
+    ...overrides,
+  });
+  const people = [
+    { id: 41, name: "Ola Testowa" },
+    { id: 42, name: "Jan Przykładowy" },
+  ];
+
+  function openWithFile() {
+    const view = render(<ExcelTransferDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Kampania"), { target: { value: "3" } });
+    const file = new File(["x"], "excel.xlsx");
+    fireEvent.change(screen.getByLabelText("Plik Excela"), { target: { files: [file] } });
+    return { view, file };
+  }
+
+  beforeEach(() => {
+    excelData = undefined;
+    transferExcel.mockReset();
+  });
+
+  it("bieg na sucho pokazuje los arkusza, a zapis czeka na „Skąd kontakt”", () => {
+    const { view } = openWithFile();
+    fireEvent.click(screen.getByRole("button", { name: "Sprawdź plik" }));
+    expect(previewExcel.mock.calls[0][0]).toMatchObject({ campaign_id: 3, assignees: {} });
+
+    excelData = { sheets: [sheet()], people };
+    view.rerender(<ExcelTransferDialog open onOpenChange={vi.fn()} />);
+    const card = screen.getByRole("region", { name: "Arkusz Ola" });
+    expect(within(card).getByText("Nie zainteresowany")).toBeInTheDocument();
+    expect(within(card).getByText(/1 dzwoni ktoś inny/)).toBeInTheDocument();
+    expect(within(card).getByText(/2 osób stoi też w późniejszym arkuszu/)).toBeInTheDocument();
+    expect(within(card).getByText(/1 dzień ma dwa podsumowania/)).toBeInTheDocument();
+
+    const go = screen.getByRole("button", { name: /Przenieś 3 osoby/ });
+    expect(go).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Skąd kontakt/), { target: { value: "Excel dzwoniących" } });
+    expect(go).toBeEnabled();
+    fireEvent.click(go);
+    expect(transferExcel.mock.calls[0][0]).toMatchObject({
+      campaign_id: 3,
+      contact_source: "Excel dzwoniących",
+      assignees: { Ola: 41 },
+    });
+  });
+
+  it("arkusz bez osoby blokuje zapis, a wybór osoby liczy podgląd od nowa", () => {
+    const { view } = openWithFile();
+    excelData = { sheets: [sheet(), sheet({ title: "Arkusz2", assignee_id: null, states: {}, addable: 0 })], people };
+    view.rerender(<ExcelTransferDialog open onOpenChange={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/Skąd kontakt/), { target: { value: "Excel dzwoniących" } });
+    expect(screen.getByText("Wybierz osobę dla: „Arkusz2”.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Przenieś/ })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Arkusz „Arkusz2” →"), { target: { value: "42" } });
+    expect(previewExcel.mock.lastCall?.[0]).toMatchObject({ assignees: { Ola: 41, Arkusz2: 42 } });
+  });
+
+  it("okno importu prowadzi do przeniesienia Excela", () => {
+    const onExcel = vi.fn();
+    render(<ImportListDialog open onOpenChange={vi.fn()} onNewCampaign={vi.fn()} onExcel={onExcel} />);
+    fireEvent.click(screen.getByRole("button", { name: "Przenieś Excel dzwoniących" }));
+    expect(onExcel).toHaveBeenCalled();
   });
 });

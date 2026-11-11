@@ -136,10 +136,12 @@ interface ImportListDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onNewCampaign: () => void;
+  /** Przejście do jednorazowego przeniesienia Excela dzwoniących (arkusz = osoba). */
+  onExcel?: () => void;
 }
 
 /** Import listy do kampanii: najpierw los każdego wiersza, potem „Dodaj N do kolejki”. */
-export function ImportListDialog({ open, onOpenChange, onNewCampaign }: ImportListDialogProps) {
+export function ImportListDialog({ open, onOpenChange, onNewCampaign, onExcel }: ImportListDialogProps) {
   const me = useAuthStore((s) => s.user);
   const campaigns = useCallCampaigns(open);
   const people = useOwnerCandidates();
@@ -282,6 +284,15 @@ export function ImportListDialog({ open, onOpenChange, onNewCampaign }: ImportLi
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
               Najpierw zobaczysz, co stanie się z każdym wierszem. Do kolejki nic nie trafi bez Twojego kliknięcia.
+              {onExcel && (
+                <>
+                  {" "}
+                  Excel z arkuszem na osobę i kolorami wyników?{" "}
+                  <button type="button" className="font-medium text-primary hover:underline" onClick={onExcel}>
+                    Przenieś Excel dzwoniących
+                  </button>
+                </>
+              )}
             </p>
             <Button onClick={check} disabled={!campaign || !file} loading={preview.isPending}>
               Sprawdź listę
