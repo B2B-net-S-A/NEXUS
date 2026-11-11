@@ -328,7 +328,7 @@ describe("przyciski wiersza", () => {
     const overdue = row({ key: "overdue-5", section: "overdue", opportunity: null, activity_id: 5, kind: "task", amount: null });
     render(<MyDayRowItem row={overdue} canEdit />);
     fireEvent.click(screen.getByText("Zadzwoniłem"));
-    fireEvent.click(screen.getByRole("button", { name: "Brak odpowiedzi" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nie odebrał" }));
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() => expect(completeActivity).toHaveBeenCalled());
     expect(completeActivity.mock.calls[0][0]).toEqual({ id: 5 });

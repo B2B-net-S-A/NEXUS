@@ -427,7 +427,7 @@ describe("zapis rozmowy", () => {
   it("jeden klik zapisuje wynik przy osobie z mapy", () => {
     logCall.mockImplementation((_input, options) => options.onSuccess());
     render(<CallLogPanel opportunityId={1} people={people} initialPerson="map:abc" onSaved={onSaved} onClose={onClose} />);
-    fireEvent.click(screen.getByRole("button", { name: "Brak odpowiedzi" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nie odebrał" }));
     expect(logCall.mock.calls[0][0]).toEqual({
       opportunity_id: 1,
       outcome: "no_answer",
@@ -440,7 +440,7 @@ describe("zapis rozmowy", () => {
 
   it("ma sześć wyników", () => {
     render(<CallLogPanel opportunityId={1} people={people} initialPerson="map:abc" onSaved={onSaved} onClose={onClose} />);
-    for (const name of ["Dodzwoniłem", "Brak odpowiedzi", "Oddzwonić", "Prosi o ofertę", "Nie teraz", "Nie kontaktować"]) {
+    for (const name of ["Dodzwoniłem", "Nie odebrał", "Oddzwonić", "Prosi o ofertę", "Nie teraz", "Nie kontaktować"]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
   });

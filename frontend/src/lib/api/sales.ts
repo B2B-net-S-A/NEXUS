@@ -392,6 +392,7 @@ export interface OpportunityInput {
   primary_contact_id?: number | null;
   roles?: OpportunityRole[];
   source?: string | null;
+  campaign?: string | null;
   owner_user_id?: number | null;
   /** „Odłóż do…” z zakładki Oferty; ten sam dzień chroni też przed automatem archiwizacji. */
   keep_open_until?: string | null;
@@ -467,7 +468,7 @@ export interface Activity {
   direction: "in" | "out" | null;
   duration_minutes: number | null;
   /** Wynik rozmowy zapisanej z karty szansy. */
-  outcome?: CallOutcome | null;
+  outcome?: CallOutcome | QueueOnlyOutcome | null;
   /** Mail albo spotkanie firmy dołożone do historii szansy. */
   from_company: boolean;
 }
@@ -480,13 +481,18 @@ export type CallOutcome =
   | "not_now"
   | "do_not_contact";
 
-export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
+/** Wyniki, które zapisuje tylko kolejka dzwonienia (ten sam słownik co backend). */
+export type QueueOnlyOutcome = "offer_sent" | "meeting_booked";
+
+export const CALL_OUTCOME_LABELS: Record<CallOutcome | QueueOnlyOutcome, string> = {
   connected: "Dodzwoniłem",
-  no_answer: "Brak odpowiedzi",
+  no_answer: "Nie odebrał",
   call_back: "Oddzwonić",
   wants_offer: "Prosi o ofertę",
   not_now: "Nie teraz",
   do_not_contact: "Nie kontaktować",
+  offer_sent: "Oferta ogólna wysłana",
+  meeting_booked: "Umówione spotkanie",
 };
 
 export type TimelineScope = "opportunity" | "company" | "other_opportunity";
@@ -516,6 +522,8 @@ export interface ActivityInput {
   subject?: string | null;
   body?: string | null;
   due_at?: string | null;
+  /** Termin spotkania (także przyszły): z niego liczy się krok szansy. */
+  occurred_at?: string | null;
   priority?: "low" | "medium" | "high" | null;
   done?: boolean;
 }

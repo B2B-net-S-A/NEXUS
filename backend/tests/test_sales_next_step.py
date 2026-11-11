@@ -507,7 +507,7 @@ async def _call_row(opportunity_id: int) -> Any:
     ("outcome", "label"),
     [
         ("connected", "Dodzwoniłem"),
-        ("no_answer", "Brak odpowiedzi"),
+        ("no_answer", "Nie odebrał"),
         ("call_back", "Oddzwonić"),
         ("wants_offer", "Prosi o ofertę"),
         ("not_now", "Nie teraz"),
@@ -546,7 +546,7 @@ async def test_call_without_a_person_is_allowed(app_client) -> None:
         f"{URL}/{opp}/calls", json={"outcome": "no_answer"}, headers=_headers(rep)
     )
     assert resp.status_code == 201, resp.text
-    assert (await _call_row(opp)).subject == "Brak odpowiedzi"
+    assert (await _call_row(opp)).subject == "Nie odebrał"
 
 
 @pytest.mark.asyncio

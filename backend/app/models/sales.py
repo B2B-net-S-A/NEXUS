@@ -785,3 +785,89 @@ class SalesCompanyBriefing(Base):
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SalesCallCampaign(Base, TimestampMixin):
+    """Kampania dzwonienia: usługa, lista i skrypt rozmowy (0681)."""
+
+    __tablename__ = "sales_call_campaigns"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_CALL_CAMPAIGN_NAME, name="ck_sales_call_campaigns_name"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    service: Mapped[Optional[str]] = mapped_column(String(120))
+    script: Mapped[Optional[str]] = mapped_column(Text)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class SalesCallRecord(Base, TimestampMixin):
+    """Wpis kolejki dzwonienia: rekord kampanii albo szansa z etapu „Lead” (0681).
+
+    To nie jest szansa: ``opportunity_id`` pojawia się dopiero z umówionego spotkania.
+    Rekord bez kampanii powstaje przy pierwszym wyniku dla istniejącej szansy.
+    """
+
+    __tablename__ = "sales_call_records"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_CALL_RECORD_STATE, name="ck_sales_call_records_state"
+        ),
+        CheckConstraint(
+            schema.CK_CALL_RECORD_ATTEMPTS, name="ck_sales_call_records_attempts"
+        ),
+        Index(
+            "ix_sales_call_records_queue", "assigned_user_id", "state", "callback_on"
+        ),
+        Index("ix_sales_call_records_company", "company_id"),
+        Index("ix_sales_call_records_campaign", "campaign_id"),
+        Index(
+            "ux_sales_call_records_opportunity",
+            "opportunity_id",
+            unique=True,
+            postgresql_where=text("campaign_id IS NULL AND opportunity_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_call_campaigns.id", ondelete="CASCADE")
+    )
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_companies.id", ondelete="CASCADE"), nullable=False
+    )
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_contacts.id", ondelete="SET NULL")
+    )
+    opportunity_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_opportunities.id", ondelete="SET NULL")
+    )
+    person_name: Mapped[Optional[str]] = mapped_column(String(255))
+    person_title: Mapped[Optional[str]] = mapped_column(String(255))
+    phone: Mapped[Optional[str]] = mapped_column(String(60))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
+    #: „Skąd kontakt”: źródło listy podane przy imporcie.
+    contact_source: Mapped[Optional[str]] = mapped_column(String(255))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="new", server_default="new"
+    )
+    #: Dzień powrotu do kolejki w kalendarzu firmy.
+    callback_on: Mapped[Optional[date]] = mapped_column(Date)
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_outcome_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: Kto dzwoni.
+    assigned_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )

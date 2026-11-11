@@ -1355,6 +1355,8 @@ try:
         *_sales_schema.SIGNALS_DDL,
         # 0677: szkic maila do klienta po spotkaniu i klucz wysyłki.
         *_sales_schema.CLIENT_SUMMARY_DDL,
+        # 0681: kampanie dzwonienia, rekordy kolejki i wyniki rozmów z kolejki.
+        *_sales_schema.CALLING_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001

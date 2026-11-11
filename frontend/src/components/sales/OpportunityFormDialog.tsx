@@ -14,6 +14,7 @@ import {
   useCreateOpportunity,
   useUpdateOpportunity,
   type OpportunityDetail,
+  type OpportunityInput,
   type OpportunityRole,
   type Ref,
   type ServiceLine,
@@ -31,6 +32,11 @@ interface OpportunityFormDialogProps {
   opportunity?: OpportunityDetail;
   /** Lejek oglądanej tablicy; brak = lejek domyślny. */
   pipelineId?: number;
+  /**
+   * Nowa szansa z innego ekranu (np. umówione spotkanie z kolejki dzwonienia):
+   * tytuł i model startują z tych wartości, reszta (etap, kontakt, źródło) idzie do zapisu.
+   */
+  defaults?: OpportunityInput;
   onCreated?: (opportunity: OpportunityDetail) => void;
 }
 
@@ -75,14 +81,19 @@ export function OpportunityFormDialog({
   company,
   opportunity,
   pipelineId,
+  defaults,
   onCreated,
 }: OpportunityFormDialogProps) {
   const fixedCompany = opportunity?.company ?? company;
   const [picked, setPicked] = useState<Ref | null>(fixedCompany ?? null);
-  const [title, setTitle] = useState(opportunity?.title ?? "");
+  const [title, setTitle] = useState(opportunity?.title ?? defaults?.title ?? "");
   const [description, setDescription] = useState(opportunity?.description ?? "");
   const [serviceLine, setServiceLine] = useState<ServiceLine | "">(
-    opportunity ? (opportunity.service_line ?? "") : "bodyleasing",
+    opportunity
+      ? (opportunity.service_line ?? "")
+      : defaults?.service_line !== undefined
+        ? (defaults.service_line ?? "")
+        : "bodyleasing",
   );
   const [mrr, setMrr] = useState(amountInput(opportunity?.mrr_value));
   const [oneOff, setOneOff] = useState(amountInput(opportunity?.one_off_value));
@@ -138,7 +149,7 @@ export function OpportunityFormDialog({
       return;
     }
     create.mutate(
-      { company_id: picked.id, pipeline_id: pipelineId, ...fields },
+      { ...defaults, company_id: picked.id, pipeline_id: pipelineId, ...fields },
       {
         onSuccess: (opportunity) => {
           showSuccess("Dodano szansę. Uzupełniamy daty osób z tej firmy w tle.");

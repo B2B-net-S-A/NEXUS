@@ -1,7 +1,8 @@
 """Scalanie dwóch firm w kartotece sprzedaży (duplikaty po imporcie z Atlasa).
 
 Wszystko, co wisi na firmie źródłowej, przechodzi na docelową: kontakty
-(i ich powiązania z firmą), szanse, aktywności, pliki, leady, spółki zależne.
+(i ich powiązania z firmą), szanse, aktywności, pliki, leady, rekordy kolejki
+dzwonienia, spółki zależne.
 Tagi sumujemy, ``custom_fields`` łączymy (wygrywa firma docelowa), puste pola
 docelowej uzupełniamy ze źródłowej. Źródłowej nie kasujemy — trafia do
 archiwum z ``custom_fields.merged_into`` (ślad i droga powrotu). Jedna
@@ -30,6 +31,7 @@ from app.services.sales_schema import OpportunityEventKind
 
 from app.models.sales import (
     SalesActivity,
+    SalesCallRecord,
     SalesCompany,
     SalesCompanyAlias,
     SalesCompanyBriefing,
@@ -215,7 +217,7 @@ async def merge_companies(
                 SalesCompanyAlias.company_id == source_id
             )
         )
-    for model in (SalesActivity, SalesFile, SalesLead):
+    for model in (SalesActivity, SalesFile, SalesLead, SalesCallRecord):
         await db.execute(
             update(model)
             .where(model.company_id == source_id)

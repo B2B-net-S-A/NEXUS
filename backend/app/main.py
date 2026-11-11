@@ -270,6 +270,7 @@ from app.api import sales_handoffs as sales_handoffs_api
 from app.api import sales_leads as sales_leads_api
 from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
+from app.api import sales_calling as sales_calling_api
 from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_offers as sales_offers_api
 from app.api import sales_kpi as sales_kpi_api
@@ -2286,6 +2287,9 @@ app.include_router(
     sales_signals_api.router, prefix="/api/sales/signals", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
+app.include_router(
+    sales_calling_api.router, prefix="/api/sales/calling", tags=["sales"]
+)
 app.include_router(sales_offers_api.router, prefix="/api/sales", tags=["sales"])
 app.include_router(sales_files_api.router, prefix="/api/sales/files", tags=["sales"])
 app.include_router(
@@ -3713,6 +3717,8 @@ async def api_health_deep_check():
     from app.models.invite_link import CandidateInviteLinkVisitDay
     from app.models.sales import (
         SalesActivity,
+        SalesCallCampaign,
+        SalesCallRecord,
         SalesCompany,
         SalesCompanyAlias,
         SalesMeetingTranscript,
@@ -4025,6 +4031,9 @@ async def api_health_deep_check():
         ("sales_meeting_transcripts", SalesMeetingTranscript),
         # 0671: inne nazwy firmy z CV — bez tabeli pada pas w „Kogo znamy”.
         ("sales_company_aliases", SalesCompanyAlias),
+        # 0681: kampanie i kolejka dzwonienia — bez tabel pada zakładka „Dzwonienie”.
+        ("sales_call_campaigns", SalesCallCampaign),
+        ("sales_call_records", SalesCallRecord),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),
