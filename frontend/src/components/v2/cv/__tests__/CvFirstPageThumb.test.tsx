@@ -148,7 +148,44 @@ describe("CvFirstPageThumb", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     view.unmount();
     expect(mocks.cancel).toHaveBeenCalled();
-    expect(mocks.destroy).toHaveBeenCalled();
+    await waitFor(() => expect(mocks.destroy).toHaveBeenCalled());
     finishRender();
+  });
+
+  it("odmontowanie przy getPage w locie niszczy dokument dopiero po odpowiedzi workera (NEXUS-FE-7M)", async () => {
+    let answerPage: () => void = () => undefined;
+    const getPage = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          answerPage = () =>
+            resolve({
+              getViewport: ({ scale }: { scale: number }) => ({ width: 595 * scale, height: 842 * scale }),
+              render: () => ({ promise: Promise.resolve(), cancel: mocks.cancel }),
+            });
+        }),
+    );
+    mocks.getDocument.mockImplementation(() => ({
+      promise: Promise.resolve({ numPages: 1, getPage }),
+      destroy: mocks.destroy,
+    }));
+    const view = render(<CvFirstPageThumb load={() => Promise.resolve(pdfBlob())} onOpen={vi.fn()} />);
+    await waitFor(() => expect(getPage).toHaveBeenCalled());
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mocks.destroy).not.toHaveBeenCalled();
+
+    answerPage();
+    await waitFor(() => expect(mocks.destroy).toHaveBeenCalledTimes(1));
+  });
+
+  it("odmontowanie w trakcie wczytywania dokumentu niszczy go od razu", async () => {
+    mocks.getDocument.mockImplementation(() => ({
+      promise: new Promise(() => undefined),
+      destroy: mocks.destroy,
+    }));
+    const view = render(<CvFirstPageThumb load={() => Promise.resolve(pdfBlob())} onOpen={vi.fn()} />);
+    await waitFor(() => expect(mocks.getDocument).toHaveBeenCalled());
+    view.unmount();
+    await waitFor(() => expect(mocks.destroy).toHaveBeenCalledTimes(1));
   });
 });

@@ -15,6 +15,8 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText } from "lucide-react";
 
+import * as Sentry from "@sentry/nextjs";
+
 import { loadPdfJs } from "@/lib/pdfjs-loader";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +80,7 @@ export function CvFirstPageThumb({
     let cancelled = false;
     let documentTask: { destroy: () => Promise<void> } | null = null;
     let renderTask: { cancel: () => void } | null = null;
+    let pagePromise: Promise<unknown> | null = null;
 
     (async () => {
       // Najpierw plik: bez PDF-u (409, 503) nie ma po co ładować pdf.js.
@@ -92,7 +95,9 @@ export function CvFirstPageThumb({
       const pdf = await task.promise;
       if (cancelled) return;
       callbacksRef.current.onPages?.(pdf.numPages);
-      const page = await pdf.getPage(1);
+      const pageRequest = pdf.getPage(1);
+      pagePromise = pageRequest;
+      const page = await pageRequest;
       const canvas = canvasRef.current;
       if (cancelled || !canvas) return;
       // Ostro na ekranach o gęstości 2× — płótno w pikselach urządzenia.
@@ -112,7 +117,16 @@ export function CvFirstPageThumb({
     return () => {
       cancelled = true;
       renderTask?.cancel();
-      void documentTask?.destroy();
+      // `destroy()` dopiero po odpowiedzi na `getPage(1)` w locie — inaczej
+      // pdf.js odrzuca je „Transport destroyed” (NEXUS-FE-7M).
+      const task = documentTask;
+      void Promise.allSettled([pagePromise])
+        .then(() => task?.destroy())
+        .catch((error: unknown) => {
+          Sentry.captureException(error, {
+            tags: { component: "CvFirstPageThumb", phase: "pdf-thumb-cleanup" },
+          });
+        });
     };
   }, [seen]);
 
