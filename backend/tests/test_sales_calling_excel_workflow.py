@@ -6,6 +6,7 @@ Baza testowa jest wspólna, więc każdy test ma własnego dzwoniącego. Dane fi
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -243,9 +244,13 @@ async def test_import_fills_an_empty_linkedin_but_keeps_an_existing_one(
 ) -> None:
     caller = await _user("sales_view", "sales_edit")
     campaign_id = await _campaign()
+    # Baza testowa jest wspólna: losowa firma i numer, żeby bramki importu nie
+    # złapały wiersza z poprzedniego biegu.
+    marker = uuid.uuid4().hex[:8]
+    phone = f"6{uuid.uuid4().int % 10**8:08d}"
     payload = (
         "Firma;Osoba;Telefon;LinkedIn\n"
-        "Nowa Firma LI;Anna Nowa;600 300 400;https://www.linkedin.com/in/anna-nowa\n"
+        f"Nowa Firma LI {marker};Anna Nowa;{phone};https://www.linkedin.com/in/anna-{marker}\n"
     ).encode()
     resp = await app_client.post(
         f"{URL}/campaigns/{campaign_id}/import",
@@ -265,7 +270,7 @@ async def test_import_fills_an_empty_linkedin_but_keeps_an_existing_one(
             )
         ).scalar_one()
         contact = await db.get(SalesContact, record.contact_id)
-    assert contact.linkedin_url == "https://www.linkedin.com/in/anna-nowa"
+    assert contact.linkedin_url == f"https://www.linkedin.com/in/anna-{marker}"
 
 
 @pytest.mark.asyncio
@@ -288,3 +293,21 @@ async def test_new_outcomes_land_in_the_call_log(app_client) -> None:
     assert call.outcome == "bad_contact"
     assert call.subject.startswith("Zły numer / brak danych")
     assert call.occurred_at <= datetime.now(timezone.utc)
+
+
+def test_day_totals_model_matches_the_ddl() -> None:
+    import re
+
+    from app.models.sales import SalesCallDayTotal
+
+    ddl = next(
+        statement
+        for statement in schema.CALL_OUTCOMES_V2_DDL
+        if "CREATE TABLE IF NOT EXISTS sales_call_day_totals (" in statement
+    )
+    declared = set(re.findall(r"^\s+([a-z_0-9]+) [A-Z]", ddl, re.MULTILINE))
+    assert set(SalesCallDayTotal.__table__.columns.keys()) == declared
+    assert (
+        "DROP TABLE IF EXISTS sales_call_day_totals"
+        in schema.CALL_OUTCOMES_V2_DOWNGRADE_DDL
+    )

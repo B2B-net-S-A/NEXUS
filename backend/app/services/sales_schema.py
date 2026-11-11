@@ -953,6 +953,9 @@ CALLING_DOWNGRADE_DDL: tuple[str, ...] = (
 # Podmiana obu CHECK-ów tylko wtedy, gdy definicja nie zna jeszcze nowych wyników,
 # bo entrypoint biegnie przy każdym starcie (tak samo jak w 0681).
 
+CK_CALL_DAY_TOTALS = "calls >= 0 AND talks >= 0 AND offers >= 0 AND meetings >= 0"
+CALL_DAY_TOTALS_EXCEL = "excel"
+
 CALL_OUTCOMES_V2_DDL: tuple[str, ...] = (
     "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
     "WHERE conname = 'ck_sales_activities_outcome' "
@@ -966,6 +969,24 @@ CALL_OUTCOMES_V2_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_call_records DROP CONSTRAINT IF EXISTS ck_sales_call_records_state; "
     "ALTER TABLE sales_call_records ADD CONSTRAINT ck_sales_call_records_state "
     f"CHECK ({CK_CALL_RECORD_STATE}); END IF; END $$",
+    # Podsumowania dni sprzed kolejki (ręczny wiersz „Podsumowanie” w Excelu
+    # dzwoniących): jedna liczba na osobę, dzień i źródło, bez rozbicia na telefony.
+    f"""CREATE TABLE IF NOT EXISTS sales_call_day_totals (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day DATE NOT NULL,
+    source VARCHAR(40) NOT NULL,
+    calls INTEGER NOT NULL DEFAULT 0,
+    talks INTEGER NOT NULL DEFAULT 0,
+    offers INTEGER NOT NULL DEFAULT 0,
+    meetings INTEGER NOT NULL DEFAULT 0,
+    created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_call_day_totals_counts CHECK ({CK_CALL_DAY_TOTALS})
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_call_day_totals_user_day "
+    "ON sales_call_day_totals (user_id, day, source)",
 )
 
 _CALL_OUTCOMES_0681 = tuple(
@@ -976,6 +997,7 @@ _CALL_RECORD_STATES_0681 = tuple(
 )
 
 CALL_OUTCOMES_V2_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_call_day_totals",
     "UPDATE sales_call_records SET state = 'not_now' "
     "WHERE state IN ('not_interested', 'bad_contact')",
     "UPDATE sales_activities SET outcome = NULL "

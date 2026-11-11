@@ -807,6 +807,38 @@ class SalesCallCampaign(Base, TimestampMixin):
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class SalesCallDayTotal(Base, TimestampMixin):
+    """Podsumowanie dnia dzwonienia sprzed kolejki (Excel), jedna liczba na dzień (0682)."""
+
+    __tablename__ = "sales_call_day_totals"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_CALL_DAY_TOTALS, name="ck_sales_call_day_totals_counts"
+        ),
+        Index(
+            "ux_sales_call_day_totals_user_day",
+            "user_id",
+            "day",
+            "source",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    talks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    offers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    meetings: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
 class SalesCallRecord(Base, TimestampMixin):
     """Wpis kolejki dzwonienia: rekord kampanii albo szansa z etapu „Lead” (0681).
 
