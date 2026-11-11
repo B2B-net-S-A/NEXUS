@@ -7,7 +7,7 @@ Reguły: ``docs/claude/sprzedaz/dzwonienie-skutecznosc.md``. W skrócie:
   i ``external_id = "<id rekordu>:<numer próby>"`` (para jest unikalna w obrębie firmy,
   jak wymaga ``ux_sales_activities_outlook``), więc da się go przypisać do kampanii
   i listy;
-* „rozmowa” to telefon z wynikiem innym niż „Nie odebrał”;
+* „rozmowa” to telefon z wynikiem innym niż „Nie odebrał” i „Zły numer / brak danych”;
 * spotkanie „z terminem” ma termin w bloku przekazania albo spotkanie w dzienniku
   firmy od dnia założenia szansy; werdykt bierzemy z bloku przekazania (#3293);
 * osoby są w tabeli z liczbami i sortowaniem (ranking jest decyzją Artura z
@@ -207,8 +207,13 @@ def workdays_between(start: date, end: date) -> int:
 # ── Agregacja ─────────────────────────────────────────────────────────────
 
 
+#: Wyniki bez rozmowy z człowiekiem: „Nie odebrał” i „Zły numer / brak danych”
+#: (tak samo liczy mapa decyzyjna, ``decision_map_outlook._CALL_SIGNALS``).
+NOT_TALKS: frozenset[str] = frozenset({NO_ANSWER, "bad_contact"})
+
+
 def _is_talk(outcome: str) -> bool:
-    return outcome != NO_ANSWER
+    return outcome not in NOT_TALKS
 
 
 def _meeting_count(calls: list[CallRow]) -> int:

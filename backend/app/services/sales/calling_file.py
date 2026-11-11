@@ -55,6 +55,7 @@ _LIMITS: dict[str, int] = {
     "nip": 20,
     "industry": 255,
     "note": 1000,
+    "linkedin": 500,
 }
 
 _HEADERS: dict[str, tuple[str, ...]] = {
@@ -95,6 +96,7 @@ _HEADERS: dict[str, tuple[str, ...]] = {
     "nip": ("nip",),
     "industry": ("branza", "industry"),
     "note": ("notatka", "uwagi", "komentarz", "opis", "note", "notes"),
+    "linkedin": ("linkedin", "profil linkedin", "linkedin url", "link linkedin"),
 }
 _FIELD_BY_HEADER = {
     header: field for field, headers in _HEADERS.items() for header in headers
@@ -130,6 +132,8 @@ class ListRow:
     nip: Optional[str] = None
     industry: Optional[str] = None
     note: Optional[str] = None
+    #: Profil LinkedIn osoby (tylko adres linkedin.com po http/https).
+    linkedin: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -271,6 +275,20 @@ def _columns(header: Iterable[Any]) -> dict[str, int]:
     return columns
 
 
+_LINKEDIN = re.compile(r"^https?://([a-z]{2,3}\.)?linkedin\.com/\S+$", re.IGNORECASE)
+
+
+def linkedin_url(value: Optional[str]) -> Optional[str]:
+    """Adres profilu z komórki; inne adresy i tekst odpadają na granicy."""
+
+    if not value:
+        return None
+    candidate = value.strip()
+    if candidate.lower().startswith(("linkedin.com/", "www.linkedin.com/")):
+        candidate = f"https://{candidate}"
+    return candidate if _LINKEDIN.match(candidate) else None
+
+
 def _row(
     line: int, cells: list[Any], columns: dict[str, int]
 ) -> Optional[dict[str, Any]]:
@@ -294,6 +312,7 @@ def _row(
         "nip": values.get("nip"),
         "industry": values.get("industry"),
         "note": values.get("note"),
+        "linkedin": linkedin_url(values.get("linkedin")),
     }
 
 

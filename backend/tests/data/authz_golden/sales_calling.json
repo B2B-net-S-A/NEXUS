@@ -35,6 +35,7 @@
   "GET /api/sales/calling/effectiveness": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/queue": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/calling/records": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/calling/records/{record_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/calling/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/calling/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

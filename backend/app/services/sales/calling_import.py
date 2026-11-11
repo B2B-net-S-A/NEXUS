@@ -535,6 +535,7 @@ async def _new_contact(
         title=row.title,
         email=valid_email(row.email),
         phone=row.phone,
+        linkedin_url=row.linkedin,
         source=CONTACT_SOURCE,
         created_by_user_id=user_id,
     )
@@ -594,6 +595,11 @@ async def apply_import(
                 company = await _new_company(db, row_plan, user_id=user_id)
                 created[canonical] = company
         contact_id = row_plan.contact_id
+        if contact_id is not None and row.linkedin:
+            known = await db.get(SalesContact, contact_id)
+            # Pusty profil uzupełniamy, istniejącego nie nadpisujemy (jak domeny).
+            if known is not None and not known.linkedin_url:
+                known.linkedin_url = row.linkedin
         if contact_id is None and row.person:
             contact_id = (
                 await _new_contact(db, row_plan, company.id, user_id=user_id)

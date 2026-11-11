@@ -1,5 +1,5 @@
 # Dzwonienie → Skuteczność: lejek, kampanie, listy, pory dnia i ranking — decyzje Artura 11.11.2026
-<!-- indeks: ekran Skuteczność pod zakładką Dzwonienie, GET /api/sales/calling/effectiveness, calling_stats.py, external_source call_queue i external_id rekord:próba, rozmowa = wynik inny niż Nie odebrał, spotkanie z terminem, werdykt Warto z bloku przekazania, ranking osób z sortowaniem, tylko Sprzedaż: edycja, wnioski regułami z progiem próby, bez AI -->
+<!-- indeks: ekran Skuteczność pod zakładką Dzwonienie, GET /api/sales/calling/effectiveness, calling_stats.py, external_source call_queue i external_id rekord:próba, rozmowa = wynik inny niż Nie odebrał i Zły numer, spotkanie z terminem, werdykt Warto z bloku przekazania, ranking osób z sortowaniem, tylko Sprzedaż: edycja, wnioski regułami z progiem próby, bez AI -->
 
 Powód: Artur chce rozumieć, co daje dzwonienie (dwie osoby dzwoniące, kampanie i listy)
 i mieć analizę na bieżąco. Makieta na danych stagingu (prywatny artefakt):
@@ -31,7 +31,7 @@ jedenasta zakładka Sprzedaży zawinęłaby rząd przy 1280 px).
   próby jest konieczny: `ux_sales_activities_outlook` jest unikalny na
   `(external_source, external_id, company_id)`, a do jednego rekordu dzwoni się wiele razy.
   Bez tego znacznika telefon nie trafi do kampanii ani listy.
-- **Rozmowa** = wynik inny niż „Nie odebrał”. Konwersje w lejku są liczone do
+- **Rozmowa** = wynik inny niż „Nie odebrał” i „Zły numer / brak danych”. Konwersje w lejku są liczone do
   poprzedniego sensownego kroku (rozmowy z telefonów, oferta i spotkanie z rozmów).
 - **Spotkanie z terminem**: termin w bloku przekazania (`custom_fields.handoff.meeting_at`)
   albo spotkanie w dzienniku firmy od dnia założenia szansy (ten sam warunek co

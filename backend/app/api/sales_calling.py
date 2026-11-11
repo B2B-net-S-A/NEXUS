@@ -48,6 +48,7 @@ router = APIRouter()
 
 CAMPAIGN_NOT_FOUND = "Nie ma takiej kampanii."
 SOURCE_REQUIRED = "Wpisz, skąd masz kontakty z tej listy."
+STATE_DETAIL = "Nieznany wynik w filtrze tabeli."
 ASSIGNEE_DETAIL = "Dzwonić może aktywna osoba z uprawnieniem „Sprzedaż: edycja”."
 MIN_SOURCE_CHARS = 3
 MAX_SOURCE_CHARS = 255
@@ -84,6 +85,13 @@ class QueueCounts(BaseModel):
     later: int
 
 
+class DayCountsOut(BaseModel):
+    calls: int
+    talks: int
+    offers: int
+    meetings: int
+
+
 class QueueOut(BaseModel):
     today: date
     counts: QueueCounts
@@ -91,6 +99,17 @@ class QueueOut(BaseModel):
     meetings: list[QueueItemOut]
     new: list[QueueItemOut]
     campaigns: list[Ref]
+    #: Licznik dnia bez celu (decyzja Artura 11.11.2026): zastępuje ręczne
+    #: „Podsumowanie” z Excela; wczoraj = poprzedni dzień roboczy.
+    today_counts: DayCountsOut
+    yesterday: date
+    yesterday_counts: DayCountsOut
+
+
+class RecordTableOut(BaseModel):
+    items: list[QueueItemOut]
+    total: int
+    counts: dict[str, int]
 
 
 class HistoryOut(BaseModel):
@@ -110,6 +129,7 @@ class CardOut(BaseModel):
     note: Optional[str]
     service: Optional[str]
     script: Optional[str]
+    linkedin_url: Optional[str]
     do_not_contact: bool
     #: Firma jest klientem NEXUSA: komu przekazać temat zamiast umawiać spotkanie.
     client_refusal: Optional[str]
@@ -222,6 +242,7 @@ def _card(card: calling.Card) -> CardOut:
         note=card.note,
         service=card.service,
         script=card.script,
+        linkedin_url=card.linkedin_url,
         do_not_contact=card.do_not_contact,
         client_refusal=card.client_refusal,
         can_save=card.can_save,
@@ -283,6 +304,39 @@ async def call_queue(
         meetings=[_item(item) for item in queue.meetings],
         new=[_item(item) for item in queue.new],
         campaigns=[Ref(id=id_, name=name) for id_, name in queue.campaigns],
+        today_counts=DayCountsOut(**queue.today_counts.__dict__),
+        yesterday=queue.yesterday,
+        yesterday_counts=DayCountsOut(**queue.yesterday_counts.__dict__),
+    )
+
+
+@router.get("/records", response_model=RecordTableOut)
+async def my_records(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    state: Optional[str] = Query(default=None, max_length=20),
+    campaign_id: Optional[int] = Query(default=None, ge=1),
+    q: Optional[str] = Query(default=None, max_length=120),
+    limit: int = Query(default=calling.TABLE_LIMIT, ge=1, le=calling.TABLE_LIMIT),
+    offset: int = Query(default=0, ge=0),
+) -> RecordTableOut:
+    """Widok „Tabela”: wszystkie rekordy zalogowanej osoby z filtrem po wyniku."""
+
+    if state is not None and state not in calling.TABLE_STATES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=STATE_DETAIL)
+    table = await calling.list_records(
+        db,
+        current_user.id,
+        state=state,
+        campaign_id=campaign_id,
+        search=(q or "").strip() or None,
+        limit=limit,
+        offset=offset,
+    )
+    return RecordTableOut(
+        items=[_item(item) for item in table.items],
+        total=table.total,
+        counts=table.counts,
     )
 
 

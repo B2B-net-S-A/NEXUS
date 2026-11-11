@@ -35,7 +35,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import DEFAULT_TZ, business_date, business_today
+from app.core.scheduling import (
+    DEFAULT_TZ,
+    business_date,
+    business_today,
+    is_business_day,
+    local_day_start_utc,
+)
 from app.models.sales import (
     SalesActivity,
     SalesCallCampaign,
@@ -59,6 +65,11 @@ NEW = schema.CALL_RECORD_NEW
 #: Stany, z których rekord sam wraca do kolejki w dniu ``callback_on``.
 RETURNING_STATES: tuple[str, ...] = ("no_answer", "call_back", "not_now", "offer_sent")
 OPEN_STATES: tuple[str, ...] = (NEW, *RETURNING_STATES)
+#: „Nie zainteresowany” wraca tylko z datą (domyślnie za pół roku); bez daty = nigdy.
+NOT_INTERESTED = "not_interested"
+#: „Zły numer / brak danych” zamyka rekord; nowy numer przychodzi z importu.
+BAD_CONTACT = "bad_contact"
+NOT_INTERESTED_DAYS = 182
 MEETING_BOOKED = "meeting_booked"
 #: Telefon z kolejki w dzienniku: ``external_id`` = „<id rekordu>:<numer próby>”.
 #: Po nim „Skuteczność” łączy telefon z kampanią i listą (``calling_stats.py``);
@@ -98,6 +109,8 @@ class OutcomeRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=5000)
     #: Szansa założona z umówionego spotkania (rekord kampanii).
     opportunity_id: Optional[int] = None
+    #: „Nie zainteresowany” bez powrotu do kolejki.
+    never: bool = False
 
 
 @dataclass(frozen=True)
@@ -122,6 +135,16 @@ class QueueItem:
 
 
 @dataclass(frozen=True)
+class DayCounts:
+    """Licznik dnia bez celu: zastępuje ręczny wiersz „Podsumowanie” z Excela."""
+
+    calls: int = 0
+    talks: int = 0
+    offers: int = 0
+    meetings: int = 0
+
+
+@dataclass(frozen=True)
 class Queue:
     today: date
     callbacks: list[QueueItem]
@@ -131,6 +154,9 @@ class Queue:
     new_total: int
     later: int
     campaigns: list[tuple[int, str]]
+    today_counts: DayCounts = DayCounts()
+    yesterday: Optional[date] = None
+    yesterday_counts: DayCounts = DayCounts()
 
 
 @dataclass(frozen=True)
@@ -153,6 +179,7 @@ class Card:
     note: Optional[str]
     service: Optional[str]
     script: Optional[str]
+    linkedin_url: Optional[str]
     do_not_contact: bool
     client_refusal: Optional[str]
     can_save: bool
@@ -191,13 +218,17 @@ def default_callback(outcome: str, today: date) -> Optional[date]:
         return workdays_after(today, 1)
     if outcome == "not_now":
         return on_business_day(today + timedelta(days=NOT_NOW_DAYS))
+    if outcome == NOT_INTERESTED:
+        return on_business_day(today + timedelta(days=NOT_INTERESTED_DAYS))
     return None
 
 
 def resolve_callback(
-    outcome: str, requested: Optional[date], today: date
+    outcome: str, requested: Optional[date], today: date, *, never: bool = False
 ) -> Optional[date]:
-    if outcome not in RETURNING_STATES:
+    if outcome == NOT_INTERESTED and never:
+        return None
+    if outcome not in (*RETURNING_STATES, NOT_INTERESTED):
         return None
     if requested is None:
         return default_callback(outcome, today)
@@ -261,6 +292,15 @@ def _opportunity_record(alias: Any = SalesCallRecord) -> Any:
     )
 
 
+def _not_interested_returning() -> Any:
+    """„Nie zainteresowany” z datą powrotu wraca do kolejki w swoim dniu."""
+
+    return and_(
+        SalesCallRecord.state == NOT_INTERESTED,
+        SalesCallRecord.callback_on.is_not(None),
+    )
+
+
 def _own_campaign_records(query: Any, user_id: int) -> Any:
     """Otwarte rekordy kampanii tej osoby: wspólne złączenia listy i liczników."""
 
@@ -271,7 +311,7 @@ def _own_campaign_records(query: Any, user_id: int) -> Any:
         .outerjoin(SalesContact, SalesContact.id == SalesCallRecord.contact_id)
         .where(
             SalesCallRecord.assigned_user_id == user_id,
-            SalesCallRecord.state.in_(OPEN_STATES),
+            or_(SalesCallRecord.state.in_(OPEN_STATES), _not_interested_returning()),
             SalesCallCampaign.archived_at.is_(None),
             SalesCompany.archived_at.is_(None),
             *_without_objection(),
@@ -298,7 +338,10 @@ async def _campaign_records(
     odświeża się po każdym zapisie w Sprzedaży.
     """
 
-    returning = SalesCallRecord.state.in_(RETURNING_STATES)
+    # „Nie zainteresowany” liczy się tylko w dniu powrotu: w „wróci w swoim dniu”
+    # zasłoniłby pół roku setkami osób.
+    waiting = SalesCallRecord.state.in_(RETURNING_STATES)
+    returning = or_(waiting, _not_interested_returning())
     due = or_(
         SalesCallRecord.callback_on.is_(None), SalesCallRecord.callback_on <= today
     )
@@ -310,7 +353,7 @@ async def _campaign_records(
                     SalesCallCampaign.name,
                     func.count().filter(SalesCallRecord.state == NEW),
                     func.count().filter(returning, due),
-                    func.count().filter(returning, ~due),
+                    func.count().filter(waiting, ~due),
                 ),
                 user_id,
             ).group_by(SalesCallRecord.campaign_id, SalesCallCampaign.name)
@@ -483,7 +526,10 @@ async def load_queue(
         for opp, company_name, record, contact in await _lead_opportunities(
             db, user_id
         ):
-            if record is not None and record.state == DO_NOT_CONTACT:
+            if record is not None and (
+                record.state in (DO_NOT_CONTACT, BAD_CONTACT)
+                or (record.state == NOT_INTERESTED and record.callback_on is None)
+            ):
                 continue
             if record is None or record.state == NEW:
                 due_on = lead_due_on(opp.created_at)
@@ -492,7 +538,8 @@ async def load_queue(
                 # rekord bez daty jest do zrobienia od razu.
                 due_on = record.callback_on
             if due_on is not None and due_on > today:
-                later += 1
+                if record is None or record.state != NOT_INTERESTED:
+                    later += 1
                 continue
             item = _opportunity_item(
                 opp, company_name, record, contact, "callbacks", due_on
@@ -521,6 +568,155 @@ async def load_queue(
         new_total=records.new_total,
         later=later,
         campaigns=records.campaigns,
+        today_counts=await day_counts(db, user_id, today),
+        yesterday=previous_business_day(today),
+        yesterday_counts=await day_counts(db, user_id, previous_business_day(today)),
+    )
+
+
+def previous_business_day(day: date) -> date:
+    current = day - timedelta(days=1)
+    while not is_business_day(_noon(current)):
+        current -= timedelta(days=1)
+    return current
+
+
+async def day_counts(db: AsyncSession, user_id: int, day: date) -> DayCounts:
+    """Telefony osoby w danym dniu firmy: te same reguły co „Skuteczność”.
+
+    Rozmowa to wynik inny niż „Nie odebrał” i „Zły numer”; umówione spotkanie liczy się raz na
+    szansę, bo rekord szansy zostaje w kolejce i wynik może paść dwa razy.
+    """
+
+    booked = SalesActivity.outcome == MEETING_BOOKED
+    row = (
+        await db.execute(
+            select(
+                func.count(),
+                func.count().filter(
+                    SalesActivity.outcome.not_in(("no_answer", BAD_CONTACT))
+                ),
+                func.count().filter(SalesActivity.outcome == "offer_sent"),
+                func.count(func.distinct(SalesActivity.opportunity_id)).filter(booked),
+                func.count().filter(booked, SalesActivity.opportunity_id.is_(None)),
+            ).where(
+                SalesActivity.kind == "call",
+                SalesActivity.outcome.is_not(None),
+                SalesActivity.created_by_user_id == user_id,
+                SalesActivity.occurred_at >= local_day_start_utc(day),
+                SalesActivity.occurred_at
+                < local_day_start_utc(day + timedelta(days=1)),
+            )
+        )
+    ).one()
+    return DayCounts(
+        calls=int(row[0]),
+        talks=int(row[1]),
+        offers=int(row[2]),
+        meetings=int(row[3]) + int(row[4]),
+    )
+
+
+# ── Tabela: wszystkie rekordy osoby ───────────────────────────────────────
+
+TABLE_LIMIT = 200
+#: Stany, które pokazuje filtr tabeli (sprzeciw nie wchodzi: numer nie może wyjść z API).
+TABLE_STATES: tuple[str, ...] = tuple(
+    state for state in schema.CALL_RECORD_STATES if state != DO_NOT_CONTACT
+)
+
+
+@dataclass(frozen=True)
+class RecordTable:
+    items: list[QueueItem]
+    total: int
+    counts: dict[str, int]
+
+
+def _own_records(query: Any, user_id: int) -> Any:
+    """Rekordy osoby (kampanii i szans) bez sprzeciwu: wspólne złączenia tabeli."""
+
+    return (
+        query.select_from(SalesCallRecord)
+        .join(SalesCompany, SalesCompany.id == SalesCallRecord.company_id)
+        .outerjoin(
+            SalesCallCampaign, SalesCallCampaign.id == SalesCallRecord.campaign_id
+        )
+        .outerjoin(SalesContact, SalesContact.id == SalesCallRecord.contact_id)
+        .where(
+            SalesCallRecord.assigned_user_id == user_id,
+            SalesCallRecord.state.in_(TABLE_STATES),
+            SalesCompany.archived_at.is_(None),
+            SalesCallCampaign.archived_at.is_(None),
+            *_without_objection(),
+        )
+    )
+
+
+async def list_records(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    state: Optional[str] = None,
+    campaign_id: Optional[int] = None,
+    search: Optional[str] = None,
+    limit: int = TABLE_LIMIT,
+    offset: int = 0,
+) -> RecordTable:
+    """Widok „Tabela”: ta sama lista co kolejka, ale cała i z filtrem po wyniku.
+
+    Liczniki filtrów nie zależą od wybranego stanu, żeby chipy pokazywały całość.
+    """
+
+    def narrowed(query: Any) -> Any:
+        if campaign_id is not None:
+            query = query.where(SalesCallRecord.campaign_id == campaign_id)
+        if search:
+            pattern = f"%{search.strip()}%"
+            query = query.where(
+                or_(
+                    SalesCompany.name.ilike(pattern),
+                    SalesCallRecord.person_name.ilike(pattern),
+                    SalesCallRecord.phone.ilike(pattern),
+                )
+            )
+        return query
+
+    counted = (
+        await db.execute(
+            narrowed(
+                _own_records(
+                    select(SalesCallRecord.state, func.count()), user_id
+                ).group_by(SalesCallRecord.state)
+            )
+        )
+    ).all()
+    counts = {row[0]: int(row[1]) for row in counted}
+    listed = narrowed(
+        _own_records(
+            select(SalesCallRecord, SalesCompany.name, SalesCallCampaign.name), user_id
+        )
+    )
+    if state is not None:
+        listed = listed.where(SalesCallRecord.state == state)
+    rows = (
+        await db.execute(
+            listed.order_by(
+                SalesCallRecord.callback_on.asc().nulls_last(),
+                func.lower(SalesCompany.name),
+                SalesCallRecord.id,
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    return RecordTable(
+        items=[
+            _record_item(record, company_name, campaign_name, "callbacks")
+            for record, company_name, campaign_name in rows
+        ],
+        total=counts.get(state, 0) if state is not None else sum(counts.values()),
+        counts=counts,
     )
 
 
@@ -604,6 +800,7 @@ async def _card(
         note=(record.note if record else None) or opportunity_note,
         service=campaign.service if campaign else None,
         script=campaign.script if campaign else None,
+        linkedin_url=contact.linkedin_url if contact else None,
         do_not_contact=_objected(company, contact)
         or (record is not None and record.state == DO_NOT_CONTACT),
         client_refusal=await _client_refusal(db, company),
@@ -780,7 +977,9 @@ async def apply_outcome(
     objecting = outcome == DO_NOT_CONTACT
     if _objected(company, contact) and not objecting:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=OBJECTION_DETAIL)
-    callback_on = resolve_callback(outcome, payload.callback_on, business_date(now))
+    callback_on = resolve_callback(
+        outcome, payload.callback_on, business_date(now), never=payload.never
+    )
 
     opportunity = own_opportunity
     if outcome == MEETING_BOOKED:

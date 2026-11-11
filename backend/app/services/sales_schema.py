@@ -740,6 +740,9 @@ CALL_OUTCOMES: tuple[str, ...] = (
     # 0681: wyniki z kolejki dzwonienia (jeden słownik dla karty szansy i kolejki).
     "offer_sent",
     "meeting_booked",
+    # 0683: z Excela dzwoniących (decyzje Artura 11.11.2026).
+    "not_interested",
+    "bad_contact",
 )
 CK_ACTIVITY_OUTCOME = f"outcome IS NULL OR outcome IN ({quoted(CALL_OUTCOMES)})"
 
@@ -862,6 +865,11 @@ CALL_QUEUE_OUTCOMES: tuple[str, ...] = (
     "offer_sent",
     "meeting_booked",
     "do_not_contact",
+    # 0683: „Nie zainteresowany” wraca po wybranym czasie albo nigdy, „Zły numer /
+    # brak danych” zamyka rekord. To nie jest sprzeciw: firma i osoba zostają do
+    # kontaktu z innej drogi.
+    "not_interested",
+    "bad_contact",
 )
 CALL_RECORD_NEW = "new"
 CALL_RECORD_STATES: tuple[str, ...] = (CALL_RECORD_NEW, *CALL_QUEUE_OUTCOMES)
@@ -924,7 +932,9 @@ CALLING_DDL: tuple[str, ...] = (
 )
 
 _CALL_OUTCOMES_BEFORE_QUEUE = tuple(
-    o for o in CALL_OUTCOMES if o not in ("offer_sent", "meeting_booked")
+    o
+    for o in CALL_OUTCOMES
+    if o not in ("offer_sent", "meeting_booked", "not_interested", "bad_contact")
 )
 
 CALLING_DOWNGRADE_DDL: tuple[str, ...] = (
@@ -935,4 +945,67 @@ CALLING_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome",
     "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
     f"CHECK (outcome IS NULL OR outcome IN ({quoted(_CALL_OUTCOMES_BEFORE_QUEUE)}))",
+)
+
+
+# ── 0683: „Nie zainteresowany” i „Zły numer / brak danych” ───────────────
+#
+# Podmiana obu CHECK-ów tylko wtedy, gdy definicja nie zna jeszcze nowych wyników,
+# bo entrypoint biegnie przy każdym starcie (tak samo jak w 0681).
+
+CK_CALL_DAY_TOTALS = "calls >= 0 AND talks >= 0 AND offers >= 0 AND meetings >= 0"
+CALL_DAY_TOTALS_EXCEL = "excel"
+
+CALL_OUTCOMES_V2_DDL: tuple[str, ...] = (
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_activities_outcome' "
+    "AND pg_get_constraintdef(oid) LIKE '%not_interested%') THEN "
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome; "
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
+    f"CHECK ({CK_ACTIVITY_OUTCOME}); END IF; END $$",
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_call_records_state' "
+    "AND pg_get_constraintdef(oid) LIKE '%not_interested%') THEN "
+    "ALTER TABLE sales_call_records DROP CONSTRAINT IF EXISTS ck_sales_call_records_state; "
+    "ALTER TABLE sales_call_records ADD CONSTRAINT ck_sales_call_records_state "
+    f"CHECK ({CK_CALL_RECORD_STATE}); END IF; END $$",
+    # Podsumowania dni sprzed kolejki (ręczny wiersz „Podsumowanie” w Excelu
+    # dzwoniących): jedna liczba na osobę, dzień i źródło, bez rozbicia na telefony.
+    f"""CREATE TABLE IF NOT EXISTS sales_call_day_totals (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day DATE NOT NULL,
+    source VARCHAR(40) NOT NULL,
+    calls INTEGER NOT NULL DEFAULT 0,
+    talks INTEGER NOT NULL DEFAULT 0,
+    offers INTEGER NOT NULL DEFAULT 0,
+    meetings INTEGER NOT NULL DEFAULT 0,
+    created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_call_day_totals_counts CHECK ({CK_CALL_DAY_TOTALS})
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_call_day_totals_user_day "
+    "ON sales_call_day_totals (user_id, day, source)",
+)
+
+_CALL_OUTCOMES_0681 = tuple(
+    o for o in CALL_OUTCOMES if o not in ("not_interested", "bad_contact")
+)
+_CALL_RECORD_STATES_0681 = tuple(
+    s for s in CALL_RECORD_STATES if s not in ("not_interested", "bad_contact")
+)
+
+CALL_OUTCOMES_V2_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_call_day_totals",
+    "UPDATE sales_call_records SET state = 'not_now' "
+    "WHERE state IN ('not_interested', 'bad_contact')",
+    "UPDATE sales_activities SET outcome = NULL "
+    "WHERE outcome IN ('not_interested', 'bad_contact')",
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_outcome",
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_outcome "
+    f"CHECK (outcome IS NULL OR outcome IN ({quoted(_CALL_OUTCOMES_0681)}))",
+    "ALTER TABLE sales_call_records DROP CONSTRAINT IF EXISTS ck_sales_call_records_state",
+    "ALTER TABLE sales_call_records ADD CONSTRAINT ck_sales_call_records_state "
+    f"CHECK (state IN ({quoted(_CALL_RECORD_STATES_0681)}))",
 )

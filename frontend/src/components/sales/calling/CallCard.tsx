@@ -1,8 +1,8 @@
 "use client";
 
-import { CalendarClock, Phone } from "lucide-react";
+import { CalendarClock, ExternalLink, Phone } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
@@ -21,6 +21,7 @@ import {
   type QueueItem,
   type QueueOutcome,
 } from "@/lib/api/sales-calling";
+import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { telHref } from "../my-day";
@@ -30,6 +31,10 @@ import {
   DATE_PRESETS,
   isDated,
   itemTitle,
+  KEYED_OUTCOMES,
+  outcomeForKey,
+  outcomeButtonLabel,
+  outcomeKey,
   outcomeLabel,
   plusDaysIso,
   weekdayOf,
@@ -39,7 +44,13 @@ import {
 const MEETING_TITLE = "Spotkanie wstępne";
 const MEETING_SUBJECT = "Spotkanie kwalifikujące";
 const OPPORTUNITY_SOURCE = "Dzwonienie";
-const QUICK_OUTCOMES: QueueOutcome[] = ["no_answer", "call_back", "not_now", "offer_sent"];
+
+/** Pole tekstowe albo otwarte okno: klawisz 1–7 jest wtedy zwykłym znakiem. */
+function typingTarget(target: EventTarget | null): boolean {
+  if (typeof document !== "undefined" && document.querySelector("[role=dialog], [role=alertdialog]")) return true;
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
 
 export interface MeetingStage {
   pipelineId: number;
@@ -109,6 +120,22 @@ function Script({ item, card }: { item: QueueItem; card: CallCardData }) {
   );
 }
 
+function OutcomeKey({ outcome, inverted = false }: { outcome: QueueOutcome; inverted?: boolean }) {
+  const key = outcomeKey(outcome);
+  if (!key) return null;
+  return (
+    <kbd
+      aria-hidden
+      className={cn(
+        "rounded border px-1 text-[10px] font-medium leading-4",
+        inverted ? "border-primary-foreground/40 text-primary-foreground" : "border-border bg-muted text-muted-foreground",
+      )}
+    >
+      {key}
+    </kbd>
+  );
+}
+
 interface OutcomeFormProps extends Omit<CallCardProps, "position"> {
   card: CallCardData;
 }
@@ -132,7 +159,10 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
   const pending = save.isPending || createActivity.isPending;
   const person = item.person_name ?? item.company.name;
 
-  const send = (outcome: QueueOutcome, extra: { callback_on?: string; opportunity_id?: number } = {}) => {
+  const send = (
+    outcome: QueueOutcome,
+    extra: { callback_on?: string; opportunity_id?: number; never?: boolean } = {},
+  ) => {
     // Obietnica zamiast `onSuccess` przy `mutate`: tamte wywołania giną, gdy karta
     // zniknie z ekranu, zanim odświeży się kolejka, a wtedy lista nie przeszłaby dalej.
     save
@@ -188,6 +218,32 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
   const company: Ref = card.company;
   const meetingBlocked = card.client_refusal !== null || (isCampaignRecord && meetingStage === null);
 
+  // Klawisze 1–7: ten sam wynik co przycisk. Ref, bo nasłuch zakładamy raz na kartę.
+  const press = useRef<(outcome: QueueOutcome) => void>(() => undefined);
+  press.current = (outcome) => {
+    if (blocked || pending) return;
+    if (outcome === "meeting_booked") {
+      if (!isMeetingItem && !meetingBlocked) bookMeeting();
+      return;
+    }
+    choose(outcome);
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (typingTarget(event.target)) return;
+      if (event.key === "Escape") {
+        setDated(null);
+        return;
+      }
+      const outcome = outcomeForKey(event);
+      if (!outcome) return;
+      event.preventDefault();
+      press.current(outcome);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <section className="space-y-2 border-t border-border pt-2.5">
       <h3 className="text-sm font-semibold text-foreground">Wynik rozmowy</h3>
@@ -215,32 +271,46 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
         disabled={blocked}
         onChange={(event) => setNote(event.target.value)}
       />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">Klawisze 1–7 zapisują wynik, potem od razu następna osoba.</span>
+      </div>
       <div data-tour="sales.calling.outcomes" className="grid grid-cols-2 gap-1.5">
-        {QUICK_OUTCOMES.map((outcome) => (
-          <Button
-            key={outcome}
-            size="sm"
-            variant={dated === outcome ? "primary" : "outline"}
-            className="h-8 justify-start px-2.5"
-            disabled={blocked || pending}
-            aria-expanded={isDated(outcome) ? dated === outcome : undefined}
-            onClick={() => choose(outcome)}
-          >
-            {outcomeLabel(outcome)}
-            {isDated(outcome) && "…"}
-          </Button>
-        ))}
-        {!isMeetingItem && (
-          <Button
-            size="sm"
-            className="h-8 justify-start px-2.5"
-            disabled={blocked || pending || meetingBlocked}
-            title={card.client_refusal ?? undefined}
-            onClick={bookMeeting}
-          >
-            <CalendarClock className="mr-1.5 h-3.5 w-3.5" aria-hidden /> {outcomeLabel("meeting_booked")}
-          </Button>
-        )}
+        {KEYED_OUTCOMES.map((outcome) => {
+          if (outcome === "meeting_booked") {
+            if (isMeetingItem) return null;
+            return (
+              <Button
+                key={outcome}
+                size="sm"
+                className="h-8 justify-start gap-1.5 px-2"
+                disabled={blocked || pending || meetingBlocked}
+                title={card.client_refusal ?? undefined}
+                onClick={bookMeeting}
+              >
+                <OutcomeKey outcome={outcome} inverted />
+                <span className="min-w-0 truncate">{outcomeLabel(outcome)}</span>
+              </Button>
+            );
+          }
+          return (
+            <Button
+              key={outcome}
+              size="sm"
+              variant={dated === outcome ? "primary" : "outline"}
+              className="h-8 min-w-0 justify-start gap-1.5 px-2"
+              disabled={blocked || pending}
+              aria-expanded={isDated(outcome) ? dated === outcome : undefined}
+              aria-keyshortcuts={outcomeKey(outcome) ?? undefined}
+              onClick={() => choose(outcome)}
+            >
+              <OutcomeKey outcome={outcome} inverted={dated === outcome} />
+              <span className="min-w-0 truncate" title={outcomeLabel(outcome)}>
+                {outcomeButtonLabel(outcome)}
+                {isDated(outcome) && "…"}
+              </span>
+            </Button>
+          );
+        })}
         <Button
           size="sm"
           variant="ghost"
@@ -260,7 +330,11 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
               variant="outline"
               className="h-7 px-2"
               disabled={pending}
-              onClick={() => send(dated, { callback_on: plusDaysIso(today, preset.days) })}
+              onClick={() =>
+                preset.days === null
+                  ? send(dated, { never: true })
+                  : send(dated, { callback_on: plusDaysIso(today, preset.days) })
+              }
             >
               {preset.label}
             </Button>
@@ -358,6 +432,13 @@ export function CallCard(props: CallCardProps) {
           </Button>
         ) : (
           <span className="text-xs tabular-nums text-muted-foreground">{item.phone ?? "Brak numeru telefonu"}</span>
+        )}
+        {card?.linkedin_url && (
+          <Button size="sm" variant="outline" className="h-8" asChild>
+            <a href={card.linkedin_url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-1.5 h-3.5 w-3.5" aria-hidden /> LinkedIn
+            </a>
+          </Button>
         )}
         {item.opportunity_id !== null && (
           <Button size="sm" variant="outline" className="h-8" asChild>

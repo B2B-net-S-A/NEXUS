@@ -482,7 +482,7 @@ export type CallOutcome =
   | "do_not_contact";
 
 /** Wyniki, które zapisuje tylko kolejka dzwonienia (ten sam słownik co backend). */
-export type QueueOnlyOutcome = "offer_sent" | "meeting_booked";
+export type QueueOnlyOutcome = "offer_sent" | "meeting_booked" | "not_interested" | "bad_contact";
 
 export const CALL_OUTCOME_LABELS: Record<CallOutcome | QueueOnlyOutcome, string> = {
   connected: "Dodzwoniłem",
@@ -493,6 +493,8 @@ export const CALL_OUTCOME_LABELS: Record<CallOutcome | QueueOnlyOutcome, string>
   do_not_contact: "Nie kontaktować",
   offer_sent: "Oferta ogólna wysłana",
   meeting_booked: "Umówione spotkanie",
+  not_interested: "Nie zainteresowany",
+  bad_contact: "Zły numer / brak danych",
 };
 
 export type TimelineScope = "opportunity" | "company" | "other_opportunity";

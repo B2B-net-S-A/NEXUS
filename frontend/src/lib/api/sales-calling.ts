@@ -13,7 +13,9 @@ export type QueueOutcome =
   | "not_now"
   | "offer_sent"
   | "meeting_booked"
-  | "do_not_contact";
+  | "do_not_contact"
+  | "not_interested"
+  | "bad_contact";
 export type RecordState = "new" | QueueOutcome;
 export type QueueSection = "callbacks" | "meetings" | "new";
 
@@ -35,6 +37,14 @@ export interface QueueItem {
   since: string;
 }
 
+/** Licznik dnia bez celu: zastępuje ręczne „Podsumowanie” z Excela (11.11.2026). */
+export interface DayCounts {
+  calls: number;
+  talks: number;
+  offers: number;
+  meetings: number;
+}
+
 export interface CallQueue {
   today: string;
   counts: { callbacks: number; meetings: number; new: number; later: number };
@@ -42,6 +52,22 @@ export interface CallQueue {
   meetings: QueueItem[];
   new: QueueItem[];
   campaigns: Ref[];
+  today_counts: DayCounts;
+  yesterday: string;
+  yesterday_counts: DayCounts;
+}
+
+/** Widok „Tabela”: wszystkie rekordy osoby i liczniki filtrów po wyniku. */
+export interface CallRecordTable {
+  items: QueueItem[];
+  total: number;
+  counts: Partial<Record<RecordState, number>>;
+}
+
+export interface CallRecordFilters {
+  state: RecordState | null;
+  campaignId: number | null;
+  search: string;
 }
 
 export interface CallHistoryEntry {
@@ -61,6 +87,7 @@ export interface CallCard {
   note: string | null;
   service: string | null;
   script: string | null;
+  linkedin_url: string | null;
   do_not_contact: boolean;
   client_refusal: string | null;
   can_save: boolean;
@@ -74,6 +101,8 @@ export interface OutcomeInput {
   note?: string;
   /** Szansa założona z umówionego spotkania (rekord kampanii). */
   opportunity_id?: number;
+  /** „Nie zainteresowany” bez powrotu do kolejki. */
+  never?: boolean;
 }
 
 export interface OutcomeResult {
@@ -145,6 +174,7 @@ export const callingKeys = {
   queue: (campaignId: number | null) => ["sales", "calling", "queue", campaignId] as const,
   card: (key: string) => ["sales", "calling", "card", key] as const,
   campaigns: ["sales", "calling", "campaigns"] as const,
+  records: (filters: CallRecordFilters) => ["sales", "calling", "records", filters] as const,
 };
 
 function useInvalidateSales() {
@@ -166,6 +196,23 @@ export function useCallQueue(campaignId: number | null) {
       (
         await api.get<CallQueue>("/api/sales/calling/queue", {
           params: campaignId === null ? {} : { campaign_id: campaignId },
+        })
+      ).data,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCallRecords(filters: CallRecordFilters) {
+  return useQuery({
+    queryKey: callingKeys.records(filters),
+    queryFn: async () =>
+      (
+        await api.get<CallRecordTable>("/api/sales/calling/records", {
+          params: {
+            ...(filters.state === null ? {} : { state: filters.state }),
+            ...(filters.campaignId === null ? {} : { campaign_id: filters.campaignId }),
+            ...(filters.search.trim() ? { q: filters.search.trim() } : {}),
+          },
         })
       ).data,
     placeholderData: keepPreviousData,

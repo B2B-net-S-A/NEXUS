@@ -450,3 +450,9 @@ def test_second_meeting_result_for_one_opportunity_counts_once() -> None:
     lead = next(s for s in result.sources if s.source == stats.LEAD_SOURCE)
     assert lead.meetings == 1
     assert result.insights[0].text.startswith("1 z 2 umówionych spotkań")
+
+
+def test_bad_number_is_an_attempt_not_a_talk() -> None:
+    # „Zły numer / brak danych” to próba bez rozmowy, jak „Nie odebrał” (mapa decyzyjna tak samo).
+    result = _summary([_call("bad_contact"), _call("not_interested"), _call("no_answer")])
+    assert (result.funnel.calls, result.funnel.talks) == (3, 1)
