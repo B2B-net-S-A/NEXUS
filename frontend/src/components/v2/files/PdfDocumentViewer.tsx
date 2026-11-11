@@ -22,6 +22,8 @@ import {
   type Ref,
 } from "react";
 
+import * as Sentry from "@sentry/nextjs";
+
 import { loadPdfJs } from "@/lib/pdfjs-loader";
 import {
   isSearchableQuery,
@@ -202,6 +204,8 @@ export function PdfDocumentViewer({
     let loadingTask: { destroy: () => Promise<void> } | null = null;
     let pdfViewer: ViewerInternals["pdfViewer"] | null = null;
     let pagesReady = false;
+    // Zapytania `getPage` w locie — nasze i `PDFViewer`/`PDFFindController`.
+    const pendingPages = new Set<Promise<unknown>>();
     fitWidthRef.current = true;
     fillWidthRef.current = false;
     callbacksRef.current.onTextAvailability?.("pending");
@@ -311,6 +315,17 @@ export function PdfDocumentViewer({
       const pdfDocument = await task.promise;
       if (cancelled) return;
 
+      // Każde `getPage` (także z wnętrza pdf.js) zapisujemy, żeby sprzątanie
+      // mogło poczekać na odpowiedź workera przed `destroy()` (NEXUS-FE-7M).
+      const getPage = pdfDocument.getPage.bind(pdfDocument);
+      pdfDocument.getPage = (pageNumber: number) => {
+        const promise = getPage(pageNumber);
+        pendingPages.add(promise);
+        const settle = () => pendingPages.delete(promise);
+        promise.then(settle, settle);
+        return promise;
+      };
+
       pdfViewer.setDocument(pdfDocument);
       linkService.setDocument(pdfDocument);
       internalsRef.current = internals;
@@ -354,7 +369,17 @@ export function PdfDocumentViewer({
       resizeObserver?.disconnect();
       abort.abort();
       pdfViewer?.setDocument(null as never);
-      void loadingTask?.destroy();
+      // Zapytania `GetPage` w locie muszą dostać odpowiedź przed `destroy()` —
+      // inaczej pdf.js odrzuca je „Transport destroyed” (NEXUS-FE-7M). Bez
+      // dokumentu (wczytywanie trwa) zbiór jest pusty i niszczymy od razu.
+      const task = loadingTask;
+      void Promise.allSettled([...pendingPages])
+        .then(() => task?.destroy())
+        .catch((error: unknown) => {
+          Sentry.captureException(error, {
+            tags: { component: "PdfDocumentViewer", phase: "pdf-viewer-cleanup" },
+          });
+        });
     };
   }, [file]);
 
