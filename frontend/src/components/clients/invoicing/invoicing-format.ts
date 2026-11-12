@@ -154,9 +154,7 @@ export function rowStatusNote(row: BillingRow): string | null {
 export function paymentText(invoice: SalesInvoice): string {
   if (invoice.overdue_days > 0) {
     const days = countPl(invoice.overdue_days, "dzień", "dni", "dni");
-    return invoice.payment_status === "partial"
-      ? `po terminie ${days} · zapłacono część`
-      : `po terminie ${days}`;
+    return `po terminie ${days}`;
   }
   switch (invoice.payment_status as PaymentStatus) {
     case "paid":
@@ -164,12 +162,22 @@ export function paymentText(invoice: SalesInvoice): string {
     case "overpaid":
       return "nadpłata — sprawdź";
     case "partial":
-      return `zapłacono część · zostało ${formatMoney(invoice.to_pay, invoice.currency)}`;
+      return "zapłacono część";
     case "none":
       return "—";
     default:
       return invoice.due_date ? `termin ${formatDayMonthPl(invoice.due_date)}` : "bez terminu";
   }
+}
+
+/**
+ * Szczegół zapłaty pod etykietą (drobny druk, zawija się). Etykieta przy kropce
+ * jest krótka, bo kolumna „Zapłata” ma przy 1280 px ok. 170 px.
+ */
+export function paymentNote(invoice: SalesInvoice): string | null {
+  if (invoice.payment_status !== "partial") return null;
+  const left = `zostało ${formatMoney(invoice.to_pay, invoice.currency)}`;
+  return invoice.overdue_days > 0 ? `zapłacono część · ${left}` : left;
 }
 
 export function paymentTone(invoice: SalesInvoice): StatusDotTone {

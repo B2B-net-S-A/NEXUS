@@ -218,7 +218,7 @@ test("ekran 6: lista — przed sprawdzeniem tylko przycisk, po sprawdzeniu liczn
   applyBatch(state.list, read, { items: [{ index: 0, status: "new", score: null }, { index: 1, status: "off_limits", label: "Off-limits · Klient Testowy", score: null }] });
   const node = renderList(makeCtx(state));
   t = text(node);
-  for (const s of ["Nowi: 1", "W procesie: 0", "W bazie: 0", "Off-limits: 1", "Dodaj zaznaczone (1)", "Off-limits · Klient Testowy"]) assert.ok(t.includes(s), s);
+  for (const s of ["Z 2 osób do przejrzenia 1.", "off-limits 1", "Do przejrzenia (1)", "Wszyscy (2)", "Dodaj zaznaczone (1)", "Off-limits · Klient Testowy"]) assert.ok(t.includes(s), s);
   assert.ok(!t.includes("%"), "lista bez procentów");
   const boxes = node.querySelectorAll(".results input[type=checkbox]");
   assert.equal(boxes[0].checked, true);

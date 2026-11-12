@@ -145,6 +145,47 @@ i ułamki opisu, dlatego opis bierzemy z tekstu strony, gdy jest dłuższy. Zain
 panelu nie da się prowadzić z narzędzi: `chrome://` i `chrome-extension://` są dla nich
 zablokowane, więc pełną ścieżkę na prawdziwym LinkedInie przechodzi człowiek.
 
+## Recruiter Lite (decyzja Artura 12.11.2026, wersja 1.0.8)
+
+Zespół przechodzi z pełnego Recruitera na Recruiter Lite: 30 InMaili miesięcznie
+(zamiast 150), sieć do 3. stopnia, bez spotlightów, bez wspólnych projektów
+i raportów InMaili, bez integracji z ATS. Makiety i decyzje:
+https://claude.ai/artifact/DUYzKcQfyWPyRn9BRusoy1. Artur wybrał L0–L4, **bez
+Grok Bota** (mapa firm, haczyk do wiadomości i ruchy na rynku odłożone).
+
+- **„Zanim wydasz InMail”** (zakładka Wiadomość, tylko przy rodzaju InMail):
+  licznik `inmail` z `/me` (moje kontakty z kanałem InMail z wtyczki w miesiącu
+  kalendarza firmy, `LINKEDIN_INMAIL_MONTHLY_CREDITS` = 30) i punkty z
+  `outreach`: telefon w NEXUSIE (tylko „jest”, numeru panel nie dostaje),
+  1. / 2. stopień (zwykła wiadomość / zaproszenie zamiast InMaila), mój InMail
+  czekający na odpowiedź, kontakt kolegi w 30 dni. **Licznik to zapisy w NEXUSIE,
+  nie saldo konta LinkedIna** — salda nie czytamy.
+- **Odpowiedź jednym kliknięciem** na karcie osoby przy moim InMailu z ostatnich
+  90 dni: notatka „próba kontaktu” ze śladem
+  `linkedin_extension:reply:<outcome>:<id kontaktu>` i zamknięcie moich
+  przypomnień „Odezwij się … (LinkedIn)”. Odpowiedź do 90 dni oddaje kredyt
+  InMail, panel pokazuje termin. **Skrzynki Recruitera nadal nie czytamy**
+  (decyzja z 02.11) — odpowiedź zaznacza rekruter.
+- **Lista „do przejrzenia”** = nowe osoby i „w bazie” bez kontaktu zespołu w 30
+  dni; reszta pod przełącznikiem. W wierszach telefon w NEXUSIE, ostatni kontakt
+  zespołu i stopień kontaktu. Zastępuje spotlighty i wspólne projekty, których
+  Lite nie ma. Przełączenie na „do przejrzenia” odznacza ukryte osoby.
+- **Wyszukiwanie do Recruitera** na stronie wyszukiwania przy rekrutacji z paska
+  (nie w liście projektu): słowa kluczowe z tytułu i umiejętności „must” (bez
+  modelu AI), stanowiska, lokalizacje i firmy off-limits do filtra „wyklucz
+  obecną firmę”. Rekruter wkleja je sam; wtyczka nic nie wpisuje na LinkedInie.
+  Po sprawdzeniu listy blok się zwija (laptop 1280 × 720).
+- **Stopień kontaktu** czytniki biorą z „· 2nd” / „• 3rd+” w karcie górnej
+  i w wierszu wyników (`degreeFromTexts`). Pole `degree` jedzie w profilu, ale
+  backend go nie zapisuje.
+
+Niezmierzone: **Lite nie był mierzony na żywo.** 12.11 w Chrome Artura była tylko
+umowa pełnego Recruitera („B2B.net S.A.-Recruiter”), a wybór umowy od razu wracał
+na stronę główną. Czytniki znają adresy `/talent/...` pełnego Recruitera; czy Lite
+ma te same adresy i układ, sprawdza pierwsza osoba z licencją Lite (pomiar jak
+03.11: kod czytników w zalogowanej karcie). Do sprawdzenia przy tym samym
+pomiarze: czy filtr firmy w Lite ma wykluczanie.
+
 ## Dystrybucja: ZIP z NEXUSA i Web Store (29.10.2026)
 
 Prośba Artura z 29.10: wtyczka ma działać u zespołu także wtedy, gdy Google nie

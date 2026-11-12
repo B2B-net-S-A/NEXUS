@@ -22,6 +22,7 @@ test("karta górna: imię z h2, nagłówek po zaimkach i „· 2nd”, miasto pr
     headline: "Senior Java Developer · Spring | Kotlin",
     location: "Kraków, Małopolskie, Poland",
     companyAfterContact: "Fikcyjna Software",
+    degree: 2,
   });
 });
 

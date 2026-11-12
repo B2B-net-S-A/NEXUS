@@ -986,6 +986,9 @@ class Settings(BaseSettings):
     LINKEDIN_EXTENSION_ENABLED: bool = True
     LINKEDIN_EXTENSION_TTL_DAYS: int = 180
     LINKEDIN_EXTENSION_DAILY_READ_LIMIT: int = 150
+    # Kredyty InMail na miesiąc w licencji Recruiter Lite (wtyczka 1.0.8):
+    # panel pokazuje „wysłane / kredyty” z notatek NEXUSA, nie saldo LinkedIna.
+    LINKEDIN_INMAIL_MONTHLY_CREDITS: int = 30
     # Id wtyczki z Chrome Web Store (niepubliczna) i id wersji deweloperskich,
     # po przecinku. Strona „Połącz wtyczkę” przekazuje klucz tylko do nich.
     LINKEDIN_EXTENSION_IDS: str = ""

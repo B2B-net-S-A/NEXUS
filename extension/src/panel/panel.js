@@ -9,6 +9,7 @@ import { detectPage, PAGE_KINDS } from "../readers/index.js";
 import { workContext } from "../readers/kinds.js";
 import { clearConnection, getActiveJob, getConnection, getServerId, onConnectionChanged, setActiveJob, setServerId } from "../storage.js";
 import { applyActiveJobChange, chooseScreen, firstName, initialsOf, SCREENS, screenForError, updateNotice, usageLabel, withLocalContact, withLocalProcess } from "../view/logic.js";
+import { inmailUsageLabel } from "../view/outreach.js";
 import { apiErrorText } from "./errors.js";
 import { initialAddState, renderAdd } from "./screen-add.js";
 import { applyBatch, initialListState, renderList } from "./screen-list.js";
@@ -83,7 +84,32 @@ const ctx = {
   onWrite: () => cache.delete(state.page?.key),
   addLocalContact: (channel, note) => {
     state.lookup = withLocalContact(state.lookup, { channel, note, userName: state.me?.user?.name });
+    if (channel === "inmail" && state.me?.inmail) {
+      state.me = { ...state.me, inmail: { ...state.me.inmail, sent_month: (state.me.inmail.sent_month ?? 0) + 1 } };
+    }
     render();
+  },
+  // Odpowiedź zapisana: pytanie znika, licznik odpowiedzi rośnie bez nowego odczytu.
+  applyReply: (outcome) => {
+    if (state.lookup?.outreach) state.lookup = { ...state.lookup, outreach: { ...state.lookup.outreach, open_inmail: null } };
+    if (outcome !== "no_reply" && state.me?.inmail) {
+      state.me = { ...state.me, inmail: { ...state.me.inmail, replied_month: (state.me.inmail.replied_month ?? 0) + 1 } };
+    }
+    cache.delete(state.page?.key);
+    render();
+  },
+  // Zestaw do filtrów Recruitera per rekrutacja; pobierany raz, bez licznika odczytów.
+  searchKit: (jobId) => {
+    const kits = (state.searchKits ||= {});
+    if (!kits[jobId]) {
+      kits[jobId] = { busy: true, data: null, error: null };
+      api
+        .searchKit(jobId)
+        .then((data) => (kits[jobId] = { busy: false, data, error: null }))
+        .catch((err) => (kits[jobId] = { busy: false, data: null, error: err?.name === "ApiError" ? apiErrorText(err) : "Nie udało się pobrać wyszukiwania." }))
+        .finally(() => render());
+    }
+    return kits[jobId];
   },
   addLocalProcess: (job) => {
     state.lookup = withLocalProcess(state.lookup, job);
@@ -237,6 +263,7 @@ function renderHeader() {
     menu.append(
       state.me?.user?.name ? h("p", { class: "menu__who" }, state.me.user.name) : null,
       usage ? h("p", { class: "menu__usage" }, usage) : null,
+      inmailUsageLabel(state.me?.inmail) ? h("p", { class: "menu__usage" }, inmailUsageLabel(state.me.inmail)) : null,
       h("div", { class: "menu__row" }, h("span", { class: "muted" }, "Serwer:"), linkButton(SERVERS[state.serverId].label, ctx.openSettings)),
       h("div", { class: "menu__row" }, linkButton("Odłącz", disconnect, "link--danger")),
     );

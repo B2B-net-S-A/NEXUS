@@ -309,3 +309,28 @@ button, input, select, textarea { font: inherit; color: inherit; }
   clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; margin: -1px;
 }
 .screen > .card { scroll-margin-bottom: 120px; }
+
+/* ── Recruiter Lite: InMaile, lista, wyszukiwanie (1.0.8) ─────────────────── */
+.meter { height: 6px; border-radius: 3px; background: hsl(220 16% 92%); overflow: hidden; margin: 4px 0 2px; }
+.meter > span { display: block; height: 100%; background: var(--accent); }
+.advisor__hint { margin: 0 0 8px; }
+.section .advisor__hint { margin-top: 0; }
+.advisor__actions { margin-top: 8px; }
+.check { display: grid; grid-template-columns: 16px 1fr; gap: 6px; padding: 3px 0; align-items: start; }
+.check__icon { font-weight: 700; }
+.check--ok .check__icon { color: var(--success-fg); }
+.check--warn .check__icon { color: var(--warning-fg); }
+.code {
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: hsl(220 16% 95%); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 0;
+}
+.kit { display: flex; flex-direction: column; gap: 8px; }
+.kit__field { display: flex; flex-direction: column; gap: 4px; }
+.kit__row { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.kit__row > :first-child { min-width: 0; }
+.chip--x { background: var(--error-bg); color: var(--error-fg); }
+.kit__summary { cursor: pointer; margin: 0; }
+details[open] > .kit__summary { margin-bottom: 8px; }
+.result__extra { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; }
+.triage { display: flex; flex-direction: column; gap: 6px; }
+.triage p { margin: 0; }

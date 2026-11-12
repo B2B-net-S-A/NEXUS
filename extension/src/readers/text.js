@@ -15,7 +15,7 @@ import {
   SECTION_HEADINGS,
   UNKNOWN_MEMBER,
 } from "./selectors.js";
-import { clean, publicUrlFromSlug, slugContradictsName, slugFromHref } from "./dom.js";
+import { clean, degreeFromTexts, publicUrlFromSlug, slugContradictsName, slugFromHref } from "./dom.js";
 import { isDateLine, isDurationLine, parseDateRange } from "./dates.js";
 import { companyFromLine } from "./experience.js";
 import { missingFields, splitTitleCompany } from "./profile.js";
@@ -192,7 +192,8 @@ export function parseTopCard(snapshot) {
   const guessed = ci < 0 && meaningful[1] && /,/.test(meaningful[1]) && !/\s(at|@|w)\s/.test(meaningful[1]) ? meaningful[1] : "";
   const location = ci >= 0 && meaningful.length > 1 ? meaningful[meaningful.length - 1] : guessed;
   const companyAfterContact = ci >= 0 ? after.slice(ci + 1).find((l) => !isNoiseLine(l)) || "" : "";
-  return { name: name || (i < 0 ? "" : name), headline, location, companyAfterContact };
+  const degree = degreeFromTexts(i >= 0 ? lines.slice(i, i + 4) : lines);
+  return { name: name || (i < 0 ? "" : name), headline, location, companyAfterContact, degree };
 }
 
 // ── Profil publiczny ────────────────────────────────────────────────────────
@@ -214,6 +215,7 @@ export function readProfileText(snapshot, url) {
     experience,
     skills: readSkillsText(snapshot),
     about: readAboutText(snapshot) || null,
+    ...(top.degree ? { degree: top.degree } : {}),
   };
   return { profile, missing: missingFields(profile) };
 }
@@ -256,6 +258,7 @@ export function readRecruiterText(snapshot, url) {
     experience,
     skills: readSkillsText(snapshot),
     about: readAboutText(snapshot) || null,
+    ...(top.degree ? { degree: top.degree } : {}),
   };
   return { profile, missing: missingFields(profile) };
 }
@@ -286,6 +289,8 @@ export function parseListItem(item) {
     current_company: fromCurrent.company || fromHeadline.company || null,
     location: location || null,
   };
+  const degree = degreeFromTexts(lines.slice(0, 3));
+  if (degree) person.degree = degree;
   person.missing = ["headline", "current_company"].filter((f) => !person[f]);
   return person;
 }
