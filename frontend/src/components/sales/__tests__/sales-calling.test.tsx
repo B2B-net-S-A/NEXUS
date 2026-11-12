@@ -342,6 +342,27 @@ describe("kolejka", () => {
     expect(screen.getByText("Otwarcie: jedno zdanie o usłudze.")).toBeInTheDocument();
   });
 
+  it("pokazuje haczyk od bota pod firmą, przed historią rozmów", () => {
+    briefing.mockReturnValue({
+      isSuccess: true,
+      data: {
+        enabled: true,
+        briefing: null,
+        call_hook: {
+          sentence: "Widziałem, że automatyzujecie obsługę faktur.",
+          facts: [{ text: "Firma wdrożyła robota do faktur", url: "https://example.com/rpa", published: "2026-10-14" }],
+          generated_at: "2026-11-09T15:00:00Z",
+        },
+      },
+    });
+    render(<CallQueueView />);
+    const hook = screen.getByRole("region", { name: "Haczyk do rozmowy" });
+    expect(within(hook).getByText("Widziałem, że automatyzujecie obsługę faktur.")).toBeInTheDocument();
+    expect(within(hook).getByRole("link", { name: /źródło/ })).toHaveAttribute("href", "https://example.com/rpa");
+    const history = screen.getByRole("heading", { name: "Co już było" });
+    expect(hook.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("awaria nie wygląda jak pusta kolejka, a pusta mówi, skąd wezmą się rekordy", () => {
     queue.mockReturnValue({ data: undefined, isLoading: false, error: { response: { status: 500 } }, isSuccess: false });
     const { unmount } = render(<CallQueueView />);

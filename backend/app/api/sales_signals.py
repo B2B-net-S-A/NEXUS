@@ -2,6 +2,8 @@
 
 Prefiks ``/api/sales/signals``, „Sprzedaż: podgląd”. Z wyłączoną flagą
 ``SALES_SIGNALS_ENABLED`` odpowiedzi mówią ``enabled: false`` i ekran nic nie pokazuje.
+Haczyk przed telefonem (``call_hook``) dochodzi do punktów firmy tylko przy włączonym
+``SALES_BOT_TASKS_ENABLED``.
 """
 
 from __future__ import annotations
@@ -17,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.sales_gates import SalesViewUser
 from app.core.database import get_db
 from app.models.sales import SalesCompanyBriefing, SalesSignalRun
-from app.services.sales import signals
+from app.services.sales import bot_tasks, signals
+from app.services.sales.bot_tasks import call_hook
 
 router = APIRouter()
 
@@ -45,9 +48,17 @@ class BriefingOut(BaseModel):
     generated_at: datetime
 
 
+class CallHookOut(BaseModel):
+    sentence: str
+    facts: list[dict[str, Any]]
+    generated_at: datetime
+
+
 class CompanyBriefingOut(BaseModel):
     enabled: bool
     briefing: Optional[BriefingOut]
+    #: Haczyk do telefonu z kolejki dzwonienia; ``None`` bez haczyka albo bez flagi.
+    call_hook: Optional[CallHookOut] = None
 
 
 @router.get("/latest-run", response_model=LatestRunOut)
@@ -93,11 +104,19 @@ async def company_briefing(
     if not signals.enabled():
         return CompanyBriefingOut(enabled=False, briefing=None)
     row = await db.get(SalesCompanyBriefing, company_id)
+    hook = await call_hook.latest(db, company_id) if bot_tasks.enabled() else None
     return CompanyBriefingOut(
         enabled=True,
         briefing=None
         if row is None
         else BriefingOut(
             mode=row.mode, points=list(row.points or []), generated_at=row.generated_at
+        ),
+        call_hook=None
+        if hook is None
+        else CallHookOut(
+            sentence=str(hook.payload.get("sentence") or ""),
+            facts=list(hook.payload.get("facts") or []),
+            generated_at=hook.updated_at,
         ),
     )

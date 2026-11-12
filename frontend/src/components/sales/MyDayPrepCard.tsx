@@ -14,6 +14,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { CreateOpportunityFromMeetingDialog } from "./CreateOpportunityFromMeetingDialog";
 import { daysLabel } from "./format";
 import { clock, historyHeadline, meetingSpan, telHref } from "./my-day";
+import { TalkingPoints } from "./signals/TalkingPoints";
 
 const PEOPLE_PREVIEW = 3;
 
@@ -119,7 +120,7 @@ export function WhoWeKnow({ companyId, companyName }: { companyId: number; compa
   );
 }
 
-/** Przygotowanie do najbliższego spotkania: kto, ostatni kontakt, czy jest szansa. */
+/** Przygotowanie do najbliższego spotkania: kto, ostatni kontakt, punkty z bota, czy jest szansa. */
 export function MyDayPrepCard({ prep, canEdit }: { prep: MyDayPrep; canEdit: boolean }) {
   const [creating, setCreating] = useState(false);
   const [last, previous] = prep.history;
@@ -142,6 +143,11 @@ export function MyDayPrepCard({ prep, canEdit }: { prep: MyDayPrep; canEdit: boo
           {previous && <HistoryFact label="Wcześniej" entry={previous} companyName={prep.company.name} />}
         </dl>
       )}
+      {/* Teczka z bota: punkty przygotowane dzień roboczy przed spotkaniem. Bez punktów
+          kontener jest pusty i znika, żeby nie zostawiać odstępu w karcie. */}
+      <div data-tour="sales.my-day.prep-points" className="empty:hidden">
+        <TalkingPoints companyId={prep.company.id} className="border-t border-border pt-3" />
+      </div>
       {prep.can_create_opportunity && canEdit && (
         <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
           <div className="min-w-0 leading-tight">

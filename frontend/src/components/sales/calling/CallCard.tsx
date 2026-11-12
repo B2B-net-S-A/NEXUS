@@ -27,6 +27,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { telHref } from "../my-day";
 import { BookMeetingDialog } from "../handoff/BookMeetingForm";
 import { TalkingPoints } from "../signals/TalkingPoints";
+import { CallHook } from "./CallHook";
 import {
   DATE_PRESETS,
   isDated,
@@ -382,7 +383,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
   );
 }
 
-/** Karta wybranej pozycji: kto, co już było, skrypt, punkty z researchu i wynik jednym kliknięciem. */
+/** Karta wybranej pozycji: kto, haczyk z bota, co już było, skrypt, punkty z researchu i wynik jednym kliknięciem. */
 export function CallCard(props: CallCardProps) {
   const { item, position } = props;
   const query = useCallCard(item);
@@ -412,6 +413,7 @@ export function CallCard(props: CallCardProps) {
           {card?.email && ` · ${card.email}`}
         </p>
       </div>
+      <CallHook companyId={item.company.id} />
       <div className="flex flex-wrap items-center gap-2">
         {card?.do_not_contact ? (
           <Badge variant="danger">Nie kontaktować</Badge>

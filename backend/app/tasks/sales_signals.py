@@ -4,6 +4,9 @@ Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
 przed krokiem). Wyłącznik ``SALES_SIGNALS_ENABLED``, bez adresu bota pętla stoi.
+Z ``SALES_BOT_TASKS_ENABLED`` w dzień roboczy od 16:00 jeszcze haczyk przed
+telefonem i teczka przed spotkaniem na następny dzień roboczy
+(``services/sales/hook_prep_targets.py``).
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -17,11 +20,15 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import local_now
+from app.core.scheduling import is_business_day, local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
+from app.services.sales import bot_tasks
+from app.services.sales import hook_prep_targets as hook_prep
 from app.services.sales import signal_targets as targets
 from app.services.sales import signals
+from app.services.sales.bot_tasks.call_hook import CALL_HOOK
+from app.services.sales.bot_tasks.signals_briefing import MEETING_PREP
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +90,55 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
             run = await signals.start_run(db, "briefing", ids, now=now, modes=modes)
             if _started(run):
                 done["briefing"] = len(ids)
+    done.update(await hooks_and_prep(db, now=now, local=local))
+    return done
+
+
+async def hooks_and_prep(
+    db: AsyncSession, *, now: datetime, local: datetime
+) -> dict[str, int]:
+    """Dzień roboczy od 16:00: haczyki i teczki na następny dzień roboczy, raz dziennie."""
+
+    done = {CALL_HOOK: 0, MEETING_PREP: 0}
+    if (
+        not bot_tasks.enabled()
+        or not is_business_day(local)
+        or local.hour < hook_prep.START_HOUR
+    ):
+        return done
+    since = local.replace(
+        hour=hook_prep.START_HOUR, minute=0, second=0, microsecond=0
+    ).astimezone(timezone.utc)
+    runs = await hook_prep.runs_since(db, since)
+    today = local.date()
+
+    if not hook_prep.opened_today(runs, CALL_HOOK, now=now):
+        ids = await hook_prep.hook_company_ids(db, now=now, today=today)
+        if ids:
+            run = await signals.start_run(
+                db, "briefing", ids, now=now, modes={cid: CALL_HOOK for cid in ids}
+            )
+            if _started(run):
+                done[CALL_HOOK] = len(ids)
+
+    if not hook_prep.opened_today(runs, MEETING_PREP, now=now):
+        ids = await hook_prep.prep_company_ids(db, now=now, today=today)
+        if ids:
+            talked = await targets.modes_for(db, ids, now=now)
+            run = await signals.start_run(
+                db,
+                "briefing",
+                ids,
+                now=now,
+                modes={cid: MEETING_PREP for cid in ids},
+                request={
+                    "first_meeting": sorted(
+                        cid for cid, mode in talked.items() if mode == "first_call"
+                    )
+                },
+            )
+            if _started(run):
+                done[MEETING_PREP] = len(ids)
     return done
 
 
@@ -103,10 +159,13 @@ async def sales_signals_loop() -> None:
                 done = await tick(db, now=datetime.now(timezone.utc), local=local_now())
             if any(done.values()):
                 logger.info(
-                    "sales_signals tick expired=%d signals=%d briefing=%d",
+                    "sales_signals tick expired=%d signals=%d briefing=%d "
+                    "call_hook=%d meeting_prep=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
+                    done[CALL_HOOK],
+                    done[MEETING_PREP],
                 )
         except asyncio.CancelledError:
             raise

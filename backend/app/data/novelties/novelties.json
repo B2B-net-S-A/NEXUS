@@ -2437,5 +2437,39 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "sprzedaz-haczyk-przed-telefonem",
+    "pr": 0,
+    "title": "Dzwonienie: haczyk na otwarcie rozmowy",
+    "why": "Pod nazwą firmy bot podsuwa jedno zdanie na otwarcie i do dwóch faktów o firmie z linkiem do źródła. Przygotowuje je dzień roboczy wcześniej. Zanim nawiążesz, sprawdź źródło.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → karta rozmowy",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.hook",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-teczka-przed-spotkaniem",
+    "pr": 0,
+    "title": "Mój dzień: punkty od bota przed spotkaniem",
+    "why": "Dzień roboczy przed spotkaniem bot przygotowuje do czterech punktów o firmie, ze źródłami. Widzisz je w przygotowaniu do spotkania i na karcie przekazanego spotkania.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Mój dzień → Przygotowanie do spotkania",
+    "href": "/sales/my-day",
+    "dot_anchor": "sales.my-day.prep-points",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
   }
 ]

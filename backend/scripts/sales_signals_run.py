@@ -14,6 +14,7 @@ Uruchomienie (z ``backend/``)::
 
     python -m scripts.sales_signals_run --kind signals --company-ids 12,34,56
     python -m scripts.sales_signals_run --kind briefing --company-ids 12
+    python -m scripts.sales_signals_run --kind briefing --mode call_hook --company-ids 12
     python -m scripts.sales_signals_run --kind <rodzaj> --request '{"pole": 1}'
 
 Wynik to same liczby i identyfikatory (logi są publiczne).
@@ -53,8 +54,15 @@ def _request(value: str) -> dict[str, object]:
     return data
 
 
+#: Tryby punktów z 0684 do próby przed włączeniem ``SALES_BOT_TASKS_ENABLED``.
+TRIAL_MODES = ("call_hook", "meeting_prep")
+
+
 async def run(
-    kind: str, company_ids: list[int], request: Optional[dict[str, object]] = None
+    kind: str,
+    company_ids: list[int],
+    request: Optional[dict[str, object]] = None,
+    mode: Optional[str] = None,
 ) -> dict[str, object]:
     try:
         async with AsyncSessionLocal() as db:
@@ -64,6 +72,15 @@ async def run(
                 if kind == "briefing"
                 else None
             )
+            if modes is not None and mode is not None:
+                # Teczka mówi botowi, z kim to pierwsze spotkanie (jak pętla o 16:00).
+                if mode == "meeting_prep" and request is None:
+                    request = {
+                        "first_meeting": sorted(
+                            cid for cid, m in modes.items() if m == "first_call"
+                        )
+                    }
+                modes = {cid: mode for cid in modes}
             started = await signals.start_run(
                 db, kind, company_ids, now=now, modes=modes, request=request
             )
@@ -90,7 +107,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--kind", choices=sorted(bot_tasks.REGISTRY), default="signals")
     parser.add_argument("--company-ids", type=_ids, default=[])
     parser.add_argument("--request", type=_request, default=None)
+    parser.add_argument("--mode", choices=TRIAL_MODES, default=None)
     args = parser.parse_args(argv)
+    if args.mode and args.kind != "briefing":
+        parser.error("--mode tylko z --kind briefing.")
     task = bot_tasks.REGISTRY[args.kind]
     if task.needs_firms and not args.company_ids:
         parser.error(f"Rodzaj {args.kind} wymaga --company-ids.")
@@ -102,7 +122,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not signals.configured():
         print("Brak GROK_BOT_WEBHOOK_URL albo GROK_BOT_WEBHOOK_KEY.", file=sys.stderr)
         return 2
-    result = asyncio.run(run(args.kind, args.company_ids, args.request))
+    result = asyncio.run(run(args.kind, args.company_ids, args.request, args.mode))
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result.get("status") == "started" else 1
 

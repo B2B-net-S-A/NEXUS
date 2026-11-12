@@ -1710,13 +1710,22 @@ export interface TalkingPoint {
   published: string | null;
 }
 
+/** Haczyk przed telefonem z bota: zdanie otwarcia i do dwóch faktów ze źródłem. */
+export interface CallHook {
+  sentence: string;
+  facts: { text: string; url: string; published: string }[];
+  generated_at: string;
+}
+
 export interface CompanyBriefing {
   enabled: boolean;
   briefing: {
-    mode: "first_call" | "ongoing";
+    mode: "first_call" | "ongoing" | "meeting_prep";
     points: TalkingPoint[];
     generated_at: string;
   } | null;
+  /** Tylko przy włączonych zadaniach bota (`SALES_BOT_TASKS_ENABLED`). */
+  call_hook?: CallHook | null;
 }
 
 export function useCompanyBriefing(companyId: number | null | undefined) {

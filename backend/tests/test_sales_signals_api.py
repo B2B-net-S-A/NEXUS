@@ -222,7 +222,7 @@ async def test_sales_reads_follow_the_flag(app_client, monkeypatch) -> None:
     off = await app_client.get(
         f"/api/sales/signals/briefings/{company}", headers=_headers(viewer)
     )
-    assert off.json() == {"enabled": False, "briefing": None}
+    assert off.json() == {"enabled": False, "briefing": None, "call_hook": None}
     day = (await app_client.get("/api/sales/my-day", headers=_headers(viewer))).json()
     assert day["signals"] == []
 
