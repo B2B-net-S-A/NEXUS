@@ -5,7 +5,9 @@ startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
 przed krokiem i przy ofertach „Do decyzji”). Osobny kanał Cognism bierze firmy
 z odebranego researchu po dacie uruchomienia. W nocy od 1:00 do 6:00
-osobna flaga zadań uruchamia uzupełnianie kart firm bez domeny.
+osobna flaga zadań uruchamia uzupełnianie kart firm bez domeny, a w pierwszy
+poniedziałek miesiąca od 7:00 (albo przy pierwszym obrocie po nim) „Warto wrócić”
+i „Nowe centra IT” (``SALES_BOT_TASKS_ENABLED``).
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -35,6 +37,8 @@ BRIEFING_EVERY = timedelta(hours=1)
 RETRY_FAILED_AFTER = timedelta(hours=1)
 SIGNALS_HOUR = 7
 REFRESH_HOUR, REFRESH_MINUTE = 7, 30
+#: Rodzaje miesięczne (decyzja Artura 12.11.2026): pierwszy poniedziałek od 7:00.
+MONTHLY_KINDS: tuple[str, ...] = ("winback", "discovery")
 
 
 async def _last_start(db: AsyncSession, kind: str, *, now: datetime) -> datetime | None:
@@ -110,6 +114,39 @@ async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> 
     return 0
 
 
+def first_monday_start(local: datetime) -> datetime:
+    """Pierwszy poniedziałek miesiąca chwili ``local``, godz. 7:00 czasu firmy."""
+
+    first = local.replace(day=1, hour=SIGNALS_HOUR, minute=0, second=0, microsecond=0)
+    return first + timedelta(days=(7 - first.weekday()) % 7)
+
+
+async def _monthly_ids(db: AsyncSession, kind: str, *, now: datetime) -> list[int]:
+    if kind == "winback":
+        return await targets.winback_company_ids(db, now=now)
+    return []
+
+
+async def _monthly_runs(
+    db: AsyncSession, *, now: datetime, local: datetime, done: dict[str, int]
+) -> None:
+    """„Warto wrócić” i „Nowe centra IT”: raz w miesiącu, tylko przy flagze zadań."""
+
+    due = first_monday_start(local)
+    if not bot_tasks.enabled() or local < due:
+        return
+    for kind in MONTHLY_KINDS:
+        last = await _last_start(db, kind, now=now)
+        if last is not None and last >= due.astimezone(timezone.utc):
+            continue
+        ids = await _monthly_ids(db, kind, now=now)
+        if bot_tasks.REGISTRY[kind].needs_firms and not ids:
+            continue
+        if _started(await signals.start_run(db, kind, ids, now=now)):
+            # Bieg bez listy firm liczy się jako jeden.
+            done[kind] = len(ids) or 1
+
+
 async def _legacy_tick(
     db: AsyncSession, *, now: datetime, local: datetime, done: dict[str, int]
 ) -> None:
@@ -152,9 +189,11 @@ async def tick(
         "briefing": 0,
         "people": 0,
         "enrich": 0,
+        **{kind: 0 for kind in MONTHLY_KINDS},
     }
     if bot_tasks_ready:
         done["enrich"] = await _night_enrich(db, now=now, local=local)
+        await _monthly_runs(db, now=now, local=local, done=done)
     if legacy_ready is None:
         legacy_ready = signals.enabled()
     if legacy_ready:
@@ -194,12 +233,14 @@ async def sales_signals_loop() -> None:
             if any(done.values()):
                 logger.info(
                     "sales_signals tick expired=%d signals=%d briefing=%d "
-                    "enrich=%d people=%d",
+                    "enrich=%d people=%d winback=%d discovery=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
                     done["enrich"],
                     done["people"],
+                    done["winback"],
+                    done["discovery"],
                 )
         except asyncio.CancelledError:
             raise

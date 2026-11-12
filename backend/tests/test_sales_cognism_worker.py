@@ -136,6 +136,9 @@ async def test_worker_runs_independent_cognism_only_when_no_active_run(monkeypat
         "briefing": 0,
         "enrich": 0,
         "people": 2,
+        # Biegi miesięczne (G-E, G-D) to krok zadań bota: tu wyłączony.
+        "winback": 0,
+        "discovery": 0,
     }
     assert order == ["expire", "lock", "active", "choose", "start"]
     order.clear()

@@ -14,17 +14,26 @@ Rodzaj punktów: ``ongoing``, gdy z firmą była już rozmowa albo spotkanie alb
 firma ma ofertę „Do decyzji”, inaczej ``first_call``. Firma z biegu z ostatnich
 24 godzin nie wraca od razu, żeby firma, o której bot nic nie napisał, nie szła
 do niego co godzinę.
+
+* **„Warto wrócić” (``winback``), raz w miesiącu:** firma z szansą przegraną
+  w ostatnich 14 miesiącach z powodem „wróć później” (``WINBACK_LOST_REASONS``),
+  karta poza archiwum, bez otwartej szansy i bez powiązania z klientem NEXUSA
+  (``client_gate``), najwyżej ``MAX_WINBACK_FIRMS`` firm od najświeższej przegranej.
+  Kopia z 10.11.2026: 31 takich przegranych w 29 firmach.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Iterable
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from typing import Iterable, Optional
 
-from sqlalchemy import and_, exists, or_, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
+from app.core.scheduling import business_date, local_day_start_utc
 from app.models.sales import (
     SalesActivity,
     SalesBotResult,
@@ -47,6 +56,16 @@ RESEND_AFTER = timedelta(hours=24)
 MAX_BRIEFING_FIRMS = 25
 MAX_REFRESH_FIRMS = 100
 MAX_PILOT_FIRMS = 100
+MAX_WINBACK_FIRMS = 50
+WINBACK_MONTHS = 14
+#: Powody przegranej, po których warto wrócić (decyzja Artura 12.11.2026);
+#: porównanie dokładne (bez spacji na brzegach), jak w ``lost_reason`` z Atlasa.
+WINBACK_LOST_REASONS: tuple[str, ...] = (
+    "Klient zrezygnował z projektu",
+    "Projekt na bliżej nieokreśloną przyszłość",
+    "Cena za wysoka",
+    "Brak kontaktu z klientem",
+)
 
 
 async def pilot_company_ids(db: AsyncSession) -> list[int]:
@@ -237,6 +256,109 @@ def pick(candidates: Iterable[int], *, skip: set[int], limit: int) -> list[int]:
         if len(chosen) >= limit:
             break
     return chosen
+
+
+# ── „Warto wrócić”: przegrane szanse z powodem „wróć później” ───────────
+
+
+@dataclass(frozen=True)
+class LostDeal:
+    """Najświeższa przegrana szansa firmy, która kwalifikuje firmę do powrotu."""
+
+    opportunity_id: int
+    company_id: int
+    title: str
+    lost_reason: str
+    lost_at: datetime
+    owner_user_id: Optional[int]
+
+
+def months_before(day: date, months: int) -> date:
+    """Ten sam dzień ``months`` miesięcy wcześniej (31.03 − 1 miesiąc = 28/29.02)."""
+
+    index = day.year * 12 + day.month - 1 - months
+    year, month = divmod(index, 12)
+    month += 1
+    for candidate in range(day.day, 27, -1):
+        try:
+            return date(year, month, candidate)
+        except ValueError:
+            continue
+    return date(year, month, min(day.day, 28))
+
+
+async def winback_deals(
+    db: AsyncSession,
+    *,
+    now: datetime,
+    company_ids: Optional[Iterable[int]] = None,
+) -> dict[int, LostDeal]:
+    """Firmy do „Warto wrócić”: id firmy → najświeższa kwalifikująca przegrana.
+
+    Kolejność słownika to kolejność biegu: od najświeższej przegranej. Klient
+    NEXUSA odpada, bo popyt u klienta prowadzi jego Delivery Lead.
+    """
+
+    since = local_day_start_utc(months_before(business_date(now), WINBACK_MONTHS))
+    other = aliased(SalesOpportunity)
+    has_live = (
+        select(other.id)
+        .where(
+            other.company_id == SalesOpportunity.company_id,
+            other.status == "open",
+            other.archived_at.is_(None),
+        )
+        .exists()
+    )
+    query = (
+        select(SalesOpportunity, SalesCompany)
+        .join(SalesCompany, SalesCompany.id == SalesOpportunity.company_id)
+        .where(
+            SalesOpportunity.status == "lost",
+            SalesOpportunity.lost_at >= since,
+            SalesOpportunity.lost_at <= now,
+            func.btrim(SalesOpportunity.lost_reason).in_(WINBACK_LOST_REASONS),
+            SalesCompany.archived_at.is_(None),
+            ~has_live,
+        )
+        .order_by(SalesOpportunity.lost_at.desc(), SalesOpportunity.id.desc())
+    )
+    if company_ids is not None:
+        ids = sorted(set(company_ids))
+        if not ids:
+            return {}
+        query = query.where(SalesOpportunity.company_id.in_(ids))
+    deals: dict[int, LostDeal] = {}
+    companies: dict[int, SalesCompany] = {}
+    for opp, company in (await db.execute(query)).all():
+        if company.id in deals:
+            continue
+        companies[company.id] = company
+        deals[company.id] = LostDeal(
+            opportunity_id=opp.id,
+            company_id=company.id,
+            title=opp.title,
+            lost_reason=(opp.lost_reason or "").strip(),
+            lost_at=opp.lost_at,
+            owner_user_id=opp.owner_user_id,
+        )
+    clients = await client_gate.match_companies(
+        db,
+        [
+            client_gate.CompanyIdentity(
+                company_id=cid,
+                client_id=company.client_id,
+                normalized_name=company.normalized_name,
+            )
+            for cid, company in companies.items()
+        ],
+    )
+    return {cid: deal for cid, deal in deals.items() if cid not in clients}
+
+
+async def winback_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
+    deals = await winback_deals(db, now=now)
+    return list(deals)[:MAX_WINBACK_FIRMS]
 
 
 # ── Mapy decydentów ──────────────────────────────────────────────────────
