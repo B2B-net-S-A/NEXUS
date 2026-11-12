@@ -8,11 +8,13 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useCallRecords, type QueueItem, type RecordState } from "@/lib/api/sales-calling";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
+import { useCallRecords, type CallRecordScope, type QueueItem, type RecordState } from "@/lib/api/sales-calling";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
+import { SalesSelect } from "../SalesSelect";
 import { CallCard, type MeetingStage } from "./CallCard";
 import { nextKey, STATE_TONES, stateLabel, TABLE_STATES, weekdayOf } from "./calling";
 
@@ -26,14 +28,19 @@ interface CallTableViewProps {
 /**
  * Dzwonienie → „Tabela” (decyzja Artura 11.11.2026): ta sama lista co kolejka, ale cała,
  * z filtrem po wyniku i kolorami jak w legendzie Excela. Klik w wiersz otwiera tę samą
- * kartę rozmowy z tymi samymi wynikami i klawiszami.
+ * kartę rozmowy z tymi samymi wynikami i klawiszami. „Wszyscy” (decyzja Artura 12.11.2026)
+ * pokazuje listy każdego dzwoniącego z kolumną „Kto dzwoni”; cudzy rekord otwiera się do
+ * czytania, wynik zapisuje osoba przypisana albo admin.
  */
 export function CallTableView({ today, campaignId, canEdit, meetingStage }: CallTableViewProps) {
   const [state, setState] = useState<RecordState | null>(null);
   const [search, setSearch] = useState("");
+  const [scope, setScope] = useState<CallRecordScope>("mine");
+  const [callerId, setCallerId] = useState<number | null>(null);
   const deferredSearch = useDeferredValue(search);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const query = useCallRecords({ state, campaignId, search: deferredSearch });
+  const query = useCallRecords({ state, campaignId, search: deferredSearch, scope, callerId });
+  const everyone = scope === "all";
   const items = query.data?.items ?? [];
   const selected = items.find((item) => item.key === selectedKey) ?? null;
   const upcomingKey = selected ? nextKey(items, selected.key) : null;
@@ -55,9 +62,35 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
 
   return (
     <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <SegmentedRadio
+          size="sm"
+          label="Czyje listy"
+          options={[
+            { value: "mine", label: "Moje" },
+            { value: "all", label: "Wszyscy" },
+          ]}
+          value={scope}
+          onChange={(value) => {
+            setScope(value as CallRecordScope);
+            setCallerId(null);
+            setSelectedKey(null);
+          }}
+        />
+        {everyone && (
+          <SalesSelect
+            ariaLabel="Kto dzwoni"
+            className="w-48"
+            value={callerId === null ? "" : String(callerId)}
+            onValueChange={(value) => setCallerId(value ? Number(value) : null)}
+            options={(query.data?.callers ?? []).map((caller) => ({ value: String(caller.id), label: caller.name }))}
+            anyLabel="Każdy dzwoniący"
+          />
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <div role="group" aria-label="Wynik" className="flex flex-wrap items-center gap-1.5">
-          <FilterChip active={state === null} label="Wszyscy" count={all} onClick={() => setState(null)} />
+          <FilterChip active={state === null} label="Wszystkie" count={all} onClick={() => setState(null)} />
           {TABLE_STATES.filter((key) => (counts[key] ?? 0) > 0 || state === key).map((key) => (
             <FilterChip
               key={key}
@@ -85,20 +118,35 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
         <div className="rounded-lg border border-border bg-card">
           <EmptyState
             icon={PhoneCall}
-            title={state || search ? "Nikt nie pasuje do filtra." : "Nie masz jeszcze nikogo na liście."}
+            title={
+              state || search
+                ? "Nikt nie pasuje do filtra."
+                : everyone
+                  ? "Nikt jeszcze nie ma listy do dzwonienia."
+                  : "Nie masz jeszcze nikogo na liście."
+            }
             description={
               state || search
                 ? "Zmień wynik albo wyczyść wyszukiwanie."
-                : "Osoby trafiają tu z importu listy do kampanii i z wyników kolejki."
+                : everyone
+                  ? "Listy pojawią się tu po imporcie do kampanii."
+                  : "Osoby trafiają tu z importu listy do kampanii i z wyników kolejki. Listy innych zobaczysz w „Wszyscy”."
             }
           />
         </div>
       ) : viewState !== "ready" ? (
         <QueryStateNotice state={viewState} onRetry={() => void query.refetch()} />
       ) : (
-        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
+        // „Wszyscy” ma o kolumnę więcej: bez wybranej osoby tabela bierze całą szerokość (1280 px).
+        <div className={cn("grid items-start gap-3", (selected || !everyone) && "lg:grid-cols-[minmax(0,1fr)_364px]")}>
           <div className="min-w-0 overflow-x-auto rounded-lg border border-border bg-card">
-            <RecordTable items={items} today={today} selectedKey={selected?.key ?? null} onSelect={setSelectedKey} />
+            <RecordTable
+              items={items}
+              today={today}
+              showCaller={everyone}
+              selectedKey={selected?.key ?? null}
+              onSelect={setSelectedKey}
+            />
             {query.data && query.data.total > items.length && (
               <p className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
                 Pokazano {items.length} z {query.data.total}. Zawęź filtr albo wyszukiwanie.
@@ -118,7 +166,7 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
                 onSaved={() => setSelectedKey(upcomingKey)}
               />
             </div>
-          ) : (
+          ) : everyone ? null : (
             <p className="hidden rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground lg:block">
               Kliknij osobę w tabeli: obok otworzy się karta rozmowy z wynikami (klawisze 1–7).
             </p>
@@ -157,19 +205,24 @@ function returnLabel(item: QueueItem, today: string): string {
 function RecordTable({
   items,
   today,
+  showCaller,
   selectedKey,
   onSelect,
 }: {
   items: QueueItem[];
   today: string;
+  showCaller: boolean;
   selectedKey: string | null;
   onSelect: (key: string) => void;
 }) {
+  const headers = showCaller
+    ? ["Firma", "Osoba", "Kto dzwoni", "Telefon", "Wynik", "Powrót"]
+    : ["Firma", "Osoba", "Telefon", "Wynik", "Powrót"];
   return (
     <table className="w-full text-xs">
       <thead className="border-b border-border bg-muted/40 text-muted-foreground">
         <tr>
-          {["Firma", "Osoba", "Telefon", "Wynik", "Powrót"].map((header) => (
+          {headers.map((header) => (
             <th key={header} scope="col" className="whitespace-nowrap px-2 py-1.5 text-left font-medium">
               {header}
             </th>
@@ -200,6 +253,9 @@ function RecordTable({
               <span className="block truncate text-foreground">{item.person_name ?? "—"}</span>
               {item.person_title && <span className="block truncate text-muted-foreground">{item.person_title}</span>}
             </td>
+            {showCaller && (
+              <td className="max-w-28 truncate px-2 py-1.5 text-foreground">{item.assignee?.name ?? "—"}</td>
+            )}
             <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-muted-foreground">{item.phone ?? "brak"}</td>
             <td className="px-2 py-1.5">
               <Badge variant={STATE_TONES[item.state]} size="sm" className="whitespace-nowrap">

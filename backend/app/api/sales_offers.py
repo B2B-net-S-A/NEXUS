@@ -4,6 +4,8 @@ Prefiks ``/api/sales`` (wpięte w ``app/main.py``): ``GET /offers`` za „Sprzed
 ``POST /opportunities/{id}/take-over`` za „Sprzedaż: edycja”. Zasady sekcji są w
 ``services/sales/offers.py``. „Odłóż do…” to zwykły ``PATCH`` szansy z ``keep_open_until``,
 a „Zamknij z powodem” to ``POST /opportunities/{id}/move`` na etap przegranej.
+Pozycje „Do decyzji” niosą punkty bota o firmie (``bot_points``), tylko z włączonym
+kanałem sygnałów (``SALES_SIGNALS_ENABLED``) → docs/claude/sprzedaz/sygnaly-grok-bot.md.
 """
 
 from __future__ import annotations
@@ -19,8 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser
 from app.core.database import get_db
-from app.models.sales import SalesOpportunity
-from app.services.sales import offers
+from app.models.sales import SalesCompanyBriefing, SalesOpportunity
+from app.services.sales import offers, signals
 
 router = APIRouter()
 
@@ -45,6 +47,19 @@ class OfferStepOut(BaseModel):
     overdue: bool
 
 
+class BotPointOut(BaseModel):
+    text: str
+    url: Optional[str] = None
+    published: Optional[date] = None
+
+
+class BotPointsOut(BaseModel):
+    """Punkty bota o firmie z ostatniego biegu; pusta lista = bot nic nowego nie znalazł."""
+
+    generated_at: datetime
+    points: list[BotPointOut]
+
+
 class OfferRowOut(BaseModel):
     id: int
     title: str
@@ -67,6 +82,8 @@ class OfferRowOut(BaseModel):
     section: offers.Section
     reason: Optional[offers.Reason]
     step: Optional[OfferStepOut]
+    #: Tylko w „Do decyzji” i z włączonym kanałem sygnałów; bez punktów ``None``.
+    bot_points: Optional[BotPointsOut] = None
 
 
 class SectionTotalsOut(BaseModel):
@@ -91,7 +108,33 @@ class TakeOverOut(BaseModel):
     owner: Ref
 
 
-def _row_out(row: offers.OfferRow) -> OfferRowOut:
+async def _bot_points(
+    db: AsyncSession, rows: list[offers.OfferRow]
+) -> dict[int, BotPointsOut]:
+    """Punkty bota dla firm pozycji „Do decyzji”, jednym zapytaniem."""
+
+    if not signals.enabled():
+        return {}
+    company_ids = {
+        row.opportunity.company_id for row in rows if row.section == "to_decide"
+    }
+    if not company_ids:
+        return {}
+    briefings = await db.scalars(
+        select(SalesCompanyBriefing).where(
+            SalesCompanyBriefing.company_id.in_(company_ids)
+        )
+    )
+    return {
+        briefing.company_id: BotPointsOut(
+            generated_at=briefing.generated_at,
+            points=[BotPointOut.model_validate(p) for p in briefing.points or []],
+        )
+        for briefing in briefings
+    }
+
+
+def _row_out(row: offers.OfferRow, bot_points: dict[int, BotPointsOut]) -> OfferRowOut:
     opp = row.opportunity
     return OfferRowOut(
         id=opp.id,
@@ -128,6 +171,9 @@ def _row_out(row: offers.OfferRow) -> OfferRowOut:
             if row.step is not None
             else None
         ),
+        bot_points=(
+            bot_points.get(opp.company_id) if row.section == "to_decide" else None
+        ),
     )
 
 
@@ -141,9 +187,10 @@ async def list_offers(
     result = await offers.load_offers(
         db, current_user, scope=scope, q=q, now=datetime.now(timezone.utc)
     )
+    bot_points = await _bot_points(db, result.rows)
     return OffersOut(
         scope=result.scope,
-        items=[_row_out(row) for row in result.rows],
+        items=[_row_out(row, bot_points) for row in result.rows],
         totals={
             name: ScopeTotalsOut(
                 in_progress=SectionTotalsOut(

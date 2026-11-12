@@ -190,8 +190,10 @@ export function bulkQuestion(effect: ReturnType<typeof bulkEffect>): string {
   return parts.join(" ");
 }
 
-/** Nazwa pliku jako początek pola „Skąd lista”. */
-export function sourceFromFile(fileName: string): string {
+/** Nazwa pliku jako początek pola „Skąd lista”; eksport z Cognism mówi „Cognism”. */
+export function sourceFromFile(fileName: string, origin?: string | null): string {
   const base = fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-  return base ? `Lista z researchu: ${base}`.slice(0, 255) : "";
+  const prefix = origin ?? "Lista z researchu";
+  if (!base) return origin ?? "";
+  return `${prefix}: ${base}`.slice(0, 255);
 }

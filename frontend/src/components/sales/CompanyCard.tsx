@@ -30,6 +30,7 @@ import { useAuthStore } from "@/store/auth";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { AskBotCard } from "./bot/AskBotCard";
 import { EnrichButton, EnrichCard } from "./bot/EnrichCard";
+import { CompanyCallLists } from "./calling/CompanyCallLists";
 import { CompanyCallPanel } from "./CompanyCallPanel";
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { FilesSection } from "./FilesSection";
@@ -270,6 +271,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           {calling && (
             <CompanyCallPanel company={{ id: data.id, name: data.name }} onDone={() => setCalling(false)} />
           )}
+          <CompanyCallLists companyId={companyId} />
           <SignalStrip companyId={companyId} />
           <TabbedNav
             ariaLabel="Zakładki firmy"
