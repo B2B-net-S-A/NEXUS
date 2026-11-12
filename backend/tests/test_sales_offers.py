@@ -15,18 +15,20 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select, update
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
+    SalesCompanyBriefing,
     SalesOpportunity,
     SalesOpportunityEvent,
     SalesPipeline,
     SalesPipelineStage,
 )
 from app.models.user import User
-from app.services.sales import offer_steps, offers
+from app.services.sales import offer_steps, offers, signal_targets
 from tests.test_sales_companies_api import _headers, _user
 
 OFFERS = "/api/sales/offers"
@@ -754,3 +756,81 @@ async def test_take_over_by_the_owner_changes_nothing(app_client) -> None:
     resp = await _take_over(app_client, rep, opp)
     assert resp.status_code == 200, resp.text
     assert await _owner_events(opp) == []
+
+
+# ── Punkty bota przy „Do decyzji” ────────────────────────────────────────
+
+
+async def _company_of(opportunity_id: int) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(SalesOpportunity.company_id).where(
+                SalesOpportunity.id == opportunity_id
+            )
+        )
+
+
+async def _briefing(opportunity_id: int, points: list[dict[str, Any]], **fields) -> int:
+    company_id = await _company_of(opportunity_id)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            SalesCompanyBriefing(
+                company_id=company_id, mode="ongoing", points=points, **fields
+            )
+        )
+        await db.commit()
+    return company_id
+
+
+POINT = {
+    "text": "Nowy program w banku",
+    "url": "https://e.com/a",
+    "published": "2026-11-02",
+}
+
+
+@pytest.mark.asyncio
+async def test_to_decide_rows_carry_bot_points_only_with_the_channel_on(
+    app_client, monkeypatch
+) -> None:
+    rep = await _user("sales_edit")
+    with_points = await _opportunity(rep.id, age_days=40)
+    nothing_new = await _opportunity(rep.id, age_days=40)
+    never_checked = await _opportunity(rep.id, age_days=40)
+    in_progress = await _opportunity(rep.id)
+    await _briefing(with_points, [POINT])
+    await _briefing(nothing_new, [])
+    await _briefing(in_progress, [POINT])
+
+    monkeypatch.setattr(settings, "SALES_SIGNALS_ENABLED", True)
+    body = await _listed(app_client, rep, scope="mine")
+    points = _row(body, with_points)["bot_points"]
+    assert points["points"] == [POINT]
+    assert points["generated_at"]
+    assert _row(body, nothing_new)["bot_points"]["points"] == []
+    assert _row(body, never_checked)["bot_points"] is None
+    # „W toku” punktów nie dostaje: tam jest krok, a punkty są na karcie szansy.
+    assert _row(body, in_progress)["bot_points"] is None
+
+    monkeypatch.setattr(settings, "SALES_SIGNALS_ENABLED", False)
+    body = await _listed(app_client, rep, scope="mine")
+    assert _row(body, with_points)["bot_points"] is None
+
+
+@pytest.mark.asyncio
+async def test_to_decide_firms_go_to_the_bot_unless_their_points_are_fresh() -> None:
+    rep = await _user("sales_edit")
+    # Duża kwota: wspólna baza testowa ma inne pozycje, a lista idzie od największego MRR.
+    no_points = await _opportunity(rep.id, age_days=40, mrr="9000000.00")
+    stale = await _opportunity(rep.id, age_days=40, mrr="9000000.00")
+    fresh = await _opportunity(rep.id, age_days=40, mrr="9000000.00")
+    in_progress = await _opportunity(rep.id, mrr="9000000.00")
+    await _briefing(stale, [POINT], generated_at=_now() - timedelta(days=8))
+    await _briefing(fresh, [POINT], generated_at=_now() - timedelta(days=1))
+
+    async with AsyncSessionLocal() as db:
+        chosen = await signal_targets.to_decide_company_ids(db, now=_now())
+    assert await _company_of(no_points) in chosen
+    assert await _company_of(stale) in chosen
+    assert await _company_of(fresh) not in chosen
+    assert await _company_of(in_progress) not in chosen

@@ -223,19 +223,14 @@ def _order(row: OfferRow) -> tuple[Any, ...]:
     return (1, -mrr, -row.idle_days)
 
 
-async def load_offers(
-    db: AsyncSession,
-    user: User,
-    *,
-    scope: Optional[Scope],
-    q: Optional[str],
-    now: datetime,
-) -> Offers:
-    """Pozycje zakładki w wybranym zakresie i liczniki wszystkich trzech zakresów.
+async def load_rows(
+    db: AsyncSession, *, q: Optional[str] = None, now: datetime
+) -> list[OfferRow]:
+    """Wszystkie pozycje zakładki z sekcją, bez zakresu i kolejności ekranu.
 
-    Bez ``scope`` wybiera „Moje”, gdy osoba prowadzi jakąś ofertę, a inaczej „Wszystkie”.
-    Fraza ``q`` na ten wybór nie wpływa, bo zakres skakałby w trakcie pisania. Ekran pyta
-    bez ``scope`` tylko raz, przy wejściu, i dalej podaje zakres jawnie.
+    Z tej samej listy poniedziałkowe odświeżenie punktów bota bierze firmy pozycji
+    „Do decyzji” (``signal_targets.to_decide_company_ids``), żeby sekcja znaczyła
+    w obu miejscach to samo.
     """
 
     today = business_date(now)
@@ -316,7 +311,25 @@ async def load_offers(
                 step_overdue=signal.overdue_step is not None,
             )
         )
+    return rows
 
+
+async def load_offers(
+    db: AsyncSession,
+    user: User,
+    *,
+    scope: Optional[Scope],
+    q: Optional[str],
+    now: datetime,
+) -> Offers:
+    """Pozycje zakładki w wybranym zakresie i liczniki wszystkich trzech zakresów.
+
+    Bez ``scope`` wybiera „Moje”, gdy osoba prowadzi jakąś ofertę, a inaczej „Wszystkie”.
+    Fraza ``q`` na ten wybór nie wpływa, bo zakres skakałby w trakcie pisania. Ekran pyta
+    bez ``scope`` tylko raz, przy wejściu, i dalej podaje zakres jawnie.
+    """
+
+    rows = await load_rows(db, q=q, now=now)
     by_scope = {
         name: [row for row in rows if _in_scope(row, name, user.id)] for name in SCOPES
     }

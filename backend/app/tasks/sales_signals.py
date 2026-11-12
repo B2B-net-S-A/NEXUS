@@ -3,7 +3,8 @@
 Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od 7:00
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
-przed krokiem). Wyłącznik ``SALES_SIGNALS_ENABLED``, bez adresu bota pętla stoi.
+przed krokiem i przy ofertach „Do decyzji”). Wyłącznik ``SALES_SIGNALS_ENABLED``,
+bez adresu bota pętla stoi.
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -75,11 +76,14 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
     if last is None or last <= now - BRIEFING_EVERY:
         skip = await targets.recently_sent(db, now=now)
         candidates = await targets.new_company_ids(db, now=now, exclude=skip)
+        to_decide: list[int] = []
         if is_monday and (local.hour, local.minute) >= (REFRESH_HOUR, REFRESH_MINUTE):
             candidates += await targets.refresh_company_ids(db, now=now)
+            to_decide = await targets.to_decide_company_ids(db, now=now)
+            candidates += to_decide
         ids = targets.pick(candidates, skip=skip, limit=targets.MAX_BRIEFING_FIRMS)
         if ids:
-            modes = await targets.modes_for(db, ids, now=now)
+            modes = await targets.modes_for(db, ids, now=now, ongoing=to_decide)
             run = await signals.start_run(db, "briefing", ids, now=now, modes=modes)
             if _started(run):
                 done["briefing"] = len(ids)

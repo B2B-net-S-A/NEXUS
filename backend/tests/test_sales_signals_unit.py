@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from app.models.sales import SalesCompany, SalesSignalRun
 from app.services.sales import client_gate
-from app.services.sales import signals
+from app.services.sales import signal_targets, signals
 from app.tasks import sales_signals as loop
 
 NOW = datetime(2026, 11, 16, 7, 10, tzinfo=timezone.utc)
@@ -175,6 +175,40 @@ def test_plan_keeps_briefing_mode_from_run() -> None:
     assert plan.unknown_company == 1
 
 
+def test_ongoing_firm_without_news_gets_empty_points_as_an_answer() -> None:
+    """Oferta „Do decyzji” ma pokazać, że bot sprawdził i nic nowego nie znalazł."""
+
+    run = _run(
+        company_ids=(1, 2, 3),
+        kind="briefing",
+        modes={"1": "ongoing", "2": "first_call"},
+    )
+    report = _report(no_signal=[1, 2, 3, 9])
+    plan = signals.plan_intake(run, report, COMPANIES, {}, today=date(2026, 11, 16))
+    # 2: pierwsza rozmowa wraca do bota, 3: firmy nie ma w kartotece, 9: spoza biegu.
+    assert plan.briefings == [
+        {"company_id": 1, "mode": "ongoing", "points": [], "run_id": 7}
+    ]
+
+
+def test_firm_with_points_and_no_signal_keeps_its_points() -> None:
+    run = _run(kind="briefing", modes={"1": "ongoing"})
+    report = _report(
+        briefings=[{"company_ref": 1, "points": [{"text": "Nowy CTO"}]}],
+        no_signal=[1],
+    )
+    plan = signals.plan_intake(run, report, COMPANIES, {}, today=date(2026, 11, 16))
+    assert [len(b["points"]) for b in plan.briefings] == [1]
+
+
+def test_signals_run_never_writes_empty_points() -> None:
+    run = _run(modes={"1": "ongoing"})
+    plan = signals.plan_intake(
+        run, _report(no_signal=[1]), COMPANIES, {}, today=date(2026, 11, 16)
+    )
+    assert plan.briefings == []
+
+
 # ── webhook ──────────────────────────────────────────────────────────────
 
 
@@ -215,6 +249,9 @@ def _patch(monkeypatch, started: list) -> None:
     async def empty(*_a, **_k):
         return set()
 
+    async def none(*_a, **_k):
+        return []
+
     async def modes(_db, company_ids, **_k):
         return {cid: "first_call" for cid in company_ids}
 
@@ -230,6 +267,7 @@ def _patch(monkeypatch, started: list) -> None:
     monkeypatch.setattr(loop.targets, "pilot_company_ids", ids)
     monkeypatch.setattr(loop.targets, "new_company_ids", ids)
     monkeypatch.setattr(loop.targets, "refresh_company_ids", ids)
+    monkeypatch.setattr(loop.targets, "to_decide_company_ids", none)
     monkeypatch.setattr(loop.targets, "recently_sent", empty)
     monkeypatch.setattr(loop.targets, "modes_for", modes)
 
@@ -333,3 +371,88 @@ async def test_failed_webhook_does_not_count_as_this_weeks_review(monkeypatch) -
     )
     assert ("signals", [1, 2]) in started
     assert done["signals"] == 0
+
+
+# ── punkty przy ofertach „Do decyzji” ────────────────────────────────────
+
+
+def test_to_decide_firm_without_or_with_stale_points_is_selected() -> None:
+    briefed = {
+        2: NOW - signal_targets.STALE_AFTER - timedelta(hours=1),
+        3: NOW - timedelta(days=2),
+    }
+    # 1: bez punktów, 2: punkty starsze niż 6 dni, 3: świeże; 1 drugi raz to ta sama firma.
+    assert signal_targets.needs_points([1, 2, 3, 1], briefed, now=NOW) == [1, 2]
+
+
+def test_to_decide_selection_respects_the_refresh_limit() -> None:
+    many = list(range(1, signal_targets.MAX_REFRESH_FIRMS + 20))
+    assert len(signal_targets.needs_points(many, {}, now=NOW)) == (
+        signal_targets.MAX_REFRESH_FIRMS
+    )
+
+
+def _patch_to_decide(monkeypatch, started: list, *, sent: set[int]) -> None:
+    _patch(monkeypatch, started)
+
+    async def no_ids(*_a, **_k):
+        return []
+
+    async def to_decide(*_a, **_k):
+        return [5, 6]
+
+    async def recently(*_a, **_k):
+        return sent
+
+    async def modes(_db, company_ids, *, now, ongoing=()):
+        return {
+            cid: "ongoing" if cid in set(ongoing) else "first_call"
+            for cid in company_ids
+        }
+
+    class _Run:
+        status = "started"
+
+    async def start(_db, kind, company_ids, **kwargs):
+        started.append((kind, list(company_ids), kwargs.get("modes")))
+        return _Run()
+
+    monkeypatch.setattr(loop.targets, "new_company_ids", no_ids)
+    monkeypatch.setattr(loop.targets, "refresh_company_ids", no_ids)
+    monkeypatch.setattr(loop.targets, "to_decide_company_ids", to_decide)
+    monkeypatch.setattr(loop.targets, "recently_sent", recently)
+    monkeypatch.setattr(loop.targets, "modes_for", modes)
+    monkeypatch.setattr(loop.signals, "start_run", start)
+
+
+@pytest.mark.asyncio
+async def test_monday_refresh_sends_to_decide_firms_as_ongoing(monkeypatch) -> None:
+    started: list = []
+    _patch_to_decide(monkeypatch, started, sent=set())
+    monday = datetime(2026, 11, 16, 7, 40, tzinfo=WARSAW)
+    now = monday.astimezone(timezone.utc)
+    db = _Db({"signals": now, "briefing": now - timedelta(hours=2)})
+    await loop.tick(db, now=now, local=monday)
+    assert started == [("briefing", [5, 6], {5: "ongoing", 6: "ongoing"})]
+
+
+@pytest.mark.asyncio
+async def test_to_decide_firm_sent_in_last_day_does_not_go_again(monkeypatch) -> None:
+    started: list = []
+    _patch_to_decide(monkeypatch, started, sent={5})
+    monday = datetime(2026, 11, 16, 9, 0, tzinfo=WARSAW)
+    now = monday.astimezone(timezone.utc)
+    db = _Db({"signals": now, "briefing": now - timedelta(hours=2)})
+    await loop.tick(db, now=now, local=monday)
+    assert started == [("briefing", [6], {6: "ongoing"})]
+
+
+@pytest.mark.asyncio
+async def test_to_decide_firms_wait_for_monday_refresh(monkeypatch) -> None:
+    started: list = []
+    _patch_to_decide(monkeypatch, started, sent=set())
+    tuesday = datetime(2026, 11, 17, 9, 0, tzinfo=WARSAW)
+    now = tuesday.astimezone(timezone.utc)
+    db = _Db({"signals": now, "briefing": now - timedelta(hours=2)})
+    await loop.tick(db, now=now, local=tuesday)
+    assert started == []

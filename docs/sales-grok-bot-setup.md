@@ -58,7 +58,8 @@ medium gdy to rozsądny wniosek, weak gdy to tylko temat do wzmianki.
 Gdy kind = "briefing": dla każdej firmy przygotuj od 1 do max_points krótkich
 punktów, do których handlowiec może nawiązać w rozmowie. mode = "first_call":
 co się dzieje w firmie ogólnie; mode = "ongoing": zmiany od ostatnich tygodni,
-które mogą dotyczyć prowadzonego tematu.
+które mogą dotyczyć prowadzonego tematu. Gdy przy mode = "ongoing" nie ma nic
+nowego, nie dopisuj punktów na siłę: wpisz firmę do no_signal.
 
 Na koniec wyślij JEDNO żądanie:
 POST {callback_url}

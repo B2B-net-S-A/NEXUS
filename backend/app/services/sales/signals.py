@@ -331,6 +331,27 @@ def plan_intake(
                 "run_id": run.id,
             }
         )
+    if run.kind == "briefing":
+        # Firma ``ongoing`` z ``no_signal``: bot sprawdził i nic nowego nie znalazł.
+        # Pusty wiersz to odpowiedź (przy ofercie „Do decyzji” ekran mówi to wprost),
+        # a nie brak biegu; po 6 dniach firma wraca do bota jak każda inna.
+        briefed = {values["company_id"] for values in plan.briefings}
+        for ref in report.no_signal:
+            if (
+                ref in allowed
+                and ref in companies
+                and ref not in briefed
+                and (run.modes or {}).get(str(ref)) == "ongoing"
+            ):
+                briefed.add(ref)
+                plan.briefings.append(
+                    {
+                        "company_id": ref,
+                        "mode": "ongoing",
+                        "points": [],
+                        "run_id": run.id,
+                    }
+                )
     return plan
 
 
