@@ -12,6 +12,7 @@ import {
   mainRoot,
   publicUrlFromSlug,
   safeQueryAll,
+  degreeFromTexts,
   slugFromHref,
   textBlocks,
   visibleText,
@@ -79,6 +80,8 @@ function readItem(item) {
     current_company: company,
     location: location || null,
   };
+  const degree = degreeFromTexts(textBlocks(item), 4);
+  if (degree) person.degree = degree;
   person.missing = ["headline", "current_company"].filter((f) => !person[f]);
   return person;
 }

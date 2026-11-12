@@ -168,6 +168,11 @@ export function createApi({ getConnection, fetchImpl = (...a) => fetch(...a), on
       return request("POST", `/candidates/${id(candidateId)}/profile-pdf`, { form });
     },
     draftMessage: (jobId, kind, profile) => request("POST", "/draft-message", { json: { job_id: jobId, kind, profile } }),
+    // Odpowiedź na mój InMail/zaproszenie zaznaczona przez rekrutera — skrzynki Recruitera nie czytamy.
+    replyToContact: (candidateId, noteId, outcome) =>
+      request("POST", `/candidates/${id(candidateId)}/contacts/${id(noteId)}/reply`, { json: { outcome } }),
+    // Słowa kluczowe i firmy off-limits do filtrów Recruitera; nie liczy odczytu.
+    searchKit: (jobId) => request("GET", `/jobs/${id(jobId)}/search-kit`),
   };
 }
 
@@ -190,5 +195,7 @@ export function validateLookup(data) {
     contacts: Array.isArray(data.contacts) ? data.contacts : [],
     matches: Array.isArray(data.matches) ? data.matches : [],
     ambiguous: Array.isArray(data.ambiguous) ? data.ambiguous : [],
+    // Starszy NEXUS nie zna `outreach` — panel wtedy po prostu nie radzi.
+    outreach: data.outreach && typeof data.outreach === "object" ? data.outreach : null,
   };
 }

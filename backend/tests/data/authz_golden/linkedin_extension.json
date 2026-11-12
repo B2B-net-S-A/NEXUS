@@ -33,10 +33,12 @@
  "routes": {
   "GET /api/extension/connections": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/extension/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/extension/jobs/{job_id}/search-kit": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "GET /api/extension/me": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/extension/active-job": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/extension/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/extension/candidates/{candidate_id}/contacts": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/contacts/{note_id}/reply": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/extension/candidates/{candidate_id}/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/extension/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
   "POST /api/extension/candidates/{candidate_id}/profile-pdf": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",

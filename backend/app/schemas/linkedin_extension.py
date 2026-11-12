@@ -32,6 +32,7 @@ OffLimitsHow = Literal[
 ]
 ContactChannel = Literal["inmail", "invitation", "linkedin_message", "phone"]
 MessageKind = Literal["inmail", "invitation", "linkedin_message"]
+ReplyOutcome = Literal["interested", "not_now", "no_reply"]
 
 
 class ConnectRequest(BaseModel):
@@ -59,6 +60,14 @@ class ConnectResponse(BaseModel):
     frontend_url: str
 
 
+class InmailUsageOut(BaseModel):
+    """Licznik InMaili z NEXUSA w bieżącym miesiącu firmy (nie saldo LinkedIna)."""
+
+    sent_month: int
+    replied_month: int
+    credits_month: int
+
+
 class MeResponse(BaseModel):
     user: ExtensionUserBrief
     usage: UsageOut
@@ -66,6 +75,7 @@ class MeResponse(BaseModel):
     # Najnowsza wersja wtyczki — panel pokazuje „Jest nowa wersja” z linkiem do
     # <frontend>/wtyczka, gdy jego wersja jest starsza (ZIP nie aktualizuje się sam).
     latest_version: str
+    inmail: InmailUsageOut
 
 
 class ExperienceItem(BaseModel):
@@ -193,6 +203,36 @@ class ActiveJobResponse(BaseModel):
     active_job: Optional[ActiveJobOut] = None
 
 
+class TeamContactOut(BaseModel):
+    """Najnowszy kontakt zespołu z osobą (bez treści notatki)."""
+
+    at: CompanyDatetime
+    user_name: Optional[str] = None
+    channel_label: str
+    is_me: bool
+    days_ago: int
+
+
+class OpenInmailOut(BaseModel):
+    note_id: int
+    at: CompanyDatetime
+    job_title: Optional[str] = None
+    refund_until: date
+
+
+class LastReplyOut(BaseModel):
+    at: CompanyDatetime
+    outcome: ReplyOutcome
+
+
+class OutreachOut(BaseModel):
+    # Tylko „czy NEXUS ma numer” — samego numeru panel nie dostaje.
+    has_phone: bool
+    recent_contact: Optional[TeamContactOut] = None
+    open_inmail: Optional[OpenInmailOut] = None
+    last_reply: Optional[LastReplyOut] = None
+
+
 class LookupResponse(BaseModel):
     status: Literal["found", "not_found", "ambiguous"]
     matched_by: Optional[Literal["linkedin", "name_company"]] = None
@@ -209,6 +249,8 @@ class LookupResponse(BaseModel):
     matches: list[JobMatchOut] = Field(default_factory=list)
     # None = nie pytano o rekrutację albo jest zamknięta / nie istnieje.
     active_job: Optional[ActiveJobOut] = None
+    # None, gdy osoby nie ma w NEXUSIE (status inny niż ``found``).
+    outreach: Optional[OutreachOut] = None
     usage: UsageOut
 
 
@@ -229,6 +271,8 @@ class BatchItem(BaseModel):
     candidate_id: Optional[int] = None
     label: Optional[str] = None
     score: Optional[int] = None
+    has_phone: bool = False
+    last_contact: Optional[TeamContactOut] = None
 
 
 class BatchResponse(BaseModel):
@@ -294,6 +338,27 @@ class ContactRequest(BaseModel):
 class ContactResponse(BaseModel):
     id: int
     reminder_id: Optional[int] = None
+
+
+class ReplyRequest(BaseModel):
+    outcome: ReplyOutcome
+
+
+class ReplyResponse(BaseModel):
+    id: int
+    closed_reminders: int
+
+
+class SearchKitResponse(BaseModel):
+    job_id: int
+    title: str
+    keywords: str
+    titles: list[str]
+    skills_must: list[str]
+    skills_nice: list[str]
+    locations: list[str]
+    remote: Optional[str] = None
+    exclude_companies: list[str]
 
 
 class NoteRequest(BaseModel):
