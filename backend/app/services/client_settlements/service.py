@@ -47,6 +47,7 @@ from app.services.client_settlements import (
     rcp_bnp,
     rcp_checks,
     rules_catalog,
+    timesheet,
 )
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.engine import Inputs, OrderState, Result, compute
@@ -54,6 +55,7 @@ from app.services.client_settlements_schema import FIX_REASON_MAX
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
 from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT, format_md
+from app.services.person_workdays import business_days
 
 logger = logging.getLogger(__name__)
 
@@ -664,13 +666,26 @@ async def _proof(
         )
         return None
     parsed, signatures = await read_rcp(content, report.mime)
+    has_mail = any(d.mime in MAIL_MIMES for d in reports)
+    if parsed is None:
+        # Nie szablon RCP BNP: może Time Sheet w godzinach (E6.2).
+        sheet = await asyncio.to_thread(timesheet.parse, content, report.mime)
+        if sheet is not None:
+            return timesheet.evaluate(
+                sheet,
+                month=month,
+                person_name=person_name,
+                has_mail=has_mail,
+                rules=rules,
+                working_days=len(business_days(*month_bounds(month))),
+            )
     return rcp_checks.evaluate(
         parsed,
         signatures,
         mime=report.mime,
         month=month,
         person_name=person_name,
-        has_mail=any(d.mime in MAIL_MIMES for d in reports),
+        has_mail=has_mail,
         rules=rules,
     )
 

@@ -18,9 +18,10 @@ const ready: ClientInvoiceRow = {
   kind: "actual",
   state: "ready",
   positions: [
-    { name: "Usługi; ZAM_1", unit: "MD", quantity: "17", unit_price: "1100.00", net: "18700.00", kind: "base" },
-    { name: "Usługi; ZAM_1_nadgodziny", unit: "MD", quantity: "4.75", unit_price: "1320.00", net: "6270.00", kind: "overtime" },
+    { name: "Usługi; ZAM_1", unit: "MD", quantity: "17", unit_price: "1100.00", net: "18700.00", kind: "base", currency: "PLN" },
+    { name: "Usługi; ZAM_1_nadgodziny", unit: "MD", quantity: "4.75", unit_price: "1320.00", net: "6270.00", kind: "overtime", currency: "PLN" },
   ],
+  currency: "PLN",
   net: "24970.00",
   cost: "22700.00",
   margin: "2270.00",

@@ -22,7 +22,12 @@ from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today, local_now
 from app.models.user import User
 from app.models.consultant_portal import CpDocument
-from app.services.client_settlements import client_invoice, contractor_invoices, service
+from app.services.client_settlements import (
+    client_invoice,
+    contractor_invoices,
+    service,
+    service_confirmation,
+)
 from app.services.consultant_portal import documents as portal_documents
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.service import SettlementError
@@ -426,3 +431,44 @@ async def estimates(
         )
     except SettlementError as exc:
         raise _fail(exc) from exc
+
+
+# ── Dokument dla klienta na projekt (E6.2) ───────────────────────────────────
+
+
+@router.get("/client-documents")
+async def client_documents(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Potwierdzenia usług miesiąca klienta per projekt (reguła ``cl.client_document``)."""
+
+    await _open(db, current_user)
+    try:
+        return await service_confirmation.collect(db, client_id, month)
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/client-documents/file")
+async def client_document_file(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    project: str = Query(..., min_length=1, max_length=200),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await _open(db, current_user)
+    try:
+        content, name = await service_confirmation.document(
+            db, client_id, month, project
+        )
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
+    )

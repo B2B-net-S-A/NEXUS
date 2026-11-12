@@ -60,6 +60,14 @@ export function pln(value: string | null | undefined): string {
   return formatPlnDocument(value) ?? "–";
 }
 
+/** Kwota w walucie faktury klienta: „1 234,50 EUR”, dla zł jak `pln`. */
+export function money(value: string | null | undefined, currency: string | null | undefined): string {
+  const code = (currency || "PLN").toUpperCase();
+  if (code === "PLN") return pln(value);
+  const text = formatPlnDocument(value);
+  return text == null ? "–" : `${text.slice(0, -3)} ${code}`;
+}
+
 export function mdText(value: string | null | undefined): string {
   if (value == null) return "–";
   const n = Number(value);

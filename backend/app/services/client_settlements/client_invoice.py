@@ -12,6 +12,12 @@ Estymacja (E5.3): miesiąc z przyjętą estymacją fakturujemy z estymacji;
 faktyczne RCP za ten miesiąc już nie wchodzi na fakturę, a gdy wyszło mniej MD,
 różnica schodzi ujemną pozycją na fakturze za następny miesiąc (bez korekty).
 
+Waluta (E6.2): linia zamówienia ze stawką klienta w innej walucie niż zł
+(``rate_client_currency``, stawka dzienna) daje pozycje w tej walucie po
+``rate_client`` — tak wystawiamy fakturę do klienta rozliczanego w euro.
+Marża zostaje w zł: netto przeliczamy kursem z linii zamówienia
+(``md_rate_revenue`` / ``rate_client``), tym samym, którym liczy się przychód.
+
 Paczka załączników (E5.2): pliki RCP i maile miesiąca w zipie; przy regule
 ``cl.attachment_name`` plik RCP nosi numer KSeF faktury do klienta.
 """
@@ -37,6 +43,7 @@ from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
 
 MONEY = Decimal("0.01")
+PLN = "PLN"
 ONBOARDING_SUFFIX = "_onbording"  # tak jak dziś w fakturach do BNP
 CORRECTION_SUFFIX = "_korekta_estymacji"
 _SUFFIX = re.compile(
@@ -58,9 +65,11 @@ class Position:
     unit_price: Optional[Decimal]
     net: Decimal
     kind: str  # base · overtime · onboarding · correction
+    currency: str = PLN
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "currency": self.currency,
             "name": self.name,
             "unit": self.unit,
             "quantity": f"{self.quantity.normalize():f}",
@@ -129,6 +138,31 @@ async def _group_invoices(
     return out
 
 
+@dataclass(frozen=True)
+class ClientPrice:
+    """Cena MD do faktury klienta i kurs do zł (przychód w bazie jest w zł)."""
+
+    rate: Optional[Decimal]
+    currency: str
+    to_pln: Decimal
+
+
+def client_price(order: Optional[ClientOrder]) -> ClientPrice:
+    if order is None:
+        return ClientPrice(None, PLN, Decimal("1"))
+    currency = (order.rate_client_currency or PLN).upper()
+    unit = getattr(order.rate_unit, "value", order.rate_unit)
+    if (
+        currency != PLN
+        and unit == "daily"
+        and order.rate_client
+        and order.md_rate_revenue
+    ):
+        rate = Decimal(order.rate_client)
+        return ClientPrice(rate, currency, Decimal(order.md_rate_revenue) / rate)
+    return ClientPrice(order.md_rate_revenue, PLN, Decimal("1"))
+
+
 def _multiplier(s: ClientSettlement) -> Decimal:
     for line in s.lines or []:
         if isinstance(line, dict) and line.get("label") == "Praca dodatkowa":
@@ -145,6 +179,7 @@ def positions(
     name: str,
     rate: Optional[Decimal],
     overtime_suffix: Optional[str],
+    currency: str = PLN,
 ) -> list[Position]:
     regular = Decimal(s.md_regular or 0)
     extra = Decimal(s.md_extra or 0)
@@ -166,6 +201,7 @@ def positions(
             price,
             _money((regular - onboarding) * (price or 0)),
             "base",
+            currency,
         )
     ]
     if onboarding > 0:
@@ -177,6 +213,7 @@ def positions(
                 None,
                 Decimal("0.00"),
                 "onboarding",
+                currency,
             )
         )
     if extra > 0:
@@ -192,6 +229,7 @@ def positions(
                     extra_price,
                     _money(extra * (extra_price or 0)),
                     "overtime",
+                    currency,
                 )
             )
         else:
@@ -203,6 +241,7 @@ def positions(
                     extra_price,
                     _money(extra * (extra_price or 0)),
                     "overtime",
+                    currency,
                 )
             )
     return out
@@ -215,6 +254,7 @@ def _correction(
     name: str,
     rate: Optional[Decimal],
     month_label: str,
+    currency: str = PLN,
 ) -> Optional[Position]:
     if estimate.md_charged is None or actual.md_charged is None:
         return None
@@ -229,6 +269,7 @@ def _correction(
         price,
         _money(-diff * (price or 0)),
         "correction",
+        currency,
     )
 
 
@@ -307,6 +348,7 @@ async def invoice_month(
             "order_number": row["order_number"],
             # Sama korekta planu (kontrakt już bez pracy) idzie jak RCP faktyczne.
             "kind": chosen.kind if chosen else None,
+            "currency": PLN,
             "state": "waiting",
             "positions": [],
             "net": None,
@@ -326,7 +368,8 @@ async def invoice_month(
         if chosen is None:
             out["kind"] = service.ACTUAL
         order = orders.get(basis.order_id) if basis.order_id else None
-        rate = order.md_rate_revenue if order else None
+        price = client_price(order)
+        rate = price.rate
         history = (
             invoices.get(order.order_group_id, [])
             if order and order.order_group_id
@@ -344,7 +387,13 @@ async def invoice_month(
             f"Usługi informatyczne; {row['person']}; nr zamówienia: {row['order_number'] or '—'}"
         )
         items = (
-            positions(chosen, name=name, rate=rate, overtime_suffix=overtime_suffix)
+            positions(
+                chosen,
+                name=name,
+                rate=rate,
+                overtime_suffix=overtime_suffix,
+                currency=price.currency,
+            )
             if chosen is not None
             else []
         )
@@ -355,6 +404,7 @@ async def invoice_month(
                 name=name,
                 rate=rate,
                 month_label=previous,
+                currency=price.currency,
             )
             if correction is not None:
                 items.append(correction)
@@ -366,6 +416,7 @@ async def invoice_month(
         )
         issued = next((inv for period, inv in history if period == month), None)
         out.update(
+            currency=price.currency,
             state="issued" if issued else "ready",
             positions=[p.as_dict() for p in items]
             if amounts
@@ -377,10 +428,13 @@ async def invoice_month(
         if amounts:
             out["net"] = f"{net:.2f}"
             if cost is not None:
-                margin = net - cost
+                net_pln = _money(net * price.to_pln)
+                margin = net_pln - cost
                 out["cost"] = f"{cost:.2f}"
                 out["margin"] = f"{margin:.2f}"
-                out["margin_pct"] = None if net == 0 else f"{margin / net * 100:.1f}"
+                out["margin_pct"] = (
+                    None if net_pln == 0 else f"{margin / net_pln * 100:.1f}"
+                )
         rows.append(out)
     return {
         "client_id": client_id,
@@ -508,6 +562,28 @@ async def estimates(
         else []
     )
     by_key = {(s.contract_id, s.kind): s for s in found}
+    order_ids = {s.order_id for s in found if s.order_id is not None}
+    orders = (
+        {
+            o.id: o
+            for o in (
+                await db.scalars(
+                    select(ClientOrder).where(ClientOrder.id.in_(order_ids))
+                )
+            ).all()
+        }
+        if order_ids
+        else {}
+    )
+
+    def invoice_amount(s: Optional[ClientSettlement]) -> tuple[Optional[str], str]:
+        """Przychód w walucie faktury klienta (w bazie jest w zł)."""
+
+        price = client_price(orders.get(s.order_id) if s and s.order_id else None)
+        if s is None or s.amount_revenue is None:
+            return None, price.currency
+        return f"{_money(Decimal(s.amount_revenue) / price.to_pln):.2f}", price.currency
+
     rows = []
     for row in view["rows"]:
         before = by_key.get((row["contract_id"], service.ACTUAL))
@@ -526,19 +602,12 @@ async def estimates(
         over = f"{stored_over:.3f}" if stored_over else None
         # Dwie osobne faktury do klienta: za poprzedni miesiąc i za plan
         # (rozliczenia 10.11 — nie łączymy na jednej).
-        previous_invoice = (
-            f"{Decimal(before.amount_revenue):.2f}"
-            if amounts
-            and before is not None
-            and before.status == "accepted"
-            and before.amount_revenue is not None
-            else None
+        previous_amount, currency = invoice_amount(
+            before if before is not None and before.status == "accepted" else None
         )
-        plan_invoice = (
-            f"{Decimal(plan.amount_revenue):.2f}"
-            if amounts and plan is not None and plan.amount_revenue is not None
-            else None
-        )
+        plan_amount, plan_currency = invoice_amount(plan)
+        previous_invoice = previous_amount if amounts else None
+        plan_invoice = plan_amount if amounts else None
         rows.append(
             {
                 "contract_id": row["contract_id"],
@@ -556,6 +625,7 @@ async def estimates(
                 "over_pool": over,
                 "previous_invoice": previous_invoice,
                 "plan_invoice": plan_invoice,
+                "currency": plan_currency if plan is not None else currency,
             }
         )
     # Najpierw osoby z planem, potem z przyjętym poprzednim miesiącem.

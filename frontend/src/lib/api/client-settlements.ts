@@ -176,6 +176,8 @@ export const settlementKeys = {
     ["client-settlements", "detail", contractId, month, kind] as const,
   clientInvoice: (clientId: number, month: string) => ["client-settlements", "client-invoice", clientId, month] as const,
   estimates: (clientId: number, month: string) => ["client-settlements", "estimates", clientId, month] as const,
+  clientDocuments: (clientId: number, month: string) =>
+    ["client-settlements", "client-documents", clientId, month] as const,
   rules: (clientId: number, month: string) => ["client-settlements", "rules", clientId, month] as const,
 };
 
@@ -221,6 +223,8 @@ export interface ClientInvoicePosition {
   unit_price: string | null;
   net: string | null;
   kind: "base" | "overtime" | "onboarding" | "correction";
+  /** Waluta faktury klienta (E6.2): stawka klienta z linii zamówienia, np. EUR. */
+  currency: string;
 }
 
 export interface ClientInvoiceRow {
@@ -230,6 +234,8 @@ export interface ClientInvoiceRow {
   kind: SettlementKind | null;
   state: ClientInvoiceState;
   positions: ClientInvoicePosition[];
+  /** Waluta `net`; koszt i marża są zawsze w zł. */
+  currency: string;
   net: string | null;
   cost: string | null;
   margin: string | null;
@@ -261,6 +267,8 @@ export interface EstimateRow {
   /** Dwie osobne faktury do klienta: za poprzedni miesiąc i za plan (10.11). */
   previous_invoice: string | null;
   plan_invoice: string | null;
+  /** Waluta obu faktur do klienta. */
+  currency: string;
 }
 
 export interface EstimatesMonth {
@@ -306,6 +314,47 @@ export async function fetchAttachmentsZip(
         contract_id: options.contractId,
         issued_only: options.issuedOnly || undefined,
       },
+      responseType: "blob",
+    })
+  ).data;
+}
+
+/** Potwierdzenie usług dla klienta na projekt (E6.2, reguła `cl.client_document`). */
+export interface ClientDocumentProject {
+  project: string;
+  people: number;
+  accepted: number;
+  hours: string;
+  md: string;
+  order_numbers: string[];
+  tasks: number;
+}
+
+export interface ClientDocumentsMonth {
+  client_id: number;
+  month: string;
+  /** Reguła obejmuje miesiąc i dokument jest na projekt. */
+  enabled: boolean;
+  kind: string;
+  /** `FORECAST` — z planu miesiąca (estymacja), `ACTUAL` — z Time Sheet. */
+  stage: "ACTUAL" | "FORECAST" | null;
+  projects: ClientDocumentProject[];
+  skipped: { person: string; reason: string }[];
+}
+
+export function useClientDocuments(clientId: number | null, month: string) {
+  return useQuery({
+    queryKey: settlementKeys.clientDocuments(clientId ?? 0, month),
+    queryFn: async () =>
+      (await api.get<ClientDocumentsMonth>(`${BASE}/client-documents`, { params: { client_id: clientId, month } })).data,
+    enabled: clientId != null,
+  });
+}
+
+export async function fetchClientDocument(clientId: number, month: string, project: string): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/client-documents/file`, {
+      params: { client_id: clientId, month, project },
       responseType: "blob",
     })
   ).data;
