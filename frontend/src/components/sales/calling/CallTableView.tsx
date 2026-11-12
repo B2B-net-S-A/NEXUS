@@ -63,22 +63,20 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span data-tour="sales.calling.scope">
-          <SegmentedRadio
-            size="sm"
-            label="Czyje listy"
-            options={[
-              { value: "mine", label: "Moje" },
-              { value: "all", label: "Wszyscy" },
-            ]}
-            value={scope}
-            onChange={(value) => {
-              setScope(value as CallRecordScope);
-              setCallerId(null);
-              setSelectedKey(null);
-            }}
-          />
-        </span>
+        <SegmentedRadio
+          size="sm"
+          label="Czyje listy"
+          options={[
+            { value: "mine", label: "Moje" },
+            { value: "all", label: "Wszyscy" },
+          ]}
+          value={scope}
+          onChange={(value) => {
+            setScope(value as CallRecordScope);
+            setCallerId(null);
+            setSelectedKey(null);
+          }}
+        />
         {everyone && (
           <SalesSelect
             ariaLabel="Kto dzwoni"
