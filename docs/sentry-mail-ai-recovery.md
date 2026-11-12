@@ -69,6 +69,25 @@ pozostaje wymagany niezależnie od sukcesu prywatnego kontaktu Grafany.
   ustalenia w Exchange, czy wiadomość została przyjęta/dostarczona.
   Dopiero po tej decyzji operator może celowo oznaczyć wynik albo zaplanować
   ponowienie konkretnych rekordów. Brak automatycznego masowego resetu.
+  Narzędzie (terminal kontenera backendu w Coolify, z katalogu aplikacji):
+
+  ```bash
+  python -m scripts.notification_mail_reconcile <id> [<id> ...] --delivered   # podgląd
+  python -m scripts.notification_mail_reconcile <id> --delivered --apply      # trace: dostarczony
+  python -m scripts.notification_mail_reconcile <id> --resend --apply         # trace: brak maila
+  ```
+
+  Bez `--apply` skrypt tylko pokazuje typ, ścieżkę wysyłki, czas próby
+  i zamaskowanego adresata. `--delivered` ustawia `email_sent_at` na czas
+  próby i zdejmuje flagę. `--resend` zdejmuje flagę i zeruje
+  `email_next_attempt_at`, więc pętla (fallback czatu, outbox, alerty terminów)
+  weźmie rekord w kolejnym przebiegu. Skrypt odmawia całego biegu, gdy
+  któryś rekord nie ma flagi, ma już `email_sent_at` albo nie istnieje, a przy
+  `--resend` także dla rekordu, którego żadna pętla nie wyśle (outbox nie
+  bierze powiadomień starszych niż 24 h). Najwyżej 20 id na bieg. Paczka
+  „Nowa rekrutacja u Twojego klienta” to jeden mail dla kilku rekordów —
+  rozstrzygaj je razem. Coolify Ops nie ma tej akcji, bo workflow mieści
+  już maksymalne 25 wejść.
 - Obserwować naturalny cykl po wdrożeniu, stan alarmu oraz tempo ubywania
   zaległości. Upływ kalendarzowych 7 dni nie kończy aktywnej awarii.
 
