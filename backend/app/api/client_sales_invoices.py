@@ -791,7 +791,8 @@ async def finance_invoice_mark_paid(
             "Data zapłaty nie może być w przyszłości.",
         )
     chain = await views.chain_for(db, invoice_id)
-    if chain is not None and chain.to_pay <= ZERO:
+    # Zapłata z eBI24 nie blokuje: ręczne „opłacono” ją zastępuje.
+    if chain is not None and chain.own_to_pay <= ZERO:
         raise HTTPException(status.HTTP_409_CONFLICT, "Faktura jest już opłacona.")
     with _http_errors():
         await payments.mark_paid(

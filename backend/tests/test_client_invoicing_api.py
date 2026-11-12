@@ -580,3 +580,249 @@ async def test_module_state_tells_the_profile_whether_to_show_the_tab(client, se
     assert admin.json() == {"enabled": False, "open": True}
     denied = await client.get(path, headers=fx.headers(seed.users["recruiter"]))
     assert denied.status_code == 403
+
+
+# ── Zapłaty z eBI24 ───────────────────────────────────────────────────────────
+
+
+def _ebi24_header(ksef_number: str, **extra: object) -> dict[str, object]:
+    return {
+        "_id": "ebi24doc118",
+        "_ksefReferenceNumber": ksef_number,
+        "grossAmount": 3099600,
+        "paid": False,
+        **extra,
+    }
+
+
+async def _apply_ebi24(*headers: dict[str, object]):
+    from app.services.client_invoicing import ebi24_payments
+
+    async with AsyncSessionLocal() as db:
+        counts = await ebi24_payments.apply(
+            db, list(headers), today=TODAY, dry_run=False
+        )
+        await db.commit()
+    return counts
+
+
+async def _invoice_118():
+    async with AsyncSessionLocal() as db:
+        from app.models.client_sales_invoice import ClientSalesInvoice
+
+        return await db.scalar(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.invoice_number == "FS 10/118/2026"
+            )
+        )
+
+
+async def test_ebi24_payment_mirrors_state_and_is_revoked_when_withdrawn(client, seed):
+    finance = seed.users["finance"]
+    invoice = await _invoice_118()
+    paid = _ebi24_header(
+        invoice.ksef_number, paid=True, paidDate="2026-11-14T00:00:00.000"
+    )
+    counts = await _apply_ebi24(
+        paid, _ebi24_header("9999999999-20261101-0100AAAAAAAA-00", _id="obcy")
+    )
+    assert (counts["create"], counts["not_in_nexus"]) == (1, 1)
+
+    tab = (await _tab(client, finance, seed)).json()
+    row = fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"]
+    assert (row["payment_status"], row["paid_on"]) == ("paid", "2026-11-14")
+
+    assert (await _apply_ebi24(paid))["keep"] == 1
+    assert (await _apply_ebi24(_ebi24_header(invoice.ksef_number)))["revoke"] == 1
+    tab = (await _tab(client, finance, seed)).json()
+    assert (
+        fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"][
+            "payment_status"
+        ]
+        == "unpaid"
+    )
+    async with AsyncSessionLocal() as db:
+        mirror = await db.scalar(
+            select(ClientSalesInvoicePayment).where(
+                ClientSalesInvoicePayment.kind == "ebi24"
+            )
+        )
+    assert (mirror.match_status, mirror.ebi24_document_id) == ("ignored", "ebi24doc118")
+
+
+async def test_statement_credit_replaces_ebi24_payment_without_double_count(
+    client, seed
+):
+    finance = seed.users["finance"]
+    invoice = await _invoice_118()
+    await _apply_ebi24(
+        _ebi24_header(invoice.ksef_number, paid=True, paidDate="2026-11-14")
+    )
+
+    result = (await _upload(client, finance, STATEMENT.read_bytes())).json()
+    # Uznanie dopasowane jak bez eBI24 — nie „już opłacona”.
+    assert (result["matched"], result["unmatched"]) == (3, 1)
+
+    tab = (await _tab(client, finance, seed)).json()
+    assert (
+        fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"][
+            "payment_status"
+        ]
+        == "paid"
+    )
+    async with AsyncSessionLocal() as db:
+        mirror = await db.scalar(
+            select(ClientSalesInvoicePayment).where(
+                ClientSalesInvoicePayment.kind == "ebi24"
+            )
+        )
+    assert mirror.match_status == "ignored"
+    # Kolejny przebieg eBI24 nie wraca z zapłatą, bo NEXUS ma własny zapis.
+    assert (
+        await _apply_ebi24(
+            _ebi24_header(invoice.ksef_number, paid=True, paidDate="2026-11-14")
+        )
+    )["skip"] == 1
+
+
+async def test_ebi24_run_once_writes_only_in_prod_and_claims_the_hour(
+    seed, monkeypatch
+):
+    from app.services.client_invoicing import ebi24_payments
+    from app.services.ebi24.client import DocumentPage
+    from app.services.ebi24.environment import Ebi24Config
+
+    invoice = await _invoice_118()
+    rows = (_ebi24_header(invoice.ksef_number, paid=True, paidDate="2026-11-14"),)
+
+    class FakeClient:
+        def __init__(self, config):
+            self.config = config
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return None
+
+        async def list_documents(self, criteria, *, start_row, end_row, sort_by=None):
+            return DocumentPage(documents=rows if start_row == 0 else (), total=1)
+
+    def config(mode: str) -> Ebi24Config:
+        return Ebi24Config(
+            mode=mode,
+            user_uuid="00000000-0000-0000-0000-000000000001",  # gitleaks:allow
+            account_uuid="00000000-0000-0000-0000-000000000002",  # gitleaks:allow
+            communication_key="AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",  # gitleaks:allow
+            secret_phrase="fikcyjny",
+        )
+
+    moment = datetime(2026, 11, 20, 12, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr(ebi24_payments, "load_config", lambda: config("uat"))
+    async with AsyncSessionLocal() as db:
+        assert (await ebi24_payments.run_once(db, client_factory=FakeClient))[
+            "reason"
+        ] == "not_prod"
+        preview = await ebi24_payments.run_once(
+            db, dry_run=True, now=moment, client_factory=FakeClient
+        )
+    assert preview["counts"]["create"] == 1
+    async with AsyncSessionLocal() as db:
+        assert not await db.scalar(
+            select(func.count())
+            .select_from(ClientSalesInvoicePayment)
+            .where(ClientSalesInvoicePayment.kind == "ebi24")
+        )
+
+    monkeypatch.setattr(ebi24_payments, "load_config", lambda: config("prod"))
+    async with AsyncSessionLocal() as db:
+        done = await ebi24_payments.run_once(db, now=moment, client_factory=FakeClient)
+        again = await ebi24_payments.run_once(db, now=moment, client_factory=FakeClient)
+        # ``claimed_at`` stawia baza (now()), więc sonda liczy od bieżącej chwili.
+        health = await ebi24_payments.health_state(db)
+    assert (done["status"], done["counts"]["create"]) == ("done", 1)
+    assert again == {"status": "skipped", "reason": "already_ran"}
+    assert health == "healthy"
+
+
+async def _ebi24_rows(kind_status: str = "matched") -> list[ClientSalesInvoicePayment]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            await db.scalars(
+                select(ClientSalesInvoicePayment).where(
+                    ClientSalesInvoicePayment.kind == "ebi24",
+                    ClientSalesInvoicePayment.match_status == kind_status,
+                )
+            )
+        )
+
+
+async def test_new_ebi24_document_for_same_invoice_replaces_the_old_one(client, seed):
+    invoice = await _invoice_118()
+    await _apply_ebi24(_ebi24_header(invoice.ksef_number, _id="stary", paid=True))
+    counts = await _apply_ebi24(
+        _ebi24_header(invoice.ksef_number, _id="nowy", paid=True)
+    )
+    assert (counts["create"], counts["replaced"]) == (1, 1)
+    assert [row.ebi24_document_id for row in await _ebi24_rows()] == ["nowy"]
+    tab = (await _tab(client, seed.users["finance"], seed)).json()
+    assert (
+        fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"][
+            "payment_status"
+        ]
+        == "paid"
+    )
+
+
+async def test_manual_paid_overrides_ebi24_payment(client, seed):
+    finance = fx.headers(seed.users["finance"])
+    invoice = await fx.invoice(fx.KSEF_121)
+    await _apply_ebi24(
+        _ebi24_header(invoice.ksef_number, _id="ebi121", grossAmount=3926160, paid=True)
+    )
+    paid = await client.post(
+        f"{FINANCE}/{invoice.id}/mark-paid",
+        json={"amount": "39261.60", "paid_on": "2026-11-19", "reason": "Kompensata"},
+        headers=finance,
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["payment_status"] == "paid"
+    assert await _ebi24_rows() == []
+
+
+async def test_assigning_a_credit_replaces_ebi24_payment_and_keeps_the_hint(
+    client, seed
+):
+    finance = seed.users["finance"]
+    await _upload(client, finance, STATEMENT.read_bytes())
+    (pending,) = (
+        await client.get(f"{FINANCE}/credits", headers=fx.headers(finance))
+    ).json()["credits"]
+    hint = pending["hints"][0]
+    async with AsyncSessionLocal() as db:
+        from app.models.client_sales_invoice import ClientSalesInvoice
+
+        target = await db.get(ClientSalesInvoice, hint["invoice_id"])
+    await _apply_ebi24(
+        _ebi24_header(
+            target.ksef_number,
+            _id="ebi-hint",
+            paid=True,
+            grossAmount=int(Decimal(hint["to_pay"]) * 100),
+        )
+    )
+    (still,) = (
+        await client.get(f"{FINANCE}/credits", headers=fx.headers(finance))
+    ).json()["credits"]
+    assert [h["invoice_id"] for h in still["hints"]] == [hint["invoice_id"]]
+    assigned = await client.post(
+        f"{FINANCE}/credits/{pending['id']}/assign",
+        json={"invoice_id": hint["invoice_id"]},
+        headers=fx.headers(finance),
+    )
+    assert assigned.status_code == 200
+    detail = (
+        await client.get(f"{FINANCE}/{hint['invoice_id']}", headers=fx.headers(finance))
+    ).json()
+    assert detail["payment_status"] == "paid"
+    assert await _ebi24_rows() == []

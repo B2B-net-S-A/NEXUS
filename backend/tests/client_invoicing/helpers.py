@@ -295,6 +295,7 @@ async def wipe() -> None:
             update(Client).where(Client.nip.in_(FIXTURE_NIPS)).values(nip=None)
         )
         await db.execute(delete(HrJobRun).where(HrJobRun.kind.like("sales_ksef_%")))
+        await db.execute(delete(HrJobRun).where(HrJobRun.kind.like("sales_ebi24_%")))
         await db.execute(
             delete(AppSetting).where(
                 AppSetting.key.in_([sync.STATE_KEY, matching.REMATCH_CURSOR_KEY])

@@ -1121,6 +1121,9 @@ async def lifespan(app: FastAPI):
             ),
             "ksef_fetch": asyncio.create_task(hr_loops.ksef_fetch_loop()),
             "sales_ksef_fetch": asyncio.create_task(hr_loops.sales_ksef_fetch_loop()),
+            "sales_ebi24_payments": asyncio.create_task(
+                hr_loops.sales_ebi24_payments_loop()
+            ),
             "hr_agreements_signing": asyncio.create_task(
                 hr_loops.agreements_signing_loop()
             ),

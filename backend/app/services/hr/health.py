@@ -36,6 +36,7 @@ from app.core.config import settings
 from app.models.admin_case import AdminMailIngestState
 from app.models.hr_leave import HrM365Operation
 from app.models.hr_ops import HrJobRun
+from app.services.client_invoicing import ebi24_payments
 from app.services.hr.ksef import invoices as ksef_invoices
 
 M365_FAILED_WINDOW = timedelta(days=7)
@@ -160,4 +161,5 @@ PROBES = (
     ("admin_cases_mail", admin_cases_mail_state),
     ("hr_jobs", hr_jobs_state),
     ("hr_ksef", ksef_invoices.health_state),
+    ("ebi24_payments", ebi24_payments.health_state),
 )

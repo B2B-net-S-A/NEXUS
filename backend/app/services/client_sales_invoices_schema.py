@@ -45,8 +45,9 @@ Tabele:
   Faktura na kilka zamówień ma kilka wierszy. Usunięcie zamówienia zabiera
   powiązanie (``CASCADE``), a faktura wraca do „do przypisania” przy odczycie.
 * ``client_sales_invoice_payments`` — zapłata faktury: uznanie z wyciągu
-  (MT940/CAMT.053 — ponowny import tego samego pliku nic nie dubluje) albo
-  ręczne „opłacono” z powodem. Uznanie, które dotyczy faktury, ale bez
+  (MT940/CAMT.053 — ponowny import tego samego pliku nic nie dubluje),
+  ręczne „opłacono” z powodem albo zapłata odczytana z eBI24 (``ebi24`` —
+  lustro stanu dokumentu eBI24; uznanie z wyciągu ją zastępuje). Uznanie, które dotyczy faktury, ale bez
   pewnego dopasowania (kwota inna niż do zapłaty, kilka faktur pasuje), czeka
   jako ``unmatched`` na Finanse; uznania niezwiązane z fakturami (zwroty,
   odsetki) nie trafiają do bazy — liczymy je tylko.
@@ -69,7 +70,7 @@ MATCH_METHODS: tuple[str, ...] = (
     "correction",
     "manual",
 )
-PAYMENT_KINDS: tuple[str, ...] = ("statement_line", "manual")
+PAYMENT_KINDS: tuple[str, ...] = ("statement_line", "manual", "ebi24")
 PAYMENT_MATCH_STATUSES: tuple[str, ...] = ("matched", "unmatched", "ignored")
 STATEMENT_FORMATS: tuple[str, ...] = ("mt940", "camt053")
 
@@ -147,6 +148,10 @@ CK_PAYMENT_IGNORED = (
     f"BETWEEN 1 AND {REASON_MAX_LENGTH}"
 )
 STATEMENT_LINE_WHERE = "kind = 'statement_line'"
+#: Zapłata z eBI24 (0685): jeden wiersz na dokument eBI24 — lustro jego stanu.
+EBI24_DOCUMENT_ID_MAX = 32
+CK_PAYMENT_EBI24 = "kind <> 'ebi24' OR ebi24_document_id IS NOT NULL"
+EBI24_WHERE = "kind = 'ebi24'"
 
 TABLE_DDL: tuple[str, ...] = (
     f"""CREATE TABLE IF NOT EXISTS client_sales_invoices (
@@ -254,7 +259,11 @@ BUYER_FOREIGN_ID_DDL = (
     "ALTER TABLE client_sales_invoices "
     "ADD COLUMN IF NOT EXISTS buyer_foreign_id VARCHAR(32) NULL"
 )
-COLUMN_DDL: tuple[str, ...] = (BUYER_FOREIGN_ID_DDL,)
+EBI24_DOCUMENT_ID_DDL = (
+    "ALTER TABLE client_sales_invoice_payments "
+    f"ADD COLUMN IF NOT EXISTS ebi24_document_id VARCHAR({EBI24_DOCUMENT_ID_MAX}) NULL"
+)
+COLUMN_DDL: tuple[str, ...] = (BUYER_FOREIGN_ID_DDL, EBI24_DOCUMENT_ID_DDL)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_sales_invoices_ksef_number "
@@ -285,6 +294,10 @@ INDEX_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_sales_invoice_payments_statement "
     "ON client_sales_invoice_payments (statement_sha256, statement_line_ref) "
     f"WHERE {STATEMENT_LINE_WHERE}",
+    # Zapłata z eBI24: jeden wiersz na dokument eBI24 (0685).
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_sales_invoice_payments_ebi24 "
+    "ON client_sales_invoice_payments (ebi24_document_id) "
+    f"WHERE {EBI24_WHERE}",
     "CREATE INDEX IF NOT EXISTS ix_client_sales_invoice_payments_invoice "
     "ON client_sales_invoice_payments (invoice_id)",
     "CREATE INDEX IF NOT EXISTS ix_client_sales_invoice_payments_match "
@@ -298,7 +311,21 @@ METHOD_CONSTRAINT_DDL: tuple[str, ...] = (
     "ALTER TABLE client_sales_invoices ADD CONSTRAINT "
     f"ck_client_sales_invoices_method CHECK ({CK_INVOICE_METHOD})",
 )
-CONSTRAINT_DDL: tuple[str, ...] = METHOD_CONSTRAINT_DDL
+#: Rodzaj ``ebi24`` (0685): zapłata odczytana z eBI24, decyzja Artura z 10.11.2026.
+PAYMENT_EBI24_CONSTRAINT_DDL: tuple[str, ...] = (
+    "ALTER TABLE client_sales_invoice_payments "
+    "DROP CONSTRAINT IF EXISTS ck_client_sales_invoice_payments_kind",
+    "ALTER TABLE client_sales_invoice_payments ADD CONSTRAINT "
+    f"ck_client_sales_invoice_payments_kind CHECK ({CK_PAYMENT_KIND})",
+    "ALTER TABLE client_sales_invoice_payments "
+    "DROP CONSTRAINT IF EXISTS ck_client_sales_invoice_payments_ebi24",
+    "ALTER TABLE client_sales_invoice_payments ADD CONSTRAINT "
+    f"ck_client_sales_invoice_payments_ebi24 CHECK ({CK_PAYMENT_EBI24})",
+)
+CONSTRAINT_DDL: tuple[str, ...] = (
+    *METHOD_CONSTRAINT_DDL,
+    *PAYMENT_EBI24_CONSTRAINT_DDL,
+)
 DATA_DDL: tuple[str, ...] = ()
 TABLES: tuple[str, ...] = (
     "client_sales_invoices",

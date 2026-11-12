@@ -453,7 +453,8 @@ async def credits_view(db: AsyncSession, *, today: date) -> list[dict[str, Any]]
     lines = await payments.unmatched_credits(db)
     if not lines:
         return []
-    chains = await ledger.open_chains(db, client_ids=None)
+    # Bez zapłat z eBI24: uznanie z wyciągu je zastępuje (``payments.own_to_pay``).
+    chains = await ledger.open_chains(db, client_ids=None, own=True)
     names = await clients.names(
         db, {c.head.client_id for c in chains if c.head.client_id}
     )
@@ -466,12 +467,12 @@ async def credits_view(db: AsyncSession, *, today: date) -> list[dict[str, Any]]
                 "client_name": names.get(chain.head.client_id)
                 if chain.head.client_id
                 else chain.head.buyer_name,
-                "to_pay": _amount(chain.to_pay),
+                "to_pay": _amount(chain.own_to_pay),
                 "currency": chain.head.currency,
             }
             for chain in chains
             if chain.head.currency == line.currency
-            and chain.to_pay == money(line.amount)
+            and chain.own_to_pay == money(line.amount)
         ][:5]
         out.append(
             {
