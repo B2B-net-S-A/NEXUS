@@ -1359,6 +1359,8 @@ try:
         *_sales_schema.CALLING_DDL,
         # 0683: wyniki „Nie zainteresowany” i „Zły numer / brak danych”.
         *_sales_schema.CALL_OUTCOMES_V2_DDL,
+        # 0684: zadania bota — rodzaje biegów, zlecenie biegu, wyniki do decyzji.
+        *_sales_schema.BOT_TASKS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001

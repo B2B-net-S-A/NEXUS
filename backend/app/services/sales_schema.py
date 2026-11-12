@@ -1009,3 +1009,83 @@ CALL_OUTCOMES_V2_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_call_records ADD CONSTRAINT ck_sales_call_records_state "
     f"CHECK (state IN ({quoted(_CALL_RECORD_STATES_0681)}))",
 )
+
+
+# ── 0684: zadania bota (decyzje Artura 12.11.2026) ───────────────────────
+#
+# Jeden kanał bota dla wielu zadań: rodzaj biegu mówi, co bot ma zrobić
+# (``services/sales/bot_tasks``). ``request`` to pola zlecenia, które rodzaj sam
+# wysyła botowi (każde z uzasadnieniem w module rodzaju), ``requested_by_user_id``
+# to osoba, która zleciła bieg z ekranu. Wyniki, o których decyduje handlowiec
+# (przyjmij, odrzuć), leżą w ``sales_bot_results``; odcisk chroni decyzję przed
+# kolejnym biegiem z tym samym wynikiem. Podmiana CHECK-ów tylko wtedy, gdy
+# definicja nie zna jeszcze nowych wartości, bo entrypoint biegnie przy każdym starcie.
+
+BOT_RUN_KINDS: tuple[str, ...] = (
+    *SIGNAL_RUN_KINDS,
+    "enrich",
+    "question",
+    "winback",
+    "discovery",
+    "people",
+)
+BOT_BRIEFING_MODES: tuple[str, ...] = (*BRIEFING_MODES, "call_hook", "meeting_prep")
+BOT_RESULT_STATUSES: tuple[str, ...] = ("new", "accepted", "rejected", "partial")
+CK_BOT_RUN_KIND = f"kind IN ({quoted(BOT_RUN_KINDS)})"
+CK_BOT_BRIEFING_MODE = f"mode IN ({quoted(BOT_BRIEFING_MODES)})"
+CK_BOT_RESULT_STATUS = f"status IN ({quoted(BOT_RESULT_STATUSES)})"
+
+BOT_TASKS_DDL: tuple[str, ...] = (
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_signal_runs_kind' "
+    "AND pg_get_constraintdef(oid) LIKE '%people%') THEN "
+    "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind; "
+    "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
+    f"CHECK ({CK_BOT_RUN_KIND}); END IF; END $$",
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_company_briefings_mode' "
+    "AND pg_get_constraintdef(oid) LIKE '%meeting_prep%') THEN "
+    "ALTER TABLE sales_company_briefings "
+    "DROP CONSTRAINT IF EXISTS ck_sales_company_briefings_mode; "
+    "ALTER TABLE sales_company_briefings ADD CONSTRAINT ck_sales_company_briefings_mode "
+    f"CHECK ({CK_BOT_BRIEFING_MODE}); END IF; END $$",
+    "ALTER TABLE sales_signal_runs ADD COLUMN IF NOT EXISTS "
+    "request JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE sales_signal_runs ADD COLUMN IF NOT EXISTS "
+    "requested_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    f"""CREATE TABLE IF NOT EXISTS sales_bot_results (
+    id SERIAL PRIMARY KEY,
+    run_id INTEGER NOT NULL REFERENCES sales_signal_runs(id) ON DELETE CASCADE,
+    kind VARCHAR(16) NOT NULL,
+    company_id INTEGER NULL REFERENCES sales_companies(id) ON DELETE CASCADE,
+    status VARCHAR(12) NOT NULL DEFAULT 'new',
+    payload JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+    fingerprint VARCHAR(200) NULL,
+    decided_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TIMESTAMPTZ NULL,
+    decision_reason VARCHAR(300) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_bot_results_fingerprint UNIQUE (fingerprint),
+    CONSTRAINT ck_sales_bot_results_status CHECK ({CK_BOT_RESULT_STATUS})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_bot_results_kind_status "
+    "ON sales_bot_results (kind, status, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_bot_results_company "
+    "ON sales_bot_results (company_id)",
+)
+
+BOT_TASKS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_bot_results",
+    "ALTER TABLE sales_signal_runs DROP COLUMN IF EXISTS requested_by_user_id",
+    "ALTER TABLE sales_signal_runs DROP COLUMN IF EXISTS request",
+    "DELETE FROM sales_company_briefings WHERE mode IN ('call_hook', 'meeting_prep')",
+    "ALTER TABLE sales_company_briefings "
+    "DROP CONSTRAINT IF EXISTS ck_sales_company_briefings_mode",
+    "ALTER TABLE sales_company_briefings ADD CONSTRAINT ck_sales_company_briefings_mode "
+    f"CHECK ({CK_BRIEFING_MODE})",
+    f"DELETE FROM sales_signal_runs WHERE kind NOT IN ({quoted(SIGNAL_RUN_KINDS)})",
+    "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind",
+    "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
+    f"CHECK ({CK_SIGNAL_RUN_KIND})",
+)

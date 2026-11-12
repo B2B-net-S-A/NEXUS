@@ -724,7 +724,8 @@ class SalesSignalRun(Base):
 
     __tablename__ = "sales_signal_runs"
     __table_args__ = (
-        CheckConstraint(schema.CK_SIGNAL_RUN_KIND, name="ck_sales_signal_runs_kind"),
+        # 0684: rodzaje zadań bota (``CK_BOT_RUN_KIND``), nadzbiór rodzajów z 0676.
+        CheckConstraint(schema.CK_BOT_RUN_KIND, name="ck_sales_signal_runs_kind"),
         CheckConstraint(
             schema.CK_SIGNAL_RUN_STATUS, name="ck_sales_signal_runs_status"
         ),
@@ -757,6 +758,13 @@ class SalesSignalRun(Base):
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
     error: Mapped[Optional[str]] = mapped_column(String(255))
+    #: Pola zlecenia, które rodzaj biegu sam wysyła botowi (0684, ``bot_tasks``).
+    request: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    requested_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -767,8 +775,9 @@ class SalesCompanyBriefing(Base):
 
     __tablename__ = "sales_company_briefings"
     __table_args__ = (
+        # 0684: także ``call_hook`` i ``meeting_prep`` (``CK_BOT_BRIEFING_MODE``).
         CheckConstraint(
-            schema.CK_BRIEFING_MODE, name="ck_sales_company_briefings_mode"
+            schema.CK_BOT_BRIEFING_MODE, name="ck_sales_company_briefings_mode"
         ),
     )
 
@@ -785,6 +794,52 @@ class SalesCompanyBriefing(Base):
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SalesBotResult(Base, TimestampMixin):
+    """Wynik zadania bota do decyzji handlowca: przyjmij albo odrzuć (0684).
+
+    ``payload`` to dane niezaufane z raportu bota, już po walidacji rodzaju.
+    Odcisk (``fingerprint``) ustala rodzaj; kolejny bieg z tym samym wynikiem
+    nie zmienia decyzji.
+    """
+
+    __tablename__ = "sales_bot_results"
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_sales_bot_results_fingerprint"),
+        CheckConstraint(
+            schema.CK_BOT_RESULT_STATUS, name="ck_sales_bot_results_status"
+        ),
+        Index(
+            "ix_sales_bot_results_kind_status",
+            "kind",
+            "status",
+            text("created_at DESC"),
+        ),
+        Index("ix_sales_bot_results_company", "company_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_signal_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    company_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("sales_companies.id", ondelete="CASCADE")
+    )
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="new", server_default="new"
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    fingerprint: Mapped[Optional[str]] = mapped_column(String(200))
+    decided_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: Powód odrzucenia wpisany przez handlowca; nie wraca do bota.
+    decision_reason: Mapped[Optional[str]] = mapped_column(String(300))
 
 
 class SalesCallCampaign(Base, TimestampMixin):

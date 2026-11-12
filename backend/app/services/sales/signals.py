@@ -198,6 +198,8 @@ def new_run(
     *,
     now: datetime,
     modes: Optional[dict[int, str]] = None,
+    request: Optional[dict[str, Any]] = None,
+    requested_by_user_id: Optional[int] = None,
 ) -> tuple[SalesSignalRun, str]:
     token = secrets.token_urlsafe(32)
     run = SalesSignalRun(
@@ -205,6 +207,8 @@ def new_run(
         status="started",
         company_ids=sorted(set(company_ids)),
         modes={str(k): v for k, v in (modes or {}).items()},
+        request=dict(request or {}),
+        requested_by_user_id=requested_by_user_id,
         token_hash=hash_token(token),
         token_expires_at=now + TOKEN_TTL,
         started_at=now,
@@ -527,9 +531,27 @@ def webhook_body(
     companies: list[SalesCompany],
     feedback: dict[str, Any],
 ) -> dict[str, Any]:
-    """Treść dla bota: tylko nazwy i domeny firm, bez osób, CV i kontaktów."""
+    """Treść dla bota: tylko nazwy i domeny firm, bez osób, CV i kontaktów.
 
+    v2 (0684) dokłada ``task`` i ``report_format`` z rejestru zadań oraz ``request``
+    biegu, czyli pola, które rodzaj sam wysyła botowi. Pola v1 zostają, bo rutyna
+    z poleceniem v1 dalej obsługuje ``signals`` i ``briefing``.
+    """
+
+    from app.services.sales import bot_tasks
+
+    task = bot_tasks.REGISTRY[run.kind]
     modes = run.modes or {}
+    firms = [
+        {
+            "ref": company.id,
+            "name": company.name,
+            "domain": company.domain or None,
+            **({"mode": modes[str(company.id)]} if str(company.id) in modes else {}),
+        }
+        for company in companies
+    ]
+    request = dict(run.request or {})
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run.id,
@@ -543,18 +565,13 @@ def webhook_body(
         "max_signals": MAX_SIGNALS,
         "max_points": MAX_POINTS,
         "signal_types": list(SIGNAL_TYPES),
-        "firms": [
-            {
-                "ref": company.id,
-                "name": company.name,
-                "domain": company.domain or None,
-                **(
-                    {"mode": modes[str(company.id)]} if str(company.id) in modes else {}
-                ),
-            }
-            for company in companies
-        ],
+        "firms": firms,
         **feedback,
+        "task": task.task_text(
+            run, bot_tasks.TaskContext(firms=tuple(firms), request=request)
+        ),
+        "report_format": task.report_format(),
+        "request": request,
     }
 
 
@@ -566,19 +583,50 @@ async def start_run(
     now: Optional[datetime] = None,
     modes: Optional[dict[int, str]] = None,
     client: Optional[httpx.AsyncClient] = None,
+    request: Optional[dict[str, Any]] = None,
+    requested_by_user_id: Optional[int] = None,
 ) -> Optional[SalesSignalRun]:
-    """Załóż bieg i wywołaj webhook bota. Bez firm albo konfiguracji: nic."""
+    """Załóż bieg i wywołaj webhook bota. Bez firm albo konfiguracji: nic.
 
+    Rodzaj spoza rejestru zadań i rodzaj inny niż ``signals``/``briefing`` przy
+    wyłączonym ``SALES_BOT_TASKS_ENABLED``: nic. ``request`` sprawdza model rodzaju
+    (``BotTask.request_model``); niedozwolone pola to ``ValueError``.
+    """
+
+    from app.services.sales import bot_tasks
+
+    task = bot_tasks.get(kind)
+    if task is None or not bot_tasks.allowed_to_start(kind):
+        # Logi są publiczne: rodzaj i liczba firm, bez nazw.
+        logger.info(
+            "sales_bot kind=%s refused (registered=%s flag=%s) firms=%d",
+            kind,
+            task is not None,
+            bot_tasks.enabled(),
+            len(company_ids),
+        )
+        return None
+    checked_request = task.validate_request(request)
     moment = now or datetime.now(timezone.utc)
     rows = await _companies(db, company_ids[:MAX_FIRMS])
-    if not rows or not configured():
+    if (task.needs_firms and not rows) or not configured():
         return None
-    run, token = new_run(kind, list(rows), now=moment, modes=modes)
+    run, token = new_run(
+        kind,
+        list(rows),
+        now=moment,
+        modes=modes,
+        request=checked_request,
+        requested_by_user_id=requested_by_user_id,
+    )
     db.add(run)
     await db.flush()
-    body = webhook_body(
-        run, token, [rows[cid] for cid in sorted(rows)], await _feedback(db, list(rows))
+    feedback = (
+        await _feedback(db, list(rows))
+        if task.lead_feedback
+        else {"rejected": [], "seen_urls": []}
     )
+    body = webhook_body(run, token, [rows[cid] for cid in sorted(rows)], feedback)
     await db.commit()
     run_id = run.id
     headers = {"Authorization": f"Bearer {settings.GROK_BOT_WEBHOOK_KEY}"}

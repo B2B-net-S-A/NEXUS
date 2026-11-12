@@ -13,6 +13,7 @@ from pathlib import Path
 
 from app.models.sales import (
     SalesActivity,
+    SalesBotResult,
     SalesCompany,
     SalesCompanyAlias,
     SalesCompanyContact,
@@ -46,6 +47,7 @@ MODELS = {
     "sales_targets": SalesTarget,
     "sales_meeting_transcripts": SalesMeetingTranscript,
     "sales_company_aliases": SalesCompanyAlias,
+    "sales_bot_results": SalesBotResult,
 }
 
 
@@ -73,6 +75,7 @@ def _ddl_for(table: str) -> str:
         *schema.TARGETS_DDL,
         *schema.TRANSCRIPTS_DDL,
         *schema.COMPANY_ALIASES_DDL,
+        *schema.BOT_TASKS_DDL,
     ):
         if f"CREATE TABLE IF NOT EXISTS {table} (" in ddl:
             return ddl
@@ -122,6 +125,11 @@ def test_migration_reads_the_shared_module() -> None:
     ).read_text(encoding="utf-8")
     assert "for stmt in schema.CLIENT_SUMMARY_DDL:" in client_summary
     assert "*_sales_schema.CLIENT_SUMMARY_DDL," in entry
+    bot_tasks = (ROOT / "alembic/versions/0684_sales_bot_tasks.py").read_text(
+        encoding="utf-8"
+    )
+    assert "for stmt in schema.BOT_TASKS_DDL:" in bot_tasks
+    assert "*_sales_schema.BOT_TASKS_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:
@@ -143,6 +151,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
         "sales_targets",
         "sales_meeting_transcripts",
         "sales_company_aliases",
+        "sales_bot_results",
     }
     for table, model in MODELS.items():
         ddl = _ddl_for(table)
@@ -166,6 +175,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
             *schema.HISTORY_DDL,
             *schema.TARGETS_DDL,
             *schema.TRANSCRIPTS_DDL,
+            *schema.BOT_TASKS_DDL,
         )
         if s.startswith(("CREATE INDEX", "CREATE UNIQUE INDEX"))
     )

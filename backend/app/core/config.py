@@ -1346,6 +1346,10 @@ class Settings(BaseSettings):
     GROK_BOT_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
+    # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):
+    # karta firmy, pytania, odzyskiwanie, nowe centra, mapy osób. OFF do udanej
+    # próby polecenia v2 rutyny bota; ``signals`` i ``briefing`` działają bez niej.
+    SALES_BOT_TASKS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
