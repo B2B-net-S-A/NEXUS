@@ -376,6 +376,8 @@ describe("cel wiersza", () => {
     expect(previewSummary(PREVIEW)).toBe("7 osób w 5 firmach · 6 pewnych, 1 do weryfikacji · 2 wiersze pominięte");
     expect(sourceFromFile("centra-it_lista.csv")).toBe("Lista z researchu: centra it lista");
     expect(sourceFromFile(".csv")).toBe("");
+    expect(sourceFromFile("dyrektorzy-it.csv", "Cognism")).toBe("Cognism: dyrektorzy it");
+    expect(sourceFromFile(".csv", "Cognism")).toBe("Cognism");
   });
 });
 

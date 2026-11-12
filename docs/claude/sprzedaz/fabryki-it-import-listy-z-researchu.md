@@ -29,7 +29,8 @@ front `frontend/src/components/sales/research-import/`, klient API
 
 ## Plik to dane niezaufane
 
-- CSV albo `.xlsx`, do 2 MB, 500 wierszy z danymi i 40 kolumn; arkusz sprawdzany przed
+- CSV albo `.xlsx`, do 2 MB i 500 wierszy z danymi; czytane jest pierwsze 150 kolumn
+  (nieznane się pomija, plik nie odpada), arkusz sprawdzany przed
   rozpakowaniem (rozmiar po rozpakowaniu, liczba plików w archiwum). Znaki sterujące
   i niewidoczne znaczniki kierunku tekstu są wycinane, komórka przycinana do limitu
   pola mapy, linki tylko http(s).
@@ -118,6 +119,32 @@ front `frontend/src/components/sales/research-import/`, klient API
   dokładaj klauzul, pytań o ich treść ani nowych ostrzeżeń prawnych na tych ekranach.
   Z tej samej decyzji z kolejki zniknął dopisek o zimnym kontakcie
   (`fabryki-it-lista-kont-i-kolejka.md`).
+
+## Eksport z Cognism (decyzja Artura 12.11.2026)
+
+- **Pełne mapy osób z danymi kontaktowymi z platformy Cognism.** NEXUS nie loguje się
+  do Cognism i niczego z niej nie pobiera: Artur eksportuje listę (CSV) sam i wgrywa ją
+  tutaj bez przeróbek. Ekran wgrywania mówi to jednym zdaniem.
+- **Nagłówki angielskie, bez wielkości liter i interpunkcji** (`_HEADERS`, `header_key`:
+  „E-mail” i „Email” to ta sama kolumna): First Name / Last Name / Full Name, Job Title,
+  Company Name, Company Website i Company Domain (domena nowej karty), Email,
+  Email Status / Email Confidence, Mobile Phone, Direct Phone / Direct Dial,
+  Person LinkedIn URL / LinkedIn URL. Pole z kilku kolumn bierze pierwszą niepustą
+  w kolejności z pliku.
+- **Telefon osoby: komórka, potem numer bezpośredni, potem kolumna ogólna.** Centrala
+  firmy („Company Phone”, „HQ Phone”) nie ma nagłówka i nie trafia do osoby. Tak samo
+  „Company LinkedIn URL” nie jest profilem osoby.
+- **Adres niezweryfikowany nie trafia na mapę.** Status adresu „Unverified”, „Invalid”,
+  „Catch-all”, „Risky”, „Unknown” i podobne (`research_file.email_unverified`): osoba
+  wchodzi bez e-maila, z ostrzeżeniem „e-mail niezweryfikowany w Cognism”. Domena firmy
+  z tego adresu zostaje. Status pusty albo „Verified” zostawia adres.
+- **Źródło „Cognism”.** Plik z co najmniej czterema typowymi kolumnami eksportu
+  (Seniority, Department, Company Phone, Company LinkedIn URL, Mobile Phone, Email
+  Status…) albo z „Cognism” w nagłówku to eksport z platformy: przegląd zwraca
+  `origin = "Cognism"`, a pole „Skąd lista” startuje od „Cognism: <nazwa pliku>”. Klucz
+  `source` we wpisie mapy zostaje „research”; zwykła lista działa jak wcześniej.
+- **Dopasowanie firmy się nie zmienia:** po nazwie i marce jak wyżej. Domena z pliku
+  trafia tylko na nową kartę; import dalej nie scala kart.
 
 Testy: `backend/tests/test_sales_research_file.py`,
 `backend/tests/test_sales_research_import.py`,

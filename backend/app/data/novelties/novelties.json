@@ -2470,5 +2470,21 @@
     "href": "/sales/offers",
     "dot_anchor": "sales.offers.bot-points",
     "requires_setting": "SALES_SIGNALS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-import-cognism",
+    "pr": 3329,
+    "title": "Lista z researchu przyjmuje eksport z Cognism",
+    "why": "Plik CSV wyeksportowany z Cognism wgrywasz bez przerabiania. Osoby trafiają na mapy z telefonem komórkowym albo bezpośrednim, a niezweryfikowany e-mail jest pomijany z ostrzeżeniem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Leady → Lista z researchu",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.research.cognism"
   }
 ]
