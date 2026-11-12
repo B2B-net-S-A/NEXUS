@@ -89,7 +89,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => searchParams,
 }));
-vi.mock("@/lib/url-selection", () => ({ useUrlWriter: () => vi.fn() }));
+vi.mock("@/lib/url-selection", () => ({ useUrlWriter: () => ({ replaceUrl: vi.fn() }) }));
 vi.mock("@/lib/permissions", async (original) => ({
   ...(await original<typeof import("@/lib/permissions")>()),
   hasPermission: () => true,
