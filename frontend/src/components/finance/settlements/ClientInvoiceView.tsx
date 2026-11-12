@@ -17,7 +17,7 @@ import {
   type ClientInvoiceRow,
 } from "@/lib/api/client-settlements";
 
-import { CLIENT_INVOICE, mdText, monthLabel, pctText, pln } from "./format";
+import { CLIENT_INVOICE, mdText, money, monthLabel, pctText, pln } from "./format";
 
 function plain(value: string | null): string {
   return value == null ? "" : value.replace(".", ",");
@@ -36,7 +36,7 @@ function PositionLine({ p }: { p: ClientInvoicePosition }) {
   return (
     <li className="break-words font-mono text-[11.5px] leading-[17px]">
       {p.name} · {mdText(p.quantity)} {p.unit}
-      {p.unit_price != null ? ` × ${pln(p.unit_price)} = ${pln(p.net)}` : ""}
+      {p.unit_price != null ? ` × ${money(p.unit_price, p.currency)} = ${money(p.net, p.currency)}` : ""}
     </li>
   );
 }
@@ -164,7 +164,7 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
                       <p className="mt-0.5 text-[11px] text-warning-muted-foreground">Bez poprzedniej faktury: nazwa zastępcza, sprawdź opis.</p>
                     ) : null}
                   </td>
-                  {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{pln(r.net)}</td> : null}
+                  {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{money(r.net, r.currency)}</td> : null}
                   {data.can_see_amounts ? (
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {pln(r.margin)}

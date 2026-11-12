@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useAcceptBatch, useEstimates, type EstimateRow } from "@/lib/api/client-settlements";
 
-import { STATUS, mdText, monthLabel, pln } from "./format";
+import { STATUS, mdText, money, monthLabel } from "./format";
 
 function planCell(r: EstimateRow) {
   if (r.over_pool) return <StatusDot tone="warning">Ponad pulę o {mdText(r.over_pool)} MD</StatusDot>;
@@ -114,8 +114,8 @@ export function EstimatesView({ clientId, month, canWrite, onOpen }: EstimatesVi
                 <td className="px-2 py-1.5 text-right tabular-nums">{mdText(r.remaining_after_previous)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{mdText(r.plan_md)}</td>
                 <td className="px-2 py-1.5">{planCell(r)}</td>
-                {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{pln(r.previous_invoice)}</td> : null}
-                {data.can_see_amounts ? <td className="px-3 py-1.5 text-right tabular-nums">{pln(r.plan_invoice)}</td> : null}
+                {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{money(r.previous_invoice, r.currency)}</td> : null}
+                {data.can_see_amounts ? <td className="px-3 py-1.5 text-right tabular-nums">{money(r.plan_invoice, r.currency)}</td> : null}
               </tr>
             ))}
           </tbody>

@@ -19,6 +19,7 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
 import { CLIENT_INVOICE, CONTRACTOR_INVOICE, FILTERS, STATUS, matchesFilter, mdText, monthLabel, pctText, pln } from "./format";
 
 interface SettlementMonthViewProps {
@@ -71,6 +72,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
   return (
     <div className="space-y-2.5">
       {confirmDialog}
+      <ClientDocumentsPanel clientId={clientId} month={month} />
       <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <button
