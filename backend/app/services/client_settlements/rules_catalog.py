@@ -327,7 +327,9 @@ SECTIONS: tuple[Section, ...] = (
                 "E6",
                 {"kind": "", "per": "", "from": ""},
                 (
-                    ParamField("kind", "rodzaj", "np. protokół, arkusz, potwierdzenie usług"),
+                    ParamField(
+                        "kind", "rodzaj", "np. protokół, arkusz, potwierdzenie usług"
+                    ),
                     ParamField("per", "na", "osoba / projekt / cały miesiąc"),
                     ParamField("from", "od miesiąca", "RRRR-MM"),
                 ),
