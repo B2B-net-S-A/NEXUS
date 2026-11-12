@@ -112,6 +112,7 @@ function StepFields({
         type="date"
         className="h-8 w-36 text-xs"
         aria-label="Własna data"
+        data-tour="sales.myday.custom-date"
         value={date ?? ""}
         min={plusDays(0)}
         onChange={(event) => onDate(event.target.value || null)}
