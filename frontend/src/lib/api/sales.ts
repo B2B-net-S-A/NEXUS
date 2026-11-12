@@ -528,6 +528,8 @@ export interface ActivityInput {
   occurred_at?: string | null;
   priority?: "low" | "medium" | "high" | null;
   done?: boolean;
+  /** Jawne przypisanie zadania (np. powrót do firmy u opiekuna leada). */
+  assignee_user_id?: number | null;
 }
 
 export type TaskBucket = "open" | "overdue" | "today" | "done";
@@ -1582,6 +1584,9 @@ export interface Lead {
   dismissed_reason: string | null;
   created_at: string;
   payload: Record<string, unknown>;
+  /** Osoba przypisana i czy pracuje w Sprzedaży (aktywna, z uprawnieniem Sprzedaży). */
+  assignee?: Ref | null;
+  assignee_in_sales?: boolean;
 }
 
 export interface LeadList {
@@ -1590,6 +1595,8 @@ export interface LeadList {
   counts: Record<LeadStatus, number>;
   /** Kanał sygnałów z bota researchu włączony (flaga po stronie serwera). */
   signals_enabled?: boolean;
+  /** Zadania bota poza sygnałami („Warto wrócić”, „Nowe centra IT”), `SALES_BOT_TASKS_ENABLED`. */
+  bot_tasks_enabled?: boolean;
 }
 
 export interface LeadFilters {
@@ -1600,6 +1607,8 @@ export interface LeadFilters {
   /** Wszystkie statusy naraz (skrzynka sygnałów grupuje sama); `status` wtedy nie filtruje. */
   all_statuses?: boolean;
   limit?: number;
+  /** Pochodzenie leada z bota (`payload.origin`): `grok` sygnały, `winback` „Warto wrócić”. */
+  origin?: "grok" | "winback";
 }
 
 export function useLeads(filters: LeadFilters, enabled = true) {
@@ -1678,9 +1687,11 @@ export interface SignalRunReport {
   };
 }
 
+export type SignalRunKind = "signals" | "briefing" | "winback" | "discovery";
+
 export interface SignalRun {
   id: number;
-  kind: "signals" | "briefing";
+  kind: SignalRunKind;
   status: "started" | "received" | "expired" | "failed";
   started_at: string;
   received_at: string | null;
@@ -1695,7 +1706,7 @@ export interface LatestSignalRun {
   run: SignalRun | null;
 }
 
-export function useLatestSignalRun(kind: "signals" | "briefing" = "signals", enabled = true) {
+export function useLatestSignalRun(kind: SignalRunKind = "signals", enabled = true) {
   return useQuery({
     queryKey: ["sales", "signals", "latest-run", kind] as const,
     queryFn: async () =>
@@ -1753,6 +1764,15 @@ export function useUpdateLead() {
           dismissed_reason: input.dismissed_reason,
         })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** „Przejmij”: lead bez osoby w Sprzedaży przechodzi na zalogowaną osobę (409, gdy ma). */
+export function useTakeOverLead() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (id: number) => (await api.post<Lead>(`/api/sales/leads/${id}/take-over`, {})).data,
     onSuccess: invalidate,
   });
 }

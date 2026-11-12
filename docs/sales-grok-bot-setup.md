@@ -171,3 +171,6 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    Od tej chwili startują rodzaje dodawane kolejnymi PR-ami; każdy przed
    pokazaniem ludziom przechodzi próbę skryptem z `--kind <rodzaj>`
    (i `--request '{…}'`, gdy rodzaj ma pola zlecenia).
+   „Warto wrócić”: `--kind winback --company-ids <id firm z przegraną>`;
+   „Nowe centra IT”: `--kind discovery` (bez firm). Oba potem same raz w miesiącu,
+   w pierwszy poniedziałek od 7:00.

@@ -3,7 +3,10 @@
 Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od 7:00
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
-przed krokiem). Wyłącznik ``SALES_SIGNALS_ENABLED``, bez adresu bota pętla stoi.
+przed krokiem). W pierwszy poniedziałek miesiąca od 7:00 (albo przy pierwszym
+obrocie po nim) startuje „Warto wrócić” i „Nowe centra IT”, tylko przy włączonym
+``SALES_BOT_TASKS_ENABLED``. Wyłącznik ``SALES_SIGNALS_ENABLED``, bez adresu bota
+pętla stoi.
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -20,8 +23,8 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
+from app.services.sales import bot_tasks, signals
 from app.services.sales import signal_targets as targets
-from app.services.sales import signals
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,8 @@ BRIEFING_EVERY = timedelta(hours=1)
 RETRY_FAILED_AFTER = timedelta(hours=1)
 SIGNALS_HOUR = 7
 REFRESH_HOUR, REFRESH_MINUTE = 7, 30
+#: Rodzaje miesięczne (decyzja Artura 12.11.2026): pierwszy poniedziałek od 7:00.
+MONTHLY_KINDS: tuple[str, ...] = ("winback", "discovery")
 
 
 async def _last_start(db: AsyncSession, kind: str, *, now: datetime) -> datetime | None:
@@ -57,11 +62,25 @@ def _monday_start(local: datetime) -> datetime:
     return monday.astimezone(timezone.utc)
 
 
+def first_monday_start(local: datetime) -> datetime:
+    """Pierwszy poniedziałek miesiąca chwili ``local``, godz. 7:00 czasu firmy."""
+
+    first = local.replace(day=1, hour=SIGNALS_HOUR, minute=0, second=0, microsecond=0)
+    return first + timedelta(days=(7 - first.weekday()) % 7)
+
+
+async def _monthly_ids(db: AsyncSession, kind: str, *, now: datetime) -> list[int]:
+    if kind == "winback":
+        return await targets.winback_company_ids(db, now=now)
+    return []
+
+
 async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str, int]:
     done = {
         "expired": await signals.expire_runs(db, now=now),
         "signals": 0,
         "briefing": 0,
+        **{kind: 0 for kind in MONTHLY_KINDS},
     }
     is_monday = local.weekday() == 0
     if is_monday and local.hour >= SIGNALS_HOUR:
@@ -70,6 +89,19 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
             ids = await targets.pilot_company_ids(db)
             if ids and _started(await signals.start_run(db, "signals", ids, now=now)):
                 done["signals"] = len(ids)
+
+    due = first_monday_start(local)
+    if bot_tasks.enabled() and local >= due:
+        for kind in MONTHLY_KINDS:
+            last = await _last_start(db, kind, now=now)
+            if last is not None and last >= due.astimezone(timezone.utc):
+                continue
+            ids = await _monthly_ids(db, kind, now=now)
+            if bot_tasks.REGISTRY[kind].needs_firms and not ids:
+                continue
+            if _started(await signals.start_run(db, kind, ids, now=now)):
+                # Bieg bez listy firm liczy się jako jeden.
+                done[kind] = len(ids) or 1
 
     last = await _last_start(db, "briefing", now=now)
     if last is None or last <= now - BRIEFING_EVERY:
@@ -103,10 +135,13 @@ async def sales_signals_loop() -> None:
                 done = await tick(db, now=datetime.now(timezone.utc), local=local_now())
             if any(done.values()):
                 logger.info(
-                    "sales_signals tick expired=%d signals=%d briefing=%d",
+                    "sales_signals tick expired=%d signals=%d briefing=%d "
+                    "winback=%d discovery=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
+                    done["winback"],
+                    done["discovery"],
                 )
         except asyncio.CancelledError:
             raise

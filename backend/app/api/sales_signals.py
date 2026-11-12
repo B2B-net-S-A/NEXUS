@@ -1,7 +1,8 @@
 """Sprzedaż: odczyt kanału sygnałów (raport ostatniego biegu, punkty do rozmowy).
 
 Prefiks ``/api/sales/signals``, „Sprzedaż: podgląd”. Z wyłączoną flagą
-``SALES_SIGNALS_ENABLED`` odpowiedzi mówią ``enabled: false`` i ekran nic nie pokazuje.
+``SALES_SIGNALS_ENABLED`` odpowiedzi mówią ``enabled: false`` i ekran nic nie pokazuje;
+raport „Warto wrócić” i „Nowe centra IT” zależy od ``SALES_BOT_TASKS_ENABLED``.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.sales_gates import SalesViewUser
 from app.core.database import get_db
 from app.models.sales import SalesCompanyBriefing, SalesSignalRun
-from app.services.sales import signals
+from app.services.sales import bot_tasks, signals
 
 router = APIRouter()
 
@@ -54,9 +55,13 @@ class CompanyBriefingOut(BaseModel):
 async def latest_run(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
-    kind: Literal["signals", "briefing"] = Query(default="signals"),
+    kind: Literal["signals", "briefing", "winback", "discovery"] = Query(
+        default="signals"
+    ),
 ) -> LatestRunOut:
-    if not signals.enabled():
+    # „Warto wrócić” i „Nowe centra IT” to zadania bota: ich własna flaga.
+    on = signals.enabled() if kind in bot_tasks.LEGACY_KINDS else bot_tasks.enabled()
+    if not on:
         return LatestRunOut(enabled=False, reject_reasons=[], run=None)
     run = (
         await db.execute(

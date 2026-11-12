@@ -30,6 +30,8 @@ import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { NewFirmsInbox } from "./bot-modes/NewFirmsInbox";
+import { WinBackInbox } from "./bot-modes/WinBackInbox";
 import { safeHref } from "./format";
 import { ResearchImport } from "./research-import/ResearchImport";
 import { SignalsInbox } from "./signals/SignalsInbox";
@@ -197,11 +199,12 @@ function LeadPayloadLine({ payload }: { payload: Record<string, unknown> | undef
   return <p className="text-xs text-muted-foreground">{parts.join(" — ")}</p>;
 }
 
-type LeadsMode = "signals" | "leads" | "research";
+type LeadsMode = "signals" | "winback" | "new-firms" | "leads" | "research";
 
 /**
  * Przy włączonym kanale sygnałów Leady otwierają się na skrzynce sygnałów (G1).
- * „Lista z researchu” (import osób do map Fabryk IT) jest dla kont z edycją Sprzedaży.
+ * „Warto wrócić” (G-E) i „Nowe centra IT” (G-D) są widoczne przy włączonych zadaniach
+ * bota. „Lista z researchu” (import osób do map Fabryk IT) jest dla kont z edycją Sprzedaży.
  */
 export function LeadsView() {
   const user = useAuthStore((s) => s.user);
@@ -209,8 +212,15 @@ export function LeadsView() {
   const [picked, setPicked] = useState<LeadsMode | null>(null);
   const probe = useLeads({ status: "new", limit: 1 });
   const signalsOn = probe.data?.signals_enabled === true;
-  const options: { value: LeadsMode; label: string }[] = [
+  const botTasksOn = probe.data?.bot_tasks_enabled === true;
+  const options: { value: LeadsMode; label: ReactNode }[] = [
     ...(signalsOn ? [{ value: "signals" as const, label: "Sygnały bota" }] : []),
+    ...(botTasksOn
+      ? [
+          { value: "winback" as const, label: <span data-tour="sales.leads.mode.winback">Warto wrócić</span> },
+          { value: "new-firms" as const, label: <span data-tour="sales.leads.mode.new-firms">Nowe centra IT</span> },
+        ]
+      : []),
     { value: "leads", label: "Wszystkie leady" },
     ...(canEdit ? [{ value: "research" as const, label: "Lista z researchu" }] : []),
   ];
@@ -222,11 +232,19 @@ export function LeadsView() {
         <SegmentedRadio size="sm" label="Widok leadów" options={options} value={mode} onChange={setPicked} />
       </div>
     ) : null;
-  if (mode === "signals" || mode === "research") {
+  if (mode !== "leads") {
     return (
       <div className="space-y-3">
         {switcher}
-        {mode === "signals" ? <SignalsInbox /> : <ResearchImport />}
+        {mode === "signals" ? (
+          <SignalsInbox />
+        ) : mode === "winback" ? (
+          <WinBackInbox />
+        ) : mode === "new-firms" ? (
+          <NewFirmsInbox />
+        ) : (
+          <ResearchImport />
+        )}
       </div>
     );
   }

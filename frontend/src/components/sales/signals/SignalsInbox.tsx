@@ -102,7 +102,8 @@ export function SignalsInbox() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [report, setReport] = useState(false);
   const latest = useLatestSignalRun("signals");
-  const query = useLeads({ status: "new", source: "research", all_statuses: true, limit: 500 });
+  // Tylko sygnały: leady „Warto wrócić” mają własny widok.
+  const query = useLeads({ status: "new", source: "research", origin: "grok", all_statuses: true, limit: 500 });
   const groups = useMemo(() => groupSignals(query.data?.items ?? []), [query.data]);
   const allLoaded = query.isSuccess;
 
