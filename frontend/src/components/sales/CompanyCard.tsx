@@ -37,6 +37,7 @@ import { LinkClientDialog } from "./LinkClientDialog";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { SignalStrip } from "./signals/SignalStrip";
+import { BotPeopleAction } from "./bot-people/BotPeopleAction";
 import { TalkingPoints } from "./signals/TalkingPoints";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 
@@ -247,6 +248,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <Button size="sm" onClick={() => setCreating(true)} disabled={Boolean(data.archived_at)}>
               Szansa
             </Button>
+            {!data.archived_at && <BotPeopleAction companyId={data.id} canEdit={canEdit} />}
           </div>
         ) : null
       }

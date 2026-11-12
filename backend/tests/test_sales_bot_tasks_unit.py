@@ -60,7 +60,8 @@ def test_registry_kinds_are_known_to_the_database_check() -> None:
     assert {"signals", "briefing"} <= set(bot_tasks.REGISTRY)
     assert bot_tasks.LEGACY_KINDS == set(schema.SIGNAL_RUN_KINDS)
     for task in bot_tasks.REGISTRY.values():
-        assert task.report_model is signals.RunReport
+        if task.kind in bot_tasks.LEGACY_KINDS:
+            assert task.report_model is signals.RunReport
         assert task.task_text(signals.new_run(task.kind, [1], now=NOW)[0], _ctx())
 
 
@@ -85,10 +86,10 @@ def test_unknown_kind_and_new_kinds_without_flag_do_not_start(monkeypatch) -> No
     assert bot_tasks.allowed_to_start("signals")
     assert bot_tasks.allowed_to_start("briefing")
     assert not bot_tasks.allowed_to_start("enrich")
-    assert not bot_tasks.allowed_to_start("people")  # spoza rejestru
+    assert not bot_tasks.allowed_to_start("question")  # spoza rejestru
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
     assert bot_tasks.allowed_to_start("enrich")
-    assert not bot_tasks.allowed_to_start("people")
+    assert not bot_tasks.allowed_to_start("question")
 
 
 @pytest.mark.asyncio
@@ -98,7 +99,7 @@ async def test_start_run_refuses_before_touching_the_database(
 ) -> None:
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", flag)
     # ``db=None``: odmowa musi zapaść przed pierwszym zapytaniem.
-    assert await signals.start_run(None, "people", [1], now=NOW) is None
+    assert await signals.start_run(None, "question", [1], now=NOW) is None
     if not flag:
         monkeypatch.setitem(bot_tasks.REGISTRY, "enrich", FAKE)
         assert await signals.start_run(None, "enrich", [1], now=NOW) is None

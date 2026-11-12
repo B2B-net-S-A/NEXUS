@@ -164,6 +164,8 @@ class Person:
     note: Optional[str] = None
     #: ``None``: jedyna karta o tej nazwie albo nowa karta, gdy żadnej nie ma.
     company_id: Optional[int] = None
+    #: Data publikacji źródła (RRRR-MM-DD); podaje ją bot przy osobie (``people``).
+    source_published: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -499,6 +501,8 @@ def _entry(person: Person, *, source_label: str, today: date) -> dict[str, Any]:
     )
     if person.source_url:
         entry["source_url"] = person.source_url
+    if person.source_published:
+        entry["source_published_at"] = person.source_published
     return entry
 
 

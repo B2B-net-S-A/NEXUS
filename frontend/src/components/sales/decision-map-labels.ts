@@ -9,11 +9,14 @@ export const DECISION_LEVELS = ["Zarząd / C-level", "Dyrektorzy", "Kierownicy",
  * Skąd pochodzi wpis i od kiedy jest na mapie: tylko dla osoby z importu listy.
  * Wpisy z Atlasa i dodane ręcznie nie niosą źródła, więc nic nie pokazują.
  */
-export function sourceLine(entry: Pick<DecisionMapEntry, "source_label" | "source_added_at" | "source_confidence">): string | null {
+export function sourceLine(
+  entry: Pick<DecisionMapEntry, "source_label" | "source_added_at" | "source_confidence" | "source_published_at">,
+): string | null {
   const label = entry.source_label?.trim();
   if (!label) return null;
   return [
     `źródło: ${label}`,
+    entry.source_published_at ? `opublikowane ${formatIsoDatePl(entry.source_published_at)}` : null,
     entry.source_added_at ? `na mapie od ${formatIsoDatePl(entry.source_added_at)}` : null,
     entry.source_confidence === "to_verify" ? "do weryfikacji" : null,
   ]

@@ -171,3 +171,8 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    Od tej chwili startują rodzaje dodawane kolejnymi PR-ami; każdy przed
    pokazaniem ludziom przechodzi próbę skryptem z `--kind <rodzaj>`
    (i `--request '{…}'`, gdy rodzaj ma pola zlecenia).
+5. Mapy decydentów (`people`, `docs/claude/sprzedaz/mapy-decydentow-od-bota.md`):
+   `python -m scripts.sales_signals_run --kind people --company-ids <id firmy z kontem w Fabrykach IT>`.
+   Bieg ma przejść na `received`, a wynik pojawić się w Leady → „Lista z researchu”
+   → „Osoby od bota”. Sprawdź przy kilku osobach, że link źródła otwiera stronę
+   z tą osobą, a e-mail i telefon (jeśli są) stoją na stronie z ich linku.

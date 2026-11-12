@@ -2437,5 +2437,39 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "sprzedaz-bot-znajdz-decydentow",
+    "pr": 0,
+    "title": "Znajdź decydentów (bot)",
+    "why": "Bot szuka osób decyzyjnych firmy na jej publicznych stronach. Przy osobie jest link do źródła, a e-mail i telefon tylko, gdy były na stronie. Jeden bieg na firmę na dobę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Szanse → Fabryki IT → konto → Mapa decyzyjna (także karta firmy)",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.bot-people.find",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-bot-osoby-do-przegladu",
+    "pr": 0,
+    "title": "Osoby od bota czekają na przegląd",
+    "why": "Osoby od bota przeglądasz jak listę z pliku: nic nie trafia na mapę bez Twojej akceptacji, a przy osobie zostaje źródło i data. Konto z wynikiem ma plakietkę „Osoby od bota”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Leady → Lista z researchu → Osoby od bota",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.bot-people.list",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
   }
 ]

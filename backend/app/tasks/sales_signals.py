@@ -3,7 +3,8 @@
 Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od 7:00
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
-przed krokiem). Wyłącznik ``SALES_SIGNALS_ENABLED``, bez adresu bota pętla stoi.
+przed krokiem). W poniedziałek od 8:00, przy włączonym ``SALES_BOT_TASKS_ENABLED``,
+także mapy decydentów kont Fabryk IT z mapą poniżej 3 osób (rodzaj ``people``). Wyłącznik ``SALES_SIGNALS_ENABLED``, bez adresu bota pętla stoi.
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -20,8 +21,10 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
+from app.services.sales import bot_tasks
 from app.services.sales import signal_targets as targets
 from app.services.sales import signals
+from app.services.sales.bot_tasks import people
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,8 @@ TICK_SECONDS = 15 * 60
 BRIEFING_EVERY = timedelta(hours=1)
 RETRY_FAILED_AFTER = timedelta(hours=1)
 SIGNALS_HOUR = 7
+#: Mapy decydentów po sygnałach, żeby dwa duże biegi nie startowały w jednym ticku.
+PEOPLE_HOUR = 8
 REFRESH_HOUR, REFRESH_MINUTE = 7, 30
 
 
@@ -38,6 +43,21 @@ async def _last_start(db: AsyncSession, kind: str, *, now: datetime) -> datetime
     return await db.scalar(
         select(func.max(SalesSignalRun.started_at)).where(
             SalesSignalRun.kind == kind,
+            or_(
+                SalesSignalRun.status != "failed",
+                SalesSignalRun.started_at >= now - RETRY_FAILED_AFTER,
+            ),
+        )
+    )
+
+
+async def _last_weekly_people(db: AsyncSession, *, now: datetime) -> datetime | None:
+    """Ostatni tygodniowy bieg map osób; bieg z przycisku ma zlecającego i się nie liczy."""
+
+    return await db.scalar(
+        select(func.max(SalesSignalRun.started_at)).where(
+            SalesSignalRun.kind == "people",
+            SalesSignalRun.requested_by_user_id.is_(None),
             or_(
                 SalesSignalRun.status != "failed",
                 SalesSignalRun.started_at >= now - RETRY_FAILED_AFTER,
@@ -62,6 +82,7 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
         "expired": await signals.expire_runs(db, now=now),
         "signals": 0,
         "briefing": 0,
+        "people": 0,
     }
     is_monday = local.weekday() == 0
     if is_monday and local.hour >= SIGNALS_HOUR:
@@ -70,6 +91,16 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
             ids = await targets.pilot_company_ids(db)
             if ids and _started(await signals.start_run(db, "signals", ids, now=now)):
                 done["signals"] = len(ids)
+
+    # Mapy decydentów: konta Fabryk IT z mapą poniżej 3 osób, tylko z flagą zadań.
+    if is_monday and local.hour >= PEOPLE_HOUR and bot_tasks.enabled():
+        last = await _last_weekly_people(db, now=now)
+        if last is None or last < _monday_start(local):
+            ids = await targets.people_company_ids(
+                db, now=now, limit=people.MAX_WEEKLY_FIRMS
+            )
+            if ids and _started(await signals.start_run(db, "people", ids, now=now)):
+                done["people"] = len(ids)
 
     last = await _last_start(db, "briefing", now=now)
     if last is None or last <= now - BRIEFING_EVERY:
@@ -103,10 +134,11 @@ async def sales_signals_loop() -> None:
                 done = await tick(db, now=datetime.now(timezone.utc), local=local_now())
             if any(done.values()):
                 logger.info(
-                    "sales_signals tick expired=%d signals=%d briefing=%d",
+                    "sales_signals tick expired=%d signals=%d briefing=%d people=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
+                    done["people"],
                 )
         except asyncio.CancelledError:
             raise

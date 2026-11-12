@@ -326,6 +326,16 @@ async def preview_research_list(
 
     listing = await _read_list(file)
     plan = await research_import.plan(db, listing.rows)
+    return await preview_out(db, plan, listing.skipped)
+
+
+async def preview_out(
+    db: AsyncSession,
+    plan: research_import.Plan,
+    skipped: list[Any],
+) -> ResearchPreviewOut:
+    """Przegląd z planu i licznikami „Znamy teraz”; też dla osób od bota."""
+
     # Skan idzie na końcu: po przekroczonym limicie czasu transakcja jest cofana.
     known = await _known(db, _scan_ids(plan.companies))
     counts = known.counts if known is not None else {}
@@ -389,8 +399,7 @@ async def preview_research_list(
             for item in plan.rows
         ],
         skipped=[
-            ResearchSkippedOut(line=row.line, reason=row.reason)
-            for row in listing.skipped
+            ResearchSkippedOut(line=row.line, reason=row.reason) for row in skipped
         ],
         known_failed=known is None,
         known_truncated=bool(known and known.truncated),

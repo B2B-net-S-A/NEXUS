@@ -11,6 +11,7 @@ import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 
 import type { AtlasMotion, DecisionMapEntry } from "@/lib/api/sales";
 
+import { BotPeopleAction } from "./bot-people/BotPeopleAction";
 import { CONTACT_STATUS, DECISION_LEVELS, OUR_ROLE_LABELS, sourceLine } from "./decision-map-labels";
 import { DecisionPersonDialog } from "./DecisionPersonDialog";
 import { safeHref } from "./format";
@@ -154,6 +155,8 @@ interface SalesMotionPanelProps {
   /** Lejek Fabryki IT: panel pokazuje się też bez danych z Atlasa i pozwala dodać osobę. */
   mapEnabled?: boolean;
   canEdit?: boolean;
+  /** Firma konta: „Znajdź decydentów (bot)” w lejku Fabryki IT. */
+  companyId?: number;
   /** Kolejka z paska kroku: osoby wskazane idą na górę. */
   queue?: readonly DecisionMapEntry[];
   onCall?: (entry: DecisionMapEntry) => void;
@@ -168,6 +171,7 @@ export function SalesMotionPanel({
   motion,
   mapEnabled = false,
   canEdit = false,
+  companyId,
   queue = [],
   onCall,
 }: SalesMotionPanelProps) {
@@ -214,6 +218,9 @@ export function SalesMotionPanel({
           </Button>
         )}
       </div>
+      {mapEnabled && companyId !== undefined && (
+        <BotPeopleAction companyId={companyId} canEdit={canEdit} className="mt-2" />
+      )}
       {mapEnabled && map.length === 0 && <p className="mt-1 text-sm text-muted-foreground">Na mapie nie ma jeszcze nikogo.</p>}
       {people.length > 0 && (
         <ul className="mt-1 divide-y divide-border">
