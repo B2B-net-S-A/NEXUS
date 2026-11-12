@@ -157,13 +157,13 @@ describe("RejectionV2 — osoba od systemu", () => {
 
   it("powód bez odpowiednika idzie jako „Inne” z nazwą w opisie", () => {
     const onConfirm = renderWith({ rateKnown: false, several: false });
-    fireEvent.click(screen.getByText("Język"));
+    fireEvent.click(screen.getByText("Angielski za słaby"));
     fireEvent.click(screen.getByText("Z rozmowy z osobą"));
-    fireEvent.change(screen.getByPlaceholderText(/lepszą ofertę/), { target: { value: "Słaby angielski" } });
+    fireEvent.change(screen.getByPlaceholderText(/lepszą ofertę/), { target: { value: "B1, klient chce C1" } });
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
     expect(args[0]).toBe("9");
-    expect(args[1]).toBe("Język. Słaby angielski");
+    expect(args[1]).toBe("Angielski za słaby. B1, klient chce C1");
   });
 
   it("„Za droga” z rozmowy niesie stawkę i mówi, do którego kosza trafi", () => {

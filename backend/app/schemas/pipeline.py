@@ -101,6 +101,9 @@ class StageMove(BaseModel):
             "overqualified",
             "wrong_phone",
             "client_other_vendor",
+            "no_polish",
+            "weak_english",
+            "contract_form",
             "other",
         ]
     ] = None
@@ -114,6 +117,9 @@ class StageMove(BaseModel):
     # i „Dostępny od” = ta data, system zdejmuje nietknięte karty osoby od
     # systemu z innych rekrutacji i nie podsuwa jej do tej daty.
     autofill_not_looking_until: Optional[date] = None
+    # 12.11.2026 (0686): braki przy pozycjach przy „Brak umiejętności”:
+    # [{label, kind: missing|mention|too_few_years}], najwyżej 10.
+    autofill_gaps: Optional[list[dict]] = Field(None, max_length=30)
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad

@@ -25,9 +25,28 @@ export type AutofillReason =
   | "client_employed"
   | "client_refused"
   | "client_other_vendor"
+  | "no_polish"
+  | "weak_english"
+  | "contract_form"
   | "other";
 
 export type AutofillLearnedFrom = "profile" | "call";
+
+/**
+ * Brak przy pozycji wymagania (12.11.2026, 0686): przy „Brak umiejętności”
+ * rekruter klika przy pozycji, zamiast pisać. Z tych braków reguła rekrutacji
+ * uczy się, czego wymagać w kolejnej porcji.
+ */
+export type AutofillGapKind = "missing" | "mention" | "too_few_years";
+export interface AutofillGap {
+  label: string;
+  kind: AutofillGapKind;
+}
+export const GAP_KIND_LABEL: Record<AutofillGapKind, string> = {
+  missing: "brak",
+  mention: "tylko wzmianka",
+  too_few_years: "za mało lat",
+};
 
 export interface AutofillFeedbackChoice {
   reason: AutofillReason;
@@ -46,6 +65,8 @@ export interface AutofillFeedbackChoice {
    * systemu z innych rekrutacji i nie podsuwa jej do tej daty.
    */
   notLookingUntil?: string | null;
+  /** Braki przy pozycjach — tylko przy „Brak umiejętności”. */
+  gaps?: AutofillGap[];
 }
 
 /** Powody, przy których okno pyta „na cały klient” (lustro `CLIENT_WIDE_REASONS`). */
@@ -67,7 +88,8 @@ export const AUTOFILL_REASON_GROUPS: {
       { value: "overqualified", label: "Za wysoki poziom (overqualified)" },
       { value: "other_level_or_role", label: "Inny poziom lub inna rola" },
       { value: "location_mode", label: "Lokalizacja lub tryb pracy" },
-      { value: "language", label: "Język" },
+      { value: "no_polish", label: "Brak polskiego" },
+      { value: "weak_english", label: "Angielski za słaby" },
     ],
   },
   {
@@ -88,6 +110,7 @@ export const AUTOFILL_REASON_GROUPS: {
       { value: "client_employed", label: "Pracuje u tego klienta (też przez inną firmę)" },
       { value: "client_refused", label: "Nie chce do tego klienta" },
       { value: "client_other_vendor", label: "Zgłoszony do klienta przez inną firmę" },
+      { value: "contract_form", label: "Forma umowy (UoP / B2B)" },
       { value: "other", label: "Inne — opisz" },
     ],
   },
@@ -118,6 +141,9 @@ export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   client_employed: "client_conflict",
   client_refused: "client_conflict",
   client_other_vendor: "client_conflict",
+  no_polish: null,
+  weak_english: null,
+  contract_form: null,
   other: null,
 };
 
@@ -142,7 +168,17 @@ export function autofillReasonLabel(reason: AutofillReason): string {
     const found = group.reasons.find((r) => r.value === reason);
     if (found) return found.label;
   }
+  // „Język” zastąpiły 12.11.2026 „Brak polskiego” i „Angielski za słaby”;
+  // stare wpisy dalej mają tę nazwę.
+  if (reason === "language") return "Język";
   return reason;
+}
+
+/** „Brak: bigquery (tylko wzmianka), sql” — opis do historii procesu. */
+export function gapsNote(gaps: readonly AutofillGap[], extra = ""): string {
+  const parts = gaps.map((g) => (g.kind === "missing" ? g.label : `${g.label} (${GAP_KIND_LABEL[g.kind]})`));
+  const text = [parts.join(", "), extra.trim()].filter(Boolean).join("; ");
+  return text ? `Brak: ${text}` : "";
 }
 
 /** Powód z listy rekrutacji dla powodu dla systemu; bez odpowiednika — „Inne”. */
@@ -175,6 +211,7 @@ export function autofillMoveFields(choice: AutofillFeedbackChoice | null | undef
   autofill_rate_hourly?: number;
   autofill_whole_client?: boolean;
   autofill_not_looking_until?: string;
+  autofill_gaps?: AutofillGap[];
 } {
   if (!choice) return {};
   return {
@@ -185,6 +222,8 @@ export function autofillMoveFields(choice: AutofillFeedbackChoice | null | undef
       choice.wholeClient && CLIENT_WIDE_REASONS.has(choice.reason) ? true : undefined,
     autofill_not_looking_until:
       choice.reason === "not_looking" && choice.notLookingUntil ? choice.notLookingUntil : undefined,
+    autofill_gaps:
+      choice.reason === "missing_skill" && choice.gaps && choice.gaps.length > 0 ? choice.gaps : undefined,
   };
 }
 
@@ -212,7 +251,8 @@ export function autofillBucketHint(reason: AutofillReason | null, rateKnown: boo
     reason === "not_looking" ||
     reason === "no_answer" ||
     reason === "in_other_process" ||
-    reason === "client_refused"
+    reason === "client_refused" ||
+    reason === "contract_form"
   ) {
     return "Do raportu: „Sprawa osoby” — nie liczymy jako błędu wyszukiwania.";
   }

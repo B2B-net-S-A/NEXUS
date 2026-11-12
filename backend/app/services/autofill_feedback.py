@@ -33,7 +33,7 @@ from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.job import Job
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import candidate_claim
-from app.services.autofill_feedback_schema import LEARNED_FROM, REASONS
+from app.services.autofill_feedback_schema import GAP_KINDS, LEARNED_FROM, REASONS
 
 REQUIRED_CODE = "AUTOFILL_REASON_REQUIRED"
 _SEARCH = frozenset(
@@ -44,6 +44,8 @@ _SEARCH = frozenset(
         "other_level_or_role",
         "location_mode",
         "language",
+        "no_polish",
+        "weak_english",
     }
 )
 # „Pracuje u klienta” (często przez inną firmę, bez śladu w CV) = system nie
@@ -59,7 +61,9 @@ _DATA = frozenset(
         "client_other_vendor",
     }
 )
-_PERSON = frozenset({"not_looking", "no_answer", "in_other_process", "client_refused"})
+_PERSON = frozenset(
+    {"not_looking", "no_answer", "in_other_process", "client_refused", "contract_form"}
+)
 # Powody, które mogą dotyczyć osoby u całego klienta (`whole_client`).
 CLIENT_WIDE_REASONS = frozenset(
     {"client_employed", "client_refused", "client_other_vendor"}
@@ -89,9 +93,37 @@ REASON_LABELS: dict[str, str] = {
     "client_employed": "Pracuje u tego klienta (też przez inną firmę)",
     "client_refused": "Nie chce do tego klienta",
     "client_other_vendor": "Zgłoszony do klienta przez inną firmę",
+    "no_polish": "Brak polskiego",
+    "weak_english": "Angielski za słaby",
+    "contract_form": "Forma umowy (UoP / B2B)",
     "other": "Inne",
 }
 assert set(REASON_LABELS) == set(REASONS)
+
+# Braki przy pozycjach (12.11.2026): przy „Brak umiejętności” rekruter klika
+# przy pozycji wymagania „brak”, „tylko wzmianka” albo „za mało lat”.
+GAP_REASON = "missing_skill"
+MAX_GAPS = 10
+GAP_LABEL_MAX = 120
+
+
+def clean_gaps(raw: Any) -> list[dict]:
+    """Braki z żądania: znane rodzaje, bez pustych i powtórzeń (pierwszy wygrywa),
+    najwyżej ``MAX_GAPS``. Nieznany rodzaj = 422."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in raw or []:
+        label = str((item or {}).get("label") or "").strip()[:GAP_LABEL_MAX]
+        kind = (item or {}).get("kind")
+        if kind not in GAP_KINDS:
+            raise HTTPException(status_code=422, detail="Nieznany rodzaj braku.")
+        if not label or label.lower() in seen:
+            continue
+        seen.add(label.lower())
+        out.append({"label": label, "kind": kind})
+        if len(out) == MAX_GAPS:
+            break
+    return out
 
 
 def bucket_for(reason: str, *, snapshot: Any, budget_hourly: Optional[float]) -> str:
@@ -145,6 +177,7 @@ def validate(
     learned_from: Optional[str],
     note: Optional[str],
     not_looking_until: Optional[date] = None,
+    gaps: Optional[list] = None,
 ) -> None:
     """422 przed zapisem ruchu: brak powodu przy osobie od systemu, powód przy
     innej osobie, „Inne” bez opisu albo zła data „Nie szuka do”."""
@@ -186,6 +219,13 @@ def validate(
         raise HTTPException(status_code=422, detail="Nieznany powód odrzucenia.")
     if reason == "other" and not (note or "").strip():
         raise HTTPException(status_code=422, detail="Przy „Inne” opisz powód.")
+    if gaps:
+        clean_gaps(gaps)
+    if gaps and reason != GAP_REASON:
+        raise HTTPException(
+            status_code=422,
+            detail="Braki przy pozycjach podaje się tylko przy „Brak umiejętności”.",
+        )
 
 
 async def record(
@@ -200,6 +240,7 @@ async def record(
     note: Optional[str],
     actor_id: Optional[int],
     whole_client: bool = False,
+    gaps: Optional[list] = None,
 ) -> AutofillFeedback:
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
@@ -217,6 +258,7 @@ async def record(
         note=(note or "").strip()[:500] or None,
         snapshot=snapshot,
         whole_client=bool(whole_client) and reason in CLIENT_WIDE_REASONS,
+        gaps=clean_gaps(gaps) if reason == GAP_REASON and gaps else None,
         created_by=actor_id,
     )
     db.add(row)
