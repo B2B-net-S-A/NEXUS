@@ -85,7 +85,11 @@ function BotPointsNote({ botPoints }: { botPoints: OfferBotPoints | null }) {
   if (!botPoints) return null;
   const points = botPoints.points.slice(0, BOT_POINTS_SHOWN);
   return (
-    <section className="mt-1 space-y-0.5 text-[11.5px] leading-4 text-muted-foreground" aria-label="Punkty od bota">
+    <section
+      className="mt-1 space-y-0.5 text-[11.5px] leading-4 text-muted-foreground"
+      aria-label="Punkty od bota"
+      data-tour="sales.offers.bot-points"
+    >
       <Badge variant="neutral" size="sm">
         Bot · wniosek, sprawdź źródło
       </Badge>
