@@ -229,6 +229,10 @@ regexes = [
   '''54f040d5-ec50-4cc5-af66-ce6ff73688c9''',
   '''687067bf-dc31-45df-9646-c4ba44d530af''',
   '''54f04000-1111-2222-3333-444455556666''',
+  # Fikcyjne UUID konta i użytkownika eBI24 z testu zapłat (12.11.2026) — same
+  # zera; w pliku mają już ``gitleaks:allow``, ale skan zakresu PR-a #3348 widzi
+  # pierwszy commit. Dokładne wartości.
+  '''00000000-0000-0000-0000-00000000000[12]''',
 ]
 
 [[rules]]
