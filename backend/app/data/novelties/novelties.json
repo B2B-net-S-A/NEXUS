@@ -2440,7 +2440,7 @@
   },
   {
     "id": "sprzedaz-haczyk-przed-telefonem",
-    "pr": 0,
+    "pr": 3332,
     "title": "Dzwonienie: haczyk na otwarcie rozmowy",
     "why": "Pod nazwą firmy bot podsuwa jedno zdanie na otwarcie i do dwóch faktów o firmie z linkiem do źródła. Przygotowuje je dzień roboczy wcześniej. Zanim nawiążesz, sprawdź źródło.",
     "tier": "dot",
@@ -2457,7 +2457,7 @@
   },
   {
     "id": "sprzedaz-teczka-przed-spotkaniem",
-    "pr": 0,
+    "pr": 3332,
     "title": "Mój dzień: punkty od bota przed spotkaniem",
     "why": "Dzień roboczy przed spotkaniem bot przygotowuje do czterech punktów o firmie, ze źródłami. Widzisz je w przygotowaniu do spotkania i na karcie przekazanego spotkania.",
     "tier": "dot",
