@@ -711,8 +711,8 @@ async def test_ebi24_run_once_writes_only_in_prod_and_claims_the_hour(
     def config(mode: str) -> Ebi24Config:
         return Ebi24Config(
             mode=mode,
-            user_uuid="00000000-0000-0000-0000-000000000001",
-            account_uuid="00000000-0000-0000-0000-000000000002",
+            user_uuid="00000000-0000-0000-0000-000000000001",  # gitleaks:allow
+            account_uuid="00000000-0000-0000-0000-000000000002",  # gitleaks:allow
             communication_key="AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",  # gitleaks:allow
             secret_phrase="fikcyjny",
         )
