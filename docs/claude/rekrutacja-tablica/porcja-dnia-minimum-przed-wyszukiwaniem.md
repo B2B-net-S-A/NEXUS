@@ -108,7 +108,7 @@ Testy: `test_review_batch_plan_unit.py`, `test_review_batch_stage0.py` (sekcja
   „Do decyzji”, „Do domknięcia”, „Rekrutacje”, po prawej `CandidatePreviewPane`
   (CV, Wymagania, Po ludzku), nad kartą zdanie „po ludzku” o rekrutacji. Osoba,
   wynik, „musi mieć” ✓/?, stawka wobec budżetu, „Aktywnie szuka”, uwagi.
-  S = „Do screeningu”, O = „Odrzuć”, 1–8 = powód, R = „z profilu”/„po rozmowie”,
+  S = „Do screeningu”, O = „Odrzuć”, 1–9 i 0 = powód (od 12.11.2026, `porcja-powody-klikane-przy-pozycji.md`), R = „z profilu”/„po rozmowie”,
   Enter = odrzuć. Ruch przez `usePipelineMoveCore`, odrzucenie bez maila do
   kandydata, z powodem dla systemu (`autofill_*`) i powodem z szablonu.
   „Brak umiejętności” i „Inne” wymagają opisu (trafia do `notes` i

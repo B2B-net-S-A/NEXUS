@@ -9,7 +9,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { orderLine, ReviewBatchCard, rejectMissing } from "@/components/v2/review-batch/ReviewBatchCard";
+import { gapRows, orderLine, ReviewBatchCard, rejectMissing } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 
 const move = vi.hoisted(() => ({
@@ -97,30 +97,48 @@ describe("ReviewBatchCard", () => {
     );
   });
 
-  it("odrzucenie: brak umiejętności wymaga nazwy, idzie bez maila i z powodem dla systemu", async () => {
+  it("odrzucenie: brak klikany przy pozycji, bez maila, z brakami dla systemu", async () => {
     const user = userEvent.setup();
     render(<ReviewBatchCard item={item} onDecided={() => {}} />);
     fireEvent.keyDown(window, { key: "o" });
     fireEvent.keyDown(window, { key: "1" });
     expect(screen.getByTestId("review-reject-confirm")).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "spring boot" }));
+    await user.click(screen.getByRole("button", { name: "spring boot: brak" }));
+    await user.click(screen.getByRole("button", { name: "angular: tylko wzmianka" }));
     await user.click(screen.getByTestId("review-reject-confirm"));
     await vi.waitFor(() => expect(move.send).toHaveBeenCalled());
     const [payload] = move.send.mock.calls[0] as unknown as [Record<string, unknown>];
     expect(payload).toMatchObject({
       stage: "rejected",
       send_rejection_email: false,
-      notes: "Brak: spring boot",
+      notes: "Brak: spring boot, angular (tylko wzmianka)",
       autofill_reason: "missing_skill",
       autofill_learned_from: "profile",
+      autofill_gaps: [
+        { label: "spring boot", kind: "missing" },
+        { label: "angular", kind: "mention" },
+      ],
       rejection_reason_id: "41",
     });
+  });
+
+  it("brak spoza listy: sam opis wystarcza, bez braków przy pozycjach", async () => {
+    const user = userEvent.setup();
+    render(<ReviewBatchCard item={item} onDecided={() => {}} />);
+    fireEvent.keyDown(window, { key: "o" });
+    fireEvent.keyDown(window, { key: "1" });
+    await user.type(screen.getByRole("textbox"), "produkty inwestycyjne");
+    await user.click(screen.getByTestId("review-reject-confirm"));
+    await vi.waitFor(() => expect(move.send).toHaveBeenCalled());
+    const [payload] = move.send.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(payload.notes).toBe("Brak: produkty inwestycyjne");
+    expect(payload.autofill_gaps).toBeUndefined();
   });
 
   it("„Nie szuka pracy” zapisuje datę, do kiedy", async () => {
     render(<ReviewBatchCard item={item} onDecided={() => {}} />);
     fireEvent.keyDown(window, { key: "o" });
-    fireEvent.keyDown(window, { key: "7" });
+    fireEvent.keyDown(window, { key: "8" });
     fireEvent.keyDown(window, { key: "Enter" });
     await vi.waitFor(() => expect(move.send).toHaveBeenCalled());
     const [payload] = move.send.mock.calls[0] as unknown as [Record<string, unknown>];
@@ -130,15 +148,19 @@ describe("ReviewBatchCard", () => {
 });
 
 describe("ReviewBatchCard: każdy powód zapisuje się jednym klawiszem", () => {
-  it.each(["2", "3", "4", "5", "6", "7"])("klawisz %s przechodzi walidację serwera", async (key) => {
+  it.each(["2", "3", "4", "5", "6", "7", "8", "9"])("klawisz %s przechodzi walidację serwera", async (key) => {
     expect(serverRefusal(await rejectWithKey(key))).toBeNull();
   });
 
-  it("„Język” (bez odpowiednika w szablonie) idzie jako „Inne” z nazwą powodu w opisie", async () => {
-    expect(await rejectWithKey("5")).toMatchObject({
+  it.each([
+    ["5", "no_polish", "Brak polskiego"],
+    ["6", "weak_english", "Angielski za słaby"],
+    ["9", "contract_form", "Forma umowy (UoP / B2B)"],
+  ])("klawisz %s (bez odpowiednika w szablonie) idzie jako „Inne” z nazwą powodu w opisie", async (key, reason, label) => {
+    expect(await rejectWithKey(key)).toMatchObject({
       rejection_reason_id: "49",
-      notes: "Język",
-      autofill_reason: "language",
+      notes: label,
+      autofill_reason: reason,
     });
   });
 
@@ -200,8 +222,15 @@ describe("rejectMissing", () => {
 
   it("mówi, czego brakuje", () => {
     expect(rejectMissing(null, "")).toMatch(/Wybierz powód/);
-    expect(rejectMissing("missing_skill", " ")).toMatch(/umiejętności/);
+    expect(rejectMissing("missing_skill", " ")).toMatch(/Kliknij, czego brakuje/);
+    expect(rejectMissing("missing_skill", " ", 1)).toBe("");
     expect(rejectMissing("other", "")).toMatch(/Opisz/);
     expect(rejectMissing("too_junior", "")).toBe("");
+  });
+
+  it("pozycje do braków: najpierw nieznalezione, bez powtórzeń, najwyżej 8", () => {
+    expect(gapRows({ missing_must: ["Kafka", "kafka "], matched_must: ["java", "KAFKA"] })).toEqual(["Kafka", "java"]);
+    const many = Array.from({ length: 12 }, (_, i) => `s${i}`);
+    expect(gapRows({ missing_must: many, matched_must: [] })).toHaveLength(8);
   });
 });

@@ -47,6 +47,8 @@ class AutofillFeedback(Base):
     whole_client: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    # 0686: braki przy pozycjach ({label, kind}) przy „Brak umiejętności”.
+    gaps: Mapped[Optional[list]] = mapped_column(JSONB)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

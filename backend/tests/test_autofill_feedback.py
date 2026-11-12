@@ -663,3 +663,71 @@ async def test_move_with_not_looking_until_updates_profile_and_other_cards(
     assert audit is not None and audit.user_id == world["user_id"]
     assert audit.details["after"]["availability_date"] == until.isoformat()
     assert elsewhere not in await _open_system_jobs(world["system"])
+
+
+# ── Runda 4 (12.11.2026): powody z porcji dnia i braki przy pozycjach ──────
+# Raport https://claude.ai/artifact/PqmctW9taWS8mXwmGfrFSM: 19 z 20 „Język”
+# miało opis „Język”, 3 „Inne” to forma umowy, a „brak umiejętności” był
+# w wolnym tekście, więc system nie mógł się z niego uczyć.
+
+
+@pytest.mark.parametrize(
+    ("reason", "bucket"),
+    [
+        ("no_polish", "search"),
+        ("weak_english", "search"),
+        ("contract_form", "person"),
+    ],
+)
+def test_round4_reasons_land_in_their_buckets(reason, bucket):
+    assert feedback.bucket_for(reason, snapshot=None, budget_hourly=None) == bucket
+
+
+def test_move_schema_accepts_every_reason():
+    from typing import get_args
+
+    from app.schemas.pipeline import StageMove
+
+    literal = StageMove.model_fields["autofill_reason"].annotation
+    allowed = {v for arg in get_args(literal) for v in get_args(arg)}
+    assert allowed == set(REASONS)
+
+
+def test_gaps_are_cleaned_and_only_go_with_missing_skill():
+    process = SimpleNamespace(entry_source="system")
+    gaps = feedback.clean_gaps(
+        [
+            {"label": " BigQuery ", "kind": "mention"},
+            {
+                "label": "bigquery",
+                "kind": "missing",
+            },  # ta sama pozycja: pierwsza wygrywa
+            {"label": "SQL", "kind": "too_few_years"},
+            {"label": "", "kind": "missing"},
+        ]
+    )
+    assert gaps == [
+        {"label": "BigQuery", "kind": "mention"},
+        {"label": "SQL", "kind": "too_few_years"},
+    ]
+    with pytest.raises(HTTPException) as bad_kind:
+        feedback.clean_gaps([{"label": "SQL", "kind": "maybe"}])
+    assert bad_kind.value.status_code == 422
+    assert len(
+        feedback.clean_gaps([{"label": f"s{i}", "kind": "missing"} for i in range(30)])
+    ) == (feedback.MAX_GAPS)
+    feedback.validate(
+        process=process,
+        reason="missing_skill",
+        learned_from="profile",
+        note=None,
+        gaps=gaps,
+    )
+    with pytest.raises(HTTPException):
+        feedback.validate(
+            process=process,
+            reason="too_junior",
+            learned_from="profile",
+            note=None,
+            gaps=gaps,
+        )

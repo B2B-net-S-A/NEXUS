@@ -13,9 +13,13 @@ import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 import {
   autofillMoveFields,
   autofillReasonLabel,
+  GAP_KIND_LABEL,
+  gapsNote,
   notLookingUntil,
   NOT_LOOKING_DEFAULT_MONTHS,
   templateReasonFor,
+  type AutofillGap,
+  type AutofillGapKind,
   type AutofillLearnedFrom,
   type AutofillReason,
 } from "@/lib/autofill-feedback";
@@ -29,24 +33,48 @@ import { cn } from "@/lib/utils";
  * Ruch idzie przez `usePipelineMoveCore` — ta sama droga co Tablica.
  */
 
-/** Osiem najczęstszych powodów pod klawiszami 1–8 (raport z 30.10–07.11). */
+/**
+ * Powody pod klawiszami 1–9 i 0. Od 12.11.2026 (raport z 323 odrzuceń porcji):
+ * „Język” rozdzielony na polski i angielski (19 z 20 opisów to było samo
+ * „Język”), „Forma umowy” zamiast „Inne” (3 takie opisy).
+ */
 export const QUICK_REASONS: { key: string; value: AutofillReason; label: string }[] = [
   { key: "1", value: "missing_skill", label: "Brak umiejętności" },
   { key: "2", value: "too_junior", label: "Za junior" },
   { key: "3", value: "location_mode", label: "Lokalizacja / tryb" },
   { key: "4", value: "too_expensive", label: "Za drogi" },
-  { key: "5", value: "language", label: "Język" },
-  { key: "6", value: "other_level_or_role", label: "Inna rola" },
-  { key: "7", value: "not_looking", label: "Nie szuka pracy" },
-  { key: "8", value: "other", label: "Inne" },
+  { key: "5", value: "no_polish", label: "Brak polskiego" },
+  { key: "6", value: "weak_english", label: "Angielski za słaby" },
+  { key: "7", value: "other_level_or_role", label: "Inna rola" },
+  { key: "8", value: "not_looking", label: "Nie szuka pracy" },
+  { key: "9", value: "contract_form", label: "Forma umowy" },
+  { key: "0", value: "other", label: "Inne" },
 ];
 
-/** Czego brakuje do wysłania odrzucenia (pusty tekst = gotowe). */
-export function rejectMissing(reason: AutofillReason | null, note: string): string {
-  if (!reason) return "Wybierz powód (1–8).";
-  if ((reason === "missing_skill" || reason === "other") && !note.trim()) {
-    return reason === "missing_skill" ? "Napisz, której umiejętności brakuje." : "Opisz powód.";
+/** Najwyżej tyle pozycji wymagań pod „Brak umiejętności”: najpierw te, których system nie znalazł. */
+export const GAP_ROWS = 8;
+const GAP_KINDS: AutofillGapKind[] = ["missing", "mention", "too_few_years"];
+
+export function gapRows(item: Pick<ReviewBatchItem, "matched_must" | "missing_must">): string[] {
+  const seen = new Set<string>();
+  const rows: string[] = [];
+  for (const label of [...item.missing_must, ...item.matched_must]) {
+    const key = label.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    rows.push(label.trim());
+    if (rows.length === GAP_ROWS) break;
   }
+  return rows;
+}
+
+/** Czego brakuje do wysłania odrzucenia (pusty tekst = gotowe). */
+export function rejectMissing(reason: AutofillReason | null, note: string, gapCount = 0): string {
+  if (!reason) return "Wybierz powód (1–9, 0).";
+  if (reason === "missing_skill" && gapCount === 0 && !note.trim()) {
+    return "Kliknij, czego brakuje, albo wpisz coś spoza listy.";
+  }
+  if (reason === "other" && !note.trim()) return "Opisz powód.";
   return "";
 }
 
@@ -63,12 +91,13 @@ function templateMoveFields<T extends { id: string; name?: string; label: string
   officeDays: number | null,
   saveWorkMode: boolean,
   templates: T[],
+  gaps: readonly AutofillGap[] = [],
 ) {
   const template = templateReasonFor(
     reason === "location_mode" && officeDays === null ? "other" : reason,
     templates,
   );
-  const written = reason === "missing_skill" ? `Brak: ${note.trim()}` : note.trim();
+  const written = reason === "missing_skill" ? gapsNote(gaps, note) : note.trim();
   const labelled =
     reason !== "missing_skill" && reason !== "other" && reasonNeedsDescription(template);
   return {
@@ -111,12 +140,18 @@ export function ReviewBatchCard({
   const [reason, setReason] = useState<AutofillReason | null>(null);
   const [learnedFrom, setLearnedFrom] = useState<AutofillLearnedFrom>("profile");
   const [note, setNote] = useState("");
+  const [gapKinds, setGapKinds] = useState<Record<string, AutofillGapKind>>({});
   /** `null` — rekruter nie zna dni w biurze (domyślnie). */
   const [officeDays, setOfficeDays] = useState<number | null>(null);
   const [saveWorkMode, setSaveWorkMode] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const missing = useMemo(() => rejectMissing(reason, note), [reason, note]);
+  const rows = useMemo(() => gapRows(item), [item]);
+  const gaps = useMemo<AutofillGap[]>(
+    () => rows.filter((label) => gapKinds[label]).map((label) => ({ label, kind: gapKinds[label] })),
+    [rows, gapKinds],
+  );
+  const missing = useMemo(() => rejectMissing(reason, note, gaps.length), [reason, note, gaps.length]);
   const templates = useMemo(
     () => rejectionReasons.filter((r) => r.applies_to?.includes("rejected")),
     [rejectionReasons],
@@ -151,20 +186,21 @@ export function ReviewBatchCard({
         job_id: item.job_id,
         stage: "rejected",
         send_rejection_email: false,
-        ...templateMoveFields(reason, note, officeDays, saveWorkMode, templates),
+        ...templateMoveFields(reason, note, officeDays, saveWorkMode, templates, gaps),
         ...autofillMoveFields({
           reason,
           learnedFrom,
           rateHourly: null,
           notLookingUntil:
             reason === "not_looking" ? notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS) : null,
+          gaps,
         }),
       },
       { candidateName: item.name },
     );
     setBusy(false);
     if (outcome.ok) onDecided();
-  }, [busy, missing, reason, templates, move, item, note, officeDays, saveWorkMode, learnedFrom, onDecided]);
+  }, [busy, missing, reason, templates, move, item, note, officeDays, saveWorkMode, learnedFrom, gaps, onDecided]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -282,6 +318,7 @@ export function ReviewBatchCard({
             onClick={() => setRejecting(true)}
             disabled={busy}
             data-testid="review-reject"
+            data-tour="review-batch.reject"
           >
             <X className="h-4 w-4" aria-hidden="true" /> Nie pasuje… <kbd className="ml-1 text-xs opacity-70">O</kbd>
           </Button>
@@ -292,7 +329,7 @@ export function ReviewBatchCard({
         </>
       ) : (
         <div className="rounded-lg border border-border bg-card p-3 space-y-3" data-testid="review-reject-form">
-          <div className="text-sm font-medium">Dlaczego odrzucasz? (1–8)</div>
+          <div className="text-sm font-medium">Dlaczego odrzucasz? (1–9, 0)</div>
           <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Powód odrzucenia">
             {QUICK_REASONS.map((r) => (
               <button
@@ -312,17 +349,40 @@ export function ReviewBatchCard({
               </button>
             ))}
           </div>
-          {reason === "missing_skill" && item.missing_must.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 text-xs">
-              {item.missing_must.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setNote(m)}
-                  className="rounded border border-border px-1.5 py-0.5 hover:bg-muted"
-                >
-                  {m}
-                </button>
+          {reason === "missing_skill" && rows.length > 0 ? (
+            <div className="space-y-1" data-testid="review-reject-gaps">
+              <div className="text-xs text-muted-foreground">Czego brakuje? Kliknij przy pozycji:</div>
+              {rows.map((label) => (
+                <div key={label} className="flex flex-wrap items-center gap-1 text-xs">
+                  <span className="w-28 truncate font-medium" title={label}>
+                    {label}
+                  </span>
+                  {GAP_KINDS.map((kind) => {
+                    const on = gapKinds[label] === kind;
+                    return (
+                      <button
+                        key={kind}
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={`${label}: ${GAP_KIND_LABEL[kind]}`}
+                        onClick={() =>
+                          setGapKinds((current) => {
+                            const next = { ...current };
+                            if (on) delete next[label];
+                            else next[label] = kind;
+                            return next;
+                          })
+                        }
+                        className={cn(
+                          "rounded border px-1.5 py-0.5",
+                          on ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
+                        )}
+                      >
+                        {GAP_KIND_LABEL[kind]}
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
             </div>
           ) : null}
@@ -332,7 +392,9 @@ export function ReviewBatchCard({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={2}
-              placeholder={reason === "missing_skill" ? "Której umiejętności brakuje?" : "Opisz powód"}
+              placeholder={
+                reason === "missing_skill" ? "Coś spoza listy, np. produkty inwestycyjne (opcjonalnie)" : "Opisz powód"
+              }
             />
           ) : null}
           {canAskOfficeDays ? (

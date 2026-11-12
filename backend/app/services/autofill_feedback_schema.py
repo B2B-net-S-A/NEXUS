@@ -35,8 +35,15 @@ REASONS: tuple[str, ...] = (
     "overqualified",
     "wrong_phone",
     "client_other_vendor",
+    # Runda 4 (0686, 12.11.2026, porcja dnia): 19 z 20 „Język” bez szczegółu,
+    # 3 „Inne” to forma umowy.
+    "no_polish",
+    "weak_english",
+    "contract_form",
     "other",
 )
+# Braki przy pozycjach (0686): „Brak umiejętności” kliknięty przy pozycji.
+GAP_KINDS: tuple[str, ...] = ("missing", "mention", "too_few_years")
 LEARNED_FROM: tuple[str, ...] = ("profile", "call")
 BUCKETS: tuple[str, ...] = ("search", "data", "person", "other")
 
@@ -58,6 +65,13 @@ REASON_CHECK_DDL: list[str] = [
 WHOLE_CLIENT_DDL: list[str] = [
     "ALTER TABLE autofill_feedback "
     "ADD COLUMN IF NOT EXISTS whole_client BOOLEAN NOT NULL DEFAULT false",
+    *REASON_CHECK_DDL,
+]
+
+# 0686 (12.11.2026): braki przy pozycjach — lista {label, kind} przy
+# „Brak umiejętności”; z nich reguła rekrutacji (R1) i raport.
+GAPS_DDL: list[str] = [
+    "ALTER TABLE autofill_feedback ADD COLUMN IF NOT EXISTS gaps JSONB NULL",
     *REASON_CHECK_DDL,
 ]
 
@@ -86,6 +100,7 @@ TABLE_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_autofill_feedback_candidate_id "
     "ON autofill_feedback (candidate_id)",
     *WHOLE_CLIENT_DDL,
+    *GAPS_DDL,
 ]
 
 DOWNGRADE_DDL: list[str] = ["DROP TABLE IF EXISTS autofill_feedback"]
