@@ -520,3 +520,25 @@ async def test_api_reads_numbers_and_only_leaders_decide(api_client):
         json={"decision": "no"},
     )
     assert missing.status_code == 404
+
+
+def test_protected_notes_never_reach_the_model():
+    """R6 (12.11.2026): opis z krajem, narodowością albo pochodzeniem nie trafia
+    do modelu, który proponuje zmiany doboru. Granica „cechy chronione poza
+    uczeniem” z 04.11.2026; opis o języku zostaje."""
+    rows = [
+        ("other", "ukraina"),
+        ("other", "Narodowość"),
+        ("other", "nie pasuje kulturowo"),
+        ("other", "turek"),
+        ("other", "afryka"),
+        ("other", "Język. Kandydatka spoza polski"),
+        ("missing_skill", "Brak: angular"),
+        ("language", "Język. Nie mówi po polsku"),
+        ("other", "  "),
+    ]
+    lines = quality.model_lines(rows)
+    assert lines == [
+        "- Brak kluczowej umiejętności: Brak: angular",
+        "- Język: Język. Nie mówi po polsku",
+    ]

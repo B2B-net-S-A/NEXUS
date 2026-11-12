@@ -37,6 +37,12 @@ w `/api/health/deep`), front `components/insights/views/WnioskiView.tsx`,
   tylko chowa przykład, a szukanie po jednym słowie przepuszcza opisy okrężne. Tej zakładce
   nie wolno też przekazywać takich opisów do modelu. Produkcja ma ctype C, więc tekst przechodzi
   `translate` przed `lower`, a wzorzec nie może opierać się na `\M` po polskiej literze.
+- **Ten sam wzorzec chroni raport „Jakość podpowiedzi”** (decyzja Artura 12.11.2026, raport
+  https://claude.ai/artifact/PqmctW9taWS8mXwmGfrFSM): opisy odrzuceń z porcji dnia idą
+  co tydzień do modelu, który proponuje zmiany doboru. `autofill_quality.model_lines` pomija
+  opis, na który trafia `is_protected` (`PROTECTED_PY`, lustro `PROTECTED_RE` w Pythonie).
+  Od 09.11 ok. 11 opisów „Inne” podawało kraj albo pochodzenie zamiast powodu. Wpis
+  rekrutera w bazie zostaje; nowe słowo z takich opisów dopisz do `PROTECTED_RE`.
 - **Żadnych miar per osoba z zespołu** (decyzja o PIP): tylko klienci, rekrutacje i typy
   sygnałów. Powiadomienia liczymy po typie, nie po osobie. Na ekranie liczby bez nazwisk,
   osoby tylko po kliknięciu i z `CandidatePIIAccess`, jak w „Źródłach”. Lista nie niesie
