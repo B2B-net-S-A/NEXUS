@@ -320,7 +320,19 @@ const TYPES: DocumentTypeDef[] = [
     uses_refs: true,
     allows_external: false,
     legacy_languages: [],
-    fields: [DOCUMENT_DATE],
+    fields: [
+      DOCUMENT_DATE,
+      field("delivery_date", "Data doręczenia wypowiedzenia", {
+        kind: "date",
+        required: true,
+        help: "Od niej liczy się okres wypowiedzenia.",
+      }),
+      field("termination_date", "Umowa rozwiąże się z dniem", {
+        kind: "date",
+        required: true,
+        help: "Wyliczone z okresu wypowiedzenia — możesz poprawić.",
+      }),
+    ],
   },
   {
     key: "preliminary_cez",
@@ -424,6 +436,22 @@ const PREFILL: DocumentPrefill = {
   ref_defaults: TYPES_RESPONSE.ref_defaults,
   languages: ["pl", "en"],
   default_language: "pl",
+};
+
+// „Zakończ i przygotuj wypowiedzenie” z końcem projektu po okresie wypowiedzenia.
+const NOTICE_PREFILL: DocumentPrefill = {
+  ...PREFILL,
+  values: {
+    document_date: "2026-11-12",
+    delivery_date: "2026-11-12",
+    termination_date: "2027-01-31",
+  },
+  notes: {
+    termination_date:
+      "Koniec projektu (31.01.2027) jest późniejszy niż koniec okresu wypowiedzenia (31.12.2026), więc umowa rozwiąże się z końcem projektu.",
+  },
+  needs_refs: false,
+  languages: ["pl"],
 };
 
 const ANNEX_PREFILL: DocumentPrefill = {
@@ -919,6 +947,11 @@ function seededClient(): QueryClient {
     opts,
   );
   qc.setQueryData(
+    b2bDocumentsKeys.prefill("termination_notice", PARENT_ID, null),
+    NOTICE_PREFILL,
+    opts,
+  );
+  qc.setQueryData(
     b2bDocumentsKeys.prefill("annex_rate_change", PARENT_ID, null),
     ANNEX_PREFILL,
     opts,
@@ -1138,6 +1171,15 @@ function Harness() {
           initialType="termination_agreement"
           initialParentId={PARENT_ID}
           initialValues={{ release_non_compete: true }}
+          onClose={noop}
+        />
+      </Section>
+
+      <Section title="Kreator — wypowiedzenie do końca projektu (później niż okres wypowiedzenia)">
+        <DocumentWizard
+          typesData={TYPES_RESPONSE}
+          initialType="termination_notice"
+          initialParentId={PARENT_ID}
           onClose={noop}
         />
       </Section>

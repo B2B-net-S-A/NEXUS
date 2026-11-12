@@ -213,11 +213,20 @@ brał je dosłownie i ważyły w warstwie umiejętności.
 - Proza requestu i rekrutacji czyta słownik przez `request_alias_pattern()`
   (`is_request_mention`), ostrzej niż CV i notatki (`is_technology_mention`
   bez zmian). Zwykłe słowo z `COMMON_WORD_ALIASES` liczy się tylko napisane
-  jak nazwa: access, project, office, teams, word, exchange, outlook nigdy
-  same (liczy się „MS Access”, „Microsoft Project”), LeSS/SAFe/SOLID z co
-  najmniej dwiema wielkimi literami, Swift z wielkiej. Słowo małą literą
-  doklejone myślnikiem („password-less”, „privileged-access”, „non-docker”)
-  to końcówka złożenia; „PL-Linux” zostaje.
+  jak nazwa: access, project, office nigdy same (liczy się „MS Access”,
+  „Microsoft Project”, „Office 365”), Teams, Word, Exchange, Outlook i Swift
+  z wielkiej litery, LeSS/SAFe/SOLID z co najmniej dwiema wielkimi literami
+  albo z jedną w środku zdania („zasad Solid”, ale nie „- Solid
+  understanding” ani tytuł „Safe Harbor …”). Zwykłe słowo małą literą
+  doklejone myślnikiem („password-less”, „privileged-access”) i wszystko po
+  „non-” („non-docker”) to końcówka złożenia; technologia po myślniku zostaje
+  („java-spring”, „react-redux”, „aws-lambda”, „PL-Linux”).
+- **Regresja #3276 poprawiona 12.11.2026 (audyt PR-ów 10–11.11):** pierwsza
+  wersja nie liczyła Exchange/Teams/Outlook nawet z wielkiej litery (request
+  administratora M365 tracił 3 z 4 must) i odrzucała każde słowo małą literą
+  po myślniku („java-spring” → bez Springa). Nie wracaj do `None` dla nazw
+  produktów, które mają osobne hasło w słowniku, ani do ogólnej reguły
+  myślnika.
 - Ta sama reguła w „W mailu są też” na `/jobs/new` (`mail_technologies`):
   tekst po `fold` nie ma wielkich liter, więc słowo sprawdza się w oryginale.
   `keyword_suggest` to inna funkcja (dokładne dopasowanie wpisanego zapytania)

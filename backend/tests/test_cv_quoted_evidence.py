@@ -115,3 +115,58 @@ def test_deal_breaker_accepts_glued_quote():
         )
         is None
     )
+
+
+# ── Regresje #3274 (audyt 12.11.2026) ──────────────────────────────────────
+
+PL_CV = (
+    "Senior Developer, Bank XYZ\n"
+    "01-2021 – Present\n"
+    "Na co dzień pracowałem z relacyjnymi bazami danych Oracle.\n"
+    "Prowadziłem zespół 4 programistów przez 2 lata.\n"
+    "Znajomość AWS na poziomie podstawowym. Angielski B2.\n"
+)
+
+
+def test_swapped_last_word_is_not_a_quote():
+    # 8 z 9 trójek się zgadza, ale zmyślona jest właśnie ostatnia — to ona
+    # niesie treść („PostgreSQL” zamiast „Oracle”, „dekady” zamiast „lata”).
+    assert not _found(
+        "Na co dzień pracowałem z relacyjnymi bazami danych PostgreSQL", PL_CV
+    )
+    assert not _found("Prowadziłem zespół 4 programistów przez 2 dekady", PL_CV)
+
+
+def test_swapped_first_word_is_not_a_quote():
+    assert not _found(
+        "Rzadko pracowałem z relacyjnymi bazami danych Oracle na co dzień", PL_CV
+    )
+
+
+def test_ellipsis_cannot_stitch_single_words():
+    assert not _found("podstawowym … Angielski", PL_CV)
+    assert not _found("Ban … AWS … B2", PL_CV)
+    assert not _found("Senior Developer … AWS na poziomie", PL_CV)
+    assert not _found("zespół … AWS", PL_CV)
+
+
+def test_ellipsis_fragments_of_a_few_literal_words_pass():
+    assert _found("relacyjnymi bazami danych … Znajomość AWS na", PL_CV)
+
+
+def test_ellipsis_only_at_the_edges_keeps_the_literal_rule():
+    assert _found("…Oracle…", PL_CV)
+    assert _found("...przez 2 lata", PL_CV)
+
+
+def test_screening_deal_breaker_drops_stitched_quote():
+    raw = (
+        '{"deal_breaker": {"condition": "Brak angielskiego", '
+        '"quote": "podstawowym … Angielski"}}'
+    )
+    assert (
+        application_screening.keep_quoted_deal_breaker(
+            raw, ["Brak angielskiego"], [PL_CV]
+        )
+        is None
+    )

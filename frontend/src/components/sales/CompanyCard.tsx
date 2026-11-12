@@ -22,12 +22,17 @@ import {
   useSalesCompany,
   type SalesCompany,
 } from "@/lib/api/sales";
+import { useCompanyDecisionMap } from "@/lib/api/sales-bot-people";
 import { hasPermission } from "@/lib/permissions";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { AskBotCard } from "./bot/AskBotCard";
+import { EnrichButton, EnrichCard } from "./bot/EnrichCard";
+import { BotPeopleAction } from "./bot-people/BotPeopleAction";
+import { CompanyDecisionMap } from "./bot-people/CompanyDecisionMap";
 import { CompanyCallLists } from "./calling/CompanyCallLists";
 import { CompanyCallPanel } from "./CompanyCallPanel";
 import { CompanyFormDialog } from "./CompanyFormDialog";
@@ -44,11 +49,12 @@ import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 /** Tag importu z Atlasa: firma przeszła warunkowo (nazwa wygląda na osobę). */
 const REVIEW_TAG = "atlas: do przejrzenia";
 
-type Tab = "overview" | "people" | "contacts" | "activities" | "files";
+type Tab = "overview" | "people" | "contacts" | "decision-map" | "activities" | "files";
 const TABS: { value: Tab; label: string }[] = [
   { value: "overview", label: "Przegląd" },
   { value: "people", label: "Kogo znamy" },
   { value: "contacts", label: "Kontakty" },
+  { value: "decision-map", label: "Mapa decydentów" },
   { value: "activities", label: "Aktywności" },
   { value: "files", label: "Pliki" },
 ];
@@ -187,15 +193,19 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [linking, setLinking] = useState(false);
+  const data = company.data;
   const raw = searchParams?.get("tab");
-  const tab: Tab = TABS.some((t) => t.value === raw) ? (raw as Tab) : "overview";
+  const canAccessMap = canEdit && Boolean(data && !data.archived_at);
+  const decisionMap = useCompanyDecisionMap(companyId, canAccessMap);
+  const showMap = canAccessMap && (decisionMap.data?.enabled || (raw === "decision-map" && !decisionMap.data));
+  const tabs = showMap ? TABS : TABS.filter((item) => item.value !== "decision-map");
+  const tab = tabs.find((item) => item.value === raw)?.value ?? "overview";
 
   const state = resolveViewState({
     isLoading: company.isLoading,
     error: company.error,
     isSuccess: company.isSuccess,
   });
-  const data = company.data;
   const [calling, setCalling] = useState(false);
 
   const toggleArchive = async () => {
@@ -242,12 +252,14 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               Edytuj
             </Button>
+            <EnrichButton companyId={data.id} disabled={Boolean(data.archived_at)} />
             <Button size="sm" variant="outline" onClick={() => setCalling((value) => !value)} disabled={Boolean(data.archived_at)}>
               Zaloguj rozmowę
             </Button>
             <Button size="sm" onClick={() => setCreating(true)} disabled={Boolean(data.archived_at)}>
               Szansa
             </Button>
+            {!data.archived_at && <BotPeopleAction companyId={data.id} canEdit={canEdit} />}
           </div>
         ) : null
       }
@@ -272,7 +284,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           <SignalStrip companyId={companyId} />
           <TabbedNav
             ariaLabel="Zakładki firmy"
-            tabs={TABS}
+            tabs={tabs}
             value={tab}
             onValueChange={(value) => {
               const params = new URLSearchParams(window.location.search);
@@ -286,14 +298,19 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
                 <CompanyFacts company={data} onLink={canEdit ? () => setLinking(true) : undefined} />
+                <EnrichCard company={data} canEdit={canEdit && !data.archived_at} />
                 <TalkingPoints companyId={companyId} className="rounded-lg border border-border bg-card px-3 py-2" />
                 <CompanyOpportunities companyId={companyId} />
               </div>
-              <WhoWeKnowPanel companyId={companyId} companyName={data.name} />
+              <div className="space-y-4">
+                <AskBotCard companyId={companyId} companyName={data.name} canEdit={canEdit && !data.archived_at} />
+                <WhoWeKnowPanel companyId={companyId} companyName={data.name} />
+              </div>
             </div>
           )}
           {tab === "people" && <WhoWeKnowPanel companyId={companyId} companyName={data.name} />}
           {tab === "contacts" && <ContactsSection companyId={companyId} />}
+          {tab === "decision-map" && <CompanyDecisionMap companyId={companyId} query={decisionMap} />}
           {tab === "activities" && <ActivityTimeline companyId={companyId} />}
           {tab === "files" && <FilesSection owner={{ company_id: companyId }} />}
         </div>

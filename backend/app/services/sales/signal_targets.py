@@ -8,6 +8,7 @@
   poniedziałkowym odświeżeniu firmy pozycji z sekcji „Do decyzji” zakładki Oferty,
   z tymi samymi progami. Taka pozycja z definicji nie ma kroku, więc reguła wyżej
   jej nie łapie, a decydujący ma zobaczyć, co się w firmie zmieniło.
+* **Cognism:** firmy z zakończonego researchu od ustawionej daty.
 
 Rodzaj punktów: ``ongoing``, gdy z firmą była już rozmowa albo spotkanie albo gdy
 firma ma ofertę „Do decyzji”, inaczej ``first_call``. Firma z biegu z ostatnich
@@ -20,19 +21,22 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Iterable
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.sales import (
     SalesActivity,
+    SalesBotResult,
     SalesCompany,
     SalesCompanyBriefing,
     SalesLead,
     SalesOpportunity,
     SalesSignalRun,
 )
-from app.services.sales import offers
+from app.services.sales import client_gate, company_aliases, offers
+from app.services.sales.atlas_import import company_merge_targets
+from app.services.sales.factories import COMPANY_DO_NOT_CONTACT
 from app.services.sales.task_scope import live_opportunity
 from app.services.sales.touch import not_cancelled
 
@@ -233,3 +237,197 @@ def pick(candidates: Iterable[int], *, skip: set[int], limit: int) -> list[int]:
         if len(chosen) >= limit:
             break
     return chosen
+
+
+# ── Mapy decydentów ──────────────────────────────────────────────────────
+
+PEOPLE_START_LOCK = "sales-bot-people-start"
+COGNISM_BATCH_SIZE = 5
+COGNISM_RETRY_AFTER = timedelta(hours=1)
+COGNISM_ATTEMPTS_PER_RESEARCH = 3
+COGNISM_REQUEST = {"source": "cognism"}
+
+
+async def lock_people_starts(db: AsyncSession) -> None:
+    """Serializuje wybór i zapis biegu przez worker, CLI i przycisk."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": PEOPLE_START_LOCK}
+    )
+
+
+async def cognism_run_active(db: AsyncSession, *, now: datetime) -> bool:
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    SalesSignalRun.kind == "people",
+                    SalesSignalRun.request.contains(COGNISM_REQUEST),
+                    SalesSignalRun.status == "started",
+                    SalesSignalRun.token_expires_at > now,
+                )
+            )
+        )
+    )
+
+
+async def people_recently_sent(
+    db: AsyncSession, *, now: datetime, within: timedelta, source: str | None = None
+) -> set[int]:
+    """Firmy wysłane w podanym trybie. Nieudany albo wygasły bieg nie blokuje."""
+    filters = [
+        SalesSignalRun.kind == "people",
+        SalesSignalRun.status.in_(("started", "received")),
+        SalesSignalRun.started_at >= now - within,
+    ]
+    if source == "cognism":
+        filters.append(SalesSignalRun.request.contains(COGNISM_REQUEST))
+    elif source == "public":
+        filters.append(
+            SalesSignalRun.request["source"].astext.is_distinct_from("cognism")
+        )
+    runs = await db.execute(select(SalesSignalRun.company_ids).where(*filters))
+    return {int(cid) for ids in runs.scalars() for cid in ids}
+
+
+async def _research_evidence(
+    db: AsyncSession, *, since: datetime, canonical: dict[int, int]
+) -> dict[int, datetime]:
+    """Ostatni odebrany research; nowa karta z discovery dopiero po akceptacji."""
+    completed = await db.execute(
+        select(
+            SalesSignalRun.company_ids,
+            SalesSignalRun.received_at,
+            SalesSignalRun.report["researched_company_ids"],
+            SalesSignalRun.report["checked_firms"],
+            SalesSignalRun.kind,
+            SalesSignalRun.modes,
+        ).where(
+            SalesSignalRun.kind.in_(("signals", "enrich", "briefing")),
+            SalesSignalRun.status == "received",
+            SalesSignalRun.received_at >= since,
+        )
+    )
+    result_evidence = await db.execute(
+        select(
+            SalesBotResult.company_id,
+            SalesBotResult.kind,
+            SalesSignalRun.received_at,
+            SalesBotResult.decided_at,
+        )
+        .join(SalesSignalRun, SalesSignalRun.id == SalesBotResult.run_id)
+        .where(
+            or_(
+                SalesBotResult.kind == "enrich",
+                and_(
+                    SalesBotResult.kind == "discovery",
+                    SalesBotResult.status == "accepted",
+                    SalesBotResult.decided_at.is_not(None),
+                ),
+            ),
+            SalesBotResult.company_id.is_not(None),
+            SalesSignalRun.status == "received",
+            SalesSignalRun.received_at >= since,
+        )
+    )
+    evidence: dict[int, datetime] = {}
+    for ids, received_at, researched, checked, kind, modes in completed:
+        if researched is None:
+            # Starszy pełny raport potwierdza wszystkie wejściowe firmy.
+            researched = ids if isinstance(checked, int) and checked >= len(ids) else []
+        for raw_id in {int(ref) for ref in researched} & {int(ref) for ref in ids}:
+            if kind == "briefing" and (modes or {}).get(str(raw_id)) != "first_call":
+                continue
+            cid = canonical.get(raw_id, raw_id)
+            evidence[cid] = max(received_at, evidence.get(cid, received_at))
+    for raw_id, kind, received_at, decided_at in result_evidence:
+        cid = canonical.get(raw_id, raw_id)
+        ready_at = max(received_at, decided_at) if kind == "discovery" else received_at
+        evidence[cid] = max(ready_at, evidence.get(cid, ready_at))
+    return evidence
+
+
+async def _eligible_people_companies(
+    db: AsyncSession, company_ids: Iterable[int]
+) -> set[int]:
+    cards = await db.execute(
+        select(
+            SalesCompany.id, SalesCompany.client_id, SalesCompany.normalized_name
+        ).where(
+            SalesCompany.id.in_(company_ids),
+            SalesCompany.archived_at.is_(None),
+            SalesCompany.status != COMPANY_DO_NOT_CONTACT,
+        )
+    )
+    identities = [
+        client_gate.CompanyIdentity(
+            company_id=card.id,
+            client_id=card.client_id,
+            normalized_name=card.normalized_name,
+        )
+        for card in cards
+        if not company_aliases.is_own_company(card.normalized_name or "")
+    ]
+    clients = await client_gate.match_companies(db, identities)
+    return {identity.company_id for identity in identities} - set(clients)
+
+
+async def cognism_company_ids(
+    db: AsyncSession, *, now: datetime, explicit_ids: Iterable[int] | None = None
+) -> list[int]:
+    """Mała partia Cognism z trwałego researchu albo jawnej listy operatora."""
+    since = settings.SALES_COGNISM_PEOPLE_RESEARCH_SINCE
+    if explicit_ids is None and since is None:
+        return []
+    canonical = await company_merge_targets(db)
+    if explicit_ids is None:
+        evidence = await _research_evidence(db, since=since, canonical=canonical)
+        candidates = sorted(evidence, key=lambda cid: (evidence[cid], cid))
+    else:
+        evidence = {}
+        candidates = list(
+            dict.fromkeys(canonical.get(cid, cid) for cid in explicit_ids)
+        )
+    if not candidates:
+        return []
+
+    history = await db.execute(
+        select(
+            SalesSignalRun.company_ids,
+            SalesSignalRun.status,
+            SalesSignalRun.started_at,
+            SalesSignalRun.received_at,
+            SalesSignalRun.token_expires_at,
+            SalesSignalRun.report["processed_company_ids"],
+        ).where(
+            SalesSignalRun.kind == "people",
+            SalesSignalRun.request.contains(COGNISM_REQUEST),
+        )
+    )
+    skip: set[int] = set()
+    attempts: dict[int, int] = {}
+    for ids, status, started, received, expires, processed in history:
+        if status == "received":
+            for raw_id in processed or []:
+                cid = canonical.get(int(raw_id), int(raw_id))
+                if explicit_ids is not None or (
+                    cid in evidence and started >= evidence[cid]
+                ):
+                    skip.add(cid)
+        last_activity = received or started
+        if status in ("started", "expired") and expires is not None:
+            last_activity = expires
+        for raw_id in ids:
+            cid = canonical.get(int(raw_id), int(raw_id))
+            if last_activity > now - COGNISM_RETRY_AFTER:
+                skip.add(cid)
+            if cid in evidence and started >= evidence[cid]:
+                attempts[cid] = attempts.get(cid, 0) + 1
+    candidates = [
+        cid
+        for cid in candidates
+        if cid not in skip and attempts.get(cid, 0) < COGNISM_ATTEMPTS_PER_RESEARCH
+    ]
+    if not candidates:
+        return []
+    eligible = await _eligible_people_companies(db, candidates)
+    return [cid for cid in candidates if cid in eligible][:COGNISM_BATCH_SIZE]

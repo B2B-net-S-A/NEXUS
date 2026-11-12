@@ -618,6 +618,7 @@ export function DocumentWizard({
                   values={values}
                   onChange={setValue}
                   errorKeys={errorKeys}
+                  notes={prefill.data?.notes}
                 />
 
                 {needsRefs ? (

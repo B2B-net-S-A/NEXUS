@@ -436,11 +436,17 @@ async def _meetings_without_date(
     ).where(
         *_open_own_opportunity(user_id, MEETING_STAGE_KEY),
         ~exists(meeting),
-        # „Oddzwonić w czwartek” chowa pozycję do czwartku, sprzeciw na stałe.
+        # „Oddzwonić w czwartek” chowa pozycję do czwartku; sprzeciw, „Zły numer”
+        # i „Nigdy” na stałe, jak w pętli leadów w ``load_queue``. Bez tego każde
+        # kolejne naciśnięcie na pozycji, która wracała, liczyło się w „Dziś”.
         or_(
             SalesCallRecord.id.is_(None),
             and_(
-                SalesCallRecord.state != DO_NOT_CONTACT,
+                SalesCallRecord.state.not_in((DO_NOT_CONTACT, BAD_CONTACT)),
+                ~and_(
+                    SalesCallRecord.state == NOT_INTERESTED,
+                    SalesCallRecord.callback_on.is_(None),
+                ),
                 or_(
                     SalesCallRecord.callback_on.is_(None),
                     SalesCallRecord.callback_on <= today,

@@ -177,3 +177,47 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    i `--kind briefing --mode meeting_prep --company-ids <id>` (punkty jak zwykle).
    Sprawdź: `SELECT report->>'hooks', report->>'briefings' FROM sales_signal_runs
    ORDER BY id DESC LIMIT 1;`.
+   Karta firmy (G-A): `--kind enrich --company-ids <1 id>`; pytanie (G-B):
+   `--kind question --company-ids <1 id> --request '{"question": "Czy mają centrum IT w Polsce?"}'`.
+   Po `received` wynik widać na karcie firmy (propozycje pól, odpowiedź na pytanie).
+5. Mapy decydentów (`people`, `docs/claude/sprzedaz/mapy-decydentow-od-bota.md`):
+   `python -m scripts.sales_signals_run --kind people --company-ids <id firmy z kontem w Fabrykach IT> --request '{"source":"public"}'`.
+   Bieg ma przejść na `received`, a wynik pojawić się w Leady → „Lista z researchu”
+   → „Osoby od bota”. Sprawdź przy kilku osobach, że link źródła otwiera stronę
+   z tą osobą, a e-mail i telefon (jeśli są) stoją na stronie z ich linku.
+
+## Mapy decydentów z Cognism
+
+Osobna rutyna „NEXUS Decydenci Cognism” uruchamia się przez webhook i używa
+panelu Cognism w przeglądarce. Logowanie korzysta z wpisu Vault dla
+`app.cognism.com`. Instrukcja przyjmuje tylko `kind=people` i
+`request.source=cognism`. Raport idzie do `callback_url` NEXUSA z nagłówkiem
+`X-Run-Token`. Bieg bierze najwyżej pięć firm, a bot wybiera do pięciu
+decydentów na firmę. Używa istniejącej puli kredytów do odsłonięcia
+dopasowanych kontaktów. Odczytuje dane z pełnego profilu osoby, gdy lista ich
+nie pokazuje.
+
+1. Zapisz poświadczenia webhooka jako sekrety `GROK_BOT_PEOPLE_WEBHOOK_URL`
+   i `GROK_BOT_PEOPLE_WEBHOOK_KEY`. Ustaw te zmienne przez „Coolify set env”
+   z `value_from_secret`. Włącz `SALES_COGNISM_PEOPLE_ENABLED` i wdróż
+   w oknie wdrożeń.
+2. Sprawdź bieg jednej firmy przez `python -m scripts.sales_signals_run
+   --kind people --company-ids <id>`. Zweryfikuj wynik w Sprzedaż → Firmy →
+   Mapa decydentów. Kolejną partię aktywnych kart z tagiem pilota uruchamia
+   `python -m scripts.sales_signals_run --kind people --pilot`.
+3. Ustaw `SALES_COGNISM_PEOPLE_RESEARCH_SINCE` jako datę i czas ISO 8601
+   z offsetem, np. `2026-11-12T18:00:00+01:00`. Worker zleca mapy dla
+   kwalifikujących się firm z raportów sygnałów, uzupełniania firm i punktów
+   do pierwszej rozmowy oraz po zaakceptowaniu odkrytej firmy. Każdy kolejny
+   raport z researchu może odświeżyć mapę.
+
+Stan biegu i liczniki są w `sales_signal_runs`. Dane osoby są widoczne
+w zakładce „Mapa decydentów” na karcie firmy dla osób z prawem edycji Sprzedaży.
+
+Jeśli Cognism używa innej nazwy tej samej spółki, operator może po niezależnym
+potwierdzeniu tożsamości zlecić bieg z jawnym `--company-ids` i dodać do
+`--request` pole `employers`. Każdy wpis ma `company_ref`, nazwę pracodawcy
+z Cognism `company_name` i potwierdzoną domenę `company_domain`. Dopasowanie
+dotyczy tylko danej karty i biegu. Jeśli Cognism pokazuje etykietę grupy, pole
+`profile_ids` ogranicza zapis do profili z indywidualnie potwierdzoną funkcją
+w konkretnej spółce.

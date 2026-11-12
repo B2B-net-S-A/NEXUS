@@ -1712,12 +1712,27 @@ async def document_prefill(
         values["effective_date"] = today.isoformat()
     if "currency" in field_keys:
         values["currency"] = base.currency or "PLN"
+    notes: dict[str, str] = {}
     if "termination_date" in field_keys:
         refs = refs_for(base.template_version)
         if doc_type.key != "termination_notice":
             values["termination_date"] = today.isoformat()
         elif refs is not None:
-            values["termination_date"] = notice_end_date(today, refs).isoformat()
+            notice_end = notice_end_date(today, refs)
+            values["termination_date"] = notice_end.isoformat()
+            # Koniec projektu z okna „Zakończ współpracę” późniejszy niż okres
+            # wypowiedzenia: umowa trwa do końca projektu (audyt 12.11, K1).
+            linked = parent.contract_id if parent is not None else None
+            project_end = effects.project_end_from_window(
+                await db.get(Contract, linked) if linked is not None else None
+            )
+            if project_end is not None and project_end > notice_end:
+                values["termination_date"] = project_end.isoformat()
+                notes["termination_date"] = (
+                    f"Koniec projektu ({project_end:%d.%m.%Y}) jest późniejszy niż "
+                    f"koniec okresu wypowiedzenia ({notice_end:%d.%m.%Y}), więc "
+                    "umowa rozwiąże się z końcem projektu."
+                )
         # Umowa bez znanej wersji wzoru: okresu wypowiedzenia nie zgadujemy
         # z umowy 2026 — pole zostaje puste do wpisania (runda 6 audytu, DOC-3).
     if "last_service_date" in field_keys and values.get("termination_date"):
@@ -1772,6 +1787,7 @@ async def document_prefill(
         "values": values,
         "base": _base_snapshot(base),
         "paragraph_defaults": paragraph_defaults,
+        "notes": notes,
         "needs_refs": _needs_refs(doc_type, base),
         "ref_defaults": default_refs().as_context(),
         "languages": list(doc_type.languages),

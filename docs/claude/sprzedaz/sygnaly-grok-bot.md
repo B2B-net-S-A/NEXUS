@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), uzupełnianie kart enrich, Uzupełnij z bota, przyjęcie pól, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -139,7 +139,10 @@ więc kolejny rodzaj to nowy moduł bez migracji i bez zmiany rutyny bota.
   decyzyjne tylko z opublikowanego źródła z linkiem, bez zgadywanych e-maili
   i telefonów. NEXUS osób do bota nie wysyła. Model raportu `people` musi to
   wymuszać polami (bez pól kontaktu, których źródło nie podaje), a wynik idzie do
-  decyzji handlowca, nie od razu do kontaktów.
+  decyzji handlowca, nie od razu do kontaktów. Zbudowane: mapy z kontaktami ze
+  źródeł publicznych, przegląd jak lista z researchu → `mapy-decydentow-od-bota.md`.
+  Osobna rutyna Cognism odsyła dopasowanych decydentów do mapy karty firmy.
+  Odczyt mapy wymaga „Sprzedaż: edycja”.
 - **Wyniki do decyzji** `sales_bot_results` (0684): rodzaj, firma, `payload`
   (dane z raportu po walidacji), status `new` / `accepted` / `rejected` / `partial`,
   kto i kiedy zdecydował, powód odrzucenia (`decision_reason`, do bota nie wraca).
@@ -205,7 +208,82 @@ na poniedziałek, przed świętem na dzień po nim. Kod: `services/sales/hook_pr
 - **Próba przed włączeniem:** `python -m scripts.sales_signals_run --kind briefing
   --mode call_hook --company-ids <id>` (albo `--mode meeting_prep`).
 
-Testy: `backend/tests/test_sales_signals_unit.py`, `backend/tests/test_sales_signals_api.py`,
+## Uzupełnianie kart (G-A, rodzaj `enrich`, 12.11.2026)
+
+Makieta zatwierdzona przez Artura: karta firmy, „Bot uzupełnił kartę” pod faktami.
+Moduł `services/sales/bot_tasks/enrich.py`, trasy `api/sales_company_bot.py`.
+
+- **Do bota idzie to co zawsze:** nazwa i domena firmy, bez pól `request`.
+  Bot odsyła na firmę domenę, stronę www, NIP, miasto siedziby, branżę, przedział
+  liczby pracowników (`1-49`, `50-249`, `250-999`, `1000+`) i nazwę spółki matki,
+  każde pole z własnym `source` (http(s)) i opcjonalną datą.
+- **Zła wartość odpada sama, raport przechodzi:** NIP z błędną sumą kontrolną,
+  domena darmowej skrzynki albo nie-domena (`companies.mail_domain`), strona spoza
+  http(s), spółka matka o nazwie tej samej firmy, wartości ponad długość kolumny.
+  Pole równe temu, co już jest na karcie, też odpada. Podsumowanie biegu podaje
+  tylko liczby (`invalid_fields`, `same_fields`).
+- **Jeden wynik na firmę** w `sales_bot_results` (`payload.fields`), odcisk z wartości
+  pól. Nowsza propozycja usuwa starszą, o której nikt nie zdecydował; decyzji nie
+  cofa. Przedział pracowników to propozycja „Wielkości” (`tier`: do 249 osób „Mała”,
+  250–999 „Średnia”, od 1000 „Duża”) z `size_range`; „Strategiczna” to decyzja
+  handlowa, więc bot jej nie proponuje.
+- **Przyjęcie pole po polu:** `POST /api/sales/bot-results/{id}/accept`
+  z `{fields, reject}`. Zapis idzie tą samą ścieżką co ekran Firmy
+  (`companies.apply_fields`). Bez `fields` („Przyjmij wszystkie”) przyjmuje tylko
+  pola puste na karcie: pole z inną wartością nadpisuje się wyłącznie wybrane
+  pojedynczo, a ekran pokazuje obecną wartość obok propozycji. Decyzje leżą
+  w `payload.decisions`; wynik ma status `partial`, dopóki zostało pole bez decyzji,
+  potem `accepted` (choć jedno przyjęte) albo `rejected`. „Odrzuć resztę” to zwykłe
+  odrzucenie wyniku.
+- **Domena albo NIP z innej karty** (niezarchiwizowanej) to 409 z nazwą tamtej karty
+  i bez żadnej zmiany: scalenie kart to osobny krok
+  (`scalanie-kart-firm-i-domeny.md`). Domena wyliczona ze strony www (gdy karta nie
+  ma domeny) przy takim konflikcie nie trafia na kartę, strona tak, a odpowiedź ma
+  uwagę.
+- **Spółka matka** staje się `parent_company_id` tylko wtedy, gdy po nazwie
+  kanonicznej pasuje dokładnie jedna inna karta, która nie ma tej firmy za swoją
+  matkę. Inaczej pole zostaje bez decyzji, a odpowiedź ma uwagę („ustaw ręcznie”).
+- **Przycisk „Uzupełnij z bota”** w nagłówku karty („Sprzedaż: edycja”,
+  `POST /api/sales/companies/{id}/enrich`, 20 na godzinę na osobę). Ta sama karta
+  nie wraca do bota przez 2 godziny od poprzedniego biegu, który nie padł (409).
+  Stan karty: `GET /{id}/enrich` (ostatni bieg i propozycja `new`/`partial`).
+- **Noc:** krok pętli `tasks/sales_signals.py` między 1:00 a 6:00 (kalendarz firmy),
+  najwyżej jeden bieg na godzinę i 5 na noc, po 20 kart: bez domeny, z opiekunem
+  albo trwającą szansą, bez otwartej propozycji i niesprawdzane nocą przez 30 dni.
+  Liczą się tylko biegi pętli (`requested_by_user_id` puste). Pętla startuje, gdy
+  włączona jest `SALES_SIGNALS_ENABLED` albo `SALES_BOT_TASKS_ENABLED`; każda część
+  pilnuje swojej flagi. Na stagingu pętla jest zablokowana.
+
+## Zapytaj bota (G-B, rodzaj `question`, 12.11.2026)
+
+Moduł `services/sales/bot_tasks/question.py`, trasy `api/sales_company_bot.py`,
+karta `AskBotCard` w prawej kolumnie Przeglądu nad „Kogo znamy”.
+
+- `POST /api/sales/companies/{id}/ask {question}` („Sprzedaż: edycja”, 10 na godzinę
+  na osobę). Pytanie 5–300 znaków po czyszczeniu. **Filtr danych osobowych**
+  (`personal_data_reason`) odmawia 422 z polskim zdaniem: adres e-mail, numer konta
+  (IBAN), PESEL i każdy ciąg co najmniej 7 cyfr z separatorami telefonu (spacja,
+  kreska, nawiasy, plus), więc też NIP i kwota „1 000 000”. Daty („1.10.2026”,
+  „2026-10-01”) przechodzą. Ten sam filtr siedzi w `request_model`, który przyjmuje
+  tylko `question`. Kto pytał, zostaje w `requested_by_user_id`, do bota nie idzie.
+- **Odpowiedź:** `{answer: [{text, url?, published?}]}`, najwyżej 6 linii po 400
+  znaków. Linia bez linku jest dozwolona i ekran podpisuje ją „wniosek bota”. Pusta
+  lista to „Bot nie znalazł odpowiedzi”. Wynik to jeden wiersz `sales_bot_results`
+  na bieg, bez akcji przyjęcia.
+- **Lista na karcie:** `GET /{id}/questions` zwraca 5 ostatnich biegów `question`
+  tej firmy (kto, kiedy, po ilu minutach, odpowiedź). Trwający bieg to „Bot szuka
+  odpowiedzi, zwykle kilka minut” i ekran odpytuje co 20 s; `failed` i `expired`
+  mają komunikat i „Zapytaj ponownie”. Błąd zapytania to komunikat z ponowieniem,
+  nie pusta lista.
+- Wyłączona flaga `SALES_BOT_TASKS_ENABLED`: obie karty i przycisk znikają, starty
+  odpowiadają 409 „Zadania bota są wyłączone.”, odczyty `enabled: false`. Bot bez
+  adresu webhooka: 409 z prośbą o administratora.
+- Logi: numer biegu, numer firmy i status, bez nazw i bez treści pytań.
+
+Testy: `backend/tests/test_sales_bot_company_unit.py`,
+`backend/tests/test_sales_bot_company_api.py`,
+`frontend/src/components/sales/__tests__/sales-company-bot.test.tsx`, a także
+`backend/tests/test_sales_signals_unit.py`, `backend/tests/test_sales_signals_api.py`,
 `backend/tests/test_sales_bot_tasks_unit.py`, `backend/tests/test_sales_bot_tasks_api.py`,
 `backend/tests/test_sales_hook_prep_unit.py`, `backend/tests/test_sales_hook_prep_api.py`,
 `frontend/src/components/sales/__tests__/sales-signals.test.tsx`,

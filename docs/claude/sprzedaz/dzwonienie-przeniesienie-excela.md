@@ -24,6 +24,10 @@ jednorazowa.
   - niebieski i zielony = „Umówione spotkanie” (rekord zamknięty).
 
   Bez koloru wynik idzie ze słów komentarza (`comment_state`, literówki bez ogonków).
+  „Nie zainteresowany” tylko przy zaprzeczeniu jako osobnym słowie przed „zainter…”
+  („nie jest zainteresowany”, „niezainteresowani”). Samo „nie” gdziekolwiek w tekście
+  łapało „spotkaNIE”, „poNIEdziałek”, „chętNIE” i robiło z chętnych „nie zainteresowanych”
+  (audyt 12.11.2026).
   Komentarz bez rozpoznanego wyniku to rekord nowy z komentarzem w notatce, liczony
   „do przejrzenia”.
 - **Data powrotu** z „Ponowny kontakt” albo z komentarza „zadzwonić 12.11”. Data
@@ -48,6 +52,11 @@ jednorazowa.
   sprzed kolejki to `sales_call_day_totals`.
 - Podgląd jest biegiem na sucho i niczego nie zapisuje. Zapis na produkcji klika człowiek
   (decyzja Artura: po jego „tak”).
+- **Podgląd przechodzi przez zapis arkusz po arkuszu w savepoincie, który się cofa**
+  (`plan_sheets`). Zapis idzie po kolei, więc ta sama firma w dwóch arkuszach trafia
+  w drugim na kolejkę pierwszej osoby (`other_caller`). Planowanie każdego arkusza osobno
+  obiecywało więcej, niż zapis dodawał, a różnica znikała po cichu (audyt 12.11.2026).
+  Nie wracaj do `plan_import` per arkusz.
 
 Testy: `backend/tests/test_sales_calling_excel_transfer.py`, część „przeniesienie Excela”
 w `frontend/src/components/sales/__tests__/sales-calling.test.tsx`.

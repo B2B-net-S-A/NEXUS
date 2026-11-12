@@ -21,6 +21,7 @@ from sqlalchemy import select, update
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
 from app.models.sales import (
+    SalesActivity,
     SalesCompany,
     SalesCompanyAlias,
     SalesContact,
@@ -534,6 +535,61 @@ async def test_result_other_than_the_plan_rolls_everything_back(monkeypatch) -> 
     assert planned.to_merge == 1
     assert (await _company(source)).archived_at is None
     assert await _touch(opportunity_id, NOW) == CREATED
+
+
+async def _outlook_rows(external_id: str) -> list[tuple[Optional[int], ...]]:
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(
+                SalesActivity.company_id,
+                SalesActivity.opportunity_id,
+                SalesActivity.contact_id,
+            ).where(SalesActivity.external_id == external_id)
+        )
+        return [tuple(row) for row in rows.all()]
+
+
+async def test_same_outlook_mail_on_both_cards_becomes_one_activity() -> None:
+    """Synchronizacja Outlooka zapisuje mail przy każdej dopasowanej firmie.
+
+    ``ux_sales_activities_outlook`` nie wpuści dwóch takich wierszy na jednej karcie,
+    więc zwykłe przepięcie ``company_id`` wycofywało cały bieg (IntegrityError).
+    """
+
+    tag = _tag()
+    target = await _card(f"Zmyślona {tag}")
+    source = await _card(f"Zmyślona {tag} S.A.")
+    other = await _card(f"ZMYŚLONA {tag} sp. z o.o.")
+    await _opportunity(target, pipeline_key=IT_FACTORIES_PIPELINE_KEY)
+    closed, _ = await _opportunity(source, status="lost")
+    async with AsyncSessionLocal() as db:
+        contact = SalesContact(company_id=source, full_name="Osoba", email=None)
+        db.add(contact)
+        await db.commit()
+        contact_id = contact.id
+    mail, meeting = f"mail-{tag}", f"spotkanie-{tag}"
+    outlook = {"external_source": "msgraph-mail", "external_id": mail}
+    await _activity("email", company_id=target, **outlook)
+    await _activity(
+        "email",
+        company_id=source,
+        opportunity_id=closed,
+        contact_id=contact_id,
+        **outlook,
+    )
+    # To samo spotkanie na dwóch wchłanianych kartach, a na docelowej go nie ma.
+    event = {"external_source": "msgraph-event", "external_id": meeting}
+    await _activity("meeting", company_id=source, **event)
+    await _activity("meeting", company_id=other, **event)
+
+    planned = await _dry(company_ids=(target,))
+    report = await _apply(company_ids=(target,))
+
+    assert planned.to_merge == 2
+    assert planned.outlook_duplicates == 2
+    assert report.merged == 2
+    assert await _outlook_rows(mail) == [(target, closed, contact_id)]
+    assert await _outlook_rows(meeting) == [(target, None, None)]
 
 
 async def test_group_is_not_merged_when_a_joined_name_would_be_lost() -> None:

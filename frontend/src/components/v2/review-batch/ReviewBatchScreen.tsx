@@ -139,7 +139,31 @@ export function ReviewBatchScreen() {
       </div>
     );
   }
+  if (hasNoJobs(data)) {
+    // `required = 0` bez rekrutacji dawało „Porcja przejrzana”, czyli wyglądało
+    // na zrobioną pracę (audyt 12.11.2026, R4).
+    return (
+      <div className="mx-auto max-w-3xl p-6 space-y-2" data-testid="review-batch-no-jobs">
+        <PageHeader title="Porcja dnia" density="compact" />
+        <p className="text-sm font-medium text-foreground">Nie masz przypisanych rekrutacji.</p>
+        <p className="text-sm text-muted-foreground">
+          Poproś Delivery Leada o przypisanie do rekrutacji: porcja bierze osoby tylko z
+          rekrutacji, w których pracujesz.
+        </p>
+      </div>
+    );
+  }
   return <BatchWorkspace data={data} queue={queue} onDecided={onDecided} />;
+}
+
+/** Brak rekrutacji, w których osoba pracuje, i nic do domknięcia ani przejrzenia. */
+function hasNoJobs(data: ReviewBatchStatus): boolean {
+  return (
+    data.team_jobs.length === 0 &&
+    data.required === 0 &&
+    data.pending === 0 &&
+    (data.open_today_screenings ?? []).length === 0
+  );
 }
 
 type BatchTab = "decide" | "close" | "jobs";

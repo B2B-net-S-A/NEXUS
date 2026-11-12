@@ -809,27 +809,45 @@ const CLOSED_REJECT_GROUPS: { by: ClosedRejectBy; label: string; short: string }
  { by: "client", label: "Odrzucony przez klienta", short: "przez klienta" },
 ];
 
+// Licznik bez podziału („zrezygnował”, inna kolumna zamkniętych) ma własny id
+// upuszczenia: rozwinięta kolumna stoi pod `colId`, a @hello-pangea/dnd przy
+// tym samym id nadpisuje wpis i kasuje go przy zwinięciu kolumny — upuszczenie
+// na licznik nic nie robiło do przeładowania (audyt 12.11.2026, R3).
+const CLOSED_CHIP_ALL = "all";
+
 function closedChips(closed: KanbanColumn[]) {
  return closed.flatMap((c) => {
  const terminal = terminalOf(c);
+ const whole = { col: c, droppableId: `${colId(c)}${CLOSED_BY_SEP}${CLOSED_CHIP_ALL}`, view: colId(c), count: c.count };
  if (terminal === "withdrawn") {
- return [{ col: c, droppableId: colId(c), label: "Zrezygnował", short: "zrezygnował", count: c.count }];
+ return [{ ...whole, label: "Zrezygnował", short: "zrezygnował" }];
  }
  if (terminal === "rejected") {
- return CLOSED_REJECT_GROUPS.map(({ by, label, short }) => ({
+ return CLOSED_REJECT_GROUPS.map(({ by, label, short }) => {
+ const droppableId = `${colId(c)}${CLOSED_BY_SEP}${by}`;
+ return {
  col: c,
- droppableId: `${colId(c)}${CLOSED_BY_SEP}${by}`,
+ droppableId,
+ view: droppableId,
  label,
  short,
  count: c.items.filter((i) => closedRejectBy(i.ended_by) === by).length,
- }));
+ };
+ });
  }
- return [{ col: c, droppableId: colId(c), label: columnLabel(c), short: columnLabel(c), count: c.count }];
+ return [{ ...whole, label: columnLabel(c), short: columnLabel(c) }];
  });
 }
 
+/** Cel upuszczenia: kolumna i — przy liczniku odrzuconych — kto kończy. */
+export function closedDropTarget(droppableId: string): { colId: string; endedBy: ClosedRejectBy | null } {
+ const [base, suffix] = droppableId.split(CLOSED_BY_SEP);
+ const endedBy = CLOSED_REJECT_GROUPS.find((g) => g.by === suffix)?.by ?? null;
+ return { colId: base, endedBy };
+}
+
 /** Rozwinięcie „Zamkniętych”: wszyscy albo jedna grupa z licznika (klucz =
- *  `droppableId` licznika). 10.11.2026: klik w „przez klienta” rozwijał
+ *  `view` licznika: `colId` albo `colId::kto`). 10.11.2026: klik w „przez klienta” rozwijał
  *  wszystkich odrzuconych i wycofanych, a DL szukał wśród nich dziesięciu. */
 const CLOSED_VIEW_ALL = "all";
 
@@ -3111,8 +3129,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  displayCols.find((c) => colId(c) === res.source.droppableId) ??
  cols.find((c) => colId(c) === res.source.droppableId);
  // Pasek zamkniętych (Pipeline v4): „<kolumna>::<kto>" = odrzucenie
- // z wybranym „kto kończy" (my / DL / klient).
- const [dstId, closedBy] = res.destination.droppableId.split(CLOSED_BY_SEP);
+ // z wybranym „kto kończy" (my / DL / klient), „<kolumna>::all" = licznik
+ // bez podziału.
+ const { colId: dstId, endedBy: closedBy } = closedDropTarget(res.destination.droppableId);
  // `stageCols`, nie `cols` — kubełek nie jest celem ruchu.
  const dst = stageCols.find((c) => colId(c) === dstId);
  if (!srcDisplay || !dst || colId(srcDisplay) === colId(dst)) return;
@@ -3123,7 +3142,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  const realSrc = cols.find((c) => c.items.some((i) => i.id === item.id));
  if (!realSrc || hostByColId.get(colId(realSrc)) === dst) return;
  if (closedBy && terminalOf(dst) === "rejected") {
- requestReject(item, dst, { endedBy: closedBy as ClosedRejectBy });
+ requestReject(item, dst, { endedBy: closedBy });
  return;
  }
  routeMove(item, colId(realSrc), dst);
@@ -4370,8 +4389,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  >
  <h3 className="text-sm font-medium text-foreground">Zamknięci</h3>
  <p className="text-muted-foreground max-lg:hidden">Odrzuceni i rezygnacje</p>
- {closedChips(boardFold.closed).map(({ droppableId, label, short, count }) => {
- const active = closedView === droppableId;
+ {closedChips(boardFold.closed).map(({ droppableId, view, label, short, count }) => {
+ const active = closedView === view;
  return (
  <Droppable key={droppableId} droppableId={droppableId} isDropDisabled={readOnly}>
  {(provided, snapshot) => (
@@ -4387,7 +4406,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  <button
  type="button"
  aria-pressed={active}
- onClick={() => setClosedView(active ? null : droppableId)}
+ onClick={() => setClosedView(active ? null : view)}
  aria-label={`${label}: ${count} — ${active ? "zwiń" : "pokaż tylko te osoby"}`}
  title={`${label} — upuść tu kartę albo kliknij, żeby zobaczyć tylko te osoby`}
  className={cn(

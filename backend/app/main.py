@@ -271,6 +271,8 @@ from app.api import sales_leads as sales_leads_api
 from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_bot_results as sales_bot_results_api
+from app.api import sales_bot_people as sales_bot_people_api
+from app.api import sales_company_bot as sales_company_bot_api
 from app.api import sales_calling as sales_calling_api
 from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_offers as sales_offers_api
@@ -2289,6 +2291,12 @@ app.include_router(
 )
 app.include_router(
     sales_bot_results_api.router, prefix="/api/sales/bot-results", tags=["sales"]
+)
+app.include_router(
+    sales_bot_people_api.router, prefix="/api/sales/bot-people", tags=["sales"]
+)
+app.include_router(
+    sales_company_bot_api.router, prefix="/api/sales/companies", tags=["sales"]
 )
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(

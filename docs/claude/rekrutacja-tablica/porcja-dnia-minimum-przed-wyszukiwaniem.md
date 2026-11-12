@@ -54,6 +54,12 @@ z rekrutacji. Ta sekcja wygrywa ze starszymi punktami niżej.
   jutro N+10” (`sources` w `/me`), „Rekrutacje” w grupach P0 / P1 Pilne / Bez
   priorytetu / Przyjmujemy (`team_jobs[].group`, `via`); niższe grupy czekają
   „po P0”, a „Dodaj kolejnych” stoi tylko tam, dokąd porcja już sięga.
+- **Bez przypisanych rekrutacji `/porcja` mówi to wprost** (audyt 12.11.2026, R4):
+  serwer daje wtedy `required = 0` i `met = true`, a ekran pokazywał „Porcja
+  przejrzana”, jakby praca była zrobiona. Puste `team_jobs`, `required = 0`,
+  zero kart i nic do domknięcia = „Nie masz przypisanych rekrutacji.” i jedno
+  zdanie: poproś Delivery Leada o przypisanie (`ReviewBatchScreen.hasNoJobs`).
+  Screening do domknięcia zostawia zwykły ekran z zakładką „Do domknięcia”.
 - **Cel wg tempa** (`NEW_COLUMN_TEMPO_TARGET_ENABLED`) przy włączonej porcji nie
   ustala już jej wielkości; zostaje poza porcją i przy „Dodaj 10 kolejnych”.
 

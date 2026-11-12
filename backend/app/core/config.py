@@ -4,7 +4,7 @@ import warnings
 from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import field_validator, model_validator
+from pydantic import AwareDatetime, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -1344,6 +1344,11 @@ class Settings(BaseSettings):
     # Adres webhooka rutyny bota i jego klucz (nagłówek ``Authorization: Bearer``).
     GROK_BOT_WEBHOOK_URL: str = ""
     GROK_BOT_WEBHOOK_KEY: str = ""
+    # Osobna rutyna Groka dla map firm z panelu Cognism.
+    GROK_BOT_PEOPLE_WEBHOOK_URL: str = ""
+    GROK_BOT_PEOPLE_WEBHOOK_KEY: str = ""
+    SALES_COGNISM_PEOPLE_ENABLED: bool = False
+    SALES_COGNISM_PEOPLE_RESEARCH_SINCE: Optional[AwareDatetime] = None
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
     # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):

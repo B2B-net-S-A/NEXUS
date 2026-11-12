@@ -304,6 +304,30 @@ describe("przyciski wiersza", () => {
     expect(screen.getByText("Co dalej i kiedy")).toBeTruthy();
   });
 
+  it("po spotkaniu krok dostaje własną datę zamiast przycisku terminu", async () => {
+    createActivity.mockImplementation((_input, { onSuccess }) => onSuccess());
+    render(<MyDayRowItem row={row({ section: "meetings", activity_id: 9 })} canEdit />);
+    fireEvent.click(screen.getByRole("button", { name: "Po spotkaniu" }));
+    const custom = new Date();
+    custom.setDate(custom.getDate() + 10);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const isoDay = `${custom.getFullYear()}-${pad(custom.getMonth() + 1)}-${pad(custom.getDate())}`;
+    fireEvent.change(screen.getByLabelText("Własna data"), { target: { value: isoDay } });
+    expect(screen.getByRole("radio", { name: "Za 3 dni" }).getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(createActivity).toHaveBeenCalled());
+    expect(new Date(createActivity.mock.calls[0][0].due_at).toDateString()).toBe(custom.toDateString());
+  });
+
+  it("data z przeszłości nie da się zapisać", () => {
+    render(<MyDayRowItem row={row({ section: "meetings", activity_id: 9 })} canEdit />);
+    fireEvent.click(screen.getByRole("button", { name: "Po spotkaniu" }));
+    fireEvent.change(screen.getByLabelText("Własna data"), { target: { value: "2020-01-02" } });
+    expect((screen.getByRole("button", { name: "Zapisz" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "Za tydzień" }));
+    expect((screen.getByRole("button", { name: "Zapisz" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("spotkanie przy szansie nie proponuje drugiej", () => {
     render(<MyDayRowItem row={row({ section: "meetings", activity_id: 9 })} canEdit />);
     fireEvent.click(screen.getByRole("button", { name: "Po spotkaniu" }));

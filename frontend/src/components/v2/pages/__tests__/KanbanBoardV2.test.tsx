@@ -2235,6 +2235,18 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await userEvent.click(within(closed).getByRole("button", { name: "Pokaż wszystkich" }));
     expect(container.querySelector('[data-colid="def:313"] h3')).toHaveTextContent("Odrzucony");
     expect(container.querySelector('[data-colid="def:313"] h3')).not.toHaveTextContent("przez");
+    // Audyt 12.11.2026 (R3): licznik i rozwinięta kolumna mają RÓŻNE id upuszczenia.
+    // @hello-pangea/dnd nadpisuje wpis o tym samym id, a „Zwiń zamkniętych”
+    // kasował go razem z kolumną — upuszczenie na „zrezygnował” nic nie robiło.
+    const dropIds = Array.from(container.querySelectorAll("[data-rfd-droppable-id]")).map((el) =>
+      el.getAttribute("data-rfd-droppable-id"),
+    );
+    expect(dropIds.length).toBeGreaterThan(4);
+    expect(new Set(dropIds).size).toBe(dropIds.length);
+    // Licznik bez podziału dalej rozwija samą swoją kolumnę.
+    await userEvent.click(within(closed).getByRole("button", { name: /Zrezygnował/ }));
+    expect(within(closed).getByRole("button", { name: /Zrezygnował/ })).toHaveAttribute("aria-pressed", "true");
+    expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
     // Rozwinięte kolumny zamkniętych da się zwinąć z tego samego miejsca.
     await userEvent.click(within(closed).getByRole("button", { name: "Zwiń zamkniętych" }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();

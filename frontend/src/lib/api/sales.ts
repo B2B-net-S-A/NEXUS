@@ -6,6 +6,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export type CompanyLifecycle =
   | "lead"
@@ -282,6 +283,8 @@ export interface DecisionMapEntry {
   source_label?: string | null;
   source_url?: string | null;
   source_added_at?: string | null;
+  /** Data publikacji źródła (osoby od bota, „Grok Bot”). */
+  source_published_at?: string | null;
   source_confidence?: "confirmed" | "to_verify" | null;
 }
 
@@ -928,14 +931,40 @@ export interface OpportunityBulkResult {
   skipped: { id: number; title: string | null; reason: string }[];
 }
 
+/** Tyle szans przyjmuje jeden zapis (`MAX_IDS` w `backend/app/services/sales/bulk.py`). */
+export const OPPORTUNITY_BULK_MAX_IDS = 200;
+
+/**
+ * Zapis wielu szans w paczkach po `OPPORTUNITY_BULK_MAX_IDS`, bo lista zaznacza do
+ * `OPPORTUNITIES_PAGE` szans naraz. Wynik jest jeden: błąd pierwszej paczki to błąd
+ * całego zapisu (nic się nie zapisało), a po błędzie późniejszej zapisane zostają,
+ * reszta wraca jako pominięta z powodem.
+ */
+export async function postOpportunityBulk({
+  ids,
+  ...action
+}: { ids: number[] } & OpportunityBulkAction): Promise<OpportunityBulkResult> {
+  const result: OpportunityBulkResult = { done: [], skipped: [] };
+  for (let start = 0; start < ids.length; start += OPPORTUNITY_BULK_MAX_IDS) {
+    const chunk = ids.slice(start, start + OPPORTUNITY_BULK_MAX_IDS);
+    try {
+      const { data } = await api.post<OpportunityBulkResult>("/api/sales/opportunities/bulk", { ids: chunk, ...action });
+      result.done.push(...data.done);
+      result.skipped.push(...data.skipped);
+    } catch (error) {
+      if (start === 0) throw error;
+      const reason = `nie zapisano: ${apiErrorMessage(error, "błąd zapisu")}`;
+      result.skipped.push(...ids.slice(start).map((id) => ({ id, title: null, reason })));
+      break;
+    }
+  }
+  return result;
+}
+
 /** Akcja z listy Szans dla wielu zaznaczonych szans (`POST /api/sales/opportunities/bulk`). */
 export function useBulkOpportunities() {
   const invalidate = useInvalidateSales();
-  return useMutation({
-    mutationFn: async ({ ids, ...action }: { ids: number[] } & OpportunityBulkAction) =>
-      (await api.post<OpportunityBulkResult>("/api/sales/opportunities/bulk", { ids, ...action })).data,
-    onSuccess: invalidate,
-  });
+  return useMutation({ mutationFn: postOpportunityBulk, onSuccess: invalidate });
 }
 
 export function useMoveOpportunity() {

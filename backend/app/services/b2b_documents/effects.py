@@ -522,7 +522,24 @@ async def describe(
         when = _date(values.get("termination_date"))
         project_end = project_end_of(values, when)
         ended_before = project_already_ended(contract, when)
-        if ended_before and contract.status != ContractStatus.ended:
+        window_end = (
+            None if ended_before else notice_keeps_project_end(key, contract, when)
+        )
+        if window_end is not None:
+            ended_before = True
+            plan.changes.append(
+                f"Kontrakt ma koniec projektu {_pl(window_end)} z okna „Zakończ "
+                f"współpracę” — wypowiedzenie z dniem {_pl(when)} go nie skróci, "
+                "zamówienia też nie."
+            )
+            if parent is not None:
+                plan.changes.append(
+                    f"Umowa w rejestrze: „Zakończona” z dniem {_pl(when)}."
+                )
+            plan.warnings.append(
+                "Umowa rozwiąże się przed końcem projektu — sprawdź datę rozwiązania."
+            )
+        elif ended_before and contract.status != ContractStatus.ended:
             # Projekt kończy się wcześniej niż umowa (zakończenie zaplanowane
             # oknem) — kontraktu dokument nie rusza (runda 7, R7-V4-1).
             plan.changes.append(
@@ -593,6 +610,38 @@ async def describe(
 
 
 # ── zapis ────────────────────────────────────────────────────────────────────
+
+
+def project_end_from_window(contract: Contract | None) -> date | None:
+    """Koniec projektu ustalony oknem „Zakończ współpracę” na żywym kontrakcie.
+
+    „Zakończ i przygotuj wypowiedzenie” zapisuje koniec projektu, zanim otworzy
+    generator. Rozwiązanie umowy wcześniej niż ten dzień nie może go skracać
+    (audyt 12.11.2026, K1: projekt do 31.01 kończył się 31.12 z okresem
+    wypowiedzenia). Plan kontraktu bez decyzji z okna (``terminated_at`` puste)
+    się nie liczy — wypowiedzenie kończy wtedy współpracę jak dotąd."""
+    if (
+        contract is None
+        or contract.status not in (ContractStatus.active, ContractStatus.ending)
+        or contract.terminated_at is None
+    ):
+        return None
+    return contract.end_date
+
+
+def notice_keeps_project_end(
+    key: str, contract: Contract | None, when: date | None
+) -> date | None:
+    """Koniec projektu z okna, którego wypowiedzenie przez B2B.net nie skraca.
+
+    Porozumienie niesie własny ostatni dzień świadczenia usług, więc tam
+    decyduje dokument; data wypowiedzenia to tylko okres z umowy."""
+    window_end = (
+        project_end_from_window(contract) if key == "termination_notice" else None
+    )
+    if window_end is None or when is None or window_end <= when:
+        return None
+    return window_end
 
 
 def project_already_ended(contract: Contract | None, when: date | None = None) -> bool:
@@ -932,8 +981,14 @@ async def apply(
                 parent, mode=mode, party=party, signed_on=signed_on
             )
         ended_before = project_already_ended(contract, when)
+        window_end = notice_keeps_project_end(key, contract, project_end)
         if ended_before:
             summary["contract_already_ended"] = True
+        elif window_end is not None:
+            # Umowa rozwiąże się przed końcem projektu z okna — dokument nie
+            # skraca projektu ani zamówień; wiersz rejestru zamyka się sam.
+            ended_before = True
+            summary["project_ends_after_agreement"] = window_end.isoformat()
         elif contract is not None:
             await contracts_api._apply_termination_to_contract(
                 db,

@@ -12,6 +12,10 @@ Nazwa i nazwa prawna źródłowej, których docelowa nie ma, zostają przy docel
 jako nazwy dołączone („Inne nazwy z CV”), bo „Kogo znamy” dopasowuje osoby
 dokładnie po nazwie. Punkty do rozmowy z bota to jeden wiersz na firmę: przy
 docelowej zostaje nowszy z dwóch.
+
+Mail i spotkanie z Outlooka synchronizacja zapisuje przy każdej dopasowanej
+firmie, a ``ux_sales_activities_outlook`` wpuszcza jeden taki wiersz na kartę.
+Kopia ze źródłowej dołącza więc do wiersza docelowej (``join_outlook_duplicates``).
 """
 
 from __future__ import annotations
@@ -20,7 +24,8 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import literal, select, update
+from sqlalchemy import and_, literal, select, update
+from sqlalchemy.orm import aliased
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,6 +97,50 @@ def names_to_join(
     return found
 
 
+def outlook_copy():
+    """Warunek ``ux_sales_activities_outlook``: wiersz synchronizacji Outlooka."""
+
+    return and_(
+        SalesActivity.external_id.is_not(None), SalesActivity.external_ref.is_(None)
+    )
+
+
+async def join_outlook_duplicates(
+    db: AsyncSession, *, source_id: int, target_id: int
+) -> int:
+    """Dołącz kopie maili i spotkań źródłowej do tych samych wierszy docelowej.
+
+    Docelowa dostaje szansę i osobę z kopii, gdy sama ich nie ma; kopia znika.
+    Zwraca liczbę usuniętych kopii.
+    """
+
+    kept = aliased(SalesActivity)
+    pairs = (
+        await db.execute(
+            select(SalesActivity, kept)
+            .join(
+                kept,
+                and_(
+                    kept.company_id == target_id,
+                    kept.external_source == SalesActivity.external_source,
+                    kept.external_id == SalesActivity.external_id,
+                    kept.external_ref.is_(None),
+                ),
+            )
+            .where(SalesActivity.company_id == source_id, outlook_copy())
+        )
+    ).all()
+    for copy, row in pairs:
+        if row.opportunity_id is None:
+            row.opportunity_id = copy.opportunity_id
+        if row.contact_id is None:
+            row.contact_id = copy.contact_id
+        await db.delete(copy)
+    if pairs:
+        await db.flush()
+    return len(pairs)
+
+
 async def merge_companies(
     db: AsyncSession,
     *,
@@ -101,6 +150,7 @@ async def merge_companies(
     user_id: Optional[int] = None,
 ) -> None:
     source_id, target_id = source.id, target.id
+    await join_outlook_duplicates(db, source_id=source_id, target_id=target_id)
 
     moved_contacts = list(
         (
@@ -264,10 +314,19 @@ async def merge_companies(
         )
     )
 
+    from app.services.sales.bot_tasks.people import (
+        COGNISM_SUPPRESSIONS_KEY,
+        merge_cognism_company_fields,
+    )
+
     target.tags = _union_tags(target.tags, source.tags)
+    target_fields = target.custom_fields or {}
+    source_fields = source.custom_fields or {}
+    cognism = merge_cognism_company_fields(target_fields, source_fields)
     target.custom_fields = {
-        **(source.custom_fields or {}),
-        **(target.custom_fields or {}),
+        **source_fields,
+        **target_fields,
+        **cognism,
     }
     for name in FILLABLE_FIELDS:
         if getattr(target, name) in (None, "") and getattr(source, name) not in (
@@ -287,5 +346,13 @@ async def merge_companies(
         target.client_id = client_id
 
     source.archived_at = now
-    source.custom_fields = {**(source.custom_fields or {}), "merged_into": target_id}
+    source.custom_fields = {**source_fields, "merged_into": target_id}
+    if suppressions := cognism.get(COGNISM_SUPPRESSIONS_KEY):
+        # Przywrócenie karty z archiwum też nie przywraca zakwestionowanego kontaktu.
+        source.custom_fields = {
+            **source.custom_fields,
+            **merge_cognism_company_fields(
+                source_fields, {COGNISM_SUPPRESSIONS_KEY: suppressions}
+            ),
+        }
     await db.flush()

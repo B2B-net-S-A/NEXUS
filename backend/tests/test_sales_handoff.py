@@ -30,9 +30,10 @@ from app.models.sales import (
     SalesOpportunity,
     SalesOpportunityContact,
 )
-from app.services.sales import handoff, handoff_state
+from app.services.sales import handoff, handoff_invite, handoff_state, meeting_autopin
 from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_meeting_decisions import (
+    _activity,
     _client,
     _events,
     _firm,
@@ -881,6 +882,79 @@ async def test_caller_rebooks_after_not_now(app_client) -> None:
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["phase"] == "upcoming"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["no_show", "not_now"])
+async def test_rebooking_after_a_calendar_meeting_starts_a_new_term(
+    app_client, kind: str
+) -> None:
+    """Audyt 12.11 (S5): po werdykcie stare spotkanie z Outlooka trzymało termin.
+
+    Karta pokazywała starą datę i od razu prosiła o werdykt, a zmiana terminu,
+    zaproszenie i przejęcie nowego spotkania z kalendarza dostawały 409.
+    """
+
+    caller, host = await _pair()
+    held = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=30)
+    booked = await _booked(app_client, caller, host, meeting_at=held.isoformat())
+    opportunity_id = booked["opportunity"]["id"]
+    company_id = booked["company"]["id"]
+    old = await _activity(company_id, when=held, owner_id=host.id)
+    async with AsyncSessionLocal() as db:
+        await meeting_autopin.pin_obvious_meetings(db, now=datetime.now(timezone.utc))
+        await db.commit()
+    [row] = (await _mine(app_client, host))["to_me"]
+    assert row["from_calendar"] is True
+    resp = await _verdict(app_client, host, opportunity_id, kind=kind)
+    assert resp.status_code == 200, resp.text
+
+    again = _in(4)
+    rebooked = await _book(
+        app_client,
+        caller,
+        opportunity_id=opportunity_id,
+        host_user_id=host.id,
+        meeting_at=again.isoformat(),
+    )
+    assert rebooked.status_code == 201, rebooked.text
+    [row] = (await _mine(app_client, host))["to_me"]
+    assert (row["from_calendar"], row["phase"]) == (False, "upcoming")
+    assert datetime.fromisoformat(row["meeting_at"]) == again
+    # Stare spotkanie zostaje na osi szansy obok nowego wpisu terminu.
+    meetings = await _meetings(opportunity_id)
+    assert old in [m.id for m in meetings] and len(meetings) == 2
+
+    moved = _in(5)
+    term = await app_client.put(
+        f"{URL}/{opportunity_id}/term",
+        json={"meeting_at": moved.isoformat()},
+        headers=_headers(caller),
+    )
+    assert term.status_code == 200, term.text
+    async with AsyncSessionLocal() as db:
+        opp = await db.get(SalesOpportunity, opportunity_id)
+        meeting_at, _ = await handoff_invite.reserve(
+            db,
+            opp,
+            handoff_invite.InviteRequest(
+                subject="Spotkanie", to=["klient@example.com"], request_id=uuid.uuid4()
+            ),
+            now=datetime.now(timezone.utc),
+        )
+        assert meeting_at == moved
+        await db.rollback()
+
+    # Nowe spotkanie z Outlooka w nowym terminie zostaje przejęte.
+    invite = await _activity(company_id, when=moved, owner_id=host.id, done=False)
+    async with AsyncSessionLocal() as db:
+        opp = await db.get(SalesOpportunity, opportunity_id)
+        activity = await db.get(SalesActivity, invite)
+        activity.opportunity_id = opportunity_id
+        assert await handoff.adopt_calendar_meeting(db, opp, activity) is True
+        await db.commit()
+    [row] = (await _mine(app_client, host))["to_me"]
+    assert row["from_calendar"] is True
 
 
 @pytest.mark.asyncio

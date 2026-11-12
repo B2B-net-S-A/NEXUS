@@ -1,5 +1,21 @@
 [
   {
+    "id": "sprzedaz-moj-dzien-wlasna-data-kroku",
+    "pr": 3338,
+    "title": "Mój dzień: własna data następnego kroku",
+    "why": "W „Co dalej i kiedy” (po spotkaniu, „Zaplanuj”, „Inny krok”) obok przycisków Jutro…Za miesiąc wpiszesz albo wybierzesz z kalendarza dowolny dzień.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Mój dzień → „Po spotkaniu” albo „Zaplanuj” → pole daty",
+    "href": "/sales",
+    "dot_anchor": "sales.myday.custom-date"
+  },
+  {
     "id": "sprzedaz-listy-dzwonienia-wszyscy",
     "pr": 3327,
     "title": "Dzwonienie: listy wszystkich i numer do skopiowania",
@@ -2486,6 +2502,87 @@
     "where": "Sprzedaż → Leady → Lista z researchu",
     "href": "/sales/leads",
     "dot_anchor": "sales.research.cognism"
+  },
+  {
+    "id": "sprzedaz-bot-uzupelnia-karte",
+    "pr": 3331,
+    "title": "Karta firmy: „Uzupełnij z bota”",
+    "why": "Bot szuka domeny, NIP-u, miasta, branży, wielkości i firmy matki ze źródłami. Każde pole przyjmujesz albo odrzucasz sam: nic nie zapisuje się na karcie bez Ciebie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.enrich",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-zapytaj-bota",
+    "pr": 3331,
+    "title": "Karta firmy: „Zapytaj bota”",
+    "why": "Zadaj pytanie o firmę, a bot w kilka minut odpowie ze źródłami. Do bota idzie tylko nazwa, domena i pytanie, więc nie wpisuj w nim e-maili ani telefonów.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy → Przegląd",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.ask",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-bot-znajdz-decydentow",
+    "pr": 3334,
+    "title": "Znajdź decydentów (bot)",
+    "why": "Bot szuka osób decyzyjnych firmy na jej publicznych stronach. Przy osobie jest link do źródła, a e-mail i telefon tylko, gdy były na stronie. Jeden bieg na firmę na dobę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Szanse → Fabryki IT → konto → Mapa decyzyjna (także karta firmy)",
+    "href": "/sales/opportunities",
+    "dot_anchor": "sales.bot-people.find",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-bot-osoby-do-przegladu",
+    "pr": 3334,
+    "title": "Osoby od bota czekają na przegląd",
+    "why": "Osoby od bota przeglądasz jak listę z pliku: nic nie trafia na mapę bez Twojej akceptacji, a przy osobie zostaje źródło i data. Konto z wynikiem ma plakietkę „Osoby od bota”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Leady → Lista z researchu → Osoby od bota",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.bot-people.list",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-mapa-decydentow-cognism",
+    "pr": 3339,
+    "title": "Mapa decydentów z Cognism",
+    "why": "Na karcie firmy znajdziesz osoby i służbowe dane kontaktowe sprawdzone przez bota w Cognism.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Firmy → Mapa decydentów",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.decision-map",
+    "requires_setting": "SALES_COGNISM_PEOPLE_ENABLED"
   },
   {
     "id": "sprzedaz-haczyk-przed-telefonem",

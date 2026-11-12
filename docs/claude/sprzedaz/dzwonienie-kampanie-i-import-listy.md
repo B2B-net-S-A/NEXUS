@@ -54,6 +54,9 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
   tej szansy. O tym, czyja to pozycja, decyduje opiekun szansy, nie pole rekordu.
 - **„Spotkania bez terminu”** to otwarte szanse tej osoby na etapie „Spotkanie
   kwalifikujące”, których firma nie ma w NEXUSIE spotkania od dnia założenia szansy.
+  Pomija te same wyniki co szanse z etapu „Lead”: sprzeciw, „Zły numer” i „Nie
+  zainteresowany” bez daty powrotu; z datą wraca w swoim dniu. Bez tego pozycja wracała
+  po „Nigdy”, a każde kolejne naciśnięcie liczyło się w „Dziś” i Skuteczności (audyt 12.11.2026).
   Karta daje pole terminu: zapis to zwykła aktywność `meeting`, która jest też krokiem
   szansy (`next_step.py`).
 - **„Umówione spotkanie”:** rekord kampanii otwiera `OpportunityFormDialog` z etapem

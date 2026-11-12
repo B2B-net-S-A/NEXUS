@@ -18,6 +18,10 @@ w kartę.
   w „Moim dniu” dawał zawsze 3 dni, a karta szansy termin z podpowiedzi.
 - **„Inny krok”** w „Moim dniu” przywraca wybór: wynik zaznacza, krok i termin wpisuje się
   ręcznie, zapis dopiero przyciskiem „Zapisz”. Na karcie inny krok to „Zaplanuj”.
+- **Termin w „Co dalej i kiedy”** (`MyDayRowPanels.StepFields`: „Po spotkaniu”, „Zaplanuj”,
+  „Inny krok”) to przyciski od „Jutro” do „Za miesiąc” albo własna data z pola obok
+  (prośba handlowca 12.11.2026). Własna data odznacza przyciski; data z przeszłości nie da się
+  zapisać. Okna na karcie szansy i ofertach miały pole daty już wcześniej.
 - **Krok, który się nie zapisze po zapisanej rozmowie:** w „Moim dniu” panel się zamyka
   (rozmowa jest już w historii, drugi zapis by ją zdublował), na karcie wraca okno
   „Co dalej i kiedy”, żeby krok nie zginął.
