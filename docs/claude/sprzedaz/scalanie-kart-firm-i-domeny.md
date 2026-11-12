@@ -1,5 +1,5 @@
 # Scalanie zdublowanych kart firm i domeny: jednorazowy skrypt (B6) — decyzje Artura 10.11.2026
-<!-- indeks: scripts/sales_company_merge.py, services/sales/merge.py, names_to_join, konta lejka atlas-it-factories i lista z researchu centrów IT, grupa = ta sama nazwa kanoniczna albo NIP, karta docelowa, „do decyzji”, karty tej samej marki (wariant nazwy, inna spółka), --decide, blokada dotyku szansy, nazwy dołączone po scaleniu (także z ekranu Firmy), punkty do rozmowy z bota po scaleniu, domena z poczty kontaktów, konflikt domen, --accept-domain, --expect-merge, --expect-domains, lista poza repo, bieg na produkcji workflowem coolify-sales-company-merge.yml (dry-run → liczby → zgoda Artura → apply), filtr raportu sales_company_merge_report.py, limit 25 wejść workflow_dispatch -->
+<!-- indeks: scripts/sales_company_merge.py, services/sales/merge.py, names_to_join, konta lejka atlas-it-factories i lista z researchu centrów IT, grupa = ta sama nazwa kanoniczna albo NIP, karta docelowa, „do decyzji”, karty tej samej marki (wariant nazwy, inna spółka), --decide, blokada dotyku szansy, nazwy dołączone po scaleniu (także z ekranu Firmy), punkty do rozmowy z bota po scaleniu, ten sam mail z Outlooka na dwóch kartach (outlook_duplicates, ux_sales_activities_outlook), domena z poczty kontaktów, konflikt domen, --accept-domain, --expect-merge, --expect-domains, lista poza repo, bieg na produkcji workflowem coolify-sales-company-merge.yml (dry-run → liczby → zgoda Artura → apply), filtr raportu sales_company_merge_report.py, limit 25 wejść workflow_dispatch -->
 
 
 Kartoteka Sprzedaży po imporcie z Atlasa ma po kilka kart tej samej firmy, a karty
@@ -93,6 +93,22 @@ i po zapisie sprawdza, że są przy karcie docelowej.
 Próba na osobnej kopii bazy (10.11.2026, 18 kart wchłoniętych): mapy 55 kont listy
 z `fabryki-it-lista-kont-i-kolejka.md` wyszły bez zmian, a „Znamy teraz” scalonej karty
 równało się sumie kart sprzed scalenia i nigdzie nie spadło.
+
+## Ten sam mail z Outlooka na obu kartach (poprawka 12.11.2026)
+
+Synchronizacja Outlooka (`outlook_activities.record`) zapisuje mail i spotkanie przy
+każdej dopasowanej firmie, a `ux_sales_activities_outlook` wpuszcza jeden taki wiersz
+(`external_source`, `external_id`) na kartę. Zwykłe przepięcie `company_id` dawało więc
+IntegrityError i wycofanie całego biegu (kopia z 10.11: 54 aktywności na co najmniej
+dwóch kartach, 8 par aktywnych kart).
+
+- `merge.py` (`join_outlook_duplicates`) przed przepięciem dołącza kopię ze źródła do
+  wiersza docelowej: docelowa bierze szansę i osobę kopii, gdy sama ich nie ma, a kopia
+  znika. Wiersze z importu Atlasa (`external_ref`) indeks pomija i przechodzą jak dotąd.
+- Bieg na sucho liczy takie kopie w `outlook_duplicates` (sama liczba w raporcie; filtr
+  workflow zna to pole). Dotyk szansy się nie zmienia, bo kopia ma tę samą datę co
+  wiersz, który zostaje.
+- Test: `test_same_outlook_mail_on_both_cards_becomes_one_activity`.
 
 ## Punkty do rozmowy z bota
 

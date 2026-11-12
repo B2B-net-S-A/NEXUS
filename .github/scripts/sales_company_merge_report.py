@@ -39,6 +39,7 @@ COUNTERS = {
     "similar_name_variants",
     "to_merge",
     "names_to_join",
+    "outlook_duplicates",
     "domains_to_set",
     "merged",
     "names_joined",
