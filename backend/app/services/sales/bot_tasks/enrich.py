@@ -293,8 +293,9 @@ async def _ingest(
     db: AsyncSession, run: SalesSignalRun, report: Any, now: datetime
 ) -> dict[str, Any]:
     allowed = {int(ref) for ref in run.company_ids}
-    refs = sorted({firm.company_ref for firm in report.firms} & allowed)
-    rows = await signals._companies(db, refs)
+    refs = {firm.company_ref for firm in report.firms} & allowed
+    not_found = set(report.not_found) & allowed
+    rows = await signals._companies(db, sorted(refs))
     parents = await _parent_names(db, list(rows.values()))
     results: list[dict[str, Any]] = []
     unknown = invalid = same = 0
@@ -333,13 +334,14 @@ async def _ingest(
     return {
         "checked_firms": report.checked_firms,
         "sent_firms": len(run.company_ids),
+        "researched_company_ids": sorted(refs | not_found),
         "results": len(results),
         "results_new": new,
         "fields": sum(len(r["payload"]["fields"]) for r in results),
         "invalid_fields": invalid,
         "same_fields": same,
         "unknown_company": unknown,
-        "not_found": len(set(report.not_found) & allowed),
+        "not_found": len(not_found),
     }
 
 

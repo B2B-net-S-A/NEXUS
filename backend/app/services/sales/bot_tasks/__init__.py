@@ -21,6 +21,7 @@ from app.models.sales import SalesSignalRun
 from app.services.sales.bot_tasks import (
     discovery,
     enrich,
+    people,
     question,
     signals_briefing,
     winback,
@@ -49,6 +50,7 @@ __all__ = [
     "TaskContext",
     "allowed_to_start",
     "enabled",
+    "for_run",
     "get",
     "ingest",
     "numbers_only",
@@ -68,6 +70,7 @@ REGISTRY: dict[str, BotTask] = {
         signals_briefing.BRIEFING,
         enrich.ENRICH,
         question.QUESTION,
+        people.PEOPLE,
         winback.WINBACK,
         discovery.DISCOVERY,
     )
@@ -80,6 +83,17 @@ def enabled() -> bool:
 
 def get(kind: str) -> Optional[BotTask]:
     return REGISTRY.get(kind)
+
+
+def for_run(run: SalesSignalRun) -> Optional[BotTask]:
+    """Rozdziel formaty raportów osób na podstawie zapisanego zlecenia."""
+
+    if (
+        run.kind == people.KIND
+        and (run.request or {}).get("source") == people.COGNISM_SOURCE
+    ):
+        return people.COGNISM
+    return get(run.kind)
 
 
 def allowed_to_start(kind: str) -> bool:

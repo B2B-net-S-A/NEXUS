@@ -2,6 +2,7 @@
 // Stan firmy w NEXUSIE i los osoby liczy backend (services/sales/research_import.py);
 // tu jest tylko to, co zależy od wyborów człowieka na ekranie.
 
+import type { BotPeoplePick } from "@/lib/api/sales-bot-people";
 import type {
   ResearchCard,
   ResearchCompany,
@@ -137,6 +138,11 @@ export function toInput(row: ResearchRow, level: number, target: Target): Resear
     decision_level: level,
     company_id: target.companyId,
   };
+}
+
+/** Wiersz wyniku bota do zapisu: serwer bierze treść osoby z wyniku, ekran daje poziom i kartę. */
+export function botPick(item: { row: ResearchRow; level: number; target: Target }): BotPeoplePick {
+  return { line: item.row.line, decision_level: item.level, company_id: item.target.companyId };
 }
 
 export function peopleCount(count: number): string {

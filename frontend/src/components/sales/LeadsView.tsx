@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Inbox, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -209,7 +209,10 @@ type LeadsMode = "signals" | "winback" | "new-firms" | "leads" | "research";
 export function LeadsView() {
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
-  const [picked, setPicked] = useState<LeadsMode | null>(null);
+  // `?osoby=<id>` z plakietki „Osoby od bota”: od razu przegląd tego wyniku.
+  const botParam = Number(useSearchParams()?.get("osoby") ?? "");
+  const botResultId = Number.isInteger(botParam) && botParam > 0 ? botParam : null;
+  const [picked, setPicked] = useState<LeadsMode | null>(botResultId !== null ? "research" : null);
   const probe = useLeads({ status: "new", limit: 1 });
   const signalsOn = probe.data?.signals_enabled === true;
   const botTasksOn = probe.data?.bot_tasks_enabled === true;
@@ -243,7 +246,7 @@ export function LeadsView() {
         ) : mode === "new-firms" ? (
           <NewFirmsInbox />
         ) : (
-          <ResearchImport />
+          <ResearchImport botResultId={botResultId} />
         )}
       </div>
     );

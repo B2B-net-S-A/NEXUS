@@ -77,6 +77,8 @@ STATE_ORDER: tuple[str, ...] = (
 _SUMMARY = re.compile(r"wykonane\s+telefony", re.IGNORECASE)
 _DAY = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?(?!\d)")
 _ISO_DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+# Zaprzeczenie jako osobne słowo: „spotkaNIE”, „poNIEdziałek”, „chętNIE” to nie „nie”.
+_NOT_INTERESTED = re.compile(r"\bnie\s*(?:(?:jest|sa|byl|byla|byli)\s+)?zainter")
 _TOTAL_LABELS: tuple[tuple[str, str], ...] = (
     ("calls", r"telefon"),
     ("talks", r"rozmow"),
@@ -127,7 +129,7 @@ def comment_state(comment: Optional[str]) -> Optional[str]:
         return None
     if re.search(r"nie odb|nie odebr|zajet|nie odpow", text):
         return "no_answer"
-    if re.search(r"zainter|zaintersow", text) and "nie" in text:
+    if _NOT_INTERESTED.search(text):
         return "not_interested"
     if re.search(r"brak danych|infolini|zla firma|nieprawid|zly numer|jednoosob", text):
         return "bad_contact"
@@ -436,46 +438,77 @@ def _listing(sheet: Sheet) -> ListFile:
     )
 
 
+def _overrides(sheet: Sheet) -> dict[int, calling_import.RecordOverride]:
+    return {
+        item.row.line: calling_import.RecordOverride(
+            state=item.state,
+            callback_on=item.callback_on,
+            attempts=0 if item.state == NEW else 1,
+        )
+        for item in sheet.rows
+    }
+
+
 async def plan_sheets(
     db: AsyncSession,
     campaign: SalesCallCampaign,
     sheets: list[Sheet],
     assignees: dict[str, int],
     people: list[tuple[int, str]],
+    *,
+    user_id: int,
 ) -> list[SheetPlan]:
+    """Bieg na sucho: zapis arkusz po arkuszu w savepoincie, który się cofa.
+
+    Zapis idzie po kolei, więc firma z wcześniejszego arkusza jest już w kolejce,
+    gdy przychodzi późniejszy (``other_caller``). Planowanie każdego arkusza osobno
+    obiecywało więcej, niż zapis dodawał (audyt 12.11.2026).
+    """
+
+    campaign_id = campaign.id
     plans: list[SheetPlan] = []
-    for sheet in sheets:
-        assignee = assignees.get(sheet.title) or suggest(sheet.title, people)
-        by_line = {item.row.line: item for item in sheet.rows}
-        states: dict[str, int] = {}
-        fates: dict[str, int] = {}
-        addable = 0
-        if assignee is not None and sheet.rows:
-            plan = await calling_import.plan_import(
-                db, campaign, _listing(sheet), assignee_id=assignee
+    dry_run = await db.begin_nested()
+    try:
+        for sheet in sheets:
+            assignee = assignees.get(sheet.title) or suggest(sheet.title, people)
+            by_line = {item.row.line: item for item in sheet.rows}
+            states: dict[str, int] = {}
+            fates: dict[str, int] = {}
+            addable = 0
+            if assignee is not None and sheet.rows:
+                plan, _ = await calling_import.apply_import(
+                    db,
+                    campaign_id,
+                    _listing(sheet),
+                    contact_source=calling_import.CONTACT_SOURCE,
+                    assignee_id=assignee,
+                    user_id=user_id,
+                    overrides=_overrides(sheet),
+                )
+                fates = {fate: n for fate, n in plan.counts.items() if n}
+                for row_plan in plan.rows:
+                    if row_plan.fate in calling_import.ADDABLE:
+                        addable += 1
+                        state = by_line[row_plan.row.line].state
+                        states[state] = states.get(state, 0) + 1
+            plans.append(
+                SheetPlan(
+                    title=sheet.title,
+                    assignee_id=assignee,
+                    rows=len(sheet.rows),
+                    states=states,
+                    review=sum(1 for item in sheet.rows if item.review),
+                    fates=fates,
+                    addable=addable,
+                    without_company=sheet.without_company,
+                    moved=sheet.moved,
+                    days=len(sheet.days),
+                    duplicate_days=sheet.duplicate_days,
+                    totals=_totals(sheet),
+                )
             )
-            fates = {fate: n for fate, n in plan.counts.items() if n}
-            for row_plan in plan.rows:
-                if row_plan.fate in calling_import.ADDABLE:
-                    addable += 1
-                    state = by_line[row_plan.row.line].state
-                    states[state] = states.get(state, 0) + 1
-        plans.append(
-            SheetPlan(
-                title=sheet.title,
-                assignee_id=assignee,
-                rows=len(sheet.rows),
-                states=states,
-                review=sum(1 for item in sheet.rows if item.review),
-                fates=fates,
-                addable=addable,
-                without_company=sheet.without_company,
-                moved=sheet.moved,
-                days=len(sheet.days),
-                duplicate_days=sheet.duplicate_days,
-                totals=_totals(sheet),
-            )
-        )
+    finally:
+        await dry_run.rollback()
     return plans
 
 
@@ -501,14 +534,6 @@ async def apply_sheets(
     for sheet in sheets:
         assignee = assignees[sheet.title]
         if sheet.rows:
-            overrides = {
-                item.row.line: calling_import.RecordOverride(
-                    state=item.state,
-                    callback_on=item.callback_on,
-                    attempts=0 if item.state == NEW else 1,
-                )
-                for item in sheet.rows
-            }
             _, count = await calling_import.apply_import(
                 db,
                 campaign_id,
@@ -516,7 +541,7 @@ async def apply_sheets(
                 contact_source=contact_source,
                 assignee_id=assignee,
                 user_id=user_id,
-                overrides=overrides,
+                overrides=_overrides(sheet),
             )
             added += count
         for total in sheet.days.values():

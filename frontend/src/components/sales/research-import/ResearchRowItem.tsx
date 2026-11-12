@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { TableCell, TableRow } from "@/components/ui/table";
 import type { ResearchCompany, ResearchOutcome, ResearchRow } from "@/lib/api/sales-research-import";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { ClientHandoff } from "../factories/ClientHandoff";
 import { safeHref } from "../format";
@@ -43,6 +44,8 @@ interface ResearchRowItemProps {
   /** Konto założone w tej sesji: firma nie czeka już na wybór karty. */
   resolved: boolean;
   saving: boolean;
+  /** Data publikacji źródła (osoby od bota); z pliku jej nie ma. */
+  published?: string | null;
   /** Powód, dla którego nie da się teraz dodać (np. puste „Skąd lista”). */
   blockedReason: string | null;
   onLevel: (level: number) => void;
@@ -233,10 +236,11 @@ function ActionCell({ item, saving, blockedReason, onAccept }: Pick<ResearchRowI
 
 /** Wiersz przeglądu: osoba z pliku, stan jej firmy w NEXUSIE i jedna akcja. */
 export function ResearchRowItem(props: ResearchRowItemProps) {
-  const { item, onLevel } = props;
+  const { item, onLevel, published } = props;
   const { row, target, phase } = item;
   const editable = phase === "ready" || phase === "choose";
-  const source = safeHref(row.linkedin_url) ?? safeHref(row.source_url);
+  // Osoba od bota: link do strony, na której ją znalazł; profil z pliku jak dotąd.
+  const source = published !== undefined ? safeHref(row.source_url) : (safeHref(row.linkedin_url) ?? safeHref(row.source_url));
   const known = target?.card?.known_current ?? null;
   const companyId = target?.companyId ?? null;
   return (
@@ -249,11 +253,15 @@ export function ResearchRowItem(props: ResearchRowItemProps) {
             <>
               {" · "}
               <a href={source} target="_blank" rel="noreferrer" className={LINK}>
-                profil
+                {published !== undefined ? "źródło" : "profil"}
               </a>
             </>
           )}
+          {published && <span className="tabular-nums"> · {formatIsoDatePl(published)}</span>}
         </span>
+        {published !== undefined && (row.email || row.phone) && (
+          <span className={CALM_SUBLINE}>{[row.email, row.phone].filter(Boolean).join(" · ")}</span>
+        )}
         {row.warnings.length > 0 && (
           <span className={`${CALM_SUBLINE} text-warning`} title={`Wiersz ${row.line} w pliku`}>
             {row.warnings.join("; ")}

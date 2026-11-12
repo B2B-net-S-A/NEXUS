@@ -1,7 +1,7 @@
 "use client";
 
 import { Upload } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useOwnerCandidates } from "@/lib/api/sales";
+import { useAcceptBotPeople, useBotPeoplePreview, useRejectBotPeople } from "@/lib/api/sales-bot-people";
 import {
   useAcceptResearchPeople,
   usePreviewResearchList,
@@ -21,9 +22,11 @@ import {
 import { CALM_HEAD } from "@/lib/calm-table";
 import { useAuthStore } from "@/store/auth";
 
+import { BotPeopleList } from "../bot-people/BotPeopleList";
 import { SalesSelect } from "../SalesSelect";
 
 import {
+  botPick,
   bulkEffect,
   bulkQuestion,
   IMPORT_ACCEPT,
@@ -57,16 +60,27 @@ function skippedLine(skipped: ResearchPreview["skipped"]): string {
     .join("; ");
 }
 
+/** Przegląd osób od bota: ten sam ekran, zapis do wyniku bota zamiast pliku. */
+export interface BotOrigin {
+  resultId: number;
+  /** Data publikacji źródła per wiersz. */
+  published: Record<string, string | null>;
+}
+
 interface ResearchReviewProps {
   preview: ResearchPreview;
   fileName: string;
   onReset: () => void;
+  bot?: BotOrigin;
 }
 
-function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
+function ResearchReview({ preview, fileName, onReset, bot }: ResearchReviewProps) {
   const user = useAuthStore((state) => state.user);
   const owners = useOwnerCandidates();
-  const accept = useAcceptResearchPeople();
+  const acceptFile = useAcceptResearchPeople();
+  const acceptBot = useAcceptBotPeople(bot?.resultId ?? null);
+  const reject = useRejectBotPeople();
+  const accept = bot ? acceptBot : acceptFile;
   const { askConfirm, confirmDialog } = useConfirmV2();
   const { showError, showSuccess } = useToast();
   const [sourceLabel, setSourceLabel] = useState(() => sourceFromFile(fileName, preview.origin));
@@ -109,7 +123,8 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
     .filter((item) => item.row.confidence === "confirmed" && !busyCompanies.has(item.company.key));
   const added = items.filter((item) => item.phase === "added").length;
   const shown = onlyToDecide ? toDecide : items;
-  const blockedReason = sourceLabel.trim().length < MIN_SOURCE_CHARS ? SOURCE_MISSING : null;
+  // Osoby od bota mają pochodzenie „Grok Bot” z serwera: pola „Skąd lista” nie ma.
+  const blockedReason = !bot && sourceLabel.trim().length < MIN_SOURCE_CHARS ? SOURCE_MISSING : null;
   const ownerOptions = (owners.data ?? [])
     .filter((owner) => owner.id !== user?.id)
     .map((owner) => ({ value: String(owner.id), label: owner.name }));
@@ -120,11 +135,14 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
     setSaving((current) => new Set([...current, ...lines]));
     try {
       // `mutateAsync`, bo kilka wierszy klikniętych po kolei ma każdy dostać swój wynik.
-      const data = await accept.mutateAsync({
-        source_label: sourceLabel.trim(),
-        owner_user_id: ownerId ? Number(ownerId) : null,
-        people: list.map((item) => toInput(item.row, item.level, item.target)),
-      });
+      const owner = ownerId ? Number(ownerId) : null;
+      const data = bot
+        ? await acceptBot.mutateAsync({ owner_user_id: owner, people: list.map(botPick) })
+        : await acceptFile.mutateAsync({
+            source_label: sourceLabel.trim(),
+            owner_user_id: owner,
+            people: list.map((item) => toInput(item.row, item.level, item.target)),
+          });
       setOutcomes((current) => ({
         ...current,
         ...Object.fromEntries(data.outcomes.map((outcome) => [outcome.line, outcome])),
@@ -168,13 +186,33 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
     if (ok) await save(certain);
   };
 
+  const onReject = async () => {
+    if (!bot) return;
+    const ok = await askConfirm({
+      title: "Odrzucić wynik bota?",
+      description:
+        added > 0
+          ? "Dodane osoby zostają na mapie. Pozostałe znikną z listy i bot nie zaproponuje ich tej firmie ponownie."
+          : "Wynik zniknie z listy, a bot nie zaproponuje tych osób tej firmie ponownie.",
+      confirmLabel: "Odrzuć",
+    });
+    if (!ok) return;
+    try {
+      await reject.mutateAsync(bot.resultId);
+      showSuccess("Wynik bota odrzucony.");
+      onReset();
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się odrzucić wyniku."));
+    }
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 rounded-lg border border-border bg-card px-3 py-2">
         <div className="min-w-0 leading-tight">
           <div className="flex min-w-0 items-center gap-2">
             <Badge variant="soft" size="sm" className="shrink-0">
-              Lista z researchu
+              {bot ? "Osoby od bota" : "Lista z researchu"}
             </Badge>
             <p className="truncate text-sm font-medium text-foreground">{fileName}</p>
           </div>
@@ -184,18 +222,20 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-0.5">
-            <Label htmlFor="research-source" className="text-xs text-muted-foreground">
-              Skąd lista
-            </Label>
-            <Input
-              id="research-source"
-              className="h-8 w-64"
-              maxLength={255}
-              value={sourceLabel}
-              onChange={(event) => setSourceLabel(event.target.value)}
-            />
-          </div>
+          {!bot && (
+            <div className="flex flex-col gap-0.5">
+              <Label htmlFor="research-source" className="text-xs text-muted-foreground">
+                Skąd lista
+              </Label>
+              <Input
+                id="research-source"
+                className="h-8 w-64"
+                maxLength={255}
+                value={sourceLabel}
+                onChange={(event) => setSourceLabel(event.target.value)}
+              />
+            </div>
+          )}
           <div className="flex flex-col gap-0.5">
             <Label htmlFor="research-owner" className="text-xs text-muted-foreground">
               Opiekun nowych kont
@@ -219,18 +259,32 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
           >
             Tylko do decyzji ({toDecide.length})
           </Button>
-          <Button
-            size="sm"
-            className="h-8"
-            disabled={certain.length === 0 || blockedReason !== null}
-            title={blockedReason ?? undefined}
-            loading={accept.isPending && saving.size > 1}
-            onClick={() => void onBulk()}
-          >
-            Dodaj pewne do map ({certain.length})
-          </Button>
+          {!bot && (
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={certain.length === 0 || blockedReason !== null}
+              title={blockedReason ?? undefined}
+              loading={accept.isPending && saving.size > 1}
+              onClick={() => void onBulk()}
+            >
+              Dodaj pewne do map ({certain.length})
+            </Button>
+          )}
+          {bot && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              loading={reject.isPending}
+              disabled={saving.size > 0}
+              onClick={() => void onReject()}
+            >
+              Odrzuć resztę
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="h-8" onClick={onReset}>
-            Zmień plik
+            {bot ? "Wróć do listy" : "Zmień plik"}
           </Button>
         </div>
       </div>
@@ -269,6 +323,7 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
               choice={choices[item.company.key]}
               resolved={created[item.company.key] !== undefined}
               saving={saving.has(item.row.line)}
+              published={bot ? (bot.published[String(item.row.line)] ?? null) : undefined}
               blockedReason={
                 blockedReason ??
                 (busyCompanies.has(item.company.key) && !saving.has(item.row.line) ? COMPANY_BUSY : null)
@@ -290,8 +345,9 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
         </TableBody>
       </Table>
       <p className="text-xs text-muted-foreground">
-        Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem i dzisiejszą datą. Nic się nie wysyła i nie dzwoni
-        samo.
+        {bot
+          ? "Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem „Grok Bot”, linkiem i datą publikacji. Bot podaje tylko osoby i kontakty ze stron, które otworzył: sprawdź źródło przed telefonem. Nic się nie wysyła i nie dzwoni samo."
+          : "Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem i dzisiejszą datą. Nic się nie wysyła i nie dzwoni samo."}
       </p>
       {confirmDialog}
     </div>
@@ -303,10 +359,16 @@ function ResearchReview({ preview, fileName, onReset }: ResearchReviewProps) {
  * do map decyzyjnych lejka Fabryki IT. Plik czyta serwer; ekran niczego nie
  * zapisuje, dopóki człowiek nie zaakceptuje wiersza albo wszystkich pewnych.
  */
-export function ResearchImport() {
+export function ResearchImport({ botResultId = null }: { botResultId?: number | null }) {
   const preview = usePreviewResearchList();
+  const botPreview = useBotPeoplePreview();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [loaded, setLoaded] = useState<{ preview: ResearchPreview; fileName: string; token: number } | null>(null);
+  const [loaded, setLoaded] = useState<{
+    preview: ResearchPreview;
+    fileName: string;
+    token: number;
+    bot?: BotOrigin;
+  } | null>(null);
 
   const onFile = (file: File | undefined) => {
     if (!file) return;
@@ -315,19 +377,65 @@ export function ResearchImport() {
     });
   };
 
+  const openBot = (resultId: number) => {
+    botPreview.mutate(resultId, {
+      onSuccess: (data) =>
+        setLoaded({
+          preview: data.preview,
+          fileName: data.company.name,
+          token: Date.now(),
+          bot: { resultId: data.result_id, published: data.published },
+        }),
+    });
+  };
+
+  // Wejście z plakietki „Osoby od bota” na koncie: od razu przegląd tego wyniku.
+  const openBotRef = useRef(openBot);
+  openBotRef.current = openBot;
+  useEffect(() => {
+    if (botResultId !== null) openBotRef.current(botResultId);
+  }, [botResultId]);
+
   if (loaded) {
     return (
       <ResearchReview
         key={loaded.token}
         preview={loaded.preview}
         fileName={loaded.fileName}
+        bot={loaded.bot}
         onReset={() => {
           preview.reset();
+          botPreview.reset();
           setLoaded(null);
         }}
       />
     );
   }
+  return (
+    <div className="space-y-3">
+      <ResearchUpload
+        loading={preview.isPending}
+        error={preview.isError ? apiErrorMessage(preview.error, "Nie udało się odczytać pliku.") : null}
+        inputRef={inputRef}
+        onFile={onFile}
+      />
+      <BotPeopleList
+        opening={botPreview.isPending ? (botPreview.variables ?? null) : null}
+        error={botPreview.isError ? apiErrorMessage(botPreview.error, "Nie udało się otworzyć wyniku bota.") : null}
+        onOpen={openBot}
+      />
+    </div>
+  );
+}
+
+interface ResearchUploadProps {
+  loading: boolean;
+  error: string | null;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onFile: (file: File | undefined) => void;
+}
+
+function ResearchUpload({ loading, error, inputRef, onFile }: ResearchUploadProps) {
   return (
     <div className="max-w-3xl space-y-3 rounded-lg border border-border bg-card p-4">
       <div className="space-y-1">
@@ -348,7 +456,7 @@ export function ResearchImport() {
           event.target.value = "";
         }}
       />
-      <Button size="sm" loading={preview.isPending} onClick={() => inputRef.current?.click()}>
+      <Button size="sm" loading={loading} onClick={() => inputRef.current?.click()}>
         <Upload className="mr-1 h-4 w-4" aria-hidden /> Wybierz plik
       </Button>
       <p className="text-xs text-muted-foreground">
@@ -358,9 +466,9 @@ export function ResearchImport() {
       <p className="text-xs text-muted-foreground" data-tour="sales.research.cognism">
         Eksport CSV z Cognism: wgraj plik bez zmian.
       </p>
-      {preview.isError && (
+      {error && (
         <p role="alert" className="text-sm text-destructive">
-          {apiErrorMessage(preview.error, "Nie udało się odczytać pliku.")}
+          {error}
         </p>
       )}
     </div>

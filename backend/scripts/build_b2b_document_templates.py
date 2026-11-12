@@ -670,6 +670,17 @@ def build_annex_party_data_en(doc: _Doc) -> None:
     )
 
 
+# Ostatni § ust. 4 aneksów PL (zgłoszenie 12.11.2026): jeden egzemplarz przy formie
+# elektronicznej, dwa przy pisemnej. To samo brzmienie w ``build_b2b_annex_templates``.
+ANNEX_COPIES_PL = (
+    "W przypadku zawarcia aneksu w formie elektronicznej, o której mowa w ust. 2, "
+    "aneks sporządza się w jednym egzemplarzu w postaci elektronicznej, który "
+    "otrzymuje każda ze Stron. W przypadku zawarcia aneksu w formie pisemnej "
+    "sporządza się go w dwóch jednobrzmiących egzemplarzach, po jednym dla każdej "
+    "ze Stron."
+)
+
+
 def build_annex_subcontractor_pl(doc: _Doc) -> None:
     check_date_header_pl(doc)
     sub(
@@ -710,6 +721,9 @@ def build_annex_subcontractor_pl(doc: _Doc) -> None:
         ],
     )
     sub(doc, r"z dniem\s*_+\s*\.", "z dniem {{ doc.effective_date }} r.")
+    sub(
+        doc, r"^W przypadku zawarcia Aneksu w formie elektronicznej.*$", ANNEX_COPIES_PL
+    )
 
 
 def build_annex_mandate_pl(doc: _Doc) -> None:
@@ -781,6 +795,11 @@ def build_annex_mandate_pl(doc: _Doc) -> None:
         doc,
         r"wchodzą w życie z dniem \d{2}\.\d{2}\.\d{4} r\.",
         "wchodzą w życie z dniem {{ doc.effective_date }} r.",
+    )
+    sub(
+        doc,
+        r"^Aneks sporządzono w dwóch jednobrzmiących egzemplarzach.*$",
+        ANNEX_COPIES_PL,
     )
 
 

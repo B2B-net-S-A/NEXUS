@@ -36,7 +36,7 @@ from app.models.sales import (
     SalesSignalRun,
 )
 from app.services.sales import client_gate
-from app.services.sales.companies import http_url
+from app.services.sales.companies import http_url, mail_domain
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,16 @@ def enabled() -> bool:
 
 def configured() -> bool:
     return bool(settings.GROK_BOT_WEBHOOK_URL and settings.GROK_BOT_WEBHOOK_KEY)
+
+
+def people_enabled() -> bool:
+    return bool(settings.SALES_COGNISM_PEOPLE_ENABLED)
+
+
+def people_configured() -> bool:
+    return bool(
+        settings.GROK_BOT_PEOPLE_WEBHOOK_URL and settings.GROK_BOT_PEOPLE_WEBHOOK_KEY
+    )
 
 
 # ── Raport bota ──────────────────────────────────────────────────────────
@@ -438,6 +448,7 @@ async def ingest(
     summary = {
         "checked_firms": report.checked_firms,
         "sent_firms": len(run.company_ids),
+        "researched_company_ids": sorted(rows),
         "signals_in": len(report.signals),
         "leads": len(plan.leads),
         "leads_new": new,
@@ -540,18 +551,30 @@ def webhook_body(
 
     from app.services.sales import bot_tasks
 
-    task = bot_tasks.REGISTRY[run.kind]
+    task = bot_tasks.for_run(run)
+    if task is None:
+        raise ValueError("Nieznany rodzaj zadania bota.")
     modes = run.modes or {}
+    request = dict(run.request or {})
+    cognism = run.kind == "people" and request.get("source") == "cognism"
     firms = [
         {
             "ref": company.id,
             "name": company.name,
-            "domain": company.domain or None,
+            "domain": (
+                mail_domain(company.domain) or mail_domain(company.website_url)
+                if cognism
+                else company.domain or None
+            ),
+            **(
+                {"legal_name": company.legal_name}
+                if cognism and company.legal_name
+                else {}
+            ),
             **({"mode": modes[str(company.id)]} if str(company.id) in modes else {}),
         }
         for company in companies
     ]
-    request = dict(run.request or {})
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run.id,
@@ -596,21 +619,28 @@ async def start_run(
     from app.services.sales import bot_tasks
 
     task = bot_tasks.get(kind)
-    if task is None or not bot_tasks.allowed_to_start(kind):
-        # Logi są publiczne: rodzaj i liczba firm, bez nazw.
-        logger.info(
-            "sales_bot kind=%s refused (registered=%s flag=%s) firms=%d",
-            kind,
-            task is not None,
-            bot_tasks.enabled(),
-            len(company_ids),
-        )
+    if task is None:
+        return None
+    cognism = kind == "people" and (request or {}).get("source") == "cognism"
+    if not (people_enabled() if cognism else bot_tasks.allowed_to_start(kind)):
         return None
     checked_request = task.validate_request(request)
+    if cognism:
+        webhook_url = settings.GROK_BOT_PEOPLE_WEBHOOK_URL
+        webhook_key = settings.GROK_BOT_PEOPLE_WEBHOOK_KEY
+    else:
+        webhook_url = settings.GROK_BOT_WEBHOOK_URL
+        webhook_key = settings.GROK_BOT_WEBHOOK_KEY
+    if not (webhook_url and webhook_key):
+        return None
     moment = now or datetime.now(timezone.utc)
     rows = await _companies(db, company_ids[:MAX_FIRMS])
-    if (task.needs_firms and not rows) or not configured():
+    if task.needs_firms and not rows:
         return None
+    if cognism and any(
+        firm["company_ref"] not in rows for firm in checked_request.get("employers", [])
+    ):
+        raise ValueError("Potwierdzona firma Cognism nie należy do biegu.")
     run, token = new_run(
         kind,
         list(rows),
@@ -629,18 +659,14 @@ async def start_run(
     body = webhook_body(run, token, [rows[cid] for cid in sorted(rows)], feedback)
     await db.commit()
     run_id = run.id
-    headers = {"Authorization": f"Bearer {settings.GROK_BOT_WEBHOOK_KEY}"}
+    headers = {"Authorization": f"Bearer {webhook_key}"}
     error: Optional[str] = None
     try:
         if client is None:
             async with httpx.AsyncClient(timeout=20.0) as own:
-                response = await own.post(
-                    settings.GROK_BOT_WEBHOOK_URL, json=body, headers=headers
-                )
+                response = await own.post(webhook_url, json=body, headers=headers)
         else:
-            response = await client.post(
-                settings.GROK_BOT_WEBHOOK_URL, json=body, headers=headers
-            )
+            response = await client.post(webhook_url, json=body, headers=headers)
         response.raise_for_status()
     except httpx.TimeoutException:
         # Nie wiadomo, czy bot dostał zlecenie: bieg zostaje otwarty z tokenem,

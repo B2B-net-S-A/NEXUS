@@ -96,11 +96,29 @@ od #1759. Brakowało drogi, nie wzoru — tak samo jak przy porozumieniu.
   `termination_notice`. Dane rozwiązania (tryb, strona B2B.net, doręczenie,
   ostatni dzień) dopisuje `effects.apply` przy dokumencie.
 - **Dat okno nie przekazuje.** Doręczenie (dziś) i rozwiązanie (koniec
-  okresu wypowiedzenia z wersji wzoru umowy) podpowiada serwer generatora;
+  okresu wypowiedzenia z wersji wzoru umowy, a gdy koniec projektu jest
+  późniejszy — koniec projektu, punkt niżej) podpowiada serwer generatora;
   `v_termination_date` z okna przykryłby to wyliczenie końcem projektu.
   Okno nie liczy daty z `notice_period_months` kontraktu: na kopii z 10.11
   pole było puste na 502 z 502 żywych kontraktów B2B, a 113 z 114 aktywnych
   umów w generatorze ma wersję wzoru, z której generator zna okres.
+- **Rozwiązanie = późniejsza z dwóch dat** (audyt 12.11.2026, K1). Do tej poprawki
+  generator podpowiadał koniec okresu wypowiedzenia także wtedy, gdy koniec
+  projektu z okna był późniejszy, a podpis ustawiał ten dzień jako koniec
+  kontraktu i przycinał zamówienia (projekt do 31.01.2027 kończył się 31.12.2026).
+  Teraz prefill (`document_prefill`) bierze koniec projektu z kontraktu umowy
+  bazowej (`effects.project_end_from_window`: kontrakt aktywny albo kończący się
+  z `terminated_at` z okna), gdy jest późniejszy, i mówi to w notce pod polem
+  (`notes` w odpowiedzi prefillu, `DocumentFieldsForm`). Okno dalej nie podaje
+  daty w adresie, bo `v_termination_date` przykryłby wyliczenie okresu; koniec
+  projektu czyta serwer z kontraktu, który okno zapisało przed otwarciem generatora.
+- **Podpis wypowiedzenia z wcześniejszą datą nie skraca projektu z okna**
+  (`notice_keeps_project_end`): kontrakt i zamówienia zostają, umowa w rejestrze
+  zamyka się z dniem rozwiązania, a podgląd skutków ostrzega, że umowa rozwiąże
+  się przed końcem projektu. Dotyczy tylko `termination_notice`: porozumienie ma
+  własny ostatni dzień świadczenia usług i on decyduje. Kontrakt bez decyzji
+  z okna (`terminated_at` puste) wypowiedzenie kończy jak dotąd. Testy:
+  `tests/test_b2b_termination_notice_project_end.py`.
 - **Powód idzie jako `v_termination_reason` tylko z listy wypowiedzenia**
   (`noticeReason`, lustro `_TERMINATION_BY_COMPANY`). Inny powód kontraktu
   zostawia pole puste do wyboru w generatorze.

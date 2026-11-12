@@ -22,6 +22,10 @@ vi.mock("@/lib/api/sales-factories", async (original) => ({
   useFactoryQueue: (ownerId: number | null) => queueQuery(ownerId),
   useFactoryKnownPeople: (archived: boolean) => knownQuery(archived),
 }));
+// Plakietka „Osoby od bota”: osobny test niżej; widok listy dostaje wyłączone zadania bota.
+vi.mock("@/lib/api/sales-bot-people", () => ({
+  useBotPeoplePending: () => ({ data: { enabled: false, items: [], running_company_ids: [] } }),
+}));
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
   usePipelines: () => ({ data: PIPELINES, isLoading: false, error: null, isSuccess: true }),
@@ -232,6 +236,28 @@ describe("lista kont", () => {
     const fine = within(rowOf("Firma Kos"));
     expect(fine.getByText("2 z 4")).toBeInTheDocument();
     expect(fine.queryByText(/nikt po kontakcie/)).not.toBeInTheDocument();
+  });
+
+  it("wynik bota do przeglądu ma plakietkę z odnośnikiem do przeglądu", () => {
+    const pending = new Map([
+      [
+        10,
+        {
+          id: 7,
+          company: { id: 10, name: "Firma Sowa" },
+          status: "new" as const,
+          people: 4,
+          open: 4,
+          created_at: "2026-11-12T08:05:00Z",
+        },
+      ],
+    ]);
+    render(
+      <FactoryAccountsTable items={items} accounts={facts} known={new Map()} knownState="ready" botPending={pending} />,
+    );
+    const badge = within(rowOf("Firma Sowa")).getByText("Osoby od bota").closest("a");
+    expect(badge).toHaveAttribute("href", "/sales/leads?osoby=7");
+    expect(within(rowOf("Firma Kos")).queryByText("Osoby od bota")).not.toBeInTheDocument();
   });
 
   it("klient NEXUSA ma oznaczenie i prowadzi do Delivery Leada", () => {

@@ -65,6 +65,7 @@ REPORT = {
     "to_merge_by_origin": {},
     "moving": {"contacts": 0, "opportunities": 0, "activities": 0, "files": 0},
     "names_to_join": 0,
+    "outlook_duplicates": 54,
     "domains": {"jest": 2, "do_zapisu": 27, "slaba": 3, "brak": 16},
     "domains_to_set": 27,
     "merged": 0,

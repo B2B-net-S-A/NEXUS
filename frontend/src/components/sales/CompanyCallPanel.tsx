@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useOpportunities, useSalesContacts, type Ref, type SalesContact } from "@/lib/api/sales";
 
 import { CallPanel } from "./MyDayRowPanels";
@@ -23,6 +25,21 @@ export function CompanyCallPanel({ company, onDone }: { company: Ref; onDone: ()
   const open = (opportunities.data?.items ?? []).filter((item) => item.status === "open");
   const only = open.length === 1 ? open[0] : null;
 
+  // Awaria zapytania nie może wyglądać jak wczytywanie.
+  const failed = contacts.isError ? contacts : opportunities.isError ? opportunities : null;
+  if (failed) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-card px-3 py-2 text-sm text-destructive"
+      >
+        <span>{apiErrorMessage(failed.error, "Nie udało się wczytać osób z tej firmy.")}</span>
+        <Button size="sm" variant="outline" onClick={() => void failed.refetch()}>
+          Spróbuj ponownie
+        </Button>
+      </div>
+    );
+  }
   if (!contacts.isSuccess || !opportunities.isSuccess) {
     return <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">Wczytywanie osób…</p>;
   }

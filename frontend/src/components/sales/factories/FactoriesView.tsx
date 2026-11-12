@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/ds/EmptyState";
 import { Button } from "@/components/ui/button";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import type { Opportunity } from "@/lib/api/sales";
+import { useBotPeoplePending } from "@/lib/api/sales-bot-people";
 import { useFactoryAccounts, useFactoryKnownPeople } from "@/lib/api/sales-factories";
 import { useUrlWriter } from "@/lib/url-selection";
 
@@ -49,6 +50,12 @@ export function FactoriesView({ items, ownerId, currentUserId, canEdit, archived
     [known.data],
   );
   const knownState: KnownState = known.isSuccess ? "ready" : known.isError ? "error" : "loading";
+  // Plakietka „Osoby od bota”: dodatek, bez flagi albo przy błędzie po prostu jej nie ma.
+  const botPeople = useBotPeoplePending();
+  const botPending = useMemo(
+    () => new Map((botPeople.data?.enabled ? botPeople.data.items : []).map((item) => [item.company.id, item])),
+    [botPeople.data],
+  );
 
   const setMode = (next: Mode) => {
     const params = new URLSearchParams(window.location.search);
@@ -110,7 +117,13 @@ export function FactoriesView({ items, ownerId, currentUserId, canEdit, archived
           description="Żadna szansa tego lejka nie pasuje do wyszukiwania i filtrów. Kolejka osób od nich nie zależy."
         />
       ) : mode === "accounts" ? (
-        <FactoryAccountsTable items={items} accounts={facts} known={knownByCompany} knownState={knownState} />
+        <FactoryAccountsTable
+          items={items}
+          accounts={facts}
+          known={knownByCompany}
+          knownState={knownState}
+          botPending={botPending}
+        />
       ) : (
         <FactoryQueue
           ownerId={queueOwnerId}

@@ -210,6 +210,8 @@ export interface DocumentFieldsFormProps {
   onChange: (key: string, value: DocumentValue) => void;
   /** Klucze pól z błędem (brak wymaganego, nieczytelna kwota, 422 serwera). */
   errorKeys?: ReadonlySet<string>;
+  /** Notki serwera do pól (np. skąd wzięła się podpowiedziana data). */
+  notes?: Readonly<Record<string, string>>;
   disabled?: boolean;
   idPrefix?: string;
 }
@@ -219,6 +221,7 @@ export function DocumentFieldsForm({
   values,
   onChange,
   errorKeys,
+  notes,
   disabled,
   idPrefix = "b2b-doc",
 }: DocumentFieldsFormProps) {
@@ -241,8 +244,11 @@ export function DocumentFieldsForm({
                 raw.trim() !== "" &&
                 parseMoney(raw) === null;
               const invalid = Boolean(errorKeys?.has(field.key)) || moneyInvalid;
+              const note = notes?.[field.key];
               const describedBy =
-                field.help || field.sensitive || moneyInvalid ? helpId : undefined;
+                field.help || field.sensitive || moneyInvalid || note
+                  ? helpId
+                  : undefined;
               const wide =
                 field.kind === "textarea" ||
                 field.kind === "bool" ||
@@ -314,6 +320,7 @@ export function DocumentFieldsForm({
                           Podaj kwotę liczbą, np. 150 albo 135,50.
                         </p>
                       ) : null}
+                      {note ? <p className="text-foreground">{note}</p> : null}
                       {field.help ? (
                         <p className="text-muted-foreground">{field.help}</p>
                       ) : null}

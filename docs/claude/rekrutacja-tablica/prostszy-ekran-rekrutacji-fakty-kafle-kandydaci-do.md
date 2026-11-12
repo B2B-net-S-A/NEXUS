@@ -70,8 +70,14 @@ rekrutacji i pasek filtrów z 24.09 oraz blok propozycji w „Nowych” z 22.09.
   zostają). Wyjątek od 14.10.2026: jeden przycisk „Kto dodał” w nagłówku (linia
   źródeł kandydatów) (`nastepna-osoba-po-odrzuceniu.md`, sekcja „Kolejka w kolumnie…”);
   kolejny filtr = nowa decyzja. **„Zamknięci” to wąska kolumna obok Tablicy** (`board-closed-column`,
-  poza przewijanym obszarem): cztery strefy upuszczenia z tymi samymi
-  `droppableId` co dawne chipy (`closedChips`), klik rozwija kolumny zamkniętych.
+  poza przewijanym obszarem): cztery strefy upuszczenia (`closedChips`), klik
+  rozwija kolumny zamkniętych. **Id strefy nie może być id kolumny** (audyt
+  12.11.2026, R3): licznik bez podziału („zrezygnował”) ma `<kolumna>::all`,
+  odrzuceni `<kolumna>::<kto>`, a `onDragEnd` czyta to przez `closedDropTarget`.
+  Przy wspólnym id @hello-pangea/dnd nadpisywał wpis licznika rozwiniętą kolumną
+  i kasował go przy „Zwiń zamkniętych”, więc upuszczenie na „zrezygnował” nic
+  nie robiło do przeładowania. Test: unikalne `data-rfd-droppable-id`
+  w `KanbanBoardV2.test.tsx` („8 kolumn z numerem kroku”).
 - **Tytuł roboczy nie bierze zdań z must-have** (`job_working_title._is_prose`
   ↔ `lib/job-names.ts`, wspólny fixture): pozycja > 3 słów, > 40 znaków albo
   z `, ; : – —` jest pomijana PRZED wyborem dwóch pierwszych. Istniejące tytuły

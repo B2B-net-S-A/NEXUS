@@ -86,6 +86,18 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useSaveDecisionPerson: () => ({ mutate: vi.fn(), isPending: false }),
   useRemoveDecisionPerson: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+// Osoby od bota mają własny test (`sales-bot-people.test.tsx`); tu zadania bota są wyłączone.
+vi.mock("@/lib/api/sales-bot-people", () => ({
+  useBotPeoplePending: () => ({
+    isPending: false,
+    isError: false,
+    isSuccess: true,
+    data: { enabled: false, items: [], running_company_ids: [] },
+  }),
+  useBotPeoplePreview: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false }),
+  useAcceptBotPeople: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRejectBotPeople: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 vi.mock("@/components/v2/modals/ConfirmV2", () => ({
   useConfirmV2: () => ({ askConfirm, confirmDialog: null }),

@@ -404,6 +404,41 @@ def test_question_webhook_sends_question_only_in_request() -> None:
     assert set(body["report_format"]) == {"answer"}
 
 
+@pytest.mark.asyncio
+async def test_partial_enrich_records_researched_refs_without_changed_fields(
+    monkeypatch,
+) -> None:
+    async def companies(_db, ids):
+        assert ids == [7]
+        return {7: _company(hq_city="Gdańsk")}
+
+    async def parent_names(_db, _companies):
+        return {}
+
+    async def save_results(_db, _run, results, _now):
+        assert results == []
+        return 0
+
+    monkeypatch.setattr(signals, "_companies", companies)
+    monkeypatch.setattr(enrich, "_parent_names", parent_names)
+    monkeypatch.setattr(enrich, "save_results", save_results)
+    run, _token = signals.new_run("enrich", [7, 8, 9], now=NOW)
+    report = enrich.EnrichReport.model_validate(
+        {
+            "checked_firms": 2,
+            "firms": [
+                {"company_ref": 7, "hq_city": _field("Gdańsk")},
+                {"company_ref": 99, "hq_city": _field("Poznań")},
+            ],
+            "not_found": [8, 99],
+        }
+    )
+    summary = await enrich._ingest(object(), run, report, NOW)
+    assert summary["researched_company_ids"] == [7, 8]
+    assert summary["results"] == 0
+    assert summary["not_found"] == 1
+
+
 def test_new_kinds_are_registered_with_their_rules() -> None:
     assert bot_tasks.REGISTRY["enrich"].request_model is None
     assert bot_tasks.REGISTRY["question"].request_model is question.QuestionRequest
