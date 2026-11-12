@@ -1,5 +1,21 @@
 [
   {
+    "id": "sprzedaz-moj-dzien-wlasna-data-kroku",
+    "pr": 3338,
+    "title": "Mój dzień: własna data następnego kroku",
+    "why": "W „Co dalej i kiedy” (po spotkaniu, „Zaplanuj”, „Inny krok”) obok przycisków Jutro…Za miesiąc wpiszesz albo wybierzesz z kalendarza dowolny dzień.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Mój dzień → „Po spotkaniu” albo „Zaplanuj” → pole daty",
+    "href": "/sales",
+    "dot_anchor": "sales.myday.custom-date"
+  },
+  {
     "id": "sprzedaz-listy-dzwonienia-wszyscy",
     "pr": 3327,
     "title": "Dzwonienie: listy wszystkich i numer do skopiowania",

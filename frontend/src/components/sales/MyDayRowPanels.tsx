@@ -43,6 +43,13 @@ const WHEN = [
 ] as const;
 type When = (typeof WHEN)[number]["value"];
 
+/** Przycisk terminu, który odpowiada dniowi z pola daty; własna data żadnego nie zaznacza. */
+const presetOf = (isoDay: string | null): When | null =>
+  WHEN.find((item) => plusDays(Number(item.value)) === isoDay)?.value ?? null;
+
+/** Termin kroku: dziś albo później (porównanie dni ISO jako tekstu). */
+const isUpcoming = (isoDay: string | null): isoDay is string => isoDay !== null && isoDay >= plusDays(0);
+
 const NEW_PERSON = "new";
 const PANEL = "space-y-2 border-t border-border bg-muted/30 px-3 py-2 text-xs";
 const MIN_PHONE_DIGITS = 7;
@@ -72,16 +79,17 @@ function SaveButtons({
   );
 }
 
+/** Krok: co i kiedy. Termin z przycisku albo własna data z pola obok (prośba handlowca 12.11.2026). */
 function StepFields({
   what,
-  when,
+  date,
   onWhat,
-  onWhen,
+  onDate,
 }: {
   what: string;
-  when: When | null;
+  date: string | null;
   onWhat: (value: string) => void;
-  onWhen: (value: When) => void;
+  onDate: (value: string | null) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -93,7 +101,22 @@ function StepFields({
         maxLength={500}
         onChange={(event) => onWhat(event.target.value)}
       />
-      <SegmentedRadio size="sm" label="Kiedy" options={WHEN} value={when} onChange={onWhen} />
+      <SegmentedRadio
+        size="sm"
+        label="Kiedy"
+        options={WHEN}
+        value={presetOf(date)}
+        onChange={(value) => onDate(plusDays(Number(value)))}
+      />
+      <Input
+        type="date"
+        className="h-8 w-36 text-xs"
+        aria-label="Własna data"
+        data-tour="sales.myday.custom-date"
+        value={date ?? ""}
+        min={plusDays(0)}
+        onChange={(event) => onDate(event.target.value || null)}
+      />
     </div>
   );
 }
@@ -105,7 +128,7 @@ export function PlanPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
   const update = useUpdateActivity(row.activity_id ?? 0);
   const { showError, showSuccess } = useToast();
   const [what, setWhat] = useState(reschedule ? (row.subject ?? "") : "Zadzwonić");
-  const [when, setWhen] = useState<When | null>("3");
+  const [date, setDate] = useState<string | null>(plusDays(3));
   const pending = create.isPending || update.isPending;
 
   const callbacks = {
@@ -116,8 +139,8 @@ export function PlanPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
     onError: (error: unknown) => showError(apiErrorMessage(error, "Nie udało się zapisać kroku.")),
   };
   const save = () => {
-    if (!when) return;
-    const due_at = dueAtMorning(plusDays(Number(when)));
+    if (!isUpcoming(date)) return;
+    const due_at = dueAtMorning(date);
     const subject = what.trim();
     if (reschedule) update.mutate({ subject, due_at }, callbacks);
     else {
@@ -137,8 +160,8 @@ export function PlanPanel({ row, onDone }: { row: MyDayRow; onDone: () => void }
     <div className={PANEL}>
       <p className="font-medium text-foreground">Co dalej i kiedy</p>
       <div className="flex flex-wrap items-center gap-2">
-        <StepFields what={what} when={when} onWhat={setWhat} onWhen={setWhen} />
-        <SaveButtons canSave={what.trim() !== "" && when !== null} pending={pending} onSave={save} onCancel={onDone} />
+        <StepFields what={what} date={date} onWhat={setWhat} onDate={setDate} />
+        <SaveButtons canSave={what.trim() !== "" && isUpcoming(date)} pending={pending} onSave={save} onCancel={onDone} />
       </div>
     </div>
   );
@@ -154,6 +177,13 @@ const OUTCOME_KEYS: Record<Exclude<CallOutcome, "do_not_contact">, string> = {
 
 const whenLabel = (days: number): string =>
   days === 1 ? "jutro" : days === 7 ? "za tydzień" : days === 30 ? "za miesiąc" : `za ${days} dni`;
+
+const dayLabel = (isoDay: string): string => {
+  const preset = presetOf(isoDay);
+  if (preset) return whenLabel(Number(preset));
+  const [year, month, day] = isoDay.split("-");
+  return `na ${day}.${month}.${year}`;
+};
 
 const typingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
@@ -191,7 +221,7 @@ export function CallPanel({ row, onDone, onBook }: { row: CallTarget; onDone: ()
   const [custom, setCustom] = useState(false);
   const [outcome, setOutcome] = useState<Exclude<CallOutcome, "do_not_contact"> | null>(null);
   const [what, setWhat] = useState("");
-  const [when, setWhen] = useState<When | null>("3");
+  const [date, setDate] = useState<string | null>(plusDays(3));
   const contactId = row.person?.id;
   const isPending = logOpportunity.isPending || logCompany.isPending || createStep.isPending;
 
@@ -204,8 +234,8 @@ export function CallPanel({ row, onDone, onBook }: { row: CallTarget; onDone: ()
     }
   };
 
-  const saveStep = (subject: string, days: number | null) => {
-    if (days === null || !subject.trim()) {
+  const saveStep = (subject: string, isoDay: string | null) => {
+    if (isoDay === null || !subject.trim()) {
       showSuccess("Zapisano rozmowę.");
       onDone();
       return;
@@ -214,13 +244,13 @@ export function CallPanel({ row, onDone, onBook }: { row: CallTarget; onDone: ()
       {
         kind: "task",
         subject: subject.trim(),
-        due_at: dueAtMorning(plusDays(days)),
+        due_at: dueAtMorning(isoDay),
         opportunity_id: row.opportunity?.id ?? null,
         company_id: row.opportunity ? null : row.company.id,
       },
       {
         onSuccess: () => {
-          showSuccess(`Zapisano rozmowę. Krok: ${subject.trim()}, ${whenLabel(days)}.`);
+          showSuccess(`Zapisano rozmowę. Krok: ${subject.trim()}, ${dayLabel(isoDay)}.`);
           onDone();
         },
         onError: (error) => {
@@ -256,11 +286,11 @@ export function CallPanel({ row, onDone, onBook }: { row: CallTarget; onDone: ()
       const preset = outcomePreset(value);
       setOutcome(value);
       setWhat(preset.what);
-      setWhen(value === "not_now" ? null : "3");
+      setDate(value === "not_now" ? null : plusDays(3));
       return;
     }
     const preset = outcomePreset(value);
-    log(value, () => saveStep(preset.what, preset.days));
+    log(value, () => saveStep(preset.what, plusDays(preset.days)));
   };
 
   const object = async () => {
@@ -350,11 +380,11 @@ export function CallPanel({ row, onDone, onBook }: { row: CallTarget; onDone: ()
       </div>
       {custom && (
         <div className="flex flex-wrap items-center gap-2">
-          <StepFields what={what} when={when} onWhat={setWhat} onWhen={setWhen} />
+          <StepFields what={what} date={date} onWhat={setWhat} onDate={setDate} />
           <SaveButtons
-            canSave={outcome !== null}
+            canSave={outcome !== null && (date === null || isUpcoming(date))}
             pending={isPending}
-            onSave={() => outcome && log(outcome, () => saveStep(what, when ? Number(when) : null))}
+            onSave={() => outcome && log(outcome, () => saveStep(what, date))}
             onCancel={onDone}
           />
         </div>
