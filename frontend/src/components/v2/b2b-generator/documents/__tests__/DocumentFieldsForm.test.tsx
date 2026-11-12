@@ -69,6 +69,21 @@ function Harness({ initial = {} }: { initial?: DocumentValues }) {
 }
 
 describe("DocumentFieldsForm", () => {
+  it("pokazuje notkę serwera pod polem i wiąże ją z polem", () => {
+    const note =
+      "Koniec projektu (31.01.2027) jest późniejszy niż koniec okresu wypowiedzenia (31.12.2026), więc umowa rozwiąże się z końcem projektu.";
+    render(
+      <DocumentFieldsForm
+        type={TYPE}
+        values={{}}
+        notes={{ new_rate: note }}
+        onChange={() => undefined}
+      />,
+    );
+    const input = screen.getByLabelText("Nowa stawka");
+    expect(input).toHaveAccessibleDescription(note);
+  });
+
   it("pokazuje pole zależne dopiero po zaznaczeniu zwolnienia", async () => {
     render(<Harness />);
     expect(screen.queryByLabelText(/Klient, którego dotyczy zwolnienie/)).toBeNull();
