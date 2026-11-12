@@ -72,6 +72,15 @@ SECTIONS: tuple[Section, ...] = (
                 "warn",
                 "E2",
             ),
+            Rule(
+                "proof.accept_has_hours",
+                "Prośba o akceptację podaje liczbę godzin lub MD za miesiąc",
+                "off",
+                "E6",
+                hint="Liczba musi być w treści maila do akceptującego. Przy prośbach "
+                "nadpisywanych co miesiąc liczy się akceptacja za rozliczany miesiąc; "
+                "akceptować może ktoś inny niż koordynator.",
+            ),
         ),
     ),
     Section(
@@ -145,6 +154,14 @@ SECTIONS: tuple[Section, ...] = (
                 {"hours": "24"},
                 (ParamField("hours", "", "h z nadgodzinami i dyżurem"),),
             ),
+            Rule(
+                "fields.md_month_limit",
+                "MD osoby w miesiącu nie więcej niż dni robocze",
+                "warn",
+                "E6",
+                hint="Więcej MD to zwykle zapis za dwóch klientów. Wyłącz, gdy osoba "
+                "realizuje u klienta kilka projektów i miesięczny limit nie obowiązuje.",
+            ),
         ),
     ),
     Section(
@@ -167,7 +184,7 @@ SECTIONS: tuple[Section, ...] = (
     ),
     Section(
         "travel",
-        "Delegacje",
+        "Delegacje i koszty dodatkowe",
         (
             Rule(
                 "travel.mail_before",
@@ -188,6 +205,14 @@ SECTIONS: tuple[Section, ...] = (
                 "Faktury kosztów zgodne z kwotami w RCP",
                 "off",
                 "E2",
+            ),
+            Rule(
+                "travel.extra_costs_confirm",
+                "Koszty dodatkowe potwierdza osoba rozliczająca klienta",
+                "warn",
+                "E6",
+                hint="Nie blokuje automatycznie: zanim NEXUS oznaczy koszt dodatkowy "
+                "jako błąd albo go odrzuci, potwierdza to osoba rozliczająca klienta.",
             ),
         ),
     ),
@@ -219,6 +244,31 @@ SECTIONS: tuple[Section, ...] = (
                 "E3",
                 {"days": "14"},
                 (ParamField("days", "", "dni od numeru KSeF"),),
+            ),
+        ),
+    ),
+    Section(
+        "payment",
+        "Zapłata kontraktorowi",
+        (
+            Rule(
+                "pay.after_client_signature",
+                "Zapłata po podpisie klienta na dokumencie osoby",
+                "off",
+                "E6",
+            ),
+            Rule(
+                "pay.mail_accept_fallback",
+                "Mail z akceptacją zastępuje podpis, gdy podpisujący jest nieobecny",
+                "off",
+                "E6",
+                hint="Tylko gdy nie ma zastępstwa; podpisany dokument sprawdzamy później.",
+            ),
+            Rule(
+                "pay.per_person",
+                "Zapłata po podpisanym dokumencie osoby, bez czekania na pozostałe",
+                "off",
+                "E6",
             ),
         ),
     ),
@@ -260,6 +310,46 @@ SECTIONS: tuple[Section, ...] = (
                 ),
                 "Plan przyjmujemy po przyjęciu poprzedniego miesiąca, nie ponad resztę puli; "
                 "mniej przepracowane schodzi na kolejnej fakturze.",
+            ),
+            Rule(
+                "cl.extra_costs_on_invoice",
+                "Koszty dodatkowe na fakturze głównej",
+                "off",
+                "E6",
+                {"item": ""},
+                (ParamField("item", "osobna pozycja"),),
+                "Puste = doliczone do pozycji głównej, nazwa = osobna pozycja.",
+            ),
+            Rule(
+                "cl.client_document",
+                "Dokument do podpisu klienta z NEXUS-a",
+                "off",
+                "E6",
+                {"kind": "", "per": "", "from": ""},
+                (
+                    ParamField(
+                        "kind", "rodzaj", "np. protokół, arkusz, potwierdzenie usług"
+                    ),
+                    ParamField("per", "na", "osoba / projekt / cały miesiąc"),
+                    ParamField("from", "od miesiąca", "RRRR-MM"),
+                ),
+                "Każdy dokument do pobrania osobno, żeby wysłać go od razu, gdy jest gotowy.",
+            ),
+            Rule(
+                "cl.after_signed_document",
+                "Faktura do klienta po podpisanym dokumencie",
+                "off",
+                "E6",
+                hint="Dokument na cały miesiąc czeka na wszystkie osoby.",
+            ),
+            Rule(
+                "cl.send_to",
+                "Adres wysyłki paczki do klienta",
+                "off",
+                "E6",
+                {"email": ""},
+                (ParamField("email", "adres"),),
+                "Dokument z podpisami, dowody pracy i akceptacje w jednym mailu.",
             ),
         ),
     ),
