@@ -1,6 +1,6 @@
 # Rozliczenia klientów — roadmapa wdrożenia
 
-Stan na 09.11.2026. Plik jest planem dla kolejnych sesji: każda zmiana kodu
+Stan na 12.11.2026. Plik jest planem dla kolejnych sesji: każda zmiana kodu
 rozliczeń odnosi się do etapu stąd (`E1.3` w opisie commita i PR-a), a po
 zakończeniu etapu sesja odhacza go w tabeli „Stan etapów”.
 
@@ -51,8 +51,13 @@ przepływem.
 - Adres do panelu (`contracts.candidate_email`) ma 10 z 50 osób BNP. Bez niego
   panel się nie otworzy, zostaje mail na `rozliczenia@`.
 - 2 z 50 kontraktów BNP nie mają aktywnej linii zamówienia.
-- W całym NEXUSIE 70 kontraktów bez numeru zamówienia (PKO 33, Alior 13,
-  Orlen 10, Velo 8, Bosch 6) i kilku klientów bez NIP-u.
+- W całym NEXUSIE 70 kontraktów bez numeru zamówienia w kontrakcie (PKO 33,
+  Alior 13, Orlen 10, Velo 8, Bosch 6) i kilku klientów bez NIP-u.
+- Poprawka z 12.11 (kopia produkcji z 10.11): u PKO to nie jest luka. Numer
+  zamówienia PKO stoi w tytule linii zamówienia (`client_orders.title`, wzór
+  „NNNN/2026”, 32 aktywne linie), a numer SSGW w PDF-ie zamówienia. Lukę
+  numeru liczymy więc z `client_orders`, nie z samego kontraktu; liczby
+  pozostałych klientów są do sprawdzenia tym samym sposobem przy ich etapie E6.
 
 ## Zasady, które obowiązują we wszystkich etapach
 
@@ -114,8 +119,56 @@ przepływem.
     czeka na decyzję Finansów (decyzja Artura 10.11);
   - przed przyjęciem zbiorczym Finanse mogą pobrać każdy plik z karty osoby;
     RCP z numerem KSeF pobiera się przy osobie albo hurtem „wystawionych”.
-- E0.3 Odpowiedzi Michała i Kingi dla pozostałych klientów (pytania w zakładkach
-  makiety) — blokują E6, nie E1–E5.
+- E0.3 Odpowiedzi rozliczeń dla pozostałych klientów (pytania w zakładkach
+  makiety) — blokują E6, nie E1–E5. **Alior, Bosch, Velo, PKO są (12.11.2026)**,
+  CeZ i Orlen nadal czekają. Reguły z odpowiedzi stoją w katalogu z etapem E6
+  (silnik ich jeszcze nie sprawdza).
+  - Wszyscy: koszty dodatkowe (zwrot kosztów niefakturowany klientowi, dopłata
+    za weryfikację techniczną) przed oznaczeniem jako błąd albo odrzuceniem
+    potwierdza osoba rozliczająca klienta — ta kontrola nigdy nie blokuje sama
+    (`travel.extra_costs_confirm`, domyślnie „Ostrzega”).
+  - Alior: zapłata konsultantowi po podpisie klienta na KEŚU; gdy podpisujący
+    jest nieobecny i nie ma zastępstwa, po mailowej akceptacji, a podpisane KEŚU
+    sprawdzamy później (`pay.after_client_signature`, `pay.mail_accept_fallback`).
+    Nie sprawdzamy, kto podpisał KEŚU (idzie do akceptanta z maila). KEŚU
+    dostaje koordynator automatycznie z Jiry po akceptacji klienta i przekazuje
+    dalej. Koszty dodatkowe mogą iść na fakturę główną, jedną pozycją albo
+    osobną (`cl.extra_costs_on_invoice`). Oświadczenia o własnym transporcie
+    (z danymi osobowymi) nie trafiają do NEXUS-a, a panel konsultanta nie
+    pokazuje informacji o jeździe własnym autem.
+  - Bosch: od listopada 2026 Service Delivery Confirmation (SDC) dla każdego
+    projektu; kolumna Task ID na razie z timesheetu konsultanta, docelowo SDC
+    może zastąpić TS i wypełnia go konsultant. Jedna osoba realizuje dwa
+    projekty, więc ok. 270 h w miesiącu bywa poprawne, a zużycie bywa niepełne
+    albo z przekroczeniami: u Boscha miesięczny limit godzin/MD nie blokuje
+    (`fields.md_month_limit` wyłączona). Wszystkie osoby idą z jednego
+    zamówienia (dwie stawki MD w EUR). Konsultant może wystawić jedną fakturę
+    za wszystkie usługi u Boscha. Grudzień co roku na estymacjach; dla dwóch
+    osób prośba o rozliczenie listopada i grudnia do 08.12.2026.
+  - Velo: podpisuje jedna z trzech osób klienta (zastępują się przy
+    nieobecności). Karta ewidencji klienta może zastąpić mail z akceptacją;
+    podstawą faktury do klienta są podpisane arkusze zbiorcze
+    (`cl.after_signed_document`). MD osoby w miesiącu nie powinno przekraczać
+    dni roboczych (zamówienie określa MD); przypadek 34 MD to osoba u dwóch
+    klientów, zapis błędny (`fields.md_month_limit`). Konsultanta rozliczamy, gdy
+    jego arkusz jest podpisany, bez czekania na pozostałe (`pay.per_person`).
+    Arkusze przekazują dwaj koordynatorzy po naszej stronie; niezależnie od
+    tego, kto wrzuci je na rozliczenia@, NEXUS rozpoznaje osobę i przypisuje
+    plik. Każdy arkusz do podpisu klienta do pobrania osobno, żeby wysłać go od
+    razu, gdy gotowy (`cl.client_document`).
+  - PKO: faktura kontraktora sprawdzana standardowo (data sprzedaży, kwota, VAT,
+    nabywca B2B.net S.A., miesiąc w opisie usługi = rozliczany). Liczba godzin
+    albo MD w prośbie o akceptację wystarcza, ale musi być zaakceptowana; przy
+    prośbach nadpisywanych co miesiąc liczy się akceptacja za rozliczany
+    miesiąc, a mail do akceptującego ma liczbę godzin w treści
+    (`proof.accept_has_hours`). Kod projektu konsultant dostaje od opiekuna po
+    stronie klienta. Akceptować może ktoś inny niż koordynator. Jeden zbiorczy
+    protokół odbioru na wszystkie osoby (wzór z załącznika do umowy), podpisuje
+    najpierw nasza spółka, potem klient; idzie razem z TS i plikami HTML
+    akceptacji na skrzynkę body leasingu klienta (adres tylko w regule w bazie,
+    `cl.send_to`). Paczka czeka na wszystkich, faktury do klienta dopiero po
+    podpisanym protokole (`cl.client_document`, `cl.after_signed_document`).
+    MD z zamówień nie wolno przekraczać (`order.no_md_holds_invoice`).
 - E0.4 Skrzynka: **docelowo tylko `wsparcie@b2bnetwork.pl`** (decyzja Artura
   z 09.11, etap E8). Na start rozliczenia@ i administracja@ trafiają do wsparcie@
   (alias albo przekierowanie w M365) i dostęp rejestracji „NEXUS Kadry” do
@@ -292,11 +345,49 @@ reguły klienta jako katalog z poziomami.
 
 ### E6. Kolejni klienci (każdy po odpowiedziach z E0.3)
 
-- E6.1 PKO: dowód od konsultanta, ten sam silnik (najbliżej BNP).
-- E6.2 Velo, Bosch: dokumenty wychodzące (arkusz/potwierdzenie usług generowane
-  z NEXUS-a), godziny zamiast MD.
+Odpowiedzi z E0.3 (12.11) dla Alior, Bosch, Velo i PKO są w katalogu reguł
+z etapem E6: sekcja „Zapłata kontraktorowi” (`pay.*`), `proof.accept_has_hours`,
+`fields.md_month_limit`, `travel.extra_costs_confirm` i w „Fakturze do klienta”
+`cl.extra_costs_on_invoice`, `cl.client_document`, `cl.after_signed_document`,
+`cl.send_to`. Finanse mogą je ustawić; silnik zacznie je sprawdzać w kolejnych
+krokach E6.
+
+- E6.1 PKO: dowód od konsultanta (TS i plik HTML akceptacji), ten sam silnik
+  (najbliżej BNP).
+  - Odczyt TS: miesiąc z widocznego nagłówka „Liczba godzin realizacji usług
+    <miesiąc>”. Ten sam miesiąc stoi też w ukrytej kolumnie D (wiersze 16–18)
+    i w próbce był inny niż w nagłówku: parser bierze nagłówek i ostrzega
+    o rozbieżności z ukrytą kolumną, nigdy odwrotnie.
+  - Akceptacja: plik HTML z liczbą godzin/MD za rozliczany miesiąc
+    (`proof.accept_has_hours`); akceptujący nie musi być koordynatorem.
+  - Kontrola MD z zamówienia (numer zamówienia z `client_orders.title`).
+  - Wychodzące: jeden protokół odbioru na wszystkie osoby miesiąca (podpis
+    spółki, potem klienta), paczka protokół + TS + HTML na adres z `cl.send_to`
+    dopiero, gdy wszystkie osoby są gotowe; faktura do klienta po podpisanym
+    protokole.
+- E6.2 Velo, Bosch: dokumenty wychodzące generowane z NEXUS-a, godziny zamiast MD.
+  - Velo: arkusz do podpisu klienta per osoba, każdy do pobrania osobno;
+    zapłata konsultanta po jego podpisanym arkuszu (`pay.per_person`), faktura
+    do klienta po podpisanych arkuszach zbiorczych; `fields.md_month_limit`
+    „Ostrzega”. Arkusze od koordynatorów przypisuje NEXUS po osobie, nie po
+    nadawcy maila (do czasu tego kroku: karta do ręcznego przypisania).
+  - Bosch: SDC per projekt od listopada 2026 (Task ID z TS konsultanta), jedna
+    osoba może mieć dwa projekty i jedną fakturę za całość,
+    `fields.md_month_limit` wyłączona, wszystkie osoby z jednego zamówienia.
+  - **Bosch w NEXUS-ie do 08.12.2026** (decyzja Artura z 12.11.2026): odczyt TS
+    Boscha, generator SDC i estymacja grudnia, żeby listopad i grudzień dwóch
+    osób rozliczyć w NEXUS-ie do 08.12. Osobne zadanie (osobna sesja i PR), nie
+    część wspólnego PR-a E1–E5.
 - E6.3 Alior, Orlen, CeZ: dokument na wiele osób, podpis klienta i spółki,
   protokół jako warunek faktury.
+  - Alior: zapłata po podpisanym KEŚU (`pay.after_client_signature`), awaryjnie
+    po mailowej akceptacji z późniejszym sprawdzeniem KEŚU
+    (`pay.mail_accept_fallback`); kto podpisał KEŚU, nie sprawdzamy. KEŚU
+    przychodzi od koordynatora (z Jiry), więc trafia jako karta do
+    przypisania. Koszty dodatkowe na fakturze głównej
+    (`cl.extra_costs_on_invoice`). Oświadczeń o własnym transporcie nie
+    przyjmujemy do NEXUS-a; panel nie pokazuje jazdy własnym autem.
+  - Orlen, CeZ: czekają na odpowiedzi z E0.3.
 - E6.4 Nordea (293 osoby): najpierw instrukcja od rozliczeń.
 - **Meta per klient:** reguły ustawione w „Reguły klienta”, jeden pełny miesiąc
   na stagingu, akceptacja autora instrukcji.
@@ -325,6 +416,26 @@ i `CONSULTANT_PORTAL_MAILBOX` (wsparcie@: nadawca linków i organizator rozmów)
 
 ### E7. Start na produkcji
 
+- **Decyzja Artura z 12.11.2026: „Wszyscy klienci od listopada”.** Czytnik
+  rozliczenia@ i panel konsultanta w stanie `all` od rozliczenia listopada.
+  Kontrole działają tylko u BNP; u pozostałych klientów NEXUS zbiera pliki,
+  a dokumenty od koordynatorów (Velo, Alior) trafiają jako karty do ręcznego
+  przypisania. To odejście od kolejności E7.1 (pilot BNP w stanie `pilot`).
+  Kroki:
+  1. Artur w M365: rejestracja „NEXUS Kadry” dostaje Application Mail.Read na
+     skrzynkę, do której trafia rozliczenia@ — wzór
+     `docs/claude/ludzie/jedna-skrzynka-wsparcie.md` §1c z adresem rozliczenia@
+     zamiast wsparcie@, po ustaleniu w §1a, gdzie ta skrzynka fizycznie jest.
+  2. `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` przez workflow „Coolify set env”,
+     wejście przy wdrożeniu w oknie.
+  3. Admin w Ustawieniach: moduł `back_office` i moduł rozliczeń włączone,
+     panel konsultanta `all`.
+  - Związek z E8: do czasu routera E8 na tę skrzynkę patrzy tylko czytnik
+    rozliczeń — czytnik spraw (`ADMIN_CASES_M365_MAILBOX`) nie może wskazywać
+    tej samej skrzynki, bo każdy mail stałby się i sprawą, i dokumentem
+    (ryzyko opisane w `jedna-skrzynka-wsparcie.md` §2). Jeśli rozliczenia@
+    już wpada do wsparcie@, tamtejszy „bezpieczny stan przejściowy” (pusta
+    zmienna czytnika rozliczeń) trzeba zmienić razem z tym krokiem.
 - E7.1 Pilot: moduł włączony dla BNP, panel w stanie `pilot` dla kilku osób,
   mail na `rozliczenia@` dla reszty.
 - E7.2 Kontrole przenoszone stopniowo z „Ostrzega” na „Blokuje” po miesiącu bez fałszywych alarmów.
@@ -359,12 +470,12 @@ Dwa źródła, oba z danymi tylko poza repo:
 
 | Etap | Stan | Dowód |
 |---|---|---|
-| E0 | w toku: E0.1 rozstrzygnięte (NIP z KSeF w E4.0), E0.4 instrukcja w osobnej sesji, E0.2–E0.3 czekają na rozliczenia | — |
+| E0 | w toku: E0.1 rozstrzygnięte (NIP z KSeF w E4.0), E0.2 odpowiedzi BNP (10.11), E0.3 Alior, Bosch, Velo, PKO (12.11), CeZ i Orlen czekają; E0.4 instrukcja w osobnej sesji | odpowiedzi w E0.2 i E0.3, reguły E6 w `rules_catalog.py` |
 | E1 | gotowe lokalnie (09.11), czeka na wspólny PR z E2–E5 | 22 testy BE (silnik, katalog, serwis na kopii z 09.11), 331 FE; ścieżka na kopii BNP październik: przyjęcie zdejmuje MD, ponowne nadpisuje, brak MD odmawia; zrzuty `e1r-*.png` |
 | E2 | gotowe lokalnie (09.11) poza datą maila w E2.3 | 3 prawdziwe RCP z `BNP.zip` (2 PDF z podpisem, 1 XLSX) odczytane przez `documents.store`; osoba z nadgodzinami: MD z RCP × stawka = kwota z jej faktury; z mailami „Bez uwag”, przyjęcie zbiorcze zdjęło MD; 40 testów rozliczeń + 156 portalu |
 | E3 | gotowe lokalnie (10.11), styl A bez kroków; E3.2 dane do skopiowania dokończone z E4 | panel jako konsultant BNP na kopii: „Do zrobienia” = „Wyślij fakturę · <kwota> netto”, „Faktury” z wynikiem sprawdzenia i danymi do faktury, 1280 i 390 px; 200 testów BE (portal + rozliczenia), 349 FE; zrzuty `e3-*.png` |
 | E4 | gotowe lokalnie (10.11) | 3 prawdziwe faktury konsultantów BNP za październik (wizualizacje KSeF z próbek, metadane odtworzone lokalnie) przypięte po imieniu i nazwisku do właściwych osób i miesiąca, kwoty = wyliczenie co do grosza (3 z 3); zatwierdzenie NIP-u przez API zmienia stan na „W KSeF”; panel konsultanta i karta Finansów przeklikane 1280 i 390 px; 9 testów BE E4, 8 FE; prawdziwego pobrania z KSeF lokalnie nie ma (token tylko na produkcji) |
 | E5 | gotowe lokalnie (10.11), bez marży dla DL-a i kosztów integracji (E0.2) | kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
-| E6 | czeka na E0.3 | — |
-| E7 | do zrobienia | — |
+| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch w NEXUS-ie do 08.12 (osobne zadanie); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują |
+| E7 | decyzja 12.11: wszyscy klienci od listopada (panel `all`, kontrole tylko BNP); czeka M365, zmienna skrzynki i włączenie modułów | — |
 | E8 | do zrobienia (E8.1 po instrukcji z osobnej sesji) | — |
