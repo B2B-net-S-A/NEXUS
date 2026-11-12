@@ -378,6 +378,39 @@ krokach E6.
     Boscha, generator SDC i estymacja grudnia, żeby listopad i grudzień dwóch
     osób rozliczyć w NEXUS-ie do 08.12. Osobne zadanie (osobna sesja i PR), nie
     część wspólnego PR-a E1–E5.
+  - Jak zrobione (12.11, osobny PR, bez migracji):
+    - Odczyt Time Sheet (`client_settlements/timesheet.py`): XLSX z tabelą
+      „Date · Project · Description · Total Hours · Billable · Non-billable ·
+      Nr strumienia”, każda tabela z każdego widocznego arkusza (tygodnie).
+      Godziny = „Billable”, bez niej „Total Hours” − „Non-billable”; MD = godziny
+      / `fields.md_hours`. Projekt z wiersza, bez niego z „Project Name”. Plik
+      spoza szablonu RCP BNP idzie do tego odczytu, inny plik = MD od Finansów.
+      Kontrole: miesiąc, wpisy spoza miesiąca, nazwisko z „Consultant(s)”,
+      suma „Total Hours” = suma wierszy, limit dnia, `fields.md_month_limit`
+      (dni robocze), mail z akceptacją przy `proof.excel_with_mail`.
+    - Potwierdzenie usług (`service_confirmation.py`): reguła
+      `cl.client_document` z `per` = „projekt” i `from` (Bosch: 2026-11). Jeden
+      PDF na projekt z Time Sheet osób miesiąca: Supplier, Customer, Project
+      Name, Date, Order Number, Stage, „Tasks List” (Task ID = „Nr strumienia”,
+      bez niego liczba godzin jak w dokumencie za październik), TOTAL MDs. Bez
+      nazwisk i bez autora w metadanych. Miesiąc z planem (estymacja) = etap
+      FORECAST z planu. Lista na „RCP i faktury kontraktorów” nad tabelą
+      (projekt, osoby, godziny, MD, netto w walucie klienta, „Pobierz PDF”);
+      osoby bez Time Sheet w Excelu albo z RCP do poprawy są wypisane pod listą.
+    - Faktura do klienta w walucie zamówienia: linia ze stawką klienta w innej
+      walucie niż zł i stawką dzienną daje pozycje po `rate_client` (Bosch:
+      EUR/MD); marża zostaje w zł po kursie z linii (`md_rate_revenue` /
+      `rate_client`). Tak samo „Plan miesiąca” (dwie faktury: listopad, plan
+      grudnia). Linie w zł bez zmian.
+    - Estymacja grudnia: bez zmian w mechanizmie E5.3 (`cl.estimate`, miesiąc 12),
+      plan to Time Sheet z godzinami wysłany przed końcem grudnia.
+    - Reguły Boscha ustawiają Finanse w „Reguły klienta” (dane, nie kod):
+      `fields.md_month_limit` wyłączona, `cl.estimate` 12, `cl.client_document`
+      (Service Delivery Confirmation, projekt, 2026-11), `proof.excel_with_mail`
+      wyłączona (akceptacja per projekt z ESP sprawdza człowiek).
+    - Zostaje: blok maila ESP-MANAGER (ACTUAL/FORECAST/INVOICE) i odczyt
+      odpowiedzi „Approved”, Time Sheet w PDF (dziś MD od Finansów), projekt dla
+      dwóch osób z akceptacją mailową (z Time Sheet, gdy konsultant go wpisze).
 - E6.3 Alior, Orlen, CeZ: dokument na wiele osób, podpis klienta i spółki,
   protokół jako warunek faktury.
   - Alior: zapłata po podpisanym KEŚU (`pay.after_client_signature`), awaryjnie
@@ -476,6 +509,6 @@ Dwa źródła, oba z danymi tylko poza repo:
 | E3 | gotowe lokalnie (10.11), styl A bez kroków; E3.2 dane do skopiowania dokończone z E4 | panel jako konsultant BNP na kopii: „Do zrobienia” = „Wyślij fakturę · <kwota> netto”, „Faktury” z wynikiem sprawdzenia i danymi do faktury, 1280 i 390 px; 200 testów BE (portal + rozliczenia), 349 FE; zrzuty `e3-*.png` |
 | E4 | gotowe lokalnie (10.11) | 3 prawdziwe faktury konsultantów BNP za październik (wizualizacje KSeF z próbek, metadane odtworzone lokalnie) przypięte po imieniu i nazwisku do właściwych osób i miesiąca, kwoty = wyliczenie co do grosza (3 z 3); zatwierdzenie NIP-u przez API zmienia stan na „W KSeF”; panel konsultanta i karta Finansów przeklikane 1280 i 390 px; 9 testów BE E4, 8 FE; prawdziwego pobrania z KSeF lokalnie nie ma (token tylko na produkcji) |
 | E5 | gotowe lokalnie (10.11), bez marży dla DL-a i kosztów integracji (E0.2) | kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
-| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch w NEXUS-ie do 08.12 (osobne zadanie); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują |
+| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE |
 | E7 | decyzja 12.11: wszyscy klienci od listopada (panel `all`, kontrole tylko BNP); czeka M365, zmienna skrzynki i włączenie modułów | — |
 | E8 | do zrobienia (E8.1 po instrukcji z osobnej sesji) | — |
