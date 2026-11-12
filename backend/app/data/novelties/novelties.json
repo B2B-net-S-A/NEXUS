@@ -2437,5 +2437,22 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "sprzedaz-oferty-do-decyzji-bot",
+    "pr": 3328,
+    "title": "Oferty „Do decyzji”: co się zmieniło w firmie",
+    "why": "Przy ofercie, która czeka na decyzję, bot raz w tygodniu sprawdza, co się zmieniło w firmie od wysłania oferty, albo pisze wprost, że nic. Źródło jest przy każdym punkcie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Oferty → Do decyzji",
+    "href": "/sales/offers",
+    "dot_anchor": "sales.offers.bot-points",
+    "requires_setting": "SALES_SIGNALS_ENABLED"
   }
 ]

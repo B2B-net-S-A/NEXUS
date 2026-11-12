@@ -989,6 +989,16 @@ export interface OfferRow {
   section: OfferSection;
   reason: "owner_left" | "idle" | null;
   step: OfferStep | null;
+  /**
+   * Punkty bota o firmie: tylko w „Do decyzji” i z włączonym kanałem sygnałów.
+   * Pusta lista = bot sprawdził firmę i nic nowego nie znalazł; `null` = nic nie pokazuj.
+   */
+  bot_points: OfferBotPoints | null;
+}
+
+export interface OfferBotPoints {
+  generated_at: string;
+  points: TalkingPoint[];
 }
 
 export interface OfferSectionTotals {
