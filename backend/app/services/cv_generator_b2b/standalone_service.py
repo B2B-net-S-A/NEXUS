@@ -232,6 +232,10 @@ class UploadGenerationInput:
     # Numer zapytania rekrutacji, pod którą idzie upload — do nagłówka przy
     # regule klienta `title_with_reference` (07.11.2026).
     client_reference: str = ""
+    # Klient wybrany w formularzu — do punktu 1 podsumowania (branża klienta,
+    # 12.11.2026). Puste = generacja bez klienta, punkt 1 jak dotąd.
+    client_name: str = ""
+    client_industry: str = ""
     # Server notices decided before generation (e.g. "tailored" fell back to
     # polished for want of a Champion); appended to the document warnings.
     source_warnings: tuple[str, ...] = ()
@@ -1642,6 +1646,8 @@ def _run_generation_pipeline(
     position_fallback: str | None = None,
     instruction: str = "",
     title_reference: str | None = None,
+    client_name: str = "",
+    client_industry: str = "",
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1683,6 +1689,8 @@ def _run_generation_pipeline(
             position_fallback=position_fallback,
             instruction=instruction,
             title_reference=title_reference,
+            client_name=client_name,
+            client_industry=client_industry,
         )
     # Pipeline v10 (CV_GENERATION_PIPELINE=v10) nie czyta uwagi rekrutera —
     # „Napisz od nowa” działa na domyślnej ścieżce legacy_v7.
@@ -2621,6 +2629,10 @@ class CandidateGenerationSource:
     # reguła klienta ma `title_with_reference` (07.11.2026). Domyślnie pusty,
     # więc snapshoty zadań sprzed zmiany dekodują się bez niego.
     client_reference: str = ""
+    # Nazwa i branża klienta z karty — do punktu 1 podsumowania (12.11.2026).
+    # Domyślnie puste, więc snapshoty zadań sprzed zmiany dekodują się bez nich.
+    client_name: str = ""
+    client_industry: str = ""
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2893,6 +2905,8 @@ async def load_candidate_generation_source(
         client_reference=(getattr(job, "client_reference", None) or "")
         if job is not None
         else "",
+        client_name=(getattr(client, "name", None) or "").strip(),
+        client_industry=(getattr(client, "industry", None) or "").strip(),
     )
 
 
@@ -2952,6 +2966,8 @@ async def generate_cv_from_candidate_source(
             position_fallback=position_fallback,
             instruction=source.instruction,
             title_reference=source.client_reference or None,
+            client_name=source.client_name,
+            client_industry=source.client_industry,
         )
     )
     if source.source_warnings:
@@ -3109,6 +3125,8 @@ def generate_cv_from_uploads(
         position_ref=payload.position or None,
         prepared_source_facts=prepared_source_facts,
         title_reference=payload.client_reference or None,
+        client_name=payload.client_name,
+        client_industry=payload.client_industry,
     )
     if payload.source_warnings:
         result.warnings.extend(payload.source_warnings)

@@ -3045,6 +3045,8 @@ async def generate_from_upload(
         client_reference=(getattr(job, "client_reference", None) or "")
         if job is not None
         else "",
+        client_name=(getattr(client, "name", None) or "").strip(),
+        client_industry=(getattr(client, "industry", None) or "").strip(),
         source_warnings=(mode_notice,) if mode_notice else (),
     )
 

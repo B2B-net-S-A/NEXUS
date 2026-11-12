@@ -1831,3 +1831,219 @@ def test_position_years_do_not_silence_other_figures_in_the_point():
     assert any("47 osob" in issue for issue in issues)
     assert any("wielu" in issue for issue in issues)
     assert not any("'4 lat" in issue for issue in issues)
+
+
+# ── Punkt 1: doświadczenie w branży klienta (zgłoszenie zespołu 12.11.2026) ──
+
+_BANK_CV = (
+    "Jan Kowalski\n"
+    "01.2015 – 07.2019, Acme Sp. z o.o., Backend Developer\n"
+    "08.2019 – 07.2022, Sii Poland, Backend Developer — projekt dla mBank\n"
+)
+
+
+def _bank_json(point="5 lat doświadczenia jako Backend Developer", **sector):
+    return _ai_json(
+        why_points=[point],
+        experience=[
+            {
+                "dates": "08.2019 – 07.2022",
+                "company": "Sii Poland",
+                "position": "Backend Developer",
+                "responsibilities": ["Utrzymanie API w Pythonie"],
+                "technologies": ["Python"],
+            },
+            {
+                "dates": "01.2015 – 07.2019",
+                "company": "Acme Sp. z o.o.",
+                "position": "Backend Developer",
+                "responsibilities": ["Utrzymanie API w Pythonie"],
+                "technologies": ["Python"],
+            },
+        ],
+        client_sector_experience=sector
+        or {
+            "sector": "bankowym",
+            "roles": [{"company": "Sii Poland", "industry_company": "mBank"}],
+        },
+    )
+
+
+def _run_with_client(mode="tailored", blind=False, language="pl", **client):
+    return svc._run_generation_pipeline(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_dto=_champion(),
+        screening_notes_text="Kandydat potwierdził znajomość Pythona.",
+        language=language,
+        blind_cv=blind,
+        request_id="legacy-test",
+        fallback_name="Jan Kowalski",
+        started_at=time.time(),
+        job_id=1,
+        job_title="Backend Developer",
+        content_mode=mode,
+        **client,
+    )
+
+
+@pytest.fixture
+def bank(defaults, monkeypatch):
+    monkeypatch.setattr(legacy, "extract_text_from_file", lambda data, name: _BANK_CV)
+    defaults["response"] = _bank_json()
+    return defaults
+
+
+def _point1(result):
+    return result.render_payload["why_points"][0]
+
+
+def test_tailored_cv_asks_for_client_sector_as_fenced_data(defaults):
+    _run_with_client(client_name="PKO BP", client_industry="Banking & Finance")
+    call = defaults["calls"][0]
+    assert (
+        "<client_sector>\nKlient: PKO BP\nBranża z karty klienta: Banking & Finance\n"
+        "</client_sector>" in call["user"]
+    )
+    assert '"client_sector_experience"' in call["user"]
+    assert call["user"].index("<champion_profile>") < call["user"].index(
+        "<client_sector>"
+    )
+    # Prompt systemowy (cache dostawcy) bez zmian.
+    assert call["system"] == legacy_prompt("pl", False, "tailored")
+
+
+def test_client_without_industry_on_card_still_gets_the_rule(defaults):
+    """Branża na karcie klienta jest pusta u 22 z 24 klientów (staging 12.11)."""
+    _run_with_client(client_name="Tauron", client_industry="")
+    assert (
+        "<client_sector>\nKlient: Tauron\n</client_sector>"
+        in (defaults["calls"][0]["user"])
+    )
+
+
+def test_point_one_gets_sector_years_from_role_dates_and_company(bank):
+    result = _run_with_client(client_name="PKO BP", client_industry="")
+    assert _point1(result) == (
+        "Ponad 7 lat doświadczenia jako Backend Developer, "
+        "w tym 3 lata w sektorze bankowym (mBank)"
+    )
+    assert "client_sector_experience" not in result.render_payload
+
+
+def test_blind_cv_sector_clause_names_no_company(bank):
+    result = _run_with_client(blind=True, client_name="PKO BP", client_industry="")
+    assert _point1(result).endswith(", w tym 3 lata w sektorze bankowym")
+
+
+def test_english_cv_gets_english_sector_clause(bank):
+    bank["response"] = _bank_json(
+        point="5 years of experience as a Backend Developer",
+        sector="banking",
+        roles=[{"company": "Sii Poland", "industry_company": "mBank"}],
+    )
+    result = _run_with_client(language="en", client_name="PKO BP", client_industry="")
+    assert _point1(result).endswith(", including 3 years in the banking sector (mBank)")
+
+
+def test_companies_are_named_longest_tenure_first(bank, monkeypatch):
+    monkeypatch.setattr(
+        legacy,
+        "extract_text_from_file",
+        lambda data, name: _BANK_CV + "Acme Sp. z o.o. — projekt dla Pekao\n",
+    )
+    bank["response"] = _bank_json(
+        sector="bankowym",
+        roles=[
+            {"company": "Sii Poland", "industry_company": "mBank"},
+            {"company": "Acme Sp. z o.o.", "industry_company": "Pekao"},
+        ],
+    )
+    result = _run_with_client(client_name="PKO BP", client_industry="")
+    # Acme 01.2015–07.2019 dłużej niż Sii 08.2019–07.2022.
+    assert _point1(result) == (
+        "Ponad 7 lat doświadczenia jako Backend Developer, "
+        "w tym ponad 7 lat w sektorze bankowym (Pekao, mBank)"
+    )
+
+
+def test_company_missing_from_cv_is_not_named(bank):
+    bank["response"] = _bank_json(
+        sector="bankowym",
+        roles=[{"company": "Sii Poland", "industry_company": "Bank Pekao"}],
+    )
+    result = _run_with_client(client_name="PKO BP", client_industry="")
+    assert _point1(result).endswith(", w tym 3 lata w sektorze bankowym")
+
+
+def test_role_not_in_experience_adds_nothing(bank):
+    bank["response"] = _bank_json(
+        sector="bankowym",
+        roles=[{"company": "mBank S.A.", "industry_company": "mBank"}],
+    )
+    result = _run_with_client(client_name="PKO BP", client_industry="")
+    assert _point1(result) == "Ponad 7 lat doświadczenia jako Backend Developer"
+
+
+def test_candidate_outside_the_sector_keeps_point_one(bank):
+    bank["response"] = _bank_json(sector="bankowym", roles=[])
+    result = _run_with_client(client_name="PKO BP", client_industry="")
+    assert _point1(result) == "Ponad 7 lat doświadczenia jako Backend Developer"
+
+
+def test_sector_longer_than_point_figure_is_a_separate_fact(bank):
+    """„3 lata jako X, w tym 5 lat w bankowości” byłoby sprzeczne."""
+    bank["response"] = _bank_json(
+        point="1 rok doświadczenia jako Tech Lead",
+        sector="bankowym",
+        roles=[{"company": "Sii Poland", "industry_company": "mBank"}],
+    )
+    result = _run_with_client(client_name="PKO BP", client_industry="")
+    assert _point1(result) == (
+        "1 rok doświadczenia jako Tech Lead; 3 lata w sektorze bankowym (mBank)"
+    )
+
+
+@pytest.mark.parametrize("mode", ["basic", "polished"])
+def test_sector_only_in_tailored_mode(bank, mode):
+    """Poniżej „tailored” klient nie kształtuje CV — branża też nie."""
+    result = _run_with_client(mode=mode, client_name="PKO BP", client_industry="Bank")
+    assert "client_sector" not in bank["calls"][0]["user"]
+    assert "sektorze" not in _point1(result)
+
+
+def test_no_client_no_sector_block(bank):
+    result = _run_with_client()
+    assert "client_sector" not in bank["calls"][0]["user"]
+    assert "sektorze" not in _point1(result)
+
+
+async def test_candidate_source_passes_client_sector_to_the_pipeline(monkeypatch):
+    seen = {}
+
+    def fake_pipeline(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(warnings=[])
+
+    monkeypatch.setattr(svc, "_run_generation_pipeline", fake_pipeline)
+    monkeypatch.setattr(svc.CandidateGenerationSource, "champion", lambda self: None)
+    source = svc.CandidateGenerationSource(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_json="{}",
+        has_champion=True,
+        screening_notes_text="",
+        source_warnings=(),
+        fallback_name=None,
+        job_id=1,
+        job_title="Tester QA",
+        client_content_mode_cap=None,
+        candidate_id=1,
+        stage_id=1,
+        cv_document_id=1,
+        client_name="PKO BP",
+        client_industry="Banking & Finance",
+    )
+    await svc.generate_cv_from_candidate_source(source, content_mode="tailored")
+    assert seen["client_name"] == "PKO BP"
+    assert seen["client_industry"] == "Banking & Finance"

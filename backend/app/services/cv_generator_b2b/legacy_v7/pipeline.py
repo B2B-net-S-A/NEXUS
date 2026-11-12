@@ -65,6 +65,11 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     strip_unsupported_terms,
 )
 from app.services.cv_generator_b2b.legacy_v7.champion import build_champion_section
+from app.services.cv_generator_b2b.legacy_v7.client_sector import (
+    FIELD as SECTOR_FIELD,
+    apply_client_sector,
+    build_client_sector_block,
+)
 from app.services.cv_generator_b2b.legacy_v7.client_rules import (
     apply_presentation_policy,
     build_prompt_blocks,
@@ -202,6 +207,8 @@ def run_legacy_generation(
     position_fallback: str | None = None,
     instruction: str = "",
     title_reference: str | None = None,
+    client_name: str = "",
+    client_industry: str = "",
 ) -> GenerationResult:
     """Same signature and result as ``_run_generation_pipeline``."""
     # ── 1. Extract CV text ───────────────────────────────────────────────
@@ -259,6 +266,15 @@ def run_legacy_generation(
         )
     if champion_section.strip():
         user_parts.append(fence("champion_profile", champion_section))
+    # Punkt 1: staż w branży klienta (12.11.2026) — tylko „tailored”, bo
+    # poniżej niego klient nie kształtuje CV.
+    sector_block = (
+        build_client_sector_block(client_name, client_industry, language)
+        if mode == "tailored"
+        else ""
+    )
+    if sector_block:
+        user_parts.append(sector_block)
     client_rules_block = build_prompt_blocks(client_rule, language)
     if client_rules_block:
         user_parts.append(client_rules_block)
@@ -324,6 +340,9 @@ def run_legacy_generation(
             message=f"Claude zwrócił niepoprawny JSON: {err}",
         ) from err
 
+    sector_raw = (
+        raw_data.pop(SECTOR_FIELD, None) if isinstance(raw_data, dict) else None
+    )
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
     # Kategoria „Must-have” zdradza pisanie pod ogłoszenie i powtarza resztę
     # umiejętności (04.11.2026).
@@ -389,6 +408,14 @@ def run_legacy_generation(
     _fix_scoped_years(candidate_data, language)
     # Standard 5 punktów: model bywa nieposłuszny, więc kod domyka limit i lata.
     summary_notes = _apply_summary_standard(candidate_data, language, client_rule)
+    if sector_block and apply_client_sector(
+        candidate_data,
+        sector_raw,
+        cv_text=cv_text,
+        language=language,
+        blind_cv=blind_cv,
+    ):
+        logger.info("[cv_b2b][%s] client sector added to point 1", request_id)
     if champion_dto and mode == "tailored":
         _must_have_bullets_first(candidate_data, champion_dto.must_have)
 
