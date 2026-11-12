@@ -4,10 +4,15 @@
 * **Punkty, nowe:** firma z leadem albo szansą z ostatnich 7 dni, bez punktów.
 * **Punkty, odświeżenie w poniedziałek:** otwarta szansa z krokiem albo spotkaniem
   w ciągu 14 dni, punkty starsze niż 6 dni.
+* **Punkty przy ofertach „Do decyzji”** (decyzja Artura 12.11.2026): w tym samym
+  poniedziałkowym odświeżeniu firmy pozycji z sekcji „Do decyzji” zakładki Oferty,
+  z tymi samymi progami. Taka pozycja z definicji nie ma kroku, więc reguła wyżej
+  jej nie łapie, a decydujący ma zobaczyć, co się w firmie zmieniło.
 
-Rodzaj punktów: ``ongoing``, gdy z firmą była już rozmowa albo spotkanie, inaczej
-``first_call``. Firma z biegu z ostatnich 24 godzin nie wraca od razu, żeby
-firma, o której bot nic nie napisał, nie szła do niego co godzinę.
+Rodzaj punktów: ``ongoing``, gdy z firmą była już rozmowa albo spotkanie albo gdy
+firma ma ofertę „Do decyzji”, inaczej ``first_call``. Firma z biegu z ostatnich
+24 godzin nie wraca od razu, żeby firma, o której bot nic nie napisał, nie szła
+do niego co godzinę.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from app.models.sales import (
     SalesOpportunity,
     SalesSignalRun,
 )
+from app.services.sales import offers
 from app.services.sales.task_scope import live_opportunity
 from app.services.sales.touch import not_cancelled
 
@@ -133,10 +139,67 @@ async def refresh_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
     return list(rows.scalars())
 
 
+def needs_points(
+    company_ids: Iterable[int], briefed_at: dict[int, datetime], *, now: datetime
+) -> list[int]:
+    """Firmy bez punktów albo z punktami starszymi niż ``STALE_AFTER``, bez powtórzeń."""
+
+    chosen: list[int] = []
+    for cid in company_ids:
+        if cid in chosen:
+            continue
+        generated = briefed_at.get(cid)
+        if generated is not None and generated >= now - STALE_AFTER:
+            continue
+        chosen.append(cid)
+        if len(chosen) >= MAX_REFRESH_FIRMS:
+            break
+    return chosen
+
+
+async def to_decide_company_ids(db: AsyncSession, *, now: datetime) -> list[int]:
+    """Firmy ofert „Do decyzji” do odświeżenia punktów, od największego MRR.
+
+    Sekcję wyznacza ``offers.load_rows``, ta sama co na ekranie Oferty. Firma
+    w archiwum odpada, bo przyjęcie raportu i tak by jej punktów nie zapisało.
+    """
+
+    rows = [
+        row for row in await offers.load_rows(db, now=now) if row.section == "to_decide"
+    ]
+    rows.sort(key=lambda row: -(row.opportunity.mrr_value or 0))
+    company_ids = [row.opportunity.company_id for row in rows]
+    if not company_ids:
+        return []
+    found = await db.execute(
+        select(SalesCompany.id, SalesCompanyBriefing.generated_at)
+        .outerjoin(
+            SalesCompanyBriefing, SalesCompanyBriefing.company_id == SalesCompany.id
+        )
+        .where(
+            SalesCompany.id.in_(set(company_ids)), SalesCompany.archived_at.is_(None)
+        )
+    )
+    briefed_at: dict[int, datetime] = {}
+    live: set[int] = set()
+    for cid, generated in found.all():
+        live.add(cid)
+        if generated is not None:
+            briefed_at[cid] = generated
+    return needs_points(
+        [cid for cid in company_ids if cid in live], briefed_at, now=now
+    )
+
+
 async def modes_for(
-    db: AsyncSession, company_ids: Iterable[int], *, now: datetime
+    db: AsyncSession,
+    company_ids: Iterable[int],
+    *,
+    now: datetime,
+    ongoing: Iterable[int] = (),
 ) -> dict[int, str]:
-    """``ongoing``, gdy była rozmowa albo spotkanie; inaczej ``first_call``."""
+    """``ongoing``, gdy była rozmowa albo spotkanie albo firma jest w ``ongoing``
+    (oferta „Do decyzji”: ofertę już wysłano); inaczej ``first_call``."""
 
     ids = sorted(set(company_ids))
     if not ids:
@@ -157,8 +220,8 @@ async def modes_for(
         )
         .distinct()
     )
-    ongoing = set(talked.scalars())
-    return {cid: ("ongoing" if cid in ongoing else "first_call") for cid in ids}
+    talked_ids = set(talked.scalars()) | set(ongoing)
+    return {cid: ("ongoing" if cid in talked_ids else "first_call") for cid in ids}
 
 
 def pick(candidates: Iterable[int], *, skip: set[int], limit: int) -> list[int]:

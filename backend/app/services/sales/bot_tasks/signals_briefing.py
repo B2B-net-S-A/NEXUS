@@ -79,7 +79,10 @@ def _briefing_text(run: SalesSignalRun, ctx: TaskContext) -> str:
         f"{signals.MAX_POINTS} krótkich punktów, do których handlowiec może nawiązać "
         'w rozmowie. mode = "first_call": co się dzieje w firmie ogólnie; '
         'mode = "ongoing": zmiany od ostatnich tygodni, które mogą dotyczyć '
-        "prowadzonego tematu. Bierz tylko informacje opublikowane w ostatnich "
+        "prowadzonego tematu. "
+        'Gdy przy mode = "ongoing" nie ma nic nowego, nie dopisuj punktów na siłę: '
+        "wpisz firmę do no_signal. "
+        "Bierz tylko informacje opublikowane w ostatnich "
         f"{signals.SIGNAL_WINDOW_DAYS} dniach. signals zostaw puste."
     )
     prep = _refs_with(ctx, MEETING_PREP)

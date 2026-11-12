@@ -127,6 +127,7 @@ function offer(overrides: Partial<OfferRow> = {}): OfferRow {
     section: "in_progress",
     reason: null,
     step: { activity_id: 91, kind: "task", at: "2026-11-13T08:00:00Z", subject: "Potwierdzić odbiór oferty", overdue: false },
+    bot_points: null,
     ...overrides,
   };
 }
@@ -409,5 +410,50 @@ describe("OffersView", () => {
     offersQuery.mockReturnValue(ok(payload([])));
     render(<OffersView />);
     expect(screen.getByText("Nie ma tu żadnej pozycji")).toBeInTheDocument();
+  });
+});
+
+describe("punkty bota przy „Do decyzji”", () => {
+  const POINTS = {
+    generated_at: "2026-11-16T07:40:00Z",
+    points: [
+      { text: "Bank ogłosił nowy program migracji danych", url: "https://example.com/news/1", published: "2026-11-03" },
+      { text: "Nowy dyrektor IT", url: "javascript:alert(1)", published: null },
+      { text: "Trzeci punkt zostaje na karcie szansy", url: null, published: "2026-10-01" },
+    ],
+  };
+
+  it("pokazuje do dwóch punktów z datą, podpisem i linkiem do źródła", () => {
+    offersQuery.mockReturnValue(ok(payload([offer(), { ...STALE, bot_points: POINTS }])));
+    render(<OffersView />);
+    const row = within(rowOf("Druga Firma"));
+
+    expect(row.getByText("Bot · wniosek, sprawdź źródło")).toBeInTheDocument();
+    expect(row.getByText(/Bank ogłosił nowy program migracji danych/)).toBeInTheDocument();
+    expect(row.getByText("03.11.2026:", { exact: false })).toBeInTheDocument();
+    expect(row.getByText(/Nowy dyrektor IT/)).toBeInTheDocument();
+    expect(row.queryByText(/Trzeci punkt/)).not.toBeInTheDocument();
+    // Link tylko http(s): adres z „javascript:” nie dostaje odnośnika.
+    const links = row.getAllByRole("link", { name: /źródło/ });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "https://example.com/news/1");
+    expect(links[0]).toHaveAttribute("target", "_blank");
+  });
+
+  it("bot sprawdził firmę i nic nie znalazł: mówi to wprost", () => {
+    offersQuery.mockReturnValue(
+      ok(payload([offer(), { ...STALE, bot_points: { generated_at: "2026-11-16T07:40:00Z", points: [] } }])),
+    );
+    render(<OffersView />);
+    const row = within(rowOf("Druga Firma"));
+    expect(row.getByText("Bot nie znalazł nic nowego od wysłania oferty.")).toBeInTheDocument();
+    expect(row.getByText("Bot · wniosek, sprawdź źródło")).toBeInTheDocument();
+  });
+
+  it("bez punktów (null) i w „W toku” nic nie pokazuje", () => {
+    offersQuery.mockReturnValue(ok(payload([offer({ bot_points: POINTS }), STALE])));
+    render(<OffersView />);
+    expect(screen.queryByLabelText("Punkty od bota")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bot · wniosek, sprawdź źródło")).not.toBeInTheDocument();
   });
 });

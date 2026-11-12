@@ -873,6 +873,8 @@ async def test_preview_counts_known_people_like_the_accounts_list(app_client) ->
     )
 
     assert (plan["known_failed"], plan["known_truncated"]) == (False, False)
+    # Zwykła lista z researchu, nie eksport z Cognism.
+    assert plan["origin"] is None
     [card] = _company_of(plan, name)["cards"]
     assert (card["known_current"], card["known_past"]) == (1, 1)
     listed = (
