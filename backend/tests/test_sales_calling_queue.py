@@ -732,6 +732,34 @@ async def test_meeting_booked_moves_the_lead_opportunity_to_the_meeting_stage(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"outcome": "bad_contact"},
+        {"outcome": "not_interested", "never": True},
+    ],
+)
+async def test_meeting_without_date_leaves_the_queue_after_a_final_outcome(
+    app_client, payload: dict[str, Any]
+) -> None:
+    """Audyt 12.11 (S6): „Zły numer” i „Nigdy” zamykają pozycję jak w leadach.
+
+    Wracająca pozycja dawała kolejne naciśnięcia, które zawyżały „Dziś”
+    i Skuteczność.
+    """
+
+    caller = await _user("sales_edit")
+    opp_id = await _opportunity(caller.id, await _company(), stage="qualifying-meeting")
+    assert [i["key"] for i in (await _queue(app_client, caller))["meetings"]] == [
+        f"o:{opp_id}"
+    ]
+    saved = await _save_opportunity(app_client, caller, opp_id, **payload)
+    assert saved.status_code == 200, saved.text
+    queue = await _queue(app_client, caller)
+    assert queue["meetings"] == [] and queue["counts"]["meetings"] == 0
+
+
+@pytest.mark.asyncio
 async def test_outcome_follows_the_current_contact_of_the_opportunity(
     app_client,
 ) -> None:

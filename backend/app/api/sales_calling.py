@@ -888,13 +888,19 @@ async def preview_excel(
     assignees: str = Form(default="{}"),
     db: AsyncSession = Depends(get_db),
 ) -> ExcelPreviewOut:
-    """Bieg na sucho: co stanie się z każdym arkuszem i wierszem; niczego nie zapisuje."""
+    """Bieg na sucho: co stanie się z każdym arkuszem i wierszem; niczego nie zapisuje.
+
+    Arkusze przechodzą przez zapis po kolei w savepoincie, który się cofa, więc
+    podgląd liczy tak samo jak „Przenieś”.
+    """
 
     campaign = await _get_campaign(db, campaign_id)
     people = await calling_excel.sales_editors(db)
     chosen = _assignees(assignees, people)
     sheets = await _read_workbook(file)
-    plans = await calling_excel.plan_sheets(db, campaign, sheets, chosen, people)
+    plans = await calling_excel.plan_sheets(
+        db, campaign, sheets, chosen, people, user_id=current_user.id
+    )
     return ExcelPreviewOut(
         sheets=[SheetPlanOut(**plan.__dict__) for plan in plans],
         people=[Ref(id=user_id, name=name) for user_id, name in people],

@@ -127,6 +127,13 @@ def test_color_state_reads_the_legend_by_hue(
         ("urlop", "call_back"),
         ("dzwonic 12.11", "call_back"),
         ("ciekawa firma", excel.REVIEW),
+        ("niezainteresowani", "not_interested"),
+        ("Nie są zainteresowani", "not_interested"),
+        # Audyt 12.11 (S1): „nie” wewnątrz słowa to nie zaprzeczenie.
+        ("Zainteresowany, prosi o spotkanie", excel.REVIEW),
+        ("zainteresowany, zadzwonić w poniedziałek", "call_back"),
+        ("chętnie, zainteresowana", excel.REVIEW),
+        ("zainteresowany ofertą", "offer_sent"),
         ("brak", None),
         (None, None),
     ],
@@ -432,6 +439,63 @@ async def test_preview_and_transfer_put_each_sheet_into_its_persons_queue(
             )
         )
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_preview_counts_a_company_taken_by_an_earlier_sheet(app_client) -> None:
+    """Audyt 12.11 (S9): podgląd planował arkusze osobno, zapis idzie po kolei.
+
+    Ta sama firma w dwóch arkuszach: drugi arkusz trafia na kolejkę pierwszej osoby
+    (``other_caller``), więc podgląd ma to pokazać, zamiast obiecać więcej.
+    """
+
+    lead = await _user("sales_view", "sales_edit")
+    ola = await _user("sales_view", "sales_edit")
+    jan = await _user("sales_view", "sales_edit")
+    campaign_id = await _campaign("Excel dwa arkusze")
+    shared = f"Wspólna {uuid.uuid4().hex[:8]}"
+    other = _person(shared, _phone())
+    other[0] = "Ewa"
+    payload = _workbook(
+        {
+            "Ola": [(_person(shared, _phone(), "nie odbiera"), None)],
+            "Jan": [(other, YELLOW)],
+        }
+    )
+    assignees = json.dumps({"Ola": ola.id, "Jan": jan.id})
+
+    preview = await _post(
+        app_client,
+        lead,
+        "excel/preview",
+        payload,
+        campaign_id=campaign_id,
+        assignees=assignees,
+    )
+    assert preview.status_code == 200, preview.text
+    sheets = {sheet["title"]: sheet for sheet in preview.json()["sheets"]}
+    assert sheets["Ola"]["addable"] == 1
+    assert (sheets["Jan"]["addable"], sheets["Jan"]["fates"]) == (
+        0,
+        {"other_caller": 1},
+    )
+    async with AsyncSessionLocal() as db:
+        nothing = await db.scalar(
+            select(SalesCallRecord.id).where(SalesCallRecord.campaign_id == campaign_id)
+        )
+    assert nothing is None  # bieg na sucho niczego nie zostawia
+
+    resp = await _post(
+        app_client,
+        lead,
+        "excel",
+        payload,
+        campaign_id=campaign_id,
+        assignees=assignees,
+        contact_source="Excel dzwoniących",
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["added"] == sum(s["addable"] for s in sheets.values()) == 1
 
 
 @pytest.mark.asyncio
