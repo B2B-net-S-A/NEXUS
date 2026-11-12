@@ -282,8 +282,8 @@ def scoring_algorithm_version() -> str:
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["skill_canon_contract"] = "2026-10-07-implied-by"
     payload["location_contract"] = "2026-09-27-place-dictionary"
-    # Zwykłe słowa i końcówki złożeń w prozie requestu (09.11.2026).
-    payload["alias_mention_contract"] = "2026-11-09-request-common-words"
+    # Zwykłe słowa i końcówki złożeń w prozie requestu (09.11.2026, v2 12.11.2026).
+    payload["alias_mention_contract"] = "2026-11-12-request-common-words-v2"
     payload["skill_text_evidence"] = "2026-10-07-no-gaps-no-negated-answers"
     # Mianownik `_score_skills` liczy technologie bramką must (`_technology_labels`)
     # — nawias i wstęp „znajomość …” czytane od 13.10.2026 zmieniają wynik.
@@ -741,11 +741,16 @@ COMMON_WORD_ALIASES: dict[str, Optional[int]] = {
     "access": None,
     "project": None,
     "office": None,
-    "teams": None,
-    "word": None,
-    "exchange": None,
-    "outlook": None,
+    # Produkty Microsoftu (12.11.2026, regresja #3276): przy ``None`` request
+    # administratora M365 „Exchange | Teams | Outlook” tracił wszystkie trzy.
+    # Małą literą to zwykłe słowa („teams”, „exchange of knowledge”).
+    "teams": 1,
+    "word": 1,
+    "exchange": 1,
+    "outlook": 1,
     # LeSS, SAFe, SOLID: „less than”, „safe”, „solid understanding”.
+    # Jedna wielka litera wystarcza w środku zdania („zasad Solid”), patrz
+    # ``_capitalised_mid_sentence``.
     "less": 2,
     "safe": 2,
     "solid": 2,
@@ -762,27 +767,55 @@ def common_word_counts(found: str) -> bool:
     return sum(ch.isupper() for ch in found) >= needed
 
 
+_PREVIOUS_WORD_RE = re.compile(r"(\w+)[^\w\n]*$")
+
+
+def _capitalised_mid_sentence(text: str, start: int, found: str) -> bool:
+    """„zasad Solid”: wielka litera po słowie małą literą w tej samej linii.
+
+    Na początku linii albo zdania („- Solid understanding”) i w tytule
+    pisanym wielkimi literami („Safe Harbor Platform”) wielka litera nic nie
+    mówi, w środku zwykłego zdania — to nazwa (12.11.2026, regresja #3276).
+    """
+    if not found[:1].isupper():
+        return False
+    before = text[max(0, start - 40) : start]
+    match = _PREVIOUS_WORD_RE.search(before)
+    if match is None or not match.group(1)[:1].islower():
+        return False
+    return not re.search(r"[.!?:;]", before[match.end(1) :])
+
+
+# Przedrostek przeczenia: „non-docker” to brak Dockera, nie Docker.
+_NEGATING_PREFIX_RE = re.compile(r"\bnon$", re.I)
+
+
 def is_request_mention(text: str, match: re.Match) -> bool:
     """Wzmianka technologii w treści requestu albo rekrutacji (wymagania z prozy).
 
     Ostrzej niż ``is_technology_mention`` (CV i notatki zostają bez zmian):
     zwykłe słowo musi być napisane jak nazwa (``COMMON_WORD_ALIASES``),
-    a słowo małą literą doklejone myślnikiem do poprzedniego to końcówka
-    złożenia, nie nazwa: „password-less”, „privileged-access”, „non-docker”.
-    „PL-Linux” zostaje.
+    a zwykłe słowo małą literą doklejone myślnikiem do poprzedniego to
+    końcówka złożenia, nie nazwa: „password-less”, „privileged-access”.
+    Technologia po myślniku zostaje („java-spring”, „react-redux”,
+    „aws-lambda”, „PL-Linux”), chyba że po przeczeniu („non-docker”).
     """
     if not is_technology_mention(text, match):
         return False
     found = match.group(1)
     start = match.start(1)
-    if (
-        found.islower()
-        and start >= 2
-        and text[start - 1] == "-"
-        and text[start - 2].isalnum()
-    ):
-        return False
-    return common_word_counts(found)
+    lowered = found.lower()
+    if found.islower() and start >= 2 and text[start - 1] == "-":
+        head = text[max(0, start - 12) : start - 1]
+        if head[-1:].isalnum() and (
+            lowered in COMMON_WORD_ALIASES or _NEGATING_PREFIX_RE.search(head)
+        ):
+            return False
+    if common_word_counts(found):
+        return True
+    return COMMON_WORD_ALIASES.get(lowered) == 2 and _capitalised_mid_sentence(
+        text, start, found
+    )
 
 
 class _AliasPattern:

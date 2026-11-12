@@ -10,9 +10,10 @@ bo tej samej reguły używa „Oceń z AI” na zaznaczonych osobach
   (``model_json``) z powodami ``{text, quote}``;
 * powód zostaje tylko z cytatem, który stoi w tekście, który model dostał
   (``keep_quoted_reasons``) — reszta to zgadywanie. „Stoi” = dosłownie
-  albo, dla cytatu od 6 słów, ≥ 80% jego trójek słów jest w tekście
-  (``quote_matcher``, 09.11.2026): PDF wtrąca daty i nagłówki w środek
-  zdania, a model cytuje zdanie sklejone.
+  albo, dla cytatu od 6 słów, ≥ 80% jego trójek słów jest w tekście,
+  w tym pierwsza i ostatnia (``quote_matcher``, 09.11.2026, końce od
+  12.11.2026): PDF wtrąca daty i nagłówki w środek zdania, a model cytuje
+  zdanie sklejone.
 
 Każdy wołający sam decyduje o werdykcie: przegląd zgłoszeń może osobę
 odłożyć, „Oceń z AI” tylko układa kolejność.
@@ -42,7 +43,12 @@ QUOTE_MIN = 3
 # Krótszy cytat musi stać dosłownie — kilka słów składa się z byle czego.
 FUZZY_MIN_WORDS = 6
 FUZZY_MIN_SHARE = 0.8
+# Fragment po „…” stoi dosłownie dopiero od 3 słów (12.11.2026, audyt #3274):
+# „podstawowym … Angielski” albo „Ban … AWS … B2” składały się z pojedynczych
+# słów rozsianych po CV w zdanie, którego tam nie ma.
+FRAGMENT_MIN_WORDS = 3
 _ELLIPSIS = re.compile(r"\[?(?:\.\.\.|…)\]?")
+_EDGE_ELLIPSES = re.compile(r"^(?:\s*\[?(?:\.\.\.|…)\]?)+|(?:\[?(?:\.\.\.|…)\]?\s*)+$")
 _WORD = re.compile(r"[a-z0-9]+")
 
 
@@ -67,35 +73,51 @@ def quote_matcher(
     """Sprawdzarka „czy cytat stoi w tych tekstach” — jedna reguła dla wszystkich.
 
     Cytat stoi, gdy jest dosłownie (``normalize``, co najmniej ``QUOTE_MIN``
-    znaków) albo ma ≥ ``FUZZY_MIN_WORDS`` słów i ≥ ``FUZZY_MIN_SHARE`` jego
-    trójek słów jest w tekście — przestawione albo zmyślone słowa nie dają
-    trójek. Wielokropek („…”, „...”, „[...]”) dzieli cytat na fragmenty i
-    każdy musi stać sam, tymi samymi regułami: łączenie nie daje więcej niż
-    dwa osobne cytaty, a rekruter widzi, że coś pominięto.
+    znaków) albo ma ≥ ``FUZZY_MIN_WORDS`` słów, ≥ ``FUZZY_MIN_SHARE`` jego
+    trójek słów jest w tekście, a pierwsza i ostatnia trójka są w nim zawsze
+    — przestawione albo zmyślone słowa nie dają trójek, a brak dopuszczamy
+    tylko w środku, gdzie PDF wtrąca daty. Zmyślone zakończenie („bazami
+    danych PostgreSQL” przy „… Oracle”) to 1 z 9 trójek, czyli 89% — sam
+    próg by je przepuścił (audyt #3274, 12.11.2026).
+
+    Wielokropek („…”, „...”, „[...]”) w środku dzieli cytat na fragmenty i
+    każdy musi stać sam: dosłownie od ``FRAGMENT_MIN_WORDS`` słów albo
+    regułą trójek. Łączenie nie daje więc więcej niż dwa osobne cytaty,
+    a rekruter widzi, że coś pominięto. Wielokropek tylko na brzegach niczego
+    nie skleja — taki cytat sprawdzamy jak bez niego.
     """
     texts = [h for h in haystacks if h]
     hay = "\n".join(normalize(h) for h in texts)
     grams: Optional[set[tuple[str, ...]]] = None
 
-    def fragment_found(fragment: str) -> bool:
-        nonlocal grams
+    def literal(fragment: str) -> bool:
         needle = normalize(fragment)
-        if len(needle) >= QUOTE_MIN and needle in hay:
-            return True
+        return len(needle) >= QUOTE_MIN and needle in hay
+
+    def glued(fragment: str) -> bool:
+        nonlocal grams
         words = _words(fragment)
         if len(words) < FUZZY_MIN_WORDS:
             return False
         if grams is None:
             grams = {g for h in texts for g in _trigrams(_words(h))}
         wanted = _trigrams(words)
+        if wanted[0] not in grams or wanted[-1] not in grams:
+            return False
         return sum(g in grams for g in wanted) >= FUZZY_MIN_SHARE * len(wanted)
 
+    def fragment_found(fragment: str) -> bool:
+        if len(_words(fragment)) >= FRAGMENT_MIN_WORDS and literal(fragment):
+            return True
+        return glued(fragment)
+
     def found(quote: Optional[str]) -> bool:
-        text = str(quote or "")
-        needle = normalize(text)
-        if len(needle) >= QUOTE_MIN and needle in hay:
+        text = _EDGE_ELLIPSES.sub("", str(quote or ""))
+        if literal(text):
             return True
         fragments = [f for f in _ELLIPSIS.split(text) if _words(f)]
+        if len(fragments) == 1:
+            return glued(fragments[0])
         return bool(fragments) and all(fragment_found(f) for f in fragments)
 
     return found
