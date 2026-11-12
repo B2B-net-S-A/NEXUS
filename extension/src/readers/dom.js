@@ -194,3 +194,18 @@ export function slugContradictsName(slug, fullName) {
   if (!tokens.length) return false;
   return !tokens.some((t) => s.includes(t));
 }
+
+const DEGREE_TOKEN = /(?:^|[·•]\s*)(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)\s*$/i;
+
+/**
+ * Stopień kontaktu („· 2nd”, „• 3rd+”, „2.”) z pierwszych linii karty albo
+ * wiersza wyników → 1, 2, 3 albo null. Lite: 1. stopień = zwykła wiadomość,
+ * 2. = zaproszenie z notatką, czyli bez wydawania InMaila.
+ */
+export function degreeFromTexts(texts, max = 6) {
+  for (const t of (texts || []).slice(0, max)) {
+    const m = clean(t).match(DEGREE_TOKEN);
+    if (m) return Number(m[1][0]);
+  }
+  return null;
+}

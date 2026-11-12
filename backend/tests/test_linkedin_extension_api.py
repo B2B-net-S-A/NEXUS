@@ -86,8 +86,18 @@ def _profile(slug: str, **extra) -> dict:
         "current_company": extra.pop("company", "Firma Przykładowa"),
         "current_title": "Java Developer",
         "experience": [
-            {"title": "Java Developer", "company": "Firma Przykładowa", "start": "2021-03", "current": True},
-            {"title": "Junior Developer", "company": "Inna Firma", "start": "2018-06", "end": "2021-02"},
+            {
+                "title": "Java Developer",
+                "company": "Firma Przykładowa",
+                "start": "2021-03",
+                "current": True,
+            },
+            {
+                "title": "Junior Developer",
+                "company": "Inna Firma",
+                "start": "2018-06",
+                "end": "2021-02",
+            },
         ],
         "skills": ["Java", "Spring Boot", "Kafka"],
         **extra,
@@ -124,11 +134,15 @@ async def test_key_works_only_on_extension_routes(app_client, app_auth_headers) 
 
 
 @pytest.mark.asyncio
-async def test_full_path_lookup_add_contact(app_client, app_auth_headers, open_job) -> None:
+async def test_full_path_lookup_add_contact(
+    app_client, app_auth_headers, open_job
+) -> None:
     key = await _connect(app_client, app_auth_headers)
     slug = f"jan-testowy-{time.time_ns()}"
 
-    first = await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    first = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(slug)
+    )
     assert first.status_code == 200, first.text
     assert first.json()["status"] == "not_found"
     assert first.json()["usage"]["reads_today"] >= 1
@@ -151,7 +165,8 @@ async def test_full_path_lookup_add_contact(app_client, app_auth_headers, open_j
         assert candidate.linkedin.endswith(slug)
         stage = await db.scalar(
             select(CandidateStage).where(
-                CandidateStage.candidate_id == candidate_id, CandidateStage.job_id == open_job
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == open_job,
             )
         )
         assert stage is not None
@@ -162,12 +177,21 @@ async def test_full_path_lookup_add_contact(app_client, app_auth_headers, open_j
         json={"profile": _profile(slug), "job_ids": []},
     )
     assert again.status_code == 200
-    assert again.json() == {**again.json(), "candidate_id": candidate_id, "created": False}
+    assert again.json() == {
+        **again.json(),
+        "candidate_id": candidate_id,
+        "created": False,
+    }
 
     contact = await app_client.post(
         f"/api/extension/candidates/{candidate_id}/contacts",
         headers=key,
-        json={"channel": "inmail", "job_id": open_job, "note": "Odpisze w piątek", "remind_in_days": 3},
+        json={
+            "channel": "inmail",
+            "job_id": open_job,
+            "note": "Odpisze w piątek",
+            "remind_in_days": 3,
+        },
     )
     assert contact.status_code == 200, contact.text
     assert contact.json()["reminder_id"] is not None
@@ -183,7 +207,10 @@ async def test_full_path_lookup_add_contact(app_client, app_auth_headers, open_j
     assert data["candidate"]["id"] == candidate_id
     assert [p["job_id"] for p in data["processes"]] == [open_job]
     assert data["contacts"][0]["channel_label"] == "InMail"
-    assert data["job_change"] == {"page_company": "Nowa Firma Testowa", "nexus_company": "Firma Przykładowa"}
+    assert data["job_change"] == {
+        "page_company": "Nowa Firma Testowa",
+        "nexus_company": "Firma Przykładowa",
+    }
 
     refreshed = await app_client.post(
         f"/api/extension/candidates/{candidate_id}/refresh",
@@ -195,7 +222,8 @@ async def test_full_path_lookup_add_contact(app_client, app_auth_headers, open_j
     async with AsyncSessionLocal() as db:
         note = await db.scalar(
             select(Note).where(
-                Note.candidate_id == candidate_id, Note.source_ref == "linkedin_extension:inmail"
+                Note.candidate_id == candidate_id,
+                Note.source_ref == "linkedin_extension:inmail",
             )
         )
         assert note is not None and note.kind == "contact_attempt"
@@ -211,7 +239,9 @@ async def test_recruiter_profile_without_link_matches_by_name_and_company(
     company = f"Firma Unikalna {time.time_ns()}"
     slug = f"jan-testowy-rec-{time.time_ns()}"
     added = await app_client.post(
-        "/api/extension/candidates", headers=key, json={"profile": _profile(slug, company=company)}
+        "/api/extension/candidates",
+        headers=key,
+        json={"profile": _profile(slug, company=company)},
     )
     assert added.status_code == 201, added.text
 
@@ -221,7 +251,9 @@ async def test_recruiter_profile_without_link_matches_by_name_and_company(
         page_url="https://www.linkedin.com/talent/profile/AEMAATESTOWY",
         public_url=None,
     )
-    resp = await app_client.post("/api/extension/lookup", headers=key, json=recruiter_view)
+    resp = await app_client.post(
+        "/api/extension/lookup", headers=key, json=recruiter_view
+    )
     data = resp.json()
     if data["status"] == "found":
         assert data["matched_by"] == "name_company"
@@ -244,16 +276,26 @@ async def test_off_limits_asks_then_accepts_answer(
     profile = _profile(slug, company="Bank Testowy S.A.")
 
     seen = await app_client.post("/api/extension/lookup", headers=key, json=profile)
-    assert seen.json()["off_limits"] == {"client_name": "Bank Testowy", "company": "Bank Testowy S.A."}
+    assert seen.json()["off_limits"] == {
+        "client_name": "Bank Testowy",
+        "company": "Bank Testowy S.A.",
+    }
 
     asked = await app_client.post(
-        "/api/extension/candidates", headers=key, json={"profile": profile, "job_ids": [open_job]}
+        "/api/extension/candidates",
+        headers=key,
+        json={"profile": profile, "job_ids": [open_job]},
     )
     assert asked.status_code == 409
     assert asked.json()["detail"]["code"] == "off_limits_confirmation_required"
     async with AsyncSessionLocal() as db:
         # Rollback całego żądania — osoby nie ma.
-        assert await db.scalar(select(Candidate).where(Candidate.linkedin.ilike(f"%{slug}%"))) is None
+        assert (
+            await db.scalar(
+                select(Candidate).where(Candidate.linkedin.ilike(f"%{slug}%"))
+            )
+            is None
+        )
 
     declined = await app_client.post(
         "/api/extension/candidates",
@@ -274,22 +316,31 @@ async def test_off_limits_asks_then_accepts_answer(
 
 
 @pytest.mark.asyncio
-async def test_daily_limit_then_revoke(app_client, app_auth_headers, monkeypatch) -> None:
+async def test_daily_limit_then_revoke(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
     monkeypatch.setattr(settings, "LINKEDIN_EXTENSION_DAILY_READ_LIMIT", 1)
     key = await _connect(app_client, app_auth_headers)
     slug = f"jan-testowy-limit-{time.time_ns()}"
-    ok = await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    ok = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(slug)
+    )
     assert ok.status_code == 200
-    blocked = await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    blocked = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(slug)
+    )
     assert blocked.status_code == 429
     assert blocked.json()["detail"] == "extension_daily_limit"
 
-    listing = await app_client.get("/api/extension/connections", headers=app_auth_headers)
+    listing = await app_client.get(
+        "/api/extension/connections", headers=app_auth_headers
+    )
     assert listing.status_code == 200
     mine = [c for c in listing.json()["items"] if c["reads_today"] == 1]
     assert mine
     revoked = await app_client.post(
-        f"/api/extension/connections/{mine[0]['key_id']}/revoke", headers=app_auth_headers
+        f"/api/extension/connections/{mine[0]['key_id']}/revoke",
+        headers=app_auth_headers,
     )
     assert revoked.status_code == 204
     after = await app_client.get("/api/extension/me", headers=key)
@@ -315,7 +366,11 @@ async def test_draft_message_falls_back_without_ai(
     resp = await app_client.post(
         "/api/extension/draft-message",
         headers=key,
-        json={"job_id": open_job, "kind": "invitation", "profile": _profile("jan-testowy-draft")},
+        json={
+            "job_id": open_job,
+            "kind": "invitation",
+            "profile": _profile("jan-testowy-draft"),
+        },
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["ai"] is False
@@ -324,18 +379,28 @@ async def test_draft_message_falls_back_without_ai(
 
 
 @pytest.mark.asyncio
-async def test_reconnect_does_not_reset_daily_limit(app_client, app_auth_headers, monkeypatch) -> None:
+async def test_reconnect_does_not_reset_daily_limit(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
     monkeypatch.setattr(settings, "LINKEDIN_EXTENSION_DAILY_READ_LIMIT", 1)
     first = await _connect(app_client, app_auth_headers)
     slug = f"jan-testowy-reconnect-{time.time_ns()}"
-    assert (await app_client.post("/api/extension/lookup", headers=first, json=_profile(slug))).status_code == 200
+    assert (
+        await app_client.post(
+            "/api/extension/lookup", headers=first, json=_profile(slug)
+        )
+    ).status_code == 200
     second = await _connect(app_client, app_auth_headers)
-    again = await app_client.post("/api/extension/lookup", headers=second, json=_profile(slug))
+    again = await app_client.post(
+        "/api/extension/lookup", headers=second, json=_profile(slug)
+    )
     assert again.status_code == 429
 
 
 @pytest.mark.asyncio
-async def test_password_change_disconnects_extension(app_client, app_auth_headers) -> None:
+async def test_password_change_disconnects_extension(
+    app_client, app_auth_headers
+) -> None:
     key = await _connect(app_client, app_auth_headers)
     assert (await app_client.get("/api/extension/me", headers=key)).status_code == 200
     current = app_client.headers.get("X-Test-Admin-Password")
@@ -374,7 +439,9 @@ async def test_lookup_dates_are_company_calendar(app_client, app_auth_headers) -
         )
         await db.commit()
 
-    found = await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    found = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(slug)
+    )
     assert found.status_code == 200, found.text
     data = found.json()
     assert data["status"] == "found"
@@ -424,7 +491,9 @@ async def test_contacts_hide_client_rate_notes_from_recruiter(app_auth_headers) 
 # ── Tryb pracy na requeście (wersja 1.0.5, decyzja Artura 02.11.2026) ───────
 
 
-async def _make_job(*, is_open: bool = True, status: JobStatus = JobStatus.published) -> int:
+async def _make_job(
+    *, is_open: bool = True, status: JobStatus = JobStatus.published
+) -> int:
     from app.models.client import Client
 
     async with AsyncSessionLocal() as db:
@@ -625,7 +694,9 @@ async def test_active_job_route_needs_extension_key(
     app_client, app_auth_headers, open_job
 ) -> None:
     payload = {"job_id": open_job, "profile": _profile("bez-klucza")}
-    assert (await app_client.post("/api/extension/active-job", json=payload)).status_code == 401
+    assert (
+        await app_client.post("/api/extension/active-job", json=payload)
+    ).status_code == 401
     jwt_only = await app_client.post(
         "/api/extension/active-job", headers=app_auth_headers, json=payload
     )
@@ -643,7 +714,9 @@ async def test_active_job_preselection_does_not_bypass_off_limits(
 
     monkeypatch.setattr(client_off_limits, "off_limits_labels", _labels)
     key = await _connect(app_client, app_auth_headers)
-    profile = _profile(f"off-limits-pasek-{time.time_ns()}", company="Bank Testowy S.A.")
+    profile = _profile(
+        f"off-limits-pasek-{time.time_ns()}", company="Bank Testowy S.A."
+    )
     seen = await app_client.post(
         "/api/extension/lookup",
         headers=key,
@@ -696,3 +769,373 @@ async def test_active_job_sql_failure_in_scoring_keeps_lookup_alive(
     )
     assert again.status_code == 200, again.text
     assert again.json()["active_job"]["score"] is None
+
+
+# ── Recruiter Lite: InMaile, odpowiedzi, lista, wyszukiwanie (1.0.8) ────────
+
+
+async def _linked_candidate(slug: str, *, phone: str | None = None) -> int:
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Jan",
+            lastname=f"Testowy{time.time_ns()}",
+            linkedin=f"https://www.linkedin.com/in/{slug}/",
+            phone=phone,
+        )
+        db.add(candidate)
+        await db.commit()
+        return candidate.id
+
+
+async def _other_user_id() -> int:
+    from app.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"inny-rekruter-{time.time_ns()}@example.com",
+            name="Inny Rekruter",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        return user.id
+
+
+async def _log_contact(
+    client: AsyncClient, key: dict, candidate_id: int, **body
+) -> dict:
+    resp = await client.post(
+        f"/api/extension/candidates/{candidate_id}/contacts", headers=key, json=body
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_inmail_reply_flow_outreach_reminder_and_counters(
+    app_client, app_auth_headers, open_job
+) -> None:
+    from datetime import timedelta
+
+    from app.core.scheduling import business_today
+    from app.models.calendar_event import EventStatus
+
+    key = await _connect(app_client, app_auth_headers)
+    before = (await app_client.get("/api/extension/me", headers=key)).json()["inmail"]
+    assert before["credits_month"] == settings.LINKEDIN_INMAIL_MONTHLY_CREDITS == 30
+
+    slug = f"jan-inmail-{time.time_ns()}"
+    candidate_id = await _linked_candidate(slug, phone="+48 600 111 222")
+    first = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(slug)
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["outreach"] == {
+        "has_phone": True,
+        "recent_contact": None,
+        "open_inmail": None,
+        "last_reply": None,
+    }
+    # Numer telefonu nie wychodzi do panelu.
+    assert "600 111 222" not in first.text
+
+    contact = await _log_contact(
+        app_client,
+        key,
+        candidate_id,
+        channel="inmail",
+        job_id=open_job,
+        remind_in_days=3,
+    )
+    seen = (
+        await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    ).json()["outreach"]
+    assert seen["recent_contact"]["channel_label"] == "InMail"
+    assert seen["recent_contact"]["is_me"] is True
+    assert seen["recent_contact"]["days_ago"] == 0
+    assert seen["open_inmail"]["note_id"] == contact["id"]
+    assert seen["open_inmail"]["job_title"].startswith("Java Developer")
+    assert (
+        seen["open_inmail"]["refund_until"]
+        == (business_today() + timedelta(days=90)).isoformat()
+    )
+
+    sent = (await app_client.get("/api/extension/me", headers=key)).json()["inmail"]
+    assert sent["sent_month"] == before["sent_month"] + 1
+    assert sent["replied_month"] == before["replied_month"]
+
+    reply = await app_client.post(
+        f"/api/extension/candidates/{candidate_id}/contacts/{contact['id']}/reply",
+        headers=key,
+        json={"outcome": "interested"},
+    )
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["closed_reminders"] == 1
+    reply_id = reply.json()["id"]
+
+    again = await app_client.post(
+        f"/api/extension/candidates/{candidate_id}/contacts/{contact['id']}/reply",
+        headers=key,
+        json={"outcome": "no_reply"},
+    )
+    assert again.status_code == 200, again.text
+    assert again.json() == {"id": reply_id, "closed_reminders": 0}
+
+    async with AsyncSessionLocal() as db:
+        note = await db.get(Note, reply_id)
+        assert note.source_ref == f"linkedin_extension:reply:interested:{contact['id']}"
+        assert note.kind == "contact_attempt"
+        assert note.job_id == open_job
+        assert note.content == (
+            f"Odpowiedź na InMail z {business_today().strftime('%d.%m.%Y')}: chce rozmawiać"
+        )
+        reminder = await db.get(CalendarEvent, contact["reminder_id"])
+        assert reminder.status == EventStatus.completed
+
+    after = (
+        await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    ).json()
+    assert after["outreach"]["open_inmail"] is None
+    assert after["outreach"]["last_reply"]["outcome"] == "interested"
+    # Odpowiedź nie jest „kontaktem zespołu” — świeży kontakt to nadal InMail.
+    assert after["outreach"]["recent_contact"]["channel_label"] == "InMail"
+    assert after["contacts"][0]["channel_label"] == "odpowiedź na InMail"
+
+    counted = (await app_client.get("/api/extension/me", headers=key)).json()["inmail"]
+    assert counted["replied_month"] == before["replied_month"] + 1
+
+
+@pytest.mark.asyncio
+async def test_no_reply_is_labelled_and_not_counted_as_reply(
+    app_client, app_auth_headers
+) -> None:
+    key = await _connect(app_client, app_auth_headers)
+    slug = f"jan-cisza-{time.time_ns()}"
+    candidate_id = await _linked_candidate(slug)
+    contact = await _log_contact(app_client, key, candidate_id, channel="invitation")
+    before = (await app_client.get("/api/extension/me", headers=key)).json()["inmail"]
+    reply = await app_client.post(
+        f"/api/extension/candidates/{candidate_id}/contacts/{contact['id']}/reply",
+        headers=key,
+        json={"outcome": "no_reply"},
+    )
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["closed_reminders"] == 0
+    data = (
+        await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    ).json()
+    assert data["outreach"]["has_phone"] is False
+    assert data["outreach"]["last_reply"]["outcome"] == "no_reply"
+    assert data["contacts"][0]["channel_label"] == "brak odpowiedzi"
+    after = (await app_client.get("/api/extension/me", headers=key)).json()["inmail"]
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_reply_404_unless_my_linkedin_contact_with_this_person(
+    app_client, app_auth_headers
+) -> None:
+    key = await _connect(app_client, app_auth_headers)
+    candidate_id = await _linked_candidate(f"jan-404-{time.time_ns()}")
+    other_candidate = await _linked_candidate(f"jan-404b-{time.time_ns()}")
+    inmail = await _log_contact(app_client, key, candidate_id, channel="inmail")
+    phone = await _log_contact(app_client, key, candidate_id, channel="phone")
+    other_user = await _other_user_id()
+    async with AsyncSessionLocal() as db:
+        foreign = Note(
+            content="InMail wysłane z LinkedIna",
+            candidate_id=candidate_id,
+            author_id=other_user,
+            kind="contact_attempt",
+            source_ref="linkedin_extension:inmail",
+        )
+        db.add(foreign)
+        await db.commit()
+        foreign_id = foreign.id
+
+    def url(cid: int, nid: int) -> str:
+        return f"/api/extension/candidates/{cid}/contacts/{nid}/reply"
+
+    body = {"outcome": "interested"}
+    assert (
+        await app_client.post(
+            url(other_candidate, inmail["id"]), headers=key, json=body
+        )
+    ).status_code == 404
+    assert (
+        await app_client.post(url(candidate_id, phone["id"]), headers=key, json=body)
+    ).status_code == 404
+    assert (
+        await app_client.post(url(candidate_id, foreign_id), headers=key, json=body)
+    ).status_code == 404
+    assert (
+        await app_client.post(url(candidate_id, 2_000_000_000), headers=key, json=body)
+    ).status_code == 404
+    assert (
+        await app_client.post(url(2_000_000_000, inmail["id"]), headers=key, json=body)
+    ).status_code == 404
+    bad = await app_client.post(
+        url(candidate_id, inmail["id"]), headers=key, json={"outcome": "maybe"}
+    )
+    assert bad.status_code == 422
+    # JWT na trasie wtyczki nie działa.
+    jwt = await app_client.post(
+        url(candidate_id, inmail["id"]), headers=app_auth_headers, json=body
+    )
+    assert jwt.status_code == 401
+    async with AsyncSessionLocal() as db:
+        replies = await db.scalar(
+            select(Note.id).where(
+                Note.source_ref.like("linkedin_extension:reply:%"),
+                Note.candidate_id == candidate_id,
+            )
+        )
+    assert replies is None
+
+
+@pytest.mark.asyncio
+async def test_batch_has_phone_and_last_contact_any_time(
+    app_client, app_auth_headers
+) -> None:
+    from datetime import timedelta
+
+    from app.core.scheduling import business_date, business_today
+
+    key = await _connect(app_client, app_auth_headers)
+    slug = f"jan-lista-{time.time_ns()}"
+    candidate_id = await _linked_candidate(slug, phone="600111222")
+    old = datetime.now(timezone.utc) - timedelta(days=40)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Note(
+                content="Rozmowa telefoniczna",
+                candidate_id=candidate_id,
+                note_type="call",
+                created_at=old,
+            )
+        )
+        # Zapisana odpowiedź nie jest kontaktem zespołu.
+        db.add(
+            Note(
+                content="Brak odpowiedzi",
+                candidate_id=candidate_id,
+                kind="contact_attempt",
+                source_ref="linkedin_extension:reply:no_reply:1",
+            )
+        )
+        await db.commit()
+
+    resp = await app_client.post(
+        "/api/extension/lookup-batch",
+        headers=key,
+        json={
+            "people": [
+                {
+                    "full_name": "Jan Testowy",
+                    "public_url": f"https://www.linkedin.com/in/{slug}/",
+                },
+                {
+                    "full_name": "Nowa Osoba",
+                    "public_url": f"https://www.linkedin.com/in/nowa-{time.time_ns()}/",
+                },
+            ]
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    found, new = resp.json()["items"]
+    assert found["candidate_id"] == candidate_id
+    assert found["has_phone"] is True
+    assert found["last_contact"]["channel_label"] == "telefon"
+    assert found["last_contact"]["is_me"] is False
+    assert (
+        found["last_contact"]["days_ago"]
+        == (business_today() - business_date(old)).days
+    )
+    assert new["status"] == "new"
+    assert new["has_phone"] is False
+    assert new["last_contact"] is None
+
+    # Na profilu kontakt sprzed 40 dni nie jest „świeży”.
+    outreach = (
+        await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    ).json()["outreach"]
+    assert outreach["has_phone"] is True
+    assert outreach["recent_contact"] is None
+
+
+@pytest.mark.asyncio
+async def test_search_kit_from_open_job_without_counting_read(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    from app.models.client import Client
+    from app.models.job import RemotePolicy
+
+    async def _labels(db):  # noqa: ARG001
+        return [
+            ("klient testowy", 2, "Klient Testowy"),
+            ("bank polnocny", 1, "Bank Północny"),
+            ("bp", 1, "Bank Północny"),
+        ]
+
+    monkeypatch.setattr(client_off_limits, "off_limits_labels", _labels)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Klient Testowy {time.time_ns()}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title="Analityk biznesowy",
+            working_title="Business Analyst",
+            working_title_auto=False,
+            status=JobStatus.published,
+            client_id=client.id,
+            is_open=True,
+            must_skills=[{"name": "BPMN"}, {"name": "Spring Boot"}],
+            nice_skills=[{"name": "UML"}],
+            location="Gdańsk, Warszawa",
+            remote_policy=RemotePolicy.hybrid,
+        )
+        closed = Job(
+            title="Zamknięta (pytest)",
+            status=JobStatus.closed,
+            client_id=client.id,
+            is_open=False,
+        )
+        db.add_all([job, closed])
+        await db.commit()
+        job_id, closed_id = job.id, closed.id
+
+    key = await _connect(app_client, app_auth_headers)
+    reads = (await app_client.get("/api/extension/me", headers=key)).json()["usage"][
+        "reads_today"
+    ]
+    resp = await app_client.get(f"/api/extension/jobs/{job_id}/search-kit", headers=key)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "job_id": job_id,
+        "title": "Analityk biznesowy",
+        "keywords": '("Business Analyst" OR "Analityk biznesowy") AND BPMN AND "Spring Boot"',
+        "titles": ["Business Analyst", "Analityk biznesowy"],
+        "skills_must": ["BPMN", "Spring Boot"],
+        "skills_nice": ["UML"],
+        "locations": ["Gdańsk", "Warszawa"],
+        "remote": "hybrid",
+        "exclude_companies": ["Bank Północny", "Klient Testowy"],
+    }
+    after = (await app_client.get("/api/extension/me", headers=key)).json()["usage"][
+        "reads_today"
+    ]
+    assert after == reads
+
+    assert (
+        await app_client.get(f"/api/extension/jobs/{closed_id}/search-kit", headers=key)
+    ).status_code == 404
+    assert (
+        await app_client.get("/api/extension/jobs/2000000000/search-kit", headers=key)
+    ).status_code == 404
+    # Lista rekrutacji obok nadal działa (bez kolizji tras).
+    assert (await app_client.get("/api/extension/jobs", headers=key)).status_code == 200
+    jwt = await app_client.get(
+        f"/api/extension/jobs/{job_id}/search-kit", headers=app_auth_headers
+    )
+    assert jwt.status_code == 401

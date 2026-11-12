@@ -7,6 +7,7 @@ import {
   checkText,
   defaultPeriod,
   looseInvoices,
+  paymentNote,
   paymentText,
   paymentTone,
   quantityText,
@@ -41,8 +42,13 @@ describe("invoicing-format", () => {
     expect(nbsp(paymentText(invoice()))).toBe("zapłacono 14.11");
     expect(paymentTone(invoice())).toBe("success");
     const late = invoice({ payment_status: "partial", overdue_days: 10, to_pay: "100.00" });
-    expect(paymentText(late)).toBe("po terminie 10 dni · zapłacono część");
+    expect(paymentText(late)).toBe("po terminie 10 dni");
+    expect(nbsp(paymentNote(late) ?? "")).toBe("zapłacono część · zostało 100,00 zł");
     expect(paymentTone(late)).toBe("danger");
+    const part = invoice({ payment_status: "partial", overdue_days: 0, to_pay: "5455.00" });
+    expect(paymentText(part)).toBe("zapłacono część");
+    expect(nbsp(paymentNote(part) ?? "")).toBe("zostało 5455,00 zł");
+    expect(paymentNote(invoice())).toBeNull();
     const open = invoice({ payment_status: "unpaid", overdue_days: 0, paid_on: null });
     expect(paymentText(open)).toBe("termin 17.11");
     expect(paymentText(invoice({ payment_status: "unpaid", overdue_days: 1 }))).toBe(

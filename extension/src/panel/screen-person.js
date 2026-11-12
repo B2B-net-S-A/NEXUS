@@ -18,6 +18,7 @@ import {
   rodoLabel,
   rodoTone,
 } from "../view/logic.js";
+import { REPLY_OUTCOMES, replyPrompt } from "../view/outreach.js";
 import { apiErrorText } from "./errors.js";
 import { jobPicker } from "./job-picker.js";
 import { renderMessage } from "./screen-message.js";
@@ -48,6 +49,25 @@ function activeJobFrame(ctx, ps, lookup) {
       ps.form = null;
       openForm(ctx, ps, "job");
     }, { variant: lookup.off_limits || lookup.contractor ? "secondary" : "primary" }),
+  );
+}
+
+/** Mój InMail bez zapisanej odpowiedzi: jedno kliknięcie zamyka przypomnienie i liczy skuteczność. */
+function replyFrame(ctx, ps, lookup) {
+  const prompt = replyPrompt(lookup.outreach);
+  if (!prompt) return null;
+  const save = (outcome) =>
+    run(ctx, ps, async () => {
+      await ctx.api.replyToContact(lookup.candidate.id, prompt.noteId, outcome.value);
+      ps.notice = outcome.notice;
+      ctx.applyReply(outcome.value);
+    });
+  return frame(
+    "info",
+    h("p", { class: "frame__title" }, prompt.title),
+    h("p", {}, "Odpowiedź przyszła? Zapis zamyka przypomnienie i liczy się do skuteczności InMaili."),
+    h("div", { class: "row row--wrap" }, REPLY_OUTCOMES.map((o, i) => button(o.label, () => save(o), { variant: i === 0 ? "primary" : "secondary", disabled: ps.busy }))),
+    prompt.refund ? h("p", { class: "small" }, prompt.refund) : null,
   );
 }
 
@@ -330,6 +350,7 @@ export function renderPerson(ctx) {
 
   // Off-limits i kontraktor nad przyciskiem „Dodaj do tej rekrutacji”: najpierw ostrzeżenie.
   const frames = [
+    replyFrame(ctx, ps, lookup),
     lookup.contractor ? frame("warning", h("p", {}, contractorText(lookup.contractor))) : null,
     lookup.off_limits ? frame("error", h("p", {}, offLimitsText(lookup.off_limits))) : null,
     activeJobFrame(ctx, ps, lookup),

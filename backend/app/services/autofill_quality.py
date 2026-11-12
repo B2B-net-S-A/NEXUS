@@ -340,6 +340,20 @@ def check_proposals(raw: str) -> list[dict]:
     return out[:MAX_PROPOSALS]
 
 
+def model_lines(rows) -> list[str]:
+    """Opisy odrzuceń dla modelu. Opis z cechą chronioną (kraj, narodowość,
+    pochodzenie, wiek, zdrowie) nie trafia do modelu, który proponuje zmiany
+    doboru: granica „cechy chronione poza uczeniem” (04.11.2026), filtr od
+    12.11.2026 po opisach z porcji dnia. Wpis rekrutera w bazie zostaje."""
+    from app.services.insights_wnioski import is_protected
+
+    return [
+        f"- {REASON_LABELS.get(reason, reason)}: {note.strip()[:NOTE_MAX]}"
+        for reason, note in rows
+        if note and note.strip() and not is_protected(note)
+    ]
+
+
 async def _notes(db, since: datetime, until: datetime) -> list[str]:
     rows = (
         await db.execute(
@@ -353,11 +367,7 @@ async def _notes(db, since: datetime, until: datetime) -> list[str]:
             .limit(MAX_NOTES)
         )
     ).all()
-    return [
-        f"- {REASON_LABELS.get(reason, reason)}: {note.strip()[:NOTE_MAX]}"
-        for reason, note in rows
-        if note and note.strip()
-    ]
+    return model_lines(rows)
 
 
 def _call_model(system: str, prompt: str, chain: tuple[str, ...]) -> str:

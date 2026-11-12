@@ -337,6 +337,7 @@ async def load_contacts(
     bramki co ``/api/notes``: notatka ze stawką do klienta (``dl_rate``,
     notatka z wysyłki) jest dla roli bez tej stawki zakryta."""
     from app.api.candidate_access import hidden_send_note_ids, note_content_hidden
+    from app.services.linkedin_extension_outreach import contact_label, reply_origins
 
     note_rows = (
         await db.execute(
@@ -378,6 +379,7 @@ async def load_contacts(
         )
     ).all()
     hidden_send = await hidden_send_note_ids(db, user, [r[5] for r in note_rows])
+    origins = await reply_origins(db, [r[3] for r in note_rows])
     items: list[ContactOut] = []
     for (
         at,
@@ -393,16 +395,7 @@ async def load_contacts(
             user, kind=kind, author_id=author_id, send_note=note_id in hidden_send
         ):
             content = None
-        if source_ref and source_ref.startswith(CONTACT_SOURCE_PREFIX):
-            label = CHANNEL_LABELS.get(
-                source_ref[len(CONTACT_SOURCE_PREFIX) :], "kontakt"
-            )
-        else:
-            label = {
-                NoteType.call: "telefon",
-                NoteType.email: "e-mail",
-                NoteType.meeting: "spotkanie",
-            }.get(note_type, "próba kontaktu")
+        label = contact_label(note_type, source_ref, origins)
         items.append(
             ContactOut(
                 at=at, user_name=author, channel_label=label, note=_short(content)

@@ -62,6 +62,8 @@ _TZ = ZoneInfo(DEFAULT_TZ)
 PROTECTED_RE = (
     r"\m(narodowo|obywatel|pochodzeni|cudzoziem|obcokraj|ukrai|rosj|rosyj|russia|ruski|białoru|bialoru"
     r"|belarus|hindus|indyj|indii|indian|polak|polk[aię]\M|akcent|nationalit|citizen|foreigner"
+    r"|afryk|turek|turc|tureck|arab|szachid|szahid|ciapat|kultur|irland|francj|francuz|niemiec|niemc"
+    r"|imigran|emigran|spoza polski|skąd on|skad on|skąd jest|skad jest"
     r"|kraj\w* (obję|obje|konflikt)|obję\w* konflikt|obje\w* konflikt|konflikt\w* zbrojn"
     r"|wiek|ma \d\d lat|\d\d[- ]?lat(ek|ka|ni)|starsz\w* (pan|osob|kandydat)|za star|za młod|za mlod"
     r"|emeryt|too old|too young"
@@ -70,6 +72,18 @@ PROTECTED_RE = (
     r"|ciąż|ciaz|ciężarn|ciezarn|pregnan|macierzy|maternity|rodzicielsk|parental"
     r"|wyznani|relig|\mpłe[cć]|kobiet|mężczyzn|mezczyzn|gender)"
 )
+
+# Ten sam wzorzec w Pythonie (``\m``/``\M`` Postgresa to granice słowa) — dla opisów,
+# które czyta kod, zanim trafią do modelu (``autofill_quality.model_lines``, 12.11.2026).
+PROTECTED_PY = re.compile(
+    PROTECTED_RE.replace(r"\m", r"\b").replace(r"\M", r"\b"), re.IGNORECASE
+)
+
+
+def is_protected(text: str) -> bool:
+    """Czy opis mówi o cesze chronionej (narodowość, pochodzenie, wiek, zdrowie…)."""
+    return bool(PROTECTED_PY.search(text or ""))
+
 
 # Lustro zapytań z testu danych 04.11.2026. Kolejność WHEN ma znaczenie: pierwsze
 # trafienie wygrywa, a cecha chroniona stoi przed każdym powodem.
