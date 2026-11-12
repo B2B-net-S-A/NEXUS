@@ -993,7 +993,9 @@ async def _ingest_cognism(
     received: dict[int, CognismFirm] = {}
     processed: set[int] = set()
     ambiguous: set[int] = set()
-    unknown = stored = no_people = not_found = suppressed = 0
+    no_people: set[int] = set()
+    not_found: set[int] = set()
+    unknown = stored = suppressed = 0
     for firm in report.firms:
         cid = firm.company_ref
         if cid not in allowed:
@@ -1035,14 +1037,14 @@ async def _ingest_cognism(
             continue
         if firm.status == "not_found":
             processed.add(cid)
-            not_found += 1
+            not_found.add(cid)
             continue
         if not _cognism_employer_matches(company, firm):
             ambiguous.add(cid)
             continue
         if firm.status == "no_people":
             processed.add(cid)
-            no_people += 1
+            no_people.add(cid)
             continue
         domain = (
             site_domain(firm.company_domain)
@@ -1115,13 +1117,15 @@ async def _ingest_cognism(
         "firms": len(allowed),
         "processed": len(processed),
         "people": stored,
-        "no_people": no_people,
-        "not_found": not_found,
+        "no_people": len(no_people),
+        "not_found": len(not_found),
         "ambiguous": len(ambiguous),
         "not_processed": len(allowed - processed - ambiguous),
         "unknown_company": unknown,
         "suppressed": suppressed,
         "processed_company_ids": sorted(processed),
+        "no_people_company_ids": sorted(no_people),
+        "not_found_company_ids": sorted(not_found),
         "ambiguous_company_ids": sorted(ambiguous),
         "unprocessed_company_ids": sorted(allowed - processed - ambiguous),
     }
