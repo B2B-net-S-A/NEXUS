@@ -384,6 +384,27 @@ def test_cognism_employer_hints_validate_only_scoped_corporate_names_and_domains
             validate(payload)
 
 
+@pytest.mark.parametrize(
+    ("email", "email_type", "expected"),
+    [
+        ("jan@firma.example", None, "jan@firma.example"),
+        ("jan@poczta-firmy.example", None, None),
+        ("jan@poczta-firmy.example", "work", "jan@poczta-firmy.example"),
+        ("jan@gmail.com", "work", None),
+        ("jan@poczta.gmail.com", "work", None),
+        ("jan(at)firma.example", "work", None),
+    ],
+)
+def test_cognism_work_email_can_use_a_different_corporate_domain(
+    email: str, email_type: str | None, expected: str | None
+) -> None:
+    person = _cognism_person(email=email, email_type=email_type)
+    saved = people._cognism_contact(person, "firma.example")
+    assert saved.email == expected
+    assert saved.email_observed_at == (person.observed_at if expected else None)
+    assert "email_type" not in saved.model_dump()
+
+
 def test_cognism_contacts_preserve_field_dates_on_partial_refresh() -> None:
     old = people._cognism_contact(
         _cognism_person(

@@ -58,6 +58,7 @@ from app.models.sales import (
     SalesSignalRun,
 )
 from app.services.company_names import normalize_company_name
+from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
 from app.services.sales import client_gate, company_aliases, research_import
 from app.services.sales.bot_tasks.base import (
     AcceptRefused,
@@ -736,6 +737,7 @@ class CognismPerson(BaseModel):
     active: StrictBool
     dnc: Optional[StrictBool] = None
     email: Optional[str] = Field(default=None, max_length=255)
+    email_type: Optional[Literal["work"]] = None
     phone: Optional[str] = Field(default=None, max_length=60)
     phone_type: Optional[PhoneType] = None
     verified_mobile: Optional[StrictBool] = None
@@ -816,7 +818,10 @@ def _cognism_task_text(run: SalesSignalRun, ctx: TaskContext) -> str:
         "zwróć not_processed dla niedokończonych firm. Przy "
         "niejednoznacznej spółce zwróć ambiguous; przy braku spółki not_found; przy "
         "potwierdzonej spółce bez osób no_people. Dane osoby tylko z otwartego profilu "
-        "Cognism: bez zgadywania, prywatnych skrzynek i numerów centrali. Podaj dokładny "
+        "Cognism: bez zgadywania, prywatnych skrzynek i numerów centrali. Ustaw "
+        "email_type=work tylko przy widocznej etykiecie Cognism oznaczającej adres "
+        "służbowy (np. Work lub Business). Bez takiej etykiety zostaw email_type puste. "
+        "Podaj dokładny "
         "adres profilu bez zapytania i datę odczytu z UTC. Telefon tylko bezpośredni "
         "lub komórkowy. Ustaw dnc=true przy fladze Do Not Call i pomiń numer. Ustaw "
         "dnc=false tylko przy widocznym numerze bez flagi; w razie wątpliwości pomiń "
@@ -841,6 +846,7 @@ def _cognism_format() -> dict[str, Any]:
                         "active": True,
                         "dnc": "<true|false|null>",
                         "email": "<służbowy e-mail albo null>",
+                        "email_type": "<work tylko z widocznej etykiety Cognism albo null>",
                         "phone": "<bezpośredni numer albo null>",
                         "phone_type": "direct|mobile|null",
                         "verified_mobile": "<true|false|null>",
@@ -984,7 +990,12 @@ def _cognism_contact(
     person: CognismPerson, company_domain: Optional[str]
 ) -> CognismMapPerson:
     email = valid_email(person.email)
-    if not email or not company_domain or mail_domain(email) != company_domain:
+    email_domain = mail_domain(email)
+    if (
+        not email_domain
+        or any(email_domain.endswith(f".{public}") for public in PUBLIC_EMAIL_DOMAINS)
+        or (email_domain != company_domain and person.email_type != "work")
+    ):
         email = None
     phone = (
         valid_phone(person.phone)
