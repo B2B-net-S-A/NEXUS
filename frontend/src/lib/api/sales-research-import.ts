@@ -87,6 +87,8 @@ export interface ResearchPreview {
   /** Skan „Znamy teraz” się nie udał: liczniki są puste, reszta przeglądu działa. */
   known_failed: boolean;
   known_truncated: boolean;
+  /** „Cognism” dla eksportu z Cognism; zwykła lista z researchu nie ma wartości. */
+  origin?: string | null;
 }
 
 /** Wiersz przeglądu odesłany do zapisu, z poziomem i kartą wskazanymi na ekranie. */

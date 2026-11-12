@@ -1,5 +1,21 @@
 [
   {
+    "id": "sprzedaz-listy-dzwonienia-wszyscy",
+    "pr": 3327,
+    "title": "Dzwonienie: listy wszystkich i numer do skopiowania",
+    "why": "W Tabeli przełącz „Moje / Wszyscy”, żeby zobaczyć, do jakich firm i kto dzwoni. Karta firmy pokazuje, na czyjej liście jest. Numer kopiujesz jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Tabela",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
     "id": "blizniaki-zaznacz-na-liscie",
     "title": "Zaznacz rekrutacje na liście i połącz je jako bliźniaki",
     "why": "Zaznacz pole przy 2–4 otwartych rekrutacjach i kliknij na dole „⇄ Połącz jako bliźniaki”. Przepięcia osób mają teraz ikonę „≈”, a „⇄” znaczy tylko bliźniaki.",
@@ -2437,6 +2453,39 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "sprzedaz-oferty-do-decyzji-bot",
+    "pr": 3328,
+    "title": "Oferty „Do decyzji”: co się zmieniło w firmie",
+    "why": "Przy ofercie, która czeka na decyzję, bot raz w tygodniu sprawdza, co się zmieniło w firmie od wysłania oferty, albo pisze wprost, że nic. Źródło jest przy każdym punkcie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Oferty → Do decyzji",
+    "href": "/sales/offers",
+    "dot_anchor": "sales.offers.bot-points",
+    "requires_setting": "SALES_SIGNALS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-import-cognism",
+    "pr": 3329,
+    "title": "Lista z researchu przyjmuje eksport z Cognism",
+    "why": "Plik CSV wyeksportowany z Cognism wgrywasz bez przerabiania. Osoby trafiają na mapy z telefonem komórkowym albo bezpośrednim, a niezweryfikowany e-mail jest pomijany z ostrzeżeniem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Leady → Lista z researchu",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.research.cognism"
   },
   {
     "id": "sprzedaz-bot-znajdz-decydentow",

@@ -326,6 +326,7 @@ def _patch_loop(monkeypatch, started: list) -> None:
     monkeypatch.setattr(loop.targets, "new_company_ids", none)
     monkeypatch.setattr(loop.targets, "refresh_company_ids", none)
     monkeypatch.setattr(loop.targets, "recently_sent", empty)
+    monkeypatch.setattr(loop.targets, "to_decide_company_ids", none)
     monkeypatch.setattr(loop.targets, "people_company_ids", targets)
 
 

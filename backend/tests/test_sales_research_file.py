@@ -356,3 +356,176 @@ def test_tens_of_thousands_of_blank_lines_are_not_a_list() -> None:
 def test_same_person_key_ignores_word_order_case_and_diacritics() -> None:
     assert files.person_key("Żółty Józef") == files.person_key("józef  ZOLTY")
     assert files.person_key("  ") is None
+
+
+# ── Eksport z Cognism (decyzja Artura z 12.11.2026) ──────────────────────────
+
+_COGNISM_HEADER = [
+    "Cognism Person ID",
+    "First Name",
+    "Last Name",
+    "Full Name",
+    "Job Title",
+    "Seniority",
+    "Department",
+    "Company Name",
+    "Company Website",
+    "Company Domain",
+    "Company Phone",
+    "Company LinkedIn URL",
+    "Industry",
+    "Company Size",
+    "Country",
+    "City",
+    "Person LinkedIn URL",
+    "Direct Phone",
+    "Mobile Phone",
+    "Email Status",
+]
+# Kolumny, których import nie zna; z nimi wiersz ma 60 kolumn, a e-mail leży na końcu.
+_COGNISM_EXTRA = [f"Custom Field {index}" for index in range(39)]
+
+
+def _cognism_csv(*people: dict[str, str]) -> bytes:
+    header = [*_COGNISM_HEADER, *_COGNISM_EXTRA, "Email"]
+    lines = [",".join(f'"{cell}"' for cell in header)]
+    for person in people:
+        lines.append(",".join(f'"{person.get(cell, "")}"' for cell in header))
+    return "\n".join(lines).encode("utf-8")
+
+
+_ANNA = {
+    "First Name": "Anna",
+    "Last Name": "Przykładowa",
+    "Full Name": "Anna Przykładowa",
+    "Job Title": "Head of Data Engineering",
+    "Seniority": "Director",
+    "Company Name": "Czapla Data Test",
+    "Company Website": "https://www.czapla-test.example",
+    "Company Phone": "+48 22 100 00 00",
+    "Company LinkedIn URL": "https://www.linkedin.com/company/czapla-test",
+    "Person LinkedIn URL": "https://www.linkedin.com/in/anna-przykladowa-test",
+    "Direct Phone": "+48 22 100 00 42",
+    "Mobile Phone": "+48 600 100 200",
+    "Email Status": "Verified",
+    "Email": "anna.przykladowa@czapla-test.example",
+}
+
+
+def test_cognism_export_with_60_columns_reads_known_fields() -> None:
+    payload = _cognism_csv(_ANNA)
+    assert payload.split(b"\n", 1)[0].count(b'","') == 59
+
+    listing = parse_research_file("cognism-export.csv", payload)
+
+    assert listing.origin == files.COGNISM
+    assert listing.skipped == []
+    assert listing.rows == [
+        ResearchRow(
+            line=2,
+            company="Czapla Data Test",
+            name="Anna Przykładowa",
+            title="Head of Data Engineering",
+            email="anna.przykladowa@czapla-test.example",
+            # Komórka przed numerem bezpośrednim i nigdy centrala firmy.
+            phone="+48 600 100 200",
+            linkedin_url="https://www.linkedin.com/in/anna-przykladowa-test",
+            domain="czapla-test.example",
+            decision_level=2,
+        )
+    ]
+
+
+def test_cognism_phone_falls_back_to_direct_and_never_to_switchboard() -> None:
+    direct = {**_ANNA, "Mobile Phone": ""}
+    switchboard_only = {**_ANNA, "Mobile Phone": "", "Direct Phone": ""}
+
+    rows = parse_research_file("c.csv", _cognism_csv(direct, switchboard_only)).rows
+
+    assert rows[0].phone == "+48 22 100 00 42"
+    assert rows[1].phone is None
+    assert rows[1].warnings == ()
+
+
+@pytest.mark.parametrize(
+    "status", ["Unverified", "INVALID", "Catch-all", "catch all", "Not verified"]
+)
+def test_unverified_cognism_email_is_dropped_with_a_warning(status: str) -> None:
+    listing = parse_research_file(
+        "c.csv", _cognism_csv({**_ANNA, "Email Status": status})
+    )
+
+    (row,) = listing.rows
+    assert row.email is None
+    assert row.warnings == (files.UNVERIFIED_EMAIL_WARNING,)
+    # Osoba zostaje, domena firmy też.
+    assert row.name == "Anna Przykładowa"
+    assert row.domain == "czapla-test.example"
+
+
+@pytest.mark.parametrize("status", ["Verified", "valid", ""])
+def test_verified_or_missing_cognism_status_keeps_the_email(status: str) -> None:
+    (row,) = parse_research_file(
+        "c.csv", _cognism_csv({**_ANNA, "Email Status": status})
+    ).rows
+    assert row.email == "anna.przykladowa@czapla-test.example"
+    assert row.warnings == ()
+
+
+def test_company_linkedin_is_not_the_person_profile() -> None:
+    person = {**_ANNA, "Person LinkedIn URL": ""}
+    (row,) = parse_research_file("c.csv", _cognism_csv(person)).rows
+    assert row.linkedin_url is None
+
+
+def test_cognism_domain_column_is_the_company_domain_hint() -> None:
+    person = {**_ANNA, "Company Website": "", "Company Domain": "czapla-group.example"}
+    (row,) = parse_research_file("c.csv", _cognism_csv(person)).rows
+    assert row.domain == "czapla-group.example"
+
+
+def test_cognism_header_variants_and_case_are_recognised() -> None:
+    payload = _csv(
+        "COMPANY NAME,FIRSTNAME,LASTNAME,JOB TITLE,EMAIL ADDRESS,E-mail Confidence,"
+        "Mobile,Direct Dial,HQ Phone,LinkedIn Profile URL,Seniority,Department",
+        "Czapla Data Test,Jan,Testowy,CTO,jan@czapla-test.example,catch-all,"
+        ",+48 22 100 00 43,+48 22 100 00 00,https://linkedin.com/in/jan-testowy,"
+        "C-Level,Engineering",
+    )
+
+    listing = parse_research_file("c.csv", payload)
+
+    (row,) = listing.rows
+    assert listing.origin == files.COGNISM
+    assert row.name == "Jan Testowy"
+    assert row.email is None
+    assert row.warnings == (files.UNVERIFIED_EMAIL_WARNING,)
+    assert row.phone == "+48 22 100 00 43"
+    assert row.linkedin_url == "https://linkedin.com/in/jan-testowy"
+    assert row.decision_level == 1
+
+
+def test_research_list_is_not_taken_for_a_cognism_export() -> None:
+    listing = parse_research_file(
+        "lista.csv",
+        _csv(
+            "Company,Full Name,Job Title,Email,Mobile,Website",
+            "Czapla Data Test,Jan Testowy,CTO,jan@czapla-test.example,600100200,"
+            "czapla-test.example",
+        ),
+    )
+    assert listing.origin is None
+    assert listing.rows[0].phone == "600100200"
+
+
+def test_unknown_columns_beyond_the_ceiling_are_ignored_not_refused() -> None:
+    blanks = [""] * files.MAX_COLUMNS
+    header = ["Firma", "Osoba", *(f"X{i}" for i in range(files.MAX_COLUMNS)), "E-mail"]
+    row = ["Czapla Test", "Jan Testowy", *blanks, "jan@czapla-test.example"]
+
+    listing = parse_research_file("lista.csv", _csv(";".join(header), ";".join(row)))
+
+    (parsed,) = listing.rows
+    assert parsed.name == "Jan Testowy"
+    # E-mail leży za sufitem kolumn: nie jest czytany, a plik przechodzi.
+    assert parsed.email is None

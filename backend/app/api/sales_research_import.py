@@ -136,6 +136,8 @@ class ResearchPreviewOut(BaseModel):
     known_failed: bool
     #: Skan trafił w sufit wierszy: liczniki są dolną granicą.
     known_truncated: bool
+    #: ``"Cognism"`` dla eksportu z Cognism: ekran podpowiada nim pole „Skąd lista”.
+    origin: Optional[str] = None
 
 
 class ResearchPersonIn(BaseModel):
@@ -326,13 +328,15 @@ async def preview_research_list(
 
     listing = await _read_list(file)
     plan = await research_import.plan(db, listing.rows)
-    return await preview_out(db, plan, listing.skipped)
+    return await preview_out(db, plan, listing.skipped, origin=listing.origin)
 
 
 async def preview_out(
     db: AsyncSession,
     plan: research_import.Plan,
     skipped: list[Any],
+    *,
+    origin: Optional[str] = None,
 ) -> ResearchPreviewOut:
     """Przegląd z planu i licznikami „Znamy teraz”; też dla osób od bota."""
 
@@ -403,6 +407,7 @@ async def preview_out(
         ],
         known_failed=known is None,
         known_truncated=bool(known and known.truncated),
+        origin=origin,
     )
 
 

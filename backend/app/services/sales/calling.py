@@ -52,6 +52,7 @@ from app.models.sales import (
     SalesPipeline,
     SalesPipelineStage,
 )
+from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.candidate_followups import add_business_days
 from app.services.sales import client_gate, history
@@ -132,6 +133,9 @@ class QueueItem:
     attempts: int
     last_outcome_at: Optional[datetime]
     since: datetime
+    #: Kto dzwoni: tylko w Tabeli „Wszyscy” (decyzja Artura 12.11.2026).
+    assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -451,6 +455,7 @@ def _record_item(
     company_name: str,
     campaign_name: Optional[str],
     section: Section,
+    assignee_name: Optional[str] = None,
 ) -> QueueItem:
     return QueueItem(
         key=f"r:{record.id}",
@@ -470,6 +475,8 @@ def _record_item(
         attempts=record.attempts,
         last_outcome_at=record.last_outcome_at,
         since=record.created_at,
+        assignee_id=record.assigned_user_id,
+        assignee_name=assignee_name,
     )
 
 
@@ -617,7 +624,7 @@ async def day_counts(db: AsyncSession, user_id: int, day: date) -> DayCounts:
     )
 
 
-# ── Tabela: wszystkie rekordy osoby ───────────────────────────────────────
+# ── Tabela: rekordy osoby albo wszystkich ────────────────────────────────
 
 TABLE_LIMIT = 200
 #: Stany, które pokazuje filtr tabeli (sprzeciw nie wchodzi: numer nie może wyjść z API).
@@ -631,12 +638,18 @@ class RecordTable:
     items: list[QueueItem]
     total: int
     counts: dict[str, int]
+    #: Osoby z rekordami w tym zakresie, do filtra „Kto dzwoni”.
+    callers: list[tuple[int, str]]
 
 
-def _own_records(query: Any, user_id: int) -> Any:
-    """Rekordy osoby (kampanii i szans) bez sprzeciwu: wspólne złączenia tabeli."""
+def _table_records(query: Any, user_id: Optional[int]) -> Any:
+    """Rekordy kampanii i szans bez sprzeciwu: wspólne złączenia tabeli.
 
-    return (
+    ``user_id`` zawęża do jednej osoby; ``None`` to wszyscy dzwoniący (Tabela „Wszyscy”,
+    decyzja Artura 12.11.2026: handlowcy widzą, do kogo i która osoba dzwoni).
+    """
+
+    query = (
         query.select_from(SalesCallRecord)
         .join(SalesCompany, SalesCompany.id == SalesCallRecord.company_id)
         .outerjoin(
@@ -644,18 +657,20 @@ def _own_records(query: Any, user_id: int) -> Any:
         )
         .outerjoin(SalesContact, SalesContact.id == SalesCallRecord.contact_id)
         .where(
-            SalesCallRecord.assigned_user_id == user_id,
             SalesCallRecord.state.in_(TABLE_STATES),
             SalesCompany.archived_at.is_(None),
             SalesCallCampaign.archived_at.is_(None),
             *_without_objection(),
         )
     )
+    if user_id is not None:
+        query = query.where(SalesCallRecord.assigned_user_id == user_id)
+    return query
 
 
 async def list_records(
     db: AsyncSession,
-    user_id: int,
+    user_id: Optional[int],
     *,
     state: Optional[str] = None,
     campaign_id: Optional[int] = None,
@@ -685,17 +700,31 @@ async def list_records(
     counted = (
         await db.execute(
             narrowed(
-                _own_records(
+                _table_records(
                     select(SalesCallRecord.state, func.count()), user_id
                 ).group_by(SalesCallRecord.state)
             )
         )
     ).all()
     counts = {row[0]: int(row[1]) for row in counted}
-    listed = narrowed(
-        _own_records(
-            select(SalesCallRecord, SalesCompany.name, SalesCallCampaign.name), user_id
+    callers = (
+        await db.execute(
+            narrowed(
+                _table_records(select(User.id, User.name), user_id).join(
+                    User, User.id == SalesCallRecord.assigned_user_id
+                )
+            )
+            .group_by(User.id, User.name)
+            .order_by(User.name)
         )
+    ).all()
+    listed = narrowed(
+        _table_records(
+            select(
+                SalesCallRecord, SalesCompany.name, SalesCallCampaign.name, User.name
+            ),
+            user_id,
+        ).outerjoin(User, User.id == SalesCallRecord.assigned_user_id)
     )
     if state is not None:
         listed = listed.where(SalesCallRecord.state == state)
@@ -712,12 +741,71 @@ async def list_records(
     ).all()
     return RecordTable(
         items=[
-            _record_item(record, company_name, campaign_name, "callbacks")
-            for record, company_name, campaign_name in rows
+            _record_item(
+                record, company_name, campaign_name, "callbacks", assignee_name
+            )
+            for record, company_name, campaign_name, assignee_name in rows
         ],
         total=counts.get(state, 0) if state is not None else sum(counts.values()),
         counts=counts,
+        callers=[(int(row[0]), row[1] or "") for row in callers],
     )
+
+
+# ── Karta firmy: na czyjej liście jest firma ─────────────────────────────
+
+
+@dataclass(frozen=True)
+class CompanyCallRow:
+    record_id: int
+    campaign_id: Optional[int]
+    campaign_name: Optional[str]
+    assignee_id: Optional[int]
+    assignee_name: Optional[str]
+    person_name: Optional[str]
+    state: str
+    callback_on: Optional[date]
+    last_outcome_at: Optional[datetime]
+
+
+async def company_records(db: AsyncSession, company_id: int) -> list[CompanyCallRow]:
+    """Rekordy dzwonienia firmy z aktywnych kampanii, dla linii na karcie firmy.
+
+    Bez numerów telefonów i bez filtra sprzeciwu: karta firmy ma pokazać, że ktoś już
+    tam dzwonił albo że osoba nie chce kontaktu, a nie dać numer do kolejnego telefonu.
+    """
+
+    rows = (
+        await db.execute(
+            select(SalesCallRecord, SalesCallCampaign.name, User.name)
+            .outerjoin(
+                SalesCallCampaign, SalesCallCampaign.id == SalesCallRecord.campaign_id
+            )
+            .outerjoin(User, User.id == SalesCallRecord.assigned_user_id)
+            .where(
+                SalesCallRecord.company_id == company_id,
+                SalesCallCampaign.archived_at.is_(None),
+            )
+            .order_by(
+                SalesCallRecord.last_outcome_at.desc().nulls_last(),
+                SalesCallRecord.id.desc(),
+            )
+        )
+    ).all()
+    return [
+        CompanyCallRow(
+            record_id=record.id,
+            campaign_id=record.campaign_id,
+            campaign_name=campaign_name,
+            assignee_id=record.assigned_user_id,
+            assignee_name=assignee_name,
+            person_name=record.person_name,
+            state=record.state,
+            callback_on=record.callback_on,
+            last_outcome_at=record.last_outcome_at,
+        )
+        for record, campaign_name, assignee_name in rows
+    ]
 
 
 # ── Karta rekordu ─────────────────────────────────────────────────────────

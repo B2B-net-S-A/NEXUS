@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego) -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -60,6 +60,31 @@ sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.
   nie wraca, żeby firma bez punktów nie szła do bota co godzinę.
 - Widać je w panelu sygnału, na karcie firmy (Przegląd) i na karcie szansy. Brak
   punktów, wyłączony kanał i błąd zapytania nic nie pokazują: to dodatek, nie warunek.
+
+## Punkty przy ofertach „Do decyzji” (decyzja Artura 12.11.2026)
+
+Pomiar na kopii stagingu z 10.11: w „Do decyzji” 39 pozycji, ok. 930 tys. zł MRR, i żadna
+nie miała punktów, bo pozycja „Do decyzji” z definicji nie ma kroku, a odświeżenie szło
+tylko przed krokiem. Decydujący ma widzieć, co zmieniło się w firmie od wysłania oferty,
+albo wprost, że bot nic nie znalazł.
+
+- **Kiedy:** w tym samym poniedziałkowym odświeżeniu (od 7:30) idą firmy pozycji
+  „Do decyzji”, od największego MRR (`signal_targets.to_decide_company_ids`). Sekcję
+  wyznacza `offers.load_rows`, to samo co ekran; nie licz jej drugi raz. Te same progi:
+  punkty starsze niż 6 dni albo brak punktów, najwyżej 100 firm, firma z biegu z ostatnich
+  24 godzin nie wraca, najwyżej 25 firm na bieg. Rodzaj zawsze `ongoing` (oferta poszła).
+- **„Nic nowego” to odpowiedź:** firma `ongoing`, którą bot odesłał w `no_signal` bez
+  punktów, dostaje wiersz z pustą listą (`plan_intake`). Ekran Oferty mówi wtedy „Bot nie
+  znalazł nic nowego od wysłania oferty.”, inne ekrany pustej listy nie pokazują. Firma
+  `first_call` w `no_signal` wiersza nie dostaje i wraca do bota jak dotąd.
+- **API:** `GET /api/sales/offers` daje przy pozycji „Do decyzji” `bot_points`
+  (`generated_at`, `points`) jednym zapytaniem dla wszystkich wierszy; z wyłączoną flagą,
+  w „W toku” i bez wiersza punktów `null`.
+- **Ekran:** pod podpisem szansy do dwóch punktów „DD.MM.RRRR: tekst” z linkiem do źródła
+  (tylko http(s), `safeHref`) i podpisem „Bot · wniosek, sprawdź źródło”. Punkty starsze
+  niż wejście oferty na etap też widać. Tekst się zawija, link zostaje cały.
+- Testy: `test_sales_signals_unit.py` (wybór firm, pusta odpowiedź), `test_sales_offers.py`
+  (`bot_points`, wybór z bazą), `sales-offers.test.tsx`.
 
 ## Pętla i włączenie
 

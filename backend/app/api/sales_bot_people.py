@@ -201,7 +201,7 @@ async def preview_result(
         result_id=result_id,
         company=company_out,
         status=status_now,
-        preview=await preview_out(db, plan, []),
+        preview=await preview_out(db, plan, [], origin=people.ORIGIN),
         published=published,
         decided=decided,
     )
