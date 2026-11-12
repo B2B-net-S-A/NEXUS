@@ -283,6 +283,8 @@ export interface DecisionMapEntry {
   source_label?: string | null;
   source_url?: string | null;
   source_added_at?: string | null;
+  /** Data publikacji źródła (osoby od bota, „Grok Bot”). */
+  source_published_at?: string | null;
   source_confidence?: "confirmed" | "to_verify" | null;
 }
 

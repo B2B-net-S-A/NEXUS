@@ -7,10 +7,12 @@ import { StatusDot } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Opportunity } from "@/lib/api/sales";
+import type { BotPeoplePending } from "@/lib/api/sales-bot-people";
 import type { FactoryAccount, KnownCounts } from "@/lib/api/sales-factories";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
+import { botPeopleHref } from "../bot-people/BotPeopleAction";
 import { daysLabel, daysSince } from "../format";
 import { stepLabel, stepTone } from "../step";
 
@@ -26,6 +28,8 @@ interface FactoryAccountsTableProps {
   accounts: ReadonlyMap<number, FactoryAccount> | null;
   known: ReadonlyMap<number, KnownCounts>;
   knownState: KnownState;
+  /** Wynik bota z osobami do przeglądu, po id firmy. */
+  botPending?: ReadonlyMap<number, BotPeoplePending>;
 }
 
 function Coverage({ done, total }: { done: number; total: number }) {
@@ -52,7 +56,7 @@ function KnownCell({ value, state }: { value: number | undefined; state: KnownSt
  * Lista kont lejka Fabryki IT: obok etapu (który opisuje research) widać, ile osób
  * z mapy ma kontakt za sobą i ilu ludzi z bazy kandydatów pracuje w firmie.
  */
-export function FactoryAccountsTable({ items, accounts, known, knownState }: FactoryAccountsTableProps) {
+export function FactoryAccountsTable({ items, accounts, known, knownState, botPending }: FactoryAccountsTableProps) {
   const router = useRouter();
   return (
     <div className="relative overflow-x-auto">
@@ -73,6 +77,7 @@ export function FactoryAccountsTable({ items, accounts, known, knownState }: Fac
             const account = accounts?.get(item.id);
             const counts = known.get(item.company.id);
             const hint = stageHint(account);
+            const fromBot = botPending?.get(item.company.id);
             const idle = daysSince(item.last_touch_at);
             const peopleHref = `/sales/companies/${item.company.id}?tab=people`;
             return (
@@ -95,6 +100,17 @@ export function FactoryAccountsTable({ items, accounts, known, knownState }: Fac
                       <Badge variant="info" size="sm">
                         Klient NEXUSA
                       </Badge>
+                    )}
+                    {fromBot && (
+                      <Link
+                        href={botPeopleHref(fromBot.id)}
+                        title={`Bot znalazł decydentów: ${peopleLabel(fromBot.open)} do przeglądu`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Badge variant="soft" size="sm">
+                          Osoby od bota
+                        </Badge>
+                      </Link>
                     )}
                   </span>
                   <p className={CALM_SUBLINE}>

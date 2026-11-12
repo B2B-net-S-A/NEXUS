@@ -314,10 +314,19 @@ async def merge_companies(
         )
     )
 
+    from app.services.sales.bot_tasks.people import (
+        COGNISM_SUPPRESSIONS_KEY,
+        merge_cognism_company_fields,
+    )
+
     target.tags = _union_tags(target.tags, source.tags)
+    target_fields = target.custom_fields or {}
+    source_fields = source.custom_fields or {}
+    cognism = merge_cognism_company_fields(target_fields, source_fields)
     target.custom_fields = {
-        **(source.custom_fields or {}),
-        **(target.custom_fields or {}),
+        **source_fields,
+        **target_fields,
+        **cognism,
     }
     for name in FILLABLE_FIELDS:
         if getattr(target, name) in (None, "") and getattr(source, name) not in (
@@ -337,5 +346,13 @@ async def merge_companies(
         target.client_id = client_id
 
     source.archived_at = now
-    source.custom_fields = {**(source.custom_fields or {}), "merged_into": target_id}
+    source.custom_fields = {**source_fields, "merged_into": target_id}
+    if suppressions := cognism.get(COGNISM_SUPPRESSIONS_KEY):
+        # Przywrócenie karty z archiwum też nie przywraca zakwestionowanego kontaktu.
+        source.custom_fields = {
+            **source.custom_fields,
+            **merge_cognism_company_fields(
+                source_fields, {COGNISM_SUPPRESSIONS_KEY: suppressions}
+            ),
+        }
     await db.flush()

@@ -3,10 +3,9 @@
 Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od 7:00
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
-przed krokiem i przy ofertach „Do decyzji”). Wyłącznik ``SALES_SIGNALS_ENABLED``,
-bez adresu bota pętla stoi. Nocą (1:00–6:00, raz na godzinę, najwyżej 5 biegów)
-uzupełnia karty firm bez domeny (``enrich``, G-A); ten krok ma własny wyłącznik
-``SALES_BOT_TASKS_ENABLED``, więc pętla biegnie, gdy włączony jest którykolwiek z nich.
+przed krokiem i przy ofertach „Do decyzji”). Osobny kanał Cognism bierze firmy
+z odebranego researchu po dacie uruchomienia. W nocy od 1:00 do 6:00
+osobna flaga zadań uruchamia uzupełnianie kart firm bez domeny.
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -19,11 +18,13 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
-from app.services.sales import bot_tasks, signal_targets as targets
+from app.services.sales import bot_tasks
+from app.services.sales import signal_targets as targets
 from app.services.sales import signals
 from app.services.sales.bot_tasks import enrich
 
@@ -61,6 +62,25 @@ def _monday_start(local: datetime) -> datetime:
     return monday.astimezone(timezone.utc)
 
 
+async def _start_cognism_people(db: AsyncSession, *, now: datetime) -> int:
+    if (
+        not signals.people_enabled()
+        or not signals.people_configured()
+        or settings.SALES_COGNISM_PEOPLE_RESEARCH_SINCE is None
+    ):
+        return 0
+    await targets.lock_people_starts(db)
+    if await targets.cognism_run_active(db, now=now):
+        return 0
+    ids = await targets.cognism_company_ids(db, now=now)
+    if not ids:
+        return 0
+    run = await signals.start_run(
+        db, "people", ids, now=now, request=targets.COGNISM_REQUEST
+    )
+    return len(ids) if run is not None and run.status in ("started", "received") else 0
+
+
 async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> int:
     """Nocny bieg uzupełnienia kart; zwraca liczbę wysłanych firm."""
 
@@ -90,15 +110,9 @@ async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> 
     return 0
 
 
-async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str, int]:
-    done = {
-        "expired": await signals.expire_runs(db, now=now),
-        "signals": 0,
-        "briefing": 0,
-        "enrich": await _night_enrich(db, now=now, local=local),
-    }
-    if not signals.enabled():
-        return done
+async def _legacy_tick(
+    db: AsyncSession, *, now: datetime, local: datetime, done: dict[str, int]
+) -> None:
     is_monday = local.weekday() == 0
     if is_monday and local.hour >= SIGNALS_HOUR:
         last = await _last_start(db, "signals", now=now)
@@ -122,15 +136,46 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
             run = await signals.start_run(db, "briefing", ids, now=now, modes=modes)
             if _started(run):
                 done["briefing"] = len(ids)
+
+
+async def tick(
+    db: AsyncSession,
+    *,
+    now: datetime,
+    local: datetime,
+    legacy_ready: bool | None = None,
+    bot_tasks_ready: bool = True,
+) -> dict[str, int]:
+    done = {
+        "expired": await signals.expire_runs(db, now=now),
+        "signals": 0,
+        "briefing": 0,
+        "people": 0,
+        "enrich": 0,
+    }
+    if bot_tasks_ready:
+        done["enrich"] = await _night_enrich(db, now=now, local=local)
+    if legacy_ready is None:
+        legacy_ready = signals.enabled()
+    if legacy_ready:
+        await _legacy_tick(db, now=now, local=local, done=done)
+    done["people"] = await _start_cognism_people(db, now=now)
     return done
 
 
 async def sales_signals_loop() -> None:
-    if not signals.enabled() and not bot_tasks.enabled():
-        logger.info("sales_signals_loop disabled")
-        return
-    if not signals.configured():
+    shared_configured = signals.configured()
+    legacy_ready = signals.enabled() and shared_configured
+    bot_tasks_ready = bot_tasks.enabled() and shared_configured
+    cognism_ready = signals.people_enabled() and signals.people_configured()
+    if (signals.enabled() or bot_tasks.enabled()) and not shared_configured:
         logger.warning("sales_signals_loop enabled without GROK_BOT_WEBHOOK_URL/KEY")
+    if signals.people_enabled() and not cognism_ready:
+        logger.warning(
+            "sales_signals_loop enabled without Cognism webhook configuration"
+        )
+    if not (legacy_ready or bot_tasks_ready or cognism_ready):
+        logger.info("sales_signals_loop disabled")
         return
     beat = loop_heartbeat.register(
         "sales_signals", max_silence_seconds=3 * TICK_SECONDS
@@ -139,14 +184,22 @@ async def sales_signals_loop() -> None:
         beat.tick()
         try:
             async with AsyncSessionLocal() as db:
-                done = await tick(db, now=datetime.now(timezone.utc), local=local_now())
+                done = await tick(
+                    db,
+                    now=datetime.now(timezone.utc),
+                    local=local_now(),
+                    legacy_ready=legacy_ready,
+                    bot_tasks_ready=bot_tasks_ready,
+                )
             if any(done.values()):
                 logger.info(
-                    "sales_signals tick expired=%d signals=%d briefing=%d enrich=%d",
+                    "sales_signals tick expired=%d signals=%d briefing=%d "
+                    "enrich=%d people=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
                     done["enrich"],
+                    done["people"],
                 )
         except asyncio.CancelledError:
             raise

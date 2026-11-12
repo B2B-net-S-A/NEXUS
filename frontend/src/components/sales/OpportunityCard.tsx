@@ -28,6 +28,7 @@ import {
   type SalesContact,
   type Stage,
 } from "@/lib/api/sales";
+import { IT_FACTORIES_PIPELINE_KEY } from "@/lib/api/sales-factories";
 import { useOpportunityHandoff } from "@/lib/api/sales-handoffs";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { hasPermission } from "@/lib/permissions";
@@ -410,6 +411,12 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
               motion={data.atlas_motion}
               mapEnabled={data.decision_map_enabled}
               canEdit={canEdit}
+              companyId={
+                // Osoby od bota trafiają na mapę konta w Fabrykach IT: przycisk tylko tam.
+                pipelines.data?.find((pipeline) => pipeline.id === data.pipeline_id)?.key === IT_FACTORIES_PIPELINE_KEY
+                  ? data.company.id
+                  : undefined
+              }
               queue={queue}
               onCall={canEdit ? (entry) => openLog(`map:${entry.key}`) : undefined}
             />

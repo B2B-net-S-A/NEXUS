@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.sales import SalesSignalRun
-from app.services.sales.bot_tasks import enrich, question, signals_briefing
+from app.services.sales.bot_tasks import enrich, people, question, signals_briefing
 from app.services.sales.bot_tasks.base import (
     AcceptRefused,
     BotTask,
@@ -43,6 +43,7 @@ __all__ = [
     "TaskContext",
     "allowed_to_start",
     "enabled",
+    "for_run",
     "get",
     "ingest",
     "numbers_only",
@@ -62,6 +63,7 @@ REGISTRY: dict[str, BotTask] = {
         signals_briefing.BRIEFING,
         enrich.ENRICH,
         question.QUESTION,
+        people.PEOPLE,
     )
 }
 
@@ -72,6 +74,17 @@ def enabled() -> bool:
 
 def get(kind: str) -> Optional[BotTask]:
     return REGISTRY.get(kind)
+
+
+def for_run(run: SalesSignalRun) -> Optional[BotTask]:
+    """Rozdziel formaty raportów osób na podstawie zapisanego zlecenia."""
+
+    if (
+        run.kind == people.KIND
+        and (run.request or {}).get("source") == people.COGNISM_SOURCE
+    ):
+        return people.COGNISM
+    return get(run.kind)
 
 
 def allowed_to_start(kind: str) -> bool:
